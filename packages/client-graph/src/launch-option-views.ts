@@ -13,7 +13,7 @@ import type { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
 /** Open launchers own these computeds. Metadata belongs to one repository
- * group; option ordering observes catalog membership, not session activity. */
+ * group; usage ordering consumes cached scalars, never re-groups worktrees. */
 export function launchOptionViews(pool: MobxPool) {
   return pool.sources.view('launch.options', () => {
     const counts = { repositoryBuilds: 0, usageQueries: 0 }
@@ -51,9 +51,13 @@ export function launchOptionViews(pool: MobxPool) {
           .repositoryGroupIds()
           .flatMap((id) => {
             const repo = repository(id)
-            return repo ? [repo.path] : []
+            return repo ? [{ path: repo.path, at: usage(JSON.stringify([id, 'within'])) }] : []
           })
-          .sort((a, b) => a.localeCompare(b, undefined, { sensitivity: 'base' }))),
+          .sort(
+            (a, b) =>
+              b.at - a.at || a.path.localeCompare(b.path, undefined, { sensitivity: 'base' }),
+          )
+          .map(({ path }) => path)),
     )
     const paths = computed(() => JSON.parse(pathOrderKey.get()) as string[])
     const pins = computed(() => {
@@ -80,13 +84,14 @@ export function launchOptionViews(pool: MobxPool) {
         .flatMap((id) => {
           const repo = project(id)
           return repo && (pinned.includes(repo.path) || repo.worktrees.length)
-            ? [{ id, repo }]
+            ? [{ id, repo, at: usage(JSON.stringify([id, 'exact'])) }]
             : []
         })
       // Pinned order breaks otherwise equal choices, as in the existing menu.
       const pinOrder = new Map(pinned.map((path, at) => [path, at]))
       values.sort(
         (a, b) =>
+          b.at - a.at ||
           a.repo.name.localeCompare(b.repo.name, undefined, { sensitivity: 'base' }) ||
           (pinOrder.get(a.repo.path) ?? pinned.length) -
             (pinOrder.get(b.repo.path) ?? pinned.length),
@@ -95,11 +100,39 @@ export function launchOptionViews(pool: MobxPool) {
     })
     const projects = computed(() => (JSON.parse(projectOrderKey.get()) as string[])
       .flatMap(id => project(id) ?? []))
-    const projectUsage = computed(() => new Map((JSON.parse(projectOrderKey.get()) as string[])
-      .flatMap(id => {
-        const repo = project(id)
-        return repo ? [[repo.path, usage(JSON.stringify([id, 'exact']))] as const] : []
-      })))
+    const catalogRoot = keyedComputed('launch.catalogRoot', (id: string) => {
+      const row = pool.row('repository', id) as GitRepositoryWire | undefined
+      return row && typeof row !== 'symbol' ? row : undefined
+    })
+    const catalogRoots = keyedComputed('launch.catalogRoots', (id: string) => {
+      const repo = catalogRoot(id)
+      return JSON.stringify(repo ? [repo.path, ...repo.worktrees.map(tree => tree.path)] : [])
+    })
+    const catalogUsage = keyedComputed('launch.catalogUsage', (id: string) =>
+      pool.queries.activity({ kind: 'commandRootActivity', roots: JSON.parse(catalogRoots(id)) as string[] }))
+    const catalogOrder = computed(() => {
+      const values = headerEntities(pool).repositoryRootIds().flatMap(id => {
+        const repo = catalogRoot(id)
+        return repo ? [{ id, path: repo.path, at: catalogUsage(id) }] : []
+      })
+      // The default keeps discovery order on equal usage, while displayed
+      // choices break ties by basename as the existing New Issue dialog does.
+      const initial = values.reduce<(typeof values)[number] | undefined>((best, value) =>
+        !best || value.at > best.at ? value : best, undefined)?.path ?? ''
+      values.sort((a, b) => b.at - a.at ||
+        (a.path.split('/').filter(Boolean).pop() ?? a.path).localeCompare(
+          b.path.split('/').filter(Boolean).pop() ?? b.path, undefined, { sensitivity: 'base' }))
+      return JSON.stringify({ initial, ids: values.map(value => value.id) })
+    })
+    const catalogPaths = computed(() => {
+      const { ids } = JSON.parse(catalogOrder.get()) as { ids: string[] }
+      return ids.flatMap(id => catalogRoot(id)?.path ?? [])
+    })
+    const catalog = computed(() => ({
+      initialRepoPath: (JSON.parse(catalogOrder.get()) as { initial: string }).initial,
+      repoPaths: catalogPaths.get(),
+      machines: machines.get(),
+    }))
     const eligibleMachineKey = computed(
       () => JSON.stringify(usableMachines(machineViewsFromWire(machines.get())).map((machine) => machine.id)),
     )
@@ -114,19 +147,26 @@ export function launchOptionViews(pool: MobxPool) {
       const hosts = machines.get()
       return { repo: repositoryAt(path), machines: hosts }
     })
-    const work = keyedComputed('launch.newWork', (displayUsage: boolean) => {
+    const activityRoots = keyedComputed('launch.activityRoots', (path: string) => {
+      const repo = repositoryAt(path)
+      return JSON.stringify(repo ? [repo.path, ...repo.worktrees.map(tree => tree.path)] : [])
+    })
+    const activityAt = keyedComputed('launch.activityAt', (path: string) =>
+      pool.queries.activity({ kind: 'commandRootActivity', roots: JSON.parse(activityRoots(path)) as string[], match: 'exact' }))
+    const work = computed(() => {
       const choices = projects.get()
       return {
         machines: machines.get(),
         repos: choices,
-        lastUsedByRepo: displayUsage ? projectUsage.get() : EMPTY_USAGE,
         recentMachine: recentMachine.get() ?? undefined,
       }
     })
     return {
       repositories: () => repositories.get(),
       repositoryPaths: () => paths.get(),
-      newWork: (displayUsage = true) => work(displayUsage),
+      newWork: () => work.get(),
+      catalog: () => catalog.get(),
+      repositoryActivity: (path: string) => activityAt(path),
       origin: (path: string) => origin(path),
       counts,
       dispose() {
@@ -136,11 +176,14 @@ export function launchOptionViews(pool: MobxPool) {
         project.clear()
         repositoryAt.clear()
         origin.clear()
-        work.clear()
+        activityRoots.clear()
+        activityAt.clear()
+        catalogRoot.clear()
+        catalogRoots.clear()
+        catalogUsage.clear()
       },
     }
   })
 }
 
 const EMPTY_PINS = { repos: [] as readonly string[], worktrees: [] as readonly string[] }
-const EMPTY_USAGE = new Map<string, number>()

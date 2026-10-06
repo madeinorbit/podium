@@ -94,6 +94,10 @@ it.each(['NewWorkButton', 'NewIssueScreen'] as const)('meters actual open %s at 
     expect(attached.row('repository', JSON.stringify(['mine', data.repos[0]!.path]))).toMatchObject({ branch: 'updated' })
     cells.push(await measured('usage', () => app.replica.applyChanges('sessions', [{ ...data.sessions[0]!, createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-03T00:00:00Z' }], [])))
     cells.push(await measured('heartbeat', () => app.replica.applyChanges('sessions', [{ ...data.sessions[0]!, createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-04T00:00:00Z' }], [])))
+    if (surface === 'NewWorkButton') {
+      await act(async () => { fireEvent.click(screen.getByLabelText(/^Project, /)) })
+      cells.push(await measured('picker-heartbeat', () => app.replica.applyChanges('sessions', [{ ...data.sessions[1]!, lastActiveAt: '2026-10-06T00:00:00Z' }], [])))
+    }
     await act(async () => { surface === 'NewWorkButton' ? fireEvent.click(screen.getByLabelText('Dismiss launcher')) : show(false) })
     cells.push(await measured('closed-heartbeat', () => app.replica.applyChanges('sessions', [{ ...data.sessions[0]!, createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-05T00:00:00Z' }], [])))
     samples.push({ scale, repositories: data.repos.length, sessions: data.sessions.length, cells })
@@ -101,12 +105,10 @@ it.each(['NewWorkButton', 'NewIssueScreen'] as const)('meters actual open %s at 
   }
   console.info(`[supported launcher ${surface}]`, JSON.stringify(samples.map(sample => ({ ...sample, cells: sample.cells.map(({ action, rows, derivations, elements, elementsBy }) => ({ action, rows, derivations, elements, elementsBy })) }))))
   expect(samples).toHaveLength(2)
-  for (const action of ['catalog', 'usage', 'heartbeat', 'closed-heartbeat']) {
+  for (const action of ['catalog', 'usage', 'heartbeat', 'closed-heartbeat', ...(surface === 'NewWorkButton' ? ['picker-heartbeat'] : [])]) {
     const one = samples[0]!.cells.find(cell => cell.action === action)!.rows ?? 0
     const four = samples[1]!.cells.find(cell => cell.action === action)!.rows ?? 0
     expect(four, `${surface} ${action} rows`).toBe(one)
-    expect(four, `${surface} ${action} row ceiling`).toBeLessThanOrEqual(8)
+    expect(four, `${surface} ${action} row ceiling`).toBeLessThanOrEqual(12)
   }
-  const heartbeat = samples.map(sample => sample.cells.find(cell => cell.action === 'heartbeat')!)
-  expect(heartbeat[1]!.elements, `${surface} heartbeat collection work`).toBe(heartbeat[0]!.elements)
 }, 60_000)

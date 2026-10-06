@@ -59,12 +59,19 @@ type PickerStep = 'launch' | 'model' | 'effort' | 'machine' | 'repo' | null
 const EMPTY_INPUTS = {
   machines: [] as MachineWire[],
   repos: [] as RepoNavView[],
-  lastUsedByRepo: new Map<string, number>(),
   recentMachine: undefined as { machineId: string; createdAt: string } | undefined,
 }
-function usePoolLaunchInputs(displayUsage: boolean) {
-  const readLaunchInputs = useCallback((pool: MobxPool) => launchOptionViews(pool).newWork(displayUsage), [displayUsage])
+function usePoolLaunchInputs() {
+  const readLaunchInputs = useCallback((pool: MobxPool) => launchOptionViews(pool).newWork(), [])
   return useMobilePoolProjection(readLaunchInputs, EMPTY_INPUTS)
+}
+/** Each displayed project owns its live usage scalar independently. */
+function ProjectUsage({ path }: { path: string }) {
+  const read = useCallback((pool: MobxPool) => launchOptionViews(pool).repositoryActivity(path), [path])
+  const used = useMobilePoolProjection(read, 0)
+  return <Text style={styles.rowSub} numberOfLines={1}>
+    {used ? `last used ${relativeTime(new Date(used).toISOString(), Date.now())}` : 'not used yet'}
+  </Text>
 }
 
 /** The model pick that means "no agent at all" — a plain shell in the worktree.
@@ -89,7 +96,7 @@ const writeString = (value: string | null): string | null => value
  * which, on the single-repo instance most operators run, had exactly one row in
  * it. A choice with one option is not a choice; it is a tap the app collects on
  * the way to doing the only thing it could have done. The project is now a
- * PRESELECTED field like the others (remembered choice first, and inert when
+ * PRESELECTED field like the others (most recently used first, and inert when
  * there is only one), the primary control says Start, and nothing stands between
  * a returning operator and the same launch they made yesterday.
  *
@@ -135,7 +142,7 @@ function NewWorkLauncher({
   const pathname = usePathname()
   const router = useRouter()
   const { spawnDraftAgent } = useStoreActions()
-  const { machines, repos, lastUsedByRepo, recentMachine } = usePoolLaunchInputs(step === 'repo')
+  const { machines, repos, recentMachine } = usePoolLaunchInputs()
   const [query, setQuery] = useState('')
   const [modelPick, setModelPick] = usePersistedUiState<string | null>(
     NEW_WORK_MODEL_KEY,
@@ -192,8 +199,8 @@ function NewWorkLauncher({
   /**
    * The project this sheet will start in, decided BEFORE it is shown.
    *
-   * Remembered pick first, then the catalog's alphabetical order. A remembered
-   * path that is not on the selected machine is not an
+   * Remembered pick first, then most-recently-used (the list is already sorted
+   * that way). A remembered path that is not on the selected machine is not an
    * error to report — it is simply not a candidate, and falling through to the
    * top of the list is what the operator would have done by hand.
    */
@@ -597,7 +604,6 @@ function NewWorkLauncher({
         ) : (
           <View style={styles.list}>
             {visibleRepos.map((repo, i) => {
-              const used = lastUsedByRepo.get(repo.path)
               return (
                 <PressableScale
                   key={repo.path}
@@ -623,11 +629,7 @@ function NewWorkLauncher({
                     <Text style={styles.rowTitle} numberOfLines={1}>
                       {repo.name}
                     </Text>
-                    <Text style={styles.rowSub} numberOfLines={1}>
-                      {used
-                        ? `last used ${relativeTime(new Date(used).toISOString(), Date.now())}`
-                        : 'not used yet'}
-                    </Text>
+                    <ProjectUsage path={repo.path} />
                   </View>
                   {repo.path === selectedRepo?.path ? (
                     <Text style={styles.check}>✓</Text>

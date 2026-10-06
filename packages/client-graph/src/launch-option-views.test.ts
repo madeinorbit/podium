@@ -78,11 +78,11 @@ it('keeps open phone repository deltas addressed at 1x/4x and releases demand on
       const used = await measureWork(async () => runInAction(() => activity.set('/repo/23', 100)), {
         pool,
       })
-      expect(paths[0]).toBe('/repo/0')
-      expect(work.repos[0]?.path).toBe('/repo/0')
-      expect(work.lastUsedByRepo.get('/repo/23')).toBe(100)
+      expect(paths[0]).toBe('/repo/23')
+      expect(work.repos[0]?.path).toBe('/repo/23')
+      expect(views.repositoryActivity('/repo/23')).toBe(100)
       expect(views.counts.repositoryBuilds).toBe(beforeUsage.repositoryBuilds)
-      expect(views.counts.usageQueries - beforeUsage.usageQueries).toBe(1)
+      expect(views.counts.usageQueries - beforeUsage.usageQueries).toBe(2)
       stop()
       const closedCounts = { ...views.counts }
       const closed = await measureWork(
@@ -163,7 +163,7 @@ it('preserves clone ordering, linked-scan exclusion, and pinned project choices'
   }
 })
 
-it('keeps catalog ordering independent of usage and only reads displayed usage', () => {
+it('keeps exact new-work usage distinct from containing-path new-task usage', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   headerEntities(pool).apply(
     ['/a', '/b'].map((path) => ({
@@ -172,25 +172,20 @@ it('keeps catalog ordering independent of usage and only reads displayed usage',
       value: { kind: 'repository' as const, path, worktrees: [] },
     })),
   )
-  const activity = observable.map([['/a', 0], ['/b', 100]])
-  const query = vi.spyOn(pool.queries, 'activity').mockImplementation(question => activity.get(question.roots[0]!) ?? 0)
+  const query = vi
+    .spyOn(pool.queries, 'activity')
+    .mockImplementation((question) =>
+      question.roots[0] === (question.match === 'exact' ? '/a' : '/b') ? 100 : 0,
+    )
   const latest = vi.spyOn(pool.queries, 'latestMachineSession').mockReturnValue(undefined)
   const views = launchOptionViews(pool)
   const stop = autorun(() => {
-    views.newWork(false)
+    views.newWork()
     views.repositoryPaths()
   })
   try {
-    const inputs = views.newWork(false)
-    const paths = views.repositoryPaths()
-    expect(inputs.repos[0]?.path).toBe('/a')
-    expect(paths[0]).toBe('/a')
-    expect(query).not.toHaveBeenCalled()
-    runInAction(() => activity.set('/b', 200))
-    expect(views.newWork(false)).toBe(inputs)
-    expect(views.repositoryPaths()).toBe(paths)
-    expect(views.newWork().lastUsedByRepo.get('/b')).toBe(200)
-    expect(query.mock.calls.every(([question]) => question.match === 'exact')).toBe(true)
+    expect(views.newWork().repos[0]?.path).toBe('/a')
+    expect(views.repositoryPaths()[0]).toBe('/b')
   } finally {
     stop()
     query.mockRestore()

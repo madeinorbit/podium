@@ -326,7 +326,9 @@ function createCommandLaunchViews(pool: MobxPool) {
             })
           issues[position] = {
             ...full,
-            displayRef: node?.displayRef ?? row.displayRef ?? `#${row.seq}`,
+            // The addressed command summary already resolved the birth ref.
+            // Reading the model again would demand its cold loaded group.
+            displayRef: row.displayRef ?? `#${row.seq}`,
             readAt: pool.readCursor(id) ?? null,
             unread: node?.unread ?? false,
             memberSessionIds: members,

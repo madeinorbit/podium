@@ -9,13 +9,12 @@ import {
   type MachineWire,
   machinesForRepoOrClone,
   onlineMachinesForRepoOrClone,
-  resolveTargetMachineForAgent,
 } from '@podium/model/browser'
 import { resolveRole } from '@podium/runtime'
 import { ArrowRight, ChevronDown, ChevronRight, FolderGit2, Server, X, Zap } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
-import { useCommandLaunchActions, useCommandLaunchData, useCommandSessions } from '@/app/command-launch-data'
+import { useCommandLaunchActions, useCommandLaunchCatalog, useCommandLaunchOrigin, useCommandTargetMachines } from '@/app/command-launch-data'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -209,7 +208,7 @@ function MachineMenu({
 export function NewIssueDialog(
   props: Omit<Parameters<typeof NewIssueDialogBody>[0], 'data'>,
 ): JSX.Element {
-  const data = useCommandLaunchData()
+  const data = useCommandLaunchCatalog()
   if (!data || data === LOADING)
     return (
       <Dialog open onOpenChange={(open) => !open && props.onClose()}>
@@ -227,7 +226,7 @@ function NewIssueDialogBody({
   onClose,
   initialStage,
 }: {
-  data: Exclude<ReturnType<typeof useCommandLaunchData>, typeof LOADING | undefined>
+  data: Exclude<ReturnType<typeof useCommandLaunchCatalog>, typeof LOADING | undefined>
   onClose: () => void
   /** Lane the composer was opened from. Presets the Stage pill; creation itself is
    *  always Backlog server-side, so a non-backlog stage is applied as a post-create
@@ -235,10 +234,7 @@ function NewIssueDialogBody({
   initialStage?: IssueStage
 }): JSX.Element {
   const { machines } = data
-  const choices = useCommandSessions()
-  const sessions = choices && choices !== LOADING ? choices : []
   const { trpc } = useCommandLaunchActions()
-  const repoViews = data.repoViews
   const isMobile = useIsMobile()
   const titleRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState('')
@@ -279,12 +275,11 @@ function NewIssueDialogBody({
   }, [trpc])
 
   // Most-recently-used repos first — matches the sidebar's New-agent menu.
-  const repoChoices = data.repoChoices
-  const repoOptions: PropertyOption[] = repoChoices.map((r) => ({
-    value: r.path,
-    label: repoLabel(r.path),
+  const repoOptions = useMemo<PropertyOption[]>(() => data.repoPaths.map(path => ({
+    value: path,
+    label: repoLabel(path),
     icon: <FolderGit2 size={13} aria-hidden="true" className="text-muted-foreground" />,
-  }))
+  })), [data.repoPaths])
   const stageOptions: PropertyOption[] = ISSUE_STAGES.map((s) => ({
     value: s,
     label: STAGE_LABELS[s],
@@ -308,10 +303,8 @@ function NewIssueDialogBody({
   // The cross-machine view of the selected repo. `machinesForRepoOrClone` reads
   // `machines` + `originUrl` off it, so a repo the replica has not merged into a
   // view yet simply offers no hosts rather than offering all of them.
-  const repoView = useMemo(
-    (): RepoView | undefined => repoViews.find((r) => r.path === repoPath),
-    [repoViews, repoPath],
-  )
+  const origin = useCommandLaunchOrigin(repoPath)
+  const repoView: RepoView | undefined = origin && origin !== LOADING ? origin.repo : undefined
   const repoMachines = repoView ? machinesForRepoOrClone(repoView, machines) : []
   const agentOptions = issueAgentOptions(defaultAgent).map((option) => {
     const kind = issueDefaultAgentKind(option.value || defaultAgent)
@@ -336,11 +329,8 @@ function NewIssueDialogBody({
       .filter((m) => agentCapabilityRejection(m, agentKind) === undefined)
       .map((m) => m.id),
   )
-  const autoMachine = useMemo(() => {
-    if (!repoView) return undefined
-    const resolved = resolveTargetMachineForAgent(repoView, sessions, machines, agentKind)
-    return machines.find((m) => m.id === resolved)
-  }, [repoView, sessions, machines, agentKind])
+  const targetMachines = useCommandTargetMachines(repoView, machines, [agentKind])
+  const autoMachine = machines.find(machine => machine.id === targetMachines[agentKind])
   const pinnedMachine = machineChoice ? repoMachines.find((m) => m.id === machineChoice) : undefined
   // A host pinned while it was up can go down before you press Create. The pin is
   // not silently honoured and not silently dropped either: the pill says so, and

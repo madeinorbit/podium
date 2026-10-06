@@ -10,8 +10,10 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 // Shared with the structural work harness: measure the app's actual consumers.
 export const readLaunch = (pool: MobxPool) => commandLaunchViews(pool).launch()
 export const readLaunchOrigin = (pool: MobxPool, path: string) => launchOptionViews(pool).origin(path)
-export function readTargetMachines(pool: MobxPool, repo: RepoView, machines: MachineWire[], kinds: readonly string[]) {
+export const readLaunchCatalog = (pool: MobxPool) => launchOptionViews(pool).catalog()
+export function readTargetMachines(pool: MobxPool, repo: RepoView | undefined, machines: MachineWire[], kinds: readonly string[]) {
   return Object.fromEntries(kinds.map(kind => {
+    if (!repo) return [kind, undefined]
     const eligible = onlineMachinesForRepoOrClone(repo, machines)
       .filter(machine => agentCapabilityRejectionForSelection(machine, kind) === undefined)
     return [kind, pool.queries.latestMachineSession(eligible.map(machine => machine.id))?.machineId ?? eligible[0]?.id]

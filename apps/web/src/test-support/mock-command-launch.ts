@@ -16,6 +16,7 @@ import {
   readPalette,
   readSession,
   readSessions,
+  readTargetMachines,
 } from '@/app/command-launch-readers'
 import { useRuntimeSelector } from '@/app/store'
 
@@ -93,9 +94,25 @@ function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
 vi.mock('@/app/command-launch-data', async (original) => ({
   ...(await original<typeof import('@/app/command-launch-data')>()),
   useCommandLaunchData: () => useCommandFixture(readLaunch),
+  useCommandLaunchCatalog: () => useCommandFixture(pool => {
+    const value = readLaunch(pool)
+    return value && typeof value !== 'symbol' ? {
+      initialRepoPath: value.initialRepoPath,
+      repoPaths: value.repoChoices.map(repo => repo.path),
+      machines: value.machines,
+    } : value
+  }),
+  useCommandLaunchOrigin: (path: string) => useCommandFixture(pool => {
+    const value = readLaunch(pool)
+    return value && typeof value !== 'symbol' ? {
+      repo: value.repoViews.find(repo => repo.path === path || repo.worktrees.some(tree => tree.path === path)),
+      machines: value.machines,
+    } : value
+  }),
   useCommandPaletteData: () => useCommandFixture(readPalette),
   useCommandPaletteOpen: () => useCommandFixture(readOpen),
   useCommandRecentFiles: () => useCommandFixture(readFiles),
   useCommandSessions: () => useCommandFixture(readSessions),
   useCommandSession: (id: string | null) => useCommandFixture(pool => id === null ? undefined : readSession(pool, id)),
+  useCommandTargetMachines: (...args: Parameters<typeof readTargetMachines> extends [unknown, ...infer Inputs] ? Inputs : never) => useCommandFixture(pool => readTargetMachines(pool, ...args)),
 }))

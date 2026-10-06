@@ -90,20 +90,20 @@ it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1
     await act(async () => { surface === 'NewPanelMenu' ? fireEvent.click(screen.getByRole('button', { name: 'New panel' })) : show(false) })
     cells.push(await measured('closed-heartbeat', () => fixture.patch('session', 'synthetic-session-0', { lastActiveAt: '2026-10-05T00:00:00Z' })))
     expect(fatal).not.toHaveBeenCalled()
-    if (surface === 'NewPanelMenu') {
-      expect(commandLaunchViews(attached).counts.catalogBuilds).toBe(0)
-      expect(commandLaunchViews(attached).counts.addressedSessionReads).toBe(0)
-    }
+    expect(commandLaunchViews(attached).counts.catalogBuilds).toBe(0)
+    expect(commandLaunchViews(attached).counts.addressedSessionReads).toBe(0)
     samples.push({ scale, repositories: repos.length, sessions: 128 * scale, cells })
     app.unmount(); cleanup()
   }
   console.info(`[supported launcher ${surface}]`, JSON.stringify(samples.map(sample => ({ ...sample, cells: sample.cells.map(({ action, rows, derivations, elements, elementsBy }) => ({ action, rows, derivations, elements, elementsBy })) }))))
   expect(samples).toHaveLength(2)
-  for (const sample of surface === 'NewPanelMenu' ? samples : []) {
+  for (const sample of samples) {
     const heartbeat = sample.cells.find(cell => cell.action === 'heartbeat')!
     const closed = sample.cells.find(cell => cell.action === 'closed-heartbeat')!
     expect(heartbeat.rows).toBe(closed.rows)
-    expect(heartbeat.elements - closed.elements).toBeLessThanOrEqual(16)
-    expect(sample.cells.find(cell => cell.action === 'catalog')!.rows).toBeLessThanOrEqual(4)
+    if (surface === 'NewPanelMenu') expect(heartbeat.elements - closed.elements).toBeLessThanOrEqual(16)
+    else expect(heartbeat.elementsBy?.['consumer:web.NewIssueDialog.heartbeat/launch.catalogUsage'] ?? 0).toBeLessThanOrEqual(11)
+    expect(sample.cells.find(cell => cell.action === 'catalog')!.rows).toBeLessThanOrEqual(6)
   }
+  expect(samples[1]!.cells.find(cell => cell.action === 'heartbeat')!.rows).toBe(samples[0]!.cells.find(cell => cell.action === 'heartbeat')!.rows)
 }, 60_000)

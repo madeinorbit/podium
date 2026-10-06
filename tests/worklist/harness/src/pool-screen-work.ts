@@ -90,7 +90,7 @@ import {
 } from '../../../../apps/mobile/src/lib/work-sections'
 import {
   readFiles,
-  readLaunch,
+  readLaunchCatalog,
   readLaunchOrigin,
   readTargetMachines,
   readOpen,
@@ -438,7 +438,10 @@ async function measureScreenCells(
     add('launcher.launch', ['NewIssueDialog'], () =>
       // NewIssueDialog mounts only when opened. The fresh
       // background terminal recipe has triggers, with no launch catalog demand.
-      scene === 'background-terminal' ? undefined : readLaunch(pool),
+      scene === 'background-terminal' ? undefined : {
+        catalog: readLaunchCatalog(pool),
+        origin: readLaunchOrigin(pool, '/repo-000'),
+      },
     )
     add('launcher.panel', ['NewPanelMenu'], () => {
       if (scene === 'background-terminal') return undefined
@@ -448,7 +451,7 @@ async function measureScreenCells(
     })
     add('launcher.phone', ['NewWorkButton', 'NewIssueScreen'], () =>
       scene === 'background-terminal' ? undefined : {
-        work: launchOptionViews(pool).newWork(false),
+        work: launchOptionViews(pool).newWork(),
         paths: launchOptionViews(pool).repositoryPaths(),
       },
     )
