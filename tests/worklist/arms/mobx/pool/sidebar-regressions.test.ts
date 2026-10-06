@@ -1,6 +1,5 @@
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { referenceState } from '../../../diagnostics/reference-state'
-import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 /** Small synthetic sidebar parity reductions. No operator records. */
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { createClientRuntime } from '@podium/client-core/engine'
@@ -179,23 +178,29 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
     required(expectedSessions.get(row.sessionId)),
   ))
   let store = { ...sidebarReplayStore(corpus, replica), sessions: legacySessions() }
-  const subscribers = new Set<() => void>()
-  const runtime = withKeyedInputs({
+  // The pool API owns the writer and the truth binding now: run the real
+  // engine (no I/O started) instead of the keyed-inputs fake, which has no
+  // replica or transaction owner for the row source to attach.
+  const engine = createClientRuntime({
     principal: asClientPrincipal(USER_ID),
-    getSnapshot: () => store,
-    subscribe: (listener: () => void) => {
-      subscribers.add(listener)
-      return () => {
-        subscribers.delete(listener)
-      }
-    },
-    pendingOverlaysByRow: () => new Map(),
+    config: { httpOrigin: 'http://synthetic.invalid', wsClientUrl: 'ws://synthetic.invalid' },
+    api: {} as PodiumClientApi,
+    onFatalError: () => {},
+    networkEnabled: false,
+    createReplicaFn: () => replica,
+    routerWindow: createMemoryRouterWindow(),
+    createHub: () => ({ dispose: () => {} }) as unknown as SocketHub,
+    coarseClock: { now: () => NOW, subscribe: () => () => {} },
   })
-  const publish = () => {
-    for (const listener of subscribers) listener()
-  }
-  const rows = createRowSource(runtime, replica, { mode: 'pooled' })
-  const locals = createEngineLocals(runtime)
+  // Seed the discovery inputs the row source reads (production: boot and
+  // daemon inventory populate both; this engine never starts I/O). The
+  // fallback stays quiet: reposLoaded is unset, so no selection publishes.
+  ;(engine as unknown as { apply(patch: object): void }).apply({
+    repos: corpus.repos,
+    machines: corpus.machines,
+  })
+  const rows = createRowSource(engine, replica, { mode: 'pooled' })
+  const locals = createEngineLocals(engine)
   const handle = createWorklistPool(rows.source, locals.source)
   const stop = reaction(
     () => poolSidebarSnapshot(handle.pool),
@@ -247,7 +252,6 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
         })
       }
       store = { ...store, issueProjections: replica.rows('issueProjections') as IssueProjection[] }
-      publish()
       rows.flush()
       settle()
     },
@@ -262,7 +266,6 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
         readmitted: false,
       })
       store = { ...store }
-      publish()
       rows.flush()
       settle()
     },
@@ -304,7 +307,6 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
         })
       }
       store = { ...store, sessions: legacySessions() }
-      publish()
       rows.flush()
       settle()
     },
@@ -313,6 +315,7 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
       handle.dispose()
       locals.dispose()
       rows.dispose()
+      engine.destroy()
     },
   }
 }
