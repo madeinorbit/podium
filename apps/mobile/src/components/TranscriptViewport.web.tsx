@@ -91,10 +91,7 @@ export const TranscriptViewport = forwardRef(function WebViewport<Item>(
     loadingOlder,
     loadOlder: revealOlder,
     rowsToRender: visibleRows,
-    lookupAnchorRow: key => {
-      const index = positionOfKey(key)
-      return index === undefined ? null : scrollerRef.current?.querySelector<HTMLElement>(`[data-block="${index}"]`) ?? null
-    },
+    lookupAnchorRow: positionOfKey,
     onFollowChange: followChanged,
   })
   useEffect(() => {
