@@ -36,7 +36,7 @@ const controls = [
     'pending: true',
   ],
   ['decided deck order', hooks, 'decided = order.slice(0, index)', 'decided = order.slice(0, 0)'],
-  ['reads cold refs', views, 'pool.references.read(token)', 'null'],
+  ['reads cold refs', views, 'referenceView(pool).read(token)', 'null'],
   [
     'routes issue and permanent',
     views,
@@ -46,14 +46,14 @@ const controls = [
   [
     'updates pulse machines',
     hooks,
-    'const readHosts = (pool: Pool) => pool.headerViews.metrics()',
+    'const readHosts = (pool: Pool) => headerView(pool).metrics()',
     'const readHosts = (pool: Pool) => []',
   ],
   [
     'coalesces readiness',
-    source,
-    'if (this.scheduled || this.disposed) return',
-    'if (this.disposed) return',
+    'packages/client-graph/src/source-registry.ts',
+    'if (scheduled || disposed || !definition.refresh) return',
+    'if (disposed || !definition.refresh) return',
   ],
   ['original outbox pending', views, 'outboxSize: window?.outboxSize ?? 0', 'outboxSize: 0'],
   [
