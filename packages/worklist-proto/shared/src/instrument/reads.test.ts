@@ -89,6 +89,35 @@ describe('feed door', () => {
     expect(fence.isBorrowed(events[0]!.rows[0]!.value)).toBe(true)
     expect(events[0]!.rows[1]!.value).toBeUndefined()
   })
+
+  it('borrows and counts repository and machine companions without losing their source binding', () => {
+    const fence = createReadFence({ enabled: true })
+    const records: RowRecord[] = [
+      { kind: 'repo', id: 'r1', value: { id: 'r1', prefix: 'POD', repoPath: '/repo' } },
+      { kind: 'machine', id: 'm1', value: { id: 'm1', name: 'Workstation' } },
+    ]
+    const inner = {
+      ...staticSource([]),
+      records,
+      companions() { return this.records },
+    }
+    const wrapped = fence.wrapSource(inner)
+    const first = wrapped.companions!(), again = wrapped.companions!()
+    expect(first.map(row => [row.kind, row.id])).toEqual([['repo', 'r1'], ['machine', 'm1']])
+    for (const [index, row] of first.entries()) {
+      expect(fence.isBorrowed(row.value)).toBe(true)
+      expect(row.value).toBe(again[index]!.value)
+    }
+    expect(fence.wrapSource(staticSource([])).companions).toBeUndefined()
+    fence.reset()
+    const repo = first[0]!.value as { prefix: string }
+    const machine = first[1]!.value as { name: string }
+    expect([repo.prefix, machine.name]).toEqual(['POD', 'Workstation'])
+    expect(fence.stats().data).toBe(2)
+    expect(fence.stats().byEntity).toEqual({ repo: 1, machine: 1 })
+    expect(fence.stats().accesses.field).toBe(2)
+    expect(() => { repo.prefix = 'OTHER' }).toThrow(/read-only/)
+  })
 })
 
 describe('table door', () => {

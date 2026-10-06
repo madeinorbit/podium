@@ -562,6 +562,9 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
         snapshot(kind) {
           return source.snapshot(kind).map(borrowRecord)
         },
+        ...(source.companions
+          ? { companions: () => source.companions!().map(borrowRecord) }
+          : {}),
         ...(source.issueIdByRef ? { issueIdByRef: source.issueIdByRef.bind(source) } : {}),
         // POD-5407: the feed's cold index answers declared questions, never
         // rows; the arm reads every row through `row` below.
