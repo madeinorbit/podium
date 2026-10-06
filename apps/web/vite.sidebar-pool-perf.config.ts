@@ -1,3 +1,4 @@
+import { standardDecorators } from '../../scripts/vite-standard-decorators'
 import { productWorkMeter } from '../../tests/worklist/harness/src/perf/vite'
 /** The real pool attachment with synthetic data and no live backend. */
 
@@ -14,7 +15,7 @@ const fontRoots = ['geist', 'geist-mono'].map((font) =>
 export default defineConfig({
   root,
   cacheDir: `${root}/node_modules/.cache/sidebar-pool-perf-vite`,
-  plugins: [tailwindcss(), productWorkMeter()],
+  plugins: [standardDecorators(), tailwindcss(), productWorkMeter()],
   optimizeDeps: {
     entries: [
       'test/store-worklist-pool.browser.html',

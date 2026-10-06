@@ -1,3 +1,4 @@
+import { standardDecorators } from '../../scripts/vite-standard-decorators'
 import { fileURLToPath } from 'node:url'
 import react from '@vitejs/plugin-react'
 import { defineConfig } from 'vite'
@@ -20,7 +21,7 @@ import {
 export default defineConfig({
   root: fileURLToPath(new URL('.', import.meta.url)),
   define: { __DEV__: 'true', 'process.env.NODE_ENV': '"development"' },
-  plugins: [react()],
+  plugins: [standardDecorators(), react()],
   resolve: {
     extensions: ['.web.tsx', '.web.ts', '.web.js', '.tsx', '.ts', '.jsx', '.js', '.json'],
     alias: [

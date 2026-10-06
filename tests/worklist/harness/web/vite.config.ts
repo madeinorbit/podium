@@ -1,3 +1,4 @@
+import { standardDecorators } from '../../../../scripts/vite-standard-decorators'
 /**
  * POD-4445 — production build for the round-two browser pages. One entry per
  * arm, each mounting over a kernel seeded at the
@@ -19,6 +20,7 @@ const entry = (name: string): string =>
   fileURLToPath(new URL(`./entries/${name}.html`, import.meta.url))
 
 export default defineConfig({
+  plugins: [standardDecorators()],
   root: fileURLToPath(new URL('.', import.meta.url)),
   base: './',
   resolve: {

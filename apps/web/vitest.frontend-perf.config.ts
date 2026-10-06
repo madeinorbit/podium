@@ -1,3 +1,4 @@
+import { standardDecorators } from '../../scripts/vite-standard-decorators'
 import { fileURLToPath } from 'node:url'
 import { defineConfig } from 'vitest/config'
 import { sharedVitestConfig } from '../../vitest.config'
@@ -25,6 +26,7 @@ const sharedSetupFiles = sharedVitestConfig.test.setupFiles.map((file) =>
  * failures cannot be hidden as timing weather.
  */
 export default defineConfig({
+  plugins: [standardDecorators()],
   resolve: {
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
     conditions: ['@podium/source'],

@@ -1,3 +1,4 @@
+import { standardDecorators } from '../../../scripts/vite-standard-decorators'
 import { productWorkMeter } from '../../../tests/worklist/harness/src/perf/vite'
 /** Measurement-only build: production components, source maps, ordinary React. */
 import { realpathSync } from 'node:fs'
@@ -16,7 +17,7 @@ const functions: Record<string, string[]> = {
 const config: UserConfig = defineConfig({
   root: resolve(repo, 'apps/web'),
   cacheDir: resolve(repo, 'node_modules/.cache/sidebar-acceptance'),
-  plugins: [tailwindcss(), productWorkMeter(), {
+  plugins: [standardDecorators(), tailwindcss(), productWorkMeter(), {
     name: 'acceptance-state-boundaries',
     enforce: 'pre',
     transform(code: string, id: string) {

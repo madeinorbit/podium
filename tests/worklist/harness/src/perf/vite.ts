@@ -15,6 +15,19 @@ function once(code: string, anchor: string, replacement: string, file: string): 
 
 export function instrumentProductWork(code: string, id: string): string | undefined {
   const file = id.split('?')[0]!.replaceAll('\\', '/')
+  if (file.endsWith('/packages/mobx-helpers/src/lazy.ts')) {
+    // Preserve the cachedGroup census labels when a model moves to @lazy.
+    // This is diagnostic naming only: every computed body is still counted,
+    // and generic lazy getters keep their ordinary names.
+    return once(code, "name: debugName(() => `${this.constructor?.name ?? 'Object'}.${name}`)",
+      `name: debugName(() => {
+        const target = this as { constructor?: { name?: string }; id?: string }
+        const group = ({ nestingValue: 'nesting', nestCandidateValue: 'nestCandidate', seatActivity: 'activity' } as Record<string, string>)[name] ?? name
+        return target.id === undefined
+          ? \`\${target.constructor?.name ?? 'Object'}.\${name}\`
+          : \`\${target.constructor?.name ?? 'Object'}@\${target.id}.\${group}\`
+      })`, file)
+  }
   let meter = boardMeter
   let binding = 'countIssueBoard as __countIssueBoard'
   if (file.endsWith('/packages/client-graph/src/issue-board-source.ts')) {

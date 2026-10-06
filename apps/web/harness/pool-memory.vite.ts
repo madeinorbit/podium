@@ -1,3 +1,4 @@
+import { standardDecorators } from '../../../scripts/vite-standard-decorators'
 /** POD-5133 measurement-only build: the POD-4959 production settings (source
  * maps, no minification, ordinary React) without its timing boundaries, so
  * constructor and closure names survive into heap snapshots. */
@@ -10,7 +11,7 @@ const repo = process.cwd()
 export default defineConfig({
   root: resolve(repo, 'apps/web'),
   cacheDir: resolve(repo, 'node_modules/.cache/pool-memory'),
-  plugins: [tailwindcss()],
+  plugins: [standardDecorators(), tailwindcss()],
   resolve: {
     conditions: ['@podium/source'],
     dedupe: ['react', 'react-dom'],

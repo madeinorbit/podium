@@ -419,6 +419,8 @@ function sameVerdict(a: LoadedRow<SeatVerdict>, b: LoadedRow<SeatVerdict>): bool
 }
 
 
+/** The shared issue and its row fields. Each former cached group remains one
+ * lazy value, including bundles; plain projections keep their existing reads. */
 export class IssueModel extends EntityModel implements HeldIssue, RowView {
   /** The schema fields the row answers (`installFields`): the row's value of them, not the fed row's. */
   static override readonly answers: ReadonlySet<string> = new Set<string>(ROW_VIEW_FIELDS)
@@ -446,6 +448,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return part === undefined ? undefined : rankOfPart(this.id, part)
   }
 
+  /** Explicit seats are judged per seat change; a heartbeat reads no seat history. */
   @lazy({ equals: compareStructural })
   get members(): MemberVerdicts {
     return memberVerdictsOf(this.host.visibleInputs, this.id, this.standing, this)
@@ -520,6 +523,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return attentionOf(this.host.rollupInputs, this.id, this)
   }
 
+  /** One resident row read (queuing a cold load) supplies facts, label and origin. */
   @lazy({ equals: compareStructural })
   get loaded(): Loaded {
     const row = this.host.rollupInputs.loadedIssue(this.id)
@@ -753,6 +757,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.attention.aggregate
   }
 
+  /** Latest seat activity in the visible subtree, independent of attention. */
   @lazy
   get seatActivity(): number | null {
     return seatActivityPartOf(this.host.rollupInputs, this.id, this)
@@ -763,6 +768,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return unitOwnPartOf(this.host.rollupInputs, this.id, this)
   }
 
+  /** Compose formal children's units apart from the issue's own contribution. */
   @lazy({ equals: compareStructural })
   get unitsBelow(): Units {
     return unitsBelowPartOf(this.host.rollupInputs, this.id)

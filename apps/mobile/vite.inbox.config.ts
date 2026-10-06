@@ -1,3 +1,4 @@
+import { standardDecorators } from '../../scripts/vite-standard-decorators'
 /** Reader proof; --complete includes every Inbox reader sibling. Not an Expo app. */
 import { fileURLToPath } from 'node:url'
 import { createRequire } from 'node:module'
@@ -15,7 +16,7 @@ export default async () => {
   return {
     root: fileURLToPath(new URL('.', import.meta.url)),
     define: { __DEV__: 'true', global: 'globalThis', 'process.env.NODE_ENV': '"development"' },
-    plugins: [react()],
+    plugins: [standardDecorators(), react()],
     cacheDir: 'node_modules/.cache/mobile-inbox-vite',
     resolve: {
       conditions: ['@podium/source'],

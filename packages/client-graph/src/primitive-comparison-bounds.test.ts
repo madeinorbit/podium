@@ -1,21 +1,29 @@
 import { compareDefault, compareIdentity, compareShallow, compareStructural, autorun, observable, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
-import { cachedKey, type cachedGroup } from './cached'
+import { cachedKey } from './cached'
+import type { LazyOptions } from '@podium/mobx-helpers'
 import { workProbe } from './primitive-work.test.helpers'
 import { EMPTY_OWN, type Attention } from './worklist/rollup'
 import { LOADING } from './loading'
 import './models'
 
-// Capture the exact private comparers supplied by the models, while delegating
-// all cachedGroup behavior unchanged. No test-only product exports are needed.
+// Capture the exact private comparers supplied by the decorated model getters,
+// delegating to the real lazy decorator. No test-only product exports are needed.
 const modelComparers = vi.hoisted(() => new Map<string, (a: unknown, b: unknown) => boolean>())
-vi.mock('./cached', async importOriginal => {
-  const original = await importOriginal<typeof import('./cached')>()
-  const capture: typeof cachedGroup = (group, compute, equals) => {
-    if (equals) modelComparers.set(group, equals as (a: unknown, b: unknown) => boolean)
-    return original.cachedGroup(group, compute, equals)
+vi.mock('@podium/mobx-helpers', async importOriginal => {
+  const original = await importOriginal<typeof import('@podium/mobx-helpers')>()
+  const capture = (
+    getOrOptions: ((this: object) => unknown) | LazyOptions<unknown>,
+    context?: ClassGetterDecoratorContext<object, unknown>,
+  ) => {
+    if (typeof getOrOptions === 'function') return original.lazy(getOrOptions, context!)
+    const decorate = original.lazy(getOrOptions)
+    return (get: (this: object) => unknown, context: ClassGetterDecoratorContext<object, unknown>) => {
+      if (getOrOptions.equals) modelComparers.set(String(context.name), getOrOptions.equals)
+      return decorate(get, context)
+    }
   }
-  return { ...original, cachedGroup: capture }
+  return { ...original, lazy: capture }
 })
 
 type Change = 'row' | 'membership' | 'irrelevant'
