@@ -37,6 +37,17 @@ import type { RowRecord, RowSource, RowSourceEvent } from './source'
 
 type AnyRow = { [k: string]: unknown }
 
+interface SessionMemo {
+  next: WeakMap<object, SessionMemo>
+  value?: AnyRow
+}
+/** One composed session object per raw row and user-state identity, like
+ *  `issueInput`'s memo: event, `row()` and `snapshot()` share it, so an
+ *  unchanged row keeps its identity without re-reading companions (S6 reads
+ *  none here, so companion changes never invalidate it). */
+const composedSessions: SessionMemo = { next: new WeakMap() }
+const NO_USER_STATE = Object.freeze({})
+
 interface RepoEntry {
   path: string
   repoId?: string | null
@@ -264,7 +275,25 @@ export function createRowSource(
       userState: userState as { readAt: string | null; snoozedUntil?: string | null } | undefined,
     })
     const { machineName: _machineName, condition: _condition, handoffTarget: _handoffTarget, displayRef: _displayRef, ...own } = value
-    return { ...own, readAt, unread, snoozedUntil }
+    let memo = composedSessions
+    for (const key of [raw, userState ?? NO_USER_STATE]) {
+      let next = memo.next.get(key)
+      if (!next) {
+        next = { next: new WeakMap() }
+        memo.next.set(key, next)
+      }
+      memo = next
+    }
+    const current = memo.value
+    if (
+      current !== undefined &&
+      current.readAt === readAt &&
+      current.unread === unread &&
+      current.snoozedUntil === snoozedUntil
+    )
+      return current
+    memo.value = { ...own, readAt, unread, snoozedUntil }
+    return memo.value
 
   }
 
