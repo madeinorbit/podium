@@ -40,7 +40,8 @@ export function poolAutomationSnapshot(pool: MobxPool, paths: readonly (string |
     { key: 'runGroups', fields: {}, rows: list.automations.map(row => ({ id: row.id, fields: { ids: list.runGroups[row.id]?.map(run => run.id) ?? [] } })) },
     { key: 'repositories', fields: { paths: [...new Set(repos.repos.map(repo => repo.path))] }, rows: [] },
     ...paths.map((path, index) => {
-      const { choices, excluded, pending: loading } = view.targets(path)
+      const { ids, excluded, pending: loading } = view.targets(path)
+      const choices = ids.map(id => view.target(id))
       pending += loading
       return { key: `targets:${index}`, fields: { choices, excluded }, pendingFields: loading ? ['choices', 'excluded'] : [], rows: [] }
     }),

@@ -2,6 +2,7 @@ import { referenceState } from '../../../../tests/worklist/diagnostics/reference
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
+import { automationViews } from '@podium/client-graph/automation-views'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { machineViewsFromWire } from '@podium/client-core/values'
 import { AUTOMATION_ENTITIES } from '@podium/client-graph/automation-schema'
@@ -134,7 +135,7 @@ it('pool launch choices preserve scoped rights, duplicate paths, recency and an 
     )
   }
   const { result } = renderHook(
-    () => ({ owner: useStoreHandle<Trpc>(), targets: useAutomationTargets('/synthetic/offline') }),
+    () => ({ owner: useStoreHandle<Trpc>(), pool: useWorklistPool(), targets: useAutomationTargets('/synthetic/offline') }),
     { wrapper: Wrapper },
   )
   await act(async () => {
@@ -142,7 +143,8 @@ it('pool launch choices preserve scoped rights, duplicate paths, recency and an 
   })
   await waitFor(() => expect(result.current.targets.pending).toBe(0))
   const state = referenceState(result.current.owner)
-  expect(result.current.targets.choices).toEqual(
+  const choices = result.current.targets.ids.map(id => automationViews(result.current.pool!).target(id))
+  expect(choices).toEqual(
     automationTargetChoices(
       state.repos,
       state.sessions,
@@ -155,8 +157,8 @@ it('pool launch choices preserve scoped rights, duplicate paths, recency and an 
     unreachable: 1,
     incapable: 1,
   })
-  expect(result.current.targets.choices[0]?.value).toBe('/synthetic/project')
-  expect(result.current.targets.choices.at(-1)).toMatchObject({
+  expect(choices[0]?.value).toBe('/synthetic/project')
+  expect(choices.at(-1)).toMatchObject({
     value: '/synthetic/offline',
     opaque: true,
   })
@@ -247,7 +249,7 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
   const state = referenceState(owner)
   expect(result.current.repos.repos).toEqual(state.repos)
   expect(result.current.list.automationRuns).toEqual(state.automationRuns)
-  expect(result.current.targets.choices).toEqual(
+  expect(result.current.targets.ids.map(id => automationViews(pool!).target(id))).toEqual(
     automationTargetChoices(
       state.repos,
       state.sessions,

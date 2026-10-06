@@ -4,7 +4,7 @@ import { useCallback } from 'react'
 import { useWorklistPoolProjection } from './store-worklist-pool'
 
 const EMPTY_LIST = { automations: [], automationRuns: [], runGroups: {}, pending: 1 }
-const EMPTY_TARGETS = { repos: [], choices: [], excluded: EMPTY_EXCLUSIONS, pending: 1 }
+const EMPTY_TARGETS = { ids: [], excluded: EMPTY_EXCLUSIONS, pending: 1 }
 const EMPTY_REPOS = { repos: [], pending: 1 }
 const poolList = (pool: Parameters<typeof automationViews>[0]) => automationViews(pool).list()
 const poolRepos = (pool: Parameters<typeof automationViews>[0]) =>
@@ -18,6 +18,20 @@ export function useAutomationTargets(currentPath: string | null) {
     [currentPath],
   )
   return useWorklistPoolProjection(read, EMPTY_TARGETS)
+}
+export function useAutomationTarget(id: string | undefined) {
+  const read = useCallback(
+    (pool: Parameters<typeof automationViews>[0]) => id === undefined ? undefined : automationViews(pool).target(id),
+    [id],
+  )
+  return useWorklistPoolProjection(read, undefined)
+}
+export function useAutomationTargetMachine(path: string) {
+  const read = useCallback(
+    (pool: Parameters<typeof automationViews>[0]) => automationViews(pool).targetMachine(path),
+    [path],
+  )
+  return useWorklistPoolProjection(read, undefined)
 }
 export function useAutomationRunSession(id: string | undefined) {
   const read = useCallback(

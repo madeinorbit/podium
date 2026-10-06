@@ -7,10 +7,11 @@ const create = vi.fn(async () => ({}))
 const update = vi.fn(async () => ({}))
 vi.mock('@/app/automation-readers', () => ({
   useAutomationTargets: () => ({
-    repos: [{ path: '/repos/podium', kind: 'repository', branch: 'main', worktrees: [] }],
-    choices: [{ value: '/repos/podium', label: 'podium', availability: 'available' }],
+    ids: ['podium'],
     excluded: { unauthorized: 0, unreachable: 0, incapable: 0, disabled: 0, degraded: 0 }, pending: 0,
   }),
+  useAutomationTarget: () => ({ value: '/repos/podium', label: 'podium', availability: 'available' }),
+  useAutomationTargetMachine: () => undefined,
 }))
 
 const { NewAutomationDialog } = await import('./NewAutomationDialog')

@@ -87,7 +87,7 @@ async function measured(scale: 1 | 4, plant = false) {
       await flush()
     }, { pool: f.pool })
     expect(value.pending).toBe(0)
-    expect(value.choices.map(choice => choice.value)).toEqual(['/project', '/other', '__global__'])
+    expect(value.ids.map(id => view.target(id)?.value)).toEqual(['/project', '/other', '__global__'])
     const repoId = settingsRepositoryId(f.repos[0]!)
     const catalog = await measureWork(async () => {
       insideArm(() => {
@@ -102,7 +102,7 @@ async function measured(scale: 1 | 4, plant = false) {
       ] }))
       await flush()
     }, { pool: f.pool })
-    expect(value.choices.map(choice => choice.value)).toEqual(['/project', '/other', '__global__'])
+    expect(value.ids.map(id => view.target(id)?.value)).toEqual(['/project', '/other', '__global__'])
     return { open: open.work, catalog: catalog.work, heartbeat: heartbeat.work }
   } finally {
     stop(); projection.dispose(); f.pool.dispose()

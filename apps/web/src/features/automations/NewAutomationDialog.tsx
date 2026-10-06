@@ -1,7 +1,7 @@
 import type { AutomationSessionMode, MachineId } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { useAutomationTargets } from '@/app/automation-readers'
+import { useAutomationTarget, useAutomationTargetMachine, useAutomationTargets } from '@/app/automation-readers'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import {
@@ -121,16 +121,17 @@ function AutomationForm({ trpc, automation, onClose, onSaved, targets }: {
   trpc: Trpc; automation: Automation | null; onClose: () => void; onSaved: () => void
   targets: ReturnType<typeof useAutomationTargets>
 }): JSX.Element {
-  const { repos, choices, excluded } = targets
+  const { ids, excluded } = targets
+  const firstTarget = useAutomationTarget(ids[0])
   const editing = automation !== null
-  const ctx: AutomationFormContext = { targets: choices, excluded }
+  const ctx: AutomationFormContext = { targets: [], excluded }
 
   const [state, setState] = useState<AutomationFormState>(() =>
-    initialState(automation, choices.find((c) => !c.opaque)?.value ?? GLOBAL_TARGET),
+    initialState(automation, firstTarget?.value ?? GLOBAL_TARGET),
   )
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
-  const targetMachineId = repos.find((repo) => repo.path === state.target)?.machineId
+  const targetMachineId = useAutomationTargetMachine(state.target)
 
   const patch = (next: Partial<AutomationFormState>): void =>
     setState((prev) => ({ ...prev, ...next }))
@@ -138,7 +139,7 @@ function AutomationForm({ trpc, automation, onClose, onSaved, targets }: {
   // One rights evaluation, the same predicate the automation cards use.
   const right = automationRight(
     editing ? 'edit' : 'create',
-    NEW_AUTOMATION_RIGHTS(choices.some((c) => !c.opaque)),
+    NEW_AUTOMATION_RIGHTS(ids.length > 0),
   )
   const subform = automationSubform(state.kind)
   const canSave = canSaveAutomation(state, right) && !saving
@@ -183,6 +184,7 @@ function AutomationForm({ trpc, automation, onClose, onSaved, targets }: {
         field={field}
         state={state}
         ctx={ctx}
+        targetIds={ids}
         machineId={targetMachineId}
         onChange={patch}
         onAgentChange={(agent) => patch({ agent, model: AUTO, effort: AUTO })}
@@ -279,6 +281,7 @@ function AutomationField({
   field,
   state,
   ctx,
+  targetIds,
   machineId,
   onChange,
   onAgentChange,
@@ -286,6 +289,7 @@ function AutomationField({
   field: AutomationFieldConfig
   state: AutomationFormState
   ctx: AutomationFormContext
+  targetIds: readonly string[]
   machineId?: MachineId
   onChange: (next: Partial<AutomationFormState>) => void
   onAgentChange: (agent: ReturnType<typeof issueDefaultAgentKind>) => void
@@ -381,7 +385,14 @@ function AutomationField({
   return (
     <div className="flex flex-col gap-1.5">
       {field.label && <Label htmlFor={field.id}>{field.label}</Label>}
-      {field.control === 'select' ? (
+      {field.field === 'target' ? (
+        <Select value={state.target} onValueChange={target => onChange({ target })}>
+          <SelectTrigger id={field.id}><SelectValue /></SelectTrigger>
+          <SelectContent>
+            {targetIds.map(id => <AutomationTargetOption key={id} id={id} />)}
+          </SelectContent>
+        </Select>
+      ) : field.control === 'select' ? (
         <SelectField field={field} state={state} ctx={ctx} onChange={onChange} />
       ) : field.control === 'textarea' ? (
         <Textarea
@@ -417,6 +428,11 @@ function AutomationField({
       {hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}
     </div>
   )
+}
+
+function AutomationTargetOption({ id }: { id: string }): JSX.Element | null {
+  const choice = useAutomationTarget(id)
+  return choice ? <SelectItem value={choice.value} disabled={choice.opaque === true}>{choice.label}</SelectItem> : null
 }
 
 function SelectField({
