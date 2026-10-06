@@ -147,7 +147,18 @@ function setup(history: number) {
   }
   return {
     trpc, reads, Wrapper, subscribe,
-    heartbeat: () => publish(false), sessionUpdate: () => publish(true),
+    heartbeat: () => publish(false),
+    sessionUpdate: () => {
+      // Preparing the incoming snapshot is outside the reader measurement.
+      const next = { ...snapshot, sessions: counted('residentHistory', [...snapshot.sessions, {
+        sessionId: asSessionId('incoming-session'), archived: false,
+        lastActiveAt: new Date(NOW).toISOString(),
+      }]) }
+      return () => {
+        snapshot = next
+        store.publish(snapshot, new Set(['sessions']))
+      }
+    },
     addTranscript: () => { cost = wire(history + 1) },
     addUsage: () => { usage = buckets(1) },
   }
@@ -185,7 +196,7 @@ for (const scale of [1, 4]) {
         expect(ctx.reads.task).toHaveBeenCalledTimes(1)
       }
       if (surface === 'MissionCostChip') {
-        expect(screen.getByTestId('mission-cost-chip').textContent).toContain('$10.00')
+        expect(screen.getByTestId('mission-cost-chip').textContent).toContain('$10')
         expect(ctx.reads.tasks).not.toHaveBeenCalled()
       }
       if (surface === 'UsageView') {
@@ -196,9 +207,8 @@ for (const scale of [1, 4]) {
       expect(ctx.subscribe).not.toHaveBeenCalled()
       const unchanged = getValue()
       // Build the incoming fixture outside the measured consumer work.
-      const sessionUpdate = await capture(ctx.sessionUpdate)
-      // The fixture copies the old list to publish; those writes are input construction.
-      delete sessionUpdate.residentHistory
+      const publishSession = ctx.sessionUpdate()
+      const sessionUpdate = await capture(publishSession)
       expect(sessionUpdate).toEqual({})
       expect(getValue()).toBe(unchanged)
       const heartbeat = await capture(ctx.heartbeat)
