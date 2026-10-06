@@ -4233,12 +4233,12 @@
       "file": "apps/web/src/app/FlightDeckPool.tsx",
       "holder": "PoolIssueContextMenu/read/useCallback:callback/measurePoolMission:callback",
       "rule": "helper-consumer",
-      "tokens": "a553de39e3b3be4535e46f88236547645a495ecec1b826a1b9a7971ab7f69f12",
+      "tokens": "69f1295520c1fc2a73c2a5528ae9f8299aea443574b008d0aec950f38e8b0af0",
       "gate": [],
       "origin": [
         "e1c84ca57e58d4fc4e2514dea3bba5302620b0f9640ad01d702cb0965b86c365"
       ],
-      "fingerprint": "b99ab87c09a2285b3f17086b2a9a3e17b42a17c542dc18806633d488eb6b75da",
+      "fingerprint": "b82d0e59550a797b1f58a94c102cacccb18bd3ead26ab9eaa5ed256c73d187a4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4251,13 +4251,13 @@
       "file": "apps/web/src/app/FlightDeckPool.tsx",
       "holder": "PoolIssueContextMenu/read/useCallback:callback/measurePoolMission:callback",
       "rule": "reader-summary",
-      "tokens": "71ca65ee38d6f5bd2f97edce16cc3ad411ebfc4c6c8f11449283c6fa83e22e00",
+      "tokens": "79eb52905bea4462417d57a9d1591f184ac05d25e9470ae684b80de1d5b58015",
       "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "7d297a51ed245166b11a2d63bd6bb07ee8d089f0fa1c9377c708b76de467cd14",
+      "fingerprint": "15a0b188e669e52ff5d9bba75cd18fd6f1183bb237b7abe4f2041c5d90c57f9f",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
@@ -17368,13 +17368,13 @@
       "file": "apps/web/src/lib/PoolSessionContextMenu.tsx",
       "holder": "PoolSessionContextMenu/read/useCallback:callback/measurePoolMission:callback",
       "rule": "reader-summary",
-      "tokens": "05c0d081a384f9381aa9c981e1e7f24e46250ee332a141df4a433668550bbef9",
+      "tokens": "1a1f76446e353aa7bf7c6e87aeaf1ae5ad561471abc7a68f2e6950ec77fabf69",
       "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "2b18d6b196f0b2c843b63634f3dedd2d14274e9419dc3d3ad875386385f2d8e0",
+      "fingerprint": "349e11fa750de1f2f012e77f4643ad90cf701e44570fa556e1a6e5ef958e0a10",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
@@ -46502,13 +46502,13 @@
       "gate": [
         "exit:then:6122018d3ce5746119920dd7a42e6614663d31464d163a9f8d1a6f02907ca13c",
         "exit:then:af3f31ac09a111fcacab6ad6ce9fe2461daabbc6fb51e85e09983be873c5cd97",
-        "then:68962cafc4f054bcf5aa1e7ce1ec97128037f9ea04de8142a2bfead64823ad0a"
+        "then:60e13257b5026b399b056fc8c3f1a947e064f1581cbd249c76a2041b7ef729a3"
       ],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "5ee6b467375d75150af9d4ad48d58cd22bdd41973f928e612b7aebd3d02cd62a",
+      "fingerprint": "880fca8f601fff2a82d40d9c9aaaec211b3bd131c9c64c4916714894fd900b19",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
@@ -46525,13 +46525,13 @@
       "gate": [
         "exit:then:6122018d3ce5746119920dd7a42e6614663d31464d163a9f8d1a6f02907ca13c",
         "exit:then:af3f31ac09a111fcacab6ad6ce9fe2461daabbc6fb51e85e09983be873c5cd97",
-        "then:68962cafc4f054bcf5aa1e7ce1ec97128037f9ea04de8142a2bfead64823ad0a"
+        "then:60e13257b5026b399b056fc8c3f1a947e064f1581cbd249c76a2041b7ef729a3"
       ],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "03c6f51e32dafac645110cd5a4c736808555cc07e5ce95a0071670a000d62a6c",
+      "fingerprint": "9c157d8c2f73b825f4a45748beb4cc96b39df901fb48e117809d0332cdddc3d0",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5672",
@@ -50144,6 +50144,458 @@
       "bound": "No per-interaction bound established for this existing collection origin.",
       "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
       "guard": "scripts/check-interaction-scans.ts"
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueContextMenu",
+      "rule": "consume:map",
+      "tokens": "3d43a3a103e69f295907a0893f1ebea790aa52399013084e7524f0539a4147fb",
+      "gate": [
+        "exit:then:76f123297670b5a163440e69aeda15a69e75e517f0b03f56f0c40859ebf71a7d",
+        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
+        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "7eb6c136f1eafba34b80f82cea6fe2c82d2d0c211d8064986ea169c1a849cf17",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueContextMenu",
+      "rule": "loop:for-of",
+      "tokens": "9e852ee942d2b6a7d8d5eddd6f6033efced69b39ab1fb02b3cc3402efe7883ff",
+      "gate": [
+        "exit:then:76f123297670b5a163440e69aeda15a69e75e517f0b03f56f0c40859ebf71a7d",
+        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
+        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "9f2ec9e225bd735fa6e5126701629701244bc31325d0b28564b7f0be8958aa7f",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueContextMenu/entries",
+      "rule": "helper-consumer",
+      "tokens": "15e8821d644358d78f262b4f52bd8cb34a8de46731443f814f400c383edaa441",
+      "gate": [
+        "exit:then:76f123297670b5a163440e69aeda15a69e75e517f0b03f56f0c40859ebf71a7d",
+        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
+        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "9d206f07c6f2e2dedcbca2694ac7ca449be1178b51064e2a71318222622e29f6",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueContextMenu/entries",
+      "rule": "reader-summary",
+      "tokens": "878f63a33ae18c0879a1571cf234c85bfaab48f711fd990e13aea87c38d2cdfe",
+      "gate": [
+        "exit:then:76f123297670b5a163440e69aeda15a69e75e517f0b03f56f0c40859ebf71a7d",
+        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
+        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "a233dbb41f8c28bc49f01444528a601c28557657cc718ee683185baa33e6aedd",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueContextMenu/handoff",
+      "rule": "helper-consumer",
+      "tokens": "8eb86325942eb8590f6b07918888c6c9bf20bcf9809d51acb1a0be2a1167b92e",
+      "gate": [
+        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
+        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819",
+        "then:0745aa5a7123298afb9637a51147870fec26139fb641bcf1711e2896ef6e421c"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "22cfca3d2c3f63607939720b561adc5d4ac4d66716087127b6e7717efa84cdfe",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueContextMenu/handoff",
+      "rule": "reader-summary",
+      "tokens": "15b85bffa7ee8143e00c3033c56030d5ce6766d707251a66be70fe9a843e5919",
+      "gate": [
+        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
+        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819",
+        "then:0745aa5a7123298afb9637a51147870fec26139fb641bcf1711e2896ef6e421c"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "9282565737c614e877357b189857d6ec7a63e4602a96810608b9aa5eb3644e0e",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueContextMenu/menuData",
+      "rule": "reader-summary",
+      "tokens": "1bb68f9ee7c9722a0467472c3420d7727bba3447394b8c0b456dbabb86d7a5e5",
+      "gate": [
+        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
+        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "00faab9e853ac9d2d4adec273cfff44182b1275d2c0f5d5b0ea370d0e9206630",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueContextMenu/menuData",
+      "rule": "helper-consumer",
+      "tokens": "91d9421df7242c992ebb39d9bca3d6654d07a8bc997c0cfacff7a17286bda1ac",
+      "gate": [
+        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
+        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "230b284ccc446660561929be1a74c05ba2631cc814b3071efe5a16d228a83aa7",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueContextMenu/menuData/handoff/options",
+      "rule": "consume:map",
+      "tokens": "91c011da0a04781dd67dbb3400410849d582a911561dc25f7770a8af39ad0857",
+      "gate": [
+        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
+        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819",
+        "then:583a4fc6961838bf9f56aa0b86776020f95ae69cab4ba968a5e6fe248aab9bb6",
+        "else:3c7b3051f0019e6c9f64631db7a0a3392cfa3ebf14e6461557c72bd038daca08"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "3ac024cf9331f7591613436fd3d265e258c19c58264e989e60f8a31d367d1e75",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueContextMenu/readTargets/useCallback:callback",
+      "rule": "reader-summary",
+      "tokens": "f75c6d424867e3f7896e660465daf706849d6dbf0f0ba81004b80591caf2dd9e",
+      "gate": [
+        "then:f7c0b691b8d2b39389152e6a61cca54dd59ab1e53721db0fa1fc58be564cc0fa"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "bde823c293edc93dcc312322bce53d7895f573b10fdf1d8dedfea7e502a90c95",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueContextMenu/renderedEntries",
+      "rule": "consume:map",
+      "tokens": "64de4236eefed8e18c4c3f2adaab2a173b0c91a5c343af96c13b19daa9c6b422",
+      "gate": [
+        "exit:then:76f123297670b5a163440e69aeda15a69e75e517f0b03f56f0c40859ebf71a7d",
+        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
+        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "e43880cff66d355ec75266a6dcc5c1a40f45064001db7daf6b843d5331f21c7a",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueContextMenu/renderedEntries/map:callback",
+      "rule": "reader-summary",
+      "tokens": "f2b553aad5771422ff08b56e23d02a724d3f4b697a92cd1cd2b52df6ed8829d1",
+      "gate": [
+        "exit:then:76f123297670b5a163440e69aeda15a69e75e517f0b03f56f0c40859ebf71a7d",
+        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
+        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819",
+        "exit:then:05f1a2916b7256dbbe2c6e5597f3609b3a05a11e174dd40740ee4c2918226672",
+        "else:32df178dfd377f69535e0f3e152ee0598804a1c81254442c4d83c09a9b4cf421"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "19be9ea1c7b8e097bd82066917ed8ae107d147d2da74b5d9f2c14ef2c401b3cd",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueContextMenu/renderedEntries/map:callback",
+      "rule": "reader-summary",
+      "tokens": "f2b553aad5771422ff08b56e23d02a724d3f4b697a92cd1cd2b52df6ed8829d1",
+      "gate": [
+        "exit:then:76f123297670b5a163440e69aeda15a69e75e517f0b03f56f0c40859ebf71a7d",
+        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
+        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819",
+        "then:05f1a2916b7256dbbe2c6e5597f3609b3a05a11e174dd40740ee4c2918226672"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "a71752e705c01c18b976c15ba85a27a6e2fc838ae9a0e2c7739ccda6a19e3f49",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueContextMenu/runSubmenu/callback/target",
+      "rule": "consume:find",
+      "tokens": "6e15be822e0e25b8a1a063af3e47cacc712e254af20fab4c2419846deb8f50df",
+      "gate": [
+        "exit:then:76f123297670b5a163440e69aeda15a69e75e517f0b03f56f0c40859ebf71a7d",
+        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
+        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819",
+        "switch:b7987b7a8f2b5d72a72fa93b2d853d36b0849e3797681fdbbe6e5886d04f55dd",
+        "case:2cabf7d630eed858b04b852394b24a79e8c6fbb0390eb817a6264d2a86784338"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "67fb9c2069efd1d1890af1a4895d11419b39ad13a2e48ac56a242cef22486da2",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/features/issues/IssueContextMenu.tsx",
+      "holder": "IssueContextMenu/subTrigger/callback",
+      "rule": "reader-summary",
+      "tokens": "f2b553aad5771422ff08b56e23d02a724d3f4b697a92cd1cd2b52df6ed8829d1",
+      "gate": [
+        "exit:then:76f123297670b5a163440e69aeda15a69e75e517f0b03f56f0c40859ebf71a7d",
+        "exit:then:c6f4dae444f8a54d4e095bf0f49d5e62cda06c9f73521f138f21e11eadb25806",
+        "exit:then:5d2f098af2a49949ea47cd1995ace016f9748b9b92eebaf4f7d6775c60d5e819"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "a5d483eb3eedb623f8b344768ef83b004765d83aa5943758cfc4bbb9e0bc5972",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/lib/SessionContextMenu.tsx",
+      "holder": "SessionContextMenu",
+      "rule": "helper-consumer",
+      "tokens": "9292ff7e4eafba3edaef5d9e076f97804cc28f8fe03018426fa02d5a44ec10c8",
+      "gate": [
+        "&&:6cf00e3731ac519c591077926c00dc20188babbd6b1255e6e4b6ab4a2715142e",
+        "then:fc7331f3006d8201dbae9e71e699ab7493455721037511c4b4b87253bb0f7445"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "1aec149c9f89a14dbded3e81ae91cd2719785b43985812f351e2014b21bff95c",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/lib/SessionContextMenu.tsx",
+      "holder": "SessionContextMenu",
+      "rule": "consume:map",
+      "tokens": "568a663508ca1b10eecc624fed19447465ee0645d0259fee7a32aa0bab1fa082",
+      "gate": [
+        "&&:ffdd3933061e9ad8d149cf8928dbf7faebe3cd2ecf03c6a314c072b396bdad0f"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "2315afba4d2adc1e3400efa45e930f231f74268fa317aa401b769044fba3e396",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/lib/SessionContextMenu.tsx",
+      "holder": "SessionContextMenu",
+      "rule": "reader-summary",
+      "tokens": "51661f907200d53d74476bb7c24db964750bcf8a8e84556d5ae95c2b8fa6958d",
+      "gate": [
+        "&&:6cf00e3731ac519c591077926c00dc20188babbd6b1255e6e4b6ab4a2715142e",
+        "then:fc7331f3006d8201dbae9e71e699ab7493455721037511c4b4b87253bb0f7445"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "dd93af66a0ace39cb55157405993cedd10f05dd6318eec52b45c9a85b3cb0dee",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/lib/SessionContextMenu.tsx",
+      "holder": "SessionContextMenu/readTargets/useCallback:callback",
+      "rule": "reader-summary",
+      "tokens": "73211a7313b389dd0d42a6077ff21f35d3e664545353ae5a29d1e7e2e90208a1",
+      "gate": [
+        "then:1f0741c0fbde4ae63f17a2f2703db322ff1a5914ca280b1b36847c036747b50e"
+      ],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "b7bd40749ae44979c9380ae0feb3dd91849e1b7ed79aa636b4bcf4b3ffdf2f93",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "packages/client-graph/src/mission-view.ts",
+      "holder": "readMissionHandoffTargets/inputs",
+      "rule": "reader-summary",
+      "tokens": "395bbf6d29bc5248ba48448987391d4a838e8a623dc1b573543973a9ca80491d",
+      "gate": [],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "c3b0e2de886ba27199e464251df8d3169a5428fdf11b86473af6d784291c99a1",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5672",
+      "trigger": "An opened Handoff submenu requests its destination choices.",
+      "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
+      "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
+      "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
     }
   ]
 }
