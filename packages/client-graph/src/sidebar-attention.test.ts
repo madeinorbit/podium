@@ -7,7 +7,7 @@ import { sidebarAttention, sidebarNested } from './worklist/sidebar-attention'
 const stamp = '2026-10-05T12:00:00Z'
 const old = '2026-01-01T00:00:00Z'
 const issue = (id: string, patch: object = {}) => ({ id, seq: 1, title: id, stage: 'planning',
-  repoPath: '/synthetic', createdAt: stamp, updatedAt: stamp, ...patch })
+  audience: 'human', repoPath: '/synthetic', createdAt: stamp, updatedAt: stamp, ...patch })
 const sender = (sessionId: string, patch: object = {}) => ({ sessionId, issueId: 'root',
   cwd: '/synthetic', agentKind: 'codex', status: 'exited', archived: true, lastActiveAt: old, ...patch })
 
