@@ -3,9 +3,7 @@
 //! `screen` builds) the kept screen and the pictures sent from it.
 
 use std::collections::VecDeque;
-use std::fs::File;
 use std::io::{self, Read, Write};
-use std::os::unix::net::{UnixListener, UnixStream};
 use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
@@ -13,7 +11,9 @@ use std::time::{Duration, Instant};
 use crate::cut::CutClock;
 use crate::proto::{self, Frame, Next, Request};
 use crate::ring::Ring;
-use crate::sys::{self, Pid, PollFd, PollFlags, Timespec, Winsize};
+use crate::sys::{self, Io, Listener, Stream, SignalSource, Pid, PollFlags, Winsize};
+#[cfg(unix)]
+use crate::sys::{PollFd, Timespec};
 
 const MAX_CLIENTS: usize = 64;
 const KILL_GRACE: Duration = Duration::from_millis(5000);
@@ -90,7 +90,7 @@ impl Outbox {
 }
 
 struct Client {
-    stream: UnixStream,
+    stream: Stream,
     id: u32,
     hello_done: bool,
     /// Holds the lease.
@@ -167,12 +167,12 @@ struct PendingWrite {
 
 /// The child's side: a pty master (input is the same fd), or two pipes.
 pub struct ChildIo {
-    pub output: File,
-    pub input: Option<File>,
+    pub output: Io,
+    pub input: Option<Io>,
 }
 
 impl ChildIo {
-    fn input(&self) -> &File {
+    fn input(&self) -> &Io {
         self.input.as_ref().unwrap_or(&self.output)
     }
 }
@@ -182,6 +182,8 @@ pub struct Child {
     pub io: ChildIo,
     pub has_pty: bool,
     pub ws: Winsize,
+    #[cfg(windows)]
+    pub control: sys::ChildControl,
 }
 
 pub struct Host {
@@ -190,8 +192,9 @@ pub struct Host {
     /// Device and inode of the socket we bound: the unlink at exit removes
     /// the path only while it is still ours.
     sock_id: Option<(u64, u64)>,
-    listener: UnixListener,
-    sig_fd: File,
+    listener: Listener,
+    #[cfg(unix)]
+    sig_fd: SignalSource,
     /// None once the output is drained and closed.
     io: Option<ChildIo>,
     has_pty: bool,
@@ -204,6 +207,8 @@ pub struct Host {
     /// 0 unless killed by a signal.
     exit_signal: i32,
     ws: Winsize,
+    #[cfg(windows)]
+    control: sys::ChildControl,
 
     ring: Ring,
     clients: Vec<Client>,
@@ -237,17 +242,22 @@ impl Host {
     pub fn new(
         sock_path: PathBuf,
         sock_id: Option<(u64, u64)>,
-        listener: UnixListener,
-        sig_fd: File,
+        listener: Listener,
+        sig_fd: SignalSource,
         child: Child,
         ring: Ring,
         linger_secs: u64,
     ) -> Host {
+        #[cfg(windows)]
+        let _ = sig_fd;
         let mut h = Host {
             sock_path,
             sock_id,
             listener,
+            #[cfg(unix)]
             sig_fd,
+            #[cfg(windows)]
+            control: child.control,
             io: Some(child.io),
             has_pty: child.has_pty,
             child: child.pid,
@@ -303,6 +313,7 @@ impl Host {
             .map(|io| &io.output)
     }
 
+    #[cfg(unix)]
     fn read_winsize(&mut self) -> Option<Winsize> {
         let pty = self.pty()?;
         let mut ws = sys::get_winsize(pty)?;
@@ -330,6 +341,11 @@ impl Host {
             self.screen_resized(ws);
         }
         Some(ws)
+    }
+
+    #[cfg(windows)]
+    fn read_winsize(&mut self) -> Option<Winsize> {
+        self.pty().map(|_| self.ws)
     }
 
     // ---- clients ------------------------------------------------------------
@@ -466,10 +482,16 @@ impl Host {
         0
     }
 
+    #[cfg(unix)]
     fn kill_child(&self, signo: i32) {
         if !self.child_exited {
             sys::kill_child(self.child, signo);
         }
+    }
+
+    #[cfg(windows)]
+    fn kill_child(&self, signo: i32) {
+        if !self.child_exited { self.control.signal(signo); }
     }
 
     fn request_kill(&mut self) {
@@ -477,7 +499,7 @@ impl Host {
             return;
         }
         self.kill_requested = true;
-        self.kill_child(libc::SIGTERM);
+        self.kill_child(sys::SIGTERM);
         let now = Instant::now();
         self.kill_deadline = Some(now + KILL_GRACE);
         // Already lingering: a kill is the owner saying nobody needs the ring
@@ -553,7 +575,10 @@ impl Host {
                 let Some(pty) = self.pty().filter(|_| !self.child_exited) else {
                     return self.refuse(ci, proto::ERR_EXITED, "child exited");
                 };
+                #[cfg(unix)]
                 let mut cur = sys::get_winsize(pty).unwrap_or(self.ws);
+                #[cfg(windows)]
+                let mut cur = self.ws;
                 let mut changed = 0u8;
                 if cur.ws_col != cols || cur.ws_row != rows {
                     // Only here does the kernel see anything: TIOCSWINSZ on a
@@ -564,10 +589,22 @@ impl Host {
                         ws_row: rows,
                         ..cur
                     };
-                    if sys::set_winsize(pty, want) {
-                        changed = 1;
+                    #[cfg(unix)]
+                    {
+                        if sys::set_winsize(pty, want) { changed = 1; }
+                        cur = sys::get_winsize(pty).unwrap_or(cur);
                     }
-                    cur = sys::get_winsize(pty).unwrap_or(cur);
+                    #[cfg(windows)]
+                    {
+                        let _ = pty;
+                        if self.control.resize(want) { changed = 1; cur = want; }
+                    }
+                }
+                #[cfg(windows)]
+                {
+                    self.ws = cur;
+                    #[cfg(feature = "screen")]
+                    if changed != 0 { self.screen_resized(cur); }
                 }
                 cur = self.read_winsize().unwrap_or(cur);
                 Frame::begin(self.clients[ci].out.tail(), proto::H_RESIZED)
@@ -589,6 +626,16 @@ impl Host {
                 if self.child_exited {
                     return self.refuse(ci, proto::ERR_EXITED, "child exited");
                 }
+                #[cfg(windows)]
+                if signo == 2 && self.has_pty {
+                    // Console Ctrl-C is input, not a POSIX process-group signal.
+                    if self.wq_cost + 1 + proto::WRITE_OVERHEAD > proto::MAX_INPUT_QUEUE {
+                        return self.refuse(ci, proto::ERR_INPUT_FULL, "input queue full");
+                    }
+                    self.wq_cost += 1 + proto::WRITE_OVERHEAD;
+                    self.wq.push_back(PendingWrite { client_id: 0, write_id: 0, data: vec![3], off: 0 });
+                } else { self.kill_child(signo as i32); }
+                #[cfg(unix)]
                 self.kill_child(signo as i32);
             }
             Request::Detach => {
@@ -997,6 +1044,7 @@ impl Host {
         }
     }
 
+    #[cfg(unix)]
     fn reap_child(&mut self) {
         while let Some((pid, status)) = sys::reap_any() {
             if pid != self.child {
@@ -1021,6 +1069,7 @@ impl Host {
         }
     }
 
+    #[cfg(unix)]
     fn handle_signals(&mut self) {
         let mut tmp = [0u8; 64];
         while matches!((&self.sig_fd).read(&mut tmp), Ok(n) if n > 0) {}
@@ -1030,12 +1079,27 @@ impl Host {
         self.reap_child();
     }
 
+    #[cfg(windows)]
+    fn handle_signals(&mut self) {
+        if !self.child_exited
+            && let Some(code) = self.control.exit_code()
+        {
+            self.child_exited = true;
+            self.exit_code = code;
+            self.kill_deadline = None;
+            // Close ConPTY on a helper thread while the main loop keeps draining it.
+            self.control.close_console();
+        }
+        self.announce_exit_if_ready();
+    }
+
     fn cleanup_and_exit(&self) -> ! {
         sys::remove_own_socket(&self.sock_path, self.sock_id);
         std::process::exit(0)
     }
 
     /// Wait for the next event; which fds are polled follows the state now.
+    #[cfg(unix)]
     fn wait(&self, timeout: Option<Duration>, ev: &mut Events) -> io::Result<()> {
         let with_out = |out: bool| {
             if out {
@@ -1087,13 +1151,36 @@ impl Host {
         Ok(())
     }
 
+    #[cfg(windows)]
+    fn wait(&self, timeout: Option<Duration>, ev: &mut Events) -> io::Result<()> {
+        // Overlapped I/O never blocks this loop. Bound the wait so process exit,
+        // disconnects and backpressure are serviced even without new output.
+        std::thread::sleep(
+            timeout
+                .unwrap_or(Duration::from_millis(5))
+                .min(Duration::from_millis(5)),
+        );
+        ev.listener = if self.listener.ready() {
+            PollFlags::IN
+        } else {
+            PollFlags::empty()
+        };
+        ev.signals = PollFlags::empty();
+        ev.output = self.io.as_ref().map(|io| io.output.events());
+        ev.input = self.io.as_ref().map(|_| PollFlags::OUT);
+        ev.clients.clear();
+        ev.clients
+            .extend(self.clients.iter().map(|c| (c.id, c.stream.events())));
+        Ok(())
+    }
+
     pub fn run(mut self) -> ! {
         let mut ev = Events::new();
         loop {
             let now = Instant::now();
             if self.kill_deadline.is_some_and(|d| now >= d) {
                 self.kill_deadline = None;
-                self.kill_child(libc::SIGKILL);
+                self.kill_child(sys::SIGKILL);
             }
             if let Some(linger) = self.linger_deadline {
                 let all_delivered = !self

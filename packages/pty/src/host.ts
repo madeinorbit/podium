@@ -1,4 +1,5 @@
 import { execFile } from 'node:child_process'
+import { createHash } from 'node:crypto'
 import { existsSync, mkdirSync, readdirSync, unlinkSync } from 'node:fs'
 import { createConnection, type Socket } from 'node:net'
 import { join } from 'node:path'
@@ -639,14 +640,24 @@ function hostSocketDirs(env: NodeJS.ProcessEnv = process.env): string[] {
   return dirs.filter((d, i) => dirs.indexOf(d) === i)
 }
 
+/** A protected inventory marker names a bounded, instance-scoped Windows pipe. */
+export function hostEndpointForMarker(
+  marker: string,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  if (platform !== 'win32') return marker
+  const digest = createHash('sha256').update(marker.toLowerCase()).digest('hex')
+  return `\\\\.\\pipe\\podium-host-${digest}`
+}
+
 export function hostSocketPath(label: string, env: NodeJS.ProcessEnv = process.env): string {
-  return join(hostSocketDir(env), `${label}.sock`)
+  return hostEndpointForMarker(join(hostSocketDir(env), `${label}.sock`))
 }
 
 /** Connect probe: does anything answer at this path? */
 export function probeHostSocket(path: string): Promise<'live' | 'refused' | 'missing'> {
   return new Promise((resolve) => {
-    if (!existsSync(path)) {
+    if (process.platform !== 'win32' && !existsSync(path)) {
       resolve('missing')
       return
     }
@@ -687,7 +698,7 @@ export async function liveHostSocket(
   env: NodeJS.ProcessEnv = process.env,
 ): Promise<string | undefined> {
   for (const dir of hostSocketDirs(env)) {
-    const path = join(dir, `${label}.sock`)
+    const path = hostEndpointForMarker(join(dir, `${label}.sock`))
     if ((await probeHostSocket(path)) === 'live') return path
   }
   return undefined
@@ -733,11 +744,12 @@ export async function listLiveHostLabels(env: NodeJS.ProcessEnv = process.env): 
     }
     for (const name of names) {
       if (!name.endsWith('.sock') || name.startsWith('.')) continue
-      const path = join(dir, name)
+      const marker = join(dir, name)
+      const path = hostEndpointForMarker(marker)
       const probe = await probeHostSocket(path)
-      if (probe === 'refused') {
+      if (probe === 'refused' || (process.platform === 'win32' && probe === 'missing')) {
         try {
-          unlinkSync(path)
+          unlinkSync(marker)
         } catch {
           // raced with the host's own unlink
         }
@@ -781,10 +793,12 @@ export async function killHostSession(
           })
         })
       } else {
-        try {
-          process.kill(w.hostPid, 'SIGTERM')
-        } catch {
-          // already gone
+        if (process.platform === 'win32') {
+          // TerminateProcess cannot run the host's child-job cleanup.
+          await c.steal()
+          c.kill()
+        } else {
+          try { process.kill(w.hostPid, 'SIGTERM') } catch { /* already gone */ }
         }
       }
     } catch {
@@ -1048,6 +1062,8 @@ export function attachHostAgent(opts: HostAttachOptions): HostDurableAttachment 
 
 export interface HostCreateCommand {
   socketPath: string
+  /** Windows inventory marker, created and removed by its detached host. */
+  pidfile?: string
   cwd: string
   cmd: string
   args?: string[]
@@ -1084,6 +1100,7 @@ export interface HostRetention {
  */
 export function hostCreateArgs(opts: HostCreateCommand): string[] {
   const retention = [
+    ...(opts.pidfile !== undefined ? ['--pidfile', opts.pidfile] : []),
     ...(opts.ringBytes !== undefined ? ['--ring-bytes', String(opts.ringBytes)] : []),
     ...(opts.lingerSecs !== undefined ? ['--linger-secs', String(opts.lingerSecs)] : []),
   ]
@@ -1133,7 +1150,8 @@ export async function spawnHostAgent(
   }
   for (const key of opts.stripEnv ?? []) delete childEnv[key]
   const dir = hostSocketDir(childEnv)
-  const socketPath = join(dir, `${opts.label}.sock`)
+  const marker = join(dir, `${opts.label}.sock`)
+  const socketPath = hostEndpointForMarker(marker)
   assertLinuxUnixSocketPath(socketPath, resolveInstanceId(childEnv), 'a podium-host session socket')
   mkdirSync(dir, { recursive: true, mode: 0o700 })
 
@@ -1158,6 +1176,7 @@ export async function spawnHostAgent(
 
   const createArgs = hostCreateArgs({
     socketPath,
+    ...(process.platform === 'win32' ? { pidfile: marker } : {}),
     cwd: opts.cwd ?? process.cwd(),
     cmd: opts.cmd,
     ...(opts.args ? { args: opts.args } : {}),

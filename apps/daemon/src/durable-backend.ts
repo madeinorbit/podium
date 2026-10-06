@@ -9,7 +9,7 @@ const BACKENDS: readonly DurableBackend[] = ['host', 'none']
 
 export function noDurableBackendWarning(platform: NodeJS.Platform = process.platform): string {
   return platform === 'win32'
-    ? 'windows: podium-host does not run here — this daemon refuses to start sessions'
+    ? 'windows: podium-host not found — this daemon refuses to start sessions'
     : 'podium-host not found — this daemon refuses to start sessions'
 }
 
@@ -25,7 +25,7 @@ export function noDurableBackendWarning(platform: NodeJS.Platform = process.plat
  */
 export function noDurableBackendRefusal(platform: NodeJS.Platform = process.platform): string {
   return platform === 'win32'
-    ? 'cannot start the session: podium-host does not run on Windows yet, and Podium starts no session without it'
+    ? 'cannot start the session: podium-host is missing on this Windows machine, and Podium starts no session without it'
     : 'cannot start the session: podium-host is missing on this machine, and Podium starts no session without it'
 }
 
@@ -45,7 +45,7 @@ export function noDurableBackendDiagnostic(platform: NodeJS.Platform = process.p
 } {
   const why =
     platform === 'win32'
-      ? 'podium-host, the program that keeps sessions running across daemon restarts, does not run on Windows yet.'
+      ? 'podium-host, the program that keeps sessions running across daemon restarts, is missing from this Windows installation.'
       : 'podium-host, the program that keeps sessions running across daemon restarts, is missing from this installation.'
   return {
     code: NO_DURABLE_BACKEND_DIAGNOSTIC,

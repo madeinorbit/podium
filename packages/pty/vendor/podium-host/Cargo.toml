@@ -2,7 +2,7 @@
 name = "podium-host"
 version = "1.0.0"
 edition = "2024"
-description = "podium-host (SPEC-6): the durable process host behind every Podium session on Linux and macOS."
+description = "podium-host (SPEC-6): the durable process host behind every Podium session on Linux, macOS and Windows."
 license = "Apache-2.0"
 publish = false
 
@@ -10,12 +10,17 @@ publish = false
 name = "podium-host"
 path = "src/main.rs"
 
-[dependencies]
+[target.'cfg(unix)'.dependencies]
 # Safe wrappers for the POSIX calls std does not cover: poll, pty, winsize
 # ioctls, waitpid, kill, peer credentials, fd flags.
 rustix = { version = "1", default-features = false, features = ["std", "event", "fs", "net", "process", "pty", "stdio", "termios"] }
 # Only what rustix cannot offer safely: fork, sigaction, and macOS LOCAL_PEERCRED.
 libc = "0.2"
+[target.'cfg(windows)'.dependencies]
+bitflags = "2"
+windows-sys = { version = "0.61", features = ["Win32_Foundation", "Win32_Security", "Win32_Security_Authorization", "Win32_System_Console", "Win32_System_IO", "Win32_System_Memory", "Win32_System_Pipes", "Win32_System_Threading", "Win32_System_JobObjects", "Win32_Storage_FileSystem"] }
+
+[dependencies]
 # The terminal emulator behind the `screen` feature (POD-4861 chose it).
 alacritty_terminal = { version = "0.26", default-features = false, optional = true }
 
