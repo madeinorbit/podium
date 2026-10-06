@@ -651,6 +651,12 @@ function useFixturePool(): MobxPool {
       // real missions view over the fixture's parent links.
       sources: {
         view: (name: string, _factory: unknown): unknown => {
+          const fixture = pool as unknown as Record<string, unknown>
+          if (name === 'sidebar') return fixture.sidebar
+          if (name === 'header.entities') return fixture.header
+          if (name === 'header.views') return fixture.headerViews
+          if (name === 'sessionPanes') return fixture.sessionPanes
+          if (name === 'settings.views') return fixture.settingsViews
           if (name !== 'missions') throw new Error(`Undeclared component fixture source: ${name}`)
           const byId = new Map<string, IssueViewModel>(
             live.current.issues.map((row) => [row.id as string, row]),
