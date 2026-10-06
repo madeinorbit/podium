@@ -7,7 +7,6 @@ import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 
 import type { ReferenceState as Store } from '@podium/client-graph/diagnostics/reference-state'
 
-
 import { allIssueViewModels } from '@podium/client-graph/diagnostics/reference/issue-view-models'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { reposToViews } from '@podium/client-core/values'
@@ -16,7 +15,6 @@ import { MobxPool } from '@podium/client-graph'
 import { attachHeaderSource } from '@podium/client-graph/header-source'
 import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
-import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach } from 'vitest'
