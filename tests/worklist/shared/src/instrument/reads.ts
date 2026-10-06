@@ -76,6 +76,7 @@ import type { ColdQueries, HeldSummaries } from '@podium/client-graph/shared/col
 import type { RowSource } from '../arm'
 import { type EntityName, SCHEMA } from '@podium/client-graph/shared/schema'
 import type { RowRecord, RowSourceEvent } from '../stats'
+import { autorun } from 'mobx'
 
 /** How a row was reached. Raw counts per door, for diagnosis. `feed`: a per-row read of the feed. */
 export type ReadVia = 'get' | 'iterate' | 'relation' | 'field' | 'feed'
@@ -534,9 +535,15 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
         const copy = copyOf(current)
         if (copy !== null && copies.length < 8) copies.push(copy)
       }
-      for (const key of Reflect.ownKeys(current)) {
-        const descriptor = Object.getOwnPropertyDescriptor(current, key)
-        if (descriptor !== undefined && 'value' in descriptor) push(descriptor.value)
+      // POD-5754: Maps and Sets (including MobX ObservableMap/Set) are fully
+      // enumerated above via their raw entries/values. Reflecting over their
+      // own keys re-reads observable state outside a reaction (ObservableMap
+      // keys warn and trip the trap) for no new arm state, so skip it.
+      if (!(current instanceof Map) && !(current instanceof Set)) {
+        for (const key of Reflect.ownKeys(current)) {
+          const descriptor = Object.getOwnPropertyDescriptor(current, key)
+          if (descriptor !== undefined && 'value' in descriptor) push(descriptor.value)
+        }
       }
     }
     if (copies.length > 0) {
@@ -670,7 +677,16 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
           '[copies] the read fence is disabled (timing mode); a count run must enable it',
         )
       }
-      return sweep(root)
+      // POD-5754: run the sweep inside a transient reaction like the harness's
+      // `tracked()`: it walks MobX observable state (maps, objects), which
+      // warns outside a reactive context and trips the warn trap. It does read
+      // observables, so the derivation is never empty.
+      let result: CopySweep | null = null
+      const stop = autorun(() => {
+        result = sweep(root)
+      })
+      stop()
+      return result as unknown as CopySweep
     },
     stats(): ReadStats {
       if (!enabled) {
