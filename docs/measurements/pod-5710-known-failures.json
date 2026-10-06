@@ -109,5 +109,114 @@
     "firstDemandTests": "packages/client-graph/src/sidebar-attention.test.ts",
     "designOwner": "POD-5708",
     "architectureInstruction": "POD-4286 requested no new owning-issue started-children relation or write-path-maintained question in this lane."
+  },
+  "launcherMeasurement": {
+    "candidate": "6bcdf6f6d0",
+    "pilotBase": "1c0aae9c7a",
+    "readers": 50,
+    "allReaderCounters": 1403,
+    "evidence": "POD-5640 artifact .review/census-final.json",
+    "decision": "POD-4286 accepted addressed-group MRU bounds on 2026-10-06. These are documented limits, not executable gate allowances.",
+    "paletteSelectCounters": {
+      "loadedRows": [
+        0,
+        0
+      ],
+      "loadedDerivations": [
+        0,
+        0
+      ],
+      "loadedElements": [
+        0,
+        0
+      ],
+      "displayRefElements": [
+        0,
+        0
+      ]
+    },
+    "addressedRootWalks": [
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:launcher.launch/launch.catalogUsage",
+        "at1x": 201,
+        "at4x": 801,
+        "neighbourhood1x": 7,
+        "neighbourhood4x": 7,
+        "passed": false,
+        "owner": "POD-5708",
+        "reason": "addressed root walk for MRU; incremental max needs a maintained aggregate",
+        "derivations": [
+          1,
+          1
+        ]
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:launcher.phone/launch.usage",
+        "at1x": 231,
+        "at4x": 900,
+        "neighbourhood1x": 7,
+        "neighbourhood4x": 7,
+        "passed": false,
+        "owner": "POD-5708",
+        "reason": "addressed root walk for MRU; incremental max needs a maintained aggregate",
+        "derivations": [
+          2,
+          2
+        ]
+      }
+    ],
+    "sharedColdDemand": {
+      "owner": "POD-5716",
+      "designOwner": "POD-5708",
+      "failures": [
+        {
+          "action": "select",
+          "kind": "rows",
+          "reader": "consumer:sidebar.row/IssueModel@guard-child.loaded",
+          "at1x": 0,
+          "at4x": 2,
+          "neighbourhood1x": 6,
+          "neighbourhood4x": 6,
+          "passed": false
+        },
+        {
+          "action": "select",
+          "kind": "derivations",
+          "reader": "consumer:sidebar.row/IssueModel@guard-child.loaded",
+          "at1x": 0,
+          "at4x": 1,
+          "neighbourhood1x": 6,
+          "neighbourhood4x": 6,
+          "passed": false
+        },
+        {
+          "action": "select",
+          "kind": "elements",
+          "reader": "consumer:sidebar.row/IssueModel@guard-child.sidebar",
+          "at1x": 50,
+          "at4x": 51,
+          "neighbourhood1x": 6,
+          "neighbourhood4x": 6,
+          "passed": false
+        },
+        {
+          "action": "select",
+          "kind": "elements",
+          "reader": "consumer:sidebar.row/IssueModel@guard-child.loaded",
+          "at1x": 0,
+          "at4x": 2,
+          "neighbourhood1x": 6,
+          "neighbourhood4x": 6,
+          "passed": false
+        }
+      ],
+      "trace": "POD-5640 artifact .review/launcher-getter-trace.json",
+      "method": "One focused flatblock trace reads the former palette displayRef getter and the actual sidebar row on fresh identical IssueModels. Both invoke the same IssueModel.loaded group once. displayRef reaches loaded through models.ts label; sidebarValues reads model.loaded.facts directly before its displayRef field. Removing the palette getter makes the sidebar the first evaluator; the full census records the resulting cold-demand attribution.",
+      "limit": "The trace establishes shared getter demand; it does not claim to repair the IssueModel cold-load rule or to reproduce the 1x/4x residency difference on the small fixture."
+    }
   }
 }
