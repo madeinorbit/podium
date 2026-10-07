@@ -349,6 +349,45 @@ Per-job VM disposal is worth its cost only when the runner executes untrusted
 code — a public repo where fork pull requests can reach it. For private repos it
 mostly buys a cold simulator boot on every job.
 
+### Never restart the VM with `kickstart -k`
+
+`launchctl kickstart -k` sends SIGKILL, which is a power cut for the guest. The
+VM comes back and macOS boots — its OpenSSH answers on the host-only interface —
+but `tailscaled` does not reliably survive it:
+
+```
+100.87.172.102  podium-apple-runner  macOS
+   active; relay "fra"; offline, last seen 10m ago, tx 3120 rx 0
+```
+
+With password authentication disabled, Tailscale SSH is the **only** shell route
+into the guest, so an unclean stop that kills `tailscaled` locks you out
+completely. A graceful cycle recovers it, and auto-login then completes
+unattended with no display:
+
+```sh
+launchctl bootout gui/$(id -u)/com.podium.macos-runner   # stop keep-alive first
+tart stop podium-apple-runner                            # graceful; wait for "stopped"
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.podium.macos-runner.plist
+```
+
+Allow a few minutes — a graceful macOS shutdown here can exceed two, and the
+guest reports a load average above 500 for the first minute after boot.
+
+#### Keep a recovery path
+
+Disabling password auth removes the fallback that would otherwise let you in
+over `192.168.64.x` while Tailscale is down. Choose deliberately between:
+
+- **Console only** — restart with graphics (`tart run podium-apple-runner`) and
+  use the window; auto-login lands on a desktop. No credential in the image,
+  but recovery needs someone at the host.
+- **An inbound authorized key** — the host's public key in the guest's
+  `~/.ssh/authorized_keys`. Inbound only, so it does not let the VM reach
+  anything and does not violate the no-outbound-keys rule, but it is one more
+  credential living in the image.
+
+
 ## Notes and gotchas
 
 - **`MAESTRO_DRIVER_STARTUP_TIMEOUT=600000` is required.** Maestro's XCUITest
