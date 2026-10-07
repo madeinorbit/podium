@@ -190,12 +190,14 @@ const EMPTY_PINS = { repos: [] as readonly string[], worktrees: [] as readonly s
  * The launcher's repositoryPaths/newWork ordering has a separate owner. */
 export class LaunchCatalogPicker {
   @observableRef accessor order: string[] = []
+  @observable accessor opened = false
   @observable accessor initialRepoPath = ''
   constructor(private readonly pool: MobxPool) {}
   @action open() {
     const catalog = launchOptionViews(this.pool).catalog()
     this.order = catalog.repoPaths
     this.initialRepoPath = catalog.initialRepoPath
+    this.opened = true
   }
   @lazy get data() {
     const paths = headerEntities(this.pool).repositoryRootIds()

@@ -70,7 +70,7 @@ export function useCommandLaunchCatalog() {
     if (!pool || !picker) return
     return when(() => readLaunchCatalog(pool) !== LOADING, () => picker.open())
   }, [pool, picker])
-  const read = useMemo(() => () => picker?.catalog() ?? LOADING, [picker])
+  const read = useMemo(() => () => picker?.opened ? picker.catalog() : LOADING, [picker])
   return useWorklistPoolProjection<Loaded<ReturnType<typeof readLaunchCatalog>>>(read, LOADING)
 }
 /** A tab-strip menu draws one origin and the displayed machines. Recency is a
