@@ -472,7 +472,7 @@
     },
     {
       "baseline": "mission",
-      "productSource": "5bc0c96d6c",
+      "productSource": "5bc0c96d6c5b8a6c696ba4fd288cdaa02bd04ef6",
       "readers": 50,
       "countersBefore": 1714,
       "countersAfter": 1708,
@@ -1244,5 +1244,107 @@
     "transformTests": 6
   },
   "knownReds": "Both patched speed:structural runs retain the inherited sidebar.nested 10->12 and phone launch.usage 231->900 work-per-change reds, plus declared IssuePage elements 55->151 and 49->145. This is a successful instrument comparison, not a green structural lane.",
-  "evidence": "POD-5778 artifacts: .review/census-key-changes.json contains every moved action/kind/reader counter and its before/after counts; four raw captures and resource records are in .review/structural-evidence.tar.gz."
+  "evidence": "POD-5778 artifacts: .review/census-key-changes.json contains every moved action/kind/reader counter and its before/after counts; four raw captures and resource records are in .review/structural-evidence.tar.gz.",
+  "validation": {
+    "host": "flatblock",
+    "checkout": "~/podium-test-5778",
+    "bunVersion": "1.4.2",
+    "nodeLink": ".toolchain/node -> bun",
+    "validatedCandidate": "9b52f294db",
+    "fullTypecheck": {
+      "command": "bun run typecheck",
+      "exitCode": 0,
+      "successfulTasks": 29,
+      "totalTasks": 29
+    },
+    "leanGate": {
+      "command": "git checkout -- packages/api-types/src/index.d.ts; bun run test",
+      "exitCode": 0,
+      "verdict": "lean gate green",
+      "executedFiles": 4,
+      "collectedNodeFiles": 1840,
+      "executedTests": 154
+    },
+    "scanCheck": {
+      "command": "bun scripts/check-interaction-scans.ts (executed by bun run test)",
+      "fingerprints": 2310,
+      "occurrences": 2311,
+      "ratchetErrors": 0,
+      "fingerprintChanges": [],
+      "classificationChanges": []
+    },
+    "otherFences": {
+      "spanEffects": "162 bodies, 0 unclassified; green",
+      "mobxPrivateViolations": 0,
+      "untrackedReadCallSites": 28,
+      "untrackedReadErrors": 0,
+      "bareProductClockReads": 0
+    },
+    "webBuild": {
+      "command": "cd apps/web && bun run build",
+      "exitCode": 0
+    },
+    "productCodeChanges": [],
+    "suite": "Only named structural files and the lean gate; no full suite or browser run."
+  },
+  "resources": {
+    "pilot-before": {
+      "exitCode": 1,
+      "elapsedSeconds": 105.03,
+      "peakRecordedProcessMiB": 4841.95703125,
+      "minimumAvailableMiB": 5516.0,
+      "maximumSwapMiB": 4447.4,
+      "stopReason": null
+    },
+    "pilot-after": {
+      "exitCode": 1,
+      "elapsedSeconds": 105.22,
+      "peakRecordedProcessMiB": 6021.17578125,
+      "minimumAvailableMiB": 2905.8,
+      "maximumSwapMiB": 4454.0,
+      "stopReason": null
+    },
+    "mission-before": {
+      "exitCode": 1,
+      "elapsedSeconds": 105.95,
+      "peakRecordedProcessMiB": 5761.03125,
+      "minimumAvailableMiB": 6089.7,
+      "maximumSwapMiB": 4452.9,
+      "stopReason": null
+    },
+    "mission-after": {
+      "exitCode": 1,
+      "elapsedSeconds": 109.8,
+      "peakRecordedProcessMiB": 5524.12890625,
+      "minimumAvailableMiB": 2756.0,
+      "maximumSwapMiB": 4452.6,
+      "stopReason": null
+    },
+    "full-typecheck": {
+      "exitCode": 0,
+      "elapsedSeconds": 263.17,
+      "peakRecordedProcessMiB": 4760.0234375,
+      "minimumAvailableMiB": 1394.9,
+      "maximumSwapMiB": 12493.3,
+      "stopReason": null
+    },
+    "lean-gate": {
+      "exitCode": 0,
+      "elapsedSeconds": 131.19,
+      "peakRecordedProcessMiB": 4281.8984375,
+      "minimumAvailableMiB": 4062.2,
+      "maximumSwapMiB": 4640.0,
+      "stopReason": null
+    },
+    "web-build": {
+      "exitCode": 0,
+      "elapsedSeconds": 36.33,
+      "peakRecordedProcessMiB": 1289.5703125,
+      "minimumAvailableMiB": 11516.0,
+      "maximumSwapMiB": 4655.0,
+      "stopReason": null
+    }
+  },
+  "landingTarget": "integrate/4286-pilot",
+  "validationEvidence": "POD-5778 artifact .review/validation-evidence.tar.gz"
 }
