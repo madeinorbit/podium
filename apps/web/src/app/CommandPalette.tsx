@@ -62,9 +62,10 @@ import { sessionDisplayName } from '@/lib/WorkerLabel'
 import {
   useCommandLaunchActions,
   useCommandPaletteData,
+  useCommandPaletteSnapshot,
   useCommandPaletteOpen,
   useCommandSession,
-  useCommandSessions,
+  useCommandIssue,
 } from './command-launch-data'
 import {
   defaultHighlight,
@@ -224,8 +225,9 @@ const GROUP_LABEL: Record<PaletteGroupId, string> = {
   action: 'Actions',
 }
 
-function PaletteDialog(props: Omit<Parameters<typeof PaletteDialogBody>[0], 'data'>): JSX.Element {
-  const data = useCommandPaletteData()
+function PaletteDialog(props: Omit<Parameters<typeof PaletteDialogBody>[0], 'data' | 'sessions' | 'recent'>): JSX.Element {
+  const snapshot = useCommandPaletteSnapshot()
+  const data = snapshot?.data
   if (!data || data === LOADING)
     return (
       <Dialog open onOpenChange={(open) => !open && props.onClose()}>
@@ -235,7 +237,7 @@ function PaletteDialog(props: Omit<Parameters<typeof PaletteDialogBody>[0], 'dat
         </DialogContent>
       </Dialog>
     )
-  return <PaletteDialogBody {...props} data={data} />
+  return <PaletteDialogBody {...props} data={data} sessions={snapshot!.sessions} recent={snapshot!.recent} />
 }
 
 function PaletteDialogBody({
@@ -244,8 +246,12 @@ function PaletteDialogBody({
   onAddRepo,
   onRequestClose,
   data,
+  sessions,
+  recent,
 }: {
   data: Exclude<ReturnType<typeof useCommandPaletteData>, typeof LOADING | undefined>
+  sessions: import('@podium/client-core/session-values').SessionView[]
+  recent: import('@podium/client-graph/command-launch-views').RecentCommand[]
   onClose: () => void
   onNewIssue: () => void
   onAddRepo: () => void
@@ -261,8 +267,6 @@ function PaletteDialogBody({
     issues,
     spawnTargets,
   } = data
-  const choices = useCommandSessions()
-  const sessions = choices && choices !== LOADING ? choices : []
   const {
     trpc,
     markIssueRead,
@@ -399,18 +403,15 @@ function PaletteDialogBody({
     // This is the ONE place the palette ranks by time rather than by match, and
     // it exists because "what was I just doing" is the question ⌘K is opened
     // with when there is nothing typed yet.
-    const stamp = (iso: string | undefined): number => (iso ? Date.parse(iso) || 0 : 0)
-    const recent: { at: number; cmd: PaletteCommand }[] = []
-    for (const s of sessions) {
-      if (s.archived) continue
-      recent.push({ at: stamp(s.lastActiveAt), cmd: sessionCommand(s, 'recent') })
+    for (const item of recent) {
+      if (item.kind === 'session') {
+        const session = sessions.find(s => s.sessionId === item.id)
+        if (session) out.push(sessionCommand(session, 'recent'))
+      } else {
+        const issue = issues.find(i => i.id === item.id)
+        if (issue) out.push(issueCommand(issue, 'recent'))
+      }
     }
-    for (const i of issues) {
-      if (i.archived || i.deletedAt || i.isDraftVessel) continue
-      recent.push({ at: stamp(i.updatedAt), cmd: issueCommand(i, 'recent') })
-    }
-    recent.sort((a, b) => b.at - a.at)
-    for (const r of recent.slice(0, GROUP_CAP.recent.rest)) out.push(r.cmd)
 
     // ── Tasks (local replica + server search hits, deduped) ───────────────
     const localIds = new Set<string>()
@@ -688,6 +689,7 @@ function PaletteDialogBody({
 
     return out
   }, [
+    recent,
     sessions,
     repos,
     repoViews,
@@ -954,6 +956,8 @@ function PaletteRow({
 }): JSX.Element {
   const value = useCommandSession(cmd.session?.sessionId ?? null)
   const session = value && value !== LOADING ? value : undefined
+  const liveIssue = useCommandIssue(cmd.issueReference?.issueId ?? null)
+  const reference = liveIssue ? issueReferenceModel(liveIssue) : cmd.issueReference
   const Icon = cmd.icon
   return (
     <button
@@ -968,9 +972,9 @@ function PaletteRow({
       onMouseMove={onHover}
       onClick={onRun}
     >
-      {cmd.issueReference ? (
+      {reference ? (
         <IssueReference
-          model={cmd.issueReference}
+          model={reference}
           size={14}
           className="cmdk-row-issue"
           refClassName="cmdk-row-ref"

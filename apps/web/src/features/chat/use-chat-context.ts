@@ -1,10 +1,11 @@
+import { createReferencePicker } from '@podium/client-graph/chat-context'
 import { sessionPaneView } from '@podium/client-graph/session-pane'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import type { ChatContextRows } from '@podium/client-graph/chat-context-schema'
 import type { SessionExitRows } from '@podium/client-graph/session-exit-schema'
 import type { SessionId } from '@podium/model/browser'
-import { useCallback } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { AtOption } from '@/lib/at-mention/at-mention'
 import { issueMentions } from '@/lib/at-mention/mention-sources'
@@ -39,18 +40,20 @@ const EMPTY_WINDOW: ChatContextRows['chatWindow'] = {
 }
 const EMPTY_INTERACTIONS = { blocked: false, question: undefined, pending: 1 }
 export function useChatMentions(query: string | null) {
-  const read = useCallback(
-    (pool: MobxPool) => {
-      if (query === null) return EMPTY_OPTIONS
-      const reader = pool.row('chatContextReader', 'reader')
-      return reader && !pending(reader)
-        ? issueMentions(reader.mentions(query, 5).issues, query, 5)
-        : EMPTY_OPTIONS
-    },
-    [query],
-  )
+  const pool = useWorklistPool()
+  const picker = useMemo(() => pool ? createReferencePicker(pool) : undefined, [pool])
+  useEffect(() => { if (query !== null) picker?.search(query, 5) }, [picker, query])
+  const read = useCallback(() => {
+    if (!picker || query === null) return EMPTY_OPTIONS
+    return picker.issueIds.flatMap(id => {
+      const issue = picker.issue(id)
+      return issue && !pending(issue) && !issue.deletedAt
+        ? issueMentions([issue], '', 1) : []
+    })
+  }, [picker, query])
   return useWorklistPoolProjection(read, EMPTY_OPTIONS)
 }
+
 export function useChatDraft(id: SessionId) {
   const read = useCallback(
     (pool: MobxPool) => {

@@ -265,6 +265,10 @@ function createCommandLaunchViews(pool: MobxPool) {
     },
     { equals: compareStructural },
   )
+  const sessionIssue = keyedComputed('commands.sessionIssue', (id: string) => {
+    const row = pool.row('session', id, 'summary-fields')
+    return row && row !== LOADING && row.agentKind !== 'shell' ? row.issueId : undefined
+  })
   function projection(snapshot?: CommandLaunchData): Loaded<CommandLaunchData> {
     const data = snapshot ?? common.get(),
       ids = snapshot?.sessionIds ?? sessionIds.get(),
@@ -312,13 +316,7 @@ function createCommandLaunchViews(pool: MobxPool) {
               if (pool.queries.collapsed(sid) || !membership || membership === LOADING || !membership.has(sid)) return false
               // untracked-read: launch-session-presence
               if (untracked(() => !pool.tables.session.has(sid))) return true
-              const session = pool.row('session', sid, 'summary') as Loaded<SessionView>
-              return (
-                !!session &&
-                session !== LOADING &&
-                session.issueId === id &&
-                session.agentKind !== 'shell'
-              )
+              return sessionIssue(sid) === id
             })
             .sort((a, b) => {
               const left = pool.queries.orderKey(a),
@@ -350,7 +348,7 @@ function createCommandLaunchViews(pool: MobxPool) {
     session,
     sessions: () => sessions.get(),
     counts,
-    dispose() { session.clear(); issueSummary.clear() },
+    dispose() { session.clear(); issueSummary.clear(); sessionIssue.clear() },
   }
 }
 export function commandLaunchViews(pool: MobxPool) {
@@ -384,7 +382,7 @@ export class CommandPaletteView {
           if (!i.archived && !i.deletedAt && !i.isDraftVessel)
             recent.push({ at: stamp(i.updatedAt), command: { kind: 'issue', id: i.id } })
       recent.sort((a, b) => b.at - a.at)
-      this.recent = recent.slice(0, 8).map(value => value.command)
+      this.recent = recent.slice(0, 6).map(value => value.command)
     }
     take()
     if (this.snapshot === LOADING || this.snapshot === undefined)
@@ -404,3 +402,14 @@ export class CommandPaletteView {
   @action close() { this.stopLoading?.(); this.stopLoading = undefined }
 }
 export const createCommandPalette = (pool: MobxPool) => new CommandPaletteView(pool)
+
+/** The palette row's small live answer. Recency belongs to the open order. */
+export class CommandSessionRow {
+  constructor(private readonly pool: MobxPool, readonly id: string) {}
+  @lazy({ equals: compareStructural }) get presentation(): Loaded<SessionView> {
+    const row = commandLaunchViews(this.pool).session(this.id)
+    if (!row || row === LOADING) return row
+    const fields = [...COMMAND_SUMMARIES.session.filter(field => field !== 'lastActiveAt'), 'agentState']
+    return Object.fromEntries(fields.map(field => [field, row[field as keyof SessionView]])) as SessionView
+  }
+}

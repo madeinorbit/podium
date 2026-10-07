@@ -4,6 +4,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import { asIssueId, type MachineWire } from '@podium/model/browser'
 import { observable, runInAction } from 'mobx'
 import {
+  createReferencePicker,
   chatInteractions,
   chatMentionIssues,
   chatRecords,
@@ -59,6 +60,7 @@ export function createMobileSessionReader(pool: MobxPool) {
       return seats === LOADING ? LOADING : (seats?.filter((seat) => !seat.archived).length ?? 0)
     },
     nextSession: (id: string) => runInAction(() => pool.queries.nextTriageSession(id)),
+    referencePicker: () => createReferencePicker(pool),
     sessions: () => chatReferenceSessions(pool),
     issues: () => chatMentionIssues(pool),
     machine: (id: string | undefined): MachineWire | undefined =>

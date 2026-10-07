@@ -174,6 +174,7 @@ export function createChatContextReader(pool: MobxPool) {
     records: (id: string) => chatRecords(pool, id),
     artifactIssue: (session: Pick<SessionView, 'sessionId' | 'issueId'>) =>
       chatArtifactIssue(pool, session),
+    referencePicker: () => createReferencePicker(pool),
     sessions: () => chatReferenceSessions(pool, counts),
     machines: () => chatReferenceMachines(pool),
     repositoryKey: () => chatRepositoryKey(pool),
