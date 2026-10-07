@@ -1,4 +1,3 @@
-import { runInAction } from 'mobx'
 import { createReferencePicker } from '@podium/client-graph/chat-context'
 import { sessionPaneView } from '@podium/client-graph/session-pane'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -6,7 +5,7 @@ import type { MobxPool } from '@podium/client-graph'
 import type { ChatContextRows } from '@podium/client-graph/chat-context-schema'
 import type { SessionExitRows } from '@podium/client-graph/session-exit-schema'
 import type { SessionId } from '@podium/model/browser'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { AtOption } from '@/lib/at-mention/at-mention'
 import { issueMentions } from '@/lib/at-mention/mention-sources'
@@ -43,7 +42,7 @@ const EMPTY_INTERACTIONS = { blocked: false, question: undefined, pending: 1 }
 export function useChatMentions(query: string | null) {
   const pool = useWorklistPool()
   const picker = useMemo(() => pool ? createReferencePicker(pool) : undefined, [pool])
-  useEffect(() => { if (query !== null) picker?.search(query, 5) }, [picker, query])
+  useEffect(() => { if (query !== null) picker?.search(query, 5); return () => picker?.close() }, [picker, query])
   const read = useCallback(() => {
     if (!picker || query === null) return EMPTY_OPTIONS
     return picker.issueIds.flatMap(id => {
@@ -111,7 +110,7 @@ export function useChatIssueSeq() {
 export function useChatReferenceSessionIds() {
   const pool = useWorklistPool()
   const picker = useMemo(() => pool ? createReferencePicker(pool) : undefined, [pool])
-  useEffect(() => { picker?.open() }, [picker])
+  useEffect(() => { picker?.open(); return () => picker?.close() }, [picker])
   const read = useCallback(() => picker?.sessionIds ?? EMPTY_IDS, [picker])
   return useWorklistPoolProjection(read, EMPTY_IDS)
 }
@@ -127,15 +126,11 @@ export function useChatReferenceSession(id: string) {
  * New picker rows use useChatReferenceSessionIds/useChatReferenceSession. */
 export function useChatReferenceSessions() {
   const pool = useWorklistPool()
-  const [sessions, setSessions] = useState(EMPTY_SESSIONS)
-  useEffect(() => {
-    if (!pool) return
-    const reader = pool.row('chatContextReader', 'reader')
-    if (reader && !pending(reader)) runInAction(() => setSessions(reader.sessions().sessions))
-  }, [pool])
-  return sessions
+  const picker = useMemo(() => pool ? createReferencePicker(pool) : undefined, [pool])
+  useEffect(() => { picker?.open(); return () => picker?.close() }, [picker])
+  const read = useCallback(() => picker?.sessions ?? EMPTY_SESSIONS, [picker])
+  return useWorklistPoolProjection(read, EMPTY_SESSIONS)
 }
-
 const machineRead = (pool: MobxPool) => {
   const reader = pool.row('chatContextReader', 'reader')
   return reader && !pending(reader) ? reader.machines() : EMPTY_MACHINES

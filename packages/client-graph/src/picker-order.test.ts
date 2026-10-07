@@ -29,20 +29,21 @@ for (const scale of [1, 4]) {
     expect(picker.issueIds).toEqual(chatMentionMatches(pool, 'task').issues.map(i => i.id))
     expect(picker.issueIds).not.toEqual([])
     let renders = 0
-    const stop = autorun(() => { picker.sessionIds; picker.issueIds; renders++ })
+    const stop = autorun(() => { picker.sessionIds; picker.issueIds; picker.sessions; picker.issues; renders++ })
     const rows = vi.spyOn(pool, 'row'), ids = vi.spyOn(pool.queries, 'ids'), sort = vi.spyOn(Array.prototype, 'sort')
     try {
       const before = renders
       pool.apply({ type: 'update', rows: [{ kind: 'session', id: 's1', value: { ...sessions[1]!, lastActiveAt: '2026-10-07T01:00:00Z' } }] })
       expect(renders).toBe(before)
-      expect(rows.mock.calls.filter(([kind]) => kind === 'session' || kind === 'chatSessionOrder')).toEqual([])
+      expect(rows.mock.calls.filter(([kind]) => String(kind) === 'chatSessionOrder' || String(kind) === 'chatIssueOrder')).toEqual([])
+      expect(rows.mock.calls.filter(([kind]) => kind === 'session')).toHaveLength(1)
       expect(ids).not.toHaveBeenCalled()
       expect(sort).not.toHaveBeenCalled()
       runInAction(() => order.set(['s1', ...sessions.filter(s => s.sessionId !== 's1').map(s => s.sessionId)]))
       expect(picker.sessionIds[0]).toBe('s0')
       picker.open()
       expect(picker.sessionIds[0]).toBe('s1')
-    } finally { stop(); rows.mockRestore(); ids.mockRestore(); sort.mockRestore(); pool.dispose() }
+    } finally { stop(); rows.mockRestore(); ids.mockRestore(); sort.mockRestore(); picker.close(); pool.dispose() }
   })
 }
 
@@ -79,11 +80,12 @@ it('stores palette recent commands on open and keeps the addressed rows live', (
   pool.apply({ type: 'replace', rows: [a, b].map(value => ({ kind: 'session' as const, id: value.sessionId, value })) })
   pool.sources.register(['commandCatalog', 'commandWindow'], { read: entity => entity === 'commandCatalog'
     ? { sessions: ['a', 'b'], issues: [], repositories: [], repos: [], worktrees: [], machines: [] }
-    : { paletteOpen: true, pins: { repos: [], worktrees: [] }, selectedIssueId: null, openIssueId: null, selectedWorktree: null, paneA: null }, dispose() {} })
+    : { paletteOpen: true, pins: { repos: [], worktrees: [] }, selectedIssueId: null, openIssueId: null, selectedWorktree: null, paneA: null, recentFiles: [], sidebarSettings: {} } as never, dispose() {} })
   const picker = createCommandPalette(pool)
   picker.open()
   const old = commandLaunchViews(pool).palette()
-  expect(picker.palette()).toMatchObject(old!)
+  if (!old || old === LOADING) throw new Error('Palette did not open')
+  expect(picker.palette()).toMatchObject(old)
   expect(picker.recent).toEqual([{ kind: 'session', id: 'a' }, { kind: 'session', id: 'b' }])
   expect(() => expect(picker.recent).toEqual([{ kind: 'session', id: 'b' }])).toThrow()
   let runs = 0
@@ -95,7 +97,7 @@ it('stores palette recent commands on open and keeps the addressed rows live', (
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'b', value: { ...b, lastActiveAt: '2026-10-07T03:00:00Z' } }] })
     expect(runs).toBe(before)
     expect(ids).not.toHaveBeenCalled()
-    expect(rows.mock.calls.filter(([kind]) => kind === 'session')).toEqual([])
+    expect(rows.mock.calls.filter(([kind]) => kind === 'session')).toHaveLength(1)
     expect(picker.recent[0]).toEqual({ kind: 'session', id: 'a' })
     picker.open()
     expect(picker.recent[0]).toEqual({ kind: 'session', id: 'b' })

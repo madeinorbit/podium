@@ -6,7 +6,7 @@ import {
   type RepoNavView,
 } from '@podium/client-core/values'
 import { type GitRepositoryWire, machinePathBasename, machinePathKey, machinePathsEqual } from '@podium/model/browser'
-import { action, computed, observable } from 'mobx'
+import { action, computed, observable, observableRef } from 'mobx'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
 import type { MobxPool } from './pool'
@@ -189,7 +189,7 @@ const EMPTY_PINS = { repos: [] as readonly string[], worktrees: [] as readonly s
 /** New-task choices take recency once; host eligibility and catalog edits stay live.
  * The launcher's repositoryPaths/newWork ordering has a separate owner. */
 export class LaunchCatalogPicker {
-  @observable.ref accessor order: string[] = []
+  @observableRef accessor order: string[] = []
   @observable accessor initialRepoPath = ''
   constructor(private readonly pool: MobxPool) {}
   @action open() {
@@ -200,8 +200,8 @@ export class LaunchCatalogPicker {
   @lazy get data() {
     const paths = headerEntities(this.pool).repositoryRootIds()
       .flatMap(id => {
-        const row = this.pool.row('repository', id)
-        return row && row !== LOADING && row.kind !== 'worktree' ? [row.path] : []
+        const row = this.pool.row('repository', id) as GitRepositoryWire | undefined
+        return row && typeof row !== 'symbol' && row.kind !== 'worktree' ? [row.path] : []
       })
     const present = new Set(paths)
     return {

@@ -6,7 +6,7 @@ import type { RepoView } from '@podium/client-core/values'
 import { lazy, keyedComputed } from '@podium/mobx-helpers'
 import { machinePathBasename, machinePathKey, machinePathsEqual, normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
 import {
-  action, observable, when,
+  action, observable, observableRef, when, runInAction,
   compareStructural,
   computed,
   untracked,
@@ -266,7 +266,7 @@ function createCommandLaunchViews(pool: MobxPool) {
     { equals: compareStructural },
   )
   const sessionIssue = keyedComputed('commands.sessionIssue', (id: string) => {
-    const row = pool.row('session', id, 'summary-fields')
+    const row = pool.row('session', id, 'summary-fields') as Loaded<SessionView>
     return row && row !== LOADING && row.agentKind !== 'shell' ? row.issueId : undefined
   })
   function projection(snapshot?: CommandLaunchData): Loaded<CommandLaunchData> {
@@ -337,7 +337,7 @@ function createCommandLaunchViews(pool: MobxPool) {
         }
       }
     }
-    return { ...window, ...values, sessionIds: ids, issues, spawnTargets, pending }
+    return { ...values, ...window, sessionIds: ids, issues, spawnTargets, pending }
   }
   const palette = computed(() => projection(), { equals: compareStructural })
   return {
@@ -359,9 +359,9 @@ export type RecentCommand = { kind: 'session' | 'issue'; id: string }
 
 /** A palette mount owns its ordering. Catalog demand lives only in open(). */
 export class CommandPaletteView {
-  @observable.ref accessor snapshot: Loaded<CommandLaunchData> = LOADING
-  @observable.ref accessor sessions: SessionView[] = []
-  @observable.ref accessor recent: RecentCommand[] = []
+  @observableRef accessor snapshot: Loaded<CommandLaunchData> = LOADING
+  @observableRef accessor sessions: SessionView[] = []
+  @observableRef accessor recent: RecentCommand[] = []
   private stopLoading: (() => void) | undefined
 
   constructor(private readonly pool: MobxPool) {}
@@ -418,11 +418,17 @@ export const createCommandPalette = (pool: MobxPool) => new CommandPaletteView(p
 
 /** The palette row's small live answer. Recency belongs to the open order. */
 export class CommandSessionRow {
-  constructor(private readonly pool: MobxPool, readonly id: string) {}
+  private readonly openedAt: string
+  constructor(private readonly pool: MobxPool, readonly id: string) {
+    this.openedAt = runInAction(() => {
+      const session = commandLaunchViews(pool).session(id)
+      return session && session !== LOADING ? session.lastActiveAt : ''
+    })
+  }
   @lazy({ equals: compareStructural }) get presentation(): Loaded<SessionView> {
     const row = commandLaunchViews(this.pool).session(this.id)
     if (!row || row === LOADING) return row
     const fields = [...COMMAND_SUMMARIES.session.filter(field => field !== 'lastActiveAt'), 'agentState']
-    return Object.fromEntries(fields.map(field => [field, row[field as keyof SessionView]])) as SessionView
+    return { ...Object.fromEntries(fields.map(field => [field, row[field as keyof SessionView]])), lastActiveAt: this.openedAt } as unknown as SessionView
   }
 }

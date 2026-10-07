@@ -1,4 +1,5 @@
-import { action, observable } from 'mobx'
+import { lazy } from '@podium/mobx-helpers'
+import { action, compareStructural, observable, observableRef, when } from 'mobx'
 import { headerEntities } from './header-entities'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -7,6 +8,7 @@ import { dedupeSessionsByResume } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 import { headerIds } from './enumerate'
 import type { MobxPool } from './pool'
+import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
 import type { Loaded } from './worklist/rollup'
 
 // Loaded by the screen attachment only. Web hooks import the reader's type.
@@ -195,22 +197,63 @@ export function createChatContextReader(pool: MobxPool) {
 
 /** One open reference/mention picker. Only open/search reads a catalog. */
 export class ReferencePicker {
-  @observable.ref accessor sessionIds: string[] = []
-  @observable.ref accessor issueIds: string[] = []
+  @observableRef accessor sessionIds: string[] = []
+  @observableRef accessor issueIds: string[] = []
   @observable accessor pending = 0
+  @observableRef accessor sessionRows: ReferenceSessionRow[] = []
+  @observableRef accessor issueRows: ReferenceIssueRow[] = []
+  private stopLoading: (() => void) | undefined
   constructor(private readonly pool: MobxPool) {}
+  @action close() { this.stopLoading?.(); this.stopLoading = undefined }
   @action open() {
+    this.close()
     const sessions = chatReferenceSessions(this.pool), issues = chatMentionIssues(this.pool)
     this.sessionIds = sessions.sessions.map(session => session.sessionId)
+    this.sessionRows = sessions.sessions.map(session => new ReferenceSessionRow(this.pool, session.sessionId, session.lastActiveAt))
     this.issueIds = issues.issues.map(issue => issue.id)
+    this.issueRows = issues.issues.map(issue => new ReferenceIssueRow(this.pool, issue.id, issue.updatedAt))
     this.pending = sessions.pending + issues.pending
+    if (this.pending) this.stopLoading = when(() =>
+      chatReferenceSessions(this.pool).pending + chatMentionIssues(this.pool).pending === 0,
+      () => this.open())
   }
   @action search(query: string, limit = 5) {
+    this.close()
     const result = chatMentionMatches(this.pool, query, limit)
     this.issueIds = result.issues.map(issue => issue.id)
+    this.issueRows = result.issues.map(issue => new ReferenceIssueRow(this.pool, issue.id, issue.updatedAt))
     this.pending = result.pending
+    if (this.pending) this.stopLoading = when(() => chatMentionMatches(this.pool, query, limit).pending === 0,
+      () => this.search(query, limit))
+  }
+  @lazy({ equals: compareStructural }) get sessions(): SessionView[] {
+    return this.sessionRows.flatMap(row => { const value = row.presentation; return value && !loading(value) ? [value] : [] })
+  }
+  @lazy({ equals: compareStructural }) get issues(): IssueViewModel[] {
+    return this.issueRows.flatMap(row => { const value = row.presentation; return value && !loading(value) ? [value] : [] })
   }
   session(id: string) { return this.pool.row('session', id, 'summary-fields') as Loaded<SessionView> }
   issue(id: string) { return chatIssue(this.pool, id) }
 }
 export const createReferencePicker = (pool: MobxPool) => new ReferencePicker(pool)
+
+/** Per-row picker companions answer displayed fields; ordering timestamps are
+ * consumed only by open/search. The live Agents list retains its timestamp. */
+class ReferenceSessionRow {
+  constructor(private readonly pool: MobxPool, readonly id: string, private readonly openedAt: string) {}
+  @lazy({ equals: compareStructural }) get presentation(): Loaded<SessionView> {
+    const row = this.pool.row('session', this.id, 'summary-fields') as Loaded<SessionView>
+    if (!row || loading(row)) return row
+    return { ...Object.fromEntries([...CHAT_CONTEXT_SUMMARIES.session.filter(field => field !== 'lastActiveAt'), 'agentState']
+      .map(field => [field, row[field as keyof SessionView]])), lastActiveAt: this.openedAt } as unknown as SessionView
+  }
+}
+class ReferenceIssueRow {
+  constructor(private readonly pool: MobxPool, readonly id: string, private readonly openedAt: string) {}
+  @lazy({ equals: compareStructural }) get presentation(): Loaded<IssueViewModel> {
+    const row = chatIssue(this.pool, this.id)
+    if (!row || loading(row) || row.deletedAt) return undefined
+    const { updatedAt: _recency, ...fields } = row
+    return { ...fields, updatedAt: this.openedAt } as IssueViewModel
+  }
+}
