@@ -273,7 +273,21 @@ function createCommandLaunchViews(pool: MobxPool) {
     },
     { equals: compareStructural },
   )
-  function projection(snapshot?: CommandLaunchData): Loaded<CommandLaunchData> {
+  function memberSessionIds(id: string) {
+    const membership = sessionMembership.get()
+    return pool.queries.ids({ kind: 'commandIssueSessions', issueId: id })
+      .filter(sid => {
+        if (pool.queries.collapsed(sid) || !membership || membership === LOADING || !membership.has(sid)) return false
+        // untracked-read: launch-session-presence
+        if (untracked(() => !pool.tables.session.has(sid))) return true
+        return pool.queries.has({ kind: 'commandIssueSessions', issueId: id, includeShells: false }, sid)
+      })
+      .sort((a, b) => {
+        const left = pool.queries.orderKey(a), right = pool.queries.orderKey(b)
+        return left < right ? -1 : left > right ? 1 : a < b ? -1 : a > b ? 1 : 0
+      })
+  }
+  function projection(snapshot?: CommandLaunchData, memberIds?: string[]): Loaded<CommandLaunchData> {
     const data = snapshot ?? common.get(),
       ids = snapshot?.sessionIds ?? sessionIds.get(),
       window = read('commandWindow', 'window'),
@@ -294,7 +308,6 @@ function createCommandLaunchViews(pool: MobxPool) {
       if (list === LOADING || !list) return list
       issues = list.issues
       pending += list.pending
-      const membership = sessionMembership.get()
       const id = window.openIssueId ?? window.selectedIssueId,
         position = issues.findIndex((issue) => issue.id === id)
       if (id && position >= 0) {
@@ -314,19 +327,7 @@ function createCommandLaunchViews(pool: MobxPool) {
             if (detail === LOADING) pending++
             else if (detail && isFinished(detail)) childDoneCount++
           }
-          const members = pool.queries
-            .ids({ kind: 'commandIssueSessions', issueId: id })
-            .filter((sid) => {
-              if (pool.queries.collapsed(sid) || !membership || membership === LOADING || !membership.has(sid)) return false
-              // untracked-read: launch-session-presence
-              if (untracked(() => !pool.tables.session.has(sid))) return true
-              return pool.queries.has({ kind: 'commandIssueSessions', issueId: id, includeShells: false }, sid)
-            })
-            .sort((a, b) => {
-              const left = pool.queries.orderKey(a),
-                right = pool.queries.orderKey(b)
-              return left < right ? -1 : left > right ? 1 : a < b ? -1 : a > b ? 1 : 0
-            })
+          const members = memberIds ?? memberSessionIds(id)
           issues[position] = {
             ...full,
             // The addressed command summary already resolved the birth ref.
@@ -346,7 +347,8 @@ function createCommandLaunchViews(pool: MobxPool) {
   const palette = computed(() => projection(), { equals: compareStructural })
   return {
     palette: () => palette.get(),
-    selected: (snapshot: CommandLaunchData) => projection(snapshot),
+    selected: (snapshot: CommandLaunchData, memberIds: string[]) => projection(snapshot, memberIds),
+    memberSessionIds,
     window: windowField,
     machines: () => machines.get(),
     sessionIds: () => sessionIds.get(),
@@ -407,7 +409,12 @@ export class CommandPaletteView {
     const views = commandLaunchViews(this.pool)
     const id = views.window('openIssueId') ?? views.window('selectedIssueId')
     const issue = id && id !== LOADING ? this.issueSummaries.get(id) : undefined
-    return views.selected({ ...this.snapshot, issues: issue ? [issue] : [] })
+    return views.selected({ ...this.snapshot, issues: issue ? [issue] : [] }, this.memberIds)
+  }
+  @lazy get memberIds(): string[] {
+    const views = commandLaunchViews(this.pool)
+    const id = views.window('openIssueId') ?? views.window('selectedIssueId')
+    return id && id !== LOADING ? views.memberSessionIds(id) : []
   }
   @lazy({ equals: compareStructural })
   get data(): Loaded<CommandPaletteData> {

@@ -144,6 +144,10 @@ for (const scale of [1, 4]) it(`does not render or walk catalogs on an open pale
   })
   expect(await screen.findByRole('combobox')).toBeTruthy()
   await act(async () => {})
+  // Read/unread action eligibility stays live. Establish unread first so the
+  // measured heartbeat changes only recency, including for the selected row.
+  await act(async () => fixture.patch('session', 'synthetic-session-11', { lastActiveAt: new Date(Date.now() + 30000).toISOString() }))
+  await act(async () => {})
   const before = commits, counts = { ...commandLaunchViews(pool!).counts }
   const order = screen.getAllByRole('option').map(row => row.textContent)
   await act(async () => fixture.patch('session', 'synthetic-session-11', { lastActiveAt: new Date(Date.now() + 60000).toISOString() }))
