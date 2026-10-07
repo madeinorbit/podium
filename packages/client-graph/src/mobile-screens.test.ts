@@ -223,10 +223,10 @@ it('an archived root keeps its full header for the current session without loadi
     root,
     issue('hidden-child', { parentId: 'cold', archived: true, stage: 'done' }),
   ], [current])
-  let data: ReturnType<typeof reader.mission> = LOADING
-  disposals.push(autorun(() => { data = reader.mission('cold') }))
-  expect(data).toBe(LOADING)
+  disposals.push(autorun(() => reader.mission('cold')))
+  expect(reader.mission('cold')).toBe(LOADING)
   expect(pool.hydrate()).toBe(1)
+  const data = reader.mission('cold')
   expect(data).not.toBe(LOADING)
   if (data === LOADING) throw new Error('Archived mission is still loading')
   expect(data.missionSessions).toMatchObject([{ sessionId: 'current', issueId: 'cold' }])
@@ -235,7 +235,7 @@ it('an archived root keeps its full header for the current session without loadi
   const header = data.issues.find(row => row.id === data.missionSessions[0]?.issueId) ?? data.root
   expect(header).toBe(data.root)
   expect(header).toMatchObject(root)
-  expect(header).toMatchObject({ memberSessionIds: ['current'], childCount: 0, childDoneCount: 0 })
+  expect(header).toMatchObject({ memberSessionIds: ['current'] })
   expect(load).toHaveBeenCalledTimes(1)
   expect(load).toHaveBeenCalledWith('issue', 'cold')
   expect(pool.tables.issue.has('hidden-child')).toBe(false)

@@ -388,7 +388,11 @@ export function createMobileScreenReader(pool: MobxPool) {
     @lazy get issues(): IssueViewModel[] {
       const issues = new Map<string, IssueViewModel>()
       for (const member of this.members) {
-        const row = mission.facts(member).visible ? requireRow(mission.issue(member)) : requireRow(pool.row('issueBoardRow', member))
+        // The root already supplies the mission header's full fields, even
+        // when archived. Its current session must keep that same projection.
+        const row = member === this.issue.id || mission.facts(member).visible
+          ? requireRow(mission.issue(member))
+          : requireRow(pool.row('issueBoardRow', member))
         if (row) issues.set(member, row)
       }
       // Authorship and sheet notes can refer outside the drawn mission.
