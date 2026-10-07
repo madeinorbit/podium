@@ -1,5 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { asSessionId } from '@podium/model/browser'
+import { asSessionId, isFinished } from '@podium/model/browser'
+import { CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS } from '@podium/model'
+import type { TaskProgress } from '@podium/client-core/values'
 import { motionPhase as sessionMotion } from '@podium/client-core/values'
 
 /**
@@ -181,6 +183,7 @@ export interface ModelHost {
   row(entity: EntityName, id: string, absent?: 'mark' | 'summary'): LoadedRow<object>
   /** The pool's shared session object, including an addressed cold session. */
   sessionObject(id: string): SessionModel
+  issueObject(id: string): IssueModel
   /** Addressed raw archived field, independent of payload/residency. */
   sessionArchiveField(id: string): boolean | undefined
   /** Whether the cutoff declares a stored session field, even when optional. */
@@ -723,6 +726,60 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   @lazy
   get phase(): SlicePhase {
     return this.finished === undefined ? NO_ROLLUP.phase : phaseOf(this.aggregate, this.finished)
+  }
+
+  // Task progress: formal descendants, independent of sidebar/mission placement.
+  get childCount(): number { return this.host.relations.size('issue', this.id, 'treeChildren') }
+
+  @lazy
+  get childDoneCount(): number {
+    let done = 0
+    for (const id of this.host.relations.many('issue', this.id, 'treeChildren')) {
+      const row = this.host.row('issue', id, 'summary') as LoadedRow<SliceIssue>
+      if (row === LOADING) throw LOADING
+      if (row && isFinished(row)) done++
+    }
+    return done
+  }
+
+  @lazy
+  get confirmedWorkingAgents(): number {
+    const ids = this.host.sessionSeatIds('pageSessions', this.id, false)
+    if (ids === LOADING) throw LOADING
+    let count = 0
+    for (const id of ids) if (this.host.sessionObject(id).confirmedWorking) count++
+    return count
+  }
+
+  @lazy({ equals: compareStructural })
+  get taskProgress(): TaskProgress | null {
+    let total = 0, done = 0, liveAgents = 0
+    const seen = new Set([this.id]), stack = [...this.host.relations.many('issue', this.id, 'treeChildren')]
+    while (stack.length) {
+      const id = stack.pop()!
+      if (seen.has(id)) continue
+      seen.add(id)
+      const row = this.host.row('issue', id, 'summary') as LoadedRow<SliceIssue>
+      if (row === LOADING) throw LOADING
+      if (!row || row.archived || row.deletedAt || row.isDraftVessel) continue
+      total++
+      if (isFinished(row)) done++
+      liveAgents += this.host.issueObject(id).confirmedWorkingAgents
+      stack.push(...this.host.relations.many('issue', id, 'treeChildren'))
+    }
+    return total ? { total, done, liveAgents } : null
+  }
+
+  // Links: all reverse dependency edges, including their declared type.
+  @lazy({ equals: compareStructural })
+  get dependents(): readonly { id: string; type: string }[] {
+    const result: { id: string; type: string }[] = []
+    for (const id of [...this.host.relations.many('issue', this.id, 'pageDependents')].sort()) {
+      const row = this.host.row('issue', id, 'summary') as LoadedRow<SliceIssue>
+      if (row === LOADING) throw LOADING
+      for (const dep of row?.deps ?? []) if (dep.id === this.id) result.push({ id, type: dep.type })
+    }
+    return result
   }
 
   // Progress
@@ -1808,6 +1865,16 @@ export class SessionModel extends EntityModel implements SessionVisibility {
   @lazy
   get asking(): boolean {
     return !this.archived && this.exists && (this.phase === 'needs_user' || this.phase === 'errored' || Boolean(this.offer))
+  }
+
+  /** Confirmed execution expires at this session's deadline, never on a board-wide tick. */
+  @lazy
+  get confirmedWorking(): boolean {
+    if (this.archived || !this.exists || this.agentKind === 'shell' || this.status !== 'live') return false
+    if (this.phase !== 'working' && this.phase !== 'compacting') return false
+    const at = Math.max(...[this.lastActivity, this.agentState?.since, this.agentState?.stateObservedAt]
+      .map(stamp => Date.parse(stamp ?? '')).filter(Number.isFinite))
+    return Number.isFinite(at) && !this.host.inputs.passed(at + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS)
   }
 
   // History: one scalar per question, shared by navigation and every mission.

@@ -2,6 +2,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type {
   BoardFilter,
+  BoardRowIssue,
   IssueRow,
   IssuesOrdering,
   TaskProgress,
@@ -131,6 +132,7 @@ export interface IssueBoardSourceRows {
   issueBoardQuery: { ids: string[] }
   issueBoardCatalog: BoardCatalog
   issueBoardModel: PoolBoardData
+  issueBoardPosition: BoardRowIssue & { closedReason?: string | null }
   issueBoardColumn: IssueId[]
   issueBoardOpenIds: IssueId[]
   issueBoardMenu: MissionActionInputs
@@ -149,6 +151,7 @@ export const ISSUE_BOARD_ENTITIES = [
   'issueBoardQuery',
   'issueBoardCatalog',
   'issueBoardModel',
+  'issueBoardPosition',
   'issueBoardColumn',
   'issueBoardOpenIds',
   'issueBoardMenu',

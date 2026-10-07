@@ -536,6 +536,10 @@ export function createIssueBoardSource(
         return catalog(id === 'true')
       case 'issueBoardModel':
         return board(JSON.parse(id))
+      case 'issueBoardPosition': {
+        const [issueId, ordering] = JSON.parse(id)
+        return layout.position(issueId, ordering)
+      }
       case 'issueBoardColumn':
         return layout.columnIds(JSON.parse(id) as BoardColumnOptions)
       case 'issueBoardOpenIds': {

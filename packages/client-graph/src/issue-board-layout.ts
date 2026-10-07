@@ -232,12 +232,13 @@ export function createBoardLayout(pool: MobxPool) {
     }
     return result
   })
-  const position = keyedComputed('IssueBoard.listPosition', (key: string): Loaded<BoardRowIssue> => {
+  const position = keyedComputed('IssueBoard.listPosition', (key: string): Loaded<BoardRowIssue & { closedReason?: string | null }> => {
     const [id, ordering] = JSON.parse(key) as [string, IssuesOrdering]
     const stage = column(id), parentId = parent(id), sort = sortKey(key)
-    if (stage === LOADING || parentId === LOADING || sort === LOADING) return LOADING
+    const row = raw(id)
+    if (stage === LOADING || parentId === LOADING || sort === LOADING || row === LOADING) return LOADING
     if (!stage || !sort) return undefined
-    return { id, parentId, stage, priority: sort[0], seq: sort[1],
+    return { id, parentId, stage, closedReason: row?.closedReason, priority: sort[0], seq: sort[1],
       createdAt: ordering === 'created' ? sort[2] : '', updatedAt: ordering === 'updated' ? sort[2] : '' }
   }, { equals: compareStructural })
   const rows = keyedComputed('IssueBoard.listRows', (key: string): Loaded<PoolBoardData['view']['rowGroups']> => {
@@ -292,6 +293,7 @@ export function createBoardLayout(pool: MobxPool) {
       const ids = matching(JSON.stringify({ kind: 'board', filter: query.filter ?? {}, showAgentTasks: query.showAgentTasks ?? false }))
       return ids === LOADING ? LOADING : { ids: ids ?? [] }
     },
+    position: (id: string, ordering: IssuesOrdering) => position(JSON.stringify([id, ordering])),
     board: (options: BoardOptions) => board(boardKey(options)),
     columnIds: (options: BoardColumnOptions) => columnIds(columnKey(options)),
     dropIndex(options: BoardColumnOptions & { id: string }) {
