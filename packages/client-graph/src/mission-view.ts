@@ -356,10 +356,14 @@ export class MissionDeckIssueModel implements FlightDeckRow {
   get rulesIssue() { return this.view.rulesIssue(this.id) }
   get stage() { return this.facts.stage }
   get title() { return requireLoaded(this.view.title(requireLoaded(this.view.catalogIssue(this.id))!)) }
-  @lazy get deckChildren() { return childrenOf(this.canonical) }
-  @lazy get descendantIds() { return descendants(this.canonical) }
-  @lazy get sessions() { return crewOf(this.canonical) }
-  @lazy get crewIds() { return crewIds(this.canonical) }
+  @lazy private get ownDeckChildren() { return childrenOf(this) }
+  get deckChildren() { return this.canonical.ownDeckChildren }
+  @lazy private get ownDescendantIds() { return descendants(this) }
+  get descendantIds() { return this.canonical.ownDescendantIds }
+  @lazy private get ownSessions() { return crewOf(this) }
+  get sessions() { return this.canonical.ownSessions }
+  @lazy private get ownCrewIds() { return crewIds(this) }
+  get crewIds() { return this.canonical.ownCrewIds }
   get hasLead() { return this.entity.hasLead }
   asks(session: SessionView) { return this.view.pool.sessionObject(session.sessionId).asking && !this.entity.finished }
   @lazy get workingSessionIds() { return this.crewIds.filter(id => this.view.pool.sessionObject(id).atWork) }
@@ -370,8 +374,8 @@ export class MissionDeckIssueModel implements FlightDeckRow {
   }
   get depth() { return this.path ? this.path.length - 1 : this.deck.depth(this.id) }
   @lazy get matched() { return this.matches(this.deck.mode) }
-  @lazy get matchesWorking() { return matchedWorking(this.canonical) }
-  @lazy get matchesNeedsYou() { return matchedNeedsYou(this.canonical) }
+  @lazy get matchesWorking() { return matchedWorking(this) }
+  @lazy get matchesNeedsYou() { return matchedNeedsYou(this) }
   matches(mode: FlightDeckMode) { return mode === 'full' || (mode === 'working' ? this.canonical.matchesWorking : this.canonical.matchesNeedsYou) }
   get rollup() { return rollupValue(this.canonical) }
   @lazy get tasks() { return sum.tasks(this.canonical) }
@@ -394,9 +398,12 @@ export class MissionDeckIssueModel implements FlightDeckRow {
       get needsYou() { return row.actionableCount > 0 },
     }
   }
-  @lazy get presentation() { return presentation(this.canonical) }
-  @lazy get updatedBelow() { return latestBelow(this.canonical) }
-  @lazy get hasPayload() { return hasPayload(this.canonical) }
+  @lazy private get ownPresentation() { return presentation(this) }
+  get presentation() { return this.canonical.ownPresentation }
+  @lazy private get ownUpdatedBelow() { return latestBelow(this) }
+  get updatedBelow() { return this.canonical.ownUpdatedBelow }
+  @lazy private get ownHasPayload() { return hasPayload(this) }
+  get hasPayload() { return this.canonical.ownHasPayload }
   folded(folds: FlightDeckFoldMap) {
     const explicit = folds.get(this.id)
     return explicit === undefined ? requireLoaded(this.deckChildren).length === 0 && this.crewIds.length === 1 : explicit === 'closed'
@@ -480,6 +487,15 @@ export class MissionDeckModel {
   readonly card = companion((issue: IssueModel) => new MissionDeckIssueModel(issue, this))
   constructor(readonly entity: IssueModel, readonly view: MissionViewReader, readonly mode: FlightDeckMode) {}
   get id() { return this.entity.id }
+  /** Phone mission rosters include history; web reads the seated list and only
+   * mounts history on request. Both lists contain the shared session objects. */
+  @lazy get allSessions(): readonly SessionModel[] {
+    const crew = new Map<string, SessionModel>()
+    for (const id of requireLoaded(this.rowIds())) {
+      for (const session of requireLoaded(this.view.attached(id))) crew.set(session.sessionId, this.view.pool.sessionObject(session.sessionId))
+    }
+    return [...crew.values()].sort(this.view.sessionOrder)
+  }
   @lazy get values() { this.view.stats.values++; return this.view.deckValues(this) }
   @lazy get archivedCount() { return this.view.readArchiveCount(this) }
   @lazy get members() { return missions(this.view.pool).members(this.id) }

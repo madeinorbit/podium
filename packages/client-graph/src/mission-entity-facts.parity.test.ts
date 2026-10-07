@@ -17,12 +17,12 @@ const issueRow = (patch: object = {}) => ({ id: 'root', seq: 1, title: 'Mission'
 const sessionRow = (patch: object = {}) => ({ sessionId: 'crew', issueId: 'root', title: 'Agent',
   cwd: '/synthetic', agentKind: 'codex', status: 'live', archived: false, createdAt: stamp,
   lastActiveAt: stamp, agentState: { phase: 'idle' }, ...patch }) as SessionView
-function open(issue: object = issueRow(), sessions: SessionView[] = [sessionRow()]) {
+function open(issue: object = issueRow(), sessions: SessionView[] = [sessionRow()], cold = false) {
   const records = [{ kind: 'issue' as const, id: 'root', value: issue as never },
     ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value: value as never }))]
   const load = vi.fn((entity: string, id: string) => records.find(row => row.kind === entity && row.id === id)?.value)
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
-    { load, summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {} })
+    cold ? { load, summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {} } : undefined)
   pools.push(pool); pool.apply({ type: 'replace', rows: records })
   return { pool, load, view: missionView(pool) }
 }
@@ -80,14 +80,53 @@ it('member summary preserves raw membership, ID phase order and activity', () =>
   expect(tracked(() => model.memberSessionIds)).toEqual(previous.ids)
   expect(tracked(() => model.memberSummary)).toEqual(previous.summary)
   expect(tracked(() => model.memberLatestActivity)).toBe(previous.latest)
-  expect(Object.keys(model.memberSummary.byPhase)).toEqual(['needs_user', 'working'])
+  expect(tracked(() => model.memberSessionIds)).toEqual(['a', 'z'])
+  expect(tracked(() => model.memberSummary)).toEqual({ total: 2, byPhase: { needs_user: 1, working: 1 } })
+  expect(tracked(() => Object.keys(model.memberSummary.byPhase))).toEqual(['needs_user', 'working'])
 })
 
 it('cold facts queue batched loads and never synchronously invoke the loader', () => {
   const { pool, load } = open(issueRow({ stage: 'done', closedAt: '2026-09-01T12:00:00Z' }),
-    [sessionRow({ archived: true, status: 'exited' })])
+    [sessionRow({ archived: true, status: 'exited' })], true)
   expect(tracked(() => pool.issueObject('root').visible)).toBe(LOADING)
   expect(load).not.toHaveBeenCalled()
   expect(pool.hydrate()).toBe(1)
   expect(tracked(() => pool.issueObject('root').visible)).toBe(true)
+})
+
+it.each(['visible', 'live', 'hasLead', 'memberSummary', 'memberSessionIds', 'memberLatestActivity'] as const)('rejects a deliberately wrong issue %s field', name => {
+  const { pool } = open(issueRow({ coordinatorSessionId: 'crew' }))
+  const model = pool.issueObject('root'), expected = tracked(() => model[name])
+  const wrong = name === 'memberSummary' ? { total: 999, byPhase: {} } :
+    name === 'memberSessionIds' ? ['wrong'] : name === 'memberLatestActivity' ? -Infinity : !expected
+  Object.defineProperty(model, name, { configurable: true, get: () => wrong })
+  expect(() => expect(model[name]).toEqual(expected)).toThrow()
+})
+
+it.each(['open', 'onRoster', 'atWork', 'asking', 'phase', 'rosterEligible'] as const)('cold session %s is LOADING until the batched row arrives', name => {
+  const { pool, load } = open(issueRow({ stage: 'done', closedAt: '2026-09-01T12:00:00Z' }),
+    [sessionRow({ status: 'exited', archived: false })], true)
+  const model = pool.sessionObject('crew')
+  expect(tracked(() => model[name])).toBe(LOADING)
+  expect(load).not.toHaveBeenCalled()
+  pool.hydrate()
+  expect(tracked(() => model[name])).not.toBe(LOADING)
+})
+
+it('the archived flag uses the declared scalar while a session is cold', () => {
+  const { pool, load } = open(issueRow({ stage: 'done', archived: true }), [sessionRow({ archived: true })], true)
+  expect(pool.model('session', 'crew')).toBeUndefined()
+  expect(tracked(() => pool.sessionObject('crew').archived)).toBe(true)
+  expect(load).not.toHaveBeenCalled()
+})
+
+it.each(['phase', 'moved', 'lastActivity', 'lastInput', 'transcript', 'historyKind', 'rosterEligible'] as const)('history %s matches the old raw-row fact and rejects a mutation', name => {
+  const row = sessionRow({ archived: true, lastInputAt: stamp, transcriptAvailable: true, handoffTarget: 'Other machine' })
+  const { pool } = open(issueRow(), [row]), model = pool.sessionObject('crew')
+  const expected = { phase: row.agentState?.phase ?? 'unknown', moved: Boolean(row.handoffTarget),
+    lastActivity: row.lastActiveAt, lastInput: row.lastInputAt, transcript: row.transcriptAvailable,
+    historyKind: row.agentKind, rosterEligible: !row.headless && row.agentKind !== 'shell' }[name]
+  expect(tracked(() => model[name])).toBe(expected)
+  Object.defineProperty(model, name, { configurable: true, get: () => 'wrong' })
+  expect(() => expect(model[name]).toBe(expected)).toThrow()
 })

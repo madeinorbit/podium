@@ -427,7 +427,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
 
-  // ------------------------------------------------------ independent answers
+  // Presence and sidebar placement
 
   @lazy
   private get hasStanding(): boolean {
@@ -663,7 +663,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.ownState === 'ready'
   }
 
-  // ------------------------------------------ the row (RowView, L1b): the fields
+  // Stored fields and display labels (RowView compatibility)
 
   @lazy
   get displayRef(): string {
@@ -680,6 +680,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.finished === undefined ? NO_ROLLUP.phase : phaseOf(this.aggregate, this.finished)
   }
 
+  // Progress
   @lazy
   get progressDone(): number {
     if (this.finished === undefined) return NO_ROLLUP.progressDone
@@ -692,6 +693,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.unitsBelow.members > 0 ? this.unitsBelow.units : this.unitOwn.solo ? 1 : 0
   }
 
+  // Presence and attention
   @lazy
   get working(): boolean {
     return this.finished !== undefined && this.aggregate.working
@@ -717,6 +719,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.readOwn()?.repoKey ?? ''
   }
 
+  // Close: the sidebar fold has a grace period; finished is the entity lifecycle.
   @lazy
   get closed(): boolean {
     return this.settledClosed && !this.asking
@@ -727,6 +730,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.settledDismissed && !this.asking
   }
 
+  // Stored fields used by row ordering
   @lazy
   get pinned(): boolean {
     return this.readOwn()?.pinned === true
@@ -774,7 +778,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.host.inputs.selected(this.id)
   }
 
-  // --------------------------------------------------- reads of the groups
+  // Links and history
 
   /** The raw parent the nesting walk follows; a hidden issue's from its summary (POD-4753). */
   get parentRef(): string | null {
@@ -1545,7 +1549,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.readAggregate().pending
   }
 
-  // ------------------------------------------------------ formal progress
+  // Progress: formal descendants
 
   get unitOwn(): UnitOwn {
     const model = this
@@ -1637,7 +1641,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.readUnitsBelow().pending
   }
 
-  // ------------------------------------------------------ continuation
+  // Links: continuation and origins
 
   get tip(): import('./worklist/rollup').Tip {
     const model = this
@@ -1809,7 +1813,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
     return retentionOf(this.host.visibleInputs.sessionRow(this.id))
   }
 
-  // ------------------------------------------------------ retention
+  // Close and retention: sidebar history also considers read/grace state
 
   get retention(): Retention | null {
     if (!this.hasRetention) return null
@@ -1877,7 +1881,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
     return this.host.visibleInputs.loadedSession(this.id) as SliceSession
   }
 
-  // ------------------------------------------------------ seat motion and sidebar facts
+  // Presence: resident sidebar verdicts (LOADING while cold)
 
   get verdict(): LoadedRow<SeatVerdict> {
     const state = this.verdictState
@@ -2036,7 +2040,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
     return headerWorkingSession(this.row as SessionView | undefined, this.host.inputs.passed) != null
   }
 
-  // ------------------------------------------------------ header contributions
+  // Header presentation: screen rules retained for the sidebar follow-up
 
   get headerWorking(): NonNullable<ReturnType<typeof headerWorkingSession>> | null {
     if (!this.headerWorkingPresent) return null

@@ -1,4 +1,6 @@
-import { keyedComputed } from '@podium/mobx-helpers'
+import { companion, keyedComputed, lazy } from '@podium/mobx-helpers'
+import type { IssueModel, SessionModel } from './models'
+import { missions } from './mission'
 import { isFinished } from './shared/predicates'
 /** Mobile screen reads on the app-owned pool. No feed, replica, mutation owner,
  * world enumeration, peek reader, or independently maintained relationships. */
@@ -355,6 +357,51 @@ export function createMobileScreenReader(pool: MobxPool) {
       proposals: proposalCount,
     }
   }
+  /** Phone-only roster and sheet references are independent lazy questions.
+   * A displayed phase/label change cannot rewalk all mission attachments. */
+  class PhoneMission {
+    constructor(readonly issue: IssueModel) {}
+    @lazy get members() { return requireRow(missions(pool).members(this.issue.id))! }
+    @lazy get attached(): readonly SessionModel[] {
+      const seats = new Map<string, SessionModel>()
+      for (const member of this.members) {
+        const attached = mission.attached(member)
+        if (attached === LOADING) throw LOADING
+        for (const seat of attached) seats.set(seat.sessionId, pool.sessionObject(seat.sessionId))
+      }
+      return [...seats.values()].sort(mission.sessionOrder)
+    }
+    @lazy get authors(): readonly SessionModel[] {
+      const authors = new Map<string, SessionModel>()
+      for (const member of this.members) {
+        const id = pool.graph.one('issue', member, 'startedBy')
+        if (!id || pool.graph.isCollapsed('session', id)) continue
+        const session = requireRow(mission.session(id))
+        if (session) authors.set(id, pool.sessionObject(id))
+      }
+      return [...authors.values()]
+    }
+    @lazy get sessions(): SessionModel[] {
+      return [...new Map([...this.attached, ...this.authors].map(session => [session.sessionId, session])).values()].sort(mission.sessionOrder)
+    }
+    @lazy get crew(): SessionModel[] { return this.attached.filter(session => !session.archived) }
+    @lazy get issues(): IssueViewModel[] {
+      const issues = new Map<string, IssueViewModel>()
+      for (const member of this.members) {
+        const row = mission.facts(member).visible ? requireRow(mission.issue(member)) : requireRow(pool.row('issueBoardRow', member))
+        if (row) issues.set(member, row)
+      }
+      // Authorship and sheet notes can refer outside the drawn mission.
+      for (const row of [...issues.values()]) for (const dep of row.deps ?? []) {
+        if (!issues.has(dep.id)) {
+          const target = requireRow(pool.row('issueBoardRow', dep.id))
+          if (target) issues.set(dep.id, target)
+        }
+      }
+      return [...issues.values()].sort((a, b) => byId(a.id, b.id))
+    }
+  }
+  const phoneMission = companion((issue: IssueModel) => new PhoneMission(issue))
   function deck(id: string | null, mode: FlightDeckMode): MissionViewValues | typeof LOADING {
     return memo(`deck:${id}:${mode}`, () => screenSnapshot(
       computed(() => settled(() => readDeck(id, mode))),
@@ -396,13 +443,7 @@ export function createMobileScreenReader(pool: MobxPool) {
     // shared pane carries seated senders only (its heartbeats never walk
     // history), so the phone adds every attached sender of the pane's issues,
     // as the pane once did itself.
-    const crew = new Map(values.sessions.map((seat) => [seat.sessionId as string, seat]))
-    for (const id of values.issueIds) {
-      const attached = mission.attached(id)
-      if (attached === LOADING) throw LOADING
-      for (const seat of attached) crew.set(seat.sessionId, seat)
-    }
-    const sessions = [...crew.values()].sort(mission.sessionOrder)
+    const sessions = values.deck ? [...values.deck.allSessions] : []
     return { ...values, progress, presence, sessions }
   }
   function readMission(id: string | null): MobileMissionData | typeof LOADING {
@@ -417,42 +458,12 @@ export function createMobileScreenReader(pool: MobxPool) {
     const values = deck(id, 'full')
     if (values === LOADING) throw LOADING
     if (!values.root) return EMPTY_MOBILE_MISSION
-    const issues = new Map(values.issueIds.flatMap(id => { const row = mission.issue(id); if (row === LOADING) throw LOADING; return row ? [[id, row] as const] : [] })),
-      sessions = new Map(values.sessions.map((seat) => [seat.sessionId as string, seat]))
-    const crew = new Map<string, SessionView>()
-    for (const member of values.members) {
-      if (!issues.has(member)) {
-        const row = requireRow(pool.row('issueBoardRow', member))
-        if (row) issues.set(member, row)
-      }
-      const attached = mission.attached(member)
-      if (attached === LOADING) throw LOADING
-      for (const seat of attached) {
-        sessions.set(seat.sessionId, seat)
-        if (!pool.sessionObject(seat.sessionId).archived) crew.set(seat.sessionId, seat)
-      }
-    }
-    // Authorship and child-sheet notes can refer outside the drawn roster.
-    for (const row of [...issues.values()]) {
-      for (const dep of row.deps ?? [])
-        if (!issues.has(dep.id)) {
-          const target = requireRow(pool.row('issueBoardRow', dep.id))
-          if (target) issues.set(dep.id, target)
-        }
-      if (
-        row.startedBySession &&
-        !sessions.has(row.startedBySession) &&
-        !pool.graph.isCollapsed('session', row.startedBySession)
-      ) {
-        const author = requireRow(mission.session(row.startedBySession))
-        if (author) sessions.set(author.sessionId, author)
-      }
-    }
+    const card = phoneMission(mission.facts(values.root.id))
     return {
       root: values.root,
-      issues: [...issues.values()].sort((a, b) => byId(a.id, b.id)),
-      sessions: [...sessions.values()].sort(mission.sessionOrder),
-      missionSessions: [...crew.values()].sort(mission.sessionOrder),
+      issues: card.issues,
+      sessions: card.sessions,
+      missionSessions: card.crew,
       progress: values.progress,
     }
   }
