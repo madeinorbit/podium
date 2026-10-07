@@ -3,6 +3,7 @@ import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
 import { sidebarNested } from './worklist/sidebar'
 import { MODEL_CLASSES, type ModelHost } from './models'
+import { aggregatePartOf, LOADING, ownAttentionPartOf, unitOwnPartOf, unitsBelowPartOf } from './worklist/rollup'
 
 /**
  * POD-5370: Vite, Bun and this runner DEFINE a constructor parameter property
@@ -156,4 +157,70 @@ it('an unknown row keeps the previous progress defaults while its formal child r
     expect(root.unitsBelow.units).toBe(1)
     expect(progress).toEqual([0, 0])
   } finally { stop(); pool.dispose() }
+})
+
+it('a working reader never demands seat order or sidebar facts', () => {
+  const pool = fixture(), root = pool.issue('root')!
+  const readSeat = pool.rollupInputs.seat
+  const guard = vi.spyOn(pool.rollupInputs, 'seat').mockImplementation(id => {
+    const seat = readSeat(id)
+    if (seat === LOADING || seat === undefined) return seat
+    return new Proxy(seat, {
+      get(target, key, receiver) {
+        if (key === 'sidebarFacts' || key === 'sidebarOrder' || key === 'id')
+          throw new Error(`Working demanded unrelated ${String(key)}`)
+        return Reflect.get(target, key, receiver)
+      },
+    })
+  })
+  let working = false
+  const stop = autorun(() => { working = root.aggregate.working })
+  try {
+    expect(working).toBe(true)
+    runInAction(() => pool.apply({ type: 'update', rows: [
+      { kind: 'session', id: 'seat', value: sessionRow({ agentState: { phase: 'waiting', since: stamp } }) as never },
+    ] }))
+    expect(working).toBe(false)
+  } finally { stop(); guard.mockRestore(); pool.dispose() }
+})
+
+it('progress counts do not acquire staffing or seat presence', () => {
+  const pool = fixture(), root = pool.issue('root')!, child = pool.issue('child')!
+  const guards = [root, child].map(model => vi.spyOn(model, 'openOwn', 'get').mockImplementation(() => {
+    throw new Error('A count demanded staffing')
+  }))
+  let counts: readonly number[] = []
+  const stop = autorun(() => { counts = [root.progressDone, root.progressTotal] })
+  try {
+    expect(counts).toEqual([0, 1])
+    runInAction(() => pool.apply({ type: 'update', rows: [
+      { kind: 'issue', id: 'child', value: issueRow('child', { parentId: 'root', closedReason: 'done', closedAt: stamp }) as never },
+    ] }))
+    expect(counts).toEqual([1, 1])
+    for (const guard of guards) expect(guard).not.toHaveBeenCalled()
+  } finally { stop(); for (const guard of guards) guard.mockRestore(); pool.dispose() }
+})
+
+it('all demanded attention and progress fields equal the eager parts, including a formal cycle', () => {
+  const pool = fixture()
+  runInAction(() => pool.apply({ type: 'update', rows: [
+    { kind: 'issue', id: 'root', value: issueRow('root', { parentId: 'child', stage: 'review' }) as never },
+    { kind: 'issue', id: 'leaf', value: issueRow('leaf', { parentId: 'child', closedAt: stamp, closedReason: 'done' }) as never },
+    { kind: 'session', id: 'leaf-seat', value: sessionRow({ sessionId: 'leaf-seat', issueId: 'leaf', agentState: { phase: 'waiting', since: stamp } }) as never },
+  ] }))
+  let failure: unknown
+  const stop = autorun(() => {
+    try { for (const id of ['root', 'child', 'leaf']) {
+      const model = pool.issue(id)!
+      expect(model.ownAttention, `${id} own`).toEqual(ownAttentionPartOf(pool.rollupInputs, model))
+      expect(model.aggregate, `${id} aggregate`).toEqual(aggregatePartOf(pool.rollupInputs, id, model))
+      expect(model.unitOwn, `${id} unit`).toEqual(unitOwnPartOf(pool.rollupInputs, id, model))
+      expect(model.unitsBelow, `${id} closure`).toEqual(unitsBelowPartOf(pool.rollupInputs, id))
+    } } catch (error) { failure = error }
+  })
+  try {
+    if (failure !== undefined) throw failure
+    expect(pool.issue('root')!.unitsBelow.members).toBe(2)
+  }
+  finally { stop(); pool.dispose() }
 })

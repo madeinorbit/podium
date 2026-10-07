@@ -260,6 +260,29 @@ export function combineSidebarSessions(a: SidebarSessionFacts, b: SidebarSession
   }
 }
 
+/** Compose one demanded fact without observing the other timer or fleet fields. */
+export function combineSidebarSessionField<K extends keyof SidebarSessionFacts>(
+  field: K, a: SidebarSessionFacts[K], b: SidebarSessionFacts[K],
+): SidebarSessionFacts[K] {
+  let value: SidebarSessionFacts[keyof SidebarSessionFacts]
+  switch (field) {
+    case 'fleet':
+      value = combineFleet(a as SidebarSessionFacts['fleet'], b as SidebarSessionFacts['fleet'])
+      break
+    case 'working': case 'waitingOpen': case 'waitingFinished': {
+      const left = a as TimerAnchor | undefined, right = b as TimerAnchor | undefined
+      value = left === undefined ? right : right !== undefined && right.stateSince < left.stateSince ? right : left
+      break
+    }
+    case 'doneSince': value = Math.max(a as number, b as number); break
+    case 'totalMs': value = a === undefined && b === undefined ? undefined : ((a ?? 0) as number) + ((b ?? 0) as number); break
+    case 'errorClass': value = a ?? b; break
+    case 'allUnstarted': value = (a as boolean) && (b as boolean); break
+    default: throw new Error(`Unknown sidebar fact: ${String(field)}`)
+  }
+  return value as SidebarSessionFacts[K]
+}
+
 function combineFleet(a: SidebarRowValues['fleet'], b: SidebarRowValues['fleet']): SidebarRowValues['fleet'] {
   // An exited-only branch can still contribute timing, but contributes no
   // fleet glyphs. Keep the other branch's immutable fleet in that case.

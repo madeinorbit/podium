@@ -938,7 +938,7 @@ export function unitsBelowPartOf(input: RollupInputs, id: string): Units {
 }
 
 /** Relations alone detect whether this root belongs to a formal parent cycle. */
-function formalCycleOf(input: RollupInputs, id: string): Set<string> | undefined {
+export function formalCycleOf(input: RollupInputs, id: string): Set<string> | undefined {
   const cycle = new Set<string>([id])
   let parentId = input.rollupNode(id)?.formalParent ?? null
   while (parentId !== null && !cycle.has(parentId)) {

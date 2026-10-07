@@ -119,8 +119,6 @@ import { type Placement, placementOfPart, withWaiting } from './worklist/groups'
 import { NO_SEATS, type SeatSummary } from './worklist/seat-verdicts'
 import {
   type Aggregate,
-  aggregatePartOf,
-  ownAttentionPartOf,
   LOADING,
   type Loaded as LoadedRow,
   type OwnAttention,
@@ -140,10 +138,9 @@ import {
   tipPartOf,
   type UnitOwn,
   type Units,
-  unitOwnPartOf,
-  unitsBelowPartOf,
   waitingPartOf,
 } from './worklist/rollup'
+import { aggregateFields, ownAttentionFields, unitOwnFields, unitsBelowFields } from './worklist/rollup-fields'
 import { type SidebarRoster, sidebarRosterOf } from './worklist/sidebar'
 import { fleetOf, unstarted, type SidebarSessionFacts, type SidebarSessionOrder } from './worklist/sidebar-row'
 import {
@@ -687,11 +684,11 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   private readOwnAttention(): OwnAttention {
-    return ownAttentionPartOf(this.host.rollupInputs, this)
+    return ownAttentionFields(this.host.rollupInputs, this)
   }
 
   private readAggregate(): Aggregate {
-    return aggregatePartOf(this.host.rollupInputs, this.id, this)
+    return aggregateFields(this.host.rollupInputs, this.id, this)
   }
 
   private readOwnFacts(): OwnFacts {
@@ -880,11 +877,11 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   private readUnitOwn(): UnitOwn {
-    return unitOwnPartOf(this.host.rollupInputs, this.id, this)
+    return unitOwnFields(this.host.rollupInputs, this.id, this)
   }
 
   private readUnitsBelow(): Units {
-    return unitsBelowPartOf(this.host.rollupInputs, this.id)
+    return unitsBelowFields(this.host.rollupInputs, this.id)
   }
 
   get label(): Label {
