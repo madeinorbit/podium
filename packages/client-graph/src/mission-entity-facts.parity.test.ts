@@ -105,8 +105,10 @@ it.each(['visible', 'live', 'hasLead', 'memberSummary', 'memberSessionIds', 'mem
 
 it.each(['open', 'onRoster', 'atWork', 'asking', 'phase', 'rosterEligible'] as const)('cold session %s is LOADING until the batched row arrives', name => {
   const { pool, load } = open(issueRow({ stage: 'done', closedAt: '2026-09-01T12:00:00Z' }),
-    [sessionRow({ status: 'exited', archived: false })], true)
+    [sessionRow({ status: 'exited', archived: false, lastActiveAt: '2026-09-01T12:00:00Z',
+      stoppedAt: '2026-09-01T12:00:00Z', agentState: { phase: 'ended' } })], true)
   const model = pool.sessionObject('crew')
+  expect(pool.tables.session.has('crew')).toBe(false)
   expect(tracked(() => model[name])).toBe(LOADING)
   expect(load).not.toHaveBeenCalled()
   pool.hydrate()

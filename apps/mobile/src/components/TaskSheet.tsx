@@ -186,7 +186,7 @@ const SheetHead = observer(function SheetHead({
   issues,
   hex,
   onOpenSession,
-}): {
+}: {
   issue: IssueViewModel
   sessions: readonly SessionView[]
   issues: readonly IssueViewModel[]
@@ -323,7 +323,7 @@ const SheetHead = observer(function SheetHead({
       />
     </View>
   )
-}
+})
 
 const SheetBody = observer(function SheetBody({
   issue,
@@ -332,7 +332,7 @@ const SheetBody = observer(function SheetBody({
   onOpenArtifact,
   onOpenSession,
   onOpenIssue,
-}): {
+}: {
   issue: IssueViewModel
   issues: readonly IssueViewModel[]
   sessions: readonly SessionView[]
@@ -480,7 +480,7 @@ const SheetBody = observer(function SheetBody({
       ) : null}
     </View>
   )
-}
+})
 
 function Part({
   title,

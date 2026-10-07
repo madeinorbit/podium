@@ -623,7 +623,7 @@ const Band = observer(function Band({
   stops,
   current,
   onPress,
-}): {
+}: {
   row: FlightDeckRow
   session: SessionView
   depth: number
@@ -669,7 +669,7 @@ const Band = observer(function Band({
       onPress={onPress}
     />
   )
-}
+})
 
 function ContinuationSignpost({
   continuation,
