@@ -38,7 +38,9 @@ const stops = [autorun(() => {
   for (let i = 0; i < count; i++) {
     const issue = pool.model('issue', `heap-issue-${i}`)!
     void sidebarIssueRow(issue, pool)
-    void issue.presence
+    void issue.flat
+    void issue.keeps
+    void issue.present
     void pool.model('session', `heap-session-${i}`)!.retention
   }
   void headerEntities(pool)

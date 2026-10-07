@@ -5,7 +5,7 @@ import { referenceState } from '../../../../diagnostics/reference-state'
  * FAIL every seed: the generator's forced prefix (`excludedKeeper`,
  * `orphanInWorktree`, `draftVesselStarter`) reaches the branch on every seed,
  * so a plant that stops failing means the shape no longer reaches it. Each
- * plant replaces one cached group on `IssueModel.prototype` in memory (the
+ * plant replaces one field on `IssueModel.prototype` in memory (the
  * group recomputed with the mistake in it) and is restored in a `finally` (a
  * copy of the rule where the rule is more than a line); arm files on disk are
  * never touched.
@@ -26,7 +26,7 @@ import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import { harnessMobxPoolArm } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
 import { IssueModel, type ModelHost } from '@podium/client-graph/models'
-import { type IssueVisibility, membersOf, type VisibleInputs } from '@podium/client-graph/worklist/visible'
+import { type IssueVisibility, type VisibleInputs } from '@podium/client-graph/worklist/visible'
 
 installMobxWarnTrap()
 
@@ -219,19 +219,18 @@ function inputsOf(issue: IssueModel): VisibleInputs {
 }
 
 /**
- * Replace one cached group's getter on `IssueModel.prototype` (every object
- * built after this caches the planted group); returns the restore.
+ * Replace one field getter on `IssueModel.prototype`; returns the restore.
  */
-function patchGroup(
-  name: 'presence' | 'members' | 'nesting',
-  get: (this: IssueModel, original: () => unknown) => unknown,
+function patchField<K extends keyof IssueModel>(
+  name: K,
+  get: (this: IssueModel, original: () => IssueModel[K]) => IssueModel[K],
 ): () => void {
   const descriptor = Object.getOwnPropertyDescriptor(IssueModel.prototype, name)
   if (descriptor?.get === undefined) throw new Error(`[plants] no getter ${name} on IssueModel`)
   const original = descriptor.get
   Object.defineProperty(IssueModel.prototype, name, {
     get(this: IssueModel) {
-      return get.call(this, () => original.call(this))
+      return get.call(this, () => original.call(this) as IssueModel[K])
     },
     configurable: true,
   })
@@ -244,10 +243,8 @@ describe('visibility plants against the oracle (POD-4681)', () => {
   it('plant keeps ignoring excluded fails every seed', async () => {
     // `keeps` without its excluded test: an excluded issue passes on its
     // children's keep (its own flat is false).
-    const restore = patchGroup('presence', function (original) {
-      const presence = original() as IssueModel['presence']
-      if (this.standing?.excluded !== true) return presence
-      return { ...presence, keeps: this.keptBelow }
+    const restore = patchField('keeps', function (original) {
+      return this.standing?.excluded === true ? this.keptBelow : original()
     })
     await expectPlant(
       () => {},
@@ -257,26 +254,12 @@ describe('visibility plants against the oracle (POD-4681)', () => {
   }, GATE_TIMEOUT_MS)
 
   it('plant no R3 members fails every seed', async () => {
-    // Planted at the members composition (R2 only: the lane's R3 part
+    // Planted at the lane member field (R2 only: the lane's R3 part
     // dropped, as the lane had no issueless session), mirroring the hand
     // arm's plant. Driven without the rebuild comparison (see
     // `collectOracleLog`): the shape's row must be missing from snapshot 11
     // on every seed.
-    const restore = patchGroup('members', function () {
-      const input = inputsOf(this)
-      const links = input.links
-      const noLane: VisibleInputs = {
-        ...input,
-        links: {
-          ...links,
-          worktree: {
-            ...links.worktree,
-            sessions: { ...links.worktree.sessions, issueless: () => [] },
-          },
-        },
-      }
-      return membersOf(noLane, this.id, this.standing)
-    })
+    const restore = patchField('laneMemberIds', () => [])
     try {
       for (const seed of SEEDS) {
         const log = (await collectOracleLog(gen(seed, STEPS))).join('\n')
@@ -292,13 +275,8 @@ describe('visibility plants against the oracle (POD-4681)', () => {
   }, GATE_TIMEOUT_MS)
 
   it('plant draft vessel ignored fails every seed', async () => {
-    const restore = patchGroup('nesting', function () {
-      const input = inputsOf(this)
-      if (!this.present) return { nestParent: null, placed: false, visible: false }
-      const nestParent = plantNestParentNoDraft(input, this.id, this)
-      const placed =
-        nestParent !== null ? input.issue(nestParent)?.placed === true : this.standing?.agent === false
-      return { nestParent, placed, visible: placed }
+    const restore = patchField('nestCandidate', function () {
+      return plantNestParentNoDraft(inputsOf(this), this.id, this)
     })
     await expectPlant(
       () => {},
