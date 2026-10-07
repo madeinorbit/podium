@@ -18,8 +18,8 @@ const referenceReader = (pool: MobxPool) => {
   const reader = pool.row('chatContextReader', 'reader')
   return reader && !pending(reader) ? reader : undefined
 }
-function useReferencePicker() {
-  const reader = useWorklistPoolProjection(referenceReader, undefined)
+function useReferencePicker(active = true) {
+  const reader = useWorklistPoolProjection(referenceReader, undefined, active)
   return useMemo(() => reader?.referencePicker(), [reader])
 }
 export function useChatSession(id: SessionId | undefined) {
@@ -47,7 +47,7 @@ const EMPTY_WINDOW: ChatContextRows['chatWindow'] = {
 }
 const EMPTY_INTERACTIONS = { blocked: false, question: undefined, pending: 1 }
 export function useChatMentions(query: string | null) {
-  const picker = useReferencePicker()
+  const picker = useReferencePicker(query !== null)
   useEffect(() => { if (query !== null) picker?.search(query, 5); return () => picker?.close() }, [picker, query])
   const read = useCallback(() => {
     if (!picker || query === null) return EMPTY_OPTIONS
