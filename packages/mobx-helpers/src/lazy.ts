@@ -36,9 +36,16 @@ let releaseQueued = false
 
 // Whether the caller runs inside a MobX batch (an action or a reaction run).
 // Public MobX only: inside a batch an unwatched computed keeps its value to the
-// batch end, outside one it recomputes on every read.
+// batch end, outside one it recomputes on every read. The probe reads data that
+// never changes: a computed that reads nothing is a derivation without
+// observables, which reactionRequiresObservable reports, and a strict test that
+// throws on that report leaves MobX stopped in the middle of the computation.
+const probeData = createAtom('lazy.inBatch.data')
 let probeRuns = 0
-const probe = computed(() => ++probeRuns, { name: 'lazy.inBatch', requiresReaction: false })
+const probe = computed(() => {
+  probeData.reportObserved()
+  return ++probeRuns
+}, { name: 'lazy.inBatch', requiresReaction: false })
 const inBatch = () =>
   // untracked-read: lazy-batch-probe
   untracked(() => probe.get() === probe.get())

@@ -185,6 +185,34 @@ describe('lazy', () => {
     } finally { warn.mockRestore(); configure({ computedRequiresReaction: false }) }
   })
 
+  it('stays quiet under every strict MobX flag inside actions and reactions, and leaves MobX sound', async () => {
+    // As the pool's test trap does: a warning throws where MobX raised it.
+    const warn = vi.spyOn(console, 'warn').mockImplementation((...args: unknown[]) => {
+      throw new Error(`console.warn: ${args.map(String).join(' ')}`)
+    })
+    configure({ enforceActions: 'always', computedRequiresReaction: true, observableRequiresReaction: true, reactionRequiresObservable: true })
+    try {
+      const price = observable.box(3)
+      const order = new Order(price)
+      runInAction(() => expect([order.total, order.total]).toEqual([6, 6]))
+      expect(order.runs).toBe(1)
+      const seen: number[] = []
+      const stop = autorun(() => { seen.push(new Order(price).total) })
+      runInAction(() => price.set(4))
+      stop()
+      expect(seen).toEqual([6, 8])
+      // A reaction made outside any batch still runs at once.
+      let ran = false
+      autorun(() => { ran = price.get() > 0 })()
+      expect(ran).toBe(true)
+      await settle()
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      warn.mockRestore()
+      configure({ enforceActions: 'never', computedRequiresReaction: false, observableRequiresReaction: false, reactionRequiresObservable: false })
+    }
+  })
+
   it('computes once inside a reaction and keeps one slot', () => {
     const order = new Order(observable.box(3))
     const other = observable.box(0)
