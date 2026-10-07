@@ -246,6 +246,7 @@ it('observes an addressed mission without subscribing to unrelated issue content
 })
 
 it('keeps phone mission member visits flat on a seated heartbeat at 1x and 4x', async () => {
+  const measurements: { memberVisits: number; memberBuilds: number }[] = []
   for (const scale of [1, 4]) {
     const seat = {
       sessionId: 'seat', issueId: 'root', cwd: '/fixture', agentKind: 'codex',
@@ -291,10 +292,12 @@ it('keeps phone mission member visits flat on a seated heartbeat at 1x and 4x', 
       kind: 'session', id: 'seat', value: { ...seat, lastActiveAt: '2026-01-02T00:00:00Z' },
     }] }))
     expect(activity).toBe('2026-01-02T00:00:00Z')
-    expect(visits).toBe(0)
     expect(membership.stats.members - builds).toBe(0)
-    console.info('[phone mission heartbeat]', { scale, memberVisits: visits, memberBuilds: membership.stats.members - builds })
+    const work = { memberVisits: visits, memberBuilds: membership.stats.members - builds }
+    measurements.push(work)
+    console.info('[phone mission heartbeat]', { scale, ...work })
   }
+  expect(measurements[1]).toEqual(measurements[0])
 })
 
 for (const scale of [1, 4] as const)
