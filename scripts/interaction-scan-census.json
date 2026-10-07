@@ -248,46 +248,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/mobile/src/client/use-session-context.ts",
-      "holder": "useSessionContextIssues/read/useCallback:callback",
-      "rule": "reader-summary",
-      "tokens": "143e21fab533371aeda7f5acc9e312f04668e5c000c3ce04175f7138f8a46b8e",
-      "gate": [
-        "then:9fdf434333b24e7a8eb46608e07d1c9a8c858d0ec4c720e936f3970febec89d3"
-      ],
-      "origin": [
-        "d5f0f61f92b0eb9e4f4d007b755c75ee30ffb719bf9b55e18fca78dec70ef264"
-      ],
-      "fingerprint": "a0955ea55b972b3e9814f539973d84c87a2e6ac403ffc8684d7ae5fd7819923d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useSessionContextIssues/read/useCallback:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/client/use-session-context.ts",
-      "holder": "useSessionContextSessions/read/useCallback:callback",
-      "rule": "reader-summary",
-      "tokens": "ca57dcfd7fecb619405caef7a8b027f56ab5d6f16ab1c28726ef694715a6a58f",
-      "gate": [
-        "then:9fdf434333b24e7a8eb46608e07d1c9a8c858d0ec4c720e936f3970febec89d3"
-      ],
-      "origin": [
-        "1480ca1a1fe8c9e162bc95b416b0be9daefc58fc9c6f3f0ceb051db36487c501"
-      ],
-      "fingerprint": "f3c6893698f83c9dac1f9ea1e1658a2eb559ede43920dda65c052e85513ee3f7",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useSessionContextSessions/read/useCallback:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/mobile/src/components/ConfiguredIssueLaunchSheet.tsx",
       "holder": "ConfiguredIssueLaunchSheet/start/callback",
       "rule": "helper-consumer",
@@ -2129,6 +2089,60 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/app/command-launch-data.ts",
+      "holder": "useCommandPaletteData",
+      "rule": "reader-summary",
+      "tokens": "2ff33d53c04fb0d47f652b3dc6f72e91670c37f7ed64ee716a6dffebcacc7295",
+      "gate": [],
+      "origin": [
+        "df38a55233f6ae65c2698a3cd2d652be1e4b4c7811b3c0f7c7d94926c6ad617f"
+      ],
+      "fingerprint": "3e9d9e8ec9c2a6c77ffdfc69567e9ab4b3ad255505dbed45ffe4c7eb26621da2",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of useCommandPaletteData",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
+    },
+    {
+      "file": "apps/web/src/app/command-launch-data.ts",
+      "holder": "useCommandPaletteSnapshot",
+      "rule": "reader-summary",
+      "tokens": "cbcee23711ab9b15cadda8d3b58250fd0830a21f37d056bba4b3a617a31d3f43",
+      "gate": [],
+      "origin": [
+        "df38a55233f6ae65c2698a3cd2d652be1e4b4c7811b3c0f7c7d94926c6ad617f"
+      ],
+      "fingerprint": "39e0b5514b98ed0fedc796f4628645b94c81aaf9ac4520eb6e107298aaa2b745",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of useCommandPaletteSnapshot",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
+    },
+    {
+      "file": "apps/web/src/app/CommandPalette.tsx",
+      "holder": "PaletteDialog/snapshot",
+      "rule": "reader-summary",
+      "tokens": "f1fa4b6d64185ebb5da051d21d4b199e29a96c4a5ada2fd24c86c37feeb4d7f9",
+      "gate": [],
+      "origin": [
+        "df38a55233f6ae65c2698a3cd2d652be1e4b4c7811b3c0f7c7d94926c6ad617f"
+      ],
+      "fingerprint": "cbe4f5f5324763a5459a4fd81f980d3ba394b0978ba3cca27e615bf94ac96eca",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of PaletteDialog/snapshot",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
     },
     {
       "file": "apps/web/src/app/CommandPalette.tsx",
@@ -6333,42 +6347,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/features/chat/ChatComposer.tsx",
-      "holder": "ChatComposer/ChatComposer/issueOptions",
-      "rule": "reader-summary",
-      "tokens": "e388d08d88be15371f620cdc527c54bc8c94c841fd021992cb71944af2ebca1d",
-      "gate": [],
-      "origin": [
-        "b42eb2b2fae1aedbe5a23e06bc5ccef8257c0a0f66c4deda862007a1b3b5d050"
-      ],
-      "fingerprint": "8bb30ac52a525402c9b02d1486f3bc027247d2fe6e92bf82b2525a2bb6692d3c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ChatComposer/issueOptions",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/chat/ChatComposer.tsx",
-      "holder": "ChatComposer/ChatComposer/options/useMemo:callback",
-      "rule": "spread",
-      "tokens": "8ae93114b3eb5c628e961900f02bcd0e1098fcc1b06522b5467113eacbcd8fbb",
-      "gate": [],
-      "origin": [
-        "b42eb2b2fae1aedbe5a23e06bc5ccef8257c0a0f66c4deda862007a1b3b5d050"
-      ],
-      "fingerprint": "d0cb5e0133d7fd83c63c80cf9ca9d8e90d59346ed748eb5f288445d7e1a9ecf5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ChatComposer/options/useMemo:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/web/src/features/chat/ChatView.tsx",
       "holder": "ChatView/conversation",
       "rule": "reader-summary",
@@ -6521,26 +6499,6 @@
       "bound": "No per-interaction bound established for this existing collection origin.",
       "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
       "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-context.ts",
-      "holder": "sessionRead/callback",
-      "rule": "zero-arg:sessions",
-      "tokens": "ac197bf52b03a1bca7eda22a00fc4721c28daa548b1642adbefa6a62c43d64fc",
-      "gate": [
-        "then:4103f9db4ea53f5c316de831c7dc8995cb41b5767152b7fedc31a2356756f3c0"
-      ],
-      "origin": [
-        "c79658283e4e369ad43192d226ca7e3adce69afc6b22996e78dbd2b320d024a9"
-      ],
-      "fingerprint": "8e98f1dfe0a9ff6c9f128938f361e68cb078417502b51313590f5fb020792ebe",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of sessionRead/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "zero-arg:sessions carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/features/chat/use-chat-layout.ts",
@@ -17163,6 +17121,42 @@
       "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
       "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
       "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-command-launch.ts",
+      "holder": "mock:callback/useCommandPaletteSnapshot/callback",
+      "rule": "reader-summary",
+      "tokens": "d17803562cce1999309e18d2abfdb9b073318f4c8990078e03b42d70520c3251",
+      "gate": [],
+      "origin": [
+        "03aa19f3086e7e31bb603cd3614a08583d8cff9c6af179929355c447b4f81806"
+      ],
+      "fingerprint": "54821dc82e2af397457886b1357504a8e7a1d994d013ffa38e48b06cda1cc904",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of mock:callback/useCommandPaletteSnapshot/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-command-launch.ts",
+      "holder": "useCommandFixture",
+      "rule": "reader-summary",
+      "tokens": "bb2f3201a57474d9c1568cfc20946a4a2d61263d8daf1f1b0a53bb124ed7866a",
+      "gate": [],
+      "origin": [
+        "03aa19f3086e7e31bb603cd3614a08583d8cff9c6af179929355c447b4f81806"
+      ],
+      "fingerprint": "33b532f7dda8e2e2bf495f8cd51ffff83459a8e458eab3921614b997a4ded654",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of useCommandFixture",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
     },
     {
       "file": "apps/web/src/test-support/mock-command-launch.ts",
@@ -37334,21 +37328,21 @@
       "file": "packages/client-graph/src/chat-context.ts",
       "holder": "chatReferenceSessions",
       "rule": "loop:for-of",
-      "tokens": "e72d1883ed6fd66a88c07359c996fdc6cb824e772dc6e6d7ac3bb77f92608775",
+      "tokens": "5a9ca168f9aa7ee5d77d5a77580eace55eed53baca660da43ca0e00db56be4c3",
       "gate": [
         "exit:then:8071dc9669d474d4a7790228d2e534879cec1212f961abc7b8b2958c66b48a7a"
       ],
       "origin": [
         "7343bcc13454fef04c0edca51169130ce6b99d2e77bf936a2387a5e43d08dbba"
       ],
-      "fingerprint": "794e2bc682b5718a0b67c02033407346243ada23935288fb17791bf72ff4905d",
+      "fingerprint": "5d8699929473c56992a221f1498c39410b27b568d0bd632c77bf93a0fb4cac06",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of chatReferenceSessions",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
     },
     {
       "file": "packages/client-graph/src/chat-context.ts",
@@ -37683,6 +37677,85 @@
     },
     {
       "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/data",
+      "rule": "spread",
+      "tokens": "cbd48f308440aaabc7a7b4760f8b97673f9eb1f6e1a36e2ea3e27bc643598de9",
+      "gate": [
+        "exit:then:6bd938455bbed8b579c0375d2f5d47bb144ec2f131d9b528e878e345d7a69aa2",
+        "then:53b453aab503814bf1b8c7bbc03001eabfea917ba871caa944f6289cf3c34c7b"
+      ],
+      "origin": [
+        "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
+      ],
+      "fingerprint": "6111e3f8988bdec52c139d311a12111056edeb326339363be80be2ed50b264a8",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of CommandPaletteView/data",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/data/selected",
+      "rule": "reader-summary",
+      "tokens": "0f796f9c92232d4b90adb7aafdae40823539b39e8114dd98ceb3a1f970977cca",
+      "gate": [
+        "exit:then:6bd938455bbed8b579c0375d2f5d47bb144ec2f131d9b528e878e345d7a69aa2"
+      ],
+      "origin": [
+        "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
+      ],
+      "fingerprint": "977a4e6b6f6f98b8be1badd6a0a7ee31203bdb664aa9b501d59a13cdf3ca7b72",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of CommandPaletteView/data/selected",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/open/take/callback",
+      "rule": "loop:for-of",
+      "tokens": "da7326b49e142a2ab984769f7926cd7515ff95b2b3397880994190c0a4074363",
+      "gate": [],
+      "origin": [
+        "6cbf7a4bbbe381f53e7f6bc181d6425c5f898069b37dbc56e9c2502ebe6bce34"
+      ],
+      "fingerprint": "7b6ed95581de02ba3dddb9abeb34fb36c11e3e7131cf94ce6613df5207f38241",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of CommandPaletteView/open/take/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/open/take/callback",
+      "rule": "loop:for-of",
+      "tokens": "6799204d98c7ff14c5ff520a5406e0eb683b639181333b32be557c68efb13472",
+      "gate": [
+        "then:a8cab1d6ceb3ae9c88cbc337bdb5d9894c6ea997717af03bdfe1372c731e3b4e"
+      ],
+      "origin": [
+        "4a7e494046e71468cd6147b4dfaf1dca1dbe2f0e9753ff494c4338e56495ef97"
+      ],
+      "fingerprint": "9c5a9f0330d9c872b701ecf7798cd177fe1a9aecaa67f5476a61600a5a372e6e",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of CommandPaletteView/open/take/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
       "holder": "createCommandLaunchViews/common/computed:callback/roots",
       "rule": "consume:map",
       "tokens": "b8069e3666e20f1de7c3946d9e855c781c46ba49fb51ae0abcced50ab4732fbe",
@@ -37825,19 +37898,19 @@
       "file": "packages/client-graph/src/command-launch-views.ts",
       "holder": "createCommandLaunchViews/palette/computed:callback",
       "rule": "reader-summary",
-      "tokens": "b1088f4d3fab1e7e3125c725ac2fe95f890fa98970ac43f7430412910411996f",
+      "tokens": "17c475e4ec2d931895a3080fae46d58c126e2d79a6517464c42b726997d2b1c0",
       "gate": [],
       "origin": [
-        "6ea4a7e2fa7f05b25400873637057e321733e846c85c2b424ee1e981e557b7d9"
+        "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
       ],
-      "fingerprint": "256fb15e235c69e989e62c4380409a939fc00eebbb4aac84b48874b833d39a1b",
+      "fingerprint": "fefc41fdaf1582f3b7b526776288b70150677fed2e4885e53cf4d95c16e2c109",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createCommandLaunchViews/palette/computed:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
     },
     {
       "file": "packages/client-graph/src/command-launch-views.ts",
@@ -38153,16 +38226,34 @@
         "exit:then:55ddc42df8a26a5b3104c329b3ad44e839a55eeaa44bb670d7b882b255882889"
       ],
       "origin": [
-        "6ea4a7e2fa7f05b25400873637057e321733e846c85c2b424ee1e981e557b7d9"
+        "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
       ],
-      "fingerprint": "57a7f84810be261f52f46155772acb88ac82ef9147dc885dcb4b25e0c170d6da",
+      "fingerprint": "f74a37d32229e602a5c91e2e79acafe883b57ba2513230596cc5b93e3029d871",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createCommandLaunchViews/projection/position",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:findIndex carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "createCommandLaunchViews/selected/callback",
+      "rule": "reader-summary",
+      "tokens": "be345518459204ea2f6d3df484f65081f585f2f8821d4bcb62dfb02c80fc8062",
+      "gate": [],
+      "origin": [
+        "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
+      ],
+      "fingerprint": "d2c7e4e5a9e6732f5a1fef68010853744ea35ffe43a9ad0b88eaa0f3f6b2898e",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of createCommandLaunchViews/selected/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
     },
     {
       "file": "packages/client-graph/src/enumerate.ts",
