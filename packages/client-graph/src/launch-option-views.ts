@@ -164,6 +164,7 @@ export function launchOptionViews(pool: MobxPool) {
       repositoryPaths: () => paths.get(),
       newWork: () => work.get(),
       catalog: () => catalog.get(),
+      picker: (): LaunchCatalogPicker => new LaunchCatalogPicker(pool),
       repositoryActivity: (path: string) => activityAt(machinePathKey(path)),
       origin: (path: string) => origin(machinePathKey(path)),
       counts,

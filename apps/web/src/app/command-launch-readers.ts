@@ -15,6 +15,7 @@ function launchOptions(pool: MobxPool) {
   if (!view) pool.row('commandWindow', 'window')
   return view
 }
+export const readLaunchOptions = launchOptions
 export const readLaunchOrigin = (pool: MobxPool, path: string) => launchOptions(pool)?.origin(path) ?? LOADING
 export const readLaunchCatalog = (pool: MobxPool) => launchOptions(pool)?.catalog() ?? LOADING
 export function readTargetMachines(pool: MobxPool, repo: RepoView | undefined, machines: MachineWire[], kinds: readonly string[], preferred?: Record<string, string | undefined>) {

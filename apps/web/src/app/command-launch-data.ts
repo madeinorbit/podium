@@ -1,8 +1,6 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import { LOADING } from '@podium/client-graph'
 import { CommandSessionRow, createCommandPalette, type CommandPaletteData, type RecentCommand } from '@podium/client-graph/command-launch-views'
-import { chatIssue } from '@podium/client-graph/chat-context'
-import { createLaunchCatalogPicker } from '@podium/client-graph/launch-option-views'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RepoView } from '@podium/client-core/values'
 import type { MachineWire } from '@podium/model/browser'
@@ -14,6 +12,7 @@ import {
   readFiles,
   readLaunchOrigin,
   readLaunchCatalog,
+  readLaunchOptions,
   readTargetMachines,
   readOpen,
   readPalette,
@@ -65,7 +64,8 @@ export function useCommandLaunchActions(): CommandLaunchActions {
 }
 export function useCommandLaunchCatalog() {
   const pool = useWorklistPool()
-  const picker = useMemo(() => pool ? createLaunchCatalogPicker(pool) : undefined, [pool])
+  const options = useWorklistPoolProjection(readLaunchOptions, undefined)
+  const picker = useMemo(() => options?.picker(), [options])
   useEffect(() => {
     if (!pool || !picker) return
     return when(() => readLaunchCatalog(pool) !== LOADING, () => picker.open())
@@ -132,7 +132,8 @@ export function useCommandRecentFiles() {
 export function useCommandIssue(id: string | null) {
   const read = useMemo(() => (pool: Parameters<typeof readSession>[0]) => {
     if (id === null) return undefined
-    const issue = chatIssue(pool, id)
+    const reader = pool.row('chatContextReader', 'reader')
+    const issue = reader && reader !== LOADING ? reader.issue(id) : undefined
     return issue && issue !== LOADING ? {
       id: issue.id, seq: issue.seq, title: issue.title, stage: issue.stage,
       displayRef: issue.displayRef, linearIdentifier: issue.linearIdentifier, color: issue.color,
