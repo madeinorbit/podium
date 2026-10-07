@@ -16,7 +16,7 @@ for (const scale of [1, 4]) {
     const sessions = Array.from({ length: 64 * scale }, (_, i) => ({ sessionId: `s${i}`, cwd: '/repo', agentKind: 'codex', status: 'live', lastActiveAt: stamp, title: `Session ${i}` }))
     pool.apply({ type: 'replace', rows: [
       ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
-      ...sessions.map((_, i) => ({ kind: 'issue' as const, id: `i${i}`, value: { id: `i${i}`, title: 'Task', seq: i, stage: 'in_progress', createdAt: stamp, updatedAt: stamp } })),
+      ...sessions.map((_, i) => ({ kind: 'issue' as const, id: `i${i}`, value: { id: `i${i}`, title: 'Task', repoPath: '/repo', seq: i, stage: 'in_progress', createdAt: stamp, updatedAt: stamp } })),
     ] })
     const order = observable.box(sessions.map(s => s.sessionId))
     pool.sources.register(['chatSessionOrder', 'chatIssueOrder'], { read: entity => ({ ids: entity === 'chatSessionOrder' ? order.get() : sessions.map((_, i) => `i${i}`) }), dispose() {} })
@@ -39,6 +39,8 @@ for (const scale of [1, 4]) {
       expect([...new Set(rows.mock.calls.filter(([kind]) => kind === 'session').map(([, id]) => id))]).toEqual(['s1'])
       expect(ids).not.toHaveBeenCalled()
       expect(sort).not.toHaveBeenCalled()
+      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 's1', value: { ...sessions[1]!, title: 'Renamed' } }] })
+      expect(picker.sessions.find(session => session.sessionId === 's1')?.title).toBe('Renamed')
       runInAction(() => order.set(['s1', ...sessions.filter(s => s.sessionId !== 's1').map(s => s.sessionId)]))
       expect(picker.sessionIds[0]).toBe('s0')
       picker.open()
@@ -74,13 +76,14 @@ it('stores new-task catalog order while machine/catalog metadata stays live', ()
   } finally { stop(); query.mockRestore(); pool.dispose() }
 })
 
-it('stores palette recent commands on open and keeps the addressed rows live', () => {
+for (const scale of [1, 4]) it(`stores palette recent commands on open and keeps the addressed rows live at ${scale}x`, () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   const a = { sessionId: 'a', cwd: '/repo', title: 'A', agentKind: 'codex', status: 'live', lastActiveAt: '2026-10-07T02:00:00Z' }
   const b = { ...a, sessionId: 'b', title: 'B', lastActiveAt: '2026-10-07T01:00:00Z' }
-  pool.apply({ type: 'replace', rows: [a, b].map(value => ({ kind: 'session' as const, id: value.sessionId, value })) })
+  const sessions = [a, b, ...Array.from({ length: 64 * scale }, (_, i) => ({ ...b, sessionId: `background-${i}`, lastActiveAt: '2020-01-01T00:00:00Z', archived: true }))]
+  pool.apply({ type: 'replace', rows: sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })) })
   pool.sources.register(['commandCatalog', 'commandWindow'], { read: entity => entity === 'commandCatalog'
-    ? { sessions: ['a', 'b'], issues: [], repositories: [], repos: [], worktrees: [], machines: [] }
+    ? { sessions: sessions.map(s => s.sessionId), issues: [], repositories: [], repos: [], worktrees: [], machines: [] }
     : { paletteOpen: true, pins: { repos: [], worktrees: [] }, selectedIssueId: null, openIssueId: null, selectedWorktree: null, paneA: null, recentFiles: [], sidebarSettings: {} } as never, dispose() {} })
   const picker = createCommandPalette(pool)
   picker.open()
