@@ -341,28 +341,17 @@
     }
   ],
   "validation": {
-    "status": "unlanded; final validation blocked by a helper regression reproduced on plain pilot",
+    "status": "validated; no new or worse structural failure counter",
     "host": "flatblock",
+    "candidate": "40de70575c6773f6d7bc0b4b490a5aa8d0c795ad",
+    "rebasedOnto": "6edccbe3c6e7c593d391f81b3050e1f6576d8266",
     "report": "docs/measurements/pod-5761-validation.json",
-    "proofBeforeHelperLanding": {
-      "productCandidate": "c2e9f5ade90c1c2e5858fb606c319f4871341894",
-      "rebasedOnto": "afd2a1a3b29c63d93e0c6b822b35ed09f7c9346f",
-      "structural": "10 baseline counter failures reduced to 3 inherited failures; no new or worse counter. Sidebar attention heartbeat and lane-change remain 9/9.",
-      "gates": "Full typecheck, lean gate, zero interaction-scan ratchet errors, normal web build, focused models and rollup fence parity were green."
-    },
-    "latestProductCandidate": "94b23fe4bcfae73e187b3c9eddfd7f91faf7fc9a",
-    "controls": "All 14 focused model checks pass with the previous lazy helper. Plain pilot 3de8895a338, without POD-5761 commits, reproduces the schema failure under the new helper; its five sidebar checks pass.",
-    "requiredAfterHelperFix": [
-      "Rebase onto integrate/4286-pilot containing the helper fix",
-      "Focused existing models/worklist proof on the final candidate",
-      "Full typecheck of every project",
-      "Restore the generated API declaration, then run the lean gate",
-      "Interaction scan with zero ratchet errors, preserving classifications",
-      "Normal web build",
-      "Full speed:structural on the rebased candidate under meter:flatblock, flat or better than baseline",
-      "Fast-forward local integrate/4286-pilot under its merge lock and mail POD-4286 each landed SHA"
-    ],
-    "knownReds": "docs/measurements/pod-5710-known-failures.json plus declared issue-page.detail select 55/151 and navigate-by-ref 49/145"
+    "focusedChecks": "14 of 14 model/sidebar/schema tests green with the fixed helper",
+    "gates": "Full typecheck, lean gate, interaction scan with zero ratchet errors, normal web build all green.",
+    "structural": "Full speed:structural under meter:flatblock: 50 readers x 9 actions x 2 scales, 1731 counters. Baseline failures 10 -> 3 inherited; no new or worse structural failure counter. Heartbeat and lane-change sidebar attention remain 9/9.",
+    "knownReds": "Three inherited screen counters plus declared issue-page.detail select 55/151 and navigate-by-ref 49/145; expected-failure allowances unchanged.",
+    "helperRegression": "Resolved by POD-5772 at 6edccbe3c6; the final checks use the fixed helper.",
+    "reportOnlyChanges": "The final inventory and proof update contain no runtime change and require no additional test run."
   },
   "readerProjectionRemoval": [
     "sidebar.parent: shared nestParent replaces the duplicate parent-ID calculation"
@@ -408,5 +397,10 @@
       "cache": "sidebar.facts",
       "reason": "The existing sidebar cache supplies resident facts to its own attention. The row now reuses those same facts instead of warming model facts separately; the cache has its own screen observation lifetime."
     }
-  ]
+  ],
+  "ruleSource": {
+    "path": "docs/agents/frontend-data.md",
+    "currentRule": 5,
+    "adoptionRule": 6
+  }
 }

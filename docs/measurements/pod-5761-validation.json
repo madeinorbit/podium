@@ -2,10 +2,9 @@
   "issue": "POD-5761",
   "title": "Model cache dependency cuts",
   "date": "2026-10-07",
-  "outcome": "Split committed and saved; unlanded pending the pilot helper fix.",
-  "state": "in_progress",
-  "latestProductCandidate": "94b23fe4bcfae73e187b3c9eddfd7f91faf7fc9a",
-  "latestCommentCandidate": "ba17e6b73af85ba8158a9510dd39abecc66a9511",
+  "outcome": "Model cache split validated for ff-only landing on integrate/4286-pilot.",
+  "latestProductCandidate": "e8995763cd",
+  "latestCommentCandidate": "bf3b8f6d34",
   "pilotControl": "3de8895a338fe2ea148dd1b1fbdf879511b749bb",
   "changes": [
     "Inventory all 17 composite model caches and the other structural caches before edits, with readers by part.",
@@ -271,7 +270,303 @@
       }
     ]
   },
-  "finalControls": [
+  "blocker": {
+    "owner": "POD-4286",
+    "condition": "The new @lazy helper produces a strict-observability warning in the existing schema/worklist test on plain pilot.",
+    "inference": "The helper batch probe has no observable dependency; the strict test warning trap appears to trigger the subsequent warning cascade.",
+    "coordinatorInstruction": "First run the failing schema/sidebar files on plain pilot 3de8895a33 (no POD-5761 commits). If they fail there too, tell me and stop; I will open a fix lane.",
+    "reportedByMail": "msg_b8b1bd5c-9a6b-4117-9e73-0b4e3ffe126d",
+    "scope": "No adjacent helper fix added to this branch.",
+    "leases": "All meter and merge leases released after proof; the merge mutex is taken only for the final landing.",
+    "status": "resolved",
+    "fixIssue": "POD-5772",
+    "fixCommit": "6edccbe3c6e7c593d391f81b3050e1f6576d8266",
+    "resolution": "The batch probe now reads an atom that never changes. The final 14 model/sidebar/schema checks pass with the fixed helper."
+  },
+  "handoffOnlyEdits": "The final inventory and proof update are documentation-only. Their runtime content is identical to validated candidate 40de70575c; no additional gate is needed for those report edits.",
+  "status": "validated",
+  "landingTarget": "integrate/4286-pilot",
+  "validatedCandidate": "40de70575c6773f6d7bc0b4b490a5aa8d0c795ad",
+  "rebasedOnto": "6edccbe3c6e7c593d391f81b3050e1f6576d8266",
+  "finalGates": {
+    "candidate": "40de70575c6773f6d7bc0b4b490a5aa8d0c795ad",
+    "host": "flatblock",
+    "checkout": "/home/mgw/podium-test-5761",
+    "toolchain": "Checkout-local Bun 1.4.2, with .toolchain/node -> bun",
+    "checks": [
+      {
+        "command": "bun run test:file -- packages/client-graph/src/models.test.ts packages/client-graph/src/sidebar-attention.test.ts tests/worklist/arms/mobx/pool/models.test.ts",
+        "result": "14 tests green in 3 files with the fixed pilot helper",
+        "seconds": 17.3,
+        "log": ".review/postfix-models.log"
+      },
+      {
+        "command": "bun run typecheck",
+        "result": "Full typecheck green: 29 of 29 tasks, all projects; 20 cached",
+        "seconds": 92.2,
+        "log": ".review/postfix-typecheck.log"
+      },
+      {
+        "command": "git checkout -- packages/api-types/src/index.d.ts; bun run test",
+        "result": "Lean gate green: 4 of 1839 files (0.2%), 154 tests. All included lints green.",
+        "seconds": 138.3,
+        "files": {
+          "packages/runtime/src/boot.test.ts": 16,
+          "apps/server/src/router.setup.test.ts": 41,
+          "apps/daemon/src/connection-state.test.ts": 56,
+          "scripts/test-configuration.test.ts": 41
+        },
+        "log": ".review/postfix-lean.log"
+      },
+      {
+        "command": "bun scripts/check-interaction-scans.ts (invoked by the lean gate)",
+        "result": "0 ratchet errors; 2297 fingerprints and 2298 occurrences; classifications preserved",
+        "log": ".review/postfix-lean.log"
+      },
+      {
+        "command": "cd apps/web && bun run build",
+        "result": "Normal production web build green, including bundle budget",
+        "seconds": 34.4,
+        "log": ".review/postfix-web-build.log"
+      },
+      {
+        "command": "bun run speed:structural",
+        "result": "Full census complete under meter:flatblock: 10 baseline counter failures reduced to 3 inherited ones; no new or worse structural failure counter. Exit 1 only on inherited screen and declared detail failures.",
+        "seconds": 137.0,
+        "log": ".review/postfix-census-quiet.log"
+      }
+    ]
+  },
+  "finalStructural": {
+    "productCandidate": "40de70575c6773f6d7bc0b4b490a5aa8d0c795ad",
+    "rebasedOnto": "6edccbe3c6e7c593d391f81b3050e1f6576d8266",
+    "baseline": "0ca8632ef59f3a74605ad354247bdfec0ca953e3",
+    "command": "bun run speed:structural",
+    "host": "flatblock",
+    "lease": "meter:flatblock",
+    "exitCode": 1,
+    "status": "only inherited failures; no new or worse structural failure counter",
+    "readers": 50,
+    "actions": 9,
+    "scales": [
+      1,
+      4
+    ],
+    "comparedCounters": 1731,
+    "baseUnexpectedCounters": 10,
+    "candidateUnexpectedCounters": 3,
+    "newOrWorseCounters": [],
+    "remainingCounters": [
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:sidebar.row/IssueModel@guard-root.sidebar.nested",
+        "base": [
+          12,
+          14
+        ],
+        "candidate": [
+          10,
+          12
+        ]
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:launcher.phone/launch.usage",
+        "base": [
+          231,
+          900
+        ],
+        "candidate": [
+          231,
+          900
+        ]
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:launcher.launch/launch.catalogUsage",
+        "base": [
+          201,
+          801
+        ],
+        "candidate": [
+          201,
+          801
+        ]
+      }
+    ],
+    "clearedBaseCounters": [
+      {
+        "action": "select",
+        "kind": "rows",
+        "reader": "consumer:sidebar.row/IssueModel@guard-child.loaded",
+        "base": [
+          0,
+          2
+        ],
+        "candidateStatus": "within budget or original bundled cache removed"
+      },
+      {
+        "action": "select",
+        "kind": "derivations",
+        "reader": "consumer:sidebar.row/IssueModel@guard-child.loaded",
+        "base": [
+          0,
+          1
+        ],
+        "candidateStatus": "within budget or original bundled cache removed"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:sidebar.row/IssueModel@guard-child.sidebar",
+        "base": [
+          50,
+          51
+        ],
+        "candidateStatus": "within budget or original bundled cache removed"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:sidebar.row/IssueModel@guard-child.loaded",
+        "base": [
+          0,
+          2
+        ],
+        "candidateStatus": "within budget or original bundled cache removed"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:header.folded",
+        "base": [
+          50,
+          52
+        ],
+        "candidateStatus": "within budget or original bundled cache removed"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "IssueModel@guard-next.nesting",
+        "base": [
+          0,
+          1
+        ],
+        "candidateStatus": "within budget or original bundled cache removed"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "IssueModel@guard-next.nesting",
+        "base": [
+          0,
+          1
+        ],
+        "candidateStatus": "within budget or original bundled cache removed"
+      }
+    ],
+    "expectedFailureCounters": 64,
+    "fixedAllowanceCountersGreen": 100,
+    "declaredDetailFailures": [
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-root",
+        "at1x": 55,
+        "at4x": 151,
+        "neighbourhood1x": 6,
+        "neighbourhood4x": 6,
+        "passed": false
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:issue-page.detail/IssuePage@page:guard-child",
+        "at1x": 49,
+        "at4x": 145,
+        "neighbourhood1x": 7,
+        "neighbourhood4x": 7,
+        "passed": false
+      }
+    ],
+    "sidebarAttention": [
+      {
+        "action": "navigate-by-ref",
+        "kind": "derivations",
+        "reader": "consumer:sidebar.row/IssueModel@guard-root.sidebar.attention",
+        "at1x": 1,
+        "at4x": 1,
+        "neighbourhood1x": 7,
+        "neighbourhood4x": 7,
+        "passed": true
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:sidebar.row/IssueModel@guard-root.sidebar.attention",
+        "at1x": 11,
+        "at4x": 11,
+        "neighbourhood1x": 7,
+        "neighbourhood4x": 7,
+        "passed": true
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "consumer:sidebar.row/IssueModel@guard-root.sidebar.attention",
+        "at1x": 1,
+        "at4x": 1,
+        "neighbourhood1x": 7,
+        "neighbourhood4x": 7,
+        "passed": true
+      },
+      {
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:sidebar.row/IssueModel@guard-root.sidebar.attention",
+        "at1x": 9,
+        "at4x": 9,
+        "neighbourhood1x": 7,
+        "neighbourhood4x": 7,
+        "passed": true
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "consumer:sidebar.row/IssueModel@guard-root.sidebar.attention",
+        "at1x": 1,
+        "at4x": 1,
+        "neighbourhood1x": 7,
+        "neighbourhood4x": 7,
+        "passed": true
+      },
+      {
+        "action": "lane-change",
+        "kind": "elements",
+        "reader": "consumer:sidebar.row/IssueModel@guard-root.sidebar.attention",
+        "at1x": 9,
+        "at4x": 9,
+        "neighbourhood1x": 7,
+        "neighbourhood4x": 7,
+        "passed": true
+      }
+    ],
+    "foreignReadCount": 0,
+    "peakRecordedProcessMiB": 5544.3,
+    "durationSeconds": 137.0,
+    "stopReason": null,
+    "structuralChecks": {
+      "passed": 21,
+      "failedOnInheritedCounters": 2,
+      "filtered": 7
+    },
+    "log": ".review/postfix-census-quiet.log"
+  },
+  "historicalControls": [
     {
       "name": "Unknown-row progress negative control",
       "productCandidate": "94b23fe4bcfae73e187b3c9eddfd7f91faf7fc9a",
@@ -299,24 +594,24 @@
       "log": ".review/plain-pilot-control.log"
     }
   ],
-  "blocker": {
-    "owner": "POD-4286",
-    "condition": "The new @lazy helper produces a strict-observability warning in the existing schema/worklist test on plain pilot.",
-    "inference": "The helper batch probe has no observable dependency; the strict test warning trap appears to trigger the subsequent warning cascade.",
-    "coordinatorInstruction": "First run the failing schema/sidebar files on plain pilot 3de8895a33 (no POD-5761 commits). If they fail there too, tell me and stop; I will open a fix lane.",
-    "reportedByMail": "msg_b8b1bd5c-9a6b-4117-9e73-0b4e3ffe126d",
-    "scope": "No adjacent helper fix added to this branch.",
-    "leases": "All leases released; no test process left running."
+  "censusResourceRetry": {
+    "firstAttempt": {
+      "log": ".review/postfix-census.log",
+      "seconds": 52.9,
+      "status": "No complete census result; stopped at the agreed host swap limit",
+      "availableMiB": 2266.9,
+      "swapMiB": 12392.6,
+      "cleanup": "Only recorded processes were stopped, including surviving recorded PID 2043635 after TERM. The meter lease was released."
+    },
+    "retry": {
+      "log": ".review/postfix-census-quiet.log",
+      "seconds": 137.0,
+      "status": "Complete under meter:flatblock in the coordinator-provided quiet window",
+      "peakRecordedProcessMiB": 5544.3,
+      "foreignReadCount": 0,
+      "stopReason": null
+    }
   },
-  "remainingBeforeLanding": [
-    "Rebase onto integrate/4286-pilot containing the helper fix",
-    "Focused existing models/worklist proof on the final candidate",
-    "Full typecheck of every project",
-    "Restore the generated API declaration, then run the lean gate",
-    "Interaction scan with zero ratchet errors, preserving classifications",
-    "Normal web build",
-    "Full speed:structural on the rebased candidate under meter:flatblock, flat or better than baseline",
-    "Fast-forward local integrate/4286-pilot under its merge lock and mail POD-4286 each landed SHA"
-  ],
-  "handoffOnlyEdits": "The final report and inventory update are documentation-only; no additional tests were run for them."
+  "proofLimit": "The full census remains red only on the inherited counters listed above; this is not a whole-suite test result.",
+  "landingProcedure": "Take merge:integrate/4286-pilot, rebase the issue branch onto the current local pilot tip, verify ancestry and the validated runtime diff, update-ref with the old tip as a compare-and-swap guard, release the mutex and mail POD-4286 the landed SHA."
 }
