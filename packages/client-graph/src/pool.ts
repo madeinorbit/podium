@@ -71,6 +71,7 @@ import {
 } from 'mobx'
 import { DeadlineClock } from './clock'
 import { debugName } from './debug-name'
+import { sessionSeats, type SeatRelation } from './session-seats'
 import { reseed } from './enumerate'
 import { headerEntities } from './header-entities'
 import {
@@ -710,6 +711,11 @@ export class MobxPool {
 
   sessionSummaryField(property: string): boolean {
     return this.residency?.hasSummaryField('session', property) ?? false
+  }
+
+  sessionSeatIds(relation: SeatRelation, issueId: string, archived: boolean): readonly string[] | typeof LOADING {
+    const partition = sessionSeats(this).partition(relation, issueId)
+    return partition === LOADING ? LOADING : archived ? partition.archived : partition.present
   }
 
   /**

@@ -72,6 +72,7 @@ import { compareStructural, untracked } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
 import { headerDockSession, headerHostSession, headerWorkingSession } from './header-session'
 import type { Residence } from './pool'
+import type { SeatRelation } from './session-seats'
 import type { CollectionName, IsLazy, SingleName, SubsetName, TargetOf } from './shared/links'
 import { createRowOverlay } from './shared/overlay-row'
 import type { RelationReader } from './shared/relation-reader'
@@ -184,6 +185,8 @@ export interface ModelHost {
   sessionArchiveField(id: string): boolean | undefined
   /** Whether the cutoff declares a stored session field, even when optional. */
   sessionSummaryField(property: string): boolean
+  /** Borrow the data layer's archive partition without copying its IDs. */
+  sessionSeatIds(relation: SeatRelation, issueId: string, archived: boolean): readonly string[] | typeof LOADING
   /** The declared parent key, tracked without reading the source or target payload. */
   formalParent(id: string): string | null
   /** What the row view's parts read. */
@@ -588,7 +591,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   // Links: raw page membership includes headless, history and resume twins.
-  @lazy
+  @lazy({ equals: compareStructural })
   get memberSessionIds(): ReturnType<typeof asSessionId>[] {
     return [...this.host.relations.many('issue', this.id, 'pageSessions')].sort().map(asSessionId)
   }
@@ -596,25 +599,57 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   // History: scalar session fields stop display-only changes at each member.
   @lazy({ equals: compareStructural })
   get memberSummary(): { total: number; byPhase: Record<string, number> } {
-    const byPhase: Record<string, number> = {}
-    let total = 0, pending = false
-    for (const id of this.memberSessionIds) {
-      const session = this.host.sessionObject(id)
-      try {
-        if (!session.exists) continue
-        const phase = session.phase
-        byPhase[phase] = (byPhase[phase] ?? 0) + 1
-        total++
-      } catch (error) { if (error !== LOADING) throw error; pending = true }
+    const phases = new Map(this.presentMemberPhases)
+    for (const [phase, value] of this.archivedMemberPhases) {
+      const previous = phases.get(phase)
+      phases.set(phase, previous ? { count: previous.count + value.count,
+        first: previous.first < value.first ? previous.first : value.first } : value)
     }
-    if (pending) throw LOADING
+    const byPhase: Record<string, number> = {}
+    let total = 0
+    for (const [phase, value] of [...phases].sort((a, b) => a[1].first < b[1].first ? -1 : 1)) {
+      byPhase[phase] = value.count
+      total += value.count
+    }
     return { total, byPhase }
   }
 
   @lazy
   get memberLatestActivity(): number {
+    return Math.max(this.presentMemberActivity, this.archivedMemberActivity)
+  }
+
+  // Archive contributions stay observed independently: a live heartbeat or
+  // phase change never walks the issue's unchanged historical members.
+  @lazy private get presentMemberPhases() { return this.readMemberPhases(false) }
+  @lazy private get archivedMemberPhases() { return this.readMemberPhases(true) }
+  @lazy private get presentMemberActivity() { return this.readMemberActivity(false) }
+  @lazy private get archivedMemberActivity() { return this.readMemberActivity(true) }
+
+  private readMemberPhases(archived: boolean): ReadonlyMap<string, { count: number; first: string }> {
+    const ids = this.host.sessionSeatIds('pageSessions', this.id, archived)
+    if (ids === LOADING) throw LOADING
+    const phases = new Map<string, { count: number; first: string }>()
+    let pending = false
+    for (const id of ids) {
+      const session = this.host.sessionObject(id)
+      try {
+        if (!session.exists) continue
+        const phase = session.phase
+        const previous = phases.get(phase)
+        phases.set(phase, previous ? { count: previous.count + 1,
+          first: previous.first < id ? previous.first : id } : { count: 1, first: id })
+      } catch (error) { if (error !== LOADING) throw error; pending = true }
+    }
+    if (pending) throw LOADING
+    return phases
+  }
+
+  private readMemberActivity(archived: boolean): number {
+    const ids = this.host.sessionSeatIds('pageSessions', this.id, archived)
+    if (ids === LOADING) throw LOADING
     let latest = -Infinity, pending = false
-    for (const id of this.memberSessionIds) {
+    for (const id of ids) {
       try {
         const at = this.host.sessionObject(id).activityMs
         if (at !== null && at > latest) latest = at

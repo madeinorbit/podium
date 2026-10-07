@@ -28,7 +28,6 @@ import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
 import { asIssueId, asSessionId, DRAFT_ISSUE_TITLE, HANDOFF_HARNESS_KINDS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { IssueModel, ModelOf, SessionModel } from './models'
-import { sessionSeats } from './session-seats'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
 import { missions } from './mission'
@@ -739,16 +738,7 @@ export class MissionViewReader {
     return !row || row === LOADING ? row : menuSessionOverlay(row, MENU_SESSION_OVERRIDES, MENU_SESSION_OMISSIONS)
   }
   private seatIds(relation: SeatRelation, id: string, archived: boolean): readonly string[] | typeof LOADING {
-    const partition = sessionSeats(this.pool).partition(relation, id)
-    if (partition === LOADING) return LOADING
-    const ids = [...(archived ? partition.archived : partition.present)]
-    let pending = false
-    for (const sessionId of partition.unknown) {
-      const flag = settled(() => this.pool.sessionObject(sessionId).archived)
-      if (flag === LOADING) pending = true
-      else if (flag === archived) ids.push(sessionId)
-    }
-    return pending ? LOADING : ids
+    return this.pool.sessionSeatIds(relation, id, archived)
   }
   private seatRows(relation: SeatRelation, id: string, archived: boolean): SessionView[] | typeof LOADING {
     const ids = this.seatIds(relation, id, archived)
