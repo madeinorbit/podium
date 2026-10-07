@@ -4,7 +4,7 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { asUserId } from '@podium/model/browser'
+import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Profiler } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -137,7 +137,11 @@ for (const scale of [1, 4]) it(`does not render or walk catalogs on an open pale
     onFatalError={error => { throw new Error(error) }}>
     <ConfirmProvider><Capture /><Profiler id="open-palette" onRender={() => { commits++ }}><CommandPalette /></Profiler></ConfirmProvider>
   </StoreProvider>)
-  await act(async () => { referenceState(runtime).setPaletteOpen(true) })
+  await act(async () => {
+    referenceState(runtime).setSelectedIssueId(asIssueId('synthetic-11'))
+    referenceState(runtime).setPane('A', asSessionId('synthetic-session-11'))
+    referenceState(runtime).setPaletteOpen(true)
+  })
   expect(await screen.findByRole('combobox')).toBeTruthy()
   await act(async () => {})
   const before = commits, counts = { ...commandLaunchViews(pool!).counts }

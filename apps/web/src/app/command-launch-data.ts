@@ -1,6 +1,6 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import { LOADING } from '@podium/client-graph'
-import { CommandSessionRow, createCommandPalette, type CommandLaunchData, type RecentCommand } from '@podium/client-graph/command-launch-views'
+import { CommandSessionRow, createCommandPalette, type CommandPaletteData, type RecentCommand } from '@podium/client-graph/command-launch-views'
 import { chatIssue } from '@podium/client-graph/chat-context'
 import { createLaunchCatalogPicker } from '@podium/client-graph/launch-option-views'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -97,7 +97,7 @@ export function useCommandTargetMachines(repo: RepoView | undefined, machines: M
 }
 
 type CommandPaletteSnapshot = {
-  data: Loaded<CommandLaunchData>
+  data: Loaded<CommandPaletteData>
   sessions: SessionView[]
   selectedSessions: SessionView[]
   recent: RecentCommand[]
@@ -109,7 +109,7 @@ export function useCommandPaletteSnapshot(active = true): CommandPaletteSnapshot
   const read = useMemo(() => (): CommandPaletteSnapshot | undefined => picker && { data: picker.palette(), sessions: picker.sessions, selectedSessions: picker.selectedSessions, recent: picker.recent }, [picker])
   return useWorklistPoolProjection(read, undefined, active)
 }
-export function useCommandPaletteData(active = true): Loaded<CommandLaunchData> {
+export function useCommandPaletteData(active = true): Loaded<CommandPaletteData> {
   return useCommandPaletteSnapshot(active)?.data ?? LOADING
 }
 export function useCommandSessions(): Loaded<SessionView[]> {

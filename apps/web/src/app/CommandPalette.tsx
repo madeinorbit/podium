@@ -356,6 +356,7 @@ function PaletteDialogBody({
     () =>
       paletteIssueMenuData({
         issues,
+        selectedIssue: data.selectedIssue ?? null,
         issueId: openIssueId ?? selectedIssueId,
         sessions: selectedSessions,
         repos,
@@ -363,7 +364,7 @@ function PaletteDialogBody({
         handoffEnabled,
         repoViews,
       }),
-    [issues, openIssueId, selectedIssueId, selectedSessions, repos, repoViews, machines, handoffEnabled],
+    [issues, data.selectedIssue, openIssueId, selectedIssueId, selectedSessions, repos, repoViews, machines, handoffEnabled],
   )
 
   const focusedValue = useCommandSession(paneA && data.sessionIds.includes(paneA) ? paneA : null)

@@ -361,12 +361,14 @@ export function commandLaunchViews(pool: MobxPool) {
 }
 
 export type RecentCommand = { kind: 'session' | 'issue'; id: string }
+export type CommandPaletteData = CommandLaunchData & { selectedIssue?: IssueViewModel }
 
 /** A palette mount owns its ordering. Catalog demand lives only in open(). */
 export class CommandPaletteView {
   @observableRef accessor snapshot: Loaded<CommandLaunchData> = LOADING
   @observableRef accessor sessions: SessionView[] = []
   @observableRef accessor recent: RecentCommand[] = []
+  @observableRef accessor issueSummaries = new Map<string, IssueViewModel>()
   private stopLoading: (() => void) | undefined
 
   constructor(private readonly pool: MobxPool) {}
@@ -376,6 +378,8 @@ export class CommandPaletteView {
     const views = commandLaunchViews(this.pool)
     const take = () => {
       this.snapshot = views.palette()
+      this.issueSummaries = new Map(this.snapshot && this.snapshot !== LOADING
+        ? this.snapshot.issues.map(issue => [issue.id, issue]) : [])
       const sessions = views.sessions()
       this.sessions = sessions && sessions !== LOADING ? sessions : []
       const stamp = (iso: string | undefined) => iso ? Date.parse(iso) || 0 : 0
@@ -399,14 +403,21 @@ export class CommandPaletteView {
 
   @lazy({ equals: compareStructural })
   get selection(): Loaded<CommandLaunchData> {
-    return this.snapshot && this.snapshot !== LOADING
-      ? commandLaunchViews(this.pool).selected(this.snapshot) : this.snapshot
+    if (!this.snapshot || this.snapshot === LOADING) return this.snapshot
+    const views = commandLaunchViews(this.pool)
+    const id = views.window('openIssueId') ?? views.window('selectedIssueId')
+    const issue = id && id !== LOADING ? this.issueSummaries.get(id) : undefined
+    return views.selected({ ...this.snapshot, issues: issue ? [issue] : [] })
   }
   @lazy({ equals: compareStructural })
-  get data(): Loaded<CommandLaunchData> {
+  get data(): Loaded<CommandPaletteData> {
     const selected = this.selection
-    return selected && selected !== LOADING
-      ? { ...selected, machines: commandLaunchViews(this.pool).machines() } : selected
+    if (!selected || selected === LOADING) return selected
+    const snapshot = this.snapshot
+    return snapshot && snapshot !== LOADING ? {
+      ...selected, issues: snapshot.issues, selectedIssue: selected.issues[0],
+      machines: commandLaunchViews(this.pool).machines(),
+    } : snapshot
   }
   @lazy get selectedRows() {
     const views = commandLaunchViews(this.pool)
@@ -421,7 +432,7 @@ export class CommandPaletteView {
       return session && session !== LOADING ? [session] : []
     })
   }
-  palette(): Loaded<CommandLaunchData> { return this.data }
+  palette(): Loaded<CommandPaletteData> { return this.data }
   session(id: string) { return commandLaunchViews(this.pool).session(id) }
   @action close() { this.stopLoading?.(); this.stopLoading = undefined }
 }

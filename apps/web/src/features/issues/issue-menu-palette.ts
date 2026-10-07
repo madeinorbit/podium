@@ -8,6 +8,7 @@ import { createIssueMenuData, type IssueMenuData } from './issue-menu-config'
 
 export function paletteIssueMenuData(input: {
   issues: readonly IssueViewModel[]
+  selectedIssue?: IssueViewModel | null
   issueId: IssueId | null | undefined
   sessions: readonly SessionView[]
   repos: Parameters<typeof reposToViews>[0]
@@ -15,7 +16,9 @@ export function paletteIssueMenuData(input: {
   handoffEnabled: boolean
   repoViews?: RepoView[]
 }): IssueMenuData | null {
-  const issue = input.issues.find((candidate) => candidate.id === input.issueId)
+  const issue = input.selectedIssue === undefined
+    ? input.issues.find((candidate) => candidate.id === input.issueId)
+    : input.selectedIssue
   if (!issue) return null
 
   const handoff = input.handoffEnabled
