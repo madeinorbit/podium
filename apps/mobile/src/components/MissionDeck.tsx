@@ -639,7 +639,7 @@ const Band = observer(function Band({
   // Asked ON THIS TASK: a closed one never asks, however long its offer has been
   // standing (POD-1072).
   const asking = (row as MissionDeckIssueModel).asks(session)
-  const working = (session as SessionModel).working
+  const working = (session as SessionModel).workingMotion
   const role = sessionRole(row.issue, session, {
     rootId: row.depth === 0 ? row.issue.id : null,
     siblings: row.sessions,

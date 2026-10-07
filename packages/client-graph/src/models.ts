@@ -1754,11 +1754,12 @@ export class SessionModel extends EntityModel implements SessionVisibility {
   // Unlike verdict.working, atWork includes starting/reconnecting before motion.
   @lazy
   get atWork(): boolean {
-    return this.open && (this.status === 'starting' || this.status === 'reconnecting' || this.working)
+    return this.open && (this.status === 'starting' || this.status === 'reconnecting' || this.workingMotion)
   }
 
   @lazy
-  get working(): boolean { return this.exists && sessionMotion(this) === 'working' }
+  // Motion lets an offer/question override execution; verdict.working reports execution alone.
+  get workingMotion(): boolean { return this.exists && sessionMotion(this) === 'working' }
 
   @lazy
   get asking(): boolean {

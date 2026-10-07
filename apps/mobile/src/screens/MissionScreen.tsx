@@ -1,3 +1,4 @@
+import { requireLoaded } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
 import type { SessionModel } from '@podium/client-graph/models'
 import { isFinished } from '@podium/model/browser'
@@ -100,7 +101,7 @@ export const MissionScreen = observer(function MissionScreen() {
 
   const attention = missionSessions.filter(s => (s as SessionModel).asking).length
   const live = missionSessions.filter(s => (s as SessionModel).open).length
-  const working = missionSessions.filter(s => (s as SessionModel).working).length
+  const working = missionSessions.filter(s => requireLoaded((s as SessionModel).verdict)?.working).length
 
   const openSession = useCallback((session: SessionView) => {
     setPinnedSessionId(session.sessionId)

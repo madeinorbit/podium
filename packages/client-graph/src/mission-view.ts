@@ -210,7 +210,7 @@ const ownCount = (name: Count) => ((row: MissionDeckIssueModel) => {
   // Keep that additional computed lazy until a row actually draws its crew.
   const crew = requireLoaded(row.view.roster(row.id))
   if (name === 'live') return crew.filter(session => row.view.pool.sessionObject(session.sessionId).open).length
-  if (name === 'working') return crew.filter(session => { const model = row.view.pool.sessionObject(session.sessionId); return model.open && model.working }).length
+  if (name === 'working') return crew.filter(session => { const model = row.view.pool.sessionObject(session.sessionId); return model.open && model.workingMotion }).length
   if (name === 'waiting') return crew.filter(session => row.asks(session)).length
   return Number(issueNeedsHuman(row.rulesIssue!, crew))
 })
@@ -260,7 +260,7 @@ const matchedWorking = ((row: MissionDeckIssueModel) => row.sessions.some(sessio
 const matchedNeedsYou = ((row: MissionDeckIssueModel) => own.needsYou(row) > 0)
 const collapsedCrew: (row: MissionDeckIssueModel) => SessionView[] = ((row: MissionDeckIssueModel): SessionView[] => {
   const seen = new Set<string>(), candidates: SessionView[] = []
-  const rank = (session: SessionView) => row.view.pool.sessionObject(session.sessionId).open && row.view.pool.sessionObject(session.sessionId).working ? 0 : sessionSettled(session) ? 2 : 1
+  const rank = (session: SessionView) => row.view.pool.sessionObject(session.sessionId).open && row.view.pool.sessionObject(session.sessionId).workingMotion ? 0 : sessionSettled(session) ? 2 : 1
   const shape = requireLoaded(row.deck.topology)
   const groups = shape.overlap ? [row.sessions, ...row.descendantIds.map(id => row.deck.model(id).sessions)] :
     [row.sessions, ...requireLoaded(row.deckChildren).map(id => row.deck.model(id).collapsedCrew)]
@@ -390,9 +390,9 @@ export class MissionDeckIssueModel implements FlightDeckRow {
     // A searchable placeholder asks only for the task count. Reading it must
     // not observe the hidden row's crew, kinds and other presentation rollups.
     return {
-      @lazy get tasks() { return requireLoaded(row.tasks) - own.tasks(row) },
-      @lazy get done() { return requireLoaded(row.done) - own.done(row) },
-      @lazy get run() { return requireLoaded(row.run) - own.run(row) },
+      get tasks() { return requireLoaded(row.tasks) - own.tasks(row) },
+      get done() { return requireLoaded(row.done) - own.done(row) },
+      get run() { return requireLoaded(row.run) - own.run(row) },
       get kinds() { return row.kinds },
       get crew() { return row.collapsedCrew },
       get needsYou() { return row.actionableCount > 0 },
@@ -1014,7 +1014,7 @@ export class MissionViewReader {
       get members() { return requireLoaded(deck.members) },
       get rows() { return deck.rows() },
       get issueIds() { return view.addressedIds(deck) },
-      @lazy get sessions() {
+      get sessions() {
         const sessions = new Map<string, SessionView>()
         for (const id of view.addressedIds(deck)) for (const session of requireLoaded(view.present(id))) sessions.set(session.sessionId, session)
         return [...sessions.values()].sort(view.sessionOrder)
