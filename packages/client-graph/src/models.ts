@@ -1405,7 +1405,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
       get sessionIds() { return model.aggregateSessionIds },
       get sidebarFacts() { return model.aggregateSidebarFacts },
       get updatedAt() { return model.aggregateUpdatedAt },
-      get order() { return model.aggregateOrder },
+      get order() { return model.ownAttentionOrder },
       get decidingAt() { return model.aggregateDecidingAt },
       get seated() { return model.aggregateSeated },
       get working() { return model.aggregateWorking },
@@ -1502,11 +1502,6 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   @lazy
   private get aggregateUpdatedAt(): Aggregate['updatedAt'] {
     return this.readAggregate().updatedAt
-  }
-
-  @lazy({ equals: compareStructural })
-  private get aggregateOrder(): Aggregate['order'] {
-    return this.readAggregate().order
   }
 
   @lazy
@@ -1944,7 +1939,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
     return {
       get open() { return model.verdictOpen },
       get finished() { return model.verdictFinished },
-      get working() { return model.verdictWorking },
+      get working() { return model.executing },
       get workingSinceMs() { return model.verdictWorkingSinceMs },
       get id() { return model.verdictId },
       get sidebarFacts() { return model.verdictSidebarFacts },
@@ -1963,13 +1958,8 @@ export class SessionModel extends EntityModel implements SessionVisibility {
   }
 
   @lazy
-  private get verdictWorking(): SeatVerdict['working'] {
-    return this.executing
-  }
-
-  @lazy
   private get verdictWorkingSinceMs(): SeatVerdict['workingSinceMs'] {
-    if (!this.verdictWorking) return null
+    if (!this.executing) return null
     const row = this.verdictRow
     const at = Date.parse(row.agentState?.since ?? row.lastActiveAt)
     return Number.isFinite(at) ? at : null
