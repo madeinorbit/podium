@@ -273,9 +273,9 @@ function createCommandLaunchViews(pool: MobxPool) {
     },
     { equals: compareStructural },
   )
-  function memberSessionIds(id: string) {
+  function memberSessionIds(id: string, archived?: false) {
     const membership = sessionMembership.get()
-    return pool.queries.ids({ kind: 'commandIssueSessions', issueId: id })
+    return pool.queries.ids({ kind: 'commandIssueSessions', issueId: id, archived, includeShells: false })
       .filter(sid => {
         if (pool.queries.collapsed(sid) || !membership || membership === LOADING || !membership.has(sid)) return false
         // untracked-read: launch-session-presence
@@ -419,7 +419,7 @@ export class CommandPaletteView {
   @lazy get memberIds(): string[] {
     const views = commandLaunchViews(this.pool)
     const id = this.contextIssueId
-    return id ? views.memberSessionIds(id) : []
+    return id ? views.memberSessionIds(id, false) : []
   }
   @lazy({ equals: compareStructural })
   get data(): Loaded<CommandPaletteData> {
@@ -440,7 +440,7 @@ export class CommandPaletteView {
   @lazy get selectedRows() {
     const id = this.contextIssueId
     if (!id) return []
-    return this.pool.queries.ids({ kind: 'commandIssueSessions', issueId: id })
+    return this.pool.queries.ids({ kind: 'commandIssueSessions', issueId: id, archived: false, includeShells: false })
       .map(id => new CommandSessionRow(this.pool, id))
   }
   @lazy({ equals: compareStructural }) get selectedSessions(): SessionView[] {

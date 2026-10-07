@@ -2,11 +2,12 @@ import { referenceState } from '../../../../tests/worklist/diagnostics/reference
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
+import { commandLaunchViews, createCommandPalette } from '@podium/client-graph/command-launch-views'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { Profiler } from 'react'
+import { runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { createSidebarFixture } from '../../test/sidebar-fixture'
@@ -138,12 +139,22 @@ for (const scale of [1, 4]) it(`does not render or walk catalogs on an open pale
     <ConfirmProvider><Capture /><Profiler id="open-palette" onRender={() => { commits++ }}><CommandPalette /></Profiler></ConfirmProvider>
   </StoreProvider>)
   await act(async () => {
+    fixture.patch('session', 'synthetic-session-0', { issueId: 'synthetic-11', archived: true, status: 'exited' })
     referenceState(runtime).setSelectedIssueId(asIssueId('synthetic-11'))
     referenceState(runtime).setPane('A', asSessionId('synthetic-session-11'))
     referenceState(runtime).setPaletteOpen(true)
   })
   expect(await screen.findByRole('combobox')).toBeTruthy()
   await act(async () => {})
+  runInAction(() => {
+    const picker = createCommandPalette(pool!)
+    picker.open()
+    const answer = picker.palette(), legacy = commandLaunchViews(pool!).palette()
+    if (!answer || !legacy || typeof answer === 'symbol' || typeof legacy === 'symbol') throw new Error('Palette answer did not settle')
+    expect(answer.selectedIssue?.memberSessionIds).toEqual(legacy.issues.find(issue => issue.id === 'synthetic-11')?.memberSessionIds)
+    expect(answer.selectedIssue?.memberSessionIds).not.toContain('synthetic-session-0')
+    picker.close()
+  })
   // Eligibility changes remain live; measure a subsequent timestamp-only
   // heartbeat after the selected session's first unread transition settles.
   await act(async () => fixture.patch('session', 'synthetic-session-11', { lastActiveAt: new Date(Date.now() + 30000).toISOString() }))
