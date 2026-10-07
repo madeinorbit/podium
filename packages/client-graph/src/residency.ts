@@ -296,6 +296,11 @@ export class Residency {
     return this.known(entity, id)
   }
 
+  /** Schema metadata distinguishes an absent optional field from undeclared data. */
+  hasSummaryField(entity: EntityName, property: string): boolean {
+    return this.summaryFields[entity]?.includes(property) ?? false
+  }
+
   /**
    * TRACKED: the declared cold fields of a cold row, read through the one
    * per-row reader (`RowSource.row`) and projected; worklist readers also

@@ -182,6 +182,8 @@ export interface ModelHost {
   sessionObject(id: string): SessionModel
   /** Addressed raw archived field, independent of payload/residency. */
   sessionArchiveField(id: string): boolean | undefined
+  /** Whether the cutoff declares a stored session field, even when optional. */
+  sessionSummaryField(property: string): boolean
   /** The declared parent key, tracked without reading the source or target payload. */
   formalParent(id: string): string | null
   /** What the row view's parts read. */
@@ -429,10 +431,10 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   // Presence and sidebar placement
 
-  /** Shared fields read the addressed resident slot, without a screen peek. */
+  /** Shared fields read the resident slot; cold sidebar rules keep their own summary input. */
   private residentIssue(): SliceIssue | undefined {
     const row = this.host.row('issue', this.id, 'mark')
-    return row === LOADING ? undefined : row as SliceIssue | undefined
+    return row === LOADING ? this.host.visibleInputs.issueRow(this.id) : row as SliceIssue | undefined
   }
 
   @lazy
@@ -1725,7 +1727,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
     const resident = this.host.row('session', this.id, 'mark')
     if (resident !== LOADING) return (resident as Record<string, unknown> | undefined)?.[property]
     const summary = this.host.row('session', this.id, 'summary')
-    if (summary && summary !== LOADING && Object.hasOwn(summary, property)) return (summary as Record<string, unknown>)[property]
+    if (summary && summary !== LOADING && this.host.sessionSummaryField(property)) return (summary as Record<string, unknown>)[property]
     const row = this.host.row('session', this.id)
     if (row === LOADING) throw LOADING
     return (row as Record<string, unknown> | undefined)?.[property]
@@ -1733,6 +1735,12 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 
   @lazy
   get exists(): boolean {
+    const resident = this.host.row('session', this.id, 'mark')
+    if (resident !== LOADING) return resident !== undefined
+    const summary = this.host.row('session', this.id, 'summary')
+    // A complete declared display summary is a usable session object; a
+    // partial cutoff still spends the shared batched load window.
+    if (summary && summary !== LOADING && ['sessionId', 'cwd', 'status', 'lastActiveAt', 'title'].every(field => Object.hasOwn(summary, field))) return true
     const row = this.host.row('session', this.id)
     if (row === LOADING) throw LOADING
     return row !== undefined
@@ -1792,7 +1800,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
   get historyKind(): SessionView['agentKind'] { return this.agentKind }
 
   @lazy
-  get condition(): SessionView['condition'] { return (this.row as SessionView | undefined)?.condition }
+  get condition(): SessionView['condition'] { return this.storedField('condition') as SessionView['condition'] }
 
   // Activity: the same timestamp answers activityMs and raw member history.
   @lazy

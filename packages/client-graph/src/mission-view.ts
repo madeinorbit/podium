@@ -722,16 +722,8 @@ export class MissionViewReader {
   }
   sessionOrder = (a: Pick<SessionView, 'sessionId'>, b: Pick<SessionView, 'sessionId'>): number => this.idOrder(a.sessionId, b.sessionId)
   rawSession(id: string): Loaded<SessionModel & SessionView> {
-    const resident = this.pool.row('session', id, 'mark')
-    if (resident === undefined) return undefined
-    if (resident === LOADING) {
-      const summary = this.pool.row('session', id, 'summary')
-      if (summary === LOADING || !summary || !['sessionId', 'cwd', 'status', 'lastActiveAt', 'title'].every(key => Object.hasOwn(summary, key))) {
-        const full = this.pool.row('session', id)
-        if (full === LOADING || !full) return full
-      }
-    }
-    return this.pool.sessionObject(id) as SessionModel & SessionView
+    const model = this.pool.sessionObject(id)
+    return settled(() => model.exists ? model as SessionModel & SessionView : undefined)
   }
   session(id: string): Loaded<SessionView> {
     this.stats.sessionReads++

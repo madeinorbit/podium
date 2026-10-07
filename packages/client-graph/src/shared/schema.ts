@@ -1012,6 +1012,8 @@ const DECLARED = defineSchema({
       busy: { type: 'boolean', optional: true, source: meta() },
       machineName: { type: 'string', optional: true, source: meta() },
       queuedMessageCount: { type: 'number', optional: true, source: meta() },
+      createdBy: { type: 'object', optional: true, source: meta() },
+      stopReason: { type: 'enum', optional: true, source: meta() },
       stoppedAt: { type: 'isoDate', optional: true, nullable: true, source: meta() },
       readAt: { type: 'isoDate', optional: true, nullable: true, source: sessionValue('readAt') },
       unread: { type: 'boolean', optional: true, source: sessionValue('readAt'), note: 'Derived from the personal read cursor and session activity at the row-source boundary; legacy only while the companion is absent.' },

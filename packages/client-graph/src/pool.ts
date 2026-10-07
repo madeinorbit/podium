@@ -708,6 +708,10 @@ export class MobxPool {
     return this.queries.sessionStoredField(id, 'archived')
   }
 
+  sessionSummaryField(property: string): boolean {
+    return this.residency?.hasSummaryField('session', property) ?? false
+  }
+
   /**
    * TRACKED: the object of issue `id` while the pool knows the issue (in
    * memory or cold), else undefined: a cross-issue read (a parent, a child,
