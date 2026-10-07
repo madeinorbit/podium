@@ -796,6 +796,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
         </View>
       )}
       <TaskSheet
+        pool={pool}
         issue={livePeekIssue}
         issues={issues}
         sessions={allSessions}

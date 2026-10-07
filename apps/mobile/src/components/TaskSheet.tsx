@@ -1,6 +1,6 @@
 import type { SessionModel } from '@podium/client-graph/models'
 import { observer } from 'mobx-react-lite'
-import { useMobilePool } from '../client/mobile-pool'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -82,6 +82,7 @@ const SESSION_CHIP = 20
 const SHEET_EXIT_MS = 280
 
 export function TaskSheet({
+  pool,
   issue,
   issues,
   sessions,
@@ -89,6 +90,7 @@ export function TaskSheet({
   onOpenSession,
   onOpenIssue,
 }: {
+  pool?: MobxPool | null
   issue: IssueViewModel | null
   issues: readonly IssueViewModel[]
   sessions: readonly SessionView[]
@@ -138,6 +140,7 @@ export function TaskSheet({
         head={
           issue ? (
             <SheetHead
+              pool={pool}
               issue={issue}
               issues={issues}
               sessions={sessions}
@@ -151,6 +154,7 @@ export function TaskSheet({
       >
         {issue ? (
           <SheetBody
+            pool={pool}
             issue={issue}
             issues={issues}
             sessions={sessions}
@@ -180,12 +184,14 @@ export function TaskSheet({
  * cards was let into its fixed region.
  */
 const SheetHead = observer(function SheetHead({
+  pool,
   issue,
   sessions,
   issues,
   hex,
   onOpenSession,
 }: {
+  pool?: MobxPool | null
   issue: IssueViewModel
   sessions: readonly SessionView[]
   issues: readonly IssueViewModel[]
@@ -198,7 +204,6 @@ const SheetHead = observer(function SheetHead({
   const [stageOpen, setStageOpen] = useState(false)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
   const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
-  const pool = useMobilePool()
   const mine = sessions.map(s => (pool?.sessionObject(s.sessionId) ?? s) as SessionModel & SessionView)
     .filter(s => s.issueId === issue.id && s.retention?.seat)
   const asking = mine.filter(s => s.asking)
@@ -325,6 +330,7 @@ const SheetHead = observer(function SheetHead({
 })
 
 const SheetBody = observer(function SheetBody({
+  pool,
   issue,
   issues,
   sessions,
@@ -332,6 +338,7 @@ const SheetBody = observer(function SheetBody({
   onOpenSession,
   onOpenIssue,
 }: {
+  pool?: MobxPool | null
   issue: IssueViewModel
   issues: readonly IssueViewModel[]
   sessions: readonly SessionView[]
@@ -343,7 +350,6 @@ const SheetBody = observer(function SheetBody({
   const children = useMemo(() => subIssuesOf(issues, issue.id), [issues, issue.id])
   const relations = useMemo(() => groupRelations(issue), [issue])
   const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
-  const pool = useMobilePool()
   const mine = sessions.map(s => (pool?.sessionObject(s.sessionId) ?? s) as SessionModel & SessionView)
     .filter(s => s.issueId === issue.id && s.retention?.seat)
     .sort((a, b) => Number(b.asking) - Number(a.asking) || b.lastActiveAt.localeCompare(a.lastActiveAt))

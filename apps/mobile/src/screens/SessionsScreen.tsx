@@ -18,6 +18,7 @@ import { Screen } from '../components/Screen'
 import { SessionCard } from '../components/SessionCard'
 import { CountPill } from '../components/StatusGlyphs'
 import { TaskSheet } from '../components/TaskSheet'
+import { useMobilePool } from '../client/mobile-pool'
 import { EmptyState } from '../components/ui'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
@@ -31,6 +32,7 @@ import { color, font, mono, monoLabel, space } from '../theme/theme'
  * roster.
  */
 export function SessionsScreen() {
+  const pool = useMobilePool()
   const router = useRouter()
   const sessions = useSessions()
   const issues = useIssues()
@@ -127,6 +129,7 @@ export function SessionsScreen() {
         </PullToRefreshBoundary>
       </BootstrapCrossfade>
       <TaskSheet
+        pool={pool}
         issue={peekIssue ?? peek?.issue ?? null}
         issues={issues}
         sessions={sessions}

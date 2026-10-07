@@ -1,5 +1,6 @@
 import { requireLoaded } from '@podium/client-graph/mission-view'
 import { observer } from 'mobx-react-lite'
+import { useMobilePool } from '../client/mobile-pool'
 import type { SessionModel } from '@podium/client-graph/models'
 import { isFinished } from '@podium/model/browser'
 import { useHarnessDescriptors } from '@podium/client-core/react'
@@ -54,6 +55,7 @@ import { color, font, mono, monoLabel, space } from '../theme/theme'
  */
 
 export const MissionScreen = observer(function MissionScreen() {
+  const pool = useMobilePool()
   const params = useLocalSearchParams<{
     missionId: string | string[]
     sessionId?: string | string[]
@@ -235,6 +237,7 @@ export const MissionScreen = observer(function MissionScreen() {
       </BootstrapCrossfade>
 
       <TaskSheet
+        pool={pool}
         issue={peek}
         issues={issues}
         sessions={sessions}
