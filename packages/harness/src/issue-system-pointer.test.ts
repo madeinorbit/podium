@@ -11,8 +11,12 @@ describe('issue system pointer offer guidance', () => {
 
 describe('issue system pointer closing guidance', () => {
   it('forbids self-closing and routes a finished issue through review', () => {
-    expect(ISSUE_SYSTEM_POINTER).toContain('Never close your own issue or set it to `done` unless the user tells you to')
-    expect(ISSUE_SYSTEM_POINTER).toContain('move it to `review` and post an offer with a Close action')
+    expect(ISSUE_SYSTEM_POINTER).toContain(
+      'Never close your own issue or set it to `done` unless the user tells you to',
+    )
+    expect(ISSUE_SYSTEM_POINTER).toContain(
+      'move it to `review` and post an offer with a Close action',
+    )
     expect(ISSUE_SYSTEM_POINTER).not.toContain('claim`/`close` as you go')
   })
 })
