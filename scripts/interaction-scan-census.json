@@ -7644,6 +7644,26 @@
     {
       "file": "apps/web/src/features/issues/issue-context-menu.ts",
       "holder": "issueHandoffAvailability/agents",
+      "rule": "consume:map",
+      "tokens": "51700b90be323485c26e60a5721fb5cf504420c9560136cc355ef21dadb98847",
+      "gate": [
+        "exit:then:476157ca4f33fb87edfab13c14bd397a41789f151732aa97e6fde5a9d75ba2de"
+      ],
+      "origin": [
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
+      ],
+      "fingerprint": "11fa11f7ca32c7651232bdb796034b764eebcfb8efe662b008bcc347d2fc1d4b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "issueHandoffAvailability/agents",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
+    },
+    {
+      "file": "apps/web/src/features/issues/issue-context-menu.ts",
+      "holder": "issueHandoffAvailability/agents",
       "rule": "consume:filter",
       "tokens": "efb96599029a6c63333fc2b2fa4d2fa7083d9801808d11000f54ab152cac3d6a",
       "gate": [
@@ -7680,6 +7700,26 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/issues/issue-context-menu.ts",
+      "holder": "issueHandoffAvailability/agents",
+      "rule": "consume:filter",
+      "tokens": "efb96599029a6c63333fc2b2fa4d2fa7083d9801808d11000f54ab152cac3d6a",
+      "gate": [
+        "exit:then:476157ca4f33fb87edfab13c14bd397a41789f151732aa97e6fde5a9d75ba2de"
+      ],
+      "origin": [
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
+      ],
+      "fingerprint": "c816ce1d100a6a772a0c6c29400c8a3906aed7d007a6cd4d6ffadd386e5581de",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "issueHandoffAvailability/agents",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "apps/web/src/features/issues/issue-context-menu.ts",
@@ -7750,36 +7790,16 @@
         "exit:then:476157ca4f33fb87edfab13c14bd397a41789f151732aa97e6fde5a9d75ba2de"
       ],
       "origin": [
-        "5ed8bfe075c3fb800857b0b9019874dfa5b802cc9a2f6c137219e28461dad3d4"
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
       ],
-      "fingerprint": "454c627f1a6a1b9bd623757a71fe09293986236f94440ffa63ab7018bc8450ec",
+      "fingerprint": "20f6659199ec0fffd50bb0074280b54b7ead91b400a890326c46d1e9cd61ce40",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of issueHandoffAvailability/byId",
+      "trigger": "issueHandoffAvailability/byId",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-context-menu.ts",
-      "holder": "issueHandoffAvailability/byId",
-      "rule": "consume:map",
-      "tokens": "fcc11b2a956c5947634387fac06bcd90b5f5e5bbd5fb4987ec8ab7ffabd9c7a9",
-      "gate": [
-        "exit:then:476157ca4f33fb87edfab13c14bd397a41789f151732aa97e6fde5a9d75ba2de"
-      ],
-      "origin": [
-        "adc18c72e00049927f75e58e08ed54bd7316b22bd3b45581eb061f7275d23c8b"
-      ],
-      "fingerprint": "aff05d9e4189fda671c398be94e5f0e64307f9dc9edccdddd6636046a9520bb2",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of issueHandoffAvailability/byId",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "apps/web/src/features/issues/issue-context-menu.ts",
@@ -7790,15 +7810,35 @@
         "exit:then:476157ca4f33fb87edfab13c14bd397a41789f151732aa97e6fde5a9d75ba2de"
       ],
       "origin": [
-        "adc18c72e00049927f75e58e08ed54bd7316b22bd3b45581eb061f7275d23c8b"
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
       ],
-      "fingerprint": "bb4b419e221d22df02730405e3fba99bdfbfa1a7e10f1eec1c1b22eae933591e",
+      "fingerprint": "3887a7cd297decfb11fff21a2c458d7fdb44bde76bcde1efbb5325c8f7ef439c",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "issueHandoffAvailability/byId",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "materialize:Map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
+    },
+    {
+      "file": "apps/web/src/features/issues/issue-context-menu.ts",
+      "holder": "issueHandoffAvailability/byId",
+      "rule": "consume:map",
+      "tokens": "fcc11b2a956c5947634387fac06bcd90b5f5e5bbd5fb4987ec8ab7ffabd9c7a9",
+      "gate": [
+        "exit:then:476157ca4f33fb87edfab13c14bd397a41789f151732aa97e6fde5a9d75ba2de"
+      ],
+      "origin": [
+        "5ed8bfe075c3fb800857b0b9019874dfa5b802cc9a2f6c137219e28461dad3d4"
+      ],
+      "fingerprint": "454c627f1a6a1b9bd623757a71fe09293986236f94440ffa63ab7018bc8450ec",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of issueHandoffAvailability/byId",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -7860,6 +7900,46 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:every carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/features/issues/issue-context-menu.ts",
+      "holder": "issueMenuEligibility/canRestore",
+      "rule": "consume:every",
+      "tokens": "555df38699f3e78d8c44ba62a81f93930c0785eb5105d1d8ccb11a8715b89182",
+      "gate": [
+        "&&:bd8f4d4b950d632c8d596312d4077e824cbfe5dec61b36207a06cbf11d1ec6f0"
+      ],
+      "origin": [
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
+      ],
+      "fingerprint": "6b8a1c3f904e233141db464fca89ffc72bbfb70923108730b2377769b0f542a3",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "issueMenuEligibility/canRestore",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:every carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
+    },
+    {
+      "file": "apps/web/src/features/issues/issue-context-menu.ts",
+      "holder": "issueMenuEligibility/canSetColor",
+      "rule": "consume:every",
+      "tokens": "5c5759643bae55efdf42fb17e455130370862e007275cf1c0bca772da5e4f3d0",
+      "gate": [
+        "&&:3e110a68bf8f2597a09cfa77a7fa0d86545fb0c672b6c0dd137e8673e720ab85"
+      ],
+      "origin": [
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
+      ],
+      "fingerprint": "019da85500eef2daae30dd5ce982201b56f751229c9346ddaf0e98e4a27bc525",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "issueMenuEligibility/canSetColor",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "consume:every carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "apps/web/src/features/issues/issue-context-menu.ts",
@@ -9020,63 +9100,82 @@
     {
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
       "holder": "paletteIssueMenuData",
-      "rule": "reader-summary",
-      "tokens": "aa3ea44b2dcd43eff5276cd78d225500a38d99b0c057263d17a0f0d0939deba0",
-      "gate": [
-        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302"
-      ],
-      "origin": [
-        "adc18c72e00049927f75e58e08ed54bd7316b22bd3b45581eb061f7275d23c8b"
-      ],
-      "fingerprint": "6fadbe263a55007c6ba618bdf49e8e5c60d52781cb5be46ca6035804f7b5f331",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of paletteIssueMenuData",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-menu-palette.ts",
-      "holder": "paletteIssueMenuData",
       "rule": "helper-consumer",
       "tokens": "ee078fe6591a1441aa85a69a6406aeeb67b5e12d7f5dd43caf8ce3d79043bbcb",
       "gate": [
         "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302"
       ],
       "origin": [
-        "adc18c72e00049927f75e58e08ed54bd7316b22bd3b45581eb061f7275d23c8b"
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
       ],
-      "fingerprint": "e8a4d3b97f2e49f48d4ef8c6a58e2c2a6a362bba989fa7cb88c952d9bfc81a41",
+      "fingerprint": "bbcfb2faa272c4ad5690c00b9d839f993383891085ab9bf21ad95a29770144a6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of paletteIssueMenuData",
+      "trigger": "paletteIssueMenuData",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
-      "holder": "paletteIssueMenuData/handoff",
-      "rule": "spread",
-      "tokens": "24c28dcf46ed85f623f2d9669144b8d5d0c6c8beeba5284c79166a1beb1722f8",
+      "holder": "paletteIssueMenuData",
+      "rule": "reader-summary",
+      "tokens": "aa3ea44b2dcd43eff5276cd78d225500a38d99b0c057263d17a0f0d0939deba0",
       "gate": [
-        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302",
-        "then:940ccc80ad5a0ccea57cb26eb5401a7e8ed5838be3938e83e65bc9a8b4e059fe"
+        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302"
       ],
       "origin": [
-        "adc18c72e00049927f75e58e08ed54bd7316b22bd3b45581eb061f7275d23c8b"
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
       ],
-      "fingerprint": "2582e950ddf67dfce49c3261ce992424529a136c6ece73bdcf90596a9959c515",
+      "fingerprint": "cdfffa7688d2abf632fd3e4da7c2986abda67278493f153989b5a48af04698bc",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of paletteIssueMenuData/handoff",
+      "trigger": "paletteIssueMenuData",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
+    },
+    {
+      "file": "apps/web/src/features/issues/issue-menu-palette.ts",
+      "holder": "paletteIssueMenuData/eligibility",
+      "rule": "reader-summary",
+      "tokens": "61be6748093906fa467369c169478e20d7add2a459178e53e982340af753b880",
+      "gate": [
+        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302"
+      ],
+      "origin": [
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
+      ],
+      "fingerprint": "409a7d4c96e024de8b5f4f9bc12ca91543ee2c6a940316d3f2883aeeb90d9846",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "paletteIssueMenuData/eligibility",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
+    },
+    {
+      "file": "apps/web/src/features/issues/issue-menu-palette.ts",
+      "holder": "paletteIssueMenuData/eligibility",
+      "rule": "helper-consumer",
+      "tokens": "683bd0a1b7d003964f37b8e0746527c8fff8a28a2850e6393624c1f594a6f81d",
+      "gate": [
+        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302"
+      ],
+      "origin": [
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
+      ],
+      "fingerprint": "cd8625c2b89109929d7f68f04cf39350265b6c87493ddf2014ea8aeaae8b1f30",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "paletteIssueMenuData/eligibility",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
@@ -9089,37 +9188,16 @@
         "??:cc9a667cfe1472373ac74f4e63dacc3e92df5c26d3ddc93a9806b8ec2b3d4ab1"
       ],
       "origin": [
-        "adc18c72e00049927f75e58e08ed54bd7316b22bd3b45581eb061f7275d23c8b"
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
       ],
-      "fingerprint": "2e39bb9f65c4829aabc562531b43d6eb2b3ed4744a85f39d39f3f44d8ca5e0d9",
+      "fingerprint": "2880c1b6d3c3792ffb27cbb24861255675b93da2afbf24ec201f90a931aafb41",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of paletteIssueMenuData/handoff",
+      "trigger": "paletteIssueMenuData/handoff",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-menu-palette.ts",
-      "holder": "paletteIssueMenuData/handoff",
-      "rule": "helper-consumer",
-      "tokens": "1c6364c29b9a98eeb66a70127593c96d7ce64da4839470f9765460eae63843bc",
-      "gate": [
-        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302",
-        "then:940ccc80ad5a0ccea57cb26eb5401a7e8ed5838be3938e83e65bc9a8b4e059fe"
-      ],
-      "origin": [
-        "adc18c72e00049927f75e58e08ed54bd7316b22bd3b45581eb061f7275d23c8b"
-      ],
-      "fingerprint": "4926e744fe52499506add643d5a11074c9600dfb18c63703b4253d49db8f88f5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of paletteIssueMenuData/handoff",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
@@ -9131,16 +9209,58 @@
         "then:940ccc80ad5a0ccea57cb26eb5401a7e8ed5838be3938e83e65bc9a8b4e059fe"
       ],
       "origin": [
-        "adc18c72e00049927f75e58e08ed54bd7316b22bd3b45581eb061f7275d23c8b"
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
       ],
-      "fingerprint": "93efc272a2daebef5476bb9b6ca34ba4e2082e9026340f2393c2b196f4f63d08",
+      "fingerprint": "31854bfb82abbc8cfef6852e6a939959d51a6738ad165eab5e4355f4564dfdd2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of paletteIssueMenuData/handoff",
+      "trigger": "paletteIssueMenuData/handoff",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
+    },
+    {
+      "file": "apps/web/src/features/issues/issue-menu-palette.ts",
+      "holder": "paletteIssueMenuData/handoff",
+      "rule": "spread",
+      "tokens": "24c28dcf46ed85f623f2d9669144b8d5d0c6c8beeba5284c79166a1beb1722f8",
+      "gate": [
+        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302",
+        "then:940ccc80ad5a0ccea57cb26eb5401a7e8ed5838be3938e83e65bc9a8b4e059fe"
+      ],
+      "origin": [
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
+      ],
+      "fingerprint": "724633394644d1b0ad415baf21b38e50c55a052aa3513afd09a1729f278877c8",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "paletteIssueMenuData/handoff",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
+    },
+    {
+      "file": "apps/web/src/features/issues/issue-menu-palette.ts",
+      "holder": "paletteIssueMenuData/handoff",
+      "rule": "helper-consumer",
+      "tokens": "1c6364c29b9a98eeb66a70127593c96d7ce64da4839470f9765460eae63843bc",
+      "gate": [
+        "exit:then:4e83d6ec988459cc6cd5b27d35905c83d45b86939b8786ff127a71af3ee9a302",
+        "then:940ccc80ad5a0ccea57cb26eb5401a7e8ed5838be3938e83e65bc9a8b4e059fe"
+      ],
+      "origin": [
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
+      ],
+      "fingerprint": "d7ade092c4e7aa93e10e0642ad97e4b8fc2ef669ea1b9c653525399e20c8d033",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "paletteIssueMenuData/handoff",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
@@ -9152,34 +9272,36 @@
         "then:583a4fc6961838bf9f56aa0b86776020f95ae69cab4ba968a5e6fe248aab9bb6"
       ],
       "origin": [
-        "adc18c72e00049927f75e58e08ed54bd7316b22bd3b45581eb061f7275d23c8b"
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
       ],
-      "fingerprint": "595173e2e61408c8284da7543b50497d6e24710a1aeef65cce435561f3a868a9",
+      "fingerprint": "bbb5b249cb027f749d092d8422c56e6d8930265794a204a89660f7daf2ec02bb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of paletteIssueMenuData/handoff/options",
+      "trigger": "paletteIssueMenuData/handoff/options",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-palette.ts",
       "holder": "paletteIssueMenuData/issue",
       "rule": "consume:find",
       "tokens": "ad05b50c2654f9a5a680f2bced40473f83f0b0f9bc146213d1fcb7f3c38930c9",
-      "gate": [],
-      "origin": [
-        "adc18c72e00049927f75e58e08ed54bd7316b22bd3b45581eb061f7275d23c8b"
+      "gate": [
+        "then:555b411736f40368925a12aec5d61369adbf3debe7f10c70bc6af02e40d4ea13"
       ],
-      "fingerprint": "153c963751c40fc6c05c0a48a33c91ccfaf6889c9cfd84f5dda4deb7e9f519b8",
+      "origin": [
+        "1f600a3b616c670c1ee86435986bf8b7252e71d82f61b3b366da0e8e6454654d"
+      ],
+      "fingerprint": "49b57c06738ec3d59c4af9332eb8b79ac2db33f3abe80abf1f16f5c6de0ca3cb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of paletteIssueMenuData/issue",
+      "trigger": "paletteIssueMenuData/issue",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "apps/web/src/features/issues/issue-menu-pool-inputs.tsx",
@@ -37707,6 +37829,26 @@
     {
       "file": "packages/client-graph/src/command-launch-views.ts",
       "holder": "CommandPaletteView/open/take/callback",
+      "rule": "consume:map",
+      "tokens": "800cf82d0a7de0a0d3807b104a36e075a14a807c4cfd3583dae679ae771d389c",
+      "gate": [
+        "then:a8cab1d6ceb3ae9c88cbc337bdb5d9894c6ea997717af03bdfe1372c731e3b4e"
+      ],
+      "origin": [
+        "4a7e494046e71468cd6147b4dfaf1dca1dbe2f0e9753ff494c4338e56495ef97"
+      ],
+      "fingerprint": "06490f3afa671e97d8862b1e0452358926e499f531b9377dca591114639b3daf",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "CommandPaletteView/open/take/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/open/take/callback",
       "rule": "loop:for-of",
       "tokens": "da7326b49e142a2ab984769f7926cd7515ff95b2b3397880994190c0a4074363",
       "gate": [],
@@ -37744,23 +37886,21 @@
     },
     {
       "file": "packages/client-graph/src/command-launch-views.ts",
-      "holder": "CommandPaletteView/selection",
-      "rule": "reader-summary",
-      "tokens": "1f0853e652bef6b169308d9afcd12860ef24bdbaac4e53575785b72e02e3844a",
-      "gate": [
-        "then:a8cab1d6ceb3ae9c88cbc337bdb5d9894c6ea997717af03bdfe1372c731e3b4e"
-      ],
+      "holder": "CommandPaletteView/open/take/callback",
+      "rule": "materialize:Map",
+      "tokens": "44fa8312d562e993ea519bd0a3a073ca9b67648d3b834c599e88183c14d4c903",
+      "gate": [],
       "origin": [
-        "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
+        "4a7e494046e71468cd6147b4dfaf1dca1dbe2f0e9753ff494c4338e56495ef97"
       ],
-      "fingerprint": "eb02e79afd5a8a00ec8f4f076f8667cc2250897fcab82e5509d42129bea1c02f",
+      "fingerprint": "b1847dd44167dbcf2e4df6bc441158ddf6b9e860742ac5ed2f33c86a2a94c705",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "CommandPaletteView/selection",
+      "trigger": "CommandPaletteView/open/take/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Open-time answer and 1x/4x heartbeat tests cover the stored picker; retained classification is not a scan repair claim."
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "packages/client-graph/src/command-launch-views.ts",
@@ -37906,19 +38046,19 @@
       "file": "packages/client-graph/src/command-launch-views.ts",
       "holder": "createCommandLaunchViews/palette/computed:callback",
       "rule": "reader-summary",
-      "tokens": "17c475e4ec2d931895a3080fae46d58c126e2d79a6517464c42b726997d2b1c0",
+      "tokens": "b39669a3cbf887bac307fd5a12ad41361553cce835e97db69eacba02e5bdea29",
       "gate": [],
       "origin": [
         "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
       ],
-      "fingerprint": "fefc41fdaf1582f3b7b526776288b70150677fed2e4885e53cf4d95c16e2c109",
+      "fingerprint": "84dfb851cc86a645ec8ca17afca09607fe74bd8cf4e741eac112a543ee6f98ad",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of createCommandLaunchViews/palette/computed:callback",
+      "trigger": "createCommandLaunchViews/palette/computed:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "packages/client-graph/src/command-launch-views.ts",
@@ -38249,19 +38389,19 @@
       "file": "packages/client-graph/src/command-launch-views.ts",
       "holder": "createCommandLaunchViews/selected/callback",
       "rule": "reader-summary",
-      "tokens": "be345518459204ea2f6d3df484f65081f585f2f8821d4bcb62dfb02c80fc8062",
+      "tokens": "475431b980ab8720cb9652298aa534049f30c2c045ac79f64f20a567483cc685",
       "gate": [],
       "origin": [
         "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
       ],
-      "fingerprint": "d2c7e4e5a9e6732f5a1fef68010853744ea35ffe43a9ad0b88eaa0f3f6b2898e",
+      "fingerprint": "06d2c75269bfec2941a6f156831d569517629570e91e50105977364ae7e7e681",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of createCommandLaunchViews/selected/callback",
+      "trigger": "createCommandLaunchViews/selected/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "packages/client-graph/src/enumerate.ts",
