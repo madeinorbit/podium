@@ -29,6 +29,7 @@ export const UNTRACKED_READS: Readonly<Record<string, string>> = {
   'pool-formal-parent': 'Read the plain parent twin after observing the source table slot or cold residency address.',
   'pool-hidden-presence': 'Avoid allocating residency atoms for resident rows; their tracked table slot reports replacement.',
   'query-result-seed': 'Seed demanded rows synchronously; row reactions and membership subscriptions maintain result atoms.',
+  'lazy-batch-probe': 'Ask whether @lazy runs inside a MobX batch; the probe computed must never become a reader\'s dependency.',
   'spawn-sort-peek': 'Read addressed placement rows inside the spawn action without requesting cold payloads.',
 }
 
