@@ -65,9 +65,9 @@ function settle(pool: MobxPool, input: MobileScreenInput) {
 }
 
 it.each([
-  { selectedId: 'i100', headerId: 'i100', hash: 'd96ff48b3da330f4bd8b8783fb43a8e93d84154c89fcd728218cc105ca96397e' },
-  { selectedId: 'i1157', headerId: 'i1321', hash: '4ffc0f9ff59ee6fc4c40417d6d432967503d349abc3002307d8b74ce92a5e5b5' },
-])('archived corpus $selectedId retains its full header and frozen phone output', async ({ selectedId, headerId, hash }) => {
+  { selectedId: 'i100', header: { id: 'i100', archived: true, startedBySession: 's4048' }, hash: 'd96ff48b3da330f4bd8b8783fb43a8e93d84154c89fcd728218cc105ca96397e' },
+  { selectedId: 'i1157', header: { id: 'i1321', archived: true }, hash: '4ffc0f9ff59ee6fc4c40417d6d432967503d349abc3002307d8b74ce92a5e5b5' },
+])('archived corpus $selectedId retains its full header and frozen phone output', async ({ selectedId, header, hash }) => {
   const ctx = await startScenarioEngine(1), feeds = openFenceFeeds(ctx, 'pooled')
   const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
     summaries: MOBILE_SCREEN_SUMMARIES,
@@ -84,7 +84,7 @@ it.each([
         const output = tracked(() => poolMobileScreensSnapshot(handle.pool, input))
         if (typeof output === 'symbol') throw new Error('Archived root is still loading')
         expect(output.sections.find(section => section.key === 'mission')?.fields).toMatchObject({
-          root: selectedId, header: { id: headerId, archived: true },
+          root: selectedId, header,
         })
         // The existing corpus snapshots freeze these hashes in all three modes.
         expect(fingerprint(output)).toBe(hash)
