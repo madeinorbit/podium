@@ -1,0 +1,356 @@
+{
+  "issue": "POD-5761",
+  "base": "0ca8632ef59f3a74605ad354247bdfec0ca953e3",
+  "rule": 6,
+  "inventoryBeforeEdits": true,
+  "bundles": [
+    {
+      "cache": "IssueModel.facts",
+      "readersByPart": {
+        "standing": [
+          "presenceOf",
+          "nestCandidatePartOf",
+          "unreadPartOf",
+          "ownActivityAt",
+          "finished"
+        ],
+        "part": [
+          "rank",
+          "row fields"
+        ],
+        "placement": [
+          "placement"
+        ]
+      },
+      "decision": "Split standing facts, own row fields, and placement; no cached facts record."
+    },
+    {
+      "cache": "IssueModel.members",
+      "readersByPart": {
+        "retainedSeatIds": [
+          "activityAtOf"
+        ],
+        "rosterIds": [
+          "ownAttentionPartOf",
+          "seatActivityPartOf",
+          "sidebarOwnAttention"
+        ],
+        "retained": [
+          "flatOf"
+        ],
+        "liveRoster": [
+          "nestCandidatePartOf"
+        ],
+        "openOwn": [
+          "ownAttentionPartOf",
+          "unitOwnPartOf",
+          "tipPartOf",
+          "sidebarValues"
+        ]
+      },
+      "decision": "Cache each list or boolean separately; reuse the maintained seat summary."
+    },
+    {
+      "cache": "IssueModel.presence",
+      "readersByPart": {
+        "flat": [
+          "rescue-cycle flat walk"
+        ],
+        "keeps": [
+          "keptBelowPartOf"
+        ],
+        "present": [
+          "nestCandidatePartOf",
+          "nestBelowPartOf",
+          "ownAttentionPartOf",
+          "seatActivityPartOf",
+          "sidebarNested"
+        ]
+      },
+      "decision": "Cache each verdict separately, preserving the rescue-cycle guard."
+    },
+    {
+      "cache": "IssueModel.nestingValue",
+      "readersByPart": {
+        "nestParent": [
+          "nestedPartOf",
+          "sidebarNested parent-only workaround"
+        ],
+        "placed": [
+          "descendant placement"
+        ],
+        "visible": [
+          "worklist admission"
+        ]
+      },
+      "decision": "Cache the parent ID independently of placement and visibility; remove sidebar.parent."
+    },
+    {
+      "cache": "IssueModel.attention (sameAttention)",
+      "readersByPart": {
+        "ownAttention": [
+          "rollupOf workingSince",
+          "aggregatePartOf"
+        ],
+        "aggregate": [
+          "ancestor aggregatePartOf",
+          "waitingPartOf",
+          "rollupOf phase/working/asking/loading"
+        ]
+      },
+      "decision": "Split the own and subtree answers and their independently read parts."
+    },
+    {
+      "cache": "IssueModel.loaded",
+      "readersByPart": {
+        "facts": [
+          "inMemory",
+          "ownAttentionPartOf",
+          "seatActivityPartOf",
+          "sidebarValues",
+          "pool input presence"
+        ],
+        "label": [
+          "displayRef",
+          "title",
+          "originTickPartOf"
+        ],
+        "originRef": [
+          "originId",
+          "lazyLoading",
+          "sidebarValues"
+        ]
+      },
+      "decision": "Remove the combined resident facts, label, and origin record."
+    },
+    {
+      "cache": "IssueModel.rowRollup",
+      "readersByPart": {
+        "phase": [
+          "phase"
+        ],
+        "progressDone": [
+          "progressDone"
+        ],
+        "progressTotal": [
+          "progressTotal"
+        ],
+        "working": [
+          "working"
+        ],
+        "asking": [
+          "asking",
+          "closed",
+          "dismissed"
+        ],
+        "workingSince": [
+          "workingSince"
+        ],
+        "loading": [
+          "loading"
+        ],
+        "seatActivity": [
+          "activityAt"
+        ]
+      },
+      "decision": "Each row answer reads the underlying composition directly."
+    },
+    {
+      "cache": "IssueModel.tip",
+      "readersByPart": {
+        "found": [
+          "ownAttentionPartOf"
+        ],
+        "pending": [
+          "ownAttentionPartOf",
+          "sidebarValues",
+          "ancestor tipPartOf"
+        ],
+        "target": [
+          "sidebarValues continuation",
+          "ancestor tipPartOf ranking"
+        ]
+      },
+      "decision": "Cache continuation choice, readiness, and fields separately."
+    },
+    {
+      "cache": "IssueModel.unitOwn",
+      "readersByPart": {
+        "cold": [
+          "unitsBelowPartOf",
+          "sidebarIssueProgress",
+          "sidebarValues"
+        ],
+        "member/unit/done/solo/state/staffed": [
+          "unitsOf",
+          "rollupOf",
+          "sidebarIssueProgress",
+          "tipPartOf"
+        ]
+      },
+      "decision": "Split independently read contribution facts."
+    },
+    {
+      "cache": "IssueModel.unitsBelow",
+      "readersByPart": {
+        "members/units/done/progress": [
+          "unitsOf",
+          "rollupOf",
+          "sidebarIssueProgress"
+        ],
+        "pending": [
+          "unitsOf",
+          "sidebarValues",
+          "sidebarIssueProgress",
+          "rollupOf"
+        ],
+        "staffed": [
+          "unitOwnPartOf",
+          "unitsOf"
+        ]
+      },
+      "decision": "Split closure counts, readiness, and staffing."
+    },
+    {
+      "cache": "SessionModel.retention",
+      "readersByPart": {
+        "issueId/archived": [
+          "ownerOf",
+          "openOwnPartOf"
+        ],
+        "seat/finish/unread/readMs": [
+          "retainedSeatIdsPartOf",
+          "sidebarRosterOf",
+          "seat summary"
+        ],
+        "exited": [
+          "rosterIdsPartOf",
+          "openOwnPartOf"
+        ],
+        "shell": [
+          "unreadPartOf",
+          "sidebarRosterOf"
+        ]
+      },
+      "decision": "Cache each retention fact separately; keep the tagged finish deadline as one answer."
+    },
+    {
+      "cache": "SessionModel.links",
+      "readersByPart": {
+        "issueLink": [
+          "ownerOf",
+          "sidebarRosterOf",
+          "seat summary"
+        ],
+        "worktreeLink": [
+          "ownerOf prefix fallback"
+        ]
+      },
+      "decision": "Cache each relation key independently."
+    },
+    {
+      "cache": "SessionModel.verdict (sameVerdict)",
+      "readersByPart": {
+        "open/finished/working/workingSinceMs/id/sidebarFacts/sidebarOrder": [
+          "ownAttentionPartOf",
+          "seat summary: needs different subsets"
+        ]
+      },
+      "decision": "Split the seat contribution and its residency marker."
+    },
+    {
+      "cache": "SessionModel.headerWorking",
+      "readersByPart": {
+        "presence": [
+          "HeaderSessions working count"
+        ],
+        "sessionId/title/name/displayRef/agentKind": [
+          "HeaderSessions working roster"
+        ]
+      },
+      "decision": "Separate working membership and displayed session fields."
+    },
+    {
+      "cache": "SessionModel.headerHost",
+      "readersByPart": {
+        "cwd": [
+          "headerViews occupancyKey"
+        ],
+        "archived": [
+          "HeaderSessions working roster gate"
+        ],
+        "machineId/status/phase/resumable": [
+          "HeaderSessions contribution"
+        ]
+      },
+      "decision": "Separate host membership and independent host fields."
+    },
+    {
+      "cache": "SessionModel.headerDock",
+      "readersByPart": {
+        "issueId/cwd/machineId/archived": [
+          "headerViews dock classification"
+        ],
+        "lastActiveAt": [
+          "headerViews dock ordering"
+        ],
+        "sessionId": [
+          "headerViews dock identity"
+        ]
+      },
+      "decision": "Split independent location, activity, and identity facts."
+    },
+    {
+      "cache": "WorktreeModel.roster",
+      "readersByPart": {
+        "ids": [
+          "SidebarBands roster"
+        ],
+        "pending": [
+          "SidebarBands pending, always zero for resident candidates"
+        ]
+      },
+      "decision": "Cache only roster IDs; pending stays the constant zero."
+    }
+  ],
+  "otherStructuralCaches": [
+    {
+      "cache": "IssueModel.rank",
+      "question": "What is this row's complete ordering key? All ordering consumers compare the key as a whole.",
+      "decision": "Keep: one value answering one question, without independent bundled answers."
+    },
+    {
+      "cache": "IssueModel.nestCandidateValue",
+      "question": "Which candidate parent ID does this issue have?",
+      "decision": "Keep: one value answering one question, without independent bundled answers."
+    },
+    {
+      "cache": "IssueModel.nestBelow",
+      "question": "Which candidate descendants are present?",
+      "decision": "Keep: one value answering one question, without independent bundled answers."
+    },
+    {
+      "cache": "IssueModel.nested",
+      "question": "Which issue IDs nest directly under this issue?",
+      "decision": "Keep: one value answering one question, without independent bundled answers."
+    },
+    {
+      "cache": "IssueModel.originTick",
+      "question": "What complete origin label should the row show? Tick readers consume the whole label.",
+      "decision": "Keep: one value answering one question, without independent bundled answers."
+    }
+  ],
+  "validation": {
+    "status": "not yet run",
+    "host": "flatblock",
+    "required": [
+      "focused existing models/worklist tests and field isolation regressions",
+      "full typecheck",
+      "lean gate",
+      "interaction scan: zero ratchet errors",
+      "normal web build",
+      "full speed:structural on rebased candidate under meter:flatblock"
+    ],
+    "knownReds": "docs/measurements/pod-5710-known-failures.json plus declared issue-page.detail select 55/151 and navigate-by-ref 49/145"
+  }
+}
