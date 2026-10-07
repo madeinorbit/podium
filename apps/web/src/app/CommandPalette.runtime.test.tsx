@@ -2,7 +2,8 @@ import { referenceState } from '../../../../tests/worklist/diagnostics/reference
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
+import { commandLaunchViews, createCommandPalette } from '@podium/client-graph/command-launch-views'
+import { autorun } from 'mobx'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -148,9 +149,19 @@ for (const scale of [1, 4]) it(`does not render or walk catalogs on an open pale
   // measured heartbeat changes only recency, including for the selected row.
   await act(async () => fixture.patch('session', 'synthetic-session-11', { lastActiveAt: new Date(Date.now() + 30000).toISOString() }))
   await act(async () => {})
+  const probe = createCommandPalette(pool!)
+  probe.open()
+  const probeStop = autorun(() => { probe.data; probe.selectedSessions })
+  const probeBefore = probe.data as any
+  const sessionBefore = commandLaunchViews(pool!).session('synthetic-session-11') as any
   const before = commits, counts = { ...commandLaunchViews(pool!).counts }
   const order = screen.getAllByRole('option').map(row => row.textContent)
   await act(async () => fixture.patch('session', 'synthetic-session-11', { lastActiveAt: new Date(Date.now() + 60000).toISOString() }))
+  const changed = (a: any, b: any) => Object.keys(a ?? {}).filter(k => JSON.stringify(a[k]) !== JSON.stringify(b?.[k]))
+  console.log('PROBE_DATA', changed(probeBefore, probe.data))
+  console.log('PROBE_ISSUE', changed(probeBefore?.selectedIssue, (probe.data as any)?.selectedIssue))
+  console.log('PROBE_SESSION', changed(sessionBefore, commandLaunchViews(pool!).session('synthetic-session-11')))
+  probeStop(); probe.close()
   expect(commits).toBe(before)
   expect(screen.getAllByRole('option').map(row => row.textContent)).toEqual(order)
   expect(commandLaunchViews(pool!).counts.catalogBuilds).toBe(counts.catalogBuilds)
