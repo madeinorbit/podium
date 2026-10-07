@@ -1,0 +1,3 @@
+{"engine":"v8 v22.22.2","arm":"mo0","N":20000,"K":30,"bytesPerInstance":840,"getterCallsAfterConstruct":0}
+{"engine":"v8 v22.22.2","arm":"mo30","N":20000,"K":30,"bytesPerInstance":11133,"getterCallsAfterConstruct":0,"callsFor3UntrackedReads":3,"callsInsideAutorunPlusOneReadWhileObserved":1}
+{"engine":"v8 v22.22.2","arm":"keyed30","N":20000,"K":30,"bytesPerInstance":842,"getterCallsAfterConstruct":0,"callsFor3UntrackedReads":3,"callsInsideAutorunPlusOneReadWhileObserved":1}

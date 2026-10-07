@@ -199,7 +199,7 @@ re-opening default LWW.
    ports (`defaultInstancePorts`), systemd unit names (`instanceServiceName`), durable
    PTY labels (`durableSessionLabel`), CLI name (`instanceCommandName`). Two instances
    on one machine are two isolated product universes ([spec:SP-15aa];
-   `docs/multi-instance.md`).
+   `docs/agents/multi-instance.md`).
 3. **Machine identity + pairing are per-instance.** Each instance owns its own server
    DB and daemon identity file under that instance's state root
    (`apps/daemon/src/identity.ts` → `daemon.json` with once-minted `machineId` UUID +

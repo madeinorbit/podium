@@ -25,7 +25,7 @@ import { bindCommittedGrantReader } from './grant-reader'
  * These are facts of ONE server database, not a cross-process cache protocol.
  * cli.ts executeStartup registers/reclaims the server role before startServer;
  * runtime/run-registry.ts reclaim waits for the outgoing process to die. Named
- * instances use distinct state roots (docs/multi-instance.md). A second writer
+ * instances use distinct state roots (docs/agents/multi-instance.md). A second writer
  * opening the SAME database outside that lifecycle, online SQL edits, or future
  * federation would invalidate this ownership proof and require a new protocol.
  * Migrations/heals run before loading; no cached authorization survives restart.

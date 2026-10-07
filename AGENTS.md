@@ -21,10 +21,17 @@ backend, so cross-origin, cookie and sidecar-spawn behavior only reproduce there
 **[docs/agents/driving-desktop.md](docs/agents/driving-desktop.md)** — including the
 isolation this needs, since the shell spawns its sidecar with `--takeover`.
 
+## Frontend data
+
+Before changing how any client screen (web, desktop, phone) gets or derives data, including
+`packages/client-graph` models and derived values, read
+**[docs/agents/frontend-data.md](docs/agents/frontend-data.md)** and follow it: one shared model
+per record, `@lazy` derived fields, screen models and companions, and what a change must show.
+
 ## Testing independent instances
 
 When changing instance identity, state, endpoints, CLI routing, agent ownership, or lifecycle
-behavior, follow **[docs/multi-instance.md](docs/multi-instance.md)** and run
+behavior, follow **[docs/agents/multi-instance.md](docs/agents/multi-instance.md)** and run
 `bun run test:multi-instance`. The acceptance lane starts fully separate concurrent runtimes;
 do not substitute multiple clients routed to one server.
 
@@ -193,7 +200,8 @@ without usable `node_modules/@podium` links is refused.
 
 ## Reference docs for agents
 
-- [docs/multi-instance.md](docs/multi-instance.md) — operate and test fully independent instances on one machine.
+- [docs/agents/frontend-data.md](docs/agents/frontend-data.md) — how client screens get and derive data from the MobX pool: models, `@lazy`, screen models, companions.
+- [docs/agents/multi-instance.md](docs/agents/multi-instance.md) — operate and test fully independent instances on one machine.
 - [docs/agents/driving-podium.md](docs/agents/driving-podium.md) — drive the Podium UI with Playwright to verify features at runtime.
 - [docs/agents/driving-desktop.md](docs/agents/driving-desktop.md) — run the Tauri desktop shell headlessly, for the few properties only the real webview answers (cross-origin, cookies, sidecar spawn).
 - [docs/agents/agent-state-classification.md](docs/agents/agent-state-classification.md) — how agent run-state is classified from transcripts.

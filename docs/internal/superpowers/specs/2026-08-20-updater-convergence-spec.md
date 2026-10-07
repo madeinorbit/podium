@@ -139,7 +139,7 @@ restarts: SW cache identity, cookies, and IndexedDB are all origin-keyed. Epheme
 must therefore differ in `PODIUM_INSTANCE`, `PODIUM_PORT`, or `config.port` — two
 shells sharing an origin is not merely untidy, because the shell grants its served
 origin window controls, the opener, `sql:default` + `sql:allow-execute` and the
-update bridge (see `docs/multi-instance.md`). Prefer `127.0.0.1` over `localhost`
+update bridge (see `docs/agents/multi-instance.md`). Prefer `127.0.0.1` over `localhost`
 (distinct origins).
 
 **The origin has to identify itself.** The port is fixed and unprivileged, so

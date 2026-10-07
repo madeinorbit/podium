@@ -1291,7 +1291,7 @@ exec "$CANARY_REAL_CLI" "$@"
    * test injected.
    *
    * It is the multi-instance lane rather than a unit test for the reason
-   * docs/multi-instance.md gives: an acceptance about separate deployments has
+   * docs/agents/multi-instance.md gives: an acceptance about separate deployments has
    * to start separate deployments, and multiple clients routed to one runtime
    * would prove the opposite of what is claimed.
    */

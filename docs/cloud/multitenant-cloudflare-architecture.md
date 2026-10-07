@@ -40,7 +40,7 @@ as remote daemons joining via the existing pairing flow.
 - **Processes**: `server` (Hono/tRPC/WS + SQLite, serves web dist), `daemon` (PTY/abduco,
   git worktrees, agent CLIs, /proc, systemd scopes), `janitor` (maintenance ticks). Server
   and daemon are separate processes connected by one WebSocket with bidirectional RPC —
-  remote daemons dialing a hub is already a supported mode (`docs/multi-instance.md`,
+  remote daemons dialing a hub is already a supported mode (`docs/agents/multi-instance.md`,
   `docs/offline-sync-architecture.md`).
 - **State**: `${stateDir}` with `podium.db` (57 tables, drizzle, WAL, bun:sqlite, FTS5;
   ~200 MB observed), transcripts lake, artifacts, uploads, auth.json, daemon.secret.

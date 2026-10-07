@@ -1,0 +1,6 @@
+# mobx-utils 6.1.1 (peer mobx ^6) createViewModel against mobx 7.0.3; second block with its 'makeObservable(this)' line patched out (test only)
+# Unpatched run (before the test-only patch): "plain observable object: FAILS - Reflect.ownKeys requires the first argument be an object" from mobx initObservable, for every input.
+plain observable object: works, draft.a = 2
+A our model as-is: REFUSED - [mobx-utils] createViewModel expects an observable object
+B observable model: draft.title = Fix login page | live title = Fix login | sent edits = 0
+B after submit: live title = Fix login page | sent edits = [["title","Fix login page"]]

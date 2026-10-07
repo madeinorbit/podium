@@ -1,0 +1,8 @@
+PASS outside a screen: computed each time, nothing kept — runs=2 kept=0
+PASS inside a screen: computed once, kept — runs=1 kept=1
+PASS screen closed: dropped — kept=0
+FAIL inside an action (no screen): computed once, kept only for the action — runs=2 keptDuring=0 keptAfter=0
+PASS outside a screen: computed each time, nothing kept, data not watched — runs=2 kept=0 watchers=0
+PASS inside an action: same as today (computed per read), nothing left watching — runs=2 kept=0 watchers=0
+PASS inside a screen: computed once, kept — runs=1 kept=1
+PASS screen closed: kept in the list, still watching its data — listed=1 watchers=1

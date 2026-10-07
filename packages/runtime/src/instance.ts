@@ -316,7 +316,7 @@ function currentUsername(): string {
  * resolved by setting explicit ports; until then the server port fails at bind
  * time, while the daemon's hook and agent-relay ports move to an ephemeral port
  * and raise a machine diagnostic rather than taking the daemon down with them
- * (POD-1229, docs/multi-instance.md).
+ * (POD-1229, docs/agents/multi-instance.md).
  */
 export interface InstancePorts {
   server: number
@@ -730,7 +730,7 @@ export function rekeyInstanceStateIdentity(
  *   - It DOUBLED the segment. abduco appends `abduco/<user>/` itself, so the
  *     composed directory was `<state>/runtime/abduco/abduco/<user>/`.
  *   - Length. Measured on a real named instance at the state root
- *     docs/multi-instance.md documents, the composed socket path was 121 bytes
+ *     docs/agents/multi-instance.md documents, the composed socket path was 121 bytes
  *     against a 108-byte `sun_path`, and every spawn died on abduco's
  *     "create-session: File name too long". De-duplicating the segment alone
  *     brought it to 114 — STILL over. A named instance's state root plus its

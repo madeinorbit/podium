@@ -7,7 +7,7 @@ instance, which is why nobody had hit them.
 ## The instance this was measured on
 
 `PODIUM_INSTANCE=p2853`, state root `~/.local/state/podium/p2853` — the layout
-`docs/multi-instance.md` documents for a named instance, not a short scratch
+`docs/agents/multi-instance.md` documents for a named instance, not a short scratch
 path. **`ABDUCO_SOCKET_DIR` is deliberately not set**: every other rig on this
 box exports a short one by hand, and that export is the workaround this issue
 exists to remove.

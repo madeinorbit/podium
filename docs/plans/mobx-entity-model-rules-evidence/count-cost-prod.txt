@@ -1,0 +1,3 @@
+N=1000: one item changes -> count updated in median 97 µs (p90 181 µs)
+N=10000: one item changes -> count updated in median 630 µs (p90 804 µs)
+N=40000: one item changes -> count updated in median 4049 µs (p90 8738 µs)

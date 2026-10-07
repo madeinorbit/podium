@@ -953,7 +953,7 @@ describe('durable terminal hibernation proof', () => {
       requireTerminalProof: true,
     })
 
-    // Separate instances are separate state roots (docs/multi-instance.md): a
+    // Separate instances are separate state roots (docs/agents/multi-instance.md): a
     // consumed-and-rehabilitated proof in one never touches the other's row.
     expect(await green.store.observationCheckpoints.getTerminalCandidate(blue.sessionId)).toBeNull()
     expect(await green.registry.modules.sessions.terminalProofStatus(green.sessionId)).toEqual({

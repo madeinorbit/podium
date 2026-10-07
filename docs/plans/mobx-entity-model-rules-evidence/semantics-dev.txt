@@ -1,0 +1,17 @@
+1 calls after construct (no reads): {}
+2 sidebarLabel calls after 3 untracked reads: 3
+3 sidebarLabel calls for 3 reads inside one runInAction: 1
+4 after done=true with only sidebar observing: {sidebarLabel, detailSummary}: {"s":1,"d":0}
+4b after title change: sidebarLabel calls: 2
+5 done toggled with both screens: {sidebarLabel, detailSummary}: {"s":0,"d":2}
+6 after detail disposed: detailSummary observing_ length, value_: {"deps":0}
+7 keepAlive computed after one untracked read: deps, value: {"deps":1,"value":1}
+[mobx] Computed value 'Issue@1.sidebarLabel' is being read outside a reactive context. Doing a full recompute.
+9a rename (not read by filter): openIssues reruns, list screen reruns: {"f":0,"list":0}
+9b done toggled & restored in one batch (net no change): openIssues reruns, openCount reruns, list reaction runs, badge runs: {"f":1,"c":1,"list":1,"badge":0}
+9c one issue closed: openIssues reruns (O(n) filter), openCount reruns, list/badge reaction runs: {"f":1,"c":1,"list":1,"badge":1}
+9d dependency count of openIssues (one per entity read): 10002
+10a keyed: 2 untracked reads -> calls, cache size: {"calls":2,"size":0}
+10b keyed inside one reaction, 2 reads -> calls, cache size: {"calls":1,"size":1}
+10c keyed after reaction disposed -> cache size: 0
+11 isComputedProp(a, sidebarLabel): true

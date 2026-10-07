@@ -1,0 +1,3 @@
+PASS opening computes the order once — runs=1 order=a,b,c
+PASS activity while open: no work, order does not jump — runs=1 order=a,b,c
+PASS reopening computes the new order — runs=2 order=c,a,b

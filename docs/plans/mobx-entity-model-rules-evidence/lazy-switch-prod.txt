@@ -1,0 +1,12 @@
+PASS [ours] nothing runs at construction
+PASS [ours] untracked reads recompute each time — runs=2
+PASS [ours] cached inside a reaction — runs=1
+PASS [ours] recomputes on change — runs=2 seen=2
+PASS [ours] equals option honoured (structurally equal progress does not notify) — pSeen=1
+[ours] bytes/issue (2 lazy fields): built=57 shown=6324 afterClose=1094
+PASS [mobx] nothing runs at construction
+PASS [mobx] untracked reads recompute each time — runs=2
+PASS [mobx] cached inside a reaction — runs=1
+PASS [mobx] recomputes on change — runs=2 seen=2
+PASS [mobx] equals option honoured (structurally equal progress does not notify) — pSeen=1
+[mobx] bytes/issue (2 lazy fields): built=745 shown=5458 afterClose=2742

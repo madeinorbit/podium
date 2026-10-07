@@ -48,7 +48,7 @@ import { assertHermeticStateDir } from './test-hermetic-state-guard'
 // tests can't POST to the live daemon's hook ingest. It rides its OWN transport, separate from
 // the generic agent relay — PODIUM_NO_RELAY deliberately does NOT gate it (it only shorts
 // resolveAgentRelay()), so we drop it here instead.
-// The instance-identity vars (docs/multi-instance.md) are scrubbed too: a suite launched from
+// The instance-identity vars (docs/agents/multi-instance.md) are scrubbed too: a suite launched from
 // inside a NAMED instance's session would otherwise inherit that identity — resolveInstance()
 // reads PODIUM_INSTANCE, and the port/agent-home/adopt overrides retarget the live deployment.
 // Tests always run as the hermetic per-file throwaway, never as the hosting instance.

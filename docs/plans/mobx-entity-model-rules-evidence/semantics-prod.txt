@@ -1,0 +1,17 @@
+1 calls after construct (no reads): {}
+2 sidebarLabel calls after 3 untracked reads: 3
+3 sidebarLabel calls for 3 reads inside one runInAction: 1
+4 after done=true with only sidebar observing: {sidebarLabel, detailSummary}: {"s":1,"d":0}
+4b after title change: sidebarLabel calls: 2
+5 done toggled with both screens: {sidebarLabel, detailSummary}: {"s":0,"d":2}
+[0m[1m46 |[0m log([0m[32m'5 done toggled with both screens: {sidebarLabel, detailSummary}'[0m, { s: counts.sidebarLabel, d: counts.detailSummary })
+[0m[1m47 |[0m 
+[0m[1m48 |[0m [0m[2m// 6. Suspension: dispose detail -> detailSummary drops deps and value; next untracked read recomputes.[0m
+[0m[1m49 |[0m detail()
+[0m[1m50 |[0m [0m[35mconst[0m adm = (a [0m[34mas[0m [0m[34many[0m)[mobx.$mobx]
+[0m[1m51 |[0m [0m[35mconst[0m cv = adm.values_[0m[3m[1m.get[0m([0m[32m'detailSummary'[0m)
+                    [31m[1m^[0m
+[0m[31mTypeError[0m[2m:[0m [1mundefined is not an object (evaluating 'adm.values_.get')[0m
+[0m      [2mat [0m[0m[36m[2m/home/mgw/.claude/jobs/0904be57/tmp/mobx-principle/[0m[36msemantics.ts[0m[2m:[0m[33m51[0m[2m:[33m16[0m
+[0m
+[2mBun v1.4.2 (Linux x64)[0m

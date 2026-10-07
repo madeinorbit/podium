@@ -368,7 +368,7 @@ hermetic setup, lane exclusions, and exit-status safeguards.
   session relay vars AND the instance-identity vars (`PODIUM_INSTANCE`, port/agent-home
   overrides), so a suite launched from inside a live (possibly named) instance runs as a
   hermetic throwaway. For a live-like isolated deployment, use a named instance
-  ([docs/multi-instance.md](../multi-instance.md)) instead of hand-rolled
+  ([docs/agents/multi-instance.md](multi-instance.md)) instead of hand-rolled
   `PODIUM_PORT`/`PODIUM_STATE_DIR` overrides.
 - **CI runs the oracle: unit + typecheck + integration + e2e + multi-instance**
   [POD-295]. CI installs with `--ignore-scripts`; real PTYs use Bun.Terminal and

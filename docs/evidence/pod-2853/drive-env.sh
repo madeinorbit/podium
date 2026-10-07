@@ -16,7 +16,7 @@
 # instance id and its state root, or it cannot start a terminal at all.
 #
 # THE STATE ROOT IS THE DOCUMENTED DEFAULT SHAPE, not a short scratch path.
-# docs/multi-instance.md says a named instance's state lives at
+# docs/agents/multi-instance.md says a named instance's state lives at
 # ${XDG_STATE_HOME:-$HOME/.local/state}/podium/<id>. That is what anyone running
 # a second Podium actually gets, and it is the harshest realistic case: it is
 # LONGER than the operator's own /home/mgw/.pod-op-state. A rig that shortened

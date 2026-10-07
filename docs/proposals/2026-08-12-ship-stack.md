@@ -269,7 +269,7 @@ shape and the user never asks for a URL again.
 **Producing it is unusually cheap for Podium specifically**, because the
 multi-instance story is already built: identity-derived port triplets,
 `--instance <id>`, from-source runs, and a documented isolation contract
-(`docs/multi-instance.md`). A `podium preview <issue>` starts a from-source
+(`docs/agents/multi-instance.md`). A `podium preview <issue>` starts a from-source
 instance of that issue's worktree on its derived ports, registers the URL on the
 issue, and lets the janitor's existing worktree-GC cadence reap it on TTL or
 when the issue lands. For non-Podium repos the same mechanism generalizes as a

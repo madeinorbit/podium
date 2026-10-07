@@ -1,0 +1,14 @@
+PASS reopen after close reuses the kept value — runs=0
+PASS [warm] a change while kept recomputes once in the background — runs=1
+PASS [warm] reopen after a change — runs=0 (warm expects 0, drop expects 1)
+PASS [warm] a no-op write while kept does no work — runs=0
+PASS [warm] newest kept entry reused — runs=0
+PASS [warm] oldest entry dropped once over the cap — runs=1
+PASS entries over the cap were dropped (2 and 3 oldest) — runs=2
+PASS reopen after close reuses the kept value — runs=0
+PASS [drop] a change while kept recomputes once in the background — runs=1
+PASS [drop] reopen after a change — runs=1 (warm expects 0, drop expects 1)
+PASS [drop] a no-op write while kept does no work — runs=0
+PASS [drop] newest kept entry reused — runs=0
+PASS [drop] oldest entry dropped once over the cap — runs=1
+PASS entries over the cap were dropped (2 and 3 oldest) — runs=2

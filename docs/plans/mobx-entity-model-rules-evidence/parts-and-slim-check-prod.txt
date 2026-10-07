@@ -1,0 +1,15 @@
+closure () => fn(k)                                            81 B
+small value { id, label }                                      -5 B
+Map entry (key -> true)                                        80 B
+computed, never read                                           514 B
+computed, read once by an autorun still running (dependency links) 1716 B
+computed + onBecomeObserved + onBecomeUnobserved listeners     1091 B
+observable.box(false)                                          145 B
+keepAlive holder computed reading a box + one other computed (after get) 3281 B
+PASS [slim] untracked reads compute directly, nothing cached — runs=2 watching=0
+PASS [slim] reopen, data unchanged: free — runs=0
+PASS [slim] data change while closed: no work — runs=0
+PASS [slim] reopen after a change: once — runs=1
+PASS [slim] while shown, updates as usual — runs=2
+PASS [slim] only kept entries still watch their data (cap 2) — watching=2
+PASS [slim] oldest evicted past the cap — runs=1

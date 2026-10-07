@@ -48,7 +48,7 @@ const REPO = `${DRIVE_BASE}/repo`
 const INSTANCE = process.env.PODIUM_INSTANCE ?? 'p2853'
 const STATE = process.env.P2853_STATE_ROOT ?? `${DRIVE_BASE}/state`
 // The agent home is where abduco's `HOME` rung points, and it is overridable
-// (docs/multi-instance.md). Reading the instance default here would have made
+// (docs/agents/multi-instance.md). Reading the instance default here would have made
 // the drive report "no socket under ANY root" for a master sitting in an
 // overridden one — the exact blindness this issue is about, reproduced in the
 // instrument instead of the product.

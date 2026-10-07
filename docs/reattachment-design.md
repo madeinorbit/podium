@@ -394,7 +394,7 @@ Bootstrap/replay rejection must be asserted at this seam, not inferred from noti
 - Verify stable terminal -> two identical hibernation candidate passes -> immediate revalidation -> hibernated; new input/output/cursor between passes cancels it.
 - Verify explicit resume restores the terminal snapshot silently, then a real prompt opens exactly one new epoch.
 - Run an attach storm over hundreds of frozen sessions and assert bounded parsing, zero live edges, no watchdog restart feedback, and no external notification.
-- Because identity, lifecycle, ownership, and independent runtimes are affected, run `bun run test:multi-instance` exactly as required by `docs/multi-instance.md`; multiple clients on one server are not a substitute.
+- Because identity, lifecycle, ownership, and independent runtimes are affected, run `bun run test:multi-instance` exactly as required by `docs/agents/multi-instance.md`; multiple clients on one server are not a substitute.
 - Drive the real Podium UI for the lifecycle path: observe a done row remain stable across restart, hibernate it, resume it, submit one prompt, and observe one working/terminal sequence. Verify the persisted row and transcript on disk after each action.
 
 ## Concrete code map

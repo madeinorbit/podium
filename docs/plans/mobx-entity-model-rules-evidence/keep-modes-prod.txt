@@ -1,0 +1,18 @@
+PASS [drop] reopen, data unchanged — runs=1
+PASS [drop] work while closed when data changes — runs=0
+PASS [drop] reopen after a change — runs=1
+PASS [drop] inputs still watched = kept entries only — watching=0
+PASS [drop] oldest evicted past the cap — runs=1
+[drop] bytes per field: shown=5180 afterClose=268; changing all 20000 inputs while closed took 14.1 ms
+PASS [warm] reopen, data unchanged — runs=0
+PASS [warm] work while closed when data changes — runs=1
+PASS [warm] reopen after a change — runs=0
+PASS [warm] inputs still watched = kept entries only — watching=2
+PASS [warm] oldest evicted past the cap — runs=1
+[warm] bytes per field: shown=5180 afterClose=5592; changing all 20000 inputs while closed took 118.4 ms
+PASS [keep] reopen, data unchanged — runs=0
+PASS [keep] work while closed when data changes — runs=0
+PASS [keep] reopen after a change — runs=1
+PASS [keep] inputs still watched = kept entries only — watching=2
+PASS [keep] oldest evicted past the cap — runs=1
+[keep] bytes per field: shown=5175 afterClose=6211; changing all 20000 inputs while closed took 15.9 ms

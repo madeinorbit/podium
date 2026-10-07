@@ -245,7 +245,7 @@ Extend `tests/acceptance/server-transfer/` (compose: `source`, `target`, `contro
 
 Run **once each, sequentially, at the very end of the entire implementation** — these are the **only** validation commands in this plan:
 
-1. `bun run test:multi-instance` — required because this change touches instance identity and lifecycle (boot modes, state roots, ports, config rewriting, supervision retarget), which is that lane's trigger per AGENTS.md and `docs/multi-instance.md`. It also proves the basic wiring a lean gate would, so `bun run test`/`test:agent` is **not** additionally run.
+1. `bun run test:multi-instance` — required because this change touches instance identity and lifecycle (boot modes, state roots, ports, config rewriting, supervision retarget), which is that lane's trigger per AGENTS.md and `docs/agents/multi-instance.md`. It also proves the basic wiring a lean gate would, so `bun run test`/`test:agent` is **not** additionally run.
 2. The `tests/acceptance/server-transfer/` scripted Docker run (the G1–G10 matrix, one invocation) — required because only it proves the real two-machine cutover and fault matrix; multi-instance does not replace it.
 
 Do **not** run `bun run test`, `test:agent`, `test:full`, `test:integration`, `test:e2e`, browser, oracle, or heavy lanes. All shard-owned tests written throughout phases A–F are executed by CI's scheduled sweeps; the two commands above are the agent's end-of-task evidence. Report both results verbatim in the handoff.

@@ -6,7 +6,7 @@
 # under real HOME so its instanceStateDir() matches the server's.
 
 # Honours PODIUM_AGENT_HOME so the seeding below lands in the home the agent
-# actually gets. docs/multi-instance.md documents that override, and it is the
+# actually gets. docs/agents/multi-instance.md documents that override, and it is the
 # ONE way to change the `HOME` rung of abduco's socket-directory chain: the
 # abduco child's HOME is ctx.homeDir (POD-2247), the AGENT home — not the
 # daemon's own, which reaches nothing the durable spawn resolves.
