@@ -1,6 +1,5 @@
 import type { SessionModel } from '@podium/client-graph/models'
 import type { FlightDeckView } from './FlightDeck'
-import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
@@ -578,7 +577,7 @@ const CREW_SHOWN = 4
  * is hidden by default — and everything each icon stands for rides on its
  * tooltip, which is also where an icon dropped by a narrow column survives.
  */
-function CrewCensus({ crew }: { crew: readonly SessionView[] }): JSX.Element {
+const CrewCensus = observer(function CrewCensus({ crew }: { crew: readonly SessionView[] }): JSX.Element {
   const now = useRuntimeSelector((store) => store.coarseNow)
   const shown = crew.slice(0, CREW_SHOWN)
   const extra = crew.length - shown.length
@@ -600,7 +599,7 @@ function CrewCensus({ crew }: { crew: readonly SessionView[] }): JSX.Element {
       )}
     </span>
   )
-}
+})
 
 /**
  * One rail segment plus the elbow into the row hanging on it.

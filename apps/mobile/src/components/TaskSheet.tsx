@@ -1,5 +1,5 @@
 import type { SessionModel } from '@podium/client-graph/models'
-import { observer } from '@podium/client-graph/react'
+import { observer } from 'mobx-react-lite'
 import { useMobilePool } from '../client/mobile-pool'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -20,7 +20,6 @@ import {
   machinePathSeparator,
   parseIssueStatusValue,
 } from '@podium/model'
-import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
@@ -398,7 +397,7 @@ const SheetBody = observer(function SheetBody({
       {children.length > 0 ? (
         <Part
           title="Subtasks"
-          meta={`${children.filter((c) => isFinished(c)).length} / ${children.length}`}
+          meta={`${children.filter(c => pool?.issueObject(c.id).finished).length} / ${children.length}`}
         >
           {children.map((child) => (
             <PressableScale

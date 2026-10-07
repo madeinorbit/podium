@@ -1,6 +1,6 @@
 import type { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
 import type { SessionModel } from '@podium/client-graph/models'
-import { observer } from '@podium/client-graph/react'
+import { observer } from 'mobx-react-lite'
 import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
