@@ -138,6 +138,7 @@ import {
   waitingPartOf,
 } from './worklist/rollup'
 import { type SidebarRoster, sidebarRosterOf } from './worklist/sidebar'
+import type { SidebarSessionFacts, SidebarSessionOrder } from './worklist/sidebar-row'
 import {
   childIdsPartOf,
   type HeldIssue,
@@ -1076,9 +1077,34 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.readOwnAttention().firstSessionId
   }
 
-  @lazy({ equals: compareStructural })
-  private get ownAttentionRailWaiting(): OwnAttention['railWaiting'] {
-    return this.readOwnAttention().railWaiting
+  private get ownAttentionRailWaiting(): NonNullable<Aggregate['railWaiting']> | undefined {
+    if (!this.ownAttentionRailWaitingPresent) return undefined
+    const model = this
+    return {
+      get open() { return model.ownAttentionRailWaitingOpen },
+      get finished() { return model.ownAttentionRailWaitingFinished },
+      get decisions() { return model.ownAttentionRailWaitingDecisions },
+    }
+  }
+
+  @lazy
+  private get ownAttentionRailWaitingPresent(): boolean {
+    return this.readOwnAttention().railWaiting !== undefined
+  }
+
+  @lazy
+  private get ownAttentionRailWaitingOpen(): NonNullable<Aggregate['railWaiting']>['open'] {
+    return this.readOwnAttention().railWaiting!.open
+  }
+
+  @lazy
+  private get ownAttentionRailWaitingFinished(): NonNullable<Aggregate['railWaiting']>['finished'] {
+    return this.readOwnAttention().railWaiting!.finished
+  }
+
+  @lazy
+  private get ownAttentionRailWaitingDecisions(): NonNullable<Aggregate['railWaiting']>['decisions'] {
+    return this.readOwnAttention().railWaiting!.decisions
   }
 
   @lazy({ equals: compareStructural })
@@ -1086,9 +1112,64 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.readOwnAttention().sessionIds
   }
 
+  private get ownAttentionSidebarFacts(): SidebarSessionFacts | undefined {
+    if (!this.ownAttentionSidebarFactsPresent) return undefined
+    const model = this
+    return {
+      get fleet() { return model.ownAttentionSidebarFactsFleet },
+      get working() { return model.ownAttentionSidebarFactsWorking },
+      get waitingOpen() { return model.ownAttentionSidebarFactsWaitingOpen },
+      get waitingFinished() { return model.ownAttentionSidebarFactsWaitingFinished },
+      get doneSince() { return model.ownAttentionSidebarFactsDoneSince },
+      get totalMs() { return model.ownAttentionSidebarFactsTotalMs },
+      get errorClass() { return model.ownAttentionSidebarFactsErrorClass },
+      get allUnstarted() { return model.ownAttentionSidebarFactsAllUnstarted },
+    }
+  }
+
+  @lazy
+  private get ownAttentionSidebarFactsPresent(): boolean {
+    return this.readOwnAttention().sidebarFacts !== undefined
+  }
+
   @lazy({ equals: compareStructural })
-  private get ownAttentionSidebarFacts(): OwnAttention['sidebarFacts'] {
-    return this.readOwnAttention().sidebarFacts
+  private get ownAttentionSidebarFactsFleet(): SidebarSessionFacts['fleet'] {
+    return this.readOwnAttention().sidebarFacts!.fleet
+  }
+
+  @lazy({ equals: compareStructural })
+  private get ownAttentionSidebarFactsWorking(): SidebarSessionFacts['working'] {
+    return this.readOwnAttention().sidebarFacts!.working
+  }
+
+  @lazy({ equals: compareStructural })
+  private get ownAttentionSidebarFactsWaitingOpen(): SidebarSessionFacts['waitingOpen'] {
+    return this.readOwnAttention().sidebarFacts!.waitingOpen
+  }
+
+  @lazy({ equals: compareStructural })
+  private get ownAttentionSidebarFactsWaitingFinished(): SidebarSessionFacts['waitingFinished'] {
+    return this.readOwnAttention().sidebarFacts!.waitingFinished
+  }
+
+  @lazy
+  private get ownAttentionSidebarFactsDoneSince(): SidebarSessionFacts['doneSince'] {
+    return this.readOwnAttention().sidebarFacts!.doneSince
+  }
+
+  @lazy
+  private get ownAttentionSidebarFactsTotalMs(): SidebarSessionFacts['totalMs'] {
+    return this.readOwnAttention().sidebarFacts!.totalMs
+  }
+
+  @lazy
+  private get ownAttentionSidebarFactsErrorClass(): SidebarSessionFacts['errorClass'] {
+    return this.readOwnAttention().sidebarFacts!.errorClass
+  }
+
+  @lazy
+  private get ownAttentionSidebarFactsAllUnstarted(): SidebarSessionFacts['allUnstarted'] {
+    return this.readOwnAttention().sidebarFacts!.allUnstarted
   }
 
   @lazy
@@ -1121,14 +1202,52 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.readOwnAttention().deciding
   }
 
-  @lazy({ equals: compareStructural })
-  private get ownAttentionOpen(): OwnAttention['open'] {
-    return this.readOwnAttention().open
+  private get ownAttentionOpen(): import('./worklist/rollup').PhaseFlags {
+    const model = this
+    return {
+      get waiting() { return model.ownAttentionOpenWaiting },
+      get working() { return model.ownAttentionOpenWorking },
+      get allDone() { return model.ownAttentionOpenAllDone },
+    }
   }
 
-  @lazy({ equals: compareStructural })
-  private get ownAttentionFinished(): OwnAttention['finished'] {
-    return this.readOwnAttention().finished
+  @lazy
+  private get ownAttentionOpenWaiting(): import('./worklist/rollup').PhaseFlags['waiting'] {
+    return this.readOwnAttention().open.waiting
+  }
+
+  @lazy
+  private get ownAttentionOpenWorking(): import('./worklist/rollup').PhaseFlags['working'] {
+    return this.readOwnAttention().open.working
+  }
+
+  @lazy
+  private get ownAttentionOpenAllDone(): import('./worklist/rollup').PhaseFlags['allDone'] {
+    return this.readOwnAttention().open.allDone
+  }
+
+  private get ownAttentionFinished(): import('./worklist/rollup').PhaseFlags {
+    const model = this
+    return {
+      get waiting() { return model.ownAttentionFinishedWaiting },
+      get working() { return model.ownAttentionFinishedWorking },
+      get allDone() { return model.ownAttentionFinishedAllDone },
+    }
+  }
+
+  @lazy
+  private get ownAttentionFinishedWaiting(): import('./worklist/rollup').PhaseFlags['waiting'] {
+    return this.readOwnAttention().finished.waiting
+  }
+
+  @lazy
+  private get ownAttentionFinishedWorking(): import('./worklist/rollup').PhaseFlags['working'] {
+    return this.readOwnAttention().finished.working
+  }
+
+  @lazy
+  private get ownAttentionFinishedAllDone(): import('./worklist/rollup').PhaseFlags['allDone'] {
+    return this.readOwnAttention().finished.allDone
   }
 
   @lazy
@@ -1154,9 +1273,34 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     }
   }
 
-  @lazy({ equals: compareStructural })
-  private get aggregateRailWaiting(): Aggregate['railWaiting'] {
-    return this.readAggregate().railWaiting
+  private get aggregateRailWaiting(): NonNullable<Aggregate['railWaiting']> | undefined {
+    if (!this.aggregateRailWaitingPresent) return undefined
+    const model = this
+    return {
+      get open() { return model.aggregateRailWaitingOpen },
+      get finished() { return model.aggregateRailWaitingFinished },
+      get decisions() { return model.aggregateRailWaitingDecisions },
+    }
+  }
+
+  @lazy
+  private get aggregateRailWaitingPresent(): boolean {
+    return this.readAggregate().railWaiting !== undefined
+  }
+
+  @lazy
+  private get aggregateRailWaitingOpen(): NonNullable<Aggregate['railWaiting']>['open'] {
+    return this.readAggregate().railWaiting!.open
+  }
+
+  @lazy
+  private get aggregateRailWaitingFinished(): NonNullable<Aggregate['railWaiting']>['finished'] {
+    return this.readAggregate().railWaiting!.finished
+  }
+
+  @lazy
+  private get aggregateRailWaitingDecisions(): NonNullable<Aggregate['railWaiting']>['decisions'] {
+    return this.readAggregate().railWaiting!.decisions
   }
 
   @lazy({ equals: compareStructural })
@@ -1164,9 +1308,64 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.readAggregate().sessionIds
   }
 
+  private get aggregateSidebarFacts(): SidebarSessionFacts | undefined {
+    if (!this.aggregateSidebarFactsPresent) return undefined
+    const model = this
+    return {
+      get fleet() { return model.aggregateSidebarFactsFleet },
+      get working() { return model.aggregateSidebarFactsWorking },
+      get waitingOpen() { return model.aggregateSidebarFactsWaitingOpen },
+      get waitingFinished() { return model.aggregateSidebarFactsWaitingFinished },
+      get doneSince() { return model.aggregateSidebarFactsDoneSince },
+      get totalMs() { return model.aggregateSidebarFactsTotalMs },
+      get errorClass() { return model.aggregateSidebarFactsErrorClass },
+      get allUnstarted() { return model.aggregateSidebarFactsAllUnstarted },
+    }
+  }
+
+  @lazy
+  private get aggregateSidebarFactsPresent(): boolean {
+    return this.readAggregate().sidebarFacts !== undefined
+  }
+
   @lazy({ equals: compareStructural })
-  private get aggregateSidebarFacts(): Aggregate['sidebarFacts'] {
-    return this.readAggregate().sidebarFacts
+  private get aggregateSidebarFactsFleet(): SidebarSessionFacts['fleet'] {
+    return this.readAggregate().sidebarFacts!.fleet
+  }
+
+  @lazy({ equals: compareStructural })
+  private get aggregateSidebarFactsWorking(): SidebarSessionFacts['working'] {
+    return this.readAggregate().sidebarFacts!.working
+  }
+
+  @lazy({ equals: compareStructural })
+  private get aggregateSidebarFactsWaitingOpen(): SidebarSessionFacts['waitingOpen'] {
+    return this.readAggregate().sidebarFacts!.waitingOpen
+  }
+
+  @lazy({ equals: compareStructural })
+  private get aggregateSidebarFactsWaitingFinished(): SidebarSessionFacts['waitingFinished'] {
+    return this.readAggregate().sidebarFacts!.waitingFinished
+  }
+
+  @lazy
+  private get aggregateSidebarFactsDoneSince(): SidebarSessionFacts['doneSince'] {
+    return this.readAggregate().sidebarFacts!.doneSince
+  }
+
+  @lazy
+  private get aggregateSidebarFactsTotalMs(): SidebarSessionFacts['totalMs'] {
+    return this.readAggregate().sidebarFacts!.totalMs
+  }
+
+  @lazy
+  private get aggregateSidebarFactsErrorClass(): SidebarSessionFacts['errorClass'] {
+    return this.readAggregate().sidebarFacts!.errorClass
+  }
+
+  @lazy
+  private get aggregateSidebarFactsAllUnstarted(): SidebarSessionFacts['allUnstarted'] {
+    return this.readAggregate().sidebarFacts!.allUnstarted
   }
 
   @lazy
@@ -1199,14 +1398,52 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.readAggregate().deciding
   }
 
-  @lazy({ equals: compareStructural })
-  private get aggregateOpen(): Aggregate['open'] {
-    return this.readAggregate().open
+  private get aggregateOpen(): import('./worklist/rollup').PhaseFlags {
+    const model = this
+    return {
+      get waiting() { return model.aggregateOpenWaiting },
+      get working() { return model.aggregateOpenWorking },
+      get allDone() { return model.aggregateOpenAllDone },
+    }
   }
 
-  @lazy({ equals: compareStructural })
-  private get aggregateFinished(): Aggregate['finished'] {
-    return this.readAggregate().finished
+  @lazy
+  private get aggregateOpenWaiting(): import('./worklist/rollup').PhaseFlags['waiting'] {
+    return this.readAggregate().open.waiting
+  }
+
+  @lazy
+  private get aggregateOpenWorking(): import('./worklist/rollup').PhaseFlags['working'] {
+    return this.readAggregate().open.working
+  }
+
+  @lazy
+  private get aggregateOpenAllDone(): import('./worklist/rollup').PhaseFlags['allDone'] {
+    return this.readAggregate().open.allDone
+  }
+
+  private get aggregateFinished(): import('./worklist/rollup').PhaseFlags {
+    const model = this
+    return {
+      get waiting() { return model.aggregateFinishedWaiting },
+      get working() { return model.aggregateFinishedWorking },
+      get allDone() { return model.aggregateFinishedAllDone },
+    }
+  }
+
+  @lazy
+  private get aggregateFinishedWaiting(): import('./worklist/rollup').PhaseFlags['waiting'] {
+    return this.readAggregate().finished.waiting
+  }
+
+  @lazy
+  private get aggregateFinishedWorking(): import('./worklist/rollup').PhaseFlags['working'] {
+    return this.readAggregate().finished.working
+  }
+
+  @lazy
+  private get aggregateFinishedAllDone(): import('./worklist/rollup').PhaseFlags['allDone'] {
+    return this.readAggregate().finished.allDone
   }
 
   @lazy
@@ -1365,7 +1602,6 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.readTip().target!.activeAt
   }
 
-
 }
 
 /** THE session: its row, and what its issues read of it. */
@@ -1503,14 +1739,112 @@ export class SessionModel extends EntityModel implements SessionVisibility {
     return this.readVerdict().id
   }
 
-  @lazy({ equals: compareStructural })
-  private get verdictSidebarFacts(): SeatVerdict['sidebarFacts'] {
-    return this.readVerdict().sidebarFacts
+  private get verdictSidebarFacts(): SidebarSessionFacts | undefined {
+    if (!this.verdictSidebarFactsPresent) return undefined
+    const model = this
+    return {
+      get fleet() { return model.verdictSidebarFactsFleet },
+      get working() { return model.verdictSidebarFactsWorking },
+      get waitingOpen() { return model.verdictSidebarFactsWaitingOpen },
+      get waitingFinished() { return model.verdictSidebarFactsWaitingFinished },
+      get doneSince() { return model.verdictSidebarFactsDoneSince },
+      get totalMs() { return model.verdictSidebarFactsTotalMs },
+      get errorClass() { return model.verdictSidebarFactsErrorClass },
+      get allUnstarted() { return model.verdictSidebarFactsAllUnstarted },
+    }
+  }
+
+  @lazy
+  private get verdictSidebarFactsPresent(): boolean {
+    return this.readVerdict().sidebarFacts !== undefined
   }
 
   @lazy({ equals: compareStructural })
-  private get verdictSidebarOrder(): SeatVerdict['sidebarOrder'] {
-    return this.readVerdict().sidebarOrder
+  private get verdictSidebarFactsFleet(): SidebarSessionFacts['fleet'] {
+    return this.readVerdict().sidebarFacts!.fleet
+  }
+
+  @lazy({ equals: compareStructural })
+  private get verdictSidebarFactsWorking(): SidebarSessionFacts['working'] {
+    return this.readVerdict().sidebarFacts!.working
+  }
+
+  @lazy({ equals: compareStructural })
+  private get verdictSidebarFactsWaitingOpen(): SidebarSessionFacts['waitingOpen'] {
+    return this.readVerdict().sidebarFacts!.waitingOpen
+  }
+
+  @lazy({ equals: compareStructural })
+  private get verdictSidebarFactsWaitingFinished(): SidebarSessionFacts['waitingFinished'] {
+    return this.readVerdict().sidebarFacts!.waitingFinished
+  }
+
+  @lazy
+  private get verdictSidebarFactsDoneSince(): SidebarSessionFacts['doneSince'] {
+    return this.readVerdict().sidebarFacts!.doneSince
+  }
+
+  @lazy
+  private get verdictSidebarFactsTotalMs(): SidebarSessionFacts['totalMs'] {
+    return this.readVerdict().sidebarFacts!.totalMs
+  }
+
+  @lazy
+  private get verdictSidebarFactsErrorClass(): SidebarSessionFacts['errorClass'] {
+    return this.readVerdict().sidebarFacts!.errorClass
+  }
+
+  @lazy
+  private get verdictSidebarFactsAllUnstarted(): SidebarSessionFacts['allUnstarted'] {
+    return this.readVerdict().sidebarFacts!.allUnstarted
+  }
+
+  private get verdictSidebarOrder(): SidebarSessionOrder | undefined {
+    if (!this.verdictSidebarOrderPresent) return undefined
+    const model = this
+    return {
+      get id() { return model.verdictSidebarOrderId },
+      get working() { return model.verdictSidebarOrderWorking },
+      get snoozedUntil() { return model.verdictSidebarOrderSnoozedUntil },
+      get recency() { return model.verdictSidebarOrderRecency },
+      get createdAt() { return model.verdictSidebarOrderCreatedAt },
+      get offerOnly() { return model.verdictSidebarOrderOfferOnly },
+    }
+  }
+
+  @lazy
+  private get verdictSidebarOrderPresent(): boolean {
+    return this.readVerdict().sidebarOrder !== undefined
+  }
+
+  @lazy
+  private get verdictSidebarOrderId(): SidebarSessionOrder['id'] {
+    return this.readVerdict().sidebarOrder!.id
+  }
+
+  @lazy
+  private get verdictSidebarOrderWorking(): SidebarSessionOrder['working'] {
+    return this.readVerdict().sidebarOrder!.working
+  }
+
+  @lazy
+  private get verdictSidebarOrderSnoozedUntil(): SidebarSessionOrder['snoozedUntil'] {
+    return this.readVerdict().sidebarOrder!.snoozedUntil
+  }
+
+  @lazy
+  private get verdictSidebarOrderRecency(): SidebarSessionOrder['recency'] {
+    return this.readVerdict().sidebarOrder!.recency
+  }
+
+  @lazy
+  private get verdictSidebarOrderCreatedAt(): SidebarSessionOrder['createdAt'] {
+    return this.readVerdict().sidebarOrder!.createdAt
+  }
+
+  @lazy
+  private get verdictSidebarOrderOfferOnly(): SidebarSessionOrder['offerOnly'] {
+    return this.readVerdict().sidebarOrder!.offerOnly
   }
 
   @lazy

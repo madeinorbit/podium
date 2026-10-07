@@ -352,5 +352,42 @@
       "full speed:structural on rebased candidate under meter:flatblock"
     ],
     "knownReds": "docs/measurements/pod-5710-known-failures.json plus declared issue-page.detail select 55/151 and navigate-by-ref 49/145"
-  }
+  },
+  "readerProjectionRemoval": [
+    "sidebar.parent: shared nestParent replaces the duplicate parent-ID calculation",
+    "sidebar.facts: independent ownFacts fields replace the raw resident-fact cache",
+    "sidebar.seat: independent SessionModel verdict fields replace the raw seat-verdict cache"
+  ],
+  "remainingCompositeAnswers": [
+    {
+      "question": "ordering key",
+      "readers": "rank and child-order comparisons",
+      "reason": "A complete ordering key is one answer; its tuple is compared jointly."
+    },
+    {
+      "question": "origin label tick",
+      "readers": "origin tick render and oracle",
+      "reason": "The complete shown tick is one label; every tick consumer uses the label."
+    },
+    {
+      "question": "retention deadline",
+      "readers": "retains and seat retention",
+      "reason": "A tagged expiry answer: the tag chooses the associated deadline, which is read with it."
+    },
+    {
+      "question": "timer anchor",
+      "readers": "sidebar timing and combineSidebarSessions",
+      "reason": "A complete timestamp anchor is one timing answer; the associated timestamps are consumed together."
+    },
+    {
+      "question": "fleet glyphs",
+      "readers": "fleet display and combineSidebarSessions",
+      "reason": "The complete glyph list and its counts are consumed as one fleet result."
+    },
+    {
+      "question": "formal progress histogram",
+      "readers": "unitsOf and sidebarIssueProgress",
+      "reason": "Each consumer reads the complete distribution to combine or display it."
+    }
+  ]
 }

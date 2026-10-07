@@ -10,11 +10,11 @@ import { sidebarRosterView } from './sidebar-roster'
 
 import { compareStructural, observable, reaction } from 'mobx'
 import { cachedGroup, keyedViews } from '../cached'
-import { hostOf, type IssueModel, type ModelHost, type ModelOf, type SessionModel } from '../models'
+import { hostOf, type IssueModel, type ModelHost, type ModelOf } from '../models'
 import type { MobxPool } from '../pool'
 import { createRowOverlay } from '../shared/overlay-row'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
-import { aggregate, attentionGroup, askingOf, phaseOf, LOADING, ownAttentionPartOf, ownFactsOf, seatVerdictOf, type Aggregate, type Loaded } from './rollup'
+import { aggregate, attentionGroup, askingOf, phaseOf, LOADING, ownAttentionPartOf, type Aggregate, type Loaded } from './rollup'
 import { NO_SIDEBAR_SESSIONS, type SidebarProgress, type SidebarRowValues, sidebarLifecycle, sidebarTimingFromFacts, sortedSidebarSessions } from './sidebar-row'
 import { retains } from './visible'
 
@@ -154,19 +154,10 @@ export const sidebarNested = memo('nested', (issue, pool): readonly string[] => 
   return ids.size === 0 ? EMPTY_IDS : [...ids].sort()
 })
 
-const seat = cachedGroup('sidebar.seat', (session: SessionModel) => {
-  const raw = hostOf(session).row('session', session.id)
-  return raw === LOADING || raw === undefined ? raw : seatVerdictOf(raw as SliceSession)
-})
-const facts = memo('facts', issue => ownFactsOf(hostOf(issue).rollupInputs.loadedIssue(issue.id)))
-
 export const sidebarOwnAttention = memo('own', (issue, pool) => {
-  const host = hostOf(issue)
-  return ownAttentionPartOf({ ...host.rollupInputs,
-    seat: id => seat(host.visibleInputs.session(id) as SessionModel),
-  }, {
+  return ownAttentionPartOf(hostOf(issue).rollupInputs, {
     get present() { return issue.present },
-    get ownFacts() { return facts(issue, pool) },
+    get ownFacts() { return issue.ownFacts },
     get rosterIds() { return issue.rosterIds },
     get openOwn() { return issue.openOwn },
     get tip() { return issue.tip },
@@ -194,7 +185,7 @@ export const sidebarAttention: (issue: IssueModel, pool: MobxPool) => Aggregate 
 
 /** A heartbeat changes a scalar, independent of the attention composition. */
 export const sidebarSeatActivity: (issue: IssueModel, pool: MobxPool) => number | null = memo('activity', (issue, pool): number | null => {
-  if (!issue.present || facts(issue, pool).state === 'cold') return null
+  if (!issue.present || issue.ownFacts.state === 'cold') return null
   const host = hostOf(issue)
   let latest: number | null = null
   for (const id of issue.rosterIds) {
