@@ -200,12 +200,12 @@ export class LaunchCatalogPicker {
     this.initialRepoPath = catalog.initialRepoPath
     this.opened = true
   }
+  @lazy get roots() {
+    return headerEntities(this.pool).repositoryRootIds()
+      .map(id => new LaunchCatalogRoot(this.pool, id))
+  }
   @lazy get repoPaths() {
-    const paths = headerEntities(this.pool).repositoryRootIds()
-      .flatMap(id => {
-        const row = this.pool.row('repository', id) as GitRepositoryWire | undefined
-        return row && typeof row !== 'symbol' && row.kind !== 'worktree' ? [row.path] : []
-      })
+    const paths = this.roots.flatMap(root => root.path === undefined ? [] : [root.path])
     const present = new Set(paths)
     return [...this.order.filter(path => present.has(path)), ...paths.filter(path => !this.order.includes(path))]
   }
@@ -215,3 +215,12 @@ export class LaunchCatalogPicker {
   catalog() { return this.data }
 }
 export const createLaunchCatalogPicker = (pool: MobxPool) => new LaunchCatalogPicker(pool)
+
+/** A catalog choice observes its own path, not unrelated scan metadata. */
+class LaunchCatalogRoot {
+  constructor(private readonly pool: MobxPool, private readonly id: string) {}
+  @lazy get path(): string | undefined {
+    const row = this.pool.row('repository', this.id) as GitRepositoryWire | undefined
+    return row && typeof row !== 'symbol' && row.kind !== 'worktree' ? row.path : undefined
+  }
+}
