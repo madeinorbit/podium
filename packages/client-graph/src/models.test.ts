@@ -146,7 +146,7 @@ it('archive, host-location and seat-motion readers ignore independent cursor and
 it('an unknown row keeps the previous progress defaults while its formal child remains', () => {
   const pool = fixture(), root = pool.issue('root')!
   runInAction(() => pool.apply({ type: 'update', rows: [
-    { kind: 'issue', id: 'child', value: issueRow('child', { parentId: 'root', stage: 'closed' }) as never },
+    { kind: 'issue', id: 'child', value: issueRow('child', { parentId: 'root', closedReason: 'done', closedAt: stamp }) as never },
   ] }))
   let progress: readonly number[] = []
   const stop = autorun(() => { progress = [root.progressDone, root.progressTotal] })

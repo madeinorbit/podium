@@ -884,6 +884,8 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   get lazyLoading(): boolean {
     return loadingPartOf(this.host.inputs, this.originRef, this.sessionIds)
   }
+  // ------------------------------------------------------ own-row standing
+
   get standing(): Standing | undefined {
     if (!this.hasStanding) return undefined
     const model = this
@@ -993,6 +995,8 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.readStanding()!.formalParent
   }
 
+  // ------------------------------------------------------ resident decision facts
+
   get ownFacts(): OwnFacts {
     const model = this
     return {
@@ -1050,6 +1054,8 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   private get ownFactOrder(): OwnFacts['order'] {
     return this.readOwnFacts().order
   }
+
+  // ------------------------------------------------------ own-seat attention
 
   get ownAttention(): OwnAttention {
     const model = this
@@ -1265,6 +1271,8 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.readOwnAttention().pending
   }
 
+  // ------------------------------------------------------ nested attention
+
   get aggregate(): Aggregate {
     const model = this
     return {
@@ -1461,6 +1469,8 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.readAggregate().pending
   }
 
+  // ------------------------------------------------------ formal progress
+
   get unitOwn(): UnitOwn {
     const model = this
     return {
@@ -1550,6 +1560,8 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   private get unitsBelowPending(): Units['pending'] {
     return this.readUnitsBelow().pending
   }
+
+  // ------------------------------------------------------ continuation
 
   get tip(): import('./worklist/rollup').Tip {
     const model = this
@@ -1644,6 +1656,8 @@ export class SessionModel extends EntityModel implements SessionVisibility {
     return retentionOf(this.host.visibleInputs.sessionRow(this.id))
   }
 
+  // ------------------------------------------------------ retention
+
   get retention(): Retention | null {
     if (!this.hasRetention) return null
     const model = this
@@ -1709,6 +1723,8 @@ export class SessionModel extends EntityModel implements SessionVisibility {
   private get verdictRow(): SliceSession {
     return this.host.visibleInputs.loadedSession(this.id) as SliceSession
   }
+
+  // ------------------------------------------------------ seat motion and sidebar facts
 
   get verdict(): LoadedRow<SeatVerdict> {
     const state = this.verdictState
@@ -1866,6 +1882,8 @@ export class SessionModel extends EntityModel implements SessionVisibility {
   private get headerWorkingPresent(): boolean {
     return headerWorkingSession(this.row as SessionView | undefined, this.host.inputs.passed) != null
   }
+
+  // ------------------------------------------------------ header contributions
 
   get headerWorking(): NonNullable<ReturnType<typeof headerWorkingSession>> | null {
     if (!this.headerWorkingPresent) return null
