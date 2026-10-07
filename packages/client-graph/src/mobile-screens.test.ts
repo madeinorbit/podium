@@ -219,10 +219,14 @@ it('an archived root keeps its full header for the current session without loadi
     status: 'working', agentKind: 'codex',
     lastActiveAt: new Date(now).toISOString(),
   }
+  const starter = {
+    sessionId: 'starter', cwd: '/fixture', status: 'exited', archived: true,
+    agentKind: 'codex', lastActiveAt: '2026-01-01T00:00:00Z',
+  }
   const { pool, reader, load } = await setup([
     root,
     issue('hidden-child', { parentId: 'cold', archived: true, stage: 'done' }),
-  ], [current])
+  ], [current, starter])
   disposals.push(autorun(() => reader.mission('cold')))
   expect(reader.mission('cold')).toBe(LOADING)
   expect(pool.hydrate()).toBe(1)
