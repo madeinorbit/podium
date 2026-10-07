@@ -246,6 +246,34 @@ it('an archived root keeps its full header for the current session without loadi
   expect(pool.tables.issue.has('hidden-child')).toBe(false)
   expect(pool.hydrate()).toBe(0)
 })
+it('an archived child keeps its full header when a current mission session belongs to it', async () => {
+  const headerIssue = issue('header-child', {
+    parentId: 'root', archived: true, stage: 'done',
+    startedBySession: 'starter', coordinatorSessionId: 'current',
+    notes: 'Child notes', activityNotes: 'Child activity', asked: 'Child question',
+    needsHuman: true, closedReason: 'done', defaultAgent: 'codex', labels: ['child-label'],
+  })
+  const { pool, reader, load } = await setup([
+    issue('root'), headerIssue,
+    issue('hidden-child', { parentId: 'root', archived: true, stage: 'done' }),
+  ], [
+    { sessionId: 'current', issueId: 'header-child', cwd: '/fixture', status: 'working',
+      agentKind: 'codex', lastActiveAt: new Date(now).toISOString() },
+    { sessionId: 'starter', cwd: '/fixture', status: 'exited', archived: true,
+      agentKind: 'codex', lastActiveAt: '2026-01-01T00:00:00Z' },
+  ])
+  disposals.push(autorun(() => reader.mission('root')))
+  for (let round = 0; round < 8 && reader.mission('root') === LOADING; round++) pool.hydrate()
+  const data = reader.mission('root')
+  if (data === LOADING) throw new Error('Child header mission is still loading')
+  expect(data.root?.id).toBe('root')
+  expect(data.missionSessions).toMatchObject([{ sessionId: 'current', issueId: 'header-child' }])
+  const header = data.issues.find(row => row.id === data.missionSessions[0]?.issueId) ?? data.root
+  expect(header).toMatchObject({ ...headerIssue, description: 'summary description', memberSessionIds: ['current'] })
+  expect(load.mock.calls.filter(([kind]) => kind === 'issue')).toEqual([['issue', 'header-child']])
+  expect(pool.tables.issue.has('hidden-child')).toBe(false)
+  expect(pool.hydrate()).toBe(0)
+})
 it('an explicitly opened archived mission counts accepted formal children without counting its root', async () => {
   const { pool, reader } = await setup([
     issue('cold', { archived: true, stage: 'done' }),

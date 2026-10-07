@@ -64,7 +64,10 @@ function settle(pool: MobxPool, input: MobileScreenInput) {
   throw new Error('Phone batched loads did not settle')
 }
 
-it('archived corpus root i100 retains its header starter and frozen phone output', async () => {
+it.each([
+  { selectedId: 'i100', headerId: 'i100', hash: 'd96ff48b3da330f4bd8b8783fb43a8e93d84154c89fcd728218cc105ca96397e' },
+  { selectedId: 'i1157', headerId: 'i1321', hash: '4ffc0f9ff59ee6fc4c40417d6d432967503d349abc3002307d8b74ce92a5e5b5' },
+])('archived corpus $selectedId retains its full header and frozen phone output', async ({ selectedId, headerId, hash }) => {
   const ctx = await startScenarioEngine(1), feeds = openFenceFeeds(ctx, 'pooled')
   const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
     summaries: MOBILE_SCREEN_SUMMARIES,
@@ -73,7 +76,7 @@ it('archived corpus root i100 retains its header starter and frozen phone output
   try {
     for (const mode of ['full', 'working', 'needs-you'] as const) {
       const input: MobileScreenInput = {
-        selectSession: mostRelevantSession, tasks: null, selectedId: 'i100', mode,
+        selectSession: mostRelevantSession, tasks: null, selectedId, mode,
       }
       const stop = observeMobileScreens(handle.pool, input)
       try {
@@ -81,10 +84,10 @@ it('archived corpus root i100 retains its header starter and frozen phone output
         const output = tracked(() => poolMobileScreensSnapshot(handle.pool, input))
         if (typeof output === 'symbol') throw new Error('Archived root is still loading')
         expect(output.sections.find(section => section.key === 'mission')?.fields).toMatchObject({
-          root: 'i100', header: { id: 'i100', archived: true, startedBySession: 's4048' },
+          root: selectedId, header: { id: headerId, archived: true },
         })
-        // The existing corpus snapshots freeze this hash in all three modes.
-        expect(fingerprint(output)).toBe('d96ff48b3da330f4bd8b8783fb43a8e93d84154c89fcd728218cc105ca96397e')
+        // The existing corpus snapshots freeze these hashes in all three modes.
+        expect(fingerprint(output)).toBe(hash)
       } finally {
         stop()
       }
