@@ -136,14 +136,22 @@ export function legacyCommandLaunchSnapshot(store: Store<PodiumClientApi>): Side
   )
   const primary = repo ? spawnTargetForRepo(repo).worktree : undefined
   const choices = repos.filter((repo) => repo.kind !== 'worktree')
+  // Memoize the per-repo usage once: the sorts below previously recomputed
+  // repoUsageAt (an O(sessions) scan with Date.parse per session) on every
+  // comparison — O(repos log repos * sessions), ~6s per sort at 1x (485 repos
+  // x 4302 sessions). Same values and same tie-breakers, one scan per repo.
+  const usageByRepo = new Map<typeof choices[number], number>()
+  for (const repo of choices) usageByRepo.set(repo, repoUsageAt(repo, sessions))
+  const byUsage = (
+    a: (typeof choices)[number],
+    b: (typeof choices)[number],
+  ): number => (usageByRepo.get(b) ?? 0) - (usageByRepo.get(a) ?? 0)
   const initialRepoPath =
-    [...choices].sort((a, b) => repoUsageAt(b, sessions) - repoUsageAt(a, sessions))[0]?.path ??
-    repos[0]?.path ??
-    ''
+    [...choices].sort(byUsage)[0]?.path ?? repos[0]?.path ?? ''
   const label = (path: string) => path.split('/').filter(Boolean).pop() ?? path
   const repoChoices = [...choices].sort(
     (a, b) =>
-      repoUsageAt(b, sessions) - repoUsageAt(a, sessions) ||
+      byUsage(a, b) ||
       label(a.path).localeCompare(label(b.path), undefined, { sensitivity: 'base' }),
   )
   return snapshot({
