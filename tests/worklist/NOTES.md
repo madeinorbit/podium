@@ -34,6 +34,22 @@ change"; cells, plants and old-vs-new: `docs/measurements/POD-4746.md`.
 - **The copy sweep sees an arm through its stored borrowed rows**, so it
   needs no `wrapTables` in arm code once POD-4759 removes it.
 
+### Shared entity-field attribution (POD-5778)
+
+The work meter attributes shared computeds to their entity field, such as
+`SessionModel@guard-seat.phase`, independently of the first view that reads it.
+The measurement-only lazy transform exposes the owning object through MobX's
+computed context; cached groups and declared computeds already carry it. Any
+`EntityModel` owner uses this rule, including subclasses. Explicit field names
+of the schema's model classes also retain their entity key without a context.
+View-owned computeds keep their `consumer:<view>/` prefix, including companions
+whose class name ends in `Model` and view computeds called inside entity fields.
+
+Rows, derivation bodies and distinct elements are still counted on the field
+that performs the work. The ratio rule and exact expected-failure matching are
+unchanged. A real shared-field scan remains red; two consumer shards exchanging
+the first demand no longer invent a zero-to-positive growth verdict.
+
 ### Open
 
 - The MobX pool's two real violations are named allowances: POD-4792 (the

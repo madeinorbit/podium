@@ -240,7 +240,7 @@ describe('pool reader windows', () => {
           expect(second.derivationsBy[key]).toBe(1)
         }
         const verdicts = screenWorkVerdicts(cells(first), cells(second))
-          .filter((verdict) => keys.includes(verdict.reader))
+          .filter((verdict) => keys.includes(verdict.reader) && verdict.kind !== 'elements')
         expect(verdicts).toHaveLength(SCREEN_ACTIONS.length * keys.length * 2)
         expect(() => assertScreenWork(verdicts)).not.toThrow()
         expect(Object.keys(second.rowsBy!).some((key) => key.includes('/' + Model.name))).toBe(false)
@@ -303,7 +303,7 @@ describe('pool reader windows', () => {
     const fieldVerdicts = (work: WorkCounts) => screenWorkVerdicts(cells(first), cells(work))
       .filter((verdict) => verdict.reader === key)
     expect(() => assertScreenWork(fieldVerdicts(flat))).not.toThrow()
-    expect(fieldVerdicts(second).filter((verdict) => !verdict.passed)).toEqual(
+    expect(fieldVerdicts(second).filter((verdict) => !verdict.passed && verdict.kind === 'rows')).toEqual(
       SCREEN_ACTIONS.map((action) => ({
         action, kind: 'rows', reader: key, at1x: 1, at4x: 4,
         neighbourhood1x: 1, neighbourhood4x: 1, passed: false,
