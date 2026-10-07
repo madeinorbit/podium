@@ -21,6 +21,7 @@ Not filed yet:
 - Other screens still on `cachedKey`/direct `keyedComputed` (header-sessions.ts, navigation-activity.ts, settings readers, launch views, ...): moved to screen models/companions when each screen is touched.
 
 ## Decision log
+- 2026-10-07: the guide's unit is the VIEW, not the screen: one view (the worklist) can be drawn by several screens (desktop sidebar, phone Work tab), which share its view model and companions. Found by sorting the sidebar's members impartially; rule 4 read per screen would have copied the worklist rules or pushed them onto the shared model.
 - 2026-10-07: MobX first-run reservation (~830 B per watched field on WebKit): leave it. Canonical guide `docs/agents/frontend-data.md` linked from AGENTS.md; `docs/multi-instance.md` moved to `docs/agents/`. Worklist screen-model work filed as POD-5767.
 - 2026-10-07: rule 8 adopted (live by default; on request; stored on open; edit drafts). Edit forms: draft for several fields, component draft text for one inline field, plain form state for new records. `draft()` filed as POD-5766 (claude-code / Opus 5.5 / high). The read-outside-screens audit is dropped (POD-5765 makes such reads cached).
 - 2026-10-07: no `frozen` flag; "stored on open" by the screen model's `open()` action is the standard (more obvious beats shorter). Proposed, not decided: edit forms of existing records use our own `draft()` with createViewModel's surface, built by the first issue that needs it; creation forms use plain UI state.

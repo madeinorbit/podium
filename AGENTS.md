@@ -26,7 +26,7 @@ isolation this needs, since the shell spawns its sidecar with `--takeover`.
 Before changing how any client screen (web, desktop, phone) gets or derives data, including
 `packages/client-graph` models and derived values, read
 **[docs/agents/frontend-data.md](docs/agents/frontend-data.md)** and follow it: one shared model
-per record, `@lazy` derived fields, screen models and companions, and what a change must show.
+per record, `@lazy` derived fields, view models and companions, and what a change must show.
 
 ## Testing independent instances
 
@@ -200,7 +200,7 @@ without usable `node_modules/@podium` links is refused.
 
 ## Reference docs for agents
 
-- [docs/agents/frontend-data.md](docs/agents/frontend-data.md) — how client screens get and derive data from the MobX pool: models, `@lazy`, screen models, companions.
+- [docs/agents/frontend-data.md](docs/agents/frontend-data.md) — how client screens get and derive data from the MobX pool: models, `@lazy`, view models, companions.
 - [docs/agents/multi-instance.md](docs/agents/multi-instance.md) — operate and test fully independent instances on one machine.
 - [docs/agents/driving-podium.md](docs/agents/driving-podium.md) — drive the Podium UI with Playwright to verify features at runtime.
 - [docs/agents/driving-desktop.md](docs/agents/driving-desktop.md) — run the Tauri desktop shell headlessly, for the few properties only the real webview answers (cross-origin, cookies, sidecar spawn).
