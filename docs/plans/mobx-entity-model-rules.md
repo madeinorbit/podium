@@ -9,7 +9,6 @@ Engines: the desktop app runs in Tauri's system web view, so WebKit/JavaScriptCo
 Labels: **[MobX docs]** = stated by the MobX docs; **[house rule]** = our own reasoning; **[deviation]** = we knowingly differ from the docs' default, with the reason given.
 
 ## Open questions
-- MobX reserves room for 100 dependencies on a computed's first run; WebKit (macOS, Linux; Tauri's web view there) keeps that ~830 B per watched field until the field runs a second time (V8 frees it at once). Patch MobX, report upstream, or leave it?
 - Later, only after measuring in the app: the keep list for recently closed values (designed in Appendix A), the working-set machinery (principles are in the rules).
 
 ## Work the rules cause
@@ -22,6 +21,7 @@ Not filed yet:
 - Other screens still on `cachedKey`/direct `keyedComputed` (header-sessions.ts, navigation-activity.ts, settings readers, launch views, ...): moved to screen models/companions when each screen is touched.
 
 ## Decision log
+- 2026-10-07: MobX first-run reservation (~830 B per watched field on WebKit): leave it. Canonical guide `docs/agents/frontend-data.md` linked from AGENTS.md; `docs/multi-instance.md` moved to `docs/agents/`. Worklist screen-model work filed as POD-5767.
 - 2026-10-07: rule 8 adopted (live by default; on request; stored on open; edit drafts). Edit forms: draft for several fields, component draft text for one inline field, plain form state for new records. `draft()` filed as POD-5766 (claude-code / Opus 5.5 / high). The read-outside-screens audit is dropped (POD-5765 makes such reads cached).
 - 2026-10-07: no `frozen` flag; "stored on open" by the screen model's `open()` action is the standard (more obvious beats shorter). Proposed, not decided: edit forms of existing records use our own `draft()` with createViewModel's surface, built by the first issue that needs it; creation forms use plain UI state.
 - 2026-10-07 finding (`evidence/view-model/`): mobx-utils `createViewModel` (latest, 6.1.1, peer mobx ^6) fails on our MobX 7.0.3 even for a plain observable object (its constructor's bare `makeObservable(this)` is refused). With that line patched out (test only): our models are refused ("expects an observable object", they are plain classes over observable rows), and work once made observable objects (empty `makeObservable(this, {})`): edits stay in the draft, `submit()` writes each field through its setter (one edit per field, not one transaction). Unedited draft fields keep following the live model, so a view model is an edit buffer, not a frozen copy. My earlier claim that our non-enumerable fields would be invisible to it was wrong (it lists them with getOwnPropertyNames).
