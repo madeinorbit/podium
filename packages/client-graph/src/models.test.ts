@@ -152,7 +152,7 @@ it('an unknown row keeps the previous progress defaults while its formal child r
   const stop = autorun(() => { progress = [root.progressDone, root.progressTotal] })
   try {
     expect(progress).toEqual([1, 1])
-    runInAction(() => pool.apply({ type: 'remove', rows: [{ kind: 'issue', id: 'root' }] }))
+    runInAction(() => pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'root', value: undefined }] }))
     expect(root.unitsBelow.units).toBe(1)
     expect(progress).toEqual([0, 0])
   } finally { stop(); pool.dispose() }
