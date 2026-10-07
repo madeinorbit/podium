@@ -1414,18 +1414,12 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   private get aggregateRailWaiting(): NonNullable<Aggregate['railWaiting']> | undefined {
-    if (!this.aggregateRailWaitingPresent) return undefined
     const model = this
     return {
       get open() { return model.aggregateRailWaitingOpen },
       get finished() { return model.aggregateRailWaitingFinished },
       get decisions() { return model.aggregateRailWaitingDecisions },
     }
-  }
-
-  @lazy
-  private get aggregateRailWaitingPresent(): boolean {
-    return this.readAggregate().railWaiting !== undefined
   }
 
   @lazy
@@ -1449,7 +1443,6 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   private get aggregateSidebarFacts(): SidebarSessionFacts | undefined {
-    if (!this.aggregateSidebarFactsPresent) return undefined
     const model = this
     return {
       get fleet() { return model.aggregateSidebarFactsFleet },
@@ -1461,11 +1454,6 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
       get errorClass() { return model.aggregateSidebarFactsErrorClass },
       get allUnstarted() { return model.aggregateSidebarFactsAllUnstarted },
     }
-  }
-
-  @lazy
-  private get aggregateSidebarFactsPresent(): boolean {
-    return this.readAggregate().sidebarFacts !== undefined
   }
 
   @lazy({ equals: compareStructural })
