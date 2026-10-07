@@ -1045,8 +1045,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   @lazy({ equals: compareStructural })
   private get ownFactOrder(): OwnFacts['order'] {
-    if (!this.inMemory) return undefined
-    return { id: this.id, seq: this.seq, createdAt: this.createdAt, sortKey: this.sortKey }
+    return this.readOwnFacts().order
   }
 
   get ownAttention(): OwnAttention {
@@ -1746,7 +1745,6 @@ export class SessionModel extends EntityModel implements SessionVisibility {
     return Number.isFinite(at) ? at : null
   }
 
-  @lazy
   private get verdictId(): SeatVerdict['id'] {
     return this.id
   }
@@ -1831,7 +1829,6 @@ export class SessionModel extends EntityModel implements SessionVisibility {
     }
   }
 
-  @lazy
   private get verdictSidebarOrderId(): SidebarSessionOrder['id'] {
     return this.id
   }
