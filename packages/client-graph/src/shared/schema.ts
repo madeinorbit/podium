@@ -1010,7 +1010,6 @@ const DECLARED = defineSchema({
       lastInputAt: { type: 'isoDate', optional: true, source: meta() },
       transcriptAvailable: { type: 'boolean', optional: true, source: meta() },
       busy: { type: 'boolean', optional: true, source: meta() },
-      machineName: { type: 'string', optional: true, source: meta() },
       queuedMessageCount: { type: 'number', optional: true, source: meta() },
       stoppedAt: { type: 'isoDate', optional: true, nullable: true, source: meta() },
       readAt: { type: 'isoDate', optional: true, nullable: true, source: sessionValue('readAt') },

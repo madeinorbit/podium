@@ -1846,6 +1846,10 @@ export class SessionModel extends EntityModel implements SessionVisibility {
   @lazy
   get historyKind(): SessionView['agentKind'] { return this.agentKind }
 
+  // Display joins: these are resolved from linked rows, not stored SessionMeta fields.
+  @lazy
+  get machineName(): SessionView['machineName'] { return this.storedField('machineName') as SessionView['machineName'] }
+
   @lazy
   get condition(): SessionView['condition'] { return this.storedField('condition') as SessionView['condition'] }
 
