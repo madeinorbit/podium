@@ -200,6 +200,47 @@ it('a known cold mission remains LOADING until one batched load supplies its row
     progress: { total: 0, done: 0 },
   })
 })
+it('an archived root keeps its full header for the current session without loading hidden siblings', async () => {
+  const root = issue('cold', {
+    archived: true,
+    stage: 'done',
+    startedBySession: 'starter',
+    coordinatorSessionId: 'current',
+    notes: 'Root notes',
+    activityNotes: 'Root activity',
+    asked: 'Root question',
+    needsHuman: true,
+    closedReason: 'done',
+    defaultAgent: 'codex',
+    labels: ['root-label'],
+  })
+  const current = {
+    sessionId: 'current', issueId: 'cold', cwd: '/fixture',
+    status: 'working', agentKind: 'codex',
+    lastActiveAt: new Date(now).toISOString(),
+  }
+  const { pool, reader, load } = await setup([
+    root,
+    issue('hidden-child', { parentId: 'cold', archived: true, stage: 'done' }),
+  ], [current])
+  let data: ReturnType<typeof reader.mission> = LOADING
+  disposals.push(autorun(() => { data = reader.mission('cold') }))
+  expect(data).toBe(LOADING)
+  expect(pool.hydrate()).toBe(1)
+  expect(data).not.toBe(LOADING)
+  if (data === LOADING) throw new Error('Archived mission is still loading')
+  expect(data.missionSessions).toMatchObject([{ sessionId: 'current', issueId: 'cold' }])
+  // MissionScreen chooses the current session's issue from this list before
+  // falling back to root. Every header field must borrow the full root.
+  const header = data.issues.find(row => row.id === data.missionSessions[0]?.issueId) ?? data.root
+  expect(header).toBe(data.root)
+  expect(header).toMatchObject(root)
+  expect(header).toMatchObject({ memberSessionIds: ['current'], childCount: 0, childDoneCount: 0 })
+  expect(load).toHaveBeenCalledTimes(1)
+  expect(load).toHaveBeenCalledWith('issue', 'cold')
+  expect(pool.tables.issue.has('hidden-child')).toBe(false)
+  expect(pool.hydrate()).toBe(0)
+})
 it('an explicitly opened archived mission counts accepted formal children without counting its root', async () => {
   const { pool, reader } = await setup([
     issue('cold', { archived: true, stage: 'done' }),
