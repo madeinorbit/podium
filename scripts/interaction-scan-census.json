@@ -2094,19 +2094,19 @@
       "file": "apps/web/src/app/command-launch-data.ts",
       "holder": "useCommandPaletteData",
       "rule": "reader-summary",
-      "tokens": "2ff33d53c04fb0d47f652b3dc6f72e91670c37f7ed64ee716a6dffebcacc7295",
+      "tokens": "704a3c3f3699d9014aa8ee5d204d42771991ee22d832b944440f3240c718e38e",
       "gate": [],
       "origin": [
         "df38a55233f6ae65c2698a3cd2d652be1e4b4c7811b3c0f7c7d94926c6ad617f"
       ],
-      "fingerprint": "3e9d9e8ec9c2a6c77ffdfc69567e9ab4b3ad255505dbed45ffe4c7eb26621da2",
+      "fingerprint": "45320a394ab166947ae0ea412471f1af797f02e464a7dbec769e07a2c844cf55",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of useCommandPaletteData",
+      "trigger": "useCommandPaletteData",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
+      "guard": "Open-time answer and 1x/4x heartbeat tests cover the stored picker; retained classification is not a scan repair claim."
     },
     {
       "file": "apps/web/src/app/command-launch-data.ts",
@@ -2130,19 +2130,19 @@
       "file": "apps/web/src/app/CommandPalette.tsx",
       "holder": "PaletteDialog/snapshot",
       "rule": "reader-summary",
-      "tokens": "f1fa4b6d64185ebb5da051d21d4b199e29a96c4a5ada2fd24c86c37feeb4d7f9",
+      "tokens": "25d5ed0bbd23248e27255c5959c066120fa0e25389983b433b5ffcb0e4838992",
       "gate": [],
       "origin": [
         "df38a55233f6ae65c2698a3cd2d652be1e4b4c7811b3c0f7c7d94926c6ad617f"
       ],
-      "fingerprint": "cbe4f5f5324763a5459a4fd81f980d3ba394b0978ba3cca27e615bf94ac96eca",
+      "fingerprint": "ae8b53b0a12e6e8bcbc1d483374b38f4a72064295e0259e5078bd914503766b7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of PaletteDialog/snapshot",
+      "trigger": "PaletteDialog/snapshot",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
+      "guard": "Open-time answer and 1x/4x heartbeat tests cover the stored picker; retained classification is not a scan repair claim."
     },
     {
       "file": "apps/web/src/app/CommandPalette.tsx",
@@ -2179,6 +2179,35 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/app/CommandPalette.tsx",
+      "holder": "PaletteDialogBody/sessionAtPress",
+      "rule": "reader-summary",
+      "tokens": "0b90273dfe6985f6721d771bdddd3d20f29daf0e19a6b8b87de68f4aa07f8a7c",
+      "gate": [],
+      "origin": [
+        "242a3e7072bfbdf134612d30bf7e3e0ba9cf8991cf643c1539b03d3df3ed62a4",
+        "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9",
+        "3f6c8b0053b9cfc98cb849ff9d6ea73740784f44a3db0948a0fcc269bdb075fd",
+        "44e02211d9e4ff8d1498608a39ce6c190efdf9967247bad750c1102c369c812c",
+        "47c5605141a57026c6990ce4953b4d8112c85c4b8bedfc57cb085037636a146e",
+        "55f2bb1b865070a50728a668a30c09b1b064b122be2e983231c769731be73f87",
+        "7791a6bb1a79273c0274d48b39812babfd7b114a6c016acb51f5a0cff2318757",
+        "7a45da38d3f518b84878ee448d1af4b165ec3a4cad2e738b024af08a54c07550",
+        "909370c3105019597333c242a8eade8e480253502cf554a28d2231be129e6147",
+        "aaf7ff9a13e83cc8ab30a3769f53daa4fd51ab36fd07ed60e5bfa190f185e7a3",
+        "bda9ac5a91cfdfb23ddc5c8e1826273d3d23dd591a7db487beaef2f3ea7aa2dd",
+        "e7f73f85ce6d28270e176f3764656070d96a7e1c91d63e4b1e42289fd529a5f9"
+      ],
+      "fingerprint": "c3c6d267d7ab6fce318cd59601518504372218fb3d3c15ff2becd119aaba936c",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "PaletteDialogBody/sessionAtPress",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Open-time answer and 1x/4x heartbeat tests cover the stored picker; retained classification is not a scan repair claim."
     },
     {
       "file": "apps/web/src/app/flight-deck-waterfall.ts",
@@ -37677,47 +37706,6 @@
     },
     {
       "file": "packages/client-graph/src/command-launch-views.ts",
-      "holder": "CommandPaletteView/data",
-      "rule": "spread",
-      "tokens": "cbd48f308440aaabc7a7b4760f8b97673f9eb1f6e1a36e2ea3e27bc643598de9",
-      "gate": [
-        "exit:then:6bd938455bbed8b579c0375d2f5d47bb144ec2f131d9b528e878e345d7a69aa2",
-        "then:53b453aab503814bf1b8c7bbc03001eabfea917ba871caa944f6289cf3c34c7b"
-      ],
-      "origin": [
-        "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
-      ],
-      "fingerprint": "6111e3f8988bdec52c139d311a12111056edeb326339363be80be2ed50b264a8",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of CommandPaletteView/data",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
-    },
-    {
-      "file": "packages/client-graph/src/command-launch-views.ts",
-      "holder": "CommandPaletteView/data/selected",
-      "rule": "reader-summary",
-      "tokens": "0f796f9c92232d4b90adb7aafdae40823539b39e8114dd98ceb3a1f970977cca",
-      "gate": [
-        "exit:then:6bd938455bbed8b579c0375d2f5d47bb144ec2f131d9b528e878e345d7a69aa2"
-      ],
-      "origin": [
-        "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
-      ],
-      "fingerprint": "977a4e6b6f6f98b8be1badd6a0a7ee31203bdb664aa9b501d59a13cdf3ca7b72",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of CommandPaletteView/data/selected",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
-    },
-    {
-      "file": "packages/client-graph/src/command-launch-views.ts",
       "holder": "CommandPaletteView/open/take/callback",
       "rule": "loop:for-of",
       "tokens": "da7326b49e142a2ab984769f7926cd7515ff95b2b3397880994190c0a4074363",
@@ -37753,6 +37741,26 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/selection",
+      "rule": "reader-summary",
+      "tokens": "1f0853e652bef6b169308d9afcd12860ef24bdbaac4e53575785b72e02e3844a",
+      "gate": [
+        "then:a8cab1d6ceb3ae9c88cbc337bdb5d9894c6ea997717af03bdfe1372c731e3b4e"
+      ],
+      "origin": [
+        "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
+      ],
+      "fingerprint": "eb02e79afd5a8a00ec8f4f076f8667cc2250897fcab82e5509d42129bea1c02f",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "CommandPaletteView/selection",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Open-time answer and 1x/4x heartbeat tests cover the stored picker; retained classification is not a scan repair claim."
     },
     {
       "file": "packages/client-graph/src/command-launch-views.ts",
@@ -44233,6 +44241,48 @@
     },
     {
       "file": "packages/client-graph/src/worklist/visible.ts",
+      "holder": "keepsPartOf",
+      "rule": "reader-summary",
+      "tokens": "dbfc1b83941d66130ca4c9aeaa6a4cb644aaa495f25354f87dcddadd9f133bd3",
+      "gate": [
+        "exit:then:17422751f72effdc858072b056d9ddf9fb014184c70e1015c5914d916f076cbb",
+        "||:4bb26d2378b753523869607ca2ca03dc054f19fbf20c6caf5d4665d2c1d96710"
+      ],
+      "origin": [
+        "e01cd3a943241f1b31029ad32c8afa6316890671ab142d34cc22022f19952085"
+      ],
+      "fingerprint": "33da6086fe850fffe933e6260210a415335a16237337d2cc5f04e95c5f553b6a",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
+      "trigger": "Invocation of keepsPartOf on a non-flat issue",
+      "reason": "The existing presence rescue walk moved to the independent keeps answer. Its child relation and recursive keptBelowPartOf walk retain the existing REQUIRED REPAIR classification; the split adds no collection or index."
+    },
+    {
+      "file": "packages/client-graph/src/worklist/visible.ts",
+      "holder": "keepsPartOf",
+      "rule": "helper-consumer",
+      "tokens": "4b60e2b1f96c3c2e4bec9209698e240840b39124a25abfc6780170b643db7bd9",
+      "gate": [
+        "exit:then:17422751f72effdc858072b056d9ddf9fb014184c70e1015c5914d916f076cbb",
+        "||:4bb26d2378b753523869607ca2ca03dc054f19fbf20c6caf5d4665d2c1d96710"
+      ],
+      "origin": [
+        "e01cd3a943241f1b31029ad32c8afa6316890671ab142d34cc22022f19952085"
+      ],
+      "fingerprint": "815f6a8cc0e4bf638b610bff639e0f3172fffa36a2b0657a3fc31dc4a82cb99b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
+      "trigger": "Invocation of keepsPartOf on a non-flat issue",
+      "reason": "The existing presence rescue walk moved to the independent keeps answer. Its child relation and recursive keptBelowPartOf walk retain the existing REQUIRED REPAIR classification; the split adds no collection or index."
+    },
+    {
+      "file": "packages/client-graph/src/worklist/visible.ts",
       "holder": "keptBelowPartOf",
       "rule": "helper-consumer",
       "tokens": "d24df36ea1feef6fbca4b4b772c3c2b987c30216f7100ff22acb88b8d9bbcd76",
@@ -45415,48 +45465,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/visible.ts",
-      "holder": "keepsPartOf",
-      "rule": "reader-summary",
-      "tokens": "dbfc1b83941d66130ca4c9aeaa6a4cb644aaa495f25354f87dcddadd9f133bd3",
-      "gate": [
-        "exit:then:17422751f72effdc858072b056d9ddf9fb014184c70e1015c5914d916f076cbb",
-        "||:4bb26d2378b753523869607ca2ca03dc054f19fbf20c6caf5d4665d2c1d96710"
-      ],
-      "origin": [
-        "e01cd3a943241f1b31029ad32c8afa6316890671ab142d34cc22022f19952085"
-      ],
-      "fingerprint": "33da6086fe850fffe933e6260210a415335a16237337d2cc5f04e95c5f553b6a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "trigger": "Invocation of keepsPartOf on a non-flat issue",
-      "reason": "The existing presence rescue walk moved to the independent keeps answer. Its child relation and recursive keptBelowPartOf walk retain the existing REQUIRED REPAIR classification; the split adds no collection or index."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/visible.ts",
-      "holder": "keepsPartOf",
-      "rule": "helper-consumer",
-      "tokens": "4b60e2b1f96c3c2e4bec9209698e240840b39124a25abfc6780170b643db7bd9",
-      "gate": [
-        "exit:then:17422751f72effdc858072b056d9ddf9fb014184c70e1015c5914d916f076cbb",
-        "||:4bb26d2378b753523869607ca2ca03dc054f19fbf20c6caf5d4665d2c1d96710"
-      ],
-      "origin": [
-        "e01cd3a943241f1b31029ad32c8afa6316890671ab142d34cc22022f19952085"
-      ],
-      "fingerprint": "815f6a8cc0e4bf638b610bff639e0f3172fffa36a2b0657a3fc31dc4a82cb99b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "trigger": "Invocation of keepsPartOf on a non-flat issue",
-      "reason": "The existing presence rescue walk moved to the independent keeps answer. Its child relation and recursive keptBelowPartOf walk retain the existing REQUIRED REPAIR classification; the split adds no collection or index."
     }
   ]
 }
