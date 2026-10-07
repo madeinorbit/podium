@@ -462,8 +462,8 @@ export function createMobileScreenReader(pool: MobxPool) {
     return {
       root: values.root,
       issues: card.issues,
-      sessions: card.sessions,
-      missionSessions: card.crew,
+      sessions: card.sessions as SessionView[],
+      missionSessions: card.crew as SessionView[],
       progress: values.progress,
     }
   }

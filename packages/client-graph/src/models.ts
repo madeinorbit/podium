@@ -581,7 +581,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   // Links: raw page membership includes headless, history and resume twins.
   @lazy
-  get memberSessionIds(): readonly ReturnType<typeof asSessionId>[] {
+  get memberSessionIds(): ReturnType<typeof asSessionId>[] {
     return [...this.host.relations.many('issue', this.id, 'pageSessions')].sort().map(asSessionId)
   }
 
@@ -1759,7 +1759,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 
   @lazy
   // Motion lets an offer/question override execution; verdict.working reports execution alone.
-  get workingMotion(): boolean { return this.exists && sessionMotion(this) === 'working' }
+  get workingMotion(): boolean { return this.exists && sessionMotion(this as SessionView) === 'working' }
 
   @lazy
   get asking(): boolean {

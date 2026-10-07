@@ -105,14 +105,14 @@ const latestPromptOf = (sessions: readonly SessionModel[]) =>
     sessionId: session.sessionId, lastActiveAt: session.lastActivity,
     lastInputAt: session.lastInput, transcriptAvailable: session.transcript,
     agentKind: session.historyKind,
-  })) as readonly SessionView[])?.sessionId
+  })) as unknown as readonly SessionView[])?.sessionId
 const NO_HISTORY: MissionHistory = Object.freeze({ count: 0, roster: 0, newest: undefined, moved: undefined, latestPrompt: undefined })
 interface IssueMemberFacts {
-  readonly ids: readonly ReturnType<typeof asSessionId>[]
+  readonly ids: ReturnType<typeof asSessionId>[]
   readonly latest: number
   readonly summary: { total: number; byPhase: Record<string, number> }
 }
-type MissionIssue = ModelOf['issue'] & Pick<IssueNavigationModel, 'coordinatorSessionId' | 'startedBySession' | 'closedReason' | 'blocked' | 'needsHuman' | 'parentId' | 'updatedAt'>
+type MissionIssue = ModelOf['issue'] & Pick<IssueNavigationModel, 'stage' | 'coordinatorSessionId' | 'startedBySession' | 'closedReason' | 'blocked' | 'needsHuman' | 'parentId' | 'updatedAt'>
 
 export function settled<T>(read: () => T): T | typeof LOADING {
   try { return read() } catch (error) { if (error === LOADING) return LOADING; throw error }
@@ -365,7 +365,7 @@ export class MissionDeckIssueModel implements FlightDeckRow {
   @lazy private get ownCrewIds() { return crewIds(this) }
   get crewIds() { return this.canonical.ownCrewIds }
   get hasLead() { return this.entity.hasLead }
-  asks(session: SessionView) { return this.view.pool.sessionObject(session.sessionId).asking && !this.entity.finished }
+  asks(session: Pick<SessionView, 'sessionId'>) { return this.view.pool.sessionObject(session.sessionId).asking && !this.entity.finished }
   @lazy get workingSessionIds() { return this.crewIds.filter(id => this.view.pool.sessionObject(id).atWork) }
   @lazy get askingSessionIds() { return this.matches('needs-you') ? this.crewIds.filter(id => this.asks(this.view.pool.sessionObject(id))) : [] }
   sessionIds(mode: FlightDeckMode): readonly string[] {
@@ -489,10 +489,10 @@ export class MissionDeckModel {
   get id() { return this.entity.id }
   /** Phone mission rosters include history; web reads the seated list and only
    * mounts history on request. Both lists contain the shared session objects. */
-  @lazy get allSessions(): readonly SessionModel[] {
-    const crew = new Map<string, SessionModel>()
+  @lazy get allSessions(): readonly SessionView[] {
+    const crew = new Map<string, SessionView>()
     for (const id of requireLoaded(this.rowIds())) {
-      for (const session of requireLoaded(this.view.attached(id))) crew.set(session.sessionId, this.view.pool.sessionObject(session.sessionId))
+      for (const session of requireLoaded(this.view.attached(id))) crew.set(session.sessionId, session)
     }
     return [...crew.values()].sort(this.view.sessionOrder)
   }
@@ -722,8 +722,8 @@ export class MissionViewReader {
     }
     return pending ? LOADING : found.sort((a, b) => this.idOrder(a.sessionId, b.sessionId))
   }
-  sessionOrder = (a: SessionView, b: SessionView): number => this.idOrder(a.sessionId, b.sessionId)
-  rawSession(id: string): Loaded<SessionModel> {
+  sessionOrder = (a: Pick<SessionView, 'sessionId'>, b: Pick<SessionView, 'sessionId'>): number => this.idOrder(a.sessionId, b.sessionId)
+  rawSession(id: string): Loaded<SessionModel & SessionView> {
     const resident = this.pool.row('session', id, 'mark')
     if (resident === undefined) return undefined
     if (resident === LOADING) {
@@ -733,7 +733,7 @@ export class MissionViewReader {
         if (full === LOADING || !full) return full
       }
     }
-    return this.pool.sessionObject(id)
+    return this.pool.sessionObject(id) as SessionModel & SessionView
   }
   session(id: string): Loaded<SessionView> {
     this.stats.sessionReads++
@@ -768,7 +768,7 @@ export class MissionViewReader {
       const session = this.pool.sessionObject(sessionId)
       const foundSession = settled(() => session.exists && session.archived === archived)
       if (foundSession === LOADING) pending = true
-      else if (foundSession) found.push(session)
+      else if (foundSession) found.push(session as SessionView)
     }
     return pending ? LOADING : found
   }
