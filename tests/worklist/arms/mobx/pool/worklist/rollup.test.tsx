@@ -1,4 +1,3 @@
-import { burstMemoryCensus, burstMemoryLabel } from '../../../../harness/src/burst-memory-census'
 import { rowViewOf } from '../../../../shared/src/row-snapshots'
 import { referenceState } from '../../../../diagnostics/reference-state'
 import { upsertIssue } from '../../../../shared/src/scenarios'
@@ -690,19 +689,15 @@ describe('row roll-ups (Mb3)', () => {
     const cells = []
     for (const scale of [1, 4] as const) {
       const sortedOf = async (create: CheckableArm): Promise<{ sorts: number; rows: number }> => {
-        burstMemoryLabel(`${scale}x:${create === arm ? 'correct' : 'plant'}`)
         let sorts = 0
         let rows = 0
         await withMountedScale(create, scale, async (ctx, mounted, handle, flush) => {
-          burstMemoryCensus('app-mounted-settled', handle.pool)
           sorts = await countSorted(async () => {
             const { result } = await runFenceStep(mounted, ctx, flush, burst!)
             rows = result.rowsCommitted
             assertCommits(result)
           })
-          burstMemoryCensus('after-burst-microtask', handle.pool)
           checkParity(ctx, handle, `#10 ${scale}x`)
-          burstMemoryCensus('after-full-parity-check', handle.pool)
         })
         return { sorts, rows }
       }
@@ -716,7 +711,6 @@ describe('row roll-ups (Mb3)', () => {
       cells.push({ scale, correctSorts: correct.sorts, plantedSorts: planted.sorts })
     }
     writeResult('mobx-rollups-burst-sorts-1x-4x', { cells })
-    burstMemoryCensus('end-case')
   }, 900_000)
 
   it('a deep closed chain loads one level per window and converges to the oracle', async () => {
