@@ -234,7 +234,7 @@ it('an archived root keeps its full header for the current session without loadi
   // falling back to root. Every header field must borrow the full root.
   const header = data.issues.find(row => row.id === data.missionSessions[0]?.issueId) ?? data.root
   expect(header).toBe(data.root)
-  expect(header).toMatchObject(root)
+  expect(header).toMatchObject({ ...root, description: 'summary description' })
   expect(header).toMatchObject({ memberSessionIds: ['current'] })
   expect(load).toHaveBeenCalledTimes(1)
   expect(load).toHaveBeenCalledWith('issue', 'cold')
