@@ -127,6 +127,10 @@ import {
   type RollupInputs,
   rollupPartOf,
   type SeatVerdict,
+  attentionGroup,
+  isSessionWorking,
+  isOfferOnlyAttention,
+  motionPhase,
   phaseOf,
   askingOf,
   seatActivityPartOf,
@@ -138,7 +142,7 @@ import {
   waitingPartOf,
 } from './worklist/rollup'
 import { type SidebarRoster, sidebarRosterOf } from './worklist/sidebar'
-import type { SidebarSessionFacts, SidebarSessionOrder } from './worklist/sidebar-row'
+import { fleetOf, unstarted, type SidebarSessionFacts, type SidebarSessionOrder } from './worklist/sidebar-row'
 import {
   childIdsPartOf,
   type HeldIssue,
@@ -166,7 +170,6 @@ import {
   spinOffIdsPartOf,
   unreadPartOf,
   type VisibleInputs,
-  verdictPartOf,
 } from './worklist/visible'
 
 /** What a model reads from its pool. */
@@ -418,7 +421,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   @lazy
   private get hasStanding(): boolean {
-    return this.host.visibleInputs.issueRow(this.id) !== undefined
+    return this.host.resident('issue', this.id) === 'resident'
   }
 
   private readStanding(): Standing | undefined {
@@ -1003,12 +1006,13 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   @lazy
   private get ownState(): OwnFacts['state'] {
-    return this.readOwnFacts().state
+    const state = this.host.resident('issue', this.id)
+    return state === 'resident' ? 'ready' : state === 'loading' ? 'cold' : 'unknown'
   }
 
   @lazy
   private get ownFactFinished(): OwnFacts['finished'] {
-    return this.readOwnFacts().finished
+    return this.standing?.finished ?? false
   }
 
   @lazy
@@ -1023,22 +1027,26 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   @lazy
   private get ownFactUpdatedAt(): OwnFacts['updatedAt'] {
-    return this.readOwnFacts().updatedAt
+    const row = this.host.rollupInputs.loadedIssue(this.id)
+    return row === LOADING || row === undefined ? undefined : row.updatedAt
   }
 
   @lazy
   private get ownFactClosedAt(): OwnFacts['closedAt'] {
-    return this.readOwnFacts().closedAt
+    const row = this.host.rollupInputs.loadedIssue(this.id)
+    return row === LOADING || row === undefined ? undefined : row.closedAt
   }
 
   @lazy
   private get ownFactCoordinatorSessionId(): OwnFacts['coordinatorSessionId'] {
-    return this.readOwnFacts().coordinatorSessionId
+    const row = this.host.rollupInputs.loadedIssue(this.id)
+    return row === LOADING || row === undefined ? undefined : row.coordinatorSessionId
   }
 
   @lazy({ equals: compareStructural })
   private get ownFactOrder(): OwnFacts['order'] {
-    return this.readOwnFacts().order
+    if (!this.inMemory) return undefined
+    return { id: this.id, seq: this.seq, createdAt: this.createdAt, sortKey: this.sortKey }
   }
 
   get ownAttention(): OwnAttention {
@@ -1627,7 +1635,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 
   @lazy
   private get hasRetention(): boolean {
-    return this.host.visibleInputs.sessionRow(this.id) !== undefined
+    return this.host.resident('session', this.id) === 'resident'
   }
 
   private readRetention(): Retention | null {
@@ -1651,27 +1659,27 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 
   @lazy
   private get retentionIssueId(): Retention['issueId'] {
-    return this.readRetention()!.issueId
+    return this.host.visibleInputs.sessionRow(this.id)!.issueId
   }
 
   @lazy
   private get retentionArchived(): Retention['archived'] {
-    return this.readRetention()!.archived
+    return this.host.visibleInputs.sessionRow(this.id)!.archived === true
   }
 
   @lazy
   private get retentionSeat(): Retention['seat'] {
-    return this.readRetention()!.seat
+    return !this.retentionArchived && !this.retentionShell
   }
 
   @lazy
   private get retentionShell(): Retention['shell'] {
-    return this.readRetention()!.shell
+    return this.host.visibleInputs.sessionRow(this.id)!.agentKind === 'shell'
   }
 
   @lazy
   private get retentionExited(): Retention['exited'] {
-    return this.readRetention()!.exited
+    return this.host.visibleInputs.sessionRow(this.id)!.status === 'exited'
   }
 
   @lazy({ equals: compareStructural })
@@ -1681,22 +1689,23 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 
   @lazy
   private get retentionUnread(): Retention['unread'] {
-    return this.readRetention()!.unread
+    return this.host.visibleInputs.sessionRow(this.id)!.unread === true
   }
 
   @lazy
   private get retentionReadMs(): Retention['readMs'] {
-    return this.readRetention()!.readMs
+    const readAt = this.host.visibleInputs.sessionRow(this.id)!.readAt
+    return typeof readAt === 'string' && readAt ? Date.parse(readAt) || 0 : null
   }
 
   @lazy
   private get verdictState(): 'ready' | typeof LOADING | undefined {
-    const row = this.host.visibleInputs.loadedSession(this.id)
-    return row === LOADING || row === undefined ? row : 'ready'
+    const state = this.host.resident('session', this.id)
+    return state === 'resident' ? 'ready' : state === 'loading' ? LOADING : undefined
   }
 
-  private readVerdict(): SeatVerdict {
-    return verdictPartOf(this.host.visibleInputs, this.id) as SeatVerdict
+  private get verdictRow(): SliceSession {
+    return this.host.visibleInputs.loadedSession(this.id) as SliceSession
   }
 
   get verdict(): LoadedRow<SeatVerdict> {
@@ -1716,31 +1725,33 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 
   @lazy
   private get verdictOpen(): SeatVerdict['open'] {
-    return this.readVerdict().open
+    return motionPhase(this.verdictRow, false)
   }
 
   @lazy
   private get verdictFinished(): SeatVerdict['finished'] {
-    return this.readVerdict().finished
+    return motionPhase(this.verdictRow, true)
   }
 
   @lazy
   private get verdictWorking(): SeatVerdict['working'] {
-    return this.readVerdict().working
+    return isSessionWorking(this.verdictRow)
   }
 
   @lazy
   private get verdictWorkingSinceMs(): SeatVerdict['workingSinceMs'] {
-    return this.readVerdict().workingSinceMs
+    if (!this.verdictWorking) return null
+    const row = this.verdictRow
+    const at = Date.parse(row.agentState?.since ?? row.lastActiveAt)
+    return Number.isFinite(at) ? at : null
   }
 
   @lazy
   private get verdictId(): SeatVerdict['id'] {
-    return this.readVerdict().id
+    return this.id
   }
 
   private get verdictSidebarFacts(): SidebarSessionFacts | undefined {
-    if (!this.verdictSidebarFactsPresent) return undefined
     const model = this
     return {
       get fleet() { return model.verdictSidebarFactsFleet },
@@ -1754,53 +1765,61 @@ export class SessionModel extends EntityModel implements SessionVisibility {
     }
   }
 
-  @lazy
-  private get verdictSidebarFactsPresent(): boolean {
-    return this.readVerdict().sidebarFacts !== undefined
-  }
-
   @lazy({ equals: compareStructural })
   private get verdictSidebarFactsFleet(): SidebarSessionFacts['fleet'] {
-    return this.readVerdict().sidebarFacts!.fleet
+    return fleetOf([this.verdictRow])
   }
 
   @lazy({ equals: compareStructural })
   private get verdictSidebarFactsWorking(): SidebarSessionFacts['working'] {
-    return this.readVerdict().sidebarFacts!.working
+    if (!this.verdictWorking) return undefined
+    const row = this.verdictRow
+    const stateSince = Date.parse(row.agentState?.since ?? row.lastActiveAt)
+    return { stateSince, sinceMs: stateSince,
+      ...(row.agentState?.workingMsTotal !== undefined ? { baseMs: row.agentState.workingMsTotal } : {}) }
   }
 
   @lazy({ equals: compareStructural })
   private get verdictSidebarFactsWaitingOpen(): SidebarSessionFacts['waitingOpen'] {
-    return this.readVerdict().sidebarFacts!.waitingOpen
+    return this.verdictOpen === 'waiting' ? this.verdictWaitingAnchor : undefined
   }
 
   @lazy({ equals: compareStructural })
   private get verdictSidebarFactsWaitingFinished(): SidebarSessionFacts['waitingFinished'] {
-    return this.readVerdict().sidebarFacts!.waitingFinished
+    return this.verdictFinished === 'waiting' ? this.verdictWaitingAnchor : undefined
+  }
+
+  @lazy({ equals: compareStructural })
+  private get verdictWaitingAnchor(): NonNullable<SidebarSessionFacts['waitingOpen']> {
+    const row = this.verdictRow
+    const stateSince = Date.parse(row.agentState?.since ?? row.lastActiveAt)
+    return { stateSince, sinceMs: Date.parse(row.offer?.createdAt ?? '') || stateSince }
   }
 
   @lazy
   private get verdictSidebarFactsDoneSince(): SidebarSessionFacts['doneSince'] {
-    return this.readVerdict().sidebarFacts!.doneSince
+    const row = this.verdictRow
+    return Date.parse(row.agentState?.since ?? row.lastActiveAt) || 0
   }
 
   @lazy
   private get verdictSidebarFactsTotalMs(): SidebarSessionFacts['totalMs'] {
-    return this.readVerdict().sidebarFacts!.totalMs
+    return this.verdictRow.agentState?.workingMsTotal
   }
 
   @lazy
   private get verdictSidebarFactsErrorClass(): SidebarSessionFacts['errorClass'] {
-    return this.readVerdict().sidebarFacts!.errorClass
+    const row = this.verdictRow
+    return !row.archived && row.status !== 'exited' && row.agentState?.phase === 'errored'
+      ? row.agentState.error?.class ?? 'unknown' : null
   }
 
   @lazy
   private get verdictSidebarFactsAllUnstarted(): SidebarSessionFacts['allUnstarted'] {
-    return this.readVerdict().sidebarFacts!.allUnstarted
+    return unstarted(this.verdictRow)
   }
 
   private get verdictSidebarOrder(): SidebarSessionOrder | undefined {
-    if (!this.verdictSidebarOrderPresent) return undefined
     const model = this
     return {
       get id() { return model.verdictSidebarOrderId },
@@ -1813,38 +1832,34 @@ export class SessionModel extends EntityModel implements SessionVisibility {
   }
 
   @lazy
-  private get verdictSidebarOrderPresent(): boolean {
-    return this.readVerdict().sidebarOrder !== undefined
-  }
-
-  @lazy
   private get verdictSidebarOrderId(): SidebarSessionOrder['id'] {
-    return this.readVerdict().sidebarOrder!.id
+    return this.id
   }
 
   @lazy
   private get verdictSidebarOrderWorking(): SidebarSessionOrder['working'] {
-    return this.readVerdict().sidebarOrder!.working
+    return attentionGroup(this.verdictRow) === 'working'
   }
 
   @lazy
   private get verdictSidebarOrderSnoozedUntil(): SidebarSessionOrder['snoozedUntil'] {
-    return this.readVerdict().sidebarOrder!.snoozedUntil
+    return this.verdictRow.snoozedUntil
   }
 
   @lazy
   private get verdictSidebarOrderRecency(): SidebarSessionOrder['recency'] {
-    return this.readVerdict().sidebarOrder!.recency
+    const row = this.verdictRow
+    return row.draftUpdatedAt && row.draftUpdatedAt > row.lastActiveAt ? row.draftUpdatedAt : row.lastActiveAt
   }
 
   @lazy
   private get verdictSidebarOrderCreatedAt(): SidebarSessionOrder['createdAt'] {
-    return this.readVerdict().sidebarOrder!.createdAt
+    return this.verdictRow.createdAt ?? ''
   }
 
   @lazy
   private get verdictSidebarOrderOfferOnly(): SidebarSessionOrder['offerOnly'] {
-    return this.readVerdict().sidebarOrder!.offerOnly
+    return isOfferOnlyAttention(this.verdictRow)
   }
 
   @lazy
@@ -1909,37 +1924,37 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 
   @lazy
   private get headerHostCwd(): NonNullable<ReturnType<typeof headerHostSession>>['cwd'] {
-    return headerHostSession(this.row as SessionView | undefined)!.cwd
+    return (this.row as SessionView).cwd
   }
 
   @lazy
   private get headerHostMachineId(): NonNullable<ReturnType<typeof headerHostSession>>['machineId'] {
-    return headerHostSession(this.row as SessionView | undefined)!.machineId
+    return (this.row as SessionView).machineId
   }
 
   @lazy
   private get headerHostArchived(): NonNullable<ReturnType<typeof headerHostSession>>['archived'] {
-    return headerHostSession(this.row as SessionView | undefined)!.archived
+    return !!(this.row as SessionView).archived
   }
 
   @lazy
   private get headerHostStatus(): NonNullable<ReturnType<typeof headerHostSession>>['status'] {
-    return headerHostSession(this.row as SessionView | undefined)!.status
+    return (this.row as SessionView).status
   }
 
   @lazy
   private get headerHostPhase(): NonNullable<ReturnType<typeof headerHostSession>>['phase'] {
-    return headerHostSession(this.row as SessionView | undefined)!.phase
+    return (this.row as SessionView).agentState?.phase
   }
 
   @lazy
   private get headerHostResumable(): NonNullable<ReturnType<typeof headerHostSession>>['resumable'] {
-    return headerHostSession(this.row as SessionView | undefined)!.resumable
+    return !!(this.row as SessionView).resumable
   }
 
   @lazy
   private get headerDockPresent(): boolean {
-    return headerDockSession(this.row as SessionView | undefined) != null
+    return this.host.resident('session', this.id) === 'resident'
   }
 
   get headerDock(): NonNullable<ReturnType<typeof headerDockSession>> | undefined {
@@ -1957,32 +1972,32 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 
   @lazy
   private get headerDockSessionId(): NonNullable<ReturnType<typeof headerDockSession>>['sessionId'] {
-    return headerDockSession(this.row as SessionView | undefined)!.sessionId
+    return (this.row as SessionView).sessionId
   }
 
   @lazy
   private get headerDockIssueId(): NonNullable<ReturnType<typeof headerDockSession>>['issueId'] {
-    return headerDockSession(this.row as SessionView | undefined)!.issueId
+    return (this.row as SessionView).issueId
   }
 
   @lazy
   private get headerDockCwd(): NonNullable<ReturnType<typeof headerDockSession>>['cwd'] {
-    return headerDockSession(this.row as SessionView | undefined)!.cwd
+    return (this.row as SessionView).cwd
   }
 
   @lazy
   private get headerDockMachineId(): NonNullable<ReturnType<typeof headerDockSession>>['machineId'] {
-    return headerDockSession(this.row as SessionView | undefined)!.machineId
+    return (this.row as SessionView).machineId
   }
 
   @lazy
   private get headerDockArchived(): NonNullable<ReturnType<typeof headerDockSession>>['archived'] {
-    return headerDockSession(this.row as SessionView | undefined)!.archived
+    return (this.row as SessionView).archived
   }
 
   @lazy
   private get headerDockLastActiveAt(): NonNullable<ReturnType<typeof headerDockSession>>['lastActiveAt'] {
-    return headerDockSession(this.row as SessionView | undefined)!.lastActiveAt
+    return (this.row as SessionView).lastActiveAt
   }
 
 }

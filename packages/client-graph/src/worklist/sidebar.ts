@@ -10,11 +10,11 @@ import { sidebarRosterView } from './sidebar-roster'
 
 import { compareStructural, observable, reaction } from 'mobx'
 import { cachedGroup, keyedViews } from '../cached'
-import { hostOf, type IssueModel, type ModelHost, type ModelOf } from '../models'
+import { hostOf, type IssueModel, type ModelHost, type ModelOf, type SessionModel } from '../models'
 import type { MobxPool } from '../pool'
 import { createRowOverlay } from '../shared/overlay-row'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
-import { aggregate, attentionGroup, askingOf, phaseOf, LOADING, ownAttentionPartOf, type Aggregate, type Loaded } from './rollup'
+import { aggregate, attentionGroup, askingOf, phaseOf, LOADING, ownAttentionPartOf, ownFactsOf, seatVerdictOf, type Aggregate, type Loaded } from './rollup'
 import { NO_SIDEBAR_SESSIONS, type SidebarProgress, type SidebarRowValues, sidebarLifecycle, sidebarTimingFromFacts, sortedSidebarSessions } from './sidebar-row'
 import { retains } from './visible'
 
@@ -154,10 +154,23 @@ export const sidebarNested = memo('nested', (issue, pool): readonly string[] => 
   return ids.size === 0 ? EMPTY_IDS : [...ids].sort()
 })
 
+// These are the sidebar's resident-demand caches. They do not follow the
+// entity attention graph; replacing them with its fields changes which
+// entities a drawn row warms. The shared parent-ID cache above replaces only
+// the parent projection, which had no separate demand policy.
+const seat = cachedGroup('sidebar.seat', (session: SessionModel) => {
+  const raw = hostOf(session).row('session', session.id)
+  return raw === LOADING || raw === undefined ? raw : seatVerdictOf(raw as SliceSession)
+})
+const facts = memo('facts', issue => ownFactsOf(hostOf(issue).rollupInputs.loadedIssue(issue.id)))
+
 export const sidebarOwnAttention = memo('own', (issue, pool) => {
-  return ownAttentionPartOf(hostOf(issue).rollupInputs, {
+  const host = hostOf(issue)
+  return ownAttentionPartOf({ ...host.rollupInputs,
+    seat: id => seat(host.visibleInputs.session(id) as SessionModel),
+  }, {
     get present() { return issue.present },
-    get ownFacts() { return issue.ownFacts },
+    get ownFacts() { return facts(issue, pool) },
     get rosterIds() { return issue.rosterIds },
     get openOwn() { return issue.openOwn },
     get tip() { return issue.tip },
@@ -185,7 +198,7 @@ export const sidebarAttention: (issue: IssueModel, pool: MobxPool) => Aggregate 
 
 /** A heartbeat changes a scalar, independent of the attention composition. */
 export const sidebarSeatActivity: (issue: IssueModel, pool: MobxPool) => number | null = memo('activity', (issue, pool): number | null => {
-  if (!issue.present || issue.ownFacts.state === 'cold') return null
+  if (!issue.present || facts(issue, pool).state === 'cold') return null
   const host = hostOf(issue)
   let latest: number | null = null
   for (const id of issue.rosterIds) {
@@ -227,7 +240,7 @@ export function sidebarValues(model: IssueModel, pool: MobxPool): Loaded<Sidebar
   const own = host.rollupInputs.loadedIssue(model.id)
   if (own === LOADING) return LOADING
   if (own === undefined) return undefined
-  const facts = model.ownFacts
+  const ownFacts = facts(model, pool)
   const repo = (model as ModelOf['issue']).repo
   const issue = overlayRow(
     own,
@@ -242,8 +255,8 @@ export function sidebarValues(model: IssueModel, pool: MobxPool): Loaded<Sidebar
   )
   const ownAttention = sidebarOwnAttention(model, pool)
   const agg = sidebarAttention(model, pool)
-  const phase = phaseOf(agg, facts.finished)
-  const asking = askingOf(agg, facts.finished)
+  const phase = phaseOf(agg, ownFacts.finished)
+  const asking = askingOf(agg, ownFacts.finished)
   const activityAt = sidebarActivityAt(model, pool)
   const sessionFacts = agg.sidebarFacts ?? NO_SIDEBAR_SESSIONS
   // The own seats' rows, by id: a heartbeat redraws this row only when the
@@ -278,7 +291,7 @@ export function sidebarValues(model: IssueModel, pool: MobxPool): Loaded<Sidebar
   const fromChildren = model.unitsBelow.members > 0
   const progress = sidebarIssueProgress(model)
   if (progress === LOADING) return LOADING
-  const decision = ownAttention.deciding ? facts.decision : null
+  const decision = ownAttention.deciding ? ownFacts.decision : null
   let continuation: SidebarRowValues['continuation'] = null
   if (targetId) {
     if (host.rollupInputs.loadedIssue(targetId) === LOADING) return LOADING
@@ -308,7 +321,7 @@ export function sidebarValues(model: IssueModel, pool: MobxPool): Loaded<Sidebar
     timing: sidebarTimingFromFacts(
       sessionFacts,
       phase,
-      facts.finished,
+      ownFacts.finished,
       activityAt,
       agg.decidingAt,
     ),
@@ -322,7 +335,7 @@ export function sidebarValues(model: IssueModel, pool: MobxPool): Loaded<Sidebar
     statusFromChildren: model.nestParent === null && fromChildren,
     gitState: own.gitState,
     unread: !agg.working && (model.unread || Boolean(descendantUnread)),
-    errorClass: facts.finished ? null : sessionFacts.errorClass,
+    errorClass: ownFacts.finished ? null : sessionFacts.errorClass,
     internal: own.audience === 'agent',
     ...sidebarLifecycle(issue, asking, host.inputs.passed, host.inputs.reached),
     draftAgentOnly: own.isDraftVessel === true && !own.worktreePath && sessions.length > 0,

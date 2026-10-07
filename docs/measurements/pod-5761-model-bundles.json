@@ -354,9 +354,7 @@
     "knownReds": "docs/measurements/pod-5710-known-failures.json plus declared issue-page.detail select 55/151 and navigate-by-ref 49/145"
   },
   "readerProjectionRemoval": [
-    "sidebar.parent: shared nestParent replaces the duplicate parent-ID calculation",
-    "sidebar.facts: independent ownFacts fields replace the raw resident-fact cache",
-    "sidebar.seat: independent SessionModel verdict fields replace the raw seat-verdict cache"
+    "sidebar.parent: shared nestParent replaces the duplicate parent-ID calculation"
   ],
   "remainingCompositeAnswers": [
     {
@@ -388,6 +386,16 @@
       "question": "formal progress histogram",
       "readers": "unitsOf and sidebarIssueProgress",
       "reason": "Each consumer reads the complete distribution to combine or display it."
+    }
+  ],
+  "preservedScreenDemandCaches": [
+    {
+      "cache": "sidebar.seat",
+      "reason": "The existing sidebar cache reads a resident seat without warming the entity attention graph. Removing it introduced new first-demand structural regressions; moving this screen policy belongs to the companion follow-up, outside this issue."
+    },
+    {
+      "cache": "sidebar.facts",
+      "reason": "The existing sidebar cache supplies resident facts to its own attention. The row now reuses those same facts instead of warming model facts separately; the cache has its own screen observation lifetime."
     }
   ]
 }
