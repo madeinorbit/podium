@@ -434,7 +434,6 @@ export class CommandSessionRow {
   @lazy({ equals: compareStructural }) get presentation(): Loaded<SessionView> {
     const row = commandLaunchViews(this.pool).session(this.id)
     if (!row || row === LOADING) return row
-    const fields = [...COMMAND_SUMMARIES.session.filter(field => field !== 'lastActiveAt'), 'agentState']
-    return { ...Object.fromEntries(fields.map(field => [field, row[field as keyof SessionView]])), lastActiveAt: this.openedAt } as unknown as SessionView
+    return { ...row, lastActiveAt: this.openedAt }
   }
 }

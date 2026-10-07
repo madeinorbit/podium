@@ -8,7 +8,6 @@ import { dedupeSessionsByResume } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 import { headerIds } from './enumerate'
 import type { MobxPool } from './pool'
-import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
 import type { Loaded } from './worklist/rollup'
 
 // Loaded by the screen attachment only. Web hooks import the reader's type.
@@ -250,8 +249,7 @@ class ReferenceSessionRow {
   @lazy({ equals: compareStructural }) get presentation(): Loaded<SessionView> {
     const row = this.pool.row('session', this.id, 'summary-fields') as Loaded<SessionView>
     if (!row || loading(row)) return row
-    return { ...Object.fromEntries([...CHAT_CONTEXT_SUMMARIES.session.filter(field => field !== 'lastActiveAt'), 'agentState']
-      .map(field => [field, row[field as keyof SessionView]])), lastActiveAt: this.openedAt } as unknown as SessionView
+    return { ...row, lastActiveAt: this.openedAt }
   }
 }
 class ReferenceIssueRow {
