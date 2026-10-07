@@ -138,7 +138,7 @@ async function run(scale: number) {
       issue.retainedSeatIds,
       issue.rosterIds,
       issue.openOwn,
-      issue.visible,
+      issue.placed,
       sidebarView(pool).row(ROOT),
     ]
   })

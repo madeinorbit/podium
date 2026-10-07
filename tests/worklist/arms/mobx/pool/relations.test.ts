@@ -1268,7 +1268,7 @@ it('a root starts the nesting walk when it gains a parent, including a cycle', (
   const stop = autorun(() => {
     state = {
       parents: ['I1', 'I2'].map(id => r.pool.issue(id)?.nestParent),
-      visible: ['I1', 'I2'].map(id => r.pool.issue(id)?.visible),
+      visible: ['I1', 'I2'].map(id => r.pool.issue(id)?.placed),
     }
   })
   try {
