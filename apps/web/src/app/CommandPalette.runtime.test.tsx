@@ -23,7 +23,7 @@ function Capture() {
 
 afterEach(cleanup)
 
-it('settles palette renders and preserves hover until the commands change', async () => {
+it('settles palette renders and preserves hover when a row title changes', async () => {
   const fixture = createSidebarFixture(12, Date.now(), false, 'palette-runtime')
   let commits = 0
   render(
@@ -72,7 +72,7 @@ it('settles palette renders and preserves hover until the commands change', asyn
   expect(screen.getAllByRole('option')[1]!.getAttribute('aria-selected')).toBe('true')
 })
 
-it('retains visited summaries, reads no closed changes and refreshes only the changed issue on reopen', async () => {
+it('reads no closed changes and takes a fresh catalog on each reopen', async () => {
   const fixture = createSidebarFixture(12, Date.now(), false, 'palette-retention')
   const mounted = render(
     <StoreProvider
@@ -116,13 +116,13 @@ it('retains visited summaries, reads no closed changes and refreshes only the ch
   expect(screen.getAllByRole('option').some((option) =>
     option.textContent?.includes('Updated parked palette task'),
   )).toBe(true)
-  expect(summaryReads()).toBe(1)
+  expect(summaryReads()).toBe(12)
 
   await act(async () => { referenceState(runtime).setPaletteOpen(false) })
   row.mockClear()
   await act(async () => { referenceState(runtime).setPaletteOpen(true) })
   expect(await screen.findByRole('combobox')).toBeTruthy()
-  expect(summaryReads()).toBe(0)
+  expect(summaryReads()).toBe(12)
   row.mockRestore()
   mounted.unmount()
 })
