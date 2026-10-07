@@ -88,7 +88,7 @@ it('phone addressed issues batch cold siblings and dependency targets together',
     load, summaries: MOBILE_SCREEN_SUMMARIES, schedule: () => () => {},
   })
   try {
-    pool.apply({ type: 'replace', rows: rows.map(value => ({ kind: 'issue', id: value.id, value })) })
+    pool.apply({ type: 'replace', rows: rows.map(value => ({ kind: 'issue' as const, id: value.id, value })) })
     const reader = missionView(pool), deck = reader.deck('root')
     const read = () => tracked(() => settled(() => reader.addressedIds(deck)))
     // The phone reads this cohort for its mission crew before drawing rows.
