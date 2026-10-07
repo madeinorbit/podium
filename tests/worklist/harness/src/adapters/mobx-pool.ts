@@ -48,6 +48,7 @@ import type { ArmStats } from '../../../shared/src/stats'
 import { mobxPoolArm } from '../../../arms/mobx/pool/arm'
 import type { MobxPool, PoolLazyOptions } from '@podium/client-graph/pool'
 import { rebuildSnapshot } from './mobx-rebuild'
+import { burstMemoryCensus } from '../burst-memory-census'
 
 import { sliceOrderOf, type Layout } from '@podium/client-graph/worklist/groups'
 import { sliceRowOf } from '@podium/client-graph/shared/row-view'
@@ -223,6 +224,7 @@ export function snapshotPool(pool: MobxPool): SliceSnapshot {
         }
         rowsById[id] = sliceRowOf(view)
       }
+      burstMemoryCensus('inside-parity-reaction', pool)
       return { order: sliceOrderOf(layout), rowsById }
     })
     if (pool.hydrate() === 0) return snapshot

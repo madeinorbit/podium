@@ -1,3 +1,4 @@
+import { burstMemoryCensus } from './burst-memory-census'
 import { displayChanged } from '../../shared/src/row-snapshots'
 // @vitest-environment happy-dom
 /**
@@ -467,7 +468,10 @@ export async function runCountScenario(
     indexUpdates: armStats.indexUpdates,
     notifications: armStats.notifications,
   }
+  const memoryPool = (mounted.handle as unknown as { pool?: import('@podium/client-graph/pool').MobxPool }).pool
+  if (memoryPool) burstMemoryCensus('app-before-parity', memoryPool)
   const snapshot = mounted.handle.snapshot()
+  if (memoryPool) burstMemoryCensus('after-parity-reaction', memoryPool)
   const expected = input.expected()
   const parity = isDeepStrictEqual(snapshot, expected)
   const commitsByRow: Record<string, number> = {}
