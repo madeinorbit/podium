@@ -429,18 +429,24 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   // Presence and sidebar placement
 
+  /** Shared fields read the addressed resident slot, without a screen peek. */
+  private residentIssue(): SliceIssue | undefined {
+    const row = this.host.row('issue', this.id, 'mark')
+    return row === LOADING ? undefined : row as SliceIssue | undefined
+  }
+
   @lazy
   private get hasStanding(): boolean {
-    return this.host.visibleInputs.issueRow(this.id) !== undefined
+    return this.residentIssue() !== undefined
   }
 
   private readStanding(): Standing | undefined {
-    const row = this.host.visibleInputs.issueRow(this.id)
+    const row = this.residentIssue()
     return row === undefined ? undefined : standingOf(row)
   }
 
   private readOwn(): OwnPart | undefined {
-    const row = this.host.visibleInputs.issueRow(this.id)
+    const row = this.residentIssue()
     return row === undefined ? undefined : ownPartOfRow(row, this.host.inputs)
   }
 

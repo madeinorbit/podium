@@ -13,7 +13,6 @@ import {
   type IssueNavigationModel,
   type IssueNote,
   issueAbandoned,
-  issueClosed,
   issueNeedsHuman,
   type MissionDeparture,
   type MissionProgress,
@@ -37,7 +36,6 @@ import type { MobxPool } from './pool'
 import type { SeatRelation } from './session-seats'
 import { settingsHasFirstTask } from './settings-views'
 import { createRowOverlay } from './shared/overlay-row'
-import { isFinished } from './shared/predicates'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 const joinedIssueRef = (issue: { seq: number; prefix?: string | null }): string =>
@@ -743,7 +741,9 @@ export class MissionViewReader {
   /** Menu labels and guards use the addressed session's own fields. The
    * machine/login/reference joins belong to its drawn row, not this menu. */
   menuSession(id: string): Loaded<SessionView> {
-    const row = this.session(id)
+    // Menus borrow a row projection so omissions and serialization keep their
+    // wire shape; session facts everywhere else come from the shared model.
+    const row = this.pool.row('session', id) as Loaded<SessionView>
     return !row || row === LOADING ? row : menuSessionOverlay(row, MENU_SESSION_OVERRIDES, MENU_SESSION_OMISSIONS)
   }
   private seatIds(relation: SeatRelation, id: string, archived: boolean): readonly string[] | typeof LOADING {
@@ -892,7 +892,7 @@ export class MissionViewReader {
       prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }),
       readAt, memberSessionIds: members.ids,
       childIds: [...childIds].sort().map(asIssueId), childCount: childIds.length, childDoneCount,
-      deferred, ready: !row.blocked && !deferred && !isFinished(row), dependents,
+      deferred, ready: !row.blocked && !deferred && !this.facts(id).finished, dependents,
       unread: row.deletedAt ? false : unread, sessionSummary: members.summary,
     }) as IssueNavigationModel
   }
@@ -912,7 +912,8 @@ export class MissionViewReader {
     while (id && !seen.has(id)) {
       seen.add(id)
       const facts = this.pool.row('issue', id, 'summary') as Loaded<{ archived?: boolean; deletedAt?: string }>
-      if (facts === undefined || (facts !== LOADING && !this.facts(id).visible)) break
+      const visible = settled(() => this.facts(id).visible)
+      if (facts === undefined || visible === false) break
       void this.pool.row('issue', id)
       id = this.pool.graph.one('issue', id, 'parent')
     }
@@ -1038,7 +1039,7 @@ export class MissionViewReader {
       const result = settled(() => {
         const empty = !requireLoaded(this.roster(id)).some(session => this.pool.sessionObject(session.sessionId).open)
         for (const tip of this.tips(id)) {
-          if (members.has(tip.id) || seen.has(tip.id) || (!empty && issueClosed(tip))) continue
+          if (members.has(tip.id) || seen.has(tip.id) || (!empty && this.facts(tip.id).finished)) continue
           const value = settled(() => {
             const issue = requireLoaded(this.issue(tip.id))!
             const crew = requireLoaded(this.roster(tip.id))
@@ -1086,7 +1087,7 @@ export class MissionViewReader {
   }
   preferred(candidates: readonly IssueNavigationModel[], local = false): IssueNavigationModel | undefined {
     const staffed = local ? [] : candidates.filter(issue => this.facts(issue.id).live)
-    const unfinished = candidates.filter(issue => !isFinished(issue))
+    const unfinished = candidates.filter(issue => !this.facts(issue.id).finished)
     return [...(staffed.length ? staffed : unfinished.length ? unfinished : candidates)]
       .sort((a, b) => this.lastActive(b, local).localeCompare(this.lastActive(a, local)))[0]
   }
@@ -1160,7 +1161,7 @@ export class MissionViewReader {
   waiting(issue: IssueNavigationModel): string[] {
     return issue.deps.filter(dep => dep.type === 'blocks').flatMap(dep => {
       const target = requireLoaded(this.catalogIssue(dep.id))
-      return target && !issueClosed(target) ? [issueDisplayRef(target)] : []
+      return target && !this.facts(target.id).finished ? [issueDisplayRef(target)] : []
     })
   }
   blockLabel(issue: IssueNavigationModel) {
@@ -1212,7 +1213,7 @@ export class MissionViewReader {
     if (issue.blocked) return { kind: 'blocked', text: this.blockLabel(issue), attention: false }
     const waiting = this.waitingLabel(issue)
     if (waiting) return { kind: 'waiting', text: waiting, attention: false }
-    if (issueClosed(issue)) return { kind: 'done', text: issueAbandoned(issue) ? 'Cancelled · session retired' : 'Completed · session retired', attention: false }
+    if (this.facts(issue.id).finished) return { kind: 'done', text: issueAbandoned(issue) ? 'Cancelled · session retired' : 'Completed · session retired', attention: false }
     if (issue.stage === 'review') return { kind: 'review', text: 'Review ready · session ended', attention: false }
     if (issue.stage === 'shipping') return { kind: 'shipping', text: 'Shipping service has custody', attention: false }
     if (issue.stage === 'planning' || issue.stage === 'backlog') return { kind: 'ready', text: 'Ready to start', attention: false }
@@ -1277,7 +1278,7 @@ function poolHandoffNow(ctx: MissionViewReader, issues: readonly IssueNavigation
     const explicitNeed = issue.needsHuman === true || asking !== undefined
     let entry: HandoffNowEntry | null = null
 
-    if (explicitNeed && !issueClosed(issue)) {
+    if (explicitNeed && !ctx.facts(issue.id).finished) {
       const session = asking ?? askedBy
       entry = {
         kind: 'needs-you',
@@ -1352,7 +1353,7 @@ function poolHandoffNext(ctx: MissionViewReader, issues: readonly IssueNavigatio
       .filter((dep) => dep.type === 'blocks')
       .map((dep) => requireLoaded(ctx.issue(dep.id)))
       .filter((candidate): candidate is IssueNavigationModel =>
-        Boolean(candidate && !issueClosed(candidate)),
+        Boolean(candidate && !ctx.facts(candidate.id).finished),
       )
     return [...blockers, ...poolOpenChildren(ctx, memberIds, issue.id)]
   }
@@ -1372,16 +1373,15 @@ function poolHandoffNext(ctx: MissionViewReader, issues: readonly IssueNavigatio
     if (
       !memberIds.has(issue.id) ||
       issue.stage === 'proposed' ||
-      issue.archived ||
-      issue.deletedAt ||
-      issueClosed(issue)
+      !ctx.facts(issue.id).visible ||
+      ctx.facts(issue.id).finished
     )
       continue
     const openBlockers = (issue.deps ?? [])
       .filter((dep) => dep.type === 'blocks')
       .map((dep) => requireLoaded(ctx.issue(dep.id)))
       .filter((candidate): candidate is IssueNavigationModel =>
-        Boolean(candidate && !issueClosed(candidate)),
+        Boolean(candidate && !ctx.facts(candidate.id).finished),
       )
     const children = poolOpenChildren(ctx, memberIds, issue.id)
     const session = ctx.newest(issue.id)
@@ -1424,7 +1424,7 @@ function poolOpenChildren(ctx: MissionViewReader, members: ReadonlySet<string>, 
   return [...ctx.pool.graph.many('issue', parentId, 'treeChildren')].flatMap(id => {
     if (!members.has(id)) return []
     const issue = requireLoaded(ctx.issue(id))
-    return issue && issue.stage !== 'proposed' && ctx.facts(issue.id).visible && !issueClosed(issue) ? [issue] : []
+    return issue && issue.stage !== 'proposed' && ctx.facts(issue.id).visible && !ctx.facts(issue.id).finished ? [issue] : []
   }).sort(rowOrder)
 }
 export interface MissionHandoffValues {
