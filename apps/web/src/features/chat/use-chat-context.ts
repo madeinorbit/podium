@@ -19,7 +19,8 @@ const referenceReader = (pool: MobxPool) => {
   return reader && !pending(reader) ? reader : undefined
 }
 function useReferencePicker(active = true) {
-  const reader = useWorklistPoolProjection(referenceReader, undefined, active)
+  const read = useCallback((pool: MobxPool) => active ? referenceReader(pool) : undefined, [active])
+  const reader = useWorklistPoolProjection(read, undefined, active)
   return useMemo(() => reader?.referencePicker(), [reader])
 }
 export function useChatSession(id: SessionId | undefined) {
