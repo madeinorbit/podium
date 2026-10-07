@@ -350,7 +350,7 @@ describe('the launch chooses the panel surface', () => {
     fireEvent.change(field(), { target: { value: 'Fix the flaky test' } })
     fireEvent.click(launch())
 
-    expect(setPanelMode).toHaveBeenCalledWith('session-task', 'chat')
+    expect(setPanelMode).toHaveBeenCalledWith('session-new', 'chat')
     expect(setPanelMode.mock.invocationCallOrder[0]).toBeLessThan(
       setPane.mock.invocationCallOrder[0] as number,
     )
@@ -362,7 +362,7 @@ describe('the launch chooses the panel surface', () => {
     fireEvent.click(launch())
 
     expect(focusIssueSession).not.toHaveBeenCalled()
-    expect(setPanelMode).toHaveBeenCalledWith('session-task', 'chat')
+    expect(setPanelMode).toHaveBeenCalledWith('session-new', 'chat')
   })
 })
 
