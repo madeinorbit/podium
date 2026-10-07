@@ -57,6 +57,7 @@ export function ownAttentionFields(input: RollupInputs, self: RollupSelf): OwnAt
     let count = 0
     const deciding = self.ownAttention.deciding
     for (const seat of seats()) {
+      if (seat.id === undefined) continue
       if (deciding && seat.sidebarOrder?.offerOnly) continue
       if ((finished ? seat.finished : seat.open) === 'waiting') count++
     }

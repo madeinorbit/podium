@@ -210,13 +210,15 @@ it('all demanded attention and progress fields equal the eager parts, including 
   ] }))
   let failure: unknown
   const stop = autorun(() => {
-    try { for (const id of ['root', 'child', 'leaf']) {
-      const model = pool.issue(id)!
-      expect(model.ownAttention, `${id} own`).toEqual(ownAttentionPartOf(pool.rollupInputs, model))
-      expect(model.aggregate, `${id} aggregate`).toEqual(aggregatePartOf(pool.rollupInputs, id, model))
-      expect(model.unitOwn, `${id} unit`).toEqual(unitOwnPartOf(pool.rollupInputs, id, model))
-      expect(model.unitsBelow, `${id} closure`).toEqual(unitsBelowPartOf(pool.rollupInputs, id))
-    } } catch (error) { failure = error }
+    try {
+      for (const id of ['root', 'child', 'leaf']) {
+        const model = pool.issue(id)!
+        expect(model.ownAttention, `${id} own`).toEqual(ownAttentionPartOf(pool.rollupInputs, model))
+        expect(model.aggregate, `${id} aggregate`).toEqual(aggregatePartOf(pool.rollupInputs, id, model))
+        expect(model.unitOwn, `${id} unit`).toEqual(unitOwnPartOf(pool.rollupInputs, id, model))
+        expect(model.unitsBelow, `${id} closure`).toEqual(unitsBelowPartOf(pool.rollupInputs, id))
+      }
+    } catch (error) { failure = error }
   })
   try {
     if (failure !== undefined) throw failure
