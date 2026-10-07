@@ -69,7 +69,7 @@ it('settles palette renders and preserves hover until the commands change', asyn
   await act(async () => {
     fixture.patch('issueProjection', 'synthetic-11', { title: 'Updated palette task' })
   })
-  expect(screen.getAllByRole('option')[0]!.getAttribute('aria-selected')).toBe('true')
+  expect(screen.getAllByRole('option')[1]!.getAttribute('aria-selected')).toBe('true')
 })
 
 it('retains visited summaries, reads no closed changes and refreshes only the changed issue on reopen', async () => {
@@ -124,5 +124,29 @@ it('retains visited summaries, reads no closed changes and refreshes only the ch
   expect(await screen.findByRole('combobox')).toBeTruthy()
   expect(summaryReads()).toBe(0)
   row.mockRestore()
+  mounted.unmount()
+})
+
+for (const scale of [1, 4]) it(`does not render or walk catalogs on an open palette heartbeat at ${scale}x`, async () => {
+  const fixture = createSidebarFixture(12 * scale, Date.now(), false, `palette-heartbeat-${scale}`)
+  let commits = 0
+  const mounted = render(<StoreProvider principal={asClientPrincipal(asUserId(`palette-heartbeat-${scale}`))}
+    config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
+    createReplicaFn={() => fixture.replica} networkEnabled={false}
+    attachRuntime={runtime => attachWorklistPool(runtime, error => { throw error })}
+    onFatalError={error => { throw new Error(error) }}>
+    <ConfirmProvider><Capture /><Profiler id="open-palette" onRender={() => { commits++ }}><CommandPalette /></Profiler></ConfirmProvider>
+  </StoreProvider>)
+  await act(async () => { referenceState(runtime).setPaletteOpen(true) })
+  expect(await screen.findByRole('combobox')).toBeTruthy()
+  await act(async () => {})
+  const before = commits, counts = { ...commandLaunchViews(pool!).counts }
+  const order = screen.getAllByRole('option').map(row => row.textContent)
+  await act(async () => fixture.patch('session', 'synthetic-session-11', { lastActiveAt: new Date(Date.now() + 60000).toISOString() }))
+  expect(commits).toBe(before)
+  expect(screen.getAllByRole('option').map(row => row.textContent)).toEqual(order)
+  expect(commandLaunchViews(pool!).counts.catalogBuilds).toBe(counts.catalogBuilds)
+  expect(commandLaunchViews(pool!).counts.issueBuilds).toBe(counts.issueBuilds)
+  expect(commandLaunchViews(pool!).counts.usageQueries).toBe(counts.usageQueries)
   mounted.unmount()
 })

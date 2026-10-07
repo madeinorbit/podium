@@ -79,6 +79,14 @@ function createCommandLaunchViews(pool: MobxPool) {
     }
     return sessions
   }, { equals: compareStructural })
+  const machines = computed(() => {
+    const catalog = read('commandCatalog', 'catalog')
+    if (!catalog || catalog === LOADING) return []
+    return catalog.machines.flatMap(id => {
+      const row = read('commandMachine', id)
+      return row && row !== LOADING ? [row] : []
+    })
+  })
   const sessionMembership = computed(() => {
     const ids = sessionIds.get()
     return ids && ids !== LOADING ? new Set(ids) : ids
@@ -265,10 +273,6 @@ function createCommandLaunchViews(pool: MobxPool) {
     },
     { equals: compareStructural },
   )
-  const sessionIssue = keyedComputed('commands.sessionIssue', (id: string) => {
-    const row = pool.row('session', id, 'summary-fields') as Loaded<SessionView>
-    return row && row !== LOADING && row.agentKind !== 'shell' ? row.issueId : undefined
-  })
   function projection(snapshot?: CommandLaunchData): Loaded<CommandLaunchData> {
     const data = snapshot ?? common.get(),
       ids = snapshot?.sessionIds ?? sessionIds.get(),
@@ -316,7 +320,7 @@ function createCommandLaunchViews(pool: MobxPool) {
               if (pool.queries.collapsed(sid) || !membership || membership === LOADING || !membership.has(sid)) return false
               // untracked-read: launch-session-presence
               if (untracked(() => !pool.tables.session.has(sid))) return true
-              return sessionIssue(sid) === id
+              return pool.queries.has({ kind: 'commandIssueSessions', issueId: id, includeShells: false }, sid)
             })
             .sort((a, b) => {
               const left = pool.queries.orderKey(a),
@@ -344,11 +348,12 @@ function createCommandLaunchViews(pool: MobxPool) {
     palette: () => palette.get(),
     selected: (snapshot: CommandLaunchData) => projection(snapshot),
     window: windowField,
+    machines: () => machines.get(),
     sessionIds: () => sessionIds.get(),
     session,
     sessions: () => sessions.get(),
     counts,
-    dispose() { session.clear(); issueSummary.clear(); sessionIssue.clear() },
+    dispose() { session.clear(); issueSummary.clear() },
   }
 }
 export function commandLaunchViews(pool: MobxPool) {
@@ -394,8 +399,9 @@ export class CommandPaletteView {
 
   @lazy({ equals: compareStructural })
   get data(): Loaded<CommandLaunchData> {
-    return this.snapshot && this.snapshot !== LOADING
-      ? commandLaunchViews(this.pool).selected(this.snapshot) : this.snapshot
+    if (!this.snapshot || this.snapshot === LOADING) return this.snapshot
+    const views = commandLaunchViews(this.pool), selected = views.selected(this.snapshot)
+    return selected && selected !== LOADING ? { ...selected, machines: views.machines() } : selected
   }
   @lazy get selectedRows() {
     const views = commandLaunchViews(this.pool)
