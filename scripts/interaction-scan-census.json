@@ -45324,6 +45324,48 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/worklist/visible.ts",
+      "holder": "keepsPartOf",
+      "rule": "reader-summary",
+      "tokens": "dbfc1b83941d66130ca4c9aeaa6a4cb644aaa495f25354f87dcddadd9f133bd3",
+      "gate": [
+        "exit:then:17422751f72effdc858072b056d9ddf9fb014184c70e1015c5914d916f076cbb",
+        "||:4bb26d2378b753523869607ca2ca03dc054f19fbf20c6caf5d4665d2c1d96710"
+      ],
+      "origin": [
+        "e01cd3a943241f1b31029ad32c8afa6316890671ab142d34cc22022f19952085"
+      ],
+      "fingerprint": "33da6086fe850fffe933e6260210a415335a16237337d2cc5f04e95c5f553b6a",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
+      "trigger": "Invocation of keepsPartOf on a non-flat issue",
+      "reason": "The existing presence rescue walk moved to the independent keeps answer. Its child relation and recursive keptBelowPartOf walk retain the existing REQUIRED REPAIR classification; the split adds no collection or index."
+    },
+    {
+      "file": "packages/client-graph/src/worklist/visible.ts",
+      "holder": "keepsPartOf",
+      "rule": "helper-consumer",
+      "tokens": "4b60e2b1f96c3c2e4bec9209698e240840b39124a25abfc6780170b643db7bd9",
+      "gate": [
+        "exit:then:17422751f72effdc858072b056d9ddf9fb014184c70e1015c5914d916f076cbb",
+        "||:4bb26d2378b753523869607ca2ca03dc054f19fbf20c6caf5d4665d2c1d96710"
+      ],
+      "origin": [
+        "e01cd3a943241f1b31029ad32c8afa6316890671ab142d34cc22022f19952085"
+      ],
+      "fingerprint": "815f6a8cc0e4bf638b610bff639e0f3172fffa36a2b0657a3fc31dc4a82cb99b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
+      "trigger": "Invocation of keepsPartOf on a non-flat issue",
+      "reason": "The existing presence rescue walk moved to the independent keeps answer. Its child relation and recursive keptBelowPartOf walk retain the existing REQUIRED REPAIR classification; the split adds no collection or index."
     }
   ]
 }
