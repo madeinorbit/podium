@@ -398,10 +398,15 @@ export class CommandPaletteView {
   }
 
   @lazy({ equals: compareStructural })
+  get selection(): Loaded<CommandLaunchData> {
+    return this.snapshot && this.snapshot !== LOADING
+      ? commandLaunchViews(this.pool).selected(this.snapshot) : this.snapshot
+  }
+  @lazy({ equals: compareStructural })
   get data(): Loaded<CommandLaunchData> {
-    if (!this.snapshot || this.snapshot === LOADING) return this.snapshot
-    const views = commandLaunchViews(this.pool), selected = views.selected(this.snapshot)
-    return selected && selected !== LOADING ? { ...selected, machines: views.machines() } : selected
+    const selected = this.selection
+    return selected && selected !== LOADING
+      ? { ...selected, machines: commandLaunchViews(this.pool).machines() } : selected
   }
   @lazy get selectedRows() {
     const views = commandLaunchViews(this.pool)
