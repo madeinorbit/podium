@@ -403,18 +403,23 @@ export class CommandPaletteView {
       }, take)
   }
 
+  @lazy get contextIssueId() {
+    const views = commandLaunchViews(this.pool)
+    const id = views.window('openIssueId') ?? views.window('selectedIssueId')
+    return id && id !== LOADING ? id : undefined
+  }
   @lazy({ equals: compareStructural })
   get selection(): Loaded<CommandLaunchData> {
     if (!this.snapshot || this.snapshot === LOADING) return this.snapshot
     const views = commandLaunchViews(this.pool)
-    const id = views.window('openIssueId') ?? views.window('selectedIssueId')
-    const issue = id && id !== LOADING ? this.issueSummaries.get(id) : undefined
+    const id = this.contextIssueId
+    const issue = id ? this.issueSummaries.get(id) : undefined
     return views.selected({ ...this.snapshot, issues: issue ? [issue] : [] }, this.memberIds)
   }
   @lazy get memberIds(): string[] {
     const views = commandLaunchViews(this.pool)
-    const id = views.window('openIssueId') ?? views.window('selectedIssueId')
-    return id && id !== LOADING ? views.memberSessionIds(id) : []
+    const id = this.contextIssueId
+    return id ? views.memberSessionIds(id) : []
   }
   @lazy({ equals: compareStructural })
   get data(): Loaded<CommandPaletteData> {
@@ -433,9 +438,8 @@ export class CommandPaletteView {
     } : snapshot
   }
   @lazy get selectedRows() {
-    const views = commandLaunchViews(this.pool)
-    const id = views.window('openIssueId') ?? views.window('selectedIssueId')
-    if (!id || id === LOADING) return []
+    const id = this.contextIssueId
+    if (!id) return []
     return this.pool.queries.ids({ kind: 'commandIssueSessions', issueId: id })
       .map(id => new CommandSessionRow(this.pool, id))
   }
