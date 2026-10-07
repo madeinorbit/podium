@@ -253,17 +253,20 @@ it('an archived child keeps its full header when a current mission session belon
     notes: 'Child notes', activityNotes: 'Child activity', asked: 'Child question',
     needsHuman: true, closedReason: 'done', defaultAgent: 'codex', labels: ['child-label'],
   })
+  const current = {
+    sessionId: 'current', issueId: 'header-child', cwd: '/fixture', status: 'working',
+    agentKind: 'codex', lastActiveAt: new Date(now).toISOString(),
+  }
+  // Archived children stay in this mission through the declared starter
+  // provenance, since their formal parent relation is intentionally hidden.
+  const starter = {
+    sessionId: 'starter', issueId: 'root', cwd: '/fixture', status: 'exited', archived: true,
+    agentKind: 'codex', lastActiveAt: '2026-01-01T00:00:00Z',
+  }
   const { pool, reader, load } = await setup([
     issue('root'), headerIssue,
     issue('hidden-child', { parentId: 'root', archived: true, stage: 'done', startedBySession: 'starter', notes: 'Hidden notes' }),
-  ], [
-    { sessionId: 'current', issueId: 'header-child', cwd: '/fixture', status: 'working',
-      agentKind: 'codex', lastActiveAt: new Date(now).toISOString() },
-    // Archived children stay in this mission through the declared starter
-    // provenance, since their formal parent relation is intentionally hidden.
-    { sessionId: 'starter', issueId: 'root', cwd: '/fixture', status: 'exited', archived: true,
-      agentKind: 'codex', lastActiveAt: '2026-01-01T00:00:00Z' },
-  ])
+  ], [current, starter])
   disposals.push(autorun(() => reader.mission('root')))
   for (let round = 0; round < 8 && reader.mission('root') === LOADING; round++) pool.hydrate()
   const data = reader.mission('root')
