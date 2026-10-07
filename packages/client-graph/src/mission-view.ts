@@ -458,6 +458,7 @@ const headerReady = ((deck: MissionDeckModel) => settled(() => {
   const row = deck.model(deck.id)
   const reads: readonly (() => unknown)[] = [
     () => row.liveAgentCount, () => row.workingAgentCount,
+    () => row.actionableCount, () => row.waitingAgentCount,
     () => deck.continuation, () => deck.note,
     () => deck.presence, () => deck.departures,
   ]

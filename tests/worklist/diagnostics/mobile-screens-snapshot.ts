@@ -52,18 +52,9 @@ export function observeMobileScreens(pool: MobxPool, input: MobileScreenInput): 
     { fireImmediately: true },
   )
 }
-const traced = <T extends object>(value: T, label: string): T => new Proxy(value, {
-  get(target, key) {
-    try { return Reflect.get(target, key, target) }
-    catch (error) {
-      if (error === LOADING) throw new Error(`Cold phone field ${label}.${String(key)}`)
-      throw error
-    }
-  },
-})
 const fields = (value: object, keys: readonly string[]) =>
   Object.fromEntries(
-    keys.map((key) => [key, Reflect.get(traced(value, 'fields'), key) ?? (key === 'labels' ? [] : null)]),
+    keys.map((key) => [key, Reflect.get(value, key) ?? (key === 'labels' ? [] : null)]),
   )
 const BOARD_FIELDS = [
   'seq',
@@ -125,9 +116,7 @@ const continuation = (value: MissionViewValues['continuation']) =>
           : null,
       }
     : null
-const flight = (value: FlightDeckRow) => {
-  const row = traced(value, 'flight')
-  return ({
+const flight = (row: FlightDeckRow) => ({
   issue: fields(row.issue, MISSION_FIELDS),
   depth: row.depth,
   sessions: row.sessions.map(seat),
@@ -139,7 +128,6 @@ const flight = (value: FlightDeckRow) => {
   waitingAgentCount: row.waitingAgentCount,
   collapsedSummary: { ...row.collapsedSummary, crew: row.collapsedSummary.crew.map(seat) },
 })
-}
 function snapshot(
   tasks: MobileTasksData,
   mission: MobileMissionData,
