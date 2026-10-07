@@ -28,6 +28,18 @@ function sidebarFields(read: <K extends keyof SidebarSessionFacts>(key: K) => Si
   }
 }
 
+function sidebarField<K extends keyof SidebarSessionFacts>(
+  key: K, parts: Iterable<SidebarSessionFacts>,
+): SidebarSessionFacts[K] {
+  let value = NO_SIDEBAR_SESSIONS[key], hasValue = false
+  for (const facts of parts) {
+    if (facts === NO_SIDEBAR_SESSIONS) continue
+    value = hasValue ? combineSidebarSessionField(key, value, facts[key]) : facts[key]
+    hasValue = true
+  }
+  return value
+}
+
 export function ownAttentionFields(input: RollupInputs, self: RollupSelf): OwnAttention {
   const ready = () => self.present && self.ownFacts.state === 'ready'
   function* seats(): Iterable<SeatVerdict> {
@@ -125,14 +137,14 @@ export function ownAttentionFields(input: RollupInputs, self: RollupSelf): OwnAt
     get sidebarFacts() {
       if (!ready()) return undefined
       return sidebarFields(<K extends keyof SidebarSessionFacts>(key: K) => {
-        let value = NO_SIDEBAR_SESSIONS[key]
         // Order matters for fleet glyphs, error choice and tied timer anchors.
-        for (const id of self.ownAttention.sessionIds ?? []) {
-          const seat = input.seat(id)
-          if (seat !== LOADING && seat !== undefined)
-            value = combineSidebarSessionField(key, value, (seat.sidebarFacts ?? NO_SIDEBAR_SESSIONS)[key])
+        function* facts(): Iterable<SidebarSessionFacts> {
+          for (const id of self.ownAttention.sessionIds ?? []) {
+            const seat = input.seat(id)
+            if (seat !== LOADING && seat !== undefined) yield seat.sidebarFacts ?? NO_SIDEBAR_SESSIONS
+          }
         }
-        return value
+        return sidebarField(key, facts())
       })
     },
     get updatedAt() { return ready() ? self.ownFacts.updatedAt : undefined },
@@ -202,10 +214,10 @@ export function aggregateFields(input: RollupInputs, id: string, self: RollupSel
     },
     get sidebarFacts() {
       return sidebarFields(<K extends keyof SidebarSessionFacts>(key: K) => {
-        let value = NO_SIDEBAR_SESSIONS[key]
-        for (const part of orderedParts())
-          value = combineSidebarSessionField(key, value, (part.sidebarFacts ?? NO_SIDEBAR_SESSIONS)[key])
-        return value
+        function* facts(): Iterable<SidebarSessionFacts> {
+          for (const part of orderedParts()) yield part.sidebarFacts ?? NO_SIDEBAR_SESSIONS
+        }
+        return sidebarField(key, facts())
       })
     },
     get updatedAt() {

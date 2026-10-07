@@ -206,7 +206,7 @@ it('all demanded attention and progress fields equal the eager parts, including 
   runInAction(() => pool.apply({ type: 'update', rows: [
     { kind: 'issue', id: 'root', value: issueRow('root', { parentId: 'child', stage: 'review' }) as never },
     { kind: 'issue', id: 'leaf', value: issueRow('leaf', { parentId: 'child', closedAt: stamp, closedReason: 'done' }) as never },
-    { kind: 'session', id: 'leaf-seat', value: sessionRow({ sessionId: 'leaf-seat', issueId: 'leaf', agentState: { phase: 'waiting', since: stamp } }) as never },
+    { kind: 'session', id: 'leaf-seat', value: sessionRow({ sessionId: 'leaf-seat', issueId: 'leaf', agentState: { phase: 'waiting', since: '1969-12-31T23:59:59Z' } }) as never },
   ] }))
   let failure: unknown
   const stop = autorun(() => {
