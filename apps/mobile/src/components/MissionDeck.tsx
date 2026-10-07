@@ -20,10 +20,9 @@ import {
   type IssueContinuation,
   type IssueNavigationModel,
   issueAbandoned,
-  motionPhase,
+  type MotionPhase,
   readFlightDeckFolds,
   sessionRole,
-  sessionSettled,
   sessionTitle,
   treeGuides,
   writeFlightDeckFolds,
@@ -635,7 +634,7 @@ const Band = observer(function Band({
   current: boolean
   onPress: () => void
 }) {
-  const phase = motionPhase(session)
+  const phase = (session as SessionModel).motion
   // Asked ON THIS TASK: a closed one never asks, however long its offer has been
   // standing (POD-1072).
   const asking = (row as MissionDeckIssueModel).asks(session)
@@ -659,7 +658,7 @@ const Band = observer(function Band({
       kind={session.agentKind}
       asking={asking}
       working={working}
-      settled={sessionSettled(session)}
+      settled={(session as SessionModel).settled}
       lead={isLead(role)}
       // `sessionRole` only ever returns `coordinator` at the mission root — a
       // task's lead is `phase-lead` — so this IS "the mission's own lead".
@@ -809,7 +808,7 @@ function RetiredSignpost({ abandoned, onTuck }: { abandoned: boolean; onTuck: ()
  */
 function stamp(
   session: SessionView,
-  phase: ReturnType<typeof motionPhase>,
+  phase: MotionPhase,
   working: boolean,
   asking: boolean,
 ): string | null {

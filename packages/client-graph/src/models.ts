@@ -1810,7 +1810,13 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 
   @lazy
   // Motion lets an offer/question override execution; verdict.working reports execution alone.
-  get workingMotion(): boolean { return this.exists && sessionMotion(this as SessionView) === 'working' }
+  get motion(): ReturnType<typeof sessionMotion> { return this.exists ? sessionMotion(this as SessionView) : 'queued' }
+
+  @lazy
+  get workingMotion(): boolean { return this.motion === 'working' }
+
+  @lazy
+  get settled(): boolean { return !this.open || this.motion === 'done' }
 
   @lazy
   // Execution can read a declared cold summary; the sidebar verdict still waits for residency.

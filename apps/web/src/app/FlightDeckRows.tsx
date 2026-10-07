@@ -29,13 +29,11 @@ import {
   issueOwnContentUnread,
   type MissionDeparture,
   type machineViewsFromWire,
-  motionPhase,
   nativeSubagentRows,
   type PresenceNote,
   readFlightDeckFolds,
   type SessionRole,
   sessionRole,
-  sessionSettled,
   sessionUnreadEmphasized,
   continuationPresenceLine as sharedContinuationPresenceLine,
   spawnIssueAgent,
@@ -549,7 +547,7 @@ function StateLabel({ value, label }: { value: DeckIssueState; label?: string })
 function crewLine(session: SessionView, now: number): string {
   const facts = session as SessionModel
   const retired = !facts.open
-  const phase = motionPhase(session)
+  const phase = facts.motion
   const state = retired
     ? `retired ${relativeTime(session.lastActiveAt, now)}`
     : facts.asking
@@ -591,7 +589,7 @@ const CrewCensus = observer(function CrewCensus({ crew }: { crew: readonly Sessi
           className={index === 0 ? undefined : 'deck-drop-crew'}
           title={crewLine(session, now)}
         >
-          <KindIcon kind={session.agentKind} compact dimmed={sessionSettled(session)} />
+          <KindIcon kind={session.agentKind} compact dimmed={(session as SessionModel).settled} />
         </span>
       ))}
       {extra > 0 && (
@@ -976,7 +974,7 @@ export const SessionRow = observer(function SessionRow({
   const starting = session.status === 'starting' || session.status === 'reconnecting'
   const needs =
     !retired && (model ? model.asks(session) : facts.asking)
-  const phase = motionPhase(session)
+  const phase = facts.motion
   const since = Date.parse(session.agentState?.since ?? session.lastActiveAt)
   const now = useRuntimeSelector((store) => store.coarseNow)
   const stamp = relativeTime(session.lastActiveAt, now)
