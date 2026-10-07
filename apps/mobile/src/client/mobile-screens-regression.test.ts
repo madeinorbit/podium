@@ -58,14 +58,41 @@ function settle(pool: MobxPool, input: MobileScreenInput) {
   const trace = process.env.PHONE_CORPUS_TRACE === '1' && input.selectedId === 'i938' && input.mode === 'full'
   let previous = ''
   const residency = Reflect.get(pool, 'residency')
-  for (let round = 0; round < 64; round++) {
+  const request = trace && vi.spyOn(pool.residency!, 'request')
+  if (request) {
+    const original = pool.residency!.request.bind(pool.residency)
+    request.mockRestore()
+    let callers = 0
+    vi.spyOn(pool.residency!, 'request').mockImplementation((entity, id) => {
+      const added = original(entity, id)
+      if (added && callers++ < 6) console.info('[phone load caller]', id, new Error().stack)
+      return added
+    })
+  }
+  const seen = new Set<string>()
+  for (let round = 0; round < (trace ? 10_000 : 64); round++) {
     const output = tracked(() => poolMobileScreensSnapshot(pool, input))
     const projection = trace ? JSON.stringify(output, (_key, value) => typeof value === 'symbol' ? String(value) : value) : ''
-    const pending = trace ? [...Reflect.get(residency, 'queue')].map(([entity, ids]) => [entity, [...ids]]) : []
+    const pending: [string, string[]][] = trace ? [...Reflect.get(residency, 'queue')].map(([entity, ids]) => [entity, [...ids]]) : []
     const loaded = pool.hydrate()
-    if (trace) console.info('[phone hydrate round]', JSON.stringify({ round, loaded, pending, projectionChanged: projection !== previous, projection: projection !== previous ? projection : undefined, nextPending: [...Reflect.get(residency, 'queue')].map(([entity, ids]) => [entity, [...ids]]) }))
+    if (trace) {
+      const addedRows = pending.flatMap(([entity, ids]) => ids.map(id => {
+        const key = `${entity}:${id}`
+        if (seen.has(key)) throw new Error(`Repeated load: ${key}`)
+        seen.add(key)
+        const row = Reflect.get(pool.tables, entity).get(id)
+        return { key, changedFields: Object.keys(row ?? {}), title: row?.title, parentId: row?.parentId, deps: row?.deps }
+      }))
+      console.info('[phone hydrate round]', JSON.stringify({ round, loaded, pending, addedRows, projectionChanged: projection !== previous, projection: projection !== previous ? projection : undefined, nextPending: [...Reflect.get(residency, 'queue')].map(([entity, ids]) => [entity, [...ids]]) }))
+    }
     previous = projection
-    if (!loaded) return
+    if (!loaded) {
+      if (trace) {
+        console.info('[phone diagnostic converged]', JSON.stringify({ rounds: round + 1, uniqueLoads: seen.size }))
+        throw new Error('Diagnostic-only continuation; original 64-round regression still fails')
+      }
+      return
+    }
   }
   throw new Error('Phone batched loads did not settle')
 }
