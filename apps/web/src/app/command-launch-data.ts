@@ -1,6 +1,6 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import { LOADING } from '@podium/client-graph'
-import { CommandSessionRow, createCommandPalette, type CommandLaunchData } from '@podium/client-graph/command-launch-views'
+import { CommandSessionRow, createCommandPalette, type CommandLaunchData, type RecentCommand } from '@podium/client-graph/command-launch-views'
 import { chatIssue } from '@podium/client-graph/chat-context'
 import { createLaunchCatalogPicker } from '@podium/client-graph/launch-option-views'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -96,11 +96,17 @@ export function useCommandTargetMachines(repo: RepoView | undefined, machines: M
   return useWorklistPoolProjection(read, {} as Record<string, string | undefined>)
 }
 
-export function useCommandPaletteSnapshot(active = true) {
+type CommandPaletteSnapshot = {
+  data: Loaded<CommandLaunchData>
+  sessions: SessionView[]
+  selectedSessions: SessionView[]
+  recent: RecentCommand[]
+}
+export function useCommandPaletteSnapshot(active = true): CommandPaletteSnapshot | undefined {
   const pool = useWorklistPool()
   const picker = useMemo(() => pool ? createCommandPalette(pool) : undefined, [pool])
   useEffect(() => { if (active) picker?.open(); return () => picker?.close() }, [picker, active])
-  const read = useMemo(() => () => picker && { data: picker.palette(), sessions: picker.sessions, selectedSessions: picker.selectedSessions, recent: picker.recent }, [picker])
+  const read = useMemo(() => (): CommandPaletteSnapshot | undefined => picker && { data: picker.palette(), sessions: picker.sessions, selectedSessions: picker.selectedSessions, recent: picker.recent }, [picker])
   return useWorklistPoolProjection(read, undefined, active)
 }
 export function useCommandPaletteData(active = true): Loaded<CommandLaunchData> {
