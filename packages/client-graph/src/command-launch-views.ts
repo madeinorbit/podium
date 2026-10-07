@@ -410,7 +410,7 @@ export class CommandPaletteView {
       return session && session !== LOADING ? [session] : []
     })
   }
-  palette() { return this.data }
+  palette(): Loaded<CommandLaunchData> { return this.data }
   session(id: string) { return commandLaunchViews(this.pool).session(id) }
   @action close() { this.stopLoading?.(); this.stopLoading = undefined }
 }
