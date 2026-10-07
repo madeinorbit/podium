@@ -110,7 +110,7 @@ export function useChatIssueSeq() {
 export function useChatReferenceSessionIds() {
   const pool = useWorklistPool()
   const picker = useMemo(() => pool ? createReferencePicker(pool) : undefined, [pool])
-  useEffect(() => { picker?.open(); return () => picker?.close() }, [picker])
+  useEffect(() => { picker?.open('sessions'); return () => picker?.close() }, [picker])
   const read = useCallback(() => picker?.sessionIds ?? EMPTY_IDS, [picker])
   return useWorklistPoolProjection(read, EMPTY_IDS)
 }
@@ -127,7 +127,7 @@ export function useChatReferenceSession(id: string) {
 export function useChatReferenceSessions() {
   const pool = useWorklistPool()
   const picker = useMemo(() => pool ? createReferencePicker(pool) : undefined, [pool])
-  useEffect(() => { picker?.open(); return () => picker?.close() }, [picker])
+  useEffect(() => { picker?.open('sessions'); return () => picker?.close() }, [picker])
   const read = useCallback(() => picker?.sessions ?? EMPTY_SESSIONS, [picker])
   return useWorklistPoolProjection(read, EMPTY_SESSIONS)
 }

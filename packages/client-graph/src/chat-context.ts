@@ -205,17 +205,23 @@ export class ReferencePicker {
   private stopLoading: (() => void) | undefined
   constructor(private readonly pool: MobxPool) {}
   @action close() { this.stopLoading?.(); this.stopLoading = undefined }
-  @action open() {
+  @action open(kind: 'sessions' | 'issues' | 'all' = 'all') {
     this.close()
-    const sessions = chatReferenceSessions(this.pool), issues = chatMentionIssues(this.pool)
-    this.sessionIds = sessions.sessions.map(session => session.sessionId)
-    this.sessionRows = sessions.sessions.map(session => new ReferenceSessionRow(this.pool, session.sessionId, session.lastActiveAt))
-    this.issueIds = issues.issues.map(issue => issue.id)
-    this.issueRows = issues.issues.map(issue => new ReferenceIssueRow(this.pool, issue.id, issue.updatedAt))
-    this.pending = sessions.pending + issues.pending
+    const sessions = kind !== 'issues' ? chatReferenceSessions(this.pool) : undefined
+    const issues = kind !== 'sessions' ? chatMentionIssues(this.pool) : undefined
+    if (sessions) {
+      this.sessionIds = sessions.sessions.map(session => session.sessionId)
+      this.sessionRows = sessions.sessions.map(session => new ReferenceSessionRow(this.pool, session.sessionId, session.lastActiveAt))
+    }
+    if (issues) {
+      this.issueIds = issues.issues.map(issue => issue.id)
+      this.issueRows = issues.issues.map(issue => new ReferenceIssueRow(this.pool, issue.id, issue.updatedAt))
+    }
+    this.pending = (sessions?.pending ?? 0) + (issues?.pending ?? 0)
     if (this.pending) this.stopLoading = when(() =>
-      chatReferenceSessions(this.pool).pending + chatMentionIssues(this.pool).pending === 0,
-      () => this.open())
+      (kind !== 'issues' ? chatReferenceSessions(this.pool).pending : 0) +
+      (kind !== 'sessions' ? chatMentionIssues(this.pool).pending : 0) === 0,
+      () => this.open(kind))
   }
   @action search(query: string, limit = 5) {
     this.close()

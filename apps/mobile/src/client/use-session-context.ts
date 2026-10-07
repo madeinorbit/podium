@@ -106,7 +106,7 @@ const issuesRead = (reader: Reader) => reader.issues().issues
 function useOpenCatalog<T>(active: boolean | undefined, take: (reader: Reader) => T, empty: T, kind: 'sessions' | 'issues') {
   const reader = useRead<Reader | undefined>(useReaderIdentity, undefined)
   const picker = useMemo(() => reader?.referencePicker(), [reader])
-  useEffect(() => { if (active === true) picker?.open(); return () => picker?.close() }, [picker, active])
+  useEffect(() => { if (active === true) picker?.open(kind); return () => picker?.close() }, [picker, active, kind])
   const read = useCallback((reader: Reader) => active === undefined ? take(reader)
     : active && picker ? picker[kind] as T : empty, [active, take, picker, kind, empty])
   return useRead(read, empty)
