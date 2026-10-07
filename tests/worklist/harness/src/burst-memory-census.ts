@@ -6,7 +6,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 let label = ''
 export function burstMemoryLabel(value: string): void { label = value }
 
-export function burstMemoryCensus(phase: string, pool: MobxPool): void {
+export function burstMemoryCensus(phase: string, pool?: MobxPool): void {
   if (process.env.PODIUM_BURST_MEMORY_CENSUS !== '1') return
   const { heapStats, fullGC } = createRequire(import.meta.url)('bun:jsc') as {
     heapStats(): { heapSize: number; heapCapacity: number; extraMemorySize: number; objectCount: number; objectTypeCounts: Record<string, number> }
@@ -14,7 +14,7 @@ export function burstMemoryCensus(phase: string, pool: MobxPool): void {
   }
   // Diagnostic reflection over the pool's existing models: create no model and
   // read no model field. Slot names come from our own lazy diagnostic symbol.
-  const models = Object.getOwnPropertyDescriptor(pool, 'models')?.value as Record<string, Map<string, object>>
+  const models = (pool === undefined ? {} : Object.getOwnPropertyDescriptor(pool, 'models')?.value) as Record<string, Map<string, object>>
   const objects: Record<string, number> = {}
   const fields: Record<string, number> = {}
   let watched = 0, held = 0

@@ -716,6 +716,7 @@ describe('row roll-ups (Mb3)', () => {
       cells.push({ scale, correctSorts: correct.sorts, plantedSorts: planted.sorts })
     }
     writeResult('mobx-rollups-burst-sorts-1x-4x', { cells })
+    burstMemoryCensus('end-case')
   }, 900_000)
 
   it('a deep closed chain loads one level per window and converges to the oracle', async () => {
