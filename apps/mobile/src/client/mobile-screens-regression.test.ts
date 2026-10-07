@@ -64,6 +64,38 @@ function settle(pool: MobxPool, input: MobileScreenInput) {
   throw new Error('Phone batched loads did not settle')
 }
 
+it('archived corpus root i100 retains its header starter and frozen phone output', async () => {
+  const ctx = await startScenarioEngine(1), feeds = openFenceFeeds(ctx, 'pooled')
+  const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
+    summaries: MOBILE_SCREEN_SUMMARIES,
+  })
+  await attachMobileScreens(handle.pool)
+  try {
+    for (const mode of ['full', 'working', 'needs-you'] as const) {
+      const input: MobileScreenInput = {
+        selectSession: mostRelevantSession, tasks: null, selectedId: 'i100', mode,
+      }
+      const stop = observeMobileScreens(handle.pool, input)
+      try {
+        settle(handle.pool, input)
+        const output = tracked(() => poolMobileScreensSnapshot(handle.pool, input))
+        if (typeof output === 'symbol') throw new Error('Archived root is still loading')
+        expect(output.sections.find(section => section.key === 'mission')?.fields).toMatchObject({
+          root: 'i100', header: { id: 'i100', archived: true, startedBySession: 's4048' },
+        })
+        // The existing corpus snapshots freeze this hash in all three modes.
+        expect(fingerprint(output)).toBe('d96ff48b3da330f4bd8b8783fb43a8e93d84154c89fcd728218cc105ca96397e')
+      } finally {
+        stop()
+      }
+    }
+  } finally {
+    handle.dispose()
+    feeds.dispose()
+    ctx.dispose()
+  }
+})
+
 it('phone addressed issues batch cold siblings and dependency targets together', () => {
   const stamp = new Date(FIXED_NOW).toISOString()
   const old = new Date(FIXED_NOW - 30 * 86_400_000).toISOString()
