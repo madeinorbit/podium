@@ -6,10 +6,13 @@ import { IssueModel, SessionModel } from '@podium/client-graph/models'
 import { expect, it, vi } from 'vitest'
 import { observeMobileScreens, poolMobileScreensSnapshot, trackMobileScreenRead as tracked } from '../../../../tests/worklist/diagnostics/mobile-screens-snapshot'
 import { openFenceFeeds } from '../../../../tests/worklist/harness/src/fence-scenarios'
+import { FIXED_NOW } from '../../../../tests/worklist/harness/src/fixture/corpus'
 import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
 import { mostRelevantSession } from '../lib/mission-session'
 
 it('keeps loading inside the phone mission boundary for cold corpus root i938', async () => {
+  vi.useFakeTimers({ toFake: ['Date'] })
+  vi.setSystemTime(FIXED_NOW)
   let pendingField = ''
   for (const [prototype, fields] of [
     [IssueModel.prototype, ['visible', 'live', 'hasLead', 'memberSummary', 'memberLatestActivity']],
@@ -47,6 +50,6 @@ it('keeps loading inside the phone mission boundary for cold corpus root i938', 
     }
     throw new Error('Cold mission did not settle within the diagnostic ceiling')
   } finally {
-    stop(); handle.dispose(); feeds.dispose(); ctx.dispose(); vi.restoreAllMocks()
+    stop(); handle.dispose(); feeds.dispose(); ctx.dispose(); vi.restoreAllMocks(); vi.useRealTimers()
   }
 }, 120_000)
