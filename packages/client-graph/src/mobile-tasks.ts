@@ -2,7 +2,7 @@ import type { BoardFilter, IssuesOrdering } from '@podium/client-core/values'
 import { orderIssues } from '@podium/client-core/values'
 import { asIssueId, ISSUE_STATUS_LABELS, isFinished } from '@podium/model/browser'
 import { lazy } from '@podium/mobx-helpers'
-import { action, observable } from 'mobx'
+import { action, observable, observableRef } from 'mobx'
 import type { BoardListRow, BoardQuery } from './issue-board-schema'
 import { MOBILE_TASK_STAGES, type MobileTasksOptions } from './mobile-screens-schema'
 import type { MobxPool } from './pool'
@@ -21,8 +21,8 @@ const requireRow = <T>(row: Loaded<T>): T | undefined => { if (row === LOADING) 
  * models; placement borrows the desktop board's declared query/scalar caches. */
 export class MobileTasksBoard {
   @observable accessor showDone: boolean
-  @observable.ref accessor expanded: readonly string[]
-  @observable.ref accessor filter: BoardFilter
+  @observableRef accessor expanded: readonly string[]
+  @observableRef accessor filter: BoardFilter
   @observable accessor ordering: IssuesOrdering
   @observable accessor showAgentTasks: boolean
 
