@@ -1990,7 +1990,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 
   @lazy({ equals: compareStructural })
   private get verdictSidebarFactsWorking(): SidebarSessionFacts['working'] {
-    if (!this.verdictWorking) return undefined
+    if (!this.executing) return undefined
     const row = this.verdictRow
     const stateSince = Date.parse(row.agentState?.since ?? row.lastActiveAt)
     return { stateSince, sinceMs: stateSince,
