@@ -255,11 +255,13 @@ it('an archived child keeps its full header when a current mission session belon
   })
   const { pool, reader, load } = await setup([
     issue('root'), headerIssue,
-    issue('hidden-child', { parentId: 'root', archived: true, stage: 'done' }),
+    issue('hidden-child', { parentId: 'root', archived: true, stage: 'done', startedBySession: 'starter' }),
   ], [
     { sessionId: 'current', issueId: 'header-child', cwd: '/fixture', status: 'working',
       agentKind: 'codex', lastActiveAt: new Date(now).toISOString() },
-    { sessionId: 'starter', cwd: '/fixture', status: 'exited', archived: true,
+    // Archived children stay in this mission through the declared starter
+    // provenance, since their formal parent relation is intentionally hidden.
+    { sessionId: 'starter', issueId: 'root', cwd: '/fixture', status: 'exited', archived: true,
       agentKind: 'codex', lastActiveAt: '2026-01-01T00:00:00Z' },
   ])
   disposals.push(autorun(() => reader.mission('root')))
