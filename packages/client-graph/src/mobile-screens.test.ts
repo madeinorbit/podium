@@ -230,6 +230,8 @@ it('an archived root keeps its full header for the current session without loadi
   disposals.push(autorun(() => reader.mission('cold')))
   expect(reader.mission('cold')).toBe(LOADING)
   expect(pool.hydrate()).toBe(1)
+  // Header roster/author questions join the same normal batched load window.
+  for (let round = 0; round < 8 && reader.mission('cold') === LOADING; round++) pool.hydrate()
   const data = reader.mission('cold')
   expect(data).not.toBe(LOADING)
   if (data === LOADING) throw new Error('Archived mission is still loading')
@@ -240,8 +242,7 @@ it('an archived root keeps its full header for the current session without loadi
   expect(header).toBe(data.root)
   expect(header).toMatchObject({ ...root, description: 'summary description' })
   expect(header).toMatchObject({ memberSessionIds: ['current'] })
-  expect(load).toHaveBeenCalledTimes(1)
-  expect(load).toHaveBeenCalledWith('issue', 'cold')
+  expect(load.mock.calls.filter(([kind]) => kind === 'issue')).toEqual([['issue', 'cold']])
   expect(pool.tables.issue.has('hidden-child')).toBe(false)
   expect(pool.hydrate()).toBe(0)
 })
