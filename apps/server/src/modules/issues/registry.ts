@@ -140,6 +140,7 @@ async function assertNoWorkingSessionsForAgentClose(
     .filter((session) => isAgentComputing(session))
   if (working.length === 0) return
   const self = ctx.caller.capability.actorSessionId
+  const ownIncluded = working.some((session) => session.sessionId === self)
   const names = working
     .map((session) =>
       session.sessionId === self ? 'your own session' : `"${session.name ?? session.title}"`)
@@ -148,9 +149,9 @@ async function assertNoWorkingSessionsForAgentClose(
     `close refused: ${working.length === 1 ? 'a session' : `${working.length} sessions`} on ` +
       `${await ctx.reports.niceRef(issue)} ${working.length === 1 ? 'is' : 'are'} still working ` +
       `(${names}). Closing stops every session on the issue at once, so that work is cut off ` +
-      'mid-turn — your own included, before this turn finishes. Close your own issue only when ' +
-      'the user has told you to; otherwise move it to `review` and post an offer with a Close ' +
-      'action. To close anyway, re-run with `--confirm-interrupt`.',
+      `mid-turn${ownIncluded ? ' — yours included, before this turn finishes' : ''}. ` +
+      'Close your own issue only when the user has told you to; otherwise move it to `review` ' +
+      'and post an offer with a Close action. To close anyway, re-run with `--confirm-interrupt`.',
   )
 }
 
