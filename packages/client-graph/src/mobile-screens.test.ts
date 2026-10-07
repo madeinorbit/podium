@@ -255,7 +255,7 @@ it('an archived child keeps its full header when a current mission session belon
   })
   const { pool, reader, load } = await setup([
     issue('root'), headerIssue,
-    issue('hidden-child', { parentId: 'root', archived: true, stage: 'done', startedBySession: 'starter' }),
+    issue('hidden-child', { parentId: 'root', archived: true, stage: 'done', startedBySession: 'starter', notes: 'Hidden notes' }),
   ], [
     { sessionId: 'current', issueId: 'header-child', cwd: '/fixture', status: 'working',
       agentKind: 'codex', lastActiveAt: new Date(now).toISOString() },
@@ -272,8 +272,13 @@ it('an archived child keeps its full header when a current mission session belon
   expect(data.missionSessions).toMatchObject([{ sessionId: 'current', issueId: 'header-child' }])
   const header = data.issues.find(row => row.id === data.missionSessions[0]?.issueId) ?? data.root
   expect(header).toMatchObject({ ...headerIssue, description: 'summary description', memberSessionIds: ['current'] })
-  expect(load.mock.calls.filter(([kind]) => kind === 'issue')).toEqual([['issue', 'header-child']])
-  expect(pool.tables.issue.has('hidden-child')).toBe(false)
+  expect(load.mock.calls.filter(([kind, id]) => kind === 'issue' && id === 'header-child')).toEqual([['issue', 'header-child']])
+  // A hidden non-header member keeps the board projection even when another
+  // mission question has loaded its row.
+  const hidden = data.issues.find(row => row.id === 'hidden-child')
+  expect(hidden?.id).toBe('hidden-child')
+  expect(hidden?.startedBySession).toBeUndefined()
+  expect(hidden?.notes).toBeUndefined()
   expect(pool.hydrate()).toBe(0)
 })
 it('an explicitly opened archived mission counts accepted formal children without counting its root', async () => {
