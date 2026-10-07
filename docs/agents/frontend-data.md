@@ -64,7 +64,7 @@ How every client screen (web, desktop, phone) gets and derives data from the Mob
   ```
 - **Load on request**: an `@action` on the view model sets `loading = true`, awaits the call, then stores the result and `loading = false` (in `runInAction` after the await).
 - **Create a record**: form fields are UI state; submit calls the create command.
-- **Edit a record with several fields**: `const d = draftOf(issue)` when the form opens; inputs read and write `d.title`, `d.stage`; `d.isDirty`, `d.reset()`, `d.submit()` sends one combined edit. A single inline field keeps its draft text in its component.
+- **Edit a record with several fields**: `const d = draftOf(issue)` (import from `@podium/client-graph/write/draft-of`; it is not in the package index, to keep it out of the startup bundle) when the form opens; inputs read and write `d.title`, `d.stage`; `d.isDirty`, `d.reset()`, `d.submit()` sends one combined edit. A single inline field keeps its draft text in its component.
 
 ## What a change must show
 
