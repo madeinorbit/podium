@@ -34,6 +34,7 @@ vi.mock('@/app/store-worklist-pool', async () => {
   const { createPoolProjection } = await import('@podium/client-graph/runtime-pool')
   const subscribe = () => () => {}
   return {
+    useWorklistPool: () => ports.pool,
     useWorklistPoolProjection<T>(read: (pool: MobxPool) => T, empty: T): T {
       const pool = ports.pool
       const projection = useMemo(
@@ -140,6 +141,12 @@ describe('pool-only preference consumers', () => {
     act(() => container.querySelector('button')?.click())
     expect(ui.set).toHaveBeenNthCalledWith(1, key, 'saved draft!')
     expect(ui.set).toHaveBeenNthCalledWith(2, key, 'saved draft!!')
+    // Before the deferred source batch: controlled form props are current.
+    expect([...container.querySelectorAll('output')].map((row) => row.textContent)).toEqual([
+      'saved draft!!',
+      'saved draft!!',
+      'saved draft!!',
+    ])
     await settle()
     expect([...container.querySelectorAll('output')].map((row) => row.textContent)).toEqual([
       'saved draft!!',

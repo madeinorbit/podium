@@ -50,6 +50,7 @@ import { MENU_HEADER, MENU_HEADER_REF, MENU_HINT, MENU_RULE } from '@/lib/menu-s
 import { modChord } from '@/lib/mod-chord'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
+import { useNativeDraftText } from '@/lib/use-native-draft-text'
 import { STAGE_LABELS } from './issue-card'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
 
@@ -236,6 +237,9 @@ function NewIssueDialogBody({
   const titleRef = useRef<HTMLInputElement>(null)
   const [title, setTitle] = useState('')
   const [description, setDescription] = useState('')
+  const descriptionRef = useRef<HTMLTextAreaElement>(null)
+  const initialTitle = useNativeDraftText(titleRef, title)
+  const initialDescription = useNativeDraftText(descriptionRef, description)
   const [stage, setStage] = useState<IssueStage>(initialStage ?? 'backlog')
   const [priority, setPriority] = useState(2)
   // Default repo = the most recently used one (mount-time snapshot).
@@ -489,15 +493,16 @@ function NewIssueDialogBody({
             autoFocus
             ref={titleRef}
             aria-label="Title"
-            value={title}
+            defaultValue={initialTitle}
             onChange={(e) => setTitle(e.target.value)}
             placeholder="Task title"
             className="h-auto border-none bg-transparent px-0 py-0 font-medium text-[17px] tracking-[-0.015em] shadow-none focus-visible:ring-0 dark:bg-transparent"
           />
 
           <Textarea
+            ref={descriptionRef}
             aria-label="Description"
-            value={description}
+            defaultValue={initialDescription}
             onChange={(e) => setDescription(e.target.value)}
             placeholder="Add description…"
             className="min-h-[104px] resize-none border-none bg-transparent px-0 shadow-none focus-visible:ring-0 dark:bg-transparent"

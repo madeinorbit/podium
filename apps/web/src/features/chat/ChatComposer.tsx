@@ -3,7 +3,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { useVoiceInput } from '@podium/terminal-client-react'
 import { ArrowUp, CloudOff, MessageSquareText, Paperclip, RefreshCw, Square, X } from 'lucide-react'
 import type { JSX, RefObject } from 'react'
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { usePanelVisible } from '@/app/panel-visible'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -13,6 +13,7 @@ import { useFileMentions } from '@/lib/at-mention/useFileMentions'
 import { issueAgentKind } from '@/lib/issue-agents'
 import { AllConnectorsModelPicker, EffortPicker } from '@/lib/ModelEffortPicker'
 import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
+import { useNativeDraftText } from '@/lib/use-native-draft-text'
 import { cn } from '@/lib/utils'
 import { AttachmentStrip } from './AttachmentStrip'
 import { OfferBar } from './OfferBar'
@@ -52,29 +53,7 @@ function SyncComposerDraft({
   draft: string
   owner: string
 }): null {
-  const draftOwner = useRef(owner)
-  // Native input already contains the synchronous draft. A controlled textarea
-  // also mirrors every edit into defaultValue (its child text), which can move
-  // the caret. Adopt only actual external changes, preserving a focused
-  // selection within the same session. The action remains the text's sole owner.
-  useLayoutEffect(() => {
-    const ownerChanged = draftOwner.current !== owner
-    draftOwner.current = owner
-    const ta = taRef.current
-    if (!ta || ta.value === draft) return
-    const selection =
-      !ownerChanged && document.activeElement === ta
-        ? { start: ta.selectionStart, end: ta.selectionEnd, direction: ta.selectionDirection }
-        : null
-    ta.value = draft
-    if (selection) {
-      ta.setSelectionRange(
-        Math.min(selection.start, draft.length),
-        Math.min(selection.end, draft.length),
-        selection.direction,
-      )
-    }
-  }, [draft, owner, taRef])
+  useNativeDraftText(taRef, draft, owner)
   return null
 }
 

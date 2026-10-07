@@ -77,6 +77,31 @@ afterEach(() => {
 })
 
 describe('NewIssueDialog start-work band', () => {
+  it('clears both guarded fields after create-more and submits the next draft', async () => {
+    render(<NewIssueDialog onClose={vi.fn()} />)
+    const title = screen.getByLabelText('Title') as HTMLInputElement
+    const description = screen.getByLabelText('Description') as HTMLTextAreaElement
+    fireEvent.change(title, { target: { value: 'First task' } })
+    fireEvent.change(description, { target: { value: 'First description' } })
+    // Happy DOM does not toggle the hidden checkbox for Base UI's forwarded
+    // PointerEvent. Activate that native input to exercise the same handler.
+    fireEvent.click(screen.getByRole('switch').parentElement!.querySelector('input')!)
+    expect(screen.getByRole('switch').getAttribute('aria-checked')).toBe('true')
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(create).toHaveBeenCalledWith(expect.objectContaining({ title: 'First task' })))
+    await waitFor(() => {
+      expect(title.value).toBe('')
+      expect(description.value).toBe('')
+      expect(document.activeElement).toBe(title)
+    })
+    fireEvent.change(title, { target: { value: 'Second task' } })
+    fireEvent.change(description, { target: { value: 'Second description' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Create' }))
+    await waitFor(() => expect(create).toHaveBeenNthCalledWith(2, expect.objectContaining({
+      title: 'Second task', description: 'Second description',
+    })))
+  })
+
   it('preselects the default agent and sends the one you pick', async () => {
     render(<NewIssueDialog onClose={vi.fn()} />)
 

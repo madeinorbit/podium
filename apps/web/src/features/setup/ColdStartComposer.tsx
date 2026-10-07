@@ -44,6 +44,7 @@ import {
   terminalRuntimeDriver,
 } from '@/lib/runtime-driver-options'
 import { useFeature } from '@/lib/use-feature'
+import { useNativeDraftText } from '@/lib/use-native-draft-text'
 import { useColdStartPromptAutoGrow } from './cold-start-prompt-height'
 import {
   clearFirstTaskDraft,
@@ -469,6 +470,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     attachments.attachments.length > 0 ||
     Boolean(draft.pendingIssueId)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  const initialPrompt = useNativeDraftText(inputRef, draft.title)
   const [rootEl, setRootEl] = useState<HTMLFieldSetElement | null>(null)
   const [focused, setFocused] = useState(false)
   useColdStartPromptAutoGrow({
@@ -987,7 +989,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
               ref={inputRef}
               aria-label="What do you want to work on?"
               rows={1}
-              value={draft.title}
+              defaultValue={initialPrompt}
               disabled={busy || Boolean(draft.pendingIssueId)}
               onChange={(event) =>
                 setDraft(withoutCreateReservation({ ...draft, title: event.currentTarget.value }))

@@ -32,8 +32,10 @@ export default defineConfig({
     },
     {
       name: 'webkit-desktop',
-      testMatch: '**/pwa-update-handoff.browser.e2e.ts',
-      use: { ...devices['Desktop Safari'] },
+      testMatch: ['**/pwa-update-handoff.browser.e2e.ts', '**/draft-caret.browser.e2e.ts'],
+      use: { ...devices['Desktop Safari'], ...(process.env.PODIUM_CARET_WEBKIT_EXECUTABLE ? {
+        launchOptions: { executablePath: process.env.PODIUM_CARET_WEBKIT_EXECUTABLE },
+      } : {}) },
     },
     { name: 'webkit-iphone', use: { ...devices['iPhone 13'] } },
   ],

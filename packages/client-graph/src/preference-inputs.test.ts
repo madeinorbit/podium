@@ -1,7 +1,7 @@
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { preferenceSource } from '@podium/client-graph/preference-source'
 import { createSideCache, memoryStorage } from '@podium/client-core/replica'
-import { createRoutedUiState, type ReplicatedUiStatePort } from '@podium/client-core/ui-state'
+import { createRoutedUiState, FIRST_TASK_ACTIVATION_DRAFT_KEY, type ReplicatedUiStatePort } from '@podium/client-core/ui-state'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { checkPreferences } from '../../../tests/worklist/diagnostics/preference-check'
@@ -111,6 +111,53 @@ it('preserves exact preference values and rejects a planted stale value in the p
     expect(checkPreferences(f.pool, f.ui, [key]).differences).toBe(0)
   } finally {
     stop()
+    f.pool.dispose()
+  }
+})
+
+it('publishes an addressed local draft before input-end while keeping other preference batches', async () => {
+  const f = fixture()
+  const draftKey = FIRST_TASK_ACTIVATION_DRAFT_KEY
+  const otherKey = 'podium:sidebar:project-fold:other'
+  let draft: unknown, other: unknown
+  const stopDraft = autorun(() => {
+    const row = f.pool.row('preference', draftKey)
+    draft = row && row !== LOADING ? row.value : row
+  })
+  const stopOther = autorun(() => {
+    const row = f.pool.row('preference', otherKey)
+    other = row && row !== LOADING ? row.value : row
+  })
+  try {
+    expect(draft).toBe(LOADING)
+    expect(other).toBe(LOADING)
+    await flush()
+    f.get.mockClear()
+    f.ui.set(otherKey, 'first')
+    f.ui.set(otherKey, 'final')
+    f.ui.set(draftKey, 'abcdeZfghijklmnopqrst')
+    preferenceSource(f.pool)!.refreshKey(draftKey)
+    // Deliberately before any await: this is the controlled-input boundary.
+    expect(draft).toBe('abcdeZfghijklmnopqrst')
+    expect(other).toBeNull()
+    expect(f.get.mock.calls).toEqual([[draftKey]])
+    await flush()
+    expect(other).toBe('final')
+    expect(f.get.mock.calls).toEqual([[draftKey], [otherKey]])
+    f.get.mockClear()
+    f.ui.set(draftKey, null)
+    preferenceSource(f.pool)!.refreshKey(draftKey)
+    expect(draft).toBeNull()
+    await flush()
+    expect(f.get.mock.calls).toEqual([[draftKey]])
+    stopDraft()
+    f.get.mockClear()
+    preferenceSource(f.pool)!.refreshKey(draftKey)
+    preferenceSource(f.pool)!.refreshKey('unobserved-key')
+    expect(f.get).not.toHaveBeenCalled()
+  } finally {
+    stopDraft()
+    stopOther()
     f.pool.dispose()
   }
 })

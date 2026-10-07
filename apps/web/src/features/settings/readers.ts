@@ -6,7 +6,8 @@ import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { type Dispatch, type SetStateAction, useCallback, useMemo, useRef } from 'react'
 import type { Store } from '@/app/store'
-import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { preferenceSource } from '@podium/client-graph/preference-source'
 import { useSettingsClient } from './stable-access'
 
 const EMPTY_CATALOG: Pick<Store, 'machines' | 'repos'> = { machines: [], repos: [] }
@@ -127,6 +128,7 @@ function usePoolPreference<T>(
   serialize: (value: T) => string | null,
 ): [T, Dispatch<SetStateAction<T>>] {
   const { uiState } = useSettingsClient()
+  const pool = useWorklistPool()
   const read = useCallback(
     (pool: MobxPool) => {
       const row = pool.row('preference', key)
@@ -144,8 +146,9 @@ function usePoolPreference<T>(
         typeof next === 'function' ? (next as (previous: T) => T)(current.current) : next
       current.current = resolved
       uiState.set(key, serialize(resolved))
+      if (pool) preferenceSource(pool)?.refreshKey(key)
     },
-    [uiState, key, serialize],
+    [uiState, pool, key, serialize],
   )
   return [value, set]
 }

@@ -66,6 +66,19 @@ export class PreferenceSource {
     return [...this.homes.keys()]
   }
 
+  /** A form's owner has already accepted its local write. Publish that one
+   * addressed row before React restores controlled input from its old props.
+   * Other notifications and first-read hydration still use the coalesced batch.
+   */
+  refreshKey(key: string): void {
+    if (this.disposed || !this.homes.has(key) || this.refreshing.has(key)) return
+    this.pending.delete(key)
+    const row = this.load(key)
+    if (!row) return
+    this.counts.batches++
+    this.publish([row])
+  }
+
   private load(key: string): PreferenceRow | undefined {
     const home = this.homes.get(key)
     if (home === undefined || this.disposed) return undefined
@@ -99,6 +112,7 @@ export class PreferenceSource {
   private refresh(): void {
     const keys = [...this.pending]
     this.pending.clear()
+    if (!keys.length) return
     this.counts.batches++
     // ui.get may finish the owner's one-shot legacy key migration and notify.
     // Keep that write in the existing owner, outside the MobX publish action.

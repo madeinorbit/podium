@@ -650,6 +650,12 @@ function useFixturePool(): MobxPool {
       // The mission membership the gestures navigate (root + subtree): the
       // real missions view over the fixture's parent links.
       sources: {
+        // Fixture preferences read the synchronous UI owner directly; there is
+        // no separately attached PreferenceSource cache to refresh.
+        peekView: (name: string): undefined => {
+          if (name === 'preferences') return undefined
+          throw new Error(`Undeclared component fixture source: ${name}`)
+        },
         view: (name: string, _factory: unknown): unknown => {
           const fixture = pool as unknown as Record<string, unknown>
           if (name === 'sidebar') return fixture.sidebar
