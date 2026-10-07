@@ -17,10 +17,13 @@ export function instrumentProductWork(code: string, id: string): string | undefi
   const file = id.split('?')[0]!.replaceAll('\\', '/')
   if (file.endsWith('/packages/mobx-helpers/src/lazy.ts')) {
     // Preserve the cachedGroup census labels when a model moves to @lazy.
-    // This is diagnostic naming only: every computed body is still counted,
-    // and generic lazy getters keep their ordinary names.
+    // Expose the owner to the outside meter as well. The body already closes
+    // over `this`; MobX's context changes attribution only, not its answer.
+    // Every computed body is still counted, and generic lazy getters keep
+    // their ordinary names.
     return once(code, "name: debugName(() => `${this.constructor?.name ?? 'Object'}.${name}`)",
-      `name: debugName(() => {
+      `context: this,
+      name: debugName(() => {
         const target = this as { constructor?: { name?: string }; id?: string }
         const group = ({ nestingValue: 'nesting', nestCandidateValue: 'nestCandidate', seatActivity: 'activity' } as Record<string, string>)[name] ?? name
         return target.id === undefined

@@ -68,6 +68,7 @@
  */
 
 import { AsyncLocalStorage } from 'node:async_hooks'
+import { EntityModel, MODEL_CLASSES } from '@podium/client-graph/models'
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
   compareStructural,
@@ -244,8 +245,27 @@ function countDerivation(by: string): void {
   tally.derivationsBy.set(by, (tally.derivationsBy.get(by) ?? 0) + 1)
 }
 
-function derivationOwner(name: unknown): string {
+const entityModelNames = new Set(Object.values(MODEL_CLASSES).map((model) => model.name))
+
+function derivationOwner(name: unknown, scope?: unknown): string {
   const kind = kindOf(name)
+  // Shared fields are demanded by several views. The first reader is not
+  // their owner: changing it between scales must not create a 0 -> 1 counter.
+  // @lazy's scope is exposed by the measurement-only transform; cachedGroup
+  // and declared computeds already carry their model as the MobX context.
+  if (scope instanceof EntityModel) {
+    const prefix = `${scope.constructor.name}@${scope.id}.`
+    if (typeof name === 'string' && name.startsWith(prefix)) return kind
+    const classPrefix = `${scope.constructor.name}.`
+    const field = typeof name === 'string' && name.startsWith(classPrefix)
+      ? name.slice(classPrefix.length)
+      : name
+    return kindOf(`${prefix}${typeof field === 'string' ? field : '(unnamed)'}`)
+  }
+  // Explicit entity-field names also work without a declared context. Match
+  // actual model classes, never every '*Model' (view companions use that too).
+  const modelName = /^([^@.]+)(?:@[^.]+)?\./.exec(kind)?.[1]
+  if (modelName !== undefined && entityModelNames.has(modelName)) return kind
   if (kind.startsWith('consumer:')) return kind
   for (let index = running.length - 1; index >= 0; index--) {
     const parent = running[index]!
@@ -504,7 +524,8 @@ function countedEntries(original: Method): Method {
 function countedDerivation(original: Method): Method {
   return function (this: unknown, ...args: unknown[]) {
     if (tally === null) return original.apply(this, args)
-    const by = derivationOwner((this as { name_?: unknown }).name_)
+    const derivation = this as { name_?: unknown; scope_?: unknown }
+    const by = derivationOwner(derivation.name_, derivation.scope_)
     countDerivation(by)
     running.push(by)
     try {
