@@ -19,3 +19,14 @@ it.each([
   expect(planted).not.toBe(source)
   expect(() => instrumentProductWork(planted, file)).toThrow(/work measurement boundary/)
 })
+
+it('exposes lazy computed owners only in measurement builds and refuses a missing naming seam', () => {
+  const file = fileURLToPath(new URL('packages/mobx-helpers/src/lazy.ts', root))
+  const source = readFileSync(file, 'utf8')
+  const measured = instrumentProductWork(source, file)!
+  expect(measured).toContain('context: this,')
+  expect(source).not.toContain('context: this,')
+  const planted = source.replace("name: debugName(() => `${this.constructor?.name ?? 'Object'}.${name}`)", 'name: undefined')
+  expect(planted).not.toBe(source)
+  expect(() => instrumentProductWork(planted, file)).toThrow(/work measurement boundary/)
+})

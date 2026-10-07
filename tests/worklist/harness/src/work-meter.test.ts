@@ -5,8 +5,10 @@
  * gone after the window.
  */
 
+import { EntityModel, MODEL_CLASSES } from '@podium/client-graph/models'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
+import { lazy } from '@podium/mobx-helpers'
 import {
   autorun,
   compareStructural,
@@ -25,6 +27,7 @@ import {
   insideReader,
   measureWork,
   outsideArm,
+  type WorkCounts,
 } from './work-meter'
 
 const ids = (n: number): string[] => Array.from({ length: n }, (_, i) => `i${i}`)
@@ -196,6 +199,153 @@ describe('derivations', () => {
 })
 
 describe('pool reader windows', () => {
+  const cells = (work: WorkCounts) => SCREEN_ACTIONS.map((action) => ({
+    action,
+    neighbourhood: ['issue:drawn'],
+    work,
+  }))
+
+  it.each(Object.entries(MODEL_CLASSES))(
+    'keeps %s fields flat when their first demanding view changes',
+    async (_entity, Model) => {
+      async function measured(first: string, named: boolean) {
+        const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+        const model = new Model('guard-seat', pool)
+        const fields = ['exists', 'lastActivity', 'phase'].map((field) => computed(
+          () => pool.row(model.entity, model.id),
+          { name: named ? `${Model.name}@guard-seat.${field}` : field, context: model },
+        ))
+        let stop: (() => void) | undefined
+        try {
+          return (await measureWork(async () => {
+            stop = autorun(() => {
+              insideReader(first, () => fields.forEach((field) => field.get()))
+              insideReader(first === 'mobile-inbox' ? 'mission.pane' : 'mobile-inbox',
+                () => fields.forEach((field) => field.get()))
+            }, { name: 'demand' })
+          }, { pool })).work
+        } finally {
+          stop?.()
+          pool.dispose()
+        }
+      }
+      for (const named of [true, false]) {
+        const first = await measured('mobile-inbox', named)
+        const second = await measured('mission.pane', named)
+        const keys = ['exists', 'lastActivity', 'phase'].map((field) => `${Model.name}@guard-seat.${field}`)
+        for (const key of keys) {
+          expect(first.rowsBy![key]).toBe(1)
+          expect(second.rowsBy![key]).toBe(1)
+          expect(first.derivationsBy[key]).toBe(1)
+          expect(second.derivationsBy[key]).toBe(1)
+        }
+        const verdicts = screenWorkVerdicts(cells(first), cells(second))
+          .filter((verdict) => keys.includes(verdict.reader))
+        expect(verdicts).toHaveLength(SCREEN_ACTIONS.length * keys.length * 2)
+        expect(() => assertScreenWork(verdicts)).not.toThrow()
+        expect(Object.keys(second.rowsBy!).some((key) => key.includes('/' + Model.name))).toBe(false)
+        expect(second.rows).toBe(first.rows)
+        expect(second.derivations).toBe(first.derivations)
+        expect(second.elements).toBe(first.elements)
+      }
+    },
+  )
+
+  class MeterEntity extends EntityModel {
+    constructor(readonly items: readonly string[], pool: MobxPool) {
+      super('issue', 'guard-seat', pool)
+    }
+    @lazy get rowReads() {
+      for (let index = 0; index < this.items.length; index++) this.host.row('issue', this.items[index]!)
+      return this.items.length
+    }
+  }
+
+  class MeterViewModel {
+    readonly id = 'guard-seat'
+    constructor(readonly items: readonly string[], readonly pool: MobxPool) {}
+    @lazy get rowReads() {
+      for (let index = 0; index < this.items.length; index++) this.pool.row('issue', this.items[index]!)
+      return this.items.length
+    }
+  }
+
+  async function measuredLazy(scale: number, entity: boolean, first: string) {
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+    const items = ids(scale)
+    const model = entity ? new MeterEntity(items, pool) : new MeterViewModel(items, pool)
+    let stop: (() => void) | undefined
+    try {
+      return (await measureWork(async () => {
+        stop = autorun(() => {
+          insideReader(first, () => model.rowReads)
+          insideReader('second-view', () => model.rowReads)
+          // A much larger flat counter cannot drown out the planted field.
+          insideReader('expensive-constant', () => {
+            for (let index = 0; index < 1000; index++) pool.row('issue', 'constant')
+          })
+        }, { name: 'demand' })
+      }, { pool })).work
+    } finally {
+      stop?.()
+      pool.dispose()
+    }
+  }
+
+  it('rejects an extra row read per item in an actual shared lazy field, even when the first view changes', async () => {
+    const first = await measuredLazy(1, true, 'mobile-inbox')
+    const flat = await measuredLazy(1, true, 'mission.pane')
+    const second = await measuredLazy(4, true, 'mission.pane')
+    const key = 'MeterEntity@guard-seat.rowReads'
+    expect(first.rowsBy![key]).toBe(1)
+    expect(flat.rowsBy![key]).toBe(1)
+    expect(second.rowsBy![key]).toBe(4)
+    const fieldVerdicts = (work: WorkCounts) => screenWorkVerdicts(cells(first), cells(work))
+      .filter((verdict) => verdict.reader === key)
+    expect(() => assertScreenWork(fieldVerdicts(flat))).not.toThrow()
+    expect(fieldVerdicts(second).filter((verdict) => !verdict.passed)).toEqual(
+      SCREEN_ACTIONS.map((action) => ({
+        action, kind: 'rows', reader: key, at1x: 1, at4x: 4,
+        neighbourhood1x: 1, neighbourhood4x: 1, passed: false,
+      })),
+    )
+    expect(() => assertScreenWork(fieldVerdicts(second))).toThrow(/MeterEntity@guard-seat.rowReads/)
+    expect(second.rowsBy!['consumer:expensive-constant']).toBe(1000)
+  })
+
+  it('still charges growth in a view-owned lazy computed to that view', async () => {
+    const first = await measuredLazy(1, false, 'mission.pane')
+    const second = await measuredLazy(4, false, 'mission.pane')
+    const key = 'consumer:mission.pane/MeterViewModel@guard-seat.rowReads'
+    expect(first.rowsBy![key]).toBe(1)
+    expect(second.rowsBy![key]).toBe(4)
+    expect(second.derivationsBy[key]).toBe(1)
+    expect(second.rowsBy!['MeterViewModel@guard-seat.rowReads']).toBeUndefined()
+    expect(() => assertScreenWork(screenWorkVerdicts(cells(first), cells(second)))).toThrow(
+      /consumer:mission.pane\/MeterViewModel@guard-seat.rowReads/,
+    )
+  })
+
+  it('recognizes explicit entity-field names without a scope but keeps nested view work on its consumer', async () => {
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+    const view = computed(() => pool.row('issue', 'view'), { name: 'MissionDeckModel@guard-seat.row' })
+    const field = computed(() => view.get(), { name: 'SessionModel@guard-seat.exists' })
+    let stop: (() => void) | undefined
+    try {
+      const { work } = await measureWork(async () => {
+        await insideReader('mission.pane', async () => {
+          await Promise.resolve()
+          stop = autorun(() => field.get(), { name: 'demand' })
+        })
+      }, { pool })
+      expect(work.derivationsBy['SessionModel@guard-seat.exists']).toBe(1)
+      expect(work.rowsBy!['consumer:mission.pane/MissionDeckModel@guard-seat.row']).toBe(1)
+    } finally {
+      stop?.()
+      pool.dispose()
+    }
+  })
+
   it('catches the app projection walking pre-cached equal arrays, with no row reads or extra derivations', async () => {
     async function measured(scale: number) {
       const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
