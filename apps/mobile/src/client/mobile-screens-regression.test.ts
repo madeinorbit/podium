@@ -58,6 +58,7 @@ function settle(pool: MobxPool, input: MobileScreenInput) {
   const trace = process.env.PHONE_CORPUS_TRACE === '1' && input.selectedId === 'i938' && input.mode === 'full'
   let previous = ''
   const residency = Reflect.get(pool, 'residency')
+  let currentRound = 0
   const request = trace && vi.spyOn(pool.residency!, 'request')
   if (request) {
     const original = pool.residency!.request.bind(pool.residency)
@@ -65,12 +66,16 @@ function settle(pool: MobxPool, input: MobileScreenInput) {
     let callers = 0
     vi.spyOn(pool.residency!, 'request').mockImplementation((entity, id) => {
       const added = original(entity, id)
-      if (added && callers++ < 6) console.info('[phone load caller]', id, new Error().stack)
+      if (added && currentRound >= 2 && callers++ < 6) {
+        Error.stackTraceLimit = 32
+        console.info('[phone load caller]', currentRound, id, new Error().stack)
+      }
       return added
     })
   }
   const seen = new Set<string>()
   for (let round = 0; round < (trace ? 10_000 : 64); round++) {
+    currentRound = round
     const output = tracked(() => poolMobileScreensSnapshot(pool, input))
     const projection = trace ? JSON.stringify(output, (_key, value) => typeof value === 'symbol' ? String(value) : value) : ''
     const pending: [string, string[]][] = trace ? [...Reflect.get(residency, 'queue')].map(([entity, ids]) => [entity, [...ids]]) : []
@@ -83,7 +88,7 @@ function settle(pool: MobxPool, input: MobileScreenInput) {
         const row = Reflect.get(pool.tables, entity).get(id)
         return { key, changedFields: Object.keys(row ?? {}), title: row?.title, parentId: row?.parentId, deps: row?.deps }
       }))
-      console.info('[phone hydrate round]', JSON.stringify({ round, loaded, pending, addedRows, projectionChanged: projection !== previous, projection: projection !== previous ? projection : undefined, nextPending: [...Reflect.get(residency, 'queue')].map(([entity, ids]) => [entity, [...ids]]) }))
+      console.info('[phone hydrate round]', JSON.stringify({ round, loaded, pending, addedRows, projectionChanged: projection !== previous, projection: projection !== previous ? (typeof output === 'symbol' ? projection : { sections: output.sections.map(section => ({ key: section.key, rows: section.rows.length })), fingerprint: fingerprint(output) }) : undefined, nextPending: [...Reflect.get(residency, 'queue')].map(([entity, ids]) => [entity, [...ids]]) }))
     }
     previous = projection
     if (!loaded) {
