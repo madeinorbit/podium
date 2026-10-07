@@ -95,6 +95,20 @@ it('cold facts queue batched loads and never synchronously invoke the loader', (
   expect(tracked(() => pool.issueObject('root').visible)).toBe(true)
 })
 
+it('member summary batches cold present and archived contributions together', () => {
+  const old = '2026-09-01T12:00:00Z'
+  const { pool, load } = open(issueRow({ stage: 'done', closedAt: old }),
+    [sessionRow({ sessionId: 'present', status: 'exited', lastActiveAt: old, stoppedAt: old,
+      agentState: { phase: 'ended' } }),
+    sessionRow({ sessionId: 'history', archived: true, status: 'exited', lastActiveAt: old,
+      stoppedAt: old, agentState: { phase: 'ended' } })], true)
+  const issue = pool.issueObject('root')
+  expect(tracked(() => issue.memberSummary)).toBe(LOADING)
+  expect(load).not.toHaveBeenCalled()
+  expect(pool.hydrate()).toBe(2)
+  expect(tracked(() => issue.memberSummary)).toEqual({ total: 2, byPhase: { ended: 2 } })
+})
+
 it.each(['visible', 'live', 'hasLead', 'memberSummary', 'memberSessionIds', 'memberLatestActivity'] as const)('rejects a deliberately wrong issue %s field', name => {
   const { pool } = open(issueRow({ coordinatorSessionId: 'crew' }))
   const model = pool.issueObject('root'), expected = tracked(() => model[name])

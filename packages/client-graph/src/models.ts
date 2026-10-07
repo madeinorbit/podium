@@ -599,8 +599,10 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   // History: scalar session fields stop display-only changes at each member.
   @lazy({ equals: compareStructural })
   get memberSummary(): { total: number; byPhase: Record<string, number> } {
-    const phases = new Map(this.presentMemberPhases)
-    for (const [phase, value] of this.archivedMemberPhases) {
+    const present = this.presentMemberPhases, archived = this.archivedMemberPhases
+    if (present === LOADING || archived === LOADING) throw LOADING
+    const phases = new Map(present)
+    for (const [phase, value] of archived) {
       const previous = phases.get(phase)
       phases.set(phase, previous ? { count: previous.count + value.count,
         first: previous.first < value.first ? previous.first : value.first } : value)
@@ -616,7 +618,9 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   @lazy
   get memberLatestActivity(): number {
-    return Math.max(this.presentMemberActivity, this.archivedMemberActivity)
+    const present = this.presentMemberActivity, archived = this.archivedMemberActivity
+    if (present === LOADING || archived === LOADING) throw LOADING
+    return Math.max(present, archived)
   }
 
   // Archive contributions stay observed independently: a live heartbeat or
@@ -626,9 +630,9 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   @lazy private get presentMemberActivity() { return this.readMemberActivity(false) }
   @lazy private get archivedMemberActivity() { return this.readMemberActivity(true) }
 
-  private readMemberPhases(archived: boolean): ReadonlyMap<string, { count: number; first: string }> {
+  private readMemberPhases(archived: boolean): ReadonlyMap<string, { count: number; first: string }> | typeof LOADING {
     const ids = this.host.sessionSeatIds('pageSessions', this.id, archived)
-    if (ids === LOADING) throw LOADING
+    if (ids === LOADING) return LOADING
     const phases = new Map<string, { count: number; first: string }>()
     let pending = false
     for (const id of ids) {
@@ -641,13 +645,12 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
           first: previous.first < id ? previous.first : id } : { count: 1, first: id })
       } catch (error) { if (error !== LOADING) throw error; pending = true }
     }
-    if (pending) throw LOADING
-    return phases
+    return pending ? LOADING : phases
   }
 
-  private readMemberActivity(archived: boolean): number {
+  private readMemberActivity(archived: boolean): number | typeof LOADING {
     const ids = this.host.sessionSeatIds('pageSessions', this.id, archived)
-    if (ids === LOADING) throw LOADING
+    if (ids === LOADING) return LOADING
     let latest = -Infinity, pending = false
     for (const id of ids) {
       try {
@@ -655,8 +658,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
         if (at !== null && at > latest) latest = at
       } catch (error) { if (error !== LOADING) throw error; pending = true }
     }
-    if (pending) throw LOADING
-    return latest
+    return pending ? LOADING : latest
   }
 
   @lazy({ equals: compareStructural })
