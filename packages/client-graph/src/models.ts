@@ -421,7 +421,7 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   @lazy
   private get hasStanding(): boolean {
-    return this.host.resident('issue', this.id) === 'resident'
+    return this.host.visibleInputs.issueRow(this.id) !== undefined
   }
 
   private readStanding(): Standing | undefined {
@@ -463,7 +463,8 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
       : mergeIds(summary.retained, this.laneRetainedSeatIds)
   }
 
-  @lazy({ equals: compareStructural })
+  // R2 already owns this list. Pass through its identity instead of adding
+  // a second observed cache with a different first-demand lifetime.
   get rosterIds(): readonly string[] {
     if (this.standing === undefined) return []
     const summary = this.explicitSeats
@@ -1634,7 +1635,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 
   @lazy
   private get hasRetention(): boolean {
-    return this.host.resident('session', this.id) === 'resident'
+    return this.host.visibleInputs.sessionRow(this.id) !== undefined
   }
 
   private readRetention(): Retention | null {
