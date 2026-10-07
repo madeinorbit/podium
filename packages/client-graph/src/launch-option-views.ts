@@ -199,18 +199,17 @@ export class LaunchCatalogPicker {
     this.initialRepoPath = catalog.initialRepoPath
     this.opened = true
   }
-  @lazy get data() {
+  @lazy get repoPaths() {
     const paths = headerEntities(this.pool).repositoryRootIds()
       .flatMap(id => {
         const row = this.pool.row('repository', id) as GitRepositoryWire | undefined
         return row && typeof row !== 'symbol' && row.kind !== 'worktree' ? [row.path] : []
       })
     const present = new Set(paths)
-    return {
-      initialRepoPath: this.initialRepoPath,
-      repoPaths: [...this.order.filter(path => present.has(path)), ...paths.filter(path => !this.order.includes(path))],
-      machines: headerView(this.pool).machines(),
-    }
+    return [...this.order.filter(path => present.has(path)), ...paths.filter(path => !this.order.includes(path))]
+  }
+  @lazy get data() {
+    return { initialRepoPath: this.initialRepoPath, repoPaths: this.repoPaths, machines: headerView(this.pool).machines() }
   }
   catalog() { return this.data }
 }

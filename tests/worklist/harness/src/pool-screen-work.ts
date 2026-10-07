@@ -368,7 +368,7 @@ async function measureScreenCells(
     palettePicker.open()
     catalogPicker.open()
     referencePicker.open()
-    stops.push(() => palettePicker.close())
+    stops.push(() => palettePicker.close(), () => referencePicker.close())
     const panelOrigin = readLaunchOrigin(pool, '/repo-000')
     const panelPreferred = panelOrigin !== LOADING && panelOrigin.repo
       ? runInAction(() => readTargetMachines(pool, panelOrigin.repo, panelOrigin.machines, ['claude-code', 'codex'])) : {}
@@ -705,7 +705,7 @@ async function measureScreenCells(
       'pane-switch': () => referenceState(ctx.engine).setPane('A', asSessionId(SESSION)),
       'open-menu': () => {
         referenceState(ctx.engine).setPaletteOpen(true)
-        insideReader('launcher.open-menu', () => { palettePicker.open(); return palettePicker.palette() })
+        insideReader('launcher.open-menu', () => palettePicker.palette())
       },
       'long-press': () => {
         pressed = insideReader('mobile-work.long-press', () => readPoolWorkMenu(pool, ROOT))
