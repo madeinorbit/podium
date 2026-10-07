@@ -1,4 +1,4 @@
-import { keyedComputed } from '@podium/mobx-helpers'
+import { lazy, keyedComputed } from '@podium/mobx-helpers'
 import {
   machineViewsFromWire,
   reposToViews,
@@ -6,7 +6,7 @@ import {
   type RepoNavView,
 } from '@podium/client-core/values'
 import { type GitRepositoryWire, machinePathBasename, machinePathKey, machinePathsEqual } from '@podium/model/browser'
-import { computed } from 'mobx'
+import { action, computed, observable } from 'mobx'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
 import type { MobxPool } from './pool'
@@ -185,3 +185,31 @@ export function launchOptionViews(pool: MobxPool) {
 }
 
 const EMPTY_PINS = { repos: [] as readonly string[], worktrees: [] as readonly string[] }
+
+/** New-task choices take recency once; host eligibility and catalog edits stay live.
+ * The launcher's repositoryPaths/newWork ordering has a separate owner. */
+export class LaunchCatalogPicker {
+  @observable.ref accessor order: string[] = []
+  @observable accessor initialRepoPath = ''
+  constructor(private readonly pool: MobxPool) {}
+  @action open() {
+    const catalog = launchOptionViews(this.pool).catalog()
+    this.order = catalog.repoPaths
+    this.initialRepoPath = catalog.initialRepoPath
+  }
+  @lazy get data() {
+    const paths = headerEntities(this.pool).repositoryRootIds()
+      .flatMap(id => {
+        const row = this.pool.row('repository', id)
+        return row && row !== LOADING && row.kind !== 'worktree' ? [row.path] : []
+      })
+    const present = new Set(paths)
+    return {
+      initialRepoPath: this.initialRepoPath,
+      repoPaths: [...this.order.filter(path => present.has(path)), ...paths.filter(path => !this.order.includes(path))],
+      machines: headerView(this.pool).machines(),
+    }
+  }
+  catalog() { return this.data }
+}
+export const createLaunchCatalogPicker = (pool: MobxPool) => new LaunchCatalogPicker(pool)

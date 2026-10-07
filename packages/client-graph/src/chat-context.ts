@@ -1,3 +1,4 @@
+import { action, observable } from 'mobx'
 import { headerEntities } from './header-entities'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -138,7 +139,7 @@ export function chatReferenceSessions(pool: MobxPool, counts = readerCounts(pool
     if (counts) counts.referenceSessionReads++
     const row = pool.row('session', id, 'summary-fields') as Loaded<SessionView>
     if (loading(row)) pending++
-    else if (row) sessions.push({ ...row })
+    else if (row) sessions.push(row)
   }
   return { sessions: dedupeSessionsByResume(sessions), pending }
 }
@@ -190,3 +191,25 @@ export function createChatContextReader(pool: MobxPool) {
     },
   }
 }
+
+/** One open reference/mention picker. Only open/search reads a catalog. */
+export class ReferencePicker {
+  @observable.ref accessor sessionIds: string[] = []
+  @observable.ref accessor issueIds: string[] = []
+  @observable accessor pending = 0
+  constructor(private readonly pool: MobxPool) {}
+  @action open() {
+    const sessions = chatReferenceSessions(this.pool), issues = chatMentionIssues(this.pool)
+    this.sessionIds = sessions.sessions.map(session => session.sessionId)
+    this.issueIds = issues.issues.map(issue => issue.id)
+    this.pending = sessions.pending + issues.pending
+  }
+  @action search(query: string, limit = 5) {
+    const result = chatMentionMatches(this.pool, query, limit)
+    this.issueIds = result.issues.map(issue => issue.id)
+    this.pending = result.pending
+  }
+  session(id: string) { return this.pool.row('session', id, 'summary-fields') as Loaded<SessionView> }
+  issue(id: string) { return chatIssue(this.pool, id) }
+}
+export const createReferencePicker = (pool: MobxPool) => new ReferencePicker(pool)

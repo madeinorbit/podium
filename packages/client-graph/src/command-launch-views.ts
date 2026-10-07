@@ -3,9 +3,10 @@ import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RepoView } from '@podium/client-core/values'
-import { keyedComputed } from '@podium/mobx-helpers'
+import { lazy, keyedComputed } from '@podium/mobx-helpers'
 import { machinePathBasename, machinePathKey, machinePathsEqual, normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
 import {
+  action, observable, when,
   compareStructural,
   computed,
   untracked,
@@ -264,11 +265,11 @@ function createCommandLaunchViews(pool: MobxPool) {
     },
     { equals: compareStructural },
   )
-  function projection(): Loaded<CommandLaunchData> {
-    const data = common.get(),
-      ids = sessionIds.get(),
+  function projection(snapshot?: CommandLaunchData): Loaded<CommandLaunchData> {
+    const data = snapshot ?? common.get(),
+      ids = snapshot?.sessionIds ?? sessionIds.get(),
       window = read('commandWindow', 'window'),
-      spawnTargets = placement.get()
+      spawnTargets = snapshot?.spawnTargets ?? placement.get()
     if (
       data === LOADING ||
       ids === LOADING ||
@@ -277,11 +278,11 @@ function createCommandLaunchViews(pool: MobxPool) {
     )
       return LOADING
     if (!data || !ids || !window || !spawnTargets) return undefined
-    const { issueIds: _issueIds, ...values } = data
+    const { issueIds: _issueIds, ...values } = data as Common
     let pending = data.pending,
       issues: IssueViewModel[] = []
     {
-      const list = browsing.get()
+      const list = snapshot ? { issues: snapshot.issues, pending: 0 } : browsing.get()
       if (list === LOADING || !list) return list
       issues = list.issues
       pending += list.pending
@@ -343,6 +344,7 @@ function createCommandLaunchViews(pool: MobxPool) {
   const palette = computed(() => projection(), { equals: compareStructural })
   return {
     palette: () => palette.get(),
+    selected: (snapshot: CommandLaunchData) => projection(snapshot),
     window: windowField,
     sessionIds: () => sessionIds.get(),
     session,
@@ -354,3 +356,51 @@ function createCommandLaunchViews(pool: MobxPool) {
 export function commandLaunchViews(pool: MobxPool) {
   return pool.sources.view('commands', () => createCommandLaunchViews(pool))
 }
+
+export type RecentCommand = { kind: 'session' | 'issue'; id: string }
+
+/** A palette mount owns its ordering. Catalog demand lives only in open(). */
+export class CommandPaletteView {
+  @observable.ref accessor snapshot: Loaded<CommandLaunchData> = LOADING
+  @observable.ref accessor sessions: SessionView[] = []
+  @observable.ref accessor recent: RecentCommand[] = []
+  private stopLoading: (() => void) | undefined
+
+  constructor(private readonly pool: MobxPool) {}
+
+  @action open() {
+    this.close()
+    const views = commandLaunchViews(this.pool)
+    const take = () => {
+      this.snapshot = views.palette()
+      const sessions = views.sessions()
+      this.sessions = sessions && sessions !== LOADING ? sessions : []
+      const stamp = (iso: string | undefined) => iso ? Date.parse(iso) || 0 : 0
+      const recent: { at: number; command: RecentCommand }[] = []
+      for (const s of this.sessions)
+        if (!s.archived) recent.push({ at: stamp(s.lastActiveAt), command: { kind: 'session', id: s.sessionId } })
+      if (this.snapshot && this.snapshot !== LOADING)
+        for (const i of this.snapshot.issues)
+          if (!i.archived && !i.deletedAt && !i.isDraftVessel)
+            recent.push({ at: stamp(i.updatedAt), command: { kind: 'issue', id: i.id } })
+      recent.sort((a, b) => b.at - a.at)
+      this.recent = recent.slice(0, 8).map(value => value.command)
+    }
+    take()
+    if (this.snapshot === LOADING || this.snapshot === undefined)
+      this.stopLoading = when(() => {
+        const value = views.palette()
+        return !!value && value !== LOADING
+      }, take)
+  }
+
+  @lazy({ equals: compareStructural })
+  get data(): Loaded<CommandLaunchData> {
+    return this.snapshot && this.snapshot !== LOADING
+      ? commandLaunchViews(this.pool).selected(this.snapshot) : this.snapshot
+  }
+  palette() { return this.data }
+  session(id: string) { return commandLaunchViews(this.pool).session(id) }
+  @action close() { this.stopLoading?.(); this.stopLoading = undefined }
+}
+export const createCommandPalette = (pool: MobxPool) => new CommandPaletteView(pool)
