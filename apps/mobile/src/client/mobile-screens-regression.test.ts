@@ -55,9 +55,17 @@ const tasks: NonNullable<MobileScreenInput['tasks']> = {
   showAgentTasks: false,
 }
 function settle(pool: MobxPool, input: MobileScreenInput) {
+  const trace = process.env.PHONE_CORPUS_TRACE === '1' && input.selectedId === 'i938' && input.mode === 'full'
+  let previous = ''
+  const residency = Reflect.get(pool, 'residency')
   for (let round = 0; round < 64; round++) {
-    tracked(() => poolMobileScreensSnapshot(pool, input))
-    if (!pool.hydrate()) return
+    const output = tracked(() => poolMobileScreensSnapshot(pool, input))
+    const projection = trace ? JSON.stringify(output, (_key, value) => typeof value === 'symbol' ? String(value) : value) : ''
+    const pending = trace ? [...Reflect.get(residency, 'queue')].map(([entity, ids]) => [entity, [...ids]]) : []
+    const loaded = pool.hydrate()
+    if (trace) console.info('[phone hydrate round]', JSON.stringify({ round, loaded, pending, projectionChanged: projection !== previous, projection: projection !== previous ? projection : undefined, nextPending: [...Reflect.get(residency, 'queue')].map(([entity, ids]) => [entity, [...ids]]) }))
+    previous = projection
+    if (!loaded) return
   }
   throw new Error('Phone batched loads did not settle')
 }
