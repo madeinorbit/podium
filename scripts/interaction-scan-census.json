@@ -1141,37 +1141,37 @@
     {
       "file": "apps/mobile/src/lib/mission-session.ts",
       "holder": "mostRelevantSession",
-      "rule": "spread",
-      "tokens": "94422aec01a6e9e777c98a9be0f6080e1bf8938e21eae49b2ae5f8b1ad63a231",
-      "gate": [],
-      "origin": [
-        "78270e5236f4ee872386fbfab2dad5fadc900b0265b0eb4d674650fca83e3091"
-      ],
-      "fingerprint": "82ff9f776e3664e5e6d01b26b081f76ba0841111a7fc7d3b3c22175f75fc4db3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of mostRelevantSession",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/mobile/src/lib/mission-session.ts",
-      "holder": "mostRelevantSession",
       "rule": "consume:sort",
-      "tokens": "df9cbd5b0a872c91436a09670a5d496587328b7fd338d5f4f97090bbf95e0d92",
+      "tokens": "a54670507aa330557ca349845397de7e8979a6b3f09e8e5241516d54340bd77b",
       "gate": [],
       "origin": [
-        "78270e5236f4ee872386fbfab2dad5fadc900b0265b0eb4d674650fca83e3091"
+        "5b33ef77a0d2f4739140b34f87311db8022a1f5f0e82479153e51863c1a98b77"
       ],
-      "fingerprint": "b0e963efae03120b19124fd8e824b55c2f95c45cac7a6968ee7bed8017fb7440",
+      "fingerprint": "b5f19b8c78fd32ab825e14aa9456911eff6cc9e80b20965c8a1d7334534cfbad",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of mostRelevantSession",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:sort carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/mobile/src/lib/mission-session.ts",
+      "holder": "mostRelevantSession",
+      "rule": "spread",
+      "tokens": "94422aec01a6e9e777c98a9be0f6080e1bf8938e21eae49b2ae5f8b1ad63a231",
+      "gate": [],
+      "origin": [
+        "5b33ef77a0d2f4739140b34f87311db8022a1f5f0e82479153e51863c1a98b77"
+      ],
+      "fingerprint": "db23e04a475b7095edf4c1b7f78a784255fb079f727e02acc049f6a6443e0d86",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of mostRelevantSession",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
