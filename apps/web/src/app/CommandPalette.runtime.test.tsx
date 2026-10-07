@@ -144,6 +144,10 @@ for (const scale of [1, 4]) it(`does not render or walk catalogs on an open pale
   })
   expect(await screen.findByRole('combobox')).toBeTruthy()
   await act(async () => {})
+  // Eligibility changes remain live; measure a subsequent timestamp-only
+  // heartbeat after the selected session's first unread transition settles.
+  await act(async () => fixture.patch('session', 'synthetic-session-11', { lastActiveAt: new Date(Date.now() + 30000).toISOString() }))
+  await act(async () => {})
   const before = commits, counts = { ...commandLaunchViews(pool!).counts }
   const order = screen.getAllByRole('option').map(row => row.textContent)
   await act(async () => fixture.patch('session', 'synthetic-session-11', { lastActiveAt: new Date(Date.now() + 60000).toISOString() }))
