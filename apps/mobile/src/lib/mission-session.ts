@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { sessionNeedsHuman } from '@podium/client-core/values'
+import type { SessionModel } from '@podium/client-graph/models'
 
 /**
  * WHO THE MISSION OPENS ON [POD-724].
@@ -13,17 +13,17 @@ import { sessionNeedsHuman } from '@podium/client-core/values'
  * stays the answer even when a sibling has been printing tool output for the
  * last ten minutes. Asking, then working, then whoever spoke last.
  *
- * OPEN IS CHECKED FIRST, before what the session wants. `sessionNeedsHuman` is
- * true of an archived session still carrying a stale offer, and ranking on the
- * ask alone would open the mission on a transcript nobody can reply to while a
- * live agent waited one pull away.
+ * The screen ranks the shared open/asking answers, then excludes hibernated
+ * agents from immediate conversation selection. That exclusion and the exact
+ * working-phase rank are phone navigation rules, independent of execution.
  */
 export function mostRelevantSession(sessions: readonly SessionView[]): SessionView | undefined {
   const rank = (s: SessionView): number => {
-    const open = !s.archived && s.status !== 'exited' && s.status !== 'hibernated'
-    if (!open) return 3
-    if (sessionNeedsHuman(s)) return 0
-    if (s.agentState?.phase === 'working') return 1
+    // The phone projection carries the pool's models through its wire-shaped API.
+    const model = s as SessionModel
+    if (!model.open || model.status === 'hibernated') return 3
+    if (model.asking) return 0
+    if (model.phase === 'working') return 1
     return 2
   }
   return [...sessions].sort(

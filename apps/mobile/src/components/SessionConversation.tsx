@@ -186,7 +186,7 @@ const SessionComposer = observer(function SessionComposer({
  * moved rather than rewritten.
  */
 export function SessionConversation(
-  props: Omit<Parameters<typeof SessionConversationBody>[0], 'model' | 'history'>,
+  props: Omit<Parameters<typeof SessionConversationBody>[0], 'model' | 'history' | 'pool'>,
 ) {
   const owner = useStoreHandle<MobileTrpc>()
   const pool = useMobilePool()
