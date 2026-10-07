@@ -981,16 +981,32 @@ export class MissionViewReader {
   addressedIds(deck: MissionDeckModel): string[] {
     const ids = new Set(requireLoaded(deck.topology).scope)
     const stack = [...ids]
+    let pending = false
     while (stack.length) {
       const id = stack.pop()!
-      for (const child of this.pool.graph.many('issue', id, 'spinOffs')) if (!ids.has(child) && this.facts(child).visible) { ids.add(child); stack.push(child) }
+      for (const child of this.pool.graph.many('issue', id, 'spinOffs')) {
+        if (ids.has(child)) continue
+        const visible = settled(() => this.facts(child).visible)
+        if (visible === LOADING) pending = true
+        else if (visible) { ids.add(child); stack.push(child) }
+      }
     }
     for (const id of [...ids]) {
       for (const target of this.pool.graph.many('issue', id, 'pageDependencies')) ids.add(target)
-      const issue = requireLoaded(this.catalogIssue(id))
+      const issue = this.catalogIssue(id)
+      if (issue === LOADING) { pending = true; continue }
       for (const target of [issue?.supersededBy, issue?.duplicateOf, issue?.stage === 'proposed' ? issue.parentId : null]) if (target) ids.add(target)
     }
-    return [...ids].filter(id => Boolean(requireLoaded(this.catalogIssue(id))))
+    const present: string[] = []
+    // These are independent inputs for one phone crew. Keep visiting the
+    // cohort so cold siblings and references share the same load window.
+    for (const id of ids) {
+      const issue = this.catalogIssue(id)
+      if (issue === LOADING) pending = true
+      else if (issue) present.push(id)
+    }
+    if (pending) throw LOADING
+    return present
   }
   deckValues(deck: MissionDeckModel): MissionViewValues {
     const view = this
