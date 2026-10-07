@@ -58,8 +58,12 @@ const tasks: NonNullable<MobileScreenInput['tasks']> = {
 }
 function settle(pool: MobxPool, input: MobileScreenInput) {
   for (let round = 0; round < 64; round++) {
-    tracked(() => poolMobileScreensSnapshot(pool, input))
-    if (!pool.hydrate()) return
+    const output = tracked(() => poolMobileScreensSnapshot(pool, input))
+    const trace = process.env.PHONE_HYDRATION_TRACE === '1' && input.selectedId !== null
+    const pending = trace ? [...Reflect.get(pool.residency!, 'queue')].map(([entity, ids]) => [entity, [...ids]]) : []
+    const loaded = pool.hydrate()
+    if (trace) console.info('[phone hydration]', JSON.stringify({ selectedId: input.selectedId, mode: input.mode, round, loaded, pending, projection: typeof output === 'symbol' ? String(output) : fingerprint(output) }))
+    if (!loaded) return
   }
   throw new Error('Phone batched loads did not settle')
 }
@@ -120,7 +124,8 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
       }),
     ),
   ]
-  const ids = all
+  const diagnosticIds = process.env.PHONE_CORPUS_ROOTS?.split(',')
+  const ids = diagnosticIds ? [null, ...diagnosticIds] : all
     ? [null, ...roots]
     : [...new Set([store.selectedIssueId, ...roots.slice(0, 3), ...roots.slice(-3)])]
   let positions = 0
@@ -147,6 +152,7 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
       }
     }
   }
+  if (diagnosticIds) return positions
   for (const [optionIndex, options] of [
     { ...tasks, showDone: true, expanded: roots.slice(0, 5), showAgentTasks: true },
     {
@@ -180,6 +186,10 @@ for (const scale of [1, 4] as const)
     await attachMobileScreens(handle.pool)
     try {
       let positions = compare(handle.pool, referenceState(ctx.engine), 'corpus', scale === 1)
+      if (process.env.PHONE_CORPUS_ROOTS) {
+        expect(positions).toBeGreaterThan(0)
+        return
+      }
       for (const scenario of FENCE_SCENARIOS) {
         await scenario.write(ctx)
         feeds.flush()
