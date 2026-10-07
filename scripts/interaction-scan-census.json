@@ -39903,14 +39903,14 @@
       "file": "packages/client-graph/src/mission-view.ts",
       "holder": "collapsedCrew/callback",
       "rule": "loop:for-of",
-      "tokens": "de1ca2dbbd6093f85da660ae5056d724be6b062c6bb1359f1440941880eb01a5",
+      "tokens": "0ed784bc960c8a5c5c54384dd2e48621f3c0925221738776c939e173ad452a12",
       "gate": [],
       "origin": [
         "2e6ca2f672e8a0673b2a730b6a3fe988f2a8ee3796e0d6c967e62301b61e7c58",
         "76d63580cafd3718a806b7b0848624d827afb6d10cb920856881ef0357f39882",
         "d1046b61b2e5082a5749476cad26ef1e836dd57a4e694f672686c450970164b2"
       ],
-      "fingerprint": "f2ef8ac8b12344420cdd8871d2bbe5a8f10d05bebf9ba57a47aef04e4f2b4a51",
+      "fingerprint": "3eaa5326c3647a1303c7dc1d1f114a5be2b1daeb9f7cbde129afdae65a873ffc",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5575",
@@ -40237,12 +40237,12 @@
       "file": "packages/client-graph/src/mission-view.ts",
       "holder": "poolHandoffNow",
       "rule": "loop:for-of",
-      "tokens": "154f54d35642747586a3ffd86d7433579ac65fca9e4f41aefb395e761826fc26",
+      "tokens": "166e8db322aa455c0090b8801160c4076077c82811ba6efc31e19ad19272e224",
       "gate": [],
       "origin": [
         "c005c95150cdadb0702f638efe2266e4da3f06c864e63b28369d59ec21de0bb3"
       ],
-      "fingerprint": "c2169cc5661b6ebf152e5d6a166f88f70fd66340befa232cc9642121c2f9e317",
+      "fingerprint": "d7d3fd7833a680122499cb2e6ad8a865ffa231f02bffd03dee58a7e759fb72f0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
