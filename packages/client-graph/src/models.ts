@@ -55,8 +55,8 @@ import type { SessionView } from '@podium/client-core/session-values'
  * layer the pool refuses the edit.
  *
  * DERIVED VALUES USE @lazy GETTERS. Each cached field answers one question,
- * is built on the first observed read and dropped when nothing observes it
- * (`@podium/mobx-helpers`). An unread field allocates no cache. Independent
+ * is retained while observed; unwatched reads reuse a value for the current
+ * synchronous work (`@podium/mobx-helpers`). An unread field allocates no cache. Independent
  * parts never share a cached record: the compatibility records below expose
  * getter views of the individual fields, so reading a part tracks only that
  * answer. Pure part functions (`views.ts`, `worklist/visible.ts`,
