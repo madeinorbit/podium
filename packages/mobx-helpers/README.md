@@ -40,3 +40,23 @@ from client-graph. A tracked `now` will follow in POD-5424.
 Diagnostic `debugName`/`enableDebugNames` move with the clock and preserve its
 existing names and production switch. Run `bun run lint:mobx-private` to
 refuse private MobX imports, namespace calls and deep imports elsewhere.
+
+`draft(source, { fields, save })` follows mobx-utils `createViewModel` for a
+form that edits an existing record: `d[field]` reads the local value once
+edited, else the source's live value, so untouched fields keep following the
+source; setting a field back to the source's value un-dirties it. `d.model`,
+`d.isDirty`, `d.isPropertyDirty(key)`, `d.changedValues`, `d.reset()` and
+`d.resetProperty(key)` keep `createViewModel`'s names. `d.submit()` calls `save`
+ONCE with only the changed values, then clears them (a save that throws keeps
+them). The source is only read: a plain object or a class with getter fields
+works without becoming a MobX observable object. The local values are
+observable and every write is an action. For an issue, `draftOf(issue)`
+(`@podium/client-graph/write/draft-of`, loaded with the form's screen) saves
+through `issue.update(changes)`: one edit transaction.
+
+```ts
+const d = draftOf(issue)
+d.title = 'Fix login page'
+d.stage = 'review'
+d.submit() // one issues.update { title, stage }
+```
