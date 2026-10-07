@@ -421,8 +421,13 @@ export class CommandPaletteView {
     const selected = this.selection
     if (!selected || selected === LOADING) return selected
     const snapshot = this.snapshot
+    const issue = selected.issues[0]
+    // The menu consumes live eligibility, not the cursor stamp or embedded
+    // session activity. Its session actions use their addressed row readers.
+    const { readAt: _cursor, sessionFacts: _activity, ...issueFields } = issue ?? {}
     return snapshot && snapshot !== LOADING ? {
-      ...selected, issues: snapshot.issues, selectedIssue: selected.issues[0],
+      ...selected, issues: snapshot.issues,
+      selectedIssue: issue ? issueFields as IssueViewModel : undefined,
       machines: commandLaunchViews(this.pool).machines(),
     } : snapshot
   }
