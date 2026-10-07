@@ -1,5 +1,6 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { useRouter } from 'expo-router'
 import { useEffect, useRef } from 'react'
 
@@ -8,6 +9,7 @@ export function TaskSheet({
   issue,
   onClose,
 }: {
+  pool?: MobxPool | null
   issue: IssueViewModel | null
   issues: readonly IssueViewModel[]
   sessions: readonly SessionView[]

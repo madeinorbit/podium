@@ -903,8 +903,9 @@ export class MissionViewReader {
     let id: string | null = selectedId
     while (id && !seen.has(id)) {
       seen.add(id)
+      const currentId = id
       const facts = this.pool.row('issue', id, 'summary') as Loaded<{ archived?: boolean; deletedAt?: string }>
-      const visible = settled(() => this.facts(id).visible)
+      const visible = settled(() => this.facts(currentId).visible)
       if (facts === undefined || visible === false) break
       void this.pool.row('issue', id)
       id = this.pool.graph.one('issue', id, 'parent')

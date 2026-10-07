@@ -335,13 +335,14 @@ export function SessionConversation(
     { warmLimit: PHONE_WARM_CONVERSATIONS, enabled: pool !== null && readiness.ready },
   )
   return model ? (
-    <SessionConversationBody {...props} model={model} history={history.current} />
+    <SessionConversationBody {...props} pool={pool} model={model} history={history.current} />
   ) : (
     <TranscriptSkeleton />
   )
 }
 
 const SessionConversationBody = observer(function SessionConversationBody({
+  pool,
   session,
   model,
   history,
@@ -351,6 +352,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   initialPendingText,
   onInitialPendingSettled,
 }: {
+  pool: ReturnType<typeof useMobilePool>
   session: SessionView
   model: MobileConversation
   history: { following: boolean; searching: boolean }
