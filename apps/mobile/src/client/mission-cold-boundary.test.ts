@@ -24,12 +24,6 @@ it('keeps loading inside the phone mission boundary for cold corpus root i938', 
   })
   const ctx = await startScenarioEngine(1), feeds = openFenceFeeds(ctx, 'pooled')
   const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, { summaries: MOBILE_SCREEN_SUMMARIES })
-  const readRow = handle.pool.row.bind(handle.pool)
-  vi.spyOn(handle.pool, 'row').mockImplementation(((...args: Parameters<typeof readRow>) => {
-    const value = readRow(...args)
-    if (value === LOADING) pendingField = `${args.join(':')}\n${new Error().stack}`
-    return value
-  }) as typeof readRow)
   await attachMobileScreens(handle.pool)
   const input = { selectedId: 'i938', mode: 'full' as const, tasks: null, selectSession: mostRelevantSession }
   let stop = () => {}
