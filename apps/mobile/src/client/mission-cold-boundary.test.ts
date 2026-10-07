@@ -2,7 +2,7 @@ import { createWorklistPool } from '@podium/client-graph/create'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { IssueModel, SessionModel } from '@podium/client-graph/models'
+import { SessionModel } from '@podium/client-graph/models'
 import { expect, it, vi } from 'vitest'
 import { observeMobileScreens, poolMobileScreensSnapshot, trackMobileScreenRead as tracked } from '../../../../tests/worklist/diagnostics/mobile-screens-snapshot'
 import { openFenceFeeds } from '../../../../tests/worklist/harness/src/fence-scenarios'
@@ -14,21 +14,22 @@ it('keeps loading inside the phone mission boundary for cold corpus root i938', 
   vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(FIXED_NOW)
   let pendingField = ''
-  for (const [prototype, fields] of [
-    [IssueModel.prototype, ['visible', 'live', 'hasLead', 'memberSummary', 'memberLatestActivity']],
-    [SessionModel.prototype, ['exists', 'archived', 'open', 'onRoster', 'atWork', 'asking', 'executing', 'motion', 'settled', 'phase', 'lastActivity', 'condition']],
-  ] as const) for (const field of fields) {
-    const get = Object.getOwnPropertyDescriptor(prototype, field)!.get!
-    vi.spyOn(prototype, field as never, 'get').mockImplementation(function (this: { id: string }) {
-      try { return get.call(this) }
-      catch (error) {
-        if (error === LOADING) pendingField = `${this.id}.${field}\n${new Error().stack}`
-        throw error
-      }
-    })
-  }
+  const stored = SessionModel.prototype.storedField
+  vi.spyOn(SessionModel.prototype, 'storedField').mockImplementation(function (this: SessionModel, field) {
+    try { return stored.call(this, field) }
+    catch (error) {
+      if (error === LOADING) pendingField = `${this.id}.${field}\n${new Error().stack}`
+      throw error
+    }
+  })
   const ctx = await startScenarioEngine(1), feeds = openFenceFeeds(ctx, 'pooled')
   const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, { summaries: MOBILE_SCREEN_SUMMARIES })
+  const readRow = handle.pool.row.bind(handle.pool)
+  vi.spyOn(handle.pool, 'row').mockImplementation(((...args: Parameters<typeof readRow>) => {
+    const value = readRow(...args)
+    if (value === LOADING) pendingField = `${args.join(':')}\n${new Error().stack}`
+    return value
+  }) as typeof readRow)
   await attachMobileScreens(handle.pool)
   const input = { selectedId: 'i938', mode: 'full' as const, tasks: null, selectSession: mostRelevantSession }
   let stop = () => {}
