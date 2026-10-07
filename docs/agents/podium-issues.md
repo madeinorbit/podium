@@ -14,7 +14,9 @@ it is relayed through your daemon with a capability scoped to the issue you're w
 5. Decompose a big issue into children: `podium issue create --title "..."` then
    `podium issue reparent --id <new> --parentId <current>`.
 6. Record real blockers: `podium issue dep-add --fromId <blocked> --toId <blocker> --type blocks`.
-7. Close with a summary: `podium issue close --id <id> --reason "done: <what/where>"`.
+7. Finished? Move it to `review` and post an offer with a Close action. Close your own issue
+   only when the user tells you to — closing ends your session at once, even mid-work:
+   `podium issue close --id <id> --reason "done: <what/where>"`.
 
 ## Repairing issue structure
 

@@ -1,10 +1,9 @@
 /**
- * Always-on hint injected into interactive Claude Code's system prompt so the
- * agent knows the `podium issue` CLI exists and how to use it, even without a
- * hook-delivered `prime`. Concise and static (no per-session data): it points at
- * the tools, not a specific issue. Only claude-code gets this (the interactive
- * `claude` CLI supports `--append-system-prompt`); other agents rely on the
- * committed guide + hook-injected prime. See docs/agents/podium-issues.md.
+ * Always-on hint delivered to every harness through the `podium:issues` session
+ * instruction, so the agent knows the `podium issue` CLI exists and how to use
+ * it, even without a hook-delivered `prime`. Concise and static (no per-session
+ * data): it points at the tools, not a specific issue. See
+ * docs/agents/podium-issues.md.
  */
 import { SPINOFF_RULE_TERSE, TITLE_RULE_TERSE } from '@podium/protocol'
 
@@ -15,7 +14,11 @@ export const ISSUE_SYSTEM_POINTER =
   'Decomposition required for your deliverable becomes an internal sub-issue under the current issue; blocking adjacent work is also a blocking sub-issue. ' +
   'Write `--description` as 1–3 plain, context-free sentences for the human and put technical detail/instructions in `--brief`. [spec:SP-6144] ' +
   '`podium issue ready` lists unblocked work; ' +
-  '`podium issue claim`/`close` as you go. Nothing advances an issue for you: an issue you are actively ' +
+  '`podium issue claim` the issue you take. ' +
+  // Closing an issue tears down its sessions, including one still mid-work [POD-5762].
+  'Never close your own issue or set it to `done` unless the user tells you to: closing ends your ' +
+  'session at once, even mid-work. When you think it is finished, move it to `review` and post an ' +
+  'offer with a Close action. Nothing advances an issue for you: an issue you are actively ' +
   'working must never sit in `backlog` — set the stage yourself with ' +
   '`podium issue update --id <id> --stage planning|in_progress|review` as the work moves. Note that ' +
   'creating or retitling an issue leaves it in `backlog`; only `claim` sets `in_progress`. ' +

@@ -1067,7 +1067,7 @@ export class IssueReportsModule {
             `  - name it if this is new work: podium issue update --id ${me.seq} --title "…" --description "…" (this makes it a real issue — use a 3–5 word title naming the thing and a 1–3 sentence, context-free description), OR`,
             '  - attach to an existing issue that already covers it: podium issue attach --id <id>.',
             'Prefer attaching over duplicating.',
-            `Naming the issue still leaves it in \`backlog\`. Add \`--stage planning\` to that update while you are designing or investigating, or \`--stage in_progress\` the moment you start changing code. Then keep it current (\`--stage review\`, \`podium issue close ${me.seq}\`) as you go.`,
+            `Naming the issue still leaves it in \`backlog\`. Add \`--stage planning\` to that update while you are designing or investigating, or \`--stage in_progress\` the moment you start changing code. Then keep it current as you go, up to \`--stage review\`; only close it when the user tells you to.`,
             '',
             ...rules,
           ]
