@@ -1776,6 +1776,10 @@ export class SessionModel extends EntityModel implements SessionVisibility {
   get workingMotion(): boolean { return this.exists && sessionMotion(this as SessionView) === 'working' }
 
   @lazy
+  // Execution can read a declared cold summary; the sidebar verdict still waits for residency.
+  get executing(): boolean { return this.exists && isSessionWorking(this as unknown as SliceSession) }
+
+  @lazy
   get asking(): boolean {
     return !this.archived && this.exists && (this.phase === 'needs_user' || this.phase === 'errored' || Boolean(this.offer))
   }
@@ -1925,7 +1929,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 
   @lazy
   private get verdictWorking(): SeatVerdict['working'] {
-    return isSessionWorking(this.verdictRow)
+    return this.executing
   }
 
   @lazy

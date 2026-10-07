@@ -1,4 +1,3 @@
-import { requireLoaded } from '@podium/client-graph/mission-view'
 import { observer } from 'mobx-react-lite'
 import { useMobilePool } from '../client/mobile-pool'
 import type { SessionModel } from '@podium/client-graph/models'
@@ -103,7 +102,7 @@ export const MissionScreen = observer(function MissionScreen() {
 
   const attention = missionSessions.filter(s => (s as SessionModel).asking).length
   const live = missionSessions.filter(s => (s as SessionModel).open).length
-  const working = missionSessions.filter(s => (s as SessionModel).open && requireLoaded((s as SessionModel).verdict)?.working).length
+  const working = missionSessions.filter(s => (s as SessionModel).executing).length
 
   const openSession = useCallback((session: SessionView) => {
     setPinnedSessionId(session.sessionId)

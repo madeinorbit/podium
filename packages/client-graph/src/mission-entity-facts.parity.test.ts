@@ -1,7 +1,7 @@
 import { autorun } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionView } from '@podium/client-core/session-values'
-import { sessionAtWork, sessionNeedsHuman, sessionPresentOnTask } from '@podium/client-core/values'
+import { isSessionWorking, sessionAtWork, sessionNeedsHuman, sessionPresentOnTask } from '@podium/client-core/values'
 import { MobxPool } from './pool'
 import { missionView, settled } from './mission-view'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
@@ -43,6 +43,7 @@ const old = {
   open: sessionPresentOnTask,
   onRoster: (row: SessionView) => !row.archived && !row.headless && row.agentKind !== 'shell',
   atWork: sessionAtWork,
+  executing: isSessionWorking,
   asking: (row: SessionView) => !row.archived && sessionNeedsHuman(row),
 }
 describe.each(Object.entries(old))('session %s parity', (name, answer) => {
@@ -103,7 +104,7 @@ it.each(['visible', 'live', 'hasLead', 'memberSummary', 'memberSessionIds', 'mem
   expect(() => expect(model[name]).toEqual(expected)).toThrow()
 })
 
-it.each(['open', 'onRoster', 'atWork', 'asking', 'phase', 'rosterEligible'] as const)('cold session %s is LOADING until the batched row arrives', name => {
+it.each(['open', 'onRoster', 'atWork', 'asking', 'executing', 'phase', 'rosterEligible'] as const)('cold session %s is LOADING until the batched row arrives', name => {
   const { pool, load } = open(issueRow({ stage: 'done', closedAt: '2026-09-01T12:00:00Z' }),
     [sessionRow({ status: 'exited', archived: false, lastActiveAt: '2026-09-01T12:00:00Z',
       stoppedAt: '2026-09-01T12:00:00Z', agentState: { phase: 'ended' } })], true)
