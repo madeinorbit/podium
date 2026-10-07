@@ -1,6 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph/pool'
-import { mostRelevantSession as select } from './mission-session'
+import { mostRelevantSession as select } from '../../../apps/mobile/src/lib/mission-session'
 
 /** Existing row fixtures enter the same model boundary as the phone projection. */
 export function mostRelevantSession(sessions: readonly SessionView[]): SessionView | undefined {

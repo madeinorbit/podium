@@ -1,7 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { mostRelevantSession } from './mission-session-test-support'
+import { mostRelevantSession } from '../../../../tests/worklist/diagnostics/mission-session-fixture'
 
 /**
  * Which agent the mission opens on [POD-724]. This is a triage rule, not a
