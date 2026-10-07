@@ -1,26 +1,46 @@
-import { headerView } from './header-views'
-import { headerEntities } from './header-entities'
-import { settingsHasFirstTask } from './settings-views'
-import { keyedComputed } from '@podium/mobx-helpers'
-import { isFinished } from './shared/predicates'
 import type { SessionView } from '@podium/client-core/session-values'
 
 import { displayRefOf } from './views'
 import {
-  deckIssueState, deckSessionOrder, issueAbandoned, issueClosed, issueNeedsHuman,
-  motionPhase, panelLabel, selectLatestPromptSession, sessionAsksOnIssue, sessionAtWork, sessionPresentOnTask,
-  sessionSettled, sessionNeedsHuman, type FlightDeckFoldMap, type FlightDeckMode, type FlightDeckRow, type IssueContinuation,
-  type IssueNavigationModel, type IssueNote, type MissionDeparture, type MissionProgress,
-  type PresenceNote, type HandoffNowEntry, type HandoffNextEntry,
+  deckIssueState,
+  deckSessionOrder,
+  type FlightDeckFoldMap,
+  type FlightDeckMode,
+  type FlightDeckRow,
+  type HandoffNextEntry,
+  type HandoffNowEntry,
+  type IssueContinuation,
+  type IssueNavigationModel,
+  type IssueNote,
+  issueAbandoned,
+  issueClosed,
+  issueNeedsHuman,
+  type MissionDeparture,
+  type MissionProgress,
+  motionPhase,
+  type PresenceNote,
+  panelLabel,
+  selectLatestPromptSession,
+  sessionAsksOnIssue,
+  sessionAtWork,
+  sessionNeedsHuman,
+  sessionPresentOnTask,
+  sessionSettled,
 } from '@podium/client-core/values'
-import { asIssueId, asSessionId, DRAFT_ISSUE_TITLE, HANDOFF_HARNESS_KINDS } from '@podium/model/browser'
+import { keyedComputed } from '@podium/mobx-helpers'
+import { machinePathsEqual } from '@podium/model'
 import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
+import { asIssueId, asSessionId, DRAFT_ISSUE_TITLE, HANDOFF_HARNESS_KINDS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { cachedGroup } from './cached'
+import { headerEntities } from './header-entities'
+import { headerView } from './header-views'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
 import type { SeatRelation } from './session-seats'
+import { settingsHasFirstTask } from './settings-views'
 import { createRowOverlay } from './shared/overlay-row'
+import { isFinished } from './shared/predicates'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 const joinedIssueRef = (issue: { seq: number; prefix?: string | null }): string =>
@@ -1603,9 +1623,9 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
   // Handoff needs its containing lane and the issue's drift fallback. Other
   // worktrees in the same repository are hidden and remain unread.
   const source = subject ? headerEntities(view.pool).shippingScope(subject.cwd, subject.machineId)?.handoff : undefined
-  const anchorPath = source && source.worktreePath === source.repoPath && selected[0]?.worktreePath
+  const anchorPath = source && machinePathsEqual(source.worktreePath, source.repoPath) && selected[0]?.worktreePath
   const anchorScope = anchorPath ? headerEntities(view.pool).shippingScope(anchorPath, subject?.machineId)?.handoff : undefined
-  const anchor = anchorScope?.worktreePath === anchorPath && anchorScope?.worktreePath !== source?.worktreePath ? anchorScope : undefined
+  const anchor = anchorScope && anchorPath && machinePathsEqual(anchorScope.worktreePath, anchorPath) && (!source || !machinePathsEqual(anchorScope.worktreePath, source.worktreePath)) ? anchorScope : undefined
   // The parent menu displays only source eligibility. Clone checkouts and
   // destination capabilities belong to the opened target submenu.
   const group = source && targetsOpen ? headerEntities(view.pool).repositoryGroup(source.repoPath) : []
@@ -1616,7 +1636,7 @@ export function readMissionActionInputs(view: MissionViewReader, issueIds: reado
   const repos = repositoryIds.flatMap(id => {
     const repo = headerView(view.pool).row('repository', id)
     if (!repo) return []
-    const worktrees = [source, anchor].flatMap(tree => tree && tree.repoPath === repo.path && tree.worktreePath !== repo.path &&
+    const worktrees = [source, anchor].flatMap(tree => tree && machinePathsEqual(tree.repoPath, repo.path) && !machinePathsEqual(tree.worktreePath, repo.path) &&
       (subject?.machineId === undefined || repo.machineId === subject.machineId) ? [{ path: tree.worktreePath }] : [])
     return [{ ...repo, worktrees }]
   })

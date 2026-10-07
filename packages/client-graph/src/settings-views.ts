@@ -1,6 +1,6 @@
 import { keyedComputed } from '@podium/mobx-helpers'
 import { dedupeSessionsByResume } from '@podium/model'
-import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
+import { DEFAULT_HARNESS_AGENT, machinePathKey } from '@podium/model/browser'
 import { compareStructural } from 'mobx'
 import { debugName } from './debug-name'
 import type { MobxPool } from './pool'
@@ -33,11 +33,11 @@ function createSettingsViews(pool: MobxPool) {
     })
   }
   function setup(paths: readonly string[] = []) {
-    return memo(`setup:${JSON.stringify(paths)}`, () => {
+    return memo(`setup:${JSON.stringify(paths.map(machinePathKey))}`, () => {
       const usage = new Map<string, number>()
       for (const path of paths) {
         const at = pool.queries.activity({ kind: 'commandRootActivity', roots: [path], agentsOnly: true })
-        if (at > 0) usage.set(path, at)
+        if (at > 0) usage.set(machinePathKey(path), at)
       }
       return { usage, defaultAgent: pool.queries.setupDefaultAgent() ?? DEFAULT_HARNESS_AGENT, pending: 0 }
     })

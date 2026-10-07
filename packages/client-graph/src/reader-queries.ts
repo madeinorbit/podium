@@ -1,5 +1,6 @@
 import type { NavigationTopologyDelta } from '@podium/client-core/engine'
 import type { IssueCloseMemberCounts } from '@podium/client-core/values'
+import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
 import { parseSessionRef } from '@podium/protocol'
 import { createAtom, type IAtom, observe, untracked } from 'mobx'
 import { residentIds } from './enumerate'
@@ -149,6 +150,9 @@ export class ReaderQueries {
       this.publishTopology({ reset: false, sessions: [] })
     }
   }
+  registeredWorktreePath(path: string): string | undefined {
+    return this.worktrees.path(path)
+  }
   firstWorktreePath(): string | null {
     this.firstWorktreeAtom.reportObserved()
     this.counts.scalarVisits++
@@ -156,6 +160,7 @@ export class ReaderQueries {
   }
   /** Presence is independent of an activity timestamp, including epoch zero. */
   hasSessionWithin(path: string): boolean {
+    path = machinePathKey(path)
     const value = this.sessionQuestions().hasWithin(path),
       state = this.sessionPathAtoms.get(path)
     if (state) state.atom.reportObserved()
@@ -656,8 +661,10 @@ export class ReaderQueries {
       const paths = new Set<string>()
       for (const cwd of [previous?.cwd, next?.cwd]) {
         if (cwd === undefined) continue
-        paths.add(cwd)
-        for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1))
+        paths.add(machinePathKey(cwd))
+        if (machinePathSeparator(cwd) === '\\') {
+          for (const ancestor of machinePathAncestors(cwd)) paths.add(machinePathKey(ancestor))
+        } else for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1))
           paths.add(cwd.slice(0, at))
       }
       for (const path of paths) this.publishSessionPath(path)
@@ -705,9 +712,12 @@ export class ReaderQueries {
     const add = (value: SessionQuestionFacts | undefined, visible: boolean) => {
       if (!value || !visible) return
       for (const kind of value.agentKind === 'shell' ? ['all'] : ['all', 'agents']) {
-        keys.add(`activity:${kind}:exact:${value.cwd}`)
-        keys.add(`activity:${kind}:within:${value.cwd}`)
-        for (let at = value.cwd.indexOf('/'); at >= 0; at = value.cwd.indexOf('/', at + 1))
+        keys.add(`activity:${kind}:exact:${machinePathKey(value.cwd)}`)
+        keys.add(`activity:${kind}:within:${machinePathKey(value.cwd)}`)
+        if (machinePathSeparator(value.cwd) === '\\') {
+          for (const path of machinePathAncestors(value.cwd))
+            keys.add(`activity:${kind}:within:${machinePathKey(path)}`)
+        } else for (let at = value.cwd.indexOf('/'); at >= 0; at = value.cwd.indexOf('/', at + 1))
           keys.add(`activity:${kind}:within:${value.cwd.slice(0, at)}`)
       }
     }
@@ -755,37 +765,40 @@ export class ReaderQueries {
       const paths = new Set([previous?.containment?.path, next?.containment?.path])
       const questions = new Set<string>()
       for (const path of paths)
-        if (path) for (const cwd of this.containingIssuePaths.get(path) ?? []) questions.add(cwd)
+        if (path) for (const cwd of this.containingIssuePaths.get(machinePathKey(path)) ?? []) questions.add(cwd)
       for (const cwd of questions) this.publishContainingIssue(cwd)
     }
   }
   /** One live issue for a file's path: longest containing root, then the
    * smallest sequence and that root's source insertion order. */
   containingIssueId(cwd: string): string | undefined {
+    cwd = machinePathKey(cwd)
     const value = this.issueQuestions().containingIssueId(cwd),
       state = this.containingIssueAtoms.get(cwd)
     if (state) state.atom.reportObserved()
     else {
-      const paths = new Set([cwd])
-      for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) {
+      const paths = new Set([machinePathKey(cwd)])
+      if (machinePathSeparator(cwd) === '\\') {
+        for (const ancestor of machinePathAncestors(cwd)) paths.add(machinePathKey(ancestor))
+      } else for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) {
         paths.add(cwd.slice(0, at))
         paths.add(cwd.slice(0, at + 1))
       }
       const atom = createAtom(`history.containingIssue:${cwd}`, undefined, () => {
         this.containingIssueAtoms.delete(cwd)
         for (const path of paths) {
-          const questions = this.containingIssuePaths.get(path)
+          const questions = this.containingIssuePaths.get(machinePathKey(path))
           questions?.delete(cwd)
-          if (!questions?.size) this.containingIssuePaths.delete(path)
+          if (!questions?.size) this.containingIssuePaths.delete(machinePathKey(path))
         }
       })
       if (atom.reportObserved()) {
         this.containingIssueAtoms.set(cwd, { atom, value })
         for (const path of paths) {
-          let questions = this.containingIssuePaths.get(path)
+          let questions = this.containingIssuePaths.get(machinePathKey(path))
           if (!questions) {
             questions = new Set()
-            this.containingIssuePaths.set(path, questions)
+            this.containingIssuePaths.set(machinePathKey(path), questions)
           }
           questions.add(cwd)
         }
@@ -1171,7 +1184,7 @@ export class ReaderQueries {
     return index.count(entity) + this.extras[entity].size
   }
   repoIds(repoPath?: string): string[] {
-    const key = repoPath === undefined ? 'repos' : `repos.path:${JSON.stringify(repoPath)}`
+    const key = repoPath === undefined ? 'repos' : `repos.path:${JSON.stringify(machinePathKey(repoPath))}`
     const index = this.watch(key, (value) =>
       repoPath === undefined
         ? value.issueRepoRevision + this.residents.repoRevision
@@ -1193,7 +1206,7 @@ export class ReaderQueries {
   }
   activity(question: SessionActivityQuestion): number {
     for (const root of question.roots)
-      this.observeSession(`activity:${question.agentsOnly ? 'agents' : 'all'}:${question.match ?? 'within'}`, root)
+      this.observeSession(`activity:${question.agentsOnly ? 'agents' : 'all'}:${question.match ?? 'within'}`, machinePathKey(root))
     const questions = this.sessionQuestions(),
       before = questions.activityVisits
     const answer = questions.activity(question)

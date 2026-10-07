@@ -51,6 +51,9 @@ pub const ERR_EXITED: u16 = 4;
 pub const ERR_INPUT_FULL: u16 = 5;
 /// Refused dimensions; the connection survives and the pty is unchanged.
 pub const ERR_BAD_SIZE: u16 = 6;
+/// An asynchronous Windows SIGNAL diagnostic; it refuses no pending request.
+#[cfg(windows)]
+pub const ERR_UNSUPPORTED_SIGNAL: u16 = 7;
 
 /// Why a picture was sent: it answers a request, or follows a resize.
 #[cfg(feature = "screen")]

@@ -24,6 +24,7 @@
  */
 
 import { shallowEqual } from '@podium/client-core/shallow-equal'
+import { machinePathsEqual } from '@podium/model/browser'
 import {
   FIRST_TASK_ACTIVATION_DRAFT_KEY,
   SUPERAGENT_MODE_KEY,
@@ -75,7 +76,7 @@ export function useNewTask(
       repoPath: repoPath ?? previous.repoPath,
       // A named project brings its own machine with it; keeping the last one
       // would point the composer at a host that may not hold this repo at all.
-      machineId: repoPath && repoPath !== previous.repoPath ? '' : previous.machineId,
+        machineId: repoPath && !machinePathsEqual(repoPath, previous.repoPath) ? '' : previous.machineId,
       agent: previous.agent,
       model: previous.model,
       effort: previous.effort,

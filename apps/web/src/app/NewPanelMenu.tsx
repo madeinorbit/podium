@@ -10,6 +10,8 @@ import {
   type IssueId,
   type MachineId,
   type MachineWire,
+  machinePathBasename,
+  machinePathsEqual,
   machinesForRepoOrClone,
   onlineMachinesForRepoOrClone,
   type SessionId,
@@ -190,7 +192,7 @@ function NewPanelMenuBody({
     // never has to branch on undefined.
     return {
       path: worktree.repoPath,
-      name: worktree.repoPath.split('/').pop() || worktree.repoPath,
+      name: machinePathBasename(worktree.repoPath) || worktree.repoPath,
       worktrees: [worktree],
       machines: worktree.machineId ? [{ machineId: worktree.machineId, path: worktree.path }] : [],
     }
@@ -392,7 +394,7 @@ function NewPanelMenuBody({
  *  not the place). */
 function worktreeLabel(worktree: WorktreeView, repoView: RepoView): string {
   if (!worktree.isMain && worktree.branch) return worktree.branch
-  return repoView.name || worktree.repoPath.split('/').pop() || worktree.repoPath
+  return repoView.name || machinePathBasename(worktree.repoPath) || worktree.repoPath
 }
 
 /** The "+" menu's Recent-files section (POD-149): strict issue scoping shows a
@@ -410,7 +412,7 @@ function RecentFilesSection({
   const recentFiles = useCommandRecentFiles()
   const { openFileInWorktree, openArtifact } = useCommandLaunchActions()
   const now = Date.now()
-  const entries = recentFiles.filter((f) => f.worktreePath === worktree.path).slice(0, RECENT_LIMIT)
+    const entries = recentFiles.filter((f) => machinePathsEqual(f.worktreePath, worktree.path)).slice(0, RECENT_LIMIT)
   if (entries.length === 0) return null
 
   const reopen = (f: RecentFileEntry): void => {
@@ -441,7 +443,7 @@ function RecentFilesSection({
         >
           <FileTypeIcon name={f.path} size={14} />
           <span className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap">
-            {f.path.split('/').pop() || f.path}
+            {machinePathBasename(f.path) || f.path}
           </span>
           <span className={`${MENU_HINT} tabular-nums`}>
             {relativeTime(new Date(f.openedAt).toISOString(), now)}

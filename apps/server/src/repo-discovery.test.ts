@@ -438,3 +438,40 @@ describe('moved-repo heal (POD-1498)', () => {
     expect(probed).toEqual([])
   })
 })
+
+
+it('machine paths: Windows adjacent and home-translated probe roots', () => {
+  expect(homeRelativePath('C:\\Users\\Mike\\src\\podium')).toBe('~/src/podium')
+  expect(homeRelativePath('c:/Users/Mike/src/podium')).toBe('~/src/podium')
+  expect(adjacentRootsFor(['C:\\src\\podium', 'c:/src/nested/repo', 'C:\\Users\\Mike\\repo', 'D:\\repo'])).toEqual(['C:\\src'])
+  expect(adjacentRootsFor(['/srv/repos/podium', '/srv/repos/nested/repo', '/home/me/repo', '/repo'])).toEqual(['/srv/repos'])
+})
+
+
+it.each([
+  ['/users/bob/src/x', undefined],
+  ['/HOME/bob/x', undefined],
+  ['/Users/bob/src/x', '~/src/x'],
+  ['/home/bob/x', '~/x'],
+  [String.raw`C:\uSeRs\Bob\Src\X`, '~/Src/X'],
+])('machine paths: home prefix casing is platform-specific for %s', (path, expected) => {
+  expect(homeRelativePath(path)).toBe(expected)
+})
+
+it('machine paths: discovery dedupes comparison keys while preserving reported case', async () => {
+  const machineId = asMachineId('windows')
+  const registered = String.raw`C:\Src\Podium`
+  const scanned = 'c:/src/podium'
+  const addRepo = vi.fn(async () => {})
+  const svc = new MachineRepoDiscovery({
+    listRepos: async () => [row('windows', registered)],
+    addRepo,
+    scanRepos: async () => scanResult([{ path: scanned }, { path: registered }]),
+    machineName: async () => 'Windows',
+    localMachineId: asMachineId('other'),
+  })
+  const result = await svc.scan(machineId, { deep: false })
+  expect(result.repos).toEqual([expect.objectContaining({ path: String.raw`c:\src\podium`, status: 'registered' })])
+  expect(addRepo).not.toHaveBeenCalled()
+  expect(probeRootsFor(machineId, [row('windows', registered), row('other', scanned)])).toEqual([])
+})

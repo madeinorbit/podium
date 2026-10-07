@@ -1,4 +1,4 @@
-import { resolveAgainstCwd } from '@/lib/file-path'
+import { isValidMachinePath, machinePathDirname, resolveMachinePath } from '@podium/model/browser'
 
 type ResolveAsset = (baseDir: string, value: string) => string | null
 
@@ -39,10 +39,6 @@ function shouldRewrite(value: string | null): value is string {
   return !!value && !REMOTE_OR_SPECIAL.test(value.trim())
 }
 
-function dirOf(path: string): string {
-  return path.replace(/\/[^/]*$/, '') || '/'
-}
-
 function neutralizeLinkHrefsForParsing(html: string): string {
   return html.replace(/<link\b[^>]*>/gi, (tag) => tag.replace(/\bhref\s*=/i, 'data-podium-href='))
 }
@@ -61,9 +57,9 @@ export function linkedStylesheetPathsForStaticHtml(html: string, fileDir: string
     doc.querySelectorAll<HTMLLinkElement>('link[href], link[data-podium-href]'),
   )) {
     const href = link.getAttribute('data-podium-href') ?? link.getAttribute('href')
-    if (!shouldRewrite(href)) continue
+    if (!shouldRewrite(href) || !isValidMachinePath(fileDir) || !isValidMachinePath(href, fileDir)) continue
     const rel = (link.getAttribute('rel') ?? '').toLowerCase()
-    if (rel.split(/\s+/).includes('stylesheet')) paths.add(resolveAgainstCwd(fileDir, href))
+    if (rel.split(/\s+/).includes('stylesheet')) paths.add(resolveMachinePath(fileDir, href))
   }
 
   return Array.from(paths)
@@ -130,7 +126,7 @@ export function buildStaticHtmlPreview(opts: StaticHtmlPreviewOptions): string {
   )) {
     const href = link.getAttribute('data-podium-href') ?? link.getAttribute('href')
     if (!href) continue
-    if (!shouldRewrite(href)) {
+    if (!shouldRewrite(href) || !isValidMachinePath(opts.fileDir) || !isValidMachinePath(href, opts.fileDir)) {
       setLinkHref(link, href)
       continue
     }
@@ -138,12 +134,12 @@ export function buildStaticHtmlPreview(opts: StaticHtmlPreviewOptions): string {
     const relParts = rel.split(/\s+/)
 
     if (relParts.includes('stylesheet')) {
-      const cssPath = resolveAgainstCwd(opts.fileDir, href)
+      const cssPath = resolveMachinePath(opts.fileDir, href)
       const css = opts.readTextAsset(cssPath)
       if (css !== undefined) {
         const style = doc.createElement('style')
         style.setAttribute('data-podium-inlined-href', href)
-        style.textContent = rewriteCssUrls(css, dirOf(cssPath), opts.resolveAsset)
+        style.textContent = rewriteCssUrls(css, machinePathDirname(cssPath), opts.resolveAsset)
         link.replaceWith(style)
       } else {
         setLinkHref(link, opts.resolveAsset(opts.fileDir, href) ?? href)

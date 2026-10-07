@@ -10,20 +10,19 @@ import {
   sessionNeedsHuman,
   sessionPresentOnTask,
 } from '@podium/client-core/values'
-import { asIssueId, asSessionId, CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, ISSUE_STAGES, issueStatusOf } from '@podium/model/browser'
+import { asIssueId, asSessionId, CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, ISSUE_STAGES, issueStatusOf, machinePathBasename, machinePathKey } from '@podium/model/browser'
 import {
   compareStructural,
   observable,
   observe,
   runInAction,
 } from 'mobx'
-import { createIssueExplorer } from './issue-explorer'
 import { createBoardLayout } from './issue-board-layout'
 import {
   BOARD_EXPLORER_TABS,
   type BoardCardData,
-  type BoardColumnOptions,
   type BoardCatalog,
+  type BoardColumnOptions,
   type BoardExplorerTab,
   type BoardOptions,
   type BoardQuery,
@@ -31,6 +30,7 @@ import {
   type IssueBoardSourceRows,
   type PoolExplorerData,
 } from './issue-board-schema'
+import { createIssueExplorer } from './issue-explorer'
 import type { MobxPool } from './pool'
 import { createQueryResult } from './query-result'
 import { defineSource, type PoolSource } from './source-registry'
@@ -257,14 +257,14 @@ export function createIssueBoardSource(
   function catalog(agents: boolean): Loaded<BoardCatalog> {
     return memo(`catalog:${agents}`, () => {
       const scope: string[] = [],
-        paths = new Set<string>(),
+        paths = new Map<string, string>(),
         assignees = new Set<string>(),
         labels = new Set<string>()
       const visit = (id: string) => {
         const row = catalogEntry(JSON.stringify([id, agents]))
         if (row === LOADING) return false
         if (!row) return true
-        if (row.path) paths.add(row.path)
+        if (row.path && !paths.has(machinePathKey(row.path))) paths.set(machinePathKey(row.path), row.path)
         if (row.eligible) {
           scope.push(id)
           if (row.assignee) assignees.add(row.assignee)
@@ -280,8 +280,8 @@ export function createIssueBoardSource(
             scope: scope.sort(byId),
             assignees: [...assignees].sort(),
             labels: [...labels].sort(),
-            projectPaths: [...paths].sort((a, b) =>
-              (a.split('/').pop() || a).localeCompare(b.split('/').pop() || b),
+            projectPaths: [...paths.values()].sort((a, b) =>
+              (machinePathBasename(a) || a).localeCompare(machinePathBasename(b) || b),
             ),
           }
     })

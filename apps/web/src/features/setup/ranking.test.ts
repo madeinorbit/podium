@@ -42,3 +42,13 @@ describe('candidate display names', () => {
     expect(row?.name).toBe('thing')
   })
 })
+
+it('names and ranks Windows repositories using machine path segments', () => {
+  const rows = rankRepoCandidates([
+    wire({ path: 'C:\\Users\\dev\\.config\\hidden' }),
+    wire({ path: 'C:\\src\\project' }),
+    wire({ path: 'C:/src/deep/nested' }),
+  ])
+  expect(rows.map((row) => row.name)).toEqual(['project', 'nested', 'hidden'])
+  expect(rows[2]?.hidden).toBe(true)
+})

@@ -1,4 +1,4 @@
-import { asMachineId } from '@podium/model'
+import { asMachineId, asRepoId, type MachineId } from '@podium/model'
 import { describe, expect, it, vi } from 'vitest'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import type { Session } from './session'
@@ -198,4 +198,43 @@ describe('ensureSessionWorktree rebuilds regardless of how the process died', ()
     expect(result).toEqual({ ok: true, cwd: '/repo/.worktrees/issue-7' })
     expect(ensureWorktree).toHaveBeenCalledWith('iss_7', 'machine-b')
   })
+})
+
+
+it.each([
+  ['/src/podium', '/src/podium/src/app', 'C:\\src\\podium', 'C:\\src\\podium\\src\\app'],
+  ['C:\\src\\podium', 'c:/SRC/podium/src/app', '/src/podium', '/src/podium/src/app'],
+])('machine paths: prepares a cwd across platform layouts from %s', async (root, cwd, target, expected) => {
+  const sourceMachine = asMachineId('source')
+  const targetMachine = asMachineId('target')
+  const repoId = asRepoId('shared')
+  const rows = [
+    { machineId: sourceMachine, path: root, repoId, originUrl: 'https://example.test/repo', prefix: null },
+    { machineId: targetMachine, path: target, repoId, originUrl: 'https://example.test/repo', prefix: null },
+  ]
+  const workspace = new SessionWorkspace({
+    machines: { resolveMachineForAgent: async () => targetMachine },
+    store: { repos: { listRepos: async (machineId?: MachineId) => rows.filter(r => !machineId || r.machineId === machineId) } },
+  } as unknown as SessionWorkspacePorts)
+  expect(await workspace.prepareTarget({ agentKind: 'shell', cwd, machineId: targetMachine })).toEqual({ cwd: expected, machineId: targetMachine })
+  expect(await workspace.resolveRepoOnMachine(cwd, targetMachine)).toBe(target)
+  expect(await workspace.findRepoOnMachine(root, targetMachine)).toBe(target)
+})
+
+it.each(['/home/me', String.raw`C:\Users\Me`])('machine paths: clones into the target machine home %s', async home => {
+  const source = { machineId: asMachineId('source'), path: '/src/podium', repoId: asRepoId('repo-12345678'), originUrl: 'https://example.test/podium.git', prefix: null }
+  const targetMachine = asMachineId('target')
+  const expected = home.startsWith('C:') ? String.raw`C:\Users\Me\podium-repos\podium-12345678` : '/home/me/podium-repos/podium-12345678'
+  const rows = [source]
+  const repoOp = vi.fn(async () => ({ ok: true, output: '' }))
+  const workspace = new SessionWorkspace({
+    rpc: { browseDirs: async () => ({ listing: { homePath: home } }), repoOp },
+    store: { repos: {
+      listRepos: async (machineId?: MachineId) => rows.filter(r => !machineId || r.machineId === machineId),
+      addRepo: async (path: string, machineId: MachineId) => { rows.push({ ...source, path, machineId }) },
+    } },
+    onWorktreesChanged: vi.fn(),
+  } as unknown as SessionWorkspacePorts)
+  expect((await workspace.ensureTargetRepo(source, targetMachine)).path).toBe(expected)
+  expect(repoOp).toHaveBeenCalledWith('clone', home, { originUrl: source.originUrl, path: expected }, targetMachine)
 })

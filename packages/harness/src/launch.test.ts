@@ -1,7 +1,8 @@
+import { join } from 'node:path'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { resolveCursorBin } from './cursor/cli.js'
-import { agentLaunchCommand, agentSupportsInitialPrompt } from './launch'
+import { agentLaunchCommand, agentSupportsInitialPrompt, windowsDefaultShell } from './launch'
 import { resolveOpencodeBin } from './adapters/opencode/cli.js'
 import { opencodeSessionDbPath } from './adapters/opencode/paths.js'
 
@@ -499,5 +500,16 @@ describe('agentLaunchCommand', () => {
     } finally {
       Object.defineProperty(process, 'platform', { value: realPlatform, configurable: true })
     }
+  })
+})
+
+describe('windowsDefaultShell', () => {
+  const env = { ProgramFiles: 'C:\\PF', SystemRoot: 'C:\\Win', COMSPEC: 'C:\\Win\\cmd.exe' }
+  it('prefers PowerShell 7, then Windows PowerShell, then COMSPEC', () => {
+    const pwsh = join('C:\\PF', 'PowerShell', '7', 'pwsh.exe')
+    const winps = join('C:\\Win', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe')
+    expect(windowsDefaultShell(env, (p) => p === pwsh || p === winps)).toBe(pwsh)
+    expect(windowsDefaultShell(env, (p) => p === winps)).toBe(winps)
+    expect(windowsDefaultShell(env, () => false)).toBe('C:\\Win\\cmd.exe')
   })
 })

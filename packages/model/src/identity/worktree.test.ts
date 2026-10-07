@@ -126,3 +126,33 @@ describe('worktreeSubpath', () => {
     expect(worktreeSubpath('/r/a/', '/r/a/apps')).toBe('apps')
   })
 })
+
+it('assigns Windows sessions to the deepest root with mixed separators and casing', () => {
+  const root = 'C:\\repo'
+  const nested = 'C:\\repo\\.worktrees\\issue-1'
+  const roots = [root, nested]
+  expect(expectAgreement('c:/REPO/.worktrees/issue-1/src', roots)).toBe(nested)
+  expect(expectAgreement('C:\\repository\\src', roots)).toBeNull()
+  expect(expectAgreement('C:\\repo', ['C:/repo/'])).toBe('C:/repo/')
+  expect(expectAgreement('C:\\src', ['C:\\'])).toBe('C:\\')
+  expect(
+    expectAgreement('\\\\nas\\share\\repo\\src', ['\\\\nas\\share', '\\\\nas\\share\\repo']),
+  ).toBe('\\\\nas\\share\\repo')
+  expect(worktreeSubpath(root, 'c:/repo/apps/web')).toBe('apps\\web')
+})
+
+it('does not prepend a relative root twice when deriving the worktree subpath', () => {
+  expect(worktreeSubpath('repo', 'repo/sub')).toBe('sub')
+  expect(worktreeSubpath('repo/', 'repo/sub')).toBe('sub')
+  expect(worktreeSubpath('repo', 'repo')).toBe('')
+  expect(worktreeSubpath('repo', 'other/sub')).toBe('')
+})
+
+
+it('Windows worktree indexes fold only ASCII and reject malformed roots/cwds', () => {
+  expect(both(String.raw`C:\worK\secret`, [String.raw`C:\work`])).toEqual({ scan: null, indexed: null })
+  expect(both(String.raw`c:\İ\ABC`, [String.raw`C:\İ`])).toEqual({ scan: String.raw`C:\İ`, indexed: String.raw`C:\İ` })
+  expect(worktreeSubpath(String.raw`C:\İ`, String.raw`C:\İ\abc`)).toBe('abc')
+  expect(both(String.raw`C:\repo\...\a.ts`, [String.raw`C:\repo`])).toEqual({ scan: null, indexed: null })
+  expect(both(String.raw`C:\repo\...`, [String.raw`C:\repo\...`])).toEqual({ scan: null, indexed: null })
+})

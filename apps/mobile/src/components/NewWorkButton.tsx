@@ -20,6 +20,7 @@ import {
 } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { AgentKind, MachineId, MachineWire } from '@podium/model'
+import { machinePathsEqual } from '@podium/model/browser'
 import { usePathname, useRouter } from 'expo-router'
 import { type Dispatch, type SetStateAction, useCallback, useMemo, useState } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
@@ -205,7 +206,7 @@ function NewWorkLauncher({
    * top of the list is what the operator would have done by hand.
    */
   const selectedRepo =
-    visibleRepos.find((repo) => repo.path === repoPick) ?? visibleRepos[0] ?? null
+    visibleRepos.find((repo) => repoPick !== null && machinePathsEqual(repo.path, repoPick)) ?? visibleRepos[0] ?? null
   const onlyOneRepo = visibleRepos.length === 1
 
   /**
@@ -609,8 +610,8 @@ function NewWorkLauncher({
                   key={repo.path}
                   accessibilityRole="button"
                   accessibilityLabel={repo.name}
-                  accessibilityState={{ selected: repo.path === selectedRepo?.path }}
-                  aria-pressed={repo.path === selectedRepo?.path}
+                  accessibilityState={{ selected: !!selectedRepo && machinePathsEqual(repo.path, selectedRepo.path) }}
+                  aria-pressed={!!selectedRepo && machinePathsEqual(repo.path, selectedRepo.path)}
                   onPress={() => {
                     setRepoPick(repo.path)
                     setStep('launch')
@@ -631,7 +632,7 @@ function NewWorkLauncher({
                     </Text>
                     <ProjectUsage path={repo.path} />
                   </View>
-                  {repo.path === selectedRepo?.path ? (
+                    {selectedRepo && machinePathsEqual(repo.path, selectedRepo.path) ? (
                     <Text style={styles.check}>✓</Text>
                   ) : (
                     <Icon as={ChevronRight} size={15} color={color.textMicro} />

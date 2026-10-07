@@ -77,3 +77,41 @@ describe('scopedAssetUrl (artifact scope) [spec:SP-0fc9]', () => {
     expect(scopedAssetUrl({ ...base, src: 'blob:http://h/xyz' })).toBeNull()
   })
 })
+
+it('resolves Windows preview assets and keeps the HTTP route portable', () => {
+  const url = assetUrl({
+    httpOrigin: 'https://podium.test',
+    sessionId: asSessionId('s1'),
+    fileDir: 'C:\\repo\\docs',
+    src: '..\\shots/final.png',
+  })
+  expect(new URL(url!).searchParams.get('path')).toBe('C:\\repo\\shots\\final.png')
+  const worktree = scopedAssetUrl({
+    httpOrigin: 'https://podium.test',
+    scope: { kind: 'worktree', root: 'C:\\repo' },
+    fileDir: 'C:\\repo',
+    src: 'D:\\shots\\final.png',
+  })
+  expect(new URL(worktree!).searchParams.get('path')).toBe('D:\\shots\\final.png')
+})
+
+
+it.each(['img.', 'x.', '.../src/a.ts', 'folder /img.png'])('leaves malformed Windows asset %s unlinked but keeps POSIX names', src => {
+  for (const fileDir of ['/r/docs', String.raw`C:\r\docs`]) {
+    const args = { httpOrigin: 'https://podium.test', fileDir, src }
+    const session = assetUrl({ ...args, sessionId: asSessionId('s1') })
+    const worktree = scopedAssetUrl({ ...args, scope: { kind: 'worktree', root: fileDir } })
+    const scopedSession = scopedAssetUrl({ ...args, scope: { kind: 'session', sessionId: asSessionId('s1') } })
+    if (fileDir.startsWith('C:')) {
+      expect(session).toBeNull()
+      expect(worktree).toBeNull()
+      expect(scopedSession).toBeNull()
+    } else {
+      expect(session).toContain('/files/asset?')
+      expect(worktree).toContain('/files/asset?')
+    }
+  }
+})
+it('leaves assets from an invalid Windows directory unlinked', () => {
+  expect(assetUrl({ httpOrigin: 'https://podium.test', sessionId: asSessionId('s1'), fileDir: String.raw`C:\r\...`, src: 'a.png' })).toBeNull()
+})

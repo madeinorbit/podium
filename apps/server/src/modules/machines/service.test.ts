@@ -1,22 +1,22 @@
-import { EventBus } from '../bus'
-import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { Inventory, UserId } from '@podium/model'
-import { firstAdminMemberId, asAccountId, asMachineId, asSessionId, asUserId, isMachineOfflineForLiveTerminal } from '@podium/model'
+import { asAccountId, asMachineId, asSessionId, asUserId, firstAdminMemberId, isMachineOfflineForLiveTerminal } from '@podium/model'
 import type { DaemonPtyInputBatch, MachineSupervisorControlMessage } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
+import { mintSigningKeyPair, publicKeyWire } from '@podium/runtime/signing'
 import { TRPCError } from '@trpc/server'
 import { describe, expect, test, vi } from 'vitest'
+import type { CommandPrincipal } from '../../command-principal'
 import { openEnrollmentLedger } from '../../enrollment-ledger'
+import type { MachineOwnershipIndex } from '../../machine-access'
 import { SessionStore } from '../../store'
 import { testClientPrincipal } from '../../test-support/client-principal'
 import { openTestStore } from '../../test-support/open-test-store'
-import type { Send } from '../sessions/session'
+import { EventBus } from '../bus'
 import { machinesForPrincipal } from '../sessions/command-ctx'
-import type { CommandPrincipal } from '../../command-principal'
-import type { MachineOwnershipIndex } from '../../machine-access'
+import type { Send } from '../sessions/session'
 import { sha256 } from './enrollment'
 import { type MachinesDeps, MachinesService, type PairingGrant } from './service'
 
@@ -1659,4 +1659,19 @@ describe('current daemon recovery projection', () => {
       await store.close()
     }
   })
+})
+
+
+test.each([
+  ['/repo', '/repo/wt/src', '/repository'],
+  ['C:\\repo', 'c:/REPO/wt/src', 'C:\\repository'],
+])('machine paths: machine repo affinity and pin guard for %s', async (root, cwd, sibling) => {
+  const { svc, store } = await storedService()
+  try {
+    await svc.attach(MACHINE, () => {})
+    await store.repos.addRepo(root, MACHINE)
+    expect(await svc.pickMachineForRepo(undefined, cwd)).toBe(MACHINE)
+    await expect(svc.requireMachineForRepo(MACHINE, cwd)).resolves.toBeUndefined()
+    await expect(svc.requireMachineForRepo(MACHINE, sibling)).rejects.toThrow('no repo registered')
+  } finally { svc.dispose(); await store.close() }
 })

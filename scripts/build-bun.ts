@@ -36,6 +36,7 @@ import {
   commitShaFromDevVersion,
   isDevChannelVersion,
 } from '../packages/protocol/src/update/dev-version.js'
+import type { HeadlessPlatform } from '../packages/protocol/src/update/platforms'
 import {
   bunVersion,
   hasBunTerminal,
@@ -43,8 +44,6 @@ import {
 } from '../packages/pty/src/backends/bun-terminal-backend.js'
 import { hostSupported, RUST_HOST_BINARY } from '../packages/pty/src/host-bin.js'
 import { developmentSourceSha } from '../packages/runtime/src/source-version'
-import type { HeadlessPlatform } from '../packages/protocol/src/update/platforms'
-import { resolveRcodesign } from './tool-pins'
 import { buildClients } from './build-clients'
 import {
   assertNoCallerSuppliedClientRootDigest,
@@ -52,6 +51,7 @@ import {
 } from './client-build-root-digest'
 import { resolvePigz, tarCompressArgs } from './parallel-gzip'
 import { buildLocalRustHost, crossBuildRustHost } from './rust-host-cross'
+import { resolveRcodesign } from './tool-pins'
 import { buildLocalTunnel, crossBuildTunnel, TUNNEL_BINARY } from './tunnel-cross'
 import {
   type ClientBuildEvidence,
@@ -548,7 +548,7 @@ export function packageHeadlessForFreshClients(
       // restart, so there is no "ship without it" branch. A cross build takes it from the
       // cargo-zigbuild cache (scripts/rust-host-cross.ts: static musl on Linux, ad-hoc
       // signed on Darwin); a local build compiles the vendored crate with this host's
-      // cargo. Windows runs sessions on ConPTY without a durable host [spec:SP-7f2c].
+      // cargo. Windows builds its durable ConPTY host with native MSVC.
       return timeReleaseBuildSync(
         {
           granularity: 'task',
@@ -565,7 +565,7 @@ export function packageHeadlessForFreshClients(
           if (!existsSync(built)) {
             throw new Error(
               `build-bun: the Rust process host was not produced at ${built}; ` +
-                'a POSIX bundle cannot ship without it (see the cargo output above)',
+                'a bundle cannot ship without it (see the cargo output above)',
             )
           }
           return built
@@ -757,7 +757,7 @@ export function packageHeadlessForFreshClients(
           // The Rust process host, beside podium-cli (not embedded): the daemon execs it
           // from the install dir. Staged and renamed for the same ETXTBSY reason as the
           // CLI above. A reused Windows output must not retain another build's host.
-          const bundledRustHost = `${headless}/${RUST_HOST_BINARY}`
+          const bundledRustHost = `${headless}/${RUST_HOST_BINARY}${win ? '.exe' : ''}`
           if (rustHost) {
             const stagedHost = `${bundledRustHost}.new-${process.pid}`
             try {

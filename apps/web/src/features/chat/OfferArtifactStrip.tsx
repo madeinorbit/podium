@@ -1,14 +1,15 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
+import { resolveMachinePath } from '@podium/model'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
 import { type JSX, useState } from 'react'
 import { useRuntimeSelector } from '@/app/store'
-import { useChatArtifactIssue } from './use-chat-context'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { resolveOfferArtifacts } from './offer-artifacts'
+import { useChatArtifactIssue } from './use-chat-context'
 
 /** How many thumbnails an offer shows before collapsing into a "+N" chip. */
 const MAX_THUMBS = 3
@@ -90,7 +91,7 @@ export function OfferArtifactStrip({
       openFileInWorktree({
         ...(machineId ? { machineId } : {}),
         root,
-        path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
+        path: resolveMachinePath(root, a.path),
         issueId: issue.id,
       })
     }

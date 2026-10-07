@@ -92,9 +92,9 @@ function PayloadUnavailablePage({ reason }: { reason?: string }): JSX.Element {
     <BootScreen
       eyebrow="Payload / unavailable"
       headline="Podium needs its payload repaired"
-      prose="The app frame is intact, but the server, daemon, or web payload could not start. Restore the signed seed; the normal fleet updater will then bring this Mac to the current target."
+      prose="The app frame is intact, but the server, daemon, or web payload could not start. Restore the signed seed; the normal fleet updater will then bring this machine to the current target."
       fields={[
-        { label: 'Payload home', value: 'Application Support' },
+        { label: 'Payload home', value: 'App data folder' },
         { label: 'Startup failure', value: reason ?? 'Payload did not answer the shell' },
         { label: 'Recovery', value: status ?? 'Ready to restore signed seed' },
       ]}

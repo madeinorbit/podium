@@ -1,5 +1,5 @@
 import { keyedComputed } from '@podium/mobx-helpers'
-import { agentExecutionRejection, structuralRejection } from '@podium/model/browser'
+import { agentExecutionRejection, machinePathBasename, machinePathKey, machinePathsEqual, structuralRejection } from '@podium/model/browser'
 import type { AutomationTarget, TargetAvailability, TargetExclusions } from './automation-views'
 import { debugName } from './debug-name'
 import type { MobxPool } from './pool'
@@ -11,7 +11,7 @@ const SAVED = 'saved:'
 const EMPTY_IDS: string[] = []
 const STATES = ['available', 'unauthorized', 'unreachable', 'incapable', 'disabled', 'degraded'] as const
 const REASONS = ['', 'not available to you', 'machine offline', 'machine runs no daemon', 'agent hosting disabled', 'agent hosting unavailable']
-const label = (path: string) => path.split('/').filter(Boolean).pop() ?? path
+const label = (path: string) => machinePathBasename(path) || path
 const usageOrder = (at: number) => String(Number.MAX_SAFE_INTEGER - at).padStart(16, '0')
 
 /** Automation-owned, demand-scoped presentation. Queries publish ordered IDs
@@ -35,7 +35,7 @@ export function createAutomationTargets(pool: MobxPool) {
     const rows = catalog()
     const paths = new Map<string, string[]>()
     if (rows && rows !== LOADING) for (const id of rows.repositories) {
-      const key = path(id), group = paths.get(key)
+      const key = machinePathKey(path(id)), group = paths.get(key)
       if (group) group.push(id)
       else paths.set(key, [id])
     }
@@ -78,12 +78,12 @@ export function createAutomationTargets(pool: MobxPool) {
     const trees = worktrees(id)
     return trees === LOADING ? LOADING : [path(id), ...(trees ?? []).map(tree => tree.path)]
   })
-  const activity = (root: string) => memo(`targetRootActivity:${root}`, () =>
+  const activity = (root: string) => memo(`targetRootActivity:${machinePathKey(root)}`, () =>
     pool.queries.activity({ kind: 'commandRootActivity', roots: [root] }))
   const rootQuery = (id: string) => memo(`targetRootQuery:${id}`, () => {
     const ids = roots(id)
     if (ids === LOADING) return LOADING
-    const membership = new Set(ids)
+    const membership = new Set(ids.map(machinePathKey))
     return createQueryResult<number>({
       name: debugName(() => `automations.rootUsage:${id}`) ?? 'automation root usage',
       ids: () => membership,
@@ -97,7 +97,7 @@ export function createAutomationTargets(pool: MobxPool) {
   })
   const usage = (id: string) => memo(`targetUsage:${id}`, () => {
     // Duplicate paths retain the first discovery row's usage, as the form did.
-    const first = byPath().get(path(id))?.[0] ?? id
+    const first = byPath().get(machinePathKey(path(id)))?.[0] ?? id
     const query = rootQuery(first)
     if (query === LOADING) return 0
     const values = query.get()
@@ -132,9 +132,9 @@ export function createAutomationTargets(pool: MobxPool) {
       }),
     }
   })
-  const savedState = (currentPath: string) => memo(`savedTargetState:${currentPath}`, () => {
+  const savedState = (currentPath: string) => memo(`savedTargetState:${machinePathKey(currentPath)}`, () => {
     let first: TargetAvailability | undefined
-    for (const id of byPath().get(currentPath) ?? EMPTY_IDS) {
+    for (const id of byPath().get(machinePathKey(currentPath)) ?? EMPTY_IDS) {
       const code = status(id)
       if (code === 0) return 'available'
       if (code !== undefined && code !== LOADING && first === undefined) first = STATES[code]
@@ -183,8 +183,8 @@ export function createAutomationTargets(pool: MobxPool) {
     })
   }
   function targetMachine(currentPath: string) {
-    return memo(`selectedTargetMachine:${currentPath}`, () => {
-      const id = byPath().get(currentPath)?.[0]
+    return memo(`selectedTargetMachine:${machinePathKey(currentPath)}`, () => {
+      const id = byPath().get(machinePathKey(currentPath))?.[0]
       const machine = id === undefined ? undefined : machineId(id)
       return machine === LOADING ? undefined : machine
     })
@@ -192,9 +192,9 @@ export function createAutomationTargets(pool: MobxPool) {
   function targetForPath(value: string, savedPath: string | null) {
     return memo(`targetForPath:${JSON.stringify([value, savedPath])}`, () => {
       if (value === GLOBAL) return target(GLOBAL)
-      for (const id of byPath().get(value) ?? EMPTY_IDS)
+      for (const id of byPath().get(machinePathKey(value)) ?? EMPTY_IDS)
         if (status(id) === 0) return target(id)
-      return value === savedPath ? target(`${SAVED}${value}`) : undefined
+      return savedPath !== null && machinePathsEqual(value, savedPath) ? target(`${SAVED}${value}`) : undefined
     })
   }
   return { targets, target, targetMachine, targetForPath, dispose: () => cache.clear() }

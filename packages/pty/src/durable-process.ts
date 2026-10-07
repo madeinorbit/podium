@@ -1,6 +1,5 @@
 import { existsSync } from 'node:fs'
 import type { Geometry } from '@podium/model'
-import type { DurableAttachment } from './session.js'
 import {
   abducoHasSession,
   abducoSocketPath,
@@ -10,11 +9,10 @@ import {
   reapStaleAbducoBindTemps,
   waitForAbducoSocket,
 } from './abduco.js'
-import type { DurableSpawnOptions } from './scope.js'
 import {
+  attachHostAgent,
   type HostDurableAttachment,
   type HostRetention,
-  attachHostAgent,
   hostHasSession,
   hostSocketPath,
   killHostSession,
@@ -23,6 +21,8 @@ import {
   spawnHostAgent,
   waitForHostSocket,
 } from './host.js'
+import type { DurableSpawnOptions } from './scope.js'
+import type { DurableAttachment } from './session.js'
 
 /**
  * ONE OBJECT BETWEEN THE DAEMON AND ITS DURABLE HOST (SPEC-6, stage 6 of POD-3190).
@@ -33,7 +33,8 @@ import {
  * adapters below are the only code that knows which host it is talking to.
  *
  * ONE BACKEND SPAWNS (POD-4986). podium-host is the only durable host a new
- * session starts on, on Linux and macOS. What already runs is adopted:
+ * session starts on, on Linux, macOS and Windows. Legacy adoption is POSIX-only
+ * (neither predecessor ran on Windows); Windows reattaches to named-pipe hosts. What already runs is adopted:
  *  - a C host (spawned by an older daemon) is located and attached like any
  *    other host: both hosts speak the one protocol in `./host.js`, and only a
  *    NEW spawn selects a binary;
@@ -173,7 +174,8 @@ export interface DurableProcess {
 /** Backwards-compatible alias: the daemon predates the `DurableProcess` name. */
 export type Durable = DurableProcess
 
-const ABDUCO_ADOPTS_ONLY = 'abduco sessions are adopted, never created (POD-4986): podium-host is the only host a spawn uses'
+const ABDUCO_ADOPTS_ONLY =
+  'abduco sessions are adopted, never created (POD-4986): podium-host is the only host a spawn uses'
 
 /**
  * RUNNING abduco sessions, adopted — nothing here creates one (POD-4986). Every
@@ -283,7 +285,10 @@ export function hostDurableAdapter(): DurableAdapter {
  */
 export function createDurableProcess(): DurableProcess {
   const primary = hostDurableAdapter()
-  const all = [primary, abducoAdoptionAdapter()] as const
+  // Neither legacy master ever ran on Windows. Do not interpret ordinary
+  // Windows files as the POSIX socket inventory or sweep their bind markers.
+  const legacy = process.platform === 'win32' ? undefined : abducoAdoptionAdapter()
+  const all = legacy ? [primary, legacy] : [primary]
   const wait = (ms: number): Promise<void> => new Promise((r) => setTimeout(r, ms))
   return {
     backend: 'host',
@@ -309,10 +314,9 @@ export function createDurableProcess(): DurableProcess {
     },
     async kill(label) {
       // Probe only the matching legacy socket; a host kill needs no legacy probe.
-      const abduco = all[1]
       await Promise.all([
         primary.kill(label),
-        abduco.hasMasterSync(label, process.env) ? abduco.kill(label) : undefined,
+        legacy?.hasMasterSync(label, process.env) ? legacy.kill(label) : undefined,
       ])
     },
     async list() {
@@ -330,7 +334,7 @@ export function createDurableProcess(): DurableProcess {
  * path does. The daemon sweeps once before the reattach storm.
  */
 export function sweepStaleDurableBindTemps(env: NodeJS.ProcessEnv = process.env): string[] {
-  return reapStaleAbducoBindTemps(env)
+  return process.platform === 'win32' ? [] : reapStaleAbducoBindTemps(env)
 }
 
 /**

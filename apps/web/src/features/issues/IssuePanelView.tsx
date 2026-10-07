@@ -1,4 +1,3 @@
-import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
@@ -12,7 +11,9 @@ import {
   type PresenceNote,
   sessionNeedsHuman,
 } from '@podium/client-core/values'
+import { resolveMachinePath } from '@podium/model'
 import type { IssueComment, IssueId, MachineId, SessionId } from '@podium/model/browser'
+import { isFinished } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
   ArrowDown,
@@ -36,6 +37,7 @@ import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
+import { modChord } from '@/lib/mod-chord'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
@@ -600,7 +602,7 @@ function DockCommentComposer({ issue }: { issue: IssueViewModel }): JSX.Element 
       />
       {active && (
         <div className="mt-1.5 flex items-center justify-end gap-2">
-          <span className="font-mono shell-type-micro text-text-faint">⌘↵</span>
+          <span className="font-mono shell-type-micro text-text-faint">{modChord('↵')}</span>
           <Button type="button" size="sm" disabled={busy || !body.trim()} onClick={post}>
             {busy ? 'Posting…' : 'Post'}
           </Button>
@@ -749,7 +751,7 @@ function ProducedAndDeferred({
                       openFileInWorktree({
                         machineId,
                         root,
-                        path: a.path.startsWith('/') ? a.path : `${root}/${a.path}`,
+                        path: resolveMachinePath(root, a.path),
                         issueId: issue.id,
                       })
                     }

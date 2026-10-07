@@ -1,6 +1,12 @@
-import type { SessionId } from '@podium/model'
 import { execFile } from 'node:child_process'
-import { basename, dirname, resolve as resolvePath } from 'node:path'
+import type { SessionId } from '@podium/model'
+import {
+  machinePathBasename,
+  machinePathDirname,
+  machinePathKey,
+  machinePathsEqual,
+  resolveMachinePath,
+} from '@podium/model'
 
 /** Where a directory sits in git's worktree layout [spec:SP-4ef9]:
  *  - `main`     — the repo's PRIMARY checkout. Never a workspace: agents step into
@@ -72,9 +78,9 @@ export function parseWorktreeInfo(cwd: string, out: string | null): WorktreeInfo
     .filter((l) => l !== '')
   if (lines.length !== 3 || lines.some((l) => l.startsWith('-'))) return null
   const [root, gitDir, commonDir] = lines as [string, string, string]
-  const common = resolvePath(cwd, commonDir)
-  const kind: WorktreeKind = resolvePath(cwd, gitDir) === common ? 'main' : 'worktree'
-  const repoRoot = basename(common) === '.git' ? dirname(common) : undefined
+  const common = resolveMachinePath(cwd, commonDir)
+  const kind: WorktreeKind = machinePathsEqual(resolveMachinePath(cwd, gitDir), common) ? 'main' : 'worktree'
+  const repoRoot = machinePathBasename(common) === '.git' ? machinePathDirname(common) : undefined
   return { root, kind, ...(repoRoot ? { repoRoot } : {}) }
 }
 
@@ -107,7 +113,7 @@ export function createCwdResolver(opts?: {
   const cache = new Map<string, Promise<WorktreeInfo>>()
   return {
     resolve(cwd) {
-      let hit = cache.get(cwd)
+      let hit = cache.get(machinePathKey(cwd))
       if (!hit) {
         const raw: WorktreeInfo = { root: cwd, kind: 'none' }
         hit = lookup(cwd).then(
@@ -118,7 +124,7 @@ export function createCwdResolver(opts?: {
           const oldest = cache.keys().next().value
           if (oldest !== undefined) cache.delete(oldest)
         }
-        cache.set(cwd, hit)
+        cache.set(machinePathKey(cwd), hit)
       }
       return hit
     },

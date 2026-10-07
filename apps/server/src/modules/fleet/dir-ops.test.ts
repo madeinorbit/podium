@@ -188,3 +188,15 @@ describe('repos.renameFolder', () => {
     expect(dirOp).toHaveBeenCalled()
   })
 })
+
+
+it.each([
+  ['/home/ada', '/home/ada/myrepo', '/home/ada/myrepo/nested'],
+  ['C:\\Users\\Ada', 'c:/USERS/ada/myrepo', 'C:\\Users\\Ada\\myrepo\\nested'],
+])('machine paths: folder rename protects repo registrations under %s', async (parentPath, root, child) => {
+  const dirOp = vi.fn(async () => ({ path: 'renamed' }))
+  for (const registered of [root, child]) {
+    await expect(repoRenameFolderHandler({ ctx: context({ dirOp, repos: [registered] }), input: { machineId: MACHINE, parentPath, currentName: 'myrepo', name: 'renamed' }, ports })).rejects.toThrow(/registered/)
+  }
+  expect(dirOp).not.toHaveBeenCalled()
+})

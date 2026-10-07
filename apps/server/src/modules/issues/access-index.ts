@@ -1,11 +1,12 @@
-import { readIssue, readIssueCwdRows } from '../world-index/issue-reader'
-import { readResourceGrants } from '../world-index/grant-reader'
 import type { IssueAction, IssueId } from '@podium/model'
+import { machinePathKey } from '@podium/model'
 import type { IssueAccessIndex } from '../../issue-authz'
 import { isMemberCwd } from '../../issue-util'
 import type { GrantsRepository } from '../../store/grants'
 import type { IssuesRepository } from '../../store/issues'
 import type { ReposRepository } from '../../store/repos'
+import { readResourceGrants } from '../world-index/grant-reader'
+import { readIssue, readIssueCwdRows } from '../world-index/issue-reader'
 
 /** Issue authorization reads the committed IssueStore rows outside mutation
  * spans and live repository rows inside them. Boot quarantine disables snapshot binding so cwd ambiguity and ownership
@@ -63,21 +64,21 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
   }
 
   async soleOwnerForCwd(cwd: string): Promise<IssueId | null> {
-    const repoRoots = new Set(await this.repos.listRepoPaths())
+    const repoRoots = new Set((await this.repos.listRepoPaths()).map(machinePathKey))
     const owners = (await readIssueCwdRows(this.issues))
       .filter(
         (row) =>
           !row.deletedAt &&
           !row.archived &&
           row.worktreePath !== null &&
-          !repoRoots.has(row.worktreePath) &&
+          !repoRoots.has(machinePathKey(row.worktreePath)) &&
           isMemberCwd(row.worktreePath, cwd),
       )
     const deepest = owners.reduce(
-      (length, row) => Math.max(length, row.worktreePath?.length ?? 0),
+      (length, row) => Math.max(length, row.worktreePath ? machinePathKey(row.worktreePath).length : 0),
       0,
     )
-    const mostSpecific = owners.filter((row) => row.worktreePath?.length === deepest)
+    const mostSpecific = owners.filter((row) => row.worktreePath && machinePathKey(row.worktreePath).length === deepest)
     return mostSpecific.length === 1 ? (mostSpecific[0]?.id ?? null) : null
   }
 
@@ -85,7 +86,7 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
     let best: { id: IssueId; length: number } | undefined
     for (const row of await readIssueCwdRows(this.issues)) {
       if (row.deletedAt || !isMemberCwd(row.worktreePath, cwd)) continue
-      const length = row.worktreePath?.length ?? 0
+      const length = row.worktreePath ? machinePathKey(row.worktreePath).length : 0
       if (!best || length > best.length) best = { id: row.id, length }
     }
     return best?.id ?? null

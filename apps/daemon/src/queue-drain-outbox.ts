@@ -10,9 +10,10 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import {
-  RuntimeQueueDrainAbandonedMessage,
   type RuntimeQueueDrainAbandonedMessage as QueueDrainMessage,
+  RuntimeQueueDrainAbandonedMessage,
 } from '@podium/protocol/daemon'
+import { fsyncPath } from '@podium/runtime/fsync'
 
 const FILE_NAME = 'queue-drain-outbox.json'
 const FILE_VERSION = 1
@@ -23,21 +24,6 @@ export interface QueueDrainOutbox {
   enqueue(report: DurableQueueDrainReport): void
   acknowledge(reportId: string): boolean
   pending(): readonly DurableQueueDrainReport[]
-}
-
-function fsyncDirectory(dir: string): void {
-  try {
-    const dirFd = openSync(dir, 'r')
-    try {
-      fsyncSync(dirFd)
-    } finally {
-      closeSync(dirFd)
-    }
-  } catch (error) {
-    // Windows does not permit opening directories as file descriptors. The
-    // temp file itself was still fsynced before the atomic rename.
-    if (process.platform !== 'win32') throw error
-  }
 }
 
 function parseReports(raw: string, path: string): DurableQueueDrainReport[] {
@@ -84,7 +70,7 @@ export function createQueueDrainOutbox(dir: string): QueueDrainOutbox {
     if (recovered) {
       reports = new Map(recovered.map((report) => [report.reportId, report]))
       renameSync(temporary, path)
-      fsyncDirectory(dir)
+      fsyncPath(dir)
     } else {
       reports = new Map(
         parseReports(readFileSync(path, 'utf8'), path).map((report) => [report.reportId, report]),
@@ -106,7 +92,7 @@ export function createQueueDrainOutbox(dir: string): QueueDrainOutbox {
       closeSync(fd)
     }
     renameSync(temporary, path)
-    fsyncDirectory(dir)
+    fsyncPath(dir)
   }
 
   return {

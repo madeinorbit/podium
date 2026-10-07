@@ -1,11 +1,11 @@
-import { parseSessionRef } from '@podium/protocol'
-import { referenceKey, sessionReferenceKey } from './session-reference'
-import { isFinished } from './predicates'
 /** History questions, answered by the row source. Results contain identities,
  * never rows or a map. The same questions can later be answered from storage. */
-import { issueStatusOf } from '@podium/model/browser'
-import type { RowSourceEvent } from './source'
+import { issueStatusOf, machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
+import { parseSessionRef } from '@podium/protocol'
 import { createIssueMentionIndex, type IssueMentionQuestion } from './issue-mention-question'
+import { isFinished } from './predicates'
+import { referenceKey, sessionReferenceKey } from './session-reference'
+import type { RowSourceEvent } from './source'
 
 export type ReaderQuestion =
   | IssueMentionQuestion
@@ -102,8 +102,8 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
   const mentions = options.targetSearch === false ? undefined : createIssueMentionIndex()
   const repoPaths = new Map<string, string>()
   const reposAtPath = new Map<string, Set<string>>()
-  const pathKeys = (path: string) => [`issue:path:${path}`, ...[...(reposAtPath.get(path) ?? [])].map(id => `issue:repo:${id}`)]
-  const targetPathKeys = (path: string) => [`issue:path:${path}`, ...[...(reposAtPath.get(path) ?? [])].map(id => `issue:targetRepo:${id}`)]
+  const pathKeys = (path: string) => [`issue:path:${machinePathKey(path)}`, ...[...(reposAtPath.get(machinePathKey(path)) ?? [])].map(id => `issue:repo:${id}`)]
+  const targetPathKeys = (path: string) => [`issue:path:${machinePathKey(path)}`, ...[...(reposAtPath.get(machinePathKey(path)) ?? [])].map(id => `issue:targetRepo:${id}`)]
   const pathMembers = (path: string) => new Set(pathKeys(path).flatMap(key => [...bucket(key)]))
   const repoPrefixes = new Map<string, string>()
   const prefixRepos = new Map<string, Set<string>>()
@@ -197,7 +197,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       // Read the source scalars once, even when the source is a counted proxy.
       const { repoId, repoPath, priority, stage, closedReason, blocked, archived,
         deletedAt, worktreePath } = row
-      const path = String(repoPath ?? '')
+      const path = machinePathKey(String(repoPath ?? ''))
       out.add(`issue:repo:${repoId ?? ''}`)
       if (repoPath === undefined && typeof repoId === 'string') out.add(`issue:targetRepo:${repoId}`)
       out.add(`issue:path:${path}`)
@@ -212,7 +212,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       if (!deletedAt) out.add('issue:undeleted')
       if (stage === 'proposed') out.add('issue:proposed')
       if (typeof worktreePath === 'string' && worktreePath) {
-        out.add(`issue:root:${worktreePath}`)
+        out.add(`issue:root:${machinePathKey(worktreePath)}`)
       }
     } else if (kind === 'session') {
       const { archived, headless, agentKind, status, issueId } = row
@@ -375,6 +375,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       return repoRevision
     },
     repoPathRevision(path: string): number {
+      path = machinePathKey(path)
       return Math.max(replacement, revisions.get(`issueRepoPath:${path}`) ?? 0)
     },
     /** Board/explorer per-keystroke revision: title/seq only, never facets.
@@ -427,7 +428,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         case 'mobileIssueTargets':
           return Math.max(
             replacement,
-            revisions.get(`issueRepoPath:${question.repoPath}`) ?? 0,
+            revisions.get(`issueRepoPath:${machinePathKey(question.repoPath)}`) ?? 0,
             ...targetPathKeys(question.repoPath).map(key => revisions.get(`mobileTargets:${key}`) ?? 0),
           )
         case 'proposedIssues':
@@ -450,8 +451,10 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           keys.push(commandIssueKey(question))
           break
         case 'containingIssues':
-          keys.push(`issue:root:${question.cwd}`)
-          for (let at = question.cwd.indexOf('/'); at >= 0; at = question.cwd.indexOf('/', at + 1))
+          keys.push(`issue:root:${machinePathKey(question.cwd)}`)
+          if (machinePathSeparator(question.cwd) === '\\') {
+            for (const path of machinePathAncestors(question.cwd)) keys.push(`issue:root:${machinePathKey(path)}`)
+          } else for (let at = question.cwd.indexOf('/'); at >= 0; at = question.cwd.indexOf('/', at + 1))
             keys.push(
               `issue:root:${question.cwd.slice(0, at)}`,
               `issue:root:${question.cwd.slice(0, at + 1)}`,
@@ -461,13 +464,13 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           keys.push('issue:live')
           break
         case 'spawnIssues':
-          keys.push(`issue:repo:${question.repoId ?? ''}`, `issue:path:${question.repoPath}`, 'issue:undeleted')
+          keys.push(`issue:repo:${question.repoId ?? ''}`, `issue:path:${machinePathKey(question.repoPath)}`, 'issue:undeleted')
           break
         case 'boardIssues':
           if (question.priority != null) keys.push(`issue:priority:${question.priority}`)
           if (question.stage) keys.push(`issue:status:${question.stage}`)
           if (question.status) keys.push(`issue:${question.status}`)
-          for (const path of question.projectPaths ?? []) keys.push(...pathKeys(path), `issueRepoPath:${path}`)
+          for (const path of question.projectPaths ?? []) keys.push(...pathKeys(path), `issueRepoPath:${machinePathKey(path)}`)
           keys.push('issue:live', 'issue:unarchived', 'issue:undeleted')
           if (question.explorerTab === 'cancelled')
             keys.push('issue:status:cancelled', 'issue:status:duplicate', 'issue:status:superseded')
@@ -502,7 +505,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           const row = record.value as Row | undefined
           const id = record.kind === 'repo' || typeof row?.path !== 'string' ? record.id : row.repoId
           if (typeof id !== 'string') continue
-          const oldPath = repoPaths.get(id), newPath = typeof row?.repoPath === 'string' ? row.repoPath : undefined
+          const oldPath = repoPaths.get(id), newPath = typeof row?.repoPath === 'string' ? machinePathKey(row.repoPath) : undefined
           if (oldPath !== newPath) {
             if (oldPath !== undefined) { reposAtPath.get(oldPath)?.delete(id); touch(`issueRepoPath:${oldPath}`) }
             if (newPath !== undefined) {
@@ -525,6 +528,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       }
     },
     repoIds(path?: string): string[] {
+      if (path !== undefined) path = machinePathKey(path)
       return [...(path === undefined ? repos : new Set([...(targetRepos.get(path)?.keys() ?? []), ...[...(reposAtPath.get(path) ?? [])].filter(id => bucket(`issue:repo:${id}`).size)]))].sort(byId)
     },
     contains(question: ReaderQuestion, id: string): boolean {
@@ -547,9 +551,10 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         case 'spawnIssues':
           return has('issue:undeleted') &&
             ((question.repoId !== undefined && has(`issue:repo:${question.repoId}`)) ||
-              (has('issue:repo:') && has(`issue:path:${question.repoPath}`)))
+              (has('issue:repo:') && has(`issue:path:${machinePathKey(question.repoPath)}`)))
         case 'containingIssues': {
-          if (has(`issue:root:${question.cwd}`)) return true
+          if (has(`issue:root:${machinePathKey(question.cwd)}`)) return true
+          if (machinePathSeparator(question.cwd) === '\\') return machinePathAncestors(question.cwd).some(path => has(`issue:root:${machinePathKey(path)}`))
           for (let at = question.cwd.indexOf('/'); at >= 0; at = question.cwd.indexOf('/', at + 1))
             if (has(`issue:root:${question.cwd.slice(0, at)}`) ||
               has(`issue:root:${question.cwd.slice(0, at + 1)}`)) return true
@@ -643,10 +648,12 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         case 'containingIssues': {
           const ids = new Set<string>()
           const add = (path: string) => {
-            for (const id of bucket(`issue:root:${path}`)) ids.add(id)
+            for (const id of bucket(`issue:root:${machinePathKey(path)}`)) ids.add(id)
           }
           add(question.cwd)
-          for (
+          if (machinePathSeparator(question.cwd) === '\\') {
+            for (const path of machinePathAncestors(question.cwd)) add(path)
+          } else for (
             let at = question.cwd.indexOf('/');
             at >= 0;
             at = question.cwd.indexOf('/', at + 1)
@@ -661,7 +668,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         case 'spawnIssues': {
           const ids = new Set(question.repoId ? bucket(`issue:repo:${question.repoId}`) : [])
           const unassigned = bucket('issue:repo:')
-          for (const id of bucket(`issue:path:${question.repoPath}`))
+          for (const id of bucket(`issue:path:${machinePathKey(question.repoPath)}`))
             if (unassigned.has(id)) ids.add(id)
           return intersection([ids, bucket('issue:undeleted')])
         }

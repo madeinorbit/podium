@@ -1,7 +1,7 @@
 import type { SessionId } from '@podium/model/browser'
+import { resolveMachinePath } from '@podium/model/browser'
 import type { MouseEvent as ReactMouseEvent } from 'react'
 import { handleCodeCopyClick } from '@/lib/code-copy'
-import { resolveAgainstCwd } from '@/lib/file-path'
 import { handlePodiumLinkClick } from '@/lib/podium-link-click'
 import { activateRef } from '@/lib/ref-activation'
 
@@ -33,7 +33,7 @@ export function handleChatMdClick(
   if (fileAnchor) {
     event.preventDefault()
     const path = fileAnchor.getAttribute('data-path')
-    if (path) openFile(sessionId, resolveAgainstCwd(cwd, path))
+    if (path) openFile(sessionId, resolveMachinePath(cwd, path))
     return
   }
 

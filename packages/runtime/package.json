@@ -75,7 +75,8 @@
     "./source-version": "./src/source-version.ts",
     "./command-environment": "./src/command-environment.ts",
     "./client-build-provenance": "./src/client-build-provenance.ts",
-    "./release-build-timing": "./src/release-build-timing.ts"
+    "./release-build-timing": "./src/release-build-timing.ts",
+    "./fsync": "./src/fsync.ts"
   },
   "scripts": {
     "typecheck": "bun ../../scripts/typecheck-project.ts",

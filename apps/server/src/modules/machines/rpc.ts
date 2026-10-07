@@ -1,5 +1,3 @@
-import type { ServerPlacement } from '../updates/service'
-import { isAbsolute, join } from 'node:path'
 import type {
   AgentKind,
   AgentQuotaWire,
@@ -20,7 +18,7 @@ import type {
   UsageBucketWire,
   UsageSourceWire,
 } from '@podium/model'
-import { asMachineId } from '@podium/model'
+import { asMachineId, resolveMachinePath } from '@podium/model'
 import type {
   BrowseDirsResultMessage,
   CodexCompleteResultMessage,
@@ -65,9 +63,9 @@ import type {
   RuntimeAttachmentRef,
   RuntimeConfigureResultMessage,
   RuntimeDraftResultMessage,
+  RuntimeHistoryResultMessage,
   RuntimeLifecycleResultMessage,
   RuntimeSnapshotResultMessage,
-  RuntimeHistoryResultMessage,
   RuntimeStageAttachmentResultMessage,
   ShippingEvidenceResultMessage,
   ShippingJobRequestMessage,
@@ -76,6 +74,7 @@ import type {
   TurnDelivery,
   TurnReceipt,
 } from '@podium/protocol/daemon'
+import { TRPCError } from '@trpc/server'
 import { knownPathsFor } from '../../file-relay-policy'
 import type { RpcDaemonFrame, RpcDaemonFrameType } from '../../gateway/daemon-frame-routing'
 import {
@@ -90,6 +89,7 @@ import { DEPLOYMENT, perf } from '../perf/registry'
 import type { PortableStateWriteFence } from '../server-transfer/portable-fence'
 import { type HandoffStageToken, stageTokenAsFrozenWireField } from '../sessions/handoff-transfer'
 import { mergeLatestTranscriptPage } from '../sessions/terminal'
+import type { ServerPlacement } from '../updates/service'
 
 const SCAN_TIMEOUT_MS = 10_000
 const FILE_RPC_TIMEOUT_MS = 10_000
@@ -1642,7 +1642,7 @@ export class DaemonRpcService {
     // Worktree-scoped variant (issue panel artifacts, worktree md images): same
     // daemon sandbox as fileReadRequest — cwd = the worktree root. Artifact paths
     // may be worktree-relative; the daemon realpaths them, so absolutize here.
-    const absPath = isAbsolute(input.path) ? input.path : join(input.root, input.path)
+    const absPath = resolveMachinePath(input.root, input.path)
     return await this.request(
       FILE_ASSET,
       FILE_RPC_TIMEOUT_MS,

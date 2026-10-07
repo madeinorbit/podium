@@ -1,6 +1,12 @@
-import { dirname } from 'node:path'
 import { describeError } from '@podium/logger'
 import type { GitDiscoveryDiagnosticWire, GitRepositoryWire, MachineId } from '@podium/model'
+import {
+  isMachinePathWithinRoot,
+  machinePathDirname,
+  machinePathKey,
+  machinePathSegments,
+  machinePathsEqual,
+} from '@podium/model'
 import type { ScanReposResult } from './relay'
 import { canonicalizeRepoOrigin } from './repo-id'
 import { normalizeRepoPath } from './store'
@@ -53,14 +59,15 @@ type RepoRow = { machineId: MachineId; path: string; originUrl: string | null }
 /** `/home/u/src/x` | `/Users/u/src/x` → `~/src/x` (undefined when not under a home). */
 export function homeRelativePath(path: string): string | undefined {
   const m = /^\/(?:home|Users)\/[^/]+\/(.+)$/.exec(path)
-  return m ? `~/${m[1]}` : undefined
+    ?? /^[a-z]:[\\/]Users[\\/][^\\/]+[\\/](.+)$/i.exec(path)
+  return m ? `~/${machinePathSegments(m[1]!, path).join('/')}` : undefined
 }
 
 /** T1 probe roots for `machineId`: paths of repos on OTHER machines, raw + `~`-form,
  *  minus paths already registered on the target. Order-stable and deduped. */
 export function probeRootsFor(machineId: MachineId, rows: RepoRow[]): string[] {
   const registered = new Set(
-    rows.filter((r) => r.machineId === machineId).map((r) => normalizeRepoPath(r.path)),
+    rows.filter((r) => r.machineId === machineId).map((r) => machinePathKey(normalizeRepoPath(r.path))),
   )
   const probes: string[] = []
   const seen = new Set<string>()
@@ -68,12 +75,12 @@ export function probeRootsFor(machineId: MachineId, rows: RepoRow[]): string[] {
     if (row.machineId === machineId) continue
     const path = normalizeRepoPath(row.path)
     for (const candidate of [path, homeRelativePath(path)]) {
-      if (!candidate || seen.has(candidate)) continue
-      seen.add(candidate)
+      if (!candidate || seen.has(machinePathKey(candidate))) continue
+      seen.add(machinePathKey(candidate))
       // Raw absolute paths already registered on the target need no probe; the
       // `~` form can't be compared here (the daemon expands it) — probe anyway,
       // already-registered results are classified below, not re-added.
-      if (registered.has(candidate)) continue
+      if (registered.has(machinePathKey(candidate))) continue
       probes.push(candidate)
     }
   }
@@ -83,17 +90,17 @@ export function probeRootsFor(machineId: MachineId, rows: RepoRow[]): string[] {
 /** T2 walk roots: parents of every path known on the machine (registered + found),
  *  excluding `/` and home-ish roots (the deep sweep owns those), capped. */
 export function adjacentRootsFor(knownPaths: string[], cap = 12): string[] {
-  const parents = new Set<string>()
+  const parents = new Map<string, string>()
   for (const p of knownPaths) {
-    const parent = dirname(normalizeRepoPath(p))
-    if (parent === '/' || /^\/(?:home|Users)\/[^/]+$/.test(parent)) continue
-    parents.add(parent)
+    const parent = machinePathDirname(normalizeRepoPath(p))
+    if (machinePathsEqual(parent, machinePathDirname(parent)) || /^[a-z]:\\users\\[^\\]+$/i.test(parent) || /^\/(?:home|Users)\/[^/]+$/.test(parent)) continue
+    if (!parents.has(machinePathKey(parent))) parents.set(machinePathKey(parent), parent)
   }
   // Drop parents contained in another collected parent — the shallow walk from the
   // outer one already covers them.
-  const sorted = [...parents].sort()
+  const sorted = [...parents.values()].sort()
   const roots = sorted.filter(
-    (p, i) => !(i > 0 && sorted.slice(0, i).some((outer) => p.startsWith(`${outer}/`))),
+    (p, i) => !(i > 0 && sorted.slice(0, i).some((outer) => isMachinePathWithinRoot(outer, p))),
   )
   return roots.slice(0, cap)
 }
@@ -162,29 +169,31 @@ export class MachineRepoDiscovery {
   private async healMovedRepos(
     machineId: MachineId,
     rows: RepoRow[],
-    found: Map<string, { originUrl?: string | null }>,
+    found: Map<string, GitRepositoryWire>,
   ): Promise<boolean> {
     const { removeRepo, pathExists } = this.deps
     if (!removeRepo || !pathExists) return false
 
     const here = rows.filter((r) => r.machineId === machineId)
-    const registeredHere = new Set(here.map((r) => normalizeRepoPath(r.path)))
+    const registeredHere = new Set(here.map((r) => machinePathKey(normalizeRepoPath(r.path))))
     let healed = false
 
     for (const row of here) {
       const origin = canonicalizeRepoOrigin(row.originUrl)
       if (!origin) continue
       const rowPath = normalizeRepoPath(row.path)
+      const rowKey = machinePathKey(rowPath)
       // Still discovered where it was registered — nothing to heal, and no probe cost.
-      if (found.has(rowPath)) continue
+      if (found.has(rowKey)) continue
 
       // Exactly one same-origin NEWCOMER, or this is not an unambiguous move.
       const newcomers = [...found.entries()].filter(
-        ([path, repo]) =>
-          canonicalizeRepoOrigin(repo.originUrl ?? null) === origin && !registeredHere.has(path),
+        ([key, repo]) =>
+          canonicalizeRepoOrigin(repo.originUrl ?? null) === origin && !registeredHere.has(key),
       )
       if (newcomers.length !== 1) continue
-      const [newPath, newRepo] = newcomers[0] as [string, { originUrl?: string | null }]
+      const [newKey, newRepo] = newcomers[0] as [string, GitRepositoryWire]
+      const newPath = normalizeRepoPath(newRepo.path)
 
       // ONLY NOW probe the machine. Ordering matters: the probe is a round trip, and
       // asking about every registered repo on every scan would be both slow and noisy.
@@ -199,8 +208,8 @@ export class MachineRepoDiscovery {
 
       await removeRepo(rowPath, machineId)
       await this.deps.addRepo(newPath, machineId, newRepo.originUrl ?? undefined)
-      registeredHere.delete(rowPath)
-      registeredHere.add(newPath)
+      registeredHere.delete(rowKey)
+      registeredHere.add(newKey)
       healed = true
       this.deps.log?.(
         `repo moved on ${await this.deps.machineName(machineId)}: ${rowPath} is gone, re-registered at ${newPath}`,
@@ -266,7 +275,8 @@ export class MachineRepoDiscovery {
         // separately would double-list every repo.
         if (repo.kind !== 'repository') continue
         const path = normalizeRepoPath(repo.path)
-        if (!found.has(path)) found.set(path, repo)
+        const key = machinePathKey(path)
+        if (!found.has(key)) found.set(key, { ...repo, path })
       }
     }
 
@@ -287,7 +297,7 @@ export class MachineRepoDiscovery {
     // T2 — shallow walk around everything known on this machine so far.
     const knownOnMachine = [
       ...rows.filter((r) => r.machineId === machineId).map((r) => r.path),
-      ...found.keys(),
+      ...Array.from(found.values(), repo => repo.path),
     ]
     const adjacent = adjacentRootsFor(knownOnMachine)
     if (adjacent.length > 0) {
@@ -307,7 +317,7 @@ export class MachineRepoDiscovery {
 
     // Classify + auto-register origin matches.
     const registeredHere = new Set(
-      rows.filter((r) => r.machineId === machineId).map((r) => normalizeRepoPath(r.path)),
+      rows.filter((r) => r.machineId === machineId).map((r) => machinePathKey(normalizeRepoPath(r.path))),
     )
     const byOrigin = new Map<string, RepoRow[]>()
     for (const row of rows) {
@@ -330,7 +340,8 @@ export class MachineRepoDiscovery {
     }
 
     const repos: DiscoveredRepo[] = []
-    for (const [path, repo] of found) {
+    for (const [key, repo] of found) {
+      const path = repo.path
       const origin = canonicalizeRepoOrigin(repo.originUrl ?? null)
       const elsewhere = (origin ? (byOrigin.get(origin) ?? []) : []).filter(
         (r) => r.machineId !== machineId,
@@ -347,7 +358,7 @@ export class MachineRepoDiscovery {
         origin !== null &&
         rows.some((r) => r.machineId === machineId && canonicalizeRepoOrigin(r.originUrl) === origin)
       let status: DiscoveredRepo['status']
-      if (registeredHere.has(path)) {
+      if (registeredHere.has(key)) {
         status = 'registered'
       } else if (elsewhere.length > 0 && copiesHere === 1 && !originAlreadyRegisteredHere) {
         await this.deps.addRepo(path, machineId, repo.originUrl)

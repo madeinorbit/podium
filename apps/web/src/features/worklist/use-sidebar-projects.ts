@@ -6,6 +6,7 @@ import type { SidebarProject, SidebarSections } from '@podium/client-core/values
 import type { LOADING, MobxPool } from '@podium/client-graph'
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
+import { machinePathsEqual } from '@podium/model/browser'
 
 import { useCallback } from 'react'
 import { useRuntimeSelector } from '@/app/store'
@@ -59,7 +60,7 @@ export function useSidebarProjectSections(): SidebarSections {
       const projects = sidebarView(pool).sections(layout).bands.flatMap((band) => {
         const lane = lanes.find(
           (row) =>
-            row['projectRoot'] && band.aliases.includes(String(row['repoId'] ?? row['repoPath'])),
+            row['projectRoot'] && band.aliases.some(alias => machinePathsEqual(alias, String(row['repoId'] ?? row['repoPath']))),
         )
         return lane
           ? [
@@ -69,16 +70,16 @@ export function useSidebarProjectSections(): SidebarSections {
                 ...(lane['repoId'] ? { repoId: lane['repoId'] } : {}),
                 worktrees: worktrees.filter(
                   (tree) =>
-                    tree.repoPath === band.repoPath && !layout.pinnedWorktrees?.includes(tree.path),
+                    machinePathsEqual(tree.repoPath, band.repoPath) && !layout.pinnedWorktrees?.some(path => machinePathsEqual(path, tree.path)),
                 ),
               },
             ]
           : []
       }) as SidebarSections['repos']
       return {
-        pinnedRepos: projects.filter((repo) => layout.pinnedRepos?.includes(repo.path)),
-        repos: projects.filter((repo) => !layout.pinnedRepos?.includes(repo.path)),
-        pinnedWorktrees: worktrees.filter((tree) => layout.pinnedWorktrees?.includes(tree.path)),
+        pinnedRepos: projects.filter((repo) => layout.pinnedRepos?.some(path => machinePathsEqual(path, repo.path))),
+        repos: projects.filter((repo) => !layout.pinnedRepos?.some(path => machinePathsEqual(path, repo.path))),
+        pinnedWorktrees: worktrees.filter((tree) => layout.pinnedWorktrees?.some(path => machinePathsEqual(path, tree.path))),
       }
     },
     [layout],

@@ -1,11 +1,12 @@
 import { randomUUID } from 'node:crypto'
 import type { AdvanceIdempotencyPort, WorkflowOwnershipPort } from '@podium/commands'
 import {
-  asUserId,
-  asIssueId,
   AgentKind,
+  asIssueId,
+  asUserId,
   type IssueId,
   type MachineId,
+  machinePathsEqual,
   type SessionId,
 } from '@podium/model'
 import type {
@@ -19,8 +20,8 @@ import type {
   WorkflowWire,
 } from '@podium/protocol'
 import type { z } from 'zod'
-import type { Capability } from '../../issue-authz'
 import type { CommandPrincipal } from '../../command-principal'
+import type { Capability } from '../../issue-authz'
 import type { IssueRow } from '../../store/types'
 import type { WorkflowActor, WorkflowRunRow, WorkflowsRepository } from '../../store/workflows'
 import {
@@ -672,7 +673,7 @@ export class WorkflowService implements WorkflowEngine {
       if (
         issue?.worktreePath &&
         observation?.worktree &&
-        issue.worktreePath !== observation.worktree
+        !machinePathsEqual(issue.worktreePath, observation.worktree)
       ) {
         warnings.push(
           `expected issue worktree ${issue.worktreePath}, observed ${observation.worktree}`,

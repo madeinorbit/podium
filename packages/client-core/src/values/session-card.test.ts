@@ -1,8 +1,8 @@
 import type { SessionId, UnbrandIds } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { IssueViewModel } from '../values/issue-type'
 import type { SessionView, SessionViewInput } from '../session-values'
+import type { IssueViewModel } from '../values/issue-type'
 import { sessionCardModel, sessionTitle } from './session-card'
 
 function session(overrides: Partial<SessionViewInput> & { sessionId: SessionId }): SessionView {
@@ -113,4 +113,10 @@ describe('session card view model', () => {
     )
     expect(sessionTitle(session({ sessionId: asSessionId('c'), title: '  ' }))).toBe('podium')
   })
+})
+
+
+it('falls back to the agent kind for a POSIX root cwd and displays invalid Windows spelling safely', () => {
+  expect(sessionTitle(session({ sessionId: asSessionId('root'), cwd: '/', title: ' ' }))).toBe('claude-code')
+  expect(sessionTitle(session({ sessionId: asSessionId('bad'), cwd: String.raw`C:\repo\...`, title: ' ' }))).toBe('...')
 })

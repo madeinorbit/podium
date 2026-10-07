@@ -19,6 +19,7 @@ import type { UnifiedWorkRow } from '@podium/client-core/values'
 import { Search, X } from 'lucide-react'
 import type { JSX, ReactNode, RefObject } from 'react'
 import { useDeferredValue, useEffect, useMemo, useRef, useState } from 'react'
+import { modChord } from '@/lib/mod-chord'
 import { indexWorkRows, matchesIndexedWorkQuery, normalizeWorkQuery } from './work-filter'
 
 export type WorkFilter = {
@@ -159,7 +160,7 @@ export function WorkSearchField({
           className="shell-type-micro mono-timer flex-none text-text-faint"
           data-testid="work-search-count"
         >
-          {filtering ? `${hits}/${total}` : '⌘F'}
+          {filtering ? `${hits}/${total}` : modChord('F')}
         </span>
       </div>
       {trailing}

@@ -1,12 +1,11 @@
-import { startHookIngest } from '@podium/harness/driver/host'
-import { mkdir, mkdtemp, rm, writeFile, chmod } from 'node:fs/promises'
 import { readFileSync } from 'node:fs'
-import { fileURLToPath } from 'node:url'
+import { chmod, mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
-import { pageHistory } from '@podium/harness/driver/host'
-import { installTerminalInstrumentation } from '@podium/harness/driver/host'
+import { fileURLToPath } from 'node:url'
+import { installTerminalInstrumentation, pageHistory, startHookIngest } from '@podium/harness/driver/host'
+
 /**
  * THE RECEIPTS, PINNED (POD-1761 W3).
  *
@@ -34,6 +33,11 @@ import { installTerminalInstrumentation } from '@podium/harness/driver/host'
  */
 
 import {
+  stampOpencodeItems,
+  transcriptReceiptMapperFor,
+  transcriptRecordMapperFor,
+} from '@podium/harness'
+import {
   type ActingPrincipal,
   type BoundaryContextEvent,
   type BoundaryContextOperation,
@@ -45,18 +49,13 @@ import {
   type RuntimeEvent,
   type TerminalInstrumentationSections,
 } from '@podium/harness/driver/host'
-import {
-  stampOpencodeItems,
-  transcriptReceiptMapperFor,
-  transcriptRecordMapperFor,
-} from '@podium/harness'
-import { hookEventName, hookString } from '../../../adapters/shared/hook-fields.js'
 import { decodeCursor, encodeCursor, readFileItems } from '@podium/harness/store'
 import { addSink, type LogRecord } from '@podium/logger'
 import { type AgentKind, type AgentRuntimeState, asSessionId, type ResumeRef, type SessionId, type TranscriptItem } from '@podium/model'
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
+import { hookEventName, hookString } from '../../../adapters/shared/hook-fields.js'
 import {
   harnessInterrupt,
   harnessNeedsSubmitVerification,
@@ -64,6 +63,10 @@ import {
   manifestFor,
 } from '../../../registry.js'
 import { declaredValue } from '../../../transcript-types.js'
+import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
+import type { SessionDriverSlots } from '../session-slots.js'
+import type { TerminalHostPorts, TerminalTransport } from './host-ports.js'
+import type { TerminalWriteRole } from './injection.js'
 import {
   createTerminalRuntime,
   EVENT_LOG_LIMIT,
@@ -73,10 +76,6 @@ import {
   type TerminalRuntime,
   turnEventForObservation,
 } from './runtime.js'
-import type { TerminalHostPorts, TerminalTransport } from './host-ports.js'
-import type { TerminalWriteRole } from './injection.js'
-import { createMemoryDriverSlots } from '../../testing/driver-slots.js'
-import type { SessionDriverSlots } from '../session-slots.js'
 
 // ---------------------------------------------------------------------------
 // A fixture world, sized for one assertion at a time
@@ -6382,4 +6381,13 @@ describe('terminal receipts from the history (POD-4905)', () => {
       world.runtime.dispose()
     })
   })
+})
+
+it.each(['/tmp/session.jsonl', 'C:\\tmp\\session.jsonl'])('machine paths: terminal export from %s uses a portable filename', async path => {
+  const world = makeWorld()
+  world.host.archiveTranscript = async () => ({ path, relativeDir: 'sessions' })
+  world.registerDuringLaunch()
+  const session = await world.runtime.driverFor('claude-code', CLAUDE).resume({ kind: 'claude-session', value: 'native-session' }, SPEC)
+  const archive = await session.export()
+  expect(archive.files[0]?.path).toBe('sessions/session.jsonl')
 })

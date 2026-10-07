@@ -11,7 +11,7 @@ import {
 } from 'node:fs'
 import { join } from 'node:path'
 import type { Operation } from '@podium/protocol'
-import { z } from 'zod'
+import { fsyncPath } from '@podium/runtime/fsync'
 import { transferLockHeld } from './lock'
 import {
   SERVER_TRANSFER_FORMAT_VERSION,
@@ -57,15 +57,6 @@ export const blocksWritableServer = (state: TransferJournalState): boolean =>
 export const safelyRecoverableBeforeFence = (state: TransferJournalState): boolean =>
   state === 'preparing' || state === 'staged' || state === 'validated' || state === 'fence-pending'
 
-function fsyncDirectory(dir: string): void {
-  const handle = openSync(dir, 'r')
-  try {
-    fsyncSync(handle)
-  } finally {
-    closeSync(handle)
-  }
-}
-
 function writeAtomic(dir: string, value: TransferJournalEntry): void {
   mkdirSync(dir, { recursive: true, mode: 0o700 })
   const temporary = join(dir, `journal.json.tmp-${process.pid}-${Date.now()}`)
@@ -82,7 +73,7 @@ function writeAtomic(dir: string, value: TransferJournalEntry): void {
     }
     renameSync(temporary, join(dir, 'journal.json'))
     renamed = true
-    fsyncDirectory(dir)
+    fsyncPath(dir)
   } finally {
     if (!renamed && existsSync(temporary)) unlinkSync(temporary)
   }
@@ -99,8 +90,7 @@ function parsedEntry(raw: string): TransferJournalEntry {
     typeof candidate.record !== 'object' ||
     candidate.record === null ||
     typeof candidate.record.transferId !== 'string' ||
-    (candidate.record.bindHost !== '127.0.0.1' &&
-      candidate.record.bindHost !== '0.0.0.0') ||
+    (candidate.record.bindHost !== '127.0.0.1' && candidate.record.bindHost !== '0.0.0.0') ||
     typeof candidate.createdAt !== 'string' ||
     typeof candidate.updatedAt !== 'string'
   ) {
@@ -269,7 +259,7 @@ export class TransferJournal {
       throw new Error(`cannot clear unreviewed transfer journal in ${current.state}`)
     }
     unlinkSync(this.path)
-    fsyncDirectory(this.dir)
+    fsyncPath(this.dir)
   }
 
   private required(): TransferJournalEntry {

@@ -1,4 +1,5 @@
 /** SQLite-consistent update snapshots. Called only in the snapshot child process. */
+import { fsyncPath } from '@podium/runtime/fsync'
 import { randomUUID } from 'node:crypto'
 import { closeSync, existsSync, fsyncSync, openSync, renameSync, rmSync, statSync } from 'node:fs'
 import { dirname } from 'node:path'
@@ -55,19 +56,9 @@ export function stageSnapshotFile(
     } finally {
       db.close()
     }
-    const file = openSync(partial, 'r')
-    try {
-      fsyncSync(file)
-    } finally {
-      closeSync(file)
-    }
+    fsyncPath(partial)
     renameSync(partial, path)
-    const directory = openSync(dir, 'r')
-    try {
-      fsyncSync(directory)
-    } finally {
-      closeSync(directory)
-    }
+    fsyncPath(dir)
   } catch (error) {
     for (const suffix of ['', '-wal', '-shm', '-journal']) {
       rmSync(`${partial}${suffix}`, { force: true })

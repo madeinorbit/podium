@@ -70,6 +70,13 @@ function strField(v: unknown, k: string): string | undefined {
 // remains fail-open and curl is bounded to two seconds.
 export const PODIUM_CODEX_HOOK_COMMAND = `bash -c 'p=$(cat); sid="$PODIUM_SESSION_ID"; s="$${PODIUM_CODEX_HOOK_SOCKET_ENV}"; u="$${PODIUM_CODEX_HOOK_URL_ENV}"; if [ -n "$s" ] && [ -n "$sid" ]; then printf %s "$p" | curl -fsS -m 2 --unix-socket "$s" -X POST -H "content-type: application/json" --data-binary @- "http://localhost/hooks/$sid" >/dev/null 2>&1 || true; elif [ -n "$u" ]; then printf %s "$p" | curl -fsS -m 2 -X POST -H "content-type: application/json" --data-binary @- "$u" >/dev/null 2>&1 || true; fi'`
 
+// Windows override (Codex's `commandWindows`). Codex runs it as
+// `cmd.exe /e:ON /v:OFF /d /c "<command>"` (openai/codex#46454), so the program token stays
+// unquoted. Windows has no unix socket for this hook, so it posts to the URL fallback with
+// the curl.exe every Windows 10+ ships; without Podium's env it drains stdin. Always exit 0:
+// fail-open like the POSIX handler.
+export const PODIUM_CODEX_HOOK_COMMAND_WINDOWS = `if defined ${PODIUM_CODEX_HOOK_URL_ENV} (curl.exe -fsS -m 2 -X POST -H "content-type: application/json" --data-binary @- "%${PODIUM_CODEX_HOOK_URL_ENV}%" >NUL 2>&1) else (more >NUL) & exit /b 0`
+
 const PODIUM_CODEX_HOOK_TIMEOUT_SEC = 5
 const execFileAsync = promisify(execFile)
 
@@ -176,12 +183,14 @@ function upsertHooksJson(doc: Record<string, unknown>): {
         // Refresh a stale podium handler in place (old command/timeout).
         if (
           handler.command !== PODIUM_CODEX_HOOK_COMMAND ||
+          handler.commandWindows !== PODIUM_CODEX_HOOK_COMMAND_WINDOWS ||
           handler.timeout !== PODIUM_CODEX_HOOK_TIMEOUT_SEC ||
           handler.type !== 'command'
         ) {
           groupHooks[i] = {
             type: 'command',
             command: PODIUM_CODEX_HOOK_COMMAND,
+            commandWindows: PODIUM_CODEX_HOOK_COMMAND_WINDOWS,
             timeout: PODIUM_CODEX_HOOK_TIMEOUT_SEC,
           }
           changed = true
@@ -194,6 +203,7 @@ function upsertHooksJson(doc: Record<string, unknown>): {
           {
             type: 'command',
             command: PODIUM_CODEX_HOOK_COMMAND,
+            commandWindows: PODIUM_CODEX_HOOK_COMMAND_WINDOWS,
             timeout: PODIUM_CODEX_HOOK_TIMEOUT_SEC,
           },
         ],

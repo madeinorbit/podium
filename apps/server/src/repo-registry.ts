@@ -3,6 +3,7 @@ import { homedir } from 'node:os'
 import { dirname, isAbsolute, join } from 'node:path'
 import { createLogger, describeError } from '@podium/logger'
 import type { GitRepositoryWire, MachineId } from '@podium/model'
+import { isAbsoluteMachinePath, isMachinePathWithinRoot, machinePathKey } from '@podium/model'
 import type { ScanReposResult, SessionRegistry } from './relay'
 import { readLocalOriginUrl } from './repo-id'
 import { normalizeRepoPath, type SessionStore } from './store'
@@ -67,7 +68,7 @@ export function inferRepoFromRoots(roots: string[], path: string): string | unde
   const normalizedPath = normalizeRepoPath(path)
   return roots
     .map((r) => normalizeRepoPath(r))
-    .filter((r) => normalizedPath === r || normalizedPath.startsWith(r === '/' ? r : `${r}/`))
+    .filter((r) => isMachinePathWithinRoot(r, normalizedPath))
     .sort((a, b) => b.length - a.length)[0]
 }
 
@@ -101,7 +102,7 @@ export class RepoRegistry {
   async add(path: string, machineId?: MachineId, prefix?: string): Promise<void> {
     const p = normalizeRepoPath(path)
     if (!p) throw new Error('repo path is empty')
-    if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)
+    if (!isAbsoluteMachinePath(p)) throw new Error(`repo path must be absolute: ${p}`)
     const mid = machineId ?? await this.sessionReg.modules.machines.defaultMachine()
     // THE GUARD THE REPO SCREEN NEEDED (POD-2700 §2.5). Every path that registers
     // a repository — `repos.add`, `repos.addMany`, `repos.createRepo`, and
@@ -123,7 +124,7 @@ export class RepoRegistry {
   async addKnownOrigin(path: string, machineId: MachineId, originUrl: string): Promise<void> {
     const p = normalizeRepoPath(path)
     if (!p) throw new Error('repo path is empty')
-    if (!isAbsolute(p)) throw new Error(`repo path must be absolute: ${p}`)
+    if (!isAbsoluteMachinePath(p)) throw new Error(`repo path must be absolute: ${p}`)
     // Same gate as `add` — a clone lands a repo on a machine just as much as a
     // registration does, and this is the second write path (POD-2700).
     await this.sessionReg.modules.machines.requireRepoHostStructure(machineId)
@@ -240,12 +241,12 @@ export class RepoRegistry {
         }
         const storedRows = registeredRows.filter((row) => row.machineId === machineId)
         const repoIdByPath = new Map(
-          storedRows.map((row) => [normalizeRepoPath(row.path), row.repoId]),
+          storedRows.map((row) => [machinePathKey(normalizeRepoPath(row.path)), row.repoId]),
         )
-        const seenPaths = new Set(result.repositories.map((r) => normalizeRepoPath(r.path)))
+        const seenPaths = new Set(result.repositories.map((r) => machinePathKey(normalizeRepoPath(r.path))))
         // Stamp each repo with the machine that returned it (+ its stable repoId).
         const scanned = result.repositories.map((r) => {
-          const repoId = repoIdByPath.get(normalizeRepoPath(r.path))
+          const repoId = repoIdByPath.get(machinePathKey(normalizeRepoPath(r.path)))
           return { ...r, machineId, ...(repoId ? { repoId } : {}) }
         })
         // Keep registered roots visible even when the daemon scan times out or returns
@@ -263,7 +264,7 @@ export class RepoRegistry {
         // for negative ones. To ask whether a path really exists, ask the daemon that
         // owns it — `IssueWorkflow.ensureWorktree` does, and rebuilds from the branch.
         const registeredFallbacks = fallbackFor(
-          storedRows.filter((row) => !seenPaths.has(normalizeRepoPath(row.path))),
+          storedRows.filter((row) => !seenPaths.has(machinePathKey(normalizeRepoPath(row.path)))),
         )
         return {
           repositories: [...scanned, ...registeredFallbacks],

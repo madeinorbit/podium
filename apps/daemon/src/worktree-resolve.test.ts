@@ -1,8 +1,8 @@
-import { asSessionId, type SessionId } from '@podium/model'
 import { execFileSync } from 'node:child_process'
 import { mkdirSync, mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import { asSessionId, type SessionId } from '@podium/model'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import {
   createCwdResolver,
@@ -640,4 +640,19 @@ describe('createSessionCwdTracker', () => {
       { sessionId: 's2', cwd: FEAT },
     ])
   })
+})
+
+it.each([
+  ['/repo/apps', '/repo\n/repo/.git\n../.git', '/repo'],
+  ['C:\\repo\\apps', 'C:/repo\nc:/REPO/.git\n..\\.git', 'C:\\repo'],
+])('machine paths: git worktree classification for %s', (cwd, output, repoRoot) => {
+  expect(parseWorktreeInfo(cwd, output)).toMatchObject({ kind: 'main', repoRoot })
+})
+
+it('machine paths: cwd resolver shares Windows spelling variants', async () => {
+  const calls: string[] = []
+  const resolver = createCwdResolver({ lookup: async cwd => { calls.push(cwd); return { root: cwd, kind: 'main' } } })
+  await resolver.resolve('C:\\repo')
+  await resolver.resolve('c:/REPO')
+  expect(calls).toEqual(['C:\\repo'])
 })

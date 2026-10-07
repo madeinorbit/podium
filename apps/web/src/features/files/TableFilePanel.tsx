@@ -4,6 +4,7 @@ import { ArrowDown, ArrowUp, ArrowUpDown, Eye, Pencil, Save, Search, X } from 'l
 import { type JSX, useDeferredValue, useId, useMemo, useRef, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import { modChord } from '@/lib/mod-chord'
 import { DownloadFileButton } from './DownloadFileButton'
 import { parseDelimitedDocument } from './delimited-document'
 import { canSave } from './editor-save'
@@ -98,7 +99,7 @@ export function TableFilePanel({
             pendingLabel={<span className="sr-only">Saving file…</span>}
             aria-label={doc.saving ? 'Saving file…' : 'Save'}
             aria-describedby={saveFeedbackId}
-            title="Save (⌘S)"
+            title={`Save (${modChord('S')})`}
           >
             <Save size={14} aria-hidden="true" />
           </Button>

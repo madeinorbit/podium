@@ -13,7 +13,7 @@ import {
   type ReferentExit,
   sessionPresentOnTask,
 } from '@podium/client-core/values'
-import { asIssueId, asSessionId } from '@podium/model/browser'
+import { asIssueId, asSessionId, machinePathKey } from '@podium/model/browser'
 import {
   compareStructural,
   observe,
@@ -284,7 +284,7 @@ function createIssuePageViews(pool: MobxPool) {
   }
   function hasTargets(id: string, repoPath: string): boolean {
     return memo(
-      `targets:${id}:${repoPath}`,
+      `targets:${id}:${machinePathKey(repoPath)}`,
       () =>
         pool.queries.ids({
           kind: 'mobileIssueTargets',

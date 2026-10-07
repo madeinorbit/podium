@@ -1,8 +1,9 @@
 import type { IssueId, RepoId, SessionId } from '@podium/model'
+import { machinePathKey, machinePathSeparator } from '@podium/model'
 import type { LockAcquireResultWire, LockHolderWire, LockWire } from '@podium/protocol'
+import { afterCommit } from '../../store/executor/executor'
 import type { LockRow, LockSessionKey, LocksRepository, LockWaiterRow } from '../../store/locks'
 import { isSystemLockSession, OPERATOR_LOCK_SESSION } from '../../store/locks'
-import { afterCommit } from '../../store/executor/executor'
 import type { WriteFunnel } from '../funnel'
 
 /**
@@ -105,7 +106,8 @@ export interface LockServiceDeps {
 /** Normalize a path for co-location compares (trailing slashes, empty → null). */
 export function normalizeWorkspace(raw: string | null | undefined): string | null {
   if (raw == null) return null
-  const trimmed = raw.trim().replace(/\/+$/, '')
+  const value = raw.trim()
+  const trimmed = machinePathSeparator(value) === '\\' ? machinePathKey(value) : value.replace(/\/+$/, '')
   return trimmed.length > 0 ? trimmed : null
 }
 

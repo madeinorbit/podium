@@ -471,3 +471,9 @@ describe('rowMotionTiming — the line-2 timer inputs', () => {
     expect(t.sinceMs).toBe(NOW - 120_000)
   })
 })
+
+
+it('does not treat a slash title as cwd boot noise for a POSIX filesystem root', () => {
+  expect(isUnstartedSession(sess({ cwd: '/', title: '/' }))).toBe(false)
+  expect(isUnstartedSession(sess({ cwd: '/', title: '' }))).toBe(true)
+})

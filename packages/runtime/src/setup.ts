@@ -1,4 +1,5 @@
-import { prepareSetupEnrollment } from './setup-enrollment'
+import { accessSync, constants } from 'node:fs'
+import { delimiter, join } from 'node:path'
 import {
   type EnvSource,
   type FleetUpdateChannel,
@@ -15,8 +16,7 @@ import {
   isLocatorInstallationPublicKey,
 } from './connect-locator'
 import { decodeJoin } from './join'
-import { accessSync, constants } from 'node:fs'
-import { delimiter, join } from 'node:path'
+import { hasMachineCredential, prepareSetupEnrollment } from './setup-enrollment'
 
 export type NetworkOption = 'tailscale-funnel' | 'tailscale-serve' | 'cloudflare-tunnel' | 'manual'
 
@@ -266,7 +266,10 @@ export async function fetchServerIdentity(
   const identity = await fetchVersionIdentity({ serverUrl, timeoutMs })
   if (!identity) return undefined
   return identity.installationPublicKey
-    ? { installationId: identity.installationId, installationPublicKey: identity.installationPublicKey }
+    ? {
+        installationId: identity.installationId,
+        installationPublicKey: identity.installationPublicKey,
+      }
     : { installationId: identity.installationId }
 }
 
@@ -745,7 +748,18 @@ export function applyLocalSetupDefault(): 'applied' | 'configured' | 'blocked' {
   const inspection = inspectConfig()
   if (inspection.state === 'corrupt') return 'blocked'
   const config = inspection.config
-  if (config.mode) return 'configured'
+  if (config.mode) {
+    // A mode saved without an enrollment (the web setup's applyMode, or a build that
+    // did not recognise the desktop's own launch) leaves this machine's daemon with no
+    // credential for good; the same trusted local launch that would have enrolled it does so.
+    if (config.mode !== 'all-in-one' || hasMachineCredential()) return 'configured'
+    try {
+      prepareSetupEnrollment(true, true)
+      return 'applied'
+    } catch {
+      return 'blocked'
+    }
+  }
   try {
     prepareSetupEnrollment(true, true)
     saveConfig({ ...config, mode: 'all-in-one' })

@@ -1,11 +1,10 @@
-import { keyedComputed } from '@podium/mobx-helpers'
-import { isFinished } from './shared/predicates'
 import type { SpawnTarget } from '@podium/client-core'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RepoView } from '@podium/client-core/values'
-import { normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
+import { keyedComputed } from '@podium/mobx-helpers'
+import { machinePathBasename, machinePathKey, machinePathsEqual, normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
 import {
   compareStructural,
   computed,
@@ -13,6 +12,7 @@ import {
 } from 'mobx'
 import { COMMAND_SUMMARIES, type CommandLaunchRows } from './command-launch-schema'
 import type { MobxPool } from './pool'
+import { isFinished } from './shared/predicates'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export type CommandLaunchData = CommandLaunchRows['commandWindow'] & {
@@ -121,7 +121,7 @@ function createCommandLaunchViews(pool: MobxPool) {
         const repoId = scans.find((scan) => scan.repoId !== undefined)?.repoId
         repoViews.push({
           path: first.path,
-          name: repoNameFromOrigin(originUrl) ?? (first.path.split('/').pop() || first.path),
+          name: repoNameFromOrigin(originUrl) ?? (machinePathBasename(first.path) || first.path),
           worktrees,
           machines: scans.flatMap((scan) =>
             scan.machineId ? [{ machineId: scan.machineId, path: scan.path }] : [],
@@ -133,21 +133,21 @@ function createCommandLaunchViews(pool: MobxPool) {
       const usage: Record<string, number> = {}
       for (const repo of repos) {
         counts.usageQueries++
-        usage[JSON.stringify([repo.machineId ?? '', repo.path])] = pool.queries.activity({
+        usage[JSON.stringify([repo.machineId ?? '', machinePathKey(repo.path)])] = pool.queries.activity({
           kind: 'commandRootActivity',
           roots: [repo.path, ...repo.worktrees.map((tree) => tree.path)],
         })
       }
       const repoTime = (repo: Store['repos'][number]) =>
-        usage[JSON.stringify([repo.machineId ?? '', repo.path])] ?? 0
+        usage[JSON.stringify([repo.machineId ?? '', machinePathKey(repo.path)])] ?? 0
       const choices = repos.filter((repo) => repo.kind !== 'worktree')
       const initialRepoPath =
         [...choices].sort((a, b) => repoTime(b) - repoTime(a))[0]?.path ?? repos[0]?.path ?? ''
       const repoChoices = [...choices].sort(
         (a, b) =>
           repoTime(b) - repoTime(a) ||
-          (a.path.split('/').filter(Boolean).pop() ?? a.path).localeCompare(
-            b.path.split('/').filter(Boolean).pop() ?? b.path,
+          (machinePathBasename(a.path) || a.path).localeCompare(
+            machinePathBasename(b.path) || b.path,
             undefined,
             { sensitivity: 'base' },
           ),
@@ -214,42 +214,42 @@ function createCommandLaunchViews(pool: MobxPool) {
       if (!data || !pins) return undefined
       const { repoViews } = data
       const trees = repoViews.flatMap((repo) => repo.worktrees)
-      const current = trees.find((tree) => tree.path === selectedWorktree)
+      const current = selectedWorktree == null ? undefined : trees.find((tree) => machinePathsEqual(tree.path, selectedWorktree))
       const pinPaths = pins.worktrees ?? [],
         pinnedRepos = pins.repos ?? []
       const navRepos = [
-        ...pinnedRepos.flatMap((path) => repoViews.filter((repo) => repo.path === path)),
+        ...pinnedRepos.flatMap((path) => repoViews.filter((repo) => machinePathsEqual(repo.path, path))),
         ...repoViews.filter(
           (repo) =>
-            !pinnedRepos.includes(repo.path) &&
-            repo.worktrees.some((tree) => !pinPaths.includes(tree.path)),
+            !pinnedRepos.some(path => machinePathsEqual(path, repo.path)) &&
+            repo.worktrees.some((tree) => !pinPaths.some(path => machinePathsEqual(path, tree.path))),
         ),
       ]
       const byRepo = new Map<string, number>()
-      const pathToRepo = new Map(trees.map((tree) => [tree.path, tree.repoPath]))
+      const pathToRepo = new Map(trees.map((tree) => [machinePathKey(tree.path), machinePathKey(tree.repoPath)]))
       for (const repo of repoViews)
         for (const tree of repo.worktrees)
-          if (!pinPaths.includes(tree.path)) pathToRepo.set(tree.path, repo.path)
+          if (!pinPaths.some(path => machinePathsEqual(path, tree.path))) pathToRepo.set(machinePathKey(tree.path), machinePathKey(repo.path))
       for (const repo of navRepos) {
-        const roots = [...pathToRepo].filter(([, path]) => path === repo.path).map(([path]) => path)
-        if (!pathToRepo.has(repo.path)) roots.push(repo.path)
+        const roots = [...pathToRepo].filter(([, path]) => path === machinePathKey(repo.path)).map(([path]) => path)
+        if (!pathToRepo.has(machinePathKey(repo.path))) roots.push(repo.path)
         byRepo.set(
-          repo.path,
+          machinePathKey(repo.path),
           pool.queries.activity({ kind: 'commandRootActivity', roots, match: 'exact' }),
         )
       }
       const defaultRepo = navRepos.reduce<RepoView | undefined>(
         (best, repo) =>
-          !best || (byRepo.get(repo.path) ?? 0) > (byRepo.get(best.path) ?? 0) ? repo : best,
+          !best || (byRepo.get(machinePathKey(repo.path)) ?? 0) > (byRepo.get(machinePathKey(best.path)) ?? 0) ? repo : best,
         undefined,
       )
       const primary = defaultRepo
         ? (defaultRepo.worktrees.find(
             (tree) =>
-              !pinPaths.includes(tree.path) && tree.isMain && tree.path === defaultRepo.path,
+              !pinPaths.some(path => machinePathsEqual(path, tree.path)) && tree.isMain && machinePathsEqual(tree.path, defaultRepo.path),
           ) ??
           defaultRepo.worktrees.find(
-            (tree) => !pinPaths.includes(tree.path) && tree.path === defaultRepo.path,
+            (tree) => !pinPaths.some(path => machinePathsEqual(path, tree.path)) && machinePathsEqual(tree.path, defaultRepo.path),
           ) ?? {
             path: defaultRepo.path,
             repoPath: defaultRepo.path,
@@ -259,7 +259,7 @@ function createCommandLaunchViews(pool: MobxPool) {
         : undefined
       return [
         ...(current ? [current] : []),
-        ...(primary && primary.path !== current?.path ? [primary] : []),
+        ...(primary && (!current || !machinePathsEqual(primary.path, current.path)) ? [primary] : []),
       ]
     },
     { equals: compareStructural },

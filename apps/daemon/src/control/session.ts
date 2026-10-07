@@ -2830,10 +2830,15 @@ export const sessionHandlers: Pick<
     ctx.composerEngine.setTarget(msg.sessionId, msg.text)
   },
   redraw: (ctx, msg) => {
-    // The user's redraw is the one repaint that touches the program: Ctrl-L.
+    // POSIX hard redraw reaches the program as Ctrl-L. ConPTY would clear its
+    // retained console (and recovered scrollback); repaint from the host's
+    // exact picture instead, without touching or restoring an old geometry.
     const owned = ctx.sessions.get(msg.sessionId)
     const terminal = owned?.terminal?.live ? owned.terminal : undefined
-    if (msg.hard && terminal) terminal.write(CTRL_L)
+    if (msg.hard && terminal) {
+      if (process.platform === 'win32') terminal.requestPicture()
+      else terminal.write(CTRL_L)
+    }
     // PICTURES ON (POD-4912): the server holds the latest picture and serves
     // the viewers itself; what it asks for is a fresh one (a viewer stayed owed
     // with nothing to serve — H2). No snapshot and no ring replay: the host's

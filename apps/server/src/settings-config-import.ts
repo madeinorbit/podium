@@ -1,7 +1,8 @@
-import { readFileSync, writeFileSync, renameSync, openSync, fsyncSync, closeSync } from 'node:fs'
+import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { PodiumConfig } from '@podium/runtime/config'
 import { PodiumSettings } from '@podium/runtime'
+import { PodiumConfig } from '@podium/runtime/config'
+import { fsyncPath } from '@podium/runtime/fsync'
 import type { SqlDatabase } from '@podium/runtime/sqlite'
 
 export const SETTINGS_CONFIG_IMPORT = 'settings_config_import_v1'
@@ -80,19 +81,9 @@ export function importConfigSettings(db: SqlDatabase, directory?: string): void 
   if (path && raw !== output) {
     const temporary = path + '.settings-migration.tmp'
     writeFileSync(temporary, output, { mode: 0o600 })
-    const fd = openSync(temporary, 'r')
-    try {
-      fsyncSync(fd)
-    } finally {
-      closeSync(fd)
-    }
+    fsyncPath(temporary)
     renameSync(temporary, path)
-    const dir = openSync(directory!, 'r')
-    try {
-      fsyncSync(dir)
-    } finally {
-      closeSync(dir)
-    }
+    fsyncPath(directory!)
   }
   db.prepare('UPDATE meta SET value = ? WHERE key = ?').run('complete', SETTINGS_CONFIG_IMPORT)
 }

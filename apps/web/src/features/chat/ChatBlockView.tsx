@@ -7,12 +7,12 @@ import {
   parseEnvelopeBatch,
   type TranscriptAttribution,
 } from '@podium/client-core/values'
+import { machinePathBasename, resolveMachinePath } from '@podium/model'
 import type { SessionId } from '@podium/model/browser'
 import { Clock, FileText, Image as ImageIcon, MessageCircleQuestion } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { memo, useCallback, useMemo, useRef, useState } from 'react'
 import { assetUrl } from '@/lib/asset-url'
-import { resolveAgainstCwd } from '@/lib/file-path'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
 import { useKnownRefPrefixesVersion } from '@/lib/use-known-ref-prefixes'
 import { cn } from '@/lib/utils'
@@ -534,8 +534,8 @@ export const ChatBlockView = memo(function ChatBlockView({
       {((item.toolPaths?.length ?? 0) > 0 || (item.tags?.length ?? 0) > 0) && (
         <div className="mt-1.5 flex flex-wrap items-start gap-2">
           {(item.toolPaths ?? []).map((p) => {
-            const abs = resolveAgainstCwd(cwd, p)
-            const name = p.split('/').pop() ?? p
+            const abs = resolveMachinePath(cwd, p)
+            const name = machinePathBasename(p, cwd)
             const chip = (
               <button
                 data-pressable

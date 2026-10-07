@@ -3,6 +3,7 @@ import { keyedComputed } from '@podium/mobx-helpers'
 import type { SessionView } from '@podium/client-core/session-values'
 import { reposToViews } from '@podium/client-core/values'
 import type { MachineId } from '@podium/model/browser'
+import { machinePathKey } from '@podium/model/browser'
 import { compareStructural, computed, createAtom, reaction } from 'mobx'
 import { debugName } from './debug-name'
 import { headerIds } from './enumerate'
@@ -386,7 +387,7 @@ function createHeaderViews(pool: MobxPool) {
     repositoryCount: () => headerEntities(pool).count('repository'),
     worktreeCount: () => worktreeCount.get(),
     repository: (path: string) =>
-      memo(`repository:${path}`, () => {
+      memo(`repository:${machinePathKey(path)}`, () => {
         const scans = headerEntities(pool).repositoryGroup(path).flatMap((id) => {
           const scan = row('repository', id)
           return scan ? [scan] : []

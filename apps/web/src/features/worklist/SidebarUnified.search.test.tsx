@@ -8,6 +8,7 @@ import '@/test-support/mock-core-store-handle'
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { modChord } from '@/lib/mod-chord'
 import { SidebarUnified } from './SidebarUnified'
 
 const ui = vi.hoisted(() => {
@@ -171,7 +172,7 @@ describe('SidebarUnified inline filter (POD-1078)', () => {
     render(<SidebarUnified />)
     // The counter IS the affordance: it names the shortcut that focuses the
     // field, so nothing else has to carry a hint for it.
-    expect(screen.getByTestId('work-search-count').textContent).toBe('⌘F')
+    expect(screen.getByTestId('work-search-count').textContent).toBe(modChord('F'))
     type('rocket')
     expect(field().value).toBe('rocket')
     await waitFor(() => expect(screen.getByTestId('work-search-count').textContent).toBe('2/3'))

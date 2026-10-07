@@ -1,15 +1,17 @@
 /** Machine enrollment owns this key; callers explicitly choose its storage directory.
  * Creation is an enrollment operation, never a boot-time repair or fallback.
  */
-import { mkdirSync, readFileSync, writeFileSync, openSync, closeSync, fsyncSync, renameSync } from 'node:fs'
+
+import { mkdirSync, readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
+import { fsyncPath } from './fsync'
 import {
   isSigningKeyPair,
   mintSigningKeyPair,
   publicKeyWire,
+  type SigningKeyPair,
   signMessage,
   verifyWithWireKey,
-  type SigningKeyPair,
 } from './signing'
 
 export const MACHINE_KEY_FILE = 'machine.key'
@@ -31,9 +33,14 @@ function parse(path: string, raw: string): MachineCredential {
     throw new Error(`invalid persisted machine credential at ${path}`)
   }
   const pending = (value as MachineCredential).pendingRotation
-  if (pending !== undefined && !isSigningKeyPair(pending)) throw new Error(`invalid pending machine credential at ${path}`)
-  return { version: 1, privateKey: value.privateKey, publicKey: value.publicKey,
-    ...(pending ? { pendingRotation: pending } : {}) }
+  if (pending !== undefined && !isSigningKeyPair(pending))
+    throw new Error(`invalid pending machine credential at ${path}`)
+  return {
+    version: 1,
+    privateKey: value.privateKey,
+    publicKey: value.publicKey,
+    ...(pending ? { pendingRotation: pending } : {}),
+  }
 }
 
 /** Absence is reported to the enrollment caller; corruption is always an error. */
@@ -78,11 +85,9 @@ function saveCredential(dir: string, credential: MachineCredential): void {
   const path = join(dir, MACHINE_KEY_FILE)
   const temporary = `${path}.tmp-${process.pid}`
   writeFileSync(temporary, `${JSON.stringify(credential)}\n`, { mode: 0o600 })
-  const fd = openSync(temporary, 'r')
-  try { fsyncSync(fd) } finally { closeSync(fd) }
+  fsyncPath(temporary)
   renameSync(temporary, path)
-  const directory = openSync(dir, 'r')
-  try { fsyncSync(directory) } finally { closeSync(directory) }
+  fsyncPath(dir)
 }
 
 /** Explicit operator action. Retries reuse the persisted proposal, including after restart. */
@@ -97,7 +102,8 @@ export function prepareMachineCredentialRotation(dir: string): MachineCredential
 /** The caller persists the acknowledged public key before retiring the old private key. */
 export function acknowledgeMachineCredentialRotation(dir: string, publicKey: string): boolean {
   const current = readMachineCredential(dir)
-  if (!current?.pendingRotation || machinePublicKeyWire(current.pendingRotation) !== publicKey) return false
+  if (!current?.pendingRotation || machinePublicKeyWire(current.pendingRotation) !== publicKey)
+    return false
   saveCredential(dir, { version: 1, ...current.pendingRotation })
   return true
 }

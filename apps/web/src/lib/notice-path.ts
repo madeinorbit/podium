@@ -1,3 +1,8 @@
+import {
+  isAbsoluteMachinePath,
+  machinePathSegments,
+  machinePathSeparator,
+} from '@podium/model/browser'
 /**
  * A toast description is a sentence everywhere except one place: the worktree
  * move notice (`engine/reactions.ts`) passes a raw absolute path. That one
@@ -23,7 +28,7 @@ export const NOTICE_PATH_CHARS = 56
 
 /** Absolute POSIX, home-relative, or Windows path. A sentence never matches. */
 export function looksLikePath(text: string): boolean {
-  return /^(\/|~\/|[A-Za-z]:[\\/])/.test(text) && !/\s/.test(text)
+  return (isAbsoluteMachinePath(text) || text.startsWith('~/')) && !/\s/.test(text)
 }
 
 /**
@@ -38,16 +43,17 @@ export function looksLikePath(text: string): boolean {
  */
 export function elidePathHead(path: string, maxChars: number = NOTICE_PATH_CHARS): string {
   if (path.length <= maxChars) return path
-  const segments = path.split('/').filter((s) => s.length > 0)
+  const separator = machinePathSeparator(path)
+  const segments = machinePathSegments(path)
   const last = segments[segments.length - 1]
   if (last === undefined) return path
 
   let kept = last
   for (let i = segments.length - 2; i >= 0; i--) {
-    const wider = `${segments[i]}/${kept}`
+    const wider = `${segments[i]}${separator}${kept}`
     // +2 for the "…/" that says segments were dropped.
     if (wider.length + 2 > maxChars) break
     kept = wider
   }
-  return `…/${kept}`
+  return `…${separator}${kept}`
 }

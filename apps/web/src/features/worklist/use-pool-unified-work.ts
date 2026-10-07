@@ -12,6 +12,7 @@ import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import {
   asIssueId,
   asSessionId,
+  machinePathsEqual,
   type IssueColorSlot,
   type IssueId,
   type SessionId,
@@ -169,8 +170,9 @@ export function createPoolWorkActions(
           members.set(session.sessionId, session)
       }
     }
-    const files = clicked.issue.worktreePath
-      ? store.fileTabs.filter((f) => f.worktreePath === clicked.issue.worktreePath).map((f) => f.id)
+    const worktreePath = clicked.issue.worktreePath
+    const files = worktreePath
+      ? store.fileTabs.filter((f) => machinePathsEqual(f.worktreePath, worktreePath)).map((f) => f.id)
       : []
     const target = paneSession ?? pickPaneSession([...members.values()], store.paneA, files)
     trace(target, asIssueId(id))
@@ -204,7 +206,7 @@ export function createPoolWorkActions(
           ? []
           : [session as unknown as SessionView]
       })
-      const files = store.fileTabs.filter((f) => f.worktreePath === path).map((f) => f.id)
+      const files = store.fileTabs.filter((f) => machinePathsEqual(f.worktreePath, path)).map((f) => f.id)
       const target = pickPaneSession(members, store.paneA, files)
       trace(target, null)
       store.setPane('A', target)

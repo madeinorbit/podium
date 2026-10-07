@@ -1,6 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import type { MachineId, MachineWire, SessionId } from '@podium/model/browser'
+import { machinePathKey } from '@podium/model/browser'
 import { useTerminalSession } from '@podium/terminal-client-react'
 import { Monitor } from 'lucide-react'
 import type { JSX } from 'react'
@@ -84,7 +85,7 @@ export function DockShellPanel({
   // forWorktree is return-or-create, so asking once per key is enough: the
   // answer is written into the cache and the cache drives rendering from
   // then on. A new key (panel mount, cwd or machine change) re-arms.
-  const resolveKey = `${cwd}\0${machineId ?? ''}`
+  const resolveKey = `${machinePathKey(cwd)}\0${machineId ?? ''}`
   const reconciledFor = useRef<string | null>(null)
   // Resolve when we can DISTINGUISH "dead" from "not synced yet":
   //  - no mapping at all → fresh worktree, resolve (after boot data loaded);

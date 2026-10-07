@@ -272,6 +272,36 @@ fn native_open_bridge_script() -> &'static str {
     include_str!("../native-open.js")
 }
 
+/// A `Command` for the payload entrypoint. On Windows the backend is a console program:
+/// without CREATE_NO_WINDOW every start would open a console window next to the app.
+fn payload_command(runnable: &Path) -> Command {
+    let mut command = Command::new(runnable);
+    if let Some(install) = runnable.parent() {
+        command.envs(bootstrap::payload_launcher_env(install));
+    }
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        command.creation_flags(CREATE_NO_WINDOW);
+    }
+    command
+}
+
+/// Opt-in WebView2 remote debugging for driving the Windows app from tests and agents
+/// (`PODIUM_WEBVIEW_DEBUG_PORT=9222`; scripts/boat-windows/ui.ts connects to it). Setting
+/// browser arguments replaces Tauri's defaults, so they are repeated here. The usual
+/// WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS does not work: WebView2 ignores it once the app
+/// passes arguments of its own.
+#[cfg(windows)]
+fn webview_debug_browser_args() -> Option<String> {
+    let port = std::env::var("PODIUM_WEBVIEW_DEBUG_PORT").ok()?;
+    let port: u16 = port.trim().parse().ok()?;
+    Some(format!(
+        "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection --remote-debugging-port={port}"
+    ))
+}
+
 fn local_host_sidecar_command(
     runnable: &Path,
     sidecar_args: &[String],
@@ -283,7 +313,7 @@ fn local_host_sidecar_command(
     // A transfer or prior orderly stop may have consumed this marker. Every new child starts
     // from an absent marker; the path is scoped to this shell PID.
     let _ = std::fs::remove_file(shutdown_file);
-    let mut command = Command::new(runnable);
+    let mut command = payload_command(runnable);
     command
         .args(sidecar_args)
         // The daemon makes this exact fleet-managed CLI authoritative for every session.
@@ -322,7 +352,7 @@ fn local_host_sidecar_command(
 /// §2). The shell starts it; it never tells it what to run.
 fn remote_parent_command(runnable: &Path, shutdown_file: &Path) -> Command {
     let _ = std::fs::remove_file(shutdown_file);
-    let mut command = Command::new(runnable);
+    let mut command = payload_command(runnable);
     command
         .args(["parent", "--takeover"])
         .env(PODIUM_CLI_PATH_ENV, runnable)
@@ -670,7 +700,60 @@ fn process_executable(pid: u32) -> Option<std::path::PathBuf> {
 #[cfg(target_os = "macos")]
 use std::os::unix::ffi::OsStrExt;
 
-#[cfg(not(any(target_os = "linux", target_os = "macos")))]
+#[cfg(windows)]
+mod win_process {
+    //! Process queries the successor adoption needs, from kernel32 directly (no extra crate).
+    use std::os::windows::ffi::OsStringExt;
+    type Handle = *mut std::ffi::c_void;
+    const PROCESS_QUERY_LIMITED_INFORMATION: u32 = 0x1000;
+    const STILL_ACTIVE: u32 = 259;
+    #[link(name = "kernel32")]
+    unsafe extern "system" {
+        fn OpenProcess(access: u32, inherit: i32, pid: u32) -> Handle;
+        fn CloseHandle(handle: Handle) -> i32;
+        fn GetExitCodeProcess(handle: Handle, code: *mut u32) -> i32;
+        fn QueryFullProcessImageNameW(handle: Handle, flags: u32, name: *mut u16, size: *mut u32) -> i32;
+    }
+
+    fn with_process<T>(pid: u32, f: impl FnOnce(Handle) -> Option<T>) -> Option<T> {
+        if pid == 0 {
+            return None;
+        }
+        let handle = unsafe { OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, 0, pid) };
+        if handle.is_null() {
+            return None;
+        }
+        let result = f(handle);
+        unsafe { CloseHandle(handle) };
+        result
+    }
+
+    /// A pid names a live process only while it has not exited: Windows keeps the object (and
+    /// so OpenProcess succeeds) as long as any handle to an exited process is open.
+    pub fn is_alive(pid: u32) -> bool {
+        with_process(pid, |handle| {
+            let mut code = 0_u32;
+            (unsafe { GetExitCodeProcess(handle, &mut code) } != 0).then_some(code == STILL_ACTIVE)
+        })
+        .unwrap_or(false)
+    }
+
+    pub fn executable(pid: u32) -> Option<std::path::PathBuf> {
+        with_process(pid, |handle| {
+            let mut buffer = vec![0_u16; 32_768];
+            let mut size = buffer.len() as u32;
+            let ok = unsafe { QueryFullProcessImageNameW(handle, 0, buffer.as_mut_ptr(), &mut size) };
+            (ok != 0).then(|| std::ffi::OsString::from_wide(&buffer[..size as usize]).into())
+        })
+    }
+}
+
+#[cfg(windows)]
+fn process_executable(pid: u32) -> Option<std::path::PathBuf> {
+    win_process::executable(pid)
+}
+
+#[cfg(not(any(target_os = "linux", target_os = "macos", windows)))]
 fn process_executable(_pid: u32) -> Option<std::path::PathBuf> {
     None
 }
@@ -728,7 +811,12 @@ fn process_is_alive(pid: u32) -> bool {
     result == 0 || std::io::Error::last_os_error().raw_os_error() == Some(1)
 }
 
-#[cfg(not(unix))]
+#[cfg(windows)]
+fn process_is_alive(pid: u32) -> bool {
+    win_process::is_alive(pid)
+}
+
+#[cfg(not(any(unix, windows)))]
 fn process_is_alive(_pid: u32) -> bool {
     false
 }
@@ -1684,7 +1772,7 @@ fn main() {
                     let web_dir = install.join("web");
                     let mobile_web_dir = install.join("mobile");
                     if payload_start_error.is_none() {
-                        match bootstrap::ensure_executable(&install.join("podium")) {
+                        match bootstrap::ensure_executable(&bootstrap::payload_entrypoint(install)) {
                             Err(error) => {
                                 let reason = format!("payload is not executable: {error}");
                                 log::error!("{reason}");
@@ -1791,7 +1879,7 @@ fn main() {
                         .as_ref()
                         .expect("a daemon host has an external payload");
                     if server_transport_error.is_none() && payload_start_error.is_none() {
-                        match bootstrap::ensure_executable(&install.join("podium")) {
+                        match bootstrap::ensure_executable(&bootstrap::payload_entrypoint(install)) {
                             Err(error) => {
                                 let reason = format!("payload is not executable: {error}");
                                 log::error!("{reason}");
@@ -2431,6 +2519,11 @@ fn main() {
                         }
                     });
 
+                    #[cfg(windows)]
+                    let window_builder = match webview_debug_browser_args() {
+                        Some(args) => window_builder.additional_browser_args(&args),
+                        None => window_builder,
+                    };
                     if let Err(error) = window_builder.build() {
                         log::error!("window build failed: {error}");
                     }

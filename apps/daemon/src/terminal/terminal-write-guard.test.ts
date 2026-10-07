@@ -48,7 +48,7 @@ const INVENTORY: Record<string, Sink> = {
     'terminal',
   'control/native-terminal-input.ts: bridge.write(bytes)': 'terminal',
   'control/legacy-terminal-input.ts: bridge.write(bytes)': 'terminal',
-  'control/session.ts: if (msg.hard && terminal) terminal.write(CTRL_L)': 'terminal',
+  'control/session.ts: else terminal.write(CTRL_L)': 'terminal',
   'runtime/opencode-attach.ts: for (const data of buffered) started.write(data)': 'terminal',
   'runtime/opencode-attach.ts: terminal.write(data)': 'terminal',
   // The harness terminal driver's only way in: its TerminalTransport, adapted

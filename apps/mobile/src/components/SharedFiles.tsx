@@ -1,21 +1,17 @@
 import { isImagePath } from '@podium/client-core/values'
 import type { TranscriptItem } from '@podium/model'
-import { FileText, X } from './icons'
+import { machinePathBasename } from '@podium/model'
 import { useEffect, useState } from 'react'
 import { Image, Linking, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native'
 import {
   authenticatedImageSource,
   fetchAuthenticatedAsset,
-  readAuthenticatedTextPreview,
-} from '../client/authenticated-assets'
+  readAuthenticatedTextPreview} from '../client/authenticated-assets'
 import { useServerProfile } from '../client/ServerProfileGate'
-import {
-  pathBasename,
-  sessionAssetUrl,
-  type TranscriptAssetContext,
-} from '../lib/transcript-assets'
+import { sessionAssetUrl, type TranscriptAssetContext } from '../lib/transcript-assets'
 import { color, font, leading, monoLabel, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
+import { FileText, X } from './icons'
 import { PressableScale } from './PressableScale'
 
 function FileChip({ label, onPress }: { label: string; onPress?: () => void }) {
@@ -40,7 +36,7 @@ function SharedPath({ path, context }: { path: string; context?: TranscriptAsset
   const { bearer } = useServerProfile()
   const [failed, setFailed] = useState(false)
   const [preview, setPreview] = useState(false)
-  const name = pathBasename(path)
+  const name = machinePathBasename(path, context?.cwd ?? path)
   const url = context ? sessionAssetUrl(context, path) : undefined
 
   if (!url) return <FileChip label={name} />

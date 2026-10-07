@@ -15,7 +15,7 @@ import { compareStructural, computed, observer } from '@podium/client-graph/reac
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import type { SidebarSections, SidebarState } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
-import { asIssueId, type SessionId } from '@podium/model/browser'
+import { asIssueId, machinePathKey, machinePathsEqual, type SessionId } from '@podium/model/browser'
 import * as m from 'motion/react-m'
 import {
   type AnimationEvent,
@@ -318,7 +318,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
       const value = issue(id)
       return scope === 'pinned'
         ? value
-          ? [`group:${value.issue.repoId ?? value.issue.repoPath}`]
+          ? [`group:${value.issue.repoId ?? machinePathKey(value.issue.repoPath)}`]
           : []
         : scope.startsWith('group:')
           ? ['pinned']
@@ -882,7 +882,7 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
 }) {
   const visible = usePanelVisible()
   const state = useRuntimeSelector((s) => {
-    const active = visible && s.selectedIssueId === null && s.selectedWorktree === path
+    const active = visible && s.selectedIssueId === null && s.selectedWorktree != null && machinePathsEqual(s.selectedWorktree, path)
     return { selectedWorktree: active ? path : null, paneA: active ? s.paneA : null }
   }, shallowEqual)
   const projection = useMemo(

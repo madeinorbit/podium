@@ -77,7 +77,9 @@ export type ToolInventory = z.infer<typeof ToolInventory>
  *  can I run on your hardware, and as whom", which §3.1.4 M2 calls a
  *  code-execution boundary rather than a privacy one. */
 export const Inventory = z.object({
-  os: z.enum(['linux', 'darwin']),
+  /** Node's platform name. `win32` is newer than the other two: a server older than it
+   *  rejects a Windows daemon's inventory, which only a Windows machine ever sends. */
+  os: z.enum(['linux', 'darwin', 'win32']),
   arch: z.enum(['x64', 'arm64']),
   /** Absent until #221 ships `podium --version`. */
   podiumVersion: z.string().optional(),

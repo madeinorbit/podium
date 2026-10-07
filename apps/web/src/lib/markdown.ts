@@ -1,7 +1,7 @@
 import { anyRefMatcher, parseAnyRef, parsePodiumLink } from '@podium/protocol'
 import DOMPurify, { type UponSanitizeAttributeHook } from 'dompurify'
-import { renderMarkdownUnsafe } from './markdown-renderer'
 import { getKnownRefPrefixes, isKnownRefPrefix } from './markdown-references'
+import { renderMarkdownUnsafe } from './markdown-renderer'
 import { classifyPodiumLink, internalPodiumTarget, systemBrowserPodiumHref } from './podium-link'
 
 /**
@@ -90,11 +90,13 @@ export function sanitizeMarkdownHtml(html: string): string {
 // signal; this only filters out non-file code spans (commands, identifiers).
 const PATHISH =
   /^[\w./@~-]+\/[\w./@~-]+$|^[\w.-]+\.(ts|tsx|js|jsx|mjs|cjs|json|md|py|css|scss|html|htm|rs|go|sh|yml|yaml|toml)$/
+// Without a cwd, backslashes only have path meaning after an explicit Windows root.
+const WINDOWS_PATHISH = /^(?:[A-Za-z]:[\\/]|\\\\[^\\/]+[\\/])[\w./\\@~-]+$/
 
 export function linkifyCodePaths(html: string): string {
   return html.replace(/<code>([^<]+)<\/code>/g, (full, inner: string) => {
     const token = inner.trim()
-    if (!PATHISH.test(token)) return full
+    if (!PATHISH.test(token) && !WINDOWS_PATHISH.test(token)) return full
     return `<code><a class="file-link" data-path="${token}">${inner}</a></code>`
   })
 }

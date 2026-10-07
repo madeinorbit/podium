@@ -7,6 +7,7 @@ import { compareStructural, computed, observer } from '@podium/client-graph/reac
 import { motionPhase } from '@podium/client-graph/worklist/rollup'
 import type { SidebarWorktree } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
+import { machinePathBasename, machinePathsEqual } from '@podium/model/browser'
 
 import { FolderPlus, GitBranch, Plus, Search } from 'lucide-react'
 import { Fragment, type JSX, useMemo, useState } from 'react'
@@ -182,7 +183,7 @@ const PoolRailTile = observer(function PoolRailTile({
 }): JSX.Element | null {
   const local = useRuntimeSelector(
     (s) => ({
-      selected: kind === 'worktree' && s.selectedIssueId === null && s.selectedWorktree === id,
+      selected: kind === 'worktree' && s.selectedIssueId === null && s.selectedWorktree !== null && machinePathsEqual(s.selectedWorktree, id),
     }),
     shallowEqual,
   )
@@ -271,7 +272,7 @@ const PoolRailTile = observer(function PoolRailTile({
           ? 'done'
           : 'queued'
     count = phases.filter((p) => p === 'waiting').length
-    title = tree!.worktree.branch ?? id.split('/').pop() ?? id
+    title = tree!.worktree.branch ?? (machinePathBasename(id) || id)
     const head = sessions.length > 1 ? `${sessions.length} agents · ` : ''
     const working = phases.filter((p) => p === 'working').length
     const waiting = sessions.filter((_, index) => phases[index] === 'waiting') as SessionView[]

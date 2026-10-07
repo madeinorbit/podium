@@ -1,18 +1,10 @@
-import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
-import { stateDir } from '@podium/runtime/config'
-import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
-import { requestParentEnrollment } from '@podium/runtime/parent-control'
-import { supersedeMachine } from './supersession'
-import type { SettingsAuditRow } from '../../store/settings-audit'
-import type { DaemonReadiness } from '@podium/model'
-import type { BindingConfirmations } from '@podium/protocol'
 import { randomUUID } from 'node:crypto'
 import { gateHarnessVersion, HARNESS_VERSION_POLICIES } from '@podium/harness/browser'
 import { createLogger } from '@podium/logger'
+import type { DaemonReadiness } from '@podium/model'
 import {
   type AccountId,
   AgentKind,
-  type MachineProjection,
   agentCapabilityRejection,
   agentCapabilityRejectionForSelection,
   agentLoginCondition,
@@ -22,8 +14,10 @@ import {
   asUserId,
   HOST_REPOS,
   type Inventory,
+  isMachinePathWithinRoot,
   type MachineComponent,
   type MachineId,
+  type MachineProjection,
   type MachineRejection,
   type MachineRequirement,
   type MachineServiceAssignment,
@@ -35,9 +29,8 @@ import {
   resolveMachineChannel,
   structuralEligibility,
   type UpdateChannel,
-  type UserId,
-} from '@podium/model'
-import type {
+  type UserId} from '@podium/model'
+import type { BindingConfirmations,
   DaemonHandshake,
   DaemonPtyInputBatch,
   HarnessDescriptorWire,
@@ -46,15 +39,19 @@ import type {
   MachineVerb,
   PeerBuild,
   ServerMessage,
-  UpdateKeyRotation,
-} from '@podium/protocol'
+  UpdateKeyRotation} from '@podium/protocol'
 import { SERVER_MOVE_CAPABILITY, supervisorGenerationOf, wireSchemaDigest } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
+import { stateDir } from '@podium/runtime/config'
+import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
+import { requestParentEnrollment } from '@podium/runtime/parent-control'
 import { TRPCError } from '@trpc/server'
 import type { ClientPrincipal } from '../../gateway/client-principal'
 import type { DaemonControlPeer } from '../../gateway/daemon-ports'
+import { enrollSetupMachine, readSetupEnrollment } from '../../setup-enrollment'
 import type { MachineRecord, SessionStore } from '../../store'
 import { machineRecordFromRow } from '../../store/machines'
+import type { SettingsAuditRow } from '../../store/settings-audit'
 import type { EventBus } from '../bus'
 import type { Send } from '../sessions/session'
 import type { WorldIndexReader } from '../world-index'
@@ -62,6 +59,7 @@ import { readResourceGrants } from '../world-index/grant-reader'
 import type { EnrollmentHost, MachineManagementContext } from './enrollment'
 import * as credentials from './enrollment'
 import { sha256 } from './enrollment'
+import { supersedeMachine } from './supersession'
 
 /** The credential lifecycle lives in `./enrollment.ts`; re-exported for the
  *  fixtures and durability tests that hash a token the way the store does. */
@@ -1154,7 +1152,7 @@ export class MachinesService {
     const byRepo = machines.find((machine) =>
       this.daemons.has(machine.id) &&
       agentCapabilityRejectionForSelection(machine, agentKind) === undefined &&
-      reposByMachine.get(machine.id)?.some((repo) => cwd === repo.path || cwd.startsWith(`${repo.path}/`)) === true,
+      reposByMachine.get(machine.id)?.some((repo) => isMachinePathWithinRoot(repo.path, cwd)) === true,
     )
     if (byRepo) return byRepo.id
 
@@ -1328,7 +1326,7 @@ export class MachinesService {
     }
     const hasRepo = (await this.deps.store.repos
       .listRepos(machineId))
-      .some((r) => repoPath === r.path || repoPath.startsWith(`${r.path}/`))
+      .some((r) => isMachinePathWithinRoot(r.path, repoPath))
     if (!hasRepo) {
       throw new Error(
         `machine '${name}' has no repo registered at ${repoPath} — clone/register the repo on that machine or clear the issue's machine pin`,
@@ -1346,7 +1344,7 @@ export class MachinesService {
     )))
     const byRepo = online.find((id) =>
       this.daemons.has(id) &&
-      reposByMachine.get(id)?.some((repo) => cwd === repo.path || cwd.startsWith(`${repo.path}/`)) === true,
+      reposByMachine.get(id)?.some((repo) => isMachinePathWithinRoot(repo.path, cwd)) === true,
     )
     return byRepo ?? await this.defaultMachine()
   }

@@ -1,11 +1,12 @@
 import {
   formatClock,
   resolveToolEdit,
+  type ToolEditView,
   toolEditDiffKey,
   toolEditHasDiff,
   toolEditUnifiedDiff,
-  type ToolEditView,
 } from '@podium/client-core/values'
+import { machinePathKey, machinePathRelativeToRoot, resolveMachinePath } from '@podium/model/browser'
 import type { SessionId } from '@podium/model/browser'
 import type { TranscriptToolRun } from '@podium/client-core/conversation'
 import { observer } from 'mobx-react-lite'
@@ -232,6 +233,7 @@ export const ToolBatchView = observer(function ToolBatchView({
   // the sheet's text is built below only once the reader asks for it.
   const { editedPaths, pathByBlock, editRefs } = useMemo(() => {
     const seen: string[] = []
+    const names = new Map<string, string>()
     const created = new Set<string>()
     const byBlock = new Map<string, string>()
     const refs: { blockId: string; path: string; edit: ToolEditView }[] = []
@@ -240,11 +242,8 @@ export const ToolBatchView = observer(function ToolBatchView({
     // form, and the rail's dir/name split is meaningless on a full absolute
     // path, so everything inside the cwd is shown relative to it. A file outside
     // it keeps its absolute name, which is the only honest thing to call it.
-    const prefix = cwd.endsWith('/') ? cwd : `${cwd}/`
-    const normalise = (raw: string): string => {
-      const path = raw.replace(/^\.\//, '')
-      return path.startsWith(prefix) ? path.slice(prefix.length) : path
-    }
+    const normalise = (raw: string): string =>
+      machinePathRelativeToRoot(cwd, raw) ?? resolveMachinePath(cwd, raw)
     for (const b of blocks) {
       // ONLY a recorded edit. `toolPaths` is every path the call reported —
       // reads included, and files outside the repo — and neither belongs in a
@@ -252,7 +251,10 @@ export const ToolBatchView = observer(function ToolBatchView({
       const edit = resolveToolEdit(b.item)
       if (!edit?.path) continue
       if (!toolEditHasDiff(edit)) continue
-      const path = normalise(edit.path)
+      const spelling = normalise(edit.path)
+      const key = machinePathKey(resolveMachinePath(cwd, spelling))
+      const path = names.get(key) ?? spelling
+      names.set(key, path)
       if (!seen.includes(path)) seen.push(path)
       if (edit.mode === 'write') created.add(path)
       byBlock.set(b.item.id, path)

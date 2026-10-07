@@ -7,6 +7,7 @@ import {
   ISSUE_STAGES,
   type IssueStage,
   type MachineWire,
+  machinePathBasename,
   machinesForRepoOrClone,
   onlineMachinesForRepoOrClone,
 } from '@podium/model/browser'
@@ -46,6 +47,7 @@ import {
 } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { MENU_HEADER, MENU_HEADER_REF, MENU_HINT, MENU_RULE } from '@/lib/menu-surface'
+import { modChord } from '@/lib/mod-chord'
 import { PropertyMenu, type PropertyOption } from '@/lib/PropertyMenu'
 import { cn } from '@/lib/utils'
 import { STAGE_LABELS } from './issue-card'
@@ -76,11 +78,6 @@ import { PriorityGlyph, StageGlyph } from './issue-glyphs'
  * to `repo.branch || settings.gitWorkflow.defaultParentBranch || 'main'` for the
  * parent branch.
  */
-
-/** The repo basename, falling back to the full path — repos are shown by name. */
-function repoLabel(path: string): string {
-  return path.split('/').filter(Boolean).pop() ?? path
-}
 
 /**
  * The composer's pill: a `PropertyMenu` trigger sized as a CONTROL.
@@ -277,7 +274,7 @@ function NewIssueDialogBody({
   // Most-recently-used repos first — matches the sidebar's New-agent menu.
   const repoOptions = useMemo<PropertyOption[]>(() => data.repoPaths.map(path => ({
     value: path,
-    label: repoLabel(path),
+    label: machinePathBasename(path),
     icon: <FolderGit2 size={13} aria-hidden="true" className="text-muted-foreground" />,
   })), [data.repoPaths])
   const stageOptions: PropertyOption[] = ISSUE_STAGES.map((s) => ({
@@ -455,7 +452,7 @@ function NewIssueDialogBody({
             trigger={
               <PillButton
                 icon={<FolderGit2 size={13} aria-hidden="true" />}
-                label={repoLabel(repoPath) || 'Repo'}
+                label={machinePathBasename(repoPath) || 'Repo'}
               />
             }
             options={repoOptions}
@@ -612,9 +609,9 @@ function NewIssueDialogBody({
           <span
             className="ml-auto font-mono text-[10.5px] text-text-faint"
             role="img"
-            aria-label="Command Enter"
+            aria-label={modChord('↵') === '⌘↵' ? 'Command Enter' : 'Control Enter'}
           >
-            ⌘↵
+            {modChord('↵')}
           </span>
           <Button type="button" variant="outline" onClick={onClose} disabled={busy}>
             Cancel

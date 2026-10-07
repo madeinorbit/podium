@@ -1,9 +1,11 @@
+import { isAbsoluteMachinePath } from '@podium/model'
 import {
   asMachineId,
   HOST_REPOS,
   type MachineActionCopy,
   type MachineId,
   type MachineWire,
+  machinePathSeparator,
 } from '@podium/model/browser'
 import {
   Check,
@@ -24,10 +26,10 @@ import {
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
-import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Input } from '@/components/ui/input'
+import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { MENU_ITEM, MENU_PANEL, MENU_RULE } from '@/lib/menu-surface'
 import { cn } from '@/lib/utils'
@@ -295,7 +297,7 @@ export function RepoPickerModal({
       setError(`${selectedMachine.name} is offline`)
       return
     }
-    if (!path.startsWith('/')) {
+    if (!isAbsoluteMachinePath(path)) {
       setError('Repo path must be absolute')
       return
     }
@@ -371,8 +373,11 @@ export function RepoPickerModal({
       setEditError('Enter a name for the folder')
       return
     }
-    if (name.includes('/')) {
-      setEditError('A folder name cannot contain "/"')
+    if (
+      name.includes('/') ||
+      (machinePathSeparator(listing.path) === '\\' && name.includes('\\'))
+    ) {
+      setEditError('A folder name cannot contain path separators')
       return
     }
     if (edit.kind === 'rename' && name === edit.from) {
@@ -753,7 +758,11 @@ export function RepoPickerModal({
                     disabled={busy}
                     aria-label={`Open parent folder ${listing.parentPath}`}
                   >
-                    <Folder size={19} className="flex-none text-muted-foreground" aria-hidden="true" />
+                    <Folder
+                      size={19}
+                      className="flex-none text-muted-foreground"
+                      aria-hidden="true"
+                    />
                     <span className="font-mono text-[13px] text-muted-foreground">..</span>
                     <span className="min-w-0 flex-1 truncate text-[13.5px] text-muted-foreground">
                       {listing.parentPath}
@@ -874,7 +883,7 @@ export function RepoPickerModal({
                       browsedRepoPath && 'placeholder:text-foreground',
                     )}
                     value={manualPath}
-                    placeholder={browsedRepoPath ?? '/home/user/project'}
+                    placeholder={browsedRepoPath ?? 'Absolute project path'}
                     disabled={writing || !machineReady}
                     onChange={(e) => setManualPath(e.currentTarget.value)}
                     onKeyDown={(e) => {

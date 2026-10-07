@@ -11,7 +11,9 @@ import { homedir } from 'node:os'
 import { basename, join } from 'node:path'
 
 /** Claude's per-project transcript dir name: the cwd with every non-alphanumeric
- *  character flattened to '-' (verified against real hook payloads, CLI 2.1.173). */
+ *  character flattened to '-' (CLI 2.1.291 embedded source: XP/k).
+ *  The colon and either Windows separator each contribute one hyphen: C--src-podium.
+ *  Keep the cwd's original casing; the CLI bucket is case-sensitive on disk. */
 export function claudeProjectSlug(cwd: string): string {
   return cwd.replace(/[^a-zA-Z0-9]/g, '-')
 }

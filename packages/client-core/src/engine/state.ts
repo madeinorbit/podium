@@ -1,3 +1,4 @@
+import { isMachinePathWithinRoot } from '@podium/model'
 import type { SessionView } from '../session-values'
 import {
   loadingNavigationProvider,
@@ -5,7 +6,9 @@ import {
   type NavigationIssue,
   type NavigationProvider,
 } from './navigation-provider'
+
 export * from './navigation-provider'
+
 /**
  * The client runtime's STATE SHAPE and the pure derivations over it (POD-404).
  *
@@ -448,7 +451,7 @@ export function workspaceMembership(
   if (key === 'none') return () => true
   if (key.startsWith('wt:')) {
     const path = key.slice(3)
-    return (session) => session.cwd === path || session.cwd.startsWith(`${path}/`)
+    return (session) => isMachinePathWithinRoot(path, session.cwd)
   }
   if (key.startsWith('issue:')) {
     const issueId = key.slice(6)
@@ -459,7 +462,7 @@ export function workspaceMembership(
     return (session) => {
       if (session.issueId !== undefined) return session.issueId === issueId
       if (issue === NAVIGATION_LOADING) return true
-      return Boolean(wt && (session.cwd === wt || session.cwd.startsWith(`${wt}/`)))
+      return Boolean(wt && isMachinePathWithinRoot(wt, session.cwd))
     }
   }
   if (key.startsWith('mission:')) {
@@ -485,7 +488,7 @@ export function workspaceMembership(
           }
         }
         return (
-          loading || worktrees.some((wt) => session.cwd === wt || session.cwd.startsWith(`${wt}/`))
+          loading || worktrees.some((wt) => isMachinePathWithinRoot(wt, session.cwd))
         )
       }
     }

@@ -1,4 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { machinePathHasSuffix } from '@podium/model'
 import type { IssuePanelArtifact, SessionOffer } from '@podium/model/browser'
 
 /**
@@ -52,14 +53,10 @@ function newestMatch(
 ): IssuePanelArtifact | undefined {
   let best: IssuePanelArtifact | undefined
   for (const a of published) {
-    if (!pathsRefer(a.path, path)) continue
+    if (!machinePathHasSuffix(a.path, path) && !machinePathHasSuffix(path, a.path)) continue
     // Later entries win ties: re-adding an artifact appends, so list position
     // is the secondary recency signal.
     if (!best || a.addedAt >= best.addedAt) best = a
   }
   return best
-}
-
-function pathsRefer(a: string, b: string): boolean {
-  return a === b || a.endsWith(`/${b}`) || b.endsWith(`/${a}`)
 }

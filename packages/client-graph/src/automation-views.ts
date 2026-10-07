@@ -1,10 +1,10 @@
 import { keyedComputed } from '@podium/mobx-helpers'
 import { compareStructural } from 'mobx'
-import type { MobxPool } from './pool'
 import type { AutomationRows } from './automation-schema'
+import { debugName } from './debug-name'
+import type { MobxPool } from './pool'
 import type { SettingsRows } from './settings-schema'
 import { LOADING } from './worklist/rollup'
-import { debugName } from './debug-name'
 import { createAutomationTargets } from './automation-targets'
 
 export type TargetAvailability = 'available' | 'unauthorized' | 'unreachable' | 'incapable' | 'disabled' | 'degraded'

@@ -1,3 +1,4 @@
+import { machinePathKey } from '@podium/model/browser'
 /**
  * POD-4566 (Ma2) — the pool's relation reader (`RelationReader`, L5a),
  * answered from the declared schema (`shared/src/schema.ts`).
@@ -36,14 +37,14 @@
 import { createDemandAtoms } from '@podium/mobx-helpers'
 import { observable } from 'mobx'
 import { debugName } from './debug-name'
-import type { RelationReader } from './shared/relation-reader'
 import { relationRef } from './shared/links'
 import type { RelationDelta, RelationQueries } from './shared/relation-index'
+import type { RelationReader } from './shared/relation-reader'
 import { type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
 
+export { ancestorPaths, isLinkSpec, type LinkSpec, linkInputs, prefixCandidates } from './shared/relation-index'
 // The declared link helpers live with the index; kept importable from here.
 export { relationRef }
-export { ancestorPaths, isLinkSpec, linkInputs, type LinkSpec, prefixCandidates } from './shared/relation-index'
 
 /** The read surface a relation needs; a table, a MobX map and a `Map` all have it. */
 export interface ReadableTable {
@@ -146,6 +147,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   }
 
   subset(from: EntityName, id: string, relation: string, subset: string): Iterable<string> {
+    id = machinePathKey(id)
     const key = `${from}.${relation}`
     if (!this.collections.has(key)) {
       this.spec(from, relation)
@@ -229,6 +231,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   // ------------------------------------------------------------------ slots
 
   private slot(from: EntityName, id: string, relation: string): { key: string; read: () => ReadonlySet<string> } {
+    id = machinePathKey(id)
     const key = `${from}.${relation}`
     if (this.multiples.has(key)) return { key: `f:${key}:${id}`, read: () => this.index().targets(from, id, relation) }
     if (!this.collections.has(key)) {

@@ -22,12 +22,13 @@ import {
   buildWorktreeRootIndex,
   type IssueId,
   isHeadlessSession,
+  isMachinePathWithinRoot,
   type SessionId,
   worktreeForCwdIndexed,
 } from '@podium/model'
-import type { IssueViewModel } from '../values/issue-type'
 import { sessionById } from '../session-index'
 import type { SessionView } from '../session-values'
+import type { IssueViewModel } from '../values/issue-type'
 
 // ---------------------------------------------------------------------------
 // Referent resolution over a partial world.
@@ -201,8 +202,7 @@ export function sessionsForIssueWorktree(
 ): SessionView[] {
   if (!worktreePath) return []
   return sessions.filter(
-    (s) =>
-      !isHeadlessSession(s) && (s.cwd === worktreePath || s.cwd.startsWith(`${worktreePath}/`)),
+    (s) => !isHeadlessSession(s) && isMachinePathWithinRoot(worktreePath, s.cwd),
   )
 }
 

@@ -26,6 +26,7 @@ import {
   asSessionId,
   asUserId,
   firstAdminMemberId,
+  machinePathsEqual,
   spawnedByParentSessionId,
 } from '@podium/model'
 import type {
@@ -2073,8 +2074,8 @@ export class SessionRegistry {
             message.kind !== 'worktree'
           )
             break
-          if (message.repoRoot !== undefined && message.repoRoot !== issue.repoPath) break
-          if ((await issueAccess.worktreePaths()).includes(message.cwd)) break
+          if (message.repoRoot !== undefined && !machinePathsEqual(message.repoRoot, issue.repoPath)) break
+          if ((await issueAccess.worktreePaths()).some(path => machinePathsEqual(path, message.cwd))) break
           await issues.crud.update(issue.id, {
             worktreePath: message.cwd,
             machineId: event.machineId,

@@ -1,3 +1,5 @@
+import { machinePathBasename } from '@podium/model'
+import { createRuntimeEventStream, DriverRefusalError, headlessAskAndAwait } from '../../contract.js'
 /**
  * THE HEADLESS RUNTIME DRIVER (POD-4392).
  *
@@ -70,17 +72,21 @@
 import { createHash, randomUUID } from 'node:crypto'
 import { createLogger } from '@podium/logger'
 import {
-  asAccountId,
-  asSessionId,
   type AccountId,
   type AgentKind,
   type AgentRuntimeState,
+  asAccountId,
+  asSessionId,
   type HarnessAgent,
   type Inventory,
   type ResumeRef,
   type SessionId,
 } from '@podium/model'
-import { PermissionAnswer, type HeadlessTurnEvent, type ObservationProvenance } from '@podium/protocol'
+import {
+  type HeadlessTurnEvent,
+  type ObservationProvenance,
+  PermissionAnswer,
+} from '@podium/protocol'
 import type {
   DaemonMessage,
   RuntimeHistoryPage,
@@ -91,11 +97,11 @@ import type { ResolvedHarnessInventory } from '../../../inventory/build-inventor
 import { declaredValue, supported, unsupported } from '../../../manifest.js'
 import { harnessAdapterFor } from '../../../registry.js'
 import {
-  canonicalHeadlessContractFacts,
   type AgentSessionHandle,
   type AttachEndpoint,
   type AttachmentStageResult,
   type ConfigureRequest,
+  canonicalHeadlessContractFacts,
   type DeliveryCancelResult,
   type DriverCapabilities,
   type DriverProcedureOverrides,
@@ -117,9 +123,6 @@ import {
   type TurnInput,
   type TurnReceipt,
   type UsageSnapshot,
-  createRuntimeEventStream,
-  DriverRefusalError,
-  headlessAskAndAwait,
 } from '../../contract.js'
 import { claudeSdkHarnessKind } from '../claude-sdk/session.js'
 import type { EngineProcessOwner } from '../engine-supervision.js'
@@ -1229,7 +1232,7 @@ export function createHeadlessRuntime(
           resumeValue: session.resume.value,
         })
         const bytes = await host.readFileBytes(located.path)
-        const name = located.path.split('/').pop() ?? `${session.sessionId}.jsonl`
+        const name = machinePathBasename(located.path) ?? `${session.sessionId}.jsonl`
         return {
           harness: session.agentKind,
           formatVersion: 1,

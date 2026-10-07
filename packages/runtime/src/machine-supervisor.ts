@@ -1,43 +1,40 @@
-import type { SetupEnrollmentRequest } from './setup-enrollment'
+import { readdirSync, readFileSync, renameSync, statSync, unlinkSync, writeFileSync } from 'node:fs'
 import { hostname } from 'node:os'
-import {
-  closeSync,
-  fsyncSync,
-  mkdirSync,
-  openSync,
-  readdirSync,
-  readFileSync,
-  renameSync,
-  statSync,
-  unlinkSync,
-  writeFileSync,
-} from 'node:fs'
-import { isDeepStrictEqual } from 'node:util'
 import { join } from 'node:path'
+import { isDeepStrictEqual } from 'node:util'
+import { createLogger } from '@podium/logger'
 import {
   asMachineId,
+  type MachineId,
   MachineServiceAssignment,
   type MachineServiceReport,
-  type MachineId,
 } from '@podium/model'
 import {
   createHandshakeDialer,
   MachineChallenge,
-  machineHelloTranscript,
-  machineRotationTranscript,
-  type PeerHello,
   MachineSupervisorControlMessage,
   type MachineSupervisorMessage,
+  machineHelloTranscript,
+  machineRotationTranscript,
   type PeerBuild,
   type PeerCredential,
+  type PeerHello,
 } from '@podium/protocol'
-import { createLogger } from '@podium/logger'
-import { loadMachineState, updateMachineState } from './local-machine'
-import { acceptsUpdateKeyRotation, type UpdateKeyRotation } from './update-key-trust'
+import { type PodiumConfig, stateDir } from './config'
 import { writeConnectivity } from './connectivity'
-import { stateDir, type PodiumConfig } from './config'
+import { fsyncPath } from './fsync'
+import { loadMachineState, updateMachineState } from './local-machine'
+import {
+  acknowledgeMachineCredentialRotation,
+  createMachineCredential,
+  machinePublicKeyWire,
+  prepareMachineCredentialRotation,
+  readMachineCredential,
+  signWithMachine,
+} from './machine-credential'
 import type { MachineUpdateAuthority } from './machine-update'
-import { prepareMachineCredentialRotation, acknowledgeMachineCredentialRotation, createMachineCredential, readMachineCredential, machinePublicKeyWire, signWithMachine } from './machine-credential'
+import type { SetupEnrollmentRequest } from './setup-enrollment'
+import { acceptsUpdateKeyRotation, type UpdateKeyRotation } from './update-key-trust'
 import { workspaceEndpoint } from './workspace-target'
 
 const log = createLogger('runtime:machine-supervisor')
@@ -75,9 +72,15 @@ export const PARENT_GENERATION_ENV = 'PODIUM_PARENT_GENERATION'
 function validSetupRequest(value: unknown, machineId: string): value is SetupEnrollmentRequest {
   if (!value || typeof value !== 'object') return false
   const request = value as Partial<SetupEnrollmentRequest>
-  return request.machineId === machineId && typeof request.requestId === 'string' && request.requestId.length > 0
-    && typeof request.publicKey === 'string' && request.publicKey.length > 0
-    && typeof request.agentExecution === 'boolean' && typeof request.preauthorized === 'boolean'
+  return (
+    request.machineId === machineId &&
+    typeof request.requestId === 'string' &&
+    request.requestId.length > 0 &&
+    typeof request.publicKey === 'string' &&
+    request.publicKey.length > 0 &&
+    typeof request.agentExecution === 'boolean' &&
+    typeof request.preauthorized === 'boolean'
+  )
 }
 
 function parseState(raw: unknown): SupervisorState | null {
@@ -87,10 +90,14 @@ function parseState(raw: unknown): SupervisorState | null {
   const assignment = MachineServiceAssignment.safeParse(value.assignment)
   return {
     machineId: asMachineId(value.machineId),
-    ...(validSetupRequest(value.setupEnrollment, value.machineId) ? { setupEnrollment: value.setupEnrollment } : {}),
+    ...(validSetupRequest(value.setupEnrollment, value.machineId)
+      ? { setupEnrollment: value.setupEnrollment }
+      : {}),
     ...(typeof value.workspaceId === 'string' ? { workspaceId: value.workspaceId } : {}),
     ...(typeof value.token === 'string' ? { token: value.token } : {}),
-    ...(typeof value.enrolledPublicKey === 'string' ? { enrolledPublicKey: value.enrolledPublicKey } : {}),
+    ...(typeof value.enrolledPublicKey === 'string'
+      ? { enrolledPublicKey: value.enrolledPublicKey }
+      : {}),
     ...(typeof value.updatePubkey === 'string' ? { updatePubkey: value.updatePubkey } : {}),
     ...(assignment.success ? { assignment: assignment.data } : {}),
     ...(typeof value.generation === 'number' && Number.isSafeInteger(value.generation)
@@ -108,10 +115,15 @@ function readJson(path: string): unknown {
 }
 
 export function saveSupervisorState(dir: string, state: SupervisorState): void {
-  updateMachineState(dir, (machine) => {
-    if (machine.machineId !== state.machineId) throw new Error('supervisor machine identity conflict')
-    machine.supervisor = { ...state }
-  }, state.machineId)
+  updateMachineState(
+    dir,
+    (machine) => {
+      if (machine.machineId !== state.machineId)
+        throw new Error('supervisor machine identity conflict')
+      machine.supervisor = { ...state }
+    },
+    state.machineId,
+  )
 }
 
 export function loadSupervisorState(dir: string): SupervisorState {
@@ -156,12 +168,7 @@ export function fallbackAssignment(
 export const TRANSFER_ASSIGNMENT_FILE = 'supervisor-transfer-pending.json'
 
 function syncFile(path: string): void {
-  const fd = openSync(path, 'r')
-  try {
-    fsyncSync(fd)
-  } finally {
-    closeSync(fd)
-  }
+  fsyncPath(path)
 }
 
 function configIdentity(path: string): string | undefined {
@@ -352,17 +359,24 @@ export function createMachineSupervisorConnection(
     if (readMachineCredential(deps.stateDir)?.pendingRotation) {
       return { kind: 'machineKey', machineHint: deps.state.machineId }
     }
-    if (persisted.setupEnrollment && !persisted.enrolledPublicKey) throw new Error('setup enrollment is awaiting confirmation')
+    if (persisted.setupEnrollment && !persisted.enrolledPublicKey)
+      throw new Error('setup enrollment is awaiting confirmation')
     if (deps.state.enrolledPublicKey) {
       const key = readMachineCredential(deps.stateDir)
-      if (!key || machinePublicKeyWire(key) !== deps.state.enrolledPublicKey) throw new Error('enrolled machine key unavailable')
+      if (!key || machinePublicKeyWire(key) !== deps.state.enrolledPublicKey)
+        throw new Error('enrolled machine key unavailable')
       return { kind: 'machineKey', machineHint: deps.state.machineId }
     }
     if (deps.state.token)
       return { kind: 'machineToken', token: deps.state.token, machineHint: deps.state.machineId }
-    if (deps.pairCode) return { kind: 'pairCode', code: deps.pairCode,
-      publicKey: machinePublicKeyWire(createMachineCredential(deps.stateDir)) }
-    if (readMachineCredential(deps.stateDir)) return { kind: 'machineKey', machineHint: deps.state.machineId }
+    if (deps.pairCode)
+      return {
+        kind: 'pairCode',
+        code: deps.pairCode,
+        publicKey: machinePublicKeyWire(createMachineCredential(deps.stateDir)),
+      }
+    if (readMachineCredential(deps.stateDir))
+      return { kind: 'machineKey', machineHint: deps.state.machineId }
     throw new Error('machine supervisor has no credential; pair it first')
   }
 
@@ -374,7 +388,8 @@ export function createMachineSupervisorConnection(
   ): boolean => {
     if (enrolledPublicKey) {
       const key = readMachineCredential(deps.stateDir)
-      if (!key || machinePublicKeyWire(key.pendingRotation ?? key) !== enrolledPublicKey) return false
+      if (!key || machinePublicKeyWire(key.pendingRotation ?? key) !== enrolledPublicKey)
+        return false
       deps.state.enrolledPublicKey = enrolledPublicKey
       delete deps.state.token
     } else if (issuedToken) deps.state.token = issuedToken
@@ -454,43 +469,91 @@ export function createMachineSupervisorConnection(
     }
     activeServerUrl = resolveServerUrl()
     const grantServerUrl = activeServerUrl
-    const active = new WebSocket(workspaceEndpoint(activeServerUrl, '/machine', resolveWorkspaceId()))
+    const active = new WebSocket(
+      workspaceEndpoint(activeServerUrl, '/machine', resolveWorkspaceId()),
+    )
     socket = active
     active.addEventListener('open', () => {
-      if (socket === active) { hello = dialer.hello(); active.send(JSON.stringify(hello)) }
+      if (socket === active) {
+        hello = dialer.hello()
+        active.send(JSON.stringify(hello))
+      }
     })
     active.addEventListener('message', (event) => {
       if (socket !== active) return
       let decoded: unknown
-      try { decoded = JSON.parse(String(event.data)) } catch { decoded = null }
+      try {
+        decoded = JSON.parse(String(event.data))
+      } catch {
+        decoded = null
+      }
       const challenge = MachineChallenge.safeParse(decoded)
       if (challenge.success) {
-        if (connected || challengeAnswered || hello?.credential.kind !== 'machineKey'
-          || challenge.data.machineId !== deps.state.machineId) { active.close(); return }
+        if (
+          connected ||
+          challengeAnswered ||
+          hello?.credential.kind !== 'machineKey' ||
+          challenge.data.machineId !== deps.state.machineId
+        ) {
+          active.close()
+          return
+        }
         const key = readMachineCredential(deps.stateDir)
-        if (!key) { active.close(); return }
+        if (!key) {
+          active.close()
+          return
+        }
         challengeAnswered = true
         const { nonce, installationId, connectionId } = challenge.data
         const signingKey = key.pendingRotation ?? key
         const newPublicKey = machinePublicKeyWire(signingKey)
         const transcript = machineRotationTranscript(challenge.data, newPublicKey, newPublicKey)
-        const rotation = key.pendingRotation ? {
-          newKeyId: newPublicKey, newPublicKey, newSignature: signWithMachine(signingKey, transcript),
-          previous: deps.state.token
-            ? { kind: 'bearer-hash' as const, token: deps.state.token }
-            : { kind: 'ed25519' as const, publicKey: machinePublicKeyWire(key), signature: signWithMachine(key, transcript) },
-        } : undefined
-        active.send(JSON.stringify({ ...hello, credential: { ...hello.credential,
-          ...(rotation ? { rotation } : {}),
-          proof: { nonce, installationId, connectionId,
-            signature: signWithMachine(signingKey, machineHelloTranscript(challenge.data)) } } }))
+        const rotation = key.pendingRotation
+          ? {
+              newKeyId: newPublicKey,
+              newPublicKey,
+              newSignature: signWithMachine(signingKey, transcript),
+              previous: deps.state.token
+                ? { kind: 'bearer-hash' as const, token: deps.state.token }
+                : {
+                    kind: 'ed25519' as const,
+                    publicKey: machinePublicKeyWire(key),
+                    signature: signWithMachine(key, transcript),
+                  },
+            }
+          : undefined
+        active.send(
+          JSON.stringify({
+            ...hello,
+            credential: {
+              ...hello.credential,
+              ...(rotation ? { rotation } : {}),
+              proof: {
+                nonce,
+                installationId,
+                connectionId,
+                signature: signWithMachine(signingKey, machineHelloTranscript(challenge.data)),
+              },
+            },
+          }),
+        )
         return
       }
       const step = dialer.receive(String(event.data))
       if (step.action === 'established') {
         const pending = readMachineCredential(deps.stateDir)?.pendingRotation
-        if (pending && step.enrolledPublicKey !== machinePublicKeyWire(pending)) { active.close(); return }
-        if (!persistHandshake(step.issuedToken, step.updatePubkey, step.updateKeyRotations, step.enrolledPublicKey)) {
+        if (pending && step.enrolledPublicKey !== machinePublicKeyWire(pending)) {
+          active.close()
+          return
+        }
+        if (
+          !persistHandshake(
+            step.issuedToken,
+            step.updatePubkey,
+            step.updateKeyRotations,
+            step.enrolledPublicKey,
+          )
+        ) {
           active.close()
           return
         }
@@ -569,11 +632,16 @@ export function createMachineSupervisorConnection(
     },
     report: sendReport,
     rotateCredential() {
-      if (!deps.state.enrolledPublicKey && !deps.state.token) throw new Error('machine must be enrolled before rotation')
+      if (!deps.state.enrolledPublicKey && !deps.state.token)
+        throw new Error('machine must be enrolled before rotation')
       const current = readMachineCredential(deps.stateDir)
-      if (deps.state.enrolledPublicKey && (!current
-        || (machinePublicKeyWire(current) !== deps.state.enrolledPublicKey
-          && (!current.pendingRotation || machinePublicKeyWire(current.pendingRotation) !== deps.state.enrolledPublicKey)))) {
+      if (
+        deps.state.enrolledPublicKey &&
+        (!current ||
+          (machinePublicKeyWire(current) !== deps.state.enrolledPublicKey &&
+            (!current.pendingRotation ||
+              machinePublicKeyWire(current.pendingRotation) !== deps.state.enrolledPublicKey)))
+      ) {
         throw new Error('enrolled machine key unavailable')
       }
       prepareMachineCredentialRotation(deps.stateDir)

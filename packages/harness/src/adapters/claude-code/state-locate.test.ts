@@ -1,4 +1,4 @@
-import { mkdtemp, mkdir, utimes, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, utimes, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
@@ -113,4 +113,22 @@ describe('locateClaudeSessionFile', () => {
       await locateClaudeSessionFile({ cwd: '/x', resumeValue: 'missing', homeDir: home }),
     ).toBeNull()
   })
+})
+
+
+it.each([
+  ['/src/podium', '-src-podium'],
+  ['C:\\src\\podium', 'C--src-podium'],
+  ['C:/src/podium', 'C--src-podium'],
+  ['\\\\nas\\share\\podium', '--nas-share-podium'],
+])('machine paths: Claude transcript bucket for %s', async (cwd, slug) => {
+  const home = await mkdtemp(join(tmpdir(), 'podium-win-locate-'))
+  try {
+    const bucket = join(home, '.claude', 'projects', slug)
+    await mkdir(bucket, { recursive: true })
+    const file = join(bucket, 'native-session.jsonl')
+    await writeFile(file, '{}\n')
+    expect(claudeProjectSlug(cwd)).toBe(slug)
+    expect(await locateClaudeSessionFile({ cwd, resumeValue: 'native-session', homeDir: home })).toBe(file)
+  } finally { await rm(home, { recursive: true, force: true }) }
 })

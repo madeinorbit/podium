@@ -1,7 +1,7 @@
-import { autorun, configure, runInAction } from 'mobx'
-import { expect, it, vi } from 'vitest'
 import type { EngineState, NavigationTopologyDelta } from '@podium/client-core/engine'
 import { loadingNavigationProvider } from '@podium/client-core/engine'
+import { autorun, configure, runInAction } from 'mobx'
+import { expect, it, vi } from 'vitest'
 import { Reactions } from '../../client-core/src/engine/reactions'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { createPoolNavigationProvider } from './navigation-provider'
@@ -196,4 +196,22 @@ it('reads the first-worktree fallback imperatively under development diagnostics
     configure({ enforceActions: 'never', computedRequiresReaction: false,
       reactionRequiresObservable: false, observableRequiresReaction: false })
   }
+})
+
+it.each([
+  ['/Repo', '/Repo', '/Repo/sub'],
+  [String.raw`C:\Src\Podium`, 'c:/src/podium', String.raw`c:\SRC\podium\sub`],
+])('machine paths: navigation and activity preserve registered %s', (root, alias, cwd) => {
+  const f = fixture([lane(root), session('anchor', cwd)])
+  const seen: boolean[] = []
+  const stop = autorun(() => seen.push(f.provider.hasWorktreeSession!(alias) === true))
+  try {
+    expect(f.provider.registeredWorktree!(alias)).toBe(true)
+    expect(f.provider.worktreeForCwd!(cwd)).toBe(root)
+    expect(seen).toEqual([true])
+    f.publish({ type: 'update', rows: [session('anchor', '/outside')] })
+    expect(seen).toEqual([true, false])
+    f.publish({ type: 'update', rows: [session('anchor', cwd)] })
+    expect(seen).toEqual([true, false, true])
+  } finally { stop(); f.pool.dispose() }
 })

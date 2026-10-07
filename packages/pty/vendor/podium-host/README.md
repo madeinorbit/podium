@@ -155,3 +155,38 @@ this binary through the same resolution as the daemon (the cached source build, 
 Darwin outputs need `rcodesign sign --binary-identifier podium-host` (zig signs
 arm64 ad hoc and leaves x86_64 unsigned); `scripts/rust-host-cross.ts` does this for the
 release, and `.cargo/config.toml` reserves the header room for it.
+
+## Windows
+
+The native MSVC host uses ConPTY for interactive children and overlapped named
+pipes for SPEC-6 clients and child I/O. Its pipe rejects remote clients and has
+a protected DACL for the current user; discovery markers receive the same DACL.
+The launcher detaches and breaks away from the daemon's job before reporting
+success. The host owns a separate kill-on-close job for the child tree.
+
+Screen models, pictures and automatic cuts use the same VT emulator and clock
+on all platforms. ConPTY resizes update the emulator only after successful
+ResizePseudoConsole; same-size requests do nothing. Windows hard redraw asks
+for an exact picture rather than sending Ctrl-L, which clears the console's
+retained output. There is no resize nudge to race with a newer requested size.
+
+Legacy C-host and abduco adoption is POSIX-only: neither predecessor ever ran
+on Windows. Windows daemon restart adoption uses inventory markers, verifies
+the named pipe with SPEC-6 STATUS, then reattaches to the existing host and child.
+POSIX process-group signals and child-originated TIOCSWINSZ remain POSIX-only;
+Windows Ctrl-C is console input and termination targets the child job.
+
+Native acceptance: `cargo test --locked` in this crate and, from the repository
+root, `bun run test:file -- packages/pty/test/host-windows.bun.test.ts`.
+
+Windows clients use `podium-host connect --socket <pipe>` as a native stdio
+bridge. It opens the exact protocol handle with identification-only SQOS,
+checks the named-pipe server process's token user against the caller's SID,
+and only then forwards bytes. Discovery and adoption use the same bridge;
+a stale marker or squatted global pipe name cannot establish trust.
+Bare commands search PATH without implicitly searching the session directory.
+Only a first-instance bind collision reports exit 3; other startup failures
+report exit 1. Unsupported POSIX signals are ignored with a protocol diagnostic.
+ConPTY SIGINT writes Ctrl-C; a pipes-only child has no console, so its documented
+interrupt equivalent terminates its owned job with status 130. SIGTERM/SIGKILL
+terminate the job with status 143/137 respectively.

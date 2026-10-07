@@ -1,9 +1,10 @@
 import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/values'
 import { deadLetterDeliveryLine, isMessageRecordAttention } from '@podium/model'
-import type { MobxPool } from './pool'
-import { pendingInteractionCard } from './notice-card'
+import { machinePathBasename } from '@podium/model/browser'
 import type { HeaderRows } from './header-schema'
+import { pendingInteractionCard } from './notice-card'
 import type { NoticeRows, NoticeSessionSummary } from './notice-schema'
+import type { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
 /** All payload and summary reads pass through the pool's one reader. No cold
@@ -15,7 +16,7 @@ function messageNotice(pool: MobxPool, id: string): { notice?: MessageNotice; pe
   if (!record || !isMessageRecordAttention(record.status)) return { pending: 0 }
   const session = pool.row('session', record.sessionId, 'summary') as NoticeSessionSummary | typeof LOADING | undefined
   const label = !session ? 'a closed session' : session === LOADING ? 'Loading session…'
-    : session.name?.trim() || session.title?.trim() || session.cwd?.split('/').filter(Boolean).pop() || session.agentKind
+    : session.name?.trim() || session.title?.trim() || machinePathBasename(session.cwd ?? '') || session.agentKind
   const first = record.body.trim().split('\n')[0] ?? ''
   return { pending: session === LOADING ? 1 : 0, labelPending: session === LOADING, notice: {
     messageId: record.id, sessionId: record.sessionId, sessionLabel: label ?? 'a closed session',

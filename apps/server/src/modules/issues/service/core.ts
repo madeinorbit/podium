@@ -20,6 +20,7 @@ import {
   issueUserStateRowId,
   issueUserStateToWire,
   type MachineId,
+  machinePathHasSuffix,
   type RepoProjection,
   requireInstant,
   type SessionMeta,
@@ -813,7 +814,7 @@ export class IssueStore {
       const matches = this.referenceRows(seq).filter(
         (r) =>
           r.seq === seq &&
-          (r.repoPath === repo || r.repoPath.endsWith(`/${repo}`) || r.repoId === repo),
+          (machinePathHasSuffix(r.repoPath, repo!) || r.repoId === repo),
       )
       if (matches.length === 1) return matches[0]!.id
       if (matches.length > 1) {

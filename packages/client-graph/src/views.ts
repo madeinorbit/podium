@@ -1,4 +1,5 @@
 import { isClosed, issueAbandoned } from './shared/predicates'
+import { machinePathKey } from '@podium/model/browser'
 /**
  * One issue's `RowView` (L1b, `shared/src/row-view.ts`) as a pure function of
  * its inputs.
@@ -264,7 +265,7 @@ export function ownPartOfRow(issue: SliceIssue, input: Pick<ViewInputs, 'passed'
   const closed = closedOf(issue, false, input)
   return {
     band: bandOf(issue, input),
-    repoKey: issue.repoId ?? issue.repoPath,
+    repoKey: issue.repoId ?? machinePathKey(issue.repoPath),
     closed,
     dismissed: closed && (issueAbandoned(issue) || issue.tuckedAt != null),
     pinned: issue.pinned === true,

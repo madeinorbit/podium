@@ -1,3 +1,4 @@
+import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
 import { createKeyedAnswer, type KeyedAnswer } from '../query-result'
 import { isFinished } from './predicates'
 
@@ -55,12 +56,12 @@ export function createIssueQuestions(seed?: Seed): IssueQuestions {
       before.order === after.order)
   function fileRoot(id: string, value: Containment, present: boolean) {
     const answer =
-      roots.get(value.path)?.answer.fork() ??
+      roots.get(machinePathKey(value.path))?.answer.fork() ??
       createKeyedAnswer<ContainingIssue>((a, b) => a.seq - b.seq || a.order - b.order)
     if (present) answer.set(id, id, { id, ...value })
     else answer.delete(id)
-    if (answer.first()) roots.set(value.path, value.path, { answer })
-    else roots.delete(value.path)
+    if (answer.first()) roots.set(machinePathKey(value.path), machinePathKey(value.path), { answer })
+    else roots.delete(machinePathKey(value.path))
   }
   function setFacts(id: string, next: IssueQuestionFacts | undefined) {
     const previous = facts.get(id)
@@ -129,12 +130,14 @@ export function createIssueQuestions(seed?: Seed): IssueQuestions {
     fact: (id: string) => facts.get(id),
     childCounts: (id: string): IssueChildCounts => children.get(id) ?? NO_CHILDREN,
     containingIssueId(cwd) {
-      let best = roots.get(cwd)?.answer.first()
+      let best = roots.get(machinePathKey(cwd))?.answer.first()
       const consider = (path: string) => {
-        const next = roots.get(path)?.answer.first()
+        const next = roots.get(machinePathKey(path))?.answer.first()
         if (next && (!best || next.path.length > best.path.length)) best = next
       }
-      for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) {
+      if (machinePathSeparator(cwd) === '\\') {
+        for (const path of machinePathAncestors(cwd)) consider(path)
+      } else for (let at = cwd.indexOf('/'); at >= 0; at = cwd.indexOf('/', at + 1)) {
         consider(cwd.slice(0, at))
         consider(cwd.slice(0, at + 1))
       }

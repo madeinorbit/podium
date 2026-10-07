@@ -3,10 +3,11 @@
  * The compatibility payload lets the current row keep its presentation.
  */
 import { resolveDescriptors } from '@podium/harness/browser'
-import type { SliceIssue, SliceSession, SlicePhase } from '../shared/slice-types'
+import { machinePathBasename } from '@podium/model/browser'
 import type { RowOriginTick } from '../shared/row-view'
-import { DEFER_NEXT_MESSAGE, FINISHED_GRACE_MS, isClosedTopLevel, issueAbandoned } from '../views'
 import { awaitingMergeOf } from '../shared/schema'
+import type { SliceIssue, SlicePhase, SliceSession } from '../shared/slice-types'
+import { DEFER_NEXT_MESSAGE, FINISHED_GRACE_MS, isClosedTopLevel, issueAbandoned } from '../views'
 import { attentionGroup, isSessionWorking, motionPhase, type UnitState } from './rollup'
 
 export interface SidebarProgress extends Readonly<Record<UnitState, number>> { readonly total: number }
@@ -295,7 +296,7 @@ export function unstarted(s: SliceSession): boolean {
   const title = (s.title ?? '').replace(/^[\p{So}\p{Sk}·•\s]+/u, '').trim().toLowerCase()
   const kind = s.agentKind ?? ''
   const label = Object.hasOwn(labels, kind) ? labels[kind] : undefined
-  return !title || [label?.toLowerCase(), s.agentKind, 'claude code', s.cwd.split('/').filter(Boolean).at(-1)?.toLowerCase()].includes(title)
+  return !title || [label?.toLowerCase(), s.agentKind, 'claude code', machinePathBasename(s.cwd).toLowerCase()].includes(title)
 }
 
 export function sidebarLifecycle(issue: SliceIssue, asking: boolean, passed: (at: number) => boolean, reached: (at: number) => boolean) {

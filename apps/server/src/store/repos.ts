@@ -1,3 +1,4 @@
+import { isMachinePathWithinRoot, machinePathKey, machinePathSeparator, normalizeMachinePath } from '@podium/model'
 /**
  * Repos aggregate — owns the `repos` table (registered repo roots per machine,
  * origin URLs and the stable repo_id identity, #74).
@@ -7,24 +8,25 @@
  * repository and injected here as `assignRepoIdToIssuesUnder`.
  */
 
-import type { MachineId, RepoId } from '@podium/model'
+import { type MachineId, machinePathBasename, type RepoId } from '@podium/model'
 import { derivePrefix, isValidPrefix } from '@podium/protocol'
 import { and, count, countDistinct, eq, isNotNull, isNull, notInArray, sql } from 'drizzle-orm'
 import { repoDraftSeq, repoPrefixes, repos } from '../migrations/schema'
 import { deriveRepoId, isPathFallbackRepoId, readLocalOriginUrl } from '../repo-id'
-import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
+import type { StoreDrizzle, StoreQueries, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
 import type { TableWrites } from './table-writes'
 
 export function normalizeRepoPath(path: string): string {
   const trimmed = path.trim()
+  if (machinePathSeparator(trimmed) === '\\') return normalizeMachinePath(trimmed)
   if (/^\/+$/u.test(trimmed)) return '/'
   return trimmed.replace(/\/+$/u, '')
 }
 
 /** Is `path` the normalized root `root` or under it? Both already normalized. */
 function rootContains(root: string, path: string): boolean {
-  return path === root || path.startsWith(root === '/' ? root : `${root}/`)
+  return isMachinePathWithinRoot(root, path)
 }
 
 /** The four columns the held registry read materializes, as drizzle returns them. */
@@ -339,9 +341,13 @@ export class ReposRepository {
   // repos simply get the path-fallback id until a scan reports their origin (updateRepoOrigin then
   // upgrades it). An explicit `prefix` overrides derivation (validated + uniqueness-checked, #474).
   async addRepo(path: string, machineId: MachineId, originUrl?: string, prefix?: string): Promise<void> {
-    const normalizedPath = normalizeRepoPath(path)
+    const requestedPath = normalizeRepoPath(path)
+    const normalizedPath = machinePathSeparator(requestedPath) === '\\'
+      ? (await this.listRepos(machineId)).find(row => machinePathKey(normalizeRepoPath(row.path)) === machinePathKey(requestedPath))?.path ?? requestedPath
+      : requestedPath
     const origin = originUrl ?? readLocalOriginUrl(normalizedPath) ?? undefined
-    const repoName = normalizedPath.split('/').pop() ?? null
+    // The repo's machine may be Windows while this server is not: its path's own separator.
+    const repoName = machinePathBasename(path.trim()) || null
     const repoId = deriveRepoId({ originUrl: origin, machineId, path: normalizedPath })
     await this.invalidateRegistry()
     // CONVERTED, and the enumeration is why [POD-3403 rule 31]. The two forms
@@ -393,14 +399,15 @@ export class ReposRepository {
    * already origin-derived, so identities stay stable if the remote moves.
    */
   async updateRepoOrigin(machineId: MachineId, path: string, originUrl: string): Promise<void> {
-    const normalizedPath = normalizeRepoPath(path)
+    const requestedPath = normalizeRepoPath(path)
     const rows = await this.db
       .select({ path: repos.path, repoId: repos.repoId })
       .from(repos)
       .where(eq(repos.machineId, machineId))
       .all()
-    const row = rows.find((r) => normalizeRepoPath(r.path) === normalizedPath)
+    const row = rows.find((r) => machinePathKey(normalizeRepoPath(r.path)) === machinePathKey(requestedPath))
     if (!row) return
+    const normalizedPath = machinePathSeparator(requestedPath) === '\\' ? normalizeRepoPath(row.path) : requestedPath
     // Ahead of the branches rather than in each: this method writes `repos` on
     // every path below it, and the read it invalidates is one this method's own
     // `prefixForRepoId` call takes back afterwards.
@@ -434,7 +441,7 @@ export class ReposRepository {
 
     await this.db.update(repos).set({ originUrl, repoId }).where(await this.at(machineId, targetPath)).run()
     for (const duplicate of rows) {
-      if (duplicate.path !== targetPath && normalizeRepoPath(duplicate.path) === normalizedPath) {
+      if (duplicate.path !== targetPath && machinePathKey(normalizeRepoPath(duplicate.path)) === machinePathKey(normalizedPath)) {
         await this.db.delete(repos).where(await this.at(machineId, duplicate.path)).run()
       }
     }
@@ -494,7 +501,7 @@ export class ReposRepository {
   async repoIdResolver(): Promise<(repoPath: string, machineId?: MachineId | null) => RepoId | null> {
     const roots = await this.sortedRoots()
     return (repoPath: string, machineId?: MachineId | null): RepoId | null => {
-      const normalizedRepoPath = normalizeRepoPath(repoPath)
+      const normalizedRepoPath = machinePathKey(normalizeRepoPath(repoPath))
       const match = roots.find(
         (r) => (machineId == null || r.machineId === machineId) && rootContains(r.path, normalizedRepoPath),
       )
@@ -523,7 +530,7 @@ export class ReposRepository {
   async issueRepoIdResolver(): Promise<(repoPath: string, machineId?: MachineId | null) => RepoId | null> {
     const roots = await this.sortedRoots()
     return (repoPath: string, machineId?: MachineId | null): RepoId | null => {
-      const normalizedRepoPath = normalizeRepoPath(repoPath)
+      const normalizedRepoPath = machinePathKey(normalizeRepoPath(repoPath))
       const containing = roots.filter((r) => rootContains(r.path, normalizedRepoPath))
       if (machineId == null) return containing[0]?.repoId ?? null
       const derived = deriveRepoId({ machineId, path: normalizedRepoPath })
@@ -549,7 +556,7 @@ export class ReposRepository {
   /** Registered roots, normalized and longest-first — the one snapshot both resolvers read. */
   private async sortedRoots(): Promise<Array<{ repoId: RepoId | null; machineId: MachineId; path: string }>> {
     return (await this.listRepos())
-      .map((r) => ({ repoId: r.repoId, machineId: r.machineId, path: normalizeRepoPath(r.path) }))
+      .map((r) => ({ repoId: r.repoId, machineId: r.machineId, path: machinePathKey(normalizeRepoPath(r.path)) }))
       .sort((a, b) => b.path.length - a.path.length)
   }
 
@@ -562,7 +569,7 @@ export class ReposRepository {
       .all()
     await this.invalidateRegistry()
     for (const row of rows) {
-      if (normalizeRepoPath(row.path) === normalizedPath) {
+      if (machinePathKey(normalizeRepoPath(row.path)) === machinePathKey(normalizedPath)) {
         await this.db.delete(repos).where(await this.at(machineId, row.path)).run()
       }
     }

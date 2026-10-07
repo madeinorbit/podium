@@ -1,7 +1,14 @@
+import type { SessionMeta } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import type { SessionMeta } from '@podium/model'
-import { isMemberCwd, selectMailNudgeSession, sessionsForIssue, slugifyBranch, stageIndex, summarizeSessions } from './issue-util'
+import {
+  isMemberCwd,
+  selectMailNudgeSession,
+  sessionsForIssue,
+  slugifyBranch,
+  stageIndex,
+  summarizeSessions,
+} from './issue-util'
 
 const sess = (cwd: string, phase?: string): SessionMeta =>
   ({
@@ -107,4 +114,15 @@ describe('selectMailNudgeSession (agent mail #103)', () => {
       ]),
     ).toBe(asSessionId('a'))
   })
+})
+
+
+it.each([
+  ['/repo/wt', '/repo/wt/src', '/repo/wt-other'],
+  ['C:\\repo\\wt\\', 'c:/REPO/wt/src', 'C:\\repo\\wt-other'],
+  ['\\\\nas\\share\\wt', '\\\\NAS\\SHARE/wt/src', '\\\\nas\\share\\wt-other'],
+])('machine paths: issue membership for %s', (root, child, sibling) => {
+  expect(isMemberCwd(root, child)).toBe(true)
+  expect(isMemberCwd(root, sibling)).toBe(false)
+  expect(sessionsForIssue(root, [sess(child), sess(sibling)])).toEqual([sess(child)])
 })

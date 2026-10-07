@@ -5,7 +5,7 @@ import {
   usableMachines,
   type RepoNavView,
 } from '@podium/client-core/values'
-import type { GitRepositoryWire } from '@podium/model'
+import { type GitRepositoryWire, machinePathBasename, machinePathKey, machinePathsEqual } from '@podium/model/browser'
 import { computed } from 'mobx'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
@@ -66,7 +66,7 @@ export function launchOptionViews(pool: MobxPool) {
       return {
         ...repo,
         worktrees: repo.worktrees.flatMap((tree) =>
-          pinned.includes(tree.path)
+          pinned.some(path => machinePathsEqual(path, tree.path))
             ? []
             : [{ ...tree, repoName: repo.name, sessions: [], issues: [] }],
         ),
@@ -78,18 +78,18 @@ export function launchOptionViews(pool: MobxPool) {
         .repositoryGroupIds()
         .flatMap((id) => {
           const repo = project(id)
-          return repo && (pinned.includes(repo.path) || repo.worktrees.length)
+          return repo && (pinned.some(path => machinePathsEqual(path, repo.path)) || repo.worktrees.length)
             ? [{ id, repo, at: usage(JSON.stringify([id, 'exact'])) }]
             : []
         })
       // Pinned order breaks otherwise equal choices, as in the existing menu.
-      const pinOrder = new Map(pinned.map((path, at) => [path, at]))
+      const pinOrder = new Map(pinned.map((path, at) => [machinePathKey(path), at]))
       values.sort(
         (a, b) =>
           b.at - a.at ||
           a.repo.name.localeCompare(b.repo.name, undefined, { sensitivity: 'base' }) ||
-          (pinOrder.get(a.repo.path) ?? pinned.length) -
-            (pinOrder.get(b.repo.path) ?? pinned.length),
+          (pinOrder.get(machinePathKey(a.repo.path)) ?? pinned.length) -
+            (pinOrder.get(machinePathKey(b.repo.path)) ?? pinned.length),
       )
       return JSON.stringify(values.map(value => value.id))
     })
@@ -119,8 +119,8 @@ export function launchOptionViews(pool: MobxPool) {
         initial = id ? catalogRoot(id)?.path ?? '' : ''
       }
       values.sort((a, b) => b.at - a.at ||
-        (a.path.split('/').filter(Boolean).pop() ?? a.path).localeCompare(
-          b.path.split('/').filter(Boolean).pop() ?? b.path, undefined, { sensitivity: 'base' }))
+        (machinePathBasename(a.path) || a.path).localeCompare(
+          machinePathBasename(b.path) || b.path, undefined, { sensitivity: 'base' }))
       return JSON.stringify({ initial, ids: values.map(value => value.id) })
     })
     const catalogPaths = computed(() => {
@@ -164,8 +164,8 @@ export function launchOptionViews(pool: MobxPool) {
       repositoryPaths: () => paths.get(),
       newWork: () => work.get(),
       catalog: () => catalog.get(),
-      repositoryActivity: (path: string) => activityAt(path),
-      origin: (path: string) => origin(path),
+      repositoryActivity: (path: string) => activityAt(machinePathKey(path)),
+      origin: (path: string) => origin(machinePathKey(path)),
       counts,
       dispose() {
         repository.clear()

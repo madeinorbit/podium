@@ -15,6 +15,7 @@
  * stops matching and is simply not used.
  */
 
+import { fsyncPath } from '@podium/runtime/fsync'
 import { randomUUID } from 'node:crypto'
 import {
   closeSync,
@@ -159,19 +160,9 @@ export function writeSnapshotCatalogue(dbPath: string, records: readonly Snapsho
   const body: SnapshotCatalogue = { version: SNAPSHOT_CATALOGUE_VERSION, records: [...records] }
   try {
     writeFileSync(temp, `${JSON.stringify(body, null, 2)}\n`)
-    const fd = openSync(temp, 'r')
-    try {
-      fsyncSync(fd)
-    } finally {
-      closeSync(fd)
-    }
+    fsyncPath(temp)
     renameSync(temp, path)
-    const dirFd = openSync(dirname(path), 'r')
-    try {
-      fsyncSync(dirFd)
-    } finally {
-      closeSync(dirFd)
-    }
+    fsyncPath(dirname(path))
   } catch (err) {
     rmSync(temp, { force: true })
     log.warn('snapshot verification catalogue could not be published', { path, err })

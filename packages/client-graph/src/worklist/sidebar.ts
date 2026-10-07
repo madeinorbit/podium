@@ -1,5 +1,6 @@
 import { worklistGroups } from './groups'
 import { keyedComputed } from '@podium/mobx-helpers'
+import { machinePathKey, machinePathsEqual } from '@podium/model/browser'
 import { debugName } from '../debug-name'
 import { sidebarRosterView } from './sidebar-roster'
 /** The real sidebar's section projection over resident pool indexes.
@@ -472,7 +473,7 @@ export class SidebarIndex {
       pending,
       // The selection is read only for the selected worktree: a click
       // elsewhere wakes no other worktree row (POD-5423).
-      active: state.selectedWorktree === path && this.pool.selection.size === 0,
+      active: state.selectedWorktree != null && machinePathsEqual(state.selectedWorktree, path) && this.pool.selection.size === 0,
     }
   }
 
@@ -551,12 +552,12 @@ export class SidebarIndex {
       .filter((row): row is SliceWorktree => row !== undefined && row !== LOADING)
       .filter(
         (lane) =>
-          state.pinnedRepos?.includes(lane.path) ||
+          state.pinnedRepos?.some(path => machinePathsEqual(path, lane.path)) ||
           index.unpinnedProjectLanes(lane.projectIndex, state.pinnedWorktrees ?? []) > 0,
       )
       .sort((a, b) => {
-        const ap = state.pinnedRepos?.indexOf(a.path) ?? -1,
-          bp = state.pinnedRepos?.indexOf(b.path) ?? -1
+        const ap = state.pinnedRepos?.findIndex(path => machinePathsEqual(path, a.path)) ?? -1,
+          bp = state.pinnedRepos?.findIndex(path => machinePathsEqual(path, b.path)) ?? -1
         if (ap >= 0 || bp >= 0) return ap >= 0 && bp >= 0 ? ap - bp : ap >= 0 ? -1 : 1
         return (a.projectIndex ?? 0) - (b.projectIndex ?? 0)
       })
@@ -575,7 +576,7 @@ export class SidebarIndex {
     }
     for (const repo of repos)
       add(
-        repo.repoId ?? repo.repoPath,
+        repo.repoId ?? machinePathKey(repo.repoPath),
         repo.repoName,
         repo.repoPath,
         repo.projectAliases ?? [repo.repoId ?? repo.repoPath, repo.path],
@@ -602,7 +603,7 @@ export class SidebarIndex {
       specs.set(key, { ...spec, label })
     }
     const base = [...specs.values()]
-    const registered = new Set(repos.map((repo) => repo.repoId ?? repo.repoPath))
+    const registered = new Set(repos.map((repo) => repo.repoId ?? machinePathKey(repo.repoPath)))
     base.sort((a, b) =>
       registered.has(a.key) && registered.has(b.key)
         ? 0
@@ -615,7 +616,7 @@ export class SidebarIndex {
     const remaining = new Set(base)
     const ordered: BandSpec[] = []
     for (const saved of state.projectOrder ?? []) {
-      const band = base.find((item) => remaining.has(item) && item.aliases.includes(saved))
+      const band = base.find((item) => remaining.has(item) && item.aliases.some(alias => machinePathsEqual(alias, saved)))
       if (band) {
         ordered.push(band)
         remaining.delete(band)

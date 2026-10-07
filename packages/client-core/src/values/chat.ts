@@ -1,4 +1,5 @@
 import type { TranscriptItem } from '@podium/model'
+import { machinePathBasename } from '@podium/model'
 
 /**
  * Presentation-pure helpers for the chat surface, shared between the web
@@ -315,7 +316,7 @@ export function toolSubject(item: TranscriptItem, max: number = SUBJECT_MAX): st
   // full path is one disclosure away in the expanded row.
   const path = item.toolPaths?.[0]
   if (path && name !== 'Bash') {
-    const base = path.split('/').pop()
+    const base = machinePathBasename(path)
     if (base) return shorten(base, max)
   }
   if (name && mcpParts(name)) {

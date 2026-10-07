@@ -1,3 +1,4 @@
+import { fsyncPath } from '@podium/runtime/fsync'
 import { createHash, randomUUID } from 'node:crypto'
 import {
   appendFileSync,
@@ -59,18 +60,6 @@ export function prepareRuntimeEventDelivery(
   return retained
 }
 
-function fsyncDirectory(dir: string): void {
-  try {
-    const fd = openSync(dir, 'r')
-    try {
-      fsyncSync(fd)
-    } finally {
-      closeSync(fd)
-    }
-  } catch (error) {
-    if (process.platform !== 'win32') throw error
-  }
-}
 
 interface TypingRecord { sessionId: SessionId; rowId: string; storedAt?: string; startedAt?: string; outcome?: DeliveryOutcome }
 const rowKey = (sessionId: SessionId, rowId: string): string => JSON.stringify([sessionId, rowId])
@@ -230,7 +219,7 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
     if (recovered) {
       loadSnapshot(recovered)
       renameSync(temporary, path)
-      fsyncDirectory(dir)
+      fsyncPath(dir)
     } else {
       snapshotBody = readFileSync(path, 'utf8')
       loadSnapshot(parseSnapshot(snapshotBody, path))
@@ -341,7 +330,7 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
   /** The journal descriptor, held open so steady state never pays an open/close. */
   let journalFd: number | undefined = openSync(journalPath, 'a', 0o600)
   fsyncSync(journalFd)
-  fsyncDirectory(dir)
+  fsyncPath(dir)
 
   const writeSnapshot = (next: Map<string, DurableRuntimeEvent>): string => {
     const body = `${JSON.stringify({ version: FILE_VERSION, events: [...next.values()], typing: [...typing.values()], typingEpoch }, null, 2)}\n`
@@ -353,7 +342,7 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
       closeSync(fd)
     }
     renameSync(temporary, path)
-    fsyncDirectory(dir)
+    fsyncPath(dir)
     return snapshotHash(body)
   }
 
@@ -366,11 +355,11 @@ export function createRuntimeEventOutbox(dir: string): RuntimeEventOutbox {
       journalFd = undefined
     }
     rmSync(journalPath, { force: true })
-    fsyncDirectory(dir)
+    fsyncPath(dir)
     journalFd = openSync(journalPath, 'a', 0o600)
     appendFileSync(journalFd, `${JSON.stringify({ op: 'coverage', epoch: typingEpoch, snapshotHash: hash })}\n`)
     fsyncSync(journalFd)
-    fsyncDirectory(dir)
+    fsyncPath(dir)
     journalRecords = 0
   }
 
