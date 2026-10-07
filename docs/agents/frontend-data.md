@@ -17,7 +17,7 @@ How every client screen (web, desktop, phone) gets and derives data from the Mob
 ## Rules
 
 1. **One shared model per record.** Every screen uses `pool.model(entity, id)`. Never build a second object holding facts about the same record. Group a model's fields by topic (stored fields, links, progress, close, history, presence) under heading comments.
-2. **Derived fields are `@lazy` getters** (`@podium/mobx-helpers`). Nothing is allocated until a watched read; it is dropped when nothing watches. Reads outside screens (handlers, loops) are remembered for the length of the action, like `@computed`. Use `@lazy({ equals })` only for a small object rebuilt on each run. Do not use `makeObservable`/`makeAutoObservable` on shared models or companions, `computedFn`, `keepAlive`, or hand-made caches.
+2. **Derived fields are `@lazy` getters** (`@podium/mobx-helpers`). Nothing is allocated until a field is read; it is dropped when nothing needs it. Reads outside screens (handlers, loops) are remembered for the length of the action, like `@computed`, and outside an action until the current synchronous code has finished, so read fields directly instead of copying them into locals. Use `@lazy({ equals })` only for a small object rebuilt on each run. Do not use `makeObservable`/`makeAutoObservable` on shared models or companions, `computedFn`, `keepAlive`, or hand-made caches.
 3. **Hand down models, read late, keep components small.** Pass a model, a companion or an ID; each small `observer` component reads only the fields it shows. Never pass a copied bundle of values through props or context: a copy does not update.
 4. **Every question has one home.**
    - A fact about the record itself → the shared model.
