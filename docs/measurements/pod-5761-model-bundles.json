@@ -48,7 +48,7 @@
           "sidebarValues"
         ]
       },
-      "decision": "Cache each list or boolean separately; reuse the maintained seat summary."
+      "decision": "Cache independently changing booleans and retained-seat lists separately. Pass through the maintained R2 roster list and merge the R3 roster only when needed; add no redundant model roster cache."
     },
     {
       "cache": "IssueModel.presence",
@@ -83,7 +83,7 @@
           "worklist admission"
         ]
       },
-      "decision": "Cache the parent ID independently of placement and visibility; remove sidebar.parent."
+      "decision": "Read or cache the parent ID independently of placement; visibility reuses the identical placement verdict. Remove sidebar.parent."
     },
     {
       "cache": "IssueModel.attention (sameAttention)",
@@ -341,15 +341,26 @@
     }
   ],
   "validation": {
-    "status": "not yet run",
+    "status": "unlanded; final validation blocked by a helper regression reproduced on plain pilot",
     "host": "flatblock",
-    "required": [
-      "focused existing models/worklist tests and field isolation regressions",
-      "full typecheck",
-      "lean gate",
-      "interaction scan: zero ratchet errors",
-      "normal web build",
-      "full speed:structural on rebased candidate under meter:flatblock"
+    "report": "docs/measurements/pod-5761-validation.json",
+    "proofBeforeHelperLanding": {
+      "productCandidate": "c2e9f5ade90c1c2e5858fb606c319f4871341894",
+      "rebasedOnto": "afd2a1a3b29c63d93e0c6b822b35ed09f7c9346f",
+      "structural": "10 baseline counter failures reduced to 3 inherited failures; no new or worse counter. Sidebar attention heartbeat and lane-change remain 9/9.",
+      "gates": "Full typecheck, lean gate, zero interaction-scan ratchet errors, normal web build, focused models and rollup fence parity were green."
+    },
+    "latestProductCandidate": "94b23fe4bcfae73e187b3c9eddfd7f91faf7fc9a",
+    "controls": "All 14 focused model checks pass with the previous lazy helper. Plain pilot 3de8895a338, without POD-5761 commits, reproduces the schema failure under the new helper; its five sidebar checks pass.",
+    "requiredAfterHelperFix": [
+      "Rebase onto integrate/4286-pilot containing the helper fix",
+      "Focused existing models/worklist proof on the final candidate",
+      "Full typecheck of every project",
+      "Restore the generated API declaration, then run the lean gate",
+      "Interaction scan with zero ratchet errors, preserving classifications",
+      "Normal web build",
+      "Full speed:structural on the rebased candidate under meter:flatblock, flat or better than baseline",
+      "Fast-forward local integrate/4286-pilot under its merge lock and mail POD-4286 each landed SHA"
     ],
     "knownReds": "docs/measurements/pod-5710-known-failures.json plus declared issue-page.detail select 55/151 and navigate-by-ref 49/145"
   },

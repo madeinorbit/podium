@@ -1,0 +1,322 @@
+{
+  "issue": "POD-5761",
+  "title": "Model cache dependency cuts",
+  "date": "2026-10-07",
+  "outcome": "Split committed and saved; unlanded pending the pilot helper fix.",
+  "state": "in_progress",
+  "latestProductCandidate": "94b23fe4bcfae73e187b3c9eddfd7f91faf7fc9a",
+  "latestCommentCandidate": "ba17e6b73af85ba8158a9510dd39abecc66a9511",
+  "pilotControl": "3de8895a338fe2ea148dd1b1fbdf879511b749bb",
+  "changes": [
+    "Inventory all 17 composite model caches and the other structural caches before edits, with readers by part.",
+    "Split standing, seat membership, presence, parent placement, resident facts and labels, attention, progress, continuation, session retention and links, and header answers into independent cached questions.",
+    "Keep uncached compatibility records where existing callers need a record; reading one property observes its own cached answer.",
+    "Remove sidebar.parent because the shared nestParent answer replaces its parent-ID projection.",
+    "Pass through the maintained R2 roster list; preserve the existing sidebar resident-demand observation policy.",
+    "Keep unknown-row progress defaults at zero even while a formal child remains resident, with a meaningful removal regression."
+  ],
+  "inventory": "docs/measurements/pod-5761-model-bundles.json",
+  "retainedCompleteAnswers": [
+    {
+      "question": "ordering key",
+      "readers": "rank and child-order comparisons",
+      "reason": "A complete ordering key is one answer; its tuple is compared jointly."
+    },
+    {
+      "question": "origin label tick",
+      "readers": "origin tick render and oracle",
+      "reason": "The complete shown tick is one label; every tick consumer uses the label."
+    },
+    {
+      "question": "retention deadline",
+      "readers": "retains and seat retention",
+      "reason": "A tagged expiry answer: the tag chooses the associated deadline, which is read with it."
+    },
+    {
+      "question": "timer anchor",
+      "readers": "sidebar timing and combineSidebarSessions",
+      "reason": "A complete timestamp anchor is one timing answer; the associated timestamps are consumed together."
+    },
+    {
+      "question": "fleet glyphs",
+      "readers": "fleet display and combineSidebarSessions",
+      "reason": "The complete glyph list and its counts are consumed as one fleet result."
+    },
+    {
+      "question": "formal progress histogram",
+      "readers": "unitsOf and sidebarIssueProgress",
+      "reason": "Each consumer reads the complete distribution to combine or display it."
+    }
+  ],
+  "structuralBeforeHelperLanding": {
+    "productCandidate": "c2e9f5ade90c1c2e5858fb606c319f4871341894",
+    "rebasedOnto": "afd2a1a3b29c63d93e0c6b822b35ed09f7c9346f",
+    "command": "bun run speed:structural",
+    "host": "flatblock",
+    "lease": "meter:flatblock",
+    "exitCode": 1,
+    "status": "only inherited failures; no new or worse counter",
+    "readers": 50,
+    "actions": 9,
+    "scales": [
+      1,
+      4
+    ],
+    "baseUnexpectedCounters": 10,
+    "candidateUnexpectedCounters": 3,
+    "newOrWorseCounters": [],
+    "remainingCounters": [
+      {
+        "base": [
+          12,
+          14
+        ],
+        "candidate": [
+          10,
+          12
+        ],
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:sidebar.row/IssueModel@guard-root.sidebar.nested"
+      },
+      {
+        "base": [
+          231,
+          900
+        ],
+        "candidate": [
+          231,
+          900
+        ],
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:launcher.phone/launch.usage"
+      },
+      {
+        "base": [
+          201,
+          801
+        ],
+        "candidate": [
+          201,
+          801
+        ],
+        "action": "heartbeat",
+        "kind": "elements",
+        "reader": "consumer:launcher.launch/launch.catalogUsage"
+      }
+    ],
+    "clearedBaseCounters": [
+      {
+        "action": "select",
+        "kind": "rows",
+        "reader": "consumer:sidebar.row/IssueModel@guard-child.loaded",
+        "base": [
+          0,
+          2
+        ],
+        "candidateStatus": "within budget"
+      },
+      {
+        "action": "select",
+        "kind": "derivations",
+        "reader": "consumer:sidebar.row/IssueModel@guard-child.loaded",
+        "base": [
+          0,
+          1
+        ],
+        "candidateStatus": "within budget"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:sidebar.row/IssueModel@guard-child.sidebar",
+        "base": [
+          50,
+          51
+        ],
+        "candidateStatus": "within budget"
+      },
+      {
+        "action": "select",
+        "kind": "elements",
+        "reader": "consumer:sidebar.row/IssueModel@guard-child.loaded",
+        "base": [
+          0,
+          2
+        ],
+        "candidateStatus": "within budget"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:header.folded",
+        "base": [
+          50,
+          52
+        ],
+        "candidateStatus": "within budget"
+      },
+      {
+        "action": "heartbeat",
+        "kind": "derivations",
+        "reader": "IssueModel@guard-next.nesting",
+        "base": [
+          0,
+          1
+        ],
+        "candidateStatus": "within budget"
+      },
+      {
+        "action": "lane-change",
+        "kind": "derivations",
+        "reader": "IssueModel@guard-next.nesting",
+        "base": [
+          0,
+          1
+        ],
+        "candidateStatus": "within budget"
+      }
+    ],
+    "expectedFailureCounters": 64,
+    "fixedAllowanceCountersGreen": 100,
+    "declaredDetailFailures": {
+      "select": [
+        55,
+        151
+      ],
+      "navigate-by-ref": [
+        49,
+        145
+      ]
+    },
+    "sidebarAttention": [
+      {
+        "action": "navigate-by-ref",
+        "scale": 1,
+        "derivations": 1,
+        "elements": 11
+      },
+      {
+        "action": "navigate-by-ref",
+        "scale": 4,
+        "derivations": 1,
+        "elements": 11
+      },
+      {
+        "action": "heartbeat",
+        "scale": 1,
+        "derivations": 1,
+        "elements": 9
+      },
+      {
+        "action": "heartbeat",
+        "scale": 4,
+        "derivations": 1,
+        "elements": 9
+      },
+      {
+        "action": "lane-change",
+        "scale": 1,
+        "derivations": 1,
+        "elements": 9
+      },
+      {
+        "action": "lane-change",
+        "scale": 4,
+        "derivations": 1,
+        "elements": 9
+      }
+    ],
+    "peakWorkerMiB": 6883.9,
+    "foreignReadCount": 0
+  },
+  "gatesBeforeHelperLanding": {
+    "productCandidate": "c2e9f5ade90c1c2e5858fb606c319f4871341894",
+    "rebasedOnto": "afd2a1a3b29c63d93e0c6b822b35ed09f7c9346f",
+    "coverageNote": "These results precede the last progress-default fix and the upstream helper landing. They do not approve the latest candidate.",
+    "host": "flatblock",
+    "checkout": "/home/mgw/podium-test-5761",
+    "toolchain": "Checkout-local Bun 1.4.2; .toolchain/node points to bun.",
+    "checks": [
+      {
+        "command": "bun run typecheck",
+        "result": "green; all 29 tasks",
+        "log": ".review/rebased-typecheck.log"
+      },
+      {
+        "command": "bun run test",
+        "result": "lean gate green; 4 of 1837 files (0.2%), 154 tests; span-effects, interaction scans, mobx-private, untracked reads and clock reads green",
+        "log": ".review/rebased-lean.log"
+      },
+      {
+        "command": "bun scripts/check-interaction-scans.ts",
+        "result": "0 ratchet errors; 2297 fingerprints; classifications preserved",
+        "log": ".review/final-scan.json"
+      },
+      {
+        "command": "cd apps/web && bun run build",
+        "result": "green, including bundle budget",
+        "log": ".review/rebased-web-build.log"
+      },
+      {
+        "command": "bun run test:file -- packages/client-graph/src/models.test.ts packages/client-graph/src/sidebar-attention.test.ts tests/worklist/arms/mobx/pool/models.test.ts",
+        "result": "13 tests green",
+        "log": ".review/rebased-models.log"
+      },
+      {
+        "command": "bun run test:file -- tests/worklist/arms/mobx/pool/worklist/rollup.test.tsx -t \"parity with the oracle and the rebuild on every fence scenario\"",
+        "result": "1 fence-parity test green; 6 filtered; worker peak 2477.6 MiB",
+        "log": ".review/final-rollup-fences.log"
+      }
+    ]
+  },
+  "finalControls": [
+    {
+      "name": "Unknown-row progress negative control",
+      "productCandidate": "94b23fe4bcfae73e187b3c9eddfd7f91faf7fc9a",
+      "temporaryChange": "Remove only the two progress-default guards; restore them after the run.",
+      "command": "bun run test:file -- packages/client-graph/src/models.test.ts -t \"an unknown row keeps the previous progress defaults\"",
+      "result": "Expected failure: after the root row is removed, [1,1] differs from required [0,0]. The guards are retained in the candidate.",
+      "log": ".review/progress-negative-actual.log"
+    },
+    {
+      "name": "Previous-helper control",
+      "productCandidate": "94b23fe4bcfae73e187b3c9eddfd7f91faf7fc9a",
+      "temporaryChange": "Replace only packages/mobx-helpers/src/lazy.ts with its pre-helper-landing version; restore the pilot helper after the run.",
+      "command": "bun run test:file -- packages/client-graph/src/models.test.ts packages/client-graph/src/sidebar-attention.test.ts tests/worklist/arms/mobx/pool/models.test.ts",
+      "result": "14 tests green in 3 files, including the new progress-default regression.",
+      "log": ".review/old-helper-control.log"
+    },
+    {
+      "name": "Plain-pilot control",
+      "candidate": "3de8895a338fe2ea148dd1b1fbdf879511b749bb",
+      "temporaryChange": "Check out plain pilot with no POD-5761 commits; restore the issue test branch after the run.",
+      "command": "bun run test:file -- packages/client-graph/src/sidebar-attention.test.ts tests/worklist/arms/mobx/pool/models.test.ts",
+      "result": "1 schema test fails; all 5 sidebar tests pass. This independently reproduces the blocker outside the model split.",
+      "firstWarning": "[mobx] Derivation 'lazy.inBatch' is created/updated without reading any observable value.",
+      "assertion": "MobX (or React) warned during the test: expected 2390 warnings to deeply equal an empty list.",
+      "log": ".review/plain-pilot-control.log"
+    }
+  ],
+  "blocker": {
+    "owner": "POD-4286",
+    "condition": "The new @lazy helper produces a strict-observability warning in the existing schema/worklist test on plain pilot.",
+    "inference": "The helper batch probe has no observable dependency; the strict test warning trap appears to trigger the subsequent warning cascade.",
+    "coordinatorInstruction": "First run the failing schema/sidebar files on plain pilot 3de8895a33 (no POD-5761 commits). If they fail there too, tell me and stop; I will open a fix lane.",
+    "reportedByMail": "msg_b8b1bd5c-9a6b-4117-9e73-0b4e3ffe126d",
+    "scope": "No adjacent helper fix added to this branch.",
+    "leases": "All leases released; no test process left running."
+  },
+  "remainingBeforeLanding": [
+    "Rebase onto integrate/4286-pilot containing the helper fix",
+    "Focused existing models/worklist proof on the final candidate",
+    "Full typecheck of every project",
+    "Restore the generated API declaration, then run the lean gate",
+    "Interaction scan with zero ratchet errors, preserving classifications",
+    "Normal web build",
+    "Full speed:structural on the rebased candidate under meter:flatblock, flat or better than baseline",
+    "Fast-forward local integrate/4286-pilot under its merge lock and mail POD-4286 each landed SHA"
+  ],
+  "handoffOnlyEdits": "The final report and inventory update are documentation-only; no additional tests were run for them."
+}
