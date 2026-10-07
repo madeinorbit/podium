@@ -37850,6 +37850,24 @@
       "file": "packages/client-graph/src/command-launch-views.ts",
       "holder": "CommandPaletteView/open/take/callback",
       "rule": "loop:for-of",
+      "tokens": "71c4c3e22824125180bf2d2c32975d847cdd1ee5dbf50fa241c6fd8fe69c21eb",
+      "gate": [],
+      "origin": [
+        "6cbf7a4bbbe381f53e7f6bc181d6425c5f898069b37dbc56e9c2502ebe6bce34"
+      ],
+      "fingerprint": "6e5bac26c6dafde9e385f3d300eb3a3a7db7ae4a5149e696224000f997136d0e",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "CommandPaletteView/open/take/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Opening answer parity (including retained archived members) and 1x/4x heartbeat tests cover this picker; classification retained, not a scan repair claim."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/open/take/callback",
+      "rule": "loop:for-of",
       "tokens": "da7326b49e142a2ab984769f7926cd7515ff95b2b3397880994190c0a4074363",
       "gate": [],
       "origin": [
