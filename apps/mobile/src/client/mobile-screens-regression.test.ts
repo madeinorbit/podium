@@ -4,7 +4,7 @@ import { referenceState } from '../../../../tests/worklist/diagnostics/reference
 
 import { createHash } from 'node:crypto'
 import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
-import { missionRootFor } from '@podium/client-core/values'
+import { type IssueNavigationModel, missionRootFor } from '@podium/client-core/values'
 import { createWorklistPool } from '@podium/client-graph/create'
 import {
   type MobileScreenInput,
@@ -14,7 +14,9 @@ import {
 } from '../../../../tests/worklist/diagnostics/mobile-screens-snapshot'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
-import type { MobxPool } from '@podium/client-graph/pool'
+import { MobxPool } from '@podium/client-graph/pool'
+import { missionView, settled } from '@podium/client-graph/mission-view'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   FENCE_SCENARIOS,
@@ -55,52 +57,59 @@ const tasks: NonNullable<MobileScreenInput['tasks']> = {
   showAgentTasks: false,
 }
 function settle(pool: MobxPool, input: MobileScreenInput) {
-  const trace = process.env.PHONE_CORPUS_TRACE === '1' && input.selectedId === 'i938' && input.mode === 'full'
-  let previous = ''
-  const residency = Reflect.get(pool, 'residency')
-  let currentRound = 0
-  const request = trace && vi.spyOn(pool.residency!, 'request')
-  if (request) {
-    const original = pool.residency!.request.bind(pool.residency)
-    request.mockRestore()
-    let callers = 0
-    vi.spyOn(pool.residency!, 'request').mockImplementation((entity, id) => {
-      const added = original(entity, id)
-      if (added && currentRound >= 2 && callers++ < 6) {
-        Error.stackTraceLimit = 32
-        console.info('[phone load caller]', currentRound, id, new Error().stack)
-      }
-      return added
-    })
-  }
-  const seen = new Set<string>()
-  for (let round = 0; round < (trace ? 10_000 : 64); round++) {
-    currentRound = round
-    const output = tracked(() => poolMobileScreensSnapshot(pool, input))
-    const projection = trace ? JSON.stringify(output, (_key, value) => typeof value === 'symbol' ? String(value) : value) : ''
-    const pending: [string, string[]][] = trace ? [...Reflect.get(residency, 'queue')].map(([entity, ids]) => [entity, [...ids]]) : []
-    const loaded = pool.hydrate()
-    if (trace) {
-      const addedRows = pending.flatMap(([entity, ids]) => ids.map(id => {
-        const key = `${entity}:${id}`
-        if (seen.has(key)) throw new Error(`Repeated load: ${key}`)
-        seen.add(key)
-        const row = Reflect.get(pool.tables, entity).get(id)
-        return { key, changedFields: Object.keys(row ?? {}), title: row?.title, parentId: row?.parentId, deps: row?.deps }
-      }))
-      console.info('[phone hydrate round]', JSON.stringify({ round, loaded, pending, addedRows, projectionChanged: projection !== previous, projection: projection !== previous ? (typeof output === 'symbol' ? projection : { sections: output.sections.map(section => ({ key: section.key, rows: section.rows.length })), fingerprint: fingerprint(output) }) : undefined, nextPending: [...Reflect.get(residency, 'queue')].map(([entity, ids]) => [entity, [...ids]]) }))
-    }
-    previous = projection
-    if (!loaded) {
-      if (trace) {
-        console.info('[phone diagnostic converged]', JSON.stringify({ rounds: round + 1, uniqueLoads: seen.size }))
-        throw new Error('Diagnostic-only continuation; original 64-round regression still fails')
-      }
-      return
-    }
+  for (let round = 0; round < 64; round++) {
+    tracked(() => poolMobileScreensSnapshot(pool, input))
+    if (!pool.hydrate()) return
   }
   throw new Error('Phone batched loads did not settle')
 }
+
+it('phone addressed issues batch cold siblings and dependency targets together', () => {
+  const stamp = new Date(FIXED_NOW).toISOString()
+  const old = new Date(FIXED_NOW - 30 * 86_400_000).toISOString()
+  const issue = (id: string, patch: Record<string, unknown> = {}) => ({
+    id, seq: 1, title: id, description: '', stage: 'in_progress', deps: [], parentId: null,
+    repoPath: '/synthetic', createdAt: old, updatedAt: stamp, readAt: stamp, ...patch,
+  }) as unknown as IssueNavigationModel
+  const width = 80
+  const cold = { stage: 'done', closedAt: old, updatedAt: old, readAt: old }
+  const rows = [
+    issue('root'),
+    ...Array.from({ length: width }, (_, index) => issue(`branch-${index}`, {
+      ...cold,
+      deps: [{ id: 'root', type: 'discovered-from' }, { id: `target-${index}`, type: 'blocks' }],
+    })),
+    ...Array.from({ length: width }, (_, index) => issue(`target-${index}`, cold)),
+    issue('unrelated-history', cold),
+  ]
+  const byId = new Map(rows.map(row => [row.id as string, row]))
+  const load = vi.fn((_entity: string, id: string) => byId.get(id))
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: FIXED_NOW }, undefined, {
+    load, summaries: MOBILE_SCREEN_SUMMARIES, schedule: () => () => {},
+  })
+  try {
+    pool.apply({ type: 'replace', rows: rows.map(value => ({ kind: 'issue', id: value.id, value })) })
+    const reader = missionView(pool), deck = reader.deck('root')
+    const read = () => tracked(() => settled(() => reader.addressedIds(deck)))
+    // The phone reads this cohort for its mission crew before drawing rows.
+    // A cold sibling must not prevent the remaining siblings from requesting their rows.
+    expect(read()).toBe(LOADING)
+    expect(load).not.toHaveBeenCalled()
+    expect(pool.hydrate()).toBe(width)
+    expect(read()).toBe(LOADING)
+    expect(pool.hydrate()).toBe(width)
+    const addressed = read()
+    expect(addressed).not.toBe(LOADING)
+    if (addressed === LOADING) throw new Error('Phone addressed cohort is still loading')
+    expect(new Set(addressed)).toEqual(new Set(rows.slice(0, -1).map(row => row.id)))
+    expect(load).toHaveBeenCalledTimes(width * 2)
+    expect(pool.hydrate()).toBe(0)
+    expect(pool.tables.issue.has('unrelated-history')).toBe(false)
+  } finally {
+    pool.dispose()
+  }
+})
+
 function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
   const issues = store.issueProjections
   const roots = [
