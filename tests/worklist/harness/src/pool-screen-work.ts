@@ -1,3 +1,6 @@
+import { createCommandPalette } from '@podium/client-graph/command-launch-views'
+import { createLaunchCatalogPicker } from '@podium/client-graph/launch-option-views'
+import { createReferencePicker } from '@podium/client-graph/chat-context'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { headerView } from '@podium/client-graph/header-views'
@@ -359,6 +362,16 @@ async function measureScreenCells(
     const shell = shellViews(pool),
       page = issuePages(pool),
       chat = createChatContextReader(pool)
+    const palettePicker = createCommandPalette(pool), catalogPicker = createLaunchCatalogPicker(pool), referencePicker = createReferencePicker(pool)
+    // These consumers represent open menus. The action owns their ordering,
+    // outside any reaction; reopen is also exercised by the focused answer tests.
+    palettePicker.open()
+    catalogPicker.open()
+    referencePicker.open()
+    stops.push(() => palettePicker.close())
+    const panelOrigin = readLaunchOrigin(pool, '/repo-000')
+    const panelPreferred = panelOrigin !== LOADING && panelOrigin.repo
+      ? runInAction(() => readTargetMachines(pool, panelOrigin.repo, panelOrigin.machines, ['claude-code', 'codex'])) : {}
     const mobileInbox = createMobileInboxViews(pool),
       mobileSession = createMobileSessionReader(pool)
     stops.push(() => mobileInbox.dispose())
@@ -439,7 +452,7 @@ async function measureScreenCells(
       // NewIssueDialog mounts only when opened. The fresh
       // background terminal recipe has triggers, with no launch catalog demand.
       scene === 'background-terminal' ? undefined : {
-        catalog: readLaunchCatalog(pool),
+        catalog: catalogPicker.catalog(),
         origin: readLaunchOrigin(pool, '/repo-000'),
       },
     )
@@ -448,7 +461,7 @@ async function measureScreenCells(
       const origin = readLaunchOrigin(pool, '/repo-000')
       if (origin === LOADING) return origin
       return { ...origin, targets: origin.repo
-        ? readTargetMachines(pool, origin.repo, origin.machines, ['claude-code', 'codex']) : {} }
+        ? readTargetMachines(pool, origin.repo, origin.machines, ['claude-code', 'codex'], panelPreferred) : {} }
     })
     add('launcher.phone', ['NewWorkButton', 'NewIssueScreen'], () =>
       scene === 'background-terminal' ? undefined : {
@@ -456,7 +469,7 @@ async function measureScreenCells(
         paths: launchOptionViews(pool).repositoryPaths(),
       },
     )
-    add('launcher.palette', ['CommandPalette'], () => readPalette(pool))
+    add('launcher.palette', ['CommandPalette'], () => palettePicker.palette())
     // Close facts are asked for the action's issue at press time. Closed
     // launch controls have no guard roster projection.
     add('launcher.guard', ['CommandPalette', 'NewPanelMenu', 'NewWorkButton'], () => undefined)
@@ -532,8 +545,8 @@ async function measureScreenCells(
       threads: chat.threads(),
     }))
     add('chat.references', ['RichMarkdown', 'RefMiniview'], () => ({
-      issues: chat.mentions(),
-      sessions: chat.sessions(),
+      issueIds: referencePicker.issueIds,
+      sessionIds: referencePicker.sessionIds,
       machines: chat.machines(),
       repos: chat.repositoryKey(),
     }))
@@ -620,8 +633,8 @@ async function measureScreenCells(
     add('mobile-session', ['SessionScreen', 'TerminalScreen', 'SessionConversation'], () => ({
       session: mobileSession.session(SESSION),
       issue: mobileSession.issue(selected()),
-      sessions: mobileSession.sessions(),
-      issues: mobileSession.issues(),
+      sessionIds: referencePicker.sessionIds,
+      issueIds: referencePicker.issueIds,
       machines: mobileSession.machines(),
       pending: mobileSession.spawnPending(SESSION),
       prompt: mobileSession.spawnPrompt(SESSION),
@@ -692,7 +705,7 @@ async function measureScreenCells(
       'pane-switch': () => referenceState(ctx.engine).setPane('A', asSessionId(SESSION)),
       'open-menu': () => {
         referenceState(ctx.engine).setPaletteOpen(true)
-        insideReader('launcher.open-menu', () => readPalette(pool))
+        insideReader('launcher.open-menu', () => { palettePicker.open(); return palettePicker.palette() })
       },
       'long-press': () => {
         pressed = insideReader('mobile-work.long-press', () => readPoolWorkMenu(pool, ROOT))

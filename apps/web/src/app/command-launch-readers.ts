@@ -17,12 +17,14 @@ function launchOptions(pool: MobxPool) {
 }
 export const readLaunchOrigin = (pool: MobxPool, path: string) => launchOptions(pool)?.origin(path) ?? LOADING
 export const readLaunchCatalog = (pool: MobxPool) => launchOptions(pool)?.catalog() ?? LOADING
-export function readTargetMachines(pool: MobxPool, repo: RepoView | undefined, machines: MachineWire[], kinds: readonly string[]) {
+export function readTargetMachines(pool: MobxPool, repo: RepoView | undefined, machines: MachineWire[], kinds: readonly string[], preferred?: Record<string, string | undefined>) {
   return Object.fromEntries(kinds.map(kind => {
     if (!repo) return [kind, undefined]
     const eligible = onlineMachinesForRepoOrClone(repo, machines)
       .filter(machine => agentCapabilityRejectionForSelection(machine, kind) === undefined)
-    return [kind, pool.queries.latestMachineSession(eligible.map(machine => machine.id))?.machineId ?? eligible[0]?.id]
+    return [kind, preferred === undefined
+      ? pool.queries.latestMachineSession(eligible.map(machine => machine.id))?.machineId ?? eligible[0]?.id
+      : eligible.find(machine => machine.id === preferred[kind])?.id ?? eligible[0]?.id]
   }))
 }
 export const readPalette = (pool: MobxPool) => commandLaunchViews(pool).palette()

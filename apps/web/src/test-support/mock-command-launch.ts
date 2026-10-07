@@ -1,3 +1,5 @@
+import { createCommandPalette } from '@podium/client-graph/command-launch-views'
+import { chatIssue } from '@podium/client-graph/chat-context'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { poolFixtureIssues } from './pool-issue-fixture'
@@ -114,6 +116,15 @@ vi.mock('@/app/command-launch-data', async (original) => ({
   ...(await original<typeof import('@/app/command-launch-data')>()),
   useCommandLaunchCatalog: () => useCommandFixture(readLaunchCatalog),
   useCommandLaunchOrigin: (path: string) => useCommandFixture(pool => readLaunchOrigin(pool, path)),
+  useCommandPaletteSnapshot: () => useCommandFixture(pool => {
+    const picker = pool.sources.view('fixture.palette', () => {
+      const picker = createCommandPalette(pool)
+      picker.open()
+      return picker
+    })
+    return { data: picker.palette(), sessions: picker.sessions, selectedSessions: picker.selectedSessions, recent: picker.recent }
+  }),
+  useCommandIssue: (id: string | null) => useCommandFixture(pool => id === null ? undefined : chatIssue(pool, id)),
   useCommandPaletteData: () => useCommandFixture(readPalette),
   useCommandPaletteOpen: () => useCommandFixture(readOpen),
   useCommandRecentFiles: () => useCommandFixture(readFiles),

@@ -1,6 +1,6 @@
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { createCommandPalette, commandLaunchViews } from './command-launch-views'
+import { CommandSessionRow, createCommandPalette, commandLaunchViews } from './command-launch-views'
 import { createReferencePicker, chatReferenceSessions, chatMentionMatches } from './chat-context'
 import { createLaunchCatalogPicker, launchOptionViews } from './launch-option-views'
 import { headerEntities } from './header-entities'
@@ -23,7 +23,8 @@ for (const scale of [1, 4]) {
     const picker = createReferencePicker(pool)
     picker.open()
     expect(picker.sessionIds).toEqual(chatReferenceSessions(pool).sessions.map(s => s.sessionId))
-    expect(picker.sessionIds).not.toEqual([...picker.sessionIds].reverse())
+    const assertSameIds = (ids: string[]) => expect(ids).toEqual(picker.sessionIds)
+    expect(() => assertSameIds([...picker.sessionIds].reverse())).toThrow()
     picker.search('task')
     expect(picker.issueIds).toEqual(chatMentionMatches(pool, 'task').issues.map(i => i.id))
     expect(picker.issueIds).not.toEqual([])
@@ -54,7 +55,7 @@ it('stores new-task catalog order while machine/catalog metadata stays live', ()
   const picker = createLaunchCatalogPicker(pool)
   picker.open()
   expect(picker.catalog()).toEqual(launchOptionViews(pool).catalog())
-  expect(picker.catalog().repoPaths).not.toEqual(['/b', '/a'])
+  expect(() => expect(picker.catalog().repoPaths).toEqual(['/b', '/a'])).toThrow()
   let runs = 0
   const stop = autorun(() => { picker.catalog(); runs++ })
   try {
@@ -84,9 +85,10 @@ it('stores palette recent commands on open and keeps the addressed rows live', (
   const old = commandLaunchViews(pool).palette()
   expect(picker.palette()).toMatchObject(old!)
   expect(picker.recent).toEqual([{ kind: 'session', id: 'a' }, { kind: 'session', id: 'b' }])
-  expect(picker.recent).not.toEqual([{ kind: 'session', id: 'b' }])
+  expect(() => expect(picker.recent).toEqual([{ kind: 'session', id: 'b' }])).toThrow()
   let runs = 0
-  const stop = autorun(() => { picker.palette(); picker.sessions; runs++ })
+  const row = new CommandSessionRow(pool, 'b')
+  const stop = autorun(() => { picker.palette(); picker.sessions; row.presentation; runs++ })
   const ids = vi.spyOn(pool.queries, 'ids'), rows = vi.spyOn(pool, 'row')
   try {
     const before = runs

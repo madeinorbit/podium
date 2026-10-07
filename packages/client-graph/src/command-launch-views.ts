@@ -385,10 +385,10 @@ export class CommandPaletteView {
       this.recent = recent.slice(0, 6).map(value => value.command)
     }
     take()
-    if (this.snapshot === LOADING || this.snapshot === undefined)
+    if (this.snapshot === LOADING || this.snapshot === undefined || this.snapshot.pending > 0)
       this.stopLoading = when(() => {
         const value = views.palette()
-        return !!value && value !== LOADING
+        return !!value && value !== LOADING && value.pending === 0
       }, take)
   }
 
@@ -396,6 +396,19 @@ export class CommandPaletteView {
   get data(): Loaded<CommandLaunchData> {
     return this.snapshot && this.snapshot !== LOADING
       ? commandLaunchViews(this.pool).selected(this.snapshot) : this.snapshot
+  }
+  @lazy get selectedRows() {
+    const views = commandLaunchViews(this.pool)
+    const id = views.window('openIssueId') ?? views.window('selectedIssueId')
+    if (!id || id === LOADING) return []
+    return this.pool.queries.ids({ kind: 'commandIssueSessions', issueId: id })
+      .map(id => new CommandSessionRow(this.pool, id))
+  }
+  @lazy({ equals: compareStructural }) get selectedSessions(): SessionView[] {
+    return this.selectedRows.flatMap(row => {
+      const session = row.presentation
+      return session && session !== LOADING ? [session] : []
+    })
   }
   palette() { return this.data }
   session(id: string) { return commandLaunchViews(this.pool).session(id) }

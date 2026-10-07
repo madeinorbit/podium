@@ -6,8 +6,8 @@ import type { MobxPool } from '@podium/client-graph'
 import type { MobileSessionRows } from '@podium/client-graph/mobile-session-schema'
 import type { MachineWire, MessageRecordWire, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import { reaction } from 'mobx'
-import { useCallback, useLayoutEffect, useMemo } from 'react'
+import { reaction, runInAction } from 'mobx'
+import { useCallback, useEffect, useLayoutEffect, useMemo, useState } from 'react'
 import { demoEnabled } from './demoData'
 import { useMobilePoolProjection } from './mobile-pool'
 
@@ -100,21 +100,34 @@ export function useSessionContextReferenceIssue(ref: string | undefined) {
   return useMobilePoolProjection(read, undefined)
 }
 const sessionsRead = (reader: Reader) => reader.sessions().sessions
-export function useSessionContextSessions(active = true) {
-  const read = useCallback(
-    (reader: Reader) => (active ? sessionsRead(reader) : EMPTY_SESSIONS),
-    [active],
-  )
-  return useRead(read, EMPTY_SESSIONS)
-}
 const issuesRead = (reader: Reader) => reader.issues().issues
-export function useSessionContextIssues(active = true) {
-  const read = useCallback(
-    (reader: Reader) => (active ? issuesRead(reader) : EMPTY_ISSUES),
-    [active],
-  )
-  return useRead(read, EMPTY_ISSUES)
+/** No argument is the live Agents screen. An explicit active flag owns an
+ * inspector's open catalog; its next open refreshes that catalog. */
+function useOpenCatalog<T>(active: boolean | undefined, take: (reader: Reader) => T, empty: T) {
+  const reader = useRead<Reader | undefined>(useReaderIdentity, undefined)
+  const [snapshot, setSnapshot] = useState(empty)
+  useEffect(() => {
+    if (reader && active === true) runInAction(() => setSnapshot(take(reader)))
+    else if (active === false) setSnapshot(empty)
+  }, [reader, active, take, empty])
+  const read = useCallback((reader: Reader) => active === undefined ? take(reader) : snapshot, [active, take, snapshot])
+  return useRead(read, empty)
 }
+const useReaderIdentity = (reader: Reader) => reader
+export function useSessionContextSessions(active?: boolean) {
+  return useOpenCatalog(active, sessionsRead, EMPTY_SESSIONS)
+}
+export function useSessionContextIssues(active?: boolean) {
+  return useOpenCatalog(active, issuesRead, EMPTY_ISSUES)
+}
+/** The phone inspector's new rows can use stable ids and addressed readers. */
+export function useSessionContextReferencePicker(active: boolean) {
+  const reader = useRead<Reader | undefined>(useReaderIdentity, undefined)
+  const picker = useMemo(() => reader?.referencePicker(), [reader])
+  useEffect(() => { if (active) picker?.open() }, [picker, active])
+  return picker
+}
+
 export function useSessionContextMachine(id: string | undefined): MachineWire | undefined {
   const read = useCallback((reader: Reader) => reader.machine(id), [id])
   return useRead(read, undefined)

@@ -225,7 +225,7 @@ const GROUP_LABEL: Record<PaletteGroupId, string> = {
   action: 'Actions',
 }
 
-function PaletteDialog(props: Omit<Parameters<typeof PaletteDialogBody>[0], 'data' | 'sessions' | 'recent'>): JSX.Element {
+function PaletteDialog(props: Omit<Parameters<typeof PaletteDialogBody>[0], 'data' | 'sessions' | 'selectedSessions' | 'recent'>): JSX.Element {
   const snapshot = useCommandPaletteSnapshot()
   const data = snapshot?.data
   if (!data || data === LOADING)
@@ -237,7 +237,7 @@ function PaletteDialog(props: Omit<Parameters<typeof PaletteDialogBody>[0], 'dat
         </DialogContent>
       </Dialog>
     )
-  return <PaletteDialogBody {...props} data={data} sessions={snapshot!.sessions} recent={snapshot!.recent} />
+  return <PaletteDialogBody {...props} data={data} sessions={snapshot!.sessions} selectedSessions={snapshot!.selectedSessions} recent={snapshot!.recent} />
 }
 
 function PaletteDialogBody({
@@ -247,10 +247,12 @@ function PaletteDialogBody({
   onRequestClose,
   data,
   sessions,
+  selectedSessions,
   recent,
 }: {
   data: Exclude<ReturnType<typeof useCommandPaletteData>, typeof LOADING | undefined>
   sessions: import('@podium/client-core/session-values').SessionView[]
+  selectedSessions: import('@podium/client-core/session-values').SessionView[]
   recent: import('@podium/client-graph/command-launch-views').RecentCommand[]
   onClose: () => void
   onNewIssue: () => void
@@ -293,11 +295,6 @@ function PaletteDialogBody({
     startBtw,
     spawnDraftAgent,
   } = useCommandLaunchActions()
-  const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard(
-    undefined,
-    undefined,
-    sessions,
-  )
   const repoViews = data.repoViews
   const workflowsEnabled = useFeature('workflows')
   const specsEnabled = useFeature('specs')
@@ -358,18 +355,23 @@ function PaletteDialogBody({
       paletteIssueMenuData({
         issues,
         issueId: openIssueId ?? selectedIssueId,
-        sessions,
+        sessions: selectedSessions,
         repos,
         machines,
         handoffEnabled,
         repoViews,
       }),
-    [issues, openIssueId, selectedIssueId, sessions, repos, repoViews, machines, handoffEnabled],
+    [issues, openIssueId, selectedIssueId, selectedSessions, repos, repoViews, machines, handoffEnabled],
   )
 
   const focusedValue = useCommandSession(paneA && data.sessionIds.includes(paneA) ? paneA : null)
   const focused = focusedValue !== LOADING ? focusedValue : undefined
 
+  const { guardedDelete, guardedEnd, guardedArchive } = useSessionGuard(
+    focused?.sessionId,
+    undefined,
+    focused ? [focused] : [],
+  )
   // biome-ignore lint/correctness/useExhaustiveDependencies: run closures capture stable store actions
   const commands = useMemo((): PaletteCommand[] => {
     const out: PaletteCommand[] = []

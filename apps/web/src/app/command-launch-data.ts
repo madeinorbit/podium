@@ -7,8 +7,8 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { RepoView } from '@podium/client-core/values'
 import type { MachineWire } from '@podium/model/browser'
 import type { Loaded } from '@podium/client-graph/worklist/rollup'
-import { when } from 'mobx'
-import { useEffect, useMemo } from 'react'
+import { runInAction, when } from 'mobx'
+import { useEffect, useMemo, useState } from 'react'
 import {
   EMPTY_FILES,
   readFiles,
@@ -81,16 +81,26 @@ export function useCommandLaunchOrigin(path: string) {
   return useWorklistPoolProjection<Loaded<ReturnType<typeof readLaunchOrigin>>>(read, LOADING)
 }
 export function useCommandTargetMachines(repo: RepoView | undefined, machines: MachineWire[], kinds: readonly string[]) {
+  const pool = useWorklistPool()
   const kindsKey = JSON.stringify(kinds)
+  const path = repo?.path
+  const [preferred, setPreferred] = useState<Record<string, string | undefined>>({})
+  useEffect(() => {
+    if (pool) runInAction(() => setPreferred(readTargetMachines(pool, repo, machines, JSON.parse(kindsKey))))
+    // Initial recency is taken on open or when the user changes repository/kinds.
+    // Eligibility/auth changes go through the live reader below.
+    // biome-ignore lint/correctness/useExhaustiveDependencies: recency is stored on open
+  }, [pool, path, kindsKey])
   const read = useMemo(() => (pool: Parameters<typeof readTargetMachines>[0]) =>
-    readTargetMachines(pool, repo, machines, JSON.parse(kindsKey) as string[]), [repo, machines, kindsKey])
+    readTargetMachines(pool, repo, machines, JSON.parse(kindsKey) as string[], preferred), [repo, machines, kindsKey, preferred])
   return useWorklistPoolProjection(read, {} as Record<string, string | undefined>)
 }
+
 export function useCommandPaletteSnapshot(active = true) {
   const pool = useWorklistPool()
   const picker = useMemo(() => pool ? createCommandPalette(pool) : undefined, [pool])
   useEffect(() => { if (active) picker?.open(); return () => picker?.close() }, [picker, active])
-  const read = useMemo(() => () => picker && { data: picker.palette(), sessions: picker.sessions, recent: picker.recent }, [picker])
+  const read = useMemo(() => () => picker && { data: picker.palette(), sessions: picker.sessions, selectedSessions: picker.selectedSessions, recent: picker.recent }, [picker])
   return useWorklistPoolProjection(read, undefined, active)
 }
 export function useCommandPaletteData(active = true): Loaded<CommandLaunchData> {
