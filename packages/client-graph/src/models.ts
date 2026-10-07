@@ -119,6 +119,10 @@ import { type Placement, placementOfPart, withWaiting } from './worklist/groups'
 import { NO_SEATS, type SeatSummary } from './worklist/seat-verdicts'
 import {
   type Aggregate,
+  aggregateFields,
+  ownAttentionFields,
+  unitOwnFields,
+  unitsBelowFields,
   LOADING,
   type Loaded as LoadedRow,
   type OwnAttention,
@@ -140,7 +144,6 @@ import {
   type Units,
   waitingPartOf,
 } from './worklist/rollup'
-import { aggregateFields, ownAttentionFields, unitOwnFields, unitsBelowFields } from './worklist/rollup-fields'
 import { type SidebarRoster, sidebarRosterOf } from './worklist/sidebar'
 import { fleetOf, unstarted, type SidebarSessionFacts, type SidebarSessionOrder } from './worklist/sidebar-row'
 import {
