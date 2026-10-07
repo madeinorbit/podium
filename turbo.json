@@ -294,6 +294,7 @@
         "$TURBO_ROOT$/apps/web/src/features/setup/**",
         "$TURBO_ROOT$/apps/web/test/superagent/fixture.ts",
         "$TURBO_ROOT$/tests/worklist/diagnostics/mobile-screens-snapshot.ts",
+        "$TURBO_ROOT$/tests/worklist/diagnostics/mission-session-fixture.ts",
         "$TURBO_ROOT$/tests/worklist/diagnostics/notice-fixture.ts",
         "$TURBO_ROOT$/tests/worklist/diagnostics/reference-state.ts",
         "$TURBO_ROOT$/tests/worklist/harness/src/fence-scenarios.ts",

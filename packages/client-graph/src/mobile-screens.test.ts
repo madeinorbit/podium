@@ -2,6 +2,7 @@ import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachMobileScreens } from './mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES, type MobileTasksOptions } from './mobile-screens-schema'
+import { missions } from './mission'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
@@ -242,6 +243,58 @@ it('observes an addressed mission without subscribing to unrelated issue content
   expect(reader.mission('root')).toMatchObject({ root: { title: 'root' }, progress: { total: 1 } })
   runInAction(() => selected.set('unrelated'))
   expect(reader.mission('unrelated')).toMatchObject({ root: { title: 'new title' } })
+})
+
+it('keeps phone mission member visits flat on a seated heartbeat at 1x and 4x', async () => {
+  for (const scale of [1, 4]) {
+    const seat = {
+      sessionId: 'seat', issueId: 'root', cwd: '/fixture', agentKind: 'codex',
+      status: 'running', archived: false, createdAt: '2026-01-01T00:00:00Z',
+      lastActiveAt: '2026-01-01T00:00:00Z', agentState: { phase: 'working' },
+    }
+    const { pool, reader } = await setup([
+      issue('root'), issue('child', { parentId: 'root' }),
+      ...Array.from({ length: 8 * scale }, (_, index) => issue(`unshown-${index}`)),
+    ], [seat, ...Array.from({ length: 8 * scale }, (_, index) => ({
+      ...seat, sessionId: `history-${index}`, archived: true, status: 'exited',
+    }))])
+    const membership = missions(pool), readMembers = membership.members.bind(membership)
+    const probes = new WeakMap<ReadonlySet<string>, ReadonlySet<string>>()
+    let visits = 0
+    const probe = vi.spyOn(membership, 'members').mockImplementation(id => {
+      const ids = readMembers(id)
+      if (ids === LOADING) return ids
+      if (!probes.has(ids)) probes.set(ids, new Proxy(ids, {
+        get(target, key) {
+          if (key === Symbol.iterator) return function* () {
+            for (const member of target) { visits++; yield member }
+          }
+          const value = Reflect.get(target, key, target)
+          return typeof value === 'function' ? value.bind(target) : value
+        },
+      }))
+      return probes.get(ids)!
+    })
+    disposals.push(() => probe.mockRestore())
+    let activity: string | undefined
+    const stop = autorun(() => {
+      const data = reader.mission('root')
+      reader.deck('root', 'full')
+      if (data !== LOADING) activity = data.missionSessions.find(row => row.sessionId === 'seat')?.lastActiveAt
+    })
+    disposals.push(stop)
+    while (pool.hydrate()) {}
+    expect(visits).toBeGreaterThan(0)
+    const builds = membership.stats.members
+    visits = 0
+    runInAction(() => pool.apply({ type: 'update', rows: [{
+      kind: 'session', id: 'seat', value: { ...seat, lastActiveAt: '2026-01-02T00:00:00Z' },
+    }] }))
+    expect(activity).toBe('2026-01-02T00:00:00Z')
+    expect(visits).toBe(0)
+    expect(membership.stats.members - builds).toBe(0)
+    console.info('[phone mission heartbeat]', { scale, memberVisits: visits, memberBuilds: membership.stats.members - builds })
+  }
 })
 
 for (const scale of [1, 4] as const)
