@@ -1258,9 +1258,9 @@ export class ReaderQueries {
     this.counts.scalarVisits++
     return this.sessionQuestions().present(id)
   }
-  /** The maintained flag, independent of display/read-marker row identity. */
-  sessionArchived(id: string): boolean | undefined {
-    this.observeSession('archived', id)
+  /** Raw addressed field input for SessionModel; readers ask the model's fact. */
+  sessionStoredField(id: string, field: 'archived'): boolean | undefined {
+    this.observeSession(field, id)
     this.counts.scalarVisits++
     return this.sessionQuestions().fact(id)?.archived
   }

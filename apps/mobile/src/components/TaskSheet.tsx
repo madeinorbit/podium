@@ -1,11 +1,13 @@
-import { relativeTime, withoutShells } from '@podium/client-core/focus'
+import type { SessionModel } from '@podium/client-graph/models'
+import { observer } from '@podium/client-graph/react'
+import { useMobilePool } from '../client/mobile-pool'
+import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   groupRelations,
   operationalState,
   presenceNote,
-  sessionNeedsHuman,
   sessionTitle,
   subIssuesOf,
 } from '@podium/client-core/values'
@@ -178,13 +180,13 @@ export function TaskSheet({
  * scroll; the desktop dock became unscrollable the moment a stack of offer
  * cards was let into its fixed region.
  */
-function SheetHead({
+const SheetHead = observer(function SheetHead({
   issue,
   sessions,
   issues,
   hex,
   onOpenSession,
-}: {
+}): {
   issue: IssueViewModel
   sessions: readonly SessionView[]
   issues: readonly IssueViewModel[]
@@ -197,11 +199,10 @@ function SheetHead({
   const [stageOpen, setStageOpen] = useState(false)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
   const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
-  const mine = useMemo(
-    () => withoutShells(sessions).filter((s) => s.issueId === issue.id && !s.archived),
-    [sessions, issue.id],
-  )
-  const asking = mine.filter(sessionNeedsHuman)
+  const pool = useMobilePool()
+  const mine = sessions.map(s => pool?.sessionObject(s.sessionId) ?? s as SessionModel)
+    .filter(s => s.issueId === issue.id && s.retention?.seat)
+  const asking = mine.filter(s => s.asking)
   const op = operationalState(issue, mine, byId)
   const presence = presenceNote(issue, mine, byId)
 
@@ -324,14 +325,14 @@ function SheetHead({
   )
 }
 
-function SheetBody({
+const SheetBody = observer(function SheetBody({
   issue,
   issues,
   sessions,
   onOpenArtifact,
   onOpenSession,
   onOpenIssue,
-}: {
+}): {
   issue: IssueViewModel
   issues: readonly IssueViewModel[]
   sessions: readonly SessionView[]
@@ -343,18 +344,10 @@ function SheetBody({
   const children = useMemo(() => subIssuesOf(issues, issue.id), [issues, issue.id])
   const relations = useMemo(() => groupRelations(issue), [issue])
   const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
-  const mine = useMemo(
-    () =>
-      withoutShells(sessions)
-        .filter((s) => s.issueId === issue.id && !s.archived)
-        .sort((a, b) => {
-          const an = sessionNeedsHuman(a)
-          const bn = sessionNeedsHuman(b)
-          if (an !== bn) return an ? -1 : 1
-          return b.lastActiveAt.localeCompare(a.lastActiveAt)
-        }),
-    [sessions, issue.id],
-  )
+  const pool = useMobilePool()
+  const mine = sessions.map(s => pool?.sessionObject(s.sessionId) ?? s as SessionModel)
+    .filter(s => s.issueId === issue.id && s.retention?.seat)
+    .sort((a, b) => Number(b.asking) - Number(a.asking) || b.lastActiveAt.localeCompare(a.lastActiveAt))
   const httpOrigin = useHttpOrigin()
   const profile = useOptionalServerProfile()
   // Prefer the immutable hosted id. The slug fallback keeps URL-selected web
@@ -445,7 +438,7 @@ function SheetBody({
                 <Text numberOfLines={1} style={styles.rowTitle}>
                   {sessionTitle(session)}
                 </Text>
-                {sessionNeedsHuman(session) ? <View style={styles.dot} /> : null}
+                {session.asking ? <View style={styles.dot} /> : null}
                 <Text style={styles.rowStamp}>
                   {relativeTime(session.lastActiveAt, Date.now())}
                 </Text>

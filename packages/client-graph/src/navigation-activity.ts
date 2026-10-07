@@ -36,13 +36,10 @@ export function createNavigationActivity(pool: MobxPool): NavigationActivity {
     if (session === LOADING) return LOADING
     return (session as { lastActiveAt?: string } | undefined)?.lastActiveAt || undefined
   }
-  /** An archived session's stamp from its shared seat: a read marker on it
-   * changes its row, never the history maximum. */
+  /** The shared scalar stamp ignores a read marker on an archived sender. */
   const retiredStamp = (sessionId: string): Loaded<string> => {
-    const seat = seats.seat(sessionId)
-    if (seat === LOADING || seat === undefined) return seat
-    if (seat.seat !== 'retired' || !seat.stamped) return rowStamp(sessionId)
-    return seat.lastActiveAt || undefined
+    try { return pool.sessionObject(sessionId).lastActivity || undefined }
+    catch (error) { if (error === LOADING) return LOADING; throw error }
   }
   const history = cachedKey('NavigationActivity', 'history', (id): Loaded<string> => {
     const partition = seats.partition(MISSION_SCHEMA.members.sessions, id)

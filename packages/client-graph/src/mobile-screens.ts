@@ -368,7 +368,7 @@ export function createMobileScreenReader(pool: MobxPool) {
     const values = readMissionView(mission, id, mode)
     if (values === LOADING) throw LOADING
     let progress = values.progress
-    if (values.root && (values.root.archived || values.root.deletedAt)) {
+    if (values.root && (!mission.facts(values.root.id).visible)) {
       // Mobile can explicitly open a hidden root. The shared visible-root
       // meter's fallback must not resurrect it as a unit; accepted formal
       // children still count. Walk only this root's declared relation.
@@ -380,7 +380,7 @@ export function createMobileScreenReader(pool: MobxPool) {
         if (seen.has(childId)) continue
         seen.add(childId)
         const child = requireRow(pool.row('issueBoardRow', childId))
-        if (!child || child.archived || child.deletedAt) continue
+        if (!child || !mission.facts(child.id).visible) continue
         if (child.stage !== 'proposed' && !issueAbandoned(child)) {
           accepted = true
           break
@@ -429,7 +429,7 @@ export function createMobileScreenReader(pool: MobxPool) {
       if (attached === LOADING) throw LOADING
       for (const seat of attached) {
         sessions.set(seat.sessionId, seat)
-        if (!seat.archived) crew.set(seat.sessionId, seat)
+        if (!pool.sessionObject(seat.sessionId).archived) crew.set(seat.sessionId, seat)
       }
     }
     // Authorship and child-sheet notes can refer outside the drawn roster.

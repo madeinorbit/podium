@@ -21,18 +21,15 @@ import {
   type PresenceNote,
   panelLabel,
   selectLatestPromptSession,
-  sessionAsksOnIssue,
-  sessionAtWork,
-  sessionNeedsHuman,
-  sessionPresentOnTask,
   sessionSettled,
 } from '@podium/client-core/values'
-import { keyedComputed } from '@podium/mobx-helpers'
+import { companion, lazy } from '@podium/mobx-helpers'
 import { machinePathsEqual } from '@podium/model'
 import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
 import { asIssueId, asSessionId, DRAFT_ISSUE_TITLE, HANDOFF_HARNESS_KINDS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { cachedGroup } from './cached'
+import type { IssueModel, ModelOf, SessionModel } from './models'
+import { sessionSeats } from './session-seats'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
 import { missions } from './mission'
@@ -101,66 +98,21 @@ export interface MissionHistory {
   readonly latestPrompt: string | undefined
 }
 
-/** The fields history aggregates read of one session: a read marker or any
- * other display change leaves them, and so every aggregate, untouched. */
-interface SessionFacts {
-  readonly sessionId: string
-  readonly lastActiveAt: string
-  readonly lastInputAt?: string | null
-  readonly transcriptAvailable?: boolean
-  readonly agentKind: SessionView['agentKind']
-  readonly moved: boolean
-  readonly phase: string
-  readonly archived: boolean
-  /** Drawn in a roster: neither headless nor a shell. */
-  readonly roster: boolean
-}
-const factsOf = (session: SessionView): SessionFacts => ({
-  sessionId: session.sessionId, lastActiveAt: session.lastActiveAt, lastInputAt: session.lastInputAt,
-  transcriptAvailable: session.transcriptAvailable, agentKind: session.agentKind,
-  moved: Boolean(session.handoffTarget), phase: session.agentState?.phase ?? 'unknown',
-  archived: Boolean(session.archived), roster: !session.headless && session.agentKind !== 'shell',
-})
-/** `selectLatestPromptSession` reads only these fields. */
-const latestPromptOf = (facts: readonly SessionFacts[]) =>
-  selectLatestPromptSession(facts as unknown as readonly SessionView[])?.sessionId
-
+type SessionFacts = SessionModel
+/** History reads the shared scalar fields, so a display edit stops at its session. */
+const latestPromptOf = (sessions: readonly SessionModel[]) =>
+  selectLatestPromptSession(sessions.map(session => ({
+    sessionId: session.sessionId, lastActiveAt: session.lastActivity,
+    lastInputAt: session.lastInput, transcriptAvailable: session.transcript,
+    agentKind: session.historyKind,
+  })) as readonly SessionView[])?.sessionId
 const NO_HISTORY: MissionHistory = Object.freeze({ count: 0, roster: 0, newest: undefined, moved: undefined, latestPrompt: undefined })
-
-/** The member summary an issue model carries, as composable facts. */
-interface MemberFacts {
-  readonly count: number
-  /** Phase → its member count and the smallest member id with it (legacy key order). */
-  readonly phases: ReadonlyMap<string, { readonly count: number; readonly first: string }>
-  /** Latest finite member activity, ms (-Infinity when none). */
-  readonly latest: number
-}
 interface IssueMemberFacts {
-  readonly ids: ReturnType<typeof pageMemberIds>
+  readonly ids: readonly ReturnType<typeof asSessionId>[]
   readonly latest: number
   readonly summary: { total: number; byPhase: Record<string, number> }
 }
-function memberFacts(sessions: readonly Pick<SessionFacts, 'sessionId' | 'lastActiveAt' | 'phase'>[]): MemberFacts {
-  const phases = new Map<string, { count: number; first: string }>()
-  let latest = -Infinity
-  for (const session of sessions) {
-    const phase = session.phase, seen = phases.get(phase)
-    if (!seen) phases.set(phase, { count: 1, first: session.sessionId })
-    else { seen.count++; if (session.sessionId < seen.first) seen.first = session.sessionId }
-    const at = Date.parse(session.lastActiveAt)
-    if (at > latest) latest = at
-  }
-  return { count: sessions.length, phases, latest }
-}
-const NO_MEMBERS: MemberFacts = Object.freeze({ count: 0, phases: new Map(), latest: -Infinity })
-function mergeMemberFacts(a: MemberFacts, b: MemberFacts): MemberFacts {
-  const phases = new Map(a.phases)
-  for (const [phase, value] of b.phases) {
-    const seen = phases.get(phase)
-    phases.set(phase, seen ? { count: seen.count + value.count, first: seen.first < value.first ? seen.first : value.first } : value)
-  }
-  return { count: a.count + b.count, phases, latest: Math.max(a.latest, b.latest) }
-}
+type MissionIssue = ModelOf['issue'] & Pick<IssueNavigationModel, 'coordinatorSessionId' | 'startedBySession' | 'closedReason' | 'blocked' | 'needsHuman' | 'parentId' | 'updatedAt'>
 
 export function settled<T>(read: () => T): T | typeof LOADING {
   try { return read() } catch (error) { if (error === LOADING) return LOADING; throw error }
@@ -169,51 +121,6 @@ export function requireLoaded<T>(value: T | typeof LOADING): T {
   if (value === LOADING) throw LOADING
   return value
 }
-const field = <K extends keyof IssueNavigationModel>(name: K) =>
-  cachedGroup(`deck.${String(name)}`, (node: MissionIssueFacts) => node.row?.[name])
-const fields = {
-  stage: field('stage'),
-  parentId: field('parentId'), startedBySession: field('startedBySession'),
-  sortKey: field('sortKey'), seq: field('seq'), updatedAt: field('updatedAt'),
-  needsHuman: field('needsHuman'), closedReason: field('closedReason'), blocked: field('blocked'),
-  coordinatorSessionId: field('coordinatorSessionId'),
-}
-const visibleFact = cachedGroup('deck.visible', (node: MissionIssueFacts) => {
-  const row = node.row
-  return Boolean(row && !row.archived && !row.deletedAt)
-})
-const earliestChild = cachedGroup('deck.earliestChild', (node: MissionIssueFacts) => {
-  let first: string | undefined
-  for (const id of node.view.pool.graph.many('issue', node.id, 'children')) {
-    if (first === undefined || id < first) first = id
-  }
-  return first
-})
-
-/** The issue's scalar mission facts. No rich navigation record is read here.
- * Each scalar computed is allocated only while something observes it. */
-export class MissionIssueFacts {
-  constructor(readonly id: string, readonly view: MissionViewReader) {}
-  // Scalar facts borrow the pool row directly. Joining a display reference for
-  // every field would repeat catalog work throughout the root rollups.
-  get row(): IssueNavigationModel | undefined { return requireLoaded(this.view.pool.row('issue', this.id)) as IssueNavigationModel | undefined }
-  get stage() { return fields.stage(this) ?? 'backlog' }
-  get parentId() { return fields.parentId(this) ?? null }
-  get startedBySession() { return fields.startedBySession(this) }
-  get sortKey() { return fields.sortKey(this) }
-  get seq() { return fields.seq(this) ?? 0 }
-  get updatedAt() { return fields.updatedAt(this) ?? '' }
-  get closedReason() { return fields.closedReason(this) }
-  get blocked() { return fields.blocked(this) }
-  get needsHuman() { return fields.needsHuman(this) }
-  get coordinatorSessionId() { return fields.coordinatorSessionId(this) }
-  get visible() { return visibleFact(this) }
-  get earliestChild() { return earliestChild(this) }
-  private static readonly live = cachedGroup('deck.live', (node: MissionIssueFacts) =>
-    requireLoaded(node.view.present(node.id)).some(sessionPresentOnTask))
-  get live() { return MissionIssueFacts.live(this) }
-}
-
 interface DeckTopology {
   readonly scope: ReadonlySet<string>
   readonly children: ReadonlyMap<string, readonly string[]>
@@ -222,7 +129,7 @@ interface DeckTopology {
   readonly overlap: boolean
   readonly depths: ReadonlyMap<string, number>
 }
-const topology = cachedGroup('deck.topology', (deck: MissionDeckModel): DeckTopology | typeof LOADING => settled(() => {
+const topology = ((deck: MissionDeckModel): DeckTopology | typeof LOADING => settled(() => {
   const { view } = deck, members = requireLoaded(deck.members)
   const scope = new Set<string>(), children = new Map<string, string[]>()
   let pending = false
@@ -260,7 +167,7 @@ const topology = cachedGroup('deck.topology', (deck: MissionDeckModel): DeckTopo
   })
   const parent = new Map<string, string>(), parents = new Map<string, string[]>(), seen = new Set<string>()
   let overlap = false
-  const firstChild = (id: string) => view.facts(id).earliestChild
+  const firstChild = (id: string) => view.node(id).earliestChild
   for (const [id, kids] of children) for (const child of kids) {
     const origins = parents.get(child) ?? []
     origins.push(id); parents.set(child, origins)
@@ -292,23 +199,23 @@ const topology = cachedGroup('deck.topology', (deck: MissionDeckModel): DeckTopo
 
 type Count = 'tasks' | 'done' | 'run' | 'live' | 'working' | 'needsYou' | 'waiting'
 const COUNTS: readonly Count[] = ['tasks', 'done', 'run', 'live', 'working', 'needsYou', 'waiting']
-const ownCount = (name: Count) => cachedGroup(`deck.own.${name}`, (row: MissionDeckIssueModel) => {
+const ownCount = (name: Count) => ((row: MissionDeckIssueModel) => {
   const facts = row.facts
   if (!facts.visible) return 0
   if (name === 'tasks') return 1
-  if (name === 'done') return Number(issueClosed(facts) && !issueAbandoned(facts))
-  if (name === 'run') return Number(!isFinished(facts) && (underway(facts.stage) || facts.stage === 'review'))
+  if (name === 'done') return Number(facts.finished && !issueAbandoned(facts))
+  if (name === 'run') return Number(!facts.finished && (underway(facts.stage) || facts.stage === 'review'))
   row.view.stats.onRollup?.(row.id)
   // Counts do not need the presentation roster's coordinator-first ordering.
   // Keep that additional computed lazy until a row actually draws its crew.
   const crew = requireLoaded(row.view.roster(row.id))
-  if (name === 'live') return crew.filter(sessionPresentOnTask).length
-  if (name === 'working') return crew.filter(session => sessionPresentOnTask(session) && motionPhase(session) === 'working').length
-  if (name === 'waiting') return crew.filter(session => sessionAsksOnIssue(facts, session)).length
+  if (name === 'live') return crew.filter(session => row.view.pool.sessionObject(session.sessionId).open).length
+  if (name === 'working') return crew.filter(session => { const model = row.view.pool.sessionObject(session.sessionId); return model.open && model.working }).length
+  if (name === 'waiting') return crew.filter(session => row.asks(session)).length
   return Number(issueNeedsHuman(row.rulesIssue!, crew))
 })
-const own = Object.fromEntries(COUNTS.map(name => [name, ownCount(name)])) as Record<Count, (row: MissionDeckIssueModel) => number>
-const sum = Object.fromEntries(COUNTS.map(name => [name, cachedGroup(`deck.rollup.${name}`, (row: MissionDeckIssueModel) => settled(() => {
+const own = Object.fromEntries(COUNTS.map(name => [name, (row: MissionDeckIssueModel) => row.ownCount(name)])) as Record<Count, (row: MissionDeckIssueModel) => number>
+const deriveSum = Object.fromEntries(COUNTS.map(name => [name, ((row: MissionDeckIssueModel) => settled(() => {
   row.view.stats.onRollup?.(row.id)
   const shape = requireLoaded(row.deck.topology)
   let total = 0, pending = false
@@ -324,7 +231,8 @@ const sum = Object.fromEntries(COUNTS.map(name => [name, cachedGroup(`deck.rollu
   }
   return pending ? LOADING : total
 }))])) as Record<Count, (row: MissionDeckIssueModel) => number | typeof LOADING>
-const descendants = cachedGroup('deck.descendants', (row: MissionDeckIssueModel) => {
+const sum = Object.fromEntries(COUNTS.map(name => [name, (row: MissionDeckIssueModel) => row.totalCount(name)])) as Record<Count, (row: MissionDeckIssueModel) => number | typeof LOADING>
+const descendants = ((row: MissionDeckIssueModel) => {
   const shape = requireLoaded(row.deck.topology), seen = new Set<string>([row.id]), ids: string[] = []
   const stack = [...(shape.children.get(row.id) ?? [])].reverse()
   while (stack.length) {
@@ -334,30 +242,28 @@ const descendants = cachedGroup('deck.descendants', (row: MissionDeckIssueModel)
   }
   return ids
 })
-const childrenOf = cachedGroup('deck.children', (row: MissionDeckIssueModel) => {
+const childrenOf = ((row: MissionDeckIssueModel) => {
   const shape = row.deck.topology
   return shape === LOADING ? LOADING : shape.children.get(row.id) ?? []
 })
-const crewIds = cachedGroup('deck.crewIds', (row: MissionDeckIssueModel) => {
+const crewIds = ((row: MissionDeckIssueModel) => {
   const { view, facts } = row
-  return [...view.pool.graph.many('issue', row.id, 'missionSessions')].filter(id => view.sessionRoster(id)).sort((a, b) =>
+  return [...view.pool.graph.many('issue', row.id, 'missionSessions')].filter(id => view.pool.sessionObject(id).onRoster).sort((a, b) =>
     Number(b === facts.coordinatorSessionId) - Number(a === facts.coordinatorSessionId) ||
-    view.sessionCreatedAt(a).localeCompare(view.sessionCreatedAt(b)) || a.localeCompare(b))
+    view.pool.sessionObject(a).createdAt.localeCompare(view.pool.sessionObject(b).createdAt) || a.localeCompare(b))
 })
-const hasPayload = cachedGroup('deck.hasPayload', (row: MissionDeckIssueModel) => requireLoaded(row.deckChildren).length > 0 || row.crewIds.length > 0)
-const hasLead = cachedGroup('deck.hasLead', (row: MissionDeckIssueModel) => Boolean(row.facts.coordinatorSessionId &&
-  row.crewIds.includes(row.facts.coordinatorSessionId) && row.view.sessionOpen(row.facts.coordinatorSessionId)))
-const presentation = cachedGroup('deck.presentation', (row: MissionDeckIssueModel) => row.view.presentation(row.issue, row.sessions))
-const crewOf = cachedGroup('deck.crew', (row: MissionDeckIssueModel) => deckSessionOrder(row.facts,
+const hasPayload = ((row: MissionDeckIssueModel) => requireLoaded(row.deckChildren).length > 0 || row.crewIds.length > 0)
+const presentation = ((row: MissionDeckIssueModel) => row.view.presentation(row.issue, row.sessions))
+const crewOf = ((row: MissionDeckIssueModel) => deckSessionOrder(row.facts,
   requireLoaded(row.view.roster(row.id))))
-const matchedWorking = cachedGroup('deck.matches.working', (row: MissionDeckIssueModel) => row.sessions.some(sessionAtWork))
-const matchedNeedsYou = cachedGroup('deck.matches.needsYou', (row: MissionDeckIssueModel) => own.needsYou(row) > 0)
-const collapsedCrew: (row: MissionDeckIssueModel) => SessionView[] = cachedGroup('deck.collapsedCrew', (row: MissionDeckIssueModel): SessionView[] => {
+const matchedWorking = ((row: MissionDeckIssueModel) => row.sessions.some(session => row.view.pool.sessionObject(session.sessionId).atWork))
+const matchedNeedsYou = ((row: MissionDeckIssueModel) => own.needsYou(row) > 0)
+const collapsedCrew: (row: MissionDeckIssueModel) => SessionView[] = ((row: MissionDeckIssueModel): SessionView[] => {
   const seen = new Set<string>(), candidates: SessionView[] = []
-  const rank = (session: SessionView) => sessionPresentOnTask(session) && motionPhase(session) === 'working' ? 0 : sessionSettled(session) ? 2 : 1
+  const rank = (session: SessionView) => row.view.pool.sessionObject(session.sessionId).open && row.view.pool.sessionObject(session.sessionId).working ? 0 : sessionSettled(session) ? 2 : 1
   const shape = requireLoaded(row.deck.topology)
   const groups = shape.overlap ? [row.sessions, ...row.descendantIds.map(id => row.deck.model(id).sessions)] :
-    [row.sessions, ...requireLoaded(row.deckChildren).map(id => collapsedCrew(row.deck.model(id)))]
+    [row.sessions, ...requireLoaded(row.deckChildren).map(id => row.deck.model(id).collapsedCrew)]
   for (const crew of groups) {
     for (const session of crew) {
       if (seen.has(session.sessionId)) continue
@@ -367,32 +273,32 @@ const collapsedCrew: (row: MissionDeckIssueModel) => SessionView[] = cachedGroup
   }
   return candidates
 })
-const kindCodes: (row: MissionDeckIssueModel) => string = cachedGroup('deck.kindCodes', (row: MissionDeckIssueModel): string => {
+const kindCodes: (row: MissionDeckIssueModel) => string = ((row: MissionDeckIssueModel): string => {
   const kinds = new Set<SessionView['agentKind']>()
   const shape = requireLoaded(row.deck.topology)
   const ownCrew = shape.overlap ? [row.id, ...row.descendantIds].flatMap(id => row.deck.model(id).sessions) : row.sessions
   for (const session of ownCrew) {
-    if (sessionPresentOnTask(session)) kinds.add(session.agentKind)
+    if (row.view.pool.sessionObject(session.sessionId).open) kinds.add(session.agentKind)
     if (kinds.size === 2) return JSON.stringify([...kinds])
   }
   if (!shape.overlap) for (const id of requireLoaded(row.deckChildren)) {
-    for (const kind of JSON.parse(kindCodes(row.deck.model(id))) as SessionView['agentKind'][]) {
+    for (const kind of JSON.parse(row.deck.model(id).kindCodes) as SessionView['agentKind'][]) {
       kinds.add(kind)
       if (kinds.size === 2) return JSON.stringify([...kinds])
     }
   }
   return JSON.stringify([...kinds])
 })
-const kindsOf = cachedGroup('deck.kinds', (row: MissionDeckIssueModel) => JSON.parse(kindCodes(row)) as SessionView['agentKind'][])
-const latestBelow = cachedGroup('deck.updatedBelow', (row: MissionDeckIssueModel): string => {
+const kindsOf = ((row: MissionDeckIssueModel) => JSON.parse(row.kindCodes) as SessionView['agentKind'][])
+const latestBelow = ((row: MissionDeckIssueModel): string => {
   const shape = requireLoaded(row.deck.topology)
   if (shape.overlap) return [row.id, ...row.descendantIds].reduce((at, id) => row.view.facts(id).updatedAt > at ? row.view.facts(id).updatedAt : at, '')
   let at = row.facts.updatedAt
-  for (const id of requireLoaded(row.deckChildren)) { const next = latestBelow(row.deck.model(id)); if (next > at) at = next }
+  for (const id of requireLoaded(row.deckChildren)) { const next = row.deck.model(id).updatedBelow; if (next > at) at = next }
   return at
 })
 
-const rollupValue = cachedGroup('deck.rollup', (row: MissionDeckIssueModel) => settled(() => ({
+const rollupValue = ((row: MissionDeckIssueModel) => settled(() => ({
   tasks: requireLoaded(sum.tasks(row)), done: requireLoaded(sum.done(row)), run: requireLoaded(sum.run(row)),
   live: requireLoaded(sum.live(row)), working: requireLoaded(sum.working(row)), needsYou: requireLoaded(sum.needsYou(row)), waiting: requireLoaded(sum.waiting(row)),
 })))
@@ -400,7 +306,47 @@ const rollupValue = cachedGroup('deck.rollup', (row: MissionDeckIssueModel) => s
  * Scope matters: a graft may have different children and paths in two roots.
  * The handle holds no row, geometry, retained computed or presentation map. */
 export class MissionDeckIssueModel implements FlightDeckRow {
-  constructor(readonly id: string, readonly deck: MissionDeckModel, private readonly path?: readonly string[]) {}
+  constructor(readonly entity: IssueModel, readonly deck: MissionDeckModel, private readonly path?: readonly string[]) {}
+  get id() { return this.entity.id }
+  @lazy private get ownTasks() { return ownCount('tasks')(this) }
+  @lazy private get totalTasks(): number | typeof LOADING { return deriveSum.tasks(this) }
+  @lazy private get ownDone() { return ownCount('done')(this) }
+  @lazy private get totalDone(): number | typeof LOADING { return deriveSum.done(this) }
+  @lazy private get ownRun() { return ownCount('run')(this) }
+  @lazy private get totalRun(): number | typeof LOADING { return deriveSum.run(this) }
+  @lazy private get ownLive() { return ownCount('live')(this) }
+  @lazy private get totalLive(): number | typeof LOADING { return deriveSum.live(this) }
+  @lazy private get ownWorking() { return ownCount('working')(this) }
+  @lazy private get totalWorking(): number | typeof LOADING { return deriveSum.working(this) }
+  @lazy private get ownNeedsYou() { return ownCount('needsYou')(this) }
+  @lazy private get totalNeedsYou(): number | typeof LOADING { return deriveSum.needsYou(this) }
+  @lazy private get ownWaiting() { return ownCount('waiting')(this) }
+  @lazy private get totalWaiting(): number | typeof LOADING { return deriveSum.waiting(this) }
+  ownCount(name: Count): number {
+    switch (name) {
+      case 'tasks': return this.ownTasks
+      case 'done': return this.ownDone
+      case 'run': return this.ownRun
+      case 'live': return this.ownLive
+      case 'working': return this.ownWorking
+      case 'needsYou': return this.ownNeedsYou
+      case 'waiting': return this.ownWaiting
+    }
+  }
+  totalCount(name: Count): number | typeof LOADING {
+    switch (name) {
+      case 'tasks': return this.totalTasks
+      case 'done': return this.totalDone
+      case 'run': return this.totalRun
+      case 'live': return this.totalLive
+      case 'working': return this.totalWorking
+      case 'needsYou': return this.totalNeedsYou
+      case 'waiting': return this.totalWaiting
+    }
+  }
+  @lazy get collapsedCrew(): SessionView[] { return collapsedCrew(this) }
+  @lazy get kindCodes(): string { return kindCodes(this) }
+  @lazy get kinds() { return kindsOf(this) }
   /** A graft can draw the same issue under two mission paths. */
   get key() { return this.path ? JSON.stringify(this.path) : this.id }
   private get canonical(): MissionDeckIssueModel { return this.path ? this.deck.model(this.id) : this }
@@ -410,51 +356,54 @@ export class MissionDeckIssueModel implements FlightDeckRow {
   get rulesIssue() { return this.view.rulesIssue(this.id) }
   get stage() { return this.facts.stage }
   get title() { return requireLoaded(this.view.title(requireLoaded(this.view.catalogIssue(this.id))!)) }
-  get deckChildren() { return childrenOf(this.canonical) }
-  get descendantIds() { return descendants(this.canonical) }
-  get sessions() { return crewOf(this.canonical) }
-  get crewIds() { return crewIds(this.canonical) }
-  get hasLead() { return hasLead(this.canonical) }
-  private readonly shownIds = keyedComputed('MissionIssue.sessionIds', (mode: FlightDeckMode) => {
-    if (mode === 'full') return this.crewIds
-    if (!this.matches(mode)) return []
-    return this.crewIds.filter(id => mode === 'working' ? this.view.sessionAtWork(id) : !issueClosed(this.facts) && this.view.sessionAsking(id))
-  })
-  sessionIds(mode: FlightDeckMode): readonly string[] { return this.path ? this.canonical.sessionIds(mode) : this.shownIds(mode) }
+  @lazy get deckChildren() { return childrenOf(this.canonical) }
+  @lazy get descendantIds() { return descendants(this.canonical) }
+  @lazy get sessions() { return crewOf(this.canonical) }
+  @lazy get crewIds() { return crewIds(this.canonical) }
+  get hasLead() { return this.entity.hasLead }
+  asks(session: SessionView) { return this.view.pool.sessionObject(session.sessionId).asking && !this.entity.finished }
+  @lazy get workingSessionIds() { return this.crewIds.filter(id => this.view.pool.sessionObject(id).atWork) }
+  @lazy get askingSessionIds() { return this.matches('needs-you') ? this.crewIds.filter(id => this.asks(this.view.pool.sessionObject(id))) : [] }
+  sessionIds(mode: FlightDeckMode): readonly string[] {
+    const row = this.canonical
+    return mode === 'full' ? row.crewIds : mode === 'working' ? row.workingSessionIds : row.askingSessionIds
+  }
   get depth() { return this.path ? this.path.length - 1 : this.deck.depth(this.id) }
-  get matched() { return this.matches(this.deck.mode) }
-  matches(mode: FlightDeckMode) { return mode === 'full' || (mode === 'working' ? matchedWorking(this.canonical) : matchedNeedsYou(this.canonical)) }
+  @lazy get matched() { return this.matches(this.deck.mode) }
+  @lazy get matchesWorking() { return matchedWorking(this.canonical) }
+  @lazy get matchesNeedsYou() { return matchedNeedsYou(this.canonical) }
+  matches(mode: FlightDeckMode) { return mode === 'full' || (mode === 'working' ? this.canonical.matchesWorking : this.canonical.matchesNeedsYou) }
   get rollup() { return rollupValue(this.canonical) }
-  get tasks() { return sum.tasks(this.canonical) }
-  get done() { return sum.done(this.canonical) }
-  get run() { return sum.run(this.canonical) }
-  get actionableCount() { return requireLoaded(sum.needsYou(this.canonical)) }
-  get liveAgentCount() { return requireLoaded(sum.live(this.canonical)) }
-  get workingAgentCount() { return requireLoaded(sum.working(this.canonical)) }
-  get waitingAgentCount() { return requireLoaded(sum.waiting(this.canonical)) }
+  @lazy get tasks() { return sum.tasks(this.canonical) }
+  @lazy get done() { return sum.done(this.canonical) }
+  @lazy get run() { return sum.run(this.canonical) }
+  @lazy get actionableCount() { return requireLoaded(sum.needsYou(this.canonical)) }
+  @lazy get liveAgentCount() { return requireLoaded(sum.live(this.canonical)) }
+  @lazy get workingAgentCount() { return requireLoaded(sum.working(this.canonical)) }
+  @lazy get waitingAgentCount() { return requireLoaded(sum.waiting(this.canonical)) }
   get collapsedSummary() {
     const row = this.canonical
     // A searchable placeholder asks only for the task count. Reading it must
     // not observe the hidden row's crew, kinds and other presentation rollups.
     return {
-      get tasks() { return requireLoaded(row.tasks) - own.tasks(row) },
-      get done() { return requireLoaded(row.done) - own.done(row) },
-      get run() { return requireLoaded(row.run) - own.run(row) },
-      get kinds() { return kindsOf(row) },
-      get crew() { return collapsedCrew(row) },
+      @lazy get tasks() { return requireLoaded(row.tasks) - own.tasks(row) },
+      @lazy get done() { return requireLoaded(row.done) - own.done(row) },
+      @lazy get run() { return requireLoaded(row.run) - own.run(row) },
+      get kinds() { return row.kinds },
+      get crew() { return row.collapsedCrew },
       get needsYou() { return row.actionableCount > 0 },
     }
   }
-  get presentation() { return presentation(this.canonical) }
-  get updatedBelow() { return latestBelow(this.canonical) }
-  get hasPayload() { return hasPayload(this.canonical) }
+  @lazy get presentation() { return presentation(this.canonical) }
+  @lazy get updatedBelow() { return latestBelow(this.canonical) }
+  @lazy get hasPayload() { return hasPayload(this.canonical) }
   folded(folds: FlightDeckFoldMap) {
     const explicit = folds.get(this.id)
     return explicit === undefined ? requireLoaded(this.deckChildren).length === 0 && this.crewIds.length === 1 : explicit === 'closed'
   }
 }
 
-const progress = cachedGroup('deck.progress', (deck: MissionDeckModel): MissionProgress | typeof LOADING => settled(() => {
+const progress = ((deck: MissionDeckModel): MissionProgress | typeof LOADING => settled(() => {
   const { view } = deck, members = requireLoaded(deck.members)
   const formal = new Set<string>(), stack = [...view.pool.graph.many('issue', deck.id, 'children')]
   while (stack.length) {
@@ -488,7 +437,7 @@ const progress = cachedGroup('deck.progress', (deck: MissionDeckModel): MissionP
   const result: MissionProgress = { total: units.length, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
   for (const id of units) {
     const facts = view.facts(id)
-    if (issueClosed(facts)) result.done++
+    if (facts.finished) result.done++
     else if (facts.blocked) result.block++
     else if (facts.stage === 'review') result.review++
     else if (underway(facts.stage)) { if (facts.stage === 'shipping' || staffed.has(id)) result.run++; else result.stall++ }
@@ -500,7 +449,7 @@ const progress = cachedGroup('deck.progress', (deck: MissionDeckModel): MissionP
 // The header is mounted only after its own references and scalar rollups have
 // settled. Observing this boolean keeps LOADING in the data boundary; ordinary
 // header value changes are read by its observer, without republishing the pane.
-const headerReady = cachedGroup('deck.headerReady', (deck: MissionDeckModel) => settled(() => {
+const headerReady = ((deck: MissionDeckModel) => settled(() => {
   const row = deck.model(deck.id)
   const reads: readonly (() => unknown)[] = [
     () => row.liveAgentCount, () => row.workingAgentCount,
@@ -511,32 +460,43 @@ const headerReady = cachedGroup('deck.headerReady', (deck: MissionDeckModel) => 
   for (const read of reads) if (settled(read) === LOADING) pending = true
   return pending ? LOADING : true
 }))
-const rootContinuation = cachedGroup('deck.continuation', (deck: MissionDeckModel) => {
+const rootContinuation = ((deck: MissionDeckModel) => {
   const root = deck.view.rulesIssue(deck.id)
   return root ? deck.view.continuation(root) : null
 })
-const rootNote = cachedGroup('deck.note', (deck: MissionDeckModel) => {
+const rootNote = ((deck: MissionDeckModel) => {
   const root = deck.view.rulesIssue(deck.id)
   return root ? deck.view.note(root) : null
 })
-const rootPresence = cachedGroup('deck.presence', (deck: MissionDeckModel) => {
+const rootPresence = ((deck: MissionDeckModel) => {
   const root = deck.view.rulesIssue(deck.id)
   return root ? deck.view.presence(root, deck.model(deck.id).sessions) : null
 })
-const rootDepartures = cachedGroup('deck.departures', (deck: MissionDeckModel) => deck.view.departures(deck))
+const rootDepartures = ((deck: MissionDeckModel) => deck.view.departures(deck))
 
 /** Root questions contain IDs and mission-wide numbers. MobX owns every cache
  * lifetime; unobserved row/model questions keep no computed allocations. */
 export class MissionDeckModel {
-  private readonly modelsById = new Map<string, MissionDeckIssueModel>()
-  private readonly occurrences = new Map<string, MissionDeckIssueModel>()
-  private readonly paths = keyedComputed('MissionDeck.paths', (key: string) => settled(() => {
-    const [mode, entries] = JSON.parse(key) as [FlightDeckMode, [string, string][] | null]
-    const folds = entries === null ? null : new Map(entries) as FlightDeckFoldMap
+  readonly card = companion((issue: IssueModel) => new MissionDeckIssueModel(issue, this))
+  constructor(readonly entity: IssueModel, readonly view: MissionViewReader, readonly mode: FlightDeckMode) {}
+  get id() { return this.entity.id }
+  @lazy get values() { this.view.stats.values++; return this.view.deckValues(this) }
+  @lazy get archivedCount() { return this.view.readArchiveCount(this) }
+  @lazy get members() { return missions(this.view.pool).members(this.id) }
+  @lazy get topology() { return topology(this) }
+  @lazy get progress() { return progress(this) }
+  @lazy get headerReady() { return headerReady(this) }
+  @lazy get continuation() { return rootContinuation(this) }
+  @lazy get note() { return rootNote(this) }
+  @lazy get presence() { return rootPresence(this) }
+  @lazy get departures() { return rootDepartures(this) }
+  @lazy private get paths() { return settled(() => this.readPaths()) }
+  @lazy private get placements() { return settled(() => requireLoaded(this.paths).map(path => path[path.length - 1]!)) }
+  private readPaths() {
     const shape = requireLoaded(this.topology), members = requireLoaded(this.members)
     const included = new Set<string>([this.id])
     for (const id of members) {
-      if (!this.view.facts(id).visible || !this.model(id).matches(mode)) continue
+      if (!this.view.facts(id).visible || !this.model(id).matches(this.mode)) continue
       let current: string | undefined = id
       const seen = new Set<string>()
       while (current && !seen.has(current)) {
@@ -550,39 +510,23 @@ export class MissionDeckModel {
       if (path.includes(id) || !included.has(id) || !this.view.facts(id).visible) return
       const next = [...path, id]
       paths.push(next)
-      if (folds && id !== this.id && this.model(id).folded(folds)) return
       for (const child of shape.children.get(id) ?? []) walk(child, next)
     }
     walk(this.id, [])
     return paths
-  }))
-  private readonly placements = keyedComputed('MissionDeck.rowIds', (key: string) => settled(() =>
-    requireLoaded(this.paths(key)).map(path => path[path.length - 1]!)))
-  constructor(readonly id: string, readonly view: MissionViewReader, readonly mode: FlightDeckMode) {}
-  get members() { return missions(this.view.pool).members(this.id) }
-  get topology() { return topology(this) }
-  get progress() { return progress(this) }
-  get headerReady() { return headerReady(this) }
-  get continuation() { return rootContinuation(this) }
-  get note() { return rootNote(this) }
-  get presence() { return rootPresence(this) }
-  get departures() { return rootDepartures(this) }
-  rowIds(mode: FlightDeckMode = this.mode, collapsed: FlightDeckFoldMap | null = null) {
-    return this.placements(JSON.stringify([mode, collapsed === null ? null : [...collapsed]]))
   }
-  rows() {
-    return requireLoaded(this.paths(JSON.stringify([this.mode, null]))).map(path => {
-      const key = JSON.stringify(path)
-      let row = this.occurrences.get(key)
-      if (!row) { row = new MissionDeckIssueModel(path[path.length - 1]!, this, path); this.occurrences.set(key, row) }
-      return row
-    })
+  rowIds(mode: FlightDeckMode = this.mode, collapsed: FlightDeckFoldMap | null = null): readonly string[] | typeof LOADING {
+    if (mode !== this.mode) return this.view.deck(this.id, mode).rowIds(mode, collapsed)
+    if (collapsed === null) return this.placements
+    return settled(() => requireLoaded(this.paths)
+      .filter(path => path.slice(1, -1).every(id => !this.model(id).folded(collapsed)))
+      .map(path => path[path.length - 1]!))
   }
-  model(id: string) {
-    let model = this.modelsById.get(id)
-    if (!model) { model = new MissionDeckIssueModel(id, this); this.modelsById.set(id, model) }
-    return model
+  @lazy private get rowPlacements() {
+    return requireLoaded(this.paths).map(path => new MissionDeckIssueModel(this.view.facts(path[path.length - 1]!), this, path))
   }
+  rows() { return this.rowPlacements }
+  model(id: string) { return this.card(this.view.facts(id)) }
   depth(id: string) {
     return requireLoaded(this.topology).depths.get(id) ?? 0
   }
@@ -602,43 +546,39 @@ export class MissionDeckModel {
     }
     return ids
   }
-  dispose() { this.paths.clear(); this.placements.clear(); this.modelsById.clear(); this.occurrences.clear() }
+
 }
 
-/** IDs only in these handles. Computed groups live only while a pane/diagnostic
- * observes them; row values are borrowed through the pool's one reader. */
-class MissionNode {
-  constructor(readonly id: string, readonly view: MissionViewReader) {}
+/** Mission rules and rich read projections belong to this screen companion. */
+class MissionIssueReader {
+  constructor(readonly entity: IssueModel, readonly view: MissionViewReader) {}
+  get id() { return this.entity.id }
+  @lazy get earliestChild() {
+    let first: string | undefined
+    for (const id of this.view.pool.graph.many('issue', this.id, 'children')) if (first === undefined || id < first) first = id
+    return first
+  }
+  @lazy get issue() { return this.view.readIssue(this.id) }
+  @lazy get menuIssue() { return this.view.readMenuIssue(this.id) }
+  @lazy get catalog() { return this.view.readCatalogIssue(this.id) }
+  @lazy get rules() { return this.view.readRulesIssue(this.id) }
+  @lazy get localTips() { return this.view.readTips(this.id, true) }
+  @lazy get liveTips() { return this.view.readTips(this.id, false) }
+  @lazy get attached() { return this.view.readAttached(this.id) }
+  @lazy get present() { return this.view.readPresent(this.id) }
+  @lazy get history() { return this.view.readHistory(this.id) }
+  @lazy get historyRosterCount() { return this.view.readHistoryRosterCount(this.id) }
+  @lazy get handoff() { return deriveMissionHandoff(this.view, this.id) }
+  @lazy get menuHandoff(): MissionMenuHandoff | typeof LOADING {
+    const count = this.view.pool.graph.size('issue', this.id, 'handoffSessions')
+    if (count === 0) return { blocker: 'no-agent-session' }
+    if (count > 1) return { blocker: 'multiple-sessions' }
+    const sessionId = this.view.pool.graph.many('issue', this.id, 'handoffSessions')[Symbol.iterator]().next().value!
+    const session = this.view.menuSession(sessionId)
+    return session === LOADING ? LOADING : session ? { session } : { blocker: 'no-agent-session' }
+  }
 }
-const issueValue = cachedGroup('missionIssue', (node: MissionNode) => node.view.readIssue(node.id))
-const menuIssueValue = cachedGroup('missionMenuIssue', (node: MissionNode) => node.view.readMenuIssue(node.id))
-const catalogValue = cachedGroup('missionCatalog', (node: MissionNode) => node.view.readCatalogIssue(node.id))
-const rulesValue = cachedGroup('missionRules', (node: MissionNode) => node.view.readRulesIssue(node.id))
-const localTipsValue = cachedGroup('missionTips.local', (node: MissionNode) => node.view.readTips(node.id, true))
-const liveTipsValue = cachedGroup('missionTips.live', (node: MissionNode) => node.view.readTips(node.id, false))
-const attachedValue = cachedGroup('missionAttachments', (node: MissionNode) => node.view.readAttached(node.id))
-const presentValue = cachedGroup('missionPresent', (node: MissionNode) => node.view.readPresent(node.id))
-const historyValue = cachedGroup('missionHistory', (node: MissionNode) => node.view.readHistory(node.id))
-const historyRosterCountValue = cachedGroup('missionHistoryRosterCount', (node: MissionNode) => node.view.readHistoryRosterCount(node.id))
-const pageMemberIds = (pool: MobxPool, id: string) =>
-  [...pool.graph.many('issue', id, 'pageSessions')].sort().map(asSessionId)
-const memberIdsValue = cachedGroup('missionMemberIds', (node: MissionNode) => pageMemberIds(node.view.pool, node.id))
-const memberHistoryValue = cachedGroup('missionMemberHistory', (node: MissionNode) => node.view.readMemberHistory(node.id))
-const MODES = ['full', 'working', 'needs-you'] as const
-type PaneGroups<V> = Record<FlightDeckMode, (node: MissionNode) => V>
-const paneValues = Object.fromEntries(MODES.map(mode => [mode,
-  cachedGroup(`missionPane.${mode}`, (node: MissionNode) => {
-    const deck = node.view.deck(node.id, mode)
-    requireLoaded(deck.rowIds(mode))
-    node.view.stats.values++
-    return node.view.deckValues(deck)
-  }),
-])) as PaneGroups<MissionViewValues>
-const archiveCountValue = cachedGroup('missionArchiveCount', (deck: MissionDeckModel) => deck.view.readArchiveCount(deck))
-const handoffValue = cachedGroup('missionHandoff', (node: MissionNode) => deriveMissionHandoff(node.view, node.id))
 const rowOrder = (a: { id: string }, b: { id: string }) => a.id < b.id ? -1 : a.id > b.id ? 1 : 0
-const visible = (issue: { archived?: boolean; deletedAt?: string | null }) => !issue.archived && !issue.deletedAt
-const openSession = sessionPresentOnTask
 const underway = (stage: string) => stage === 'planning' || stage === 'in_progress' || stage === 'shipping'
 const leftMission = (issue: IssueNavigationModel) => !['proposed', 'backlog'].includes(issue.stage) && Boolean(issue.deps.find(dep => dep.type === 'discovered-from'))
 const originId = (issue: IssueNavigationModel) => issue.deps.find(dep => dep.type === 'discovered-from')?.id ?? null
@@ -646,26 +586,17 @@ const originId = (issue: IssueNavigationModel) => issue.deps.find(dep => dep.typ
 /** One read service on the existing principal's pool. There is no source,
  * replica, runtime, outbox or independently maintained relation index here. */
 export class MissionViewReader {
-  private readonly nodes = new Map<string, MissionNode>()
-  private readonly factsById = new Map<string, MissionIssueFacts>()
-  private readonly decks = new Map<string, MissionDeckModel>()
+  private card = companion((issue: IssueModel) => new MissionIssueReader(issue, this))
+  private fullDeck = companion((issue: IssueModel) => new MissionDeckModel(issue, this, 'full'))
+  private workingDeck = companion((issue: IssueModel) => new MissionDeckModel(issue, this, 'working'))
+  private askingDeck = companion((issue: IssueModel) => new MissionDeckModel(issue, this, 'needs-you'))
   readonly stats: { values: number; issueReads: number; sessionReads: number; attachmentEdges: number; onRollup?: (id: string) => void } = { values: 0, issueReads: 0, sessionReads: 0, attachmentEdges: 0 }
-  facts(id: string) {
-    let facts = this.factsById.get(id)
-    if (!facts) { facts = new MissionIssueFacts(id, this); this.factsById.set(id, facts) }
-    return facts
-  }
+  facts(id: string): MissionIssue { return this.pool.issueObject(id) as MissionIssue }
   deck(id: string, mode: FlightDeckMode = 'full') {
-    const key = JSON.stringify([id, mode])
-    let deck = this.decks.get(key)
-    if (!deck) { deck = new MissionDeckModel(id, this, mode); this.decks.set(key, deck) }
-    return deck
+    const issue = this.facts(id)
+    return mode === 'full' ? this.fullDeck(issue) : mode === 'working' ? this.workingDeck(issue) : this.askingDeck(issue)
   }
-  private node(id: string) {
-    let node = this.nodes.get(id)
-    if (!node) { node = new MissionNode(id, this); this.nodes.set(id, node) }
-    return node
-  }
+  node(id: string) { return this.card(this.facts(id)) }
   constructor(readonly pool: MobxPool) {}
   /** The pane is cached per mission ROOT and mode. The selection only picks
    * the root through {@link selectedRoot} (cached reads; a screen may override
@@ -684,13 +615,13 @@ export class MissionViewReader {
     // before propagating LOADING, so their requests share the 50 ms window.
     const shape = deck.topology, numbers = deck.progress, archived = this.archiveCount(deck), ready = deck.headerReady
     if (root === LOADING || shape === LOADING || numbers === LOADING || archived === LOADING || ready === LOADING) return LOADING
-    return paneValues[mode](this.node(rootId))
+    return deck.values
   }
-  handoff(id: string): MissionHandoffValues | typeof LOADING { return handoffValue(this.node(id)) }
-  issue(id: string): Loaded<IssueNavigationModel> { return issueValue(this.node(id)) }
+  handoff(id: string): MissionHandoffValues | typeof LOADING { return this.node(id).handoff }
+  issue(id: string): Loaded<IssueNavigationModel> { return this.node(id).issue }
   /** An open menu shows authored issue fields, unread and cascade counts;
    * it does not show the history roster or its phase summary. */
-  menuIssue(id: string): Loaded<IssueNavigationModel> { return menuIssueValue(this.node(id)) }
+  menuIssue(id: string): Loaded<IssueNavigationModel> { return this.node(id).menuIssue }
   readMenuIssue(id: string): Loaded<IssueNavigationModel> {
     const row = this.menuCatalogIssue(id)
     if (!row || row === LOADING) return row
@@ -704,14 +635,7 @@ export class MissionViewReader {
   }
   /** Count the declared capability set, and load a sender only when it is
    * the unique handoff subject. MobX retains this answer only while observed. */
-  readonly menuHandoff = keyedComputed('MissionMenu.handoff', (id: string): MissionMenuHandoff | typeof LOADING => {
-    const count = this.pool.graph.size('issue', id, 'handoffSessions')
-    if (count === 0) return { blocker: 'no-agent-session' }
-    if (count > 1) return { blocker: 'multiple-sessions' }
-    const sessionId = this.pool.graph.many('issue', id, 'handoffSessions')[Symbol.iterator]().next().value!
-    const session = this.menuSession(sessionId)
-    return session === LOADING ? LOADING : session ? { session } : { blocker: 'no-agent-session' }
-  })
+  menuHandoff(id: string) { return this.node(id).menuHandoff }
   /** Menu metadata is already declared in the cold summary. Reading it does
    * not promote a closed issue and initialize its full display roster. */
   menuCatalogIssue(id: string): Loaded<IssueNavigationModel> {
@@ -726,7 +650,7 @@ export class MissionViewReader {
   issueMembers(id: string): IssueMemberFacts | typeof LOADING { return this.readIssueMembers(id) }
   /** Menu catalogs use authored labels and references, not other tasks' crew. */
   catalogIssue(id: string): Loaded<IssueNavigationModel> {
-    return catalogValue(this.node(id))
+    return this.node(id).catalog
   }
   readCatalogIssue(id: string): Loaded<IssueNavigationModel> {
     const raw = this.pool.row('issue', id)
@@ -740,18 +664,18 @@ export class MissionViewReader {
    * order. Explicit whole-roster readers ask for it; mission derivations
    * compose {@link present} and {@link history} so a seated heartbeat never
    * re-reads history. */
-  attached(id: string): readonly SessionView[] | typeof LOADING { return attachedValue(this.node(id)) }
+  attached(id: string): readonly SessionView[] | typeof LOADING { return this.node(id).attached }
   /** Non-archived mission senders, in session order. */
-  present(id: string): readonly SessionView[] | typeof LOADING { return presentValue(this.node(id)) }
+  present(id: string): readonly SessionView[] | typeof LOADING { return this.node(id).present }
   /** What derivations need from the archived mission senders. */
   history(id: string): MissionHistory | typeof LOADING {
     // Most issues have no archived sender: answer without building a cache.
-    return this.hasHistory('missionSessions', id) === false ? NO_HISTORY : historyValue(this.node(id))
+    return this.hasHistory('missionSessions', id) === false ? NO_HISTORY : this.node(id).history
   }
   /** A closed archive observes only roster eligibility, without allocating
    * the activity, prompt and handoff winner questions for every hidden seat. */
   historyRosterCount(id: string): number | typeof LOADING {
-    return this.hasHistory('missionSessions', id) === false ? 0 : historyRosterCountValue(this.node(id))
+    return this.hasHistory('missionSessions', id) === false ? 0 : this.node(id).historyRosterCount
   }
   /** Whether the relation holds archived or unsettled senders (LOADING while seats load). */
   private hasHistory(relation: SeatRelation, id: string): boolean | typeof LOADING {
@@ -764,7 +688,8 @@ export class MissionViewReader {
    * hand (one cached value per session, shared with navigation and the
    * partitions), else its row, which this read loads. */
   private sessionFacts(sessionId: string): SessionFacts | typeof LOADING | undefined {
-    return this.historySession(sessionId)
+    const session = this.pool.sessionObject(sessionId)
+    return settled(() => session.exists ? session : undefined)
   }
   private idOrder = (a: string, b: string): number => {
     const left = this.pool.graph.orderKey('session', a), right = this.pool.graph.orderKey('session', b)
@@ -782,27 +707,18 @@ export class MissionViewReader {
     return pending ? LOADING : found.sort((a, b) => this.idOrder(a.sessionId, b.sessionId))
   }
   sessionOrder = (a: SessionView, b: SessionView): number => this.idOrder(a.sessionId, b.sessionId)
-  rawSession(id: string): Loaded<SessionView> {
+  rawSession(id: string): Loaded<SessionModel> {
     const resident = this.pool.row('session', id, 'mark')
-    if (resident !== LOADING) return resident as Loaded<SessionView>
-    const summary = this.pool.row('session', id, 'summary')
-    if (summary && summary !== LOADING && ['sessionId', 'cwd', 'status', 'lastActiveAt', 'title'].every(key => Object.hasOwn(summary, key))) return summary as SessionView
-    return this.pool.row('session', id) as Loaded<SessionView>
+    if (resident === undefined) return undefined
+    if (resident === LOADING) {
+      const summary = this.pool.row('session', id, 'summary')
+      if (summary === LOADING || !summary || !['sessionId', 'cwd', 'status', 'lastActiveAt', 'title'].every(key => Object.hasOwn(summary, key))) {
+        const full = this.pool.row('session', id)
+        if (full === LOADING || !full) return full
+      }
+    }
+    return this.pool.sessionObject(id)
   }
-  readonly sessionRoster = keyedComputed('MissionSession.roster', (id: string) => {
-    const session = requireLoaded(this.rawSession(id))
-    return Boolean(session && !session.archived && !session.headless && session.agentKind !== 'shell')
-  })
-  readonly sessionCreatedAt = keyedComputed('MissionSession.createdAt', (id: string) => requireLoaded(this.rawSession(id))?.createdAt ?? '')
-  readonly sessionAtWork = keyedComputed('MissionSession.atWork', (id: string) => {
-    const session = requireLoaded(this.rawSession(id)); return Boolean(session && sessionAtWork(session))
-  })
-  readonly sessionAsking = keyedComputed('MissionSession.asking', (id: string) => {
-    const session = requireLoaded(this.rawSession(id)); return Boolean(session && !session.archived && sessionNeedsHuman(session))
-  })
-  readonly sessionOpen = keyedComputed('MissionSession.open', (id: string) => {
-    const session = requireLoaded(this.rawSession(id)); return Boolean(session && !session.archived && session.status !== 'exited')
-  })
   session(id: string): Loaded<SessionView> {
     this.stats.sessionReads++
     const row = this.rawSession(id)
@@ -814,64 +730,17 @@ export class MissionViewReader {
     const row = this.session(id)
     return !row || row === LOADING ? row : menuSessionOverlay(row, MENU_SESSION_OVERRIDES, MENU_SESSION_OMISSIONS)
   }
-  private sessionScalar<T>(name: string, read: (session: SessionView) => T) {
-    return keyedComputed(`MissionSession.${name}`, (id: string): Loaded<T> => {
-      const session = this.rawSession(id)
-      return session === LOADING || session === undefined ? session : read(session)
-    })
-  }
-  private readonly historyFields = {
-    activity: this.sessionScalar('historyActivity', session => session.lastActiveAt),
-    input: this.sessionScalar('historyInput', session => session.lastInputAt),
-    transcript: this.sessionScalar('historyTranscript', session => session.transcriptAvailable),
-    kind: this.sessionScalar('historyKind', session => session.agentKind),
-    moved: this.sessionScalar('historyMoved', session => Boolean(session.handoffTarget)),
-    phase: this.sessionScalar('historyPhase', session => session.agentState?.phase ?? 'unknown'),
-    roster: this.sessionScalar('historyRoster', session => !session.headless && session.agentKind !== 'shell'),
-  }
-  /** A display-only change stops at these scalar getters; it never wakes the
-   * archived roster aggregates that observe this record. */
-  private readonly historySession = keyedComputed('MissionSession.history', (id: string): Loaded<SessionFacts> => settled(() => {
-    const archived = requireLoaded(this.archivedSession(id))
-    if (archived === undefined) return undefined
-    const field = this.historyFields
-    return {
-      sessionId: id, archived,
-      lastActiveAt: requireLoaded(field.activity(id))!,
-      lastInputAt: requireLoaded(field.input(id)),
-      transcriptAvailable: requireLoaded(field.transcript(id)),
-      agentKind: requireLoaded(field.kind(id))!,
-      moved: requireLoaded(field.moved(id))!,
-      phase: requireLoaded(field.phase(id))!,
-      roster: requireLoaded(field.roster(id))!,
-    }
-  }))
-  /** Membership and archived flags alone determine each side. A heartbeat
-   * keeps these ID arrays observed without walking the history again. */
-  private readonly seatIdValues = keyedComputed('MissionSeats.ids', (key: string): readonly string[] | typeof LOADING => {
-    const [relation, id, archived] = JSON.parse(key) as [SeatRelation, string, boolean]
-    const ids: string[] = []
+  private seatIds(relation: SeatRelation, id: string, archived: boolean): readonly string[] | typeof LOADING {
+    const partition = sessionSeats(this.pool).partition(relation, id)
+    if (partition === LOADING) return LOADING
+    const ids = [...(archived ? partition.archived : partition.present)]
     let pending = false
-    for (const sessionId of this.pool.graph.many('issue', id, relation)) {
-      const flag = this.archivedSession(sessionId)
+    for (const sessionId of partition.unknown) {
+      const flag = settled(() => this.pool.sessionObject(sessionId).archived)
       if (flag === LOADING) pending = true
       else if (flag === archived) ids.push(sessionId)
     }
     return pending ? LOADING : ids
-  })
-  /** The seated or archived side's ids, and the cold ones whose summary
-   * does not say which: those settle from their rows (read here anyway). */
-  private seatIds(relation: SeatRelation, id: string, archived: boolean): readonly string[] | typeof LOADING {
-    return this.seatIdValues(JSON.stringify([relation, id, archived]))
-  }
-  /** Share the maintained flag with navigation's seat state. History fields
-   * and read markers never invalidate these membership-only partitions.
-   * A source without scalar facts still settles from the addressed row. */
-  private archivedSession(id: string): Loaded<boolean> {
-    const archived = this.pool.queries.sessionArchived(id)
-    if (archived !== undefined) return archived
-    const row = this.rawSession(id)
-    return row === LOADING || row === undefined ? row : Boolean(row.archived)
   }
   private seatRows(relation: SeatRelation, id: string, archived: boolean): SessionView[] | typeof LOADING {
     const ids = this.seatIds(relation, id, archived)
@@ -880,9 +749,10 @@ export class MissionViewReader {
     let pending = false
     for (const sessionId of ids) {
       this.stats.attachmentEdges++
-      const session = this.rawSession(sessionId)
-      if (session === LOADING) pending = true
-      else if (session && Boolean(session.archived) === archived) found.push(session)
+      const session = this.pool.sessionObject(sessionId)
+      const foundSession = settled(() => session.exists && session.archived === archived)
+      if (foundSession === LOADING) pending = true
+      else if (foundSession) found.push(session)
     }
     return pending ? LOADING : found
   }
@@ -897,8 +767,8 @@ export class MissionViewReader {
     if (all === LOADING) return LOADING
     const facts = all.filter(session => session.archived)
     let newest: SessionFacts | undefined
-    for (const session of facts) if (!newest || session.lastActiveAt > newest.lastActiveAt) newest = session
-    return { count: facts.length, roster: facts.filter(session => session.roster).length, newest: newest?.sessionId,
+    for (const session of facts) if (!newest || session.lastActivity > newest.lastActivity) newest = session
+    return { count: facts.length, roster: facts.filter(session => session.rosterEligible).length, newest: newest?.sessionId,
       moved: facts.find(session => session.moved)?.sessionId, latestPrompt: latestPromptOf(facts) }
   }
   readHistoryRosterCount(id: string): number | typeof LOADING {
@@ -906,7 +776,7 @@ export class MissionViewReader {
     if (ids === LOADING) return LOADING
     let count = 0, pending = false
     for (const sessionId of ids) {
-      const roster = this.historyFields.roster(sessionId)
+      const roster = settled(() => this.pool.sessionObject(sessionId).rosterEligible)
       if (roster === LOADING) pending = true
       else if (roster) count++
     }
@@ -917,23 +787,9 @@ export class MissionViewReader {
     if (present === LOADING || archived === LOADING) return LOADING
     return [...present, ...archived].sort(this.sessionOrder)
   }
-  /** Archived raw members' contribution to an issue's member summary. */
-  readMemberHistory(id: string): MemberFacts | typeof LOADING {
-    const ids = this.seatIds('pageSessions', id, true)
-    if (ids === LOADING) return LOADING
-    const facts = this.factsOfIds(ids)
-    return facts === LOADING ? LOADING : memberFacts(facts.filter(session => session.archived))
-  }
   readIssueMembers(id: string): IssueMemberFacts | typeof LOADING {
-    const plain = this.hasHistory('pageSessions', id) === false
-    const ids = plain ? pageMemberIds(this.pool, id) : memberIdsValue(this.node(id))
-    const present = this.seatRows('pageSessions', id, false)
-    const archived = plain ? NO_MEMBERS : memberHistoryValue(this.node(id))
-    if (present === LOADING || archived === LOADING) return LOADING
-    const facts = mergeMemberFacts(memberFacts(present.map(factsOf)), archived)
-    const byPhase: Record<string, number> = {}
-    for (const [phase, { count }] of [...facts.phases].sort((a, b) => a[1].first < b[1].first ? -1 : 1)) byPhase[phase] = count
-    return { ids, latest: facts.latest, summary: { total: facts.count, byPhase } }
+    const issue = this.facts(id)
+    return settled(() => ({ ids: issue.memberSessionIds, latest: issue.memberLatestActivity, summary: issue.memberSummary }))
   }
   /** The present and archived seats are both settled (history rows loaded). */
   settled(id: string): boolean {
@@ -1028,7 +884,7 @@ export class MissionViewReader {
     const seats = archived ? this.seatRows('missionSessions', id, true) : this.present(id)
     if (seats === LOADING) return LOADING
     return (archived ? [...seats].sort(this.sessionOrder) : seats)
-      .filter(session => !session.headless && session.agentKind !== 'shell' && Boolean(session.archived) === archived)
+      .filter(session => { const model = this.pool.sessionObject(session.sessionId); return archived ? model.archived && model.rosterEligible : model.onRoster })
   }
   rootFor(selectedId: string | null): Loaded<string> {
     const root = missions(this.pool).rootFor(selectedId)
@@ -1040,7 +896,7 @@ export class MissionViewReader {
     while (id && !seen.has(id)) {
       seen.add(id)
       const facts = this.pool.row('issue', id, 'summary') as Loaded<{ archived?: boolean; deletedAt?: string }>
-      if (facts === undefined || (facts !== LOADING && !visible(facts))) break
+      if (facts === undefined || (facts !== LOADING && !this.facts(id).visible)) break
       void this.pool.row('issue', id)
       id = this.pool.graph.one('issue', id, 'parent')
     }
@@ -1053,11 +909,11 @@ export class MissionViewReader {
   }
   private rootValue(rootId: string): Loaded<IssueNavigationModel> {
     const root = this.issue(rootId)
-    if (root === LOADING || !root || !visible(root)) return root === LOADING ? LOADING : undefined
+    if (root === LOADING || !root || !this.facts(rootId).visible) return root === LOADING ? LOADING : undefined
     if (root.isDraftVessel && !root.worktreePath) {
       const sessions = this.present(rootId)
       if (sessions === LOADING || this.history(rootId) === LOADING) return LOADING
-      if (!sessions.some(session => !session.archived)) return undefined
+      if (sessions.length === 0) return undefined
     }
     return root
   }
@@ -1075,7 +931,7 @@ export class MissionViewReader {
     const visibleId = (id: string) => {
       const row = this.pool.row('issue', id, 'summary') as Loaded<{ archived?: boolean; deletedAt?: string | null }>
       if (row === LOADING) { pending = true; return false }
-      return Boolean(row && visible(row))
+      return Boolean(row && this.facts(id).visible)
     }
     const formal = [...members]
     while (formal.length) {
@@ -1108,7 +964,7 @@ export class MissionViewReader {
     }
     return !pending
   }
-  archiveCount(deck: MissionDeckModel): number | typeof LOADING { return archiveCountValue(deck) }
+  archiveCount(deck: MissionDeckModel): number | typeof LOADING { return deck.archivedCount }
   readArchiveCount(deck: MissionDeckModel): number | typeof LOADING {
     return settled(() => {
       let count = 0, pending = false
@@ -1142,7 +998,7 @@ export class MissionViewReader {
       get members() { return requireLoaded(deck.members) },
       get rows() { return deck.rows() },
       get issueIds() { return view.addressedIds(deck) },
-      get sessions() {
+      @lazy get sessions() {
         const sessions = new Map<string, SessionView>()
         for (const id of view.addressedIds(deck)) for (const session of requireLoaded(view.present(id))) sessions.set(session.sessionId, session)
         return [...sessions.values()].sort(view.sessionOrder)
@@ -1164,7 +1020,7 @@ export class MissionViewReader {
       if (!this.facts(id).visible) continue
       if (this.pool.graph.size('issue', id, 'spinOffs') === 0) continue
       const result = settled(() => {
-        const empty = !requireLoaded(this.roster(id)).some(openSession)
+        const empty = !requireLoaded(this.roster(id)).some(session => this.pool.sessionObject(session.sessionId).open)
         for (const tip of this.tips(id)) {
           if (members.has(tip.id) || seen.has(tip.id) || (!empty && issueClosed(tip))) continue
           const value = settled(() => {
@@ -1184,7 +1040,7 @@ export class MissionViewReader {
   private presentStrict(id: string) { return requireLoaded(this.present(id)) }
   private rosterStrict(id: string, archived = false) { return [...requireLoaded(this.roster(id, archived))] }
   rulesIssue(id: string): IssueNavigationModel | undefined {
-    return rulesValue(this.node(id))
+    return this.node(id).rules
   }
   readRulesIssue(id: string): IssueNavigationModel | undefined {
     const raw = this.catalogIssue(id)
@@ -1207,20 +1063,20 @@ export class MissionViewReader {
       state = { ...state, state: 'waiting', label: 'Waiting' }
     return { state, note: this.note(issue, true), presence: this.presence(issue, sessions, true) }
   }
-  live(id: string) { return this.presentStrict(id).some(openSession) }
+  live(id: string) { return this.facts(id).live }
   lastActive(issue: IssueNavigationModel, local: boolean) {
     return local ? issue.updatedAt : this.presentStrict(issue.id).reduce((latest, session) =>
       !session.archived && session.lastActiveAt > latest ? session.lastActiveAt : latest, issue.updatedAt)
   }
   preferred(candidates: readonly IssueNavigationModel[], local = false): IssueNavigationModel | undefined {
-    const staffed = local ? [] : candidates.filter(issue => this.live(issue.id))
+    const staffed = local ? [] : candidates.filter(issue => this.facts(issue.id).live)
     const unfinished = candidates.filter(issue => !isFinished(issue))
     return [...(staffed.length ? staffed : unfinished.length ? unfinished : candidates)]
       .sort((a, b) => this.lastActive(b, local).localeCompare(this.lastActive(a, local)))[0]
   }
   tips(origin: string, local = false): IssueNavigationModel[] {
     if (this.pool.graph.size('issue', origin, 'spinOffs') === 0) return []
-    return (local ? localTipsValue : liveTipsValue)(this.node(origin))
+    return (local ? this.node(origin).localTips : this.node(origin).liveTips)
   }
   readTips(origin: string, local: boolean): IssueNavigationModel[] {
     const seen = new Set<string>(), descendants: IssueNavigationModel[] = []
@@ -1246,11 +1102,11 @@ export class MissionViewReader {
         descendants.push(issue); stack.push(id)
       }
     }
-    if (!local) for (const issue of descendants) if (settled(() => this.live(issue.id)) === LOADING) pending = true
+    if (!local) for (const issue of descendants) if (settled(() => this.facts(issue.id).live) === LOADING) pending = true
     if (pending) throw LOADING
     const branches = new Map<string, IssueNavigationModel[]>()
     for (const issue of descendants) {
-      if (!leftMission(issue) && (local || !this.live(issue.id))) continue
+      if (!leftMission(issue) && (local || !this.facts(issue.id).live)) continue
       let branchId: string = issue.id, parentId = this.pool.graph.one('issue', issue.id, 'discoveredFrom')
       const path = new Set<string>([issue.id])
       while (parentId && parentId !== origin) {
@@ -1279,7 +1135,7 @@ export class MissionViewReader {
         { kind: 'duplicate', ...(target ? { target } : {}), short: ref,
           full: `The same work is tracked in ${ref}`, line: `duplicate · ${ref}` }
     }
-    if ((local ? this.rosterStrict(issue.id) : this.presentStrict(issue.id)).some(openSession)) return null
+    if ((local ? this.rosterStrict(issue.id) : this.presentStrict(issue.id)).some(session => this.pool.sessionObject(session.sessionId).open)) return null
     const tip = this.preferred(this.tips(issue.id, local), local)
     if (!tip) return null
     const ref = issueDisplayRef(tip)
@@ -1332,7 +1188,7 @@ export class MissionViewReader {
   /** `sessions` is a drawn roster; `roster` names the issue whose whole
    * roster (archived included) answers which session moved. */
   presence(issue: IssueNavigationModel, sessions: readonly SessionView[], local = false, roster?: string): PresenceNote | null {
-    if (sessions.some(openSession)) return null
+    if (sessions.some(session => this.pool.sessionObject(session.sessionId).open)) return null
     const moved = roster === undefined ? sessions.find(session => session.handoffTarget) : this.moved(roster)
     if (moved) return { kind: 'moved', text: `Session moved to ${moved.handoffTarget}`, attention: false }
     const continuation = this.continuation(issue, local)
@@ -1348,10 +1204,10 @@ export class MissionViewReader {
     return { kind: 'ready', text: 'Proposed · not started', attention: false }
   }
   dispose = () => {
-    for (const deck of this.decks.values()) deck.dispose()
-    this.historySession.clear(); this.seatIdValues.clear()
-    for (const field of Object.values(this.historyFields)) field.clear()
-    this.nodes.clear(); this.factsById.clear(); this.decks.clear(); this.sessionRoster.clear(); this.sessionCreatedAt.clear(); this.sessionAtWork.clear(); this.sessionAsking.clear(); this.sessionOpen.clear()
+    this.card = companion(issue => new MissionIssueReader(issue, this))
+    this.fullDeck = companion(issue => new MissionDeckModel(issue, this, 'full'))
+    this.workingDeck = companion(issue => new MissionDeckModel(issue, this, 'working'))
+    this.askingDeck = companion(issue => new MissionDeckModel(issue, this, 'needs-you'))
   }
 }
 
@@ -1394,12 +1250,12 @@ function poolHandoffNow(ctx: MissionViewReader, issues: readonly IssueNavigation
   const entries: Array<{ entry: HandoffNowEntry; seq: number }> = []
 
   for (const issue of issues) {
-    if (!memberIds.has(issue.id) || issue.stage === 'proposed' || issue.archived || issue.deletedAt)
+    if (!memberIds.has(issue.id) || issue.stage === 'proposed' || !ctx.facts(issue.id).visible)
       continue
     const crew = requireLoaded(ctx.present(issue.id))
-    const present = crew.filter(sessionPresentOnTask)
+    const present = crew.filter(session => ctx.pool.sessionObject(session.sessionId).open)
     const asking = present.find(
-      (session) => sessionAsksOnIssue(issue, session) || motionPhase(session) === 'waiting',
+      (session) => ctx.pool.sessionObject(session.sessionId).asking && !ctx.facts(issue.id).finished || motionPhase(session) === 'waiting',
     )
     const askedBy = issue.asked?.by ? ctx.member(issue.id, issue.asked.by) : undefined
     const explicitNeed = issue.needsHuman === true || asking !== undefined
@@ -1417,7 +1273,7 @@ function poolHandoffNow(ctx: MissionViewReader, issues: readonly IssueNavigation
           'Waiting on you.',
       }
     } else {
-      const working = present.find(sessionAtWork)
+      const working = present.find(session => ctx.pool.sessionObject(session.sessionId).atWork)
       if (working) {
         entry = {
           kind: 'working',
@@ -1552,7 +1408,7 @@ function poolOpenChildren(ctx: MissionViewReader, members: ReadonlySet<string>, 
   return [...ctx.pool.graph.many('issue', parentId, 'treeChildren')].flatMap(id => {
     if (!members.has(id)) return []
     const issue = requireLoaded(ctx.issue(id))
-    return issue && issue.stage !== 'proposed' && visible(issue) && !issueClosed(issue) ? [issue] : []
+    return issue && issue.stage !== 'proposed' && ctx.facts(issue.id).visible && !issueClosed(issue) ? [issue] : []
   }).sort(rowOrder)
 }
 export interface MissionHandoffValues {
@@ -1570,7 +1426,7 @@ export const EMPTY_MISSION_HANDOFF: MissionHandoffValues = Object.freeze({
 export function readWorkspaceMission(view: MissionViewReader, selectedId: string | null, focusedId: string | null) {
   const selected = selectedId ? view.issue(selectedId) : undefined
   if (selected === LOADING) return LOADING
-  const rootId = selected && visible(selected) ? view.rootFor(selected.id) : undefined
+  const rootId = selected && view.facts(selected.id).visible ? view.rootFor(selected.id) : undefined
   if (rootId === LOADING) return LOADING
   const missionRoot = rootId ? view.issue(rootId) : undefined
   if (missionRoot === LOADING) return LOADING

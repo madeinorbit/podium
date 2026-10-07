@@ -10,9 +10,9 @@ it('publishes archived-state changes without depending on display fields or row 
   const row = { sessionId: 'seat', issueId: 'owner', archived: false, agentKind: 'codex', status: 'exited' }
   pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'owner', value: issue }, { kind: 'session', id: 'seat', value: row }] })
   const values: Array<boolean | undefined> = []
-  const stop = autorun(() => { values.push(pool.queries.sessionArchived('seat')) })
+  const stop = autorun(() => { values.push(pool.sessionObject('seat').archived) })
   const stopSeat = autorun(() => { sessionSeats(pool).seat('seat') })
-  const flag = vi.spyOn(pool.queries, 'sessionArchived')
+  const flag = vi.spyOn(pool.queries, 'sessionStoredField')
   const update = (value: Readonly<Record<string, unknown>> | undefined) => pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value }] })
   try {
     expect(pool.tables.session.has('seat')).toBe(false)

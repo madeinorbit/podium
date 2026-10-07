@@ -1357,7 +1357,7 @@ const VISIBLE = 'visible'
 
 /** What a row files: its placement and rank while visible, else nothing. */
 function filingOf(issue: HeldIssue): Filing | undefined {
-  if (!issue.visible) return undefined
+  if (!issue.placed) return undefined
   const { placement, rank } = issue
   return placement === undefined || rank === undefined ? undefined : { placement, rank, root: issue.nestParent === null }
 }

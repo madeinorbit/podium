@@ -699,6 +699,15 @@ export class MobxPool {
     return this.object('issue', id) as IssueModel
   }
 
+  /** The same session object whether its row is resident or loading. */
+  sessionObject(id: string): SessionModel {
+    return this.object('session', id) as SessionModel
+  }
+
+  sessionArchiveField(id: string): boolean | undefined {
+    return this.queries.sessionStoredField(id, 'archived')
+  }
+
   /**
    * TRACKED: the object of issue `id` while the pool knows the issue (in
    * memory or cold), else undefined: a cross-issue read (a parent, a child,

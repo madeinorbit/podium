@@ -525,7 +525,13 @@ export function worklistGroups(pool: MobxPool, initiallyFolded = false): Worklis
   return pool.sources.view('worklist.groups', () => {
     const foldLatch = observable.box(initiallyFolded, { name: debugName(() => 'pool.foldLatch') })
     const groups = new WorklistGroups({
-      node: id => pool.knownIssue(id),
+      node: id => {
+        const issue = pool.knownIssue(id)
+        return issue && {
+          get rank() { return issue.rank }, get placement() { return issue.placement },
+          get visible() { return issue.placed }, get nestParent() { return issue.nestParent },
+        }
+      },
       selectedId: () => pool.selection.keys().next().value ?? null,
       foldLatch: () => foldLatch.get(),
       demand: () => pool.worklist.need(),

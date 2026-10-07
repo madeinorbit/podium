@@ -1,3 +1,4 @@
+import type { SessionModel } from '@podium/client-graph/models'
 import type { FlightDeckView } from './FlightDeck'
 import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
@@ -34,8 +35,6 @@ import {
   type PresenceNote,
   readFlightDeckFolds,
   type SessionRole,
-  sessionAsksOnIssue,
-  sessionNeedsHuman,
   sessionRole,
   sessionSettled,
   sessionUnreadEmphasized,
@@ -391,12 +390,13 @@ function matchesQuery(row: FlightDeckRow, needle: string): boolean {
 
 export function sessionSearchText(
   session: SessionView,
-  issue: IssueNavigationModel | null = null,
   label?: string | null,
+  model?: MissionDeckIssueModel,
 ): string {
-  const retired = session.archived || session.status === 'exited'
+  const facts = session as SessionModel
+  const retired = !facts.open
   const needs =
-    !retired && (issue ? sessionAsksOnIssue(issue, session) : sessionNeedsHuman(session))
+    !retired && (model ? model.asks(session) : facts.asking)
   return [
     session.handoffTarget ? `Handing over → ${session.handoffTarget}` : sessionDisplayName(session),
     session.displayRef,
@@ -548,11 +548,12 @@ function StateLabel({ value, label }: { value: DeckIssueState; label?: string })
  *  operator can decide whether to unfold, and a tooltip that ticks would be one
  *  more thing animating in a column whose only motion is the working spinner. */
 function crewLine(session: SessionView, now: number): string {
-  const retired = session.archived || session.status === 'exited'
+  const facts = session as SessionModel
+  const retired = !facts.open
   const phase = motionPhase(session)
   const state = retired
     ? `retired ${relativeTime(session.lastActiveAt, now)}`
-    : sessionNeedsHuman(session)
+    : facts.asking
       ? 'needs you'
       : phase === 'working'
         ? 'working'
@@ -933,6 +934,7 @@ function RoleWord({ role, label }: { role: SessionRole; label: string }): JSX.El
 export const SessionRow = observer(function SessionRow({
   session,
   issue = null,
+  model,
   role = null,
   label = null,
   active,
@@ -947,6 +949,7 @@ export const SessionRow = observer(function SessionRow({
    *  session cannot answer alone once the task has closed (POD-1072). Null
    *  outside the tree, where the archived reveal draws rows on their own. */
   issue?: IssueNavigationModel | null
+  model?: MissionDeckIssueModel
   role?: SessionRole | null
   /** The role as a word, already resolved (a spawn parent needs a name). */
   label?: string | null
@@ -969,10 +972,11 @@ export const SessionRow = observer(function SessionRow({
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   const [editing, setEditing] = useState(false)
   const intent = useClickIntent()
-  const retired = session.archived || session.status === 'exited'
+  const facts = session as SessionModel
+  const retired = !facts.open
   const starting = session.status === 'starting' || session.status === 'reconnecting'
   const needs =
-    !retired && (issue ? sessionAsksOnIssue(issue, session) : sessionNeedsHuman(session))
+    !retired && (model ? model.asks(session) : facts.asking)
   const phase = motionPhase(session)
   const since = Date.parse(session.agentState?.since ?? session.lastActiveAt)
   const now = useRuntimeSelector((store) => store.coarseNow)
@@ -1346,6 +1350,7 @@ export const HungRows = observer(function HungRows(ctx: HungContext): JSX.Elemen
             key={session.sessionId}
             session={session}
             issue={ctx.issue}
+            model={ctx.model}
             role={role}
             label={roleLabel(role, ctx.nameOf)}
             active={ctx.activeSessionId === session.sessionId}

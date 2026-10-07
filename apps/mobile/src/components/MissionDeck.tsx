@@ -1,3 +1,6 @@
+import type { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
+import type { SessionModel } from '@podium/client-graph/models'
+import { observer } from '@podium/client-graph/react'
 import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -16,11 +19,9 @@ import {
   formatClock,
   type IssueContinuation,
   type IssueNavigationModel,
-  isCoordinatorSession,
   issueAbandoned,
   motionPhase,
   readFlightDeckFolds,
-  sessionAsksOnIssue,
   sessionRole,
   sessionSettled,
   sessionTitle,
@@ -100,7 +101,7 @@ const readMode = (raw: string | null): FlightDeckMode =>
   raw === 'active' ? 'working' : raw === 'working' || raw === 'needs-you' ? raw : 'full'
 const writeMode = (mode: FlightDeckMode): string | null => (mode === 'full' ? null : mode)
 
-export const MissionDeck = memo(function MissionDeck({
+export const MissionDeck = observer(function MissionDeck({
   root,
   sessions,
   accent,
@@ -186,16 +187,7 @@ export const MissionDeck = memo(function MissionDeck({
    * lead went home would be the deck asserting somebody is driving when nobody
    * is, which is the one thing this device must never do.
    */
-  const ledIssueIds = useMemo(() => {
-    const led = new Set<string>()
-    for (const row of rows) {
-      const hasLead = row.sessions.some(
-        (s) => !s.archived && s.status !== 'exited' && isCoordinatorSession(row.issue, s.sessionId),
-      )
-      if (hasLead) led.add(row.issue.id)
-    }
-    return led
-  }, [rows])
+  const ledIssueIds = new Set(rows.filter(row => (row as MissionDeckIssueModel).hasLead).map(row => row.issue.id))
   const leadTone = useCallback(
     (issueId: IssueId | undefined): RailTone =>
       issueId === undefined || !ledIssueIds.has(issueId)
@@ -620,7 +612,7 @@ function SpineRow({
   )
 }
 
-function Band({
+const Band = observer(function Band({
   row,
   session,
   depth,
@@ -631,7 +623,7 @@ function Band({
   stops,
   current,
   onPress,
-}: {
+}): {
   row: FlightDeckRow
   session: SessionView
   depth: number
@@ -646,8 +638,8 @@ function Band({
   const phase = motionPhase(session)
   // Asked ON THIS TASK: a closed one never asks, however long its offer has been
   // standing (POD-1072).
-  const asking = sessionAsksOnIssue(row.issue, session)
-  const working = phase === 'working'
+  const asking = (row as MissionDeckIssueModel).asks(session)
+  const working = (session as SessionModel).working
   const role = sessionRole(row.issue, session, {
     rootId: row.depth === 0 ? row.issue.id : null,
     siblings: row.sessions,
@@ -828,7 +820,7 @@ function stamp(
     return formatClock(Math.max(0, Date.now() - since) + (state?.workingMsTotal ?? 0))
   }
   if (asking) return null
-  if (session.archived || session.status === 'exited') {
+  if (!(session as SessionModel).open) {
     return `Retired · ${relativeTime(session.lastActiveAt, Date.now())}`
   }
   if (phase === 'done' && state?.workingMsTotal) return `∑ ${formatClock(state.workingMsTotal)}`

@@ -1,3 +1,4 @@
+import type { SessionModel } from '@podium/client-graph/models'
 import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -33,8 +34,6 @@ import {
   type PresenceNote,
   readFlightDeckFolds,
   type SessionRole,
-  sessionAsksOnIssue,
-  sessionNeedsHuman,
   sessionRole,
   sessionSettled,
   sessionUnreadEmphasized,
@@ -1647,9 +1646,9 @@ export const FlightDeckContent = observer(function FlightDeckContent({
         const session = requireLoaded(row.view.rawSession(id))
         if (!session) return ''
         const issue = requireLoaded(row.view.catalogIssue(row.id))!
-        return sessionSearchText(session, issue, roleLabel(sessionRole(issue, session, {
+        return sessionSearchText(session, roleLabel(sessionRole(issue, session, {
           rootId: root?.id, siblings: row.sessions, inMission: missionSessionIds,
-        }), nameOf))
+        }), nameOf), row)
       },
     })
     if (rootRow) for (const id of rootSessions) leaves.push(sessionLeaf(rootRow, id))
@@ -1784,7 +1783,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     void markIssueRead(row.issue.id)
     if (row.issue.worktreePath) setSelectedWorktree(row.issue.worktreePath)
     const active = row.sessions.filter(
-      (session) => !session.archived && session.status !== 'exited',
+      (session) => (session as SessionModel).open,
     )
     // Contract order: coordinator → lone member → most recently active member →
     // no-session state. The pane you happen to be looking at is NOT a
@@ -1818,7 +1817,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     if (issue.worktreePath) setSelectedWorktree(issue.worktreePath)
     const live = source
       .attached(issue.id)
-      .filter((session) => !session.archived && session.status !== 'exited')
+      .filter((session) => (session as SessionModel).open)
       .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))[0]
     if (live) {
       openSessionTab(live.sessionId, { permanent: true })
@@ -1931,7 +1930,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
     const input = agentKind ? { id: rootIssue.id, agentKind } : { id: rootIssue.id }
     const existingSessionIds = source
       .attached(rootIssue.id)
-      .filter((session) => !session.archived)
+      .filter((session) => !(session as SessionModel).archived)
       .map((session) => session.sessionId)
     await spawnIssueAgent(trpc.issues, input)
     await focusIssueSession(rootIssue.id, { excludeSessionIds: existingSessionIds })

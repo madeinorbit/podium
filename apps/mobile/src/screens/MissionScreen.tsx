@@ -1,12 +1,12 @@
+import { observer } from '@podium/client-graph/react'
+import type { SessionModel } from '@podium/client-graph/models'
 import { isFinished } from '@podium/model/browser'
 import { useHarnessDescriptors } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
-  isSessionWorking,
   type MissionProgress,
   missionCrewLabel,
-  sessionNeedsHuman,
 } from '@podium/client-core/values'
 import { asIssueId, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
@@ -52,7 +52,7 @@ import { color, font, mono, monoLabel, space } from '../theme/theme'
  * dismissal, focus containment, and keyboard behavior.
  */
 
-export function MissionScreen() {
+export const MissionScreen = observer(function MissionScreen() {
   const params = useLocalSearchParams<{
     missionId: string | string[]
     sessionId?: string | string[]
@@ -98,9 +98,9 @@ export function MissionScreen() {
   )
   const headerIssue = currentIssue ?? root
 
-  const attention = missionSessions.filter(sessionNeedsHuman).length
-  const live = missionSessions.filter((s) => !s.archived && s.status !== 'exited').length
-  const working = missionSessions.filter(isSessionWorking).length
+  const attention = missionSessions.filter(s => (s as SessionModel).asking).length
+  const live = missionSessions.filter(s => (s as SessionModel).open).length
+  const working = missionSessions.filter(s => (s as SessionModel).working).length
 
   const openSession = useCallback((session: SessionView) => {
     setPinnedSessionId(session.sessionId)
@@ -269,7 +269,7 @@ export function MissionScreen() {
       ) : null}
     </Screen>
   )
-}
+})
 
 function MissionBody({
   current,

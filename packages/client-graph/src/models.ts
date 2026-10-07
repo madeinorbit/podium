@@ -1,4 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import { asSessionId } from '@podium/model/browser'
+import { motionPhase as sessionMotion } from '@podium/client-core/values'
 
 /**
  * The pool's models: ONE object per row, one class per schema entity, built
@@ -176,6 +178,10 @@ import {
 export interface ModelHost {
   /** The pool's one row reader (`MobxPool.row`): pending edits overlaid, `LOADING` when not in memory. */
   row(entity: EntityName, id: string, absent?: 'mark' | 'summary'): LoadedRow<object>
+  /** The pool's shared session object, including an addressed cold session. */
+  sessionObject(id: string): SessionModel
+  /** Addressed raw archived field, independent of payload/residency. */
+  sessionArchiveField(id: string): boolean | undefined
   /** The declared parent key, tracked without reading the source or target payload. */
   formalParent(id: string): string | null
   /** What the row view's parts read. */
@@ -213,6 +219,11 @@ export class EntityModel {
   get row(): StoredRow | undefined {
     const row = this.host.row(this.entity, this.id)
     return row === LOADING ? undefined : (row as StoredRow | undefined)
+  }
+
+  /** Schema-installed fields use the same reader, with no copied row. */
+  storedField(property: string): unknown {
+    return (this.row as Readonly<Record<string, unknown>> | undefined)?.[property]
   }
 }
 
@@ -263,8 +274,7 @@ function installFields(
         answered ??
         function (this: EntityModel): unknown {
           if (field === spec.key) return this.id
-          const row = this.row as Readonly<Record<string, unknown>> | undefined
-          return row === undefined ? undefined : row[property]
+          return this.storedField(property)
         },
       ...(Object.hasOwn(editable, field)
         ? {
@@ -535,9 +545,75 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
       : this.standing?.agent === false
   }
 
-  // These are the same verdict in the existing rule, so share its one cache.
+  // Presence: archive/deletion is independent of the sidebar's `placed` rule.
+  @lazy
   get visible(): boolean {
-    return this.placed
+    const row = this.host.row('issue', this.id)
+    if (row === LOADING) throw LOADING
+    return Boolean(row && !(row as SliceIssue).archived && !(row as SliceIssue).deletedAt)
+  }
+
+  @lazy
+  get live(): boolean {
+    let live = false, pending = false
+    for (const id of this.host.relations.many('issue', this.id, 'missionSessions')) {
+      try { live ||= this.host.sessionObject(id).open }
+      catch (error) { if (error !== LOADING) throw error; pending = true }
+    }
+    if (!live && pending) throw LOADING
+    return live
+  }
+
+  @lazy
+  get hasLead(): boolean {
+    const row = this.host.row('issue', this.id)
+    if (row === LOADING) throw LOADING
+    const id = (row as { coordinatorSessionId?: string } | undefined)?.coordinatorSessionId
+    if (!id) return false
+    for (const member of this.host.relations.many('issue', this.id, 'missionSessions')) {
+      if (member === id) {
+        const session = this.host.sessionObject(id)
+        return session.onRoster && session.open
+      }
+    }
+    return false
+  }
+
+  // Links: raw page membership includes headless, history and resume twins.
+  @lazy
+  get memberSessionIds(): readonly ReturnType<typeof asSessionId>[] {
+    return [...this.host.relations.many('issue', this.id, 'pageSessions')].sort().map(asSessionId)
+  }
+
+  // History: scalar session fields stop display-only changes at each member.
+  @lazy({ equals: compareStructural })
+  get memberSummary(): { total: number; byPhase: Record<string, number> } {
+    const byPhase: Record<string, number> = {}
+    let total = 0, pending = false
+    for (const id of this.memberSessionIds) {
+      const session = this.host.sessionObject(id)
+      try {
+        if (!session.exists) continue
+        const phase = session.phase
+        byPhase[phase] = (byPhase[phase] ?? 0) + 1
+        total++
+      } catch (error) { if (error !== LOADING) throw error; pending = true }
+    }
+    if (pending) throw LOADING
+    return { total, byPhase }
+  }
+
+  @lazy
+  get memberLatestActivity(): number {
+    let latest = -Infinity, pending = false
+    for (const id of this.memberSessionIds) {
+      try {
+        const at = this.host.sessionObject(id).activityMs
+        if (at !== null && at > latest) latest = at
+      } catch (error) { if (error !== LOADING) throw error; pending = true }
+    }
+    if (pending) throw LOADING
+    return latest
   }
 
   @lazy({ equals: compareStructural })
@@ -1628,15 +1704,92 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel implements SessionVisibility {
+  static override readonly answers = new Set(['archived'])
+
   constructor(id: string, host: ModelHost) {
     super('session', id, host)
   }
 
-  @lazy
-  get activityMs(): number | null {
-    return activityMsOf(this.host.visibleInputs.sessionRow(this.id))
+  // Stored fields: declared summaries can answer a field without promoting it.
+  override storedField(property: string): unknown {
+    const resident = this.host.row('session', this.id, 'mark')
+    if (resident !== LOADING) return (resident as Record<string, unknown> | undefined)?.[property]
+    const summary = this.host.row('session', this.id, 'summary')
+    if (summary && summary !== LOADING && Object.hasOwn(summary, property)) return (summary as Record<string, unknown>)[property]
+    const row = this.host.row('session', this.id)
+    if (row === LOADING) throw LOADING
+    return (row as Record<string, unknown> | undefined)?.[property]
   }
 
+  @lazy
+  get exists(): boolean {
+    const row = this.host.row('session', this.id)
+    if (row === LOADING) throw LOADING
+    return row !== undefined
+  }
+
+  // Presence: open means present on the task, including a hibernated session.
+  @lazy
+  get archived(): boolean | undefined {
+    const flag = this.host.sessionArchiveField(this.id)
+    if (flag !== undefined) return flag
+    const row = this.host.row('session', this.id, 'mark')
+    if (row === undefined) return undefined
+    return Boolean(this.storedField('archived'))
+  }
+
+  @lazy
+  get open(): boolean { return !this.archived && this.exists && this.status !== 'exited' }
+
+  @lazy
+  get onRoster(): boolean { return !this.archived && this.rosterEligible }
+
+  @lazy
+  get rosterEligible(): boolean { return this.exists && !this.headless && this.agentKind !== 'shell' }
+
+  // Unlike verdict.working, atWork includes starting/reconnecting before motion.
+  @lazy
+  get atWork(): boolean {
+    return this.open && (this.status === 'starting' || this.status === 'reconnecting' || this.working)
+  }
+
+  @lazy
+  get working(): boolean { return this.exists && sessionMotion(this) === 'working' }
+
+  @lazy
+  get asking(): boolean {
+    return !this.archived && this.exists && (this.phase === 'needs_user' || this.phase === 'errored' || Boolean(this.offer))
+  }
+
+  // History: one scalar per question, shared by navigation and every mission.
+  @lazy
+  get phase(): string { return this.exists ? this.agentState?.phase ?? 'unknown' : 'unknown' }
+
+  @lazy
+  get moved(): boolean { return Boolean(this.handoffTarget) }
+
+  @lazy
+  get lastActivity(): string { return this.lastActiveAt ?? '' }
+
+  @lazy
+  get lastInput(): string | undefined { return this.lastInputAt }
+
+  @lazy
+  get transcript(): boolean | undefined { return this.transcriptAvailable }
+
+  @lazy
+  get historyKind(): SessionView['agentKind'] { return this.agentKind }
+
+  @lazy
+  get condition(): SessionView['condition'] { return (this.row as SessionView | undefined)?.condition }
+
+  // Activity: the same timestamp answers activityMs and raw member history.
+  @lazy
+  get activityMs(): number | null {
+    return activityMsOf({ lastActiveAt: this.lastActivity } as SliceSession)
+  }
+
+  // Links
   @lazy
   get issueLink(): string | null {
     return this.host.visibleInputs.links.session.issue(this.id)
@@ -1680,7 +1833,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
 
   @lazy
   private get retentionArchived(): Retention['archived'] {
-    return this.host.visibleInputs.sessionRow(this.id)!.archived === true
+    return this.archived === true
   }
 
   @lazy
@@ -2059,12 +2212,16 @@ interface IssueEdits {
  * schema at runtime (`installFields`); their TYPES come from the slice types
  * the feed rows already carry, so no field list is written here.
  */
+// Schema-installed session fields are typed by their wire contract. Derived
+// presence fields above keep their scalar types, and no row is stored here.
+export interface SessionModel extends Readonly<Omit<SessionView, 'archived' | 'condition'>>, RelationGetters<'session'> {}
+
 export type ModelOf = {
   issue: IssueModel &
     Readonly<Omit<SliceIssue, 'unread' | 'title' | 'stage' | 'readAt' | keyof RowView>> &
     IssueEdits &
     RelationGetters<'issue'>
-  session: SessionModel & Readonly<SliceSession> & RelationGetters<'session'>
+  session: SessionModel
   worktree: WorktreeModel &
     Readonly<Pick<SliceWorktree, 'path' | 'repoId' | 'repoPath'>> &
     RelationGetters<'worktree'>
