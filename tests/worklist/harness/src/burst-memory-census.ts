@@ -31,8 +31,12 @@ export function burstMemoryCensus(phase: string, pool?: MobxPool): void {
       }
     }
   }
-  const allocated = heapStats()
+  const readHeap = () => {
+    const { heapSize, heapCapacity, extraMemorySize, objectCount, objectTypeCounts } = heapStats()
+    return { heapSize, heapCapacity, extraMemorySize, objectCount, objectTypeCounts }
+  }
+  const allocated = readHeap()
   fullGC()
-  const retained = heapStats()
+  const retained = readHeap()
   console.error('BURST_MEMORY ' + JSON.stringify({ label, phase, objects, watched, held, allocated, retained, fields }))
 }
