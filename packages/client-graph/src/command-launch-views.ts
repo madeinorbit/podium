@@ -273,9 +273,9 @@ function createCommandLaunchViews(pool: MobxPool) {
     },
     { equals: compareStructural },
   )
-  function memberSessionIds(id: string, archived?: false) {
+  function memberSessionIds(id: string) {
     const membership = sessionMembership.get()
-    return pool.queries.ids({ kind: 'commandIssueSessions', issueId: id, archived, includeShells: false })
+    return pool.queries.ids({ kind: 'commandIssueSessions', issueId: id })
       .filter(sid => {
         if (pool.queries.collapsed(sid) || !membership || membership === LOADING || !membership.has(sid)) return false
         // untracked-read: launch-session-presence
@@ -371,6 +371,7 @@ export class CommandPaletteView {
   @observableRef accessor sessions: SessionView[] = []
   @observableRef accessor recent: RecentCommand[] = []
   @observableRef accessor issueSummaries = new Map<string, IssueViewModel>()
+  @observableRef accessor memberOrders = new Map<string, string[]>()
   private stopLoading: (() => void) | undefined
 
   constructor(private readonly pool: MobxPool) {}
@@ -384,6 +385,14 @@ export class CommandPaletteView {
         ? this.snapshot.issues.map(issue => [issue.id, issue]) : [])
       const sessions = views.sessions()
       this.sessions = sessions && sessions !== LOADING ? sessions : []
+      const members = new Map<string, string[]>()
+      for (const session of this.sessions) {
+        if (!session.issueId || session.agentKind === 'shell') continue
+        const ids = members.get(session.issueId) ?? []
+        ids.push(session.sessionId)
+        members.set(session.issueId, ids)
+      }
+      this.memberOrders = members
       const stamp = (iso: string | undefined) => iso ? Date.parse(iso) || 0 : 0
       const recent: { at: number; command: RecentCommand }[] = []
       for (const s of this.sessions)
@@ -417,9 +426,8 @@ export class CommandPaletteView {
     return views.selected({ ...this.snapshot, issues: issue ? [issue] : [] }, this.memberIds)
   }
   @lazy get memberIds(): string[] {
-    const views = commandLaunchViews(this.pool)
     const id = this.contextIssueId
-    return id ? views.memberSessionIds(id, false) : []
+    return id ? this.memberOrders.get(id) ?? [] : []
   }
   @lazy({ equals: compareStructural })
   get data(): Loaded<CommandPaletteData> {
@@ -440,7 +448,7 @@ export class CommandPaletteView {
   @lazy get selectedRows() {
     const id = this.contextIssueId
     if (!id) return []
-    return this.pool.queries.ids({ kind: 'commandIssueSessions', issueId: id, archived: false, includeShells: false })
+    return this.memberIds
       .map(id => new CommandSessionRow(this.pool, id))
   }
   @lazy({ equals: compareStructural }) get selectedSessions(): SessionView[] {

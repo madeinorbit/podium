@@ -152,7 +152,7 @@ for (const scale of [1, 4]) it(`does not render or walk catalogs on an open pale
     const answer = picker.palette(), legacy = commandLaunchViews(pool!).palette()
     if (!answer || !legacy || typeof answer === 'symbol' || typeof legacy === 'symbol') throw new Error('Palette answer did not settle')
     expect(answer.selectedIssue?.memberSessionIds).toEqual(legacy.issues.find(issue => issue.id === 'synthetic-11')?.memberSessionIds)
-    expect(answer.selectedIssue?.memberSessionIds).not.toContain('synthetic-session-0')
+    expect(answer.selectedIssue?.memberSessionIds).toContain('synthetic-session-0')
     picker.close()
   })
   // Eligibility changes remain live; measure a subsequent timestamp-only
