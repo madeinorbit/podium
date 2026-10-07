@@ -1,5 +1,11 @@
 {
   "owner": "POD-5710",
+  "meterAttribution": {
+    "issue": "POD-5778",
+    "sharedFields": "Entity-owned computeds use the entity field key without a consumer prefix. View-owned computeds keep their consumer prefix. No ratio rules or expected-failure allowances changed.",
+    "keyMigration": "pod-5778-entity-attribution.json",
+    "historicalEvidence": "Historical capture counts and originalReader values below remain as recorded. The active sidebar.nested reader uses the stable entity key; sharedColdDemand remains a historical first-consumer trace."
+  },
   "discoveredFrom": "POD-5626",
   "candidate": "6e79296286",
   "pilotBase": "4fa154190e",
@@ -20,7 +26,7 @@
     {
       "action": "navigate-by-ref",
       "kind": "elements",
-      "reader": "consumer:sidebar.row/IssueModel@guard-root.sidebar.nested",
+      "reader": "IssueModel@guard-root.sidebar.nested",
       "at1x": 12,
       "at4x": 14,
       "neighbourhood1x": 7,
@@ -72,7 +78,7 @@
       {
         "action": "navigate-by-ref",
         "kind": "elements",
-        "reader": "consumer:sidebar.row/IssueModel@guard-root.sidebar.nested",
+        "reader": "IssueModel@guard-root.sidebar.nested",
         "archivedSessionFallbackVisits": {
           "at1x": 0,
           "at4x": 0

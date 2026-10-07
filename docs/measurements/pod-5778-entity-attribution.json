@@ -1,0 +1,1248 @@
+{
+  "issue": "POD-5778",
+  "date": "2026-10-07",
+  "scope": "Instrumentation and tests only; no product source changed.",
+  "method": "Paired speed:structural runs on flatblock under meter:flatblock, with identical product source in each pair. Compare all per-window totals, all canonical action/kind/field counters, every verdict, and every renamed reader key.",
+  "instrumentationCandidate": "3e676cb24163c8d9eafd63c4eaf1f8764cb972a7",
+  "rule": "Shared entity computeds are attributed to their entity field. Rows, derivations and distinct elements retain their existing counting and ratio rules. View-owned computeds retain consumer attribution. No expected-failure allowances changed.",
+  "comparisons": [
+    {
+      "baseline": "pilot",
+      "productSource": "ec997a421718da19fcce70794c92bb5d2c063524",
+      "readers": 50,
+      "countersBefore": 1708,
+      "countersAfter": 1708,
+      "totalRedsBefore": 30,
+      "totalRedsAfter": 30,
+      "changedVerdictCount": 0,
+      "allWorkTotalsUnchanged": true,
+      "allCanonicalCountersUnchanged": true,
+      "unrelatedKeyOrVerdictChanges": [],
+      "resolvedGuardSeatCounters": [],
+      "everyChangedReaderKey": [
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-history-#.headerHostPresent",
+          "after": "SessionModel@guard-history-#.headerHostPresent"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-history-#.headerWorkingPresent",
+          "after": "SessionModel@guard-history-#.headerWorkingPresent"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerHostArchived",
+          "after": "SessionModel@guard-seat.headerHostArchived"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerHostCwd",
+          "after": "SessionModel@guard-seat.headerHostCwd"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerHostMachineId",
+          "after": "SessionModel@guard-seat.headerHostMachineId"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerHostPhase",
+          "after": "SessionModel@guard-seat.headerHostPhase"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerHostPresent",
+          "after": "SessionModel@guard-seat.headerHostPresent"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerHostStatus",
+          "after": "SessionModel@guard-seat.headerHostStatus"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerWorkingPresent",
+          "after": "SessionModel@guard-seat.headerWorkingPresent"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerWorkingSessionId",
+          "after": "SessionModel@guard-seat.headerWorkingSessionId"
+        },
+        {
+          "before": "consumer:header.folded/IssueModel@guard-root.displayRef",
+          "after": "IssueModel@guard-root.displayRef"
+        },
+        {
+          "before": "consumer:header.folded/IssueModel@guard-root.openOwn",
+          "after": "IssueModel@guard-root.openOwn"
+        },
+        {
+          "before": "consumer:header.folded/IssueModel@guard-root.unitOwnCold",
+          "after": "IssueModel@guard-root.unitOwnCold"
+        },
+        {
+          "before": "consumer:header.folded/IssueModel@guard-root.unitsBelowMembers",
+          "after": "IssueModel@guard-root.unitsBelowMembers"
+        },
+        {
+          "before": "consumer:header.folded/IssueModel@guard-root.unitsBelowPending",
+          "after": "IssueModel@guard-root.unitsBelowPending"
+        },
+        {
+          "before": "consumer:header.folded/IssueModel@guard-root.unitsBelowProgress",
+          "after": "IssueModel@guard-root.unitsBelowProgress"
+        },
+        {
+          "before": "consumer:header.folded/IssueModel@guard-root.unitsBelowUnits",
+          "after": "IssueModel@guard-root.unitsBelowUnits"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-history-#.headerDockCwd",
+          "after": "SessionModel@guard-history-#.headerDockCwd"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-history-#.headerDockIssueId",
+          "after": "SessionModel@guard-history-#.headerDockIssueId"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-history-#.headerDockMachineId",
+          "after": "SessionModel@guard-history-#.headerDockMachineId"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-history-#.headerDockPresent",
+          "after": "SessionModel@guard-history-#.headerDockPresent"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-seat.headerDockCwd",
+          "after": "SessionModel@guard-seat.headerDockCwd"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-seat.headerDockIssueId",
+          "after": "SessionModel@guard-seat.headerDockIssueId"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-seat.headerDockMachineId",
+          "after": "SessionModel@guard-seat.headerDockMachineId"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-seat.headerDockPresent",
+          "after": "SessionModel@guard-seat.headerDockPresent"
+        },
+        {
+          "before": "consumer:launcher.palette/IssueModel@guard-child.standingDeleted",
+          "after": "IssueModel@guard-child.standingDeleted"
+        },
+        {
+          "before": "consumer:launcher.palette/IssueModel@guard-child.standingReplicaActivityMs",
+          "after": "IssueModel@guard-child.standingReplicaActivityMs"
+        },
+        {
+          "before": "consumer:launcher.palette/IssueModel@guard-child.standingUpdatedMs",
+          "after": "IssueModel@guard-child.standingUpdatedMs"
+        },
+        {
+          "before": "consumer:launcher.palette/IssueModel@guard-root.standingDeleted",
+          "after": "IssueModel@guard-root.standingDeleted"
+        },
+        {
+          "before": "consumer:launcher.palette/IssueModel@guard-root.standingReplicaActivityMs",
+          "after": "IssueModel@guard-root.standingReplicaActivityMs"
+        },
+        {
+          "before": "consumer:launcher.palette/IssueModel@guard-root.standingUpdatedMs",
+          "after": "IssueModel@guard-root.standingUpdatedMs"
+        },
+        {
+          "before": "consumer:mobile-work.long-press/IssueModel@guard-root.standingDeleted",
+          "after": "IssueModel@guard-root.standingDeleted"
+        },
+        {
+          "before": "consumer:mobile-work.long-press/IssueModel@guard-root.standingUpdatedMs",
+          "after": "IssueModel@guard-root.standingUpdatedMs"
+        },
+        {
+          "before": "consumer:mobile-work.row/IssueModel@guard-child.mobileWork",
+          "after": "IssueModel@guard-child.mobileWork"
+        },
+        {
+          "before": "consumer:mobile-work.row/IssueModel@guard-root.mobileWork",
+          "after": "IssueModel@guard-root.mobileWork"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.aggregatePending",
+          "after": "IssueModel@guard-root.aggregatePending"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.aggregateRailWaitingDecisions",
+          "after": "IssueModel@guard-root.aggregateRailWaitingDecisions"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.aggregateRailWaitingOpen",
+          "after": "IssueModel@guard-root.aggregateRailWaitingOpen"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.aggregateRailWaitingPresent",
+          "after": "IssueModel@guard-root.aggregateRailWaitingPresent"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionCold",
+          "after": "IssueModel@guard-root.ownAttentionCold"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionDeciding",
+          "after": "IssueModel@guard-root.ownAttentionDeciding"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionDecidingAt",
+          "after": "IssueModel@guard-root.ownAttentionDecidingAt"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionFinishedAllDone",
+          "after": "IssueModel@guard-root.ownAttentionFinishedAllDone"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionFinishedWaiting",
+          "after": "IssueModel@guard-root.ownAttentionFinishedWaiting"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionFinishedWorking",
+          "after": "IssueModel@guard-root.ownAttentionFinishedWorking"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionOpenAllDone",
+          "after": "IssueModel@guard-root.ownAttentionOpenAllDone"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionOpenWaiting",
+          "after": "IssueModel@guard-root.ownAttentionOpenWaiting"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionOpenWorking",
+          "after": "IssueModel@guard-root.ownAttentionOpenWorking"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionOrder",
+          "after": "IssueModel@guard-root.ownAttentionOrder"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionPending",
+          "after": "IssueModel@guard-root.ownAttentionPending"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionRailWaitingDecisions",
+          "after": "IssueModel@guard-root.ownAttentionRailWaitingDecisions"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionRailWaitingFinished",
+          "after": "IssueModel@guard-root.ownAttentionRailWaitingFinished"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionRailWaitingOpen",
+          "after": "IssueModel@guard-root.ownAttentionRailWaitingOpen"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionRailWaitingPresent",
+          "after": "IssueModel@guard-root.ownAttentionRailWaitingPresent"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSeated",
+          "after": "IssueModel@guard-root.ownAttentionSeated"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSessionIds",
+          "after": "IssueModel@guard-root.ownAttentionSessionIds"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsAllUnstarted",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsAllUnstarted"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsDoneSince",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsDoneSince"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsErrorClass",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsErrorClass"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsFleet",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsFleet"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsPresent",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsPresent"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsTotalMs",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsTotalMs"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsWaitingFinished",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsWaitingFinished"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsWaitingOpen",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsWaitingOpen"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsWorking",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsWorking"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionUpdatedAt",
+          "after": "IssueModel@guard-root.ownAttentionUpdatedAt"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionWorking",
+          "after": "IssueModel@guard-root.ownAttentionWorking"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownFactCoordinatorSessionId",
+          "after": "IssueModel@guard-root.ownFactCoordinatorSessionId"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownFactDecision",
+          "after": "IssueModel@guard-root.ownFactDecision"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownFactFinished",
+          "after": "IssueModel@guard-root.ownFactFinished"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownFactOrder",
+          "after": "IssueModel@guard-root.ownFactOrder"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownFactUpdatedAt",
+          "after": "IssueModel@guard-root.ownFactUpdatedAt"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictFinished",
+          "after": "SessionModel@guard-seat.verdictFinished"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictOpen",
+          "after": "SessionModel@guard-seat.verdictOpen"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictSidebarFactsAllUnstarted",
+          "after": "SessionModel@guard-seat.verdictSidebarFactsAllUnstarted"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictSidebarFactsDoneSince",
+          "after": "SessionModel@guard-seat.verdictSidebarFactsDoneSince"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictSidebarFactsErrorClass",
+          "after": "SessionModel@guard-seat.verdictSidebarFactsErrorClass"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictSidebarFactsFleet",
+          "after": "SessionModel@guard-seat.verdictSidebarFactsFleet"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictSidebarFactsTotalMs",
+          "after": "SessionModel@guard-seat.verdictSidebarFactsTotalMs"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictSidebarFactsWorking",
+          "after": "SessionModel@guard-seat.verdictSidebarFactsWorking"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictWorking",
+          "after": "SessionModel@guard-seat.verdictWorking"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictWorkingSinceMs",
+          "after": "SessionModel@guard-seat.verdictWorkingSinceMs"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-child.displayRef",
+          "after": "IssueModel@guard-child.displayRef"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-child.originRef",
+          "after": "IssueModel@guard-child.originRef"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-child.sidebar",
+          "after": "IssueModel@guard-child.sidebar"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-child.sidebar.activityAt",
+          "after": "IssueModel@guard-child.sidebar.activityAt"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-child.sidebarProgress",
+          "after": "IssueModel@guard-child.sidebarProgress"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-child.title",
+          "after": "IssueModel@guard-child.title"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-child.unitOwnSolo",
+          "after": "IssueModel@guard-child.unitOwnSolo"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-next.sidebar.activity",
+          "after": "IssueModel@guard-next.sidebar.activity"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-next.sidebar.attention",
+          "after": "IssueModel@guard-next.sidebar.attention"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-next.sidebar.below",
+          "after": "IssueModel@guard-next.sidebar.below"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-next.sidebar.facts",
+          "after": "IssueModel@guard-next.sidebar.facts"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-next.sidebar.lanePath",
+          "after": "IssueModel@guard-next.sidebar.lanePath"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-next.sidebar.nested",
+          "after": "IssueModel@guard-next.sidebar.nested"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-next.sidebar.own",
+          "after": "IssueModel@guard-next.sidebar.own"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.originRef",
+          "after": "IssueModel@guard-root.originRef"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar",
+          "after": "IssueModel@guard-root.sidebar"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.activity",
+          "after": "IssueModel@guard-root.sidebar.activity"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.activityAt",
+          "after": "IssueModel@guard-root.sidebar.activityAt"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.attention",
+          "after": "IssueModel@guard-root.sidebar.attention"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.below",
+          "after": "IssueModel@guard-root.sidebar.below"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.facts",
+          "after": "IssueModel@guard-root.sidebar.facts"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.lanePath",
+          "after": "IssueModel@guard-root.sidebar.lanePath"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.nested",
+          "after": "IssueModel@guard-root.sidebar.nested"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.own",
+          "after": "IssueModel@guard-root.sidebar.own"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.standingDeleted",
+          "after": "IssueModel@guard-root.standingDeleted"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.standingReplicaActivityMs",
+          "after": "IssueModel@guard-root.standingReplicaActivityMs"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.standingUpdatedMs",
+          "after": "IssueModel@guard-root.standingUpdatedMs"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.title",
+          "after": "IssueModel@guard-root.title"
+        },
+        {
+          "before": "consumer:sidebar.row/SessionModel@guard-seat.activityMs",
+          "after": "SessionModel@guard-seat.activityMs"
+        },
+        {
+          "before": "consumer:sidebar.row/SessionModel@guard-seat.sidebar.seat",
+          "after": "SessionModel@guard-seat.sidebar.seat"
+        }
+      ]
+    },
+    {
+      "baseline": "mission",
+      "productSource": "5bc0c96d6c",
+      "readers": 50,
+      "countersBefore": 1714,
+      "countersAfter": 1708,
+      "totalRedsBefore": 35,
+      "totalRedsAfter": 29,
+      "changedVerdictCount": 6,
+      "allWorkTotalsUnchanged": true,
+      "allCanonicalCountersUnchanged": true,
+      "unrelatedKeyOrVerdictChanges": [],
+      "resolvedGuardSeatCounters": [
+        {
+          "after": {
+            "action": "pane-switch",
+            "kind": "rows",
+            "reader": "SessionModel@guard-seat.lastActivity",
+            "at1x": 1,
+            "at4x": 1,
+            "neighbourhood1x": 6,
+            "neighbourhood4x": 6,
+            "passed": true
+          },
+          "before": [
+            {
+              "action": "pane-switch",
+              "kind": "rows",
+              "reader": "consumer:mobile-inbox/SessionModel@guard-seat.lastActivity",
+              "at1x": 1,
+              "at4x": 0,
+              "neighbourhood1x": 6,
+              "neighbourhood4x": 6,
+              "passed": true
+            },
+            {
+              "action": "pane-switch",
+              "kind": "rows",
+              "reader": "consumer:mission.pane/SessionModel@guard-seat.lastActivity",
+              "at1x": 0,
+              "at4x": 1,
+              "neighbourhood1x": 6,
+              "neighbourhood4x": 6,
+              "passed": false
+            }
+          ]
+        },
+        {
+          "after": {
+            "action": "pane-switch",
+            "kind": "rows",
+            "reader": "SessionModel@guard-seat.exists",
+            "at1x": 1,
+            "at4x": 1,
+            "neighbourhood1x": 6,
+            "neighbourhood4x": 6,
+            "passed": true
+          },
+          "before": [
+            {
+              "action": "pane-switch",
+              "kind": "rows",
+              "reader": "consumer:mobile-inbox/SessionModel@guard-seat.exists",
+              "at1x": 1,
+              "at4x": 0,
+              "neighbourhood1x": 6,
+              "neighbourhood4x": 6,
+              "passed": true
+            },
+            {
+              "action": "pane-switch",
+              "kind": "rows",
+              "reader": "consumer:mission.pane/SessionModel@guard-seat.exists",
+              "at1x": 0,
+              "at4x": 1,
+              "neighbourhood1x": 6,
+              "neighbourhood4x": 6,
+              "passed": false
+            }
+          ]
+        },
+        {
+          "after": {
+            "action": "pane-switch",
+            "kind": "rows",
+            "reader": "SessionModel@guard-seat.phase",
+            "at1x": 1,
+            "at4x": 1,
+            "neighbourhood1x": 6,
+            "neighbourhood4x": 6,
+            "passed": true
+          },
+          "before": [
+            {
+              "action": "pane-switch",
+              "kind": "rows",
+              "reader": "consumer:mobile-inbox/SessionModel@guard-seat.phase",
+              "at1x": 1,
+              "at4x": 0,
+              "neighbourhood1x": 6,
+              "neighbourhood4x": 6,
+              "passed": true
+            },
+            {
+              "action": "pane-switch",
+              "kind": "rows",
+              "reader": "consumer:mission.pane/SessionModel@guard-seat.phase",
+              "at1x": 0,
+              "at4x": 1,
+              "neighbourhood1x": 6,
+              "neighbourhood4x": 6,
+              "passed": false
+            }
+          ]
+        },
+        {
+          "after": {
+            "action": "pane-switch",
+            "kind": "derivations",
+            "reader": "SessionModel@guard-seat.lastActivity",
+            "at1x": 1,
+            "at4x": 1,
+            "neighbourhood1x": 6,
+            "neighbourhood4x": 6,
+            "passed": true
+          },
+          "before": [
+            {
+              "action": "pane-switch",
+              "kind": "derivations",
+              "reader": "consumer:mobile-inbox/SessionModel@guard-seat.lastActivity",
+              "at1x": 1,
+              "at4x": 0,
+              "neighbourhood1x": 6,
+              "neighbourhood4x": 6,
+              "passed": true
+            },
+            {
+              "action": "pane-switch",
+              "kind": "derivations",
+              "reader": "consumer:mission.pane/SessionModel@guard-seat.lastActivity",
+              "at1x": 0,
+              "at4x": 1,
+              "neighbourhood1x": 6,
+              "neighbourhood4x": 6,
+              "passed": false
+            }
+          ]
+        },
+        {
+          "after": {
+            "action": "pane-switch",
+            "kind": "derivations",
+            "reader": "SessionModel@guard-seat.exists",
+            "at1x": 1,
+            "at4x": 1,
+            "neighbourhood1x": 6,
+            "neighbourhood4x": 6,
+            "passed": true
+          },
+          "before": [
+            {
+              "action": "pane-switch",
+              "kind": "derivations",
+              "reader": "consumer:mobile-inbox/SessionModel@guard-seat.exists",
+              "at1x": 1,
+              "at4x": 0,
+              "neighbourhood1x": 6,
+              "neighbourhood4x": 6,
+              "passed": true
+            },
+            {
+              "action": "pane-switch",
+              "kind": "derivations",
+              "reader": "consumer:mission.pane/SessionModel@guard-seat.exists",
+              "at1x": 0,
+              "at4x": 1,
+              "neighbourhood1x": 6,
+              "neighbourhood4x": 6,
+              "passed": false
+            }
+          ]
+        },
+        {
+          "after": {
+            "action": "pane-switch",
+            "kind": "derivations",
+            "reader": "SessionModel@guard-seat.phase",
+            "at1x": 1,
+            "at4x": 1,
+            "neighbourhood1x": 6,
+            "neighbourhood4x": 6,
+            "passed": true
+          },
+          "before": [
+            {
+              "action": "pane-switch",
+              "kind": "derivations",
+              "reader": "consumer:mobile-inbox/SessionModel@guard-seat.phase",
+              "at1x": 1,
+              "at4x": 0,
+              "neighbourhood1x": 6,
+              "neighbourhood4x": 6,
+              "passed": true
+            },
+            {
+              "action": "pane-switch",
+              "kind": "derivations",
+              "reader": "consumer:mission.pane/SessionModel@guard-seat.phase",
+              "at1x": 0,
+              "at4x": 1,
+              "neighbourhood1x": 6,
+              "neighbourhood4x": 6,
+              "passed": false
+            }
+          ]
+        }
+      ],
+      "everyChangedReaderKey": [
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-history-#.headerHostPresent",
+          "after": "SessionModel@guard-history-#.headerHostPresent"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-history-#.headerWorkingPresent",
+          "after": "SessionModel@guard-history-#.headerWorkingPresent"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerHostArchived",
+          "after": "SessionModel@guard-seat.headerHostArchived"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerHostCwd",
+          "after": "SessionModel@guard-seat.headerHostCwd"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerHostMachineId",
+          "after": "SessionModel@guard-seat.headerHostMachineId"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerHostPhase",
+          "after": "SessionModel@guard-seat.headerHostPhase"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerHostPresent",
+          "after": "SessionModel@guard-seat.headerHostPresent"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerHostStatus",
+          "after": "SessionModel@guard-seat.headerHostStatus"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerWorkingPresent",
+          "after": "SessionModel@guard-seat.headerWorkingPresent"
+        },
+        {
+          "before": "consumer:header.fleet/SessionModel@guard-seat.headerWorkingSessionId",
+          "after": "SessionModel@guard-seat.headerWorkingSessionId"
+        },
+        {
+          "before": "consumer:header.folded/IssueModel@guard-root.displayRef",
+          "after": "IssueModel@guard-root.displayRef"
+        },
+        {
+          "before": "consumer:header.folded/IssueModel@guard-root.openOwn",
+          "after": "IssueModel@guard-root.openOwn"
+        },
+        {
+          "before": "consumer:header.folded/IssueModel@guard-root.unitOwnCold",
+          "after": "IssueModel@guard-root.unitOwnCold"
+        },
+        {
+          "before": "consumer:header.folded/IssueModel@guard-root.unitsBelowMembers",
+          "after": "IssueModel@guard-root.unitsBelowMembers"
+        },
+        {
+          "before": "consumer:header.folded/IssueModel@guard-root.unitsBelowPending",
+          "after": "IssueModel@guard-root.unitsBelowPending"
+        },
+        {
+          "before": "consumer:header.folded/IssueModel@guard-root.unitsBelowProgress",
+          "after": "IssueModel@guard-root.unitsBelowProgress"
+        },
+        {
+          "before": "consumer:header.folded/IssueModel@guard-root.unitsBelowUnits",
+          "after": "IssueModel@guard-root.unitsBelowUnits"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-history-#.headerDockCwd",
+          "after": "SessionModel@guard-history-#.headerDockCwd"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-history-#.headerDockIssueId",
+          "after": "SessionModel@guard-history-#.headerDockIssueId"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-history-#.headerDockMachineId",
+          "after": "SessionModel@guard-history-#.headerDockMachineId"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-history-#.headerDockPresent",
+          "after": "SessionModel@guard-history-#.headerDockPresent"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-seat.headerDockCwd",
+          "after": "SessionModel@guard-seat.headerDockCwd"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-seat.headerDockIssueId",
+          "after": "SessionModel@guard-seat.headerDockIssueId"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-seat.headerDockMachineId",
+          "after": "SessionModel@guard-seat.headerDockMachineId"
+        },
+        {
+          "before": "consumer:header.shipping/SessionModel@guard-seat.headerDockPresent",
+          "after": "SessionModel@guard-seat.headerDockPresent"
+        },
+        {
+          "before": "consumer:launcher.palette/IssueModel@guard-child.standingDeleted",
+          "after": "IssueModel@guard-child.standingDeleted"
+        },
+        {
+          "before": "consumer:launcher.palette/IssueModel@guard-child.standingReplicaActivityMs",
+          "after": "IssueModel@guard-child.standingReplicaActivityMs"
+        },
+        {
+          "before": "consumer:launcher.palette/IssueModel@guard-child.standingUpdatedMs",
+          "after": "IssueModel@guard-child.standingUpdatedMs"
+        },
+        {
+          "before": "consumer:launcher.palette/IssueModel@guard-root.standingDeleted",
+          "after": "IssueModel@guard-root.standingDeleted"
+        },
+        {
+          "before": "consumer:launcher.palette/IssueModel@guard-root.standingReplicaActivityMs",
+          "after": "IssueModel@guard-root.standingReplicaActivityMs"
+        },
+        {
+          "before": "consumer:launcher.palette/IssueModel@guard-root.standingUpdatedMs",
+          "after": "IssueModel@guard-root.standingUpdatedMs"
+        },
+        {
+          "before": "consumer:mission.pane/IssueModel@guard-root.hasStanding",
+          "after": "IssueModel@guard-root.hasStanding"
+        },
+        {
+          "before": "consumer:mission.pane/IssueModel@guard-root.memberLatestActivity",
+          "after": "IssueModel@guard-root.memberLatestActivity"
+        },
+        {
+          "before": "consumer:mission.pane/IssueModel@guard-root.presentMemberActivity",
+          "after": "IssueModel@guard-root.presentMemberActivity"
+        },
+        {
+          "before": "consumer:mission.pane/IssueModel@guard-root.standingFinished",
+          "after": "IssueModel@guard-root.standingFinished"
+        },
+        {
+          "before": "consumer:mission.pane/IssueModel@guard-root.visible",
+          "after": "IssueModel@guard-root.visible"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-history-#.exists",
+          "after": "SessionModel@guard-history-#.exists"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-history-#.historyKind",
+          "after": "SessionModel@guard-history-#.historyKind"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-history-#.lastInput",
+          "after": "SessionModel@guard-history-#.lastInput"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-history-#.moved",
+          "after": "SessionModel@guard-history-#.moved"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-history-#.phase",
+          "after": "SessionModel@guard-history-#.phase"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-history-#.rosterEligible",
+          "after": "SessionModel@guard-history-#.rosterEligible"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-history-#.transcript",
+          "after": "SessionModel@guard-history-#.transcript"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-seat.activityMs",
+          "after": "SessionModel@guard-seat.activityMs"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-seat.asking",
+          "after": "SessionModel@guard-seat.asking"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-seat.atWork",
+          "after": "SessionModel@guard-seat.atWork"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-seat.exists",
+          "after": "SessionModel@guard-seat.exists"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-seat.lastActivity",
+          "after": "SessionModel@guard-seat.lastActivity"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-seat.open",
+          "after": "SessionModel@guard-seat.open"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-seat.phase",
+          "after": "SessionModel@guard-seat.phase"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-seat.rosterEligible",
+          "after": "SessionModel@guard-seat.rosterEligible"
+        },
+        {
+          "before": "consumer:mission.pane/SessionModel@guard-seat.workingMotion",
+          "after": "SessionModel@guard-seat.workingMotion"
+        },
+        {
+          "before": "consumer:mobile-inbox/SessionModel@guard-seat.exists",
+          "after": "SessionModel@guard-seat.exists"
+        },
+        {
+          "before": "consumer:mobile-inbox/SessionModel@guard-seat.lastActivity",
+          "after": "SessionModel@guard-seat.lastActivity"
+        },
+        {
+          "before": "consumer:mobile-inbox/SessionModel@guard-seat.phase",
+          "after": "SessionModel@guard-seat.phase"
+        },
+        {
+          "before": "consumer:mobile-work.long-press/IssueModel@guard-root.standingDeleted",
+          "after": "IssueModel@guard-root.standingDeleted"
+        },
+        {
+          "before": "consumer:mobile-work.long-press/IssueModel@guard-root.standingUpdatedMs",
+          "after": "IssueModel@guard-root.standingUpdatedMs"
+        },
+        {
+          "before": "consumer:mobile-work.row/IssueModel@guard-child.mobileWork",
+          "after": "IssueModel@guard-child.mobileWork"
+        },
+        {
+          "before": "consumer:mobile-work.row/IssueModel@guard-root.mobileWork",
+          "after": "IssueModel@guard-root.mobileWork"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.aggregatePending",
+          "after": "IssueModel@guard-root.aggregatePending"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.aggregateRailWaitingDecisions",
+          "after": "IssueModel@guard-root.aggregateRailWaitingDecisions"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.aggregateRailWaitingOpen",
+          "after": "IssueModel@guard-root.aggregateRailWaitingOpen"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.aggregateRailWaitingPresent",
+          "after": "IssueModel@guard-root.aggregateRailWaitingPresent"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionCold",
+          "after": "IssueModel@guard-root.ownAttentionCold"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionDeciding",
+          "after": "IssueModel@guard-root.ownAttentionDeciding"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionDecidingAt",
+          "after": "IssueModel@guard-root.ownAttentionDecidingAt"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionFinishedAllDone",
+          "after": "IssueModel@guard-root.ownAttentionFinishedAllDone"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionFinishedWaiting",
+          "after": "IssueModel@guard-root.ownAttentionFinishedWaiting"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionFinishedWorking",
+          "after": "IssueModel@guard-root.ownAttentionFinishedWorking"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionOpenAllDone",
+          "after": "IssueModel@guard-root.ownAttentionOpenAllDone"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionOpenWaiting",
+          "after": "IssueModel@guard-root.ownAttentionOpenWaiting"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionOpenWorking",
+          "after": "IssueModel@guard-root.ownAttentionOpenWorking"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionOrder",
+          "after": "IssueModel@guard-root.ownAttentionOrder"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionPending",
+          "after": "IssueModel@guard-root.ownAttentionPending"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionRailWaitingDecisions",
+          "after": "IssueModel@guard-root.ownAttentionRailWaitingDecisions"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionRailWaitingFinished",
+          "after": "IssueModel@guard-root.ownAttentionRailWaitingFinished"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionRailWaitingOpen",
+          "after": "IssueModel@guard-root.ownAttentionRailWaitingOpen"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionRailWaitingPresent",
+          "after": "IssueModel@guard-root.ownAttentionRailWaitingPresent"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSeated",
+          "after": "IssueModel@guard-root.ownAttentionSeated"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSessionIds",
+          "after": "IssueModel@guard-root.ownAttentionSessionIds"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsAllUnstarted",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsAllUnstarted"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsDoneSince",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsDoneSince"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsErrorClass",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsErrorClass"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsFleet",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsFleet"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsPresent",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsPresent"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsTotalMs",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsTotalMs"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsWaitingFinished",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsWaitingFinished"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsWaitingOpen",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsWaitingOpen"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionSidebarFactsWorking",
+          "after": "IssueModel@guard-root.ownAttentionSidebarFactsWorking"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionUpdatedAt",
+          "after": "IssueModel@guard-root.ownAttentionUpdatedAt"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownAttentionWorking",
+          "after": "IssueModel@guard-root.ownAttentionWorking"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownFactCoordinatorSessionId",
+          "after": "IssueModel@guard-root.ownFactCoordinatorSessionId"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownFactDecision",
+          "after": "IssueModel@guard-root.ownFactDecision"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownFactFinished",
+          "after": "IssueModel@guard-root.ownFactFinished"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownFactOrder",
+          "after": "IssueModel@guard-root.ownFactOrder"
+        },
+        {
+          "before": "consumer:mobile-work.sections/IssueModel@guard-root.ownFactUpdatedAt",
+          "after": "IssueModel@guard-root.ownFactUpdatedAt"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.executing",
+          "after": "SessionModel@guard-seat.executing"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictFinished",
+          "after": "SessionModel@guard-seat.verdictFinished"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictOpen",
+          "after": "SessionModel@guard-seat.verdictOpen"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictSidebarFactsAllUnstarted",
+          "after": "SessionModel@guard-seat.verdictSidebarFactsAllUnstarted"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictSidebarFactsDoneSince",
+          "after": "SessionModel@guard-seat.verdictSidebarFactsDoneSince"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictSidebarFactsErrorClass",
+          "after": "SessionModel@guard-seat.verdictSidebarFactsErrorClass"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictSidebarFactsFleet",
+          "after": "SessionModel@guard-seat.verdictSidebarFactsFleet"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictSidebarFactsTotalMs",
+          "after": "SessionModel@guard-seat.verdictSidebarFactsTotalMs"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictSidebarFactsWorking",
+          "after": "SessionModel@guard-seat.verdictSidebarFactsWorking"
+        },
+        {
+          "before": "consumer:mobile-work.sections/SessionModel@guard-seat.verdictWorkingSinceMs",
+          "after": "SessionModel@guard-seat.verdictWorkingSinceMs"
+        },
+        {
+          "before": "consumer:navigation.activity/SessionModel@guard-history-#.lastActivity",
+          "after": "SessionModel@guard-history-#.lastActivity"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-child.displayRef",
+          "after": "IssueModel@guard-child.displayRef"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-child.originRef",
+          "after": "IssueModel@guard-child.originRef"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-child.sidebar",
+          "after": "IssueModel@guard-child.sidebar"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-child.sidebar.activityAt",
+          "after": "IssueModel@guard-child.sidebar.activityAt"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-child.sidebarProgress",
+          "after": "IssueModel@guard-child.sidebarProgress"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-child.title",
+          "after": "IssueModel@guard-child.title"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-child.unitOwnSolo",
+          "after": "IssueModel@guard-child.unitOwnSolo"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-next.sidebar.activity",
+          "after": "IssueModel@guard-next.sidebar.activity"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-next.sidebar.attention",
+          "after": "IssueModel@guard-next.sidebar.attention"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-next.sidebar.below",
+          "after": "IssueModel@guard-next.sidebar.below"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-next.sidebar.facts",
+          "after": "IssueModel@guard-next.sidebar.facts"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-next.sidebar.lanePath",
+          "after": "IssueModel@guard-next.sidebar.lanePath"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-next.sidebar.nested",
+          "after": "IssueModel@guard-next.sidebar.nested"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-next.sidebar.own",
+          "after": "IssueModel@guard-next.sidebar.own"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.originRef",
+          "after": "IssueModel@guard-root.originRef"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar",
+          "after": "IssueModel@guard-root.sidebar"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.activity",
+          "after": "IssueModel@guard-root.sidebar.activity"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.activityAt",
+          "after": "IssueModel@guard-root.sidebar.activityAt"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.attention",
+          "after": "IssueModel@guard-root.sidebar.attention"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.below",
+          "after": "IssueModel@guard-root.sidebar.below"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.facts",
+          "after": "IssueModel@guard-root.sidebar.facts"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.lanePath",
+          "after": "IssueModel@guard-root.sidebar.lanePath"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.nested",
+          "after": "IssueModel@guard-root.sidebar.nested"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.sidebar.own",
+          "after": "IssueModel@guard-root.sidebar.own"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.standingDeleted",
+          "after": "IssueModel@guard-root.standingDeleted"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.standingReplicaActivityMs",
+          "after": "IssueModel@guard-root.standingReplicaActivityMs"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.standingUpdatedMs",
+          "after": "IssueModel@guard-root.standingUpdatedMs"
+        },
+        {
+          "before": "consumer:sidebar.row/IssueModel@guard-root.title",
+          "after": "IssueModel@guard-root.title"
+        },
+        {
+          "before": "consumer:sidebar.row/SessionModel@guard-seat.sidebar.seat",
+          "after": "SessionModel@guard-seat.sidebar.seat"
+        }
+      ]
+    }
+  ],
+  "negativeControls": {
+    "sharedField": "Actual @lazy field on an EntityModel subclass: one extra pool row call per item produces 1->4 and fails the ratio on the field key, even with a 1000-call constant reader beside it and a different first consumer.",
+    "viewField": "Actual @lazy field on a view class named MeterViewModel: 1->4 row calls remain red under consumer:mission.pane/MeterViewModel@guard-seat.rowReads.",
+    "modelCoverage": "All schema model classes, explicit field names, arbitrary computed names with entity context, an EntityModel subclass, cached second-view reads, nested view computeds, and a reader after an await.",
+    "workMeterTests": 19,
+    "transformTests": 6
+  },
+  "knownReds": "Both patched speed:structural runs retain the inherited sidebar.nested 10->12 and phone launch.usage 231->900 work-per-change reds, plus declared IssuePage elements 55->151 and 49->145. This is a successful instrument comparison, not a green structural lane.",
+  "evidence": "POD-5778 artifacts: .review/census-key-changes.json contains every moved action/kind/reader counter and its before/after counts; four raw captures and resource records are in .review/structural-evidence.tar.gz."
+}
