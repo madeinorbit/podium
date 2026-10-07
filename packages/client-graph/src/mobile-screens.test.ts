@@ -1,19 +1,12 @@
 import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachMobileScreens } from './mobile-screens'
-import { MOBILE_SCREEN_SUMMARIES, type MobileTasksOptions } from './mobile-screens-schema'
+import { MOBILE_SCREEN_SUMMARIES } from './mobile-screens-schema'
 import { missions } from './mission'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
 const now = Date.parse('2026-10-03T12:00:00Z')
-const options: MobileTasksOptions = {
-  showDone: true,
-  expanded: ['root', 'proposal'],
-  filter: { archived: true },
-  ordering: 'priority',
-  showAgentTasks: false,
-}
 const issue = (id: string, patch: object = {}) => ({
   id,
   seq: 1,
@@ -65,26 +58,6 @@ async function setup(
   if (!reader || reader === LOADING) throw new Error('screen reader missing')
   return { pool, reader, load, scans }
 }
-it('reads cold Tasks through declared summaries without promoting or loading them', async () => {
-  const { pool, reader, load, scans } = await setup([
-    issue('root'),
-    issue('cold', { archived: true, stage: 'done' }),
-  ])
-  const row = vi.spyOn(pool, 'row')
-  const stop = autorun(() => reader.tasks(options))
-  disposals.push(stop)
-  expect(reader.tasks(options)).toMatchObject({
-    board: [
-      { stage: 'in_progress', rows: [{ issue: { id: 'root' }, depth: 0 }] },
-      { stage: 'done', rows: [{ issue: { id: 'cold', title: 'cold' }, depth: 0 }] },
-    ],
-  })
-  expect(pool.tables.issue.has('cold')).toBe(false)
-  expect(pool.hydrate()).toBe(0)
-  expect(load).not.toHaveBeenCalled()
-  expect(row.mock.calls.some(([, , purpose]) => String(purpose) === 'peek')).toBe(false)
-  expect(scans).not.toHaveBeenCalled()
-})
 it('reads archived mission crew display facts from declared summaries without loading their rows', async () => {
   const seat = {
     sessionId: 'seat',
@@ -125,37 +98,6 @@ it('reads archived mission crew display facts from declared summaries without lo
   expect(pool.tables.session.has('seat')).toBe(false)
   expect(pool.hydrate()).toBe(0)
   expect(load).not.toHaveBeenCalled()
-})
-it('retains matching ancestors, promotes proposal blocks, and keeps collapsed child counts honest', async () => {
-  const { reader } = await setup([
-    issue('root', { seq: 10 }),
-    issue('child', { seq: 11, parentId: 'root', stage: 'review' }),
-    issue('proposal', { seq: 12, parentId: 'root', stage: 'proposed' }),
-    issue('offered-child', { seq: 13, parentId: 'proposal', stage: 'backlog' }),
-  ])
-  const data = reader.tasks({ ...options, filter: {} })
-  expect(data).toMatchObject({
-    proposals: 1,
-    board: [
-      {
-        stage: 'in_progress',
-        rows: [
-          { issue: { id: 'root' }, depth: 0, childCount: 1, expanded: true },
-          { issue: { id: 'child' }, depth: 1, childCount: 0 },
-        ],
-      },
-      {
-        stage: 'proposed',
-        rows: [
-          { issue: { id: 'proposal' }, depth: 0, childCount: 1, expanded: true },
-          { issue: { id: 'offered-child' }, depth: 1 },
-        ],
-      },
-    ],
-  })
-  expect(reader.tasks({ ...options, filter: { text: 'child' }, expanded: [] })).toMatchObject({
-    board: [{ stage: 'in_progress', rows: [{ issue: { id: 'root' }, depth: 0 }] }],
-  })
 })
 it('does not resurrect a collapsed resume twin as a mission author', async () => {
   const seat = {
@@ -391,17 +333,15 @@ for (const scale of [1, 4] as const)
       issue('child', { parentId: 'root' }),
       ...Array.from({ length: 8 * scale }, (_, index) => issue(`unshown-${index}`)),
     ])
-    const scoped = { ...options, filter: { text: 'root' } }
     let draws = 0
     const stop = autorun(() => {
-      reader.tasks(scoped)
       reader.mission('root')
       reader.deck('root', 'full')
       draws++
     })
     disposals.push(stop)
     while (pool.hydrate()) {}
-    const tasks = reader.tasks(scoped), mission = reader.mission('root'), deck = reader.deck('root', 'full')
+    const mission = reader.mission('root'), deck = reader.deck('root', 'full')
     const before = draws, counters = { ...reader.stats }
     runInAction(() => pool.apply({ type: 'update', rows: [{
       kind: 'issue', id: 'unshown-0', value: issue('unshown-0', {
@@ -410,35 +350,11 @@ for (const scale of [1, 4] as const)
     }] }))
     expect(draws).toBe(before)
     expect(reader.stats).toEqual(counters)
-    expect(reader.tasks(scoped)).toBe(tasks)
     expect(reader.mission('root')).toBe(mission)
     expect(reader.deck('root', 'full')).toBe(deck)
     console.info('[phone screen unshown]', { scale, publications: draws - before, counters: {
-      tasks: reader.stats.tasks - counters.tasks,
       mission: reader.stats.mission - counters.mission,
       deck: reader.stats.deck - counters.deck,
     } })
   })
 
-it('preserves untouched phone task rows and sections when one shown title changes', async () => {
-  const { pool, reader } = await setup([
-    issue('root'), issue('peer'), issue('review', { stage: 'review' }),
-  ])
-  const stop = autorun(() => reader.tasks(options))
-  disposals.push(stop)
-  while (pool.hydrate()) {}
-  const before = reader.tasks(options)
-  if (before === LOADING) throw new Error('Tasks did not settle')
-  const peer = before.board[0]!.rows.find(row => row.issue.id === 'peer')!
-  const review = before.board.find(section => section.stage === 'review')!
-  runInAction(() => pool.apply({ type: 'update', rows: [{
-    kind: 'issue', id: 'root', value: issue('root', { title: 'Shown title changed' }),
-  }] }))
-  const after = reader.tasks(options)
-  if (after === LOADING) throw new Error('Tasks became loading')
-  expect(after.board[0]!.rows.find(row => row.issue.id === 'peer')).toBe(peer)
-  expect(after.board.find(section => section.stage === 'review')).toBe(review)
-  expect(after.board[0]!.rows.find(row => row.issue.id === 'root')!.issue.title).toBe('Shown title changed')
-  expect(after.progressByIssue).toBe(before.progressByIssue)
-  expect(after.workingByIssue).toBe(before.workingByIssue)
-})

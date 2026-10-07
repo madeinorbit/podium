@@ -11,10 +11,9 @@ import { autorun, reaction } from 'mobx'
 import type { MissionViewValues } from '@podium/client-graph/mission-view'
 import type {
   MobileMissionData,
-  MobileTasksData,
   MobileTasksOptions,
 } from '@podium/client-graph/mobile-screens-schema'
-import { EMPTY_MOBILE_TASKS } from '@podium/client-graph/mobile-screens-schema'
+import { EMPTY_MOBILE_TASKS, readMobileTaskSnapshot, type MobileTasksData } from './mobile-task-snapshot'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { sessionComparable } from './oracle'
@@ -229,7 +228,7 @@ export function poolMobileScreensSnapshot(
 ): SidebarSnapshot | typeof LOADING {
   const reader = pool.row('mobileScreenReader', 'reader')
   if (!reader || reader === LOADING) return LOADING
-  const tasks = input.tasks ? reader.tasks(input.tasks) : EMPTY_MOBILE_TASKS,
+  const tasks = input.tasks ? readMobileTaskSnapshot(pool, input.tasks) : EMPTY_MOBILE_TASKS,
     mission = reader.mission(input.selectedId),
     deck = reader.deck(input.selectedId, input.mode)
   if (tasks === LOADING || mission === LOADING || deck === LOADING) return LOADING

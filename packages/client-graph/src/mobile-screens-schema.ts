@@ -2,10 +2,8 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type {
   BoardFilter,
-  IssueRow,
   IssuesOrdering,
   MissionProgress,
-  TaskProgress,
 } from '@podium/client-core/values'
 import type { IssueBoardStage } from '@podium/model/browser'
 import { ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
@@ -21,33 +19,12 @@ export interface MobileTasksOptions {
   ordering: IssuesOrdering
   showAgentTasks: boolean
 }
-export interface MobileTaskSection {
-  stage: IssueBoardStage
-  title: string
-  rows: IssueRow<IssueViewModel>[]
-}
-export interface MobileTasksData {
-  issues: IssueViewModel[]
-  sessions: SessionView[]
-  board: MobileTaskSection[]
-  workingByIssue: Map<string, number>
-  progressByIssue: Map<string, TaskProgress | null>
-  proposals: number
-}
 export interface MobileMissionData {
   root: IssueViewModel | undefined
   issues: IssueViewModel[]
   sessions: SessionView[]
   missionSessions: SessionView[]
   progress: MissionProgress
-}
-export const EMPTY_MOBILE_TASKS: MobileTasksData = {
-  issues: [],
-  sessions: [],
-  board: [],
-  workingByIssue: new Map(),
-  progressByIssue: new Map(),
-  proposals: 0,
 }
 export const EMPTY_MOBILE_MISSION: MobileMissionData = {
   root: undefined,

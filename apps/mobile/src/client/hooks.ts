@@ -8,10 +8,7 @@ import type { FlightDeckMode } from '@podium/client-core/values'
 import type { MissionViewValues } from '@podium/client-graph/mission-view'
 import {
   EMPTY_MOBILE_MISSION,
-  EMPTY_MOBILE_TASKS,
   type MobileMissionData,
-  type MobileTasksData,
-  type MobileTasksOptions,
 } from '@podium/client-graph/mobile-screens-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { SessionId } from '@podium/model'
@@ -132,21 +129,6 @@ function poolBooting(pool: MobxPool): boolean {
   if (demoEnabled()) return false
   const reader = pool.row('mobileSessionReader', 'reader')
   return !reader || typeof reader === 'symbol' || reader.booting()
-}
-
-type TasksRead = MobileTasksData & { booting: boolean }
-const EMPTY_TASKS_READ: TasksRead = { ...EMPTY_MOBILE_TASKS, booting: true }
-export function useTaskScreenData(options: MobileTasksOptions): TasksRead {
-  const read = useCallback(
-    (pool: MobxPool): TasksRead => {
-      const reader = pool.row('mobileScreenReader', 'reader')
-      if (!reader || typeof reader === 'symbol') return EMPTY_TASKS_READ
-      const data = reader.tasks(options)
-      return typeof data === 'symbol' ? EMPTY_TASKS_READ : { ...data, booting: poolBooting(pool) }
-    },
-    [options],
-  )
-  return useMobilePoolProjection(read, EMPTY_TASKS_READ)
 }
 
 type MissionRead = MobileMissionData & { resolved: boolean }

@@ -1,12 +1,16 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueModel } from '@podium/client-graph/models'
+import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
+import type { BoardListRow } from '@podium/client-graph/issue-board-schema'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { observer } from 'mobx-react-lite'
 import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import {
   type BoardFilter,
   clearChip,
   filterChips,
-  type IssueRow,
   readSharedIssuesDisplay as readMobileTaskDisplay,
-  type TaskProgress,
+  type RankedTaskIssue,
   taskStateWord,
   writeSharedIssuesDisplay as writeMobileTaskDisplay,
 } from '@podium/client-core/values'
@@ -24,7 +28,8 @@ import { issueDisplayRef } from '@podium/protocol'
 import { Stack, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
-import { useStoreActions, useTaskScreenData } from '../client/hooks'
+import { useBooting, useStoreActions } from '../client/hooks'
+import { useMobilePool } from '../client/mobile-pool'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import { ActionSheet } from '../components/ActionSheet'
 import { Icon } from '../components/Icon'
@@ -67,7 +72,7 @@ const CLOSED_STATUSES = new Set(['done', 'cancelled', 'duplicate', 'superseded']
  * This file owns the two things that are genuinely the phone's: what a row looks
  * like at 390pt, and the sticky collapsible section header.
  */
-export function IssuesScreen() {
+export const IssuesScreen = observer(function IssuesScreen() {
   const router = useRouter()
   const store = useStoreActions()
   const hasCloseBlockers = useIssueCloseGuard()
@@ -91,11 +96,11 @@ export function IssuesScreen() {
   const [filter, setFilter] = useState<BoardFilter>({})
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [rowMenu, setRowMenu] = useState<{
-    issue: IssueViewModel
+    issue: IssueModel
     kind: 'actions' | 'status'
   } | null>(null)
   const [closeIntent, setCloseIntent] = useState<{
-    issue: IssueViewModel
+    issue: IssueModel
     reason: IssueCloseReason
   } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -133,8 +138,10 @@ export function IssuesScreen() {
       showDone,
     ],
   )
-  const { issues, booting, board, workingByIssue, progressByIssue, proposals } =
-    useTaskScreenData(options)
+  const pool = useMobilePool()
+  const booting = useBooting() || !pool
+  const board = useMemo(() => pool ? new MobileTasksBoard(pool, options) : null, [pool])
+  useEffect(() => { board?.configure(options) }, [board, options])
   const chips = useMemo(() => filterChips(filter), [filter])
 
   // Proposals are inert until the operator decides [spec:SP-6144] — the deck
@@ -201,20 +208,15 @@ export function IssuesScreen() {
           />
         </View>
       ) : null}
-      <BootstrapCrossfade resolved={!booting} placeholder={<TasksSkeleton />}>
-        <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
+      <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <StageSections
             board={board}
-            issues={issues}
-            workingByIssue={workingByIssue}
-            progressByIssue={progressByIssue}
             listRef={listRef}
             refreshControl={refreshControl}
             refreshAccessibilityProps={refreshAccessibilityProps}
             minimizeOnScroll={minimizeOnScroll}
             bottomInset={bottomInset}
             booting={booting}
-            proposals={proposals}
             chips={chips}
             onScreenProposals={() => router.push('/screen-proposed')}
             onOpen={(id) => router.push(`/issue/${encodeURIComponent(id)}`)}
@@ -222,8 +224,7 @@ export function IssuesScreen() {
             onRemoveFilter={(key) => setFilter((current) => clearChip(current, key))}
             onOpenActions={(issue) => setRowMenu({ issue, kind: 'actions' })}
           />
-        </PullToRefreshBoundary>
-      </BootstrapCrossfade>
+      </PullToRefreshBoundary>
       <TaskFiltersSheet
         visible={filtersOpen}
         filter={filter}
@@ -287,7 +288,7 @@ export function IssuesScreen() {
       />
       {closeIntent ? (
         <IssueCloseSheet
-          issue={closeIntent.issue}
+          issue={closeIntent.issue as unknown as IssueViewModel}
           reason={closeIntent.reason}
           busy={false}
           onConfirm={(reason) => {
@@ -314,7 +315,7 @@ export function IssuesScreen() {
     )
   }
 
-  function selectStatus(issue: IssueViewModel, value: string): void {
+  function selectStatus(issue: IssueModel, value: string): void {
     const intent = parseIssueStatusValue(value)
     if (!intent) return
     if (intent.kind === 'stage') {
@@ -326,7 +327,7 @@ export function IssuesScreen() {
     }
     setRowMenu(null)
   }
-}
+})
 
 /** The tab-wiring hook's own return shape — the list's ref, its pull-to-refresh
  *  control, and the accessibility props that go with it. */
@@ -338,7 +339,7 @@ interface Section {
   title: string
   /** How many TASKS this stage holds — its roots, not its rendered rows. */
   total: number
-  data: IssueRow<IssueViewModel>[]
+  data: readonly BoardListRow[]
 }
 
 /**
@@ -348,18 +349,14 @@ interface Section {
  * key. There are exactly six lifecycle stages and there always will be — the
  * lane set is the product's vocabulary, not data.
  */
-function StageSections({
+const StageSections = observer(function StageSections({
   board,
-  issues,
-  workingByIssue,
-  progressByIssue,
   listRef,
   refreshControl,
   refreshAccessibilityProps,
   minimizeOnScroll,
   bottomInset,
   booting,
-  proposals,
   chips,
   onScreenProposals,
   onOpen,
@@ -367,10 +364,7 @@ function StageSections({
   onRemoveFilter,
   onOpenActions,
 }: {
-  board: { stage: IssueBoardStage; title: string; rows: IssueRow<IssueViewModel>[] }[]
-  issues: readonly IssueViewModel[]
-  workingByIssue: ReadonlyMap<string, number>
-  progressByIssue: ReadonlyMap<string, TaskProgress | null>
+  board: MobileTasksBoard | null
   listRef: RefreshableTab['listRef']
   // Typed from the hook rather than restated: a hand-written `ReactElement` here
   // drops the RefreshControlProps generic the list actually requires.
@@ -379,13 +373,12 @@ function StageSections({
   minimizeOnScroll: ReturnType<typeof useMinimizeTabBarOnScroll>
   bottomInset: number
   booting: boolean
-  proposals: number
   chips: ReturnType<typeof filterChips>
   onScreenProposals: () => void
   onOpen: (id: string) => void
   onToggleExpanded: (id: string) => void
   onRemoveFilter: (key: keyof BoardFilter) => void
-  onOpenActions: (issue: IssueViewModel) => void
+  onOpenActions: (issue: IssueModel) => void
 }) {
   // Keys come from `../lib/fold-keys` — the ui-state classifier is default-closed
   // and THROWS on an unregistered key, so an invented `tasks.stage.<stage>` took
@@ -404,14 +397,16 @@ function StageSections({
     done: useCollapsed(stageFoldKey('done'), true),
   }
 
-  const sections: Section[] = board.map((s) => ({
+  const membership = board?.sections ?? LOADING
+  const pending = booting || membership === LOADING
+  const sections: Section[] = (membership === LOADING ? [] : membership).map((s) => ({
     key: s.stage,
     stage: s.stage,
     title: s.title,
     // The lane's own work — roots and promoted proposals. Revealed children are
     // not counted here: they belong to the parent, and a count that grew when
     // an epic was opened would read as new work arriving.
-    total: s.rows.filter((row) => row.depth === 0).length,
+    total: s.total,
     // A folded section keeps its header (and therefore its count) and drops its
     // rows — the compression the operator asked for, with nothing hidden that
     // they did not choose to hide.
@@ -419,10 +414,11 @@ function StageSections({
   }))
 
   return (
+    <BootstrapCrossfade resolved={!pending} placeholder={<TasksSkeleton />}>
     <SectionList
       ref={listRef as never}
       sections={sections}
-      keyExtractor={(row) => row.issue.id}
+      keyExtractor={(row) => row.id}
       stickySectionHeadersEnabled
       contentInsetAdjustmentBehavior="automatic"
       keyboardDismissMode="interactive"
@@ -450,7 +446,54 @@ function StageSections({
               ))}
             </View>
           ) : null}
-          {proposals === 0 ? null : (
+          {board ? <ProposalsBanner board={board} onScreenProposals={onScreenProposals} /> : null}
+        </>
+      }
+      renderSectionHeader={({ section }) => (
+        <StageHeader
+          stage={section.stage}
+          title={section.title}
+          count={section.total}
+          collapsed={folds[section.stage][0]}
+          onToggle={folds[section.stage][1]}
+        />
+      )}
+      renderItem={({ item }) => (
+        <TaskRow
+          row={item}
+          issue={board!.pool.issueObject(item.id)}
+          onOpen={onOpen}
+          onToggleExpanded={onToggleExpanded}
+          onOpenActions={onOpenActions}
+        />
+      )}
+      // The inter-stage breath the header's marginTop used to (incorrectly)
+      // provide — footer space scrolls away with its section instead of
+      // travelling with the pinned bar.
+      renderSectionFooter={() => <View style={styles.sectionGap} />}
+      ListEmptyComponent={
+        // Guarded on `booting` even though the crossfade covers this screen:
+        // ListEmptyComponent is rendered whenever the data is empty, with no
+        // notion of whether loading has finished, so without this the empty
+        // state is CONSTRUCTED during bootstrap and sits in the tree — and in
+        // the accessibility tree — underneath an opaque placeholder.
+        pending ? null : (
+          <EmptyState title="No tasks" body="Tasks filed in your repos show up here." />
+        )
+      }
+    />
+    </BootstrapCrossfade>
+  )
+})
+
+const ProposalsBanner = observer(function ProposalsBanner({ board, onScreenProposals }: {
+  board: MobileTasksBoard
+  onScreenProposals: () => void
+}) {
+  const proposals = board.proposals
+  if (proposals === LOADING || proposals === 0) return null
+  return (
+
             <PressableScale
               accessibilityRole="button"
               accessibilityLabel="Screen proposed"
@@ -469,46 +512,8 @@ function StageSections({
               </View>
               <Icon as={ChevronRight} size={16} color={color.textFaint} />
             </PressableScale>
-          )}
-        </>
-      }
-      renderSectionHeader={({ section }) => (
-        <StageHeader
-          stage={section.stage}
-          title={section.title}
-          count={section.total}
-          collapsed={folds[section.stage][0]}
-          onToggle={folds[section.stage][1]}
-        />
-      )}
-      renderItem={({ item }) => (
-        <TaskRow
-          row={item}
-          issues={issues}
-          workingAgents={workingByIssue.get(item.issue.id) ?? 0}
-          progress={progressByIssue.get(item.issue.id)}
-          onOpen={onOpen}
-          onToggleExpanded={onToggleExpanded}
-          onOpenActions={onOpenActions}
-        />
-      )}
-      // The inter-stage breath the header's marginTop used to (incorrectly)
-      // provide — footer space scrolls away with its section instead of
-      // travelling with the pinned bar.
-      renderSectionFooter={() => <View style={styles.sectionGap} />}
-      ListEmptyComponent={
-        // Guarded on `booting` even though the crossfade covers this screen:
-        // ListEmptyComponent is rendered whenever the data is empty, with no
-        // notion of whether loading has finished, so without this the empty
-        // state is CONSTRUCTED during bootstrap and sits in the tree — and in
-        // the accessibility tree — underneath an opaque placeholder.
-        booting ? null : (
-          <EmptyState title="No tasks" body="Tasks filed in your repos show up here." />
-        )
-      }
-    />
   )
-}
+})
 
 /**
  * THE SECTION HEADER — a solid ledge, not a transparent label.
@@ -600,30 +605,31 @@ function StageHeader({
  * A promoted proposal (a row that still has a parent) keeps a "from POD-…" mark
  * so the epic that spawned it is still in view.
  */
-function TaskRow({
+const TaskRow = observer(function TaskRow({
   row,
-  issues,
-  workingAgents,
-  progress,
+  issue,
   onOpen,
   onToggleExpanded,
   onOpenActions,
 }: {
-  row: IssueRow<IssueViewModel>
-  issues: readonly IssueViewModel[]
-  workingAgents: number
-  progress?: TaskProgress | null
+  row: BoardListRow
+  issue: IssueModel
   onOpen: (id: string) => void
   onToggleExpanded: (id: string) => void
-  onOpenActions: (issue: IssueViewModel) => void
+  onOpenActions: (issue: IssueModel) => void
 }) {
-  const issue = row.issue
+  // The shared load window resolves just this drawn row; membership stays live.
+  if (!issue.row) return <View style={styles.rowWrap} />
+  let workingAgents: number, progress: IssueModel['taskProgress']
+  try { workingAgents = issue.confirmedWorkingAgents; progress = issue.taskProgress }
+  catch (error) { if (error === LOADING) return <View style={styles.rowWrap} />; throw error }
   const hex = issueColorHex(issue.color)
   const resting = issue.stage === 'backlog' || issue.stage === 'proposed'
   const repo = machinePathBasename(issue.repoPath) ?? ''
-  const parent = issue.parentId ? issues.find((item) => item.id === issue.parentId) : undefined
+  const parent = issue.treeParent
+  const parentModel = parent === LOADING ? null : parent
   const childCount = row.childCount
-  const state = taskStateWord(issue, workingAgents, progress)
+  const state = taskStateWord(issue as RankedTaskIssue, workingAgents, progress)
   const stateColor =
     state?.tone === 'attention'
       ? color.needsYouText
@@ -719,7 +725,7 @@ function TaskRow({
               <Pill label={`${childCount} sub-task${childCount === 1 ? '' : 's'}`} />
             </PressableScale>
           ) : null}
-          {parent ? <Text style={styles.from}>from {issueDisplayRef(parent)}</Text> : null}
+          {parentModel ? <Text style={styles.from}>from {issueDisplayRef(parentModel)}</Text> : null}
           <Text style={styles.repo} numberOfLines={1}>
             {repo}
           </Text>
@@ -727,7 +733,7 @@ function TaskRow({
       </PressableScale>
     </View>
   )
-}
+})
 
 /** How far a revealed child sits in from its parent — one step, and only one:
  *  deep decomposition is read on the task page, not at 390pt. */
