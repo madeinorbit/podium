@@ -480,7 +480,7 @@ export class MobxPool {
       // probe per run); other entities from the table.
       present: (entity, id) =>
         entity === 'issue'
-          ? this.issueObject(id).loaded.facts.state === 'ready'
+          ? this.issueObject(id).inMemory
           : tables[entity].has(id),
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
       // Only asked for an issue in memory (`originTickPartOf`): its object.

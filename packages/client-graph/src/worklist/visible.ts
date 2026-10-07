@@ -665,10 +665,22 @@ function sortedHas(list: readonly string[], id: string): boolean {
 }
 
 /** Two id-ordered lists as one, in id order. */
-function mergeIds(a: readonly string[], b: readonly string[]): readonly string[] {
+export function mergeIds(a: readonly string[], b: readonly string[]): readonly string[] {
   if (b.length === 0) return a
   if (a.length === 0) return b
   return [...a, ...b].sort()
+}
+
+/** Retained R3 members that are not explicit R2 seats. */
+export function laneRetainedSeatIdsPartOf(
+  input: VisibleInputs,
+  id: string,
+  standing: Standing | undefined,
+  laneMemberIds: readonly string[],
+): readonly string[] {
+  const seatList = input.seatList(id)
+  const laneOnly = laneMemberIds.filter(sessionId => !sortedHas(seatList, sessionId))
+  return retainedSeatIdsPartOf(input, id, standing, laneOnly)
 }
 
 /**
@@ -931,6 +943,28 @@ export function presenceOf(
   if (flat) return { flat, keeps: true, present: true }
   const keptBelow = keptBelowPartOf(input, id, childIdsPartOf(input, id), self, true)
   return { flat, keeps: keptBelow, present: standing.rescuable && keptBelow }
+}
+
+/** This row's flat verdict, without rescue or descendant reads. */
+export function flatPartOf(
+  input: VisibleInputs,
+  id: string,
+  self: Pick<IssueVisibility, 'standing' | 'retained' | 'seatIds'>,
+): boolean {
+  const standing = self.standing
+  return standing !== undefined && !standing.excluded && flatOf(input, id, standing, self)
+}
+
+/** The rescue contribution, preserving the presence walk's cycle guard. */
+export function keepsPartOf(
+  input: VisibleInputs,
+  id: string,
+  self: Pick<IssueVisibility, 'standing' | 'flat' | 'parentRef'>,
+): boolean {
+  rescueWalkOf(input)?.paths.delete(self)
+  const standing = self.standing
+  if (standing === undefined || standing.excluded) return false
+  return self.flat || keptBelowPartOf(input, id, childIdsPartOf(input, id), self, true)
 }
 
 function flatOf(

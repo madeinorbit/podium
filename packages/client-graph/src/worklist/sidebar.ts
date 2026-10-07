@@ -16,7 +16,7 @@ import { createRowOverlay } from '../shared/overlay-row'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
 import { aggregate, attentionGroup, askingOf, phaseOf, LOADING, ownAttentionPartOf, ownFactsOf, seatVerdictOf, type Aggregate, type Loaded } from './rollup'
 import { NO_SIDEBAR_SESSIONS, type SidebarProgress, type SidebarRowValues, sidebarLifecycle, sidebarTimingFromFacts, sortedSidebarSessions } from './sidebar-row'
-import { nestParentPartOf, retains } from './visible'
+import { retains } from './visible'
 
 const overlayRow = createRowOverlay()
 
@@ -106,8 +106,6 @@ function memo<V>(name: string, read: (issue: IssueModel, pool: MobxPool) => V) {
 
 const EMPTY_IDS: readonly string[] = Object.freeze([])
 
-const nestParent = cachedGroup('sidebar.parent', (issue: IssueModel) =>
-  nestParentPartOf(hostOf(issue).visibleInputs, issue.id, issue.nestCandidate))
 const lanePath = cachedGroup('sidebar.lanePath', (issue: IssueModel) => {
   const row = hostOf(issue).rollupInputs.loadedIssue(issue.id)
   return row === undefined || row === LOADING ? null : row.worktreePath ?? null
@@ -133,12 +131,12 @@ export const sidebarNested = memo('nested', (issue, pool): readonly string[] => 
   const ids = new Set<string>()
   for (const id of below(issue, pool)) {
     const child = host.visibleInputs.issue(id)
-    if (child && nestParent(child as IssueModel) === issue.id) ids.add(id)
+    if (child && child.nestParent === issue.id) ids.add(id)
   }
   const startedBy = (sessionId: string) => {
     for (const id of pool.graph.many('session', sessionId, 'startedIssues')) {
       const child = host.visibleInputs.issue(id)
-      if (child && nestParent(child as IssueModel) === issue.id) ids.add(id)
+      if (child && child.nestParent === issue.id) ids.add(id)
     }
   }
   for (const sessionId of pool.queries.ids({ kind: 'commandIssueSessions', issueId: issue.id,
@@ -238,7 +236,7 @@ export function sidebarValues(model: IssueModel, pool: MobxPool): Loaded<Sidebar
   const own = host.rollupInputs.loadedIssue(model.id)
   if (own === LOADING) return LOADING
   if (own === undefined) return undefined
-  const facts = model.loaded.facts
+  const facts = model.ownFacts
   const repo = (model as ModelOf['issue']).repo
   const issue = overlayRow(
     own,

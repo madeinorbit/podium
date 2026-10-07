@@ -54,19 +54,16 @@ import type { SessionView } from '@podium/client-core/session-values'
  * the pending value, because the getter reads the one reader. Without a write
  * layer the pool refuses the edit.
  *
- * DERIVED VALUES USE @lazy GETTERS. Each group is one cached value (a
- * structural computed: an unchanged group keeps its identity and stops the
- * propagation), built the first time a reaction reads it and dropped when
- * nothing observes it (`@podium/mobx-helpers`), so an object costs nothing until its
- * groups are read, and only the groups that are. A group holds several parts
- * computed by the pure part functions
- * (`views.ts`, `worklist/visible.ts`, `worklist/rollup.ts`), which the
- * rebuild runs directly. Every other getter is a plain read of a group, or a
- * part function run inside the one group that needs it. The cut follows the
- * readers (`visible.ts` has the rules): the rank is its own group because
- * the order and the lanes read every visible row's rank; groups read each
- * other's issues one way only (children up, ancestors down, spin-offs
- * across), so no two groups wait on each other.
+ * DERIVED VALUES USE @lazy GETTERS. Each cached field answers one question,
+ * is built on the first observed read and dropped when nothing observes it
+ * (`@podium/mobx-helpers`). An unread field allocates no cache. Independent
+ * parts never share a cached record: the compatibility records below expose
+ * getter views of the individual fields, so reading a part tracks only that
+ * answer. Pure part functions (`views.ts`, `worklist/visible.ts`,
+ * `worklist/rollup.ts`) also serve the from-scratch rebuild. Shared work may
+ * run once per demanded answer; no alternate model or write index is added.
+ * Cross-issue reads still run children up, ancestors down, spin-offs across.
+
  */
 
 import { compareStructural, untracked } from 'mobx'
@@ -99,6 +96,7 @@ import type { StoredRow } from './tables'
 import {
   activityAtOf,
   activityMsOf,
+  ownPartOfRow,
   type Label,
   labelOfRow,
   loadingPartOf,
@@ -111,17 +109,15 @@ import {
   type RepoRow,
   rankOfPart,
   repoTargetPartOf,
-  rowActivityAtOf,
-  rowLoadingOf,
   sessionIdsPartOf,
-  unlessWaiting,
   type ViewInputs,
 } from './views'
-import { type Placement, withWaiting } from './worklist/groups'
+import { type Placement, placementOfPart, withWaiting } from './worklist/groups'
+import { NO_SEATS, type SeatSummary } from './worklist/seat-verdicts'
 import {
   type Aggregate,
-  type Attention,
-  attentionOf,
+  aggregatePartOf,
+  ownAttentionPartOf,
   LOADING,
   type Loaded as LoadedRow,
   type OwnAttention,
@@ -131,6 +127,8 @@ import {
   type RollupInputs,
   rollupPartOf,
   type SeatVerdict,
+  phaseOf,
+  askingOf,
   seatActivityPartOf,
   tipPartOf,
   type UnitOwn,
@@ -145,26 +143,25 @@ import {
   type HeldIssue,
   type HiddenIssue,
   hiddenPresenceOf,
-  type IssueFacts,
-  issueFactsPartOf,
   keptBelowPartOf,
   laneMemberIdsPartOf,
-  type MemberVerdicts,
   memberIdsPartOf,
-  memberVerdictsOf,
-  type Nesting,
   nestBelowPartOf,
   nestCandidatePartOf,
+  nestParentPartOf,
   nestedPartOf,
-  nestingOf,
-  type Presence,
-  presenceOf,
+  flatPartOf,
+  keepsPartOf,
+  retainedSeatIdsPartOf,
+  rosterIdsPartOf,
+  openOwnPartOf,
+  laneRetainedSeatIdsPartOf,
+  mergeIds,
+  standingOf,
   type Retention,
   retentionOf,
-  type SessionLinks,
   type SessionVisibility,
   type Standing,
-  sessionLinksOf,
   spinOffIdsPartOf,
   unreadPartOf,
   type VisibleInputs,
@@ -399,28 +396,9 @@ export type RelationGetters<E extends EntityName> = {
   readonly [R in CollectionName<E>]: ObjectMany<E, R>
 }
 
-/** The own row's in-memory read, cached (`IssueModel.loaded`). */
-export interface Loaded {
-  readonly facts: OwnFacts
-  readonly label: Label
-  /** `issue.discoveredFrom`, resolved by the engine: a known origin, or null. */
-  readonly originRef: string | null
-}
-
-/** Roll-ups carry seat ids and plain facts (POD-5423): compared by value. */
-function sameAttention(a: Attention, b: Attention): boolean {
-  return compareStructural(a.ownAttention, b.ownAttention) && compareStructural(a.aggregate, b.aggregate)
-}
-
-function sameVerdict(a: LoadedRow<SeatVerdict>, b: LoadedRow<SeatVerdict>): boolean {
-  if (a === b) return true
-  if (a === LOADING || b === LOADING || a === undefined || b === undefined) return false
-  return compareStructural(a, b)
-}
-
-
-/** The shared issue and its row fields. Each former cached group remains one
- * lazy value, including bundles; plain projections keep their existing reads. */
+/** The shared issue and its row fields. Each lazy value answers one question.
+ * Compatibility records contain getters, so reading one part observes only
+ * that part; the records themselves are never cached. */
 export class IssueModel extends EntityModel implements HeldIssue, RowView {
   /** The schema fields the row answers (`installFields`): the row's value of them, not the fed row's. */
   static override readonly answers: ReadonlySet<string> = new Set<string>(ROW_VIEW_FIELDS)
@@ -435,61 +413,126 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
 
-  // ------------------------------------------------------------- the groups
+  // ------------------------------------------------------ independent answers
 
-  @lazy({ equals: compareStructural })
-  get facts(): IssueFacts | undefined {
-    return issueFactsPartOf(this.host.visibleInputs, this.id)
+  @lazy
+  private get hasStanding(): boolean {
+    return this.host.visibleInputs.issueRow(this.id) !== undefined
+  }
+
+  private readStanding(): Standing | undefined {
+    const row = this.host.visibleInputs.issueRow(this.id)
+    return row === undefined ? undefined : standingOf(row)
+  }
+
+  private readOwn(): OwnPart | undefined {
+    const row = this.host.visibleInputs.issueRow(this.id)
+    return row === undefined ? undefined : ownPartOfRow(row, this.host.inputs)
   }
 
   @lazy({ equals: compareStructural })
   get rank(): RowRank | undefined {
-    const part = this.facts?.part
+    const part = this.own
     return part === undefined ? undefined : rankOfPart(this.id, part)
   }
 
-  /** Explicit seats are judged per seat change; a heartbeat reads no seat history. */
-  @lazy({ equals: compareStructural })
-  get members(): MemberVerdicts {
-    return memberVerdictsOf(this.host.visibleInputs, this.id, this.standing, this)
+  /** R2's already judged summary, without enumerating its seat history. */
+  private get explicitSeats(): SeatSummary | undefined {
+    const input = this.host.visibleInputs
+    return input.seatSummary === undefined
+      ? undefined
+      : input.seatList(this.id).length === 0 ? NO_SEATS : input.seatSummary(this.id)
   }
 
   @lazy({ equals: compareStructural })
-  get presence(): Presence {
+  private get laneRetainedSeatIds(): readonly string[] {
+    return laneRetainedSeatIdsPartOf(this.host.visibleInputs, this.id, this.standing, this.laneMemberIds)
+  }
+
+  @lazy({ equals: compareStructural })
+  get retainedSeatIds(): readonly string[] {
+    const standing = this.standing
+    if (standing === undefined) return []
+    const summary = this.explicitSeats
+    return summary === undefined
+      ? retainedSeatIdsPartOf(this.host.visibleInputs, this.id, standing, this.memberIds)
+      : mergeIds(summary.retained, this.laneRetainedSeatIds)
+  }
+
+  @lazy({ equals: compareStructural })
+  get rosterIds(): readonly string[] {
+    if (this.standing === undefined) return []
+    const summary = this.explicitSeats
+    return summary === undefined
+      ? rosterIdsPartOf(this.host.visibleInputs, this.retainedSeatIds)
+      : mergeIds(summary.roster, rosterIdsPartOf(this.host.visibleInputs, this.laneRetainedSeatIds))
+  }
+
+  @lazy
+  get retained(): boolean {
+    const standing = this.standing
+    return standing !== undefined && !standing.excluded && this.retainedSeatIds.length > 0
+  }
+
+  @lazy
+  get liveRoster(): boolean {
+    return this.rosterIds.length > 0
+  }
+
+  @lazy
+  get openOwn(): boolean {
+    const summary = this.explicitSeats
+    return summary === undefined
+      ? openOwnPartOf(this.host.visibleInputs, this.id, this.seatIds, this.standing)
+      : summary.present > 0 || this.standing?.headlessStaffed === true
+  }
+
+  @lazy
+  get flat(): boolean {
+    return this.hidden === undefined && flatPartOf(this.host.visibleInputs, this.id, this)
+  }
+
+  @lazy
+  get keeps(): boolean {
     const hidden = this.hidden
     return hidden === undefined
-      ? presenceOf(this.host.visibleInputs, this.id, this)
-      : hiddenPresenceOf(this.host.visibleInputs, this.id, hidden, this)
+      ? keepsPartOf(this.host.visibleInputs, this.id, this)
+      : hiddenPresenceOf(this.host.visibleInputs, this.id, hidden, this).keeps
   }
 
-  get nesting(): Nesting {
-    // An absent row has no placement or candidate to cache. Keep the
-    // presence dependency so a later rescue starts the ordinary walk.
-    if (!this.present) {
-      return nestingOf(this.host.visibleInputs, this.id, undefined, false, null)
-    }
-    // A present root with no provenance has no candidate or cycle to resolve.
-    // Keep tracking presence and standing so a later parent/starter builds
-    // the ordinary cached walk, without two memo entries for every root.
+  @lazy
+  get present(): boolean {
+    if (this.hidden !== undefined) return false
     const standing = this.standing
-    if (standing === undefined || (standing.parentId === null && standing.startedBy === null)) {
-      return nestingOf(this.host.visibleInputs, this.id, standing, true, null)
-    }
-    return this.nestingValue
+    return standing !== undefined && !standing.excluded &&
+      (this.flat || (standing.rescuable && this.keeps))
   }
 
-  // Keep the root/absent shortcuts outside the lazy fields: those reads
-  // need neither a candidate nor a nesting cache.
-  @lazy({ equals: compareStructural })
-  private get nestingValue(): Nesting {
-    const present = this.present
-    return nestingOf(
-      this.host.visibleInputs,
-      this.id,
-      present ? this.standing : undefined,
-      present,
-      this.nestCandidate,
-    )
+  // Root and absent shortcuts need no parent candidate or cycle cache.
+  get nestParent(): string | null {
+    if (!this.present) return null
+    const standing = this.standing
+    if (standing === undefined || (standing.parentId === null && standing.startedBy === null)) return null
+    return this.nestParentValue
+  }
+
+  @lazy
+  private get nestParentValue(): string | null {
+    return nestParentPartOf(this.host.visibleInputs, this.id, this.nestCandidate)
+  }
+
+  @lazy
+  get placed(): boolean {
+    if (!this.present) return false
+    const parent = this.nestParent
+    return parent !== null
+      ? this.host.visibleInputs.issue(parent)?.placed === true
+      : this.standing?.agent === false
+  }
+
+  // These are the same verdict in the existing rule, so share its one cache.
+  get visible(): boolean {
+    return this.placed
   }
 
   @lazy({ equals: compareStructural })
@@ -513,122 +556,117 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return nestedPartOf(this.host.visibleInputs, this.id, this)
   }
 
-  @lazy({ equals: compareStructural })
-  get tip(): import('./worklist/rollup').Tip {
+  private readTip(): import('./worklist/rollup').Tip {
     return tipPartOf(this.host.rollupInputs, this.id)
   }
 
-  @lazy({ equals: sameAttention })
-  get attention(): Attention {
-    return attentionOf(this.host.rollupInputs, this.id, this)
+  private readOwnAttention(): OwnAttention {
+    return ownAttentionPartOf(this.host.rollupInputs, this)
   }
 
-  /** One resident row read (queuing a cold load) supplies facts, label and origin. */
-  @lazy({ equals: compareStructural })
-  get loaded(): Loaded {
+  private readAggregate(): Aggregate {
+    return aggregatePartOf(this.host.rollupInputs, this.id, this)
+  }
+
+  private readOwnFacts(): OwnFacts {
+    return ownFactsOf(this.host.rollupInputs.loadedIssue(this.id))
+  }
+
+  private readLabel(): Label {
     const row = this.host.rollupInputs.loadedIssue(this.id)
-    return {
-      facts: ownFactsOf(row),
-      label: labelOfRow(this.host.inputs, this.id, row === LOADING ? undefined : row),
-      originRef: originRefPartOf(this.host.inputs, this.id),
-    }
+    return labelOfRow(this.host.inputs, this.id, row === LOADING ? undefined : row)
   }
 
   @lazy
   get inMemory(): boolean {
-    return this.loaded.facts.state === 'ready'
-  }
-
-  @lazy({ equals: compareStructural })
-  get rowRollup(): Rollup {
-    return this.host.inputs.rollup(this.id) ?? NO_ROLLUP
+    return this.ownState === 'ready'
   }
 
   // ------------------------------------------ the row (RowView, L1b): the fields
 
   @lazy
   get displayRef(): string {
-    return this.label.displayRef ?? ''
+    return this.readLabel().displayRef ?? ''
   }
 
   @lazy
   get title(): string {
-    return this.label.displayTitle ?? ''
+    return this.readLabel().displayTitle ?? ''
   }
 
   @lazy
   get phase(): SlicePhase {
-    return this.rowRollup.phase
+    return this.finished === undefined ? NO_ROLLUP.phase : phaseOf(this.aggregate, this.finished)
   }
 
   @lazy
   get progressDone(): number {
-    return this.rowRollup.progressDone
+    return this.unitsBelow.members > 0 ? this.unitsBelow.done : this.unitOwn.done ? 1 : 0
   }
 
   @lazy
   get progressTotal(): number {
-    return this.rowRollup.progressTotal
+    return this.unitsBelow.members > 0 ? this.unitsBelow.units : this.unitOwn.solo ? 1 : 0
   }
 
   @lazy
   get working(): boolean {
-    return this.rowRollup.working
+    return this.finished !== undefined && this.aggregate.working
   }
 
   @lazy
   get asking(): boolean {
-    return this.rowRollup.asking
+    return this.finished !== undefined && askingOf(this.aggregate, this.finished)
   }
 
   @lazy
   get workingSince(): number | null {
-    return this.rowRollup.workingSince
+    return this.finished === undefined ? null : this.ownAttention.workingSince
   }
 
   @lazy
   get band(): 0 | 1 | 2 {
-    return this.own?.band ?? 1
+    return this.readOwn()?.band ?? 1
   }
 
   @lazy
   get repoKey(): string {
-    return this.own?.repoKey ?? ''
+    return this.readOwn()?.repoKey ?? ''
   }
 
   @lazy
   get closed(): boolean {
-    return unlessWaiting(this.own?.closed === true, this.rowRollup)
+    return this.settledClosed && !this.asking
   }
 
   @lazy
   get dismissed(): boolean {
-    return unlessWaiting(this.own?.dismissed === true, this.rowRollup)
+    return this.settledDismissed && !this.asking
   }
 
   @lazy
   get pinned(): boolean {
-    return this.own?.pinned === true
+    return this.readOwn()?.pinned === true
   }
 
   @lazy
   get sortKey(): string | null {
-    return this.own?.sortKey ?? null
+    return this.readOwn()?.sortKey ?? null
   }
 
   @lazy
   get createdAt(): string {
-    return this.own?.createdAt ?? ''
+    return this.readOwn()?.createdAt ?? ''
   }
 
   @lazy
   get seq(): number {
-    return this.own?.seq ?? 0
+    return this.readOwn()?.seq ?? 0
   }
 
   @lazy
   get foldAt(): string {
-    return this.own?.foldAt ?? ''
+    return this.readOwn()?.foldAt ?? ''
   }
 
   @lazy({ equals: compareStructural })
@@ -638,12 +676,14 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   @lazy
   get activityAt(): number {
-    return rowActivityAtOf(this.ownActivityAt, this.rowRollup)
+    const own = this.ownActivityAt, seat = this.seatActivity
+    return seat !== null && seat > own ? seat : own
   }
 
   @lazy
   get loading(): true | undefined {
-    return rowLoadingOf(this.lazyLoading, this.rowRollup)
+    return this.lazyLoading || (this.finished !== undefined &&
+      (this.aggregate.pending > 0 || this.unitsBelow.pending > 0)) ? true : undefined
   }
 
   /** The selection local (a keyed read: only a change of THIS row's selection notifies). */
@@ -652,10 +692,6 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   // --------------------------------------------------- reads of the groups
-
-  get standing(): Standing | undefined {
-    return this.facts?.standing
-  }
 
   /** The raw parent the nesting walk follows; a hidden issue's from its summary (POD-4753). */
   get parentRef(): string | null {
@@ -682,30 +718,6 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return memberIdsPartOf(this.seatIds, this.laneMemberIds)
   }
 
-  get retainedSeatIds(): readonly string[] {
-    return this.members.retainedSeatIds
-  }
-
-  get rosterIds(): readonly string[] {
-    return this.members.rosterIds
-  }
-
-  get retained(): boolean {
-    return this.members.retained
-  }
-
-  get liveRoster(): boolean {
-    return this.members.liveRoster
-  }
-
-  get openOwn(): boolean {
-    return this.members.openOwn
-  }
-
-  get flat(): boolean {
-    return this.presence.flat
-  }
-
   get hidden(): HiddenIssue | undefined {
     // untracked-read: issue-hidden-presence
     const resident = untracked(() => this.host.row('issue', this.id, 'mark'))
@@ -716,14 +728,6 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     }
     const summary = this.host.row('issue', this.id, 'summary')
     return summary === LOADING ? {} : summary as HiddenIssue | undefined
-  }
-
-  get keeps(): boolean {
-    return this.presence.keeps
-  }
-
-  get present(): boolean {
-    return this.presence.present
   }
 
   get nestCandidate(): string | null {
@@ -737,50 +741,54 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return this.nestCandidateValue
   }
 
-  get nestParent(): string | null {
-    return this.nesting.nestParent
-  }
-
-  get placed(): boolean {
-    return this.nesting.placed
-  }
-
-  get visible(): boolean {
-    return this.nesting.visible
-  }
-
-  get ownAttention(): OwnAttention {
-    return this.attention.ownAttention
-  }
-
-  get aggregate(): Aggregate {
-    return this.attention.aggregate
-  }
-
   /** Latest seat activity in the visible subtree, independent of attention. */
   @lazy
   get seatActivity(): number | null {
     return seatActivityPartOf(this.host.rollupInputs, this.id, this)
   }
 
-  @lazy({ equals: compareStructural })
-  get unitOwn(): UnitOwn {
+  private readUnitOwn(): UnitOwn {
     return unitOwnPartOf(this.host.rollupInputs, this.id, this)
   }
 
-  /** Compose formal children's units apart from the issue's own contribution. */
-  @lazy({ equals: compareStructural })
-  get unitsBelow(): Units {
+  private readUnitsBelow(): Units {
     return unitsBelowPartOf(this.host.rollupInputs, this.id)
   }
 
   get label(): Label {
-    return this.loaded.label
+    const model = this
+    return {
+      get displayRef() { return model.inMemory ? model.displayRef : undefined },
+      get displayTitle() { return model.inMemory ? model.title : undefined },
+      get seq() { return model.inMemory ? model.seq : undefined },
+    }
   }
 
-  /** The row's own-row fields; undefined when the issue is unknown. */
+  /** The own-row fields forward to the same caches the row itself reads. */
   get own(): OwnPart | undefined {
-    return this.facts?.part
+    if (!this.hasStanding) return undefined
+    const model = this
+    return {
+      get band() { return model.band },
+      get repoKey() { return model.repoKey },
+      get closed() { return model.settledClosed },
+      get dismissed() { return model.settledDismissed },
+      get pinned() { return model.pinned },
+      get sortKey() { return model.sortKey },
+      get createdAt() { return model.createdAt },
+      get seq() { return model.seq },
+      get foldAt() { return model.foldAt },
+    }
+  }
+
+  @lazy
+  private get settledClosed(): boolean {
+    return this.readOwn()?.closed === true
+  }
+
+  @lazy
+  private get settledDismissed(): boolean {
+    return this.readOwn()?.dismissed === true
   }
 
   // ------------------------------------ parts computed where they are read
@@ -810,14 +818,12 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
    * would take, so a row that could never fold never reads its aggregate.
    */
   get placement(): Placement | undefined {
-    const settled = this.facts?.placement
+    const part = this.own
+    const row = this.host.visibleInputs.issueRow(this.id)
+    const settled = part === undefined || row === undefined ? undefined : placementOfPart(part, row.repoPath)
     return settled === undefined || !settled.closed || !this.waiting
       ? settled
       : withWaiting(settled)
-  }
-
-  get ownFacts(): OwnFacts {
-    return this.loaded.facts
   }
 
   get childIds(): readonly string[] {
@@ -844,8 +850,9 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return prefixPartOf(this.host.inputs, this.repoTarget)
   }
 
+  @lazy
   get originRef(): string | null {
-    return this.loaded.originRef
+    return originRefPartOf(this.host.inputs, this.id)
   }
 
   get originId(): string | null {
@@ -870,59 +877,780 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   get lazyLoading(): boolean {
     return loadingPartOf(this.host.inputs, this.originRef, this.sessionIds)
   }
+  get standing(): Standing | undefined {
+    if (!this.hasStanding) return undefined
+    const model = this
+    return {
+      get excluded() { return model.standingExcluded },
+      get finished() { return model.standingFinished },
+      get agent() { return model.standingAgent },
+      get activeHuman() { return model.standingActiveHuman },
+      get awaitingMerge() { return model.standingAwaitingMerge },
+      get sessionless() { return model.standingSessionless },
+      get rescuable() { return model.standingRescuable },
+      get parentId() { return model.standingParentId },
+      get startedBy() { return model.standingStartedBy },
+      get draftVessel() { return model.standingDraftVessel },
+      get finishedMs() { return model.standingFinishedMs },
+      get updatedMs() { return model.standingUpdatedMs },
+      get replicaActivityMs() { return model.standingReplicaActivityMs },
+      get headlessStaffed() { return model.standingHeadlessStaffed },
+      get deleted() { return model.standingDeleted },
+      get pinned() { return model.standingPinned },
+      get formalParent() { return model.standingFormalParent },
+    }
+  }
+
+  @lazy
+  private get standingExcluded(): Standing['excluded'] {
+    return this.readStanding()!.excluded
+  }
+
+  @lazy
+  private get standingFinished(): Standing['finished'] {
+    return this.readStanding()!.finished
+  }
+
+  @lazy
+  private get standingAgent(): Standing['agent'] {
+    return this.readStanding()!.agent
+  }
+
+  @lazy
+  private get standingActiveHuman(): Standing['activeHuman'] {
+    return this.readStanding()!.activeHuman
+  }
+
+  @lazy
+  private get standingAwaitingMerge(): Standing['awaitingMerge'] {
+    return this.readStanding()!.awaitingMerge
+  }
+
+  @lazy
+  private get standingSessionless(): Standing['sessionless'] {
+    return this.readStanding()!.sessionless
+  }
+
+  @lazy
+  private get standingRescuable(): Standing['rescuable'] {
+    return this.readStanding()!.rescuable
+  }
+
+  @lazy
+  private get standingParentId(): Standing['parentId'] {
+    return this.readStanding()!.parentId
+  }
+
+  @lazy
+  private get standingStartedBy(): Standing['startedBy'] {
+    return this.readStanding()!.startedBy
+  }
+
+  @lazy
+  private get standingDraftVessel(): Standing['draftVessel'] {
+    return this.readStanding()!.draftVessel
+  }
+
+  @lazy
+  private get standingFinishedMs(): Standing['finishedMs'] {
+    return this.readStanding()!.finishedMs
+  }
+
+  @lazy
+  private get standingUpdatedMs(): Standing['updatedMs'] {
+    return this.readStanding()!.updatedMs
+  }
+
+  @lazy
+  private get standingReplicaActivityMs(): Standing['replicaActivityMs'] {
+    return this.readStanding()!.replicaActivityMs
+  }
+
+  @lazy
+  private get standingHeadlessStaffed(): Standing['headlessStaffed'] {
+    return this.readStanding()!.headlessStaffed
+  }
+
+  @lazy
+  private get standingDeleted(): Standing['deleted'] {
+    return this.readStanding()!.deleted
+  }
+
+  @lazy
+  private get standingPinned(): Standing['pinned'] {
+    return this.readStanding()!.pinned
+  }
+
+  @lazy
+  private get standingFormalParent(): Standing['formalParent'] {
+    return this.readStanding()!.formalParent
+  }
+
+  get ownFacts(): OwnFacts {
+    const model = this
+    return {
+      get state() { return model.ownState },
+      get finished() { return model.ownFactFinished },
+      get decision() { return model.ownFactDecision },
+      get continuedByField() { return model.ownFactContinuedByField },
+      get updatedAt() { return model.ownFactUpdatedAt },
+      get closedAt() { return model.ownFactClosedAt },
+      get coordinatorSessionId() { return model.ownFactCoordinatorSessionId },
+      get order() { return model.ownFactOrder },
+    }
+  }
+
+  @lazy
+  private get ownState(): OwnFacts['state'] {
+    return this.readOwnFacts().state
+  }
+
+  @lazy
+  private get ownFactFinished(): OwnFacts['finished'] {
+    return this.readOwnFacts().finished
+  }
+
+  @lazy
+  private get ownFactDecision(): OwnFacts['decision'] {
+    return this.readOwnFacts().decision
+  }
+
+  @lazy
+  private get ownFactContinuedByField(): OwnFacts['continuedByField'] {
+    return this.readOwnFacts().continuedByField
+  }
+
+  @lazy
+  private get ownFactUpdatedAt(): OwnFacts['updatedAt'] {
+    return this.readOwnFacts().updatedAt
+  }
+
+  @lazy
+  private get ownFactClosedAt(): OwnFacts['closedAt'] {
+    return this.readOwnFacts().closedAt
+  }
+
+  @lazy
+  private get ownFactCoordinatorSessionId(): OwnFacts['coordinatorSessionId'] {
+    return this.readOwnFacts().coordinatorSessionId
+  }
+
+  @lazy({ equals: compareStructural })
+  private get ownFactOrder(): OwnFacts['order'] {
+    return this.readOwnFacts().order
+  }
+
+  get ownAttention(): OwnAttention {
+    const model = this
+    return {
+      get cold() { return model.ownAttentionCold },
+      get workingSince() { return model.ownAttentionWorkingSince },
+      get firstSessionId() { return model.ownAttentionFirstSessionId },
+      get railWaiting() { return model.ownAttentionRailWaiting },
+      get sessionIds() { return model.ownAttentionSessionIds },
+      get sidebarFacts() { return model.ownAttentionSidebarFacts },
+      get updatedAt() { return model.ownAttentionUpdatedAt },
+      get order() { return model.ownAttentionOrder },
+      get decidingAt() { return model.ownAttentionDecidingAt },
+      get seated() { return model.ownAttentionSeated },
+      get working() { return model.ownAttentionWorking },
+      get deciding() { return model.ownAttentionDeciding },
+      get open() { return model.ownAttentionOpen },
+      get finished() { return model.ownAttentionFinished },
+      get pending() { return model.ownAttentionPending },
+    }
+  }
+
+  @lazy
+  private get ownAttentionCold(): OwnAttention['cold'] {
+    return this.readOwnAttention().cold
+  }
+
+  @lazy
+  private get ownAttentionWorkingSince(): OwnAttention['workingSince'] {
+    return this.readOwnAttention().workingSince
+  }
+
+  @lazy
+  private get ownAttentionFirstSessionId(): OwnAttention['firstSessionId'] {
+    return this.readOwnAttention().firstSessionId
+  }
+
+  @lazy({ equals: compareStructural })
+  private get ownAttentionRailWaiting(): OwnAttention['railWaiting'] {
+    return this.readOwnAttention().railWaiting
+  }
+
+  @lazy({ equals: compareStructural })
+  private get ownAttentionSessionIds(): OwnAttention['sessionIds'] {
+    return this.readOwnAttention().sessionIds
+  }
+
+  @lazy({ equals: compareStructural })
+  private get ownAttentionSidebarFacts(): OwnAttention['sidebarFacts'] {
+    return this.readOwnAttention().sidebarFacts
+  }
+
+  @lazy
+  private get ownAttentionUpdatedAt(): OwnAttention['updatedAt'] {
+    return this.readOwnAttention().updatedAt
+  }
+
+  @lazy({ equals: compareStructural })
+  private get ownAttentionOrder(): OwnAttention['order'] {
+    return this.readOwnAttention().order
+  }
+
+  @lazy
+  private get ownAttentionDecidingAt(): OwnAttention['decidingAt'] {
+    return this.readOwnAttention().decidingAt
+  }
+
+  @lazy
+  private get ownAttentionSeated(): OwnAttention['seated'] {
+    return this.readOwnAttention().seated
+  }
+
+  @lazy
+  private get ownAttentionWorking(): OwnAttention['working'] {
+    return this.readOwnAttention().working
+  }
+
+  @lazy
+  private get ownAttentionDeciding(): OwnAttention['deciding'] {
+    return this.readOwnAttention().deciding
+  }
+
+  @lazy({ equals: compareStructural })
+  private get ownAttentionOpen(): OwnAttention['open'] {
+    return this.readOwnAttention().open
+  }
+
+  @lazy({ equals: compareStructural })
+  private get ownAttentionFinished(): OwnAttention['finished'] {
+    return this.readOwnAttention().finished
+  }
+
+  @lazy
+  private get ownAttentionPending(): OwnAttention['pending'] {
+    return this.readOwnAttention().pending
+  }
+
+  get aggregate(): Aggregate {
+    const model = this
+    return {
+      get railWaiting() { return model.aggregateRailWaiting },
+      get sessionIds() { return model.aggregateSessionIds },
+      get sidebarFacts() { return model.aggregateSidebarFacts },
+      get updatedAt() { return model.aggregateUpdatedAt },
+      get order() { return model.aggregateOrder },
+      get decidingAt() { return model.aggregateDecidingAt },
+      get seated() { return model.aggregateSeated },
+      get working() { return model.aggregateWorking },
+      get deciding() { return model.aggregateDeciding },
+      get open() { return model.aggregateOpen },
+      get finished() { return model.aggregateFinished },
+      get pending() { return model.aggregatePending },
+    }
+  }
+
+  @lazy({ equals: compareStructural })
+  private get aggregateRailWaiting(): Aggregate['railWaiting'] {
+    return this.readAggregate().railWaiting
+  }
+
+  @lazy({ equals: compareStructural })
+  private get aggregateSessionIds(): Aggregate['sessionIds'] {
+    return this.readAggregate().sessionIds
+  }
+
+  @lazy({ equals: compareStructural })
+  private get aggregateSidebarFacts(): Aggregate['sidebarFacts'] {
+    return this.readAggregate().sidebarFacts
+  }
+
+  @lazy
+  private get aggregateUpdatedAt(): Aggregate['updatedAt'] {
+    return this.readAggregate().updatedAt
+  }
+
+  @lazy({ equals: compareStructural })
+  private get aggregateOrder(): Aggregate['order'] {
+    return this.readAggregate().order
+  }
+
+  @lazy
+  private get aggregateDecidingAt(): Aggregate['decidingAt'] {
+    return this.readAggregate().decidingAt
+  }
+
+  @lazy
+  private get aggregateSeated(): Aggregate['seated'] {
+    return this.readAggregate().seated
+  }
+
+  @lazy
+  private get aggregateWorking(): Aggregate['working'] {
+    return this.readAggregate().working
+  }
+
+  @lazy
+  private get aggregateDeciding(): Aggregate['deciding'] {
+    return this.readAggregate().deciding
+  }
+
+  @lazy({ equals: compareStructural })
+  private get aggregateOpen(): Aggregate['open'] {
+    return this.readAggregate().open
+  }
+
+  @lazy({ equals: compareStructural })
+  private get aggregateFinished(): Aggregate['finished'] {
+    return this.readAggregate().finished
+  }
+
+  @lazy
+  private get aggregatePending(): Aggregate['pending'] {
+    return this.readAggregate().pending
+  }
+
+  get unitOwn(): UnitOwn {
+    const model = this
+    return {
+      get state() { return model.unitOwnState },
+      get staffed() { return model.unitOwnStaffed },
+      get member() { return model.unitOwnMember },
+      get unit() { return model.unitOwnUnit },
+      get done() { return model.unitOwnDone },
+      get solo() { return model.unitOwnSolo },
+      get cold() { return model.unitOwnCold },
+    }
+  }
+
+  @lazy
+  private get unitOwnState(): UnitOwn['state'] {
+    return this.readUnitOwn().state
+  }
+
+  @lazy
+  private get unitOwnStaffed(): UnitOwn['staffed'] {
+    return this.readUnitOwn().staffed
+  }
+
+  @lazy
+  private get unitOwnMember(): UnitOwn['member'] {
+    return this.readUnitOwn().member
+  }
+
+  @lazy
+  private get unitOwnUnit(): UnitOwn['unit'] {
+    return this.readUnitOwn().unit
+  }
+
+  @lazy
+  private get unitOwnDone(): UnitOwn['done'] {
+    return this.readUnitOwn().done
+  }
+
+  @lazy
+  private get unitOwnSolo(): UnitOwn['solo'] {
+    return this.readUnitOwn().solo
+  }
+
+  @lazy
+  private get unitOwnCold(): UnitOwn['cold'] {
+    return this.readUnitOwn().cold
+  }
+
+  get unitsBelow(): Units {
+    const model = this
+    return {
+      get progress() { return model.unitsBelowProgress },
+      get staffed() { return model.unitsBelowStaffed },
+      get members() { return model.unitsBelowMembers },
+      get units() { return model.unitsBelowUnits },
+      get done() { return model.unitsBelowDone },
+      get pending() { return model.unitsBelowPending },
+    }
+  }
+
+  @lazy({ equals: compareStructural })
+  private get unitsBelowProgress(): Units['progress'] {
+    return this.readUnitsBelow().progress
+  }
+
+  @lazy
+  private get unitsBelowStaffed(): Units['staffed'] {
+    return this.readUnitsBelow().staffed
+  }
+
+  @lazy
+  private get unitsBelowMembers(): Units['members'] {
+    return this.readUnitsBelow().members
+  }
+
+  @lazy
+  private get unitsBelowUnits(): Units['units'] {
+    return this.readUnitsBelow().units
+  }
+
+  @lazy
+  private get unitsBelowDone(): Units['done'] {
+    return this.readUnitsBelow().done
+  }
+
+  @lazy
+  private get unitsBelowPending(): Units['pending'] {
+    return this.readUnitsBelow().pending
+  }
+
+  get tip(): import('./worklist/rollup').Tip {
+    const model = this
+    return {
+      get found() { return model.tipFound },
+      get pending() { return model.tipPending },
+      get target() { return model.tipFound ? model.tipTarget : undefined },
+    }
+  }
+
+  @lazy
+  private get tipFound(): boolean {
+    return this.readTip().found
+  }
+
+  @lazy
+  private get tipPending(): number {
+    return this.readTip().pending
+  }
+
+  get tipTarget(): import('./worklist/rollup').TipTarget {
+    const model = this
+    return {
+      get id() { return model.tipTargetId },
+      get seq() { return model.tipTargetSeq },
+      get repoId() { return model.tipTargetRepoId },
+      get staffed() { return model.tipTargetStaffed },
+      get finished() { return model.tipTargetFinished },
+      get activeAt() { return model.tipTargetActiveAt },
+    }
+  }
+
+  @lazy
+  private get tipTargetId(): import('./worklist/rollup').TipTarget['id'] {
+    return this.readTip().target!.id
+  }
+
+  @lazy
+  private get tipTargetSeq(): import('./worklist/rollup').TipTarget['seq'] {
+    return this.readTip().target!.seq
+  }
+
+  @lazy
+  private get tipTargetRepoId(): import('./worklist/rollup').TipTarget['repoId'] {
+    return this.readTip().target!.repoId
+  }
+
+  @lazy
+  private get tipTargetStaffed(): import('./worklist/rollup').TipTarget['staffed'] {
+    return this.readTip().target!.staffed
+  }
+
+  @lazy
+  private get tipTargetFinished(): import('./worklist/rollup').TipTarget['finished'] {
+    return this.readTip().target!.finished
+  }
+
+  @lazy
+  private get tipTargetActiveAt(): import('./worklist/rollup').TipTarget['activeAt'] {
+    return this.readTip().target!.activeAt
+  }
+
+
 }
 
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel implements SessionVisibility {
-  @lazy({ equals: compareStructural })
-  get headerWorking() {
-    return headerWorkingSession(this.row as SessionView | undefined, this.host.inputs.passed)
-  }
-
-  @lazy({ equals: compareStructural })
-  get headerHost() {
-    return headerHostSession(this.row as SessionView | undefined)
-  }
-
-  @lazy({ equals: compareStructural })
-  get headerDock() {
-    return headerDockSession(this.row as SessionView | undefined)
-  }
-
   constructor(id: string, host: ModelHost) {
     super('session', id, host)
   }
 
-  /** Its part in its issue's visibility, hot or cold. */
-  @lazy({ equals: compareStructural })
-  get retention(): Retention | null {
-    return retentionOf(this.host.visibleInputs.sessionRow(this.id))
-  }
-
-  /** Its `lastActiveAt`, hot or cold: the unread rollup's and the row's activity stamp. */
   @lazy
   get activityMs(): number | null {
     return activityMsOf(this.host.visibleInputs.sessionRow(this.id))
   }
 
-  @lazy({ equals: compareStructural })
-  get links(): SessionLinks {
-    return sessionLinksOf(this.host.visibleInputs, this.id)
-  }
-
-  /** The seat's roll-up verdict, from the RESIDENT row; `LOADING` while it is cold. */
-  @lazy({ equals: sameVerdict })
-  get verdict(): LoadedRow<SeatVerdict> {
-    return verdictPartOf(this.host.visibleInputs, this.id)
-  }
-
+  @lazy
   get issueLink(): string | null {
-    return this.links.issueLink
+    return this.host.visibleInputs.links.session.issue(this.id)
   }
 
+  @lazy
   get worktreeLink(): string | null {
-    return this.links.worktreeLink
+    return this.host.visibleInputs.links.session.worktree(this.id)
   }
+
+  @lazy
+  private get hasRetention(): boolean {
+    return this.host.visibleInputs.sessionRow(this.id) !== undefined
+  }
+
+  private readRetention(): Retention | null {
+    return retentionOf(this.host.visibleInputs.sessionRow(this.id))
+  }
+
+  get retention(): Retention | null {
+    if (!this.hasRetention) return null
+    const model = this
+    return {
+      get issueId() { return model.retentionIssueId },
+      get archived() { return model.retentionArchived },
+      get seat() { return model.retentionSeat },
+      get shell() { return model.retentionShell },
+      get exited() { return model.retentionExited },
+      get finish() { return model.retentionFinish },
+      get unread() { return model.retentionUnread },
+      get readMs() { return model.retentionReadMs },
+    }
+  }
+
+  @lazy
+  private get retentionIssueId(): Retention['issueId'] {
+    return this.readRetention()!.issueId
+  }
+
+  @lazy
+  private get retentionArchived(): Retention['archived'] {
+    return this.readRetention()!.archived
+  }
+
+  @lazy
+  private get retentionSeat(): Retention['seat'] {
+    return this.readRetention()!.seat
+  }
+
+  @lazy
+  private get retentionShell(): Retention['shell'] {
+    return this.readRetention()!.shell
+  }
+
+  @lazy
+  private get retentionExited(): Retention['exited'] {
+    return this.readRetention()!.exited
+  }
+
+  @lazy({ equals: compareStructural })
+  private get retentionFinish(): Retention['finish'] {
+    return this.readRetention()!.finish
+  }
+
+  @lazy
+  private get retentionUnread(): Retention['unread'] {
+    return this.readRetention()!.unread
+  }
+
+  @lazy
+  private get retentionReadMs(): Retention['readMs'] {
+    return this.readRetention()!.readMs
+  }
+
+  @lazy
+  private get verdictState(): 'ready' | typeof LOADING | undefined {
+    const row = this.host.visibleInputs.loadedSession(this.id)
+    return row === LOADING || row === undefined ? row : 'ready'
+  }
+
+  private readVerdict(): SeatVerdict {
+    return verdictPartOf(this.host.visibleInputs, this.id) as SeatVerdict
+  }
+
+  get verdict(): LoadedRow<SeatVerdict> {
+    const state = this.verdictState
+    if (state !== 'ready') return state
+    const model = this
+    return {
+      get open() { return model.verdictOpen },
+      get finished() { return model.verdictFinished },
+      get working() { return model.verdictWorking },
+      get workingSinceMs() { return model.verdictWorkingSinceMs },
+      get id() { return model.verdictId },
+      get sidebarFacts() { return model.verdictSidebarFacts },
+      get sidebarOrder() { return model.verdictSidebarOrder },
+    }
+  }
+
+  @lazy
+  private get verdictOpen(): SeatVerdict['open'] {
+    return this.readVerdict().open
+  }
+
+  @lazy
+  private get verdictFinished(): SeatVerdict['finished'] {
+    return this.readVerdict().finished
+  }
+
+  @lazy
+  private get verdictWorking(): SeatVerdict['working'] {
+    return this.readVerdict().working
+  }
+
+  @lazy
+  private get verdictWorkingSinceMs(): SeatVerdict['workingSinceMs'] {
+    return this.readVerdict().workingSinceMs
+  }
+
+  @lazy
+  private get verdictId(): SeatVerdict['id'] {
+    return this.readVerdict().id
+  }
+
+  @lazy({ equals: compareStructural })
+  private get verdictSidebarFacts(): SeatVerdict['sidebarFacts'] {
+    return this.readVerdict().sidebarFacts
+  }
+
+  @lazy({ equals: compareStructural })
+  private get verdictSidebarOrder(): SeatVerdict['sidebarOrder'] {
+    return this.readVerdict().sidebarOrder
+  }
+
+  @lazy
+  private get headerWorkingPresent(): boolean {
+    return headerWorkingSession(this.row as SessionView | undefined, this.host.inputs.passed) != null
+  }
+
+  get headerWorking(): NonNullable<ReturnType<typeof headerWorkingSession>> | null {
+    if (!this.headerWorkingPresent) return null
+    const model = this
+    return {
+      get sessionId() { return model.headerWorkingSessionId },
+      get title() { return model.headerWorkingTitle },
+      get name() { return model.headerWorkingName },
+      get displayRef() { return model.headerWorkingDisplayRef },
+      get agentKind() { return model.headerWorkingAgentKind },
+    }
+  }
+
+  @lazy
+  private get headerWorkingSessionId(): NonNullable<ReturnType<typeof headerWorkingSession>>['sessionId'] {
+    return (this.row as SessionView).sessionId
+  }
+
+  @lazy
+  private get headerWorkingTitle(): NonNullable<ReturnType<typeof headerWorkingSession>>['title'] {
+    return (this.row as SessionView).title
+  }
+
+  @lazy
+  private get headerWorkingName(): NonNullable<ReturnType<typeof headerWorkingSession>>['name'] {
+    return (this.row as SessionView).name
+  }
+
+  @lazy
+  private get headerWorkingDisplayRef(): NonNullable<ReturnType<typeof headerWorkingSession>>['displayRef'] {
+    return (this.row as SessionView).displayRef
+  }
+
+  @lazy
+  private get headerWorkingAgentKind(): NonNullable<ReturnType<typeof headerWorkingSession>>['agentKind'] {
+    return (this.row as SessionView).agentKind
+  }
+
+  @lazy
+  private get headerHostPresent(): boolean {
+    return headerHostSession(this.row as SessionView | undefined) != null
+  }
+
+  get headerHost(): NonNullable<ReturnType<typeof headerHostSession>> | null {
+    if (!this.headerHostPresent) return null
+    const model = this
+    return {
+      get cwd() { return model.headerHostCwd },
+      get machineId() { return model.headerHostMachineId },
+      get archived() { return model.headerHostArchived },
+      get status() { return model.headerHostStatus },
+      get phase() { return model.headerHostPhase },
+      get resumable() { return model.headerHostResumable },
+    }
+  }
+
+  @lazy
+  private get headerHostCwd(): NonNullable<ReturnType<typeof headerHostSession>>['cwd'] {
+    return headerHostSession(this.row as SessionView | undefined)!.cwd
+  }
+
+  @lazy
+  private get headerHostMachineId(): NonNullable<ReturnType<typeof headerHostSession>>['machineId'] {
+    return headerHostSession(this.row as SessionView | undefined)!.machineId
+  }
+
+  @lazy
+  private get headerHostArchived(): NonNullable<ReturnType<typeof headerHostSession>>['archived'] {
+    return headerHostSession(this.row as SessionView | undefined)!.archived
+  }
+
+  @lazy
+  private get headerHostStatus(): NonNullable<ReturnType<typeof headerHostSession>>['status'] {
+    return headerHostSession(this.row as SessionView | undefined)!.status
+  }
+
+  @lazy
+  private get headerHostPhase(): NonNullable<ReturnType<typeof headerHostSession>>['phase'] {
+    return headerHostSession(this.row as SessionView | undefined)!.phase
+  }
+
+  @lazy
+  private get headerHostResumable(): NonNullable<ReturnType<typeof headerHostSession>>['resumable'] {
+    return headerHostSession(this.row as SessionView | undefined)!.resumable
+  }
+
+  @lazy
+  private get headerDockPresent(): boolean {
+    return headerDockSession(this.row as SessionView | undefined) != null
+  }
+
+  get headerDock(): NonNullable<ReturnType<typeof headerDockSession>> | undefined {
+    if (!this.headerDockPresent) return undefined
+    const model = this
+    return {
+      get sessionId() { return model.headerDockSessionId },
+      get issueId() { return model.headerDockIssueId },
+      get cwd() { return model.headerDockCwd },
+      get machineId() { return model.headerDockMachineId },
+      get archived() { return model.headerDockArchived },
+      get lastActiveAt() { return model.headerDockLastActiveAt },
+    }
+  }
+
+  @lazy
+  private get headerDockSessionId(): NonNullable<ReturnType<typeof headerDockSession>>['sessionId'] {
+    return headerDockSession(this.row as SessionView | undefined)!.sessionId
+  }
+
+  @lazy
+  private get headerDockIssueId(): NonNullable<ReturnType<typeof headerDockSession>>['issueId'] {
+    return headerDockSession(this.row as SessionView | undefined)!.issueId
+  }
+
+  @lazy
+  private get headerDockCwd(): NonNullable<ReturnType<typeof headerDockSession>>['cwd'] {
+    return headerDockSession(this.row as SessionView | undefined)!.cwd
+  }
+
+  @lazy
+  private get headerDockMachineId(): NonNullable<ReturnType<typeof headerDockSession>>['machineId'] {
+    return headerDockSession(this.row as SessionView | undefined)!.machineId
+  }
+
+  @lazy
+  private get headerDockArchived(): NonNullable<ReturnType<typeof headerDockSession>>['archived'] {
+    return headerDockSession(this.row as SessionView | undefined)!.archived
+  }
+
+  @lazy
+  private get headerDockLastActiveAt(): NonNullable<ReturnType<typeof headerDockSession>>['lastActiveAt'] {
+    return headerDockSession(this.row as SessionView | undefined)!.lastActiveAt
+  }
+
 }
 
 class WorktreeModel extends EntityModel {
@@ -931,8 +1659,12 @@ class WorktreeModel extends EntityModel {
   }
 
   @lazy({ equals: compareStructural })
+  get rosterIds(): readonly string[] {
+    return sidebarRosterOf(this.host, this.id).ids
+  }
+
   get roster(): SidebarRoster {
-    return sidebarRosterOf(this.host, this.id)
+    return { ids: this.rosterIds, pending: 0 }
   }
 }
 
