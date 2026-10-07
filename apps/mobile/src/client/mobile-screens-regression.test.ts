@@ -125,7 +125,7 @@ function compare(pool: MobxPool, store: Store, label: string, all: boolean) {
     ),
   ]
   const diagnosticIds = process.env.PHONE_CORPUS_ROOTS?.split(',')
-  const ids = diagnosticIds ? [null, ...diagnosticIds] : all
+  const ids = diagnosticIds ? (process.env.PHONE_CORPUS_COLD ? diagnosticIds : [null, ...diagnosticIds]) : all
     ? [null, ...roots]
     : [...new Set([store.selectedIssueId, ...roots.slice(0, 3), ...roots.slice(-3)])]
   let positions = 0
