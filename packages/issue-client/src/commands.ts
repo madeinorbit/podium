@@ -746,6 +746,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       // Colour slot [spec:SP-b4d1]; 'none' clears back to the neutral flow.
       color: z.union([IssueColor, z.literal('none')]).optional(),
       estimateMin: z.coerce.number().int().optional(),
+      // Closing through update (`--stage done`, `--closed-reason`) takes close's guard.
+      confirmInterrupt: z.boolean().optional(),
     }),
     positionals: ['id'],
     async run(c, a) {
@@ -782,9 +784,11 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       if (Object.keys(patch).length === 0) {
         throw new Error('update: no fields given — nothing changed (see update --help for flags)')
       }
-      const i = (await c.issues.update.mutate({ id: a.id as string, patch: patch as never })) as {
-        seq: number
-      }
+      const i = (await c.issues.update.mutate({
+        id: a.id as string,
+        patch: patch as never,
+        ...(a.confirmInterrupt ? { confirmInterrupt: true } : {}),
+      })) as { seq: number }
       return { text: `updated #${i.seq}`, data: i }
     },
   },
@@ -857,11 +861,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'close',
     summary:
-      'Close an issue: close <id> [--reason done|cancelled|duplicate|superseded] [--note "handoff"]. `wontfix` is the old name for `cancelled` and is still accepted.',
+      'Close an issue: close <id> [--reason done|cancelled|duplicate|superseded] [--note "handoff"] [--confirm-interrupt]. `wontfix` is the old name for `cancelled` and is still accepted. Closing stops every session on the issue at once, so a close by an agent is refused while one of them is still working unless it passes --confirm-interrupt.',
     args: z.strictObject({
       id: idArg,
       reason: z.string().optional(),
       note: z.string().optional(),
+      confirmInterrupt: z.boolean().optional(),
     }),
     positionals: ['id'],
     async run(c, a) {
@@ -876,6 +881,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       const i = (await c.issues.close.mutate({
         id: a.id as string,
         ...(a.reason ? { reason: a.reason as string } : {}),
+        ...(a.confirmInterrupt ? { confirmInterrupt: true } : {}),
       })) as { seq: number }
       return { text: `closed #${i.seq}${a.note ? ' (completion note recorded)' : ''}`, data: i }
     },

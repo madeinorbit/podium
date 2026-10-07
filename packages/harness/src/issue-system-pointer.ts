@@ -17,7 +17,8 @@ export const ISSUE_SYSTEM_POINTER =
   '`podium issue claim` the issue you take. ' +
   // Closing an issue tears down its sessions, including one still mid-work [POD-5762].
   'Never close your own issue or set it to `done` unless the user tells you to: closing ends your ' +
-  'session at once, even mid-work. When you think it is finished, move it to `review` and post an ' +
+  'session at once, even mid-work, so the close is refused while a session on it is working until ' +
+  'you pass `--confirm-interrupt`. When you think it is finished, move it to `review` and post an ' +
   'offer with a Close action. Nothing advances an issue for you: an issue you are actively ' +
   'working must never sit in `backlog` — set the stage yourself with ' +
   '`podium issue update --id <id> --stage planning|in_progress|review` as the work moves. Note that ' +

@@ -349,6 +349,8 @@ export const updateInput = z.object({
     color: IssueColor.nullable().optional(),
     estimateMin: z.number().int().optional(),
   }),
+  /** Same as `close`'s: the patch closes the issue while a session on it works [POD-5762]. */
+  confirmInterrupt: z.boolean().optional(),
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
@@ -593,6 +595,8 @@ export const setCoordinatorInput = z.object({
 export const closeInput = z.object({
   id: IssueIdField,
   reason: z.string().optional(),
+  /** The agent knows a session on the issue is still working and closes anyway [POD-5762]. */
+  confirmInterrupt: z.boolean().optional(),
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
 
