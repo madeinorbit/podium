@@ -1,3 +1,4 @@
+import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
 import { createCommandPalette } from '@podium/client-graph/command-launch-views'
 import { createLaunchCatalogPicker } from '@podium/client-graph/launch-option-views'
 import { createReferencePicker } from '@podium/client-graph/chat-context'
@@ -514,6 +515,15 @@ async function measureScreenCells(
     add('board.catalog', ['useBoardCatalog', 'IssueBoard'], () =>
       readBoardCatalog(pool, false, false),
     )
+    const phoneTasks = new MobileTasksBoard(pool, { showDone: false, expanded: [],
+      filter: { text: 'guard-' }, ordering: 'priority', showAgentTasks: false })
+    add('phone-tasks.sections', ['IssuesScreen', 'StageSections'], () => phoneTasks.sections)
+    add('phone-tasks.proposals', ['ProposalsBanner'], () => phoneTasks.proposals)
+    add('phone-tasks.row', ['TaskRow'], () => {
+      const issue = pool.issueObject(ROOT)
+      return { title: issue.title, stage: issue.stage, working: issue.confirmedWorkingAgents,
+        progress: issue.taskProgress, dependents: issue.dependents }
+    })
     add('board.query', ['IssueBoard', 'IssueExplorer'], () =>
       board.queryIds({ kind: 'board', showAgentTasks: false }),
     )

@@ -4,6 +4,7 @@ import { createMobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import type { MobileTasksOptions } from '@podium/client-graph/mobile-screens-schema'
 import { MobxPool } from '@podium/client-graph/pool'
+import { readMobileTaskSnapshot } from '../../../tests/worklist/diagnostics/mobile-task-snapshot'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 
 const at = '2026-06-01T12:00:00.000Z'
@@ -68,7 +69,7 @@ export async function readPoolTasks(
     await attachMobileScreens(pool)
     const reader = pool.row('mobileScreenReader', 'reader')
     if (!reader || reader === LOADING) throw new Error('Resident task reader did not attach')
-    const data = reader.tasks({
+    const data = readMobileTaskSnapshot(pool, {
       showDone: false,
       expanded: [],
       filter: {},

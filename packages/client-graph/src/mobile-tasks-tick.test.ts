@@ -5,6 +5,7 @@ import { attachMobileScreens } from './mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES, type MobileTasksOptions } from './mobile-screens-schema'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
+import { MobileTasksBoard } from './mobile-tasks'
 
 const now = Date.parse('2026-10-05T12:00:00Z')
 const options: MobileTasksOptions = {
@@ -71,17 +72,21 @@ it('holds mobile tasks across an empty minute tick and expires the worker at its
       agentState: { phase: 'working', since: liveAt, stateObservedAt: liveAt },
     }],
   )
-  let tasks: ReturnType<typeof reader.tasks> | undefined
-  let runs = 0
-  const stop = autorun(() => { runs += 1; tasks = reader.tasks(options) })
+  const board = new MobileTasksBoard(pool, options)
+  const model = pool.issueObject('root')
+  let tasks: MobileTasksBoard['sections'] | undefined
+  let runs = 0, workers = 0
+  const stop = autorun(() => { runs += 1; tasks = board.sections })
+  disposals.push(autorun(() => { workers = model.confirmedWorkingAgents }))
   disposals.push(stop)
-  expect(tasks! && tasks !== LOADING && tasks.workingByIssue.get('root')).toBe(1)
+  expect(workers).toBe(1)
   const before = tasks!
   const observed = runs
   runInAction(() => pool.clock.advance(now + 60_000))
   expect(tasks).toBe(before)
   expect(runs).toBe(observed)
   runInAction(() => pool.clock.advance(now + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS + 1))
-  expect(tasks).not.toBe(before)
-  expect(tasks !== LOADING && (tasks as { workingByIssue: Map<string, number> }).workingByIssue.get('root')).toBe(0)
+  expect(tasks).toBe(before)
+  expect(runs).toBe(observed)
+  expect(workers).toBe(0)
 })

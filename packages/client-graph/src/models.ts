@@ -87,6 +87,7 @@ import {
 } from './shared/row-view'
 
 const overlayRow = createRowOverlay()
+const EMPTY_DEPENDENTS: readonly { id: string; type: string }[] = Object.freeze([])
 
 import { type EntityName, SCHEMA } from './shared/schema'
 import type { SliceIssue, SlicePhase, SliceSession, SliceWorktree } from './shared/slice-types'
@@ -731,8 +732,10 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   // Task progress: formal descendants, independent of sidebar/mission placement.
   get childCount(): number { return this.host.relations.size('issue', this.id, 'treeChildren') }
 
+  get childDoneCount(): number { return this.childCount ? this.finishedChildren : 0 }
+
   @lazy
-  get childDoneCount(): number {
+  private get finishedChildren(): number {
     let done = 0
     for (const id of this.host.relations.many('issue', this.id, 'treeChildren')) {
       const row = this.host.row('issue', id, 'summary') as LoadedRow<SliceIssue>
@@ -742,8 +745,14 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return done
   }
 
-  @lazy
   get confirmedWorkingAgents(): number {
+    const ids = this.host.sessionSeatIds('pageSessions', this.id, false)
+    if (ids === LOADING) throw LOADING
+    return ids.length ? this.confirmedWorkerCount : 0
+  }
+
+  @lazy
+  private get confirmedWorkerCount(): number {
     const ids = this.host.sessionSeatIds('pageSessions', this.id, false)
     if (ids === LOADING) throw LOADING
     let count = 0
@@ -751,8 +760,10 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
     return count
   }
 
+  get taskProgress(): TaskProgress | null { return this.childCount ? this.descendantTaskProgress : null }
+
   @lazy({ equals: compareStructural })
-  get taskProgress(): TaskProgress | null {
+  private get descendantTaskProgress(): TaskProgress | null {
     let total = 0, done = 0, liveAgents = 0
     const seen = new Set([this.id]), stack = [...this.host.relations.many('issue', this.id, 'treeChildren')]
     while (stack.length) {
@@ -771,8 +782,12 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
   }
 
   // Links: all reverse dependency edges, including their declared type.
-  @lazy({ equals: compareStructural })
   get dependents(): readonly { id: string; type: string }[] {
+    return this.host.relations.size('issue', this.id, 'pageDependents') ? this.dependencySources : EMPTY_DEPENDENTS
+  }
+
+  @lazy({ equals: compareStructural })
+  private get dependencySources(): readonly { id: string; type: string }[] {
     const result: { id: string; type: string }[] = []
     for (const id of [...this.host.relations.many('issue', this.id, 'pageDependents')].sort()) {
       const row = this.host.row('issue', id, 'summary') as LoadedRow<SliceIssue>
