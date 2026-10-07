@@ -140,3 +140,9 @@ export function useCommandIssue(id: string | null) {
   }, [id])
   return useWorklistPoolProjection(read, undefined)
 }
+
+/** Command handlers resolve the addressed session at press time. */
+export function useCommandSessionLookup() {
+  const pool = useWorklistPool()
+  return useMemo(() => (id: string) => pool ? runInAction(() => readSession(pool, id)) : undefined, [pool])
+}

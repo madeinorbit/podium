@@ -124,6 +124,7 @@ vi.mock('@/app/command-launch-data', async (original) => ({
     })
     return { data: picker.palette(), sessions: picker.sessions, selectedSessions: picker.selectedSessions, recent: picker.recent }
   }),
+  useCommandSessionLookup: () => useCommandFixture(pool => (id: string) => readSession(pool, id)),
   useCommandIssue: (id: string | null) => useCommandFixture(pool => id === null ? undefined : chatIssue(pool, id)),
   useCommandPaletteData: () => useCommandFixture(readPalette),
   useCommandPaletteOpen: () => useCommandFixture(readOpen),

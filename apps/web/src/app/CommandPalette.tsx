@@ -65,6 +65,7 @@ import {
   useCommandPaletteSnapshot,
   useCommandPaletteOpen,
   useCommandSession,
+  useCommandSessionLookup,
   useCommandIssue,
 } from './command-launch-data'
 import {
@@ -269,6 +270,7 @@ function PaletteDialogBody({
     issues,
     spawnTargets,
   } = data
+  const sessionAtPress = useCommandSessionLookup()
   const {
     trpc,
     markIssueRead,
@@ -385,8 +387,11 @@ function PaletteDialogBody({
       label: sessionDisplayName(s),
       keywords: [machinePathBasename(s.cwd), s.agentKind, 'agent', 'session'],
       hint: machinePathBasename(s.cwd),
-      session: s,
-      run: () => openSession(s.sessionId, s.cwd),
+      sessionId: s.sessionId,
+      run: () => {
+        const current = sessionAtPress(s.sessionId)
+        if (current && current !== LOADING) openSession(current.sessionId, current.cwd)
+      },
     })
     const issueCommand = (i: PaletteIssue, group: 'recent' | 'task'): PaletteCommand => ({
       id: `${group}-issue:${i.id}`,
@@ -956,7 +961,7 @@ function PaletteRow({
   onHover: () => void
   onRun: () => void
 }): JSX.Element {
-  const value = useCommandSession(cmd.session?.sessionId ?? null)
+  const value = useCommandSession(cmd.sessionId ?? null)
   const session = value && value !== LOADING ? value : undefined
   const liveIssue = useCommandIssue(cmd.issueReference?.issueId ?? null)
   const reference = liveIssue ? issueReferenceModel(liveIssue) : cmd.issueReference
@@ -968,6 +973,7 @@ function PaletteRow({
       type="button"
       role="option"
       aria-selected={active}
+      disabled={cmd.sessionId !== undefined && !session}
       tabIndex={-1}
       className="cmdk-row"
       data-active={active || undefined}
