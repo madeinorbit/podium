@@ -606,11 +606,13 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   @lazy
   get progressDone(): number {
+    if (this.finished === undefined) return NO_ROLLUP.progressDone
     return this.unitsBelow.members > 0 ? this.unitsBelow.done : this.unitOwn.done ? 1 : 0
   }
 
   @lazy
   get progressTotal(): number {
+    if (this.finished === undefined) return NO_ROLLUP.progressTotal
     return this.unitsBelow.members > 0 ? this.unitsBelow.units : this.unitOwn.solo ? 1 : 0
   }
 
