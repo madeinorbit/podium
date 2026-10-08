@@ -459,6 +459,22 @@ export class IssueModel extends EntityModel {
     return false
   }
 
+  // Launch history: a stage, checkout, or present agent proves work has begun.
+  @lazy
+  get workBegun(): boolean {
+    if (this.worktreePath || this.stage === 'planning' || this.stage === 'in_progress' ||
+      this.stage === 'review' || this.stage === 'shipping') return true
+    const ids = this.host.sessionSeatIds('pageSessions', this.id, false)
+    if (ids === LOADING) throw LOADING
+    let pending = false
+    for (const id of ids) {
+      try { if (this.host.sessionObject(id).open) return true }
+      catch (error) { if (error !== LOADING) throw error; pending = true }
+    }
+    if (pending) throw LOADING
+    return false
+  }
+
   // Links: raw page membership includes headless, history and resume twins.
   get memberCount(): number { return this.host.relations.size('issue', this.id, 'pageSessions') }
 
