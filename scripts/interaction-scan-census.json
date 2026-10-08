@@ -16939,24 +16939,6 @@
     },
     {
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
-      "holder": "useFixturePool/useMemo:callback/messages/callback",
-      "rule": "reader-summary",
-      "tokens": "b49b95dd352b4155e498e64bc6ae5d190908dd51e9fb6a31d868925f02f473aa",
-      "gate": [],
-      "origin": [
-        "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
-      ],
-      "fingerprint": "4f965d0aa2569a4875843b3c0a496bf6cf005cf82de4747b4228e855ada0af94",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
-      "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
-      "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
-      "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/graph/many/callback",
       "rule": "reader-summary",
       "tokens": "8f6c6e8bbc147b21f954e0048077f930fac9a8921bc607b07654f71aeee9e69a",
@@ -43794,7 +43776,7 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "mock:callback/useWorklistPoolProjection/pool",
       "rule": "reader-summary",
-      "tokens": "8ba236895f1a378869404c4616221ab8c390f4b59ebd08bea7c2f1be186d4b3f",
+      "tokens": "a19b257471724ccd25dfe7b4635b04dc61320651bb53c1d71a2bb27d4423e0ee",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
@@ -43813,7 +43795,7 @@
         "c590f274705443e80f2449456407c0144a830068008eac7ad06d35cf7f54313c",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "1d46349e3465bb5966fae91c8c909c53574fa862cf3898535b424575beb7d585",
+      "fingerprint": "3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
