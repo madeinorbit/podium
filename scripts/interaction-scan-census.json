@@ -4924,28 +4924,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/app/StatusStrip.tsx",
-      "holder": "StatusStrip",
-      "rule": "reader-summary",
-      "tokens": "fa5b31cee3d39a4cba3685caa9df5d5750e59ca9dea7891b6c6018bb2600ee92",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
-        "456d20cba5556e00ea4b348b14b71a92b666fe6d2680c6f1aca46f4fbdadb825",
-        "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10",
-        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
-      ],
-      "fingerprint": "6bf3d6b21e2c3bb2b7510ccf9415dd3ee1cea9b850bbceacfd94709ca8226378",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of StatusStrip through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
       "file": "apps/web/src/app/use-desktop-close-tab.ts",
       "holder": "useDesktopCloseTab/data",
       "rule": "reader-summary",
@@ -38543,12 +38521,12 @@
       "file": "packages/client-graph/src/header-views.ts",
       "holder": "createHeaderViews/occupancyKey",
       "rule": "reader-summary",
-      "tokens": "4982d6cecd85713cd54e74335df3b2aaeaa2830a99483524471a49632ce83be2",
+      "tokens": "ed7a402f5f754c42c57519b3d3411488464b12b360a0502f14ec2e42a1f48bbb",
       "gate": [],
       "origin": [
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10"
       ],
-      "fingerprint": "1a33c6ac9a2bcf1a98d56003ba3da520a08d6d904b8618b8447b6fe5c7304009",
+      "fingerprint": "23aa9dc52a9daa611ea2b97cc0e248c308a178fea9c5e771dc89a0daf625f610",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -38561,12 +38539,12 @@
       "file": "packages/client-graph/src/header-views.ts",
       "holder": "createHeaderViews/occupancyKey/memo:callback",
       "rule": "consume:sort",
-      "tokens": "e4dfdb6fd9e84a61ee73e494a24ab1aef834e823a02229969092ad03957f51a9",
+      "tokens": "74a2a12d91f484b27bc2554fb20968ec50ed65a530969bc3bcaa4a7a96c1791c",
       "gate": [],
       "origin": [
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10"
       ],
-      "fingerprint": "d73a717a894f27196dd8ee09e5cc01950dcb7172b031461b22aeac31f1c87752",
+      "fingerprint": "c7039a9033236c75275bb110fa0ca501e12325d295c0b302846449ee877e98aa",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -38597,12 +38575,12 @@
       "file": "packages/client-graph/src/header-views.ts",
       "holder": "createHeaderViews/occupancyKey/memo:callback",
       "rule": "consume:flatMap",
-      "tokens": "8a4fc3eb8ea18bfd67c24657d522482928f27acfbfd03030aec408cde737c8d5",
+      "tokens": "2e51ac5ac1f39df0d2eafa2b58ed12960902648b49b3142f3fe7a482fed2cebc",
       "gate": [],
       "origin": [
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10"
       ],
-      "fingerprint": "e7e01a4397b6e1e35068226c7aed4c2a1085988a717d783dce4f0d42555d4549",
+      "fingerprint": "1f5c51a8cf5c31373762468302bf11e35021ccbce87a8dc6975262cacc137770",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
