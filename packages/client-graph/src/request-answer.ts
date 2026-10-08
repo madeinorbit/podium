@@ -10,7 +10,11 @@ export class RequestAnswer<T> {
 
   constructor(private readonly messageFor: (cause: unknown) => string = answerError) {}
 
-  @action async load<R = T>(read: () => Promise<R>, clear = false, accept: (answer: R) => T = (answer) => answer as unknown as T): Promise<void> {
+  @action async load<R = T>(
+    read: () => Promise<R>,
+    clear = false,
+    accept: (answer: R) => T = (answer) => answer as unknown as T,
+  ): Promise<void> {
     const sequence = ++this.sequence
     this.loading = true
     this.error = null

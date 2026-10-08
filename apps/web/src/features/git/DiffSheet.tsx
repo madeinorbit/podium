@@ -450,16 +450,39 @@ const SKELETON_WIDTHS = [38, 62, 47, 71, 29, 55, 66, 41, 58, 34, 49, 63]
 type DiffCache = DiffView
 
 /** The sheet owns one answer model per inventory/source identity. */
-function useDiffs({ entries, entry, cwd, machineId, sources, commit }: {
-  entries: StatusEntry[]; entry: StatusEntry | undefined; cwd: string
-  machineId?: MachineId; sources?: Record<string, string>; commit?: { sha: string }
+function useDiffs({
+  entries,
+  entry,
+  cwd,
+  machineId,
+  sources,
+  commit,
+}: {
+  entries: StatusEntry[]
+  entry: StatusEntry | undefined
+  cwd: string
+  machineId?: MachineId
+  sources?: Record<string, string>
+  commit?: { sha: string }
 }): DiffView {
   const { gitDiffFile, gitCommitDiffFile, readFileScoped } = useStoreHandle<Trpc>().access
   const commitSha = commit?.sha
   // biome-ignore lint/correctness/useExhaustiveDependencies: the inventory is part of this opening's identity.
-  const view = useMemo(() => new DiffView(cwd, machineId, { gitDiffFile, gitCommitDiffFile, readFileScoped }, sources, commitSha), [entries, cwd, machineId, sources, commitSha, gitDiffFile, gitCommitDiffFile, readFileScoped])
+  const view = useMemo(
+    () =>
+      new DiffView(
+        cwd,
+        machineId,
+        { gitDiffFile, gitCommitDiffFile, readFileScoped },
+        sources,
+        commitSha,
+      ),
+    [entries, cwd, machineId, sources, commitSha, gitDiffFile, gitCommitDiffFile, readFileScoped],
+  )
   useEffect(() => () => view.close(), [view])
-  useEffect(() => { if (entry) void view.load(entry) }, [view, entry])
+  useEffect(() => {
+    if (entry) void view.load(entry)
+  }, [view, entry])
   return view
 }
 

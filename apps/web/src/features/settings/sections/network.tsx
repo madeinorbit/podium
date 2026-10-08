@@ -8,12 +8,6 @@ import { type NetworkSaveController, NetworkStep } from '@/features/setup/networ
 import { forcedNotice, useForcedSetting } from '../use-forced-setting'
 import { Row, Section } from './shared'
 
-/** Where the web UI is served from, when it is not this server (PDM-26). */
-  appUrl?: string | null
-  /** Credentialed cross-site origins this deployment allows. */
-  allowedOrigins?: string[]
-}
-
 /**
  * Network — view + change how this server is reached (its `publicUrl`) after first-run setup.
  * The join tokens handed to new machines embed this URL, so it's the thing to change when you
@@ -31,8 +25,13 @@ export const NetworkSection = observer(function NetworkSection({
   const forcedAppUrl = useForcedSetting('appUrl')
   const forcedOrigins = useForcedSetting('allowedOrigins')
   const view = useMemo(() => new NetworkSettingsView(trpc), [trpc])
-  useEffect(() => { void view.refresh(true); return () => view.close() }, [view])
-  const load = (showLoading = false): void => { void view.refresh(showLoading) }
+  useEffect(() => {
+    void view.refresh(true)
+    return () => view.close()
+  }, [view])
+  const load = (showLoading = false): void => {
+    void view.refresh(showLoading)
+  }
   const info = view.answer
 
   if (info === undefined && !view.error) {

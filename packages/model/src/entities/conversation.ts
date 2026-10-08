@@ -22,7 +22,7 @@
  */
 
 import { z } from 'zod'
-import { ConversationIdField } from '../ids'
+import { ConversationIdField, MachineIdField } from '../ids'
 import { AgentKind } from './agent'
 import { ResumeRef } from './session'
 
@@ -76,6 +76,27 @@ export const ConversationSummaryWire = z.object({
   providerId: z.string(),
 })
 export type ConversationSummaryWire = z.infer<typeof ConversationSummaryWire>
+
+/** Mutable index records returned by conversations.search. The native id
+ * is scoped to the reporting machine; this is not a transcript service. */
+export const ConversationIndexRecord = ConversationSummaryWire.pick({
+  id: true,
+  providerId: true,
+  title: true,
+  name: true,
+  summary: true,
+  projectPath: true,
+  parentConversationId: true,
+  createdAt: true,
+  updatedAt: true,
+  messageCount: true,
+}).extend({
+  agentKind: z.string(),
+  machineId: MachineIdField.optional(),
+  resumeKind: z.string().optional(),
+  resumeValue: z.string().optional(),
+})
+export type ConversationIndexRecord = z.infer<typeof ConversationIndexRecord>
 
 export const ConversationDiagnosticWire = z.object({
   severity: z.enum(['warning', 'error']),

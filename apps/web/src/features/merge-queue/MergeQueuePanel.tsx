@@ -78,16 +78,40 @@ export function queuePanelState(state: RepoLocksState): QueuePanelState {
 }
 
 /** Root opening owns its lock answer and canonical candidate list. */
-export const MergeQueuePanel = observer(function MergeQueuePanel({ issues, scope, onSelectIssue }: MergeQueuePanelProps): JSX.Element {
+export const MergeQueuePanel = observer(function MergeQueuePanel({
+  issues,
+  scope,
+  onSelectIssue,
+}: MergeQueuePanelProps): JSX.Element {
   const pool = useWorklistPool()
   const { trpc } = useStoreHandle().access
-  const view = useMemo(() => pool && scope ? new MergeQueueView(pool, scope, trpc) : null, [pool, scope?.repoPath, scope?.repoId, trpc])
-  useEffect(() => { if (!view) return; view.open(); return () => view.close() }, [view])
-  useEffect(() => { view?.setIssues(issues.map(issue => issue.id)) }, [view, issues])
+  const view = useMemo(
+    () => (pool && scope ? new MergeQueueView(pool, scope, trpc) : null),
+    [pool, scope?.repoPath, scope?.repoId, trpc],
+  )
+  useEffect(() => {
+    if (!view) return
+    view.open()
+    return () => view.close()
+  }, [view])
+  useEffect(() => {
+    view?.setIssues(issues.map((issue) => issue.id))
+  }, [view, issues])
   const state = view?.state ?? { status: 'loading' as const }
   const released = useReleasedLanes(state)
-  if (!scope) return <div className="p-3 text-xs text-muted-foreground/70">No active repository.</div>
-  return <MergeQueuePanelView model={view ?? undefined} state={state} issues={issues} scope={scope} released={released} onRefresh={() => view?.refresh()} onSelectIssue={onSelectIssue} />
+  if (!scope)
+    return <div className="p-3 text-xs text-muted-foreground/70">No active repository.</div>
+  return (
+    <MergeQueuePanelView
+      model={view ?? undefined}
+      state={state}
+      issues={issues}
+      scope={scope}
+      released={released}
+      onRefresh={() => view?.refresh()}
+      onSelectIssue={onSelectIssue}
+    />
+  )
 })
 
 function QueueSection({
@@ -124,7 +148,11 @@ function EmptyLine({ children }: { children: ReactNode }): JSX.Element {
   )
 }
 
-const IssueIdentity = observer(function IssueIdentity({ issue }: { issue: QueueIssue }): JSX.Element {
+const IssueIdentity = observer(function IssueIdentity({
+  issue,
+}: {
+  issue: QueueIssue
+}): JSX.Element {
   return (
     <>
       <span className="flex-none font-mono shell-type-micro font-semibold text-info">
@@ -626,12 +654,18 @@ export const MergeQueuePanelView = observer(function MergeQueuePanelView({
   onSelectIssue,
 }: MergeQueuePanelViewProps): JSX.Element {
   const issuesById = useMemo(
-    () => new Map<string, QueueIssue>((model?.issues ?? issues).map((issue) => [issue.id, issue] as const)),
+    () =>
+      new Map<string, QueueIssue>(
+        (model?.issues ?? issues).map((issue) => [issue.id, issue] as const),
+      ),
     [model?.issues, issues],
   )
   const locks = state.status === 'ready' ? state.locks : []
   const { merge, lanes } = queueGroups(locks)
-  const candidates: readonly QueueIssue[] = state.status === 'ready' ? model?.candidates ?? readyMergeCandidates(issues, scope, merge.lock) : []
+  const candidates: readonly QueueIssue[] =
+    state.status === 'ready'
+      ? (model?.candidates ?? readyMergeCandidates(issues, scope, merge.lock))
+      : []
   const refreshing = state.status === 'ready' && state.refreshing === true
 
   return (

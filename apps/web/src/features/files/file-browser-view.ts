@@ -11,11 +11,17 @@ export class FileBrowserView extends RequestAnswer<DirectoryAnswer> {
   @observable accessor path: string
   @observable accessor resolvedRoot: string | null = null
   private generation = 0
-  constructor(readonly root: string, readonly machineId: MachineId | undefined, private readonly listDir: FileTreePorts['listDir']) {
-    super(cause => formatAppError(cause, 'Could not open directory'))
+  constructor(
+    readonly root: string,
+    readonly machineId: MachineId | undefined,
+    private readonly listDir: FileTreePorts['listDir'],
+  ) {
+    super((cause) => formatAppError(cause, 'Could not open directory'))
     this.path = root
   }
-  @lazy get entries() { return this.answer?.entries ?? [] }
+  @lazy get entries() {
+    return this.answer?.entries ?? []
+  }
   @action async open(next = this.root): Promise<void> {
     const generation = ++this.generation
     await this.load(async () => {
@@ -29,5 +35,10 @@ export class FileBrowserView extends RequestAnswer<DirectoryAnswer> {
       this.path = this.answer.path
     })
   }
-  @action override close(): void { ++this.generation; super.close(); this.path = this.root; this.resolvedRoot = null }
+  @action override close(): void {
+    ++this.generation
+    super.close()
+    this.path = this.root
+    this.resolvedRoot = null
+  }
 }

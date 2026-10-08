@@ -12,7 +12,6 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { FileTypeIcon } from './file-icon'
 
-
 export const FileBrowserModal = observer(function FileBrowserModal({
   root,
   machineId,
@@ -26,8 +25,14 @@ export const FileBrowserModal = observer(function FileBrowserModal({
 }): JSX.Element {
   const { listDir, openFileInWorktree } = useStoreHandle<Trpc>().access
   const isMobile = useIsMobile()
-  const view = useMemo(() => new FileBrowserView(root, machineId, listDir), [root, machineId, listDir])
-  useEffect(() => { void view.open(); return () => view.close() }, [view])
+  const view = useMemo(
+    () => new FileBrowserView(root, machineId, listDir),
+    [root, machineId, listDir],
+  )
+  useEffect(() => {
+    void view.open()
+    return () => view.close()
+  }, [view])
   const { path, entries, loading, error, resolvedRoot } = view
   const load = (next: string): Promise<void> => view.open(next)
 

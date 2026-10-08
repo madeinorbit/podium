@@ -230,9 +230,12 @@ const DeliveryReceiptDetail = observer(function DeliveryReceiptDetail({
   commands: ShippingPanelCommands
 }): JSX.Element {
   const view = useMemo(() => new ReceiptView(orderId, commands), [orderId, commands])
-  useEffect(() => { void view.refresh(); return () => view.close() }, [view])
+  useEffect(() => {
+    void view.refresh()
+    return () => view.close()
+  }, [view])
 
-  if (view.loading || view.answer === undefined && !view.error) {
+  if (view.loading || (view.answer === undefined && !view.error)) {
     return (
       <section
         className="border-t border-hairline-soft px-3.5 py-3"

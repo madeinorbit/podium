@@ -3,7 +3,13 @@ import { FileTreeView } from './file-tree-view'
 import { useStoreHandle } from '@podium/client-core/react'
 import { basename } from '@podium/client-core/values'
 import type { MachineId } from '@podium/model'
-import { joinMachinePath, machinePathBasename, machinePathDirname, machinePathRelativeToRoot, resolveMachinePath } from '@podium/model'
+import {
+  joinMachinePath,
+  machinePathBasename,
+  machinePathDirname,
+  machinePathRelativeToRoot,
+  resolveMachinePath,
+} from '@podium/model'
 import { ChevronDown, ChevronRight, Folder, FolderOpen, RefreshCw, Search, X } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useId, useMemo, useRef, useState } from 'react'
@@ -164,7 +170,10 @@ export const WorktreeFileTree = observer(function WorktreeFileTree({
   machineId?: MachineId
 }): JSX.Element {
   const { listDir, openFileInWorktree, trpc } = useStoreHandle<Trpc>().access
-  const view = useMemo(() => new FileTreeView(root, machineId, { listDir, trpc }), [root, machineId, listDir, trpc])
+  const view = useMemo(
+    () => new FileTreeView(root, machineId, { listDir, trpc }),
+    [root, machineId, listDir, trpc],
+  )
   const { children, expanded, loadingDirs, error } = view
   const [query, setQuery] = useState('')
   const searchPaths = view.search.answer ?? []
@@ -175,15 +184,29 @@ export const WorktreeFileTree = observer(function WorktreeFileTree({
   const searchListId = useId()
   const searchInputId = useId()
 
-  useEffect(() => { void view.load(root); return () => view.close() }, [view, root])
+  useEffect(() => {
+    void view.load(root)
+    return () => view.close()
+  }, [view, root])
   useEffect(() => {
     const trimmed = query.trim()
-    if (!trimmed) { view.search.close(); setActiveSearchIndex(0); return }
+    if (!trimmed) {
+      view.search.close()
+      setActiveSearchIndex(0)
+      return
+    }
     view.search.prepare(true)
-    const timer = setTimeout(() => { void view.searchFiles(trimmed) }, 120)
-    return () => { clearTimeout(timer); view.search.cancel() }
+    const timer = setTimeout(() => {
+      void view.searchFiles(trimmed)
+    }, 120)
+    return () => {
+      clearTimeout(timer)
+      view.search.cancel()
+    }
   }, [view, query])
-  useEffect(() => { setActiveSearchIndex(0) }, [view.search.answer])
+  useEffect(() => {
+    setActiveSearchIndex(0)
+  }, [view.search.answer])
 
   useEffect(() => {
     if (!query.trim() || !searchPaths[activeSearchIndex]) return

@@ -40,10 +40,18 @@ export function useFileMentions({
   const trpc = useRuntimeSelector((s) => s.trpc)
   const view = useMemo(() => new FileMentionView(trpc), [trpc])
   useEffect(() => {
-    if (!enabled || !query || !root || root === '/') { view.close(); return }
+    if (!enabled || !query || !root || root === '/') {
+      view.close()
+      return
+    }
     view.prepare()
-    const timer = setTimeout(() => { void view.search({ root, query, limit, ...(machineId ? { machineId } : {}) }) }, debounceMs)
-    return () => { clearTimeout(timer); view.cancel() }
+    const timer = setTimeout(() => {
+      void view.search({ root, query, limit, ...(machineId ? { machineId } : {}) })
+    }, debounceMs)
+    return () => {
+      clearTimeout(timer)
+      view.cancel()
+    }
   }, [view, query, root, machineId, enabled, limit, debounceMs])
   useEffect(() => () => view.close(), [view])
   return useObserver(() => view.options)

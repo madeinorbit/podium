@@ -16,12 +16,24 @@ export function useFileDocument(scope: FileScope, path: string): FileDocumentVie
   const key = scopeKey(scope)
   // The scope key includes its machine/artifact identity; object churn is not a new opening.
   // biome-ignore lint/correctness/useExhaustiveDependencies: key is the canonical identity of scope.
-  const view = useMemo(() => new FileDocumentView(scope, path, { readFileScoped, writeFileScoped }, toast), [key, path, readFileScoped, writeFileScoped])
-  useEffect(() => { void view.open(); return () => view.close() }, [view])
+  const view = useMemo(
+    () => new FileDocumentView(scope, path, { readFileScoped, writeFileScoped }, toast),
+    [key, path, readFileScoped, writeFileScoped],
+  )
+  useEffect(() => {
+    void view.open()
+    return () => view.close()
+  }, [view])
   useEffect(() => registerReloadGuard(() => view.reloadBlock), [view])
   return useObserver(() => {
-    void view.status; void view.message; void view.content; void view.dirty
-    void view.saving; void view.saveFeedback; void view.baseHash; void view.reloadNonce
+    void view.status
+    void view.message
+    void view.content
+    void view.dirty
+    void view.saving
+    void view.saveFeedback
+    void view.baseHash
+    void view.reloadNonce
     return view
   })
 }

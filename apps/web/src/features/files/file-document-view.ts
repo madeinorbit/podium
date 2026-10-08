@@ -9,12 +9,26 @@ type ReadResult = Awaited<ReturnType<Trpc['files']['read']['query']>>
 type WriteResult = Awaited<ReturnType<Trpc['files']['write']['mutate']>>
 interface DocumentPorts {
   readFileScoped(scope: FileScope, path: string): Promise<ReadResult>
-  writeFileScoped(input: { scope: FileScope; path: string; content: string; baseHash?: string }): Promise<WriteResult>
+  writeFileScoped(input: {
+    scope: FileScope
+    path: string
+    content: string
+    baseHash?: string
+  }): Promise<WriteResult>
 }
-interface Feedback { kind: 'success' | 'error'; message: string }
+interface Feedback {
+  kind: 'success' | 'error'
+  message: string
+}
 interface DocumentNotices {
   success(message: string): void
-  error(message: string, options?: { action: { label: string; onClick(): Promise<void> }; cancel: { label: string; onClick(): void } }): void
+  error(
+    message: string,
+    options?: {
+      action: { label: string; onClick(): Promise<void> }
+      cancel: { label: string; onClick(): void }
+    },
+  ): void
 }
 
 /** One editable text buffer per opening. The read answer is consumed into the
@@ -28,13 +42,50 @@ export class FileDocumentView extends RequestAnswer<ReadResult> {
   @observable accessor reloadNonce = 0
   @observable private accessor savedContent = ''
   private generation = 0
-  constructor(readonly scope: FileScope, readonly path: string, private readonly ports: DocumentPorts, private readonly notices: DocumentNotices) { super() }
-  @lazy get editable(): boolean { return this.scope.kind !== 'artifact' }
-  @lazy get status(): 'loading' | 'ready' | 'error' { return this.loading || this.answer === undefined && this.error === null ? 'loading' : this.error || !this.answer?.ok ? 'error' : 'ready' }
-  @lazy get message(): string { const r = this.answer; return this.error ?? (!r?.ok ? r?.tooLarge ? 'File too large' : r?.binary ? 'Binary file' : r?.error ?? 'Failed to open' : '') }
-  @lazy get reloadBlock(): string | undefined { return this.editable && (this.saving || this.content !== this.savedContent) ? `Save or discard your edits to "${this.path}" before reloading.` : undefined }
-  @action setContent = (next: string): void => { this.content = next; this.dirty = true }
-  @action reload = (): void => { ++this.reloadNonce; void this.open() }
+  constructor(
+    readonly scope: FileScope,
+    readonly path: string,
+    private readonly ports: DocumentPorts,
+    private readonly notices: DocumentNotices,
+  ) {
+    super()
+  }
+  @lazy get editable(): boolean {
+    return this.scope.kind !== 'artifact'
+  }
+  @lazy get status(): 'loading' | 'ready' | 'error' {
+    return this.loading || (this.answer === undefined && this.error === null)
+      ? 'loading'
+      : this.error || !this.answer?.ok
+        ? 'error'
+        : 'ready'
+  }
+  @lazy get message(): string {
+    const r = this.answer
+    return (
+      this.error ??
+      (!r?.ok
+        ? r?.tooLarge
+          ? 'File too large'
+          : r?.binary
+            ? 'Binary file'
+            : (r?.error ?? 'Failed to open')
+        : '')
+    )
+  }
+  @lazy get reloadBlock(): string | undefined {
+    return this.editable && (this.saving || this.content !== this.savedContent)
+      ? `Save or discard your edits to "${this.path}" before reloading.`
+      : undefined
+  }
+  @action setContent = (next: string): void => {
+    this.content = next
+    this.dirty = true
+  }
+  @action reload = (): void => {
+    ++this.reloadNonce
+    void this.open()
+  }
   @action async open(): Promise<void> {
     const generation = ++this.generation
     this.dirty = false
@@ -50,13 +101,22 @@ export class FileDocumentView extends RequestAnswer<ReadResult> {
     })
   }
   @action save = async (overwrite = false): Promise<void> => {
-    if (this.saving || !canSave({ editable: this.editable, dirty: this.dirty, saving: this.saving })) return
+    if (
+      this.saving ||
+      !canSave({ editable: this.editable, dirty: this.dirty, saving: this.saving })
+    )
+      return
     const generation = this.generation
     const body = this.content
     this.saving = true
     this.saveFeedback = null
     try {
-      const result = await this.ports.writeFileScoped({ scope: this.scope, path: this.path, content: body, ...(overwrite ? {} : { baseHash: this.baseHash }) })
+      const result = await this.ports.writeFileScoped({
+        scope: this.scope,
+        path: this.path,
+        content: body,
+        ...(overwrite ? {} : { baseHash: this.baseHash }),
+      })
       if (generation !== this.generation) return
       runInAction(() => {
         if (result.ok) {
@@ -67,7 +127,10 @@ export class FileDocumentView extends RequestAnswer<ReadResult> {
           this.notices.success(overwrite ? 'Saved (overwritten)' : 'Saved')
         } else if (result.conflict && !overwrite) {
           this.notices.error('File changed on disk — reload or overwrite', {
-            action: { label: 'Overwrite', onClick: () => generation === this.generation ? this.save(true) : Promise.resolve() },
+            action: {
+              label: 'Overwrite',
+              onClick: () => (generation === this.generation ? this.save(true) : Promise.resolve()),
+            },
             cancel: { label: 'Reload', onClick: this.reload },
           })
         } else {
@@ -84,7 +147,9 @@ export class FileDocumentView extends RequestAnswer<ReadResult> {
         this.notices.error(message)
       })
     } finally {
-      runInAction(() => { if (generation === this.generation) this.saving = false })
+      runInAction(() => {
+        if (generation === this.generation) this.saving = false
+      })
     }
   }
   @action override close(): void {

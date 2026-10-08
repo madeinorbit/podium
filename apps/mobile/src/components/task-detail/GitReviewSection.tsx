@@ -28,15 +28,23 @@ export const GitReviewSection = observer(function GitReviewSection({
   machineId?: MachineId
 }) {
   const { gitStatus, readFileScoped, gitDiffFile } = useStoreHandle().access
-  const view = useMemo(() => new GitView(root, machineId, { gitStatus, readFileScoped, gitDiffFile }), [root, machineId, gitStatus, readFileScoped, gitDiffFile])
-  useEffect(() => { void view.refresh(); return () => view.close() }, [view])
+  const view = useMemo(
+    () => new GitView(root, machineId, { gitStatus, readFileScoped, gitDiffFile }),
+    [root, machineId, gitStatus, readFileScoped, gitDiffFile],
+  )
+  useEffect(() => {
+    void view.refresh()
+    return () => view.close()
+  }, [view])
   const header = view.reviewStatus?.header
   const entries = view.reviewStatus?.entries ?? []
   const statusError = view.error
   const refreshing = view.inventory.loading
   const { openPath, diffs } = view
   const [visibleFiles, setVisibleFiles] = useState(GIT_FILE_PAGE)
-  useEffect(() => { if (view.inventory.answer?.status.ok) setVisibleFiles(GIT_FILE_PAGE) }, [view.inventory.answer])
+  useEffect(() => {
+    if (view.inventory.answer?.status.ok) setVisibleFiles(GIT_FILE_PAGE)
+  }, [view.inventory.answer])
   const refresh = (): Promise<void> => view.refresh()
   const toggle = (entry: Parameters<GitView['toggleFile']>[0]): void => view.toggleFile(entry)
 

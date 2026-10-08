@@ -10,13 +10,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { Button } from '@/components/ui/button'
 import { DiffSheet } from './DiffSheet'
-import {
-  entryBadge,
-  entryTitle,
-  entryTone,
-  type LogEntry,
-  type StatusEntry,
-} from './git-panel'
+import { entryBadge, entryTitle, entryTone, type LogEntry, type StatusEntry } from './git-panel'
 
 /** Three lines of plausible path lengths — enough to read as a list arriving,
  *  short enough that it never claims a size the answer might not have. */
@@ -101,8 +95,21 @@ export const GitPanelView = observer(function GitPanelView({
 }): JSX.Element {
   const access = useStoreHandle().access
   const { gitStatus, gitLog, gitCommitFiles, gitDiffFile, readFileScoped } = access
-  const view = useMemo(() => new GitView(cwd, machineId, { gitStatus, gitLog, gitCommitFiles, gitDiffFile, readFileScoped }), [cwd, machineId, gitStatus, gitLog, gitCommitFiles, gitDiffFile, readFileScoped])
-  useEffect(() => { void view.refresh(true); return () => view.close() }, [view])
+  const view = useMemo(
+    () =>
+      new GitView(cwd, machineId, {
+        gitStatus,
+        gitLog,
+        gitCommitFiles,
+        gitDiffFile,
+        readFileScoped,
+      }),
+    [cwd, machineId, gitStatus, gitLog, gitCommitFiles, gitDiffFile, readFileScoped],
+  )
+  useEffect(() => {
+    void view.refresh(true)
+    return () => view.close()
+  }, [view])
   const { status, log, error, now, openShas, commitFiles } = view
   const loading = view.inventory.loading
   const refresh = (): Promise<void> => view.refresh(true)
