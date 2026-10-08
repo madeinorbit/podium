@@ -5,7 +5,10 @@ import type { FileScope } from '@podium/client-core/values'
 import type { Trpc } from '@/app/trpc'
 import { canSave } from './editor-save'
 
-type ReadResult = Awaited<ReturnType<Trpc['files']['read']['query']>>
+type ReadResult = Pick<
+  Awaited<ReturnType<Trpc['files']['read']['query']>>,
+  'ok' | 'content' | 'baseHash' | 'tooLarge' | 'binary' | 'error'
+>
 type WriteResult = Awaited<ReturnType<Trpc['files']['write']['mutate']>>
 interface DocumentPorts {
   readFileScoped(scope: FileScope, path: string): Promise<ReadResult>
@@ -131,7 +134,12 @@ export class FileDocumentView extends RequestAnswer<ReadResult> {
               label: 'Overwrite',
               onClick: () => (generation === this.generation ? this.save(true) : Promise.resolve()),
             },
-            cancel: { label: 'Reload', onClick: this.reload },
+            cancel: {
+              label: 'Reload',
+              onClick: () => {
+                if (generation === this.generation) this.reload()
+              },
+            },
           })
         } else {
           const message = result.error ?? 'Save failed'

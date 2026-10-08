@@ -26,7 +26,12 @@ interface DiffPorts {
   readFileScoped: (
     scope: { kind: 'worktree'; machineId?: MachineId; root: string },
     path: string,
-  ) => Promise<Awaited<ReturnType<Trpc['files']['read']['query']>>>
+  ) => Promise<
+    Pick<
+      Awaited<ReturnType<Trpc['files']['read']['query']>>,
+      'ok' | 'content' | 'tooLarge' | 'binary' | 'error'
+    >
+  >
 }
 
 /** Selected-file answers and incremental totals belong to one open diff sheet. */

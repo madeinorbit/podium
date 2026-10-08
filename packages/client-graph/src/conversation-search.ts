@@ -1,4 +1,4 @@
-import { ConversationIndexRecord } from '@podium/model'
+import { ConversationIndexRecord } from '@podium/model/browser'
 import { action, compareShallow, observable } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
 import type { MobxPool } from './pool'

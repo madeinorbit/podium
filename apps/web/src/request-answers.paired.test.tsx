@@ -162,8 +162,16 @@ describe('legacy and view-owned answers on identical fixtures', () => {
     const proof = {
       id: 'receipt',
       orderId: 'order',
-      destinationSha: 'sha',
+      approvedBaseSha: 'base',
+      approvedHeadSha: 'head',
+      resultCommitSha: 'result',
+      testedIntegrationSha: 'tested',
+      landedRefSha: 'landed',
+      destinationSha: 'destination',
+      destination: 'origin/main',
+      validationProfileId: 'profile',
       validationResult: 'passed',
+      completedAt: '2026-10-09T00:00:00Z',
     }
     const receipt = new ReceiptView('order' as never, { getReceipt: async () => proof } as never)
     await receipt.refresh()

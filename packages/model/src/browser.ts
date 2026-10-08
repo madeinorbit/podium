@@ -7,6 +7,7 @@
 
 export * from './entities/agent'
 export * from './entities/automation'
+export * from './entities/conversation'
 export * from './entities/cost'
 export * from './entities/draft-doc'
 export * from './entities/issue'

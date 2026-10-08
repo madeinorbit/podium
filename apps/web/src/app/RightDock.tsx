@@ -1,3 +1,4 @@
+import { asIssueId } from '@podium/model/browser'
 import { observer } from '@podium/client-graph/react'
 import {
   FolderTree,
@@ -229,8 +230,8 @@ export const RightDock = observer(function RightDock({
               // focus inside it. Focusing alone would be discarded by
               // `resolveFocus` as not-in-mission and silently snap back.
               onSelectIssue={(issue) => {
-                setSelectedIssueId(issue.id)
-                setFocusedIssueId(issue.id)
+                setSelectedIssueId(asIssueId(issue.id))
+                setFocusedIssueId(asIssueId(issue.id))
               }}
             />
           )}
