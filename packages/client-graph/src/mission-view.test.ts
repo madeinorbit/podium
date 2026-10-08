@@ -39,10 +39,12 @@ it.each([
 ] as const)('renders a cold %s history as loading and recovers after hydration', (_name, read) => {
   // The shell makes an archived session's display summary usable before its
   // handoff/prompt history is resident, just as the production workspace does.
-  const { pool, reader } = open([issue('root')], [session('old', 'root')], {
+  const { pool, reader } = open([coldRoot()], [session('old', 'root')], {
     issue: MISSION_VIEW_SUMMARIES.issue,
     session: [...new Set([...MISSION_VIEW_SUMMARIES.session, ...SHELL_SUMMARIES.session])],
   })
+  expect(tracked(() => reader.issue('root'))).toBe(LOADING)
+  expect(pool.hydrate()).toBe(1)
   expect(pool.tables.session.has('old')).toBe(false)
   const projection = createPoolProjection(pool, () => read(reader))
   const stop = projection.subscribe(() => {})
