@@ -171,7 +171,7 @@ it('keeps identities, raw members and continuation witnesses live without neighb
       } as RowRecord,
       seat('tip-agent', { issueId: 'tip', archived: false, status: 'running' }),
       seat('born-away', { issueId: 'outside' }),
-      seat('shell', { agentKind: 'shell', archived: false }),
+      seat('shell', { agentKind: 'shell', archived: false, status: 'running' }),
     ],
   })
   const views = issuePages(pool),
