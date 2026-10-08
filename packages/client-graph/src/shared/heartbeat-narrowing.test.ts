@@ -7,7 +7,7 @@ it.each([1, 4])('matches rebuilt resume winners and order through group transiti
   const index = createRelationIndex(SCHEMA)
   const rows = new Map<string, Record<string, unknown>>()
   const row = (status: string, conversationId = 'group', patch: object = {}) => ({
-    resume: { kind: 'codex', conversationId }, status, lastActiveAt: '2026-10-01', ...patch,
+    resume: { kind: 'codex', value: conversationId }, status, lastActiveAt: '2026-10-01', ...patch,
   })
   const change = (id: string, next?: Record<string, unknown>) => {
     const existed = rows.has(id)
