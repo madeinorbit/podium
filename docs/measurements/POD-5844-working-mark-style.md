@@ -111,10 +111,22 @@ An installed Playwright Chromium is required. `--marks`, `--window` and
 The collector closes its own browser and server and deletes its temporary
 historical module. It never touches an operator process or installed app.
 
-Validation consists of source/ancestry verification and the sequential browser
-counter capture. Product tests, typecheck and the lean gate are skipped:
-this issue changes only measurement documentation and an opt-in collector,
-with no application imports, build entrypoints or product behavior changed.
-Existing product regression coverage remains in
+Validation includes source/ancestry verification and the sequential browser
+counter capture. Before landing, the evidence commits were rebased onto pilot
+`54019d214a`. The following checks ran sequentially, foreground on flatblock
+in `~/podium-test-5844`, using its copied Bun 1.4.2 and checkout-local dependencies:
+
+- `bun run typecheck`: **29/29 tasks successful**, 17 cache hits, 2m34.6s.
+- `bun run test`: **lean gate green**, 154 tests in the four required files out
+  of 1,857 collected files (0.2%). Its included typecheck and span-effect,
+  interaction-scan, MobX-private, untracked-read and clock-read gates passed.
+  The four files executed 16 runtime boot, 41 server setup, 56 daemon connection
+  and 41 lane-configuration cases. This is not a suite result.
+
+The checked candidate was `c28c0d8021`; the subsequent documentation edit
+records those results. No structural census or broader product suite was
+required: this issue changes only measurement documentation and an opt-in
+collector, with no application imports, build entrypoints or product behavior
+changed. Existing mark regression coverage remains in
 `apps/web/src/lib/motion/motion.test.tsx` and the native/mobile-web mark tests;
-this issue does not claim to have rerun those tests.
+this issue does not claim to have rerun those files.
