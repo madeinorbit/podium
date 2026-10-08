@@ -10,7 +10,7 @@ How every client screen (web, desktop, phone) gets and derives data from the Mob
 - **Derived field**: a value worked out from other data, declared with `@lazy`.
 - **View**: a feature the user sees: the worklist, the mission view, issue detail, the launcher, settings. One view can be drawn by several screens or platforms (the desktop sidebar and the phone Work tab both draw the worklist); they share the view's model and companions and differ only in components.
 - **View model**: one class per view holding its UI state and handing out its companions. The view's root component creates it (or gets it from the app) and passes it down through React context.
-- **Companion**: a small object per record, owned by one view, for rules only that view uses (`WorklistIssue` wraps an `IssueModel`). Created with `companion()` from `@podium/mobx-helpers`.
+- **Companion**: a small object per record, owned by one view, for rules only that view uses (`WorklistIssue` wraps an `IssueModel`). Created with `companion()` from `@podium/mobx-helpers`, declared once on the view model: one companion per record per view. Never use `companion()` as a cache for part of a row; that part is a `@lazy` field of the companion.
 - **UI state**: state that never comes from the server: open tab, folds, selection, form input.
 - **Watched read**: a read inside an `observer` component or a MobX reaction.
 
