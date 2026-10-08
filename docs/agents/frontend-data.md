@@ -1,6 +1,6 @@
 # Frontend data
 
-How client code (web, desktop, phone) holds, derives and shows data. The data layer is the MobX pool in `packages/client-graph`; helpers come from `@podium/mobx-helpers`. Every frontend change follows this guide. Two helpers named here are still being built: the shared clock (POD-5863) and the three-answer lookup (POD-5867). Until they land, follow the rule with what exists, and add no new code in the old pattern.
+How client code (web, desktop, phone) holds, derives and shows data. The data layer is the MobX pool in `packages/client-graph`; helpers come from `@podium/mobx-helpers`. Every frontend change follows this guide. Some homes named here are still being built: the shared clock (POD-5863), the three-answer lookup (POD-5867), the UiStore (POD-5797) and the LiveStore (POD-5798). Until one lands, leave that state where it is today, and add no new code in the old pattern.
 
 ## Where things live
 
