@@ -1,3 +1,4 @@
+import { conversationRecords, type ConversationRecord } from './conversation-search'
 import { IssueSessionFactsIndex, type IssueSessionFacts, type IssueSessionFactReader } from './shared/issue-session-facts'
 import type { SessionPhaseChange, NotificationSession } from '@podium/client-core/sound'
 import { asSessionId } from '@podium/model'
@@ -677,9 +678,12 @@ export class MobxPool {
   }
 
   /** The model of a row in memory, built on first request; undefined when absent (tracked). */
-  model<E extends EntityName>(entity: E, id: string): ModelOf[E] | undefined {
+  model(entity: 'conversation', id: string): ConversationRecord | undefined
+  model<E extends EntityName>(entity: E, id: string): ModelOf[E] | undefined
+  model(entity: EntityName | 'conversation', id: string): ModelOf[EntityName] | ConversationRecord | undefined {
+    if (entity === 'conversation') return conversationRecords(this).model(id)
     if (!this.tables[entity].has(id)) return undefined
-    return this.object(entity, id) as ModelOf[E]
+    return this.object(entity, id) as ModelOf[EntityName]
   }
 
   /**

@@ -10,7 +10,7 @@ export class RequestAnswer<T> {
 
   constructor(private readonly messageFor: (cause: unknown) => string = answerError) {}
 
-  @action async load(read: () => Promise<T>, clear = false): Promise<void> {
+  @action async load<R = T>(read: () => Promise<R>, clear = false, accept: (answer: R) => T = (answer) => answer as unknown as T): Promise<void> {
     const sequence = ++this.sequence
     this.loading = true
     this.error = null
@@ -18,7 +18,7 @@ export class RequestAnswer<T> {
     try {
       const answer = await read()
       runInAction(() => {
-        if (sequence === this.sequence) this.answer = answer
+        if (sequence === this.sequence) this.answer = accept(answer)
       })
     } catch (cause) {
       runInAction(() => {
