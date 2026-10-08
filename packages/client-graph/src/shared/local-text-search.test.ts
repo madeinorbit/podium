@@ -71,7 +71,7 @@ describe('feed local text id set (targetDetails, no facts, no descriptions)', ()
       () => patch({ seq: 8 }),
       () => index.apply({ type: 'update', rows: [{ ...repo, value: { ...repo.value, prefix: 'NEW' } }] }),
       () => index.apply({ type: 'update', rows: [feedIssue('another', 9)] }),
-      () => index.apply({ type: 'remove', rows: [{ kind: 'issue', id: 'another' }] }),
+      () => index.apply({ type: 'update', rows: [{ kind: 'issue', id: 'another', value: undefined }] }),
       () => patch({ repoId: 'elsewhere' }),
     ]
     for (const change of changes) {
