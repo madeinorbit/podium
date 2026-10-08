@@ -322,6 +322,12 @@ describe('driver columns participate in draft commits', () => {
         emitSessionExited: vi.fn(),
         autoContinue: { onSessionLive: vi.fn() },
         inbox: { markSessionBound: vi.fn(), drain: vi.fn() },
+        // The bind arm bootstraps the runtime draft through the state port
+        // (draft sync via runtime contract). Production wiring provides the
+        // real SessionStateService; this fixture only needs the port the
+        // bind path touches, and it must return a promise — the call site
+        // attaches a `.catch` to it.
+        state: { initializeRuntimeDraft: vi.fn(async () => {}) },
       } as never)
       const principal = {
         kind: 'machine' as const,
