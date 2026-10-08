@@ -1,4 +1,5 @@
-/** Before/after 4x phone board heap and watched-field measurement; run with Bun. */
+/** Run on flatblock: bun --conditions=@podium/source
+ * tests/worklist/diagnostics/phone-tasks-memory.ts before|after. */
 import { createRequire } from 'node:module'
 const { heapStats } = createRequire(import.meta.url)('bun:jsc') as {
   heapStats(): { heapSize: number }
@@ -92,13 +93,13 @@ const baseline = heap()
 // Outside counter, pinned to the same MobX internals as the structural meter.
 // Count all observed cache fields as well as model @lazy slots: the old path
 // retains keyed computeds, so a lazy-only total would omit its caches.
-const caches = new Set<{ observers_: Set<unknown> }>()
+const caches = new Set<{ observers_: Set<unknown> | null }>()
 const proto = Object.getPrototypeOf(computed(() => 0)) as {
   computeValue_(...args: unknown[]): unknown
 }
 const computeValue = proto.computeValue_
 proto.computeValue_ = function (...args: unknown[]) {
-  caches.add(this as unknown as { observers_: Set<unknown> })
+  caches.add(this as unknown as { observers_: Set<unknown> | null })
   return computeValue.apply(this, args)
 }
 const stops: (() => void)[] = []
@@ -150,7 +151,7 @@ if (mode === 'before') {
 }
 await Promise.resolve()
 const watchedFields = [...targets].reduce((sum, target) => sum + lazyKeptCount(target), 0)
-const watchedCacheFields = [...caches].filter((cache) => cache.observers_.size > 0).length
+const watchedCacheFields = [...caches].filter((cache) => cache.observers_?.size).length
 proto.computeValue_ = computeValue
 // Measuring must not retain the temporary computeds visited by the counter.
 caches.clear()
