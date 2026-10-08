@@ -76,6 +76,10 @@ const STARTUP_GRAPH_SOURCES = new Set([
   // The startup pool and header polls share these failure counters. This
   // keeps no rows or errors and adds no optional screen dependency (POD-5540).
   'src/shared/feed-diagnostics.ts',
+  // Raw owner activity and headless counters replace the startup row-source
+  // bookkeeping; seed them before the first heartbeat (POD-5793). This is
+  // store maintenance, with no optional screen dependency.
+  'src/shared/issue-session-facts.ts',
 ])
 
 export function eagerClientGraphSources(sources: readonly string[]): string[] {
