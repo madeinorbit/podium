@@ -93,6 +93,8 @@ export class GitView {
         this.ports.gitStatus(this.args),
         history ? this.ports.gitLog?.(this.args) : undefined,
       ])
+      // Phone refresh keeps its previous branch and inventory on a failed read.
+      if (!history && !status.ok) throw new Error(status.output || 'Git status could not be read.')
       return { status, log }
     })
     runInAction(() => {

@@ -91,7 +91,7 @@ export class ConversationSearchView extends RequestAnswer<string[]> {
   ) {
     super()
   }
-  search(input: ConversationSearchInput): Promise<void> {
+  @action search(input: ConversationSearchInput): Promise<void> {
     return this.load(
       () => this.query(input),
       false,
