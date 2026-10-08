@@ -67,6 +67,7 @@ export function poolIssuePageFields(
       prefix: issue.prefix ?? undefined,
       branch: raw.branch ?? null,
       worktreePath: raw.worktreePath ?? null,
+      pinned: raw.pinned ?? false,
       readAt: pool.readCursor(id) ?? null,
       tuckedAt: raw.tuckedAt ?? null,
       deps: raw.deps ?? [],
