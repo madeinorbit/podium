@@ -1,7 +1,9 @@
 import { EMPTY_PENDING } from '../../../../tests/worklist/shared/src/row-source'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { addSink, resetLogging, type LogRecord } from '@podium/logger'
-import { observe } from 'mobx'
+import { autorun, getDependencyTree, observe, Reaction } from 'mobx'
+import { enableDebugNames } from '../debug-name'
+import { IssueSessionFactsIndex, type IssueSessionFacts } from './issue-session-facts'
 import type { ColdIndex } from './cold-index'
 import type { PendingOverlay } from '@podium/client-core/command-reducers'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -299,4 +301,97 @@ it('disposal cancels queued recovery and a fresh principal has fresh diagnostics
   } finally {
     fresh.source.dispose()
   }
+})
+
+// Kept reference to the pre-change rebuild. This is deliberately independent
+// of the running maxima so removal, archive and rehome errors are observable.
+function rebuiltFacts(rows: Iterable<Record<string, unknown>>, owner: string): IssueSessionFacts {
+  let replicaActivityAt: string | undefined, tipActivityAt: string | undefined
+  let headlessStaffed = false, headlessOccupied = false
+  for (const row of rows) {
+    if (row.issueId !== owner) continue
+    const replica = row.agentKind === 'shell' ? undefined : row.lastActiveAt as string | undefined
+    const tip = row.archived === true ? undefined : row.lastActiveAt as string | undefined
+    if (replica && (!replicaActivityAt || replica > replicaActivityAt)) replicaActivityAt = replica
+    if (tip && (!tipActivityAt || tip > tipActivityAt)) tipActivityAt = tip
+    headlessStaffed ||= row.headless === true && row.archived !== true && row.status !== 'exited'
+    headlessOccupied ||= row.headless === true && row.archived !== true
+  }
+  return { replicaActivityAt, tipActivityAt, headlessStaffed, headlessOccupied }
+}
+const fields = ['replicaActivityAt', 'tipActivityAt', 'headlessStaffed', 'headlessOccupied'] as const
+
+it('matches the old owner-history rebuild on every activity and membership transition', () => {
+  const f = fixture(), index = new IssueSessionFactsIndex()
+  for (const id of ['one', 'two']) f.put('issueProjections', id, { id })
+  const change = (id: string, row?: Record<string, unknown>) => {
+    if (row) f.put('sessions', id, { sessionId: id, ...row })
+    else f.tables.get('sessions')?.delete(id)
+    index.install(id, row)
+    f.update(id); f.source.flush()
+    for (const owner of ['one', 'two']) {
+      const expected = rebuiltFacts(f.tables.get('sessions')?.values() ?? [], owner)
+      const actual = Object.fromEntries(fields.map(field => [field, index.read(owner, field)]))
+      expect(actual).toEqual(expected)
+      // Before removal of the old production path, this also compares both
+      // implementations against exactly the same raw records.
+      const old = (f.source.source.row?.('issue', owner) as { sessionFacts?: IssueSessionFacts })?.sessionFacts
+      if (old) expect(actual).toEqual({ ...rebuiltFacts([], owner), ...old })
+    }
+  }
+  const seat = { issueId: 'one', agentKind: 'codex', lastActiveAt: '2026-10-01', status: 'live' }
+  try {
+    change('a', seat)
+    change('b', { ...seat, headless: true, lastActiveAt: '2026-10-02' })
+    change('archived', { ...seat, archived: true, lastActiveAt: '2026-10-05' })
+    change('shell', { ...seat, agentKind: 'shell', lastActiveAt: '2026-10-06' })
+    change('a', { ...seat, lastActiveAt: '2026-10-07' })
+    change('a', { ...seat, lastActiveAt: '2026-09-01' })
+    change('b', { ...seat, headless: true, archived: true, lastActiveAt: '2026-10-02' })
+    change('b', { ...seat, headless: true, status: 'exited', issueId: 'two', lastActiveAt: '2026-10-02' })
+    change('shell', { ...seat, agentKind: 'codex', lastActiveAt: '2026-10-06' })
+    change('shell')
+    change('archived')
+    change('a')
+    change('b')
+    change('a', seat)
+    index.clear()
+    expect(Object.fromEntries(fields.map(field => [field, index.read('one', field)]))).toEqual(rebuiltFacts([], 'one'))
+  } finally { f.source.dispose() }
+})
+
+it.each([1, 4])('records heartbeat owner-history work and watched fields at %sx', scale => {
+  enableDebugNames()
+  const f = fixture()
+  f.put('issueProjections', 'one', { id: 'one', title: 'Issue', stage: 'in_progress', audience: 'human',
+    createdAt: '2026-01-01', updatedAt: '2026-10-01', deps: [] })
+  const row = { sessionId: 'active', issueId: 'one', agentKind: 'codex', status: 'live', archived: false,
+    lastActiveAt: '2026-10-07', agentState: { phase: 'working', since: '2026-10-01' } }
+  for (let i = 0; i < 128 * scale; i++) f.put('sessions', `history-${i}`, {
+    ...row, sessionId: `history-${i}`, archived: true, status: 'exited', lastActiveAt: '2026-01-01' })
+  f.put('sessions', 'active', row)
+  const handle = createWorklistPool(f.source.source, fixedLocals({ selectedIssueId: 'one', coarseNow: Date.parse('2026-10-08') }).source)
+  const issue = handle.pool.issueObject('one'), work = handle.pool.worklistRow('one')!
+  const watcher = new Reaction('probe:issue-activity', () => {})
+  watcher.track(() => { void issue.title; void issue.stage; void issue.memberLatestActivity;
+    void work.unread; void work.openOwn; void work.tip; void work.rollup })
+  const names = new Set<string>()
+  const visit = (tree: ReturnType<typeof getDependencyTree>) => {
+    if (/^(IssueModel|WorklistIssue)[@.]/.test(tree.name)) names.add(tree.name)
+    for (const child of tree.dependencies ?? []) visit(child)
+  }
+  visit(getDependencyTree(watcher))
+  const original = handle.pool.row('issue', 'one')
+  let storedRuns = 0
+  const stop = autorun(() => { void issue.title; void issue.stage; storedRuns++ })
+  try {
+    f.source.stats.reset()
+    f.put('sessions', 'active', { ...row, lastActiveAt: '2026-10-09' })
+    f.update('active')
+    const event = f.source.flush()
+    console.info('[issue heartbeat]', JSON.stringify({ scale, stats: f.source.stats,
+      issueRows: event?.rows.filter(record => record.kind === 'issue').length,
+      rowReplaced: original !== handle.pool.row('issue', 'one'), storedRuns,
+      watchedFields: names.size, heapBytes: process.memoryUsage().heapUsed }))
+  } finally { stop(); watcher.dispose(); handle.dispose(); f.source.dispose() }
 })

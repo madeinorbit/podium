@@ -101,6 +101,7 @@ export interface RowSourceStats {
   events: number
   /** Failed cold-index or listener applications, including recovery attempts. */
   applyErrors: number
+  sessionFactsVisited: number
   reset(): void
 }
 
@@ -326,12 +327,14 @@ export function createRowSource(
     flushes: 0,
     events: 0,
     applyErrors: 0,
+    sessionFactsVisited: 0,
     reset() {
       stats.rowsVisited = 0
       stats.enumerations = 0
       stats.flushes = 0
       stats.events = 0
       stats.applyErrors = 0
+      stats.sessionFactsVisited = 0
     },
   }
 
@@ -455,6 +458,7 @@ export function createRowSource(
       let headlessStaffed = false,
         headlessOccupied = false
       for (const facts of sessionsByOwner.get(owner)?.values() ?? EMPTY) {
+        stats.sessionFactsVisited += 1
         if (facts.replica && (!replicaActivityAt || facts.replica > replicaActivityAt))
           replicaActivityAt = facts.replica
         if (facts.tip && (!tipActivityAt || facts.tip > tipActivityAt)) tipActivityAt = facts.tip
