@@ -888,7 +888,12 @@ describe('the reads fence and externally observed relation writes', () => {
       writes: [
         'issue.sessions:I1', 'issue.sessions:I4', 'session.issue→S2',
         'issue.missionSessions:I1', 'issue.missionSessions:I4', 'session.missionIssue→S2',
+        // POD-5618 declared live subsets (5f19ab9d51 unarchived, c2474bc561 agents):
+        // a live non-shell unarchived session files into each subset on both sides.
+        'issue.missionSessions.agents:I1', 'issue.missionSessions.agents:I4',
+        'issue.missionSessions.unarchived:I1', 'issue.missionSessions.unarchived:I4',
         'issue.pageSessions:I1', 'issue.pageSessions:I4', 'session.pageIssue→S2',
+        'issue.pageSessions.unarchived:I1', 'issue.pageSessions.unarchived:I4',
       ],
     },
     {
@@ -916,8 +921,12 @@ describe('the reads fence and externally observed relation writes', () => {
         'session.issue→S9',
         'issue.missionSessions:I4',
         'session.missionIssue→S9',
+        // POD-5618 declared live subsets (5f19ab9d51 unarchived, c2474bc561 agents).
+        'issue.missionSessions.agents:I4',
+        'issue.missionSessions.unarchived:I4',
         'issue.pageSessions:I4',
         'session.pageIssue→S9',
+        'issue.pageSessions.unarchived:I4',
         'session.worktree→S9',
         'worktree.sessions:/repo',
       ],
@@ -930,8 +939,12 @@ describe('the reads fence and externally observed relation writes', () => {
         'session.issue→S3',
         'issue.missionSessions:I4',
         'session.missionIssue→S3',
+        // POD-5618 declared live subsets (5f19ab9d51 unarchived, c2474bc561 agents).
+        'issue.missionSessions.agents:I4',
+        'issue.missionSessions.unarchived:I4',
         'issue.pageSessions:I4',
         'session.pageIssue→S3',
+        'issue.pageSessions.unarchived:I4',
         'session.worktree→S3',
         'worktree.sessions:/repo/.worktrees/a',
       ],
@@ -1250,9 +1263,11 @@ it('keeps existing declarations within the bookkeeping bound and preserves colla
     // relation-only baseline; bucket-size invariance is checked below.
     // Worklist companions and shared scalar facts add demand allocations;
     // they do not write an observable relation, copy a row or visit a bucket.
+    // POD-5618 declared missionSessions subsets (unarchived 5f19ab9d51, agents
+    // c2474bc561) add two plain bookkeeping writes to the fixed publication.
     expect({ outside: outsideTotal(count), plain: count.plain }).toEqual({
       outside: 0,
-      plain: { written: 190, deleted: 4, iterated: 112, copied: 0 },
+      plain: { written: 192, deleted: 4, iterated: 112, copied: 0 },
     })
     const ref = { kind: 'codex-thread', value: 'compatibility' }
     r.push(session('S1', { issueId: 'I1', status: 'exited', resume: ref }),
