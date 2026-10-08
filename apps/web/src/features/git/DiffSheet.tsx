@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
 import type { Trpc } from '@/app/trpc'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
-import { type DiffRow,  splitPath } from './diff-model'
+import { type DiffRow, splitPath } from './diff-model'
 import { entryBadge, entryStatus, entryTone, type StatusEntry } from './git-panel'
 
 /**

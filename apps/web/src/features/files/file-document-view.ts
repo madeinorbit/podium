@@ -38,6 +38,7 @@ export class FileDocumentView extends RequestAnswer<ReadResult> {
   @action async open(): Promise<void> {
     const generation = ++this.generation
     this.dirty = false
+    this.saving = false
     this.saveFeedback = null
     this.baseHash = undefined
     await this.load(() => this.ports.readFileScoped(this.scope, this.path), true)
