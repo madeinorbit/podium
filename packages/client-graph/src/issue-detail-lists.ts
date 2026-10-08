@@ -111,6 +111,22 @@ export function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
       `${session.asking ? '0' : '1'}|${session.sessionId === issue.coordinatorSessionId ? '0' : '1'}|${String(9e15 - (session.activityMs ?? 0)).padStart(16, '0')}`,
   )
   const retired = seats('retired', 'pageSessions', undefined, (session) => !session.open)
+  // The dock includes explicitly attached shells; raw page membership excludes them.
+  const dockActive = seats(
+    'dock-active',
+    'missionSessions',
+    false,
+    (session) => session.open,
+    (session) =>
+      `${session.asking ? '0' : '1'}|${session.sessionId === issue.coordinatorSessionId ? '0' : '1'}|${String(9e15 - (session.activityMs ?? 0)).padStart(16, '0')}`,
+  )
+  const dockRetired = seats(
+    'dock-retired',
+    'missionSessions',
+    undefined,
+    (session) => !session.open,
+    (session) => pool.queries.orderKey(session.sessionId),
+  )
   const moved = seats(
     'moved',
     'bornSessions',
@@ -139,11 +155,24 @@ export function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     liveMembers,
     active,
     retired,
+    dockActive,
+    dockRetired,
     moved,
     phone,
     inspector,
     dispose() {
-      for (const list of [child, members, liveMembers, active, retired, moved, phone, inspector])
+      for (const list of [
+        child,
+        members,
+        liveMembers,
+        active,
+        retired,
+        dockActive,
+        dockRetired,
+        moved,
+        phone,
+        inspector,
+      ])
         list.dispose()
     },
   }

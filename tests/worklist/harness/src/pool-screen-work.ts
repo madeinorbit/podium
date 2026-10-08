@@ -555,7 +555,9 @@ async function measureScreenCells(
           ? row.phoneSessions
           : mode === 'inspector'
             ? row.inspectorSessions
-            : row.activeSessions
+            : mode === 'panel'
+              ? row.dockActiveSessions
+              : row.activeSessions
       if (children === LOADING || crew === LOADING) return LOADING
       const parent = issue.parentId ? pool.issueObject(issue.parentId) : undefined
       return {

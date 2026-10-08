@@ -91,6 +91,12 @@ export class IssuePageRow {
   get retiredSessions() {
     return this.lists.retired.get() ?? EMPTY_DETAIL_SESSIONS
   }
+  get dockActiveSessions() {
+    return this.lists.dockActive.get() ?? EMPTY_DETAIL_SESSIONS
+  }
+  get dockRetiredSessions() {
+    return this.lists.dockRetired.get() ?? EMPTY_DETAIL_SESSIONS
+  }
   get movedOn() {
     return this.lists.moved.get() ?? EMPTY_DETAIL_SESSIONS
   }
@@ -106,7 +112,7 @@ export class IssuePageRow {
   }
   /** A closed retired fold reads IDs plus live exited seats, never archived payloads. */
   get retiredCount(): number {
-    return this.pool.graph.subsetSize('issue', this.issue.id, 'missionSessions', 'retiredAgents')
+    return this.pool.graph.subsetSize('issue', this.issue.id, 'missionSessions', 'retired')
   }
   dispose() {
     this.lists.dispose()

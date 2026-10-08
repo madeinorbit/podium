@@ -178,9 +178,11 @@ it('keeps identities, raw members and continuation witnesses live without neighb
     page = views.row('root'),
     model = pool.issueObject('root') as PageIssue
   let presence: unknown, members: Loaded<import('./models').SessionModel[]>, summary: unknown
+  let dock: Loaded<import('./models').SessionModel[]>
   const stop = autorun(() => {
     presence = page.presence
     members = page.memberSessions
+    dock = page.dockActiveSessions
     summary = model.memberSummary
   })
   const ids = () => (members === LOADING ? LOADING : members?.map((row) => row.sessionId))
@@ -189,6 +191,8 @@ it('keeps identities, raw members and continuation witnesses live without neighb
     expect(page.issue).toBe(model)
     expect(presence).toMatchObject({ text: 'Work continued in P-3' })
     expect(ids()).toEqual(history.map((row) => row.id))
+    expect(dock !== LOADING && dock?.map((row) => row.sessionId)).toEqual(['shell'])
+    expect(page.retiredCount).toBe(history.length)
     expect(page.rosterCount).toBe(history.length)
     expect(summary).toEqual({ total: 48, byPhase: { unknown: 48 } })
     const first = members

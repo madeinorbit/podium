@@ -862,11 +862,11 @@ const DECLARED = defineSchema({
             test: (row: Readonly<Record<string, unknown>>) => !row['archived'],
             why: 'Phone detail reads only the displayed roster while its history fold is closed.',
           },
-          retiredAgents: {
-            fields: ['archived', 'status', 'agentKind'],
+          retired: {
+            fields: ['archived', 'status'],
             test: (row: Readonly<Record<string, unknown>>) =>
-              row['agentKind'] !== 'shell' && (!!row['archived'] || row['status'] === 'exited'),
-            why: 'The dock counts retired visible agents without loading their payloads.',
+              !!row['archived'] || row['status'] === 'exited',
+            why: 'The dock counts every retired explicit session, including shells, without loading payloads.',
           },
         },
       }),

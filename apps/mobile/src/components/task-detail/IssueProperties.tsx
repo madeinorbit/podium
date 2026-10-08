@@ -1,11 +1,13 @@
 import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 import { isClosed } from '@podium/model/browser'
+import type { PageIssue } from '@podium/client-graph/issue-page'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   groupRelations,
   ISSUE_STAGE_LABELS,
   type IssueEdge,
+  type RelationEntry,
   sessionTitle,
 } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model'
@@ -77,7 +79,6 @@ export const IssueProperties = observer(function IssueProperties({
     'relationGroups' in issue
       ? (issue as import('@podium/client-graph/issue-page').PageIssue).relationGroups
       : groupRelations(issue)
-  const parentEdge = resolveEdge(issue.parentId)
   // Merge axis only: a shared checkout's `ahead` is not this task's to land.
   const ahead = issue.gitState?.shared ? 0 : (issue.gitState?.ahead ?? 0)
 
@@ -117,28 +118,12 @@ export const IssueProperties = observer(function IssueProperties({
         </Row>
 
         <Row label="Parent">
-          {parentEdge.render === 'issue' && parent ? (
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel={`Open parent ${issueDisplayRef(parent)}`}
-              onPress={() => onOpenIssue(parent.id)}
-              style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
-            >
-              <StageGlyph stage={parent.stage} size={13} />
-              <Text style={styles.linkRef}>{issueDisplayRef(parent)}</Text>
-              <Text style={styles.linkTitle} numberOfLines={1}>
-                {parent.title}
-              </Text>
-              {parent.archived ? <Text style={styles.archived}>ARCHIVED</Text> : null}
-              <Icon as={ChevronRight} size={13} color={color.textFaint} />
-            </PressableScale>
-          ) : parentEdge.render === 'opaque' ? (
-            <Text style={styles.opaque}>an issue you do not have access to</Text>
-          ) : parentEdge.render === 'pending' ? (
-            <Text style={styles.inert}>Referenced task is loading</Text>
-          ) : (
-            <Text style={styles.none}>None</Text>
-          )}
+          <PropertyParentReference
+            id={issue.parentId}
+            parent={parent}
+            resolveEdge={resolveEdge}
+            onOpenIssue={onOpenIssue}
+          />
           <Ghost
             label={parent || issue.parentId ? 'Change parent' : 'Set parent'}
             busy={busy}
@@ -153,45 +138,16 @@ export const IssueProperties = observer(function IssueProperties({
           {relations.map((group) => (
             <View key={group.section} style={styles.relGroup}>
               <MachineLabel>{group.section}</MachineLabel>
-              {group.entries.map((entry) => {
-                const edge = resolveEdge(entry.id)
-                if (edge.render === 'hidden') return null
-                const target = edge.render === 'issue' ? edge.resolution.value : undefined
-                return (
-                  <View key={`${entry.direction}:${entry.type}:${entry.id}`} style={styles.relRow}>
-                    {target ? (
-                      <PressableScale
-                        accessibilityRole="button"
-                        accessibilityLabel={`Open ${issueDisplayRef(target)} ${target.title}`}
-                        onPress={() => onOpenIssue(target.id)}
-                        style={({ pressed }) => [styles.relOpen, pressed && styles.pressed]}
-                      >
-                        <StageGlyph stage={target.stage} size={13} />
-                        <Text style={styles.linkRef}>{issueDisplayRef(target)}</Text>
-                        <Text style={styles.linkTitle} numberOfLines={1}>
-                          {target.title}
-                        </Text>
-                      </PressableScale>
-                    ) : (
-                      <Text style={edge.render === 'opaque' ? styles.opaque : styles.inert}>
-                        {edge.render === 'opaque'
-                          ? 'an issue you do not have access to'
-                          : 'Referenced task is loading'}
-                      </Text>
-                    )}
-                    <PressableScale
-                      accessibilityRole="button"
-                      accessibilityLabel={`Remove ${entry.type} relation`}
-                      accessibilityState={{ disabled: busy }}
-                      disabled={busy}
-                      hitSlop={8}
-                      onPress={() => commands.removeRelation(entry)}
-                    >
-                      <Icon as={X} size={13} color={color.textFaint} />
-                    </PressableScale>
-                  </View>
-                )
-              })}
+              {group.entries.map((entry) => (
+                <PropertyRelationRow
+                  key={`${entry.direction}:${entry.type}:${entry.id}`}
+                  entry={entry}
+                  resolveEdge={resolveEdge}
+                  busy={busy}
+                  commands={commands}
+                  onOpenIssue={onOpenIssue}
+                />
+              ))}
             </View>
           ))}
           <Ghost label="Add relation" busy={busy} onPress={onAddRelation} icon />
@@ -199,20 +155,12 @@ export const IssueProperties = observer(function IssueProperties({
 
         <Row label="Sessions">
           {sessions.length === 0 ? <Text style={styles.none}>No agent has been here.</Text> : null}
-          {sessions.map((s) => (
-            <PressableScale
-              key={s.sessionId}
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${sessionTitle(s)}`}
-              onPress={() => onOpenSession(s.sessionId)}
-              style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
-            >
-              <Text style={styles.linkTitle} numberOfLines={1}>
-                {sessionTitle(s)}
-              </Text>
-              <Text style={styles.meta}>{s.status}</Text>
-              <Icon as={ChevronRight} size={13} color={color.textFaint} />
-            </PressableScale>
+          {sessions.map((session) => (
+            <PropertySessionRow
+              key={session.sessionId}
+              session={session}
+              onOpenSession={onOpenSession}
+            />
           ))}
           <View style={styles.ghostRow}>
             <Ghost label="Add agent" busy={busy} onPress={commands.addSession} icon />
@@ -377,6 +325,115 @@ const Chip = observer(function Chip({
         {label}
       </Text>
       <Text style={styles.caret}>▾</Text>
+    </PressableScale>
+  )
+})
+
+const PropertyParentReference = observer(function PropertyParentReference({
+  id,
+  parent,
+  resolveEdge,
+  onOpenIssue,
+}: {
+  id: string | undefined | null
+  parent: IssueViewModel | undefined
+  resolveEdge: (id: string | undefined | null) => IssueEdge
+  onOpenIssue: (id: string) => void
+}) {
+  const edge = resolveEdge(id)
+  return edge.render === 'issue' && parent ? (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={`Open parent ${issueDisplayRef(parent)}`}
+      onPress={() => onOpenIssue(parent.id)}
+      style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
+    >
+      <StageGlyph stage={parent.stage} size={13} />
+      <Text style={styles.linkRef}>{issueDisplayRef(parent)}</Text>
+      <Text style={styles.linkTitle} numberOfLines={1}>
+        {'authoredTitle' in parent ? (parent as PageIssue).authoredTitle : parent.title}
+      </Text>
+      {parent.archived ? <Text style={styles.archived}>ARCHIVED</Text> : null}
+      <Icon as={ChevronRight} size={13} color={color.textFaint} />
+    </PressableScale>
+  ) : edge.render === 'opaque' ? (
+    <Text style={styles.opaque}>an issue you do not have access to</Text>
+  ) : edge.render === 'pending' ? (
+    <Text style={styles.inert}>Referenced task is loading</Text>
+  ) : (
+    <Text style={styles.none}>None</Text>
+  )
+})
+const PropertyRelationRow = observer(function PropertyRelationRow({
+  entry,
+  resolveEdge,
+  busy,
+  commands,
+  onOpenIssue,
+}: {
+  entry: RelationEntry
+  resolveEdge: (id: string | undefined | null) => IssueEdge
+  busy: boolean
+  commands: IssueCommands
+  onOpenIssue: (id: string) => void
+}) {
+  const edge = resolveEdge(entry.id)
+  if (edge.render === 'hidden') return null
+  const target = edge.render === 'issue' ? edge.resolution.value : undefined
+  return (
+    <View style={styles.relRow}>
+      {target ? (
+        <PressableScale
+          accessibilityRole="button"
+          accessibilityLabel={`Open ${issueDisplayRef(target)} ${'authoredTitle' in target ? (target as PageIssue).authoredTitle : target.title}`}
+          onPress={() => onOpenIssue(target.id)}
+          style={({ pressed }) => [styles.relOpen, pressed && styles.pressed]}
+        >
+          <StageGlyph stage={target.stage} size={13} />
+          <Text style={styles.linkRef}>{issueDisplayRef(target)}</Text>
+          <Text style={styles.linkTitle} numberOfLines={1}>
+            {'authoredTitle' in target ? (target as PageIssue).authoredTitle : target.title}
+          </Text>
+        </PressableScale>
+      ) : (
+        <Text style={edge.render === 'opaque' ? styles.opaque : styles.inert}>
+          {edge.render === 'opaque'
+            ? 'an issue you do not have access to'
+            : 'Referenced task is loading'}
+        </Text>
+      )}
+      <PressableScale
+        accessibilityRole="button"
+        accessibilityLabel={`Remove ${entry.type} relation`}
+        accessibilityState={{ disabled: busy }}
+        disabled={busy}
+        hitSlop={8}
+        onPress={() => commands.removeRelation(entry)}
+      >
+        <Icon as={X} size={13} color={color.textFaint} />
+      </PressableScale>
+    </View>
+  )
+})
+const PropertySessionRow = observer(function PropertySessionRow({
+  session,
+  onOpenSession,
+}: {
+  session: SessionView
+  onOpenSession: (id: SessionId) => void
+}) {
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel={`Open ${sessionTitle(session)}`}
+      onPress={() => onOpenSession(session.sessionId)}
+      style={({ pressed }) => [styles.linkRow, pressed && styles.pressed]}
+    >
+      <Text style={styles.linkTitle} numberOfLines={1}>
+        {sessionTitle(session)}
+      </Text>
+      <Text style={styles.meta}>{session.status}</Text>
+      <Icon as={ChevronRight} size={13} color={color.textFaint} />
     </PressableScale>
   )
 })

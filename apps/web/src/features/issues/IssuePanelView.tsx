@@ -53,8 +53,6 @@ import {
   IssueDecisionBand,
   IssueGitScope,
   IssueSessionRow,
-  isOpenSession,
-  issueSessions,
 } from './IssueCompactControls'
 import { IssueStatusPicker } from './IssueStatusPicker'
 import { issueIdTitle } from './issue-card'
@@ -883,17 +881,18 @@ export const IssuePanelBody = observer(function IssuePanelBody({
   const showInDeck = (target: IssueViewModel): void => {
     const root = page.views.destination(target.id)
     if (!root || typeof root === 'symbol') return
-    const resolved = page.views.row(target.id).activeSessions
+    const resolved = page.views.row(target.id).dockActiveSessions
     if (!resolved || typeof resolved === 'symbol') return
     setSelectedIssueId(root.id)
     setFocusedIssueId(target.id)
     void markIssueRead(target.id)
-    const targetSessions = resolved
-      .filter(isOpenSession)
-      .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))
     const targetSession =
-      targetSessions.find((session) => session.sessionId === target.coordinatorSessionId) ??
-      targetSessions[0]
+      resolved.find((session) => session.sessionId === target.coordinatorSessionId) ??
+      resolved.reduce<(typeof resolved)[number] | undefined>(
+        (latest, session) =>
+          !latest || session.lastActiveAt > latest.lastActiveAt ? session : latest,
+        undefined,
+      )
     if (targetSession) {
       setPane('A', targetSession.sessionId)
       void markSessionRead(targetSession.sessionId)
@@ -929,9 +928,9 @@ export const IssuePanelBody = observer(function IssuePanelBody({
     (c) => c.stage === 'in_progress' || c.stage === 'review',
   ).length
 
-  const activeSessions = detail.activeSessions
+  const activeSessions = detail.dockActiveSessions
   const retiredCount = detail.retiredCount
-  const retiredSessions = showRetired ? detail.retiredSessions : []
+  const retiredSessions = showRetired ? detail.dockRetiredSessions : []
   if (activeSessions === LOADING || retiredSessions === LOADING) throw LOADING
   // Total over the stage vocabulary since POD-516/9a05afd59: the only null is
   // "this issue has live sessions", which is the branch that renders agent rows
@@ -1236,7 +1235,7 @@ const DockChildRow = observer(function DockChildRow({
   onOpen: () => void
   onStatusPick: (value: string) => void
 }) {
-  const sessions = views.row(sub.id).activeSessions
+  const sessions = views.row(sub.id).dockActiveSessions
   if (sessions === LOADING) throw LOADING
   const state = operationalState(sub, sessions)
   return (
