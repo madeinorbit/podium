@@ -93,6 +93,9 @@ export class ReaderQueries {
     question: ReaderQuestion; keys: readonly string[]; listeners: Set<(id: string | undefined) => void>
   }>()
   private publishing = false
+  private readerChangeSource: ColdQueries | undefined
+  private stopReaderChanges: (() => void) | undefined
+  private stopResidentChanges: (() => void) | undefined
   private readonly listeners = new Set<(event: RowSourceEvent) => void>()
   private readonly memberListeners = new Map<string, Set<(id: string | undefined) => void>>()
   private sourceSeen: ColdQueries | undefined
@@ -880,6 +883,7 @@ export class ReaderQueries {
       keys?.delete(key)
       if (!keys?.size) this.queryRoutes.delete(route)
     }
+    if (!this.queryRoutes.size) this.releaseReaderChanges()
   }
   private refileQuery(key: string, state: WatchedQuestion, index: ColdQueries): void {
     this.unrouteQuery(key, state)
@@ -887,11 +891,25 @@ export class ReaderQueries {
     this.registerRoutes(key, state.keys)
   }
   private registerRoutes(key: string, routes: readonly string[]): void {
+    const index = this.index()
+    this.sourceSeen ??= index
+    if (!this.stopResidentChanges) this.stopResidentChanges = this.residents.watchChanges()
+    if (this.readerChangeSource !== index) {
+      this.stopReaderChanges?.()
+      this.readerChangeSource = index
+      this.stopReaderChanges = index.watchReaderChanges()
+    }
     for (const route of routes) {
       let keys = this.queryRoutes.get(route)
       if (!keys) this.queryRoutes.set(route, keys = new Set())
       keys.add(key)
     }
+  }
+  private releaseReaderChanges(): void {
+    this.stopReaderChanges?.()
+    this.stopResidentChanges?.()
+    this.stopReaderChanges = this.stopResidentChanges = undefined
+    this.readerChangeSource = undefined
   }
   private publishQueries(reset = false, companionChanged = false): void {
     const index = this.index()
@@ -1371,6 +1389,7 @@ export class ReaderQueries {
     } else atom.reportObserved()
   }
   dispose(): void {
+    this.releaseReaderChanges()
     for (const stop of this.stopTables) stop()
     this.repoOverrides.clear()
     this.repoPrefixCounts.clear()

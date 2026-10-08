@@ -100,8 +100,10 @@ export function matchIssueTitleRef(
  * other questions narrow the reader's scalar and ancestor checks. */
 export function createReaderIndex(options: { targetSearch?: boolean; recent?: boolean } = {}) {
   const changes = new Map<string, Set<string>>()
+  let changeReaders = 0
   let changedId = ''
   const changed = (key: string) => {
+    if (!changeReaders) return
     let ids = changes.get(key)
     if (!ids) changes.set(key, ids = new Set())
     ids.add(changedId)
@@ -427,6 +429,12 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       }
     },
     changes,
+    watchChanges(): () => void {
+      changeReaders++
+      return () => {
+        if (--changeReaders === 0) changes.clear()
+      }
+    },
     revisionKeys(question: ReaderQuestion): string[] {
       if (question.kind === 'issueMentionMatches') return ['issue:mentions']
       const keys = [`${questionEntity(question)}:all`]

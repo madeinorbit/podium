@@ -99,6 +99,7 @@ export interface ColdQueries {
   readerRevision(question: ReaderQuestion): number
   readerRevisionKeys(question: ReaderQuestion): readonly string[]
   readerChanges(): ReadonlyMap<string, ReadonlySet<string>>
+  watchReaderChanges(): () => void
   readonly issueRepoRevision: number
   issueRepoPathRevision(path: string): number
   issueScope(id: string): IssueScopeFacts | undefined
@@ -618,6 +619,7 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
     readerRevision: (question) => readers.revision(question),
     readerRevisionKeys: question => readers.revisionKeys(question),
     readerChanges: () => readers.changes,
+    watchReaderChanges: () => readers.watchChanges(),
     get issueRepoRevision() {
       return readers.repoRevision
     },
