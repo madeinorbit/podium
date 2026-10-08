@@ -1,0 +1,56 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>POD-5862 synthetic frame queue capture</title>
+<p>Production conversation scheduling with generated payloads; no backend.</p>
+<script type="module">
+import { h as mobx } from './mobx-DQ1crACs.js'
+const { action }=mobx
+// Reported-release ConversationFrameScheduler. The merge callback below only
+// records a count; generated payloads stand in for retained transcript frames.
+class Frames {
+  pending=[];scheduled=false;frame=undefined;epoch=0
+  channel=new MessageChannel()
+  tasks=[]
+  constructor(){
+    this.channel.port1.onmessage=()=>this.tasks.shift()?.()
+    document.addEventListener('visibilitychange',()=>{
+      if(!this.scheduled||document.visibilityState!=='hidden'||this.frame===undefined)return
+      cancelAnimationFrame(this.frame);this.frame=undefined;this.scheduled=false;this.epoch++;this.schedule()
+    })
+  }
+  enqueue(work){this.pending.push(work);this.schedule()}
+  schedule(){
+    if(this.scheduled||!this.pending.length)return
+    this.scheduled=true;const epoch=++this.epoch
+    const apply=action('Conversation.applyFrame',()=>{
+      if(epoch!==this.epoch)return
+      this.scheduled=false;this.frame=undefined
+      const batch=this.pending;this.pending=[]
+      for(const work of batch)work()
+    })
+    if(document.visibilityState!=='hidden')this.frame=requestAnimationFrame(apply)
+    else{this.tasks.push(apply);this.channel.port2.postMessage(0)}
+  }
+  clear(){this.pending=[];this.epoch++;this.scheduled=false;if(this.frame!==undefined)cancelAnimationFrame(this.frame);this.frame=undefined}
+}
+const frames=new Frames()
+let seed=5862,enqueued=0,applied=0,checksum=0,frozen=false,lastApply=performance.now(),rafTicks=0,lastRaf=performance.now()
+const decoder=new TextDecoder()
+function tick(at){rafTicks++;lastRaf=at;requestAnimationFrame(tick)}requestAnimationFrame(tick)
+function payload(){
+  const bytes=new Uint8Array(1024*1024)
+  for(let at=0;at<bytes.length;at++){seed=(Math.imul(seed,1664525)+1013904223)>>>0;bytes[at]=32+(seed%95)}
+  return decoder.decode(bytes)
+}
+setInterval(()=>{
+  if(frozen)return
+  const text=payload();enqueued++
+  frames.enqueue(()=>{applied++;lastApply=performance.now();checksum^=text.charCodeAt(applied%text.length)})
+},100)
+window.__memorySynthetic={
+  freeze(){frozen=true;frames.clear()},
+  counts(){return {frozen,enqueued,applied,checksum,queuedFrames:frames.pending.length,scheduled:frames.scheduled,
+    rafTicks,lastRafAgeMs:performance.now()-lastRaf,lastApplyAgeMs:performance.now()-lastApply,
+    visibility:document.visibilityState,hasFocus:document.hasFocus()}}
+}
+</script>

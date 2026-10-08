@@ -35,18 +35,24 @@ const expression=`(() => {
     for(let f=el?.[key];f;f=f.return)if(issue&&seat&&typeof f.memoizedProps?.onSelectPanelForIssue==='function'){f.memoizedProps.onSelectPanelForIssue({id:issue},seat);return {selected:true}}
     return {selected:false,issue:!!issue,seat:!!seat};
   }
-  const owners=[];
+  const owners=[],clients=[],seenClients=new Set();
   for(const {conversation:c,refs} of cache?.entries.values()??[]) {
+    const client=c.presentation?.client;
+    if(client&&!seenClients.has(client)){
+      seenClients.add(client);
+      clients.push({worker:!!client.worker,pending:client.pending.size,queued:client.queued.size,models:client.modelSources.size,
+        markdownEntries:client.markdownHtml.size,markdownTextChars:[...client.markdownHtml.keys()].reduce((n,v)=>n+v.length,0),markdownHtmlChars:[...client.markdownHtml.values()].reduce((n,v)=>n+v.length,0)});
+    }
     const graph=c.graph??c.transcriptGraph,index=graph?.searchIndex;
     if(${JSON.stringify(mode)}==='freeze-search'&&index){
       const prototype=Object.getPrototypeOf(index);
       if(!globalThis.__memorySearchOriginal){globalThis.__memorySearchOriginal=prototype.grams;prototype.grams=()=>new Set()}
       index.clear();
     }
-    owners.push({refs,keys:Object.keys(c),graphKeys:graph?Object.keys(graph):[],items:c.transcript?.ids?.length,
+    owners.push({refs,pendingFrames:c.frames?.pending?.length,keys:Object.keys(c),graphKeys:graph?Object.keys(graph):[],items:c.transcript?.ids?.length,
       index:index?{texts:index.texts.size,postings:index.postings.size,memberships:[...index.postings.values()].reduce((n,v)=>n+v.size,0),gramsById:index.gramsById.size,textChars:[...index.texts.values()].reduce((n,v)=>n+v.length,0)}:null});
   }
-  return {found:true,entries:cache?.entries.size,warm:cache?.warm.size,owners};
+  return {found:true,entries:cache?.entries.size,warm:cache?.warm.size,owners,clients};
 })()`
 const response=new Promise(resolve=>cdp.on('Target.receivedMessageFromTarget',e=>{const m=JSON.parse(e.message);if(e.sessionId===sessionId&&m.id===1)resolve(m)}))
 await cdp.send('Target.sendMessageToTarget',{sessionId,message:JSON.stringify({id:1,method:'Runtime.evaluate',params:{expression,returnByValue:true}})})

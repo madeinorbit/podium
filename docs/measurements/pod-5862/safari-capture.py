@@ -43,12 +43,24 @@ responsible.argtypes = [ctypes.c_int]
 responsible.restype = ctypes.c_int
 libproc = ctypes.CDLL('/usr/lib/libproc.dylib')
 
+class Timebase(ctypes.Structure):
+    _fields_ = [('numer',ctypes.c_uint32),('denom',ctypes.c_uint32)]
+
+timebase = Timebase()
+ctypes.CDLL('/usr/lib/libSystem.B.dylib').mach_timebase_info(ctypes.byref(timebase))
+
 
 def footprint(pid):
     usage = ctypes.create_string_buffer(512)
     if libproc.proc_pid_rusage(pid, 4, usage) != 0:
         return None
     return ctypes.c_uint64.from_buffer(usage, 72).value
+
+
+def cpu_time(pid):
+    usage = ctypes.create_string_buffer(512)
+    if libproc.proc_pid_rusage(pid, 4, usage) != 0: return None
+    return sum(ctypes.c_uint64.from_buffer(usage, offset).value for offset in (16,24))*timebase.numer/timebase.denom
 
 
 FIND_POOL = """
@@ -131,7 +143,7 @@ def main():
     def save(name,value): (out/name).write_text(json.dumps(value,indent=2))
     save('owned-pids.json',owned)
     base = f'http://127.0.0.1:{args.driver_port}'
-    session = None; owner = None; samples = []
+    session = None; owner = None; owner_started = False; page_pid = None; samples = []
     try:
         deadline = time.monotonic()+30
         while True:
@@ -151,8 +163,12 @@ def main():
         after = processes()
         owners = [pid for pid,info in after.items() if pid not in before and
                   info['command'].split(None,1)[0].endswith('/Safari.app/Contents/MacOS/Safari') and '--automation' in info['command'].split()]
-        if len(owners)!=1: raise RuntimeError('Could not establish unique newly launched Safari ownership')
-        owner = owners[0]; owned.append({'pid':owner,'role':'Safari','command':after[owner]['command']}); save('owned-pids.json',owned)
+        owner_started = bool(owners)
+        if not owners:
+            owners = [pid for pid,info in after.items() if pid in before and
+                      info['command'].split(None,1)[0].endswith('/Safari.app/Contents/MacOS/Safari')]
+        if len(owners)!=1: raise RuntimeError('Could not establish unique Safari application; refusing ambiguous attribution')
+        owner = owners[0]; owned.append({'pid':owner,'role':'Safari','started':owner_started,'command':after[owner]['command']}); save('owned-pids.json',owned)
         execute = lambda script: request(base,'POST','/execute/sync',{'script':script,'args':[]})
         deadline = time.monotonic()+180
         ready = 'return !!window.__memorySynthetic' if args.synthetic else 'return !!document.querySelector("[data-testid=work-scroll]")'
@@ -160,6 +176,19 @@ def main():
             if time.monotonic()>deadline: raise RuntimeError('Production UI did not hydrate')
             time.sleep(2)
         time.sleep(10)
+        table = processes()
+        candidates = [pid for pid,info in table.items() if info['command'].split(None,1)[0].endswith('/com.apple.WebKit.WebContent') and responsible(pid)==owner]
+        if len(candidates)==1: page_pid = candidates[0]
+        elif candidates:
+            initial = {pid:cpu_time(pid) for pid in candidates}
+            execute('const until=performance.now()+2500;let n=0;while(performance.now()<until)n+=Math.sqrt(n+1);return n')
+            deltas = sorted(((cpu_time(pid) or 0)-(initial[pid] or 0),pid) for pid in candidates)
+            save('page-attribution.json',{'cpuNanoseconds':[{'pid':pid,'delta':delta} for delta,pid in deltas]})
+            if deltas[-1][0] < 1_000_000_000 or (len(deltas)>1 and deltas[-1][0] < 3*deltas[-2][0]):
+                raise RuntimeError('Controlled page CPU burst did not establish unique WebContent attribution')
+            page_pid = deltas[-1][1]
+        if page_pid is None: raise RuntimeError('No responsible page process found')
+        save('page-process.json',{'pid':page_pid,'Safari':owner,'SafariStarted':owner_started})
         if not args.synthetic: save('pool-found.json',{'found':execute(FIND_POOL)})
         started = time.monotonic()
         for minute in range(args.minutes+1):
@@ -175,7 +204,7 @@ def main():
             table = processes()
             cohort = []
             for pid,info in table.items():
-                if info['command'].split(None,1)[0].endswith('/com.apple.WebKit.WebContent') and responsible(pid)==owner:
+                if pid==page_pid and info['command'].split(None,1)[0].endswith('/com.apple.WebKit.WebContent') and responsible(pid)==owner:
                     if not any(p['pid']==pid for p in owned): owned.append({'pid':pid,'role':'WebContent','command':info['command']}); save('owned-pids.json',owned)
                     cohort.append({'pid':pid,'rssKiB':info['rssKiB'],'footprintBytes':footprint(pid)})
             value = {'minute':minute,'at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'processes':cohort,**execute(COUNTERS)}
@@ -192,7 +221,7 @@ def main():
             driver.terminate()
             try: driver.wait(timeout=5)
             except subprocess.TimeoutExpired: driver.kill(); driver.wait(timeout=5)
-        if owner:
+        if owner and owner_started:
             for item in owned:
                 if item['pid']==owner and processes().get(owner,{}).get('command')==item['command']:
                     os.kill(owner,signal.SIGTERM)
