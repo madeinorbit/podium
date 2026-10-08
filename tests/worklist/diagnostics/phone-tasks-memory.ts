@@ -5,7 +5,7 @@ const { heapStats } = createRequire(import.meta.url)('bun:jsc') as {
   heapStats(): { heapSize: number }
 }
 const bunRuntime = globalThis as unknown as { Bun: { gc(force: boolean): void } }
-import { lazyKeptCount } from '@podium/mobx-helpers'
+import { enableDebugNames, lazyKeptCount } from '@podium/mobx-helpers'
 import { autorun, computed } from 'mobx'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import {
@@ -19,6 +19,7 @@ import { createLegacyMobileTasks } from './legacy-mobile-tasks'
 
 const mode = process.argv[2]
 if (mode !== 'before' && mode !== 'after') throw new Error('Expected before or after')
+enableDebugNames()
 const scale = 4,
   count = 128 * scale,
   now = Date.parse('2026-10-03T12:00:00Z')
@@ -176,7 +177,7 @@ console.log(
     issues: count,
     sessions: sessions.length,
     shown: count / 4,
-    watchedLazyFields: watchedFields,
+    retainedLazySlots: watchedFields,
     watchedCacheFields,
     newWatchedFields,
     heapBeforeBoard: baseline,
