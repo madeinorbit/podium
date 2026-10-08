@@ -42,9 +42,11 @@ describe('schema fields on models', () => {
     const stop = autorun(() => answers.push([issue.description, issue.notes]))
     try {
       expect(answers.at(-1)).toEqual(['Description', 'Notes'])
-      expect(issue.description.trim()).toBe('Description')
-      // Raw documents stay in storage; every model reader gets the text answer.
-      expect(issue.storedField('description')).toEqual({ value: 'Description' })
+      tracked(() => {
+        expect(issue.description.trim()).toBe('Description')
+        // Raw documents stay in storage; every model reader gets the text answer.
+        expect(issue.storedField('description')).toEqual({ value: 'Description' })
+      })
       pool.apply({ type: 'update', rows: [row({ value: 'Updated' }, { value: '' })] })
       expect(answers.at(-1)).toEqual(['Updated', ''])
       pool.apply({ type: 'update', rows: [row('Legacy text', 'Legacy notes')] })
