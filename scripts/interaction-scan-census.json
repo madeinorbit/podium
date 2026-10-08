@@ -16541,14 +16541,14 @@
       "file": "apps/web/src/test-support/mock-command-launch.ts",
       "holder": "useCommandFixture/fixture/useMemo:callback/update",
       "rule": "helper-consumer",
-      "tokens": "8b45c7bb855a77a100f708f510fbfe70f3d86e84b649beb103bd173c880255ef",
+      "tokens": "4465f6c9356abc97a893406b77257eff665c3369f8840324ee9a963663a9d71f",
       "gate": [
         "then:eff1e4bdcf1cd7260f17e8ca3557da804e743d40432de0b2244318508856ffcd"
       ],
       "origin": [
         "cf44a3aa9ea523c1d5954e1cced32d2e05662a456e8b13721e575aedad13bd10"
       ],
-      "fingerprint": "61a303e325de3386144ebaa31c233a32a94712eb2b515c40c68a128aa8ef0d61",
+      "fingerprint": "7fb08dae51dbd37852d863dff330aebf0d236cd486b446fb39a9df5cd4093824",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -18823,7 +18823,7 @@
       "file": "apps/web/src/test-support/pool-fixture.ts",
       "holder": "syncPoolFixture",
       "rule": "helper-consumer",
-      "tokens": "5d2bed38c172c0548230f69873d99dc65877fbde0ff645a502fa5cbf886f71a8",
+      "tokens": "866a4e8607e911c263b92512105d22eda721e661d8f3beb461b62271b8333ca1",
       "gate": [
         "then:06220bc81cd248fb56e99efd8bf9eecb82cdddeb1827556cfab84507c375e49f"
       ],
@@ -18831,7 +18831,7 @@
         "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
         "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd"
       ],
-      "fingerprint": "4414ab31b946ee880ed602c6c947f1e1ba55536e6b0e837715671f0e7eab8e26",
+      "fingerprint": "7d5c16e5d651c3240b563dacd1703f351355a664da7d7fa615720fe9ff9aa5a1",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -27797,7 +27797,7 @@
       "trigger": "A newly fetched issue event page is appended.",
       "bound": "One supplied page (the shared request owner asks for at most 200 rows per RPC); retained history is never enumerated for ID deduplication.",
       "reason": "The history owns its ID index and formats only new rows, with stable event/feed arrays and cursor advancement.",
-      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1→1 for 128/512 retained events; a planted retained-ID map/Set fails."
+      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1\u21921 for 128/512 retained events; a planted retained-ID map/Set fails."
     },
     {
       "file": "packages/client-core/src/values/issue-board-filter.ts",
@@ -37802,7 +37802,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
@@ -40289,7 +40289,7 @@
       "file": "packages/client-graph/src/shared/row-source.ts",
       "holder": "createRowSource/ensureSessionFacts",
       "rule": "loop:for-of",
-      "tokens": "1ff9e26823f720900a4e3a8ae153a3b934dc97663990eee5f4f43a712b2a542a",
+      "tokens": "9e57aba3a16cf106ee916bde0ab2b321b29c7d07052d27c16941510f5a0572e3",
       "gate": [
         "exit:then:5b874aee1f00712b9550e1be05afc4c134bfd3070dd7843cd9ab684900fa98ff",
         "exit:then:b5e85160cdad82f325c222b87f5a14371327f0797d376ffdd8848abd27587072",
@@ -40298,7 +40298,7 @@
       "origin": [
         "dd8e5edad1937cc9b6e31bcdde839ef4321330922be50f4bc11326bf4f06f9e9"
       ],
-      "fingerprint": "2c305be08d09f3e1720c4615b7c9da1ebc72911ba1434b95bfbcad1b8d8d0907",
+      "fingerprint": "b4f0c65cce806c985e9aad6605b70a371df60e1740aa666afea820bd3dfee264",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -40464,7 +40464,7 @@
     },
     {
       "file": "packages/client-graph/src/shared/row-source.ts",
-      "holder": "createRowSource/flush",
+      "holder": "createRowSource/flushPending",
       "rule": "enumerate:keys",
       "tokens": "33f9036d4b95288afae583c7e5cfdfe25deef737bea77707059358e98f4c52ec",
       "gate": [
@@ -40475,9 +40475,9 @@
         "exit:then:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
       ],
       "origin": [
-        "977b9ccc9442e0cfc754f2744525f813f06fc21a1911f10ff38561b220d84721"
+        "b8eb371c7a38c37b2083221d49a381cd7ed368de8550905dceb2a6151fec8ace"
       ],
-      "fingerprint": "1db6397ca4f9278a50e3cf3e7d61e847a774d918f2c7a1c1b3a57d6dceef15c2",
+      "fingerprint": "b65ee575a1c90b824ba10e793b217d29db0f9401f5b94bc60994f1210532f1e9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -40488,7 +40488,7 @@
     },
     {
       "file": "packages/client-graph/src/shared/row-source.ts",
-      "holder": "createRowSource/flush",
+      "holder": "createRowSource/flushPending",
       "rule": "loop:for-of",
       "tokens": "cf732249b160c953db151db292b7c94d8c750bd752d1d69222d16bf918ab9cca",
       "gate": [
@@ -40499,10 +40499,10 @@
         "exit:then:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
       ],
       "origin": [
-        "977b9ccc9442e0cfc754f2744525f813f06fc21a1911f10ff38561b220d84721",
-        "f19f3e0df932171e64b8fda95e3c58489f03515cfb7aacdbcd8a57da103fb77b"
+        "8fcec0e7b88a093ba4c022dd57d75f26cc11bcafc9edafc8eff52dc89f3d73b1",
+        "b8eb371c7a38c37b2083221d49a381cd7ed368de8550905dceb2a6151fec8ace"
       ],
-      "fingerprint": "1eca5f902f98c0b26d42d4bf1b5ca23e87457ee60bb3e7647d16247a8c317259",
+      "fingerprint": "e51a194521de1bb2c3ec32e368d10e9e2193962b0e44366df6d26d022cee4230",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
