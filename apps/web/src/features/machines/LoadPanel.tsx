@@ -127,7 +127,6 @@ export function LoadPanel({
   const projectBytes = data?.projects.reduce((sum, p) => sum + p.bytes, 0) ?? 0
   const seg = (bytes: number): string => `${total > 0 ? (bytes / total) * 100 : 0}%`
 
-
   const memActive =
     hibernation?.enabled === true && mem !== null && mem.pct >= hibernation.memoryPct
   const loadActive =
