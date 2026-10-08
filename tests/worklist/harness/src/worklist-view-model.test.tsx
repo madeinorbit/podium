@@ -101,8 +101,8 @@ describe('worklist view model migration', () => {
       expect(field in SessionModel.prototype, `SessionModel.${field}`).toBe(false)
     }
     expect('roster' in WorktreeModel.prototype).toBe(false)
-    // Stored fields read the fed row; text normalization stays in row readers, never as a schema override.
-    expect([...IssueModel.answers]).toEqual([])
+    // Entity text normalization is shared; no worklist/header schema override returns.
+    expect([...IssueModel.answers]).toEqual(['description', 'notes'])
   })
 
   it('keeps the sidebar, phone Work and header census flat or better at 1x and 4x', async () => {
