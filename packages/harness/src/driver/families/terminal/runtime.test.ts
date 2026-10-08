@@ -535,17 +535,15 @@ function makeWorld(
     trackedState: (sessionId) => phases.get(sessionId),
     draftSyncing: () => false,
     setDraftTarget: () => false,
-    processAlive: async (sessionId) => alive.get(sessionId) === true,
-    recover: async (msg, ready) => {
-      if (!alive.get(msg.sessionId)) throw new Error('session not found')
-      ready(ensureTransport(msg.sessionId))
-      runtime?.observe({
-        type: 'bind',
-        sessionId: msg.sessionId,
-        cmd: 'fixture',
-        cwd: msg.cwd,
-        agentKind: msg.agentKind,
-      })
+    observationLease: () => undefined,
+    // The attach is the proof the process lives: no survivor, no recovery.
+    recover: async ({ sessionId, workdir, agentKind }) => {
+      if (!alive.get(sessionId)) throw new Error('session not found')
+      return {
+        terminal: ensureTransport(sessionId),
+        announce: () =>
+          runtime?.observe({ type: 'bind', sessionId, cmd: 'fixture', cwd: workdir, agentKind }),
+      }
     },
     stopSession: async ({ sessionId }) => {
       alive.set(sessionId, false)
@@ -3156,11 +3154,12 @@ describe('adopt', () => {
     world.runtime.control.restartSupervisor()
     let composed = false
     const recover = world.host.recover
-    world.host.recover = async (msg, ready) => {
-      expect(world.runtime.handleFor(msg.sessionId)).toBeUndefined()
-      expect(msg.durableLabel).toBe(binding.process.key)
-      await recover(msg, ready)
+    world.host.recover = async (input) => {
+      expect(world.runtime.handleFor(input.sessionId)).toBeUndefined()
+      expect(input.sessionId).toBe(binding.process.key)
+      const recovered = await recover(input)
       composed = true
+      return recovered
     }
     const adopted = await driver.adopt(binding)
     expect(composed).toBe(true)
@@ -3178,15 +3177,9 @@ describe('adopt', () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
     const binding = session.binding
-    // The identity fence lives in the host's recover now (POD-4785): the driver
-    // hands the binding's key through as `durableLabel` and the host refuses a
-    // foreign one, the way the daemon's `recoverTerminalHost` compares against
-    // the entry's label. The stub enforces it so the refusal still precedes
-    // any composition.
-    world.host.recover = async (msg) => {
-      if (msg.durableLabel !== binding.process.key) {
-        throw new TerminalRecoveryRefusal('terminal recovery process identity mismatch')
-      }
+    // A terminal binding's process key is its session; the driver refuses any
+    // other key before the host composes anything.
+    world.host.recover = async () => {
       throw new Error('must not compose')
     }
     for (const key of [binding.process.key.slice(0, -1), `${binding.process.key}-other`]) {
@@ -3202,31 +3195,23 @@ describe('adopt', () => {
     const session = await driver.create(SPEC)
     const sessionId = session.binding.sessionId
     const recover = world.host.recover
-    world.host.recover = async (msg, ready) => {
+    world.host.recover = async (input) => {
       world.observe(sessionId, { observerGeneration: 9, bindingVersion: 7, turnEpoch: 12 })
-      await recover(msg, ready)
+      return recover(input)
     }
-    const msg = {
-      type: 'reattach' as const,
-      sessionId,
-      agentKind: 'claude-code' as const,
-      durableLabel: session.binding.process.key,
-      cwd: SPEC.workdir,
-      lastKnownGeometry: { cols: 120, rows: 40 },
-      observationGeneration: 9,
-      observationBindingVersion: 7,
-      observationCheckpoint: { retained: 'opaque host checkpoint' },
-    }
-    const recovered = await world.runtime.recoverWithId(msg, CLAUDE)
+    // The server's reattach order carries the lease; the host reports it.
+    let lease = { observerGeneration: 9, bindingVersion: 7 }
+    world.host.observationLease = () => lease
+    const recovered = await driver.adopt(session.binding)
     const snapshot = await recovered.snapshot()
     expect(snapshot.observerGeneration).toBe(9)
     expect(snapshot.binding.bindingVersion).toBe(7)
     expect(snapshot.turnEpoch).toBe(12)
-    await expect(
-      world.runtime.recoverWithId({ ...msg, observationGeneration: 8 }, CLAUDE),
-    ).rejects.toThrow('fence is stale')
+    lease = { observerGeneration: 8, bindingVersion: 7 }
+    await expect(driver.adopt(session.binding)).rejects.toThrow('fence is stale')
     // Repeated delivery of the same authoritative lease does not invent a fence.
-    const repeated = await world.runtime.recoverWithId(msg, CLAUDE)
+    lease = { observerGeneration: 9, bindingVersion: 7 }
+    const repeated = await driver.adopt(session.binding)
     expect((await repeated.snapshot()).observerGeneration).toBe(9)
     expect(repeated.binding.bindingVersion).toBe(7)
   })
@@ -3281,9 +3266,11 @@ describe('adopt', () => {
     const binding = session.binding
     world.killHost(binding.process.key as SessionId)
     world.runtime.control.restartSupervisor()
-    // EXACT identity, checked against the world. Adopting the wrong process is
-    // worse than not adopting: it produces a session reporting someone else's work.
-    await expect(driver.adopt(binding)).rejects.toThrow(/no surviving process/)
+    // EXACT identity, checked against the world: the host's attach is the
+    // proof the process lives (POD-5841). Adopting the wrong process is worse
+    // than not adopting: it produces a session reporting someone else's work.
+    await expect(driver.adopt(binding)).rejects.toThrow(/session not found/)
+    expect(world.runtime.handleFor(binding.sessionId)).toBeUndefined()
   })
 })
 

@@ -209,14 +209,18 @@ export class DaemonSession {
   driver: AgentSessionHandle | undefined = undefined
 
   /**
-   * THE SPAWN THIS DAEMON IS CARRYING OUT (POD-5814): the server's spawn frame,
-   * held from its arrival until the session is announced. The driver launches
-   * from the SessionSpec the frame became and never sees this; the HOST reads
-   * its own facts here — the PTY's birth size, the observation lease, draft
-   * sync, a degraded driver request — so none of them has to ride the spec.
+   * THE ORDER THIS DAEMON IS CARRYING OUT (POD-5814, POD-5841): the server's
+   * spawn or reattach frame, held from its arrival until the session is
+   * announced. The driver launches from the SessionSpec a spawn became, or
+   * adopts from the binding a reattach names, and never sees this; the HOST
+   * reads its own facts here — the PTY's size, the observation lease, draft
+   * sync, a degraded driver request — so none of them has to ride the contract.
    */
-  spawnOrder:
-    | { frame: Extract<ControlMessage, { type: 'spawn' }>; requestedDriverId?: string }
+  order:
+    | {
+        frame: Extract<ControlMessage, { type: 'spawn' | 'reattach' }>
+        requestedDriverId?: string
+      }
     | undefined = undefined
 
   /**

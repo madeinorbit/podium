@@ -169,7 +169,7 @@ async function receiptFor(measured: Measured, control: { foreign?: boolean; repl
     stageAttachment: async () => { throw new Error('no attachment in this regression') },
     trackedState: () => ({ phase: 'idle', since: new Date(Date.now() - 10_000).toISOString(), nativeSubagentCount: 0 }),
     draftSyncing: () => false, setDraftTarget: () => false,
-    processAlive: async () => true, recover: async (_message, ready) => { ready(transport) },
+    observationLease: () => undefined, recover: async () => ({ terminal: transport, announce: () => {} }),
     stopSession: async () => true, launch: async () => ({ announce: () => {} }),
     readHistory: async () => ({ items: [], hasMore: false }),
     archiveTranscript: async () => { throw new Error('no archive in this regression') },

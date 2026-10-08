@@ -70,7 +70,12 @@ import {
 } from '../runtime/registry'
 import { TerminalRecoveryRefusal } from '@podium/harness/driver/host'
 import { beginServerDriverReap } from '../runtime/server-reap'
-import type { TerminalLaunch, TerminalLaunched } from '@podium/harness/driver/host'
+import type {
+  TerminalLaunch,
+  TerminalLaunched,
+  TerminalRecover,
+  TerminalRecovered,
+} from '@podium/harness/driver/host'
 import type { ReattachControl, SpawnControl } from '../session-observers'
 import type { DaemonSession } from '../session/daemon-session.js'
 import { removeSessionUploads } from '../session-uploads'
@@ -665,7 +670,7 @@ const NOMINAL_TERMINAL_GEOMETRY = { cols: 120, rows: 40 } as const
  * prompt and env; the process env is the one {@link sessionProcessEnv}.
  *
  * What is the host's, not the driver's, is read off the session's spawn order
- * (see `DaemonSession.spawnOrder`): the birth size, the observation lease the
+ * (see `DaemonSession.order`): the birth size, the observation lease the
  * server issued, draft sync. They come back to the driver as `TerminalLaunched`
  * — the lease it must envelope its events with and the live terminal — with
  * the announcement (the bind) left for the driver to make once it holds its
@@ -677,8 +682,8 @@ export async function launchTerminalProcess(
 ): Promise<TerminalLaunched> {
   const { sessionId, spec, instrumentation, resume, loginHarness } = input
   const agentKind = spec.harness as AgentKind
-  const order = ctx.sessions.get(sessionId)?.spawnOrder
-  const ordered: SpawnControl = order?.frame ?? {
+  const order = ctx.sessions.get(sessionId)?.order
+  const ordered: SpawnControl = (order?.frame.type === 'spawn' ? order.frame : undefined) ?? {
     type: 'spawn',
     sessionId,
     agentKind,
@@ -1160,7 +1165,7 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
  */
 export async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
   if (msg.agentKind === 'shell' || msg.loginHarness) {
-    await withSpawnOrder(ctx, { frame: msg }, () => launchPlainTerminal(ctx, msg))
+    await withOrder(ctx, { frame: msg }, () => launchPlainTerminal(ctx, msg))
     return
   }
   const runtimeLaunch = await launchServerDriverSession(ctx, msg)
@@ -1176,7 +1181,7 @@ export async function launchTerminalSpawn(
   msg: SpawnControl,
   requestedDriverId?: string,
 ): Promise<void> {
-  await withSpawnOrder(
+  await withOrder(
     ctx,
     { frame: msg, ...(requestedDriverId ? { requestedDriverId } : {}) },
     () => launchAgentTerminal(ctx, msg),
@@ -1184,24 +1189,24 @@ export async function launchTerminalSpawn(
 }
 
 /**
- * Carry out a terminal spawn under its order: the host keeps the frame for its
- * own facts (see `DaemonSession.spawnOrder`) while the driver launches from the
- * spec the frame became, and the order ends with the spawn. An entry the spawn
+ * Carry out a terminal spawn or reattach under its order: the host keeps the
+ * frame for its own facts (see `DaemonSession.order`) while the driver launches
+ * from the spec, or adopts from the binding, and the order ends with it. An entry the spawn
  * never put a process or driver on goes with it.
  */
-async function withSpawnOrder(
+async function withOrder(
   ctx: DaemonContext,
-  order: NonNullable<DaemonSession['spawnOrder']>,
-  spawn: () => Promise<void>,
+  order: NonNullable<DaemonSession['order']>,
+  spawn: () => Promise<unknown>,
 ): Promise<void> {
   const sessionId = order.frame.sessionId
   const fresh = !ctx.sessions.has(sessionId)
   const entry = ctx.sessions.ensure(sessionId)
-  entry.spawnOrder = order
+  entry.order = order
   try {
     await spawn()
   } finally {
-    if (entry.spawnOrder === order) entry.spawnOrder = undefined
+    if (entry.order === order) entry.order = undefined
     if (fresh && !entry.terminal && !entry.driver && ctx.sessions.get(sessionId) === entry) {
       ctx.sessions.delete(sessionId)
     }
@@ -1346,7 +1351,7 @@ async function adoptServerDriverSession(
    * engine host refuses loudly ("writer lease is held elsewhere") and the
    * failed-adoption reap below kills the survivor the blip never touched.
    *
-   * The PTY path already short-circuits this (`recoverTerminalHost` reuses the
+   * The PTY path already short-circuits this (`recoverTerminalProcess` reuses the
    * already-held bridge and re-emits `bind`); the server arm never did. A live
    * server handle IS the session, so re-bind it in place: no new host attach,
    * no journal read, nothing killed, nothing read-only.
@@ -2324,22 +2329,100 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
   }
   // Plain terminals retain their host recovery route. Old harness rows need a
   // driver too: absence of a persisted request is not a plain-terminal marker.
-  if (profile) {
-    if (!ctx.agentRuntime) throw new Error('terminal recovery runtime unavailable')
-    await ctx.agentRuntime.recoverTerminal(msg, profile)
+  if (!profile) {
+    await withOrder(ctx, { frame: msg }, async () => {
+      const recovered = await recoverTerminalProcess(ctx, {
+        sessionId: msg.sessionId,
+        agentKind: msg.agentKind,
+        workdir: msg.cwd,
+        ...(msg.resume ? { resume: msg.resume } : {}),
+        lease: {
+          ...(msg.observationGeneration !== undefined
+            ? { observerGeneration: msg.observationGeneration }
+            : {}),
+          ...(msg.observationBindingVersion !== undefined
+            ? { bindingVersion: msg.observationBindingVersion }
+            : {}),
+        },
+      })
+      recovered?.announce()
+    })
     return
   }
-  await recoverTerminalHost(ctx, msg)
+  // An explicit driver id must name this terminal driver, rather than be
+  // silently ignored.
+  if (
+    typeof msg.requestedDriverId === 'string' &&
+    canonicalDriverId(msg.requestedDriverId) !== profile.driverId
+  ) {
+    throw new TerminalRecoveryRefusal(
+      `runtime driver '${msg.requestedDriverId}' cannot recover as '${profile.driverId}'`,
+    )
+  }
+  const runtime = ctx.agentRuntime
+  if (!runtime) throw new Error('terminal recovery runtime unavailable')
+  // AN AGENT ADOPTS THROUGH THE CONTRACT (POD-5841), as every engine does from
+  // its journal: the frame names the binding — the session and its terminal
+  // driver — and the host keeps the frame for its own facts (the durable
+  // label, the lease, the size) while the driver re-attaches and re-registers.
+  await withOrder(ctx, { frame: msg }, () =>
+    runtime.adopt({
+      sessionId: msg.sessionId,
+      driver: profile.driverId,
+      family: 'terminal',
+      harness: msg.agentKind,
+      workdir: msg.cwd,
+      resume: msg.resume ?? null,
+      process: { key: msg.sessionId },
+      bindingVersion: Math.max(0, (msg.observationBindingVersion ?? 1) - 1),
+    }),
+  )
 }
 
-/** Shared host machinery. Agent recovery enters through TerminalRuntime; plain
- * terminals call it directly. ready installs the handle after composition and
- * before publishing bind, so failed attachment never creates a phantom handle. */
-export async function recoverTerminalHost(
+/** The size hint a recovery with no server order gives the screen parser;
+ *  host recovery never applies it to the PTY. */
+const NOMINAL_RECOVERY_GEOMETRY = { cols: 80, rows: 24 } as const
+
+/**
+ * THE TERMINAL HOST'S RECOVERY (POD-5841): re-attach one surviving session,
+ * through the terminal family's `recover` port for an agent and directly for a
+ * shell or login pane. The attach is the proof the process lives. It hands
+ * back the live terminal and the announcement — the bind, plus the state and
+ * transcript re-seed a restarted server needs — for the caller to make once
+ * the session's handle (if it has a driver) is registered again. `undefined`
+ * when a concurrent recovery of the same session already did the work.
+ */
+export async function recoverTerminalProcess(
   ctx: DaemonContext,
-  msg: ReattachControl,
-  ready?: () => void,
-): Promise<void> {
+  input: TerminalRecover,
+): Promise<TerminalRecovered | undefined> {
+  const order = ctx.sessions.get(input.sessionId)?.order
+  // The host's facts come from the server's order; what is re-attached — the
+  // identity, the conversation and the lease the driver registers under — is
+  // the binding's, and wins.
+  const ordered: Partial<ReattachControl> =
+    order?.frame.type === 'reattach' ? order.frame : { lastKnownGeometry: { ...NOMINAL_RECOVERY_GEOMETRY } }
+  const msg = {
+    ...ordered,
+    type: 'reattach',
+    sessionId: input.sessionId,
+    // The label is the host's to resolve: the order's, else the one this entry
+    // already holds, else the instance's own for the session.
+    durableLabel:
+      ordered.durableLabel ??
+      ctx.sessions.get(input.sessionId)?.label ??
+      ctx.durableLabelFor(input.sessionId),
+    agentKind: input.agentKind,
+    cwd: input.workdir,
+    ...(input.resume ? { resume: input.resume } : {}),
+    ...(input.lease.observerGeneration !== undefined
+      ? { observationGeneration: input.lease.observerGeneration }
+      : {}),
+    ...(input.lease.bindingVersion !== undefined
+      ? { observationBindingVersion: input.lease.bindingVersion }
+      : {}),
+  } as ReattachControl
+  const profile = terminalProfileFor(msg.agentKind)
   const heldLabel = ctx.sessions.get(msg.sessionId)?.label
   if (heldLabel !== undefined && heldLabel !== msg.durableLabel) {
     throw new TerminalRecoveryRefusal('terminal recovery process identity mismatch')
@@ -2375,70 +2458,72 @@ export async function recoverTerminalHost(
         terminalScreenFor(ctx, msg.sessionId).model,
       )
     }
-    ready?.()
-    const recoveryProfile = terminalProfileFor(msg.agentKind)
-    if (recoveryProfile) requireTerminalHandle(ctx, msg, recoveryProfile)
-    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
-    sendBind(ctx, {
-      sessionId: msg.sessionId,
-      cmd,
-      cwd: msg.cwd,
-      agentKind: msg.agentKind,
-      // THE CONNECTION'S SIZE (POD-4723): the bridge was never lost, so the
-      // host's last statement is still the truth, and this bind is the full
-      // statement the server re-drives a lost ask from. Never
-      // `msg.lastKnownGeometry`: that is the server's own belief handed back.
-      ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
-      // The driver handle actually exists for this session (POD-1761 W4,
-      // unconditional since POD-4426). The server records `driverId` on the
-      // row and keys its senders on its presence — see BindMessage.
-      ...(driverId
-        ? {
-            driverId,
-            configureFields: [...configureFieldsForDriver(driverId)],
-            attachKinds: [...attachKindsForDriver(driverId)],
+    return {
+      terminal: adaptTerminal(existing),
+      announce: () => {
+        if (profile) requireTerminalHandle(ctx, msg, profile)
+        const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
+        sendBind(ctx, {
+          sessionId: msg.sessionId,
+          cmd,
+          cwd: msg.cwd,
+          agentKind: msg.agentKind,
+          // THE CONNECTION'S SIZE (POD-4723): the bridge was never lost, so the
+          // host's last statement is still the truth, and this bind is the full
+          // statement the server re-drives a lost ask from. Never
+          // `msg.lastKnownGeometry`: that is the server's own belief handed back.
+          ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+          // The driver handle actually exists for this session (POD-1761 W4,
+          // unconditional since POD-4426). The server records `driverId` on the
+          // row and keys its senders on its presence — see BindMessage.
+          ...(driverId
+            ? {
+                driverId,
+                configureFields: [...configureFieldsForDriver(driverId)],
+                attachKinds: [...attachKindsForDriver(driverId)],
+              }
+            : {}),
+          ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
+        })
+        // NO REDRAW (POD-4723, design rev 3). This used to nudge the program on every
+        // link-B reattach — two RESIZEs and a full repaint per session, fanned out to
+        // every viewer — and the nudge is what put ptys back at a stale size. The
+        // bind above requests the host picture for the server cache. Older servers
+        // keep their redraw path, which repaints from the snapshot or ring.
+        // Re-push agent state for the same reason we re-seed the transcript below: a
+        // freshly restarted SERVER (the daemon survived) starts with NO agentState for
+        // this session, and an idle survivor fires no hook to re-establish it — so it
+        // would fall through the home board's `live → working` fallback and read as
+        // WORKING. We still hold the live tracker, so resend its current phase. Skip
+        // 'unknown' (nothing to assert) — a cold tracker is re-seeded by the fresh-bridge
+        // branch below, not here.
+        if (!hasAuthoritativeObservationLease && state && state.phase !== 'unknown') {
+          ctx.send({ type: 'agentState', sessionId: msg.sessionId, state })
+        }
+        // Re-seed the transcript even though we already hold the bridge: a freshly
+        // restarted SERVER (the daemon survived) has an empty per-session buffer, and
+        // this already-held branch otherwise does no transcript work, so chat would
+        // stay blank. The live tail (if any) only re-emits on its NEXT file change, so
+        // read the newest window now and push it as a reset delta. Best-effort; a read
+        // failure just leaves the buffer to refill from live deltas.
+        void ctx.tailSeedGate(async () => {
+          try {
+            // [spec:SP-c29e] A server reconnect can resend 100+ reattaches at once.
+            // Keep bind/state above immediate, but pace the allocation-heavy
+            // transcript read/parse/reset-send through the existing seed gate.
+            await seedRuntimeHistory(ctx, msg.sessionId)
+          } catch (err) {
+            log.warn('reattach re-seed failed', { err, sessionId: msg.sessionId })
           }
-        : {}),
-      ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
-    })
-    // NO REDRAW (POD-4723, design rev 3). This used to nudge the program on every
-    // link-B reattach — two RESIZEs and a full repaint per session, fanned out to
-    // every viewer — and the nudge is what put ptys back at a stale size. The
-    // bind above requests the host picture for the server cache. Older servers
-    // keep their redraw path, which repaints from the snapshot or ring.
-    // Re-push agent state for the same reason we re-seed the transcript below: a
-    // freshly restarted SERVER (the daemon survived) starts with NO agentState for
-    // this session, and an idle survivor fires no hook to re-establish it — so it
-    // would fall through the home board's `live → working` fallback and read as
-    // WORKING. We still hold the live tracker, so resend its current phase. Skip
-    // 'unknown' (nothing to assert) — a cold tracker is re-seeded by the fresh-bridge
-    // branch below, not here.
-    if (!hasAuthoritativeObservationLease && state && state.phase !== 'unknown') {
-      ctx.send({ type: 'agentState', sessionId: msg.sessionId, state })
+        }, ctx.outputScheduler.priorityOf(msg.sessionId))
+      },
     }
-    // Re-seed the transcript even though we already hold the bridge: a freshly
-    // restarted SERVER (the daemon survived) has an empty per-session buffer, and
-    // this already-held branch otherwise does no transcript work, so chat would
-    // stay blank. The live tail (if any) only re-emits on its NEXT file change, so
-    // read the newest window now and push it as a reset delta. Best-effort; a read
-    // failure just leaves the buffer to refill from live deltas.
-    void ctx.tailSeedGate(async () => {
-      try {
-        // [spec:SP-c29e] A server reconnect can resend 100+ reattaches at once.
-        // Keep bind/state above immediate, but pace the allocation-heavy
-        // transcript read/parse/reset-send through the existing seed gate.
-        await seedRuntimeHistory(ctx, msg.sessionId)
-      } catch (err) {
-        log.warn('reattach re-seed failed', { err, sessionId: msg.sessionId })
-      }
-    }, ctx.outputScheduler.priorityOf(msg.sessionId))
-    return
   }
-  await ctx.reattachGate(async () => {
+  return await ctx.reattachGate(async () => {
     // Raced with another reattach for this id: skip a second host attach and
     // bind. Not the one-Terminal rule — the entry's slot keeps that, parking a
     // predecessor, for a spawn that lands while this reattach awaits the host.
-    if (ctx.sessions.get(msg.sessionId)?.attached) return
+    if (ctx.sessions.get(msg.sessionId)?.attached) return undefined
     // Re-pin a survivor (POD-665). Pins live in daemon memory, so a daemon restart
     // would otherwise leave every reattached session unpinned and free to be dragged
     // out of its worktree by the next `cd`. `msg.cwd` is the row's persisted cwd —
@@ -2515,31 +2600,34 @@ export async function recoverTerminalHost(
     // Only an old server needs a ring repaint. A picture-capable link gets
     // the reset requested after bind; a C host on that link gets live bytes
     // only (SPEC v4 H6).
-    if (ready && !picturesAccepted(ctx)) await terminal.replay(HOST_REPLAY_TAIL_BYTES)
-    ready?.()
-    const recoveryProfile = terminalProfileFor(msg.agentKind)
-    if (recoveryProfile) requireTerminalHandle(ctx, msg, recoveryProfile)
-    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
-    sendBind(ctx, {
-      sessionId: msg.sessionId,
-      cmd: found.cmd,
-      cwd: msg.cwd,
-      agentKind: msg.agentKind,
-      // THE CONNECTION'S SIZE (POD-4723): the host's WELCOME, so a daemon
-      // restart binds the size the program really has.
-      ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
-      // The driver handle actually exists for this session (POD-1761 W4,
-      // unconditional since POD-4426). The server records `driverId` on the
-      // row and keys its senders on its presence — see BindMessage.
-      ...(driverId
-        ? {
-            driverId,
-            configureFields: [...configureFieldsForDriver(driverId)],
-            attachKinds: [...attachKindsForDriver(driverId)],
-          }
-        : {}),
-      ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
-    })
+    if (profile && !picturesAccepted(ctx)) await terminal.replay(HOST_REPLAY_TAIL_BYTES)
+    return {
+      terminal: adaptTerminal(terminal),
+      announce: () => {
+        if (profile) requireTerminalHandle(ctx, msg, profile)
+        const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
+        sendBind(ctx, {
+          sessionId: msg.sessionId,
+          cmd: found.cmd,
+          cwd: msg.cwd,
+          agentKind: msg.agentKind,
+          // THE CONNECTION'S SIZE (POD-4723): the host's WELCOME, so a daemon
+          // restart binds the size the program really has.
+          ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+          // The driver handle actually exists for this session (POD-1761 W4,
+          // unconditional since POD-4426). The server records `driverId` on the
+          // row and keys its senders on its presence — see BindMessage.
+          ...(driverId
+            ? {
+                driverId,
+                configureFields: [...configureFieldsForDriver(driverId)],
+                attachKinds: [...attachKindsForDriver(driverId)],
+              }
+            : {}),
+          ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
+        })
+      },
+    }
   })
 }
 

@@ -61,11 +61,15 @@ function world(input: {
   resume: (ref: ResumeRef, spec: unknown, sessionId?: SessionId) => Promise<AgentSessionHandle>
 }) {
   const sent: DaemonMessage[] = []
-  const adopt = vi.fn(input.adopt)
-  const resume = vi.fn(input.resume)
-  const recoverTerminal = vi.fn(async () => {
-    throw new Error('PTY path must not claim a headless session')
+  // The terminal path adopts through the same runtime verb with a terminal
+  // binding (POD-5841); a headless session must never reach it.
+  const adopt = vi.fn(async (binding: unknown) => {
+    if ((binding as { family?: string }).family === 'terminal') {
+      throw new Error('PTY path must not claim a headless session')
+    }
+    return input.adopt(binding)
   })
+  const resume = vi.fn(input.resume)
   const adoptJournalled = vi.fn(async () => ({ found: false as const }))
   const ctx = {
     send: (message: DaemonMessage) => sent.push(message),
@@ -83,10 +87,9 @@ function world(input: {
       adopt,
       resume,
       adoptJournalled,
-      recoverTerminal,
     },
   } as unknown as DaemonContext
-  return { ctx, sent, adopt, resume, recoverTerminal }
+  return { ctx, sent, adopt, resume }
 }
 
 describe('Headless reattach control', () => {
@@ -117,7 +120,7 @@ describe('Headless reattach control', () => {
       }),
     )
     expect(w.resume).not.toHaveBeenCalled()
-    expect(w.recoverTerminal).not.toHaveBeenCalled()
+    expect(w.adopt).not.toHaveBeenCalledWith(expect.objectContaining({ family: 'terminal' }))
     expect(w.sent).toContainEqual(
       expect.objectContaining({
         type: 'bind',
@@ -147,7 +150,7 @@ describe('Headless reattach control', () => {
 
     expect(w.adopt).toHaveBeenCalledTimes(1)
     expect(w.resume).toHaveBeenCalledWith(RESUME, expect.any(Object), SESSION_ID)
-    expect(w.recoverTerminal).not.toHaveBeenCalled()
+    expect(w.adopt).not.toHaveBeenCalledWith(expect.objectContaining({ family: 'terminal' }))
     expect(w.sent).toContainEqual(
       expect.objectContaining({
         type: 'bind',
@@ -175,7 +178,7 @@ describe('Headless reattach control', () => {
 
     expect(w.adopt).toHaveBeenCalledTimes(1)
     expect(w.resume).toHaveBeenCalledTimes(1)
-    expect(w.recoverTerminal).not.toHaveBeenCalled()
+    expect(w.adopt).not.toHaveBeenCalledWith(expect.objectContaining({ family: 'terminal' }))
     const failure = w.sent.find((message) => message.type === 'reattachFailed')
     expect(failure).toMatchObject({ type: 'reattachFailed', sessionId: SESSION_ID })
     expect((failure as { reason: string }).reason).toContain(RESUME_ERROR)
@@ -198,7 +201,7 @@ describe('Headless reattach control', () => {
 
     expect(w.adopt).toHaveBeenCalledWith(surviving.binding)
     expect(w.resume).not.toHaveBeenCalled()
-    expect(w.recoverTerminal).not.toHaveBeenCalled()
+    expect(w.adopt).not.toHaveBeenCalledWith(expect.objectContaining({ family: 'terminal' }))
     expect(w.sent).toContainEqual(
       expect.objectContaining({
         type: 'bind',

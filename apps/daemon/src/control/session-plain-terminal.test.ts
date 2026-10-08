@@ -1,10 +1,8 @@
-import { recoverTerminalHost } from './session'
-import { canonicalDriverId } from '@podium/harness'
 import { mkdtempSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import type { AgentSessionHandle, SessionSpec } from '@podium/harness/driver/host'
-import { asSessionId, type ResumeRef, type SessionId } from '@podium/model'
+import type { AgentSessionHandle, SessionBinding, SessionSpec } from '@podium/harness/driver/host'
+import { type AgentKind, asSessionId, type ResumeRef, type SessionId } from '@podium/model'
 import type { SpawnOptions } from '@podium/process/screen'
 import { afterAll, beforeEach, expect, it, vi } from 'vitest'
 import type { DaemonContext } from './context'
@@ -41,8 +39,14 @@ const fakeSpawn = (opts: SpawnOptions) => {
   }
 }
 
-const { launchSpawn, launchServerDriverSession, launchTerminalProcess, launchTerminalSpawn, sessionHandlers } =
-  await import('./session')
+const {
+  launchSpawn,
+  launchServerDriverSession,
+  launchTerminalProcess,
+  launchTerminalSpawn,
+  recoverTerminalProcess,
+  sessionHandlers,
+} = await import('./session')
 const { terminalProfileFor } = await import('../runtime/registry')
 
 function contextForSpawn(): DaemonContext {
@@ -188,18 +192,23 @@ function installRuntime(ctx: DaemonContext, failure?: 'throw' | 'no-handle' | 'w
   const resume = vi.fn(async (ref: ResumeRef, spec: SessionSpec, sessionId: SessionId) =>
     launchAndRegister(sessionId, spec, ref),
   )
-  const recoverTerminal = vi.fn(async (...[msg, profile]: Parameters<NonNullable<DaemonContext['agentRuntime']>['recoverTerminal']>) => {
-    if (typeof msg.requestedDriverId === 'string' && canonicalDriverId(msg.requestedDriverId) !== profile.driverId) {
-      throw new Error(`runtime driver '${msg.requestedDriverId}' cannot recover as '${profile.driverId}'`)
-    }
-    register({ sessionId: msg.sessionId, agentKind: msg.agentKind, rebind: true }, profile.driverId)
-    await recoverTerminalHost(ctx, msg, () => {})
-    return handles.get(msg.sessionId)
+  // `runtime.adopt` as the terminal family runs it: the host re-attaches, the
+  // driver re-registers, the host announces (POD-5841).
+  const adopt = vi.fn(async (binding: SessionBinding) => {
+    const recovered = await recoverTerminalProcess(ctx, {
+      sessionId: binding.sessionId,
+      agentKind: binding.harness as AgentKind,
+      workdir: binding.workdir,
+      lease: {},
+    })
+    const handle = register({ sessionId: binding.sessionId, agentKind: binding.harness, rebind: true }, binding.driver)
+    recovered?.announce()
+    return handle
   })
   ctx.agentRuntime = {
     create,
     resume,
-    recoverTerminal,
+    adopt,
     handleFor: (id: string) => handles.get(id),
     has: (id: string) => handles.has(id),
     clearTerminal: (id: string) => handles.delete(id),

@@ -24,7 +24,7 @@
  * PROCESS FACTS ARE KEYED BY SESSION (REVIEW-4438 A1/A6, POD-4414 review
  * 2026-09-28). The session owns the process by its durable label; the driver
  * never resolves labels, scope units or pids itself. It asks per session and
- * the daemon resolves: `processAlive(sessionId)`, `resources(sessionId)`,
+ * the daemon resolves: `observationLease(sessionId)`, `resources(sessionId)`,
  * `stopSession({sessionId})`. Answer ownership compares Terminal object
  * identity plus observer generation/bindingVersion — a replaced Terminal is a
  * new object, so no pid comparison is needed (the write paths that used pid
@@ -33,11 +33,7 @@
  */
 
 import type { AgentKind, ResumeRef, SessionId } from '@podium/model'
-import type {
-  ControlMessage,
-  RuntimeHistoryPage,
-  RuntimeHistoryRange,
-} from '@podium/protocol/daemon'
+import type { RuntimeHistoryPage, RuntimeHistoryRange } from '@podium/protocol/daemon'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { ScopeResources } from '../../capabilities.js'
 import type {
@@ -55,7 +51,6 @@ import type { AgentRuntimeState } from '@podium/model'
 import type { SessionBinding } from '../../binding.js'
 import type { RuntimeEvent } from '../../events.js'
 
-export type TerminalReattachControl = Extract<ControlMessage, { type: 'reattach' }>
 
 /**
  * THE FRAMES THIS DRIVER MAY EMIT.
@@ -127,14 +122,30 @@ export interface TerminalLaunch {
 export interface TerminalLaunched {
   /** The live surface the driver writes through. */
   terminal?: TerminalTransport
-  /** The observation lease the server issued with the spawn, which every
-   *  event this driver emits must carry. Absent = the driver's own first. */
-  observerGeneration?: number
-  bindingVersion?: number
   /** Announce the session live (the bind). Called once, after the driver has
    *  registered the handle the bind names. */
   announce(): void
 }
+
+/** The fence every event of one binding carries. */
+export interface TerminalObservationLease {
+  observerGeneration?: number
+  bindingVersion?: number
+}
+
+/** What the terminal host re-attaches one surviving session from. */
+export interface TerminalRecover {
+  sessionId: SessionId
+  agentKind: AgentKind
+  workdir: string
+  resume?: ResumeRef
+  /** The lease the driver re-registers under, for the host's observers. The
+   *  durable host label is not here: the host resolves it per session. */
+  lease: TerminalObservationLease
+}
+
+/** What the host hands back once a surviving session is wired again. */
+export type TerminalRecovered = TerminalLaunched
 
 /**
  * Everything the terminal driver needs from its host, named explicitly.
@@ -166,18 +177,24 @@ export interface TerminalHostPorts {
   /** Whether composer sync is running (Draft Sync v2) for this session. */
   draftSyncing(sessionId: SessionId): boolean
   setDraftTarget(sessionId: SessionId, text: string): boolean
-  /** Does this session's durable process still live? The ONLY thing that makes
-   *  an adopt exact rather than hopeful. Keyed by session: the daemon resolves
-   *  the entry's durable label itself, so the driver never holds labels. */
-  processAlive(sessionId: SessionId): Promise<boolean>
-  /** Rebuild/reuse the exact process bridge, observer lease, screen and composer.
-   * Call ready after composition, before publishing bind or replaying redraw.
-   * The host hands the freshly wired Terminal to ready, so the driver's
-   * refresh lands with the reattach rather than via a later lookup. */
-  recover(
-    msg: TerminalReattachControl,
-    ready: (terminal: TerminalTransport | undefined) => void,
-  ): Promise<void>
+  /**
+   * The observation lease the server issued with the spawn or reattach this
+   * host is carrying out for a session — the generation and binding version
+   * every event the driver emits must carry. `undefined` when the host holds no
+   * such order (a session the contract drives directly); an order from an older
+   * server may name no lease, which reads as `{}`.
+   */
+  observationLease(sessionId: SessionId): TerminalObservationLease | undefined
+  /**
+   * Re-attach this session's SURVIVING process (POD-5841): reuse the bridge
+   * this host still holds, or locate the durable host by its label and wire a
+   * new one, with its observers, screen and composer. The attach itself is the
+   * proof the process lives — no surviving host is a thrown "session not
+   * found". Hands back the live terminal and the announcement (the bind), which
+   * the driver makes once it has re-registered; `undefined` when a concurrent
+   * recovery of the same session already did the work.
+   */
+  recover(input: TerminalRecover): Promise<TerminalRecovered | undefined>
   /** The daemon half of the survival table — dispose the bridge, reap the host.
    * Keyed by session: the daemon resolves the entry's durable label itself. */
   stopSession(input: { sessionId: SessionId }): Promise<boolean>

@@ -35,7 +35,7 @@ function world(kind: 'claude-code' | 'codex' | 'grok' | 'opencode' = 'claude-cod
     },
     trackedState: () => ({ phase: 'idle', since: new Date(START).toISOString(), nativeSubagentCount: 0 }),
     draftSyncing: () => false, setDraftTarget: () => false,
-    processAlive: async () => true, recover: async () => {}, stopSession: async () => true,
+    observationLease: () => undefined, recover: async () => ({ announce: () => {} }), stopSession: async () => true,
     installInstrumentation: async () => ({ args: [] }), launch: async () => ({ announce: () => {} }),
     stageAttachment: async () => { throw new Error('no attachments') },
     readHistory: async (_session, range) => pageHistory(history, SESSION, range),

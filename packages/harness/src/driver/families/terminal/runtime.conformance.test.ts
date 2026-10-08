@@ -382,17 +382,15 @@ function makeWorld(options: WorldOptions): {
     trackedState: (sessionId) => phases.get(sessionId),
     draftSyncing: () => false,
     setDraftTarget: () => false,
-    processAlive: async (sessionId) => alive.get(sessionId) === true,
-    recover: async (msg, ready) => {
-      if (!alive.get(msg.sessionId)) throw new Error('session not found')
-      ready(bridgeOf.get(msg.sessionId))
-      runtime?.observe({
-        type: 'bind',
-        sessionId: msg.sessionId,
-        cmd: 'fixture',
-        cwd: msg.cwd,
-        agentKind: msg.agentKind,
-      })
+    observationLease: () => undefined,
+    // The attach is the proof the process lives: no survivor, no recovery.
+    recover: async ({ sessionId, workdir, agentKind }) => {
+      if (!alive.get(sessionId)) throw new Error('session not found')
+      return {
+        terminal: bridgeOf.get(sessionId),
+        announce: () =>
+          runtime?.observe({ type: 'bind', sessionId, cmd: 'fixture', cwd: workdir, agentKind }),
+      }
     },
     stopSession: async ({ sessionId }) => {
       alive.set(sessionId, false)

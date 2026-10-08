@@ -102,7 +102,6 @@ import { reportInventory, startInventoryRefresh } from './control/inventory'
 import {
   forwardPicture,
   onSessionSize,
-  recoverTerminalHost,
   sendBind,
   sessionProcessEnv,
   stopSessionProcess,

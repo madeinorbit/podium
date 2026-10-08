@@ -30,7 +30,8 @@
 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { asSessionId, type SessionId } from '@podium/model'
+import type { SessionBinding } from '@podium/harness/driver/host'
+import { type AgentKind, asSessionId, type SessionId } from '@podium/model'
 import { createDurableProcess } from '@podium/process/durable'
 import type { DurableAttachment } from '@podium/process/screen'
 import { describe, expect, it, vi } from 'vitest'
@@ -135,6 +136,7 @@ const { sessionHandlers } = await import('./session')
 const { createTerminalRuntime } = await import('@podium/harness/driver/host')
 const { daemonRuntimeHost } = await import('../runtime/host')
 const { driverSlotsOver } = await import('../session/driver-slots.js')
+const { terminalProfileFor } = await import('../runtime/registry')
 
 type BindFrame = { type: 'bind'; geometry?: { cols: number; rows: number } }
 
@@ -196,7 +198,9 @@ function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonCon
     send(msg)
   }
   ctx.agentRuntime = {
-    recoverTerminal: terminal.recoverWithId,
+    // `runtime.adopt` routes a terminal binding to its driver's adopt.
+    adopt: (binding: SessionBinding) =>
+      terminal.driverFor(binding.harness as AgentKind, terminalProfileFor(binding.harness as AgentKind)!).adopt(binding),
     handleFor: terminal.handleFor,
     has: terminal.has,
     adoptJournalled: async () => ({ found: false }),

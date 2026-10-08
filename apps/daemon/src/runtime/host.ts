@@ -24,10 +24,7 @@ import type {
   CodexRawSocket,
   OpencodeEngineClientTerminals,
 } from '@podium/harness/driver/host'
-import {
-  durableProcessFor,
-  scopeUnitName,
-} from '@podium/process/durable'
+import { scopeUnitName } from '@podium/process/durable'
 import { instanceRuntimeSocketRoot } from '@podium/runtime/unix-socket'
 import { resolveInstanceId } from '@podium/runtime/instance'
 import WebSocket from 'ws'
@@ -36,7 +33,7 @@ import { serverChildEnv } from '../control/session-env'
 import type { ClientTerminalKind, OpencodeClientTerminals } from './opencode-attach'
 import type { AcceptedDriverId } from '@podium/harness'
 import type { DaemonContext } from '../control/context'
-import { launchTerminalProcess, recoverTerminalHost, stopSessionProcess } from '../control/session'
+import { launchTerminalProcess, recoverTerminalProcess, stopSessionProcess } from '../control/session'
 import { sourceForRead } from '../control/transcripts'
 import { transcriptForExport } from '../handoff-package'
 import { stageRuntimeAttachment } from './attachment-staging'
@@ -45,7 +42,6 @@ import type { TerminalHostPorts } from '@podium/harness/driver/host'
 import { installTerminalInstrumentation } from '@podium/harness/driver/host'
 import { terminalInstrumentationSectionsFor } from './registry'
 import { driverTiming } from './driver-timing'
-import { adaptTerminal } from './terminal-transport.js'
 
 /**
  * Adapt one daemon context into the driver's host port.
@@ -78,14 +74,21 @@ export function daemonRuntimeHost(
     },
     draftSyncing: (sessionId) => ctx.composerEngine.has(sessionId),
     setDraftTarget: (sessionId, text) => ctx.composerEngine.setTarget(sessionId, text),
-    processAlive: async (sessionId) => {
-      const label = ctx.sessions.get(sessionId)?.label ?? ctx.durableLabelFor(sessionId)
-      return (await durableProcessFor(ctx)?.has(label)) ?? false
+    // The lease rides the server's spawn or reattach order; a session the
+    // contract drives directly has none.
+    observationLease: (sessionId) => {
+      const frame = ctx.sessions.get(sessionId)?.order?.frame
+      if (!frame) return undefined
+      return {
+        ...(frame.observationGeneration !== undefined
+          ? { observerGeneration: frame.observationGeneration }
+          : {}),
+        ...(frame.observationBindingVersion !== undefined
+          ? { bindingVersion: frame.observationBindingVersion }
+          : {}),
+      }
     },
-    recover: (msg, ready) =>
-      recoverTerminalHost(ctx, msg, () =>
-        ready(adaptTerminal(ctx.sessions.get(msg.sessionId)?.terminal)),
-      ),
+    recover: (input) => recoverTerminalProcess(ctx, input),
     stopSession: ({ sessionId }) => {
       const label = ctx.sessions.get(sessionId)?.label ?? ctx.durableLabelFor(sessionId)
       return stopSessionProcess(ctx, { sessionId, durableLabel: label })

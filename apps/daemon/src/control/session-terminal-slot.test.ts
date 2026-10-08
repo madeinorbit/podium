@@ -31,7 +31,7 @@ vi.mock('@podium/process/durable', async (importOriginal) => {
 })
 vi.mock('../session-uploads', () => ({ removeSessionUploads: vi.fn() }))
 
-const { launchSpawn, recoverTerminalHost } = await import('./session')
+const { launchSpawn, recoverTerminalProcess } = await import('./session')
 
 const settingsDir = mkdtempSync(join(tmpdir(), 'podium-terminal-slot-'))
 afterAll(() => rmSync(settingsDir, { recursive: true, force: true }))
@@ -136,14 +136,12 @@ it('parks the losing Terminal when a reattach and an adopting spawn race for one
   } as unknown as DaemonContext
 
   // 1. The reattach passes its `attached` check and waits on the host.
-  const reattach = recoverTerminalHost(ctx, {
-    type: 'reattach',
+  const reattach = recoverTerminalProcess(ctx, {
     sessionId: SESSION,
-    durableLabel: LABEL,
     agentKind: 'shell',
-    cwd: '/repo',
-    lastKnownGeometry: { cols: 80, rows: 24 },
-  } as unknown as Parameters<typeof recoverTerminalHost>[1])
+    workdir: '/repo',
+    lease: {},
+  })
   await reattachIsWaiting
 
   // 2. A spawn for the same session adopts the live label and wires its surface.
