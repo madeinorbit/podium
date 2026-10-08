@@ -38,6 +38,11 @@ const STARTUP_GRAPH_SOURCES = new Set([
   'src/host/pool-host.ts', 'src/host/screens.ts',
   'src/header-entities.ts', 'src/header-schema.ts', 'src/header-session.ts', 'src/header-sessions.ts',
   'src/header-source.ts', 'src/header-views.ts',
+  // First-screen header and worklist rules moved out of models.ts (POD-5767).
+  // These exact modules serve the already-eager header/sidebar; optional
+  // screens and future worklist modules still need their own boundary decision.
+  'src/header-companion.ts', 'src/shared/session-facts.ts',
+  'src/react/worklist-context.tsx',
   // header-entities (startup) owns the repository path relations (POD-5530).
   'src/header-repositories.ts',
   'src/chat-context-schema.ts', 'src/command-launch-schema.ts', 'src/issue-board-schema.ts',
@@ -62,6 +67,8 @@ const STARTUP_GRAPH_SOURCES = new Set([
   'src/worklist/rollup.ts', 'src/worklist/seat-verdicts.ts', 'src/worklist/sidebar-roster.ts',
   'src/worklist/sidebar-row.ts', 'src/worklist/sidebar.ts', 'src/worklist/sorted-lanes.ts',
   'src/worklist/visible.ts',
+  'src/worklist/view-model.ts', 'src/worklist/issue.ts', 'src/worklist/session.ts',
+  'src/worklist/worktree.ts', 'src/worklist/attention.ts', 'src/worklist/lists.ts',
   // Startup readers own these: reader-questions builds the mention index,
   // reader-queries the addressed worktree answers, and the sidebar close
   // guard and issue menus read issuePages.closeFacts (POD-5530/5569/5570/5577).
