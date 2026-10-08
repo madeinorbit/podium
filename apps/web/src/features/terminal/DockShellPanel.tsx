@@ -1,4 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import { observer } from '@podium/client-graph/react'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import type { MachineId, MachineWire, SessionId } from '@podium/model/browser'
 import { machinePathKey } from '@podium/model/browser'
@@ -16,6 +17,7 @@ import { prettyCwd } from './pretty-cwd'
 import { HibernatedPane } from './SessionLifecyclePanes'
 import {
   useDockPaneInputs,
+  usePaneGeometry,
   usePaneMachines,
   usePaneReferenceStages,
 } from './use-session-pane-inputs'
@@ -39,7 +41,7 @@ import { useTerminalAppearance } from './use-terminal-appearance'
  * a parked (hibernated) shell is resumed in place under the SAME id
  * (POD-4429) and never enters this reconcile at all.
  */
-export function DockShellPanel({
+export const DockShellPanel = observer(function DockShellPanel({
   cwd,
   machineId,
 }: {
@@ -174,7 +176,7 @@ export function DockShellPanel({
       {terminalShown && mapped ? (
         // 'starting' holds the mount: the PTY may not exist server-side yet, and
         // the terminal's one-shot attach would be dropped and never retried.
-        <DockShellTerminal key={mapped} sessionId={mapped} hub={hub} session={session} />
+        <DockShellTerminal key={mapped} sessionId={mapped} hub={hub} />
       ) : parked && mapped ? (
         // Parked, not dead (POD-4429): the pane offers resume of the SAME
         // session id in place — never archive, never spawn a replacement.
@@ -187,7 +189,7 @@ export function DockShellPanel({
       )}
     </div>
   )
-}
+})
 
 /** Resolve the dock shell's actual server-attributed host first, retaining a
  * useful target indicator while a newly-created session is still arriving. */
@@ -204,16 +206,15 @@ export function resolveShellMachineLabel(
 
 /** The mounted terminal for one dock shell session (keyed by session id, so a
  *  replaced shell remounts cleanly). */
-function DockShellTerminal({
+const DockShellTerminal = observer(function DockShellTerminal({
   sessionId,
   hub,
-  session,
 }: {
   sessionId: SessionId
   hub: Parameters<typeof useTerminalSession>[0]['hub']
-  /** The row this shell's grid comes from (POD-3239 B1). */
-  session: SessionView | undefined
 }): JSX.Element {
+  // The session's grid (POD-3239 B1), its only field this terminal reads.
+  const geometry = usePaneGeometry(sessionId)
   const { settings, appearance } = useTerminalAppearance()
   const termBg = settings.background ?? TERMINAL_DEFAULTS.background
   const references = usePaneReferenceStages(true)
@@ -227,7 +228,7 @@ function DockShellTerminal({
     // Born at W, exactly as the agent panel is (POD-3239 B1). A dock shell is a
     // terminal like any other; constructing it at 80x24 and moving it is the
     // same wrong first frame.
-    ...(session?.geometry ? { initialGeometry: session.geometry } : {}),
+    ...(geometry ? { initialGeometry: geometry } : {}),
     // Human-facing ref links (#474 / POD-529): clickable PREFIX-N tokens with
     // live stage-coloured underlines when the issue is known.
     onMounted: (mounted) => {
@@ -283,4 +284,4 @@ function DockShellTerminal({
       )}
     </div>
   )
-}
+})

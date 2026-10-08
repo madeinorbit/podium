@@ -772,11 +772,19 @@ export class IssueModel extends EntityModel {
 
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel {
-  static override readonly answers = new Set(['archived', 'unread'])
+  static override readonly answers = new Set(['archived', 'unread', 'cwd', 'issueId', 'machineId', 'status'])
 
   constructor(id: string, host: ModelHost) {
     super('session', id, host)
   }
+
+  // Placement and lifecycle: one scalar per question. A heartbeat replaces the
+  // row with only activity changed; these answers stay equal, so their readers
+  // (pane stamp, dock routing, dock shell lifecycle) do not run again.
+  @lazy get cwd(): string { return this.storedField('cwd') as string }
+  @lazy get issueId(): SessionView['issueId'] { return this.storedField('issueId') as SessionView['issueId'] }
+  @lazy get machineId(): SessionView['machineId'] { return this.storedField('machineId') as SessionView['machineId'] }
+  @lazy get status(): SessionView['status'] { return this.storedField('status') as SessionView['status'] }
 
   // Stored fields: declared summaries can answer a field without promoting it.
   @lazy private get residentRow(): StoredRow | typeof LOADING | undefined {

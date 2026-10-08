@@ -1,8 +1,10 @@
+import { assertReactiveRead } from '@podium/mobx-helpers'
 import { sessionPaneView } from '@podium/client-graph/session-pane'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { MobxPool } from '@podium/client-graph'
+import type { IssueModel, MobxPool, SessionModel } from '@podium/client-graph'
 import type { SessionPaneRows } from '@podium/client-graph/session-pane-schema'
-import type { IssueStage, MachineWire, SessionId } from '@podium/model/browser'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
+import type { IssueId, IssueStage, MachineWire, SessionId } from '@podium/model/browser'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { issueColorHex } from '@/lib/issueColors'
@@ -34,27 +36,63 @@ export function usePaneSpawnConfirmed(id: SessionId) {
 export function usePanePanelModes() {
   return usePoolPaneWindow().panelMode
 }
-export function useDockPaneInputs(cwd: string, pending: string | null) {
-  const read = useCallback((pool: MobxPool) => sessionPaneView(pool).dock(cwd, pending), [cwd, pending])
-  return useWorklistPoolProjection(read, {
-    mapped: undefined,
-    session: undefined,
-    pendingPresent: false,
-    hasSessions: false,
-    reposLoaded: false,
-    loading: true,
-  })
+export interface DockPaneInputs {
+  mapped: string | undefined
+  session: SessionModel | undefined
+  pendingPresent: boolean
+  hasSessions: boolean
+  reposLoaded: boolean
+  loading: boolean
 }
-export function usePaneOwnership(session: SessionView | undefined) {
-  const read = useCallback(
-    (pool: MobxPool) => sessionPaneView(pool).ownership(session, issueColorHex),
-    [session],
-  )
-  return useWorklistPoolProjection(read, {
-    selectedIssueId: null,
-    stampIssue: undefined,
-    issueHex: undefined,
-  })
+const EMPTY_DOCK: DockPaneInputs = {
+  mapped: undefined,
+  session: undefined,
+  pendingPresent: false,
+  hasSessions: false,
+  reposLoaded: false,
+  loading: true,
+}
+/** Read inside the dock shell's observer: each answer is its own field, so a
+ * heartbeat on the mapped shell wakes nothing here. */
+export function useDockPaneInputs(cwd: string, pending: string | null): DockPaneInputs {
+  if (import.meta.env.DEV) assertReactiveRead('useDockPaneInputs')
+  const pool = useWorklistPool()
+  if (!pool) return EMPTY_DOCK
+  const panes = sessionPaneView(pool),
+    controls = panes.window()
+  const mapped = controls.dockShells[cwd]
+  const present = mapped ? panes.pane(pool.sessionObject(mapped)).present : undefined
+  return {
+    mapped,
+    session: present === true && mapped ? pool.sessionObject(mapped) : undefined,
+    pendingPresent: !!panes.loaded(pending),
+    hasSessions: panes.hasSessions(),
+    reposLoaded: controls.reposLoaded,
+    loading: present === LOADING,
+  }
+}
+/** The terminal's birth grid, read inside the dock terminal's observer. */
+export function usePaneGeometry(id: SessionId): SessionView['geometry'] {
+  if (import.meta.env.DEV) assertReactiveRead('usePaneGeometry')
+  const pool = useWorklistPool()
+  return pool ? sessionPaneView(pool).loaded(id)?.geometry : undefined
+}
+const selectedIssueRead = (pool: MobxPool) => sessionPaneView(pool).selectedIssueId
+/** The selected issue: a selection fact, independent of the pane's session. */
+export function usePaneSelectedIssueId(): IssueId | null {
+  return useWorklistPoolProjection(selectedIssueRead, null)
+}
+const issueHexRead = (pool: MobxPool) => sessionPaneView(pool).issueHex(issueColorHex)
+/** The selected issue's inherited tint, independent of the pane's session. */
+export function usePaneIssueHex(): string | undefined {
+  return useWorklistPoolProjection(issueHexRead, undefined)
+}
+/** The issue a session pane stamps, read inside the stamp's observer. */
+export function usePaneStampIssue(id: SessionId): IssueModel | undefined {
+  if (import.meta.env.DEV) assertReactiveRead('usePaneStampIssue')
+  const pool = useWorklistPool()
+  const stamp = pool ? sessionPaneView(pool).loaded(id)?.stampIssue : undefined
+  return stamp === LOADING ? undefined : stamp
 }
 
 export interface PaneReferenceStages {

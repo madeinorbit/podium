@@ -38,8 +38,6 @@ import type { JSX } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { usePendingSpawnPrompt, useRuntimeActions } from '@/app/keyed-runtime'
-import { OPEN_RIGHT_PANEL_EVENT } from '@/app/shell-state'
-import { GitStamp } from '@/components/GitStamp'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import {
@@ -72,6 +70,7 @@ import { createDraftSync } from './draft-sync'
 import { EchoHud, echoHudEnabled } from './EchoHud'
 import { HandoverPane, useHandoverView } from './HandoverPane'
 import { hibernateAction } from './lifecycle-actions'
+import { PaneGitStamp } from './PaneGitStamp'
 import { prettyCwd } from './pretty-cwd'
 import {
   ExitedBanner,
@@ -84,9 +83,10 @@ import { SessionWatchers } from './SessionWatchers'
 import { sessionAgeMs, startupOverlay } from './startup-overlay'
 import { usePanelSurface } from './use-panel-surface'
 import {
+  usePaneIssueHex,
   usePaneMachines,
-  usePaneOwnership,
   usePaneReferenceStages,
+  usePaneSelectedIssueId,
   usePaneSession,
   usePaneSpawnConfirmed,
 } from './use-session-pane-inputs'
@@ -228,7 +228,8 @@ export function AgentPanel({
   } = useRuntimeActions(PANEL_ACTIONS)
   const session = usePaneSession(sessionId)
   const machines = usePaneMachines()
-  const { selectedIssueId, stampIssue, issueHex } = usePaneOwnership(session)
+  const selectedIssueId = usePaneSelectedIssueId()
+  const issueHex = usePaneIssueHex()
   const [loginTerminalBusy, setLoginTerminalBusy] = useState(false)
   const [loginTerminalError, setLoginTerminalError] = useState<string | null>(null)
   const [pendingLoginSessionId, setPendingLoginSessionId] = useState<SessionId | null>(null)
@@ -905,20 +906,7 @@ export function AgentPanel({
               <span className="truncate">{prettyCwd(session.cwd)}</span>
             </span>
           )}
-          {/* Git stamp [POD-98]: has this task committed, and on which branch —
-            always visible for the session you're reading; click opens the Git
-            dock panel. Hidden when the session's issue has no probed state. */}
-          {stampIssue && (
-            <GitStamp
-              issueBranch={stampIssue.branch}
-              git={stampIssue.gitState}
-              density="chip"
-              className="hidden flex-none md:inline-flex"
-              onClick={() =>
-                window.dispatchEvent(new CustomEvent(OPEN_RIGHT_PANEL_EVENT, { detail: 'git' }))
-              }
-            />
-          )}
+          <PaneGitStamp sessionId={sessionId} />
           {/* Right cluster [POD-121]: model token · mode segment · the triage pair
             (snooze, archive) · overflow. Transient utilities (take control, copy
             resume, ask superagent, hibernate) live in the overflow menu. */}

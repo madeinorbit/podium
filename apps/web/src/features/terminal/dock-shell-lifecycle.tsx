@@ -10,13 +10,15 @@ type DockShellLifecycleSession = Pick<
   SessionView,
   'sessionId' | 'agentKind' | 'archived' | 'status'
 >
+/** The shared session answers `archived` as unknown before its row arrives. */
+type DockShellLifecycleFacts = Pick<SessionView, 'status'> & { readonly archived: boolean | undefined }
 
 /** A dock shell is dead only when its process is gone for good. A hibernated
  *  shell is PARKED, not dead (POD-4429): the row and cwd are intact and the
  *  same session id resumes in place, so the dock must not archive or replace
  *  it. Only 'archived' and 'exited' remain dead for the dock. */
 export function dockShellIsDead(
-  session: Pick<DockShellLifecycleSession, 'archived' | 'status'>,
+  session: DockShellLifecycleFacts,
 ): boolean {
   return session.archived || session.status === 'exited'
 }
@@ -24,7 +26,7 @@ export function dockShellIsDead(
 /** A hibernated dock shell is parked: resumable in place via the same session
  *  id (POD-4429). Never stale, never archived by the lifecycle. */
 export function dockShellIsParked(
-  session: Pick<DockShellLifecycleSession, 'archived' | 'status'>,
+  session: DockShellLifecycleFacts,
 ): boolean {
   return !session.archived && session.status === 'hibernated'
 }
