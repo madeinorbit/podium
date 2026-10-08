@@ -15,13 +15,16 @@ import {
   type IssueNote,
   issueAbandoned,
   issueNeedsHuman,
+  issueOwnContentUnread,
   type MissionDeparture,
   type MissionProgress,
   type PresenceNote,
   panelLabel,
   selectLatestPromptSession,
+  subtreeUnread,
 } from '@podium/client-core/values'
 import { companion, lazy } from '@podium/mobx-helpers'
+import { compareShallow, compareStructural } from 'mobx'
 import { machinePathsEqual } from '@podium/model'
 import type { GitRepositoryWire, MachineWire } from '@podium/model/browser'
 import { asIssueId, asSessionId, DRAFT_ISSUE_TITLE, HANDOFF_HARNESS_KINDS } from '@podium/model/browser'
@@ -297,6 +300,15 @@ const latestBelow = ((row: MissionDeckIssueModel): string => {
   return at
 })
 
+/** The strip's unread mark: open strips read the issue's own content, folded
+ * strips roll up the hidden subtree and crew against this issue's cursor. */
+const deckRowUnread = (row: MissionDeckIssueModel, collapsed: boolean): boolean => {
+  if (row.workingAgentCount > 0) return false
+  const issue = row.issue
+  if (!collapsed) return issueOwnContentUnread(issue)
+  return subtreeUnread({ readAt: issue.readAt, updatedAt: issue.updatedAt, descendantUpdatedAts: [row.updatedBelow], sessions: row.collapsedSummary.crew })
+}
+
 const rollupValue = ((row: MissionDeckIssueModel) => settled(() => ({
   tasks: requireLoaded(sum.tasks(row)), done: requireLoaded(sum.done(row)), run: requireLoaded(sum.run(row)),
   live: requireLoaded(sum.live(row)), working: requireLoaded(sum.working(row)), needsYou: requireLoaded(sum.needsYou(row)), waiting: requireLoaded(sum.waiting(row)),
@@ -343,9 +355,9 @@ export class MissionDeckIssueModel implements FlightDeckRow {
       case 'waiting': return this.totalWaiting
     }
   }
-  @lazy get collapsedCrew(): SessionView[] { return collapsedCrew(this) }
+  @lazy({ equals: compareShallow }) get collapsedCrew(): SessionView[] { return collapsedCrew(this) }
   @lazy get kindCodes(): string { return kindCodes(this) }
-  @lazy get kinds() { return kindsOf(this) }
+  @lazy({ equals: compareShallow }) get kinds() { return kindsOf(this) }
   /** A graft can draw the same issue under two mission paths. */
   get key() { return this.path ? JSON.stringify(this.path) : this.id }
   private get canonical(): MissionDeckIssueModel { return this.path ? this.deck.model(this.id) : this }
@@ -353,25 +365,40 @@ export class MissionDeckIssueModel implements FlightDeckRow {
   get facts() { return this.view.facts(this.id) }
   get issue() { return requireLoaded(this.view.issue(this.id))! }
   get rulesIssue() { return this.view.rulesIssue(this.id) }
-  get stage() { return this.facts.stage }
-  get title() { return requireLoaded(this.view.title(requireLoaded(this.view.catalogIssue(this.id))!)) }
-  @lazy private get ownDeckChildren() { return childrenOf(this) }
+  // Displayed fields: each is one value, so a change elsewhere in the
+  // issue's row stops here instead of redrawing the strip that shows it.
+  @lazy get stage() { return this.facts.stage }
+  @lazy private get ownTitle() { return requireLoaded(this.view.title(requireLoaded(this.view.catalogIssue(this.id))!)) }
+  get title() { return this.canonical.ownTitle }
+  @lazy private get ownDisplayRef() { return issueDisplayRef(requireLoaded(this.view.catalogIssue(this.id))!) }
+  get displayRef() { return this.canonical.ownDisplayRef }
+  /** What the status glyph reads. */
+  @lazy({ equals: compareShallow }) private get ownStatus(): { stage: IssueNavigationModel['stage']; closedReason: IssueNavigationModel['closedReason'] } {
+    const issue = requireLoaded(this.view.catalogIssue(this.id))!
+    return { stage: issue.stage, closedReason: issue.closedReason }
+  }
+  get status() { return this.canonical.ownStatus }
+  /** Unread marks of the strip, open and folded. */
+  @lazy private get ownContentUnread() { return deckRowUnread(this, false) }
+  @lazy private get foldedUnread() { return deckRowUnread(this, true) }
+  unread(collapsed: boolean) { return collapsed ? this.canonical.foldedUnread : this.canonical.ownContentUnread }
+  @lazy({ equals: compareShallow }) private get ownDeckChildren() { return childrenOf(this) }
   get deckChildren() { return this.canonical.ownDeckChildren }
-  @lazy private get ownDescendantIds() { return descendants(this) }
+  @lazy({ equals: compareShallow }) private get ownDescendantIds() { return descendants(this) }
   get descendantIds() { return this.canonical.ownDescendantIds }
-  @lazy private get ownSessions() { return crewOf(this) }
+  @lazy({ equals: compareShallow }) private get ownSessions() { return crewOf(this) }
   get sessions() { return this.canonical.ownSessions }
-  @lazy private get ownCrewIds() { return crewIds(this) }
+  @lazy({ equals: compareShallow }) private get ownCrewIds() { return crewIds(this) }
   get crewIds() { return this.canonical.ownCrewIds }
   get hasLead() { return this.entity.hasLead }
   asks(session: Pick<SessionView, 'sessionId'>) { return this.view.pool.sessionObject(session.sessionId).asking && !this.entity.finished }
-  @lazy get workingSessionIds() { return this.crewIds.filter(id => this.view.pool.sessionObject(id).atWork) }
-  @lazy get askingSessionIds() { return this.matches('needs-you') ? this.crewIds.filter(id => this.asks(this.view.pool.sessionObject(id))) : [] }
+  @lazy({ equals: compareShallow }) get workingSessionIds() { return this.crewIds.filter(id => this.view.pool.sessionObject(id).atWork) }
+  @lazy({ equals: compareShallow }) get askingSessionIds() { return this.matches('needs-you') ? this.crewIds.filter(id => this.asks(this.view.pool.sessionObject(id))) : [] }
   sessionIds(mode: FlightDeckMode): readonly string[] {
     const row = this.canonical
     return mode === 'full' ? row.crewIds : mode === 'working' ? row.workingSessionIds : row.askingSessionIds
   }
-  get depth() { return this.path ? this.path.length - 1 : this.deck.depth(this.id) }
+  @lazy get depth() { return this.path ? this.path.length - 1 : this.deck.depth(this.id) }
   @lazy get matched() { return this.matches(this.deck.mode) }
   @lazy get matchesWorking() { return matchedWorking(this) }
   @lazy get matchesNeedsYou() { return matchedNeedsYou(this) }
@@ -397,7 +424,7 @@ export class MissionDeckIssueModel implements FlightDeckRow {
       get needsYou() { return row.actionableCount > 0 },
     }
   }
-  @lazy private get ownPresentation() { return presentation(this) }
+  @lazy({ equals: compareStructural }) private get ownPresentation() { return presentation(this) }
   get presentation() { return this.canonical.ownPresentation }
   @lazy private get ownUpdatedBelow() { return latestBelow(this) }
   get updatedBelow() { return this.canonical.ownUpdatedBelow }
@@ -506,8 +533,10 @@ export class MissionDeckModel {
   @lazy get note() { return rootNote(this) }
   @lazy get presence() { return rootPresence(this) }
   @lazy get departures() { return rootDepartures(this) }
-  @lazy private get paths() { return settled(() => this.readPaths()) }
-  @lazy private get placements() { return settled(() => requireLoaded(this.paths).map(path => path[path.length - 1]!)) }
+  // Topology recomputes on any member's row change; equal paths keep the
+  // drawn placements (and their companions) instead of rebuilding every row.
+  @lazy({ equals: compareStructural }) private get paths() { return settled(() => this.readPaths()) }
+  @lazy({ equals: compareShallow }) private get placements() { return settled(() => requireLoaded(this.paths).map(path => path[path.length - 1]!)) }
   private readPaths() {
     const shape = requireLoaded(this.topology), members = requireLoaded(this.members)
     const included = new Set<string>([this.id])
