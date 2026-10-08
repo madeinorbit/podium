@@ -68,7 +68,14 @@ function fixture() {
               },
     dispose() {},
   } as never)
-  const drafts = new DraftStore({ storage: { get: () => null, set: () => {} } })
+  const drafts = new DraftStore({
+    storage: { get: () => null, set: () => {} },
+    hub: {
+      on: () => () => {},
+      sendDraftEdit: () => {},
+      connectionHealth: () => ({ status: 'ok' }),
+    } as never,
+  })
   const runtime = {
     drafts,
     access: {

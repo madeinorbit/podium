@@ -82,11 +82,13 @@ it('routes visible title and pin changes to their leaf and ignores unrelated iss
       seen.shell++
     }),
     autorun(() => {
-      mobileSessionChromeIssue(pool, 'shown')?.title
+      const shown = mobileSessionChromeIssue(pool, 'shown')
+      if (shown && typeof shown !== 'symbol') shown.title
       seen.title++
     }),
     autorun(() => {
-      mobileSessionChromeIssue(pool, 'shown')?.pinned
+      const shown = mobileSessionChromeIssue(pool, 'shown')
+      if (shown && typeof shown !== 'symbol') shown.pinned
       seen.pin++
     }),
   ]

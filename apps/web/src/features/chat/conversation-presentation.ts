@@ -216,7 +216,7 @@ export class ConversationPresentation {
 
 class RenderedTranscriptRow {
   constructor(readonly row: ChatRow, private readonly presentation: ConversationPresentation) {}
-  @lazy({ equals: (a, b) => a?.row === b?.row && a?.index === b?.index }) get value(): RenderableRow | undefined {
+  @lazy({ equals: (a: RenderableRow | undefined, b: RenderableRow | undefined) => a?.row === b?.row && a?.index === b?.index }) get value(): RenderableRow | undefined {
     const index = this.presentation.anchorRow(rowIdentity(this.row))
     return index === undefined ? undefined : { row: this.row, index }
   }

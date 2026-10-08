@@ -6,9 +6,18 @@ import { MobileConversation } from './mobile-conversation'
 it('retains history for any mounted reader and drops its demand on close', () => {
   const item = (id: string): TranscriptItem => ({ id, cursor: id, role: 'assistant', text: id })
   const items = ['a', 'b', 'c'].map(item)
-  const drafts = new DraftStore({ storage: { get: () => null, set: () => {} } })
+  const drafts = new DraftStore({
+    storage: { get: () => null, set: () => {} },
+    hub: {
+      on: () => () => {},
+      sendDraftEdit: () => {},
+      connectionHealth: () => ({ status: 'ok' }),
+    } as never,
+  })
   const conversation = new MobileConversation({
-    sessionId: asSessionId('phone-readers'), drafts,
+    sessionId: asSessionId('phone-readers'),
+    drafts,
+    sends: { createDeliveryId: () => 'unused', deliver: async () => ({ state: 'sent' }) },
     transcript: {
       initialLimit: 1,
       source: { read: async () => ({ items, hasMore: false }), subscribe: () => () => {} },
@@ -23,5 +32,9 @@ it('retains history for any mounted reader and drops its demand on close', () =>
     closeReading()
     conversation.transcript.merge([item('e')])
     expect([...conversation.transcript.ids]).toEqual(['d', 'e'])
-  } finally { closeFollowing(); conversation.dispose(); drafts.dispose() }
+  } finally {
+    closeFollowing()
+    conversation.dispose()
+    drafts.dispose()
+  }
 })

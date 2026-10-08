@@ -14,6 +14,8 @@ import {
 import { lazy } from '@podium/mobx-helpers'
 import { isAgentComputing, isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { actionBound, compareShallow, compareStructural, observable, observableRef } from 'mobx'
+import type { MachineWire } from '@podium/model/browser'
+import type { PendingItem } from './chat'
 import { ConversationPresentation } from './conversation-presentation'
 import type { WebConversation } from './use-conversation'
 
@@ -133,7 +135,7 @@ export class ChatViewModel {
   @lazy get turnError(): string | null {
     return this.conversation.turnError ?? this.conversation.visibleFailure?.error ?? null
   }
-  @lazy({ equals: compareShallow }) get pending() {
+  @lazy({ equals: compareShallow }) get pending(): PendingItem[] {
     return this.conversation.sends.bubbles.map((bubble) =>
       bubble.error === undefined
         ? bubble
@@ -165,7 +167,8 @@ export class ChatViewModel {
     if (!this.active) return null
     const pool = this.conversation.pool
     const id = this.session?.machineId
-    const machine = id === undefined ? undefined : pool.row('machine', id)
+    const machine =
+      id === undefined ? undefined : (pool.row('machine', id) as MachineWire | symbol | undefined)
     return machine && typeof machine !== 'symbol' && isMachineOfflineForLiveTerminal(machine)
       ? (this.session?.machineName ?? machine.name ?? id ?? null)
       : null
