@@ -17099,7 +17099,6 @@
         "522222df4b110bbc58c138b5035fd6d69b2bbdd11547e6c02142faf1cb77e36f",
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "62abb4dee19f33d18d7a2cb2006b4568298ee197e8610db8d3b96ee653348065",
-        "7343bcc13454fef04c0edca51169130ce6b99d2e77bf936a2387a5e43d08dbba",
         "73fc6ac8474972e8390049381280f6016c6e783a4c53017f0e6b141d47066ace",
         "79df9ce0fb282efa78e48c29a0d005297550152334690e9da3dbea8a95fa766d",
         "7dd69102ce93127148f25a4ac2bb36f83e2d882230d0007ce2fe0923cfe35458",
@@ -17109,7 +17108,7 @@
         "c590f274705443e80f2449456407c0144a830068008eac7ad06d35cf7f54313c",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "f75b6b58a6b76c30357d772482098d3482b03468219f67d306ee906ebd4ac85d",
+      "fingerprint": "1f23fcfaca59b9a6b3c58dc3f14f95b2ba87d3fb83674e10e52973bf38422510",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -36950,103 +36949,103 @@
     },
     {
       "file": "packages/client-graph/src/chat-context.ts",
-      "holder": "chatReferenceSessions",
+      "holder": "ReferenceSessionProjection/result",
       "rule": "materialize:Set",
       "tokens": "d8e3ac183bf991308f93c1ccdfb3f0636f126b2211a5bf1e14c02060cdd9fcd6",
       "gate": [
         "exit:then:8071dc9669d474d4a7790228d2e534879cec1212f961abc7b8b2958c66b48a7a"
       ],
       "origin": [
-        "7343bcc13454fef04c0edca51169130ce6b99d2e77bf936a2387a5e43d08dbba"
+        "fcbf4da42c759f9d2ae993731980a8e234b2bff13308143619eb530361f0a4eb"
       ],
-      "fingerprint": "23ae146af34124e2424e627aea708e7ba60da2007164588011dc8ffab82d4c31",
+      "fingerprint": "d1a2c1158c1e26e07c9fcd6eb54b96d168e2d1d2d30d5a1e593db4b3a03f35de",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of chatReferenceSessions",
+      "trigger": "One observed reference list rebuild on membership, replica order or a material reference-field change; imperative picker open also reads it.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "materialize:Set retains the previous catalogue traversal inside the shared observed projection. Per-session equality prevents unrelated payload changes from rebuilding it, but its initial catalogue work remains repair debt.",
+      "guard": "packages/client-graph/src/chat-context.test.ts verifies six consumers at 32/128 cold and resident sessions share one list, unrelated deltas read one session, live field/order/resume/membership changes and observation disposal."
     },
     {
       "file": "packages/client-graph/src/chat-context.ts",
-      "holder": "chatReferenceSessions",
+      "holder": "ReferenceSessionProjection/result",
       "rule": "spread",
       "tokens": "4a509824cb1f9c3e942e1ab266ac76763ad91fdc9325e4156fb8640a5eb9e0af",
       "gate": [
         "exit:then:8071dc9669d474d4a7790228d2e534879cec1212f961abc7b8b2958c66b48a7a"
       ],
       "origin": [
-        "7343bcc13454fef04c0edca51169130ce6b99d2e77bf936a2387a5e43d08dbba"
+        "fcbf4da42c759f9d2ae993731980a8e234b2bff13308143619eb530361f0a4eb"
       ],
-      "fingerprint": "58f3d07b218554d4add99f0d35e0c032e724541f78868092b99bd1dce6f3330a",
+      "fingerprint": "2bcab4bdf0f37d789e75f355ec295a18854947a0ec9698b0a1443feea2553950",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of chatReferenceSessions",
+      "trigger": "One observed reference list rebuild on membership, replica order or a material reference-field change; imperative picker open also reads it.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "spread retains the previous catalogue traversal inside the shared observed projection. Per-session equality prevents unrelated payload changes from rebuilding it, but its initial catalogue work remains repair debt.",
+      "guard": "packages/client-graph/src/chat-context.test.ts verifies six consumers at 32/128 cold and resident sessions share one list, unrelated deltas read one session, live field/order/resume/membership changes and observation disposal."
     },
     {
       "file": "packages/client-graph/src/chat-context.ts",
-      "holder": "chatReferenceSessions",
+      "holder": "ReferenceSessionProjection/result",
       "rule": "loop:for-of",
-      "tokens": "5a9ca168f9aa7ee5d77d5a77580eace55eed53baca660da43ca0e00db56be4c3",
+      "tokens": "52e1bbcd7eba5a5d4ba1140f3cf9bc233ae49d7bea682ec5d5b02f45106c8634",
       "gate": [
         "exit:then:8071dc9669d474d4a7790228d2e534879cec1212f961abc7b8b2958c66b48a7a"
       ],
       "origin": [
-        "7343bcc13454fef04c0edca51169130ce6b99d2e77bf936a2387a5e43d08dbba"
+        "fcbf4da42c759f9d2ae993731980a8e234b2bff13308143619eb530361f0a4eb"
       ],
-      "fingerprint": "5d8699929473c56992a221f1498c39410b27b568d0bd632c77bf93a0fb4cac06",
+      "fingerprint": "55ee2b151ae5734147638f0473e9b0b08921624a81a29bc55c05fbbbec19a24f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of chatReferenceSessions",
+      "trigger": "One observed reference list rebuild on membership, replica order or a material reference-field change; imperative picker open also reads it.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
+      "reason": "loop:for-of retains the previous catalogue traversal inside the shared observed projection. Per-session equality prevents unrelated payload changes from rebuilding it, but its initial catalogue work remains repair debt.",
+      "guard": "packages/client-graph/src/chat-context.test.ts verifies six consumers at 32/128 cold and resident sessions share one list, unrelated deltas read one session, live field/order/resume/membership changes and observation disposal. Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
     },
     {
       "file": "packages/client-graph/src/chat-context.ts",
-      "holder": "chatReferenceSessions/known",
+      "holder": "ReferenceSessionProjection/result/known",
       "rule": "question:referenceSessions",
-      "tokens": "3321028675d2138093fb7cf67a24b454679465114d0388da8fc620f4b6c2940e",
+      "tokens": "29bd1bc7e24739dd84a7170ae0e86a95bc19be8bf73e8dc2990ca4418e2c0b62",
       "gate": [
         "exit:then:8071dc9669d474d4a7790228d2e534879cec1212f961abc7b8b2958c66b48a7a"
       ],
       "origin": [
-        "7343bcc13454fef04c0edca51169130ce6b99d2e77bf936a2387a5e43d08dbba"
+        "fcbf4da42c759f9d2ae993731980a8e234b2bff13308143619eb530361f0a4eb"
       ],
-      "fingerprint": "63532af6d85aeebb52701cfd5558026c1648b17f08a63643d1eacd1f37d91f48",
+      "fingerprint": "362d16950557817101c655b4a8322d25680378ff248b51fd2bb21ce2e3eb936c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of chatReferenceSessions/known",
+      "trigger": "One observed reference list rebuild on membership, replica order or a material reference-field change; imperative picker open also reads it.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "question:referenceSessions carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "question:referenceSessions retains the previous catalogue traversal inside the shared observed projection. Per-session equality prevents unrelated payload changes from rebuilding it, but its initial catalogue work remains repair debt.",
+      "guard": "packages/client-graph/src/chat-context.test.ts verifies six consumers at 32/128 cold and resident sessions share one list, unrelated deltas read one session, live field/order/resume/membership changes and observation disposal."
     },
     {
       "file": "packages/client-graph/src/chat-context.ts",
-      "holder": "chatReferenceSessions/present",
+      "holder": "ReferenceSessionProjection/result/present",
       "rule": "materialize:Set",
       "tokens": "e99af3c7e7a649e6156c3d50e3ce5ddac9fcba4ba08fa3c14d48a5c5c8f4825a",
       "gate": [
         "exit:then:8071dc9669d474d4a7790228d2e534879cec1212f961abc7b8b2958c66b48a7a"
       ],
       "origin": [
-        "7343bcc13454fef04c0edca51169130ce6b99d2e77bf936a2387a5e43d08dbba"
+        "fcbf4da42c759f9d2ae993731980a8e234b2bff13308143619eb530361f0a4eb"
       ],
-      "fingerprint": "f5fdb440fa7d52707cbb1cdb7d04d098dc0be1b7b453e64245632cbed3200e19",
+      "fingerprint": "3334583e0865a33cdb2ac59683bf4d86b9b60fd1c5ee1d81a2efba756210bb82",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of chatReferenceSessions/present",
+      "trigger": "One observed reference list rebuild on membership, replica order or a material reference-field change; imperative picker open also reads it.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "reason": "materialize:Set retains the previous catalogue traversal inside the shared observed projection. Per-session equality prevents unrelated payload changes from rebuilding it, but its initial catalogue work remains repair debt.",
+      "guard": "packages/client-graph/src/chat-context.test.ts verifies six consumers at 32/128 cold and resident sessions share one list, unrelated deltas read one session, live field/order/resume/membership changes and observation disposal."
     },
     {
       "file": "packages/client-graph/src/chat-context.ts",
@@ -44189,6 +44188,46 @@
       "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/chat-context.ts",
+      "holder": "ReferencePicker/open",
+      "rule": "consume:map",
+      "tokens": "3833fea301a41f9507193a6e7518eec5e7062c5319209cb8953372c464b70c84",
+      "gate": [
+        "then:6a2d778561f5ded4ec2a100421964b1f6a95f873552da550e5aa67600fdc0a30"
+      ],
+      "origin": [
+        "022607ab95dd869f48fadf673d7b63750868f98f0933651fa2e9c2d502e3b859"
+      ],
+      "fingerprint": "2dc2a3a89bbab6b93d8b75a93a07e20bd1e249ac0823e96b2a33ecdb7208730a",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Existing ReferencePicker.open maps the session catalogue returned by the shared projection.",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "This existing picker map is now visible to transitive scan analysis after the reader refactor. It retains the catalogue classification; sharing does not bound picker-open cardinality.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/chat-context.ts",
+      "holder": "ReferencePicker/open",
+      "rule": "consume:map",
+      "tokens": "8803f2f40dee7279b5f586f232ea154b72e480a05a440753a3845a8fda0774e2",
+      "gate": [
+        "then:6a2d778561f5ded4ec2a100421964b1f6a95f873552da550e5aa67600fdc0a30"
+      ],
+      "origin": [
+        "022607ab95dd869f48fadf673d7b63750868f98f0933651fa2e9c2d502e3b859"
+      ],
+      "fingerprint": "efe1143f716b96f8149ada2b82b912fd27ed67152bf73df37166ea003fadcb90",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Existing ReferencePicker.open maps the session catalogue returned by the shared projection.",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "This existing picker map is now visible to transitive scan analysis after the reader refactor. It retains the catalogue classification; sharing does not bound picker-open cardinality.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     }
   ]

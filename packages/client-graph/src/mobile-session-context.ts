@@ -8,7 +8,7 @@ import {
   chatInteractions,
   chatMentionIssues,
   chatRecords,
-  chatReferenceSessions,
+  createReferenceSessionProjection,
 } from './chat-context'
 import { CHAT_CONTEXT_ENTITIES } from './chat-context-schema'
 import { ChatContextSource } from './chat-context-source'
@@ -61,7 +61,11 @@ export function createMobileSessionReader(pool: MobxPool) {
     },
     nextSession: (id: string) => runInAction(() => pool.queries.nextTriageSession(id)),
     referencePicker: () => createReferencePicker(pool),
-    sessions: () => chatReferenceSessions(pool),
+    sessions: () => pool.sources
+      .view('mobile-reference-sessions', () =>
+        createReferenceSessionProjection(pool),
+      )
+      .sessions(),
     issues: () => chatMentionIssues(pool),
     machine: (id: string | undefined): MachineWire | undefined =>
       id === undefined ? undefined : pool.row('machine', id) as MachineWire | undefined,

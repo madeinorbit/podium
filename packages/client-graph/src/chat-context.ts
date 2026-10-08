@@ -1,12 +1,14 @@
-import { lazy } from '@podium/mobx-helpers'
 import { action, compareStructural, observable, observableRef, when } from 'mobx'
 import { headerEntities } from './header-entities'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MachineWire, MessageRecordWire } from '@podium/model'
 import { dedupeSessionsByResume } from '@podium/model'
+import { companion, lazy } from '@podium/mobx-helpers'
 import type { PendingInteractionWire } from '@podium/protocol'
+import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
 import { headerIds } from './enumerate'
+import type { SessionModel } from './models'
 import type { MobxPool } from './pool'
 import type { Loaded } from './worklist/rollup'
 
@@ -129,20 +131,74 @@ export function chatArtifactIssue(
   return issue && !loading(issue) && issue.deletedAt ? undefined : issue
 }
 export function chatReferenceSessions(pool: MobxPool, counts = readerCounts(pool)) {
-  if (counts) counts.referenceBuilds++
-  const order = pool.row('chatSessionOrder', 'order')
-  const sessions: SessionView[] = []
-  let pending = loading(order) ? 1 : 0
-  if (!order || loading(order)) return { sessions, pending }
-  const known = pool.queries.ids({ kind: 'referenceSessions' }),
-    present = new Set(known)
-  for (const id of new Set([...order.ids.filter((id) => present.has(id)), ...known])) {
-    if (counts) counts.referenceSessionReads++
-    const row = pool.row('session', id, 'summary-fields') as Loaded<SessionView>
-    if (loading(row)) pending++
-    else if (row) sessions.push(row)
+  return pool.sources
+    .view('chat-reference-sessions', () =>
+      createReferenceSessionProjection(pool, CHAT_CONTEXT_SUMMARIES.session, counts),
+    )
+    .sessions()
+}
+
+/** The shared list and per-session companions are observed only while needed.
+ * A payload replacement compares its declared reference fields before the list
+ * can be invalidated. Imperative reads and reopening always see current data. */
+export function createReferenceSessionProjection(
+  pool: MobxPool,
+  fields?: readonly (keyof SessionView)[],
+  counts = readerCounts(pool),
+) {
+  return new ReferenceSessionProjection(pool, fields, counts)
+}
+
+class ReferenceSessionProjection {
+  private readonly session = companion((model: SessionModel) =>
+    new ReferenceSessionSummary(this.pool, model, this.fields, this.counts),
+  )
+  constructor(
+    private readonly pool: MobxPool,
+    private readonly fields: readonly (keyof SessionView)[] | undefined,
+    private readonly counts: ChatReadCounts | undefined,
+  ) {}
+  sessions() { return this.result }
+  @lazy private get result() {
+    if (this.counts) this.counts.referenceBuilds++
+    const order = this.pool.row('chatSessionOrder', 'order')
+    const sessions: SessionView[] = []
+    let pending = loading(order) ? 1 : 0
+    if (!order || loading(order)) return { sessions, pending }
+    const known = this.pool.queries.ids({ kind: 'referenceSessions' }),
+      present = new Set(known)
+    for (const id of new Set([...order.ids.filter((id) => present.has(id)), ...known])) {
+      const row = this.session(this.pool.sessionObject(id)).presentation
+      if (loading(row)) pending++
+      else if (row) sessions.push(row)
+    }
+    return { sessions: dedupeSessionsByResume(sessions), pending }
   }
-  return { sessions: dedupeSessionsByResume(sessions), pending }
+}
+
+/** Compatibility presentation for the existing SessionView reader contract.
+ * The companion borrows the pool's shared model; only its small declared field
+ * projection is compared, never the complete reference list. */
+class ReferenceSessionSummary {
+  constructor(
+    private readonly pool: MobxPool,
+    private readonly model: SessionModel,
+    private readonly fields: readonly (keyof SessionView)[] | undefined,
+    private readonly counts: ChatReadCounts | undefined,
+  ) {}
+  @lazy({ equals: compareStructural }) get presentation(): Loaded<SessionView> {
+    if (this.counts) this.counts.referenceSessionReads++
+    const row = this.pool.row('session', this.model.id, 'summary-fields') as Loaded<SessionView>
+    if (!row || loading(row)) return row
+    // Reference cards name their fields; the phone roster preserves the
+    // richer declared summary and resident metadata it already consumed.
+    const projected = this.fields
+      ? Object.fromEntries(this.fields.map(key => [key, this.model.storedField(key)])) as unknown as SessionView
+      : { ...row }
+    if (projected.resume)
+      projected.resume = { kind: projected.resume.kind, value: projected.resume.value }
+    return projected
+  }
 }
 export function chatReferenceMachines(pool: MobxPool): MachineWire[] {
   return headerIds(pool, 'machine').flatMap((id) => {

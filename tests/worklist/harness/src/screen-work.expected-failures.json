@@ -130,17 +130,6 @@
         }
       },
       {
-        "reader": "consumer:chat.references",
-        "actions": {
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
-        }
-      },
-      {
         "reader": "consumer:issue-page.detail/IssuePage@members:guard-root",
         "actions": {
           "navigate-by-ref": ["rows", "elements"],
