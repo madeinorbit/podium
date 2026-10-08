@@ -165,6 +165,8 @@
       "dependsOn": ["^typecheck"],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packages/client-graph/src/**",
+        "$TURBO_ROOT$/packages/client-graph/package.json",
         "$TURBO_ROOT$/tests/worklist/harness/src/work-meter.ts",
         "$TURBO_ROOT$/tests/worklist/legacy-values/**"
       ],
@@ -361,6 +363,8 @@
         "$TURBO_ROOT$/test-hermetic-vitest-hooks.ts",
         "$TURBO_ROOT$/test-hermetic-state-guard.ts",
         "$TURBO_ROOT$/packages/commands/src/**",
+        "$TURBO_ROOT$/packages/client-graph/src/**",
+        "$TURBO_ROOT$/packages/client-graph/package.json",
         "$TURBO_ROOT$/packages/model/src/**",
         "$TURBO_ROOT$/packages/protocol/src/**",
         "$TURBO_ROOT$/packages/runtime/src/**",
