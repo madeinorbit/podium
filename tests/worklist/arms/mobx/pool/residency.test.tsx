@@ -1247,7 +1247,7 @@ describe('history rule warming', () => {
         seat('history-parent-seat', { ...binding, stoppedAt: old })] })
       const presence: boolean[] = []
       const stop = autorun(() => {
-        presence.push(r.pool.model('issue', 'history-parent').present)
+        presence.push(r.pool.knownIssue('history-parent')!.present)
       })
       try {
         r.push({ type: 'update', rows: [seat('history-parent-seat', { ...binding, stoppedAt: null })] })
