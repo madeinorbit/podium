@@ -301,6 +301,7 @@ export class SessionTerminal {
   private outputCount_ = 0
   private activityCount_ = 0
   private activityDirty_ = false
+  private activityDirtyListener: (() => void) | undefined
   private shellBusy_ = false
   private shellBusyTimer: ReturnType<typeof setTimeout> | undefined
   private shellCommandRunning = false
@@ -424,10 +425,23 @@ export class SessionTerminal {
     this.activityDirty_ = false
   }
 
+  /** The repository owns the lazy activity-save queue for this terminal. */
+  setActivityDirtyListener(listener: (() => void) | undefined): void {
+    this.activityDirtyListener = listener
+    if (this.activityDirty_) listener?.()
+  }
+
+  private markActivityDirty(): void {
+    this.activityDirty_ = true
+    // Notify on every change, including while already dirty: an older write
+    // must not clear activity that arrived while it was awaiting persistence.
+    this.activityDirtyListener?.()
+  }
+
   recordResumeActivity(): void {
     this.resumedAtMs_ = Date.now()
     this.activityCount_ += 1
-    this.activityDirty_ = true
+    this.markActivityDirty()
   }
 
   attachClient(client: ClientConn): void {
@@ -691,12 +705,12 @@ export class SessionTerminal {
     if (origin === 'human' || origin === 'controller') this.userInputAtMs_ = at
     this.inputCount_ += 1
     this.activityCount_ += 1
-    this.activityDirty_ = true
+    this.markActivityDirty()
   }
 
   recordObservationActivity(): void {
     this.activityCount_ += 1
-    this.activityDirty_ = true
+    this.markActivityDirty()
   }
 
   /**
@@ -908,7 +922,7 @@ export class SessionTerminal {
     }
     this.outputAtMs_ = Date.now()
     this.outputCount_ += sourceFrames
-    this.activityDirty_ = true
+    this.markActivityDirty()
     if (this.init.agentKind === 'shell' && this.shellCommandRunning) this.markShellBusy()
   }
 
@@ -935,7 +949,7 @@ export class SessionTerminal {
     if (sameGeometry(geometry, this.geometry)) return false
     this.geometry = { cols: geometry.cols, rows: geometry.rows }
     // The DB copy is lazy: the activity flush writes it with the row.
-    this.activityDirty_ = true
+    this.markActivityDirty()
     this.broadcast({
       type: 'geometry',
       sessionId: this.init.sessionId,

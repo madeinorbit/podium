@@ -215,6 +215,8 @@ export class SessionRepository {
   private readonly stagedSessionStates: StagedOverlay<SessionId, SessionDurableState>
   /** True while an activity flush is running — see {@link flushActivity}. */
   private flushingActivity = false
+  private activityMutationVersion = 0
+  private readonly dirtyActivitySessions = new Map<SessionId, number>()
   private volatileSessionCaptureTimer: ReturnType<typeof setTimeout> | null = null
   private static readonly VOLATILE_CAPTURE_RETRY_MS = 1_000
   static readonly VOLATILE_SLICE_MAX_ITEMS = 32
@@ -229,6 +231,21 @@ export class SessionRepository {
       },
       'session-durable-baseline-fold',
     )
+    // Initial resident sessions need one enrollment pass, never a timer sweep.
+    for (const session of ports.sessions.values()) this.observeSessionActivity(session)
+  }
+
+  private observeSessionActivity(session: Session): void {
+    session.terminal.setActivityDirtyListener(() => {
+      this.dirtyActivitySessions.set(session.sessionId, ++this.activityMutationVersion)
+    })
+  }
+
+  registerSession(session: Session): void {
+    this.sessions.get(session.sessionId)?.terminal.setActivityDirtyListener(undefined)
+    this.dirtyActivitySessions.delete(session.sessionId)
+    this.sessions.set(session.sessionId, session)
+    this.observeSessionActivity(session)
   }
 
   private get sessions(): Map<SessionId, Session> {
@@ -747,6 +764,31 @@ export class SessionRepository {
     }
   }
 
+  /** Drain only the IDs dirty at entry; newer activity stays queued for the next tick. */
+  async flushDirtyActivity(): Promise<void> {
+    if (this.flushingActivity) return
+    this.flushingActivity = true
+    try {
+      for (const sessionId of [...this.dirtyActivitySessions.keys()]) {
+        const session = this.sessions.get(sessionId)
+        if (!session || !session.terminal.activityDirty) {
+          this.dirtyActivitySessions.delete(sessionId)
+          continue
+        }
+        const version = this.dirtyActivitySessions.get(sessionId)
+        if (
+          (await this.persistActivityIfWritable(session)) &&
+          this.dirtyActivitySessions.get(sessionId) === version
+        ) {
+          session.terminal.clearActivityDirty()
+          this.dirtyActivitySessions.delete(sessionId)
+        }
+      }
+    } finally {
+      this.flushingActivity = false
+    }
+  }
+
   /** Materialize one persisted row without exposing it until the caller installs it.
    *  Restored tombstones always come back as exited: deletion killed their runtime,
    *  so retaining a prior live/starting status would claim a PTY that no longer exists. */
@@ -909,7 +951,7 @@ export class SessionRepository {
         if (staleOffer) await this.store.sessions.clearOffer(session.sessionId)
       },
       apply: () => {
-        this.sessions.set(session.sessionId, session)
+        this.registerSession(session)
         this.state.installSession(session.sessionId)
         this.commitDurableBaseline(session.sessionId, session.captureDurableState())
       },

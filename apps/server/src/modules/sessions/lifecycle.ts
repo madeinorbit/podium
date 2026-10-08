@@ -284,7 +284,7 @@ export class SessionLifecycle {
   /** Durable per-session phase-transition log for the waterfall's segments. */
   private readonly activityHistory!: SessionActivityHistory
   // Single timer that persists only sessions whose activity counters advanced
-  // since the last tick — keeps the per-frame / per-keystroke path off the DB.
+  // since the last tick — the repository queues their IDs at the mutation seam.
   private readonly activityFlushTimer = setInterval(() => {
     void this.repository.flushActivity().catch((error) => {
       log.error('failed to flush session activity', { error })
@@ -340,6 +340,10 @@ export class SessionLifecycle {
   ): Promise<void> {
     await this.repository.persist(session, additionalWrite)
   }
+  registerSession(session: Session): void {
+    this.repository.registerSession(session)
+  }
+
   async flushActivity(): Promise<void> {
     await this.repository.flushActivity()
   }

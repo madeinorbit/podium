@@ -328,7 +328,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     durableLabelFor: (sessionId) => bag.deps.durableLabelFor(sessionId),
     hasSession: (sessionId) => bag.sessions.has(sessionId),
     registerSession: (session) => {
-      bag.sessions.set(session.sessionId, session)
+      bag.registerSession(session)
     },
     sessionMachineId: (sessionId) => bag.sessions.get(sessionId)?.machineId,
     defaultMachine: () => machines.defaultMachine(),
@@ -353,7 +353,7 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
   bag.headless = new HeadlessService({
     durableLabelFor: (sessionId) => bag.deps.durableLabelFor(sessionId),
     getSession: (sessionId) => bag.sessions.get(sessionId),
-    registerSession: (session) => bag.sessions.set(session.sessionId, session),
+    registerSession: (session) => bag.registerSession(session),
     resolveMachine: (requested, cwd, agentKind) =>
       bag.machines.resolveMachineForAgent(requested, cwd, agentKind),
     // Headless selection ports remain tracked separately in POD-3605.
