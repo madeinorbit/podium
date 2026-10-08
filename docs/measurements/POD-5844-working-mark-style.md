@@ -73,10 +73,10 @@ metric boundaries and animation-state checks.
 
 All arms record zero layout and script duration. Running animation clocks
 advance for the full window; paused clocks hold. All arms retain four visible
-marks and 32 circles. The legacy arms have **zero recurring style work**, with
-one isolated recalculation in the restored window. Thus this fixture does
-**not** reproduce the live
-application's style-duration reduction. It demonstrates that the strip can
+marks and 32 circles. The legacy arms record **at most one style recalculation
+per minute**, with that one event in the restored window. Thus this fixture
+does **not** reproduce the live application's style-duration reduction.
+It demonstrates that the strip can
 advance without recorded style work in this small Chromium document; it does
 not establish that the strip is free in the app or on WebKit. The live
 disable/restore evidence remains the attribution proof. The current static
