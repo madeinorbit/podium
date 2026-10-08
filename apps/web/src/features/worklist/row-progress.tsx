@@ -102,7 +102,9 @@
  * DESIGN.md §5 names the spinner as the only perpetual motion; this is not a
  * second signal beside it but the same fact rendered as the texture of the
  * segment that fact is about, on a row that is already showing the spinner on
- * its square. Reduced motion drops the sheen and the width transitions both.
+ * its square. Sweeps pause outside scrollable viewports and in hidden documents;
+ * their static segments and labels remain. Reduced motion drops the sheen and
+ * the width transitions both.
  *
  * Segment widths TRANSITION (0.45s) rather than jumping: a task finishing is a
  * real change and the meter should be seen to move, which is also the only way
@@ -112,6 +114,7 @@
 import type { MissionProgress } from '@podium/client-core/values'
 import type { JSX } from 'react'
 import { cn } from '@/lib/utils'
+import { observeRowProgressSweep } from './row-progress-sweep'
 
 /**
  * The smallest mission that gets a meter.
@@ -193,7 +196,9 @@ export function RowProgressMeter({
         className={cn(segment, 'relative overflow-hidden bg-live')}
         style={{ width: pct(progress.run) }}
       >
-        {working && <span className="row-progress-sweep" aria-hidden="true" />}
+        {working && progress.run > 0 && (
+          <span ref={observeRowProgressSweep} className="row-progress-sweep" aria-hidden="true" />
+        )}
       </span>
       {progress.review > 0 && (
         <span

@@ -258,7 +258,8 @@
    agent on that row actually computing. It is not a second "an agent is
    computing" signal beside the spinner; it is that fact rendered as the texture
    of the one segment the fact is about, on a row already wearing the spinner.
-   Transform-only, so it composites and thirty of them cost nothing. */
+   Transform-only still consumes compositor/GPU CPU. The shared row observer
+   runs it only for a visible, nonempty segment in a visible document. */
 @keyframes podium-run-sweep {
   from {
     transform: translateX(-100%);
@@ -272,6 +273,7 @@
   inset: 0;
   background: linear-gradient(90deg, transparent, var(--motion-working-bright) 50%, transparent);
   animation: podium-run-sweep 1.6s ease-in-out infinite;
+  animation-play-state: paused;
 }
 
 /* Base transition every phase-coloured surface (row, ID square, rail icon)
