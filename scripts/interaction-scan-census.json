@@ -39408,14 +39408,73 @@
     },
     {
       "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/projectChoices/computed:callback/flatMap:callback/repo",
+      "holder": "launchOptionViews/view:callback/project/callback",
       "rule": "reader-summary",
       "tokens": "eb9d8205fa27b5ee942ff3a26d19d33839b2dbc7f66f92fb62666339d3a46153",
       "gate": [],
       "origin": [
         "0cf7ee8fedb0b6dd2d068edec860d951e26eae8c364b9645c3fe3e5c19e3d6f8"
       ],
-      "fingerprint": "30de5a872a9a7c2bad64da7250bc009b1eb014dbf04ef15b378936fe00979444",
+      "fingerprint": "b5cf7f0c0320c2a5adbc37914e58da2360739e3c45f1d3c979e794261f585242",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5751",
+      "trigger": "Picker open action; live repository metadata and membership updates.",
+      "bound": "Repository choices present on open; usage reads run only once per opening.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/workOnOpen/callback/values/flatMap:callback/eligible",
+      "rule": "helper-consumer",
+      "tokens": "1b8ef3d025c8c5df30493a96096cb6d847dbcd842bdaf307c83435745451cf7e",
+      "gate": [
+        "exit:then:f2bfe1df8cedded48f0a2f50d14e92e1b56fefeebe338bdc464576a965b7e745"
+      ],
+      "origin": [
+        "0cf7ee8fedb0b6dd2d068edec860d951e26eae8c364b9645c3fe3e5c19e3d6f8"
+      ],
+      "fingerprint": "b3fbd9978e628e03d62a2096a94f74cce668a8f9b8bb0d47854c4a899f31309d",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5751",
+      "trigger": "Picker open action; live repository metadata and membership updates.",
+      "bound": "Repository choices present on open; usage reads run only once per opening.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "LaunchWorkPicker/choices/flatMap:callback",
+      "rule": "helper-consumer",
+      "tokens": "eeae6d55802b4c1187c77df06343f2b32910c5b5b9626133f3d9c27fd56cb9de",
+      "gate": [
+        "then:208c4e14326c79078f30e1b4030acb42b768418088724bbd62c41b1bb9e17157",
+        "&&:cad1a3e7240b04c8d2893c0c7a3acd28a5bd3d54e894bded55352cfdbd75ce76"
+      ],
+      "origin": [
+        "0cf7ee8fedb0b6dd2d068edec860d951e26eae8c364b9645c3fe3e5c19e3d6f8"
+      ],
+      "fingerprint": "c516bdc2511e56f55b1e0e7a51ffe273ee7fed6b0633537c8ae40c38287cb2d9",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5751",
+      "trigger": "Picker open action; live repository metadata and membership updates.",
+      "bound": "Repository choices present on open; usage reads run only once per opening.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "LaunchWorkPicker/choices/flatMap:callback/repo",
+      "rule": "reader-summary",
+      "tokens": "06096db51e273de24be81e59aedda834e51d5cf0efccd1f98d57758de5349181",
+      "gate": [],
+      "origin": [
+        "0cf7ee8fedb0b6dd2d068edec860d951e26eae8c364b9645c3fe3e5c19e3d6f8"
+      ],
+      "fingerprint": "e52a2502a8925009671563171a4461ab92bc599f13eb4741fdbbeb1342cf438f",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5751",
