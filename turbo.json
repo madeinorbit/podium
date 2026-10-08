@@ -193,7 +193,9 @@
         "$TURBO_ROOT$/tests/worklist/legacy-values/**",
         "$TURBO_ROOT$/apps/web/harness/header-scan-control.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/mission-session.ts",
+        "$TURBO_ROOT$/apps/web/src/app/flight-deck-display.ts",
         "$TURBO_ROOT$/apps/web/src/app/mission-pane-reader.ts",
+        "$TURBO_ROOT$/apps/web/src/lib/issueColors.ts",
         "$TURBO_ROOT$/apps/web/node_modules/vite/dist/node/index.js"
       ],
       "outputs": ["*.tsbuildinfo"]
@@ -210,9 +212,11 @@
         "$TURBO_ROOT$/apps/mobile/src/lib/pool-work-menu.ts",
         "$TURBO_ROOT$/apps/mobile/src/lib/work-menu.ts",
         "$TURBO_ROOT$/apps/web/src/app/command-launch-readers.ts",
+        "$TURBO_ROOT$/apps/web/src/app/flight-deck-display.ts",
         "$TURBO_ROOT$/apps/web/src/app/mission-pane-reader.ts",
         "$TURBO_ROOT$/apps/web/src/app/pool-navigation-provider.ts",
-        "$TURBO_ROOT$/apps/web/src/features/worklist/pool-row-data.ts"
+        "$TURBO_ROOT$/apps/web/src/features/worklist/pool-row-data.ts",
+        "$TURBO_ROOT$/apps/web/src/lib/issueColors.ts"
       ],
       "outputs": ["*.tsbuildinfo"]
     },
