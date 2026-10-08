@@ -394,10 +394,12 @@ export class CommandPaletteView {
     const views = commandLaunchViews(this.pool)
     const take = () => {
       this.snapshot = views.opening()
-      const sessions = views.sessions()
-      this.sessions = sessions && sessions !== LOADING
-        ? sessions.map(session => this.pool.sessionObject(session.sessionId) as unknown as SessionView) : []
-      this.defaultAgent = resolveDefaultAgent(undefined, sessions && sessions !== LOADING ? sessions : [])
+      const ids = views.sessionIds()
+      this.sessions = ids && ids !== LOADING ? ids.flatMap(id => {
+        const row = this.pool.row('session', id, 'summary-fields')
+        return row && row !== LOADING ? [this.pool.sessionObject(id) as unknown as SessionView] : []
+      }) : []
+      this.defaultAgent = resolveDefaultAgent(undefined, this.sessions)
       this.memberOrder = this.sessions.flatMap(session =>
         session.issueId && session.agentKind !== 'shell'
           ? [{ issueId: session.issueId, sessionId: session.sessionId }] : [])

@@ -1,3 +1,4 @@
+import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { createCommandPalette } from '@podium/client-graph/command-launch-views'
 import { chatIssue } from '@podium/client-graph/chat-context'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -12,7 +13,7 @@ import { CommandLaunchSource } from '@podium/client-graph/command-launch-source'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { createLaunchCatalogPicker, launchOptionViews } from '@podium/client-graph/launch-option-views'
 import type { HeaderRecord } from '@podium/client-graph/header-schema'
-import { useEffect, useMemo } from 'react'
+import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import { vi } from 'vitest'
 import {
   readFiles,
@@ -124,8 +125,11 @@ vi.mock('@/app/command-launch-data', async (original) => ({
     const pool = useCommandFixture(pool => pool)
     const picker = useMemo(() => { const view = createCommandPalette(pool); view.open(); return view }, [pool])
     useEffect(() => () => picker.close(), [picker])
-    return { data: picker.palette(), sessions: picker.sessions, selectedSessions: picker.selectedSessions,
-      recent: picker.recent, defaultAgent: picker.defaultAgent }
+    const projection = useMemo(() => createPoolProjection(pool, () => ({
+      data: picker.palette(), sessions: picker.sessions, selectedSessions: picker.selectedSessions,
+      recent: picker.recent, defaultAgent: picker.defaultAgent,
+    })), [pool, picker])
+    return useSyncExternalStore(projection.subscribe, projection.getSnapshot)
   },
   useCommandSessionLookup: () => useCommandFixture(pool => (id: string) => readSession(pool, id)),
   useCommandIssue: (id: string | null) => useCommandFixture(pool => id === null ? undefined : chatIssue(pool, id)),

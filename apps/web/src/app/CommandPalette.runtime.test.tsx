@@ -2,7 +2,8 @@ import { referenceState } from '../../../../tests/worklist/diagnostics/reference
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { commandLaunchViews, createCommandPalette } from '@podium/client-graph/command-launch-views'
+import { commandLaunchViews, createCommandPalette, CommandPaletteView } from '@podium/client-graph/command-launch-views'
+import { LOADING } from '@podium/client-graph'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -168,4 +169,38 @@ for (const scale of [1, 4]) it(`does not render or walk catalogs on an open pale
   expect(commandLaunchViews(pool!).counts.issueBuilds).toBe(counts.issueBuilds)
   expect(commandLaunchViews(pool!).counts.usageQueries).toBe(counts.usageQueries)
   mounted.unmount()
+})
+
+it('releases each opening across fifty palette cycles without growing reachable view owners', async () => {
+  const fixture = createSidebarFixture(12, Date.now(), false, 'palette-fifty-openings')
+  const opening = vi.spyOn(CommandPaletteView.prototype, 'open')
+  const closing = vi.spyOn(CommandPaletteView.prototype, 'close')
+  const mounted = render(<StoreProvider principal={asClientPrincipal(asUserId('palette-fifty-openings'))}
+    config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
+    createReplicaFn={() => fixture.replica} networkEnabled={false}
+    attachRuntime={runtime => attachWorklistPool(runtime, error => { throw error })}
+    onFatalError={error => { throw new Error(error) }}>
+    <ConfirmProvider><Capture /><CommandPalette /></ConfirmProvider>
+  </StoreProvider>)
+  let owners = 0
+  try {
+    for (let cycle = 0; cycle < 50; cycle++) {
+      await act(async () => referenceState(runtime).setPaletteOpen(true))
+      expect(await screen.findByRole('combobox')).toBeTruthy()
+      await act(async () => referenceState(runtime).setPaletteOpen(false))
+      expect(screen.queryByRole('combobox')).toBeNull()
+      // Inspect actual strong registry roots, not a manually maintained counter.
+      const registry = Reflect.get(pool!.sources, 'views') as Map<string, object>
+      if (cycle === 0) owners = registry.size
+      expect(registry.size).toBe(owners)
+      expect([...registry.values()].some(owner => owner instanceof CommandPaletteView)).toBe(false)
+      const view = opening.mock.contexts.at(-1)! as CommandPaletteView
+      expect(view.snapshot).toBe(LOADING)
+      expect(view.sessions).toEqual([])
+      expect(view.memberOrder).toEqual([])
+    }
+    expect(new Set(opening.mock.contexts).size).toBe(50)
+    expect(opening).toHaveBeenCalledTimes(50)
+    expect(closing.mock.calls.length).toBeGreaterThanOrEqual(50)
+  } finally { mounted.unmount(); opening.mockRestore(); closing.mockRestore() }
 })
