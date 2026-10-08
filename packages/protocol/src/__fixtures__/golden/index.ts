@@ -3,7 +3,6 @@
 // package with `types: []`, so the fixture suite must not touch node:fs.
 
 import approvals from './approvals.json' with { type: 'json' }
-import automations from './automations.json' with { type: 'json' }
 import binaryEnvelope from './binary-envelope.json' with { type: 'json' }
 import browserOpen from './browser-open.json' with { type: 'json' }
 import codex from './codex.json' with { type: 'json' }
@@ -43,7 +42,6 @@ import workspace from './workspace.json' with { type: 'json' }
 /** Every committed golden family, keyed by family name. */
 export const GOLDEN: Record<string, unknown> = {
   approvals: approvals,
-  automations: automations,
   'binary-envelope': binaryEnvelope,
   'browser-open': browserOpen,
   codex: codex,

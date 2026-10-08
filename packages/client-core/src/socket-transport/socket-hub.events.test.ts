@@ -76,13 +76,6 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
     controllerChanged: noop,
     geometry: noop,
     agentExit: noop,
-    sessionsChanged: noop,
-    sessionViewDelta: noop,
-    conversationsChanged: noop,
-    automationsChanged: noop,
-    automationRunsChanged: noop,
-    sessionTitleChanged: noop,
-    sessionAgentStateChanged: noop,
     sessionDraftChanged: noop,
     hostMetricsChanged: noop,
     machinesChanged: noop,
@@ -134,24 +127,6 @@ describe('SocketHub dispatch exhaustiveness (type-level)', () => {
 })
 
 describe('SocketHub subscription seam (on/emit)', () => {
-  it('routes a metadata message through the seam to a legacy on* wrapper unchanged', () => {
-    const { sock, hub } = setup()
-    const viaWrapper: SessionMeta[][] = []
-    const viaSeam: SessionMeta[][] = []
-    hub.onSessions((s) => viaWrapper.push(s)) // legacy wrapper (replays immediately)
-    hub.on('sessions', (s) => viaSeam.push(s)) // new seam (no replay)
-    hub.connect()
-    sock.open()
-    const m = meta(asSessionId('s1'))
-    sock.recv({ type: 'sessionsChanged', sessions: [m] })
-    // Wrapper: synchronous replay of the empty list + the update — timing unchanged.
-    expect(viaWrapper).toEqual([[], [m]])
-    // Seam: the update only, and the very same array the wrapper saw.
-    expect(viaSeam).toEqual([[m]])
-    expect(viaSeam[0]).toBe(viaWrapper[1])
-    expect(viaSeam[0]).toBe(hub.sessions())
-  })
-
   it.each([
     undefined,
     'anna/team',
@@ -226,18 +201,14 @@ describe('SocketHub subscription seam (on/emit)', () => {
     expect(seam).toEqual([['s1', 'draft…']])
   })
 
-  it('keeps approval-broker and durable automation-run flows on typed transport events', () => {
+  it('keeps approval-broker flows on typed transport events', () => {
     const { sock, hub } = setup()
     const approvals: unknown[] = []
-    const runs: unknown[] = []
     hub.on('approvals', (pending) => approvals.push(pending))
-    hub.on('automationRuns', (items) => runs.push(items))
     hub.connect()
     sock.open()
     sock.recv({ type: 'approvalsChanged', pending: [] })
-    sock.recv({ type: 'automationRunsChanged', automationRuns: [] })
     expect(approvals).toEqual([[]])
-    expect(runs).toEqual([[]])
     hub.dispose()
   })
 

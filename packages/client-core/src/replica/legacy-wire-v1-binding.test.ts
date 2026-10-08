@@ -29,13 +29,9 @@ function setup() {
 const lists = (
   issues: Array<{ id: string; title: string }>,
 ): Omit<LegacyMetadataAppliedState, 'cursor'> => ({
-  sessions: [],
   issueProjections: issues as unknown as LegacyMetadataAppliedState['issueProjections'],
   issueDeps: [],
   repos: [],
-  conversations: [],
-  automations: [],
-  automationRuns: [],
 })
 
 const userWrite: OutboxEntry = {

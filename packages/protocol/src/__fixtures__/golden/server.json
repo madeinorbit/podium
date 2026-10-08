@@ -30,32 +30,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"type\":\"sessionDraftChanged\",\"sessionId\":\"sessionId\",\"text\":\"text\",\"rev\":1,\"origin\":\"origin\",\"editedAt\":\"editedAt\"}"
-    },
-    {
-      "schema": "SessionTitleChangedMessage",
-      "variant": "minimal",
-      "wire": {
-        "type": "sessionTitleChanged",
-        "sessionId": "sessionId",
-        "title": "title"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"sessionTitleChanged\",\"sessionId\":\"sessionId\",\"title\":\"title\"}"
-    },
-    {
-      "schema": "SessionTitleChangedMessage",
-      "variant": "full",
-      "wire": {
-        "type": "sessionTitleChanged",
-        "sessionId": "sessionId",
-        "title": "title"
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"type\":\"sessionTitleChanged\",\"sessionId\":\"sessionId\",\"title\":\"title\"}"
     }
   ]
 }

@@ -121,10 +121,8 @@ const snapshot = (
   issueProjections: IssueProjection[] = [],
 ): Extract<SyncChangesSinceResult, { kind: 'snapshot' }> => ({
   kind: 'snapshot',
-  sessions: [],
   issues: [],
   issueProjections,
-  conversations: [],
   diagnostics: [],
   cursor,
 })
@@ -179,7 +177,7 @@ describe('SocketHub metadata delta mode', () => {
     const seen: ShipLaneProjection[][] = []
     hub.on('shipLanes', (rows) => seen.push(rows))
     try {
-      hub.seedMetadata({ sessions: [], conversations: [], shipLanes: [cached] })
+      hub.seedMetadata({ shipLanes: [cached] })
       expect(seen.at(-1)).toMatchObject([cached])
       hub.connect()
       sock.open()
@@ -208,7 +206,7 @@ describe('SocketHub metadata delta mode', () => {
     try {
       const oldSeen: ShipLaneProjection[][] = []
       older.hub.on('shipLanes', (rows) => oldSeen.push(rows))
-      older.hub.seedMetadata({ sessions: [], conversations: [], shipLanes: [cached] })
+      older.hub.seedMetadata({ shipLanes: [cached] })
       older.hub.connect()
       older.sock.open()
       await vi.waitFor(() => expect(oldSeen.at(-1)).toEqual([]))
@@ -316,45 +314,6 @@ describe('SocketHub metadata delta mode', () => {
     })
     expect(observedIssues(hub).map((i) => i.title)).toEqual(['one v2'])
     expect(seen.at(-1)).toEqual(['one v2'])
-  })
-
-  it('bootstraps and incrementally updates durable automation definitions and runs', async () => {
-    const initial = automation('aut_1', 'Nightly sweep')
-    const initialRun = automationRun('arun_1', initial.id)
-    const { sock, hub } = setup([
-      {
-        ...snapshot(5),
-        automations: [initial],
-        automationRuns: [initialRun],
-      },
-    ])
-    const seen: string[][] = []
-    hub.on('automations', (rows) => seen.push(rows.map((row) => row.name)))
-    hub.on('issueProjections', (rows) => latestProjections.set(hub, rows))
-    hub.connect()
-    sock.open()
-    await flush()
-
-    expect(hub.automations()).toEqual([initial])
-    expect(hub.automationRuns()).toEqual([initialRun])
-    sock.recv({
-      type: 'metadataDelta',
-      seq: 7,
-      changes: [
-        {
-          seq: 6,
-          entity: 'automation',
-          id: initial.id,
-          op: 'upsert',
-          value: automation(initial.id, 'Nightly sweep v2', 'resume'),
-        },
-        { seq: 7, entity: 'automationRun', id: initialRun.id, op: 'remove' },
-      ],
-    })
-
-    expect(hub.automations()).toEqual([automation(initial.id, 'Nightly sweep v2', 'resume')])
-    expect(hub.automationRuns()).toEqual([])
-    expect(seen.at(-1)).toEqual(['Nightly sweep v2'])
   })
 
   it('ignores stale batches and heals on a seq gap', async () => {
@@ -651,7 +610,6 @@ describe('SocketHub metadata delta mode', () => {
     })
     await flush()
     expect(observedIssues(hub).map((i) => i.title)).toEqual(['known', 'also known'])
-    expect(hub.conversations()).toEqual([]) // the unknown row corrupted nothing
     // The kind is a structured FIELD now, not interpolated into the message —
     // so assert on the field, which is what makes the record queryable at all.
     expect(
@@ -820,9 +778,7 @@ describe('SocketHub metadata delta mode', () => {
       initialCursor: 5,
     })
     hub.seedMetadata({
-      sessions: [],
       issueProjections: [issue(asIssueId('old'), 'stale seed')],
-      conversations: [],
     })
     hub.on('issueProjections', (rows) => latestProjections.set(hub, rows))
     hub.connect()
@@ -855,9 +811,7 @@ describe('SocketHub metadata delta mode', () => {
     const seen: string[][] = []
     observeIssues(hub, (i) => seen.push(i.map((x) => x.title)))
     hub.seedMetadata({
-      sessions: [],
       issueProjections: [issue(asIssueId('local'), 'replica')],
-      conversations: [],
     })
     // Hydrate-first: the seed is visible before any socket traffic.
     expect(observedIssues(hub).map((i) => i.title)).toEqual(['replica'])
@@ -870,9 +824,7 @@ describe('SocketHub metadata delta mode', () => {
     expect(observedIssues(hub).map((i) => i.title)).toEqual(['server'])
     // A late seed (e.g. slow hydrate losing the race) can no longer clobber it.
     hub.seedMetadata({
-      sessions: [],
       issueProjections: [issue(asIssueId('late'), 'stale')],
-      conversations: [],
     })
     expect(observedIssues(hub).map((i) => i.title)).toEqual(['server'])
   })
@@ -898,13 +850,11 @@ describe('SocketHub metadata delta mode', () => {
       { initialCursor: 5 },
     )
     hub.seedMetadata({
-      sessions: [],
       issueProjections: [
         issue(asIssueId('a'), 'a v1'),
         issue(asIssueId('b'), 'gone soon'),
         issue(asIssueId('c'), 'untouched'),
       ],
-      conversations: [],
     })
     hub.on('issueProjections', (rows) => latestProjections.set(hub, rows))
     hub.connect()

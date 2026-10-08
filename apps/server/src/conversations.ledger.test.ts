@@ -377,7 +377,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       diagnostics: [{ severity: 'warning', message: 'scan hiccup' }],
     })
     await registry.modules.sessions.flushBroadcasts()
-    expect(delta.inbox.some((message) => message.type === 'conversationsChanged')).toBe(false)
+    expect(delta.inbox.map((message) => message.type).includes('conversationsChanged')).toBe(false)
     await expect
       .poll(() => deltaConversationChanges(delta.inbox).some((change) => change.id === 'c1'))
       .toBe(true)
@@ -394,7 +394,7 @@ describe('conversation writes on the write-seam Ledger ([spec:SP-3fe2] #257)', (
       )
       .toBe(true)
     const since = delta.inbox.slice(before)
-    expect(since.some((m) => m.type === 'conversationsChanged')).toBe(false)
+    expect(since.map((m) => m.type).includes('conversationsChanged')).toBe(false)
     expect(deltaConversationChanges(since).some((c) => c.id === 'c1')).toBe(true)
   })
 

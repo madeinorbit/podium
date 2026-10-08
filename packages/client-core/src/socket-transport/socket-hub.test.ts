@@ -472,38 +472,6 @@ describe('SocketHub', () => {
     hub.dispose()
   })
 
-  it('exposes sessionsChanged via sessions() + onSessions', () => {
-    const { sock, hub } = setup()
-    const seen: number[] = []
-    hub.onSessions((s) => seen.push(s.length))
-    hub.connect()
-    sock.open()
-    const meta = {
-      sessionId: asSessionId('s1'),
-      agentKind: 'claude-code' as const,
-      title: 't',
-      cwd: '/w',
-      status: 'live' as const,
-      controllerId: 'c0',
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 1,
-      createdAt: '2026-06-03T00:00:00.000Z',
-      lastActiveAt: '2026-06-03T00:00:00.000Z',
-      origin: { kind: 'spawn' as const },
-      archived: false,
-      readAt: null,
-      unread: false,
-    }
-    sock.recv({ type: 'sessionsChanged', sessions: [meta] })
-    expect(hub.sessions()).toEqual([meta])
-    expect(seen.at(-1)).toBe(1)
-
-    sock.recv({ type: 'sessionViewDelta', removedSessionIds: ['s1'] })
-    expect(hub.sessions()).toEqual([])
-    expect(seen.at(-1)).toBe(0)
-  })
-
   it('quarantines a poisoned session in a batch and still exposes the rest (lenient route)', () => {
     const { sock, hub } = setup()
     hub.connect()
@@ -531,9 +499,9 @@ describe('SocketHub', () => {
     const captured: { level: string }[] = []
     const restore = addSink({ name: 'hub-test-capture', write: (r) => captured.push(r) })
     // Raw frame (bypasses the typed encode) carrying one poisoned element.
-    sock.onmessage?.({ data: JSON.stringify({ type: 'sessionsChanged', sessions: [good, bad] }) })
+    sock.onmessage?.({ data: JSON.stringify({ type: 'metadataDelta', seq: 2, changes: [good, bad].map((value, index) => ({ seq: index + 1, entity: 'session', id: value.sessionId, op: 'upsert', value })) }) })
     // The whole list is NOT dropped — the good session survives, the bad one is gone…
-    expect(hub.sessions().map((s) => s.sessionId)).toEqual(['s1'])
+    expect(hub.wireSkew()?.quarantined).toBe(1)
     // …and the drop is observable, not silent.
     expect(captured.filter((r) => r.level === 'warn').length).toBeGreaterThan(0)
     restore()
@@ -585,63 +553,6 @@ describe('SocketHub', () => {
         event: { kind: 'turn-start' },
       }),
     ).not.toThrow()
-  })
-
-  it('exposes conversationsChanged via conversations() + onConversations', () => {
-    const { sock, hub } = setup()
-    const seen: number[] = []
-    hub.onConversations((conversations) => seen.push(conversations.length))
-    hub.connect()
-    sock.open()
-    const conversation = {
-      id: 'conv-1',
-      agentKind: 'codex' as const,
-      title: 'Cached discovery',
-      projectPath: '/w',
-      providerId: 'codex-jsonl',
-      resume: { kind: 'codex-thread' as const, value: 'conv-1' },
-    }
-    sock.recv({ type: 'conversationsChanged', conversations: [conversation], diagnostics: [] })
-    expect(hub.conversations()).toEqual([conversation])
-    expect(seen.at(-1)).toBe(1)
-  })
-
-  it('patches a single session title on sessionTitleChanged and notifies observers', () => {
-    const { sock, hub } = setup()
-    const meta = {
-      sessionId: asSessionId('s1'),
-      agentKind: 'claude-code' as const,
-      title: 'proj',
-      cwd: '/w',
-      status: 'live' as const,
-      controllerId: 'c0',
-      geometry: { cols: 80, rows: 24 },
-      epoch: 0,
-      clientCount: 1,
-      createdAt: '2026-06-03T00:00:00.000Z',
-      lastActiveAt: '2026-06-03T00:00:00.000Z',
-      origin: { kind: 'spawn' as const },
-      archived: false,
-      readAt: null,
-      unread: false,
-    }
-    const titles: string[] = []
-    hub.onSessions((s) => {
-      if (s[0]) titles.push(s[0].title)
-    })
-    hub.connect()
-    sock.open()
-    sock.recv({ type: 'sessionsChanged', sessions: [meta] })
-    sock.recv({ type: 'sessionTitleChanged', sessionId: asSessionId('s1'), title: '⠹ podium' })
-    expect(hub.sessions().at(0)?.title).toBe('⠹ podium')
-    expect(titles.at(-1)).toBe('⠹ podium')
-    // An unchanged title doesn't churn observers.
-    const count = titles.length
-    sock.recv({ type: 'sessionTitleChanged', sessionId: asSessionId('s1'), title: '⠹ podium' })
-    expect(titles.length).toBe(count)
-    // A title for an unknown session is ignored.
-    sock.recv({ type: 'sessionTitleChanged', sessionId: asSessionId('ghost'), title: 'x' })
-    expect(titles.length).toBe(count)
   })
 
   it('attach sends an attach message and returns a SessionConnection', () => {

@@ -64,7 +64,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     // which is work done to tell a client something it already knew — the exact
     // cost POD-701 measured on this path. Serving from the feed means a churn
     // that changed nothing sends nothing.
-    expect(inbox.some((m) => m.type === 'sessionsChanged')).toBe(false)
+    expect(inbox.map((m) => m.type).includes('sessionsChanged')).toBe(false)
     expect(inbox.some((m) => String(m.type) === 'issuesChanged')).toBe(false)
     // The paired half: this client is not simply deaf. A REAL change reaches it
     // through the same sink — without this, the assertions above are equally

@@ -29,7 +29,6 @@ import { z } from 'zod'
 import * as binaryEnvelope from '../binary-envelope'
 import * as maintenance from '../maintenance'
 import * as approvals from '../messages/approvals'
-import * as automations from '../messages/automations'
 import * as browserOpen from '../messages/browser-open'
 import * as client from '../messages/client'
 import * as codex from '../messages/codex'
@@ -71,7 +70,6 @@ import * as presenceRooms from '../planes/presence-rooms'
 const MODULES: ReadonlyArray<readonly [family: string, module: Record<string, unknown>]> = [
   ['approvals', approvals],
   ['model', model],
-  ['automations', automations],
   ['binary-envelope', binaryEnvelope],
   ['browser-open', browserOpen],
   ['client', client],

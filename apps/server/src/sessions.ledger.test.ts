@@ -334,7 +334,7 @@ describe('session writes on the write-seam Ledger ([spec:SP-3fe2] #256)', () => 
       }
       for (const [, n] of seqCounts) expect(n).toBe(1)
       // ...and delta clients never get the full-list snapshot rebroadcast.
-      expect(delta.inbox.slice(before).some((m) => m.type === 'sessionsChanged')).toBe(false)
+      expect(delta.inbox.slice(before).map((m) => m.type).includes('sessionsChanged')).toBe(false)
     })
   })
 

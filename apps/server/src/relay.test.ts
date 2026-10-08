@@ -1870,7 +1870,7 @@ describe('SessionRegistry', () => {
     await expect(p).resolves.toMatchObject({ repositories: [{ path: '/r' }], diagnostics: [] })
   })
 
-  it('a daemon title updates the session and pushes sessionTitleChanged to clients', async () => {
+  it('a daemon title updates synced session facts without a legacy title push', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
@@ -1891,13 +1891,9 @@ describe('SessionRegistry', () => {
     // of the title, and it is stripped before anything is stored or sent
     // (POD-1607) — otherwise each frame is a different string and every frame is
     // a broadcast to every client.
-    expect(c.sent).toContainEqual({
-      type: 'sessionTitleChanged',
-      sessionId,
-      title: 'rename functionality',
-    })
+    expect(c.sent.map(m => m.type)).not.toContain('sessionTitleChanged')
     // Not a full list rebroadcast.
-    expect(c.sent.some((m) => m.type === 'sessionsChanged')).toBe(false)
+    expect(c.sent.map((m) => m.type).includes('sessionsChanged')).toBe(false)
     // Late joiners see it via listSessions() — also without the frame, so the
     // session does not keep whichever one the spinner happened to stop on.
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).at(0)).toMatchObject({
@@ -1926,7 +1922,8 @@ describe('SessionRegistry', () => {
     }
 
     // One title, one broadcast — however many frames the harness paints.
-    expect(c.sent.filter((m) => m.type === 'sessionTitleChanged')).toHaveLength(1)
+    expect(c.sent.map(m => m.type)).not.toContain('sessionTitleChanged')
+    expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find(s => s.sessionId === sessionId)?.title).toBe('rename functionality')
   })
 
   it('a re-reported identical title still locks, so no prompt renames the session', async () => {
@@ -1981,7 +1978,7 @@ describe('SessionRegistry', () => {
       ),
     ).toMatchObject({ title: 'rename functionality' })
     expect(
-      c.sent.filter((m) => m.type === 'sessionTitleChanged' && m.title !== 'rename functionality'),
+      c.sent.filter((m) => ['sessionTitleChanged'].includes(m.type)),
     ).toEqual([])
   })
 
@@ -2592,7 +2589,7 @@ describe('agent state', () => {
     error: { class: 'rate_limit', retryable: true },
   }
 
-  it('agentState from the daemon pushes a per-session message and lands on SessionMeta', async () => {
+  it('agentState from the daemon lands on synced session facts without a legacy push', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
@@ -2607,10 +2604,9 @@ describe('agent state', () => {
       sessionId,
       state: STATE,
     })
-    const update = client.sent.find((m) => m.type === 'sessionAgentStateChanged')
-    expect(update).toEqual({ type: 'sessionAgentStateChanged', sessionId, state: STATE })
+    expect(client.sent.map(m => m.type)).not.toContain('sessionAgentStateChanged')
     // Hook events fire often — this must NOT re-broadcast the whole session list.
-    expect(client.sent.some((m) => m.type === 'sessionsChanged')).toBe(false)
+    expect(client.sent.map((m) => m.type).includes('sessionsChanged')).toBe(false)
     // Late joiners still see the state via listSessions().
     expect(
       (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
@@ -2652,8 +2648,7 @@ describe('agent state', () => {
     await send('working', 0, '2026-06-12T10:01:00.000Z')
     await send('idle', 2_000, '2026-06-12T10:01:02.000Z')
 
-    const updates = client.sent.filter((m) => m.type === 'sessionAgentStateChanged')
-    expect(updates.at(-1)).toMatchObject({ state: { workingMsTotal: 7_000 } })
+    expect(client.sent.map(m => m.type)).not.toContain('sessionAgentStateChanged')
     expect(
       (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(
         (s) => s.sessionId === sessionId,
@@ -3233,12 +3228,8 @@ describe('structured transcript channel', () => {
       tail: 'c1',
     })
     // First-prompt fallback names the session from the first user prompt.
-    expect(client.sent).toContainEqual(
-      expect.objectContaining({ type: 'sessionTitleChanged', sessionId }),
-    )
-    const titled = client.sent.find((m) => m.type === 'sessionTitleChanged') as
-      | { title: string }
-      | undefined
+    expect(client.sent.map(m => m.type)).not.toContain('sessionTitleChanged')
+    const titled = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(s => s.sessionId === sessionId)
     expect(titled?.title).toContain('Refactor')
   })
 
@@ -3267,7 +3258,7 @@ describe('structured transcript channel', () => {
       ],
       tail: 'c1',
     })
-    expect(client.sent.filter((m) => m.type === 'sessionTitleChanged')).toEqual([])
+    expect(client.sent.filter((m) => ['sessionTitleChanged'].includes(m.type))).toEqual([])
 
     // …then they say what they actually want. THAT titles the session.
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
@@ -3276,9 +3267,7 @@ describe('structured transcript channel', () => {
       items: [{ id: 'u2', role: 'user', text: 'Refactor the transcript reader', cursor: 'c2' }],
       tail: 'c2',
     })
-    const titled = client.sent.find((m) => m.type === 'sessionTitleChanged') as
-      | { title: string }
-      | undefined
+    const titled = (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(s => s.sessionId === sessionId)
     expect(titled?.title).toContain('Refactor')
     expect(titled?.title).not.toContain('command-name')
   })
@@ -3297,7 +3286,7 @@ describe('structured transcript channel', () => {
       sessionId,
       title: '<command-name>/effort</command-name>',
     })
-    expect(client.sent.filter((m) => m.type === 'sessionTitleChanged')).toEqual([])
+    expect(client.sent.filter((m) => ['sessionTitleChanged'].includes(m.type))).toEqual([])
   })
 })
 

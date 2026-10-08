@@ -16,8 +16,9 @@ Audit for POD-5796 on `integrate/4286-pilot`, 2026-10-08.
 Server producers still present are the title projection and three agent-state
 broadcast sites. Full session/conversation/automation broadcasts were already
 retired on the pilot branch; protocol and client legacy arms still admitted them.
-The wire-v1 adapter exists to maintain and re-export the retired hub projection;
-production runtime startup supplies the canonical sync feed.
+The wire-v1 adapter's four corresponding projection fields are also removed;
+its unrelated projection fields remain. Production runtime startup supplies the
+canonical sync feed.
 
 `machinesList`, `approvalsList`, `hostMetricsList` and their live message handlers
 are outside this removal and remain in place. Other hub projections are outside

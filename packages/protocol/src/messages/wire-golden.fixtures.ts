@@ -879,55 +879,6 @@ export const WIRE_FIXTURES: WireFixture[] = [
 
   // ---- frames that CARRY the relocated entities (must stay in protocol) ----
   {
-    name: 'frame.sessionsChanged',
-    schema: ServerMessage,
-    value: { type: 'sessionsChanged', sessions: [SESSION_META_FULL, SESSION_META_MINIMAL] },
-  },
-  {
-    name: 'frame.sessionAgentStateChanged',
-    schema: ServerMessage,
-    value: {
-      type: 'sessionAgentStateChanged',
-      sessionId: 'sess-1',
-      state: AGENT_RUNTIME_STATE_FULL,
-    },
-  },
-  {
-    name: 'frame.conversationsChanged',
-    schema: ServerMessage,
-    value: {
-      type: 'conversationsChanged',
-      conversations: [CONVERSATION_SUMMARY_FULL, CONVERSATION_SUMMARY_MINIMAL],
-      diagnostics: [{ severity: 'warning', message: 'skipped one root' }],
-      removed: ['native-3'],
-    },
-  },
-  {
-    name: 'frame.automationsChanged',
-    schema: ServerMessage,
-    value: {
-      type: 'automationsChanged',
-      automations: [AUTOMATION_WIRE_CRON, AUTOMATION_WIRE_ONCE],
-    },
-  },
-  {
-    name: 'frame.automationRunsChanged',
-    schema: ServerMessage,
-    value: {
-      type: 'automationRunsChanged',
-      automationRuns: [
-        {
-          id: 'run-1',
-          automationId: 'auto-1',
-          firedAt: '2026-07-30T10:00:00.000Z',
-          sessionId: null,
-          outcome: 'skipped_overlap',
-          detail: 'still running',
-        },
-      ],
-    },
-  },
-  {
     name: 'frame.machinesChanged',
     schema: ServerMessage,
     value: {

@@ -5,7 +5,6 @@
  */
 
 export * from './approvals'
-export * from './automations'
 export * from './browser-open'
 export * from './client'
 export * from './codec'

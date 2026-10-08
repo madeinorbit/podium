@@ -335,55 +335,6 @@ describe('ServerMessage', () => {
     { type: 'controllerChanged', sessionId: asSessionId('s1'), controllerId: 'c1', geometry },
     { type: 'geometry', sessionId: asSessionId('s1'), cols: 100, rows: 30 },
     { type: 'agentExit', sessionId: asSessionId('s1'), code: 0 },
-    { type: 'sessionsChanged', sessions: [sessionMeta] },
-    { type: 'conversationsChanged', conversations: [conversation], diagnostics: [] },
-    {
-      type: 'automationsChanged',
-      automations: [
-        {
-          id: asAutomationId('aut_1'),
-          name: 'Nightly',
-          enabled: true,
-          repoPath: '/w',
-          scheduleKind: 'cron',
-          cron: '* * * * *',
-          runAt: null,
-          targetSessionId: null,
-          agentKind: 'codex',
-          model: 'auto',
-          effort: 'auto',
-          prompt: 'Run it.',
-          sessionMode: 'resume',
-          nextRunAt: '2026-07-01T00:01:00.000Z',
-          lastRunAt: null,
-          createdAt: '2026-07-01T00:00:00.000Z',
-        },
-      ],
-    },
-    {
-      type: 'automationRunsChanged',
-      automationRuns: [
-        {
-          id: asAutomationRunId('arun_1'),
-          automationId: asAutomationId('aut_1'),
-          firedAt: '2026-07-01T00:00:00.000Z',
-          sessionId: asSessionId('sess_1'),
-          outcome: 'spawned',
-          detail: null,
-        },
-      ],
-    },
-    { type: 'sessionTitleChanged', sessionId: asSessionId('s1'), title: '✳ rename functionality' },
-    {
-      type: 'sessionAgentStateChanged',
-      sessionId: asSessionId('s1'),
-      state: {
-        phase: 'errored',
-        since: '2026-06-12T10:00:00.000Z',
-        nativeSubagentCount: 0,
-        error: { class: 'rate_limit', retryable: true },
-      },
-    },
     {
       type: 'sessionOpenUrl',
       sessionId: asSessionId('s1'),
@@ -426,21 +377,21 @@ describe('parseServerMessageLenient (per-element quarantine)', () => {
 
   it('drops one poisoned session and keeps the rest (the original bug, survivable)', () => {
     const raw = JSON.stringify({
-      type: 'sessionsChanged',
-      sessions: [session('a', 'claude-code'), session('bad', 'auto'), session('c', 'codex')],
+      type: 'metadataDelta', seq: 3,
+      changes: [session('a', 'claude-code'), session('bad', 'auto'), session('c', 'codex')].map((value, index) => ({ seq: index + 1, entity: 'session', id: value.sessionId, op: 'upsert', value })),
     })
     const { message, dropped } = parseServerMessageLenient(raw)
     expect(dropped).toBe(1)
-    expect(message?.type === 'sessionsChanged' && message.sessions.map((s) => s.sessionId)).toEqual(
+    expect(message?.type === 'metadataDelta' && message.changes.map((c) => c.id)).toEqual(
       ['a', 'c'],
     )
   })
 
   it('passes a fully valid collection through unchanged (dropped=0)', () => {
-    const raw = JSON.stringify({ type: 'sessionsChanged', sessions: [session('a', 'claude-code')] })
+    const raw = JSON.stringify({ type: 'metadataDelta', seq: 1, changes: [{ seq: 1, entity: 'session', id: 'a', op: 'upsert', value: session('a', 'claude-code') }] })
     const { message, dropped } = parseServerMessageLenient(raw)
     expect(dropped).toBe(0)
-    expect(message?.type === 'sessionsChanged' && message.sessions.length).toBe(1)
+    expect(message?.type === 'metadataDelta' && message.changes.length).toBe(1)
   })
 
   it('parses non-collection messages strictly', () => {

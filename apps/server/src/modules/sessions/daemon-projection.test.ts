@@ -53,7 +53,6 @@ function fixture(fallback = false, agentKind: 'claude-code' | 'codex' = 'claude-
       s.installDurableState(draft)
     },
     broadcastSessions: () => { published.push('sessions') },
-    broadcastToClients: () => { published.push('title') },
     transcriptDelta: () => { published.push('transcript') },
     adoptWorktree: () => { published.push('adopt') },
     recordSessionGitActivity: vi.fn(),
@@ -76,13 +75,12 @@ describe('daemon projection write completion', () => {
         f.pending.resolve()
         await handled
         expect(f.published).toEqual(
-          name === 'title' ? ['title'] : name === 'cwd' ? ['sessions', 'adopt'] :
-          name === 'transcript' ? ['sessions', 'transcript'] : fallback ? ['transcript', 'title'] : ['sessions'],
+          name === 'title' ? [] : name === 'cwd' ? ['sessions', 'adopt'] :
+          name === 'transcript' ? ['sessions', 'transcript'] : fallback ? ['transcript'] : ['sessions'],
         )
       } finally {
         f.pending.resolve()
         await handled
-        f.projection.disposeTitle(sessionId)
       }
     })
 
@@ -92,12 +90,8 @@ describe('daemon projection write completion', () => {
       const handled = f.projection.handle(machineId, frame)
       const rejected = expect(handled).rejects.toBe(failure)
       f.pending.reject(failure)
-      try {
-        await rejected
-        expect(f.published).toEqual(fallback ? ['transcript'] : [])
-      } finally {
-        f.projection.disposeTitle(sessionId)
-      }
+      await rejected
+      expect(f.published).toEqual(fallback ? ['transcript'] : [])
     })
   }
 })
@@ -125,7 +119,6 @@ describe('contract metadata projection', () => {
     await f.projection.runtimeEvent(sessionId, observation(2, { kind: 'title', source: 'native', title: 'Agent summary' }))
     expect(f.session).toMatchObject({ name: 'User name', nameSource: 'user', title: 'Agent summary',
       observedModel: 'actual-model', observedEffort: 'high', requestedModel: 'requested-model', requestedEffort: 'low' })
-    f.projection.disposeTitle(sessionId)
   })
 
   it('hydrates snapshot metadata but rejects stale bootstrap racing a live update', async () => {
@@ -149,7 +142,7 @@ describe('contract metadata projection', () => {
     expect(f.session.agentColor).toBeUndefined()
   })
 
-  it('keeps first-prompt fallback and stable title debounce on the contract path', async () => {
+  it('keeps first-prompt fallback and stable title persistence on the contract path', async () => {
     vi.useFakeTimers()
     const f = fixture(true)
     f.pending.resolve()
@@ -162,8 +155,8 @@ describe('contract metadata projection', () => {
       await f.projection.runtimeEvent(sessionId, observation(3, { kind: 'title', source: 'osc', title: '◑ Better summary' }))
       expect(f.session.title).toBe('Better summary')
       await vi.advanceTimersByTimeAsync(500)
-      expect(f.published.filter((entry) => entry === 'title')).toHaveLength(2)
-    } finally { f.projection.disposeTitle(sessionId); vi.useRealTimers() }
+      expect(f.published.filter((entry) => entry === 'title')).toEqual([])
+    } finally { vi.useRealTimers() }
   })
 
   it('refuses OSC titles for Codex even if the host forwards a spinner', async () => {
@@ -172,6 +165,5 @@ describe('contract metadata projection', () => {
     await f.projection.runtimeEvent(sessionId, observation(1, { kind: 'title', source: 'native', title: 'Native summary' }))
     await f.projection.runtimeEvent(sessionId, observation(2, { kind: 'title', source: 'osc', title: '◐ project' }))
     expect(f.session.title).toBe('Native summary')
-    f.projection.disposeTitle(sessionId)
   })
 })
