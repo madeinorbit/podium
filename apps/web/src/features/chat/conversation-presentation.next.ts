@@ -1,7 +1,7 @@
 import { type TranscriptChange, type TranscriptLog, type TranscriptGraphInsertion } from '@podium/client-core/conversation'
 import { type ChatBlock, type ChatRow, type RenderableRow, type TranscriptSearchState } from '@podium/client-core/values'
 import { action, actionBound, compareShallow, observable, observableRef, runInAction } from 'mobx'
-import { lazy } from '@podium/mobx-helpers'
+import { companion, lazy } from '@podium/mobx-helpers'
 import { TranscriptGraph } from '../../../../../packages/client-core/src/conversation/transcript-graph'
 import { transcriptComputeClient, type TranscriptGraphSource, type WebTranscriptGraphResult } from './transcript-compute-client'
 import { rowIdentity } from './use-feed-arrivals'
@@ -52,6 +52,7 @@ export class ConversationPresentation {
   private graph: TranscriptGraph | undefined
   private ownsGraph = false
   private source: PresentationSource | undefined
+  readonly renderedRow = companion((row: ChatRow) => new RenderedTranscriptRow(row, this))
   private readonly emptyMarkdown = new Map<string, string>()
   private request: AbortController | undefined
   private disposed = false
@@ -126,9 +127,9 @@ export class ConversationPresentation {
   renderRows(sticky: boolean, collapseContext: boolean): RenderableRow[] {
     return sticky ? collapseContext ? this.stickyContextRows : this.stickyRows : this.plainRows
   }
-  @lazy({ equals: sameRenderedRows }) private get plainRows(): RenderableRow[] { return this.buildRenderRows(false, false) }
-  @lazy({ equals: sameRenderedRows }) private get stickyRows(): RenderableRow[] { return this.buildRenderRows(true, false) }
-  @lazy({ equals: sameRenderedRows }) private get stickyContextRows(): RenderableRow[] { return this.buildRenderRows(true, true) }
+  @lazy({ equals: compareShallow }) private get plainRows(): RenderableRow[] { return this.buildRenderRows(false, false) }
+  @lazy({ equals: compareShallow }) private get stickyRows(): RenderableRow[] { return this.buildRenderRows(true, false) }
+  @lazy({ equals: compareShallow }) private get stickyContextRows(): RenderableRow[] { return this.buildRenderRows(true, true) }
   private buildRenderRows(sticky: boolean, collapseContext: boolean): RenderableRow[] {
     const rows: RenderableRow[] = []
     const start = this.renderStart
@@ -137,9 +138,9 @@ export class ConversationPresentation {
     if (rowId !== undefined) {
       const row = this.graph!.structuralRow(rowId)
       const index = this.graph!.rowPosition(rowId)
-      if (row && index !== undefined) rows.push({ row, index })
+      if (row && index !== undefined) rows.push(this.renderedRow(row).value!)
     }
-    this.visibleRows.forEach((row, at) => rows.push({ row, index: start + at }))
+    this.visibleRows.forEach(row => rows.push(this.renderedRow(row).value!))
     return rows
   }
 
@@ -213,6 +214,10 @@ export class ConversationPresentation {
   }
 }
 
-function sameRenderedRows(a: RenderableRow[], b: RenderableRow[]): boolean {
-  return a.length === b.length && a.every((value, at) => value.row === b[at]!.row && value.index === b[at]!.index)
+class RenderedTranscriptRow {
+  constructor(readonly row: ChatRow, private readonly presentation: ConversationPresentation) {}
+  @lazy({ equals: (a, b) => a?.row === b?.row && a?.index === b?.index }) get value(): RenderableRow | undefined {
+    const index = this.presentation.anchorRow(rowIdentity(this.row))
+    return index === undefined ? undefined : { row: this.row, index }
+  }
 }

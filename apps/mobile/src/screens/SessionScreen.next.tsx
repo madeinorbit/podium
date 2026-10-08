@@ -204,6 +204,7 @@ export function SessionScreen() {
       />
       <SessionActionMenu session={session} issue={issue} open={menuOpen}
         onClose={() => setMenuOpen(false)} nextSession={nextSession}
+        onFind={() => setFindRequest((request) => request + 1)}
         onDelete={() => setConfirmDeleteOpen(true)} onWorkState={() => setWorkMenuOpen(true)} />
       <ActionSheet
         visible={confirmDeleteOpen && draftAgentCount !== undefined}
@@ -251,9 +252,9 @@ const SessionChrome = observer(function SessionChrome({ issue, session, served, 
     leading={<HarnessChip kind={session.agentKind} size={20} descriptors={served} />}>{children}</Screen>
 })
 
-const SessionActionMenu = observer(function SessionActionMenu({ session, issue, open, onClose, nextSession, onDelete, onWorkState }: {
+const SessionActionMenu = observer(function SessionActionMenu({ session, issue, open, onClose, nextSession, onFind, onDelete, onWorkState }: {
   session: SessionView; issue: IssueViewModel | undefined; open: boolean; onClose: () => void;
-  nextSession: () => void; onDelete: () => void; onWorkState: () => void
+  nextSession: () => void; onFind: () => void; onDelete: () => void; onWorkState: () => void
 }) {
   const store = useStoreActions()
   const actions = open ? (() => {
@@ -280,7 +281,7 @@ const SessionActionMenu = observer(function SessionActionMenu({ session, issue, 
     const actions: SheetAction[] = [
       {
         label: 'Find in transcript',
-        onPress: () => setFindRequest((request) => request + 1),
+        onPress: onFind,
       },
       ...(issue
         ? [

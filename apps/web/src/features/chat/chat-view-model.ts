@@ -55,12 +55,12 @@ export class ChatViewModel {
       this.session?.agentState?.phase, this.livePendingAskIndex >= 0)
   }
   @lazy get attribution() { return transcriptAttributionTable(this.session) }
-  @lazy get composer() {
+  @lazy({ equals: compareStructural }) get composer() {
     const state = composerState({ session: this.session, headless: this.headless,
       turnRunning: this.conversation.turnRunning, compact: this.compact })
     return this.conversation.ready ? state : { ...state, deliverable: false, sendable: false }
   }
-  @lazy get activity() {
+  @lazy({ equals: compareStructural }) get activity() {
     return chatActivityState({ session: this.session, headless: this.headless,
       turnRunning: this.conversation.turnRunning, justSent: this.conversation.sends.justSent })
   }
@@ -103,7 +103,7 @@ export class ChatViewModel {
     const row = this.conversation.pool.row('chatWindow', 'window')
     return row && typeof row !== 'symbol' ? row.transcriptReveal : null
   }
-  @lazy get backend() {
+  @lazy({ equals: compareStructural }) get backend() {
     const model = this.backendPick.model ?? this.conversation.thread?.model ?? 'auto'
     return { model, effort: this.backendPick.effort ?? this.conversation.thread?.effort ?? 'auto',
       agentKind: this.backendPick.agentKind !== undefined ? this.backendPick.agentKind ?? undefined
