@@ -254,11 +254,7 @@ export class SessionDaemonLifecycle {
       return
     }
     this.autoContinue.onSessionGone(msg.sessionId)
-    // Free the lingering per-session title debouncer when the process ends (audit
-    // P1-12) — previously only killSession did, so every exited-but-not-killed
-    // session leaked its debouncer closure. The row stays (resurrectable); a new
-    // debouncer is created lazily if it ever emits a title again. Drafts are kept
-    // (resurrect/chat needs them).
+    // The row and drafts stay available for resurrection and chat.
     const s = this.sessions.get(msg.sessionId)
     // THE EXIT IS APPLIED TO THE DRAFT THIS COMMIT PERSISTS [POD-3330]. It used
     // to be assigned onto the live session at the top of this method, which put
@@ -850,7 +846,6 @@ export class SessionDaemonLifecycle {
           acceptedCursor: outcome.checkpoint.providerCursor,
           checkpoint: outcome.checkpoint,
         })
-
 
         // Snapshot and same-phase refresh update display/checkpoint only. Every
         // effect below is exclusive to one accepted causal live phase edge.
