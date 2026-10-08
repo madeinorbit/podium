@@ -8,7 +8,7 @@ import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 /** Shell rules over the shared record; no copied issue summary or history list. */
-class ShellIssue {
+export class ShellIssue {
   constructor(readonly issue: IssueModel, private readonly pool: MobxPool) {}
   get id() { return this.issue.id }
 
