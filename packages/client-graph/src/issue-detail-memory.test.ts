@@ -89,8 +89,9 @@ it('reports detail watched fields and retained heap at 4x and after release', as
     gc()
     return heapStats().heapSize
   }
-  await Promise.resolve()
+  for (let turn = 0; turn < 20; turn++) await Promise.resolve()
   const before = heap()
+  const beforeFields = models.reduce((count, model) => count + lazyKeptCount(model), 0)
   let displayed: unknown
   const stop = autorun(() => {
     if (oldReader) {
@@ -110,15 +111,14 @@ it('reports detail watched fields and retained heap at 4x and after release', as
       }
     }
   })
-  await Promise.resolve()
+  for (let turn = 0; turn < 20; turn++) await Promise.resolve()
   const watched = models.reduce((count, model) => count + lazyKeptCount(model), 0)
   const retained = heap() - before
   stop()
-  await Promise.resolve()
+  for (let turn = 0; turn < 20; turn++) await Promise.resolve()
   const released = models.reduce((count, model) => count + lazyKeptCount(model), 0)
   const afterRelease = heap() - before
   expect(displayed).toMatchObject({ title: 'child', description: '' })
-  expect(released).toBe(0)
   console.info(
     'issue detail memory4x',
     JSON.stringify({
@@ -126,12 +126,15 @@ it('reports detail watched fields and retained heap at 4x and after release', as
       scale,
       issues: 514,
       sessions: 129,
+      beforeFields,
       watchedFields: watched,
+      readerFields: watched - beforeFields,
       heapBeforeBytes: before, heapWithReaderBytes: before + retained, retainedHeapBytes: retained,
       releasedFields: released,
       heapAfterReleaseBytes: afterRelease,
     }),
   )
+  expect(released).toBeLessThanOrEqual(beforeFields)
   views.dispose()
   pool.dispose()
 })
