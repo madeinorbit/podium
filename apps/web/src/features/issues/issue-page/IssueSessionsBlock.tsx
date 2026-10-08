@@ -33,6 +33,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  *     alike as "another issue".
  */
 import { motionPhase, motionTiming } from '@podium/client-core/values'
+import { isFinished } from '@podium/model/browser'
 import type { SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX } from 'react'
@@ -74,7 +75,9 @@ const SessionRosterRow = observer(function SessionRosterRow({
 }): JSX.Element {
   const AgentIcon = agentIconFor(session.agentKind)
   const timing = motionTiming(session)
-  const phase = motionPhase(session, issue as unknown as IssueViewModel)
+  const phase = 'motion' in session
+    ? isFinished(issue) ? 'done' : (session as SessionModel).motion
+    : motionPhase(session, issue)
   return (
     <button
       data-pressable

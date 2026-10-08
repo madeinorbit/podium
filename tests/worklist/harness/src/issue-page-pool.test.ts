@@ -490,24 +490,24 @@ describe('declared issue page', () => {
       total: 4,
       byPhase: { waiting: 1, unknown: 2, working: 1 },
     })
-    expect(page.children !== LOADING ? page.children?.map((row) => row.id) : LOADING).toEqual([
+    expect(tracked(() => page.children !== LOADING ? page.children.map((row) => row.id) : LOADING)).toEqual([
       'child-a',
       'child-b',
     ])
     expect(
-      page.memberSessions !== LOADING
-        ? page.memberSessions?.some((row) => row.sessionId === 'shell')
-        : LOADING,
+      tracked(() => page.memberSessions !== LOADING
+        ? page.memberSessions.some((row) => row.sessionId === 'shell')
+        : LOADING),
     ).toBe(false)
-    expect(page.issue.dependents.map((row) => row.type)).toEqual(['blocks', 'custom-edge'])
-    expect(page.title).toBe(
+    expect(tracked(() => page.issue.dependents.map((row) => row.type))).toEqual(['blocks', 'custom-edge'])
+    expect(tracked(() => page.title)).toBe(
       issueDisplayTitle(ctx.world().find((row) => row.id === 'root')!, ctx.visible(), [
         '/synthetic',
       ]),
     )
     expect(tracked(() => page.presence)).toEqual(
       presenceNote(
-        page.issue,
+        ctx.world().find((row) => row.id === 'root')!,
         ctx.visible().filter((s) => s.issueId === 'root'),
         new Map(ctx.world().map((row) => [row.id, row])),
         ctx.visible(),

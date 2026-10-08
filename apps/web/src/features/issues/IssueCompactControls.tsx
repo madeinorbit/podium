@@ -116,7 +116,7 @@ export function sessionStateLabel(session: SessionView): string {
   if (session.status === 'exited') return 'Exited'
   if (session.status === 'hibernated') return 'Paused'
   if (session.handoffTarget) return 'Moving'
-  const phase = motionPhase(session)
+  const phase = 'motion' in session ? (session as SessionModel).motion : motionPhase(session)
   if (phase === 'working') return 'Working'
   if (phase === 'waiting') return 'Waiting on you'
   if (phase === 'done') return 'Done'
@@ -171,7 +171,9 @@ export function resolveTaskAction(
 export function decisionLine(issue: IssueViewModel, active: readonly SessionView[]): string {
   const asked = issue.asked?.question?.trim()
   if (asked) return asked
-  const waiting = active.find((session) => sessionNeedsHuman(session))
+  const waiting = active.find((session) =>
+    'asking' in session ? (session as SessionModel).asking : sessionNeedsHuman(session),
+  )
   if (waiting) return `${sessionDisplayName(waiting)} is waiting on your reply.`
   if (active.length === 0 && (issue.dependents ?? []).some((dep) => dep.type === 'discovered-from'))
     return 'The work moved to a spin-off — close this origin or keep it for follow-up.'
@@ -262,8 +264,12 @@ export const IssueSessionRow = observer(function IssueSessionRow({
   const renameSession = useRuntimeSelector((s) => s.renameSession)
   const [menu, setMenu] = useState<ContextMenuAnchor | null>(null)
   const [editing, setEditing] = useState(false)
-  const retired = session.archived || session.status === 'exited'
-  const needs = !retired && sessionNeedsHuman(session)
+  const retired = 'open' in session
+    ? !(session as SessionModel).open
+    : session.archived || session.status === 'exited'
+  const needs = !retired && ('asking' in session
+    ? (session as SessionModel).asking
+    : sessionNeedsHuman(session))
   return (
     <div
       className={cn(

@@ -104,7 +104,7 @@ export const IssueDetailHeader = observer(function IssueDetailHeader({
               data-pressable
               type="button"
               className="max-w-[160px] truncate font-mono text-[11px] text-text-dim tabular-nums leading-none hover:text-foreground"
-              title={`${issueDisplayRef(parent)} · ${parent.title}${parent.archived ? ' · archived' : ''}`}
+              title={`${issueDisplayRef(parent)} · ${'authoredTitle' in parent ? parent.authoredTitle : parent.title}${parent.archived ? ' · archived' : ''}`}
               onClick={() => onNavigate(parent.id)}
             >
               {issueDisplayRef(parent)}
@@ -117,7 +117,7 @@ export const IssueDetailHeader = observer(function IssueDetailHeader({
           data-pressable
           type="button"
           className="cursor-pointer rounded font-mono text-[11px] text-foreground tabular-nums leading-none hover:text-primary"
-          title={`${issueDisplayRef(issue)} · ${issue.title} — click to copy "${issueDisplayRef(issue)}"`}
+          title={`${issueDisplayRef(issue)} · ${'authoredTitle' in issue ? issue.authoredTitle : issue.title} — click to copy "${issueDisplayRef(issue)}"`}
           onClick={() =>
             copyToClipboard(issueDisplayRef(issue), `Copied ${issueDisplayRef(issue)}`)
           }

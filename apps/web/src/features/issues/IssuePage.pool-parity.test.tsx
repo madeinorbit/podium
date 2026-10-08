@@ -1,4 +1,5 @@
 import type { IssueViewInput } from '../../../../../tests/worklist/diagnostics/reference/issue-views'
+import { writeFileSync } from 'node:fs'
 import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
 // @vitest-environment happy-dom
 import '@/test-support/mock-store-action-ports'
@@ -470,6 +471,8 @@ describe('issue page rendered pool parity', () => {
     'list',
   ] as const)('preserves the %s text, labels, order, layout and loader results with zero legacy derivations', async (surface) => {
     const next = await arm(surface)
+    if (process.env.PODIUM_DETAIL_PARITY_CAPTURE)
+      writeFileSync(`${process.env.PODIUM_DETAIL_PARITY_CAPTURE}.${surface}.json`, JSON.stringify({ main: next.main, expanded: next.expanded }, null, 2))
     expectPoolOutput({ main: next.main, expanded: next.expanded }, 'rendered output')
     expect(next.reads).toBe(0)
     expect(
