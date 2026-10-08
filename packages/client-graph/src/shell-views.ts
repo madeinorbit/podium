@@ -1,16 +1,14 @@
 import { headerEntities } from './header-entities'
-import { headerView } from './header-views'
 import { keyedComputed } from '@podium/mobx-helpers'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { ActiveWorktree, IssueNavigationModel } from '@podium/client-core/values'
+import type { ActiveWorktree } from '@podium/client-core/values'
 import type { RepoId } from '@podium/model/browser'
 import { compareStructural } from 'mobx'
 import { headerIds } from './enumerate'
 import type { HeaderRows } from './header-schema'
-import { missionView } from './mission-view'
-import { missions } from './mission'
+import { ShellChrome } from './shell-chrome'
 import type { MobxPool } from './pool'
 import { SHELL_SUMMARIES, type ShellIssue, type ShellRows } from './shell-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -203,64 +201,8 @@ function createShellViews(pool: MobxPool) {
       return layout === LOADING ? LOADING : { workspaceKey: key, layout, fileTabs }
     })
   }
-  function chrome() {
-    return memo('chrome', () => {
-      const state = window()
-      if (!state || state === LOADING) return LOADING
-      // Chrome needs only the mission root's addressed identity (id/title/type
-      // and child count) for its flight-deck key and complexity check. Reading
-      // the full mission view here would observe archived history, so a late
-      // history row at larger scales re-runs chrome on pane switch (POD-5690).
-      // Resolve the root cheaply, read its own row, and (for draft vessels)
-      // only its shown present sessions — never archived history.
-      const rootId = missions(pool).rootFor(state.selectedIssueId)
-      if (rootId === LOADING) return LOADING
-      let missionRoot: Pick<IssueNavigationModel, 'id' | 'title' | 'type' | 'childCount'> | undefined = undefined
-      if (rootId) {
-        const full = pool.row('issue', rootId) as Loaded<
-          Pick<IssueNavigationModel, 'id' | 'title' | 'type' | 'archived' | 'deletedAt' | 'isDraftVessel' | 'worktreePath'>
-        >
-        if (full === LOADING) return LOADING
-        if (!full || full.archived || full.deletedAt) missionRoot = undefined
-        else if (full.isDraftVessel && !full.worktreePath) {
-          const present = missionView(pool).present(rootId)
-          if (present === LOADING) return LOADING
-          missionRoot = present.length
-            ? { id: full.id, title: full.title, type: full.type,
-                childCount: pool.queries.issueChildCounts(rootId).childCount }
-            : undefined
-        } else {
-          missionRoot = { id: full.id, title: full.title, type: full.type,
-            childCount: pool.queries.issueChildCounts(rootId).childCount }
-        }
-      }
-      const colors: ShellIssue[] = [],
-        seen = new Set<string>()
-      let target = state.selectedIssueId ? issue(state.selectedIssueId) : undefined
-      if (target === LOADING) return LOADING
-      if (target?.archived || target?.deletedAt) target = undefined
-      const colorIssue = target
-      while (target && !seen.has(target.id)) {
-        colors.push(target)
-        seen.add(target.id)
-        target = target.parentId ? issue(target.parentId) : undefined
-        if (target === LOADING) return LOADING
-      }
-      return {
-        view: state.view,
-        reposLoaded: state.reposLoaded,
-        superOpen: state.superOpen,
-        paletteOpen: state.paletteOpen,
-        selectedIssueId: state.selectedIssueId,
-        repoCount: headerView(pool).repositoryCount(),
-        worktreeCount: headerView(pool).worktreeCount(),
-        sessionCount: sessionCount(),
-        colorIssue,
-        colors,
-        missionRoot,
-      }
-    })
-  }
+  const shellChrome = new ShellChrome(pool, sessionCount)
+  function chrome() { return shellChrome.value }
   function dock(includeCatalog = false): Loaded<ShellDockData> {
     return memo(includeCatalog ? 'dockCatalog' : 'dock', () => {
       // Only the queue/shipping panels display catalogues. Context and rail

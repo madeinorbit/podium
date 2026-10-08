@@ -403,7 +403,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
     worktreeCount,
     sessionCount,
     colorIssue,
-    colors,
+    colorById,
     selectedIssueId,
     missionRoot: flightDeckMission,
   } = useShellChrome()
@@ -902,9 +902,7 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   // sub-issue runs its parent's context) — scoped as --issue on the shell
   // root. data-issue-colored drives the quieter slate percentages, and
   // .issue-scope derives the text ramp and the .4s crossfade (index.css).
-  const effectiveHex = effectiveIssueColorHex(colorIssue, (id) =>
-    colors.find((issue) => issue.id === id),
-  )
+  const effectiveHex = effectiveIssueColorHex(colorIssue, colorById)
   const issueAccent = effectiveHex ?? FLOW_CSS
   const issueStyle = { '--issue': issueAccent } as CSSProperties
 

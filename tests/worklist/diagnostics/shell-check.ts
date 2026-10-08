@@ -26,16 +26,16 @@ const fields = (value: object, keys: readonly string[]) =>
 const row = (id: string, value: object): CheckRow => ({ id, fields: { value } })
 const missionExpanded = (value: Pick<IssueNavigationModel, 'type' | 'childCount'> | undefined) =>
   Boolean(value && (value.type === 'epic' || value.childCount >= 6))
-function colorChain(issues: readonly IssueViewModel[], selectedId: string | null) {
-  let current = issues.find(
-    (issue) => issue.id === selectedId && !issue.archived && !issue.deletedAt,
-  )
+function colorChain(
+  current: { id: string; color?: string | null; parentId?: string | null } | undefined,
+  byId: (id: string) => typeof current,
+) {
   const values: object[] = [],
     seen = new Set<string>()
   while (current && !seen.has(current.id)) {
     values.push(fields(current, ['id', 'color', 'parentId']))
     seen.add(current.id)
-    current = issues.find((issue) => issue.id === current!.parentId)
+    current = current.parentId ? byId(current.parentId) : undefined
   }
   return values
 }
@@ -131,7 +131,10 @@ export function legacyShellSnapshot(
           repoCount: repos.length,
           worktreeCount: repos.reduce((sum, repo) => sum + repo.worktrees.length, 0),
           sessionCount: sessions.length,
-          colors: colorChain(issues, state.selectedIssueId),
+          colors: colorChain(
+            issues.find(issue => issue.id === state.selectedIssueId && !issue.archived && !issue.deletedAt),
+            id => issues.find(issue => issue.id === id),
+          ),
           missionRootId: missionRoot?.id ?? null,
           missionExpanded: missionExpanded(missionRoot),
         },
@@ -223,7 +226,7 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
               repoCount: chrome.repoCount,
               worktreeCount: chrome.worktreeCount,
               sessionCount: chrome.sessionCount,
-              colors: chrome.colors.map((value) => fields(value, ['id', 'color', 'parentId'])),
+              colors: colorChain(chrome.colorIssue, chrome.colorById),
               missionRootId: chrome.missionRoot?.id ?? null,
               missionExpanded: missionExpanded(chrome.missionRoot),
             }

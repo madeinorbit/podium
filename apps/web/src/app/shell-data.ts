@@ -140,8 +140,8 @@ const EMPTY_CHROME = {
   sessionCount: 0,
   selectedIssueId: null as Store['selectedIssueId'],
   missionRoot: undefined as IssueViewModel | undefined,
-  colorIssue: undefined as IssueViewModel | undefined,
-  colors: [] as IssueViewModel[],
+  colorIssue: undefined,
+  colorById: (_id: string) => undefined,
 }
 export function useShellChrome() {
   if (import.meta.env.DEV) assertReactiveRead('useShellChrome')
