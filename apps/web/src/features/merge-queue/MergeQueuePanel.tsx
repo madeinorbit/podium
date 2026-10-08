@@ -187,12 +187,12 @@ function CandidateRow({
 
 function ResolvedPrincipal({
   principal,
-  issuesById,
+  issueById,
 }: {
   principal: QueuePrincipal
-  issuesById: ReadonlyMap<string, QueueIssue>
+  issueById: (id: string) => QueueIssue | undefined
 }): JSX.Element {
-  const issue = principal.issueId ? issuesById.get(principal.issueId) : undefined
+  const issue = principal.issueId ? issueById(principal.issueId) : undefined
   if (issue) return <IssueIdentity issue={issue} />
   return (
     <>
@@ -263,15 +263,15 @@ function QueueLoading({ id, activeLabel }: { id: string; activeLabel: string }):
 
 function ActiveLease({
   lock,
-  issuesById,
+  issueById,
   onSelectIssue,
 }: {
   lock: QueueLock | null
-  issuesById: ReadonlyMap<string, QueueIssue>
+  issueById: (id: string) => QueueIssue | undefined
   onSelectIssue: (issue: QueueIssue) => void
 }): JSX.Element {
   if (!lock) return <EmptyLine>Nothing running now.</EmptyLine>
-  const issue = lock.holder.issueId ? issuesById.get(lock.holder.issueId) : undefined
+  const issue = lock.holder.issueId ? issueById(lock.holder.issueId) : undefined
   const content = (
     <>
       <span className="flex min-w-0 items-center gap-2">
@@ -280,7 +280,7 @@ function ActiveLease({
           className="flex-none text-info motion-safe:animate-spin"
           aria-label="Work in progress"
         />
-        <ResolvedPrincipal principal={lock.holder} issuesById={issuesById} />
+        <ResolvedPrincipal principal={lock.holder} issueById={issueById} />
       </span>
       <span className="mt-1.5 flex items-center gap-1.5 font-mono shell-type-micro tabular-nums text-info">
         <Timer size={11} aria-hidden="true" />
@@ -308,11 +308,11 @@ function ActiveLease({
 
 function Waiters({
   lock,
-  issuesById,
+  issueById,
   onSelectIssue,
 }: {
   lock: QueueLock | null
-  issuesById: ReadonlyMap<string, QueueIssue>
+  issueById: (id: string) => QueueIssue | undefined
   onSelectIssue: (issue: QueueIssue) => void
 }): JSX.Element {
   const waiters = lock?.queue ?? []
@@ -321,7 +321,7 @@ function Waiters({
   return (
     <ol className="flex flex-col gap-1">
       {waiters.map((waiter) => {
-        const issue = waiter.issueId ? issuesById.get(waiter.issueId) : undefined
+        const issue = waiter.issueId ? issueById(waiter.issueId) : undefined
         const row = (
           <>
             <span className="sr-only">Queue position {waiter.position}: </span>
@@ -333,7 +333,7 @@ function Waiters({
             </span>
             <span className="flex min-w-0 flex-1 flex-col py-1.5">
               <span className="flex min-w-0 items-center gap-2">
-                <ResolvedPrincipal principal={waiter} issuesById={issuesById} />
+                <ResolvedPrincipal principal={waiter} issueById={issueById} />
               </span>
               <span className="mt-0.5 font-mono shell-type-micro tabular-nums text-text-dim">
                 <QueueWait enqueuedAt={waiter.enqueuedAt} />
@@ -378,14 +378,14 @@ const GROUP_ICON = {
  */
 function MergeGroup({
   group,
-  issuesById,
+  issueById,
   ready,
   readyCount,
   loading,
   onSelectIssue,
 }: {
   group: QueueGroupModel
-  issuesById: ReadonlyMap<string, QueueIssue>
+  issueById: (id: string) => QueueIssue | undefined
   ready: ReactNode
   readyCount: number
   loading?: boolean
@@ -416,10 +416,10 @@ function MergeGroup({
       ) : (
         <>
           <QueueSection id={`${id}-active`} label={group.activeLabel} count={group.lock ? 1 : 0}>
-            <ActiveLease lock={group.lock} issuesById={issuesById} onSelectIssue={onSelectIssue} />
+            <ActiveLease lock={group.lock} issueById={issueById} onSelectIssue={onSelectIssue} />
           </QueueSection>
           <QueueSection id={`${id}-next`} label="NEXT UP" count={group.lock?.queue.length ?? 0}>
-            <Waiters lock={group.lock} issuesById={issuesById} onSelectIssue={onSelectIssue} />
+            <Waiters lock={group.lock} issueById={issueById} onSelectIssue={onSelectIssue} />
           </QueueSection>
           <QueueSection id={`${id}-ready`} label="READY" count={readyCount}>
             {ready}
@@ -437,11 +437,11 @@ function MergeGroup({
  */
 function LaneGroup({
   group,
-  issuesById,
+  issueById,
   onSelectIssue,
 }: {
   group: QueueGroupModel
-  issuesById: ReadonlyMap<string, QueueIssue>
+  issueById: (id: string) => QueueIssue | undefined
   onSelectIssue: (issue: QueueIssue) => void
 }): JSX.Element {
   const id = groupId(group.name)
@@ -466,11 +466,11 @@ function LaneGroup({
         </h3>
       </div>
       <div className="px-2.5 pb-2.5">
-        <ActiveLease lock={group.lock} issuesById={issuesById} onSelectIssue={onSelectIssue} />
+        <ActiveLease lock={group.lock} issueById={issueById} onSelectIssue={onSelectIssue} />
       </div>
       {waiters.length > 0 && (
         <QueueSection id={`${id}-next`} label="NEXT UP" count={waiters.length}>
-          <Waiters lock={group.lock} issuesById={issuesById} onSelectIssue={onSelectIssue} />
+          <Waiters lock={group.lock} issueById={issueById} onSelectIssue={onSelectIssue} />
         </QueueSection>
       )}
     </section>
@@ -567,13 +567,13 @@ function LiveLanes({
   lanes,
   released,
   loading,
-  issuesById,
+  issueById,
   onSelectIssue,
 }: {
   lanes: readonly QueueGroupModel[]
   released: readonly ReleasedLane[]
   loading: boolean
-  issuesById: ReadonlyMap<string, QueueIssue>
+  issueById: (id: string) => QueueIssue | undefined
   onSelectIssue: (issue: QueueIssue) => void
 }): JSX.Element {
   return (
@@ -620,7 +620,7 @@ function LiveLanes({
             <LaneGroup
               key={lane.name}
               group={lane}
-              issuesById={issuesById}
+              issueById={issueById}
               onSelectIssue={onSelectIssue}
             />
           ))}
@@ -653,13 +653,8 @@ export const MergeQueuePanelView = observer(function MergeQueuePanelView({
   onRefresh,
   onSelectIssue,
 }: MergeQueuePanelViewProps): JSX.Element {
-  const issuesById = useMemo(
-    () =>
-      new Map<string, QueueIssue>(
-        (model?.issues ?? issues).map((issue) => [issue.id, issue] as const),
-      ),
-    [model?.issues, issues],
-  )
+  const issueById = (id: string): QueueIssue | undefined =>
+    model ? model.pool.model('issue', id) : issues.find((issue) => issue.id === id)
   const locks = state.status === 'ready' ? state.locks : []
   const { merge, lanes } = queueGroups(locks)
   const candidates: readonly QueueIssue[] =
@@ -721,7 +716,7 @@ export const MergeQueuePanelView = observer(function MergeQueuePanelView({
 
           <MergeGroup
             group={merge}
-            issuesById={issuesById}
+            issueById={issueById}
             loading={state.status === 'loading'}
             onSelectIssue={onSelectIssue}
             ready={
@@ -746,7 +741,7 @@ export const MergeQueuePanelView = observer(function MergeQueuePanelView({
             lanes={lanes}
             released={released}
             loading={state.status === 'loading'}
-            issuesById={issuesById}
+            issueById={issueById}
             onSelectIssue={onSelectIssue}
           />
         </>
