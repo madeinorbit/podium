@@ -99,7 +99,7 @@ export function attentionSummary(s: SessionView): string | null {
  * freshly-drafted-but-otherwise-stale session belongs up with the just-active ones
  * (and reads as DRAFT). `draftUpdatedAt` is absent unless a non-empty draft exists.
  */
-function effectiveRecency(s: SessionView, now: number): string {
+export function effectiveRecency(s: SessionView, now: number): string {
   let t = s.lastActiveAt
   if (s.draftUpdatedAt && s.draftUpdatedAt > t) t = s.draftUpdatedAt
   // A snooze whose deadline has already passed re-enters the attention queue *at

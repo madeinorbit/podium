@@ -31,7 +31,7 @@ const isScreenableRoot = (issue: ScreeningSummary) =>
 /** Order key for the queue: priority ascending, then newest first. Fixed-width
  * complements keep lexicographic order equal to the numeric sort, so the
  * keeper's tree maintains the queue order one changed key at a time. */
-const screeningOrderKey = (issue: ScreeningSummary) => {
+export const screeningOrderKey = (issue: ScreeningSummary) => {
   const priority = Math.trunc(issue.priority ?? 0) + 0x80000000
   const newestFirst = 0xffffffff - Math.max(0, Math.trunc(issue.seq ?? 0))
   return `${String(priority).padStart(10, '0')}:${String(newestFirst).padStart(10, '0')}`
@@ -43,7 +43,7 @@ interface ScreeningEntry {
 /** One proposed issue's queue membership, read through its own summary plus
  * its ancestor chain. The keeper tracks exactly those rows, so an unrelated
  * proposal change never re-reads this entry. */
-function readScreeningEntry(pool: MobxPool, id: string): Loaded<ScreeningEntry> {
+export function readScreeningEntry(pool: MobxPool, id: string): Loaded<ScreeningEntry> {
   const row = pool.row('issue', id, 'summary') as Loaded<ScreeningSummary>
   if (row === LOADING) return LOADING
   if (!row || !isScreenableRoot(row)) return undefined

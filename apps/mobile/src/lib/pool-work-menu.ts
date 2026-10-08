@@ -57,3 +57,18 @@ export function resolvePoolWorkMenu(
     }
   })
 }
+
+/** Candidate shared-target reader; the legacy resolver stays until equivalence is proved. */
+export function resolveSharedWorkMenu(pool: MobxPool, id: string,
+  lane: WorkIssueMenuTarget['lane'] = 'live'): PoolWorkMenuData | null {
+  return allowImperativeRead(() => {
+    const issue = pool.issue(id)
+    if (!issue) return null
+    const target: WorkIssueMenuTarget = {
+      issue: issue as unknown as WorkIssueMenuTarget['issue'], lane,
+      get canBringBack() { return pool.worklistRow(id)?.rowCanBringBack },
+      get sessionCount() { return issue.memberCount },
+    }
+    return { target, issues: [issue as unknown as IssueViewModel], sessions: [] }
+  })
+}

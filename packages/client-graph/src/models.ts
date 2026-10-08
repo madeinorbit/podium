@@ -1,4 +1,5 @@
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
+import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asSessionId, isFinished } from '@podium/model/browser'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, type TaskProgress } from '@podium/client-core/values'
@@ -789,6 +790,15 @@ export class SessionModel extends EntityModel {
 
   @lazy
   get condition(): SessionView['condition'] { return this.storedField('condition') as SessionView['condition'] }
+
+  // Attention and ordering are session facts shared by the phone inbox and roster.
+  @lazy get attentionGroup() { return attentionGroup(this as SessionView) }
+
+  @lazy get recency(): string {
+    const deadline = Date.parse(this.snoozedUntil ?? '')
+    return effectiveRecency(this as SessionView,
+      Number.isFinite(deadline) && this.host.inputs.reached(deadline) ? deadline : -Infinity)
+  }
 
   // Activity: the same timestamp answers activityMs and raw member history.
   @lazy
