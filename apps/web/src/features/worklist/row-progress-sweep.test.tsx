@@ -22,12 +22,13 @@ class Observer {
   constructor(private readonly callback: IntersectionObserverCallback) {
     Observer.instances.push(this)
   }
-  intersect(target: Element, visible: boolean, width = 100): void {
+  intersect(target: Element, visible: boolean, width = 100, ratio = visible && width > 0 ? 1 : 0): void {
     this.callback(
       [
         {
           target,
           isIntersecting: visible,
+          intersectionRatio: ratio,
           intersectionRect: { width, height: 3 },
         } as IntersectionObserverEntry,
       ],
@@ -90,6 +91,15 @@ describe('row progress sweep visibility', () => {
     expect(sweep.style.animationPlayState).toBe('paused')
     expect(segment.style.width).toBe('25%')
     expect(meter.getAttribute('aria-label')).toBe(label)
+  })
+
+  it('starts during growth from zero width without needing a second intersection callback', () => {
+    const view = render(<RowProgressMeter progress={{ ...progress, run: 0 }} working />)
+    view.rerender(<RowProgressMeter progress={progress} working />)
+    const sweep = view.container.querySelector<HTMLSpanElement>('.row-progress-sweep')!
+    // Native observers report ratio 1 for an intersecting zero-area target.
+    Observer.instances[0]!.intersect(sweep.parentElement!, true, 0, 1)
+    expect(sweep.style.animationPlayState).toBe('running')
   })
 
   it('keeps a newly mounted hidden-tab sweep paused even after intersection arrives', () => {

@@ -14,11 +14,10 @@ class SweepVisibility {
         for (const entry of entries) {
           const sweep = this.sweeps.get(entry.target)
           if (!sweep) continue
-          // Edge contact and zero-width run segments cannot show a sheen.
-          sweep.visible =
-            entry.isIntersecting &&
-            entry.intersectionRect.width > 0 &&
-            entry.intersectionRect.height > 0
+          // Exclude edge contact. A segment entering its width transition can
+          // have zero area but ratio 1; treating that as invisible would strand
+          // it paused, since growth to full visibility need not cross a threshold.
+          sweep.visible = entry.isIntersecting && entry.intersectionRatio > 0
           this.update(sweep)
         }
       })
