@@ -63,12 +63,6 @@ export interface ModelHost {
   rosterCandidates(path: string): Iterable<string>
 }
 
-function documentText(value: unknown): string {
-  return typeof value === 'string'
-    ? value
-    : ((value as { value?: string } | undefined)?.value ?? '')
-}
-
 
 export class EntityModel {
   /**
@@ -280,7 +274,7 @@ export type RelationGetters<E extends EntityName> = {
 
 /** The one shared issue record. Worklist presentation belongs to WorklistIssue. */
 export class IssueModel extends EntityModel {
-  static override readonly answers: ReadonlySet<string> = new Set(['description', 'notes'])
+  static override readonly answers: ReadonlySet<string> = new Set([])
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
   }
@@ -307,13 +301,6 @@ export class IssueModel extends EntityModel {
 
   @lazy get authoredTitle(): string {
     return String(this.storedField('title') ?? '')
-  }
-  @lazy get description(): string {
-    return documentText(this.storedField('description'))
-  }
-  @lazy get notes(): string | undefined {
-    const value = this.storedField('notes')
-    return value === undefined ? undefined : documentText(value)
   }
 
   // Activity and headless presence: raw ownership maxima/counters include
