@@ -333,6 +333,8 @@ async function workAt(scale: number, plant = false, legacy = false) {
     )
   return counts
 }
+const phoneElements = (cell: WorkCounts) =>
+  cell.elements - (cell.elementsBy['IssueBoard.textIds'] ?? 0)
 it('keeps phone board row calls, derivations and collection elements flat at a fixed shown set', async () => {
   const one = await workAt(1),
     four = await workAt(4)
@@ -346,7 +348,7 @@ it('keeps phone board row calls, derivations and collection elements flat at a f
       // POD-5561 owns one shared scan of maintained title/ref strings for a
       // text query/title edit. Keep it visible; require the phone's work to be flat.
       const owned = (cell: WorkCounts) => kind === 'elements'
-        ? cell.elements - (cell.elementsBy['IssueBoard.textIds'] ?? 0)
+        ? phoneElements(cell)
         : cell[kind]!
       expect(owned(four[i]!)).toBeLessThanOrEqual(owned(one[i]!))
     }
@@ -364,6 +366,8 @@ it('keeps phone board row calls, derivations and collection elements flat at a f
     expect(four[1]![kind]! - one[1]![kind]!).toBeLessThanOrEqual(old4[1]![kind]! - old1[1]![kind]!)
   const planted1 = await workAt(1, true),
     planted4 = await workAt(4, true)
-  expect(planted4[3]!.elements).toBeGreaterThan(planted1[3]!.elements)
-  expect(() => expect(planted4[3]!.elements).toBeLessThanOrEqual(planted1[3]!.elements)).toThrow()
+  const plantedRow1 = phoneElements(planted1[3]!),
+    plantedRow4 = phoneElements(planted4[3]!)
+  expect(plantedRow4).toBeGreaterThan(plantedRow1)
+  expect(() => expect(plantedRow4).toBeLessThanOrEqual(plantedRow1)).toThrow()
 })
