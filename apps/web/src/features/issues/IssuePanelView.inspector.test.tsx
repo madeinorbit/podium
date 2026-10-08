@@ -122,7 +122,8 @@ vi.mock('@/app/store', () => {
   const trpc = {
     issues: {
       comments: { query: vi.fn(async () => []) },
-      events: { query: eventsQuery },
+      // The mock factory is hoisted before eventsQuery initializes.
+      events: { query: (input?: unknown) => eventsQuery(input) },
       start: { mutate: vi.fn(async () => ({})) },
       close: { mutate: vi.fn(async () => ({})) },
       update: { mutate: vi.fn(async () => ({})) },
