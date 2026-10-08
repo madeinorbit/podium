@@ -12,6 +12,7 @@ import type { HeaderEntity, HeaderRows } from './header-schema'
 import { type HeaderAggregate } from './header-session'
 import { HeaderSessions } from './header-sessions'
 import { missions } from './mission'
+import type { IssueModel } from './models'
 import type { MobxPool } from './pool'
 import { createQueryResult } from './query-result'
 import { sessionSeats } from './session-seats'
@@ -128,7 +129,7 @@ function createHeaderViews(pool: MobxPool) {
       ? undefined
       : (value as (Partial<SliceSession> & { machineId?: MachineId }) | undefined)
   }
-  function selectedIssue() {
+  function selectedIssue(): IssueModel | typeof LOADING | undefined {
     return headerModel(pool).selectedIssue
   }
   function workingIds() {
@@ -195,7 +196,7 @@ function createHeaderViews(pool: MobxPool) {
     const value = issue(rootId)
     if (value === LOADING) return FOLDED_LOADING
     // The same root value selectedIssue() gives when the root is selected.
-    const root = value && pool.model('issue', value.id)
+    const root: IssueModel | undefined = value && pool.model('issue', value.id)
     if (!root || root.archived || root.deletedAt) return FOLDED_NONE
     const ids = missions(pool).members(root.id)
     if (ids === LOADING) return FOLDED_LOADING
