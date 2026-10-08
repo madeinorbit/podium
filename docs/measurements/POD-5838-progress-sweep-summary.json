@@ -1,0 +1,1004 @@
+{
+  "host": "flatblock",
+  "base": "54019d214a",
+  "candidate": "9af3ba25f0e3747a1137efcd1c4adb77e8934192",
+  "browser": "156.0.8078.4",
+  "fixture": "Two production RowProgressMeter components; isolated scroll container; no backend, messages, marks, or JS animation loop",
+  "windows": [
+    {
+      "label": "before-visible",
+      "traced": true,
+      "seconds": 10.034279548,
+      "statesBefore": [
+        {
+          "playState": "running",
+          "currentTime": 500.0450000236928,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "playState": "running",
+          "currentTime": 500.0450000236928,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ],
+      "statesAfter": [
+        {
+          "playState": "running",
+          "currentTime": 10532.913000023693,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "playState": "running",
+          "currentTime": 10532.913000023693,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ],
+      "events": {
+        "BeginFrame": 609,
+        "UpdateLayoutTree": 32,
+        "PrePaint": 30,
+        "DrawFrame": 579,
+        "Display::DrawAndSwap": 579,
+        "PipelineReporter": 1224
+      },
+      "eventsPerMinute": {
+        "BeginFrame": 3641.5170441691585,
+        "UpdateLayoutTree": 191.3440811386093,
+        "PrePaint": 179.38507606744622,
+        "DrawFrame": 3462.131968101712,
+        "Display::DrawAndSwap": 3462.131968101712,
+        "PipelineReporter": 7318.911103551806
+      }
+    },
+    {
+      "label": "before-clipped",
+      "traced": false,
+      "seconds": 30.008176476999996,
+      "statesBefore": [
+        {
+          "playState": "running",
+          "currentTime": 12882.813000023694,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "playState": "running",
+          "currentTime": 12882.813000023694,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ],
+      "statesAfter": [
+        {
+          "playState": "running",
+          "currentTime": 42898.23100002369,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "playState": "running",
+          "currentTime": 42898.23100002369,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ],
+      "gpuCpuPercentOneCore": 3.5990190901062404,
+      "compositorCpuPercentOneCore": 4.165531354289629
+    },
+    {
+      "label": "before-clipped",
+      "traced": true,
+      "seconds": 10.007561431000003,
+      "statesBefore": [
+        {
+          "playState": "running",
+          "currentTime": 42914.9810000237,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "playState": "running",
+          "currentTime": 42914.9810000237,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ],
+      "statesAfter": [
+        {
+          "playState": "running",
+          "currentTime": 52914.545000023696,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "playState": "running",
+          "currentTime": 52914.545000023696,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ],
+      "events": {
+        "BeginFrame": 602,
+        "UpdateLayoutTree": 39,
+        "PrePaint": 36,
+        "PipelineReporter": 1204
+      },
+      "eventsPerMinute": {
+        "BeginFrame": 3609.2708747320394,
+        "UpdateLayoutTree": 233.82319620357066,
+        "PrePaint": 215.8367964956037,
+        "PipelineReporter": 7218.541749464079
+      }
+    },
+    {
+      "label": "after-clipped",
+      "traced": false,
+      "seconds": 30.011946979999994,
+      "statesBefore": [
+        {
+          "playState": "paused",
+          "currentTime": 1016.6869997434318,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "playState": "paused",
+          "currentTime": 1016.6869997434318,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ],
+      "statesAfter": [
+        {
+          "playState": "paused",
+          "currentTime": 1033.2869997434318,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "playState": "paused",
+          "currentTime": 1033.2869997434318,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ],
+      "gpuCpuPercentOneCore": 0.1666003209765761,
+      "compositorCpuPercentOneCore": 0.09996019258594602
+    },
+    {
+      "label": "after-clipped",
+      "traced": true,
+      "seconds": 10.032298257999996,
+      "statesBefore": [
+        {
+          "playState": "paused",
+          "currentTime": 1033.2869997434318,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "playState": "paused",
+          "currentTime": 1033.2869997434318,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ],
+      "statesAfter": [
+        {
+          "playState": "paused",
+          "currentTime": 1033.2869997434318,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "playState": "paused",
+          "currentTime": 1033.2869997434318,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ],
+      "events": {
+        "UpdateLayoutTree": 2
+      },
+      "eventsPerMinute": {
+        "UpdateLayoutTree": 11.961366868684264
+      }
+    },
+    {
+      "label": "after-visible-restored",
+      "traced": true,
+      "seconds": 10.00723126999999,
+      "statesBefore": [
+        {
+          "playState": "running",
+          "currentTime": 1050.0199997629807,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "playState": "running",
+          "currentTime": 1050.0199997629807,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ],
+      "statesAfter": [
+        {
+          "playState": "running",
+          "currentTime": 11066.163999762985,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "playState": "running",
+          "currentTime": 11066.163999762985,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ],
+      "events": {
+        "BeginFrame": 602,
+        "UpdateLayoutTree": 32,
+        "PrePaint": 31,
+        "Display::DrawAndSwap": 593,
+        "DrawFrame": 593,
+        "PipelineReporter": 1204
+      },
+      "eventsPerMinute": {
+        "BeginFrame": 3609.389952671698,
+        "UpdateLayoutTree": 191.8612599426816,
+        "PrePaint": 185.86559556947284,
+        "Display::DrawAndSwap": 3555.428973312819,
+        "DrawFrame": 3555.428973312819,
+        "PipelineReporter": 7218.779905343396
+      }
+    },
+    {
+      "label": "before-clipped-restored",
+      "traced": false,
+      "seconds": 30.015555475,
+      "statesBefore": [
+        {
+          "playState": "running",
+          "currentTime": 2049.9970000311732,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "playState": "running",
+          "currentTime": 2049.9970000311732,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ],
+      "statesAfter": [
+        {
+          "playState": "running",
+          "currentTime": 32065.37900003117,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        },
+        {
+          "playState": "running",
+          "currentTime": 32065.37900003117,
+          "duration": "1.6s",
+          "easing": "ease-in-out",
+          "width": "25%",
+          "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+          "frames": [
+            {
+              "offset": 0,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(-100%)",
+              "computedOffset": 0
+            },
+            {
+              "offset": 1,
+              "easing": "ease-in-out",
+              "composite": "auto",
+              "transform": "translateX(100%)",
+              "computedOffset": 1
+            }
+          ]
+        }
+      ],
+      "gpuCpuPercentOneCore": 3.1317094923761375,
+      "compositorCpuPercentOneCore": 3.4315540182419357
+    }
+  ],
+  "boundaries": {
+    "beforeVisible": [
+      {
+        "playState": "running",
+        "currentTime": 1033.2950002892317,
+        "duration": "1.6s",
+        "easing": "ease-in-out",
+        "width": "25%",
+        "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+        "frames": [
+          {
+            "offset": 0,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(-100%)",
+            "computedOffset": 0
+          },
+          {
+            "offset": 1,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(100%)",
+            "computedOffset": 1
+          }
+        ]
+      },
+      {
+        "playState": "running",
+        "currentTime": 1033.2950002892317,
+        "duration": "1.6s",
+        "easing": "ease-in-out",
+        "width": "25%",
+        "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+        "frames": [
+          {
+            "offset": 0,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(-100%)",
+            "computedOffset": 0
+          },
+          {
+            "offset": 1,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(100%)",
+            "computedOffset": 1
+          }
+        ]
+      }
+    ],
+    "afterVisible": [
+      {
+        "playState": "running",
+        "currentTime": 1000.0289999710918,
+        "duration": "1.6s",
+        "easing": "ease-in-out",
+        "width": "25%",
+        "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+        "frames": [
+          {
+            "offset": 0,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(-100%)",
+            "computedOffset": 0
+          },
+          {
+            "offset": 1,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(100%)",
+            "computedOffset": 1
+          }
+        ]
+      },
+      {
+        "playState": "running",
+        "currentTime": 1000.0289999710918,
+        "duration": "1.6s",
+        "easing": "ease-in-out",
+        "width": "25%",
+        "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+        "frames": [
+          {
+            "offset": 0,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(-100%)",
+            "computedOffset": 0
+          },
+          {
+            "offset": 1,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(100%)",
+            "computedOffset": 1
+          }
+        ]
+      }
+    ],
+    "samePixelsAt400ms": true,
+    "backgroundTabVisibility": "visible",
+    "backgroundTabStates": [
+      {
+        "playState": "running",
+        "currentTime": 13016.179999762982,
+        "duration": "1.6s",
+        "easing": "ease-in-out",
+        "width": "25%",
+        "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+        "frames": [
+          {
+            "offset": 0,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(-100%)",
+            "computedOffset": 0
+          },
+          {
+            "offset": 1,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(100%)",
+            "computedOffset": 1
+          }
+        ]
+      },
+      {
+        "playState": "running",
+        "currentTime": 13016.179999762982,
+        "duration": "1.6s",
+        "easing": "ease-in-out",
+        "width": "25%",
+        "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+        "frames": [
+          {
+            "offset": 0,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(-100%)",
+            "computedOffset": 0
+          },
+          {
+            "offset": 1,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(100%)",
+            "computedOffset": 1
+          }
+        ]
+      }
+    ],
+    "foregroundTabStates": [
+      {
+        "playState": "running",
+        "currentTime": 13266.145999762983,
+        "duration": "1.6s",
+        "easing": "ease-in-out",
+        "width": "25%",
+        "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+        "frames": [
+          {
+            "offset": 0,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(-100%)",
+            "computedOffset": 0
+          },
+          {
+            "offset": 1,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(100%)",
+            "computedOffset": 1
+          }
+        ]
+      },
+      {
+        "playState": "running",
+        "currentTime": 13266.145999762983,
+        "duration": "1.6s",
+        "easing": "ease-in-out",
+        "width": "25%",
+        "label": "4 tasks · 1 done · 1 underway · 2 waiting",
+        "frames": [
+          {
+            "offset": 0,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(-100%)",
+            "computedOffset": 0
+          },
+          {
+            "offset": 1,
+            "easing": "ease-in-out",
+            "composite": "auto",
+            "transform": "translateX(100%)",
+            "computedOffset": 1
+          }
+        ]
+      }
+    ]
+  }
+}
