@@ -4,7 +4,7 @@ import { createMobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
 import { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { PodiumTarget } from '@podium/protocol'
-import { parseAnyRef } from '@podium/protocol'
+import { parseAnyRef, parseSessionRef } from '@podium/protocol'
 
 interface AddressIssue {
   id: string
@@ -14,9 +14,17 @@ interface AddressIssue {
   title?: string
   stage?: string
 }
+interface AddressSession {
+  sessionId: string
+  displayRef?: string
+  refRepoId?: string
+  refSeq?: number
+  refLetter?: string
+  refDraft?: number
+}
 export function poolRouteFixture(input: {
   issues: readonly AddressIssue[]
-  sessions: readonly { sessionId: string; displayRef?: string }[]
+  sessions: readonly AddressSession[]
 }) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   // Historical route fixtures sometimes supplied displayRef alone. Feed
@@ -26,14 +34,102 @@ export function poolRouteFixture(input: {
     return { ...row, seq: row.seq ?? (ref?.kind === 'issue' ? ref.seq : 0),
       prefix: row.prefix ?? (ref?.kind === 'issue' ? ref.prefix : undefined) }
   })
+  // Sessions need the same normalized identity: the indexed sessionReference
+  // question keys on (refRepoId, refSeq/refLetter or refDraft), resolved
+  // through the prefix→repo composition. Preserve caller-supplied normalized
+  // fields (the corpus `after` rows carry real refRepoIds); derive synthetic
+  // ones from displayRef when only the human ref is given.
+  const sessions: AddressSession[] = input.sessions.map(row => {
+    if (
+      row.refRepoId !== undefined ||
+      row.refSeq !== undefined ||
+      row.refLetter !== undefined ||
+      row.refDraft !== undefined
+    ) {
+      return { ...row }
+    }
+    const ref = parseSessionRef(row.displayRef ?? '')
+    if (!ref) return { sessionId: row.sessionId, displayRef: row.displayRef }
+    if (ref.draft !== undefined) {
+      return { sessionId: row.sessionId, displayRef: row.displayRef, refRepoId: ref.prefix, refDraft: ref.draft }
+    }
+    return {
+      sessionId: row.sessionId,
+      displayRef: row.displayRef,
+      refRepoId: ref.prefix,
+      refSeq: ref.seq,
+      refLetter: ref.letter,
+    }
+  })
+  // Worktree composition for both entity kinds: issues use the synthetic
+  // prefix-as-repoId mapping; sessions may carry real refRepoIds (corpus
+  // `after` rows), so file each distinct (prefix, repoId) pair they need.
+  const worktreeRows: { kind: 'worktree'; id: string; value: unknown }[] = [
+    ...[...new Set(issues.flatMap((row) => (row.prefix ? [row.prefix] : [])))].map((prefix) => ({
+      kind: 'worktree' as const,
+      id: `/synthetic/${prefix}`,
+      value: {
+        path: `/synthetic/${prefix}`,
+        repoId: prefix,
+        prefix,
+        repoPath: `/synthetic/${prefix}`,
+        repoName: prefix,
+      } as never,
+    })),
+  ]
+  const seenPairs = new Set(issues.flatMap((row) => (row.prefix ? [`${row.prefix}\0${row.prefix}`] : [])))
+  for (const row of sessions) {
+    const parsed = parseSessionRef(row.displayRef ?? '')
+    const prefix = parsed?.prefix
+    if (!prefix || !row.refRepoId) continue
+    // Only file the real composition; the synthetic prefix→prefix row above
+    // already covers displayRef-only sessions.
+    if (row.refRepoId === prefix) continue
+    const key = `${prefix}\0${row.refRepoId}`
+    if (seenPairs.has(key)) continue
+    seenPairs.add(key)
+    worktreeRows.push({
+      kind: 'worktree' as const,
+      id: `/synthetic/${prefix}/${row.refRepoId}`,
+      value: {
+        path: `/synthetic/${prefix}/${row.refRepoId}`,
+        repoId: row.refRepoId,
+        prefix,
+        repoPath: `/synthetic/${prefix}/${row.refRepoId}`,
+        repoName: prefix,
+      } as never,
+    })
+  }
+  // Sessions without a caller-supplied prefix still need their synthetic
+  // prefix row when issues did not already file it.
+  for (const row of sessions) {
+    const parsed = parseSessionRef(row.displayRef ?? '')
+    const prefix = parsed?.prefix
+    if (!prefix) continue
+    const key = `${prefix}\0${prefix}`
+    if (seenPairs.has(key)) continue
+    // A real (prefix, refRepoId) row already covers this prefix's repo
+    // composition; the synthetic row would be a second holder for the same
+    // prefix, which is harmless but unnecessary when the real one exists.
+    const hasReal = [...seenPairs].some((k) => k.startsWith(`${prefix}\0`))
+    if (hasReal) continue
+    seenPairs.add(key)
+    worktreeRows.push({
+      kind: 'worktree' as const,
+      id: `/synthetic/${prefix}`,
+      value: {
+        path: `/synthetic/${prefix}`,
+        repoId: prefix,
+        prefix,
+        repoPath: `/synthetic/${prefix}`,
+        repoName: prefix,
+      } as never,
+    })
+  }
   pool.apply({
     type: 'replace',
     rows: [
-      ...[...new Set(issues.flatMap((row) => row.prefix ? [row.prefix] : []))].map((prefix) => ({
-        kind: 'worktree' as const, id: `/synthetic/${prefix}`, value: {
-          path: `/synthetic/${prefix}`, repoId: prefix, prefix, repoPath: `/synthetic/${prefix}`, repoName: prefix,
-        } as never,
-      })),
+      ...worktreeRows,
       ...issues.map((row) => ({
         kind: 'issue' as const,
         id: row.id,
@@ -49,12 +145,20 @@ export function poolRouteFixture(input: {
           repoId: row.prefix,
         } as never,
       })),
-      ...input.sessions.map((row) => ({
+      ...sessions.map((row) => ({
         kind: 'session' as const,
         id: row.sessionId,
-        // Address fixtures declare identity only. A full SessionView may carry
-        // resume-chain membership which belongs to a separate reader question.
-        value: { sessionId: row.sessionId, displayRef: row.displayRef } as never,
+        // Address identity only, but with normalized ref keys: resume-chain
+        // membership still belongs to a separate reader question, so strip
+        // anything else a full SessionView may carry.
+        value: {
+          sessionId: row.sessionId,
+          displayRef: row.displayRef,
+          ...(row.refRepoId !== undefined ? { refRepoId: row.refRepoId } : {}),
+          ...(row.refSeq !== undefined ? { refSeq: row.refSeq } : {}),
+          ...(row.refLetter !== undefined ? { refLetter: row.refLetter } : {}),
+          ...(row.refDraft !== undefined ? { refDraft: row.refDraft } : {}),
+        } as never,
       })),
     ],
   })
