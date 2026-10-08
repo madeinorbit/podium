@@ -1,5 +1,5 @@
 import type { AttentionGroup } from '@podium/client-core/focus'
-import { action, compareShallow, observable, reaction } from 'mobx'
+import { action, compareShallow, observable, observableRef, reaction } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
 import { issuePages } from './issue-page'
 import { readScreeningEntry, screeningOrderKey } from './mobile-inbox-views'
@@ -73,7 +73,7 @@ export function reconcileScreeningIds(order: readonly string[], index: number, q
 }
 
 export class ProposalScreening {
-  @observable.ref accessor order: readonly string[] = EMPTY
+  @observableRef accessor order: readonly string[] = EMPTY
   @observable accessor index = 0
   constructor(readonly pool: MobxPool) {}
   @lazy get queue() { return screeningQueue(this.pool) }
