@@ -1502,14 +1502,14 @@
     },
     {
       "file": "apps/mobile/src/screens/IssuesScreen.tsx",
-      "holder": "IssuesScreen/hasCloseBlockers",
+      "holder": "IssuesScreen/IssuesScreen/hasCloseBlockers",
       "rule": "reader-summary",
       "tokens": "430c58b509786a884f0f45df58a7e7cf3347ace348324708ca3f26c6da654e83",
       "gate": [],
       "origin": [
         "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6"
       ],
-      "fingerprint": "a5ffbd256035f96d494b6fd6a8e892eb65f605c0bd35a071f96bb1d6ac66548e",
+      "fingerprint": "f2db7ef3b004f4c14c4630d83e2469d82934abe45aa2e013bbdef8739fe2670a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -40482,47 +40482,6 @@
       "trigger": "Invocation of createMobileScreenReader/readMission",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/readTasks",
-      "rule": "loop:for-of",
-      "tokens": "07b0a7ee94700add249ec00c48a689f589766866c1a1c1568f80cc4fc1862ebc",
-      "gate": [
-        "exit:then:fe1f864645b4a817d48d8fd0e7daa3a9d53184f7d8a4ba98d07b786b2bcc1fb2"
-      ],
-      "origin": [
-        "dcb716b6d9a08706dd67ec52039aea1fe732981f2172d2b01158bbd2bba0584b"
-      ],
-      "fingerprint": "2b70371aa79e28ab8e2394d5972f5baa0e16d18839338fda23539e867c70315c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileScreenReader/tasks/memo:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/readTasks/emit/callback",
-      "rule": "helper-consumer",
-      "tokens": "75671b3b701c82b00cec12f39fb61fd4fdc6841a37265fac58cdbeb2a52e9d79",
-      "gate": [
-        "exit:then:53954cfe92b1b3a5818b5c74b6069dd7d023ec6919c0fbb720f2253817dfa868",
-        "then:c206573d10c3cdac00015117591121611ece4ace7db346f1b8d5cb98b77bf2c5"
-      ],
-      "origin": [
-        "833f6bb2bc3f1141e59b4ede812eefb197f7292e69c7e16b34be50df3c5b415d"
-      ],
-      "fingerprint": "92c6de9765d7b33a93cdde0cb64bb9ad0826a870bc8a5b2c3cfb039bd3ead315",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileScreenReader/tasks/memo:callback/emit/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

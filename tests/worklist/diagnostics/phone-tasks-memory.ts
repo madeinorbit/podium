@@ -150,6 +150,11 @@ if (mode === 'before') {
 }
 await Promise.resolve()
 const watchedFields = [...targets].reduce((sum, target) => sum + lazyKeptCount(target), 0)
+const watchedCacheFields = [...caches].filter((cache) => cache.observers_.size > 0).length
+proto.computeValue_ = computeValue
+// Measuring must not retain the temporary computeds visited by the counter.
+caches.clear()
+targets.clear()
 const retained = heap()
 console.log(
   JSON.stringify({
@@ -159,12 +164,11 @@ console.log(
     sessions: sessions.length,
     shown: count / 4,
     watchedLazyFields: watchedFields,
-    watchedCacheFields: [...caches].filter((cache) => cache.observers_.size > 0).length,
+    watchedCacheFields,
     heapBeforeBoard: baseline,
     heapWithBoard: retained,
     boardHeap: retained - baseline,
   }),
 )
 for (const stop of stops.reverse()) stop()
-proto.computeValue_ = computeValue
 pool.dispose()
