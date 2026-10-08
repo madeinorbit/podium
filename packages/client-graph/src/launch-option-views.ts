@@ -95,6 +95,14 @@ export function launchOptionViews(pool: MobxPool) {
     })
     const projects = computed(() => (JSON.parse(projectOrderKey.get()) as string[])
       .flatMap(id => project(id) ?? []))
+    const projectChoices = computed(() => {
+      const pinned = pins.get().repos
+      return headerEntities(pool).repositoryGroupIds().flatMap(id => {
+        const repo = project(id)
+        return repo && (pinned.some(path => machinePathsEqual(path, repo.path)) || repo.worktrees.length)
+          ? [repo] : []
+      })
+    })
     const catalogRoot = keyedComputed('launch.catalogRoot', (id: string) => {
       const row = pool.row('repository', id) as GitRepositoryWire | undefined
       return row && typeof row !== 'symbol' ? row : undefined
@@ -165,6 +173,10 @@ export function launchOptionViews(pool: MobxPool) {
       newWork: () => work.get(),
       catalog: () => catalog.get(),
       picker: (): LaunchCatalogPicker => new LaunchCatalogPicker(pool),
+      repository: (id: string) => repository(id),
+      projectChoices: () => projectChoices.get(),
+      machines: () => machines.get(),
+      recentMachine: () => recentMachine.get() ?? undefined,
       repositoryActivity: (path: string) => activityAt(machinePathKey(path)),
       origin: (path: string) => origin(machinePathKey(path)),
       counts,
@@ -215,6 +227,44 @@ export class LaunchCatalogPicker {
   catalog() { return this.data }
 }
 export const createLaunchCatalogPicker = (pool: MobxPool) => new LaunchCatalogPicker(pool)
+
+/** The phone launch sheet owns recency for one opening; repository metadata stays live. */
+export class LaunchWorkPicker {
+  @observableRef accessor pathOrder: string[] = []
+  @observableRef accessor projectOrder: string[] = []
+  @observableRef accessor usageAt: ReadonlyMap<string, number> = new Map()
+  @observable accessor opened = false
+  constructor(private readonly pool: MobxPool) {}
+  @action open() {
+    const views = launchOptionViews(this.pool)
+    this.pathOrder = views.repositoryPaths()
+    this.projectOrder = views.newWork().repos.map(repo => repo.path)
+    this.usageAt = new Map(views.newWork().repos.map(repo => [machinePathKey(repo.path), views.repositoryActivity(repo.path)]))
+    this.opened = true
+  }
+  @lazy get repositoryPaths() {
+    const paths = headerEntities(this.pool).repositoryGroupIds()
+      .flatMap(id => launchOptionViews(this.pool).repository(id)?.path ?? [])
+    return storedOrder(this.pathOrder, paths)
+  }
+  @lazy get repos() {
+    const choices = launchOptionViews(this.pool).projectChoices()
+    const byPath = new Map(choices.map(repo => [repo.path, repo]))
+    return storedOrder(this.projectOrder, choices.map(repo => repo.path)).flatMap(path => byPath.get(path) ?? [])
+  }
+  @lazy get data() {
+    const views = launchOptionViews(this.pool)
+    return { machines: views.machines(), repos: this.repos, recentMachine: views.recentMachine() }
+  }
+  newWork() { return this.data }
+  repositoryActivity(path: string) { return this.usageAt.get(machinePathKey(path)) ?? 0 }
+}
+export const createLaunchWorkPicker = (pool: MobxPool) => new LaunchWorkPicker(pool)
+
+function storedOrder(order: readonly string[], paths: readonly string[]): string[] {
+  const present = new Set(paths), stored = new Set(order)
+  return [...order.filter(path => present.has(path)), ...paths.filter(path => !stored.has(path))]
+}
 
 /** A catalog choice observes its own path, not unrelated scan metadata. */
 class LaunchCatalogRoot {
