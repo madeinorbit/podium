@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Keeps the macOS runner VM running.
+
+  Install as a LaunchAgent, NOT a LaunchDaemon: Virtualization.framework needs a
+  logged-in user session, so a system-level daemon cannot start the VM.
+
+  --no-graphics is correct and deliberate. It was verified empirically that
+  the guest needs no Aqua session for UI work: with /dev/console owned by root
+  and no gui/<uid> launchd domain at all, `simctl boot` succeeds and a full
+  Maestro launch/assert/screenshot flow completes, including when driven over
+  SSH from a Linux host. CoreSimulatorService does not live in the gui domain,
+  so its absence there means nothing. Do not "fix" this by adding a display.
+
+    cp com.podium.macos-runner.plist ~/Library/LaunchAgents/
+    # edit VM_NAME/tart path below if yours differ
+    launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.podium.macos-runner.plist
+    launchctl kickstart -k gui/$(id -u)/com.podium.macos-runner
+
+  Because it is a LaunchAgent, the host must reach a logged-in session after a
+  reboot. Enable automatic login, or the VM stays down until someone logs in.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.podium.macos-runner</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/homebrew/bin/tart</string>
+    <string>run</string>
+    <string>--no-graphics</string>
+    <string>podium-apple-runner</string>
+  </array>
+
+  <!-- Restart if the VM exits for any reason, and start it at login. -->
+  <key>KeepAlive</key>
+  <true/>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>ThrottleInterval</key>
+  <integer>30</integer>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/podium-macos-runner.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/podium-macos-runner.err</string>
+</dict>
+</plist>
