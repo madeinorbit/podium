@@ -1,6 +1,7 @@
 /** Single web build using the repository's admission, fingerprint and Turbo recipe. */
-import { join } from 'node:path'
-const root = process.cwd()
+import { join, resolve } from 'node:path'
+const root = resolve(process.argv[2] ?? process.cwd())
+process.env.PATH = join(root, '.toolchain/bin') + ':' + process.env.PATH
 const { readCensus, admissionRefusal, turboEnv } = await import(join(root, 'scripts/typecheck.ts'))
 const { turboBuildCommandFor, stampCommandFor } = await import(join(root, 'scripts/build-clients.ts'))
 const census = readCensus(root)
