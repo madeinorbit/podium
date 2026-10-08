@@ -2,7 +2,6 @@ import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   formatMemBytes,
   hostMemoryView,
-  panelLabel,
   reclaimSpaceLabel,
 } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
@@ -13,14 +12,12 @@ import type {
   IssueId,
   MachineId,
   ProjectMemoryWire,
-  SessionId,
 } from '@podium/model/browser'
 import { machinePathBasename } from '@podium/model/browser'
 import type { PodiumSettings } from '@podium/runtime'
 import { Loader2 } from 'lucide-react'
-import type { JSX } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
-import { usePoolSessionLabels } from '@/app/header-data'
 import { useHostMetrics, useRuntimeSelector } from '@/app/store'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
@@ -30,6 +27,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { usePolledQuery } from '@/lib/use-polled-query'
 import { cn } from '@/lib/utils'
+import { HeaderSessionLabel } from './HeaderSessionLabel'
 import { describeHealth, useConnectionHealth } from './ConnectionIndicator'
 import { useHibernationSetting, useHostLifecycleSettings } from './host-lifecycle-settings'
 import { ReclaimConfirmDialog } from './reclaim-lifecycle'
@@ -197,13 +195,7 @@ function MemoryPanel({
     read: () => trpc.hosts.memoryBreakdown.mutate(machineId ? { machineId } : undefined),
   })
 
-  const sessions = usePoolSessionLabels(data?.agents.map((agent) => agent.sessionId) ?? [])
   const idleSessionCount = useWorklistPoolProjection(readParkedCount, 0)
-  const sessionLabel = (sessionId: SessionId): string => {
-    const s = sessions[sessionId]
-    if (!s) return sessionId.slice(0, 8)
-    return `${panelLabel(s.agentKind)} — ${s.title}`
-  }
 
   // Instant headline from the live host-metrics sample (already streamed to the
   // store), so "12.3/32 GB used" is on screen the moment the modal opens. Pick
@@ -255,7 +247,6 @@ function MemoryPanel({
       {data && (
         <BreakdownBody
           data={data}
-          sessionLabel={sessionLabel}
           hibernationNote={
             <HibernationNote
               hibernation={hibernation}
@@ -323,11 +314,9 @@ function HibernationNote({
 
 function BreakdownBody({
   data,
-  sessionLabel,
   hibernationNote,
 }: {
   data: Breakdown
-  sessionLabel: (sessionId: SessionId) => string
   hibernationNote?: JSX.Element | null
 }): JSX.Element {
   const mem = hostMemoryView({
@@ -365,7 +354,7 @@ function BreakdownBody({
         {data.agents.map((agent) => (
           <Row
             key={agent.sessionId}
-            name={sessionLabel(agent.sessionId)}
+            name={<HeaderSessionLabel id={agent.sessionId} />}
             detail={`${agent.processCount} process${agent.processCount === 1 ? '' : 'es'}`}
             bytes={agent.bytes}
           />
@@ -426,7 +415,7 @@ function Row({
   bytes,
   muted,
 }: {
-  name: string
+  name: ReactNode
   detail?: string
   title?: string
   bytes: number

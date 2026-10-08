@@ -27,6 +27,12 @@ export class HeaderSession {
   /** Evidence is retained across expiry so a clock rewind can restore it. */
   get headerWorkingEvidence(): NonNullable<ReturnType<typeof headerWorkingSession>> | null {
     if (!this.session.known || this.session.computingDeadline === undefined) return null
+    return this.headerWorkingFields
+  }
+
+  /** Legacy readers can still ask for these fields individually. Display leaves use session. */
+  @lazy
+  get headerWorkingFields(): NonNullable<ReturnType<typeof headerWorkingSession>> {
     const model = this
     return {
       get sessionId() { return model.headerWorkingSessionId },

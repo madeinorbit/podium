@@ -129,18 +129,14 @@ function createHeaderViews(pool: MobxPool) {
       : (value as (Partial<SliceSession> & { machineId?: MachineId }) | undefined)
   }
   function selectedIssue() {
-    return memo('selectedIssue', () => {
-      const id = pool.selection.keys().next().value
-      if (!id) return undefined
-      const value = issue(id)
-      if (value === LOADING) return LOADING
-      if (!value || value.deletedAt) return undefined
-      const model = pool.model('issue', id)
-      return { ...value, displayRef: model?.displayRef ?? `#${value.seq}` }
-    })
+    return headerModel(pool).selectedIssue
   }
+  function workingIds() {
+    return sessionIndex((index) => index.workingIds())
+  }
+
   function workingRoster() {
-    return memo('workingRoster', () => sessionIndex((index) => index.working()))
+    return sessionIndex((index) => index.working())
   }
   function workingCount() {
     return memo('workingCount', () => sessionIndex((index) => index.workingCount()))
@@ -199,10 +195,7 @@ function createHeaderViews(pool: MobxPool) {
     const value = issue(rootId)
     if (value === LOADING) return FOLDED_LOADING
     // The same root value selectedIssue() gives when the root is selected.
-    const root = value && {
-      ...value,
-      displayRef: pool.model('issue', value.id)?.displayRef ?? `#${value.seq}`,
-    }
+    const root = value && pool.model('issue', value.id)
     if (!root || root.archived || root.deletedAt) return FOLDED_NONE
     const ids = missions(pool).members(root.id)
     if (ids === LOADING) return FOLDED_LOADING
@@ -437,6 +430,7 @@ function createHeaderViews(pool: MobxPool) {
       }),
     connection: () => row('connection', 'server'),
     working: workingRoster,
+    workingIds,
     workingCount,
     session: (id: string) => pool.row('session', id) as SessionView | typeof LOADING | undefined,
     clear: () => {

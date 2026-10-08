@@ -1,6 +1,7 @@
+import { observer } from 'mobx-react-lite'
 import { Popover } from '@base-ui/react/popover'
 import { type JSX, useMemo, useState } from 'react'
-import { usePoolConcurrencyHistory, usePoolWorkingSessions } from './header-data'
+import { usePoolConcurrencyHistory, usePoolWorkingSessionIds, usePoolHeaderSession } from './header-data'
 import { StatusMetric } from './StatusMetric'
 import { shareAgentConcurrency } from './status-share'
 
@@ -81,15 +82,21 @@ export function AgentConcurrencyHistory({ working }: { working: number }): JSX.E
 }
 
 function WorkingRoster() {
-  const workingSessions = usePoolWorkingSessions()
+  const ids = usePoolWorkingSessionIds()
   return (
     <ul className="status-strip-roster-list">
-      {workingSessions.map((session) => (
-        <li key={session.sessionId}>
-          <span>{session.name ?? session.title}</span>
-          <b>{session.displayRef ?? session.agentKind}</b>
-        </li>
-      ))}
+      {ids.map(id => <WorkingSessionRow key={id} id={id} />)}
     </ul>
   )
 }
+
+const WorkingSessionRow = observer(function WorkingSessionRow({ id }: { id: string }) {
+  const header = usePoolHeaderSession(id)
+  if (!header) return null
+  return (
+    <li>
+      <span>{header.session.name ?? header.session.title}</span>
+      <b>{header.session.displayRef ?? header.session.agentKind}</b>
+    </li>
+  )
+})

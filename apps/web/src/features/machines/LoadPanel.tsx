@@ -4,22 +4,21 @@ import {
   hostDiskView,
   hostLoadView,
   hostMemoryView,
-  panelLabel,
   reclaimSpaceLabel,
 } from '@podium/client-core/values'
 import { machinePathBasename } from '@podium/model'
-import type { MachineId, SessionId } from '@podium/model/browser'
+import type { MachineId } from '@podium/model/browser'
 import { RotateCw } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
 import {
   useHeaderActions,
   usePoolHostAggregate,
   usePoolPanelMetric,
-  usePoolSessionLabels,
 } from '@/app/header-data'
 import type { Trpc } from '@/app/trpc'
 import { usePolledQuery } from '@/lib/use-polled-query'
 import { cn } from '@/lib/utils'
+import { HeaderSessionLabel } from './HeaderSessionLabel'
 import { HealthPopoverFooter } from './HealthPopover'
 import { useHostLifecycleSettings } from './host-lifecycle-settings'
 import { SEVERITY, TONE_KEY } from './severity'
@@ -128,12 +127,6 @@ export function LoadPanel({
   const projectBytes = data?.projects.reduce((sum, p) => sum + p.bytes, 0) ?? 0
   const seg = (bytes: number): string => `${total > 0 ? (bytes / total) * 100 : 0}%`
 
-  const labels = usePoolSessionLabels(data?.agents.map((agent) => agent.sessionId) ?? [])
-  const sessionLabel = (sessionId: SessionId): string => {
-    const s = labels[sessionId]
-    if (!s) return sessionId.slice(0, 8)
-    return `${panelLabel(s.agentKind)} — ${s.title}`
-  }
 
   const memActive =
     hibernation?.enabled === true && mem !== null && mem.pct >= hibernation.memoryPct
@@ -299,7 +292,7 @@ export function LoadPanel({
                 data.agents.map((agent) => (
                   <ProcessRow
                     key={agent.sessionId}
-                    name={sessionLabel(agent.sessionId)}
+                    name={<HeaderSessionLabel id={agent.sessionId} />}
                     detail={`${agent.processCount} process${agent.processCount === 1 ? '' : 'es'}`}
                     bytes={agent.bytes}
                   />
@@ -505,7 +498,7 @@ function ProcessRow({
   bytes,
   muted,
 }: {
-  name: string
+  name: ReactNode
   detail?: string
   title?: string
   bytes: number

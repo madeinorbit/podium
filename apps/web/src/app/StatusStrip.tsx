@@ -1,5 +1,5 @@
-import { issueReferenceModel } from '@podium/client-core/values'
-import type { IssueId, IssueStage } from '@podium/model/browser'
+import { issueReferenceModel, type IssueReferenceSource } from '@podium/client-core/values'
+import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { IssueReference } from '@/components/IssueReference'
 import { ConnectionIndicator, useStableConnection } from '@/features/machines/ConnectionIndicator'
@@ -7,7 +7,7 @@ import { MobileHandoffChip } from '@/features/mobile-handoff/MobileHandoffChip'
 import { UpdateIndicator } from '@/features/updates/UpdateIndicator'
 import { useUpdates } from '@/features/updates/updates-panel-context'
 import { AgentConcurrencyHistory } from './AgentConcurrencyHistory'
-import { useHeaderActions, useHeaderStatus } from './header-data'
+import { useHeaderActions, useHeaderSelectedIssue, useHeaderWorkingCount } from './header-data'
 import { StatusPerformanceStats } from './StatusPerformanceStats'
 
 /**
@@ -42,7 +42,6 @@ import { StatusPerformanceStats } from './StatusPerformanceStats'
  */
 export function StatusStrip(): JSX.Element {
   const { trpc } = useHeaderActions()
-  const { workingCount, issue } = useHeaderStatus()
   const { health, visible: connVisible } = useStableConnection()
   // The update affordance (POD-2102). It passes the same test as the rest of
   // the strip: window-scoped, stated nowhere else, and present only while it is
@@ -51,35 +50,10 @@ export function StatusStrip(): JSX.Element {
 
   return (
     <footer className="status-strip" data-testid="status-strip">
-      <AgentConcurrencyHistory working={workingCount} />
+      <WorkingHistory />
       <span className="status-strip-seam" aria-hidden="true" />
       <StatusPerformanceStats trpc={trpc} />
-      {typeof issue === 'symbol' && (
-        <span className="status-strip-issue" role="status">
-          Loading task…
-        </span>
-      )}
-      {issue && typeof issue !== 'symbol' && (
-        <>
-          <span className="status-strip-seam" aria-hidden="true" />
-          <span className="status-strip-issue" title={issue.title}>
-            <IssueReference
-              model={issueReferenceModel({
-                id: issue.id as IssueId,
-                seq: issue.seq,
-                title: issue.title,
-                stage: issue.stage as IssueStage,
-                displayRef: issue.displayRef,
-                archived: issue.archived,
-                deletedAt: issue.deletedAt ?? undefined,
-              })}
-              size={11}
-              refClassName="status-strip-ref"
-              titleClassName="status-strip-issue-title"
-            />
-          </span>
-        </>
-      )}
+      <SelectedHeaderIssue />
       {updates.indicator !== 'none' && (
         <>
           <span className="status-strip-seam" aria-hidden="true" />
@@ -107,3 +81,28 @@ export function StatusStrip(): JSX.Element {
     </footer>
   )
 }
+
+function WorkingHistory() {
+  return <AgentConcurrencyHistory working={useHeaderWorkingCount()} />
+}
+
+const SelectedHeaderIssue = observer(function SelectedHeaderIssue() {
+  const issue = useHeaderSelectedIssue()
+  if (typeof issue === 'symbol') return (
+    <span className="status-strip-issue" role="status">Loading task…</span>
+  )
+  if (!issue) return null
+  return (
+    <>
+      <span className="status-strip-seam" aria-hidden="true" />
+      <span className="status-strip-issue" title={issue.title}>
+        <IssueReference
+          model={issueReferenceModel(issue as IssueReferenceSource)}
+          size={11}
+          refClassName="status-strip-ref"
+          titleClassName="status-strip-issue-title"
+        />
+      </span>
+    </>
+  )
+})

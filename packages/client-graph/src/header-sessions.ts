@@ -1,6 +1,5 @@
 import { headerModel } from './header-companion'
 import { headerEntities } from './header-entities'
-import type { SessionView } from '@podium/client-core/session-values'
 import type { MachineId } from '@podium/model/browser'
 import { compareShallow, compareStructural, computed, observable, observe, runInAction, untracked } from 'mobx'
 import { cachedKey } from './cached'
@@ -52,26 +51,23 @@ function adjust(aggregate: HeaderAggregate, value: Contribution, delta: 1 | -1):
   }
 }
 
-type ColdWorking = { working: WorkingSession; deadline: number }
-
 /** Resident contributions are keyed computeds over the declared machine
  * relation. Cold contributions are filed in the applying feed action; only
  * compact host values and working evidence are retained while demanded. */
 export class HeaderSessions {
   private readonly coldHosts = observable.map<MachineId, HeaderAggregate>(undefined, { deep: false })
   private readonly coldContributions = new Map<string, Contribution>()
-  private readonly coldWorking = observable.map<string, ColdWorking>(undefined, { deep: false })
+  private readonly coldWorking = observable.map<string, number>(undefined, { deep: false })
   /** Count evidence by deadline, so a count never enumerates roster values. */
   private readonly coldCounts = observable.map<number, number>(undefined, { deep: false })
   private readonly stops: (() => void)[]
 
-  private readonly resident = cachedKey('pool.header', 'sessionContribution', (id) => {
+  private readonly residentHost = cachedKey('pool.header', 'sessionHost', (id) => {
     const model = this.pool.model('session', id)
-    const host = (model ? headerModel(this.pool).session(model).headerHost : null) ?? null
-    return { working: host?.archived ? null : (model ? headerModel(this.pool).session(model).headerWorking : null) ?? null, host: contribution(host) }
+    return contribution(model ? headerModel(this.pool).session(model).headerHost : null)
   }, compareStructural)
-  private readonly residentHost = cachedKey('pool.header', 'sessionHost', (id) => this.resident(id).host, compareStructural)
-  private readonly residentWorking = cachedKey('pool.header', 'sessionWorking', (id) => this.resident(id).working !== null, Object.is)
+  private readonly residentWorking = cachedKey('pool.header', 'sessionWorking', (id) =>
+    headerModel(this.pool).session(this.pool.sessionObject(id)).working, Object.is)
   private readonly machine = cachedKey('pool.header', 'machineAggregate', (id) => {
     const aggregate = structuredClone(this.coldHosts.get(id as MachineId) ?? EMPTY_HOST_AGGREGATE)
     for (const sessionId of headerEntities(this.pool).members('machine', id, 'sessions')) {
@@ -80,38 +76,19 @@ export class HeaderSessions {
     }
     return aggregate
   }, compareStructural)
-  private readonly coldValue = cachedKey('pool.header', 'coldWorking', (id) => {
-    const evidence = this.coldWorking.get(id)
-    if (!evidence || this.pool.clock.passed(evidence.deadline)) return null
-    // Companion labels have tracked getters (POD-5485), and can change
-    // without publishing the session. Read them in the displayed derivation.
-    const row = this.pool.row('session', id, 'summary-fields') as SessionView | typeof LOADING | undefined
-    return row && row !== LOADING
-      ? headerModel(this.pool).session(this.pool.sessionObject(id)).headerWorking
-      : evidence.working
-  }, compareStructural)
-  private readonly roster = computed(() => {
-    const values: WorkingSession[] = []
-    for (const id of headerEntities(this.pool).sessionOrder.get()) {
-      const value = this.resident(id).working
-      if (value) values.push(value)
-    }
-    for (const id of this.coldWorking.keys()) {
-      const value = this.coldValue(id)
-      if (value) values.push(value)
-    }
-    return values.sort((a, b) => a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0)
-  }, { equals: compareStructural })
   private readonly ids = computed(() => {
     const ids: string[] = []
     for (const id of headerEntities(this.pool).sessionOrder.get()) {
-      if (headerModel(this.pool).session(this.pool.sessionObject(id)).working) ids.push(id)
+      if (this.residentWorking(id)) ids.push(id)
     }
-    for (const [id, evidence] of this.coldWorking) {
-      if (!this.pool.clock.passed(evidence.deadline)) ids.push(id)
+    for (const [id, deadline] of this.coldWorking) {
+      if (!this.pool.clock.passed(deadline)) ids.push(id)
     }
     return ids.sort()
   }, { equals: compareShallow })
+  private readonly roster = computed(() => this.ids.get().map(id =>
+    headerModel(this.pool).session(this.pool.sessionObject(id)).headerWorkingFields),
+    { equals: compareShallow })
   private readonly count = computed(() => {
     let count = 0
     for (const id of headerEntities(this.pool).sessionOrder.get()) if (this.residentWorking(id)) count++
@@ -148,13 +125,12 @@ export class HeaderSessions {
     // untracked-read: header-cold-seed
     const summary = untracked(() => {
       if (this.pool.row('session', id, 'mark') !== LOADING) return undefined
-      const value = this.pool.row('session', id, 'summary') as SessionView | typeof LOADING | undefined
+      const value = this.pool.row('session', id, 'summary') as { archived?: boolean } | typeof LOADING | undefined
       return value === LOADING ? undefined : value
     })
     const session = this.pool.sessionObject(id), header = headerModel(this.pool).session(session)
     const host = contribution(summary ? header.headerHost : null)
     const deadline = !summary || summary.archived ? undefined : session.computingDeadline
-    const working = deadline === undefined ? null : header.headerWorkingEvidence
     runInAction(() => {
       const previous = this.coldContributions.get(id)
       if (!compareStructural(previous ?? null, host)) {
@@ -169,14 +145,12 @@ export class HeaderSessions {
         else this.coldContributions.delete(id)
       }
       const before = this.coldWorking.get(id)
-      const after = working && deadline !== undefined ? { working, deadline } : undefined
-      if (before?.deadline !== after?.deadline) {
-        if (before) this.adjustCount(before.deadline, -1)
-        if (after) this.adjustCount(after.deadline, 1)
+      if (before !== deadline) {
+        if (before !== undefined) this.adjustCount(before, -1)
+        if (deadline !== undefined) this.adjustCount(deadline, 1)
+        if (deadline !== undefined) this.coldWorking.set(id, deadline)
+        else this.coldWorking.delete(id)
       }
-      if (after) {
-        if (!compareStructural(before, after)) this.coldWorking.set(id, after)
-      } else this.coldWorking.delete(id)
     })
   }
 

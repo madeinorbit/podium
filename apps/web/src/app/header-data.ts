@@ -1,3 +1,5 @@
+import { headerModel } from '@podium/client-graph/header-companion'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { headerView } from '@podium/client-graph/header-views'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
@@ -16,19 +18,34 @@ export function useHeaderActions() {
   }, [owner])
 }
 
-const readStatus = (pool: MobxPool) => ({
-  workingCount: headerView(pool).workingCount(),
-  issue: headerView(pool).selectedIssue(),
-})
-const EMPTY_STATUS = { workingCount: 0, issue: undefined }
+const readWorkingCount = (pool: MobxPool) => headerView(pool).workingCount()
+export function useHeaderWorkingCount() {
+  return useWorklistPoolProjection(readWorkingCount, 0)
+}
+/** Compatibility for count-only callers; selection has its own subscription. */
 export function useHeaderStatus() {
-  return useWorklistPoolProjection(readStatus, EMPTY_STATUS)
+  const workingCount = useHeaderWorkingCount()
+  return useMemo(() => ({ workingCount }), [workingCount])
 }
 
-const readWorking = (pool: MobxPool) => headerView(pool).working()
-const EMPTY_WORKING: ReturnType<typeof readWorking> = []
-export function usePoolWorkingSessions() {
-  return useWorklistPoolProjection(readWorking, EMPTY_WORKING)
+const readSelectedIssue = (pool: MobxPool) => headerModel(pool).selectedIssue
+export function useHeaderSelectedIssue() {
+  return useWorklistPoolProjection(readSelectedIssue, undefined)
+}
+const readWorkingIds = (pool: MobxPool) => headerView(pool).workingIds()
+const EMPTY_IDS: readonly string[] = []
+export function usePoolWorkingSessionIds() {
+  return useWorklistPoolProjection(readWorkingIds, EMPTY_IDS)
+}
+
+/** Each displayed leaf requests its shared session, including a declared cold summary. */
+export function usePoolHeaderSession(id: string) {
+  const read = useMemo(() => (pool: MobxPool) => {
+    const session = pool.sessionObject(id)
+    try { return session.exists ? headerModel(pool).session(session) : undefined }
+    catch (error) { if (error === LOADING) return undefined; throw error }
+  }, [id])
+  return useWorklistPoolProjection(read, undefined)
 }
 
 const readView = (pool: MobxPool) => headerView(pool).row('window', 'window')?.view ?? 'workspace'
@@ -55,7 +72,6 @@ export function usePoolHeaderConnection() {
   return useWorklistPoolProjection(readConnection, undefined)
 }
 const readMachineIds = (pool: MobxPool) => headerView(pool).ids('hostMetric')
-const EMPTY_IDS: string[] = []
 export function usePoolMetricIds() {
   return useWorklistPoolProjection(readMachineIds, EMPTY_IDS)
 }
@@ -90,24 +106,6 @@ export function usePoolHostAggregate(id: MachineId | undefined) {
     idleSplit: { idle: 0, parkable: 0, protected: 0 },
     phases: { working: 0, idle: 0, waiting: 0, other: 0 },
   })
-}
-/** Load-panel session rows are loaded by the one reader in one batch. */
-export function usePoolSessionLabels(ids: readonly string[]) {
-  const signature = ids.join('\n')
-  const read = useMemo(
-    () => (pool: MobxPool) =>
-      Object.fromEntries(
-        signature
-          .split('\n')
-          .filter(Boolean)
-          .map((id) => {
-            const value = headerView(pool).session(id)
-            return [id, typeof value === 'object' && value ? value : undefined]
-          }),
-      ),
-    [signature],
-  )
-  return useWorklistPoolProjection(read, {})
 }
 
 const readOffline = (pool: MobxPool) => headerView(pool).offlineMachines()

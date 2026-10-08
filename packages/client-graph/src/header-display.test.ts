@@ -1,7 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS } from '@podium/model/browser'
 import { autorun } from 'mobx'
-import { describe, expect, it } from 'vitest'
+import { describe, expect, it, vi } from 'vitest'
 import { headerModel } from './header-companion'
 import { headerEntities } from './header-entities'
 import { headerWorkingSession } from './header-session'
@@ -57,6 +57,51 @@ function oldSelected(pool: MobxPool) {
 }
 
 describe('header display answers', () => {
+  it('keeps resident and cold renewal membership stable without preparing any labels', () => {
+    const f = fixture()
+    f.change('cold', { status: 'live', agentState: session('cold').agentState })
+    let ids: readonly string[] = [], count = 0, runs = 0
+    const stop = autorun(() => {
+      ids = headerView(f.pool).workingIds()
+      count = headerView(f.pool).workingCount()
+      runs++
+    })
+    const reads = [...f.rows.keys()].map(id => vi.spyOn(f.pool.sessionObject(id), 'storedField'))
+    try {
+      const before = ids
+      for (const id of ['a', 'cold']) {
+        f.change(id, { lastActiveAt: stamp(NOW + 1000), agentState: {
+          phase: 'working', since: stamp(), stateObservedAt: stamp(NOW + 1000), nativeSubagentCount: 0,
+        } })
+        expect(ids).toBe(before)
+        expect(count).toBe(3)
+        expect(runs).toBe(1)
+        expect(reads.flatMap(read => read.mock.calls).filter(([field]) =>
+          ['title', 'name', 'displayRef', 'agentKind'].includes(field))).toEqual([])
+      }
+    } finally { for (const read of reads) read.mockRestore(); stop(); f.pool.dispose() }
+  })
+
+  it('a selected title changes only the leaf watching that title', () => {
+    const f = fixture()
+    const runs = { selection: 0, count: 0, title: 0, stage: 0, other: 0 }
+    let title = ''
+    const stops = [
+      autorun(() => { runs.selection++; headerModel(f.pool).selectedIssue }),
+      autorun(() => { runs.count++; headerView(f.pool).workingCount() }),
+      autorun(() => { runs.title++; const selected = headerModel(f.pool).selectedIssue;
+        title = selected && selected !== LOADING ? selected.title : '' }),
+      autorun(() => { runs.stage++; const selected = headerModel(f.pool).selectedIssue;
+        if (selected && selected !== LOADING) void selected.stage }),
+      autorun(() => { runs.other++; void f.pool.model('issue', 'two')!.title }),
+    ]
+    try {
+      f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'one', value: { ...issue('one', 1), title: 'New selected title' } }] })
+      expect(title).toBe('New selected title')
+      expect(runs).toEqual({ selection: 1, count: 1, title: 2, stage: 1, other: 1 })
+    } finally { for (const stop of stops) stop(); f.pool.dispose() }
+  })
+
   it('compares old and new displayed values on the same changing fixtures', () => {
     const f = fixture(), index = new HeaderSessions(f.pool)
     const stop = autorun(() => { index.workingIds(); headerModel(f.pool).selectedIssue })
