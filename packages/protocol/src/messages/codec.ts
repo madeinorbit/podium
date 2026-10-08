@@ -1,9 +1,5 @@
 import {
-  AutomationRunWire,
-  AutomationWire,
-  ConversationSummaryWire,
   HostMetricsWire,
-  SessionMeta,
 } from '@podium/model'
 import type { z } from 'zod'
 import { ApprovalWire } from './approvals'
@@ -53,10 +49,6 @@ const QUARANTINABLE: Record<
   string,
   { key: string; element: z.ZodTypeAny; envelope?: z.ZodTypeAny }
 > = {
-  sessionsChanged: { key: 'sessions', element: SessionMeta },
-  conversationsChanged: { key: 'conversations', element: ConversationSummaryWire },
-  automationsChanged: { key: 'automations', element: AutomationWire },
-  automationRunsChanged: { key: 'automationRuns', element: AutomationRunWire },
   hostMetricsChanged: { key: 'hosts', element: HostMetricsWire },
   // ON THIS TABLE BECAUSE THE OP CATALOG GROWS (POD-2199). `op` is a CLOSED
   // discriminated union with closed enums inside it, so every value a newer

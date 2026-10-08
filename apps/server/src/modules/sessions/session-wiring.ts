@@ -223,7 +223,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     draft: (session) => bag.repository.draft(session),
     persistDraft: (session, draft) => bag.repository.persistDraft(session, draft),
     broadcastSessions: () => bag.broadcastSessions(),
-    broadcastToClients: (message) => bag.broadcastToClients(message),
     transcriptDelta: (sessionId, items, reset) =>
       bag.bus.emit('transcript.delta', {
         sessionId,
@@ -927,11 +926,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
         next.phase === 'working' && Date.parse(next.since) > Date.parse(offer.createdAt) &&
         session.terminal.lastUserInputAtMs > Date.parse(offer.createdAt)
       await bag.autoContinue.onStateChange(sessionId, next)
-      bag.broadcastToClients({
-        type: 'sessionAgentStateChanged',
-        sessionId,
-        state: next,
-      })
       // These are the same unmigrated consumers fed by a compatibility
       // agentState frame. The causal event gate remains the single ingress;
       // this callback only publishes its committed projection.
@@ -1135,7 +1129,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     bus: bag.bus,
     machines,
     rpc: bag.rpc,
-    daemonProjection: bag.daemonProjection,
     now: () => bag.now(),
     sessionFacts: () => life.sessionFacts(),
     setArchived: (input) => bag.setArchived(input),
@@ -1157,7 +1150,6 @@ export function wireSessionLifecycle(life: SessionLifecycle, deps: SessionLifecy
     clients: bag.clients,
     bus: bag.bus,
     machines,
-    daemonProjection: bag.daemonProjection,
     now: () => bag.now(),
     toMachine: (machineId, message) => bag.toMachine(machineId, message),
     broadcastSessions: () => bag.broadcastSessions(),

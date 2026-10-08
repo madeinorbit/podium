@@ -45,7 +45,6 @@ import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
 import type { SessionFacts } from './facts'
-import type { SessionDaemonProjection } from './daemon-projection'
 import type { SessionIssueWorkflowPort } from './issue-workflow-port'
 import type { SessionRepository } from './repository'
 import type { Session } from './session'
@@ -74,7 +73,6 @@ export interface SessionTeardownPorts {
   bus: EventBus
   machines: Pick<MachinesService, 'defaultMachine'>
   rpc: DaemonRpcService
-  daemonProjection: Pick<SessionDaemonProjection, 'disposeTitle'>
   now(): number
   /** Worktree occupancy, from memory [POD-3857]: the free guard asks which
    *  live sessions sit inside a path, which is `status` and `cwd`. */

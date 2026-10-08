@@ -1,4 +1,6 @@
 import { IssueSessionFactsIndex, type IssueSessionFacts, type IssueSessionFactReader } from './shared/issue-session-facts'
+import type { SessionPhaseChange, NotificationSession } from '@podium/client-core/sound'
+import { asSessionId } from '@podium/model'
 import { joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
 import {
   SETUP_SESSION_SUMMARY_FIELDS,
@@ -243,6 +245,8 @@ export class MobxPool {
   /** The source index's undeleted issue count, published with each batch. */
   private readonly issueCount = observable.box(0)
   readonly tables: PoolTables
+  /** The last addressed phase batch. Replacements are silent; no history scan. */
+  readonly sessionPhaseChanges = observable.box<readonly SessionPhaseChange[]>([], { deep: false })
   readonly queries: ReaderQueries
   readonly relations: RelationReader
   /** The relation engine itself. */
@@ -929,6 +933,19 @@ export class MobxPool {
     if (this.disposed) return
     const out = ingestOut()
     runInAction(() => {
+      const phases: SessionPhaseChange[] = []
+      if (event.type === 'update') for (const record of event.rows) {
+        if (record.kind !== 'session') continue
+        const previous = this.tables.session.get(record.id) as NotificationSession | undefined
+        const current = record.value as NotificationSession | undefined
+        if (!previous || !current) continue
+        if (previous.agentState?.phase === current.agentState?.phase &&
+            previous.agentState?.idle?.kind === current.agentState?.idle?.kind &&
+            previous.agentState?.need?.kind === current.agentState?.need?.kind &&
+            previous.agentKind === current.agentKind &&
+            previous.headless === current.headless && previous.archived === current.archived) continue
+        phases.push({ sessionId: asSessionId(record.id), previous, current })
+      }
       if (this.sessionFactsIndex) {
         if (event.type === 'replace') this.sessionFactsIndex.clear()
         for (const record of event.rows) if (record.kind === 'session')
@@ -1027,6 +1044,7 @@ export class MobxPool {
       sidebarRosterView(this).flush()
       this.seatVerdicts.flush()
       this.queries.publish(event)
+      if (phases.length || event.type === 'replace') this.sessionPhaseChanges.set(phases)
     })
     for (const [entity, id] of out.removed) this.release(entity, id)
   }

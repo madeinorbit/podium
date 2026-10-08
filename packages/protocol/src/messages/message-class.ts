@@ -45,16 +45,6 @@ export type MessageSyncClass = (typeof MESSAGE_SYNC_CLASSES)[number]
 
 /** Server→client. Entity frames may ONLY be produced by the write funnel. */
 export const SERVER_PLANE_CLASS = {
-  // WIRE v1 full-list entity snapshots. Their CLASS is unchanged — they are
-  // still entity truth a replica recovers — but their PRODUCER is not: after
-  // POD-308 no module builds them. The legacy v1 edge adapter synthesises them
-  // from feed frames at the connection boundary, so they are a translation of
-  // the one pipeline rather than a second pipeline beside it, and they are
-  // deleted when that adapter expires.
-  sessionsChanged: 'control.entity',
-  conversationsChanged: 'control.entity',
-  automationsChanged: 'control.entity',
-  automationRunsChanged: 'control.entity',
   // WIRE v1 (pre-cutover) oplog batch. Still classified because the frame still
   // EXISTS — but after POD-308 nothing in the server produces it except the
   // legacy v1 edge adapter, and it leaves with that adapter. Its covered range
@@ -83,22 +73,14 @@ export const SERVER_PLANE_CLASS = {
   // and connection-scoped — not durable, not fan-out.
   terminalOutcome: 'stream.live',
   pong: 'stream.live',
-  // Authority-only view removal; ordered on one client publication sequencer.
-  sessionViewDelta: 'stream.live',
 
   // Ephemeral per-session streams: the durable truth lands in the next
-  // sessionsChanged / transcript lake read; these only keep open views hot.
+  // sync feed / transcript lake read; these only keep open views hot.
   outputFrame: 'stream.live',
   transcriptDelta: 'stream.live',
   controllerChanged: 'stream.live',
   geometry: 'stream.live',
   agentExit: 'stream.live',
-  // ADR 7 D3: the OSC/terminal title fires at spinner rates, so the MESSAGE is
-  // stream; the same semantic field on SessionMeta is control.entity.
-  sessionTitleChanged: 'stream.live',
-  // ADR 7 D4: dual delivery, same argument — hook events are frequent, and a
-  // full sessionsChanged rebroadcast is O(sessions × clients).
-  sessionAgentStateChanged: 'stream.live',
   // ADR 7 D5: keystroke volume; durable recovery via the entity path.
   sessionDraftChanged: 'stream.live',
   headlessActivity: 'stream.live',

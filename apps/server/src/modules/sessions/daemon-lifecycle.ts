@@ -259,7 +259,6 @@ export class SessionDaemonLifecycle {
     // session leaked its debouncer closure. The row stays (resurrectable); a new
     // debouncer is created lazily if it ever emits a title again. Drafts are kept
     // (resurrect/chat needs them).
-    this.daemonProjection.disposeTitle(msg.sessionId)
     const s = this.sessions.get(msg.sessionId)
     // THE EXIT IS APPLIED TO THE DRAFT THIS COMMIT PERSISTS [POD-3330]. It used
     // to be assigned onto the live session at the top of this method, which put
@@ -852,11 +851,6 @@ export class SessionDaemonLifecycle {
           checkpoint: outcome.checkpoint,
         })
 
-        this.broadcastToClients({
-          type: 'sessionAgentStateChanged',
-          sessionId: session.sessionId,
-          state: next,
-        })
 
         // Snapshot and same-phase refresh update display/checkpoint only. Every
         // effect below is exclusive to one accepted causal live phase edge.
@@ -957,15 +951,6 @@ export class SessionDaemonLifecycle {
         const next = draft.agentState ?? msg.state
         await this.persistDraft(session, draft)
         await this.autoContinue.onStateChange(msg.sessionId, next)
-        // A dedicated per-session message — not broadcastSessions(). Hook events
-        // fire often (TodoWrite mutations, turn boundaries, across all sessions);
-        // re-serializing and fanning out the whole session list each time is
-        // O(sessions × clients). Late joiners still get state via listSessions().
-        this.broadcastToClients({
-          type: 'sessionAgentStateChanged',
-          sessionId: msg.sessionId,
-          state: next,
-        })
         // The assistant digest is not part of the board/recency slice; keep its
         // legacy activity trigger until a later consumer migration owns replay.
         await this.ports.onSessionActivity(msg.sessionId)

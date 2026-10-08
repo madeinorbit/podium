@@ -3,7 +3,7 @@
  * runtime state crosses into something the human should hear about — finished
  * a turn, asked a question, wants an approval, or errored.
  *
- * Sourced from `sessionAgentStateChanged` (via the hub's 'sessions' event)
+ * Sourced from the pool's addressed session phase changes
  * rather than the server's `attentionEvent`: the attention broadcast is gated
  * on the web-notification setting and deliberately never fires for a clean
  * "done", while sounds want both. All triage happens client-side here.
@@ -21,6 +21,7 @@
  */
 
 import type { SessionId, SessionMeta } from '@podium/model'
+import { reaction } from 'mobx'
 import { hasDomWindow } from '../platform-globals'
 import type { UiState } from '../replica/contract'
 import { SOUND_OWNER_KEY, SOUNDS_ENABLED_KEY } from '../ui-state'
@@ -50,7 +51,7 @@ export const CUE_SOUNDS: Record<NotificationCue, SoundName> = {
 /** A session's audible condition, folded from its runtime state. A cue fires
  *  when this value *changes to* a non-null one — so a question refined while
  *  already blocked, or a re-broadcast of the same state, stays silent. */
-export function audibleCondition(s: SessionMeta): NotificationCue | null {
+export function audibleCondition(s: NotificationSession): NotificationCue | null {
   // Shells have no harness; headless superagent children would ding in swarms.
   if (s.agentKind === 'shell' || s.headless === true || s.archived) return null
   const state = s.agentState
@@ -77,7 +78,17 @@ export function audibleCondition(s: SessionMeta): NotificationCue | null {
   return null
 }
 
+export type NotificationSession = Pick<SessionMeta, 'agentState' | 'agentKind' | 'headless' | 'archived'>
+
+/** Borrowed before/after rows for one addressed phase change, never a session list. */
+export interface SessionPhaseChange {
+  sessionId: SessionId
+  previous?: NotificationSession
+  current?: NotificationSession
+}
+
 export interface NotificationSounderDeps {
+  phases: () => readonly SessionPhaseChange[]
   ui: UiState
   /** Session ids currently on screen in this window (both split panes). */
   visibleSessionIds: () => string[]
@@ -89,113 +100,85 @@ export interface NotificationSounderDeps {
   writeOwner?: (id: string) => void
 }
 
-export class NotificationSounder {
-  private readonly deps: Required<NotificationSounderDeps>
-  /** Last audible condition per session — null entries matter (armed silent). */
-  private readonly conditions = new Map<string, NotificationCue | null>()
-  private readonly windowId = Math.random().toString(36).slice(2)
-  private lastPlayedAt = -Infinity
-  private pending: NotificationCue | null = null
-  private flushTimer: ReturnType<typeof setTimeout> | null = null
-
-  constructor(deps: NotificationSounderDeps) {
-    // Owner election lives in the principal-scoped ui-state collection — the
-    // only storage path feature code may use (POD-329). Same-origin tabs share
-    // the collection via the replica's storage events.
-    this.deps = {
-      windowFocused: () => typeof document === 'undefined' || document.hasFocus(),
-      playCue: (cue) => play(CUE_SOUNDS[cue]),
-      now: () => Date.now(),
-      readOwner: () => deps.ui.get(SOUND_OWNER_KEY),
-      writeOwner: (id) => deps.ui.set(SOUND_OWNER_KEY, id),
-      ...deps,
-    }
+/** One runtime-owned sound service; one reaction, with no per-session cache. */
+export function createNotificationSounds(options: NotificationSounderDeps) {
+  const deps = {
+    windowFocused: () => typeof document === 'undefined' || document.hasFocus(),
+    playCue: (cue: NotificationCue) => play(CUE_SOUNDS[cue]),
+    now: () => Date.now(),
+    readOwner: () => options.ui.get(SOUND_OWNER_KEY),
+    writeOwner: (id: string) => options.ui.set(SOUND_OWNER_KEY, id),
+    ...options,
   }
+  const windowId = Math.random().toString(36).slice(2)
+  let lastPlayedAt = -Infinity
+  let pending: NotificationCue | null = null
+  let flushTimer: ReturnType<typeof setTimeout> | null = null
+  let stopReaction: (() => void) | undefined
+  let stopDom: (() => void) | undefined
 
-  /** Arm DOM listeners: gesture pre-warm (WKWebView audio unlock) + the
-   *  focus-driven window election. Returns the cleanup. */
-  attach(): () => void {
-    // A DOM window, not merely a window (POD-2055 F4). React Native has the
-    // second and not the first, so `typeof window === 'undefined'` waved this
-    // through on a phone and the next line threw — inside `ClientRuntime.start`,
-    // which makes it a crash on the app's boot path rather than a missing sound.
-    if (!hasDomWindow()) return () => {}
-    const prewarm = (): void => prewarmAudio()
-    const claim = (): void => this.deps.writeOwner(this.windowId)
-    window.addEventListener('pointerdown', prewarm, { passive: true })
-    window.addEventListener('keydown', prewarm)
-    window.addEventListener('focus', claim)
-    if (this.deps.windowFocused()) claim()
-    return () => {
-      window.removeEventListener('pointerdown', prewarm)
-      window.removeEventListener('keydown', prewarm)
-      window.removeEventListener('focus', claim)
-      if (this.flushTimer) clearTimeout(this.flushTimer)
-    }
+  const enabled = () => deps.ui.get(SOUNDS_ENABLED_KEY) !== 'false'
+  const suppressed = (sessionId: SessionId) => {
+    if (!enabled()) return true
+    if (deps.windowFocused() && deps.visibleSessionIds().includes(sessionId)) return true
+    const owner = deps.readOwner()
+    return owner !== null && owner !== windowId
   }
-
-  /** Feed every 'sessions' hub emission through here. */
-  onSessions(sessions: SessionMeta[]): void {
-    for (const s of sessions) {
-      const next = audibleCondition(s)
-      const known = this.conditions.has(s.sessionId)
-      const prev = this.conditions.get(s.sessionId) ?? null
-      this.conditions.set(s.sessionId, next)
-      // First sight arms silently; only a live transition into an audible
-      // condition plays.
-      if (!known || next === null || next === prev) continue
-      if (this.suppressed(s.sessionId)) continue
-      this.request(next)
-    }
-    // Forget rows that left the list so a session that returns re-arms.
-    if (this.conditions.size > sessions.length) {
-      // The condition map is keyed by the raw id string, so the liveness set is
-      // too — a Set<SessionId> could not be probed with the map's own keys.
-      const live = new Set<string>(sessions.map((s) => s.sessionId))
-      for (const id of this.conditions.keys()) {
-        if (!live.has(id)) this.conditions.delete(id)
-      }
-    }
-  }
-
-  private enabled(): boolean {
-    return this.deps.ui.get(SOUNDS_ENABLED_KEY) !== 'false'
-  }
-
-  private suppressed(sessionId: SessionId): boolean {
-    if (!this.enabled()) return true
-    // Watching the session in a focused window IS the notification.
-    if (this.deps.windowFocused() && this.deps.visibleSessionIds().includes(sessionId)) return true
-    // Another same-origin window focused more recently: it plays, we stay quiet.
-    const owner = this.deps.readOwner()
-    return owner !== null && owner !== this.windowId
-  }
-
-  private request(cue: NotificationCue): void {
-    const now = this.deps.now()
-    if (now - this.lastPlayedAt >= THROTTLE_MS) {
-      this.lastPlayedAt = now
-      this.deps.playCue(cue)
+  function request(cue: NotificationCue): void {
+    const now = deps.now()
+    if (now - lastPlayedAt >= THROTTLE_MS) {
+      lastPlayedAt = now
+      deps.playCue(cue)
       return
     }
-    if (this.pending === null || CUE_PRIORITY[cue] > CUE_PRIORITY[this.pending]) {
-      this.pending = cue
+    if (pending === null || CUE_PRIORITY[cue] > CUE_PRIORITY[pending]) pending = cue
+    if (flushTimer === null) {
+      flushTimer = setTimeout(() => {
+        flushTimer = null
+        const flushed = pending
+        pending = null
+        if (flushed && enabled()) {
+          lastPlayedAt = deps.now()
+          deps.playCue(flushed)
+        }
+      }, lastPlayedAt + THROTTLE_MS - now)
     }
-    if (!this.flushTimer) {
-      this.flushTimer = setTimeout(
-        () => {
-          this.flushTimer = null
-          const flushed = this.pending
-          this.pending = null
-          // Re-check the toggle at flush time; focus/visibility were already
-          // judged when the transition was observed.
-          if (flushed && this.enabled()) {
-            this.lastPlayedAt = this.deps.now()
-            this.deps.playCue(flushed)
-          }
-        },
-        this.lastPlayedAt + THROTTLE_MS - now,
-      )
-    }
+  }
+  return {
+    start(): void {
+      if (stopReaction) return
+      // No fireImmediately: attaching or restarting never replays a prior edge.
+      stopReaction = reaction(deps.phases, (changes) => {
+        for (const change of changes) {
+          if (!change.previous || !change.current) continue
+          const next = audibleCondition(change.current)
+          if (next === null || next === audibleCondition(change.previous)) continue
+          if (!suppressed(change.sessionId)) request(next)
+        }
+      }, { name: 'notification sounds' })
+      // React Native has a window but no DOM; phase observation still works.
+      if (!hasDomWindow()) return
+      const prewarm = () => prewarmAudio()
+      const claim = () => deps.writeOwner(windowId)
+      window.addEventListener('pointerdown', prewarm, { passive: true })
+      window.addEventListener('keydown', prewarm)
+      window.addEventListener('focus', claim)
+      if (deps.windowFocused()) claim()
+      stopDom = () => {
+        window.removeEventListener('pointerdown', prewarm)
+        window.removeEventListener('keydown', prewarm)
+        window.removeEventListener('focus', claim)
+      }
+    },
+    stop(): void {
+      stopReaction?.()
+      stopReaction = undefined
+      stopDom?.()
+      stopDom = undefined
+      if (flushTimer !== null) clearTimeout(flushTimer)
+      flushTimer = null
+      pending = null
+      lastPlayedAt = -Infinity
+    },
   }
 }

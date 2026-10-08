@@ -6,9 +6,7 @@ import {
   PresenceRoomStateMessage,
 } from '../planes/presence-rooms'
 import { ApprovalsChangedMessage } from './approvals'
-import { AutomationRunsChangedMessage, AutomationsChangedMessage } from './automations'
 import { SessionOpenUrlMessage, SessionOpenUrlResultMessage } from './browser-open'
-import { ConversationsChangedMessage } from './discovery'
 import {
   FeedDeltaMessage,
   FeedRescopeMessage,
@@ -23,11 +21,6 @@ import {
   WorktreesChangedMessage,
 } from './host'
 import { SetLogLevelMessage } from './logs'
-import {
-  SessionAgentStateChangedMessage,
-  SessionsChangedMessage,
-  SessionViewDeltaMessage,
-} from './runtime-state'
 import { ServerRelocationMessage } from './server-transfer'
 import { MetadataDeltaMessage } from './sync'
 import {
@@ -43,15 +36,6 @@ import {
 import { TranscriptDeltaMessage, TurnPreviewMessage } from './transcript'
 
 // ---- Server -> browser client ----
-// A single session's live title changed (an agent set its terminal title via OSC).
-// Sent on its own rather than rebroadcasting the whole session list, because agents
-// emit these at spinner frame-rate (~10 Hz) and the payload is tiny.
-export const SessionTitleChangedMessage = z.object({
-  type: z.literal('sessionTitleChanged'),
-  sessionId: SessionIdField,
-  title: z.string(),
-})
-
 export const SessionDraftChangedMessage = z.object({
   type: z.literal('sessionDraftChanged'),
   sessionId: SessionIdField,
@@ -75,11 +59,6 @@ export const ServerMessage = z.discriminatedUnion('type', [
   ControllerChangedMessage,
   GeometryMessage,
   AgentExitMessage,
-  SessionsChangedMessage,
-  SessionViewDeltaMessage,
-  ConversationsChangedMessage,
-  SessionTitleChangedMessage,
-  SessionAgentStateChangedMessage,
   SessionDraftChangedMessage,
   HostMetricsChangedMessage,
   MachinesChangedMessage,
@@ -94,8 +73,6 @@ export const ServerMessage = z.discriminatedUnion('type', [
   FeedRescopeMessage,
   FeedResyncRequiredMessage,
   FeedResumeMessage,
-  AutomationsChangedMessage,
-  AutomationRunsChangedMessage,
   SessionOpenUrlMessage,
   SessionOpenUrlResultMessage,
   PresenceRoomStateMessage,

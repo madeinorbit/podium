@@ -166,7 +166,7 @@ describe('ADR 7 D1 — three planes, command as a class inside control', () => {
       }
     }
     // Spot-check the shipped classifications are unchanged by the migration.
-    expect(SERVER_MESSAGE_CLASS.sessionsChanged).toBe('durable')
+    expect(SERVER_MESSAGE_CLASS.feedDelta).toBe('durable')
     expect(SERVER_MESSAGE_CLASS.outputFrame).toBe('live')
     expect(CLIENT_MESSAGE_CLASS.transcriptSubscribe).toBe('bulk')
     expect(CONTROL_MESSAGE_CLASS.spawn).toBe('command')
@@ -175,16 +175,16 @@ describe('ADR 7 D1 — three planes, command as a class inside control', () => {
 
 describe('ADR 7 D3/D4/D5 — the ambiguous cases ship as resolved', () => {
   it('titles: the spinner-rate message is stream; the entity field is control', () => {
-    expect(SERVER_PLANE_CLASS.sessionTitleChanged).toBe('stream.live')
+    expect(SERVER_PLANE_CLASS).not.toHaveProperty('sessionTitleChanged')
     expect(DAEMON_PLANE_CLASS.title).toBe('stream.live')
     // Curated name / nameSource are entity-only: there is no dedicated frame.
     expect(Object.keys(SERVER_PLANE_CLASS)).not.toContain('sessionNameChanged')
     // The entity carrier is the durable session aggregate.
-    expect(SERVER_PLANE_CLASS.sessionsChanged).toBe('control.entity')
+    expect(SERVER_PLANE_CLASS.feedDelta).toBe('control.entity')
   })
 
-  it('agent runtime state: dual delivery, stream message + entity field', () => {
-    expect(SERVER_PLANE_CLASS.sessionAgentStateChanged).toBe('stream.live')
+  it('agent runtime state: daemon ingress and client sync feed', () => {
+    expect(SERVER_PLANE_CLASS).not.toHaveProperty('sessionAgentStateChanged')
     expect(DAEMON_PLANE_CLASS.agentState).toBe('stream.live')
     expect(SERVER_PLANE_CLASS.metadataDelta).toBe('control.entity')
   })

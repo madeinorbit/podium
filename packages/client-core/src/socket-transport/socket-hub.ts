@@ -1,8 +1,5 @@
 import { createLogger, getProcessContext } from '@podium/logger'
 import type {
-  AutomationRunWire,
-  AutomationWire,
-  ConversationSummaryWire,
   Geometry,
   HostMetricsWire,
   IssueDepProjection,
@@ -15,7 +12,6 @@ import type {
   ReadPositionWire,
   RepoProjection,
   SessionId,
-  SessionMeta,
   ShipLaneProjection,
   ShipOrderProjection,
   TranscriptItem,
@@ -486,11 +482,6 @@ export interface WireSkew {
  * `on*`/`subscribe*` methods below are thin wrappers over it.
  */
 export interface HubEvents {
-  /** Full session list after any change (snapshot, delta, title/state patch). */
-  sessions: [sessions: SessionMeta[]]
-  conversations: [conversations: ConversationSummaryWire[]]
-  automations: [automations: AutomationWire[]]
-  automationRuns: [automationRuns: AutomationRunWire[]]
   hostMetrics: [hosts: HostMetricsWire[]]
   machines: [machines: MachineWire[]]
   /** A repo's worktrees changed on the daemon side (POD-665). No cached list —
@@ -620,10 +611,6 @@ export class SocketHub {
   private readonly invalidSockets = new WeakSet<WebSocketLike>()
   private connectedFlag = false
   private clientIdValue = ''
-  private sessionList: SessionMeta[] = []
-  private conversationList: ConversationSummaryWire[] = []
-  private automationList: AutomationWire[] = []
-  private automationRunList: AutomationRunWire[] = []
   private hostMetricsList: HostMetricsWire[] = []
   private machinesList: MachineWire[] = []
   private approvalsList: ApprovalWire[] = []
@@ -1239,36 +1226,6 @@ export class SocketHub {
     }
   }
 
-  sessions(): SessionMeta[] {
-    return this.sessionList
-  }
-
-  /** @deprecated Use `on('sessions', cb)` (which does not replay — read `sessions()`). */
-  onSessions(cb: (s: SessionMeta[]) => void): () => void {
-    const off = this.on('sessions', cb)
-    cb(this.sessionList)
-    return off
-  }
-
-  conversations(): ConversationSummaryWire[] {
-    return this.conversationList
-  }
-
-  /** @deprecated Use `on('conversations', cb)` (no replay — read `conversations()`). */
-  onConversations(cb: (c: ConversationSummaryWire[]) => void): () => void {
-    const off = this.on('conversations', cb)
-    cb(this.conversationList)
-    return off
-  }
-
-  automations(): AutomationWire[] {
-    return this.automationList
-  }
-
-  automationRuns(): AutomationRunWire[] {
-    return this.automationRunList
-  }
-
   hostMetrics(): HostMetricsWire[] {
     return this.hostMetricsList
   }
@@ -1299,31 +1256,22 @@ export class SocketHub {
    * replica is a cache and never argues with the server (spec invariant 1).
    */
   seedMetadata(seed: {
-    sessions: SessionMeta[]
     issueProjections?: IssueProjection[]
     issueDeps?: IssueDepProjection[]
     repos?: RepoProjection[]
     shipOrders?: ShipOrderProjection[]
     shipLanes?: ShipLaneProjection[]
-    conversations: ConversationSummaryWire[]
-    automations?: AutomationWire[]
-    automationRuns?: AutomationRunWire[]
   }): void {
     if (this.legacyFeed !== undefined) {
       this.legacyFeed.seed({
-        sessions: seed.sessions,
         issueProjections: seed.issueProjections ?? [],
         issueDeps: seed.issueDeps ?? [],
         repos: seed.repos ?? [],
         shipOrders: seed.shipOrders ?? [],
         shipLanes: seed.shipLanes ?? [],
-        conversations: seed.conversations,
-        automations: seed.automations ?? [],
-        automationRuns: seed.automationRuns ?? [],
       })
       return
     }
-    this.sessionList = seed.sessions
     // The three POD-796/POD-822 kinds [POD-822]: seed the hub's in-memory lists
     // from the persisted replica so a warm-reload DELTA applies onto them rather
     // than onto empty lists. Optional + `?? []` so an embedder that predates them
@@ -1333,10 +1281,6 @@ export class SocketHub {
     this.repoList = seed.repos ?? []
     this.shipOrderList = seed.shipOrders ?? []
     this.shipLaneList = seed.shipLanes ?? []
-    this.conversationList = seed.conversations
-    this.automationList = seed.automations ?? []
-    this.automationRunList = seed.automationRuns ?? []
-    this.emit('sessions', this.sessionList)
     // Emit-only-when-non-empty, unlike sessions/issues above: consumers default
     // these three kinds to empty, so an empty seed emit is a no-op — and after a
     // server-side flag rollback a stale persisted replica gets its emptying
@@ -1346,9 +1290,6 @@ export class SocketHub {
     if (this.repoList.length > 0) this.emit('repos', this.repoList)
     if (this.shipOrderList.length > 0) this.emit('shipOrders', this.shipOrderList)
     if (this.shipLaneList.length > 0) this.emit('shipLanes', this.shipLaneList)
-    this.emit('conversations', this.conversationList)
-    this.emit('automations', this.automationList)
-    this.emit('automationRuns', this.automationRunList)
   }
 
   /**
@@ -1999,28 +1940,6 @@ export class SocketHub {
     presenceRoomClosed: (msg) => {
       this.emit('presenceRoomClosed', msg)
     },
-    sessionsChanged: (msg) => {
-      this.sessionList = msg.sessions
-      this.emit('sessions', this.sessionList)
-    },
-    sessionViewDelta: (msg) => {
-      const removed = new Set(msg.removedSessionIds)
-      this.sessionList = this.sessionList.filter((session) => !removed.has(session.sessionId))
-      this.emit('sessions', this.sessionList)
-    },
-
-    conversationsChanged: (msg) => {
-      this.conversationList = msg.conversations
-      this.emit('conversations', this.conversationList)
-    },
-    automationsChanged: (msg) => {
-      this.automationList = msg.automations
-      this.emit('automations', this.automationList)
-    },
-    automationRunsChanged: (msg) => {
-      this.automationRunList = msg.automationRuns
-      this.emit('automationRuns', this.automationRunList)
-    },
     hostMetricsChanged: (msg) => {
       this.hostMetricsList = msg.hosts
       this.emit('hostMetrics', this.hostMetricsList)
@@ -2076,15 +1995,6 @@ export class SocketHub {
       if (entry && msg.tail) entry.since = msg.tail
       this.emit('transcriptDelta', msg.sessionId, msg.items, { reset: msg.reset ?? false })
     },
-    sessionTitleChanged: (msg) => {
-      let changed = false
-      this.sessionList = this.sessionList.map((s) => {
-        if (s.sessionId !== msg.sessionId || s.title === msg.title) return s
-        changed = true
-        return { ...s, title: msg.title }
-      })
-      if (changed) this.emit('sessions', this.sessionList)
-    },
     sessionDraftChanged: (msg) => {
       // Forward the stamp only when the server actually made one. `rev` is the
       // load-bearing field; origin/editedAt ride along for diagnostics.
@@ -2097,15 +2007,6 @@ export class SocketHub {
         ...(msg.origin !== undefined ? { origin: msg.origin } : {}),
         ...(msg.editedAt !== undefined ? { editedAt: msg.editedAt } : {}),
       })
-    },
-    sessionAgentStateChanged: (msg) => {
-      let changed = false
-      this.sessionList = this.sessionList.map((s) => {
-        if (s.sessionId !== msg.sessionId) return s
-        changed = true
-        return { ...s, agentState: msg.state }
-      })
-      if (changed) this.emit('sessions', this.sessionList)
     },
     machinesChanged: (msg) => {
       this.machinesList = msg.machines
@@ -2138,37 +2039,25 @@ export class SocketHub {
 
   private metadataProjection(): LegacyMetadataProjection {
     return {
-      sessions: this.sessionList,
       issueProjections: this.issueProjectionList,
       issueDeps: this.issueDepList,
       repos: this.repoList,
       shipOrders: this.shipOrderList,
       shipLanes: this.shipLaneList,
-      conversations: this.conversationList,
-      automations: this.automationList,
-      automationRuns: this.automationRunList,
     }
   }
 
   private replaceMetadataSnapshot(result: LegacyMetadataProjection): void {
-    this.sessionList = result.sessions
     this.issueProjectionList = result.issueProjections
     this.issueDepList = result.issueDeps
     this.repoList = result.repos
     this.shipOrderList = result.shipOrders ?? []
     this.shipLaneList = result.shipLanes ?? []
-    this.conversationList = result.conversations
-    this.automationList = result.automations
-    this.automationRunList = result.automationRuns
-    this.emit('sessions', this.sessionList)
     this.emit('issueProjections', this.issueProjectionList)
     this.emit('issueDeps', this.issueDepList)
     this.emit('repos', this.repoList)
     this.emit('shipOrders', this.shipOrderList)
     this.emit('shipLanes', this.shipLaneList)
-    this.emit('conversations', this.conversationList)
-    this.emit('automations', this.automationList)
-    this.emit('automationRuns', this.automationRunList)
   }
 
   /** Fold wire changes into the entity lists and notify only touched observers.
@@ -2185,14 +2074,6 @@ export class SocketHub {
       }
       touched.add(c.entity)
       switch (c.entity) {
-        case 'session':
-          this.sessionList = applyChange(
-            this.sessionList,
-            c.op,
-            c.value,
-            (s) => s.sessionId === c.id,
-          )
-          break
         case 'issueProjection':
           this.issueProjectionList = applyChange(
             this.issueProjectionList,
@@ -2213,30 +2094,6 @@ export class SocketHub {
             c.op,
             c.value,
             (order) => order.id === c.id,
-          )
-          break
-        case 'conversation':
-          this.conversationList = applyChange(
-            this.conversationList,
-            c.op,
-            c.value,
-            (x) => x.id === c.id,
-          )
-          break
-        case 'automation':
-          this.automationList = applyChange(
-            this.automationList,
-            c.op,
-            c.value,
-            (x) => x.id === c.id,
-          )
-          break
-        case 'automationRun':
-          this.automationRunList = applyChange(
-            this.automationRunList,
-            c.op,
-            c.value,
-            (x) => x.id === c.id,
           )
           break
         case 'issueEvent':
@@ -2298,6 +2155,10 @@ export class SocketHub {
           )
           break
         case 'issueUserState':
+        case 'session':
+        case 'conversation':
+        case 'automation':
+        case 'automationRun':
         case 'issueGitState':
         case 'sessionUserState':
         case 'machine':
@@ -2316,7 +2177,6 @@ export class SocketHub {
           c satisfies never
       }
     }
-    if (touched.has('session')) this.emit('sessions', this.sessionList)
     if (touched.has('issueProjection')) this.emit('issueProjections', this.issueProjectionList)
     if (touched.has('issueDep')) this.emit('issueDeps', this.issueDepList)
     if (touched.has('repo')) this.emit('repos', this.repoList)
@@ -2326,9 +2186,6 @@ export class SocketHub {
     if (touched.has('message')) this.emit('messageRecords', this.messageRecordList)
     if (touched.has('shipOrder')) this.emit('shipOrders', this.shipOrderList)
     if (touched.has('shipLane')) this.emit('shipLanes', this.shipLaneList)
-    if (touched.has('conversation')) this.emit('conversations', this.conversationList)
-    if (touched.has('automation')) this.emit('automations', this.automationList)
-    if (touched.has('automationRun')) this.emit('automationRuns', this.automationRunList)
     if (touched.has('userLayout')) this.emit('userLayouts', this.userLayoutList)
     if (touched.has('userReadPosition')) this.emit('userReadPositions', this.userReadPositionList)
   }

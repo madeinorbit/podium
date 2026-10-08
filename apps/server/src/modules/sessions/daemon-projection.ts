@@ -1,5 +1,4 @@
 import type { SessionId, IssueId, MachineId, TranscriptItem } from '@podium/model'
-import type { LiveServerMessage } from '@podium/protocol'
 import { compareProviderCursor } from '@podium/harness/metadata'
 import type { RuntimeEvent, SessionMetadataChange, SessionMetadataObservation, SessionSnapshot } from '@podium/protocol/daemon'
 import type { DaemonMessage } from '@podium/protocol/daemon'
@@ -9,7 +8,6 @@ import {
   isCommandWrapperText,
   isGenericClaudeTitle,
   isTransientTitle,
-  makeTitleDebouncer,
   stripSpinnerFrame,
   titleFromPrompt,
 } from '../../title-filter'
@@ -47,7 +45,6 @@ export interface SessionDaemonProjectionPorts {
   draft(session: Session): SessionDurableState
   persistDraft(session: Session, draft: SessionDurableState): Promise<void>
   broadcastSessions(): void
-  broadcastToClients(message: LiveServerMessage): void
   transcriptDelta(sessionId: SessionId, items: TranscriptItem[], reset?: boolean): void
   adoptWorktree(
     issueId: IssueId,
@@ -58,29 +55,10 @@ export interface SessionDaemonProjectionPorts {
 
 /** Applies daemon-observed metadata to the session projection and its module views. */
 export class SessionDaemonProjection {
-  private readonly titleDebouncers = new Map<string, ReturnType<typeof makeTitleDebouncer>>()
-
   private readonly metadataSeen = new Map<SessionId, Map<string, SessionMetadataObservation>>()
   private readonly metadataQueue = new Map<SessionId, Promise<void>>()
 
   constructor(private readonly ports: SessionDaemonProjectionPorts) {}
-
-  disposeTitle(sessionId: SessionId): void {
-    this.titleDebouncers.get(sessionId)?.dispose()
-    this.titleDebouncers.delete(sessionId)
-  }
-
-  /** Route every title update through one deduplicating history. */
-  private publishTitle(sessionId: SessionId, title: string): void {
-    let debouncer = this.titleDebouncers.get(sessionId)
-    if (!debouncer) {
-      debouncer = makeTitleDebouncer((settled) => {
-        this.ports.broadcastToClients({ type: 'sessionTitleChanged', sessionId, title: settled })
-      })
-      this.titleDebouncers.set(sessionId, debouncer)
-    }
-    debouncer.push(title)
-  }
 
   /** Called only after causal admission. Compatibility frames share the same
    * setters and title history, so a dual-delivered sighting is idempotent. */
@@ -153,7 +131,6 @@ export class SessionDaemonProjection {
     if (!title) return
     await this.ports.write(session, (draft) => { session.setTitle(title, draft) })
     session.titleLocked = true
-    this.publishTitle(sessionId, title)
   }
 
   async handle(machineId: MachineId, message: SessionProjectionDaemonFrame): Promise<void> {
@@ -218,7 +195,6 @@ export class SessionDaemonProjection {
             await result
           }
         }
-        this.publishTitle(message.sessionId, title)
         break
       }
       case 'sessionResumeRef':

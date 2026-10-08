@@ -30,7 +30,6 @@ import { afterCommit, followUpAfterCommit } from '../../store/executor/executor'
 import type { EventBus } from '../bus'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService } from '../machines/service'
-import type { SessionDaemonProjection } from './daemon-projection'
 import type { SessionRepository } from './repository'
 import type { Session } from './session'
 import type { SessionStateService } from './session-state/service'
@@ -50,7 +49,6 @@ export interface SessionKillPorts {
   clients: ClientRegistry
   bus: EventBus
   machines: Pick<MachinesService, 'defaultMachine'>
-  daemonProjection: Pick<SessionDaemonProjection, 'disposeTitle'>
   now(): number
   toMachine(machineId: MachineId, message: ControlMessage): void
   broadcastSessions(): void
@@ -132,7 +130,6 @@ export class SessionKill {
       session?.terminal.detachAll()
       this.ports.sessions.delete(sessionId)
       this.ports.state.removeSession(sessionId)
-      this.ports.daemonProjection.disposeTitle(sessionId)
       for (const c of this.ports.clients.values()) c.attached.delete(sessionId)
       this.ports.repository.forget(sessionId)
     }

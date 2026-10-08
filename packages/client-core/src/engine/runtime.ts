@@ -73,7 +73,7 @@ import type { ClientPrincipal } from '../principal'
 import { createReadPositionClient, type ReadPositionPort } from '../read-position'
 import type { Replica } from '../replica/kernel/facade'
 import type { FeedSinkPort, SocketHub } from '../socket-transport'
-import { NotificationSounder } from '../sound/notification-sounds'
+import { createNotificationSounds, type SessionPhaseChange } from '../sound/notification-sounds'
 
 import {
   createRouterUiState,
@@ -369,6 +369,21 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private workspaceKey: WorkspaceKey
   private connectTimer: ReturnType<typeof setTimeout> | null = null
   private offs: Array<() => void> = []
+  private sessionPhases: (() => readonly SessionPhaseChange[]) | undefined
+  private sounds: ReturnType<typeof createNotificationSounds> | undefined
+
+  /** The pool supplies only addressed phase edges; runtime owns the reaction. */
+  readonly attachSessionPhases = (read: () => readonly SessionPhaseChange[]): (() => void) => {
+    if (this.sessionPhases) throw new Error('Session phases already attached')
+    this.sounds?.stop()
+    this.sessionPhases = read
+    if (this.started) this.sounds?.start()
+    return () => {
+      if (this.sessionPhases !== read) return
+      this.sounds?.stop()
+      this.sessionPhases = undefined
+    }
+  }
   private lastMachinesMaterial: string | undefined
   private started = false
   /** Set by destroy(). The state choke point refuses everything after it, so a
@@ -725,15 +740,13 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       }),
     )
 
-    // Agent-state transitions → sound cues [POD-78]. Fed from 'sessions' (not
-    // 'attention'): the attention broadcast is gated on the web-notification
-    // setting and never fires for a clean "done"; sounds want both.
-    const sounder = new NotificationSounder({
+    this.sounds ??= createNotificationSounds({
       ui: this.ui,
+      phases: () => this.sessionPhases?.() ?? [],
       visibleSessionIds: () => this.getUserFocus().visibleSessionIds ?? [],
     })
-    offs.push(sounder.attach())
-    offs.push(this.hub.on('sessions', (list) => sounder.onSessions(list)))
+    this.sounds.start()
+    offs.push(() => this.sounds?.stop())
 
     // Presence feeds the server's smart router (skip mobile push while visible).
     // Re-report view-state too so hiding the tab clears it (and showing re-asserts).

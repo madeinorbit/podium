@@ -1,4 +1,4 @@
-import { AgentPhase, AgentRuntimeState, OBSERVATION_PROVIDER_KINDS, SessionIdField, SessionMeta } from '@podium/model'
+import { AgentPhase, AgentRuntimeState, OBSERVATION_PROVIDER_KINDS, SessionIdField } from '@podium/model'
 import { z } from 'zod'
 
 // The session aggregate and the agent-runtime-state family it embeds live in
@@ -261,29 +261,6 @@ export const AgentObservationRebindAckMessage = z.object({
   checkpoint: SessionObservationCheckpointV1.nullable(),
 })
 export type AgentObservationRebindAckMessage = z.infer<typeof AgentObservationRebindAckMessage>
-// server -> browser client: full session-list snapshot.
-export const SessionsChangedMessage = z.object({
-  type: z.literal('sessionsChanged'),
-  sessions: z.array(SessionMeta),
-})
-
-// Connection-scoped authorization revocation. These ids were already visible
-// to this client; removing them reveals no entity the client did not know.
-export const SessionViewDeltaMessage = z.object({
-  type: z.literal('sessionViewDelta'),
-  removedSessionIds: z.array(z.string()),
-})
-
-// One session's runtime phase changed. A dedicated message — not a full
-// sessionsChanged rebroadcast — because hook events fire often (a TodoWrite
-// mutation, every turn boundary, across all sessions) and re-serializing the
-// whole list per event is O(sessions × clients) several times a second.
-export const SessionAgentStateChangedMessage = z.object({
-  type: z.literal('sessionAgentStateChanged'),
-  sessionId: SessionIdField,
-  state: AgentRuntimeState,
-})
-
 // Harness-observed agent state changed (hooks-driven). Low-frequency: phase
 // transitions only, never per-frame. daemon -> server.
 export const AgentStateMessage = z.object({

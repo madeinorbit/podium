@@ -1,4 +1,5 @@
 import { attachPreferenceSource } from './preference-source'
+import type { SessionPhaseChange } from '@podium/client-core/sound'
 import { attachSettingsSource } from './settings-source'
 import { optimisticDraftSortKey } from '@podium/client-core/values'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -219,7 +220,11 @@ function releaseProjection<T>(state: ProjectionState<T>): void {
 
 /** Structural seam satisfied by the app's StoreProvider runtime. */
 export type WorklistRuntime = RowSourceRuntime &
-  LocalsEngine & { readonly replica: RowSourceReplica; readonly ui?: RoutedUiState }
+  LocalsEngine & {
+    readonly replica: RowSourceReplica
+    readonly ui?: RoutedUiState
+    attachSessionPhases?(read: () => readonly SessionPhaseChange[]): () => void
+  }
 
 const spawnPools = new WeakMap<object, MobxPool>()
 
@@ -296,6 +301,7 @@ export function createRuntimeWorklistPool(
   let locals: ReturnType<typeof createEngineLocals> | undefined
   let handle: WorklistPoolHandle | undefined
   let stopHeader: (() => void) | undefined
+  let stopSounds: (() => void) | undefined
   try {
     locals = createEngineLocals(runtime)
     handle = createWorklistPool(
@@ -341,10 +347,13 @@ export function createRuntimeWorklistPool(
         runtime as Parameters<typeof attachHeaderSource>[1],
       )
     spawnPools.set(runtime, handle.pool)
+    const phasePool = handle.pool
+    stopSounds = runtime.attachSessionPhases?.(() => phasePool.sessionPhaseChanges.get())
     transactions.bind(rows)
     handle.pool.attachTransactions(transactions, true)
     stopWriter = attachRuntimeWriter(runtime, transactions)
   } catch (error) {
+    stopSounds?.()
     stopWriter?.()
     stopHeader?.()
     handle?.dispose()
@@ -363,6 +372,7 @@ export function createRuntimeWorklistPool(
       disposed = true
       // First: no action may reach a log that is going away.
       stopWriter?.()
+      stopSounds?.()
       spawnPools.delete(runtime)
       stopHeader?.()
       try {
