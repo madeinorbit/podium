@@ -95,8 +95,8 @@ const WorkingSessionRow = observer(function WorkingSessionRow({ id }: { id: stri
   if (!header) return null
   return (
     <li>
-      <span>{header.session.name ?? header.session.title}</span>
-      <b>{header.session.displayRef ?? header.session.agentKind}</b>
+      <span>{header.name ?? header.title}</span>
+      <b>{header.displayRef ?? header.agentKind}</b>
     </li>
   )
 })

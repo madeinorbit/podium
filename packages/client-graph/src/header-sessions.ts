@@ -66,8 +66,10 @@ export class HeaderSessions {
     const model = this.pool.model('session', id)
     return contribution(model ? headerModel(this.pool).session(model).headerHost : null)
   }, compareStructural)
-  private readonly residentWorking = cachedKey('pool.header', 'sessionWorking', (id) =>
-    headerModel(this.pool).session(this.pool.sessionObject(id)).working, Object.is)
+  private readonly residentWorking = cachedKey('pool.header', 'sessionWorking', (id) => {
+    const model = this.pool.model('session', id)
+    return model ? headerModel(this.pool).session(model).working : false
+  }, Object.is)
   private readonly machine = cachedKey('pool.header', 'machineAggregate', (id) => {
     const aggregate = structuredClone(this.coldHosts.get(id as MachineId) ?? EMPTY_HOST_AGGREGATE)
     for (const sessionId of headerEntities(this.pool).members('machine', id, 'sessions')) {

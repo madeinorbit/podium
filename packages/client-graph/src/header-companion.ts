@@ -36,10 +36,10 @@ export class HeaderSession {
     const model = this
     return {
       get sessionId() { return model.headerWorkingSessionId },
-      get title() { return model.headerWorkingTitle },
-      get name() { return model.headerWorkingName },
-      get displayRef() { return model.headerWorkingDisplayRef },
-      get agentKind() { return model.headerWorkingAgentKind },
+      get title() { return model.title },
+      get name() { return model.name },
+      get displayRef() { return model.displayRef },
+      get agentKind() { return model.agentKind },
     }
   }
 
@@ -49,22 +49,22 @@ export class HeaderSession {
   }
 
   @lazy
-  private get headerWorkingTitle(): NonNullable<ReturnType<typeof headerWorkingSession>>['title'] {
+  get title(): NonNullable<ReturnType<typeof headerWorkingSession>>['title'] {
     return this.session.title
   }
 
   @lazy
-  private get headerWorkingName(): NonNullable<ReturnType<typeof headerWorkingSession>>['name'] {
+  get name(): NonNullable<ReturnType<typeof headerWorkingSession>>['name'] {
     return this.session.name
   }
 
   @lazy
-  private get headerWorkingDisplayRef(): NonNullable<ReturnType<typeof headerWorkingSession>>['displayRef'] {
+  get displayRef(): NonNullable<ReturnType<typeof headerWorkingSession>>['displayRef'] {
     return this.session.displayRef
   }
 
   @lazy
-  private get headerWorkingAgentKind(): NonNullable<ReturnType<typeof headerWorkingSession>>['agentKind'] {
+  get agentKind(): NonNullable<ReturnType<typeof headerWorkingSession>>['agentKind'] {
     return this.session.agentKind
   }
 

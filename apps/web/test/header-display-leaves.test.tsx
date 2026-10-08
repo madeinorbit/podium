@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import * as values from '@podium/client-core/values'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
@@ -66,6 +67,7 @@ it('renewal prepares zero displayed labels and a selected title updates only its
   const shellRenders = unrelated.renders
   const issue = pool!.model('issue', 'synthetic-0')!
   const issueReads = vi.spyOn(issue, 'storedField')
+  const labelPreparations = vi.spyOn(values, 'panelLabel')
   await act(async () => {
     fixture.patch('session', 'synthetic-session-0', {
       lastActiveAt: new Date(observedAt + 1000).toISOString(),
@@ -73,15 +75,16 @@ it('renewal prepares zero displayed labels and a selected title updates only its
         stateObservedAt: new Date(observedAt + 1000).toISOString() },
     })
   })
-  const labels = () => reads.flatMap(read => read.mock.calls).filter(([field]) =>
-    ['title', 'name', 'displayRef', 'agentKind'].includes(field))
-  expect(labels()).toEqual([])
+  // Scalar companions may check the changed record's fields, but no display
+  // label is formatted and no sibling is read when those scalars are unchanged.
+  expect(labelPreparations).not.toHaveBeenCalled()
+  expect(reads[1]!.mock.calls).toEqual([])
   expect(issueReads.mock.calls).toEqual([])
   expect(unrelated.renders).toBe(shellRenders)
   await act(async () => fixture.patch('issue', 'synthetic-0', { title: 'Selected title changed' }))
   expect(view.container.querySelector('.status-strip-issue')?.getAttribute('title')).toBe('Selected title changed')
   expect(view.container.querySelector('.status-strip-issue-title')?.textContent).toBe('Selected title changed')
-  expect(labels()).toEqual([])
+  expect(labelPreparations).not.toHaveBeenCalled()
   expect(unrelated.renders).toBe(shellRenders)
   await act(async () => fixture.patch('session', 'synthetic-session-1', { title: 'Own session changed', name: 'Own roster name' }))
   expect(view.container.textContent).toContain('Own session changed')

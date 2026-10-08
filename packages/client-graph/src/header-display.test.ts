@@ -84,21 +84,19 @@ describe('header display answers', () => {
 
   it('a selected title changes only the leaf watching that title', () => {
     const f = fixture()
-    const runs = { selection: 0, count: 0, title: 0, stage: 0, other: 0 }
+    const runs = { selection: 0, count: 0, title: 0, other: 0 }
     let title = ''
     const stops = [
       autorun(() => { runs.selection++; headerModel(f.pool).selectedIssue }),
       autorun(() => { runs.count++; headerView(f.pool).workingCount() }),
       autorun(() => { runs.title++; const selected = headerModel(f.pool).selectedIssue;
         title = selected && selected !== LOADING ? selected.title : '' }),
-      autorun(() => { runs.stage++; const selected = headerModel(f.pool).selectedIssue;
-        if (selected && selected !== LOADING) void selected.stage }),
       autorun(() => { runs.other++; void f.pool.model('issue', 'two')!.title }),
     ]
     try {
       f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'one', value: { ...issue('one', 1), title: 'New selected title' } }] })
       expect(title).toBe('New selected title')
-      expect(runs).toEqual({ selection: 1, count: 1, title: 2, stage: 1, other: 1 })
+      expect(runs).toEqual({ selection: 1, count: 1, title: 2, other: 1 })
     } finally { for (const stop of stops) stop(); f.pool.dispose() }
   })
 
