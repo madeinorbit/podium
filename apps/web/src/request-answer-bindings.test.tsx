@@ -1,5 +1,4 @@
 import { MobxPool } from '@podium/client-graph'
-import { conversationRecordId } from '@podium/client-graph/conversation-search'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { useFileDocument } from './features/files/useFileDocument'
@@ -52,7 +51,7 @@ it('closes the actual document hook model and frees its answer and buffer', asyn
   expect(view.content).toBe('')
   expect(view.saveFeedback).toBeNull()
 })
-it('does not admit a debounced conversation response after disabling or unmounting its view', async () => {
+it('drops a debounced conversation response after disabling or unmounting its view', async () => {
   const late = deferred<{ id: string; agentKind: string; providerId: string }[]>()
   f.search.mockReturnValue(late.promise)
   const hook = renderHook(
@@ -69,7 +68,6 @@ it('does not admit a debounced conversation response after disabling or unmounti
   expect(view.answer).toBeUndefined()
   expect(view.hits).toEqual([])
   expect(view.loading).toBe(false)
-  expect(f.pool!.model('conversation', conversationRecordId({ id: 'late' }))).toBeUndefined()
   hook.unmount()
   expect(view.answer).toBeUndefined()
 })

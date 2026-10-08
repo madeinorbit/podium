@@ -3,9 +3,6 @@ import { useEffect, useMemo } from 'react'
 import { useRuntimeSelector } from '@/app/store'
 import type { AtOption } from './at-mention'
 import { FileMentionView } from '../search-views'
-import { useViewFields } from '../use-view-fields'
-
-const mentionFields = (view: FileMentionView) => [view.options]
 
 /**
  * FILE ROWS FOR THE @-MENU (POD-412), scoped to one checkout.
@@ -56,6 +53,5 @@ export function useFileMentions({
     }
   }, [view, query, root, machineId, enabled, limit, debounceMs])
   useEffect(() => () => view.close(), [view])
-  useViewFields(view, mentionFields)
   return view.options
 }

@@ -1,10 +1,5 @@
-import { MobxPool } from '@podium/client-graph'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
-import {
-  ConversationSearchView,
-  conversationRecords,
-  conversationRecordId,
-} from '@podium/client-graph/conversation-search'
+import { ConversationSearchView } from './lib/conversation-search-view'
 import { GitView } from '@podium/client-graph/git-view'
 import { describe, expect, it, vi } from 'vitest'
 import { FileDocumentView } from './features/files/file-document-view'
@@ -36,8 +31,7 @@ describe('request answer lifetime', () => {
     view.close()
     expect([view.answer, view.loading, view.error]).toEqual([undefined, false, null])
   })
-  it('does not hydrate stale or closed conversation records, and scopes native ids by machine', async () => {
-    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  it('drops stale and closed conversation answers while preserving each native result', async () => {
     const row = {
       id: 'native',
       machineId: 'm1' as never,
@@ -46,30 +40,21 @@ describe('request answer lifetime', () => {
       title: 'First',
     }
     const old = deferred<(typeof row)[]>()
-    try {
-      const view = new ConversationSearchView(pool, () => old.promise)
-      const request = view.search({ query: 'old', limit: 6 })
-      view.close()
-      old.resolve([row])
-      await request
-      expect(pool.model('conversation', conversationRecordId(row))).toBeUndefined()
-      const live = new ConversationSearchView(pool, async () => [
-        row,
-        { ...row, machineId: 'm2' as never, title: 'Second' },
-      ])
-      await live.search({ limit: 6 })
-      expect(live.hits.map((hit) => hit.title)).toEqual(['First', 'Second'])
-      expect(live.hits[0]).not.toBe(live.hits[1])
-      const first = live.hits[0]!
-      conversationRecords(pool).ingest([{ ...row, title: 'Renamed' }])
-      expect(first.title).toBe('Renamed')
-      expect(live.hits[0]).toBe(first)
-      live.close()
-      expect(live.answer).toBeUndefined()
-      expect(live.hits).toEqual([])
-    } finally {
-      pool.dispose()
-    }
+    const view = new ConversationSearchView(() => old.promise)
+    const request = view.search({ query: 'old', limit: 6 })
+    view.close()
+    old.resolve([row])
+    await request
+    expect(view.answer).toBeUndefined()
+    expect(view.hits).toEqual([])
+    const rows = [row, { ...row, machineId: 'm2' as never, title: 'Second' }]
+    const live = new ConversationSearchView(async () => rows)
+    await live.search({ limit: 6 })
+    expect(live.answer).toBe(rows)
+    expect(live.hits.map((hit) => hit.title)).toEqual(['First', 'Second'])
+    live.close()
+    expect(live.answer).toBeUndefined()
+    expect(live.hits).toEqual([])
   })
   it('fences directory refresh, navigation and close without prefetching collapsed directories', async () => {
     type Listing = { ok: boolean; path: string; entries: { name: string; isDir: boolean }[] }

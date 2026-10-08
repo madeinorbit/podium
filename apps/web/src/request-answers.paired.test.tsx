@@ -7,7 +7,7 @@ import { makeIssue } from './lib/test-issue'
 import { MobxPool } from '@podium/client-graph'
 import { GitView } from '@podium/client-graph/git-view'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
-import { ConversationSearchView } from '@podium/client-graph/conversation-search'
+import { ConversationSearchView } from './lib/conversation-search-view'
 import { act, cleanup, renderHook, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { useFileDocument } from './test-support/legacy-request-answers/useFileDocument'
@@ -235,7 +235,7 @@ describe('legacy and view-owned answers on identical fixtures', () => {
       pool.dispose()
     }
   })
-  it('compares old debounced search/mention hooks with new answers and pooled records', async () => {
+  it('compares old debounced search/mention hooks with new answers', async () => {
     const rows = [
       {
         id: 'native',
@@ -257,20 +257,16 @@ describe('legacy and view-owned answers on identical fixtures', () => {
     )
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
     try {
-      const search = new ConversationSearchView(pool, f.search)
+      const search = new ConversationSearchView(f.search)
       const mentions = new FileMentionView(trpc as never)
       await search.search({ query: 'same', limit: 6 })
       await mentions.search({ root: '/repo', query: 'src', limit: 6 })
       await waitFor(() => expect(oldSearch.result.current.hits).toHaveLength(1))
       await waitFor(() => expect(oldMentions.result.current).toHaveLength(2))
-      expect(
-        search.hits.map((hit) =>
-          Object.fromEntries(Object.keys(rows[0]!).map((key) => [key, Reflect.get(hit, key)])),
-        ),
-      ).toEqual(oldSearch.result.current.hits)
+      expect(search.hits).toEqual(oldSearch.result.current.hits)
       expect(mentions.options).toEqual(oldMentions.result.current)
       expect(mentions.options).toEqual(fileMentions(paths))
-      expect(search.hits[0]).toBe(pool.model('conversation', search.answer![0]!))
+      expect(search.answer).toBe(rows)
       search.close()
       mentions.close()
       expect(search.hits).toEqual([])
