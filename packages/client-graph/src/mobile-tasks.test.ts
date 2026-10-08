@@ -140,11 +140,12 @@ it('matches the old shown rows, order, counts, proposals and task state across t
           }))
           expect(layout(board)).toEqual(expected)
           // A deliberately wrong answer must fail this same parity comparison.
-          expect(() =>
-            expect(
-              layout(board).map((section) => ({ ...section, total: section.total + 1 })),
-            ).toEqual(expected),
-          ).toThrow()
+          if (expected.length)
+            expect(() =>
+              expect(
+                layout(board).map((section) => ({ ...section, total: section.total + 1 })),
+              ).toEqual(expected),
+            ).toThrow()
           expect(board.proposals).toBe(before.proposals)
           for (const section of before.board)
             for (const row of section.rows) {
