@@ -1,4 +1,6 @@
 import type { Trpc } from '@/app/trpc'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import { readSessions } from '@/app/command-launch-readers'
 import { useStoreHandle } from '@podium/client-core/react'
 import { observe, reaction } from 'mobx'
 import { useConversation } from '@/features/chat/use-conversation'
@@ -330,6 +332,7 @@ export function AgentPanel({
     onEnterNative: () => rearmFlushRef.current?.(),
   })
   const referenceStages = usePaneReferenceStages(gates.terminalActive)
+  const testPool = useWorklistPool()
   // Keep the terminal's imperative getter current through pool attachment
   // without remounting the terminal or changing its transcript subscription.
   const referenceStagesRef = useRef(referenceStages)
@@ -612,6 +615,7 @@ export function AgentPanel({
     focusOnMount: false,
     focusWhenReady: true,
     test: E2E,
+    testSessions: () => testPool ? readSessions(testPool).map(row => ({ sessionId: row.sessionId, title: row.title })) : [],
     echoLatencyEnabled,
     // Applied synchronously in onMounted below. Passing it here would make
     // useTerminalSession apply it a second time in its initial appearance

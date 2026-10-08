@@ -26,6 +26,8 @@ export interface MountSessionOptions {
   sessionId: SessionId
   toolbarEl?: HTMLElement
   test?: boolean
+  /** On-request browser-test reader supplied by the app's synced data owner. */
+  testSessions?: () => readonly { sessionId: SessionId; title: string }[]
   /** Opt-in input-event→paint diagnostics. Disabled by default. */
   echoLatencyEnabled?: boolean
   onState?: (state: ConnectionState) => void
@@ -684,7 +686,7 @@ export function mountSession(el: HTMLElement, opts: MountSessionOptions): Mounte
       // The same takeover the product's own action performs — one name, one
       // meaning, so a browser test cannot pass against a path nothing ships.
       takeControl,
-      sessions: () => hub.sessions(),
+      sessions: () => opts.testSessions?.() ?? [],
       attach: (id: SessionId) => hub.attach(id),
       simulateKeyboard: (inset: number) => {
         // Percentage heights don't resolve when the parent has auto height, so we

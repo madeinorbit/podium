@@ -2,7 +2,7 @@ import type { ConnectionState, SocketHub } from '@podium/client-core/socket-tran
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
 import type { TerminalAppearance } from '@podium/terminal-client/appearance'
-import type { MountedSession } from '@podium/terminal-client/session-mount'
+import type { MountedSession, MountSessionOptions } from '@podium/terminal-client/session-mount'
 import type { RefObject } from 'react'
 import { useEffect, useRef, useState } from 'react'
 import { nativePromise } from './native-promise'
@@ -71,6 +71,7 @@ export interface UseTerminalSessionOptions {
   focusWhenReady?: boolean
   /** Expose the browser-test hook (`globalThis.__podium`) — see mountSession. */
   test?: boolean
+  testSessions?: MountSessionOptions['testSessions']
   /** Opt-in input-event→paint diagnostics. Toggle changes do not remount. */
   echoLatencyEnabled?: boolean
   /**
@@ -165,6 +166,8 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
   // need to sit in its dependency array (they're constants for a given mount).
   const testRef = useRef(opts.test)
   testRef.current = opts.test
+  const testSessionsRef = useRef(opts.testSessions)
+  testSessionsRef.current = opts.testSessions
   const focusOnMountRef = useRef(focusOnMount)
   focusOnMountRef.current = focusOnMount
   const readyTimeoutMsRef = useRef(opts.readyTimeoutMs)
@@ -218,7 +221,7 @@ export function useTerminalSession(opts: UseTerminalSessionOptions): UseTerminal
                 : {}),
               ...(viewportRef.current ? { viewportEl: viewportRef.current } : {}),
               ...(toolbarRef.current ? { toolbarEl: toolbarRef.current } : {}),
-              ...(testRef.current ? { test: true } : {}),
+              ...(testRef.current ? { test: true, testSessions: () => testSessionsRef.current?.() ?? [] } : {}),
               ...(echoLatencyEnabledRef.current ? { echoLatencyEnabled: true } : {}),
               ...(focusOnMountRef.current !== undefined
                 ? { focusOnMount: focusOnMountRef.current }

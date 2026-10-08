@@ -1893,7 +1893,7 @@ describe('SessionRegistry', () => {
     // a broadcast to every client.
     expect(c.sent.map(m => m.type)).not.toContain('sessionTitleChanged')
     // Not a full list rebroadcast.
-    expect(c.sent.map((m) => m.type).includes('sessionsChanged')).toBe(false)
+    expect(c.sent.map((m) => m.type)).not.toContain('sessionsChanged')
     // Late joiners see it via listSessions() — also without the frame, so the
     // session does not keep whichever one the spinner happened to stop on.
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).at(0)).toMatchObject({
@@ -2606,7 +2606,7 @@ describe('agent state', () => {
     })
     expect(client.sent.map(m => m.type)).not.toContain('sessionAgentStateChanged')
     // Hook events fire often — this must NOT re-broadcast the whole session list.
-    expect(client.sent.map((m) => m.type).includes('sessionsChanged')).toBe(false)
+    expect(client.sent.map((m) => m.type)).not.toContain('sessionsChanged')
     // Late joiners still see the state via listSessions().
     expect(
       (await reg.modules.sessions.listSessions(undefined, 'rpc')).find(

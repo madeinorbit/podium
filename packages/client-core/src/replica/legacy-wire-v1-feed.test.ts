@@ -121,6 +121,8 @@ const snapshot = (
   issueProjections: IssueProjection[] = [],
 ): Extract<SyncChangesSinceResult, { kind: 'snapshot' }> => ({
   kind: 'snapshot',
+  sessions: [],
+  conversations: [],
   issues: [],
   issueProjections,
   diagnostics: [],

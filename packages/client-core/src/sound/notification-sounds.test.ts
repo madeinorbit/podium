@@ -182,6 +182,40 @@ describe('audibleCondition', () => {
 })
 
 describe('pool notification sounds', () => {
+  it('matches the retired list sound policy on the same fixtures', () => {
+    const a = (agentState: AgentRuntimeState) => meta({ sessionId: asSessionId('a'), agentState })
+    const b = (agentState: AgentRuntimeState) => meta({ sessionId: asSessionId('b'), agentState })
+    const fixtures = [
+      [a(working()), b(idleDone())],
+      [a(idleDone()), b(idleDone())],
+      [a(idleDone()), b(needsUser('permission'))],
+      [a(working()), b(needsUser('permission'))],
+      [a(errored()), b(needsUser('permission'))],
+      [],
+      [a(idleDone())],
+      [a(working())],
+      [a(needsUser('question'))],
+    ]
+    // The retired onSessions policy, kept as a test oracle: first sight arms
+    // silently, equal conditions do not repeat, leaving scope forgets a row.
+    const conditions = new Map<string, NotificationCue | null>()
+    const legacy: NotificationCue[] = []
+    const h = harness()
+    for (const rows of fixtures) {
+      for (const row of rows) {
+        const next = audibleCondition(row)
+        if (conditions.has(row.sessionId) && next !== null && next !== conditions.get(row.sessionId)) legacy.push(next)
+        conditions.set(row.sessionId, next)
+      }
+      for (const id of conditions.keys())
+        if (!rows.some(row => row.sessionId === id)) conditions.delete(id)
+      h.clock.now += 3000
+      h.update(rows)
+    }
+    expect(legacy).toEqual(['done', 'approval', 'error', 'question'])
+    expect(h.played).toEqual(legacy)
+  })
+
   it.each([32, 128])('handles only the changed phase among %s synced sessions', (count) => {
     const h = harness()
     const rows = Array.from({ length: count }, (_, i) => meta({ sessionId: asSessionId(String(i)), agentState: working() }))
