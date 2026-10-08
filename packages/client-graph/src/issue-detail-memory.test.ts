@@ -80,7 +80,13 @@ it('reports detail watched fields and retained heap at 4x and after release', as
   // pilot without restoring a legacy assembly to production.
   const oldReader = Reflect.get(views, 'data') as
     | undefined
-    | ((id: string) => { title: string; issue: { description: string } })
+    | ((id: string) => {
+        title: string
+        issue: { description: string; parentId?: string }
+        issues: { id: string; title: string }[]
+        children: { id: string }[]
+        members: { title?: string; archived?: boolean; status?: string }[]
+      })
   const { heapStats } = createRequire(import.meta.url)('bun:jsc') as {
     heapStats(): { heapSize: number }
   }
@@ -96,7 +102,14 @@ it('reports detail watched fields and retained heap at 4x and after release', as
   const stop = autorun(() => {
     if (oldReader) {
       const data = oldReader('child')
-      displayed = { title: data.title, description: data.issue.description }
+      displayed = {
+        title: data.title,
+        description: data.issue.description,
+        parent: data.issues.find((issue) => issue.id === data.issue.parentId)?.title,
+        children: data.children.map((child) => child.id),
+        crew: data.members.filter((session) => !session.archived && session.status !== 'exited')
+          .map((session) => session.title),
+      }
     } else {
       const model = views.issue('child') as PageIssue,
         row = views.row('child')
@@ -118,7 +131,7 @@ it('reports detail watched fields and retained heap at 4x and after release', as
   for (let turn = 0; turn < 20; turn++) await Promise.resolve()
   const released = models.reduce((count, model) => count + lazyKeptCount(model), 0)
   const afterRelease = heap() - before
-  expect(displayed).toMatchObject({ title: 'child', description: '' })
+  expect(displayed).toEqual({ title: 'child', description: '', parent: 'root', children: [], crew: ['Shown'] })
   console.info(
     'issue detail memory4x',
     JSON.stringify({
