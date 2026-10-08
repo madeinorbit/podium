@@ -1,6 +1,6 @@
 import { headerView } from '@podium/client-graph/header-views'
 import type { RepoView } from '@podium/client-core/values'
-import { createLaunchWorkPicker } from '@podium/client-graph/launch-option-views'
+import { createLaunchWorkPicker, type LaunchWorkMode } from '@podium/client-graph/launch-option-views'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { MachineWire } from '@podium/model'
 import { useCallback, useEffect, useMemo } from 'react'
@@ -24,15 +24,15 @@ export function useLaunchRepositoryCount() {
 }
 
 /** Each mounted launcher takes recency once. Its metadata projections stay live. */
-export function useLaunchWorkPicker() {
+export function useLaunchWorkPicker(mode: LaunchWorkMode = 'work') {
   const pool = useMobilePool()
   const picker = useMemo(() => pool ? createLaunchWorkPicker(pool) : undefined, [pool])
-  useEffect(() => { picker?.open() }, [picker])
+  useEffect(() => { picker?.open(mode) }, [picker, mode])
   return picker
 }
 const NO_REPOSITORIES: string[] = []
 export function useLaunchRepositoryPaths() {
-  const picker = useLaunchWorkPicker()
+  const picker = useLaunchWorkPicker('paths')
   const read = useCallback(() => picker?.opened ? picker.repositoryPaths : NO_REPOSITORIES, [picker])
   return useMobilePoolProjection(read, NO_REPOSITORIES)
 }

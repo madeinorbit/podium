@@ -28,55 +28,48 @@ export function launchOptionViews(pool: MobxPool) {
       return reposToViews(scans)[0]
     })
     const machines = computed(() => headerView(pool).machines())
-    const rootKey = keyedComputed(
-      'launch.roots',
-      (id: string) => {
-        const repo = repository(id)
-        return JSON.stringify(repo ? [repo.path, ...repo.worktrees.map((tree) => tree.path)] : [])
-      },
-    )
-    const usageOnOpen = (id: string, match: 'exact' | 'within') => {
-      counts.usageQueries++
-      return pool.queries.activity({ kind: 'commandRootActivity', roots: JSON.parse(rootKey(id)) as string[], match })
-    }
-    const repositoryPathsOnOpen = () => headerEntities(pool).repositoryGroupIds()
-      .flatMap(id => {
-        const repo = repository(id)
-        return repo ? [{ path: repo.path, at: usageOnOpen(id, 'within') }] : []
-      })
-      .sort((a, b) => b.at - a.at || a.path.localeCompare(b.path, undefined, { sensitivity: 'base' }))
-      .map(({ path }) => path)
     const pins = computed(() => {
       const row = pool.row('commandWindow', 'window')
       return row && row !== LOADING ? row.pins : EMPTY_PINS
     })
+    const projectForRepository = (repo: NonNullable<ReturnType<typeof repository>>): RepoNavView => {
+      const pinned = pins.get().worktrees
+      return { ...repo, worktrees: repo.worktrees.flatMap(tree =>
+        pinned.some(path => machinePathsEqual(path, tree.path)) ? [] :
+          [{ ...tree, repoName: repo.name, sessions: [], issues: [] }]) }
+    }
     const project = keyedComputed('launch.project', (id: string): RepoNavView | undefined => {
       const repo = repository(id)
-      if (!repo) return undefined
-      const pinned = pins.get().worktrees
-      return {
-        ...repo,
-        worktrees: repo.worktrees.flatMap((tree) =>
-          pinned.some(path => machinePathsEqual(path, tree.path))
-            ? []
-            : [{ ...tree, repoName: repo.name, sessions: [], issues: [] }],
-        ),
-      }
+      return repo ? projectForRepository(repo) : undefined
     })
-    const projectsOnOpen = () => {
+    const workOnOpen = (mode: LaunchWorkMode) => {
       const pinned = pins.get().repos
       const values = headerEntities(pool).repositoryGroupIds().flatMap(id => {
-        const repo = project(id)
-        return repo && (pinned.some(path => machinePathsEqual(path, repo.path)) || repo.worktrees.length)
-          ? [{ repo, at: usageOnOpen(id, 'exact') }] : []
+        const repo = repository(id)
+        if (!repo) return []
+        // One metadata read per group in the open action. Exact and within
+        // are distinct visible order rules; neither remains observed.
+        const roots = [repo.path, ...repo.worktrees.map(tree => tree.path)]
+        const choice = projectForRepository(repo)
+        const eligible = pinned.some(path => machinePathsEqual(path, repo.path)) || choice.worktrees.length > 0
+        const activity = (match: 'exact' | 'within') => {
+          counts.usageQueries++
+          return pool.queries.activity({ kind: 'commandRootActivity', roots, match })
+        }
+        return [{ repo, eligible, pathAt: mode === 'work' ? 0 : activity('within'),
+          projectAt: mode === 'paths' || !eligible ? 0 : activity('exact') }]
       })
+      const paths = mode === 'work' ? [] : [...values]
+        .sort((a, b) => b.pathAt - a.pathAt || a.repo.path.localeCompare(b.repo.path, undefined, { sensitivity: 'base' }))
+        .map(value => value.repo.path)
+      const projects = mode === 'paths' ? [] : values.filter(value => value.eligible)
       const pinOrder = new Map(pinned.map((path, at) => [machinePathKey(path), at]))
-      values.sort((a, b) => b.at - a.at ||
+      projects.sort((a, b) => b.projectAt - a.projectAt ||
         a.repo.name.localeCompare(b.repo.name, undefined, { sensitivity: 'base' }) ||
         (pinOrder.get(machinePathKey(a.repo.path)) ?? pinned.length) -
           (pinOrder.get(machinePathKey(b.repo.path)) ?? pinned.length))
-      return { order: values.map(value => value.repo.path),
-        usageAt: new Map(values.map(value => [machinePathKey(value.repo.path), value.at])) }
+      return { paths, projects: projects.map(value => value.repo.path),
+        usageAt: new Map(projects.map(value => [machinePathKey(value.repo.path), value.projectAt])) }
     }
     const projectChoices = computed(() => {
       const pinned = pins.get().repos
@@ -125,8 +118,7 @@ export function launchOptionViews(pool: MobxPool) {
       return { repo: repositoryAt(path), machines: hosts }
     })
     return {
-      repositoryPathsOnOpen,
-      projectsOnOpen,
+      workOnOpen,
       catalogOnOpen,
       picker: (): LaunchCatalogPicker => new LaunchCatalogPicker(pool),
       repository: (id: string) => repository(id),
@@ -137,7 +129,6 @@ export function launchOptionViews(pool: MobxPool) {
       counts,
       dispose() {
         repository.clear()
-        rootKey.clear()
         project.clear()
         repositoryAt.clear()
         origin.clear()
@@ -176,6 +167,8 @@ export class LaunchCatalogPicker {
 }
 export const createLaunchCatalogPicker = (pool: MobxPool) => new LaunchCatalogPicker(pool)
 
+export type LaunchWorkMode = 'work' | 'paths' | 'both'
+
 /** The phone launch sheet owns recency for one opening; repository metadata stays live. */
 export class LaunchWorkPicker {
   @observableRef accessor pathOrder: string[] = []
@@ -183,12 +176,11 @@ export class LaunchWorkPicker {
   @observableRef accessor usageAt: ReadonlyMap<string, number> = new Map()
   @observable accessor opened = false
   constructor(private readonly pool: MobxPool) {}
-  @action open() {
-    const views = launchOptionViews(this.pool)
-    this.pathOrder = views.repositoryPathsOnOpen()
-    const projects = views.projectsOnOpen()
-    this.projectOrder = projects.order
-    this.usageAt = projects.usageAt
+  @action open(mode: LaunchWorkMode = 'both') {
+    const snapshot = launchOptionViews(this.pool).workOnOpen(mode)
+    this.pathOrder = snapshot.paths
+    this.projectOrder = snapshot.projects
+    this.usageAt = snapshot.usageAt
     this.opened = true
   }
   @lazy get repositoryPaths() {

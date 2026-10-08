@@ -170,7 +170,7 @@ it('preserves clone ordering, linked-scan exclusion, and pinned project choices'
     entities.apply([{ kind: 'repository', id: 'r1', value: undefined }])
     expect(picker.repositoryPaths).toEqual(['/first'])
     expect(catalog.catalog().repoPaths).toEqual(['/first'])
-    entities.order('repository', ['r3'])
+    runInAction(() => entities.order('repository', ['r3']))
     expect(catalog.catalog().repoPaths).toEqual([])
     catalog.open()
     expect(catalog.catalog().initialRepoPath).toBe('/unlisted')
