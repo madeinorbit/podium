@@ -171,7 +171,7 @@ it('keeps identities, raw members and continuation witnesses live without neighb
       } as RowRecord,
       seat('tip-agent', { issueId: 'tip', archived: false, status: 'running' }),
       seat('born-away', { issueId: 'outside' }),
-      seat('shell', { agentKind: 'shell', archived: false, status: 'running' }),
+      seat('shell', { agentKind: 'shell', archived: false }),
     ],
   })
   const views = issuePages(pool),
@@ -191,10 +191,21 @@ it('keeps identities, raw members and continuation witnesses live without neighb
     expect(page.issue).toBe(model)
     expect(presence).toMatchObject({ text: 'Work continued in P-3' })
     expect(ids()).toEqual(history.map((row) => row.id))
-    expect(dock !== LOADING && dock?.map((row) => row.sessionId)).toEqual(['shell'])
-    expect(page.retiredCount).toBe(history.length)
+    expect(dock !== LOADING && dock?.map((row) => row.sessionId)).toEqual([])
+    expect(page.retiredCount).toBe(history.length + 1)
     expect(page.rosterCount).toBe(history.length)
     expect(summary).toEqual({ total: 48, byPhase: { unknown: 48 } })
+    // A live attached shell belongs to the dock and suppresses continuation,
+    // while raw page membership and its summary still exclude shells.
+    pool.apply({ type: 'update', rows: [seat('shell', { agentKind: 'shell', archived: false, status: 'running' })] })
+    expect(dock !== LOADING && dock?.map((row) => row.sessionId)).toEqual(['shell'])
+    expect(presence).toBeNull()
+    expect(page.retiredCount).toBe(history.length)
+    expect(ids()).toEqual(history.map((row) => row.id))
+    expect(summary).toEqual({ total: 48, byPhase: { unknown: 48 } })
+    pool.apply({ type: 'update', rows: [seat('shell', { agentKind: 'shell', archived: false })] })
+    expect(dock !== LOADING && dock?.map((row) => row.sessionId)).toEqual([])
+    expect(presence).toMatchObject({ text: 'Work continued in P-3' })
     const first = members
     pool.apply({ type: 'update', rows: [seat('history-000', { title: 'Renamed' })] })
     expect(members).toBe(first)
