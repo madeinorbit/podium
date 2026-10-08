@@ -42,7 +42,7 @@ describe('the pool over the app-owned runtime', () => {
       parity()
       const selected = await writeSelectionClick(ctx)
       await Promise.resolve()
-      expect(tracked(() => handle.worklistView(pool).selectedId === selected)).toBe(true)
+      expect(tracked(() => worklistView(handle.pool).selectedId === selected)).toBe(true)
       parity()
     } finally {
       handle.dispose()

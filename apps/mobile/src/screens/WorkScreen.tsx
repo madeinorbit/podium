@@ -8,6 +8,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import type {
   MobileWorkRef,
   MobileWorkState,
+  MobileWorkSection as CoreWorkSection,
 } from '@podium/client-graph/worklist/mobile'
 import type { SessionId } from '@podium/model'
 import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS } from '@podium/model'
@@ -132,8 +133,8 @@ function configureFoldAnimation(reduceMotion: boolean): void {
 
 const EMPTY_MOBILE_SECTIONS: readonly MobileWorkSection[] = Object.freeze([])
 const EMPTY_MOBILE_SPLIT = Object.freeze({
-  sections: EMPTY_MOBILE_SECTIONS,
-  orderingSections: EMPTY_MOBILE_SECTIONS,
+  sections: Object.freeze([]) as readonly CoreWorkSection[],
+  orderingSections: Object.freeze([]) as readonly CoreWorkSection[],
   issueCount: 0,
   pinnedCount: 0,
   attentionCount: 0,

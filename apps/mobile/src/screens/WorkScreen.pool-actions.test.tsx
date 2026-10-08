@@ -468,23 +468,23 @@ describe('mobile pool work-list actions', () => {
             agentState: { phase: 'working', since: iso(-60_000) },
           })
       })
-      const before = value().issue.unread
+      const before = value().unread
       expect(before).toBe(unread)
       if (unread) expect(value().unread).toBe(false)
       await openMenu()
       await choose(unread ? 'Mark as read' : 'Mark as unread')
       const write = await request(unread ? 'issues.markRead' : 'issues.markUnread')
-      expect(value().issue.unread).toBe(!unread)
+      expect(value().unread).toBe(!unread)
       await parity()
       await settle(write)
-      expect(value().issue.unread).toBe(unread)
+      expect(value().unread).toBe(unread)
     })
 
   it('tucks a completed row immediately, rolls back, and holds accepted tuck until echo', async () => {
     const fixture = await mount((f) =>
       f.patchIssue(TARGET, { stage: 'done', closedAt: iso(-600_000), closedReason: 'done' }),
     )
-    expect(value().tuckable).toBe(true)
+    expect(value().canTuck).toBe(true)
     const label = button().getAttribute('aria-label')!
     await choose('Tuck Synthetic task 3 into Closed')
     const first = await request('issues.setTucked')
@@ -520,7 +520,7 @@ describe('mobile pool work-list actions', () => {
     const write = await request('issues.setTucked')
     expect(write.input).toMatchObject({ tucked: false })
     expect(value().issue.tuckedAt).toBeNull()
-    expect(value().tuckable).toBe(true)
+    expect(value().canTuck).toBe(true)
     await parity()
     await settle(write)
     expect(
@@ -555,14 +555,14 @@ describe('mobile pool work-list actions', () => {
     fireEvent.contextMenu(button())
     await choose('Unsnooze')
     const write = await request('issues.undefer')
-    expect(value().snoozed).toBe(false)
+    expect(value().issue.deferred).toBe(false)
     expect(
       mobileWorkView(pool()).mobileSections()
-        .sections.some((section) => section.data.some((row) => row.id === TARGET)),
+        .sections.some((section) => section.data.some((row) => row === TARGET)),
     ).toBe(true)
     await parity()
     await settle(write)
-    expect(value().snoozed).toBe(true)
+    expect(value().issue.deferred).toBe(true)
   })
 
   it('renames from the real prompt and keeps the earlier accepted write when a later rename refuses', async () => {
@@ -622,7 +622,7 @@ describe('mobile pool work-list actions', () => {
   })
 
   for (const entry of issueStatusMenuEntries().filter((entry) => entry.terminal))
-    it(`closes as ${entry.title} and restores on refusal`, async () => {
+    it(`closes as ${entry.label} and restores on refusal`, async () => {
       await mount()
       await openMenu()
       await choose('Set status')
@@ -666,10 +666,10 @@ describe('mobile pool work-list actions', () => {
       await choose(color ?? 'No colour')
       const write = await request('issues.update')
       expect(write.input).toMatchObject({ patch: { color } })
-      expect(value().color).toBe(color)
+      expect(value().issue.color).toBe(color)
       await parity()
       await settle(write)
-      expect(value().color).toBe('blue')
+      expect(value().issue.color).toBe('blue')
     })
 
   for (const placement of ['own', 'mission'] as const)
@@ -727,7 +727,7 @@ describe('mobile pool work-list actions', () => {
     const write = await request('issues.delete')
     expect(
       mobileWorkView(pool()).mobileSections()
-        .sections.every((section) => section.data.every((row) => row.id !== TARGET)),
+        .sections.every((section) => section.data.every((row) => row !== TARGET)),
     ).toBe(true)
     await parity()
     await settle(write)
@@ -751,9 +751,9 @@ describe('mobile pool work-list actions', () => {
         const split = mobileWorkView(pool()).mobileSections()
         expect(split.sections.some((section) => section.kind === 'attention')).toBe(true)
         const ordering = split.orderingSections.find((section) => section.kind === scope)!
-        expect(ordering.data.some((row) => row.id === 'synthetic-1')).toBe(true)
+        expect(ordering.data.some((row) => row === 'synthetic-1')).toBe(true)
         expect(split.orderingSections.every((section) => section.kind !== 'attention')).toBe(true)
-        const before = ordering.data.map((ref) => ref.id)
+        const before = ordering.data.slice()
         const moving = before.at(-1)!
         const patches = planReorderKeys(
           [moving, ...before.filter((id) => id !== moving)],
@@ -768,14 +768,14 @@ describe('mobile pool work-list actions', () => {
         })
         expect(
           mobileWorkView(pool()).mobileSections()
-            .orderingSections.find((section) => section.key === ordering.key)!.data[0]!.id,
+            .orderingSections.find((section) => section.key === ordering.key)!.data[0]!,
         ).toBe(moving)
         await parity()
         for (const changed of patches) await settle(await request('issues.update', changed.id))
         expect(
           mobileWorkView(pool()).mobileSections()
             .orderingSections.find((section) => section.key === ordering.key)!
-            .data.map((ref) => ref.id),
+            .data.slice(),
         ).toEqual(before)
       })
 

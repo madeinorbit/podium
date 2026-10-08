@@ -14,7 +14,7 @@ import {
   rowKey,
 } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
+import type { MobileWorkSection } from '../lib/work-sections'
 import {
   asIssueId,
   asSessionId,

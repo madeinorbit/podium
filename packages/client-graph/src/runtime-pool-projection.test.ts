@@ -69,7 +69,7 @@ it('uses reference equality without reading collection fields at either scale', 
 
 it('does no reads or equality work for a hidden projection, then pulls the latest value once', () => {
   const f = fixture()
-  const read = vi.fn((pool: MobxPool) => worklistView(pool).selectedId === null ? [] : [worklistView(pool).selectedId])
+  const read = vi.fn((pool: MobxPool) => { const selected = worklistView(pool).selectedId; return selected === null ? [] : [selected] })
   const equals = vi.fn((before: string[], next: string[]) => before.join() === next.join())
   const view = createPoolProjection(f.pool, read, { equals })
   const first = view.getSnapshot()
@@ -93,7 +93,7 @@ it('does no reads or equality work for a hidden projection, then pulls the lates
 
 it('retains a visited fold lazily, refreshes hidden changes once, and releases its graph on disposal', () => {
   const f = fixture()
-  const derive = vi.fn(() => f.worklistView(pool).selectedId === 'target')
+  const derive = vi.fn(() => worklistView(f.pool).selectedId === 'target')
   const row = computed(derive)
   const read = vi.fn(() => row.get())
   const view = createPoolProjection(f.pool, read, { retainWhileInactive: true })

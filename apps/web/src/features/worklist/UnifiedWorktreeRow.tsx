@@ -1,3 +1,5 @@
+import type { WorklistWorktree } from '@podium/client-graph/worklist/worktree'
+import { observer } from '@podium/client-graph/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   type IssueNavigationModel,
@@ -35,9 +37,10 @@ function orphanProvenance(
  *  entry renders in the roster grammar — a rail-navy band at its project
  *  group's tail labeled `repo · branch` in machine voice — never as a
  *  pseudo-issue row named "main". */
-export function UnifiedWorktreeRow({
+export const UnifiedWorktreeRow = observer(function UnifiedWorktreeRow({
+  model,
   row,
-  issues,
+  issues: suppliedIssues,
   active,
   paneA,
   now,
@@ -46,8 +49,9 @@ export function UnifiedWorktreeRow({
   partition,
   renderSession,
 }: {
-  row: Extract<UnifiedWorkRow, { kind: 'worktree' }>
-  issues: IssueNavigationModel[]
+  model?: WorklistWorktree
+  row?: Extract<UnifiedWorkRow, { kind: 'worktree' }>
+  issues?: IssueNavigationModel[]
   active: boolean
   paneA: string | null
   now: number
@@ -61,8 +65,11 @@ export function UnifiedWorktreeRow({
     trailingMeta: ReactNode,
   ) => JSX.Element
 }): JSX.Element {
-  const { worktree } = row
-  const { visible, stale } = partition ?? partitionStaleSessions(worktree.sessions, now)
+  const worktree = model?.worktree ?? row!.worktree
+  const sessions = model ? model.sessions as unknown as SessionView[] : row!.worktree.sessions
+  const issues = model ? model.issues as unknown as IssueNavigationModel[] : suppliedIssues ?? []
+  const visible = model ? model.visible as unknown as SessionView[] : (partition ?? partitionStaleSessions(sessions, now)).visible
+  const stale = model ? model.stale as unknown as SessionView[] : (partition ?? partitionStaleSessions(sessions, now)).stale
   const branch = worktree.branch ?? machinePathBasename(worktree.path)
   const renderRow = (session: SessionView) => {
     const orphan = orphanProvenance(session, issues)
@@ -102,7 +109,7 @@ export function UnifiedWorktreeRow({
     <AgentRosterBand
       testId="unified-worktree-row"
       label={`${worktree.repoName} · ${branch}`}
-      count={worktree.sessions.length}
+      count={sessions.length}
       active={active}
       onLabelClick={onSelect}
       labelHint={worktree.path}
@@ -117,4 +124,4 @@ export function UnifiedWorktreeRow({
       <StaleSection sessions={stale} render={renderRow} dense />
     </AgentRosterBand>
   )
-}
+})

@@ -478,6 +478,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     return keptBelowPartOf(this.host.visibleInputs, this.id, this.childIds, this)
   }
 
+  /** Unread activity in the kept subtree, including activity hidden by the current phase. */
   @lazy get unread(): boolean {
     return unreadPartOf(this.host.visibleInputs, this.id, this.standing, this.seatIds)
   }
@@ -1010,6 +1011,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     return sidebarTimingFromFacts(this.visibleAttention.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
       this.visiblePhase, this.ownFacts.finished, this.visibleActivityAt, this.visibleAttention.decidingAt)
   }
+  /** Desktop emphasis in the drawn subtree; working activity suppresses retention unread. */
   @lazy get visibleUnread(): boolean {
     if (this.visibleWorking) return false
     const readAt = this.issue.readAt, readMs = Date.parse(readAt ?? '')
@@ -1039,6 +1041,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     const first = this.sessions[0]
     return this.sessionOnlyDraft && !first?.busy && (first?.agentState?.phase ?? 'unknown') === 'unknown'
   }
+  /** Phone emphasis also suppresses visibleUnread for a quiet session-only draft. */
   @lazy get emphasizeUnread() { return this.visibleUnread && !this.quietDraft }
   @lazy get attentionAction() { return this.waitingCount > 0 ? this.decision ? 'Review' as const : 'Answer' as const : null }
   @lazy({ equals: compareStructural }) get navigation(): MobileRowValues['navigation'] {

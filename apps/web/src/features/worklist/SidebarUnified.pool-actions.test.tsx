@@ -1,3 +1,4 @@
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
@@ -830,7 +831,7 @@ describe('real pool row mutations and receipts', () => {
     })
     fireEvent.click(folded)
     await parity()
-    expect(worklistGroups(pool!).foldLatch.get()).toBe(true)
+    expect(worklistView(pool!).selectedWasFolded).toBe(true)
     for (const queued of runtime.outbox.pending().filter((entry) => entry.kind === 'issueMarkRead'))
       await accept(await request('issues.markRead', (queued.input as { id: string }).id))
     fireEvent.contextMenu(folded, { clientX: 30, clientY: 40 })
@@ -988,7 +989,7 @@ describe('real pool row mutations and receipts', () => {
     fireEvent.click(await item('Snooze / defer'))
     fireEvent.click(await item('Unsnooze'))
     const unsnooze = await request('issues.undefer')
-    expect(value().deferred).toBe(false)
+    expect(value().issue.deferred).toBe(false)
     await parity()
     await refuse(unsnooze)
     await menu()

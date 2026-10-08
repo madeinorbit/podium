@@ -1,14 +1,13 @@
 import { compareShallow, compareStructural } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
-import { aggregateFields, type Aggregate, type RollupInputs } from './rollup'
+import { aggregateFields, type Aggregate, type RollupSelf, type RollupInputs } from './rollup'
 import type { SidebarSessionFacts } from './sidebar-row'
-import type { RowView } from '../shared/row-view'
 
 
 /** Narrow cached answers for one roll-up input path. Both filing and drawn
  * rows reuse this implementation; it holds no issue or session facts. */
 export class AttentionFields {
-  constructor(readonly row: RowView, private readonly inputs: () => RollupInputs) {}
+  constructor(readonly row: RollupSelf & { readonly id: string }, private readonly inputs: () => RollupInputs) {}
   get id() { return this.row.id }
   private readAggregate(): Aggregate { return aggregateFields(this.inputs(), this.row.id, this.row) }
   get value(): Aggregate {

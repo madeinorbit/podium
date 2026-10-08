@@ -34,7 +34,7 @@ const Row = observer(function Row() {
   const f = state.current!
   const value = sidebarView(f.pool).row(f.id)
   if (!value || typeof value === 'symbol') return null
-  return <UnifiedIssueRow row={poolIssueRow(value)} display={poolIssueDisplay(value)} now={f.ctx.corpus.fixedNow}
+  return <UnifiedIssueRow model={value} now={f.ctx.corpus.fixedNow}
     onSelectIssue={() => {}} onSelectPanelForIssue={() => {}} onOpenIssue={() => {}} onRenameIssue={() => {}} />
 })
 

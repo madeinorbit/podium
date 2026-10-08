@@ -18,7 +18,7 @@ import { useWorklistPool } from '@/app/store-worklist-pool'
 import { IdSquare, idSquareLabel } from '@/components/IdSquare'
 import { useFeature } from '@/lib/use-feature'
 import { useNewTask } from './new-task'
-import { navigationIssue, poolIssueStatus } from './pool-row-data'
+import { navigationIssue, worklistIssueStatus } from './pool-row-data'
 import { usePoolLayoutState } from './pool-sidebar'
 import { RowShortcutBadge } from './RowShortcutBadge'
 import { RailProgressMeter } from './row-progress'
@@ -190,46 +190,9 @@ const PoolRailTile = observer(function PoolRailTile({
     }),
     shallowEqual,
   )
-  const draw = useMemo(
-    () =>
-      computed<{
-        value: SidebarRowValues | typeof LOADING | undefined
-        tree: SidebarWorktree | undefined
-        count: number
-        paint: unknown
-      }>(
-        () => {
-          const value = kind === 'issue' ? sidebarView(pool).row(id) : undefined
-          const tree = kind === 'worktree' ? sidebarView(pool).worktree(id) : undefined
-          let count = 0
-          if (value !== undefined && value !== LOADING) {
-            const model = worklistView(pool).knownRow(id)!
-            const waiting = model.aggregate.railWaiting
-            count =
-              ((model.ownFacts.state === 'ready' && model.ownFacts.finished
-                ? waiting?.finished
-                : waiting?.open) ?? 0) + (waiting?.decisions ?? 0)
-          }
-          const paint =
-            value !== undefined && value !== LOADING
-              ? {
-                  count,
-                  phase: value.timing.phase,
-                  title: value.issue.title,
-                  ref: value.issue.displayRef,
-                  seq: value.issue.seq,
-                  color: value.issue.color,
-                  status: poolIssueStatus(value),
-                  progress: value.progress,
-                }
-              : (tree ?? value)
-          return { value, tree, count, paint }
-        },
-        { equals: (a, b) => compareStructural(a.paint, b.paint) },
-      ),
-    [pool, id, kind],
-  ).get()
-  const { value, tree } = draw
+  const value = kind === 'issue' ? sidebarView(pool).row(id) : undefined
+  const entity = kind === 'worktree' ? pool.model('worktree', id) : undefined
+  const tree = entity ? worklistView(pool).tree(entity) : undefined
   if (
     (kind === 'issue' && (value === undefined || value === LOADING)) ||
     (kind === 'worktree' && !tree)
@@ -241,9 +204,10 @@ const PoolRailTile = observer(function PoolRailTile({
   if (value !== undefined && value !== LOADING) {
     const issue = navigationIssue(value.issue)
     phase = value.timing.phase
-    count = draw.count
+    const waiting = value.aggregate.railWaiting
+    count = ((value.ownFacts.state === 'ready' && value.ownFacts.finished ? waiting?.finished : waiting?.open) ?? 0) + (waiting?.decisions ?? 0)
     title = `${idSquareLabel(issue).full} ${issue.title}`
-    status = poolIssueStatus(value)
+    status = worklistIssueStatus(value)
     mark = (
       <>
         <IdSquare
@@ -260,13 +224,13 @@ const PoolRailTile = observer(function PoolRailTile({
           onPrimary={() => actions.selectIssue(id)}
           onColorChange={(color) => actions.setIssueColor(id, color)}
         />
-        <RailProgressMeter progress={value.progress} />
+        <RailProgressMeter progress={value.progress === LOADING ? { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 } : value.progress} />
         {digit !== undefined && <RowShortcutBadge digit={digit} size={32} radius={9} />}
       </>
     )
   } else {
     const sessions = tree!.sessions
-    const phases = sessions.map((session) => motionPhase(session, false))
+    const phases = sessions.map(session => worklistView(pool).session(session).phase)
     phase = phases.includes('waiting')
       ? 'waiting'
       : phases.includes('working')

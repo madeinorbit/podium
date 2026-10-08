@@ -1,3 +1,4 @@
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /** Diagnostic-only differential. It never observes, hydrates or mutates the pool.
@@ -190,6 +191,6 @@ export function poolSidebarSnapshot(pool: MobxPool, state: SidebarState = {}): S
 }
 
 export function checkSidebar(pool: MobxPool, store: Store<PodiumClientApi>, state: SidebarState = {}, onDifference?: (difference: SidebarDifference) => void): SidebarCheckResult {
-  const locals: SliceLocals = { selectedIssueId: store.selectedIssueId ?? null, coarseNow: pool.clock.current, selectedIssueWasFolded: worklistGroups(pool).foldLatch.get() }
+  const locals: SliceLocals = { selectedIssueId: store.selectedIssueId ?? null, coarseNow: pool.clock.current, selectedIssueWasFolded: worklistView(pool).selectedWasFolded }
   return compareSidebarSnapshots(legacySidebarSnapshot(legacyDerivationFromStore(store, locals.coarseNow), locals, state), poolSidebarSnapshot(pool, state), onDifference)
 }

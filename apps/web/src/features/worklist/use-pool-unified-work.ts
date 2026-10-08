@@ -187,7 +187,7 @@ export function createPoolWorkActions(
       if (!changed && lastIssueNavigation === commandKey) return
       lastIssueNavigation = commandKey
       void store.markIssueRead(id)
-      if (clicked.unsnoozed) void store.deferIssue(id, null)
+      if (clicked.returnedFromDefer) void store.deferIssue(id, null)
       if (paneSession) void store.markSessionRead(paneSession)
     })
     focus(id)

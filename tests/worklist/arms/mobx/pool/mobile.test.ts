@@ -129,7 +129,7 @@ describe('mobile pool values', () => {
       expect(split.sections.find(section => section.key === 'pinned')!.data).toContain(id)
       expect(split.sections.find(section => section.key === 'needs-you')!.data).toContain(id)
       expect(split.orderingSections.some(section => section.key === 'needs-you')).toBe(false)
-      const ids = split.sections.flatMap(section => section.data.map(row => row.listKey))
+      const ids = split.sections.flatMap(section => section.data.map(id => section.kind === 'attention' ? `needs-you:${id}` : id))
       expect(new Set(ids).size).toBe(ids.length)
       expect(tracked(() => poolMobileSnapshot(handle.pool)).pending).toBe(0)
       expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool)))).digest('hex')).toMatchSnapshot('last green pinned ask output')

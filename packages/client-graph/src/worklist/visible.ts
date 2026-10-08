@@ -88,7 +88,7 @@ import { isFinished, isExcluded } from '../shared/predicates'
  * snapshot and the tests do.
  */
 
-import { compareStructural, createAtom, makeObservable, reaction, runInAction } from 'mobx'
+import { compareStructural, createAtom, reaction, runInAction } from 'mobx'
 import { debugName } from '../debug-name'
 import { type RelationLinks, refs } from '../shared/links'
 import { compareRank, type RowRank } from '../shared/row-view'
@@ -1411,38 +1411,7 @@ export class VisibleCollection {
   )
 
   constructor(private readonly host: VisibleHost) {
-    makeObservable<
-      VisibleCollection,
-      | 'visible'
-      | 'stops'
-      | 'holds'
-      | 'observed'
-      | 'live'
-      | 'demand'
-      | 'host'
-      | 'file'
-      | 'start'
-      | 'activate'
-      | 'settleIdle'
-    >(this, {
-      visible: false,
-      stops: false,
-      holds: false,
-      observed: false,
-      live: false,
-      demand: false,
-      host: false,
-      file: false,
-      start: false,
-      activate: false,
-      settleIdle: false,
-      need: false,
-      retain: false,
-      track: false,
-      untrack: false,
-      tracks: false,
-      clear: false,
-    })
+
   }
 
   /** TRACKED: report a read of the filed lanes (every lane read calls this). */

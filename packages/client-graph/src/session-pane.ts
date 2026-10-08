@@ -112,7 +112,7 @@ export function createSessionPaneReader(pool: MobxPool) {
     },
     ownership(row: SessionView | undefined, hex: (color: string | null | undefined) => string | undefined) {
       const selected = worklistView(pool).selectedId
-      const selectedIssueId = selected === undefined ? null : asIssueId(selected)
+      const selectedIssueId = selected === null ? null : asIssueId(selected)
       const stamp = paneStampIssue(pool, row), color = paneIssueColor(pool, selectedIssueId, hex)
       return { selectedIssueId, stampIssue: stamp === LOADING ? undefined : stamp, issueHex: color === LOADING ? undefined : color }
     },

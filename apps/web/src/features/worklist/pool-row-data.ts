@@ -219,8 +219,11 @@ export function sidebarExitSnapshot(value: WorklistIssue): SidebarRowValues {
       title: issue.title, audience: issue.audience, color: issue.color, branch: issue.branch,
       gitState: issue.gitState, stage: issue.stage, closedReason: issue.closedReason, closedAt: issue.closedAt,
       needsHuman: issue.needsHuman, asked: issue.asked, updatedAt: issue.updatedAt,
+      tuckedAt: issue.tuckedAt, deferUntil: issue.deferUntil, worktreePath: issue.worktreePath,
+      isDraftVessel: issue.isDraftVessel, pinned: issue.pinned, parentId: issue.parentId,
+      repoPath: issue.repoPath, createdAt: issue.createdAt, blocked: issue.blocked, readAt: issue.readAt,
     } as SidebarRowValues['issue'],
-    sessions: value.sessions.map(session => ({ sessionId: session.sessionId })) as SidebarRowValues['sessions'],
+    sessions: value.sessions.map(session => ({ sessionId: session.sessionId })) as unknown as SidebarRowValues['sessions'],
     aggregateSessionIds: value.visibleSessionIds, awaitingFirstPrompt: value.awaitingFirstPrompt,
   }
 }

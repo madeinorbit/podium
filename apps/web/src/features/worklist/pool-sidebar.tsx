@@ -382,7 +382,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
       id,
       activate: () => {
         const value = issue(id)
-        if (value?.draftAgentOnly && value.firstSessionId)
+        if (value?.sessionOnlyDraft && value.firstSessionId)
           actions.selectPanelForIssue(id, value.firstSessionId as SessionId)
         else actions.selectIssue(id)
       },
@@ -577,7 +577,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
                       issueForRow={(item) => {
                         const value = issue(item.value.id)
                         return value
-                          ? { kind: 'issue', issue: value.issue as unknown as IssueNavigationModel, sessions: value.sessions, activityAt: value.visibleActivityAt }
+                          ? { kind: 'issue', issue: value.issue as unknown as IssueNavigationModel, sessions: value.sessions as unknown as SessionView[], activityAt: value.visibleActivityAt }
                           : {
                               kind: 'issue',
                               issue: {
@@ -819,49 +819,8 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
     const active = visible && s.selectedIssueId === null && s.selectedWorktree != null && machinePathsEqual(s.selectedWorktree, path)
     return { selectedWorktree: active ? path : null, paneA: active ? s.paneA : null }
   }, shallowEqual)
-  const projection = useMemo(
-    () =>
-      computed(() => sidebarView(pool).worktree(path, state), {
-        equals: (a, b) =>
-          compareStructural(
-            a && {
-              worktree: {
-                path: a.worktree.path,
-                repoName: a.worktree.repoName,
-                branch: a.worktree.branch,
-              },
-              active: a.active,
-              issues: a.issues.map((i) => ({
-                id: i.id,
-                displayRef: i.displayRef,
-                archived: i.archived,
-                deletedAt: i.deletedAt,
-              })),
-              visible: a.visible.map((s) => s.sessionId),
-              stale: a.stale.map((s) => s.sessionId),
-            },
-            b && {
-              worktree: {
-                path: b.worktree.path,
-                repoName: b.worktree.repoName,
-                branch: b.worktree.branch,
-              },
-              active: b.active,
-              issues: b.issues.map((i) => ({
-                id: i.id,
-                displayRef: i.displayRef,
-                archived: i.archived,
-                deletedAt: i.deletedAt,
-              })),
-              visible: b.visible.map((s) => s.sessionId),
-              stale: b.stale.map((s) => s.sessionId),
-            },
-          ),
-      }),
-    [pool, path, state],
-  )
-  const read = useCallback(() => projection.get(), [projection])
-  const value = useWorklistPoolProjection(read, undefined, visible, true)
+  const entity = pool.model('worktree', path)
+  const model = entity ? worklistView(pool).tree(entity) : undefined
   const now = useRef(0)
   if (visible) now.current = pool.clock.trackedNow()
   const select = useCallback(() => actions.selectWorktree(path), [actions, path])
@@ -881,15 +840,13 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
     ),
     [pool, actions, path],
   )
-  if (!value) return null
+  if (!model || (!model.rosterIds.length && model.pending === 0)) return null
   return (
     <UnifiedWorktreeRow
-      row={poolWorktreeRow(value)}
-      issues={value.issues as unknown as IssueNavigationModel[]}
-      active={value.active}
+      model={model}
+      active={model.active(state)}
       paneA={state.paneA}
       now={now.current}
-      partition={{ visible: value.visible as SessionView[], stale: value.stale as SessionView[] }}
       renderSession={renderSession}
       onSelect={select}
       onSelectPanel={panel}

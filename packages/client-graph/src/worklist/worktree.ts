@@ -57,12 +57,12 @@ export class WorklistWorktree {
       },
       order: id => {
         const session = pool.sessionObject(id)
-        return stale ? session.lastActivity : this.worklist.session(session).sortKey
+        return stale ? JSON.stringify([session.lastActivity, this.worklist.session(session).sortKey]) : this.worklist.session(session).sortKey
       },
-      compareOrder: stale ? (a, b) => b.localeCompare(a) : (a, b) => {
-        const left = JSON.parse(a) as [number, string, string], right = JSON.parse(b) as [number, string, string]
-        return left[0] - right[0] || right[1].localeCompare(left[1]) || right[2].localeCompare(left[2])
-      },
+      compareOrder: stale ? (a, b) => {
+        const left = JSON.parse(a) as [string, string], right = JSON.parse(b) as [string, string]
+        return right[0].localeCompare(left[0]) || compareSessionKeys(left[1], right[1])
+      } : compareSessionKeys,
       subscribe: changed => reaction(() => this.rosterIds, () => changed(undefined)),
     })
   }
@@ -136,4 +136,9 @@ export class WorklistWorktree {
     return fleetOf(this.sessions as unknown as SliceSession[], session => this.worklist.pool.sessionObject(session.sessionId).open)
   }
   @lazy get navigation() { return this.sessions[0] ? { kind: 'session' as const, id: this.sessions[0].sessionId } : null }
+}
+
+function compareSessionKeys(a: string, b: string): number {
+  const left = JSON.parse(a) as [number, string, string], right = JSON.parse(b) as [number, string, string]
+  return left[0] - right[0] || right[1].localeCompare(left[1]) || right[2].localeCompare(left[2])
 }

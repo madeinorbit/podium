@@ -97,7 +97,7 @@ The three ports’ exhaustive contracts, their raw issue fallback, and the `stan
 | `createIssuePort.supersededBy` | `issue.supersededBy` | Shared record fact; the Proxy fallback and row copy disappear. |
 | `createIssuePort.duplicateOf` | `issue.duplicateOf` | Shared record fact; the Proxy fallback and row copy disappear. |
 | `createIssuePort.displayRef` | `issue.displayRef` | Shared record fact; the Proxy fallback and row copy disappear. |
-| `createIssuePort.unread` | `visibleUnread` | The old Proxy overrides the record with worklist retention unread; read the companion explicitly. |
+| `createIssuePort.unread` | `unread` | Unread activity in the kept subtree; desktop and phone emphasis have separate fields. |
 | `standing.excluded / standingExcluded` | `issue.excluded` | Shared record exclusion predicate. |
 | `standing.finished / standingFinished` | `issue.finished` | Filing/presence rule, or shared record fact as named. |
 | `standing.agent / standingAgent` | `issue.audience` | Filing/presence rule, or shared record fact as named. |

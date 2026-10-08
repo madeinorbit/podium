@@ -50,7 +50,7 @@ export function sidebarComparable(value: SidebarRowValues | WorklistIssue): Reco
     internal: value.issue.audience === 'agent', unsnoozed: value.returnedFromDefer, deferred: value.issue.deferred,
     awaitsTuck: value.canTuck, canBringBack: value.canBringBack, draftAgentOnly: value.sessionOnlyDraft,
     firstSessionId: value.firstSessionId, continuation: value.continuation, fleet: value.visibleFleet,
-    issue: { ...pick(value.issue, ISSUE_CONTENT_FIELDS), unread: value.visibleUnread },
+    issue: { ...pick(value.issue, ISSUE_CONTENT_FIELDS), unread: value.unread },
     sessions: value.sessions.map(sessionComparable), aggregateSessionIds: value.visibleSessionIds,
     awaitingFirstPrompt: value.awaitingFirstPrompt,
   }
@@ -150,7 +150,8 @@ export function worktreeDiff(pool: MobxPool, derivation: LegacyDerivation, state
 
 /** Pure legacy formatter on the pool's compatibility payload. This pins the
  * actual status line while leaving copy/formatting in current presentation. */
-export function poolStatusLine(value: SidebarRowValues, activityAt: number, now: number, seat: (id: string) => unknown): string {
+export function poolStatusLine(input: SidebarRowValues | WorklistIssue, activityAt: number, now: number, seat: (id: string) => unknown): string {
+  const value = 'worklist' in input ? sidebarComparable(input) as unknown as SidebarRowValues : input
   const continuation = value.continuation ? `${value.continuation.kind} · ${value.continuation.ref}` : undefined
   const row = { kind: 'issue', issue: value.issue, sessions: value.sessions,
     aggregateSessions: value.aggregateSessionIds.map(seat).filter(Boolean), missionRollup: { progress: value.progress, fromChildren: value.statusFromChildren }, activityAt, continuation } as unknown as UnifiedIssueRow

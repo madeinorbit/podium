@@ -64,15 +64,18 @@ export class Worklist {
   sections(state: SidebarState = this.layout) { return this.desktop.sections(state) }
   mobileSections() { return this.mobileSectionsView.value }
   desktopRow(id: string) { return this.desktop.row(id) }
-  mobileRow(ref: Pick<MobileWorkRef, 'id' | 'kind'>) {
+  mobileRow(ref: Pick<MobileWorkRef, 'id' | 'kind'>): WorklistIssue | WorklistWorktree | typeof LOADING | undefined {
     if (ref.kind === 'issue') {
       const issue = this.pool.issue(ref.id)
-      return issue === undefined ? this.pool.row('issue', ref.id) === LOADING ? LOADING : undefined
-        : this.row(issue).ready === 'ready' ? this.row(issue) : this.row(issue).ready
+      if (!issue) return this.pool.row('issue', ref.id) === LOADING ? LOADING : undefined
+      const row = this.row(issue), ready = row.ready
+      return ready === 'ready' ? row : ready
     }
     if (this.pool.row('worktree', ref.id) === LOADING) return LOADING
     const tree = this.pool.model('worktree', ref.id)
-    return tree === undefined ? undefined : this.tree(tree).ready === 'ready' ? this.tree(tree) : this.tree(tree).ready
+    if (!tree) return undefined
+    const row = this.tree(tree), ready = row.ready
+    return ready === 'ready' ? row : ready
   }
 
   knownRow(id: string): WorklistIssue | undefined {

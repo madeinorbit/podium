@@ -870,6 +870,8 @@ export class SessionModel extends EntityModel {
 }
 
 export class WorktreeModel extends EntityModel {
+  @lazy get repoName(): string { return String(this.storedField('repoName') ?? '') }
+  @lazy get branch(): string | null | undefined { return this.storedField('branch') as string | null | undefined }
   constructor(id: string, host: ModelHost) {
     super('worktree', id, host)
   }

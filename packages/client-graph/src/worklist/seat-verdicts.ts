@@ -24,9 +24,8 @@ import { isFinished } from '../shared/predicates'
  * the publication's or the load window's action (`flush`), like the sidebar
  * roster index.
  */
-import { type IObservableValue, observable } from 'mobx'
+import { observableRef } from 'mobx'
 import { nextUp } from '../clock'
-import { debugName } from '../debug-name'
 import type { SliceIssue, SliceSession } from '../shared/slice-types'
 import { activityMsOf, retains, retentionOf } from './visible'
 
@@ -100,16 +99,16 @@ function finishOf(issue: SliceIssue | undefined): string {
   return finished ? `1|${issue.closedAt ?? ''}|${issue.updatedAt ?? ''}` : '0'
 }
 
+class SeatSummaryEntry {
+  @observableRef accessor summary: SeatSummary
+  constructor(summary: SeatSummary, readonly verdicts: Map<string, Verdict>, public finish: string) {
+    this.summary = summary
+  }
+}
+
 export class SeatVerdicts {
   /** Per summarised issue: its summary (observable) and each seat's verdict (plain). */
-  private readonly issues = new Map<
-    string,
-    {
-      readonly box: IObservableValue<SeatSummary>
-      readonly verdicts: Map<string, Verdict>
-      finish: string
-    }
-  >()
+  private readonly issues = new Map<string, SeatSummaryEntry>()
   /** Summarised seat → its issue (a seat belongs to one issue's bucket). */
   private readonly owner = new Map<string, string>()
   private readonly dirtySeats = new Set<string>()
@@ -141,17 +140,10 @@ export class SeatVerdicts {
         this.owner.set(seat, id)
         summary = this.withVerdict(summary, seat, OUT, verdict, verdicts)
       }
-      entry = {
-        box: observable.box(summary, {
-          deep: false,
-          name: debugName(() => `pool.seats.verdicts.${id}`),
-        }),
-        verdicts,
-        finish: finishOf(issue),
-      }
+      entry = new SeatSummaryEntry(summary, verdicts, finishOf(issue))
       this.issues.set(id, entry)
     }
-    return entry.box.get()
+    return entry.summary
   }
 
   /** A session's row (hot or cold) moved, or its table slot did. */
@@ -298,9 +290,9 @@ export class SeatVerdicts {
     if (verdict !== undefined) entry.verdicts.set(seat, verdict)
     else entry.verdicts.delete(seat)
     const after = verdict ?? OUT
-    const summary = entry.box.get()
+    const summary = entry.summary
     const next = this.withVerdict(summary, seat, before, after, entry.verdicts)
-    if (next !== summary) entry.box.set(next)
+    if (next !== summary) entry.summary = next
   }
 
   /** The summary with one seat's verdict moved from `before` to `after` (`verdicts` already holds `after`). */

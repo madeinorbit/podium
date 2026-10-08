@@ -7,7 +7,7 @@ import { useWorklistModel } from '@podium/client-graph/react'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobileWorkRef } from '@podium/client-graph/worklist/mobile'
 import { issueDisplayRef } from '@podium/protocol'
-import type { SessionId } from '@podium/model'
+import type { IssueGitState, SessionId } from '@podium/model'
 import { observer } from 'mobx-react-lite'
 import { memo, useCallback, useEffect, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
@@ -141,7 +141,7 @@ export const WorkRow = observer(function WorkRow({
               {statusLine}
             </Text>
             {originSeq !== null ? <Text style={rowStyles.origin}>{`⤷ ${originSeq}`}</Text> : null}
-            {isIssue ? <GitStampLine branch={issue?.branch} git={issue?.gitState} suppressAhead={decision === 'merge'} /> : null}
+            {isIssue ? <GitStampLine branch={issue?.branch} git={issue?.gitState as IssueGitState | undefined} suppressAhead={decision === 'merge'} /> : null}
             <View style={rowStyles.spacer} />
             <View style={rowStyles.rowDatum}>
               {navLoader ? (

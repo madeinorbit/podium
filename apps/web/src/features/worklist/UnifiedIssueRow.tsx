@@ -1,3 +1,4 @@
+import type { SessionView } from '@podium/client-core/session-values'
 import {
   type IssueNavigationModel,
   errorPhrase,
@@ -164,7 +165,7 @@ function UnifiedIssueRowInner({
   const progressProp = model?.progress ?? suppliedProgress
   const origin = (model?.origin ?? suppliedOrigin) as UnifiedIssueRowOrigin | null
   const issue = model ? model.issue as unknown as IssueNavigationModel : row.issue
-  const mine = model ? model.sessions : row.sessions
+  const mine = model ? model.sessions as unknown as SessionView[] : row.sessions
   const unread = model?.visibleUnread ?? display?.unread ?? rowUnreadEmphasized(row)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   // WHAT THE ROW CALLS THIS TASK — never the raw title, which on a draft is the

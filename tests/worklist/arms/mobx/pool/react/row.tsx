@@ -1,3 +1,4 @@
+import { sidebarComparable } from '../../../../diagnostics/oracle'
 /**
  * POD-4565 (Ma1), POD-4756 — the pool's row component. It receives its own
  * issue, typed as the `RowView` the issue implements, and nothing else (L1b
@@ -35,9 +36,9 @@ export const PoolRow = observer(function PoolRow({ row }: RowProps): ReactElemen
     return computed(() => {
       const value = sidebarValues(row, pool)
       return value === LOADING || value === undefined ? value : JSON.stringify({
-        paint: poolIssuePaint(value),
-        fromChildren: value.fromChildren,
-        statusFromChildren: value.statusFromChildren,
+        paint: poolIssuePaint(sidebarComparable(value) as never),
+        fromChildren: value.hasChildProgress,
+        statusFromChildren: value.showsChildProgress,
       })
     }, { name: `IssueModel@${row.id}.sidebarPaint` })
   }, [row])

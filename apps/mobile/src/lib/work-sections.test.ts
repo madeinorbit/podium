@@ -2,10 +2,13 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import {
   MobileSectionsView,
   type MobileWorkRef,
+  type MobileWorkSection as WorkSection,
 } from '@podium/client-graph/worklist/mobile'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
+const source = (section: MobileWorkSection): WorkSection => ({ ...section, data: section.data.map(ref => ref.id) })
+
 import { MobileNativeSections, MobileSearchSections, workGroupFoldKey, type MobileWorkSection } from './work-sections'
 
 // Synthetic resident lanes; the band/fold logic under test is the actual pool
@@ -314,6 +317,7 @@ describe('MobileSearchSections', () => {
         keys: (): IterableIterator<string> => [][Symbol.iterator](),
         size: 0,
       },
+      tables: { worktree: new Map([...rows.keys()].map(id => [id, {}])) },
       queries: { localTextIds: () => new Set<string>() },
       // Worktree labels resolve through the sidebar view now: lane rows by
       // path plus a session roster per lane. The seat id only opens the
@@ -330,7 +334,7 @@ describe('MobileSearchSections', () => {
       sources: {
         view: (() => {
           const views = new Map<string, unknown>([['worklist.view', {
-            phone: { row: ({ id }: { id: string }) => rows.get(id) },
+            mobileRow: ({ id }: { id: string }) => { const row = rows.get(id); return row ? { ...row, title: row.label } : undefined },
           }]])
           return (key: string, create: () => unknown) => {
             if (!views.has(key)) views.set(key, create())
@@ -357,16 +361,16 @@ describe('MobileSearchSections', () => {
   it('keeps an unchanged match, and drops its bands when the search ends or the pool changes', () => {
     const cache = new MobileSearchSections()
     const graph = pool()
-    const first = cache.update(graph, [band], 'alpha')
+    const first = cache.update(graph, [source(band)], 'alpha')
     expect(first.map((section) => section.data.map((ref) => ref.id))).toEqual([['a']])
-    expect(cache.update(graph, [band], 'alpha')[0]).toBe(first[0])
+    expect(cache.update(graph, [source(band)], 'alpha')[0]).toBe(first[0])
 
-    expect(cache.update(graph, [band], '')).toEqual([band])
-    const restarted = cache.update(graph, [band], 'alpha')[0]
+    expect(cache.update(graph, [source(band)], '')).toEqual([band])
+    const restarted = cache.update(graph, [source(band)], 'alpha')[0]
     expect(restarted).not.toBe(first[0])
     expect(restarted?.data.map((ref) => ref.id)).toEqual(['a'])
 
-    expect(cache.update(pool(), [band], 'alpha')[0]).not.toBe(restarted)
+    expect(cache.update(pool(), [source(band)], 'alpha')[0]).not.toBe(restarted)
   })
 
   it('matches one shared id-set pass with zero issue row reads, flat at 1x/4x', () => {
@@ -427,6 +431,7 @@ describe('MobileSearchSections', () => {
             }
           })(),
         },
+        tables: { worktree: new Map(trees.map(tree => [tree.id, {}])) },
         queries: {
           localTextIds: (needle: string) => {
             calls.textPasses++
@@ -453,7 +458,7 @@ describe('MobileSearchSections', () => {
         foldKey: 'fold:/r',
         collapsed: false,
       }
-      const found = new MobileSearchSections().update(graph, [section], 'unique phone target')
+      const found = new MobileSearchSections().update(graph, [source(section)], 'unique phone target')
       expect(found.map((s) => s.data.map((ref) => ref.id))).toEqual([[`issue-71`]])
       expect(found[0]?.snoozedIds).toEqual([])
       expect(found[0]?.closedIds).toEqual([])
