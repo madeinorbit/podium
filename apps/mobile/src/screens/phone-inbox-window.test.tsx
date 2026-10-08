@@ -17,7 +17,7 @@ vi.mock('../components/SessionCard', () => ({
     </p>
   ),
 }))
-const { InboxSessionRow } = await import('./InboxScreen')
+const { InboxSessionRow } = await import('../components/InboxSessionRow')
 afterEach(() => {
   cleanup()
   state.pool?.dispose()

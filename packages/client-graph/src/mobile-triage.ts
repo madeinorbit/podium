@@ -173,7 +173,14 @@ export class ProposalScreening {
   }
   @lazy get booting() {
     const state = this.pool.row('mobileInboxState', 'state')
-    return !state || state === LOADING || this.queue === LOADING
+    return (
+      !state ||
+      state === LOADING ||
+      (!state.hasCursor &&
+        this.pool.queries.count('session') === 0 &&
+        this.pool.queries.count('issue') === 0) ||
+      this.queue === LOADING
+    )
   }
   @lazy get currentId() {
     return this.order[this.index]
