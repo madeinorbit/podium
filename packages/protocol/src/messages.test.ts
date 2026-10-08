@@ -509,20 +509,25 @@ describe('parseServerMessageLenient (per-element quarantine)', () => {
   // lenient parse (consumers ignore them but advance the cursor past them — a
   // strict parse would quarantine → heal → same rows → heal-loop forever),
   // while a KNOWN kind with an invalid value keeps being quarantined.
+  //
+  // The unknown kind here is a synthetic future kind, not a real one: `machine`
+  // used to serve this role, but it became a known kind (session companions),
+  // so a machine row with a bogus value is now quarantined like any other
+  // known-kind row rather than passing through.
   it('passes an UNKNOWN entity kind through a metadataDelta (kind-tolerant)', () => {
     const raw = JSON.stringify({
       type: 'metadataDelta',
       seq: 2,
       changes: [
         { seq: 1, entity: 'session', id: 's1', op: 'remove' },
-        { seq: 2, entity: 'machine', id: 'm1', op: 'upsert', value: { os: 'linux' } },
+        { seq: 2, entity: 'a-kind-from-a-newer-server', id: 'm1', op: 'upsert', value: { os: 'linux' } },
       ],
     })
     const { message, dropped } = parseServerMessageLenient(raw)
     expect(dropped).toBe(0)
     expect(message?.type === 'metadataDelta' && message.changes.map((c) => c.entity)).toEqual([
       'session',
-      'machine',
+      'a-kind-from-a-newer-server',
     ])
     if (message?.type === 'metadataDelta') {
       expect(message.changes.map((c) => isKnownMetadataChange(c))).toEqual([true, false])

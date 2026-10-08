@@ -19,11 +19,14 @@
 
 import {
   canonicalShippingDestination,
+  DriverFamilyWire,
   InviteId,
   LAYOUT_EXACT_KEYS,
   LayoutKeyField,
   LayoutSnapshot,
   MemberId,
+  MESSAGE_DELIVERY_STATUSES,
+  MessageDeliveryStatusOnWire,
   MessageId,
   READ_STREAM_IDS,
   ReadPositionSnapshot,
@@ -108,6 +111,32 @@ export const SAMPLE_OVERRIDES = new Map<z.ZodTypeAny, SampleOverride>([
   // anything that smells of a credential. Deliberately a plain opaque ref: the
   // point of the type is that raw executor paths and log text never reach it.
   [ShipwrightEvidenceRef, () => 'artifact://fixture/shipwright/evidence'],
+  // Normalizing transforms the generic walker cannot satisfy transparently.
+  // Both are INTENDED product behaviour with dedicated unit proof elsewhere,
+  // so the corpus pins the steady-state values and leaves the normalization
+  // to those tests — a golden that sampled the legacy input would record a
+  // parse rewrite, which the transparency assertion exists to forbid.
+  //
+  // `embedded` IS ACCEPTED AND NORMALIZED to `server` where it enters
+  // (POD-4612): an older peer's value parses, but parse rewrites it, so the
+  // walker must never emit it here. Alternate the two steady-state families
+  // by arm so both keep wire coverage; the legacy value stays covered in
+  // `messages/driver-family-wire.test.ts`.
+  [
+    DriverFamilyWire,
+    (opts: SampleOptions) => (opts.arm % 2 === 0 ? 'server' : 'terminal'),
+  ],
+  // A status a client does not know reads as `typed` (still on its way)
+  // instead of refusing the row (POD-4885): the generic walker's
+  // path-derived string would take that branch and parse would rewrite it.
+  // Cycle the known lifecycle so every sampled value survives the read;
+  // unknown statuses stay covered in `entities/message-delivery.test.ts` and
+  // the POD-4885 section of `messages.test.ts`.
+  [
+    MessageDeliveryStatusOnWire,
+    (opts: SampleOptions) =>
+      MESSAGE_DELIVERY_STATUSES[opts.arm % MESSAGE_DELIVERY_STATUSES.length],
+  ],
 ])
 
 export type SampleFixup = (value: unknown, opts: SampleOptions, path: string) => unknown
