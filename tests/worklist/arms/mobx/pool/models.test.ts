@@ -92,7 +92,8 @@ describe('schema fields on models', () => {
               }
               // Issue bodies are stored as documents; the model answers their text (IssueModel.answers).
               if (entity === 'issue' && IssueModel.answers.has(field)) {
-                want = typeof want === 'string' ? want : ((want as { value?: string } | undefined)?.value ?? '')
+                if (want === undefined && field === 'description') want = ''
+                else if (want !== undefined && typeof want !== 'string') want = (want as { value?: string }).value ?? ''
               }
               expect(model[field], `${entity}:${id}.${field}`).toBe(want)
               if (want !== undefined)
