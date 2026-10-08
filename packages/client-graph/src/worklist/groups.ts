@@ -1,3 +1,5 @@
+import { lazy } from '@podium/mobx-helpers'
+import { MobileSection } from './mobile'
 import { machinePathBasename } from '@podium/model/browser'
 import { debugName } from '../debug-name'
 import type { MobxPool } from '../pool'
@@ -49,7 +51,7 @@ import { worklistView } from './view-model'
  * latch is one computed, so a click on any other row re-runs nothing here.
  */
 
-import { compareShallow, compareStructural, computed, makeObservable, observable } from 'mobx'
+import { compareShallow, compareStructural, observable } from 'mobx'
 import { compareRank, type RowRank } from '../shared/row-view'
 import type { SliceGroup, SliceOrder } from '../shared/slice-types'
 import type { OwnPart } from '../views'
@@ -176,6 +178,7 @@ export function sliceOrderOf(layout: Layout): SliceOrder {
 
 /** What the groups read from the pool. */
 export interface GroupsHost {
+  readonly pool?: MobxPool;
   /** TRACKED: a known issue's cached rank, placement and visibility; undefined when unknown. */
   node(id: string):
     | {
@@ -234,25 +237,15 @@ export class GroupNode {
     readonly key: string,
     private readonly groups: WorklistGroups,
   ) {
-    makeObservable<GroupNode, 'groups' | 'latchedHere'>(this, {
-      key: false,
-      groups: false,
-      latchedHere: false,
-      headRank: computed({ equals: compareStructural }),
-      metadata: computed({ equals: compareStructural }),
-      sidebarMetadata: computed({ equals: compareStructural }),
-      label: false,
-      repoPath: false,
-      sidebarRows: computed({ equals: compareStructural }),
-      baseRowIds: computed,
-      baseClosedIds: computed,
-      rowIds: computed({ equals: compareShallow }),
-      closedIds: computed({ equals: compareShallow }),
-    })
+  }
+
+  @lazy get workSection() {
+    const pool = this.groups.pool
+    return new MobileSection(pool, this.key, worklistView(pool).mobileSectionsView)
   }
 
   /** The rank-first member's rank (open or closed), or undefined once the group is empty. */
-  get headRank(): RowRank | undefined {
+  @lazy({ equals: compareStructural }) get headRank(): RowRank | undefined {
     const head = this.groups.members.lane(this.key)[0]
     return head === undefined ? undefined : this.groups.rankOf(head)
   }
@@ -267,7 +260,7 @@ export class GroupNode {
   }
 
   /** Label and path share the existing head cache; renames never read its row. */
-  get metadata(): { readonly label: string; readonly repoPath: string } {
+  @lazy({ equals: compareStructural }) get metadata(): { readonly label: string; readonly repoPath: string } {
     const head = this.groups.members.lane(this.key)[0]
     const placement = head === undefined ? undefined : this.groups.placementOf(head)
     return { label: placement?.label ?? '', repoPath: placement?.repoPath ?? this.key }
@@ -275,7 +268,7 @@ export class GroupNode {
 
   /** The real sidebar groups root rows, including folded roots, before nesting.
    * Use the existing rank lane and cached placement; retain no new cold-id index. */
-  get sidebarMetadata(): { readonly label: string; readonly repoPath: string; readonly headBand: RowRank['band'] | undefined } {
+  @lazy({ equals: compareStructural }) get sidebarMetadata(): { readonly label: string; readonly repoPath: string; readonly headBand: RowRank['band'] | undefined } {
     const head = this.groups.members.lane(this.key).find(id => this.groups.isRoot(id))
     const placement = head === undefined ? undefined : this.groups.placementOf(head)
     const headBand = head === undefined ? undefined : this.groups.rankOf(head)?.band
@@ -283,7 +276,7 @@ export class GroupNode {
   }
 
   /** Root rows only, cached per band rather than per issue or list render. */
-  get sidebarRows(): { readonly rowIds: readonly string[]; readonly snoozedIds: readonly string[]; readonly closedIds: readonly string[] } {
+  @lazy({ equals: compareStructural }) get sidebarRows(): { readonly rowIds: readonly string[]; readonly snoozedIds: readonly string[]; readonly closedIds: readonly string[] } {
     const rowIds = this.groups.rootOpen.lane(this.key).slice()
     const snoozedIds = this.groups.rootSnoozed.lane(this.key).slice()
     const closedIds = this.groups.rootClosed.lane(this.key).slice()
@@ -301,17 +294,17 @@ export class GroupNode {
   }
 
   /** The open lane in rank order, no selection (the snapshot's lane): a copy of the maintained list. */
-  get baseRowIds(): readonly string[] {
+  @lazy({ equals: compareShallow }) get baseRowIds(): readonly string[] {
     return this.groups.open.lane(this.key).slice()
   }
 
   /** The closed fold, newest first, no selection: a copy of the maintained list. */
-  get baseClosedIds(): readonly string[] {
+  @lazy({ equals: compareShallow }) get baseClosedIds(): readonly string[] {
     return this.groups.closed.lane(this.key).slice()
   }
 
   /** The open lane plus a latched selected row at its rank. */
-  get rowIds(): readonly string[] {
+  @lazy({ equals: compareShallow }) get rowIds(): readonly string[] {
     const lane = this.baseRowIds
     const latched = this.latchedHere()
     if (latched === null) return lane
@@ -323,7 +316,7 @@ export class GroupNode {
   }
 
   /** The closed fold less a latched selected row. */
-  get closedIds(): readonly string[] {
+  @lazy({ equals: compareShallow }) get closedIds(): readonly string[] {
     const lane = this.baseClosedIds
     const latched = this.latchedHere()
     return latched === null ? lane : lane.filter((id) => id !== latched)
@@ -367,31 +360,9 @@ export class WorklistGroups {
   readonly rootSnoozed = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.rootSnoozed', this.demand)
   readonly rootClosed = new SortedLanes<string, FoldSort>(compareFold, 'pool.groups.rootClosed', this.demand)
 
+  get pool(): MobxPool { if (!this.host.pool) throw new Error('Group has no pool'); return this.host.pool }
+
   constructor(private readonly host: GroupsHost) {
-    makeObservable<WorklistGroups, 'nodes' | 'host' | 'demand'>(this, {
-      nodes: false,
-      host: false,
-      demand: false,
-      pinned: false,
-      members: false,
-      open: false,
-      closed: false,
-      rootPinned: false,
-      rootOpen: false,
-      rootSnoozed: false,
-      rootClosed: false,
-      pinnedIds: computed,
-      pinnedRootIds: computed({ equals: compareShallow }),
-      isRoot: false,
-      keys: computed({ equals: compareShallow }),
-      latchedOpenId: computed,
-      layout: false,
-      rankOf: false,
-      placementOf: false,
-      file: false,
-      group: false,
-      clear: false,
-    })
   }
 
   /**
@@ -421,11 +392,11 @@ export class WorklistGroups {
   }
 
   /** The pinned ids in rank order (the PINNED section): a copy of the maintained list. */
-  get pinnedIds(): readonly string[] {
+  @lazy({ equals: compareShallow }) get pinnedIds(): readonly string[] {
     return this.pinned.lane(PINNED).slice()
   }
 
-  get pinnedRootIds(): readonly string[] {
+  @lazy({ equals: compareShallow }) get pinnedRootIds(): readonly string[] {
     return this.rootPinned.lane(PINNED).slice()
   }
 
@@ -435,7 +406,7 @@ export class WorklistGroups {
   }
 
   /** The group keys in spec order: each group's head rank, sorted (ranks are total, L1b). */
-  get keys(): readonly string[] {
+  @lazy({ equals: compareShallow }) get keys(): readonly string[] {
     const heads: { key: string; rank: RowRank }[] = []
     for (const key of this.members.keys()) {
       const rank = this.group(key).headRank
@@ -450,7 +421,7 @@ export class WorklistGroups {
    * it is visible, the grace window folded it and it was open when clicked;
    * else null. Reads the selection and that one row.
    */
-  get latchedOpenId(): string | null {
+  @lazy get latchedOpenId(): string | null {
     const id = this.host.selectedId()
     if (id === null || this.host.foldLatch()) return null
     const node = this.host.node(id)
@@ -526,6 +497,7 @@ export function worklistGroups(pool: MobxPool, initiallyFolded = false): Worklis
     const view = worklistView(pool)
     if (initiallyFolded) view.setFolded(true)
     const groups = new WorklistGroups({
+      pool,
       node: id => {
         const issue = pool.knownIssue(id)
         return issue && {

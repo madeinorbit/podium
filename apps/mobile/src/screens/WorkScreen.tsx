@@ -1,3 +1,4 @@
+import type { MobileWorkSection } from '../lib/work-sections'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { listWindow } from '../components/list-window'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
@@ -6,7 +7,6 @@ import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type {
   MobileWorkRef,
-  MobileWorkSection,
   MobileWorkState,
 } from '@podium/client-graph/worklist/mobile'
 import type { SessionId } from '@podium/model'
@@ -174,7 +174,7 @@ function PoolWorkScreen() {
   const layout = useMobilePoolProjection(readLayout, EMPTY_LAYOUT)
   const model = useWorklistModel()
   useEffect(() => { model?.setLayout(layout) }, [model, layout])
-  const readSections = useCallback((graph: MobxPool) => mobileWorkView(graph).sections(layout), [layout])
+  const readSections = useCallback((graph: MobxPool) => mobileWorkView(graph).mobileSections(), [layout])
   const split = useMobilePoolProjection(readSections, EMPTY_MOBILE_SPLIT)
   const { issueCount, pinnedCount, attentionCount } = split
   const [searchOpen, setSearchOpen] = useState(false)
@@ -190,7 +190,7 @@ function PoolWorkScreen() {
     (graph: MobxPool) =>
       searchMobileSections(
         graph,
-        mobileWorkView(graph).sections(layout).sections,
+        mobileWorkView(graph).mobileSections().sections,
         query,
         searchSections,
       ),

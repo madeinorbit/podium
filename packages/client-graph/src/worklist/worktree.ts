@@ -6,7 +6,9 @@ import type { IssueModel, ModelOf, SessionModel } from '../models'
 import type { Worklist } from './view-model'
 import { sidebarRosterOf, type SidebarState } from './sidebar'
 import { LOADING } from './rollup'
-import { mobileWorktreeValues } from './mobile-row'
+import { fleetOf, sidebarTiming } from './sidebar-row'
+import { motionPhase } from './rollup'
+import type { SliceSession } from '../shared/slice-types'
 
 /** A roster keeps shared sessions, with demand-scoped data queries owning
  * ordering. A heartbeat updates one ordering key; it never sorts the roster. */
@@ -40,7 +42,11 @@ export class WorklistWorktree {
       },
       order: id => {
         const session = pool.sessionObject(id)
-        return stale ? descending(session.lastActivity) : this.worklist.session(session).sortKey
+        return stale ? session.lastActivity : this.worklist.session(session).sortKey
+      },
+      compareOrder: stale ? (a, b) => b.localeCompare(a) : (a, b) => {
+        const left = JSON.parse(a) as [number, string, string], right = JSON.parse(b) as [number, string, string]
+        return left[0] - right[0] || right[1].localeCompare(left[1]) || right[2].localeCompare(left[2])
       },
       subscribe: changed => reaction(() => this.rosterIds, () => changed(undefined)),
     })
@@ -54,8 +60,9 @@ export class WorklistWorktree {
     return sessions === LOADING || sessions === undefined ? [] : sessions
   }
   @lazy({ equals: compareShallow }) get stale(): readonly SessionModel[] {
-    return this.sessions.length > 5 && this.staleCandidates.length > 3
-      ? this.sessions.filter(session => this.staleCandidates.slice(3).includes(session)) : []
+    if (this.sessions.length <= 5 || this.staleCandidates.length <= 3) return []
+    const stale = new Set(this.staleCandidates.slice(3))
+    return this.sessions.filter(session => stale.has(session))
   }
   @lazy({ equals: compareShallow }) get visible(): readonly SessionModel[] {
     return this.sessions.filter(session => !this.stale.includes(session))
@@ -88,18 +95,27 @@ export class WorklistWorktree {
   active(state: SidebarState): boolean {
     return state.selectedWorktree != null && machinePathsEqual(state.selectedWorktree, this.id) && this.worklist.selectedId === null
   }
-  @lazy get mobile() {
-    if (!this.rosterIds.length) return undefined
-    if (this.pending > 0) return LOADING
-    return mobileWorktreeValues(this.id, this.worktree.repoName, this.worktree.branch,
-      this.sessions as never, this.activityAt,
-      session => this.worklist.pool.sessionObject(session.sessionId).executing,
-      session => this.worklist.pool.sessionObject(session.sessionId).open,
+  @lazy get ready(): 'ready' | typeof LOADING | undefined {
+    return !this.rosterIds.length ? undefined : this.pending > 0 ? LOADING : 'ready'
+  }
+  @lazy get title() { return `${this.worktree.repoName}${this.worktree.branch ? ` · ${this.worktree.branch}` : ''}` }
+  @lazy({ equals: compareShallow }) private get phases() {
+    return this.sessions.map(session => motionPhase(session as unknown as SliceSession, false, () => session.executing))
+  }
+  @lazy get visiblePhase() {
+    return this.phases.includes('waiting') ? 'waiting' : this.phases.includes('working') ? 'working'
+      : this.phases.length > 0 && this.phases.every(phase => phase === 'done') ? 'done' : 'queued'
+  }
+  @lazy get visibleWorking() { return this.sessions.some(session => session.executing) }
+  @lazy get waitingCount() { return this.phases.filter(phase => phase === 'waiting').length }
+  @lazy get visibleUnread() { return !this.visibleWorking && this.sessions.some(session => session.unread) }
+  @lazy get timing() {
+    return sidebarTiming(this.sessions as unknown as SliceSession[], this.visiblePhase, false, this.activityAt,
+      undefined, session => this.worklist.pool.sessionObject(session.sessionId).executing,
       session => this.worklist.pool.sessionObject(session.sessionId).stateSinceMs)
   }
-}
-
-/** ISO date keys retain lexical ordering while newest is first. */
-export function descending(value: string): string {
-  return Array.from(value, char => String.fromCharCode(0xffff - char.charCodeAt(0))).join('')
+  @lazy get visibleFleet() {
+    return fleetOf(this.sessions as unknown as SliceSession[], session => this.worklist.pool.sessionObject(session.sessionId).open)
+  }
+  @lazy get navigation() { return this.sessions[0] ? { kind: 'session' as const, id: this.sessions[0].sessionId } : null }
 }

@@ -1,11 +1,9 @@
-import { compareStructural } from 'mobx'
-import { lazy, companion } from '@podium/mobx-helpers'
-import { createIdentityQuery } from '../query-result'
+import { compareShallow, compareStructural } from 'mobx'
+import { lazy } from '@podium/mobx-helpers'
 import { aggregateFields, type Aggregate, type RollupInputs } from './rollup'
 import type { SidebarSessionFacts } from './sidebar-row'
 import type { WorklistIssue } from './issue'
 
-const sessionIds = companion((part: AttentionFields) => part.createSessionQuery())
 
 /** Narrow cached answers for one roll-up input path. Both filing and drawn
  * rows reuse this implementation; it holds no issue or session facts. */
@@ -55,14 +53,8 @@ export class AttentionFields {
     return this.readAggregate().railWaiting!.decisions
   }
 
-  private get aggregateSessionIds(): Aggregate['sessionIds'] {
-    return sessionIds(this).get()
-  }
-
-  /** @internal The roll-up's ordered identities, maintained by the data query. */
-  createSessionQuery() {
-    return createIdentityQuery({ name: `attention@${this.id}.sessions`,
-      ids: () => this.readAggregate().sessionIds ?? [] })
+  @lazy({ equals: compareShallow }) private get aggregateSessionIds(): readonly string[] {
+    return this.readAggregate().sessionIds ?? []
   }
 
   private get aggregateSidebarFacts(): SidebarSessionFacts | undefined {

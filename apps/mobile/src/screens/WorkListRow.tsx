@@ -6,6 +6,7 @@ import { useWorklistModel } from '@podium/client-graph/react'
 /** Native work-row paint from one addressed pool projection. */
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobileWorkRef } from '@podium/client-graph/worklist/mobile'
+import { issueDisplayRef } from '@podium/protocol'
 import type { SessionId } from '@podium/model'
 import { observer } from 'mobx-react-lite'
 import { memo, useCallback, useEffect, useState } from 'react'
@@ -17,7 +18,7 @@ import { PressableScale } from '../components/PressableScale'
 import { NotSavedMark } from '../components/NotSavedMark'
 import { WorkingMark } from '../components/WorkingMark'
 import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
-import { mobilePaintNow, mobileRowPaint } from '../lib/work-sections'
+import { mobilePaintNow, mobileRowStamp, worklistRowStatus } from '../lib/work-sections'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -58,29 +59,28 @@ export const WorkRow = observer(function WorkRow({
   onLongPress,
 }: WorkListRowProps) {
   const navLoader = useDelayedFlag(navPending, NAV_LOADER_DELAY_MS)
-  const value = row.mobile
-  if (typeof value === 'symbol') return <View accessibilityLabel="Loading work" />
-  if (!value) return null
-  const paint = mobileRowPaint(value, mobilePaintNow(row.worklist.pool))
-  const {
-    kind,
-    ref,
-    color: issueColor,
-    internal,
-    pinned,
-    label,
-    progress,
-    originSeq,
-    statusLine,
-    stamp,
-    snoozed,
-    unsnoozed,
-    display,
-  } = paint
-  const isIssue = kind === 'issue'
+  if (typeof row.ready === 'symbol') return <View accessibilityLabel="Loading work" />
+  if (!row.ready) return null
+  const isIssue = 'issue' in row
+  const issue = isIssue ? row.issue : undefined
+  const ref = issue ? issueDisplayRef(issue) : null
+  const issueColor = issue?.color
+  const internal = issue?.audience === 'agent'
+  const pinned = issue?.pinned === true
+  const label = row.title
+  const progressValue = isIssue ? row.progress : null
+  const progress = progressValue && typeof progressValue !== 'symbol' && progressValue.total >= 2 ? progressValue : null
+  const originSeq = isIssue ? row.origin?.seq ?? null : null
+  const statusLine = worklistRowStatus(row, mobilePaintNow(row.worklist.pool))
+  const stamp = mobileRowStamp(row.timing, mobilePaintNow(row.worklist.pool))
+  const snoozed = issue?.deferred === true
+  const unsnoozed = isIssue && row.returnedFromDefer
   const hex = isIssue ? issueColorHex(issueColor) : undefined
   const rowBg = hex ? flow.rowBg(hex) : color.engraved
-  const { phase, working, waitingCount: waiting, decision, unread, draftOnly } = display
+  const phase = row.timing.phase, working = row.visibleWorking, waiting = row.waitingCount
+  const decision = isIssue ? row.decision : null
+  const unread = isIssue ? row.emphasizeUnread : row.visibleUnread
+  const draftOnly = isIssue && row.sessionOnlyDraft
   const attention = waiting > 0
 
   return (
@@ -124,11 +124,11 @@ export const WorkRow = observer(function WorkRow({
             {unsnoozed ? <Text style={rowStyles.unsnoozed}>Unsnoozed</Text> : null}
           </View>
           <View style={rowStyles.rowStatusLine}>
-            {isIssue ? <NotSavedMark kind="issue" id={paint.id} /> : null}
+            {isIssue ? <NotSavedMark kind="issue" id={row.id} /> : null}
             {isIssue ? <Text style={rowStyles.rowRef}>{ref}</Text> : null}
             {attention ? <Text style={rowStyles.rowWaitCount}>{waiting}</Text> : null}
             {pinned ? <Icon as={Pin} size={9} color={color.textMicro} /> : null}
-            {draftOnly ? null : <FleetSummary display={display.fleet} />}
+            {draftOnly ? null : <FleetSummary display={row.visibleFleet} />}
             <Text
               style={[
                 rowStyles.status,
@@ -141,7 +141,7 @@ export const WorkRow = observer(function WorkRow({
               {statusLine}
             </Text>
             {originSeq !== null ? <Text style={rowStyles.origin}>{`⤷ ${originSeq}`}</Text> : null}
-            {isIssue ? <GitStampLine display={display.gitStamp} /> : null}
+            {isIssue ? <GitStampLine branch={issue?.branch} git={issue?.gitState} suppressAhead={decision === 'merge'} /> : null}
             <View style={rowStyles.spacer} />
             <View style={rowStyles.rowDatum}>
               {navLoader ? (
@@ -428,20 +428,20 @@ export const PoolWorkRowSlot = memo(
     const model = context ?? (pool ? worklistView(pool) : null)
     const entity = pool && item.kind === 'worktree' ? pool.model('worktree', item.id) : undefined
     const row = item.kind === 'issue' ? model?.knownRow(item.id) : entity ? model?.tree(entity) : undefined
-    const value = row?.mobile
+    const value = row?.ready
     const reader = pool ? mobileWorkView(pool) : undefined
     const tuck = useCallback(() => onTuck(item.id), [item.id, onTuck])
     const openRow = useCallback(() => {
-      const current = reader?.row({ id: item.id, kind: item.kind })
+      const current = reader?.mobileRow({ id: item.id, kind: item.kind })
       if (!current || typeof current === 'symbol' || !current.navigation) return
       if (current.navigation.kind === 'session')
         callbacks.onOpenSession(current.navigation.id as SessionId, item.id)
-      else if (current.sidebar) callbacks.onOpenIssue(current.sidebar.issue as IssueNavigationModel)
+      else if ('issue' in current) callbacks.onOpenIssue(current.issue as unknown as IssueNavigationModel)
     }, [callbacks.onOpenIssue, callbacks.onOpenSession, item.id, item.kind, reader])
     const longPress = useCallback(() => {
-      const current = reader?.row({ id: item.id, kind: item.kind })
-      if (current && typeof current !== 'symbol' && current.sidebar)
-        callbacks.onLongPress(current.sidebar.issue as IssueNavigationModel)
+      const current = reader?.mobileRow({ id: item.id, kind: item.kind })
+      if (current && typeof current !== 'symbol' && 'issue' in current)
+        callbacks.onLongPress(current.issue as unknown as IssueNavigationModel)
     }, [callbacks.onLongPress, item.id, item.kind, reader])
     if (!pool || typeof value === 'symbol') return <View accessibilityLabel="Loading work" />
     if (!row || !value) return null
@@ -451,7 +451,7 @@ export const PoolWorkRowSlot = memo(
         navPending={callbacks.navPending}
         onOpen={openRow}
         onLongPress={longPress}
-        onTuck={value.tuckable ? tuck : undefined}
+        onTuck={'issue' in row && row.canTuck ? tuck : undefined}
       />
     )
   }),

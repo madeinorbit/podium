@@ -1,3 +1,5 @@
+import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
+import type { WorklistWorktree } from '@podium/client-graph/worklist/worktree'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { relativeTime } from '@podium/client-core/focus'
 import {
@@ -8,7 +10,8 @@ import {
   type UnifiedWorkRow,
 } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
+import type { MobileWorkSection as WorkSection, MobileWorkRef } from '@podium/client-graph/worklist/mobile'
+export type MobileWorkSection = Omit<WorkSection, 'data'> & { readonly data: readonly MobileWorkRef[] }
 import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
 import { type IssueGitState, issueStatusLabel } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
@@ -128,7 +131,7 @@ export function mobilePaintNow(pool: MobxPool): number {
  * straight to SectionList, and row payload changes never rebuild them. */
 export function searchMobileSections(
   pool: MobxPool,
-  sections: readonly MobileWorkSection[],
+  sections: readonly WorkSection[],
   query: string,
   cache = new MobileSearchSections(),
 ): readonly MobileWorkSection[] {
@@ -145,13 +148,32 @@ export function searchMobileSections(
  * (another principal) drops them, so a screen holds one instance. */
 export class MobileSearchSections {
   private readonly bands = new Map<string, MobileWorkSection>()
+  private readonly sources = new Map<string, { source: WorkSection; native: MobileWorkSection }>()
+  private nativeSources: readonly MobileWorkSection[] = []
+  private native(pool: MobxPool, sections: readonly WorkSection[]): readonly MobileWorkSection[] {
+    const active = new Set<string>()
+    const next = sections.map(source => {
+      active.add(source.key)
+      const old = this.sources.get(source.key)
+      if (old?.source === source) return old.native
+      const native: MobileWorkSection = { ...source, data: source.data.map(id => ({ id,
+        kind: pool.tables.worktree.has(id) ? 'worktree' : 'issue',
+        listKey: source.kind === 'attention' ? `needs-you:${id}` : id })) }
+      this.sources.set(source.key, { source, native })
+      return native
+    })
+    for (const key of this.sources.keys()) if (!active.has(key)) this.sources.delete(key)
+    if (next.length !== this.nativeSources.length || next.some((section, index) => section !== this.nativeSources[index])) this.nativeSources = next
+    return this.nativeSources
+  }
   private previous: readonly MobileWorkSection[] = []
   private pool: MobxPool | null = null
   update(
     pool: MobxPool,
-    sections: readonly MobileWorkSection[],
+    sources: readonly WorkSection[],
     query: string,
   ): readonly MobileWorkSection[] {
+    const sections = this.native(pool, sources)
     const needle = query.trim().toLowerCase()
     if (!needle || pool !== this.pool) {
       this.bands.clear()
@@ -169,9 +191,9 @@ export class MobileSearchSections {
     // labels (`repo · branch`) are already short strings: one row read per
     // worktree, no paint, bounded by the worktree count rather than issues.
     const worktreeMatches = (ref: MobileWorkSection['data'][number]): boolean => {
-      const value = mobileWorkView(pool).row({ id: ref.id, kind: 'worktree' })
+      const value = mobileWorkView(pool).mobileRow({ id: ref.id, kind: 'worktree' })
       if (!value || typeof value === 'symbol') return false
-      return value.label.toLowerCase().includes(needle)
+      return value.title.toLowerCase().includes(needle)
     }
     const active = new Set<string>(),
       next: MobileWorkSection[] = []
@@ -269,3 +291,50 @@ export class MobileNativeSections {
     return this.previous
   }
 }
+
+export function worklistRowStatus(value: WorklistIssue | WorklistWorktree, now: number): string {
+  const sidebar = 'issue' in value ? value : undefined
+  if (!sidebar) {
+    // The existing worktree formatter is pure and sees this roster alone.
+    return rowStatusLine(
+      {
+        kind: 'worktree',
+        worktree: { sessions: value.sessions },
+        activityAt: value.activityAt,
+      } as unknown as UnifiedWorkRow,
+      now,
+      0,
+    )
+  }
+  if (sidebar.awaitingFirstPrompt) return 'awaiting first prompt'
+  if (sidebar.showsChildProgress) {
+    const parts = sidebar.progress
+    if (typeof parts === 'symbol') return 'no active subtasks'
+    const { total, done, run, review, stall, block, wait } = parts
+    if (total === 0) return 'no active subtasks'
+    const progress = `${done}/${total} ${total === 1 ? 'subtask' : 'subtasks'} done`
+    if (done === total) return progress
+    const next =
+      block > 0
+        ? `${block} blocked`
+        : review > 0
+          ? `${review} in review`
+          : run > 0
+            ? `${run} underway`
+            : stall > 0
+              ? `${stall} stalled`
+              : wait > 0
+                ? `${wait} to go`
+                : null
+    return next ? `${progress} · ${next}` : progress
+  }
+  if (sidebar.decision === 'merge')
+    return sidebar.mergeCommits > 0 ? `ready to merge · ${sidebar.mergeCommits}` : 'ready to merge'
+  if (sidebar.decision === 'review') return 'needs review'
+  if (sidebar.continuation) return `${sidebar.continuation.kind} · ${sidebar.continuation.ref}`
+  if (sidebar.issue.blocked) return 'blocked'
+  return issueStatusLabel(
+    sidebar.issue as unknown as Parameters<typeof issueStatusLabel>[0],
+  ).toLowerCase()
+}
+

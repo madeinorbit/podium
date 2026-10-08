@@ -103,7 +103,7 @@ export function sidebarBelowOf(issue: WorklistIssue, pool: MobxPool): readonly s
     const child = host.visibleInputs.issue(id)
     if (!child) continue
     if (child.present) ids.push(id)
-    else ids.push(...(child as WorklistIssue).rowBelow)
+    else ids.push(...(child as WorklistIssue).visibleChildIds)
   }
   return ids.length === 0 ? EMPTY_IDS : ids.sort()
 }
@@ -115,7 +115,7 @@ export function sidebarNestedOf(issue: WorklistIssue, pool: MobxPool): readonly 
   if (!issue.present) return EMPTY_IDS
   const host = issue.worklist.host
   const ids = new Set<string>()
-  for (const id of issue.rowBelow) {
+  for (const id of issue.visibleChildIds) {
     const child = host.visibleInputs.issue(id)
     if (child && child.nestParent === issue.id) ids.add(id)
   }
@@ -140,21 +140,23 @@ export function sidebarNestedOf(issue: WorklistIssue, pool: MobxPool): readonly 
   return ids.size === 0 ? EMPTY_IDS : [...ids].sort()
 }
 
-export function sidebarNested(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).rowNested }
+export function sidebarNested(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).visibleDescendantIds }
 export function sidebarOwnAttention(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).ownAttention }
-export function sidebarAttention(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).rowAggregate }
-export function sidebarSeatActivity(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).rowSeatActivity }
-export function sidebarActivityAt(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).rowActivityAt }
+export function sidebarAttention(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).visibleAttention }
+export function sidebarSeatActivity(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).visibleSessionActivity }
+export function sidebarActivityAt(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).visibleActivityAt }
 
 /** Compatibility records borrow narrow fields, storing no answers. */
-export function sidebarIssueRow(model: IssueModel | WorklistIssue, pool: MobxPool): Loaded<SidebarRowValues> {
-  return companionOf(model, pool).sidebar
+export function sidebarIssueRow(model: IssueModel | WorklistIssue, pool: MobxPool): Loaded<WorklistIssue> {
+  const row = companionOf(model, pool)
+  return row.ready === 'ready' ? row : row.ready
 }
-export function sidebarValues(model: IssueModel | WorklistIssue, pool: MobxPool): Loaded<SidebarRowValues> {
-  return companionOf(model, pool).sidebar
+export function sidebarValues(model: IssueModel | WorklistIssue, pool: MobxPool): Loaded<WorklistIssue> {
+  const row = companionOf(model, pool)
+  return row.ready === 'ready' ? row : row.ready
 }
 export function sidebarIssueProgress(model: IssueModel | WorklistIssue): SidebarProgress | typeof LOADING {
-  return model instanceof WorklistIssue ? model.rowProgress : worklistView(hostOf(model) as MobxPool).row(model).rowProgress
+  return model instanceof WorklistIssue ? model.progress : worklistView(hostOf(model) as MobxPool).row(model).progress
 }
 
 /** Compatibility adapter; the worklist owns the shared section queries. */
@@ -177,7 +179,7 @@ export class SidebarIndex {
   private get pool() { return this.view.pool }
   constructor(private readonly view: Worklist) {}
 
-  row(id: string): SidebarRowValues | typeof LOADING | undefined {
+  row(id: string): WorklistIssue | typeof LOADING | undefined {
     const model = this.pool.issue(id)
     if (model !== undefined) return sidebarIssueRow(model, this.pool)
     return this.pool.resident('issue', id) === 'loading' ? LOADING : undefined
@@ -196,7 +198,7 @@ export class SidebarIndex {
     return (
       row !== undefined &&
       row !== LOADING &&
-      (!row.draftAgentOnly || state.paneA === row.firstSessionId)
+      (!row.sessionOnlyDraft || state.paneA === row.firstSessionId)
     )
   }
 

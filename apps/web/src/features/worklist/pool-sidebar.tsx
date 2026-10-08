@@ -51,8 +51,8 @@ import { AddRepositoryButton, NewTaskRow, StartFirstTaskRow } from './new-task-r
 import {
   navigationIssue,
   poolIssueDisplay,
-  poolIssueHaystack,
-  poolIssuePaint,
+  worklistIssueHaystack,
+  sidebarExitSnapshot,
   poolIssueRow,
   poolSessionPaint,
   poolWorktreeRow,
@@ -138,7 +138,7 @@ function matches(pool: MobxPool, slot: Slot, needle: string): boolean {
   if (!needle) return true
   if (slot.kind === 'issue') {
     const value = sidebarView(pool).row(slot.id)
-    return value !== undefined && value !== LOADING && poolIssueHaystack(value).includes(needle)
+    return value !== undefined && value !== LOADING && worklistIssueHaystack(value).includes(needle)
   }
   const value = pool.row('worktree', slot.id) as SliceWorktree | typeof LOADING | undefined
   return (
@@ -150,7 +150,7 @@ function matches(pool: MobxPool, slot: Slot, needle: string): boolean {
 
 const PoolEviction = observer(function PoolEviction({ pool }: { pool: MobxPool }) {
   const clear = useRuntimeSelector((s) => s.setSelectedIssueId)
-  const evicted = sidebarView(pool).selectionEvicted()
+  const evicted = sidebarView(pool).selectionGone()
   useEffect(() => {
     if (evicted) clear(null)
   }, [evicted, clear])
@@ -577,7 +577,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
                       issueForRow={(item) => {
                         const value = issue(item.value.id)
                         return value
-                          ? poolIssueRow(value)
+                          ? { kind: 'issue', issue: value.issue as unknown as IssueNavigationModel, sessions: value.sessions, activityAt: value.visibleActivityAt }
                           : {
                               kind: 'issue',
                               issue: {
@@ -684,80 +684,20 @@ const PoolMotionRow = observer(function PoolMotionRow({
   const companion = kind === 'issue' ? worklist.knownRow(id) : undefined
   const folded = lane === 'closed' || lane === 'snoozed'
   const visible = usePanelVisible()
-  const draw = useMemo(
-    () =>
-      computed<{
-        value: SidebarRowValues | typeof LOADING | undefined
-        now: number
-        paint: unknown
-      }>(
-        () => {
-          const value = companion?.sidebar
-          const now = pool.clock.trackedNow()
-          let paint: unknown
-          if (value !== undefined && value !== LOADING) {
-            if (folded) {
-              // A folded age observes clock ticks, but publishes only a changed word.
-              const issue = navigationIssue(value.issue)
-              const stamp = lane === 'closed' ? issueClosedFoldAt(issue) : issue.updatedAt
-              paint = {
-                seq: issue.seq,
-                ref: issue.displayRef,
-                title: issue.title,
-                marker: foldedMarker(issue, lane as 'closed' | 'snoozed', now),
-                ago: stamp ? relativeTime(stamp, now) : null,
-              }
-            } else paint = poolIssuePaint(value)
-          } else paint = value
-          return { value, now, paint }
-        },
-        { equals: (a, b) => compareStructural(a.paint, b.paint) },
-      ),
-    [pool, id, kind, companion, folded, lane],
-  )
-  // Visible rows own their lazy paint projection; closing a group retires them.
-  const lastDraw = useMemo(
-    () => ({ value: undefined as ReturnType<typeof draw.get> | undefined }),
-    [draw],
-  )
-  const readDraw = useCallback(() => {
-    const next = draw.get()
-    const previous = lastDraw.value
-    // Folded clock words are in paint; open-row timers own their visible clock.
-    if (previous && compareStructural(previous.paint, next.paint)) return previous
-    lastDraw.value = next
-    return next
-  }, [draw, lastDraw])
-  const paint = useWorklistPoolProjection(readDraw, undefined, visible, true) ?? {
-    value: LOADING,
-    now: 0,
-    paint: LOADING,
-  }
-  const fresh = paint.value
-  // Stored for the exit animation: the departing row must stay still after
-  // its live entity disappears. A mounted row keeps reading its companion.
+  const fresh = companion?.ready === 'ready' ? companion : companion?.ready
+  const now = pool.clock.trackedNow()
+  // The existing exit snapshot retains the final paint after archive or eviction.
   const previous = useRef<SidebarRowValues | undefined>(undefined)
-  if (fresh !== undefined && fresh !== LOADING) previous.current = { ...fresh, issue: { ...fresh.issue } }
-  const value = fresh === undefined && item.phase === 'exiting' ? previous.current : fresh
-  const draftPane = useRuntimeSelector(
-    (s) =>
-      visible &&
-      value !== undefined &&
-      value !== LOADING &&
-      value.draftAgentOnly &&
-      s.paneA === value.firstSessionId,
-  )
+  if (fresh !== undefined && fresh !== LOADING) previous.current = sidebarExitSnapshot(fresh)
+  const snapshot = fresh === undefined && item.phase === 'exiting' ? previous.current : undefined
+  const draftOnly = fresh && fresh !== LOADING ? fresh.sessionOnlyDraft : snapshot?.draftAgentOnly
+  const firstSessionId = fresh && fresh !== LOADING ? fresh.firstSessionId : snapshot?.firstSessionId
+  const draftPane = useRuntimeSelector(s => visible && draftOnly === true && s.paneA === firstSessionId)
   const active = visible && companion?.selected === true
-  const now = paint.now
   const arriving = animate && item.phase === 'entering'
   const exiting = item.phase === 'exiting'
-  const draggable =
-    kind === 'issue' &&
-    !exiting &&
-    !filtering &&
-    value !== undefined &&
-    value !== LOADING &&
-    !value.deferred
+  const draggable = kind === 'issue' && !exiting && !filtering && fresh !== undefined &&
+    fresh !== LOADING && !fresh.issue.deferred
   const select = useCallback(() => actions.selectIssue(id), [actions, id])
   const tuck = useCallback(() => {
     void actions.setIssueTucked(id, true)
@@ -776,65 +716,33 @@ const PoolMotionRow = observer(function PoolMotionRow({
     [onGrip],
   )
   const contextMenu = useCallback((event: MouseEvent) => openMenu(id, event), [openMenu, id])
-  const row = value !== undefined && value !== LOADING ? poolIssueRow(value) : undefined
-  const display = value !== undefined && value !== LOADING ? poolIssueDisplay(value) : undefined
-  if (kind === 'issue' && value === undefined) return null
-  const inner =
-    kind === 'worktree' ? (
-      <PoolWorktreeRow pool={pool} path={id} actions={actions} />
-    ) : value === LOADING ? (
-      <div data-testid="pool-row-loading" aria-busy="true" className="min-h-12" />
-    ) : value === undefined ? null : folded && companion && fresh !== undefined ? (
-      <WorklistFoldedRow
-        model={companion}
-        lane={lane as 'closed' | 'snoozed'}
-        now={now}
-        active={active}
-        onSelect={select}
-        onContextMenu={lane === 'closed' ? contextMenu : undefined}
-      />
-    ) : folded ? (
-      <MemoFoldedWorkRow
-        issue={navigationIssue(value.issue)}
-        lane={lane as 'closed' | 'snoozed'}
-        now={now}
-        active={active}
-        onSelect={select}
-        onContextMenu={lane === 'closed' ? contextMenu : undefined}
-      />
-    ) : companion && fresh !== undefined ? (
-      <WorklistIssueRow
-        model={companion}
-        now={now}
-        active={active && (!value.draftAgentOnly || draftPane)}
-        shortcutDigit={digit}
-        resolveMenuData={menuData}
-        onSelectIssue={selectIssue}
-        onSelectPanelForIssue={selectPanel}
-        onOpenIssue={actions.openIssuePage}
-        onRenameIssue={actions.renameIssue}
-        onGripDown={draggable ? grip : undefined}
-        onTuck={value.awaitsTuck ? tuck : undefined}
-      />
-    ) : (
-      <UnifiedIssueRow
-        row={row!}
-        display={display}
-        now={now}
-        displayTitle={value.title}
-        progress={value.progress}
-        origin={value.originTick as Parameters<typeof UnifiedIssueRow>[0]['origin']}
-        active={active && (!value.draftAgentOnly || draftPane)}
-        shortcutDigit={digit}
-        resolveMenuData={menuData}
-        onSelectIssue={selectIssue}
-        onSelectPanelForIssue={selectPanel}
-        onOpenIssue={actions.openIssuePage}
-        onRenameIssue={actions.renameIssue}
-        onGripDown={draggable ? grip : undefined}
-        onTuck={value.awaitsTuck ? tuck : undefined}
-      />
-    )
+  const row = snapshot ? poolIssueRow(snapshot) : undefined
+  const display = snapshot ? poolIssueDisplay(snapshot) : undefined
+  if (kind === 'issue' && fresh === undefined && snapshot === undefined) return null
+  const inner = kind === 'worktree' ? (
+    <PoolWorktreeRow pool={pool} path={id} actions={actions} />
+  ) : fresh === LOADING ? (
+    <div data-testid="pool-row-loading" aria-busy="true" className="min-h-12" />
+  ) : folded && fresh ? (
+    <WorklistFoldedRow model={fresh} lane={lane as 'closed' | 'snoozed'} now={now}
+      active={active} onSelect={select} onContextMenu={lane === 'closed' ? contextMenu : undefined} />
+  ) : folded && snapshot ? (
+    <MemoFoldedWorkRow issue={navigationIssue(snapshot.issue)} lane={lane as 'closed' | 'snoozed'}
+      now={now} active={active} onSelect={select} onContextMenu={lane === 'closed' ? contextMenu : undefined} />
+  ) : fresh ? (
+    <WorklistIssueRow model={fresh} now={now} active={active && (!fresh.sessionOnlyDraft || draftPane)}
+      shortcutDigit={digit} resolveMenuData={menuData} onSelectIssue={selectIssue}
+      onSelectPanelForIssue={selectPanel} onOpenIssue={actions.openIssuePage}
+      onRenameIssue={actions.renameIssue} onGripDown={draggable ? grip : undefined}
+      onTuck={fresh.canTuck ? tuck : undefined} />
+  ) : snapshot ? (
+    <UnifiedIssueRow row={row!} display={display} now={now} displayTitle={snapshot.title}
+      progress={snapshot.progress} origin={snapshot.originTick as Parameters<typeof UnifiedIssueRow>[0]['origin']}
+      active={active && (!snapshot.draftAgentOnly || draftPane)} shortcutDigit={digit}
+      resolveMenuData={menuData} onSelectIssue={selectIssue} onSelectPanelForIssue={selectPanel}
+      onOpenIssue={actions.openIssuePage} onRenameIssue={actions.renameIssue}
+      onTuck={snapshot.awaitsTuck ? tuck : undefined} />
+  ) : null
   return (
     <m.div
       layout="position"
@@ -849,10 +757,10 @@ const PoolMotionRow = observer(function PoolMotionRow({
           'opacity-50 transition-opacity duration-150 hover:opacity-80 focus-within:opacity-80',
       )}
       style={
-        arriving && value !== undefined && value !== LOADING
+        arriving && fresh !== undefined && fresh !== LOADING
           ? ({
               '--arrive-tint': issueColorHex(
-                value.issue.color as Parameters<typeof issueColorHex>[0],
+                fresh.issue.color as Parameters<typeof issueColorHex>[0],
               ),
             } as CSSProperties)
           : undefined

@@ -236,7 +236,7 @@ const PoolRailTile = observer(function PoolRailTile({
   )
     return null
   let phase: MotionPhase, count: number, title: string, status: string
-  const selected = kind === 'issue' ? pool.selection.has(id) : local.selected
+  const selected = kind === 'issue' ? worklistView(pool).row(pool.issueObject(id)).selected : local.selected
   let mark: JSX.Element
   if (value !== undefined && value !== LOADING) {
     const issue = navigationIssue(value.issue)

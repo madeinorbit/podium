@@ -3,7 +3,7 @@ import type { IssueProjection } from '@podium/model'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
-import { asSessionId, isFinished } from '@podium/model/browser'
+import { asSessionId, isFinished, isExcluded } from '@podium/model/browser'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, type TaskProgress } from '@podium/client-core/values'
 import type { ReaderQueries } from './reader-queries'
 import { motionPhase as sessionMotion } from '@podium/client-core/values'
@@ -23,6 +23,7 @@ import { computingDeadlineOf } from './shared/session-facts'
 import type { SliceIssue, SliceSession, SliceWorktree } from './shared/slice-types'
 import { type EditableStage, type EditPatch, EDITABLE_FIELDS, type TxId, type WritableKind } from './write/commands'
 import type { StoredRow } from './tables'
+import { DEFER_NEXT_MESSAGE } from './views'
 import { activityMsOf, displayRefOf, parseMs, type RepoRow, repoTargetPartOf, prefixPartOf, originRefPartOf, type ViewInputs } from './views'
 import { LOADING, type Loaded as LoadedRow, type OwnFacts, ownFactsOf, type RollupInputs, isSessionWorking } from './worklist/rollup'
 import type { VisibleInputs } from './worklist/visible'
@@ -339,7 +340,9 @@ export class IssueModel extends EntityModel {
 
   // Readiness: only the defer deadline depends on the pool clock.
   @lazy get deferred(): boolean {
-    const deadline = Date.parse(String(this.storedField('deferUntil') ?? ''))
+    const until = this.storedField('deferUntil')
+    if (until === DEFER_NEXT_MESSAGE) return true
+    const deadline = Date.parse(String(until ?? ''))
     return Number.isFinite(deadline) && !this.host.inputs.reached(deadline)
   }
   @lazy get ready(): boolean {
@@ -394,6 +397,8 @@ export class IssueModel extends EntityModel {
     const summary = this.host.row('issue', this.id, 'summary-fields')
     return summary === LOADING ? undefined : summary as SliceIssue | undefined
   }
+
+  @lazy get excluded(): boolean { return this.factRow !== undefined && isExcluded(this.factRow) }
 
   @lazy get inMemory(): boolean { return this.host.resident('issue', this.id) === 'resident' }
   @lazy get finished(): boolean | undefined {

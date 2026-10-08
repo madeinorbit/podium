@@ -16,15 +16,6 @@ export class Worklist {
   readonly row: (issue: IssueModel) => WorklistIssue = companion(issue => new WorklistIssue(issue, this))
   readonly session: (session: SessionModel) => WorklistSession = companion(session => new WorklistSession(session))
   readonly tree: (tree: ModelOf['worktree']) => WorklistWorktree = companion(tree => new WorklistWorktree(tree, this))
-  // Native list keys are identity-only UI targets, shared across layout
-  // projections. They have no reactive inputs and hold no record facts.
-  private readonly references = companion((record: IssueModel | ModelOf['worktree']) => {
-    const kind = record.entity as MobileWorkRef['kind']
-    return {
-      normal: { id: record.id, kind, listKey: record.id },
-      attention: { id: record.id, kind, listKey: `needs-you:${record.id}` },
-    }
-  })
   @observable accessor selectedId: string | null = null
   @observable accessor selectedWasFolded = false
 
@@ -36,22 +27,18 @@ export class Worklist {
   @observableRef accessor layout: SidebarState = {}
   readonly host: ModelHost
   readonly desktop: SidebarIndex
-  readonly phone = {
-    row: (ref: Pick<MobileWorkRef, 'id' | 'kind'>) => this.mobileRow(ref),
-    sections: (state?: MobileWorkState) => this.mobileSections(state),
-  }
   readonly rowInputs: RollupInputs = {
     reached: at => this.pool.rollupInputs.reached!(at),
     loadedIssue: id => this.pool.rollupInputs.loadedIssue(id),
     spinOffCount: id => this.pool.rollupInputs.spinOffCount(id),
-    nested: id => this.row(this.pool.issueObject(id)).rowNested,
+    nested: id => this.row(this.pool.issueObject(id)).visibleDescendantIds,
     formalChildren: id => this.pool.rollupInputs.formalChildren(id),
-    rollupNode: (id): RollupParts | undefined => this.knownRow(id)?.rowParts,
+    rollupNode: (id): RollupParts | undefined => this.knownRow(id)?.visibleParts,
     seat: id => this.pool.rollupInputs.seat(id),
     seatActivity: id => this.pool.rollupInputs.seatActivity(id),
     spinOffIds: id => this.pool.rollupInputs.spinOffIds(id),
   }
-  private readonly mobileLayout = companion((state: MobileWorkState) => new MobileSectionsView(this.pool, state))
+  @lazy get mobileSectionsView() { return new MobileSectionsView(this.pool) }
 
   constructor(readonly pool: MobxPool) {
     this.host = pool
@@ -75,22 +62,17 @@ export class Worklist {
     if (changed.has('selectedIssueWasFolded')) this.setFolded(locals.selectedIssueWasFolded === true)
   }
   sections(state: SidebarState = this.layout) { return this.desktop.sections(state) }
-  mobileSections(state: MobileWorkState = this.layout) { return this.mobileLayout(state).value.get() }
+  mobileSections() { return this.mobileSectionsView.value }
   desktopRow(id: string) { return this.desktop.row(id) }
-  reference(id: string, kind: MobileWorkRef['kind'] = 'issue', attention = false): MobileWorkRef {
-    const record = kind === 'issue' ? this.pool.issueObject(id) : this.pool.model('worktree', id)
-    return record ? this.references(record)[attention ? 'attention' : 'normal']
-      : { id, kind, listKey: attention ? `needs-you:${id}` : id }
-  }
   mobileRow(ref: Pick<MobileWorkRef, 'id' | 'kind'>) {
     if (ref.kind === 'issue') {
       const issue = this.pool.issue(ref.id)
       return issue === undefined ? this.pool.row('issue', ref.id) === LOADING ? LOADING : undefined
-        : this.row(issue).mobile
+        : this.row(issue).ready === 'ready' ? this.row(issue) : this.row(issue).ready
     }
     if (this.pool.row('worktree', ref.id) === LOADING) return LOADING
     const tree = this.pool.model('worktree', ref.id)
-    return tree === undefined ? undefined : this.tree(tree).mobile
+    return tree === undefined ? undefined : this.tree(tree).ready === 'ready' ? this.tree(tree) : this.tree(tree).ready
   }
 
   knownRow(id: string): WorklistIssue | undefined {

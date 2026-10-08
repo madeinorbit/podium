@@ -405,6 +405,7 @@ export interface QueryResultSpec<T> {
   has(id: string): boolean
   read(id: string): Loaded<T>
   order?(id: string): string
+  compareOrder?(a: string, b: string): number
   /** Parked duplicates publish one winner at their first member's position.
    * An active member keeps its entire group visible. Only the changed group
    * is reconsidered, using the demanded row summaries. */
@@ -424,6 +425,9 @@ export interface QueryResultSpec<T> {
  * a changed answer updates one tree path. Nothing remains after the last
  * reader releases the question, including its cold answers. */
 export function createQueryResult<T>(spec: QueryResultSpec<T>) {
+  const compareItems = spec.compareOrder
+    ? (a: Item<T>, b: Item<T>) => spec.compareOrder!(a.order, b.order) || a.id.localeCompare(b.id)
+    : compare<T>
   const entries = new Map<string, { stop(): void; item?: Item<T>; pending: boolean }>()
   const groups = new Map<string, { members: Map<string, Item<T>>; shown: Map<string, Item<T>> }>()
   let root: Node<T> | undefined,
@@ -454,7 +458,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
   }))
   function replaceItem(before: Item<T> | undefined, after: Item<T> | undefined) {
     if (seeding) return
-    root = replace(root, before, after)
+    root = replace(root, before, after, compareItems)
     for (const match of matches) {
       const previous = at(match.root, 0)
       const beforeSize = size(match.root)
@@ -462,6 +466,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
         match.root,
         before && match.test(before.value) ? before : undefined,
         after && match.test(after.value) ? after : undefined,
+        compareItems,
       )
       if (at(match.root, 0) !== previous) match.atom.reportChanged()
       if (size(match.root) !== beforeSize) match.countAtom.reportChanged()
@@ -604,9 +609,9 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       for (const entry of entries.values())
         if (entry.item && spec.collapse?.key(entry.item.value) === undefined) items.push(entry.item)
       for (const group of groups.values()) items.push(...group.shown.values())
-      root = build(items)
+      root = build(items, compareItems)
       for (const match of matches)
-        match.root = build(items.filter((item) => match.test(item.value)))
+        match.root = build(items.filter((item) => match.test(item.value)), compareItems)
     })
     stopMembership = spec.subscribe((id) => {
       if (id !== undefined) sync(id)

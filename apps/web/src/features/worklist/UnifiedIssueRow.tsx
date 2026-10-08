@@ -1,5 +1,6 @@
 import {
   type IssueNavigationModel,
+  errorPhrase,
   isDraftAgentVessel,
   type MissionProgress,
   pendingDecisionTitle,
@@ -35,7 +36,7 @@ import { issueColorHex } from '@/lib/issueColors'
 import { PhaseTimer, WorkingMark } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
-import { poolIssueDisplay, poolIssueRow, type PoolIssueDisplay } from './pool-row-data'
+import { worklistIssueStatus, type PoolIssueDisplay } from './pool-row-data'
 import { RowProgressMeter } from './row-progress'
 import { inlineRenameEditor, useInlineRename } from './use-inline-rename'
 import { WorkRowShell } from './WorkRowShell'
@@ -157,15 +158,14 @@ function UnifiedIssueRowInner({
   /** Pool facts: presentation stays here, with no legacy row derivation. */
   display?: PoolIssueDisplay
 }): JSX.Element {
-  const values = model?.sidebar
-  const live = values && values !== LOADING ? values : undefined
-  const row = live ? poolIssueRow(live) : suppliedRow!
-  const display = live ? poolIssueDisplay(live) : suppliedDisplay
-  const displayTitleProp = live?.title ?? suppliedTitle
-  const progressProp = live?.progress ?? suppliedProgress
-  const origin = (live?.originTick ?? suppliedOrigin) as UnifiedIssueRowOrigin | null
-  const { issue, sessions: mine } = row
-  const unread = display?.unread ?? rowUnreadEmphasized(row)
+  const row = suppliedRow!
+  const display = suppliedDisplay
+  const displayTitleProp = model?.title ?? suppliedTitle
+  const progressProp = model?.progress ?? suppliedProgress
+  const origin = (model?.origin ?? suppliedOrigin) as UnifiedIssueRowOrigin | null
+  const issue = model ? model.issue as unknown as IssueNavigationModel : row.issue
+  const mine = model ? model.sessions : row.sessions
+  const unread = model?.visibleUnread ?? display?.unread ?? rowUnreadEmphasized(row)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
   // WHAT THE ROW CALLS THIS TASK — never the raw title, which on a draft is the
   // composer's placeholder. The parent computes the display title once.
@@ -182,20 +182,20 @@ function UnifiedIssueRowInner({
   ))
   // The row speaks for its whole branch: descendants have no row of their own
   // here, so the fleet stack reads the bubbled aggregate.
-  const fleetSessions = row.aggregateSessions ?? mine
-  const phase = display?.timing.phase ?? rowMotionPhase(row)
+  const fleetSessions = model ? model.sessions : row.aggregateSessions ?? mine
+  const phase = model?.timing.phase ?? display?.timing.phase ?? rowMotionPhase(row)
   // Is an agent on this mission computing right now? NOT the same question as
   // the phase, which an ask outranks — and the row is the mission's only line
   // here, so the phase alone left a running fleet reading as stillness
   // (POD-703). This is the predicate every working texture below gates on.
-  const working = display?.working ?? rowHasWorkingSession(row)
+  const working = model?.visibleWorking ?? display?.working ?? rowHasWorkingSession(row)
   // What this row is asking of the human, if anything (POD-279).
-  const decision = display ? display.decision : rowPendingDecision(row)
-  const errorLine = display ? display.errorLine : rowErrorLine(row)
-  const timing = display?.timing ?? rowMotionTiming(row)
+  const decision = model ? model.decision : display ? display.decision : rowPendingDecision(row)
+  const errorLine = model ? model.errorClass === null ? null : errorPhrase(model.errorClass, 'lower') : display ? display.errorLine : rowErrorLine(row)
+  const timing = model?.timing ?? display?.timing ?? rowMotionTiming(row)
   // The published row carries the Flight Deck's child-task rollup. Direct
   // component fixtures can supply the same rollup on their addressed row.
-  const progress = progressProp ?? row.missionRollup?.progress ?? fallbackEmptyProgress()
+  const progress = progressProp && progressProp !== LOADING ? progressProp : row?.missionRollup?.progress ?? fallbackEmptyProgress()
   const hex = issueColorHex(issue.color)
   // THE ROW'S IDENTITY IS ITS NUMBER (POD-1057). The 30px square carried the
   // ref, the phase, a corner badge and the colour picker — four jobs on the
@@ -215,10 +215,10 @@ function UnifiedIssueRowInner({
   // withdraws the row's amber in `rowPendingDecision`, and a list that decides
   // its attention from one derivation and its words from another can disagree
   // with itself. It is also a graph walk per row per render, gone.
-  const continuationStatus = row.continuation ?? null
+  const continuationStatus = model ? model.continuation ? `${model.continuation.kind} · ${model.continuation.ref}` : null : row.continuation ?? null
   // Draft vessel whose only content is agents → clicking opens the session.
   // Shared with the nesting rule so structure and rendering agree (POD-282).
-  const draftAgentOnly = display?.draftAgentOnly ?? isDraftAgentVessel(issue, mine)
+  const draftAgentOnly = model?.sessionOnlyDraft ?? display?.draftAgentOnly ?? isDraftAgentVessel(issue, mine)
   const first = mine[0]
   const onContextMenu = (e: ReactMouseEvent) => {
     e.preventDefault()
@@ -302,10 +302,10 @@ function UnifiedIssueRowInner({
                 title={pendingDecisionTitle(issue, decision)}
                 className="flex-none font-semibold text-attention"
               >
-                {display?.statusLine ?? continuationStatus ?? rowStatusLine(row, now, 0)}
+                {model ? worklistIssueStatus(model) : display?.statusLine ?? continuationStatus ?? rowStatusLine(row, now, 0)}
               </span>
             ) : (
-              (display?.statusLine ?? continuationStatus ?? rowStatusLine(row, now, 0))
+              (model ? worklistIssueStatus(model) : display?.statusLine ?? continuationStatus ?? rowStatusLine(row, now, 0))
             )}
           </>
         }
@@ -345,7 +345,7 @@ function UnifiedIssueRowInner({
         }
         domMark={issue.id}
         onGripDown={
-          onGripDown && !(display?.deferred ?? isIssueDeferred(issue, now))
+          onGripDown && !(model?.issue.deferred ?? display?.deferred ?? isIssueDeferred(issue, now))
             ? (e) => onGripDown(e, issue.id)
             : undefined
         }
@@ -392,7 +392,7 @@ function UnifiedIssueRowInner({
                 one. */}
             <IssueFleetSummary
               sessions={fleetSessions}
-              summary={display?.fleet}
+              summary={model?.visibleFleet ?? display?.fleet}
               size={11}
               variant="glyphs"
             />
@@ -401,7 +401,7 @@ function UnifiedIssueRowInner({
                 internal
               </span>
             )}
-            {(display?.unsnoozed ?? issueReturnedFromDefer(issue, now)) && (
+            {(model?.returnedFromDefer ?? display?.unsnoozed ?? issueReturnedFromDefer(issue, now)) && (
               <span
                 className="flex-none font-semibold text-attention"
                 title="Snooze ended — back in your queue"

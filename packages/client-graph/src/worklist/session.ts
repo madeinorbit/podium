@@ -1,6 +1,5 @@
 import { compareStructural } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
-import { descending } from './worktree'
 import { hostOf, type SessionModel } from '../models'
 import type { SliceSession } from '../shared/slice-types'
 import { attentionGroup, isOfferOnlyAttention, LOADING, type Loaded as LoadedRow, motionPhase, type SeatVerdict } from './rollup'
@@ -37,7 +36,7 @@ export class WorklistSession implements SessionVisibility {
     const draft = this.session.draftUpdatedAt
     const latest = draft && draft > active ? draft : active
     const recency = timed && until > latest ? until : latest
-    return `${rank}\0${descending(recency)}\0${descending(this.session.createdAt ?? '')}`
+    return JSON.stringify([rank, recency, this.session.createdAt ?? ''])
   }
   @lazy get stale(): boolean {
     return !this.sortWorking && this.host.inputs.passed((Date.parse(this.session.lastActivity) || 0) + 16 * 60 * 60 * 1000)

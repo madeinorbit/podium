@@ -389,7 +389,7 @@ function FoldedWorkRowInner({
   onSelect: () => void
   onContextMenu?: (e: ReactMouseEvent) => void
 }): JSX.Element {
-  const issue = model ? model.rowIssue as unknown as IssueNavigationModel : suppliedIssue!
+  const issue = model ? model.issue as unknown as IssueNavigationModel : suppliedIssue!
   const marker = foldedMarker(issue, lane, now)
   // How long ago the work entered this fold — manually tucked rows date from
   // the tuck, while never-tucked closures fall back to their finish time.
