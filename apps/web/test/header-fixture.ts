@@ -66,6 +66,24 @@ export function createHeaderFixture(count: number, sessionCount = count) {
       deliver = (real as unknown as { emit: typeof hub.emit }).emit.bind(real)
       Object.assign(real, { connectionHealth: hub.connectionHealth, onConnectionHealth: hub.onConnectionHealth })
     },
+    // POD-5873: header polling only runs when networkEnabled (e0cff3be47), so
+    // an offline fixture never publishes quota/history/lifecycle through the
+    // runtime polling service. Provide the fixture rows directly so the pool's
+    // header source can sample them without network.
+    bindHeaderInputs(owner: { headerInputs?: unknown }) {
+      const inputs = {
+        read: (key: string) =>
+          key === 'quota'
+            ? quota
+            : key === 'history'
+              ? history
+              : key === 'lifecycle'
+                ? lifecycle
+                : undefined,
+        onInput: () => () => {},
+      }
+      Object.assign(owner, { headerInputs: inputs })
+    },
     publishMetrics, publishHostMetrics, publishMachines: () => deliver('machines', machines),
     inputs: () => ({ metrics, quotas: quota, connection: health, afterDays: 14, history, lifecycle }),
     activity(step: number) {

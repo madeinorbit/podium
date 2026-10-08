@@ -74,6 +74,7 @@ async function mount(roster = false) {
       onFatalError={(error) => failures.push(error)}
       attachRuntime={(owner) => {
         fixture.bindHub(owner.hub)
+        fixture.bindHeaderInputs(owner)
         fixture.publishMachines()
         fixture.publishMetrics(0)
         return attachWorklistPool(owner, (error) => failures.push(error.message))
