@@ -85,7 +85,7 @@ it('reports detail watched fields and retained heap at 4x and after release', as
         issue: { description: string; parentId?: string }
         issues: { id: string; title: string }[]
         children: { id: string }[]
-        members: { title?: string; archived?: boolean; status?: string }[]
+        memberSessions: { title?: string; archived?: boolean; status?: string }[]
       })
   const { heapStats } = createRequire(import.meta.url)('bun:jsc') as {
     heapStats(): { heapSize: number }
@@ -107,7 +107,7 @@ it('reports detail watched fields and retained heap at 4x and after release', as
         description: data.issue.description,
         parent: data.issues.find((issue) => issue.id === data.issue.parentId)?.title,
         children: data.children.map((child) => child.id),
-        crew: data.members.filter((session) => !session.archived && session.status !== 'exited')
+        crew: data.memberSessions.filter((session) => !session.archived && session.status !== 'exited')
           .map((session) => session.title),
       }
     } else {
