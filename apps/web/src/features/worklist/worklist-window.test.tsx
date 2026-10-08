@@ -142,4 +142,26 @@ describe('worklist viewport', () => {
     flush()
     expect(scroll.scrollTop).toBe(800)
   })
+
+  it('shows filtered row content while the expanded section still has a layout transform', () => {
+    const view = render(<Harness />)
+    flush()
+    const scroll = view.getByTestId('window-scroll')
+    scroll.scrollTop = 800
+    fireEvent.scroll(scroll)
+    flush()
+    // Search shrinks the scroll surface. The browser clamps scrollTop before
+    // Motion has finished translating the open section from its old position.
+    scroll.scrollTop = 0
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      return { top: this.dataset.testid === 'window-scroll' ? 0 : 1200,
+        height: this.dataset.windowRow ? 40 : 320 } as DOMRect
+    })
+    view.rerender(<Harness rows={keys.slice(0, 8)} />)
+    flush()
+    expect(mounted(view.container)).toEqual(keys.slice(0, 8))
+    for (const key of keys.slice(0, 8)) expect(view.getByText(key)).toBeTruthy()
+  })
 })
