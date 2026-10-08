@@ -66,7 +66,7 @@ function DemoProbe() {
 
 function readRowCount(pool: MobxPool) {
   return mobileWorkView(pool)
-    .sections()
+    .mobileSections()
     .sections.reduce((count, section) => count + section.data.length, 0)
 }
 

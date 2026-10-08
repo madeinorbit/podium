@@ -42,7 +42,7 @@ vi.mock('./UnifiedWorktreeRow', async (importOriginal) => {
     ...original,
     UnifiedWorktreeRow: (props: Parameters<typeof original.UnifiedWorktreeRow>[0]) => {
       useLayoutEffect(() => {
-        const path = props.row.worktree.path
+        const path = (props.model?.worktree ?? props.row!.worktree).path
         mode.worktrees.set(path, {
           onSelect: props.onSelect,
           onSelectPanel: props.onSelectPanel,

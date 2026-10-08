@@ -183,7 +183,7 @@ function UnifiedIssueRowInner({
   ))
   // The row speaks for its whole branch: descendants have no row of their own
   // here, so the fleet stack reads the bubbled aggregate.
-  const fleetSessions = model ? model.sessions : row.aggregateSessions ?? mine
+  const fleetSessions = model ? model.sessions as unknown as SessionView[] : row.aggregateSessions ?? mine
   const phase = model?.timing.phase ?? display?.timing.phase ?? rowMotionPhase(row)
   // Is an agent on this mission computing right now? NOT the same question as
   // the phase, which an ask outranks — and the row is the mission's only line

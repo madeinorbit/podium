@@ -191,8 +191,8 @@ export interface GroupsHost {
     | undefined
   /** TRACKED: the selected issue id, or null. */
   selectedId(): string | null
-  /** TRACKED: `SliceLocals.selectedIssueWasFolded`. */
-  foldLatch(): boolean
+  /** TRACKED: whether the worklist selection came from the closed fold. */
+  selectedWasFolded(): boolean
   /** Every lane read: the lanes are filed only while read or held (POD-5423). */
   demand?(): void
 }
@@ -429,7 +429,7 @@ export class WorklistGroups {
    */
   @lazy get latchedOpenId(): string | null {
     const id = this.host.selectedId()
-    if (id === null || this.host.foldLatch()) return null
+    if (id === null || this.host.selectedWasFolded()) return null
     const node = this.host.node(id)
     const placement = node?.placement
     if (
@@ -512,7 +512,7 @@ export function worklistGroups(pool: MobxPool, initiallyFolded = false): Worklis
         }
       },
       selectedId: () => view.selectedId,
-      foldLatch: () => view.selectedWasFolded,
+      selectedWasFolded: () => view.selectedWasFolded,
       demand: () => pool.worklist.need(),
     })
     return Object.assign(groups, { dispose: () => groups.clear() })
