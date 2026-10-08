@@ -1,5 +1,5 @@
-import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
+import '@/test-support/mock-pool-fixture'
 import '@/test-support/model-catalog-mock'
 import type { SessionView } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
