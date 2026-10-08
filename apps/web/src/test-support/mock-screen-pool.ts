@@ -652,8 +652,10 @@ function useFixturePool(): MobxPool {
       sources: {
         // Fixture preferences read the synchronous UI owner directly; there is
         // no separately attached PreferenceSource cache to refresh.
-        peekView: (name: string): undefined => {
+        peekView: (name: string): unknown => {
           if (name === 'preferences') return undefined
+          if (name === 'worklist.view')
+            return (pool as unknown as Record<string, unknown>)['worklistView'] ?? undefined
           throw new Error(`Undeclared component fixture source: ${name}`)
         },
         view: (name: string, _factory: unknown): unknown => {
@@ -664,6 +666,49 @@ function useFixturePool(): MobxPool {
           if (name === 'sessionPanes') return fixture.sessionPanes
           if (name === 'settings.views') return fixture.settingsViews ?? (_factory as () => unknown)()
           if (name === 'web.settings.machines') return (_factory as () => unknown)()
+          if (name === 'worklist.view') {
+            const cached = fixture['worklistView']
+            if (cached) return cached
+            const sidebar = () =>
+              fixture.sidebar as {
+                sections: () => SidebarSections
+                row: (id: string) => SidebarRowValues | undefined
+                selectionEvicted: () => boolean
+              }
+            const worklist = {
+              setLayout: (_state: unknown): void => {},
+              sections: (_state?: unknown): SidebarSections => sidebar().sections(),
+              knownRow: (id: string): unknown => {
+                const value = sidebar().row(id)
+                if (value === undefined) return undefined
+                const model = live.current.issues.find((row) => row.id === id)
+                const fields = (model ?? {}) as unknown as Record<string, unknown>
+                const finished =
+                  fields['stage'] === 'done' || fields['closedReason'] != null
+                return {
+                  id,
+                  get selected(): boolean {
+                    return live.current.state.selectedIssueId === id
+                  },
+                  sidebar: value,
+                  rowIssue: model,
+                  foldAt: model
+                    ? foldAtOf(model as unknown as SliceIssue)
+                    : '',
+                  aggregate: {},
+                  ownFacts: { state: 'ready', finished },
+                }
+              },
+              desktop: fixture.sidebar,
+              selection: (pool as unknown as { selection: unknown }).selection,
+              get selectionEvicted(): boolean {
+                return sidebar().selectionEvicted()
+              },
+              dispose: (): void => {},
+            }
+            fixture['worklistView'] = worklist
+            return worklist
+          }
           if (name !== 'missions') throw new Error(`Undeclared component fixture source: ${name}`)
           const byId = new Map<string, IssueViewModel>(
             live.current.issues.map((row) => [row.id as string, row]),
