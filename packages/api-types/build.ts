@@ -10,11 +10,11 @@ const repositoryRoot = resolve(packageRoot, '../..')
 // Global-store payloads are shared across checkouts. Resolve workspace source
 // in this checkout before following realpaths into a dependency's payload.
 const paths: Record<string, string[]> = {}
-for (const directory of readdirSync(resolve(packageRoot, '..'))) {
+for (const directory of readdirSync(resolve(packageRoot, '..')).sort()) {
   const manifestPath = resolve(packageRoot, '..', directory, 'package.json')
   if (!ts.sys.fileExists(manifestPath)) continue
   const manifest = JSON.parse(readFileSync(manifestPath, 'utf8'))
-  for (const [subpath, entry] of Object.entries(manifest.exports ?? {})) {
+  for (const [subpath, entry] of Object.entries(manifest.exports ?? {}).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) {
     const target = typeof entry === 'string' ? entry
       : (entry as Record<string, string>)['@podium/source'] ?? (entry as Record<string, string>).types
     if (target) paths[manifest.name + (subpath === '.' ? '' : subpath.slice(1))] = [resolve(packageRoot, '..', directory, target)]
@@ -49,13 +49,60 @@ try {
   if (!routerSymbol) throw new Error('Server appRouter export not found')
   const router = checker.getTypeOfSymbolAtLocation(routerSymbol, routerSource)
   const printer = ts.createPrinter()
+  // Deterministic emission: the checker reports object properties and union
+  // members in an order that varies between runs, so every ordering below is
+  // canonicalized (alphabetical) rather than trusted. Without this each
+  // typecheck dirties src/index.d.ts with unrelated reordering diffs.
+  function memberSortKey(member: ts.TypeElement): string {
+    const name = (member as ts.PropertySignature).name
+    if (name && (ts.isIdentifier(name) || ts.isStringLiteral(name) || ts.isNumericLiteral(name))) {
+      return `0:${name.text}`
+    }
+    // Index/call/construct signatures sort after named members, by their text.
+    return `1:${printer.printNode(ts.EmitHint.Unspecified, member, scope)}`
+  }
+  function normalizeTypeNode(node: ts.TypeNode): ts.TypeNode {
+    const result = ts.transform(node, [
+      (context) => (root) => {
+        const visit = (visited: ts.Node): ts.Node => {
+          visited = ts.visitEachChild(visited, visit, context)
+          if (ts.isTypeLiteralNode(visited)) {
+            const members = [...visited.members].sort((a, b) => {
+              const ka = memberSortKey(a)
+              const kb = memberSortKey(b)
+              return ka < kb ? -1 : ka > kb ? 1 : 0
+            })
+            return ts.factory.updateTypeLiteralNode(visited, ts.factory.createNodeArray(members))
+          }
+          if (ts.isUnionTypeNode(visited) || ts.isIntersectionTypeNode(visited)) {
+            const keyed = [...visited.types].map(member => ({
+              member,
+              key: printer.printNode(ts.EmitHint.Unspecified, member, scope),
+            }))
+            keyed.sort((a, b) => a.key < b.key ? -1 : a.key > b.key ? 1 : 0)
+            const members = keyed.map(entry => entry.member)
+            return ts.isUnionTypeNode(visited)
+              ? ts.factory.updateUnionTypeNode(visited, ts.factory.createNodeArray(members))
+              : ts.factory.updateIntersectionTypeNode(visited, ts.factory.createNodeArray(members))
+          }
+          return visited
+        }
+        return ts.visitNode(root, visit) as ts.TypeNode
+      },
+    ])
+    const normalized = result.transformed[0] as ts.TypeNode
+    result.dispose()
+    return normalized
+  }
   const publicTypes = new Map<ts.Type, string>()
   for (const statement of scope.statements) {
     if (!ts.isImportDeclaration(statement)) continue
     const binding = statement.importClause?.namedBindings
     if (!binding || !ts.isNamespaceImport(binding)) continue
     const module = checker.getSymbolAtLocation(statement.moduleSpecifier)!
-    for (const exported of checker.getExportsOfModule(module)) {
+    const exportedSymbols = checker.getExportsOfModule(module).slice()
+      .sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+    for (const exported of exportedSymbols) {
       const symbol = exported.flags & ts.SymbolFlags.Alias ? checker.getAliasedSymbol(exported) : exported
       if (!(symbol.flags & ts.SymbolFlags.Type)) continue
       if (symbol.declarations?.some(node =>
@@ -74,18 +121,28 @@ try {
     return checker.getTypeOfSymbolAtLocation(symbol, routerSource)
   }
 
+  const printCache = new Map<ts.Type, string>()
   function print(type: ts.Type): string {
     const named = publicTypes.get(type)
     if (named) return named
-    if (type.isUnion()) return type.types.map(member => `(${print(member)})`).join(' | ')
-    if (checker.isArrayType(type)) {
-      return `Array<${print(checker.getTypeArguments(type as ts.TypeReference)[0]!)}>`
+    const cached = printCache.get(type)
+    if (cached !== undefined) return cached
+    let result: string
+    if (type.isUnion()) {
+      const members = type.types.map(member => print(member))
+      members.sort()
+      result = members.map(member => `(${member})`).join(' | ')
+    } else if (checker.isArrayType(type)) {
+      result = `Array<${print(checker.getTypeArguments(type as ts.TypeReference)[0]!)}>`
+    } else {
+      const node = checker.typeToTypeNode(type, scope,
+        ts.NodeBuilderFlags.NoTruncation | ts.NodeBuilderFlags.UseFullyQualifiedType |
+        ts.NodeBuilderFlags.UseStructuralFallback | ts.NodeBuilderFlags.InTypeAlias)
+      if (!node) throw new Error('Could not emit tRPC type')
+      result = printer.printNode(ts.EmitHint.Unspecified, normalizeTypeNode(node), scope)
     }
-    const node = checker.typeToTypeNode(type, scope,
-      ts.NodeBuilderFlags.NoTruncation | ts.NodeBuilderFlags.UseFullyQualifiedType |
-      ts.NodeBuilderFlags.UseStructuralFallback | ts.NodeBuilderFlags.InTypeAlias)
-    if (!node) throw new Error('Could not emit tRPC type')
-    return printer.printNode(ts.EmitHint.Unspecified, node, scope)
+    printCache.set(type, result)
+    return result
   }
 
   const sharedTypes = new Map<string, string>()
@@ -100,7 +157,9 @@ try {
 
   let procedureCount = 0
   function record(type: ts.Type, path: string[] = []): string {
-    const fields = type.getProperties().map(symbol => {
+    const properties = type.getProperties().slice()
+      .sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0)
+    const fields = properties.map(symbol => {
       const value = checker.getTypeOfSymbolAtLocation(symbol, routerSource)
       let result: string
       if (value.getProperty('_def')) {
@@ -135,7 +194,7 @@ try {
   // helper generics used to infer them. ID brands remain the canonical zod
   // brands. Native TypeScript 7 checks parity against the live server router.
   const output = `${imports}
-${[...sharedTypes].map(([value, name]) => `type ${name} = ${value}`).join('\n')}
+${[...sharedTypes].map(([value, name]) => `type ${name} = ${value}`).sort((a, b) => a < b ? -1 : a > b ? 1 : 0).join('\n')}
 export type AppRouter = TRPC.TRPCBuiltRouter<{
   ctx: object
   meta: object
