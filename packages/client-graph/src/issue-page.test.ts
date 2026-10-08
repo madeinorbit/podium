@@ -243,6 +243,9 @@ it('isolates scalar, body, child and roster observers and releases watched field
     body = vi.fn(),
     children = vi.fn(),
     roster = vi.fn()
+  // Pool input/index observers predate detail and stay alive until pool disposal.
+  for (let turn = 0; turn < 20; turn++) await Promise.resolve()
+  const backgroundFields = lazyKeptCount(model)
   const stops = [
     autorun(() => scalar(model.authoredTitle)),
     autorun(() => body(model.description)),
@@ -267,8 +270,8 @@ it('isolates scalar, body, child and roster observers and releases watched field
     })
     expect(roster).toHaveBeenCalledTimes(1)
     for (const stop of stops) stop()
-    await Promise.resolve()
-    expect(lazyKeptCount(model)).toBe(0)
+    for (let turn = 0; turn < 20; turn++) await Promise.resolve()
+    expect(lazyKeptCount(model)).toBe(backgroundFields)
     pool.apply({
       type: 'update',
       rows: [issue('root', { ...root.value, description: 'After close' })],

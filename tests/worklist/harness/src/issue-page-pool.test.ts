@@ -25,6 +25,7 @@ import {
   checkIssuePages,
   compareIssuePageSnapshots,
   issuePageFirstDifference,
+  poolIssuePageFields,
 } from '../../diagnostics/issue-page-check'
 import { LOADING, type RowRecord } from '@podium/client-graph'
 import type { SliceIssue, SliceSession } from '@podium/client-graph/shared/slice-types'
@@ -180,7 +181,11 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
     patch,
     settle,
     load,
-    check: () => tracked(() => checkIssuePages(pool, world(), visible())),
+    check: () => tracked(() => {
+      const result = checkIssuePages(pool, world(), visible())
+      if (result.differences) console.info('issue page diagnostic mismatch', JSON.stringify(result))
+      return result
+    }),
   }
 }
 
@@ -369,11 +374,11 @@ describe('declared issue page', () => {
     const page = ctx.views.row('root')
     const world = ctx.world(),
       current = world.find((row) => row.id === 'root')!
-    expect(page.presence).toEqual(
+    expect(tracked(() => page.presence)).toEqual(
       presenceNote(current, [], new Map(world.map((row) => [row.id, row])), ctx.visible()),
     )
-    expect(page.presence).toMatchObject({ text: 'Work continued in T-3' })
-    expect(page.activeSessions).toEqual([])
+    expect(tracked(() => page.presence)).toMatchObject({ text: 'Work continued in T-3' })
+    expect(tracked(() => page.activeSessions)).toEqual([])
   })
 
   it('reacts to a cursor-only mark without replacing the issue payload', () => {
@@ -387,7 +392,7 @@ describe('declared issue page', () => {
     try {
       ctx.patch('issue', 'root', task('root', { readAt: STAMP }))
       expect(tracked(() => ctx.pool.row('issue', 'root'))).toBe(payload)
-      expect(tracked(() => ctx.views.issue('root'))).toMatchObject({ readAt: STAMP, unread: false })
+      expect(tracked(() => poolIssuePageFields(ctx.pool, 'root'))).toMatchObject({ readAt: STAMP, unread: false })
       expect(ctx.check()).toMatchObject({ differences: 0 })
     } finally {
       stop()
@@ -395,13 +400,13 @@ describe('declared issue page', () => {
   })
   it('expires a defer at the exact coarse-clock deadline', () => {
     const ctx = open([task('root', { deferUntil: new Date(NOW).toISOString() })])
-    expect(tracked(() => ctx.views.issue('root'))).toMatchObject({ ready: true, deferred: false })
+    expect(tracked(() => poolIssuePageFields(ctx.pool, 'root'))).toMatchObject({ ready: true, deferred: false })
     expect(tracked(() => ctx.views.summary('root'))).toMatchObject({ ready: true, deferred: false })
     expect(ctx.check()).toMatchObject({ differences: 0 })
   })
   it('preserves the legacy answer for non-date defers without registering an invalid deadline', () => {
     const ctx = open([task('root', { deferUntil: 'next-message' })])
-    expect(tracked(() => ctx.views.issue('root'))).toMatchObject({ ready: true, deferred: false })
+    expect(tracked(() => poolIssuePageFields(ctx.pool, 'root'))).toMatchObject({ ready: true, deferred: false })
     expect(tracked(() => ctx.views.summary('root'))).toMatchObject({ ready: true, deferred: false })
     expect(ctx.check()).toMatchObject({ differences: 0 })
   })
@@ -481,7 +486,7 @@ describe('declared issue page', () => {
     ])
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
     const page = ctx.views.row('root')
-    expect(page.issue.sessionSummary).toEqual({
+    expect(tracked(() => page.issue.sessionSummary)).toEqual({
       total: 4,
       byPhase: { waiting: 1, unknown: 2, working: 1 },
     })
@@ -500,7 +505,7 @@ describe('declared issue page', () => {
         '/synthetic',
       ]),
     )
-    expect(page.presence).toEqual(
+    expect(tracked(() => page.presence)).toEqual(
       presenceNote(
         page.issue,
         ctx.visible().filter((s) => s.issueId === 'root'),
@@ -611,7 +616,7 @@ describe('declared issue page', () => {
     expect(tracked(() => ctx.views.issue('arch'))).toMatchObject({ id: 'arch' })
     expect(tracked(() => ctx.views.row('arch').memberSessions)).toBe(LOADING)
     expect(ctx.pool.hydrate()).toBe(1)
-    expect(tracked(() => ctx.views.issue('arch'))).toMatchObject({ sessionSummary: { total: 1 } })
+    expect(tracked(() => poolIssuePageFields(ctx.pool, 'arch'))).toMatchObject({ sessionSummary: { total: 1 } })
   })
 
   it('uses cold summaries for menus and batches page payload loads without peek', () => {
@@ -685,7 +690,7 @@ describe('declared issue page', () => {
       ctx.patch('issue', 'other', task('other', { deps: [{ id: 'root', type: 'relates' }] }))
       ctx.patch('session', 'worker', seat('worker', 'other', { agentState: { phase: 'waiting' } }))
       expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
-      const value = tracked(() => ctx.views.issue('root'))
+      const value = tracked(() => poolIssuePageFields(ctx.pool, 'root'))
       expect(value).toMatchObject({
         title: 'New title',
         pinned: true,

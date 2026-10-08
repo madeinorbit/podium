@@ -328,7 +328,7 @@ export class IssueModel extends EntityModel {
   // Readiness: only the defer deadline depends on the pool clock.
   @lazy get deferred(): boolean {
     const deadline = Date.parse(String(this.storedField('deferUntil') ?? ''))
-    return Number.isFinite(deadline) && !this.host.inputs.passed(deadline)
+    return Number.isFinite(deadline) && !this.host.inputs.reached(deadline)
   }
   @lazy get ready(): boolean {
     return (
