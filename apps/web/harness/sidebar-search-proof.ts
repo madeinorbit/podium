@@ -39,6 +39,11 @@ try {
   await page.waitForTimeout(100)
   await page.getByTestId('work-search-input').fill('synthetic task 1')
   await expect(page.getByTestId('work-search-count')).toHaveText(/^11\//)
+  await expect(page.getByText('Synthetic task 10', { exact: true })).toBeVisible()
+  await expect(page.locator('[data-window-row] .shell-work-row-title')).toHaveText(
+    Array.from({ length: 11 }, () => /^Synthetic task 1/),
+  )
+  await expect(page.getByTestId('project-group-label')).toHaveAttribute('aria-expanded', 'true')
   const paint = await page.evaluate(() => ({
     groups: [...document.querySelectorAll('[data-testid="project-group"]')].map(node => ({ text: node.textContent, rect: node.getBoundingClientRect().toJSON(), style: node.getAttribute('style') })),
     windows: [...document.querySelectorAll('[data-testid="worklist-window"]')].map(node => ({ text: node.textContent, rect: node.getBoundingClientRect().toJSON(), count: node.getAttribute('data-window-count'), mounted: node.querySelectorAll('[data-window-row]').length })),
@@ -47,9 +52,6 @@ try {
   await page.screenshot({ path: resolve(out, 'search.png') })
   await writeFile(resolve(out, 'paint.json'), JSON.stringify({ paint, errors }, null, 2))
   console.log(JSON.stringify({ paint, errors }))
-  await expect(page.getByText('Synthetic task 10', { exact: true })).toBeVisible()
-  await expect(page.locator('[data-window-row] .shell-work-row-title')).toHaveCount(11)
-  await expect(page.getByTestId('project-group-label')).toHaveAttribute('aria-expanded', 'true')
   expect(errors).toEqual([])
   console.log('Production sidebar search smoke green')
 } finally {
