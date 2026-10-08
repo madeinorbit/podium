@@ -100,6 +100,15 @@ describe('IndexedDB connection lifecycle', () => {
       expect(adopted).toEqual(['first', 'second'])
       expect(view.cache.readCursor()).toEqual(CURSOR)
       expect(degradations).toEqual([])
+      if (boundary === 'teardown') {
+        for (const opened of opens.mock.results) {
+          // No recovered handle may outlive teardown; active transactions still
+          // finish normally even though their connection refuses new ones.
+          expect(() => opened.value.result.transaction([OUTBOX_STORE], 'readonly')).toThrow(
+            expect.objectContaining({ name: 'InvalidStateError' }),
+          )
+        }
+      }
       const durable = await readDurable(factory)
       expect(durable[ENTITY_STORE]).toMatchObject([
         { entityId: 'ADA-1', value: { title: 'saved' } },
@@ -168,12 +177,10 @@ describe('IndexedDB connection lifecycle', () => {
     })
     const outcome = pending.catch((error: unknown) => error)
     await staged.promise
-    await other
-      .viewFor(PRINCIPAL)
-      .outbox.apply({
-        put: [RECORD],
-        expect: [{ mutationId: RECORD.mutationId, expect: 'absent' }],
-      })
+    await other.viewFor(PRINCIPAL).outbox.apply({
+      put: [RECORD],
+      expect: [{ mutationId: RECORD.mutationId, expect: 'absent' }],
+    })
     db.close()
     resume.resolve()
     expect(await outcome).toBeInstanceOf(SyncCommitConflict)
@@ -195,12 +202,10 @@ describe('IndexedDB connection lifecycle', () => {
     const store = await IndexedDbSyncStore.open({ factory, onDegraded: vi.fn() })
     const db = opens.mock.results[0]!.value.result
     const writer = await IndexedDbSyncStore.open({ factory, onDegraded: vi.fn() })
-    await writer
-      .viewFor(PRINCIPAL)
-      .outbox.apply({
-        put: [RECORD],
-        expect: [{ mutationId: RECORD.mutationId, expect: 'absent' }],
-      })
+    await writer.viewFor(PRINCIPAL).outbox.apply({
+      put: [RECORD],
+      expect: [{ mutationId: RECORD.mutationId, expect: 'absent' }],
+    })
     db.close()
     if (region === 'all regions') await store.rehydrate()
     expect(await store.viewFor(PRINCIPAL).outbox.read()).toEqual([RECORD])
@@ -252,7 +257,17 @@ describe('IndexedDB connection lifecycle', () => {
       view.cache.applyAtomic(mutation)
       // Start fresh-truth reads while the eager commit is still pending: a
       // failed commit must not let them replace its published in-memory draft.
-      await Promise.all([store.rehydrate(), view.outbox.read()])
+      const [cacheRead, outboxRead] = await Promise.allSettled([
+        store.rehydrate(),
+        view.outbox.read(),
+      ])
+      expect(cacheRead.status).toBe('fulfilled')
+      // The independent outbox read can reach the closed connection first. Its
+      // async port reports the failed reopen to its caller, without erasing rows.
+      expect(outboxRead).toMatchObject({
+        status: 'rejected',
+        reason: { name: 'IndexedDbReconnectError' },
+      })
       expect(view.cache.readCursor()).toEqual(CURSOR)
       expect(onDegraded).toHaveBeenCalledWith(
         expect.objectContaining({ mode: 'degraded-memory', cause: 'unavailable' }),
