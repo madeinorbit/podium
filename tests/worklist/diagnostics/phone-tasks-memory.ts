@@ -88,18 +88,20 @@ const heap = () => {
   bunRuntime.Bun.gc(true)
   return heapStats().heapSize
 }
-await Promise.resolve()
+const settle = () => new Promise<void>((resolve) => setTimeout(resolve, 0))
+await settle()
 const baseline = heap()
 // Outside counter, pinned to the same MobX internals as the structural meter.
 // Count all observed cache fields as well as model @lazy slots: the old path
 // retains keyed computeds, so a lazy-only total would omit its caches.
-const caches = new Set<{ observers_: Set<unknown> | null }>()
+type Cache = { observers_: Set<unknown> | null; name_: string }
+const caches = new Set<Cache>()
 const proto = Object.getPrototypeOf(computed(() => 0)) as {
   computeValue_(...args: unknown[]): unknown
 }
 const computeValue = proto.computeValue_
 proto.computeValue_ = function (...args: unknown[]) {
-  caches.add(this as unknown as { observers_: Set<unknown> | null })
+  caches.add(this as unknown as Cache)
   return computeValue.apply(this, args)
 }
 const stops: (() => void)[] = []
@@ -149,9 +151,19 @@ if (mode === 'before') {
       )
     }
 }
-await Promise.resolve()
+// @lazy can queue another release while clearing a temporary. Drain the full
+// microtask queue before counting so temporary fields are not called watched.
+await settle()
 const watchedFields = [...targets].reduce((sum, target) => sum + lazyKeptCount(target), 0)
 const watchedCacheFields = [...caches].filter((cache) => cache.observers_?.size).length
+const newWatchedFields: Record<string, number> = {}
+for (const cache of caches) {
+  if (!cache.observers_?.size) continue
+  const field = cache.name_.split('.').at(-1)!
+  if (['finishedChildren', 'confirmedWorkerCount', 'descendantTaskProgress',
+    'dependencySources', 'confirmedWorking'].includes(field))
+    newWatchedFields[field] = (newWatchedFields[field] ?? 0) + 1
+}
 proto.computeValue_ = computeValue
 // Measuring must not retain the temporary computeds visited by the counter.
 caches.clear()
@@ -166,6 +178,7 @@ console.log(
     shown: count / 4,
     watchedLazyFields: watchedFields,
     watchedCacheFields,
+    newWatchedFields,
     heapBeforeBoard: baseline,
     heapWithBoard: retained,
     boardHeap: retained - baseline,
