@@ -266,7 +266,7 @@ it('updates addressed confirmed workers at the inclusive expiry deadline without
   expect(live).toBe(1)
 })
 
-async function workAt(scale: number, plant = false) {
+async function workAt(scale: number, plant = false, legacy = false) {
   const { pool } = await setup(
     [
       issue('root'),
@@ -279,7 +279,12 @@ async function workAt(scale: number, plant = false) {
   )
   const settings = { ...options, expanded: [], filter: { projectPaths: ['/fixture'] } }
   const board = new MobileTasksBoard(pool, settings)
-  disposals.push(
+  if (legacy) {
+    const old = createLegacyMobileTasks(pool)
+    disposals.push(() => old.dispose(), autorun(() => insideReader('phone.tasks.legacy', () =>
+      old.tasks({ showDone: board.showDone, expanded: board.expanded, filter: board.filter,
+        ordering: board.ordering, showAgentTasks: board.showAgentTasks }))))
+  } else disposals.push(
     autorun(() => insideReader('phone.tasks.sections', () => board.sections)),
     autorun(() => insideReader('phone.tasks.proposals', () => board.proposals)),
     autorun(() =>
@@ -330,8 +335,20 @@ it('keeps phone board row calls, derivations and collection elements flat at a f
       at1x: one[i],
       at4x: four[i],
     })
+    for (const kind of ['rows', 'derivations', 'elements'] as const) {
+      // POD-5561 owns one shared scan of maintained title/ref strings for a
+      // new text query. Keep it visible, and require the phone's work to be flat.
+      const owned = (cell: WorkCounts) => kind === 'elements' && i === 1
+        ? cell.elements - (cell.elementsBy['IssueBoard.textIds'] ?? 0)
+        : cell[kind]
+      expect(owned(four[i]!)).toBeLessThanOrEqual(owned(one[i]!))
+    }
+  }
+  const old1 = await workAt(1, false, true), old4 = await workAt(4, false, true)
+  for (const [before, after] of [[old1[1]!, one[1]!], [old4[1]!, four[1]!] ]) {
+    console.info('[phone Tasks total search before/after]', { before, after })
     for (const kind of ['rows', 'derivations', 'elements'] as const)
-      expect(four[i]![kind]).toBeLessThanOrEqual(one[i]![kind]!)
+      expect(after[kind]).toBeLessThanOrEqual(before[kind])
   }
   const planted1 = await workAt(1, true),
     planted4 = await workAt(4, true)
