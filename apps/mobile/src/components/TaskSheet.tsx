@@ -2,7 +2,7 @@ import { issuePages, type PageIssue } from '@podium/client-graph/issue-page'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { useMobilePool } from '../client/mobile-pool'
 import { resolveEdgeFromPool } from '../client/use-issue-model'
-import type { SessionModel } from '@podium/client-graph/models'
+import type { DetailSession } from '@podium/client-graph/issue-detail-lists'
 import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { relativeTime } from '@podium/client-core/focus'
@@ -478,7 +478,7 @@ const SheetSessionRow = observer(function SheetSessionRow({
   session,
   onOpenSession,
 }: {
-  session: SessionModel
+  session: DetailSession
   onOpenSession: (session: SessionView) => void
 }) {
   const tone = kindTone(session.agentKind)

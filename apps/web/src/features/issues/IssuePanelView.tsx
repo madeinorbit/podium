@@ -1,4 +1,3 @@
-import type { PageIssue } from '@podium/client-graph/issue-page'
 import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/shallow-equal'

@@ -65,7 +65,7 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   const subIssues = rows ?? []
   const legacyWorkers =
     suppliedChildren && sessions
-      ? confirmedWorkingAgentCountsByIssue(sessions, now ?? Date.now())
+      ? confirmedWorkingAgentCountsByIssue(suppliedChildren, sessions, now ?? Date.now())
       : undefined
   const create = () => {
     const next = title.trim()

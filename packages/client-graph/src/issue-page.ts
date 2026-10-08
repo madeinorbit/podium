@@ -1,6 +1,6 @@
 import { companion, lazy, keyedComputed } from '@podium/mobx-helpers'
 import type { ModelOf } from './models'
-import { createIssueDetailLists } from './issue-detail-lists'
+import { createIssueDetailLists, type DetailSession } from './issue-detail-lists'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
@@ -23,12 +23,17 @@ import { LOADING, type Loaded } from './worklist/rollup'
  * No snapshot or second record is constructed by the detail readers. */
 export type PageIssue = ModelOf['issue'] & IssueViewModel
 
+const EMPTY_CHILDREN: PageIssue[] = []
+const EMPTY_DETAIL_SESSIONS: DetailSession[] = []
+
 export class IssuePageRow {
   constructor(
     readonly issue: PageIssue,
     readonly pool: MobxPool,
-  ) {}
-  readonly lists = createIssueDetailLists(this.issue, this.pool)
+  ) {
+    this.lists = createIssueDetailLists(issue, pool)
+  }
+  readonly lists: ReturnType<typeof createIssueDetailLists>
   /** Page draft naming uses raw page members; worklist naming can use cwd seats. */
   @lazy get title(): string {
     const title = this.issue.authoredTitle
@@ -75,25 +80,29 @@ export class IssuePageRow {
     )
   }
   get children() {
-    return this.lists.children.get()
+    return this.lists.children.get() ?? EMPTY_CHILDREN
   }
   get memberSessions() {
-    return this.lists.members.get()
+    return this.lists.members.get() ?? EMPTY_DETAIL_SESSIONS
   }
   get activeSessions() {
-    return this.lists.active.get()
+    return this.lists.active.get() ?? EMPTY_DETAIL_SESSIONS
   }
   get retiredSessions() {
-    return this.lists.retired.get()
+    return this.lists.retired.get() ?? EMPTY_DETAIL_SESSIONS
   }
   get movedOn() {
-    return this.lists.moved.get()
+    return this.lists.moved.get() ?? EMPTY_DETAIL_SESSIONS
   }
   get phoneSessions() {
-    return this.lists.phone.get()
+    return this.lists.phone.get() ?? EMPTY_DETAIL_SESSIONS
   }
   get inspectorSessions() {
-    return this.lists.inspector.get()
+    return this.lists.inspector.get() ?? EMPTY_DETAIL_SESSIONS
+  }
+  /** The displayed roster collapses resume twins; raw action membership does not. */
+  get rosterCount(): number {
+    return this.pool.graph.subsetSize('issue', this.issue.id, 'missionSessions', 'agents')
   }
   /** A closed retired fold reads IDs plus live exited seats, never archived payloads. */
   get retiredCount(): number {
@@ -282,7 +291,12 @@ function createIssuePageViews(pool: MobxPool) {
     if (disposed) return LOADING
     return pool.queries.project({ kind: 'pageIssues' }, 'IssuePage@summaries', readSummary)
   }
-  const companions = companion((model: PageIssue) => new IssuePageRow(model, pool))
+  const detailLists = new Set<ReturnType<typeof createIssueDetailLists>>()
+  const companions = companion((model: PageIssue) => {
+    const page = new IssuePageRow(model, pool)
+    detailLists.add(page.lists)
+    return page
+  })
   function row(id: string): IssuePageRow {
     return companions(pool.issueObject(id) as PageIssue)
   }
@@ -424,6 +438,8 @@ function createIssuePageViews(pool: MobxPool) {
       cache.clear()
       identities.clear()
       explorerSeats.dispose()
+      for (const lists of detailLists) lists.dispose()
+      detailLists.clear()
       for (const roster of rosters.values()) roster.dispose()
       rosters.clear()
     },

@@ -110,7 +110,7 @@ export const IssueScreen = observer(function IssueScreen({
   dismiss = false,
 }: {
   dismiss?: boolean
-} = {}) {
+}) {
   const params = useLocalSearchParams<{ issueId: IssueId | string[] }>()
   const issueId = decodeURIComponent(
     Array.isArray(params.issueId) ? params.issueId[0] : (params.issueId ?? ''),

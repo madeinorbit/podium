@@ -155,7 +155,7 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   const subIssues = rows
   const legacyWorkers =
     suppliedChildren && sessions
-      ? confirmedWorkingAgentCountsByIssue(sessions, now ?? Date.now())
+      ? confirmedWorkingAgentCountsByIssue(suppliedChildren, sessions, now ?? Date.now())
       : undefined
   return (
     <section className="mb-9 flex flex-col gap-1.5" data-testid="sub-issues">

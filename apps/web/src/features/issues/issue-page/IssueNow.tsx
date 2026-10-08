@@ -57,7 +57,8 @@ export const IssueNow = observer(function IssueNow({
   const page = useIssuePageContext()
   const sessions = suppliedSessions ?? page?.views.row(issue.id).lists.liveMembers.get() ?? []
   if (typeof sessions === 'symbol') throw sessions
-  if (sessions.length === 0) return null
+  const total = suppliedSessions ? suppliedSessions.length : page?.views.row(issue.id).rosterCount ?? 0
+  if (total === 0) return null
 
   const ranked = [...sessions]
     .map((session) => ({
@@ -76,7 +77,7 @@ export const IssueNow = observer(function IssueNow({
   // finished. The block promises what is happening NOW, so it shows the live
   // ones and lets the rail's full roster answer "who has ever been here".
   const shown = ranked.filter((r) => r.phase === 'working' || r.phase === 'waiting').slice(0, 2)
-  const restCount = (page ? page.issue.memberCount : ranked.length) - shown.length
+  const restCount = total - shown.length
 
   // NOTHING IS LIVE — so the block spends no structure on saying so (POD-635).
   // A task whose agents all finished yesterday was still getting the page's
@@ -86,7 +87,7 @@ export const IssueNow = observer(function IssueNow({
   if (shown.length === 0) {
     return (
       <p className="mb-9 font-mono text-[10px] text-text-faint" data-testid="issue-now">
-        {sessions.length} session{sessions.length === 1 ? '' : 's'} · none working
+        {total} session{total === 1 ? '' : 's'} · none working
       </p>
     )
   }
@@ -109,7 +110,7 @@ export const IssueNow = observer(function IssueNow({
           )}
         >
           {working > 0
-            ? `${working} of ${sessions.length} session${sessions.length === 1 ? '' : 's'} working`
+            ? `${working} of ${total} session${total === 1 ? '' : 's'} working`
             : `${waiting} waiting on you`}
         </span>
       </div>

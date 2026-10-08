@@ -138,7 +138,7 @@ it('rejects hidden neighbour history and planted catalogs on open and heartbeat'
   for (const action of ['open', 'heartbeat'] as const)
     for (const counter of ['rows', 'derivations', 'elements'] as const)
       expect(four[action][counter], `${action}: ${counter}`).toBeLessThanOrEqual(
-        one[action][counter],
+        one[action][counter] ?? 0,
       )
   const plantedOne = await capture(1, true),
     plantedFour = await capture(4, true)
@@ -189,6 +189,7 @@ it('keeps identities, raw members and continuation witnesses live without neighb
     expect(page.issue).toBe(model)
     expect(presence).toMatchObject({ text: 'Work continued in P-3' })
     expect(ids()).toEqual(history.map((row) => row.id))
+    expect(page.rosterCount).toBe(history.length)
     expect(summary).toEqual({ total: 48, byPhase: { unknown: 48 } })
     const first = members
     pool.apply({ type: 'update', rows: [seat('history-000', { title: 'Renamed' })] })

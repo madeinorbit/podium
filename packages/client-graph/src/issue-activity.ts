@@ -4,7 +4,7 @@ import {
   type IssueEvent,
 } from '@podium/client-core/values'
 import type { IssueId } from '@podium/model/browser'
-import { observable, reaction, runInAction } from 'mobx'
+import { observable, observableRef, reaction, runInAction } from 'mobx'
 import type { PageIssue } from './issue-page'
 import { companion } from '@podium/mobx-helpers'
 import type { MobxPool } from './pool'
@@ -35,7 +35,7 @@ export interface IssueActivityPorts {
  * The pool's source lifecycle owns principal-change disposal. */
 export class IssueActivityStore {
   readonly history = new IssueActivityHistory()
-  @observable.ref accessor mail: IssueActivityMail[] = []
+  @observableRef accessor mail: IssueActivityMail[] = []
   @observable accessor revision = 0
   private users = 0
   private stop: (() => void) | undefined

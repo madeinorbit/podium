@@ -114,7 +114,11 @@ it('shares one request owner, advances hidden-event cursors and resumes after re
     }),
   }
   const paint = vi.fn(),
-    stopPaint = activity.subscribe(paint)
+    stopPaint = autorun(() => {
+      void activity.revision
+      void activity.mail
+      paint()
+    })
   const page = activity.retain(ports),
     panel = issueActivity(pool, 'root').retain(ports)
   try {

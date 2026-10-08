@@ -1,8 +1,12 @@
 import type { SessionModel } from './models'
+import type { SessionView } from '@podium/client-core/session-values'
 import type { PageIssue } from './issue-page'
 import type { MobxPool } from './pool'
 import { createQueryResult } from './query-result'
 import { LOADING } from './worklist/rollup'
+
+/** Only existing seats leave the list; their installed fields use the view's wire types. */
+export type DetailSession = SessionModel & SessionView
 
 /** These are data-layer query results of model identities. Display-only field
  * changes are read by the row observers and do not replace a roster. */
@@ -38,7 +42,7 @@ export function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     keep: (session: SessionModel) => boolean,
     order?: (session: SessionModel) => string,
   ) =>
-    createQueryResult<SessionModel>({
+    createQueryResult<DetailSession>({
       name: `IssueDetail@${name}:${issue.id}`,
       ids: () =>
         archived === false && relation !== 'bornSessions'
@@ -67,7 +71,7 @@ export function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
             session.exists &&
             !pool.queries.collapsed(id) &&
             keep(session)
-            ? session
+            ? (session as DetailSession)
             : undefined
         } catch (error) {
           if (error === LOADING) return LOADING
