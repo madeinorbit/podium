@@ -22,7 +22,9 @@ class ShellIssue {
   @lazy get colorSelectable() { return !this.issue.archived && !this.issue.deletedAt }
   @lazy get color() { return this.issue.color }
   @lazy get parentId() { return this.issue.parentId }
-  @lazy private get type() { return this.issue.type ?? 'task' }
+  @lazy get type() { return this.issue.type ?? 'task' }
+  @lazy get title() { return this.issue.authoredTitle }
+  @lazy get childCount() { return this.issue.closeChildren.childCount }
   @lazy private get needsPresentSessions() {
     return Boolean(this.issue.isDraftVessel && !this.issue.worktreePath)
   }
@@ -30,10 +32,6 @@ class ShellIssue {
     if (!this.needsPresentSessions) return false
     const present = missionView(this.pool).present(this.id)
     return present === LOADING ? LOADING : !present.length
-  }
-  @lazy({ equals: compareShallow }) get missionRoot() {
-    return { id: this.id, title: this.issue.authoredTitle, type: this.type,
-      childCount: this.issue.closeChildren.childCount }
   }
 }
 
@@ -67,7 +65,7 @@ export class ShellChrome {
     }
     return true
   }
-  @lazy private get missionRoot(): Loaded<ShellIssue['missionRoot']> {
+  @lazy private get missionRoot(): Loaded<ShellIssue> {
     const state = this.pool.row('shellWindow', 'window')
     if (!state || state === LOADING) return LOADING
     const id = missions(this.pool).rootFor(state.selectedIssueId)
@@ -76,7 +74,7 @@ export class ShellChrome {
     const value = this.issue(this.pool.issueObject(id))
     if (!value.issue.visible) return undefined
     const empty = value.emptyDraft
-    return empty === LOADING ? LOADING : empty ? undefined : value.missionRoot
+    return empty === LOADING ? LOADING : empty ? undefined : value
   }
   @lazy({ equals: compareShallow }) get value() {
     const state = this.pool.row('shellWindow', 'window')

@@ -5,6 +5,7 @@ import { createReferencePicker } from '@podium/client-graph/chat-context'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { poolIssuePaint } from '../../../../apps/web/src/features/worklist/pool-row-data'
 import { effectiveIssueColorHex } from '../../../../apps/web/src/lib/issueColors'
+import { isComplexFlightDeckMission } from '../../../../apps/web/src/app/flight-deck-display'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { headerView } from '@podium/client-graph/header-views'
 import { launchOptionViews } from '@podium/client-graph/launch-option-views'
@@ -474,8 +475,10 @@ async function measureScreenCells(
       if (!value || value === LOADING) return value
       // AppShell reads color scalars late from stable companions. Count those
       // watched reads too, and retain their answer rather than the live port.
-      const { colorIssue, colorById, ...chrome } = value
-      return { ...chrome, color: effectiveIssueColorHex(colorIssue, colorById) }
+      const { colorIssue, colorById, missionRoot, ...chrome } = value
+      return { ...chrome, missionRootId: missionRoot?.id,
+        missionExpanded: isComplexFlightDeckMission(missionRoot),
+        color: effectiveIssueColorHex(colorIssue, colorById) }
     })
     add('shell.dock', ['AppShell'], () => shell.dock())
     // These actions do not deliver URLs or open a browser target. The real

@@ -15,7 +15,9 @@ it.each([128, 512])('does not rebuild idle shell issue projections per unrelated
   const stop = autorun(() => {
     const chrome = views.chrome()
     if (chrome && chrome !== LOADING) {
-      // Read the same keyed color scalars the shell consumes, including its parent.
+      // Read the same keyed color and mission scalars the shell consumes.
+      chrome.missionRoot?.id
+      if (chrome.missionRoot && chrome.missionRoot.type !== 'epic') chrome.missionRoot.childCount
       chrome.colorIssue?.color
       const parentId = chrome.colorIssue?.parentId
       if (parentId) chrome.colorById(parentId)?.color
@@ -31,6 +33,7 @@ it.each([128, 512])('does not rebuild idle shell issue projections per unrelated
       f.pool.apply({ type: 'update', rows: [0, 1, count - 1].map(index => ({
         kind: 'issue', id: f.issues[index]!.id,
         value: { ...f.issues[index]!, branch: `issue/live-${message}`,
+          title: `Live issue title ${index}/${message}`,
           gitState: { ahead: message, merged: false },
           updatedAt: `2026-10-08T14:00:0${message}Z` },
       })) as never })
@@ -48,6 +51,9 @@ it.each([128, 512])('does not rebuild idle shell issue projections per unrelated
     const chrome = views.chrome()
     expect(chrome && chrome !== LOADING ? chrome.colorById(f.issues[0]!.id)?.color : null)
       .toBe('violet')
+    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: f.issues[0]!.id,
+      value: { ...f.issues[0]!, color: 'violet', type: 'epic' } }] as never })
+    expect(answers, 'live mission complexity change').toHaveLength(3)
   } finally {
     stop()
     counts.mockRestore()
