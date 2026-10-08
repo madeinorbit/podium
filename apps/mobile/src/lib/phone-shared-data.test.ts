@@ -1,4 +1,5 @@
 import { compareRecency } from '@podium/client-core/focus'
+import type { SessionView } from '@podium/client-core/session-values'
 import { createMobileInboxViews } from '../../test/legacy-mobile-inbox'
 import { MobileInbox, ProposalScreening } from '@podium/client-graph/mobile-triage'
 import { SessionModel } from '@podium/client-graph/models'
@@ -62,7 +63,7 @@ function oldGroups(old: ReturnType<typeof createMobileInboxViews>) {
   return Object.fromEntries(
     Object.entries(old.inbox().groups).map(([group, rows]) => [
       group,
-      rows.map((row) => row.sessionId),
+      rows.map((row: SessionView) => row.sessionId),
     ]),
   )
 }

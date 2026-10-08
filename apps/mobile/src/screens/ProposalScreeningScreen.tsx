@@ -146,7 +146,7 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
   const failure = failures[failures.length - 1]
 
   const body = (() => {
-    if (booting || !deck || current === LOADING) {
+    if (booting || !deck) {
       return (
         <View style={styles.centered}>
           <ActivityIndicator color={color.accentTint} />
