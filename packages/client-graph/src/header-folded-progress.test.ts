@@ -15,7 +15,7 @@ it('reads folded progress without the sidebar presentation and updates its forma
     { kind: 'issue', id: 'root', value: root }, { kind: 'issue', id: 'child', value: child },
     { kind: 'session', id: 'seat', value: seat },
   ] })
-  const model = pool.model('issue', 'root')!
+  const model = pool.worklistRow('root')!
   const aggregate = vi.spyOn(model, 'aggregate', 'get')
   let folded: ReturnType<ReturnType<typeof headerView>['folded']> | undefined
   const stop = autorun(() => { folded = headerView(pool).folded() })

@@ -1,6 +1,7 @@
 import { reaction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
+import { worklistView } from './worklist/view-model'
 import { mergePoolSummaries } from './source-registry'
 import { LOADING } from './worklist/rollup'
 
@@ -107,7 +108,7 @@ it('a cold model parent follows a painted change without loading the row', () =>
 
 it('an observed model summary follows an unknown id becoming cold, removal and return', () => {
   const { pool, cold, load } = setup()
-  const issue = pool.issueObject('future')
+  const issue = worklistView(pool).row(pool.issueObject('future'))
   const seen: (string | null | undefined)[] = []
   const stop = reaction(() => issue.hidden?.parentId, value => seen.push(value), { fireImmediately: true })
   try {

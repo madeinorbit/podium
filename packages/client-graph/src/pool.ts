@@ -1,3 +1,4 @@
+import { IssueSessionFactsIndex, type IssueSessionFacts, type IssueSessionFactReader } from './shared/issue-session-facts'
 import { joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
 import {
   SETUP_SESSION_SUMMARY_FIELDS,
@@ -119,7 +120,7 @@ import type { RepoRow, ViewInputs } from './views'
 import { worklistGroups } from './worklist/groups'
 import { LOADING, type Loaded, type RollupInputs } from './worklist/rollup'
 import { SeatVerdicts } from './worklist/seat-verdicts'
-import { sidebarView } from './worklist/sidebar'
+import { worklistView } from './worklist/view-model'
 import { sidebarRosterView } from './worklist/sidebar-roster'
 import {
   type HeldIssue,
@@ -171,6 +172,7 @@ function cursorOnlyChange(previous: object, next: object): boolean {
 /** Residency options: the per-row read, and (tests) the window and timer. */
 export interface PoolLazyOptions {
   readonly diagnostics?: FeedDiagnostics
+  readonly issueSessionFact?: IssueSessionFactReader
   readonly load: LoadRow
   /** The feed's cold index (`RowSource.cold`), holding these declared summary fields. */
   readonly cold?: (summaries: PoolSummaryFields) => ColdQueries
@@ -230,6 +232,8 @@ export interface LazyMembers {
 export class MobxPool {
   /** Failure counters and replacement recovery status for this principal. */
   readonly diagnostics: FeedDiagnostics
+  readonly issueSessionFact: IssueSessionFactReader
+  private readonly sessionFactsIndex: IssueSessionFactsIndex | undefined
   /** Each summarised issue's explicit seats, judged per seat change (POD-5423). */
   private readonly seatVerdicts: SeatVerdicts
   readonly sources = new PoolSources()
@@ -244,7 +248,7 @@ export class MobxPool {
   /** The relation engine itself. */
   readonly graph: PoolRelations
   /** The selection local: at most one entry, the selected issue id. */
-  readonly selection: ObservableMap<string, true>
+  get selection(): ObservableMap<string, true> { return worklistView(this).selection }
   /**
    * The read-state lane (POD-4686): each known issue's read cursor, per-key
    * tracked, readable by id only. A mark-read writes one key; only that row's
@@ -274,7 +278,6 @@ export class MobxPool {
   /** The one object per row, by entity: built on first request, never twice. */
   private readonly models: { readonly [E in EntityName]: Map<string, EntityModel> }
   private readonly target: IngestTarget
-  private selectedId: string | null
   /**
    * POD-4678 — clears the maintained seat mirror (a closure over it, so the
    * copy sweep never walks the mirror: it holds only ids, never rows).
@@ -303,6 +306,8 @@ export class MobxPool {
 
   constructor(locals: SliceLocals, schema?: ModelSchema, lazy?: PoolLazyOptions) {
     this.diagnostics = lazy?.diagnostics ?? new FeedDiagnostics()
+    this.sessionFactsIndex = lazy?.issueSessionFact ? undefined : new IssueSessionFactsIndex()
+    this.issueSessionFact = lazy?.issueSessionFact ?? this.sessionFactsIndex!.read
     this.issueIdByRef = lazy?.issueIdByRef
     this.sourcePositionVersion = lazy?.settings === true
       ? observable.box(0, {
@@ -419,10 +424,6 @@ export class MobxPool {
       },
     })
     this.relations = this.graph
-    this.selection = observable.map<string, true>(undefined, {
-      deep: false,
-      name: debugName(() => 'pool.selection'),
-    })
     this.readStates = observable.map<string, string | null>(undefined, {
       deep: false,
       name: debugName(() => 'pool.reads'),
@@ -461,8 +462,7 @@ export class MobxPool {
       issue: (id) => untracked(() => this.row('issue', id, 'peek')) as SliceIssue | undefined,
       now: () => this.clock.peekNow(),
     })
-    sidebarView(this)
-    this.selectedId = null
+    worklistView(this)
     // Every row below comes from the one reader (`row`); none of these
     // functions is replaced after construction (pending changes arrive as
     // rows, from the transaction log). A view reads rows in memory: a row that
@@ -485,7 +485,7 @@ export class MobxPool {
           : tables[entity].has(id),
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
       // Only asked for an issue in memory (`originTickPartOf`): its object.
-      parts: (id) => this.issueObject(id),
+      parts: (id) => worklistView(this).row(this.issueObject(id)),
       rollup: (id) => this.knownIssue(id)?.rollup,
       retainedSeats: (id) => this.knownIssue(id)?.retainedSeatIds ?? [],
       // The maintained SORTED list itself, returned without iterating it. A
@@ -498,19 +498,25 @@ export class MobxPool {
     }
     this.visibleInputs = {
       links,
+      issueSessionFact: (id, field) => {
+        const issue = this.issueObject(id)
+        return (field === 'replicaActivityAt' ? issue.lastActivityAt :
+          field === 'tipActivityAt' ? issue.tipActivityAt :
+          field === 'headlessStaffed' ? issue.headlessStaffed : issue.headlessOccupied) as IssueSessionFacts[typeof field]
+      },
       // Hot or cold: a cold row is read by id through the feed, never loaded.
       // untracked-read: visibility-issue-peek
       issueRow: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
       // untracked-read: visibility-session-peek
       sessionRow: (id) => this.row('session', id, 'peek') as SliceSession | undefined,
       issue: (id) => this.knownIssue(id),
-      session: (id) => this.object('session', id) as SessionModel,
+      session: (id) => worklistView(this).session(this.sessionObject(id)),
       passed: (t) => this.clock.passed(t),
       reached: (t) => this.clock.reached(t),
       loadedIssue: (id) => this.row('issue', id) as Loaded<SliceIssue>,
       loadedSession: (id) => this.row('session', id) as Loaded<SliceSession>,
       issueRead: (id) => this.readCursor(id),
-      nested: (id) => this.issueObject(id).nested,
+      nested: (id) => worklistView(this).row(this.issueObject(id)).nested,
       formalChildren: (id) => links.issue.children.ids(id),
       // The maintained SORTED list itself, returned without iterating it — a
       // membership change yields the new member only. `seatIdsPartOf` reads
@@ -520,7 +526,7 @@ export class MobxPool {
     }
     this.rollupInputs = rollupInputsOf(this.visibleInputs)
     this.worklist = new VisibleCollection({
-      issue: (id) => this.issueObject(id),
+      issue: (id) => worklistView(this).row(this.issueObject(id)),
       fileGroups: (id, filing) => worklistGroups(this).file(id, filing),
     })
     worklistGroups(this, locals.selectedIssueWasFolded === true)
@@ -605,12 +611,13 @@ export class MobxPool {
             : residency.read(core, id)
       if (server === undefined) return undefined
     }
-    if ((core === 'session' || core === 'issue') && (core === 'session' ? 'machineId' in server || 'refRepoId' in server || 'handoffTargetMachineId' in server : 'repoId' in server)) {
+    if ((core === 'session' || core === 'issue') && (core === 'session' ? 'machineId' in server || 'refRepoId' in server || 'handoffTargetMachineId' in server : 'repoId' in server)
+    ) {
       let view = this.joinedRows.get(server)
       if (!view) {
         view = joinedFields(core, server as Readonly<Record<string, unknown>>, core === 'session' ? SESSION_JOIN_FIELDS : ['repoPath'], (kind, key) => {
-          const companion = kind === 'machine' ? this.row('machine', key) : this.row('repo', key)
-          return companion === LOADING ? undefined : companion as Readonly<Record<string, unknown>> | undefined
+          const companion = kind === 'machine' ? this.row('machine', key) : this.model('repo', key)?.row
+          return companion as Readonly<Record<string, unknown>> | undefined
         })
         this.joinedRows.set(server, view)
       }
@@ -713,6 +720,16 @@ export class MobxPool {
     return this.residency?.hasSummaryField('session', property) ?? false
   }
 
+  issueSummaryField(property: string): boolean {
+    return this.residency?.hasSummaryField('issue', property) ?? false
+  }
+
+  issueExitKind(id: string) {
+    const exit = this.row('issueExit', id)
+    if (exit === LOADING) throw LOADING
+    return exit?.kind
+  }
+
   sessionSeatIds(relation: SeatRelation, issueId: string, archived: boolean): readonly string[] | typeof LOADING {
     const partition = sessionSeats(this).partition(relation, issueId)
     return partition === LOADING ? LOADING : archived ? partition.archived : partition.present
@@ -726,7 +743,7 @@ export class MobxPool {
    */
   knownIssue(id: string): HeldIssue | undefined {
     const known = this.tables.issue.has(id) || this.residency?.known('issue', id) === true
-    return known ? this.issueObject(id) : undefined
+    return known ? worklistView(this).row(this.issueObject(id)) : undefined
   }
 
   /** A model's edit (`issue.title = x`): one transaction of the pool's log. */
@@ -805,6 +822,12 @@ export class MobxPool {
 
   issue(id: string): ModelOf['issue'] | undefined {
     return this.model('issue', id)
+  }
+
+  /** The worklist companion of a resident issue, shared by both screens. */
+  worklistRow(id: string) {
+    const issue = this.issue(id)
+    return issue === undefined ? undefined : worklistView(this).row(issue)
   }
 
   /** TRACKED: the declared parent key, without reading either row's fields.
@@ -906,9 +929,15 @@ export class MobxPool {
     if (this.disposed) return
     const out = ingestOut()
     runInAction(() => {
-      const machineRows = event.rows.filter(record => record.kind === 'machine')
+      if (this.sessionFactsIndex) {
+        if (event.type === 'replace') this.sessionFactsIndex.clear()
+        for (const record of event.rows) if (record.kind === 'session')
+          this.sessionFactsIndex.install(record.id, record.value as Record<string, unknown> | undefined)
+      }
+      const machineRows = event.rows.filter((record) => record.kind === 'machine')
       if (event.type === 'replace') {
-        const next = new Set(machineRows.filter(record => record.value !== undefined).map(record => record.id))
+        const next = new Set(machineRows.filter((record) => record.value !== undefined).map((record) => record.id),
+        )
         for (const id of this.companionMachineRows.keys())
           if (!next.has(id)) machineRows.push({ kind: 'machine', id, value: undefined })
         // Replace tracked companions in place so existing readers keep
@@ -1046,6 +1075,7 @@ export class MobxPool {
   dispose(): void {
     this.queries.dispose()
     this.disposed = true
+    this.sessionFactsIndex?.clear()
     runInAction(() => {
       this.worklist.clear()
       this.sources.dispose()
@@ -1060,17 +1090,11 @@ export class MobxPool {
     for (const entity of ENTITIES) this.models[entity].clear()
     this.residency?.clear()
     this.clock.clear()
-    this.selectedId = null
     // A retired pool may outlive its switch (POD-5402); it must not hold the
     // retired feed's cold index, which carries every row's relations.
     this.indexSeen = undefined
     this.ownIndex = undefined
   }
 
-  private select(id: string | null): void {
-    if (id === this.selectedId) return
-    if (this.selectedId !== null) this.selection.delete(this.selectedId)
-    if (id !== null) this.selection.set(id, true)
-    this.selectedId = id
-  }
+  private select(id: string | null): void { worklistView(this).select(id) }
 }

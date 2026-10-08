@@ -1,3 +1,6 @@
+import { issueObserver as observer } from './issue-observer'
+import { useIssuePageContext } from './issue-page-data'
+import type { PageIssue } from '@podium/client-graph/issue-page'
 import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The sub-task list — one flat list in slice order, plus an inline add-row.
@@ -26,7 +29,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  * `branchRollup` note says the same thing about counts, since a count IS an
  * existence fact and §3.1.2 leaves that policy open.
  */
-import type { IssueId} from '@podium/model/browser'
+import type { IssueId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Plus } from 'lucide-react'
 import { type JSX, useMemo } from 'react'
@@ -59,7 +62,7 @@ const STATE_TONE = {
  * outright: a state word or nothing, so every row in the list ends on the same
  * axis and a quiet child reads as quiet rather than as an identity badge.
  */
-function SubTaskRow({
+const SubTaskRow = observer(function SubTaskRow({
   child,
   workingAgents,
   onNavigate,
@@ -68,9 +71,11 @@ function SubTaskRow({
   child: IssueViewModel
   workingAgents: number
   onNavigate: (id: IssueId) => void
-  onStatusPick: (value: string) => void
+  onStatusPick: (issue: IssueViewModel, value: string) => void
 }): JSX.Element {
-  const state = issueStateWord(child, workingAgents)
+  const count =
+    'confirmedWorkingAgents' in child ? (child as PageIssue).confirmedWorkingAgents : workingAgents
+  const state = issueStateWord(child, count)
   const finished = isFinished(child)
   return (
     <button
@@ -86,7 +91,7 @@ function SubTaskRow({
       {/* The glyph is the child's status AND the door onto changing it — a
           sub-task is most often moved from the parent you are reading, not from
           its own page (POD-1271). */}
-      <IssueStatusPicker issue={child} onPick={onStatusPick} />
+      <IssueStatusPicker issue={child} onPick={(value) => onStatusPick(child, value)} />
       <span className="w-[56px] flex-none font-mono shell-type-micro text-text-faint tabular-nums">
         {issueDisplayRef(child)}
       </span>
@@ -94,7 +99,7 @@ function SubTaskRow({
           glyph beside them already carries WHICH ending. No strikethrough: the
           list is scanned for what is left, not read as a crossed-out receipt. */}
       <span className={cn('min-w-0 flex-1 truncate', finished && 'text-text-dim')}>
-        {child.title}
+        {'authoredTitle' in child ? (child as PageIssue).authoredTitle : child.title}
       </span>
       {child.archived && (
         <span className="flex-none font-mono shell-type-micro text-text-faint uppercase tracking-[0.04em]">
@@ -113,11 +118,11 @@ function SubTaskRow({
       )}
     </button>
   )
-}
+})
 
-export function IssueSubIssues({
+export const IssueSubIssues = observer(function IssueSubIssues({
   issue,
-  subIssues,
+  subIssues: suppliedChildren,
   sessions,
   now,
   busy,
@@ -132,9 +137,9 @@ export function IssueSubIssues({
   /** Named `subIssues` rather than `children`: a `children` PROP on a component
    *  that does not render its React children is the one thing React's own
    *  vocabulary reserves, and biome's noChildrenProp is right to refuse it. */
-  subIssues: IssueViewModel[]
-  sessions: SessionView[]
-  now: number
+  subIssues?: IssueViewModel[]
+  sessions?: SessionView[]
+  now?: number
   busy: boolean
   addingChild: boolean
   childTitle: string
@@ -144,10 +149,14 @@ export function IssueSubIssues({
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
   const status = useIssueStatusApply()
-  const workingByChild = useMemo(
-    () => confirmedWorkingAgentCountsByIssue(subIssues, sessions, now),
-    [now, sessions, subIssues],
-  )
+  const page = useIssuePageContext()
+  const rows = suppliedChildren ?? page?.views.row(issue.id).children ?? []
+  if (typeof rows === 'symbol') throw rows
+  const subIssues = rows
+  const legacyWorkers =
+    suppliedChildren && sessions
+      ? confirmedWorkingAgentCountsByIssue(suppliedChildren, sessions, now ?? Date.now())
+      : undefined
   return (
     <section className="mb-9 flex flex-col gap-1.5" data-testid="sub-issues">
       <SectionHeading
@@ -162,9 +171,9 @@ export function IssueSubIssues({
         <SubTaskRow
           key={child.id}
           child={child}
-          workingAgents={workingByChild.get(child.id) ?? 0}
+          workingAgents={legacyWorkers?.get(child.id) ?? 0}
           onNavigate={onNavigate}
-          onStatusPick={(value) => status.pick(child, value)}
+          onStatusPick={status.pick}
         />
       ))}
       {/* The close guard for a CHILD, mounted beside the list rather than in
@@ -206,4 +215,4 @@ export function IssueSubIssues({
       )}
     </section>
   )
-}
+})

@@ -143,7 +143,10 @@ describe('phone launch demand bounds', () => {
     const rows = vi.spyOn(attached, 'row')
     fireEvent.click(screen.getByLabelText('New work'))
     await screen.findByLabelText('Start in podium')
-    expect(rows.mock.calls.filter(([kind]) => String(kind) === 'repository')).toHaveLength(1)
+    // The open snapshot and the live metadata projection each read the root.
+    const rootReads = rows.mock.calls.filter(([kind]) => String(kind) === 'repository')
+    expect(rootReads).toHaveLength(2)
+    expect(new Set(rootReads.map(([, id]) => id))).toEqual(new Set([JSON.stringify(['mine', path])]))
     rows.mockClear()
     await act(async () => {
       headerEntities(attached).apply([{ kind: 'repository', id: JSON.stringify(['mine', linked[0]!.path]),

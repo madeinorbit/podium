@@ -1,8 +1,9 @@
 import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
 import { createCommandPalette } from '@podium/client-graph/command-launch-views'
-import { createLaunchCatalogPicker } from '@podium/client-graph/launch-option-views'
+import { createLaunchCatalogPicker, createLaunchWorkPicker } from '@podium/client-graph/launch-option-views'
 import { createReferencePicker } from '@podium/client-graph/chat-context'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { poolIssuePaint } from '../../../../apps/web/src/features/worklist/pool-row-data'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { headerView } from '@podium/client-graph/header-views'
 import { launchOptionViews } from '@podium/client-graph/launch-option-views'
@@ -84,17 +85,17 @@ import {
 } from '@podium/client-graph/superagent'
 import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { asIssueId, asSessionId, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
+import { asIssueId, asSessionId, DEFAULT_HARNESS_AGENT, isFinished } from '@podium/model/browser'
 import type { WorkflowRunWire } from '@podium/protocol'
 import { autorun, compareStructural, observable, runInAction } from 'mobx'
 import { resolvePoolWorkMenu as readPoolWorkMenu } from '../../../../apps/mobile/src/lib/pool-work-menu'
 import {
   MobileSearchSections,
+  mobileRowPaint,
   searchMobileSections,
 } from '../../../../apps/mobile/src/lib/work-sections'
 import {
   readFiles,
-  readLaunchCatalog,
   readLaunchOrigin,
   readTargetMachines,
   readOpen,
@@ -161,6 +162,21 @@ function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): string {
       closedReason: null,
       deps: [],
       audience: 'human',
+      // The corpus's first issue/phase seat differ between 1x and 4x. Their
+      // inherited nesting, optional paint fields and execution state cannot
+      // be the addressed neighbourhood: keep these facts fixed as well.
+      worktreePath: null,
+      startedBySession: null,
+      isDraftVessel: false,
+      intentOrigin: 'human',
+      needsHuman: false,
+      asked: false,
+      branch: null,
+      supersededBy: null,
+      duplicateOf: null,
+      deferUntil: null,
+      color: null,
+      linearIdentifier: null,
       updatedAt: ctx.stamp(),
     })
   }
@@ -192,6 +208,16 @@ function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): string {
       // The guard seat runs the product default harness, as an identifier:
       // the flip below must toggle this seat's own kind (POD-5614).
       agentKind: DEFAULT_HARNESS_AGENT,
+      agentState: { phase: 'working', since: ctx.stamp() },
+      busy: false,
+      offer: null,
+      stoppedAt: null,
+      stopReason: null,
+      snoozedUntil: null,
+      handoffTarget: null,
+      lastInputAt: ctx.stamp(),
+      draftUpdatedAt: null,
+      unread: false,
       lastActiveAt: ctx.stamp(),
     })
   }
@@ -363,11 +389,12 @@ async function measureScreenCells(
     const shell = shellViews(pool),
       page = issuePages(pool),
       chat = createChatContextReader(pool)
-    const palettePicker = createCommandPalette(pool), catalogPicker = createLaunchCatalogPicker(pool), referencePicker = createReferencePicker(pool)
+    const palettePicker = createCommandPalette(pool), catalogPicker = createLaunchCatalogPicker(pool), phonePicker = createLaunchWorkPicker(pool), referencePicker = createReferencePicker(pool)
     // These consumers represent open menus. The action owns their ordering,
     // outside any reaction; reopen is also exercised by the focused answer tests.
     palettePicker.open()
     catalogPicker.open()
+    phonePicker.open()
     referencePicker.open()
     stops.push(() => palettePicker.close(), () => referencePicker.close())
     const panelOrigin = readLaunchOrigin(pool, '/repo-000')
@@ -403,7 +430,15 @@ async function measureScreenCells(
       sidebarView(pool).sections(layout),
     )
     const worktree = pool.tables.worktree.keys().next().value!
-    add('sidebar.row', ['PoolRowSlot', 'PoolSidebarRail'], () => sidebarView(pool).row(selected()))
+    // Retain the actual painted fields in the watched read at both versions.
+    // Serializing a wire issue would also observe menu/history-only fields;
+    // retaining only a live companion's port would observe readiness alone.
+    const rowAnswers = (value: unknown) => value === undefined || typeof value === 'symbol'
+      ? value : JSON.parse(JSON.stringify(value))
+    add('sidebar.row', ['PoolRowSlot', 'PoolSidebarRail'], () => {
+      const row = sidebarView(pool).row(selected())
+      return row === undefined || row === LOADING ? row : rowAnswers(poolIssuePaint(row))
+    })
     add('sidebar.worktree', ['PoolWorktreeRow', 'PoolSidebarRail'], () =>
       sidebarView(pool).worktree(worktree, layout),
     )
@@ -415,9 +450,10 @@ async function measureScreenCells(
     add('mobile-work.search', ['PoolWorkScreen'], () =>
       searchMobileSections(pool, mobileWorkView(pool).sections(layout).sections, '', search),
     )
-    add('mobile-work.row', ['PoolWorkRowSlot'], () =>
-      mobileWorkView(pool).row({ kind: 'issue', id: selected() }),
-    )
+    add('mobile-work.row', ['PoolWorkRowSlot'], () => {
+      const row = mobileWorkView(pool).row({ kind: 'issue', id: selected() })
+      return row === undefined || row === LOADING ? row : rowAnswers(mobileRowPaint(row, pool.clock.trackedNow()))
+    })
     add('header.folded', ['FoldedFlightDeckBar'], () => headerView(pool).folded())
     add('header.shipping', ['useShippingCounts'], () => headerView(pool).shipping())
     add('header.fleet', ['FleetOverview'], () => ({
@@ -466,8 +502,8 @@ async function measureScreenCells(
     })
     add('launcher.phone', ['NewWorkButton', 'NewIssueScreen'], () =>
       scene === 'background-terminal' ? undefined : {
-        work: launchOptionViews(pool).newWork(),
-        paths: launchOptionViews(pool).repositoryPaths(),
+        work: phonePicker.newWork(),
+        paths: phonePicker.repositoryPaths,
       },
     )
     add('launcher.palette', ['CommandPalette'], () => palettePicker.palette())
@@ -503,9 +539,69 @@ async function measureScreenCells(
       members: navigation.missionMembers(ROOT),
       readAt: navigation.issueReadAt(selected()),
     }))
-    add('issue-page.detail', ['IssuePage'], () => page.data(selected()))
-    add('issue-page.panel', ['IssuePanel', 'IssueScreen'], () =>
-      page.panel({ issueId: selected(), cwd: '/synthetic' }),
+    // Exercise the fields read by the mounted sections, rather than replacing
+    // the retired bundle with a trivial identity-only consumer. Closed Details,
+    // completed and retired folds deliberately own no payload demand.
+    const detail = (mode: 'page' | 'panel' | 'phone' | 'inspector') => {
+      const issue =
+        mode === 'panel'
+          ? page.panelIssue({ issueId: selected(), cwd: '/synthetic' })
+          : page.issue(selected())
+      if (!issue || issue === LOADING) return issue
+      const row = page.row(issue.id),
+        children = row.children
+      const crew =
+        mode === 'phone'
+          ? row.phoneSessions
+          : mode === 'inspector'
+            ? row.inspectorSessions
+            : mode === 'panel'
+              ? row.dockActiveSessions
+              : row.activeSessions
+      if (children === LOADING || crew === LOADING) return LOADING
+      const parent = issue.parentId ? pool.issueObject(issue.parentId) : undefined
+      return {
+        id: issue.id,
+        title: row.title,
+        description: issue.description,
+        ref: issue.displayRef,
+        stage: issue.stage,
+        ready: issue.ready,
+        parent: parent?.authoredTitle,
+        childCount: issue.childCount,
+        childDoneCount: issue.childDoneCount,
+        children: children
+          ?.filter((child) => mode !== 'panel' || !isFinished(child))
+          .map((child) => ({
+            id: child.id,
+            title: child.authoredTitle,
+            ref: child.displayRef,
+            stage: child.stage,
+            workers: child.confirmedWorkingAgents,
+          })),
+        crew: crew?.map((session) => ({
+          id: session.sessionId,
+          title: session.title,
+          name: session.name,
+          asking: session.asking,
+          motion: session.motion,
+        })),
+        memberCount: issue.memberCount,
+        retiredCount: mode === 'panel' ? row.retiredCount : undefined,
+        presence: mode === 'panel' && !crew?.length ? row.presence : undefined,
+        relations: issue.relationGroups,
+      }
+    }
+    add('issue-page.detail',
+      ['IssuePage', 'IssueTitle', 'IssueDescription', 'IssueSubIssues', 'IssueNow'],
+      () => detail('page'),
+    )
+    add('issue-page.panel', ['IssuePanel', 'RecentActivity model owner'], () => detail('panel'))
+    add('issue-page.phone', ['IssueScreen', 'PhoneNow', 'PhoneProperties closed'], () =>
+      detail('phone'),
+    )
+    add('issue-page.inspector', ['TaskSheet', 'SessionConversation peek'], () =>
+      detail('inspector'),
     )
     add('issue-page.catalog', ['IssueContextMenu', 'IssueExplorer'], () => ({
       issues: page.issues(),
@@ -515,14 +611,24 @@ async function measureScreenCells(
     add('board.catalog', ['useBoardCatalog', 'IssueBoard'], () =>
       readBoardCatalog(pool, false, false),
     )
-    const phoneTasks = new MobileTasksBoard(pool, { showDone: false, expanded: [],
-      filter: { text: 'guard-' }, ordering: 'priority', showAgentTasks: false })
+    const phoneTasks = new MobileTasksBoard(pool, {
+      showDone: false,
+      expanded: [],
+      filter: { text: 'guard-' },
+      ordering: 'priority',
+      showAgentTasks: false,
+    })
     add('phone-tasks.sections', ['IssuesScreen', 'StageSections'], () => phoneTasks.sections)
     add('phone-tasks.proposals', ['ProposalsBanner'], () => phoneTasks.proposals)
     add('phone-tasks.row', ['TaskRow'], () => {
       const issue = phoneTasks.issue(ROOT)
-      return { title: issue.title, stage: issue.stage, working: issue.confirmedWorkingAgents,
-        progress: issue.taskProgress, dependents: issue.dependents }
+      return {
+        title: issue.title,
+        stage: issue.stage,
+        working: issue.confirmedWorkingAgents,
+        progress: issue.taskProgress,
+        dependents: issue.dependents,
+      }
     })
     add('board.query', ['IssueBoard', 'IssueExplorer'], () =>
       board.queryIds({ kind: 'board', showAgentTasks: false }),
@@ -549,7 +655,7 @@ async function measureScreenCells(
     )
     add('chat.detail', ['SessionConversation', 'AgentPanel'], () => ({
       issue: chat.issue(selected()),
-      interactions: chat.interactions(SESSION),
+      interactions: chat.interactions( SESSION),
       records: chat.records(SESSION),
       artifact: chat.artifactIssue({ sessionId: asSessionId(SESSION), issueId: asIssueId(ROOT) }),
       threads: chat.threads(),

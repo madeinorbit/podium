@@ -1,4 +1,5 @@
 import type { IssueViewInput } from '../../../../../tests/worklist/diagnostics/reference/issue-views'
+import { writeFileSync } from 'node:fs'
 import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
 // @vitest-environment happy-dom
 import '@/test-support/mock-store-action-ports'
@@ -351,8 +352,9 @@ function seed(
   attachIssuePageSource(pool, { replica } as Parameters<typeof attachIssuePageSource>[1])
 }
 
-/** The actual DOM, in order, including text, labels and layout attributes.
- * Only React's generated accessibility IDs are renamed consistently. */
+/** The desktop DOM, in order, including text, labels and layout attributes.
+ * The pilot mounted a CSS-hidden duplicate mobile Details subtree; exclude it
+ * before assigning accessibility IDs so its removal has no visible oracle cost. */
 function rendered(root: Element): unknown {
   const ids = new Map<string, string>()
   const id = (value: string) => {
@@ -362,6 +364,7 @@ function rendered(root: Element): unknown {
   const visit = (node: Node): unknown => {
     if (node.nodeType === Node.TEXT_NODE) return node.textContent?.replace(/\s+/g, ' ')
     if (!(node instanceof Element)) return null
+    if (node.getAttribute('data-testid') === 'issue-details-mobile') return null
     const attrs = Object.fromEntries(
       [...node.attributes].map((attr) => [
         attr.name,
@@ -470,6 +473,8 @@ describe('issue page rendered pool parity', () => {
     'list',
   ] as const)('preserves the %s text, labels, order, layout and loader results with zero legacy derivations', async (surface) => {
     const next = await arm(surface)
+    if (process.env.PODIUM_DETAIL_PARITY_CAPTURE)
+      writeFileSync(`${process.env.PODIUM_DETAIL_PARITY_CAPTURE}.${surface}.json`, JSON.stringify({ main: next.main, expanded: next.expanded }, null, 2))
     expectPoolOutput({ main: next.main, expanded: next.expanded }, 'rendered output')
     expect(next.reads).toBe(0)
     expect(

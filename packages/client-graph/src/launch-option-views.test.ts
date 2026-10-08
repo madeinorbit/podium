@@ -5,7 +5,7 @@ import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { headerEntities } from './header-entities'
-import { launchOptionViews } from './launch-option-views'
+import { createLaunchCatalogPicker, createLaunchWorkPicker, launchOptionViews } from './launch-option-views'
 import { MobxPool } from './pool'
 
 it('keeps open phone repository deltas addressed at 1x/4x and releases demand on close', async () => {
@@ -31,12 +31,13 @@ it('keeps open phone repository deltas addressed at 1x/4x and releases demand on
       .spyOn(pool.queries, 'activity')
       .mockImplementation((question) => activity.get(question.roots[0]!) ?? 0)
     const latest = vi.spyOn(pool.queries, 'latestMachineSession').mockReturnValue(undefined)
-    const views = launchOptionViews(pool)
-    let work!: ReturnType<typeof views.newWork>
+    const views = launchOptionViews(pool), picker = createLaunchWorkPicker(pool)
+    picker.open()
+    let work!: ReturnType<typeof picker.newWork>
     let paths!: string[]
     const stop = autorun(() => {
-      work = views.newWork()
-      paths = views.repositoryPaths()
+      work = picker.newWork()
+      paths = picker.repositoryPaths
     })
     try {
       expect(work.repos).toEqual(
@@ -75,14 +76,19 @@ it('keeps open phone repository deltas addressed at 1x/4x and releases demand on
         'changed',
       )
       const beforeUsage = { ...views.counts }
+      query.mockClear()
       const used = await measureWork(async () => runInAction(() => activity.set('/repo/23', 100)), {
         pool,
       })
+      expect(paths[0]).not.toBe('/repo/23')
+      expect(work.repos[0]?.path).not.toBe('/repo/23')
+      expect(query).not.toHaveBeenCalled()
+      expect(views.counts.repositoryBuilds).toBe(beforeUsage.repositoryBuilds)
+      expect(views.counts.usageQueries).toBe(beforeUsage.usageQueries)
+      picker.open()
       expect(paths[0]).toBe('/repo/23')
       expect(work.repos[0]?.path).toBe('/repo/23')
-      expect(views.repositoryActivity('/repo/23')).toBe(100)
-      expect(views.counts.repositoryBuilds).toBe(beforeUsage.repositoryBuilds)
-      expect(views.counts.usageQueries - beforeUsage.usageQueries).toBe(2)
+      expect(picker.repositoryActivity('/repo/23')).toBe(100)
       stop()
       const closedCounts = { ...views.counts }
       const closed = await measureWork(
@@ -142,28 +148,32 @@ it('preserves clone ordering, linked-scan exclusion, and pinned project choices'
       }) as never,
     dispose() {},
   })
-  const views = launchOptionViews(pool)
-  let projects!: ReturnType<typeof views.newWork>
+  const views = launchOptionViews(pool), picker = createLaunchWorkPicker(pool), catalog = createLaunchCatalogPicker(pool)
+  picker.open(); catalog.open()
+  let projects!: ReturnType<typeof picker.newWork>
   const stop = autorun(() => {
-    projects = views.newWork()
+    projects = picker.newWork()
   })
   try {
     expect(views.origin('/first').repo).toEqual(reposToViews(repos)[0])
-    expect(views.catalog().repoPaths).toEqual(['/first', '/second'])
-    expect(views.catalog().initialRepoPath).toBe('/first')
+    expect(catalog.catalog().repoPaths).toEqual(['/first', '/second'])
+    expect(catalog.catalog().initialRepoPath).toBe('/first')
     expect(projects.repos).toMatchObject([{ path: '/first', worktrees: [] }])
     runInAction(() => pins.set({ repos: [], worktrees: pins.get().worktrees }))
     expect(projects.repos).toEqual([])
     runInAction(() => entities.order('repository', ['r1', 'r0', 'r2']))
-    expect(views.repositoryPaths()).toEqual(['/second'])
-    expect(views.catalog().repoPaths).toEqual(['/first', '/second'])
-    expect(views.catalog().initialRepoPath).toBe('/second')
+    expect(picker.repositoryPaths).toEqual(['/second'])
+    expect(catalog.catalog().repoPaths).toEqual(['/first', '/second'])
+    expect(catalog.catalog().initialRepoPath).toBe('/first')
+    catalog.open()
+    expect(catalog.catalog().initialRepoPath).toBe('/second')
     entities.apply([{ kind: 'repository', id: 'r1', value: undefined }])
-    expect(views.repositoryPaths()).toEqual(['/first'])
-    expect(views.catalog().repoPaths).toEqual(['/first'])
-    entities.order('repository', ['r3'])
-    expect(views.catalog().repoPaths).toEqual([])
-    expect(views.catalog().initialRepoPath).toBe('/unlisted')
+    expect(picker.repositoryPaths).toEqual(['/first'])
+    expect(catalog.catalog().repoPaths).toEqual(['/first'])
+    runInAction(() => entities.order('repository', ['r3']))
+    expect(catalog.catalog().repoPaths).toEqual([])
+    catalog.open()
+    expect(catalog.catalog().initialRepoPath).toBe('/unlisted')
   } finally {
     stop()
     activity.mockRestore()
@@ -187,14 +197,15 @@ it('keeps exact new-work usage distinct from containing-path new-task usage', ()
       question.roots[0] === (question.match === 'exact' ? '/a' : '/b') ? 100 : 0,
     )
   const latest = vi.spyOn(pool.queries, 'latestMachineSession').mockReturnValue(undefined)
-  const views = launchOptionViews(pool)
+  const picker = createLaunchWorkPicker(pool)
+  picker.open()
   const stop = autorun(() => {
-    views.newWork()
-    views.repositoryPaths()
+    picker.newWork()
+    picker.repositoryPaths
   })
   try {
-    expect(views.newWork().repos[0]?.path).toBe('/a')
-    expect(views.repositoryPaths()[0]).toBe('/b')
+    expect(picker.newWork().repos[0]?.path).toBe('/a')
+    expect(picker.repositoryPaths[0]).toBe('/b')
   } finally {
     stop()
     query.mockRestore()

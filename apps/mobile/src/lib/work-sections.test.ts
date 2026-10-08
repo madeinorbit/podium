@@ -1,6 +1,6 @@
 import type { MobxPool } from '@podium/client-graph/pool'
 import {
-  MobileWorkIndex,
+  MobileSectionsView,
   type MobileWorkRef,
   type MobileWorkSection,
 } from '@podium/client-graph/worklist/mobile'
@@ -104,6 +104,14 @@ function nativeSections(pinned: Row[], groups: Group[]) {
         : undefined,
     row: () => undefined,
   } as unknown as MobxPool
+  views.set('worklist.view', {
+    foldLatch: observable.box(false),
+    knownRow: pool.issue,
+    desktop: (pool as unknown as { sidebar: unknown }).sidebar,
+    reference: (id: string, kind = 'issue', attention = false) => ({
+      id, kind, listKey: attention ? `needs-you:${id}` : id,
+    }),
+  })
   // File every row into the groups view the mobile sections read: pinned to
   // the PINNED lane, open/snoozed/closed rows to their group lane with the
   // snooze band. Ranks are id-ordered; fixture rows carry no sort keys.
@@ -136,7 +144,7 @@ function nativeSections(pinned: Row[], groups: Group[]) {
       for (const row of group.closedRows) file(row.id, group.key, 'closedRows')
     }
   })
-  return new MobileWorkIndex(pool).sections()
+  return new MobileSectionsView(pool, {}).value.get()
 }
 const bandKeys = (split: ReturnType<typeof nativeSections>) =>
   split.sections.map((section) => section.key)
@@ -302,7 +310,6 @@ describe('MobileSearchSections', () => {
         size: 0,
       },
       queries: { localTextIds: () => new Set<string>() },
-      mobileWork: { row: ({ id }: { id: string }) => rows.get(id) },
       // Worktree labels resolve through the sidebar view now: lane rows by
       // path plus a session roster per lane. The seat id only opens the
       // roster gate; it resolves to no session and contributes nothing.
@@ -317,7 +324,9 @@ describe('MobileSearchSections', () => {
         entity === 'worktree' ? { roster: { ids: ['search-seat'], pending: 0 } } : undefined,
       sources: {
         view: (() => {
-          const views = new Map<string, unknown>()
+          const views = new Map<string, unknown>([['worklist.view', {
+            phone: { row: ({ id }: { id: string }) => rows.get(id) },
+          }]])
           return (key: string, create: () => unknown) => {
             if (!views.has(key)) views.set(key, create())
             return views.get(key)
@@ -390,7 +399,7 @@ describe('MobileSearchSections', () => {
         },
         // Worktree labels resolve through the sidebar view now, so the
         // bounded reads are pool.row calls: one per worktree ref, never an
-        // issue row. The legacy mobileWork seam below is dead.
+        // issue row. This fixture has no shared worktree model to paint.
         row: (entity: string, id: string) => {
           if (entity === 'issue') {
             calls.issueRows++
@@ -447,10 +456,9 @@ describe('MobileSearchSections', () => {
       expect(calls.textPasses).toBe(1)
       // No issue row is read or painted while matching — matched or not.
       expect(calls.issueRows).toBe(0)
-      // Worktree labels are short lane strings read twice each (the LOADING
-      // gate plus the lane); the count is twice the worktree count,
-      // independent of the issue corpus.
-      expect(calls.treeRows).toBe(trees.length * 2)
+      // One readiness read per missing worktree model, independent of the
+      // issue corpus. A missing model does not request a second row copy.
+      expect(calls.treeRows).toBe(trees.length)
       cells.push({
         scale,
         issues: issueCount + snoozed.length + closed.length,

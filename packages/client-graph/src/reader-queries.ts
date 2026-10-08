@@ -32,6 +32,13 @@ interface IdentityResult {
   answer: ReturnType<typeof createKeyedAnswer<string>>
   nextOrder: number
 }
+interface WatchedQuestion {
+  atom: IAtom
+  version: number
+  revision(index: ColdQueries): number
+  routes(index: ColdQueries): readonly string[]
+  keys: readonly string[]
+}
 
 /** Query bridge, not a history index in the pool. Production questions go to
  * the row source's cold index; a directly-fed pool (fixtures, standalone
@@ -79,10 +86,16 @@ export class ReaderQueries {
   private readonly firstWorktreeAtom = createAtom('history.firstWorktree')
   private effectiveSessions: SessionQuestions | undefined
   private effectiveSource: ColdQueries | undefined
-  private readonly observed = new Map<
-    string,
-    { atom: IAtom; version: number; revision(index: ColdQueries): number }
-  >()
+  private readonly observed = new Map<string, WatchedQuestion>()
+  private readonly queryRoutes = new Map<string, Set<string>>()
+  private readonly dirtyQueries = new Map<string, Set<string>>()
+  private readonly questionMembers = new Map<string, {
+    question: ReaderQuestion; keys: readonly string[]; listeners: Set<(id: string | undefined) => void>
+  }>()
+  private publishing = false
+  private readerChangeSource: ColdQueries | undefined
+  private stopReaderChanges: (() => void) | undefined
+  private stopResidentChanges: (() => void) | undefined
   private readonly listeners = new Set<(event: RowSourceEvent) => void>()
   private readonly memberListeners = new Map<string, Set<(id: string | undefined) => void>>()
   private sourceSeen: ColdQueries | undefined
@@ -105,7 +118,7 @@ export class ReaderQueries {
     session: new Set<string>(),
   }
   private readonly stopTables: (() => void)[] = []
-  readonly counts = { questions: 0, returnedIds: 0, scalarVisits: 0 }
+  readonly counts = { questions: 0, returnedIds: 0, scalarVisits: 0, revisionChecks: 0, membershipChecks: 0 }
   constructor(
     private readonly pool: MobxPool,
     _schema: ModelSchema,
@@ -116,7 +129,7 @@ export class ReaderQueries {
         observe(pool.tables[entity], (change) => {
           this.updateResident(entity, change.name)
           this.correctCount(entity, change.name)
-          this.updateIdentity(entity, change.name)
+          if (!this.publishing) this.publishQueries()
         }),
       )
     this.stopTables.push(
@@ -125,10 +138,8 @@ export class ReaderQueries {
           change.type === 'delete'
             ? undefined
             : (pool.row('repo', change.name) as Readonly<Record<string, unknown>> | undefined)
-        this.changeRepoIdentity(
-          change.name,
-          typeof row?.prefix === 'string' ? row.prefix : undefined,
-        )
+        this.updateRepo(change.name, row)
+        if (!this.publishing) this.publishQueries()
       }),
     )
     this.stopTables.push(
@@ -206,15 +217,17 @@ export class ReaderQueries {
       if (present) this.residentIssueIds.add(id)
       else this.residentIssueIds.delete(id)
     }
+    // Index stored fields, including painted edits, from the resident slot.
+    // A display facade would evaluate companion joins during hydration.
     // untracked-read: reader-resident-maintenance
-    const row = present ? untracked(() => this.pool.row(entity, id, 'summary-fields')) : undefined
+    const row = present ? untracked(() => this.pool.tables[entity].get(id)) : undefined
     this.residents.apply({
       type: 'update',
       rows: [
         {
           kind: entity,
           id,
-          value: row && row !== LOADING ? row : undefined,
+          value: row,
         } as RowSourceEvent['rows'][number],
       ],
     })
@@ -223,7 +236,7 @@ export class ReaderQueries {
         if (present)
           questions.set(
             id,
-            row && row !== LOADING ? (row as Readonly<Record<string, unknown>>) : undefined,
+            row as Readonly<Record<string, unknown>> | undefined,
           )
         else questions.setFacts(id, this.index().sessionQuestionFact(id))
       })
@@ -232,7 +245,7 @@ export class ReaderQueries {
         if (present)
           identities.set(
             id,
-            row && row !== LOADING ? (row as Readonly<Record<string, unknown>>) : undefined,
+            row as Readonly<Record<string, unknown>> | undefined,
           )
         else identities.setFact(id, this.index().issueIdentityFact(id))
       })
@@ -240,21 +253,23 @@ export class ReaderQueries {
         if (present)
           questions.set(
             id,
-            row && row !== LOADING ? (row as Readonly<Record<string, unknown>>) : undefined,
+            row as Readonly<Record<string, unknown>> | undefined,
           )
         else questions.setFacts(id, this.index().issueQuestionFact(id))
       })
       this.publishIssueScope(id)
     }
-    // Ranked windows do not have an identity answer to publish a delta through.
-    for (const [key, state] of this.observed) {
-      if (this.identities.has(key) || key.startsWith('count:')) continue
-      const version = state.revision(this.index())
-      if (state.version !== version) {
-        state.version = version
-        state.atom.reportChanged()
-      }
-    }
+    this.routeQueryChanges(this.residents.changes)
+  }
+  private updateRepo(id: string, row: Readonly<Record<string, unknown>> | undefined): void {
+    // Repository facets join normalized resident keys when a query asks for
+    // them. Keep them current on repository changes, never on issue loads.
+    this.residents.apply({
+      type: 'update',
+      rows: [{ kind: 'repo', id, value: row } as RowSourceEvent['rows'][number]],
+    })
+    this.routeQueryChanges(this.residents.changes)
+    this.changeRepoIdentity(id, typeof row?.prefix === 'string' ? row.prefix : undefined)
   }
   private sessionQuestions(): SessionQuestions {
     const index = this.index()
@@ -402,6 +417,7 @@ export class ReaderQueries {
     this.repoOverrides.set(id, prefix)
     const row = this.pool.row('repo', id) as Readonly<Record<string, unknown>> | undefined
     this.residents.apply({ type: 'update', rows: [{ kind: 'repo', id, value: row }] })
+    this.routeQueryChanges(this.residents.changes)
     const identities = this.issueIdentities(),
       before = identities.repoPrefix(id)
     const bare = identities.setRepo(id, prefix)
@@ -565,6 +581,7 @@ export class ReaderQueries {
     )
   }
   private includes(question: ReaderQuestion, id: string): boolean {
+    this.counts.membershipChecks++
     if (question.kind === 'residentIssues') return this.residentIssueIds.has(id)
     if (!this.sourceOnly(question) && this.pool.tables[questionEntity(question)].has(id))
       return this.residents.contains(question, id)
@@ -646,6 +663,17 @@ export class ReaderQueries {
     change(questions)
     const next = questions.fact(id)
     const afterVisible = questions.present(id)
+    if (previous?.activity !== next?.activity || previous?.archived !== next?.archived ||
+        beforePresent !== (next !== undefined)) this.routeQuery('session:recent', id)
+    if (previous?.machineId !== next?.machineId || previous?.createdAt !== next?.createdAt ||
+        previous?.order !== next?.order || beforeVisible !== afterVisible) {
+      if (previous?.machineId) this.routeQuery(`machine:${previous.machineId}`, id)
+      if (next?.machineId) this.routeQuery(`machine:${next.machineId}`, id)
+    }
+    if (beforeVisible !== afterVisible) this.routeQuery('setup:count', id)
+    if (beforeVisible !== afterVisible || previous?.activity !== next?.activity ||
+        previous?.agentKind !== next?.agentKind || previous?.headless !== next?.headless ||
+        previous?.setupOrder !== next?.setupOrder) this.routeQuery('setup:agent', id)
     this.publishSessionActivity(previous, beforeVisible, next, afterVisible)
     if (beforePresent !== (next !== undefined))
       this.sessionAtoms.get(`presence:${id}`)?.reportChanged()
@@ -815,16 +843,13 @@ export class ReaderQueries {
     state.value = value
     state.atom.reportChanged()
   }
-  private updateIdentity(entity: 'issue' | 'session', id: string): void {
-    for (const [key, result] of this.identities) {
-      if (questionEntity(result.question) !== entity) continue
+  private updateIdentity(key: string, result: IdentityResult, id: string): void {
       const before = result.answer.has(id),
         after = this.includes(result.question, id)
-      if (before === after) continue
+      if (before === after) return
       if (after) this.addIdentity(result, id)
       else result.answer.delete(id)
       this.observed.get(key)?.atom.reportChanged()
-    }
   }
   private addIdentity(result: IdentityResult, id: string): void {
     const order =
@@ -841,22 +866,138 @@ export class ReaderQueries {
   private index(): ColdQueries {
     return this.source()
   }
-  private watch(key: string, revision: (index: ColdQueries) => number): ColdQueries {
+  private routeQuery(route: string, id: string): void {
+    for (const key of this.queryRoutes.get(route) ?? []) {
+      let ids = this.dirtyQueries.get(key)
+      if (!ids) this.dirtyQueries.set(key, ids = new Set())
+      ids.add(id)
+    }
+  }
+  private routeQueryChanges(changes: ReadonlyMap<string, ReadonlySet<string>>): void {
+    for (const [route, ids] of changes)
+      for (const id of ids) this.routeQuery(route, id)
+  }
+  private unrouteQuery(key: string, state: { keys: readonly string[] }): void {
+    for (const route of state.keys) {
+      const keys = this.queryRoutes.get(route)
+      keys?.delete(key)
+      if (!keys?.size) this.queryRoutes.delete(route)
+    }
+    if (!this.queryRoutes.size) this.releaseReaderChanges()
+  }
+  private refileQuery(key: string, state: WatchedQuestion, index: ColdQueries): void {
+    this.unrouteQuery(key, state)
+    state.keys = [...new Set(state.routes(index))]
+    this.registerRoutes(key, state.keys)
+  }
+  private registerRoutes(key: string, routes: readonly string[]): void {
+    const index = this.index()
+    this.sourceSeen ??= index
+    if (!this.stopResidentChanges) this.stopResidentChanges = this.residents.watchChanges()
+    if (this.readerChangeSource !== index) {
+      this.stopReaderChanges?.()
+      this.readerChangeSource = index
+      this.stopReaderChanges = index.watchReaderChanges()
+    }
+    for (const route of routes) {
+      let keys = this.queryRoutes.get(route)
+      if (!keys) this.queryRoutes.set(route, keys = new Set())
+      keys.add(key)
+    }
+  }
+  private releaseReaderChanges(): void {
+    this.stopReaderChanges?.()
+    this.stopResidentChanges?.()
+    this.stopReaderChanges = this.stopResidentChanges = undefined
+    this.readerChangeSource = undefined
+  }
+  private publishQueries(reset = false, companionChanged = false): void {
+    const index = this.index()
+    const keys = reset ? new Set([...this.observed.keys(), ...this.questionMembers.keys()]) : this.dirtyQueries.keys()
+    for (const key of keys) {
+      const members = this.questionMembers.get(key)
+      if (members) {
+        if (reset || companionChanged) {
+          this.unrouteQuery(key, members)
+          members.keys = this.questionRoutesFor(members.question, index)
+          this.registerRoutes(key, members.keys)
+          for (const listener of [...members.listeners]) listener(undefined)
+        } else for (const id of this.dirtyQueries.get(key) ?? [])
+          for (const listener of members.listeners) listener(id)
+      }
+      const state = this.observed.get(key)
+      if (!state) continue
+      this.counts.revisionChecks++
+      const version = state.revision(index)
+      const result = this.identities.get(key)
+      const joined = result?.question.kind === 'sessionReference' ||
+        (result?.question.kind === 'boardIssues' && !!result.question.projectPaths?.length)
+      if (result && (reset || result.source !== index || (joined && companionChanged && state.version !== version))) {
+        this.identities.set(key, this.identityResult(result.question, index))
+        state.atom.reportChanged()
+      } else if (result) {
+        for (const id of this.dirtyQueries.get(key) ?? []) this.updateIdentity(key, result, id)
+      } else if (state.version !== version || reset) state.atom.reportChanged()
+      state.version = version
+      // Companion joins can change the concrete repo/ref revision keys.
+      if (reset || companionChanged) this.refileQuery(key, state, index)
+    }
+    this.dirtyQueries.clear()
+  }
+  private questionRoutesFor(question: ReaderQuestion, index: ColdQueries): readonly string[] {
+    return [...new Set([...index.readerRevisionKeys(question),
+      ...(this.sourceOnly(question) ? [] : this.residents.revisionKeys(question))])]
+  }
+  private onQuestionMembers(question: ReaderQuestion, listener: (id: string | undefined) => void): () => void {
+    const questionKey = JSON.stringify(question)
+    // Source-only projections and identity readers ask the same revision
+    // question. Share its existing routes rather than registering them twice.
+    const key = this.sourceOnly(question) ? questionKey : `members:${questionKey}`
+    const observed = this.observed.get(key)
+    let state = this.questionMembers.get(key)
+    if (!state) {
+      state = { question, keys: observed?.keys ?? this.questionRoutesFor(question, this.index()), listeners: new Set() }
+      this.questionMembers.set(key, state)
+      if (!observed) this.registerRoutes(key, state.keys)
+    }
+    state.listeners.add(listener)
+    return () => {
+      state.listeners.delete(listener)
+      if (!state.listeners.size) {
+        this.questionMembers.delete(key)
+        if (!this.observed.has(key)) {
+          this.unrouteQuery(key, state)
+          this.dirtyQueries.delete(key)
+        }
+      }
+    }
+  }
+  private watch(key: string, revision: (index: ColdQueries) => number,
+    routes: (index: ColdQueries) => readonly string[]): ColdQueries {
     const index = this.index()
     let state = this.observed.get(key)
     const created = state === undefined
     if (!state) {
       state = {
         atom: createAtom(`history.${key}`, undefined, () => {
+          const state = this.observed.get(key)
           this.observed.delete(key)
           this.identities.delete(key)
+          if (state && !this.questionMembers.has(key)) {
+            this.unrouteQuery(key, state)
+            this.dirtyQueries.delete(key)
+          }
         }),
         version: revision(index),
         revision,
+        routes,
+        keys: [],
       }
       this.observed.set(key, state)
     }
-    if (!state.atom.reportObserved() && created) this.observed.delete(key)
+    if (!state.atom.reportObserved() && created) {
+      this.observed.delete(key)
+    } else if (created) this.refileQuery(key, state, index)
     return index
   }
   private publicationTopologyBefore:
@@ -865,6 +1006,7 @@ export class ReaderQueries {
   /** Keep the named before facts before table observers can adopt a freshly
    * replaced source root. This is publication input, released at publish. */
   beginPublication(event: RowSourceEvent): void {
+    this.publishing = true
     this.publicationTopologyBefore = undefined
     if (
       !this.topologyListeners.size ||
@@ -941,7 +1083,7 @@ export class ReaderQueries {
         const row = untracked(() => this.pool.row('repo', id)) as
           | Readonly<Record<string, unknown>>
           | undefined
-        this.changeRepoIdentity(id, row && typeof row.prefix === 'string' ? row.prefix : undefined)
+        this.updateRepo(id, row)
       }
       const delta = index.changes(event)
       for (const [entity, id] of [...delta.flips, ...delta.orders])
@@ -955,7 +1097,6 @@ export class ReaderQueries {
       if (row.kind === 'issue' || row.kind === 'session') {
         if (event.type !== 'replace' && !fresh) {
           this.correctCount(row.kind, row.id)
-          this.updateIdentity(row.kind, row.id)
         }
         if (row.kind === 'session' && !this.pool.tables.session.has(row.id))
           this.changeSessionFacts(row.id, (questions) =>
@@ -994,27 +1135,10 @@ export class ReaderQueries {
       }
       this.publishTopology({ reset: true, sessions })
     }
-    for (const [key, state] of this.observed) {
-      const version = state.revision(index)
-      const result = this.identities.get(key)
-      const joinedQuestion =
-        result?.question.kind === 'sessionReference' ||
-        (result?.question.kind === 'boardIssues' && !!result.question.projectPaths?.length)
-      const companionMoved =
-        joinedQuestion &&
-        state.version !== version &&
-        event.rows.some((row) => row.kind === 'repo' || row.kind === 'worktree')
-      if (result && (event.type === 'replace' || result.source !== index || companionMoved)) {
-        this.identities.set(key, this.identityResult(result.question, index))
-        state.version = version
-        state.atom.reportChanged()
-      } else if (state.version !== version || fresh || event.type === 'replace') {
-        state.version = version
-        // Identity questions are notified only by a membership delta below.
-        // Counts and ordered windows still follow their declared revisions.
-        if (!result) state.atom.reportChanged()
-      }
-    }
+    this.routeQueryChanges(index.readerChanges())
+    this.publishQueries(event.type === 'replace' || fresh,
+      event.rows.some(row => row.kind === 'repo' || row.kind === 'worktree'))
+    this.publishing = false
     if (event.type === 'replace' || fresh) {
       for (const atom of this.sessionAtoms.values()) atom.reportChanged()
     } else {
@@ -1070,7 +1194,7 @@ export class ReaderQueries {
         ? this.sessionQuestions().recentRevision()
         : value.readerRevision(question) +
           (this.sourceOnly(question) ? 0 : this.residents.revision(question)),
-    )
+      value => question.kind === 'headerRecentSession' ? ['session:recent'] : this.questionRoutesFor(question, value))
     // Ranked windows stay bounded in the source's existing index.
     if (
       question.kind === 'issueMentionMatches' ||
@@ -1140,21 +1264,7 @@ export class ReaderQueries {
         // untracked-read: query-membership-probe
         has: (id) => untracked(() => this.includes(question, id)),
         read,
-        subscribe: (changed) => {
-          const entity = questionEntity(question)
-          const stopTable = observe(this.pool.tables[entity], (change) => changed(change.name))
-          let source = this.index()
-          const stopFeed = this.onChange((event) => {
-            if (event.type === 'replace' || source !== this.index()) {
-              source = this.index()
-              changed(undefined)
-            } else for (const row of event.rows) if (row.kind === entity) changed(row.id)
-          })
-          return () => {
-            stopTable()
-            stopFeed()
-          }
-        },
+        subscribe: changed => this.onQuestionMembers(question, changed),
         released: () => this.results.delete(key),
       })
       this.results.set(key, result)
@@ -1170,7 +1280,8 @@ export class ReaderQueries {
       { kind: 'sessionReference' | 'spawnIssues' | 'headerRecentSession' | 'containingIssues' }
     >,
   ): string[] {
-    const index = this.watch(JSON.stringify(question), (value) => value.readerRevision(question))
+    const index = this.watch(JSON.stringify(question), (value) => value.readerRevision(question),
+      value => value.readerRevisionKeys(question))
     const ids = index.readerIds(question)
     this.counts.questions++
     this.counts.returnedIds += ids.length
@@ -1180,7 +1291,7 @@ export class ReaderQueries {
     const question: ReaderQuestion = {
       kind: entity === 'issue' ? 'commandIssues' : 'commandSessions',
     }
-    const index = this.watch(`count:${entity}`, (value) => value.readerRevision(question))
+    const index = this.watch(`count:${entity}`, (value) => value.readerRevision(question), () => [`${entity}:all`])
     return index.count(entity) + this.extras[entity].size
   }
   repoIds(repoPath?: string): string[] {
@@ -1189,7 +1300,7 @@ export class ReaderQueries {
       repoPath === undefined
         ? value.issueRepoRevision + this.residents.repoRevision
         : value.issueRepoPathRevision(repoPath) + this.residents.repoPathRevision(repoPath),
-    )
+      () => [repoPath === undefined ? 'issue:repos' : `issueRepoPath:${machinePathKey(repoPath)}`])
     return [
       ...new Set([...index.issueRepoIds(repoPath), ...this.residents.repoIds(repoPath)]),
     ].sort()
@@ -1198,7 +1309,7 @@ export class ReaderQueries {
    * no fact objects, no descriptions. Tracked by the shared text revision so
    * board/explorer keystroke computeds re-run on title/seq edits only. */
   localTextIds(needle: string): Set<string> {
-    const index = this.watch('localText', (value) => value.localTextRevision())
+    const index = this.watch('localText', (value) => value.localTextRevision(), () => ['issue:localText'])
     const ids = index.localTextIds(needle)
     this.counts.questions++
     this.counts.returnedIds += ids.size
@@ -1233,7 +1344,7 @@ export class ReaderQueries {
   ): { machineId: string; createdAt: string } | undefined {
     this.watch(`latestMachine:${JSON.stringify(machineIds)}`, () =>
       this.sessionQuestions().machineRevision(machineIds),
-    )
+      () => machineIds.map(id => `machine:${id}`))
     const questions = this.sessionQuestions(),
       before = questions.visits
     const answer = questions.latest(machineIds)
@@ -1243,12 +1354,12 @@ export class ReaderQueries {
   /** Setup uses effective source winners, including archived/cold sessions.
    * These scalar answers never project the session catalog. */
   setupDefaultAgent(): string | undefined {
-    this.watch('setup:agent', () => this.sessionQuestions().setupRevision('agent'))
+    this.watch('setup:agent', () => this.sessionQuestions().setupRevision('agent'), () => ['setup:agent'])
     this.counts.scalarVisits++
     return this.sessionQuestions().setupAgent()
   }
   setupSessionCount(): number {
-    this.watch('setup:count', () => this.sessionQuestions().setupRevision('count'))
+    this.watch('setup:count', () => this.sessionQuestions().setupRevision('count'), () => ['setup:count'])
     this.counts.scalarVisits++
     return this.sessionQuestions().setupCount()
   }
@@ -1278,6 +1389,7 @@ export class ReaderQueries {
     } else atom.reportObserved()
   }
   dispose(): void {
+    this.releaseReaderChanges()
     for (const stop of this.stopTables) stop()
     this.repoOverrides.clear()
     this.repoPrefixCounts.clear()
@@ -1289,6 +1401,9 @@ export class ReaderQueries {
     this.listeners.clear()
     this.memberListeners.clear()
     this.observed.clear()
+    this.queryRoutes.clear()
+    this.dirtyQueries.clear()
+    this.questionMembers.clear()
     this.sessionAtoms.clear()
     this.issueScopeAtoms.clear()
     this.issueCloseAtoms.clear()

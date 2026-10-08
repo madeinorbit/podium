@@ -1,3 +1,7 @@
+import { issueObserver as observer } from './issue-observer'
+import { useIssuePageContext } from './issue-page-data'
+import { isFinished } from '@podium/model/browser'
+import type { SessionModel } from '@podium/client-graph/models'
 import type { SessionView } from '@podium/client-core/session-values'
 /**
  * NOW — what is true about this task at this second (POD-591).
@@ -41,19 +45,31 @@ import { MACHINE_LABEL } from './chrome'
  *  read top-down and the top is where the movement should be. */
 const PHASE_RANK: Record<string, number> = { working: 0, waiting: 1, queued: 2, done: 3 }
 
-export function IssueNow({
+export const IssueNow = observer(function IssueNow({
   issue,
-  sessions,
+  sessions: suppliedSessions,
   onOpenSession,
 }: {
   issue: IssueViewModel
-  sessions: SessionView[]
+  sessions?: SessionView[]
   onOpenSession: (sessionId: SessionView['sessionId']) => void
 }): JSX.Element | null {
-  if (sessions.length === 0) return null
+  const page = useIssuePageContext()
+  const sessions = suppliedSessions ?? page?.views.row(issue.id).lists.liveMembers.get() ?? []
+  if (typeof sessions === 'symbol') throw sessions
+  const total = suppliedSessions ? suppliedSessions.length : page?.views.row(issue.id).rosterCount ?? 0
+  if (total === 0) return null
 
   const ranked = [...sessions]
-    .map((session) => ({ session, phase: motionPhase(session, issue as unknown as IssueViewModel) }))
+    .map((session) => ({
+      session,
+      phase:
+        'motion' in session
+          ? isFinished(issue)
+            ? 'done'
+            : (session as SessionModel).motion
+          : motionPhase(session, issue),
+    }))
     .sort((a, b) => (PHASE_RANK[a.phase] ?? 9) - (PHASE_RANK[b.phase] ?? 9))
   const working = ranked.filter((r) => r.phase === 'working').length
   const waiting = ranked.filter((r) => r.phase === 'waiting').length
@@ -61,7 +77,7 @@ export function IssueNow({
   // finished. The block promises what is happening NOW, so it shows the live
   // ones and lets the rail's full roster answer "who has ever been here".
   const shown = ranked.filter((r) => r.phase === 'working' || r.phase === 'waiting').slice(0, 2)
-  const restCount = ranked.length - shown.length
+  const restCount = total - shown.length
 
   // NOTHING IS LIVE — so the block spends no structure on saying so (POD-635).
   // A task whose agents all finished yesterday was still getting the page's
@@ -71,7 +87,7 @@ export function IssueNow({
   if (shown.length === 0) {
     return (
       <p className="mb-9 font-mono text-[10px] text-text-faint" data-testid="issue-now">
-        {sessions.length} session{sessions.length === 1 ? '' : 's'} · none working
+        {total} session{total === 1 ? '' : 's'} · none working
       </p>
     )
   }
@@ -94,7 +110,7 @@ export function IssueNow({
           )}
         >
           {working > 0
-            ? `${working} of ${sessions.length} session${sessions.length === 1 ? '' : 's'} working`
+            ? `${working} of ${total} session${total === 1 ? '' : 's'} working`
             : `${waiting} waiting on you`}
         </span>
       </div>
@@ -143,4 +159,4 @@ export function IssueNow({
       )}
     </section>
   )
-}
+})

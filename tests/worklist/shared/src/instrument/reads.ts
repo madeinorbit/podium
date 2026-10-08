@@ -588,6 +588,7 @@ export function createReadFence(options: { enabled: boolean }): ReadFence {
         return wrapped
       }
       return {
+        issueSessionFact: source.issueSessionFact,
         snapshot(kind) {
           return source.snapshot(kind).map(borrowRecord)
         },

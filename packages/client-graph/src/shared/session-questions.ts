@@ -38,8 +38,11 @@ export interface SessionQuestionFacts {
   setupOrder: number
 }
 interface Bucket<T> { id: string; answer: KeyedAnswer<T> }
+interface FiledSessionFacts extends SessionQuestionFacts {
+  activityPaths: readonly string[]
+}
 interface Seed {
-  facts: KeyedAnswer<SessionQuestionFacts>
+  facts: KeyedAnswer<FiledSessionFacts>
   triage: KeyedAnswer<TriageSession>
   recent: KeyedAnswer<RecentSession>
   machines: KeyedAnswer<Bucket<MachineSession>>
@@ -59,6 +62,7 @@ interface Seed {
 export interface SessionQuestions {
   readonly visits: number
   readonly activityVisits: number
+  readonly activityPathsBuilt: number
   clear(): void
   /** Replace unpublished bootstrap facts, then expose ordinary persistent answers. */
   replace(rows: Iterable<readonly [string, Row | undefined]>): void
@@ -120,7 +124,7 @@ export function createSessionQuestions(
   seed?: Seed,
   setupOrder: (id: string) => number = () => 0,
 ): SessionQuestions {
-  let facts = seed?.facts.fork() ?? createKeyedAnswer<SessionQuestionFacts>()
+  let facts = seed?.facts.fork() ?? createKeyedAnswer<FiledSessionFacts>()
   let triage = seed?.triage.fork() ?? createKeyedAnswer<TriageSession>(compareTriageSessions)
   let recent = seed?.recent.fork() ?? createKeyedAnswer<RecentSession>(compareRecent)
   let machines = seed?.machines.fork() ?? createKeyedAnswer<Bucket<MachineSession>>()
@@ -135,7 +139,7 @@ export function createSessionQuestions(
   let setupMembers = seed?.setupMembers.fork() ?? createKeyedAnswer<boolean>()
   let setupCount = seed?.setupCount ?? 0
   let version = seed?.version ?? 0, replacement = seed?.replacement ?? 0
-  let visits = 0, activityVisits = 0
+  let visits = 0, activityVisits = 0, activityPathsBuilt = 0
   let building = false
   let builders: (() => unknown)[] = []
   function newAnswer<T>(compare?: (a: T, b: T) => number, point?: (value: T) => number): KeyedAnswer<T> {
@@ -164,8 +168,10 @@ export function createSessionQuestions(
     if (winner?.agentKind !== after?.agentKind) touch('setup:agent')
   }
   function activityPaths(value: SessionQuestionFacts): string[] {
-    const keys = paths(value.cwd).map(path => `activity:${path}`)
-    return value.agentKind === 'shell' ? keys : [...keys, ...paths(value.cwd).map(path => `agentActivity:${path}`)]
+    activityPathsBuilt++
+    const cwdPaths = paths(value.cwd)
+    const keys = cwdPaths.map(path => `activity:${path}`)
+    return value.agentKind === 'shell' ? keys : [...keys, ...cwdPaths.map(path => `agentActivity:${path}`)]
   }
   function fileClose(id: string, value: SessionQuestionFacts | undefined) {
     const previous = closeMembers.get(id)
@@ -195,7 +201,7 @@ export function createSessionQuestions(
     else collection.delete(key)
     touch(key)
   }
-  function file(value: SessionQuestionFacts) {
+  function file(value: FiledSessionFacts) {
     fileClose(value.id, value)
     fileSetup(value.id, value)
     const visible = !collapsed(value.id)
@@ -225,7 +231,7 @@ export function createSessionQuestions(
     if (value.machineId) bucket(machines, `machine:${value.machineId}`, value.id,
       visible ? { id: value.id, machineId: value.machineId, createdAt: value.createdAt, order: value.order } : undefined,
       compareMachineSessions)
-    for (const path of activityPaths(value)) bucket(activities, path, value.id,
+    for (const path of value.activityPaths) bucket(activities, path, value.id,
       visible ? { id: value.id, at: Date.parse(value.activity) || 0 } : undefined, compareActivity)
   }
   function setFacts(id: string, next: SessionQuestionFacts | undefined) {
@@ -235,9 +241,14 @@ export function createSessionQuestions(
       bucket(references, `ref:${before.referenceKey}`, id, undefined, compareReference)
     if (before?.machineId && before.machineId !== next?.machineId)
       bucket(machines, `machine:${before.machineId}`, id, undefined, compareMachineSessions)
-    const nextPaths = next ? new Set(activityPaths(next)) : undefined
-    if (before) for (const path of activityPaths(before))
-      if (!nextPaths?.has(path)) bucket(activities, path, id, undefined, compareActivity)
+    const samePaths = before && next && before.cwd === next.cwd &&
+      (before.agentKind === 'shell') === (next.agentKind === 'shell')
+    const nextPaths = next ? samePaths ? before.activityPaths : activityPaths(next) : []
+    if (before && !samePaths) {
+      const remaining = new Set(nextPaths)
+      for (const path of before.activityPaths)
+        if (!remaining.has(path)) bucket(activities, path, id, undefined, compareActivity)
+    }
     future.delete(id)
     expired.delete(id)
     if (!next) {
@@ -248,8 +259,9 @@ export function createSessionQuestions(
       if (recent.has(id)) { recent.delete(id); touch('recent') }
       return
     }
-    facts.set(id, id, next)
-    file(next)
+    const filed = { ...next, activityPaths: nextPaths }
+    facts.set(id, id, filed)
+    file(filed)
   }
   const api: SessionQuestions = {
     hasWithin: path => activities.get(`activity:within:${machinePathKey(path)}`)?.answer.first() !== undefined,
@@ -261,11 +273,12 @@ export function createSessionQuestions(
     setupRevision: kind => Math.max(replacement, revisions.get(`setup:${kind}`) ?? 0),
     get visits() { return visits },
     get activityVisits() { return activityVisits },
+    get activityPathsBuilt() { return activityPathsBuilt },
     fork: (isCollapsed, orderKey) => createSessionQuestions(isCollapsed, orderKey,
       { facts, triage, recent, machines, activities, revisions, future, expired, closeMembers, closeCounts, references,
         setupAgents, setupMembers, setupCount, version, replacement }, setupOrder),
     clear() {
-      facts = newAnswer<SessionQuestionFacts>()
+      facts = newAnswer<FiledSessionFacts>()
       triage = newAnswer<TriageSession>(compareTriageSessions)
       recent = newAnswer<RecentSession>(compareRecent)
       machines = newAnswer<Bucket<MachineSession>>()

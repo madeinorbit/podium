@@ -1,4 +1,5 @@
 /** Row and local channels consumed by the worklist pool. */
+import type { IssueSessionFactReader } from './issue-session-facts'
 import type { FeedDiagnostics } from './feed-diagnostics'
 import type { ColdQueries, HeldSummaries } from './cold-index'
 import type { LocalsKey, SliceIssue, SliceSession, SliceWorktree, SliceLocals } from './slice-types'
@@ -11,6 +12,8 @@ import type { LocalsKey, SliceIssue, SliceSession, SliceWorktree, SliceLocals } 
 export interface RowSource {
   /** Always-on failure counters, shared with the attached pool. */
   readonly diagnostics?: FeedDiagnostics
+  /** Tracked scalar ownership facts, independent of the issue record. */
+  readonly issueSessionFact?: IssueSessionFactReader
   /** Current rows of one kind, in stream order. */
   snapshot(kind: RowRecord['kind']): RowRecord[]
   /** Always-resident companion records, when this source owns that channel. */

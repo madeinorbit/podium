@@ -38,7 +38,6 @@ function build(scale: number) {
     updatedAt: '2026-10-03T10:00:00Z',
     readAt: '2026-10-03T11:00:00Z',
     deps: [],
-    sessionFacts: { replicaActivityAt: '2026-10-03T11:59:00Z' },
   }
   const session = (id: string, extra: Row): Row => ({
     sessionId: id,
@@ -76,7 +75,7 @@ function build(scale: number) {
 /** The members answers, live, and from the plain rebuild (every seat judged directly). */
 function answers(pool: MobxPool) {
   return runInAction(() => {
-    const issue = pool.issueObject(ROOT)
+    const issue = pool.worklistRow(ROOT)!
     const live = {
       retainedSeatIds: issue.retainedSeatIds,
       rosterIds: issue.rosterIds,
@@ -133,7 +132,7 @@ async function run(scale: number) {
   const parity: ReturnType<typeof answers>[] = []
   // What a drawn row and the filing read of the issue.
   const stop = autorun(() => {
-    const issue = pool.issueObject(ROOT)
+    const issue = pool.worklistRow(ROOT)!
     void [
       issue.retainedSeatIds,
       issue.rosterIds,
@@ -159,7 +158,6 @@ async function run(scale: number) {
       const at = new Date(stamp).toISOString()
       publish([
         { kind: 'session', value: { ...seat, lastActiveAt: at } },
-        { kind: 'issue', value: { ...root, sessionFacts: { replicaActivityAt: at } } },
       ])
     })
     await step('mark-read', () =>

@@ -1,4 +1,7 @@
-import type { IssueModel } from '@podium/client-graph/models'
+import { hostOf, type IssueModel } from '@podium/client-graph/models'
+import { WorklistIssue } from '@podium/client-graph/worklist/issue'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { ROW_DISPLAYED_FIELDS, ROW_VIEW_FIELDS, type RowView } from '@podium/client-graph/shared/row-view'
 
 /**
@@ -39,6 +42,7 @@ export function plainRowView(row: RowView): RowView {
  * interface, `plainRowView`): what a gate or a test compares with the
  * rebuild. Undefined while the row is not in memory. Drawing never calls it.
  */
-export function rowViewOf(issue: IssueModel | undefined): RowView | undefined {
-  return issue === undefined || !issue.inMemory ? undefined : plainRowView(issue)
+export function rowViewOf(issue: IssueModel | WorklistIssue | undefined): RowView | undefined {
+  if (issue === undefined || !issue.inMemory) return undefined
+  return plainRowView(issue instanceof WorklistIssue ? issue : worklistView(hostOf(issue) as MobxPool).row(issue))
 }

@@ -36,12 +36,12 @@ const pool = new MobxPool({ selectedIssueId: 'heap-issue-0', coarseNow: now })
 pool.apply({ type: 'replace', rows })
 const stops = [autorun(() => {
   for (let i = 0; i < count; i++) {
-    const issue = pool.model('issue', `heap-issue-${i}`)!
+    const issue = pool.worklistRow(`heap-issue-${i}`)!
     void sidebarIssueRow(issue, pool)
     void issue.flat
     void issue.keeps
     void issue.present
-    void pool.model('session', `heap-session-${i}`)!.retention
+    void pool.visibleInputs.session(`heap-session-${i}`).retention
   }
   void headerEntities(pool)
   void headerView(pool).selectedIssue()

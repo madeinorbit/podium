@@ -1,16 +1,17 @@
 import { observer } from 'mobx-react-lite'
 import type { ReactElement } from 'react'
-import type { IssueModel } from '../models'
+import type { WorklistIssue } from '../worklist/issue'
+import { worklistView } from '../worklist/view-model'
 import type { MobxPool } from '../pool'
 
-export type IssueRenderer = (model: IssueModel) => ReactElement | null
+export type IssueRenderer = (model: WorklistIssue) => ReactElement | null
 
 /** Observe residency independently from the row component's field reads. */
 const PoolRowView = observer(function PoolRowView({
   model,
   renderRow,
 }: {
-  model: IssueModel
+  model: WorklistIssue
   renderRow: IssueRenderer
 }): ReactElement | null {
   if (!model.inMemory) return null
@@ -33,5 +34,5 @@ export const PoolRowSlot = observer(function PoolRowSlot({
   if (model === undefined) {
     return pool.resident('issue', id) === 'loading' ? (renderLoading?.(id) ?? null) : null
   }
-  return <PoolRowView model={model} renderRow={renderRow} />
+  return <PoolRowView model={worklistView(pool).row(model)} renderRow={renderRow} />
 })

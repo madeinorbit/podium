@@ -160,6 +160,13 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     return new TrackedIds(read, () => this.observe(slot))
   }
 
+  /** A declared subset count borrows its maintained bucket, without a walk. */
+  subsetSize(from: EntityName, id: string, relation: string, subset: string): number {
+    id = machinePathKey(id)
+    this.observe(`s:${from}.${relation}.${subset}:${id}`)
+    return this.index().subset(from, id, relation, subset).size
+  }
+
   /**
    * POD-4705 — the forward target `from:id` contributes on `relation`
    * (untracked: no presence check, no observation). Residency's lane rule and

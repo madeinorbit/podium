@@ -1,19 +1,5 @@
 [
   {
-    "issue": "POD-5618",
-    "reason": "Confirmed unchanged-pilot IssuePage growth: collecting references from all archived related sessions adds 96 elements when closed history grows from 32 to 128. Coordinator authorized these two exact entries; the detail-view owner removes them with its repair.",
-    "readers": [
-      {
-        "reader": "consumer:issue-page.detail/IssuePage@page:guard-root",
-        "actions": { "select": ["elements"] }
-      },
-      {
-        "reader": "consumer:issue-page.detail/IssuePage@page:guard-child",
-        "actions": { "navigate-by-ref": ["elements"] }
-      }
-    ]
-  },
-  {
     "issue": "POD-5421",
     "reason": "The separate navigation navigate-by-ref allowance remains engine republication work. All 32 mission/task and session-menu allowances were retired by POD-5672 after the complete fixed-source 1x/4x census; no menu allowance remains in this group.",
     "readers": [

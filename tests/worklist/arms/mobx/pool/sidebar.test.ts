@@ -150,7 +150,7 @@ describe('real sidebar oracle (POD-4953)', () => {
     }
     const markers = { pinned: true, tuckedAt: 'tucked', readAt: 'read' }
     const git = { id: 'normalized', ahead: 2 }
-    const joined = issueInput(projection, markers, git, [], false, undefined)!
+    const joined = issueInput(projection, markers, git, [], false)!
     expect(joined).toMatchObject({
       title: 'Projection title',
       stage: 'review',
@@ -164,7 +164,7 @@ describe('real sidebar oracle (POD-4953)', () => {
     })
     expect(joined).not.toHaveProperty('commentCount')
     const { asked: _asked, ...withoutAsk } = projection
-    expect(issueInput(withoutAsk, markers, git, [], false, undefined)?.asked).toBeUndefined()
+    expect(issueInput(withoutAsk, markers, git, [], false)?.asked).toBeUndefined()
   })
 
   it('cold sidebar reads answer LOADING and batch loads; eviction only clears a previously seen selection', () => {

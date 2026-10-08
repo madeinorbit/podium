@@ -424,7 +424,7 @@ const AllKnownSlot = observer(function AllKnownSlot({
   pool: MobxPool
   id: string
 }): ReactElement | null {
-  const issue = pool.issue(id)
+  const issue = pool.worklistRow(id)
   if (issue === undefined || !issue.inMemory) {
     pool.resident('issue', id)
     return null

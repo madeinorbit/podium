@@ -33,7 +33,7 @@ import {
 import { COMMAND_SUMMARIES } from './command-launch-schema'
 import { attachCommandLaunchSource } from './command-launch-source'
 import { attachHeaderSource } from './header-source'
-import { launchOptionViews } from './launch-option-views'
+import { createLaunchCatalogPicker } from './launch-option-views'
 import { commandLaunchViews } from './command-launch-views'
 import { createRuntimeWorklistPool } from './runtime-pool'
 import { LOADING } from './worklist/rollup'
@@ -95,7 +95,8 @@ async function fixture() {
 
 describe('declared command and launch targets', () => {
   it('derives each session inside the applying action without waking catalog or other rows', async () => {
-    const f = await fixture(), views = commandLaunchViews(f.pool)
+    const f = await fixture(), views = commandLaunchViews(f.pool), launcher = createLaunchCatalogPicker(f.pool)
+    launcher.open()
     const ids = runInAction(() => views.sessionIds())
     if (!ids || ids === LOADING) throw new Error('Session catalog did not settle')
     const target = f.ctx.targets.phaseSessionId,
@@ -105,12 +106,12 @@ describe('declared command and launch targets', () => {
     const runs = { ids: 0, launch: 0, target: 0, other: 0 }
     const stops = [
       autorun(() => { views.sessionIds(); runs.ids++ }),
-      autorun(() => { launchOptionViews(f.pool).catalog(); runs.launch++ }),
+      autorun(() => { launcher.catalog(); runs.launch++ }),
       autorun(() => { views.session(target); runs.target++ }),
       autorun(() => { views.session(other); runs.other++ }),
     ]
     try {
-      expect(launchOptionViews(f.pool).catalog().repoPaths.length).toBeGreaterThan(0)
+      expect(launcher.catalog().repoPaths.length).toBeGreaterThan(0)
       const before = { ...runs }
       const beforeIds = views.sessionIds()
       const row = views.session(target)
@@ -321,10 +322,12 @@ describe('declared command and launch targets', () => {
   it('keeps global catalogs and field readers stable on mission, small issue and session clicks', async () => {
     const f = await fixture(),
       views = commandLaunchViews(f.pool)
+    const launcher = createLaunchCatalogPicker(f.pool)
+    launcher.open()
     const fieldRuns = { open: 0, files: 0, sessions: 0 }
     const stops = [
       autorun(() => {
-        launchOptionViews(f.pool).catalog()
+        launcher.catalog()
         views.palette()
       }),
       autorun(() => {

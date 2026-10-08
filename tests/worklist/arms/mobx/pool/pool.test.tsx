@@ -170,7 +170,7 @@ describe('enforcement', () => {
     const r = rig()
     try {
       const id = openIssues[0]!.id
-      const model = tracked(() => r.handle.pool.issue(id)!)
+      const model = tracked(() => r.handle.pool.worklistRow(id)!)
       expect(() => model.title).toThrow(/trapped.*outside a reactive context/)
       expect(trap.warnings.length).toBe(1)
       trap.warnings.length = 0

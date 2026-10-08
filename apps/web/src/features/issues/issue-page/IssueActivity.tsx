@@ -1,3 +1,4 @@
+import { issueObserver as observer } from './issue-observer'
 /**
  * The activity half of the issue page: agent mail, the assistant note, the
  * day-grouped comment/event feed, and the comment composer.
@@ -27,7 +28,7 @@
  */
 
 import type { IssueId } from '@podium/model'
-import { relativeTime } from '@podium/client-core/focus'
+import { IssueAge, IssueDayLabel } from './IssueAge'
 import {
   type ActivityDay,
   type ActivityEntry,
@@ -55,7 +56,7 @@ import {
   Trash2,
   Unlock,
 } from 'lucide-react'
-import type { JSX } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
@@ -68,9 +69,12 @@ import { modChord } from '@/lib/mod-chord'
 /** Agent mail addressed to this issue (issue #103) — durable messages other
  *  agents sent to whoever works it. Read-only operator view; listing here never
  *  consumes the recipient's unread status. */
-export function MailSection({ mail }: { mail: IssueMailMessage[] }): JSX.Element | null {
+export const MailSection = observer(function MailSection({
+  mail,
+}: {
+  mail: IssueMailMessage[]
+}): JSX.Element | null {
   if (mail.length === 0) return null
-  const now = Date.now()
   return (
     <section className="mb-9 flex flex-col gap-2" data-testid="issue-mail">
       <SectionHeading count={String(mail.length)}>Mail</SectionHeading>
@@ -105,7 +109,7 @@ export function MailSection({ mail }: { mail: IssueMailMessage[] }): JSX.Element
               className="ml-auto flex-none font-mono shell-type-micro text-text-faint tabular-nums"
               title={eventStamp(m.createdAt)}
             >
-              {relativeTime(m.createdAt, now)}
+              <IssueAge stamp={m.createdAt} />
             </span>
           </div>
           <p className="whitespace-pre-wrap break-words text-[13.5px] text-foreground/90 leading-[1.6]">
@@ -115,7 +119,7 @@ export function MailSection({ mail }: { mail: IssueMailMessage[] }): JSX.Element
       ))}
     </section>
   )
-}
+})
 
 /** Glyph per event-line kind (the pure formatter returns a stable `icon` key so
  *  it stays JSX-free and unit-testable; the mapping to a real icon lives here). */
@@ -139,7 +143,13 @@ const EVENT_ICONS: Record<IssueEventIcon, LucideIcon> = {
  * continuous spine — a real transition lights its node in the issue colour, a
  * minor one leaves it grey.
  */
-function ActivityEvent({ line, ts }: { line: IssueEventLine; ts: string }): JSX.Element {
+const ActivityEvent = observer(function ActivityEvent({
+  line,
+  ts,
+}: {
+  line: IssueEventLine
+  ts: string
+}): JSX.Element {
   const Icon = EVENT_ICONS[line.icon] ?? EVENT_ICONS.generic
   const minor = line.minor === true
   return (
@@ -164,10 +174,10 @@ function ActivityEvent({ line, ts }: { line: IssueEventLine; ts: string }): JSX.
       </span>
     </div>
   )
-}
+})
 
 /** A collapsed run of minor events — one line, opened in place. */
-function ActivityRollupRow({
+const ActivityRollupRow = observer(function ActivityRollupRow({
   label,
   count,
   firstTs,
@@ -226,7 +236,7 @@ function ActivityRollupRow({
         )}
     </>
   )
-}
+})
 
 /**
  * A comment. Renders its ATTRIBUTION PAIR when the server sent one (§3.1.3 A3) —
@@ -239,7 +249,7 @@ function ActivityRollupRow({
  * has no pair renders none. Deriving one from `author` would be exactly the
  * synthesis A3 forbids. See the ledger for the upstream that would supply it.
  */
-function ActivityComment({
+const ActivityComment = observer(function ActivityComment({
   author,
   body,
   ts,
@@ -264,9 +274,13 @@ function ActivityComment({
       </p>
     </div>
   )
-}
+})
 
-function ActivityEntryRow({ entry }: { entry: ActivityEntry }): JSX.Element | null {
+const ActivityEntryRow = observer(function ActivityEntryRow({
+  entry,
+}: {
+  entry: ActivityEntry
+}): JSX.Element | null {
   if (entry.kind === 'rollup') {
     return (
       <ActivityRollupRow
@@ -282,20 +296,20 @@ function ActivityEntryRow({ entry }: { entry: ActivityEntry }): JSX.Element | nu
     return <ActivityComment author={entry.author} body={entry.body} ts={entry.ts} />
   }
   return <ActivityEvent line={entry.line} ts={entry.ts} />
-}
+})
 
 /** The mono day divider that carries the date the rows no longer restate. */
-function DayDivider({ label }: { label: string }): JSX.Element {
+const DayDivider = observer(function DayDivider({ label }: { label: ReactNode }): JSX.Element {
   return (
     <div className="mt-4 mb-2 flex items-center gap-2.5 first:mt-0">
       <span className={MACHINE_LABEL}>{label}</span>
       <span className="h-px flex-1 bg-border/60" aria-hidden="true" />
     </div>
   )
-}
+})
 
 /** The activity section: assistant note, then the day-grouped feed. */
-export function IssueActivitySection({
+export const IssueActivitySection = observer(function IssueActivitySection({
   issue,
   busy,
   commands,
@@ -305,6 +319,7 @@ export function IssueActivitySection({
   busy: boolean
   commands: IssuePageCommands
   feed: ActivityItem[]
+  revision?: number
 }): JSX.Element {
   // Days are derived per render against a coarse clock: the only thing `now`
   // decides is whether a group says "Today", so re-deriving on a timer would
@@ -339,7 +354,7 @@ export function IssueActivitySection({
                 className="font-mono shell-type-micro text-text-faint tabular-nums"
                 title={eventStamp(issue.notesUpdatedAt)}
               >
-                {relativeTime(issue.notesUpdatedAt, Date.now())}
+                <IssueAge stamp={issue.notesUpdatedAt} />
               </span>
             )}
           </div>
@@ -353,7 +368,7 @@ export function IssueActivitySection({
         <div data-testid="activity-feed">
           {days.map((day) => (
             <div key={day.key}>
-              <DayDivider label={day.label} />
+              <DayDivider label={<IssueDayLabel day={day.key} stamp={day.entries[0]?.ts ?? ''} />} />
               {day.entries.map((entry) => (
                 <ActivityEntryRow key={entry.id} entry={entry} />
               ))}
@@ -369,7 +384,7 @@ export function IssueActivitySection({
       )}
     </section>
   )
-}
+})
 
 /**
  * The comment composer, pinned by IssuePage below the scrolling document.
@@ -377,7 +392,7 @@ export function IssueActivitySection({
  * It grows with what you type and stops at a third of the viewport, so a long
  * reply never eats the history it is replying to. Cmd/Ctrl+Enter posts.
  */
-export function CommentComposer({
+export const CommentComposer = observer(function CommentComposer({
   issueId,
   busy,
   value,
@@ -436,9 +451,11 @@ export function CommentComposer({
             Post
           </Button>
         ) : (
-          <span className="mb-2 select-none font-mono shell-type-micro text-text-faint">{modChord('↵')}</span>
+          <span className="mb-2 select-none font-mono shell-type-micro text-text-faint">
+            {modChord('↵')}
+          </span>
         )}
       </div>
     </div>
   )
-}
+})

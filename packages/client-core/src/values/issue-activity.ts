@@ -201,6 +201,84 @@ export function buildActivityFeed(
   return items
 }
 
+/** One issue's owned history. Event deduplication remembers IDs at ingress;
+ * appending a page never visits, copies or sorts the retained event history.
+ * Out-of-order timestamps use binary insertion; equal stamps keep comments
+ * before events, then the server's event arrival order. */
+export class IssueActivityHistory {
+  readonly events: IssueEvent[] = []
+  readonly items: ActivityItem[] = []
+  private readonly seen = new Set<number>()
+  private cursor = 0
+  get since(): number {
+    return this.cursor
+  }
+
+  appendEvents(rows: readonly IssueEvent[]): number {
+    let added = 0
+    for (const event of rows) {
+      this.cursor = Math.max(this.cursor, event.id)
+      if (this.seen.has(event.id)) continue
+      this.seen.add(event.id)
+      this.events.push(event)
+      added++
+      const line = formatIssueEvent(event)
+      if (line) this.insert({ kind: 'event', id: `e|${event.id}`, ts: event.ts, line })
+    }
+    return added
+  }
+
+  replaceComments(comments: readonly ActivityComment[]): void {
+    // A comments RPC is a replacement, unlike the cursor-paged event append.
+    for (let index = this.items.length - 1; index >= 0; index--)
+      if (this.items[index]?.kind === 'comment') this.items.splice(index, 1)
+    for (const comment of comments) this.appendComment(comment)
+  }
+
+  appendComment(comment: ActivityComment): void {
+    this.insert({
+      kind: 'comment',
+      id: `c|${comment.author}|${comment.createdAt}|${comment.body}`,
+      ts: comment.createdAt,
+      author: comment.author,
+      body: comment.body,
+    })
+  }
+
+  reset(): void {
+    this.events.length = 0
+    this.items.length = 0
+    this.seen.clear()
+    this.cursor = 0
+  }
+
+  private insert(item: ActivityItem): void {
+    const compare = (other: ActivityItem) =>
+      other.ts < item.ts
+        ? -1
+        : other.ts > item.ts
+          ? 1
+          : other.kind === item.kind
+            ? 0
+            : other.kind === 'comment'
+              ? -1
+              : 1
+    const last = this.items[this.items.length - 1]
+    if (!last || compare(last) <= 0) {
+      this.items.push(item)
+      return
+    }
+    let lower = 0,
+      upper = this.items.length
+    while (lower < upper) {
+      const mid = (lower + upper) >>> 1
+      if (compare(this.items[mid]!) <= 0) lower = mid + 1
+      else upper = mid
+    }
+    this.items.splice(lower, 0, item)
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Presentation grouping (POD-591)
 //
@@ -263,7 +341,9 @@ export function eventStamp(ts: string): string {
   return Number.isNaN(at.getTime()) ? ts : at.toLocaleString()
 }
 
-function dayLabelOf(key: string, at: Date, now: number): string {
+export function activityDayLabel(key: string, stamp: string, now: number): string {
+  const at = new Date(stamp)
+  if (Number.isNaN(at.getTime())) return key
   const today = new Date(now)
   if (key === dayKeyOf(today)) return 'Today'
   if (key === dayKeyOf(new Date(now - 86_400_000))) return 'Yesterday'
@@ -346,10 +426,9 @@ export function groupActivityFeed(items: ActivityItem[], now: number): ActivityD
 
 function finishDay(day: { key: string; items: ActivityItem[] }, now: number): ActivityDay {
   const first = day.items[0]
-  const at = first ? new Date(first.ts) : new Date(now)
   return {
     key: day.key,
-    label: Number.isNaN(at.getTime()) ? day.key : dayLabelOf(day.key, at, now),
+    label: activityDayLabel(day.key, first?.ts ?? new Date(now).toString(), now),
     entries: collapseMinor(day.items),
   }
 }

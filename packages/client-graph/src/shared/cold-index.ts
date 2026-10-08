@@ -97,6 +97,9 @@ export interface ColdQueries {
   /** Membership/order changes relevant to history readers (not heartbeats). */
   readonly readerVersion: number
   readerRevision(question: ReaderQuestion): number
+  readerRevisionKeys(question: ReaderQuestion): readonly string[]
+  readerChanges(): ReadonlyMap<string, ReadonlySet<string>>
+  watchReaderChanges(): () => void
   readonly issueRepoRevision: number
   issueRepoPathRevision(path: string): number
   issueScope(id: string): IssueScopeFacts | undefined
@@ -614,6 +617,9 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
       return readers.version + collapseVersion
     },
     readerRevision: (question) => readers.revision(question),
+    readerRevisionKeys: question => readers.revisionKeys(question),
+    readerChanges: () => readers.changes,
+    watchReaderChanges: () => readers.watchChanges(),
     get issueRepoRevision() {
       return readers.repoRevision
     },

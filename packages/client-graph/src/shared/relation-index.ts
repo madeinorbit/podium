@@ -196,6 +196,7 @@ interface Collapse {
   readonly rule: CollapseSpec
   readonly groups: Map<string, Set<string>>
   readonly groupOf: Map<string, string>
+  readonly activeCounts: Map<string, number>
   readonly collapsed: Set<string>
   readonly orderKeys: Map<string, string>
 }
@@ -215,6 +216,7 @@ export function createRelationIndex(schema: ModelSchema): RelationIndex {
         rule,
         groups: new Map(),
         groupOf: new Map(),
+        activeCounts: new Map(),
         collapsed: new Set(),
         orderKeys: new Map(),
       })
@@ -532,11 +534,26 @@ export function createRelationIndex(schema: ModelSchema): RelationIndex {
     const flipped = new Set<string>()
     const collapse = collapses.get(entity)
     if (collapse === undefined) return flipped
-    const { rule, groups, groupOf, collapsed, orderKeys } = collapse
+    const { rule, groups, groupOf, activeCounts, collapsed, orderKeys } = collapse
     if (before !== undefined && after !== undefined && sameInputs(rule.fields, before, after))
       return flipped
     const oldKey = groupOf.get(id) ?? null
     const newKey = after === undefined ? null : rule.groupKey(after)
+    const oldActive = oldKey === null ? 0 : activeCounts.get(oldKey) ?? 0
+    const newActive = newKey === null ? 0 : activeCounts.get(newKey) ?? 0
+    const contributesBefore = oldKey !== null && before !== undefined && rule.keepsGroup(before)
+    const contributesAfter = newKey !== null && after !== undefined && rule.keepsGroup(after)
+    const contribute = (key: string | null, amount: number) => {
+      if (key === null || amount === 0) return
+      const count = (activeCounts.get(key) ?? 0) + amount
+      if (count) activeCounts.set(key, count)
+      else activeCounts.delete(key)
+    }
+    if (oldKey === newKey) contribute(newKey, Number(contributesAfter) - Number(contributesBefore))
+    else {
+      contribute(oldKey, -Number(contributesBefore))
+      contribute(newKey, Number(contributesAfter))
+    }
     const order = (member: string, key: string | undefined): void => {
       const previous = orderKeys.get(member)
       if (previous === key) return
@@ -570,6 +587,16 @@ export function createRelationIndex(schema: ModelSchema): RelationIndex {
       if (key === null) continue
       const group = groups.get(key)
       if (group === undefined) continue
+      // A group that was and remains active keeps every member. Only the
+      // addressed member can have arrived from a collapsed group; recency
+      // cannot change any peer's verdict or canonical position.
+      if ((key === oldKey ? oldActive : newActive) > 0 && (activeCounts.get(key) ?? 0) > 0) {
+        if (key === newKey) {
+          order(id, undefined)
+          if (collapsed.delete(id)) flipped.add(id)
+        }
+        continue
+      }
       const members = [...group].map((member) => ({
         id: member,
         row: (member === id ? after : rowOf(entity, member)) as Row,
@@ -706,6 +733,7 @@ export function createRelationIndex(schema: ModelSchema): RelationIndex {
     for (const collapse of collapses.values()) {
       collapse.groups.clear()
       collapse.groupOf.clear()
+      collapse.activeCounts.clear()
       collapse.collapsed.clear()
       collapse.orderKeys.clear()
     }

@@ -1,5 +1,9 @@
-import '@/test-support/mock-pool-fixture'
+// The panel reads through the real pool's issue-page views, so the real
+// pool fixture must win over the hand-mock pool that mock-core-store-handle
+// pulls in: the last store-worklist-pool mock wins, and the real fixture
+// supports issue-page while the hand mock rejects it.
 import '@/test-support/mock-core-store-handle'
+import '@/test-support/mock-pool-fixture'
 import '@/test-support/model-catalog-mock'
 import type { SessionView } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
@@ -112,23 +116,28 @@ const eventsQuery = vi.fn(async (input?: unknown) => {
 vi.mock('@/lib/use-model-catalog', () => ({ useModelCatalog: () => ({}) }))
 
 vi.mock('@/app/store', () => {
-  const state = () => ({
-    trpc: {
-      issues: {
-        comments: { query: vi.fn(async () => []) },
-        events: { query: eventsQuery },
-        start: { mutate: vi.fn(async () => ({})) },
-        close: { mutate: vi.fn(async () => ({})) },
-        update: { mutate: vi.fn(async () => ({})) },
-        clearNeedsHuman: { mutate: vi.fn(async () => ({})) },
-        panelApply: { mutate: vi.fn(async () => ({})) },
-      },
-      sessions: { sendText: { mutate: vi.fn(async () => ({})) } },
+  // The real owner retains its transport across snapshot reads. Recreating it
+  // here restarts useIssueHistory's effect after each comments publication,
+  // whose revision update renders another snapshot and starts the cycle again.
+  const trpc = {
+    issues: {
+      comments: { query: vi.fn(async () => []) },
+      // The mock factory is hoisted before eventsQuery initializes.
+      events: { query: (input?: unknown) => eventsQuery(input) },
+      start: { mutate: vi.fn(async () => ({})) },
+      close: { mutate: vi.fn(async () => ({})) },
+      update: { mutate: vi.fn(async () => ({})) },
+      clearNeedsHuman: { mutate: vi.fn(async () => ({})) },
+      panelApply: { mutate: vi.fn(async () => ({})) },
     },
+    sessions: { sendText: { mutate: vi.fn(async () => ({})) } },
+  }
+  const state = () => ({
+    trpc,
     httpOrigin: '',
     openFileInWorktree: vi.fn(),
     openArtifact: vi.fn(),
-    uiState: { get: () => null, set: vi.fn() },
+    uiState: { get: () => null, set: vi.fn(), subscribe: () => () => {} },
     issues: mockIssues,
     sessions: mockSessions,
     repos: [],
@@ -443,6 +452,9 @@ describe('IssuePanelView inspector', () => {
     expect(eventsQuery).toHaveBeenCalledWith(expect.objectContaining({ subject: 'root' }))
     // The child's own creation event belongs to the child's feed, not this one.
     expect(await within(feed).findAllByText('created')).toHaveLength(1)
+    // Publishing the fetched history must not replace its transport and retain
+    // another history effect on every observer render (POD-5810).
+    expect(eventsQuery).toHaveBeenCalledTimes(1)
   })
 
   it('keeps semantic updates when later read receipts arrive', async () => {

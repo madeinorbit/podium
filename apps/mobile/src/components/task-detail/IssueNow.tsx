@@ -1,3 +1,5 @@
+import { isFinished } from '@podium/model/browser'
+import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { motionPhase, sessionTitle } from '@podium/client-core/values'
@@ -47,7 +49,7 @@ const PHASE_RANK: Record<string, number> = { working: 0, waiting: 1, queued: 2, 
 /** How many live rows the block draws before the roster carries the rest. */
 const SHOWN = 3
 
-export function IssueNow({
+export const IssueNow = observer(function IssueNow({
   issue,
   sessions,
   onOpenSession,
@@ -57,7 +59,15 @@ export function IssueNow({
   onOpenSession: (sessionId: SessionId) => void
 }) {
   const ranked = [...sessions]
-    .map((session) => ({ session, phase: motionPhase(session, issue) }))
+    .map((session) => ({
+      session,
+      phase:
+        'motion' in session
+          ? isFinished(issue)
+            ? 'done'
+            : (session.motion as ReturnType<typeof motionPhase>)
+          : motionPhase(session, issue),
+    }))
     .sort((a, b) => (PHASE_RANK[a.phase] ?? 9) - (PHASE_RANK[b.phase] ?? 9))
   const working = ranked.filter((r) => r.phase === 'working').length
   const waiting = ranked.filter((r) => r.phase === 'waiting').length
@@ -156,7 +166,7 @@ export function IssueNow({
       {git}
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   // ENGRAVED, NOT CARDED (the Carved Rule): a resting surface that needs to read

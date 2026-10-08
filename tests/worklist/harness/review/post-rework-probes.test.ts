@@ -76,7 +76,7 @@ function paintWindow(pool: MobxPool): () => void {
   for (const id of ids.slice(0, WINDOW_ROWS)) {
     stops.push(
       autorun(() => {
-        const model = pool.issue(id)
+        const model = pool.worklistRow(id)
         if (model === undefined) {
           void pool.resident('issue', id)
           return

@@ -80,7 +80,7 @@ async function run(siblings: number) {
     for (const id of CHAIN) drawn.set(id, sidebarView(pool).row(id))
   })
   try {
-    const before = runInAction(() => CHAIN.map((id) => pool.issue(id)?.nestParent))
+    const before = runInAction(() => CHAIN.map((id) => pool.worklistRow(id)?.nestParent))
     const leaf = sessions.find((row) => row['sessionId'] === 'nest-leaf-seat')!
     const { work } = await measureWork(
       async () =>
@@ -96,9 +96,9 @@ async function run(siblings: number) {
         }),
       { pool },
     )
-    const ran = (id: string, group: string) => work.derivationsBy[`IssueModel@${id}.${group}`] ?? 0
+    const ran = (id: string, group: string) => work.derivationsBy[`WorklistIssue@${id}.${group}`] ?? 0
     const walked = (group: string) =>
-      CHAIN.reduce((sum, id) => sum + (work.elementsBy[`IssueModel@${id}.${group}`] ?? 0), 0)
+      CHAIN.reduce((sum, id) => sum + (work.elementsBy[`WorklistIssue@${id}.${group}`] ?? 0), 0)
     const rows = CHAIN.map((id) => drawn.get(id))
     return {
       nest: before,

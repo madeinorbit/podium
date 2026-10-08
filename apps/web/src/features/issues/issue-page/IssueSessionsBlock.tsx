@@ -1,3 +1,7 @@
+import { issueObserver as observer } from './issue-observer'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { useIssuePageContext } from './issue-page-data'
+import type { SessionModel } from '@podium/client-graph/models'
 import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The Sessions block of the properties aside: who is on this task, the ghosts of
@@ -29,7 +33,8 @@ import type { SessionView } from '@podium/client-core/session-values'
  *     alike as "another issue".
  */
 import { motionPhase, motionTiming } from '@podium/client-core/values'
-import type { SessionId} from '@podium/model/browser'
+import { isFinished } from '@podium/model/browser'
+import type { SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
@@ -53,7 +58,7 @@ import { edgeIssue, useIssueEdgeResolver } from './issue-edges'
  * its phase. It now speaks the same three-part sentence the sidebar row, the
  * Now block and the board card's fleet stack all speak.
  */
-function SessionRosterRow({
+const SessionRosterRow = observer(function SessionRosterRow({
   session,
   issue,
   onOpen,
@@ -70,7 +75,9 @@ function SessionRosterRow({
 }): JSX.Element {
   const AgentIcon = agentIconFor(session.agentKind)
   const timing = motionTiming(session)
-  const phase = motionPhase(session, issue as unknown as IssueViewModel)
+  const phase = 'motion' in session
+    ? isFinished(issue) ? 'done' : (session as SessionModel).motion
+    : motionPhase(session, issue)
   return (
     <button
       data-pressable
@@ -108,29 +115,34 @@ function SessionRosterRow({
       )}
     </button>
   )
-}
+})
 
-export function IssueSessionsBlock({
+export const IssueSessionsBlock = observer(function IssueSessionsBlock({
   issue,
   busy,
   commands,
-  memberSessions,
-  movedOn,
+  memberSessions: suppliedMembers,
+  movedOn: suppliedMoved,
   machines,
   onOpenSession,
 }: {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
-  memberSessions: SessionView[]
+  memberSessions?: SessionView[]
   /** Forwarding ghosts (POD-89): sessions BORN here that re-homed elsewhere.
    *  "No agents" was misread as work lost — the honest shape is "the agent moved
    *  on to POD-x". */
-  movedOn: SessionView[]
+  movedOn?: SessionView[]
   machines: LaunchMachine[]
   onOpenSession: (session: { sessionId: SessionId }) => void
 }): JSX.Element {
   const resolve = useIssueEdgeResolver()
+  const page = useIssuePageContext()
+  const row = page?.views.row(issue.id)
+  const memberSessions = suppliedMembers ?? row?.memberSessions ?? []
+  const movedOn = suppliedMoved ?? row?.movedOn ?? []
+  if (typeof memberSessions === 'symbol' || typeof movedOn === 'symbol') throw LOADING
   return (
     <section className="flex flex-col gap-2">
       <SectionHeading count={String(issue.sessionSummary?.total ?? 0)}>Sessions</SectionHeading>
@@ -171,9 +183,12 @@ export function IssueSessionsBlock({
       {/* Same reading as the dock's, from the roster this block already holds:
           an agent on it, a checkout, or a stage whose name says somebody picked
           it up (see {@link issueWorkBegun}). */}
-      {!issueWorkBegun(issue, memberSessions.filter(isOpenSession).length) && (
-        <LaunchBox issue={issue} busy={busy} commands={commands} machines={machines} />
-      )}
+      {!issueWorkBegun(
+        issue,
+        memberSessions.filter((session) =>
+          'open' in session ? (session as SessionModel).open : isOpenSession(session),
+        ).length,
+      ) && <LaunchBox issue={issue} busy={busy} commands={commands} machines={machines} />}
     </section>
   )
-}
+})

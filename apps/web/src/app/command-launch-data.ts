@@ -5,13 +5,12 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { RepoView } from '@podium/client-core/values'
 import type { MachineWire } from '@podium/model/browser'
 import type { Loaded } from '@podium/client-graph/worklist/rollup'
-import { runInAction, when } from 'mobx'
+import { runInAction } from 'mobx'
 import { useEffect, useMemo, useState } from 'react'
 import {
   EMPTY_FILES,
   readFiles,
   readLaunchOrigin,
-  readLaunchCatalog,
   readLaunchOptions,
   readTargetMachines,
   readOpen,
@@ -67,11 +66,10 @@ export function useCommandLaunchCatalog() {
   const options = useWorklistPoolProjection(readLaunchOptions, undefined)
   const picker = useMemo(() => options?.picker(), [options])
   useEffect(() => {
-    if (!pool || !picker) return
-    return when(() => readLaunchCatalog(pool) !== LOADING, () => picker.open())
+    if (pool && picker) picker.open()
   }, [pool, picker])
   const read = useMemo(() => () => picker?.opened ? picker.catalog() : LOADING, [picker])
-  return useWorklistPoolProjection<Loaded<ReturnType<typeof readLaunchCatalog>>>(read, LOADING)
+  return useWorklistPoolProjection(read, LOADING)
 }
 /** A tab-strip menu draws one origin and the displayed machines. Recency is a
  * scalar per machine, so opening it never acquires session choice rows. */

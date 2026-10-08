@@ -434,41 +434,8 @@ async function mount(
   }
 }
 
-it('opens a conversation with zero mention reads, then matches the accepted reference and open-sheet catalogs', async () => {
-  // Recorded after the accepted OFF/ON control passed at b4d0134f17.
-  const expected = {
-    issue: { id: 'synthetic-1', title: 'Synthetic task 1' },
-    issues: [
-      'synthetic-0',
-      'synthetic-1',
-      'synthetic-10',
-      'synthetic-11',
-      'synthetic-2',
-      'synthetic-3',
-      'synthetic-4',
-      'synthetic-5',
-      'synthetic-6',
-      'synthetic-7',
-      'synthetic-8',
-      'synthetic-9',
-    ],
-    sessions: [
-      'synthetic-guest-0',
-      'synthetic-guest-1',
-      'synthetic-session-0',
-      'synthetic-session-1',
-      'synthetic-session-10',
-      'synthetic-session-11',
-      'synthetic-session-2',
-      'synthetic-session-3',
-      'synthetic-session-4',
-      'synthetic-session-5',
-      'synthetic-session-6',
-      'synthetic-session-7',
-      'synthetic-session-8',
-      'synthetic-session-9',
-    ],
-  }
+it('opens the addressed conversation inspector without either catalog', async () => {
+  const expected = { id: 'synthetic-1', title: 'Synthetic task 1' }
   const enabled = await mount('conversation')
   const counts = chatContextReadStats(enabled.pool())
   expect(counts).toEqual({
@@ -479,14 +446,15 @@ it('opens a conversation with zero mention reads, then matches the accepted refe
   })
   await act(async () => seams.transcriptInputs.at(-1)!.onRefPress!('SYN-1001'))
   await waitFor(() => expect(seams.sheet?.issue?.id).toBe('synthetic-1'))
-  expect({
-    issue: { id: seams.sheet!.issue!.id, title: seams.sheet!.issue!.title },
-    issues: seams.sheet!.issues.map((row) => row.id),
-    sessions: seams.sheet!.sessions.map((row) => row.sessionId),
-  }).toEqual(expected)
-  expect(counts.mentionBuilds).toBeGreaterThan(0)
-  expect(counts.mentionIssueReads).toBeGreaterThan(0)
-  expect(counts.referenceSessionReads).toBeGreaterThan(0)
+  expect({ id: seams.sheet!.issue!.id, title: seams.sheet!.issue!.title }).toEqual(expected)
+  expect('issues' in seams.sheet!).toBe(false)
+  expect('sessions' in seams.sheet!).toBe(false)
+  expect(counts).toEqual({
+    mentionBuilds: 0,
+    mentionIssueReads: 0,
+    referenceBuilds: 0,
+    referenceSessionReads: 0,
+  })
   await act(async () => seams.sheet!.onClose())
   const closedCounts = { ...counts }
   await act(async () =>

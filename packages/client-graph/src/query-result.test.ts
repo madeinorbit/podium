@@ -3,10 +3,43 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createKeyedAnswer,
   createKeyedAnswerBuilder,
+  createIdentityQuery,
   createQueryResult,
   joinQueryResults,
 } from './query-result'
 import { LOADING } from './worklist/rollup'
+
+it('keeps an identity query snapshot when only payloads change, and releases demand', () => {
+  const rows = observable.map([['a', 1], ['b', 2]])
+  const ids = vi.fn(() => [...rows].map(([id]) => id))
+  const query = createIdentityQuery({ name: 'identity question', ids })
+  let value: readonly string[] = [], paints = 0
+  const stop = autorun(() => { value = query.get(); paints++ })
+  const first = value
+  runInAction(() => rows.set('a', 3))
+  expect(value).toBe(first)
+  expect(paints).toBe(1)
+  runInAction(() => rows.set('c', 4))
+  expect(value).toEqual(['a', 'b', 'c'])
+  expect(value).not.toBe(first)
+  stop()
+  ids.mockClear()
+  runInAction(() => rows.delete('a'))
+  expect(ids).not.toHaveBeenCalled()
+  expect(query.get()).toEqual(['b', 'c'])
+  query.dispose()
+})
+
+it('files changed ordering and deduplicates identity-query candidates by key', () => {
+  const ids = observable.box<readonly string[]>(['b', 'a', 'b'], { deep: false })
+  const query = createIdentityQuery({ name: 'ordered identity question', ids: () => ids.get() })
+  let value: readonly string[] = []
+  const stop = autorun(() => { value = query.get() })
+  expect(value).toEqual(['b', 'a'])
+  runInAction(() => ids.set(['a', 'b']))
+  expect(value).toEqual(['a', 'b'])
+  stop()
+})
 
 function fixture(prefix = '') {
   const rows = observable.map<string, { title: string; order: string; privateBody?: string }>(

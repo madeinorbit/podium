@@ -1,5 +1,9 @@
+import { issuePages } from '@podium/client-graph/issue-page'
+import { useMobilePool } from '../../client/mobile-pool'
+import { issueObserver as observer } from '../../client/issue-observer'
 import { isClosed } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
+import { useCoarseNow } from '../../client/hooks'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
 import { useState } from 'react'
@@ -23,7 +27,7 @@ import { Disclosure, InlineEditable, SectionHeading } from './chrome'
  * nine chips of equal weight emphasise nothing.
  */
 
-export function IssueTitle({
+export const IssueTitle = observer(function IssueTitle({
   issue,
   busy,
   commands,
@@ -32,9 +36,10 @@ export function IssueTitle({
   busy: boolean
   commands: IssueCommands
 }) {
+  const pool = useMobilePool()
   return (
     <InlineEditable
-      value={issue.title}
+      value={pool ? issuePages(pool).row(issue.id).title : issue.title}
       placeholder="Untitled task"
       ariaLabel="Task title"
       busy={busy}
@@ -43,10 +48,10 @@ export function IssueTitle({
       textStyle={styles.title}
     />
   )
-}
+})
 
-export function StatusStrip({ issue }: { issue: IssueViewModel }) {
-  const now = Date.now()
+export const StatusStrip = observer(function StatusStrip({ issue }: { issue: IssueViewModel }) {
+  const now = useCoarseNow() || Date.now()
   const created = relativeTime(issue.createdAt, now)
   const updated = relativeTime(issue.updatedAt, now)
   const facts = [
@@ -83,9 +88,9 @@ export function StatusStrip({ issue }: { issue: IssueViewModel }) {
       ) : null}
     </View>
   )
-}
+})
 
-function Chip({
+const Chip = observer(function Chip({
   label,
   tint,
   textTint = tint,
@@ -99,9 +104,9 @@ function Chip({
       <Text style={[styles.chipText, textTint ? { color: textTint } : null]}>{label}</Text>
     </View>
   )
-}
+})
 
-export function IssueDescription({
+export const IssueDescription = observer(function IssueDescription({
   issue,
   busy,
   commands,
@@ -122,12 +127,12 @@ export function IssueDescription({
       />
     </View>
   )
-}
+})
 
 /** The agent brief, folded by default — it is long, and it is written FOR an
  *  agent. It sits between two things a human reads, so it stays a hairline and a
  *  label until asked for. */
-export function IssueBrief({ issue }: { issue: IssueViewModel }) {
+export const IssueBrief = observer(function IssueBrief({ issue }: { issue: IssueViewModel }) {
   const [open, setOpen] = useState(false)
   if (!issue.brief) return null
   return (
@@ -145,7 +150,7 @@ export function IssueBrief({ issue }: { issue: IssueViewModel }) {
       </Disclosure>
     </View>
   )
-}
+})
 
 const LONG_FORM = [
   { field: 'design', label: 'Design' },
@@ -159,7 +164,7 @@ const LONG_FORM = [
  * these are agent-authored spec fields, not three standing calls to start a
  * specification in the middle of the reading column.
  */
-export function LongFormFields({
+export const LongFormFields = observer(function LongFormFields({
   issue,
   busy,
   commands,
@@ -189,7 +194,7 @@ export function LongFormFields({
       ))}
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   title: {

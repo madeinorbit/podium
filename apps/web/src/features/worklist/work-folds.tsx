@@ -7,6 +7,8 @@ import {
 } from '@podium/client-core/values'
 import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
+import { observer } from '@podium/client-graph/react'
+import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import { Archive, ChevronRight, Pin } from 'lucide-react'
 import * as m from 'motion/react-m'
 import type { JSX, MouseEvent as ReactMouseEvent, ReactNode } from 'react'
@@ -371,20 +373,23 @@ export function foldedMarker(
  *  height, so a long archive scans in a glance. Clicking reopens the issue;
  *  the fold's own archive overlay still rides on top for closed rows. */
 function FoldedWorkRowInner({
-  issue,
+  model,
+  issue: suppliedIssue,
   lane,
   now,
   active,
   onSelect,
   onContextMenu,
 }: {
-  issue: IssueNavigationModel
+  model?: WorklistIssue
+  issue?: IssueNavigationModel
   lane: 'closed' | 'snoozed'
   now: number
   active: boolean
   onSelect: () => void
   onContextMenu?: (e: ReactMouseEvent) => void
 }): JSX.Element {
+  const issue = model ? model.rowIssue as unknown as IssueNavigationModel : suppliedIssue!
   const marker = foldedMarker(issue, lane, now)
   // How long ago the work entered this fold — manually tucked rows date from
   // the tuck, while never-tucked closures fall back to their finish time.
@@ -393,7 +398,7 @@ function FoldedWorkRowInner({
   // back in.
   // Keep this source shared with grouping: Closed must not say "tucked 5m ago"
   // while placing the row by a days-old close time.
-  const stampIso = lane === 'closed' ? issueClosedFoldAt(issue) : issue.updatedAt
+  const stampIso = lane === 'closed' ? model?.foldAt ?? issueClosedFoldAt(issue) : issue.updatedAt
   const ago = stampIso ? relativeTime(stampIso, now) : null
   return (
     <button
@@ -623,3 +628,4 @@ export function ClosedIssueFold<T>({
 }
 
 export const FoldedWorkRow = FoldedWorkRowInner
+export const WorklistFoldedRow = observer(FoldedWorkRowInner)

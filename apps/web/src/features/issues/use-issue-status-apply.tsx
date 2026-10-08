@@ -1,7 +1,7 @@
 import { parseIssueStatusValue } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { JSX } from 'react'
-import { useState } from 'react'
+import { useCallback, useState } from 'react'
 import { toast } from 'sonner'
 import type { IssueViewModel } from '@/app/store'
 import { useRuntimeSelector } from '@/app/store'
@@ -36,6 +36,10 @@ export interface IssueStatusApply {
   dialog: JSX.Element | null
 }
 
+const fail = (error: unknown): void => {
+  toast.error(error instanceof Error ? error.message : String(error))
+}
+
 export function useIssueStatusApply(_suppliedSessions?: readonly SessionView[], _sessionsForIssue?: (issue: IssueViewModel) => readonly SessionView[] | symbol | undefined): IssueStatusApply {
   const updateIssue = useRuntimeSelector((store) => store.updateIssue)
   const closeIssue = useRuntimeSelector((store) => store.closeIssue)
@@ -48,11 +52,7 @@ export function useIssueStatusApply(_suppliedSessions?: readonly SessionView[], 
   } | null>(null)
   const [closing, setClosing] = useState(false)
 
-  const fail = (error: unknown): void => {
-    toast.error(error instanceof Error ? error.message : String(error))
-  }
-
-  const pick = (issue: IssueViewModel, value: string): void => {
+  const pick = useCallback((issue: IssueViewModel, value: string): void => {
     const intent = parseIssueStatusValue(value)
     if (!intent) return
     if (intent.kind === 'close') {
@@ -64,7 +64,7 @@ export function useIssueStatusApply(_suppliedSessions?: readonly SessionView[], 
       return
     }
     updateIssue(issue.id, { stage: intent.stage }).catch(fail)
-  }
+  }, [needsCloseGuard, closeIssue, updateIssue])
 
   const dialog = pending ? (
     <IssueCloseDialog

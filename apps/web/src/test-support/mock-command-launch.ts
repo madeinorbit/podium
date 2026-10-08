@@ -10,13 +10,12 @@ import { MobxPool } from '@podium/client-graph'
 import { COMMAND_ENTITIES } from '@podium/client-graph/command-launch-schema'
 import { CommandLaunchSource } from '@podium/client-graph/command-launch-source'
 import { headerEntities } from '@podium/client-graph/header-entities'
-import { launchOptionViews } from '@podium/client-graph/launch-option-views'
+import { createLaunchCatalogPicker, launchOptionViews } from '@podium/client-graph/launch-option-views'
 import type { HeaderRecord } from '@podium/client-graph/header-schema'
 import { useEffect, useMemo } from 'react'
 import { vi } from 'vitest'
 import {
   readFiles,
-  readLaunchCatalog,
   readLaunchOrigin,
   readOpen,
   readPalette,
@@ -114,7 +113,14 @@ function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
 
 vi.mock('@/app/command-launch-data', async (original) => ({
   ...(await original<typeof import('@/app/command-launch-data')>()),
-  useCommandLaunchCatalog: () => useCommandFixture(readLaunchCatalog),
+  useCommandLaunchCatalog: () => useCommandFixture(pool => {
+    const picker = pool.sources.view('fixture.launcher', () => {
+      const picker = createLaunchCatalogPicker(pool)
+      picker.open()
+      return picker
+    })
+    return picker.catalog()
+  }),
   useCommandLaunchOrigin: (path: string) => useCommandFixture(pool => readLaunchOrigin(pool, path)),
   useCommandPaletteSnapshot: () => useCommandFixture(pool => {
     const picker = pool.sources.view('fixture.palette', () => {

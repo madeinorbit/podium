@@ -4,13 +4,9 @@
  * its own: a field added to the schema is covered here with no edit, and a
  * field the models could not read fails.
  *
- * POD-4756: the issue implements `RowView`, and five of its schema fields
- * are the row's too (`IssueModel.answers`: `title`, `seq`, `createdAt`,
- * `pinned`, `sortKey`). Those read the row's value: the display title (the
- * fed title for a non-draft in memory; a draft's name is checked against
- * the independent legacy projection), and the flags
- * normalized (`pinned` a boolean, `sortKey` null when absent). Checked here
- * against the fed row by those rules.
+ * The issue's schema fields are stored facts, including its unmodified title.
+ * Worklist labels and normalized ordering inputs belong to its companion;
+ * their answers are checked against the independent legacy projection.
  * Repository paths are joined from the normalized companion, whose canonical
  * path can differ from an issue's historical checkout path in this corpus.
  */
@@ -25,6 +21,7 @@ import { FEED_SPELLING } from '@podium/client-graph/shared/repo-from-lane'
 import { type EntityName, SCHEMA } from '@podium/client-graph/shared/schema'
 import { harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { IssueModel } from '@podium/client-graph/models'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { ENTITIES } from '@podium/client-graph/tables'
 
@@ -71,7 +68,6 @@ describe('schema fields on models', () => {
       expect([...ENTITIES].sort()).toEqual((Object.keys(SCHEMA) as EntityName[]).sort())
       const covered: Record<string, number> = {}
       let checked = 0
-      let answered = 0
       let draftTitles = 0
       let joinedPaths = 0
       tracked(() => {
@@ -94,25 +90,17 @@ describe('schema fields on models', () => {
                 want = repo!.repoPath
                 joinedPaths += 1
               }
-              if (entity === 'issue' && IssueModel.answers.has(field)) {
-                if (field === 'pinned') want = want === true
-                else if (field === 'sortKey') want = want ?? null
-                else if (field === 'title') {
-                  // Check the display projection for every title, including
-                  // drafts and cold rows, rather than skipping either field.
-                  if (model['inMemory'] !== true) want = ''
-                  else {
-                    want = titles.get(id)
-                    expect(want, `${entity}:${id} has no legacy title`).toBeDefined()
-                    if (fed['isDraftVessel'] === true) draftTitles += 1
-                  }
-                }
-                answered += 1
-              }
               expect(model[field], `${entity}:${id}.${field}`).toBe(want)
               if (want !== undefined)
                 covered[`${entity}.${field}`] = (covered[`${entity}.${field}`] ?? 0) + 1
               checked += 1
+            }
+            if (entity === 'issue') {
+              const issue = pool.issueObject(id), work = worklistView(pool).row(issue)
+              expect(work.title, `${id} worklist title`).toBe(issue.inMemory ? titles.get(id) : '')
+              expect(work.pinned).toBe(issue.pinned === true)
+              expect(work.sortKey).toBe(issue.sortKey ?? null)
+              if (issue.isDraftVessel === true) draftTitles += 1
             }
           }
         }
@@ -128,7 +116,7 @@ describe('schema fields on models', () => {
         }
       }
       expect(checked).toBeGreaterThan(1000)
-      expect(answered, 'the row-answered fields were checked').toBeGreaterThan(100)
+      expect(IssueModel.answers.size, 'worklist rules never override stored schema fields').toBe(0)
       expect(draftTitles, 'draft display titles were checked').toBeGreaterThan(0)
       expect(joinedPaths, 'normalized repository paths were checked').toBeGreaterThan(100)
       expect(corpus.sliceIssues.some((issue) =>

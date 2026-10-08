@@ -667,20 +667,6 @@ const SESSION_KEEP_FIELDS = ['archived', 'agentKind', 'stoppedAt', 'agentState',
 /** What visibility reads of a cold session, without loading the full row. */
 export const COLD_SESSION_FIELDS = [...SESSION_KEEP_FIELDS, 'issueId', 'status', 'lastActiveAt'] as const
 
-/** The row-source's small ownership summary supplements the collapsed R2
- * roster. Headless seats never participate in resume collapse, including
- * exited seats; archived seats leave an otherwise empty draft unoccupied. */
-export const ISSUE_SESSION_FACTS_SUMMARY = {
-  field: 'sessionFacts',
-  source: 'session',
-  ownerKey: 'issueId',
-  headlessOccupied: {
-    fields: ['headless', 'archived'],
-    test: (row: Readonly<Record<string, unknown>>) => row['headless'] === true && row['archived'] !== true,
-    why: 'Draft occupancy uses non-archived attachments, regardless of status (isEmptyDraftVessel). R2 excludes headless seats.',
-  },
-} as const
-
 /**
  * How long a session can keep its issue shown (`sessionRetainsWorklistRow`,
  * `visibility.ts:44-70`): a shell or an archived session never
@@ -851,6 +837,24 @@ const DECLARED = defineSchema({
         inverse: 'missionIssue',
         lazy: true,
         why: 'Every explicit mission sender, including headless and archived sessions; never cwd-only seats.',
+        subsets: {
+          agents: {
+            fields: ['agentKind'],
+            test: (row: Readonly<Record<string, unknown>>) => row['agentKind'] !== 'shell',
+            why: 'The detail roster counts its collapsed agents, including history, without loading rows.',
+          },
+          unarchived: {
+            fields: ['archived'],
+            test: (row: Readonly<Record<string, unknown>>) => !row['archived'],
+            why: 'Phone detail reads only the displayed roster while its history fold is closed.',
+          },
+          retired: {
+            fields: ['archived', 'status'],
+            test: (row: Readonly<Record<string, unknown>>) =>
+              !!row['archived'] || row['status'] === 'exited',
+            why: 'The dock counts every retired explicit session, including shells, without loading payloads.',
+          },
+        },
       }),
       handoffSessions: hasMany({
         to: 'session', inverse: 'handoffIssue', lazy: true,
@@ -906,6 +910,13 @@ const DECLARED = defineSchema({
       pageSessions: hasMany({
         to: 'session', inverse: 'pageIssue', lazy: true,
         why: 'Raw non-shell attachment IDs used by page counts and destructive-action prompts.',
+        subsets: {
+          unarchived: {
+            fields: ['archived'],
+            test: (row: Readonly<Record<string, unknown>>) => !row['archived'],
+            why: 'Active detail sections demand live membership without enumerating hidden archive history.',
+          },
+        },
       }),
       supersedingIssue: belongsTo({
         to: 'issue', foreignKey: 'supersededBy', targetKey: 'id', inverse: 'supersededIssues', lazy: true,

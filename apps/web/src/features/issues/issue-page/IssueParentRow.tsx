@@ -1,3 +1,4 @@
+import { issueObserver as observer } from './issue-observer'
 /**
  * THE PARENT ROW — REPARENT IS A PERMISSION-AFFECTING OPERATION (POD-646).
  *
@@ -75,7 +76,7 @@ export function crossOwnerConfirmMessage(target: IssueViewModel): string {
   return `Move this issue under ${issueDisplayRef(target)}, which belongs to a different owner? Agents scoped to that subtree will be able to see this issue.`
 }
 
-export function IssueParentRow({
+export const IssueParentRow = observer(function IssueParentRow({
   issue,
   parentEdge,
   busy,
@@ -173,4 +174,4 @@ export function IssueParentRow({
       </p>
     </div>
   )
-}
+})

@@ -248,16 +248,11 @@ describe('row-source over the real facade (fake runtime)', () => {
     cache.put('session', 'headless', headless)
     const runtime = fakeRuntime()
     const handle = createRowSource(runtime, replica, { mode: 'truth' })
-    const facts = (id: string) =>
-      (
-        handle.source.row?.('issue', id) as {
-          sessionFacts: {
-            tipActivityAt?: string
-            headlessStaffed: boolean
-            headlessOccupied: boolean
-          }
-        }
-      ).sessionFacts
+    const facts = (id: string) => ({
+      tipActivityAt: handle.source.issueSessionFact!(id, 'tipActivityAt'),
+      headlessStaffed: handle.source.issueSessionFact!(id, 'headlessStaffed'),
+      headlessOccupied: handle.source.issueSessionFact!(id, 'headlessOccupied'),
+    })
     try {
       expect(facts('draft')).toMatchObject({ headlessOccupied: true, headlessStaffed: false })
       const tip = facts('draft').tipActivityAt

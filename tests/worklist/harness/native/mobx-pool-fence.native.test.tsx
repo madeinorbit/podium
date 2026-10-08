@@ -293,7 +293,7 @@ const FullNativeSlot = observer(function FullNativeSlot({
   pool: MobxPool
   id: string
 }): ReactElement | null {
-  const model = pool.issue(id)
+  const model = pool.worklistRow(id)
   if (model === undefined || !model.inMemory) return null
   return <RowShell row={model} component={PoolNativeRow} />
 })
@@ -321,7 +321,7 @@ const PlantedSlot = observer(function PlantedSlot({
   id: string
 }): ReactElement | null {
   for (const other of visibleOrderOf(pool)) void pool.issue(other)?.title
-  const model = pool.issue(id)
+  const model = pool.worklistRow(id)
   if (model === undefined || !model.inMemory) return null
   return <RowShell row={model} component={PoolNativeRow} />
 })

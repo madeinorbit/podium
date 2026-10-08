@@ -14,6 +14,7 @@ import {
 } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
 import { observer } from '@podium/client-graph/react'
+import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import {
   asSessionId,
   type IssueId,
@@ -34,7 +35,7 @@ import { issueColorHex } from '@/lib/issueColors'
 import { PhaseTimer, WorkingMark } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { SessionNameEditor } from '@/lib/WorkerLabel'
-import type { PoolIssueDisplay } from './pool-row-data'
+import { poolIssueDisplay, poolIssueRow, type PoolIssueDisplay } from './pool-row-data'
 import { RowProgressMeter } from './row-progress'
 import { inlineRenameEditor, useInlineRename } from './use-inline-rename'
 import { WorkRowShell } from './WorkRowShell'
@@ -110,7 +111,8 @@ export interface UnifiedIssueRowMenuData {
  * own `issues.find` on top.
  */
 function UnifiedIssueRowInner({
-  row,
+  model,
+  row: suppliedRow,
   now,
   onSelectIssue,
   onSelectPanelForIssue,
@@ -119,14 +121,16 @@ function UnifiedIssueRowInner({
   onGripDown,
   onTuck,
   shortcutDigit,
-  displayTitle: displayTitleProp,
-  progress: progressProp,
-  origin = null,
+  displayTitle: suppliedTitle,
+  progress: suppliedProgress,
+  origin: suppliedOrigin = null,
   active = false,
   resolveMenuData,
-  display,
+  display: suppliedDisplay,
 }: {
-  row: UnifiedIssueRowView
+  row?: UnifiedIssueRowView
+  /** Production worklist rows read the shared companion inside this observer. */
+  model?: WorklistIssue
   now: number
   onSelectIssue: (issue: IssueNavigationModel) => void
   onSelectPanelForIssue: (issue: IssueNavigationModel, sessionId: SessionId) => void
@@ -153,6 +157,13 @@ function UnifiedIssueRowInner({
   /** Pool facts: presentation stays here, with no legacy row derivation. */
   display?: PoolIssueDisplay
 }): JSX.Element {
+  const values = model?.sidebar
+  const live = values && values !== LOADING ? values : undefined
+  const row = live ? poolIssueRow(live) : suppliedRow!
+  const display = live ? poolIssueDisplay(live) : suppliedDisplay
+  const displayTitleProp = live?.title ?? suppliedTitle
+  const progressProp = live?.progress ?? suppliedProgress
+  const origin = (live?.originTick ?? suppliedOrigin) as UnifiedIssueRowOrigin | null
   const { issue, sessions: mine } = row
   const unread = display?.unread ?? rowUnreadEmphasized(row)
   const [menuAnchor, setMenuAnchor] = useState<ContextMenuAnchor | null>(null)
@@ -444,3 +455,4 @@ const ResolvedIssueMenu = observer(function ResolvedIssueMenu({
  * references for unchanged rows, and every callback is a stable reference.
  */
 export const UnifiedIssueRow = memo(UnifiedIssueRowInner)
+export const WorklistIssueRow = observer(UnifiedIssueRowInner)

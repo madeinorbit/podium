@@ -5,10 +5,7 @@ import { isFinished } from '@podium/model/browser'
 import { useHarnessDescriptors } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import {
-  type MissionProgress,
-  missionCrewLabel,
-} from '@podium/client-core/values'
+import { type MissionProgress, missionCrewLabel } from '@podium/client-core/values'
 import { asIssueId, type SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
@@ -100,9 +97,9 @@ export const MissionScreen = observer(function MissionScreen() {
   )
   const headerIssue = currentIssue ?? root
 
-  const attention = missionSessions.filter(s => (s as SessionModel).asking).length
-  const live = missionSessions.filter(s => (s as SessionModel).open).length
-  const working = missionSessions.filter(s => (s as SessionModel).executing).length
+  const attention = missionSessions.filter((s) => (s as SessionModel).asking).length
+  const live = missionSessions.filter((s) => (s as SessionModel).open).length
+  const working = missionSessions.filter((s) => (s as SessionModel).executing).length
 
   const openSession = useCallback((session: SessionView) => {
     setPinnedSessionId(session.sessionId)
@@ -238,8 +235,6 @@ export const MissionScreen = observer(function MissionScreen() {
       <TaskSheet
         pool={pool}
         issue={peek}
-        issues={issues}
-        sessions={sessions}
         onClose={() => setPeek(null)}
         onOpenSession={(session) => {
           setPeek(null)

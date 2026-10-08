@@ -490,7 +490,7 @@ describe('the loader', () => {
     r.reads.reset()
     r.fire()
     const stats = r.reads.stats()
-    expect(stats.rows).toBe(1)
+    expect(stats.rows, JSON.stringify(stats)).toBe(1)
     expect(stats.byEntity).toEqual({ issue: 1 })
     expect(stats.sample).toEqual([`issue:${closed.id}`])
   })
@@ -692,7 +692,7 @@ describe('transitions', () => {
     // progress over closed children, POD-4754's path, not asserted here.)
     const drawn: boolean[] = []
     const stop = autorun(() => {
-      drawn.push(pool.issue(issue.id)?.lazyLoading === true)
+      drawn.push(pool.worklistRow(issue.id)?.lazyLoading === true)
     })
     for (const session of sessions) {
       expect(tracked(() => pool.row('session', session.sessionId))).toBe(LOADING)
@@ -1013,9 +1013,9 @@ describe('the lane source (R3, POD-4745)', () => {
     expect(
       runInAction(() => diffRelations(r.pool.graph, knownTables(r.pool, r.replay.source))),
     ).toEqual([])
-    const collapsed = [original.sessionId, twin.sessionId].filter((id) =>
+    const collapsed = tracked(() => [original.sessionId, twin.sessionId].filter((id) =>
       r.pool.graph.isCollapsed('session', id),
-    )
+    ))
     expect(collapsed).toHaveLength(1)
   })
 

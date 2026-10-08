@@ -1,4 +1,5 @@
-import { relativeTime } from '@podium/client-core/focus'
+import { issueObserver as observer } from '../../client/issue-observer'
+import { IssueAge, IssueDayLabel } from './IssueAge'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   type ActivityEntry,
@@ -55,9 +56,8 @@ import { MachineLabel, SectionHeading } from './chrome'
  * affordance, and adding one would invent a policy that is settled the other way.
  */
 
-export function MailSection({ mail }: { mail: IssueMailMessage[] }) {
+export const MailSection = observer(function MailSection({ mail }: { mail: IssueMailMessage[] }) {
   if (mail.length === 0) return null
-  const now = Date.now()
   return (
     <View style={styles.section} testID="issue-mail">
       <SectionHeading label="Mail" count={String(mail.length)} />
@@ -76,7 +76,7 @@ export function MailSection({ mail }: { mail: IssueMailMessage[] }) {
             {m.status === 'claimed' && m.claimedBy ? (
               <Text style={styles.claimed}>claimed · {m.claimedBy}</Text>
             ) : null}
-            <Text style={styles.stamp}>{relativeTime(m.createdAt, now)}</Text>
+            <Text style={styles.stamp}><IssueAge stamp={m.createdAt} /></Text>
           </View>
           <Text style={styles.mailBody} selectable>
             {m.body}
@@ -85,7 +85,7 @@ export function MailSection({ mail }: { mail: IssueMailMessage[] }) {
       ))}
     </View>
   )
-}
+})
 
 /** Glyph per event-line kind. The pure formatter returns a stable `icon` KEY so
  *  it stays renderer-free; this is the phone's mapping of those keys, and the
@@ -104,7 +104,7 @@ const EVENT_ICONS: Record<IssueEventIcon, AppIcon> = {
   generic: Circle,
 }
 
-export function IssueActivitySection({
+export const IssueActivitySection = observer(function IssueActivitySection({
   issue,
   busy,
   commands,
@@ -114,6 +114,7 @@ export function IssueActivitySection({
   busy: boolean
   commands: IssueCommands
   feed: ActivityItem[]
+  revision?: number
 }) {
   // Days are derived per render against a coarse clock: the only thing `now`
   // decides is whether a group says "Today", so re-deriving on a timer would
@@ -143,7 +144,7 @@ export function IssueActivitySection({
           <View style={styles.assistantHead}>
             <MachineLabel>Assistant</MachineLabel>
             {issue.notesUpdatedAt ? (
-              <Text style={styles.stamp}>{relativeTime(issue.notesUpdatedAt, Date.now())}</Text>
+              <Text style={styles.stamp}><IssueAge stamp={issue.notesUpdatedAt} /></Text>
             ) : null}
           </View>
           <Text style={styles.assistantBody} selectable>
@@ -161,7 +162,7 @@ export function IssueActivitySection({
           {days.map((day) => (
             <View key={day.key}>
               <View style={styles.day}>
-                <MachineLabel>{day.label}</MachineLabel>
+                <MachineLabel><IssueDayLabel day={day.key} stamp={day.entries[0]?.ts ?? ''} /></MachineLabel>
                 <View style={styles.dayRule} />
               </View>
               {day.entries.map((entry) => (
@@ -173,19 +174,19 @@ export function IssueActivitySection({
       )}
     </View>
   )
-}
+})
 
-function EntryRow({ entry }: { entry: ActivityEntry }) {
+const EntryRow = observer(function EntryRow({ entry }: { entry: ActivityEntry }) {
   if (entry.kind === 'rollup') return <Rollup entry={entry} />
   if (entry.kind === 'comment')
     return <Comment author={entry.author} body={entry.body} ts={entry.ts} />
   return <EventLine line={entry.line} ts={entry.ts} />
-}
+})
 
 /** One transition on the timeline. The row draws its own spine and node, so the
  *  feed reads as one continuous line — a real transition lights its node, a
  *  minor one leaves it grey. */
-function EventLine({ line, ts }: { line: IssueEventLine; ts: string }) {
+const EventLine = observer(function EventLine({ line, ts }: { line: IssueEventLine; ts: string }) {
   const EventIcon = EVENT_ICONS[line.icon] ?? EVENT_ICONS.generic
   const minor = line.minor === true
   return (
@@ -196,9 +197,13 @@ function EventLine({ line, ts }: { line: IssueEventLine; ts: string }) {
       <Text style={styles.clock}>{eventClock(ts)}</Text>
     </View>
   )
-}
+})
 
-function Rollup({ entry }: { entry: Extract<ActivityEntry, { kind: 'rollup' }> }) {
+const Rollup = observer(function Rollup({
+  entry,
+}: {
+  entry: Extract<ActivityEntry, { kind: 'rollup' }>
+}) {
   const [open, setOpen] = useState(false)
   return (
     <>
@@ -231,7 +236,7 @@ function Rollup({ entry }: { entry: Extract<ActivityEntry, { kind: 'rollup' }> }
         : null}
     </>
   )
-}
+})
 
 /**
  * A comment. NO ATTRIBUTION PAIR IS SYNTHESISED HERE, and that is a measurement
@@ -239,7 +244,15 @@ function Rollup({ entry }: { entry: Extract<ActivityEntry, { kind: 'rollup' }> }
  * `createdAt` and an id — no `Attribution`. §3.1.3 A3 says the UI READS the pair
  * and never asserts it, so a row whose server shape has none renders none.
  */
-function Comment({ author, body, ts }: { author: string; body: string; ts: string }) {
+const Comment = observer(function Comment({
+  author,
+  body,
+  ts,
+}: {
+  author: string
+  body: string
+  ts: string
+}) {
   return (
     <View style={styles.comment}>
       <View style={styles.commentHead}>
@@ -251,7 +264,7 @@ function Comment({ author, body, ts }: { author: string; body: string; ts: strin
       </Text>
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   section: {

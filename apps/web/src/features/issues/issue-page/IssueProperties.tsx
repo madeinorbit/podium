@@ -1,3 +1,4 @@
+import { issueObserver as observer } from './issue-observer'
 /**
  * The properties rail for the issue page. Rendered in the desktop `<aside>` and
  * mirrored inside the mobile `Details` disclosure.
@@ -85,13 +86,13 @@ import { IssueParentRow } from './IssueParentRow'
 import { IssueRelations } from './IssueRelations'
 import { IssueSessionsBlock } from './IssueSessionsBlock'
 import { useIssueEdgeResolver } from './issue-edges'
-import { useIssuePageCatalog, useIssuePageData } from './issue-page-data'
+import { useIssuePageCatalog, useIssuePageContext } from './issue-page-data'
 import { PropertyRow, TriggerButton } from './property-chrome'
 
 /** The properties stack. `commands` is the page's named-command set (all
  *  mutations run through its toast-wrapping runner); `onNavigate` re-points the
  *  open issue (parent / relation click-through). */
-export function IssueProperties({
+export const IssueProperties = observer(function IssueProperties({
   issue,
   busy,
   commands,
@@ -104,7 +105,7 @@ export function IssueProperties({
   onNavigate: (id: IssueId) => void
   onRequestClose: (reason: IssueCloseReason) => void
 }): JSX.Element {
-  const pooled = useIssuePageData()!.data
+  const page = useIssuePageContext()!
   const { trpc, navigateToSession } = useRuntimeSelector(
     (s) => ({
       trpc: s.trpc,
@@ -113,11 +114,11 @@ export function IssueProperties({
     shallowEqual,
   )
   const machines = usePoolMachines()
-  const sessions = pooled.sessions
+
   const [optionsOpen, setOptionsOpen] = useState(false)
   const issues = useIssuePageCatalog(optionsOpen)
   const resolve = useIssueEdgeResolver()
-  const memberSessions = pooled.memberSessions
+
   const mergeStyle = useMergeStyle(trpc)
   // Relation add is two steps: pick a dep type, then a target issue.
   const [addRelType, setAddRelType] = useState('blocks')
@@ -135,15 +136,9 @@ export function IssueProperties({
 
   // [spec:SP-a1c0] (#411) Route through the central action — never roll per-feature
   // navigation (setPane+setView flips the URL then reverts off the workspace view).
-  const openSession = (session: { sessionId: (typeof sessions)[number]['sessionId'] }): void => {
+  const openSession = (session: { sessionId: import('@podium/model/browser').SessionId }): void => {
     navigateToSession(session.sessionId)
   }
-
-  // Forwarding ghosts (POD-89): sessions BORN here (permanent refIssueId) that
-  // re-homed elsewhere.
-  const movedOn = (sessions ?? []).filter(
-    (s) => s.refIssueId === issue.id && s.issueId != null && s.issueId !== issue.id && !s.archived,
-  )
 
   // ---- Status (POD-1074): ONE list, ordered by category with a rule wherever
   // the category changes, exactly as the dock and the board context menu render
@@ -317,8 +312,6 @@ export function IssueProperties({
           issue={issue}
           busy={busy}
           commands={commands}
-          memberSessions={memberSessions}
-          movedOn={movedOn}
           machines={machines}
           onOpenSession={openSession}
         />
@@ -346,7 +339,7 @@ export function IssueProperties({
           busy={busy}
           commands={commands}
           mateOptions={mateOptions}
-          hasMates={pooled.hasTargets ?? repoMates.length > 0}
+          hasMates={page.views.row(issue.id).hasTargets}
           onOptionsOpenChange={setOptionsOpen}
           addRelType={addRelType}
           onAddRelTypeChange={setAddRelType}
@@ -359,7 +352,7 @@ export function IssueProperties({
       </RailSection>
     </div>
   )
-}
+})
 
 /** The long-tail properties: a row each when SET, nothing when not. */
 type LongTailKey = 'estimate' | 'due' | 'defer' | 'type'
@@ -372,7 +365,7 @@ type LongTailKey = 'estimate' | 'due' | 'defer' | 'type'
  *  repeated dividers made the secondary column feel like a settings table, and
  *  a single divider (the Origin block had the rail's only one) reads as a
  *  mistake rather than as structure. */
-function RailSection({
+const RailSection = observer(function RailSection({
   children,
   /** `loose` puts a heading's own 16px above it when a band holds two blocks
    *  rather than one — the parent row followed by Relations. Property rows
@@ -383,4 +376,4 @@ function RailSection({
   gap?: 'flush' | 'loose'
 }): JSX.Element {
   return <div className={cn('flex flex-col px-5 py-4', gap === 'loose' && 'gap-4')}>{children}</div>
-}
+})

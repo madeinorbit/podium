@@ -1,3 +1,4 @@
+import { issueObserver as observer } from './issue-observer'
 import { resolveMachinePath } from '@podium/model/browser'
 /**
  * THE AGENT-ACTIVITY PANEL (issues.panel) — what an agent PRODUCED for the
@@ -41,6 +42,7 @@ import { resolveMachinePath } from '@podium/model/browser'
 
 import { shallowEqual } from '@podium/client-core'
 import { relativeTime } from '@podium/client-core/focus'
+import { IssueAge } from './IssueAge'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import type { IssuePanelArtifact } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
@@ -52,7 +54,11 @@ import { Button } from '@/components/ui/button'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { SectionHeading } from './chrome'
 
-export function IssueAgentActivity({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+export const IssueAgentActivity = observer(function IssueAgentActivity({
+  issue,
+}: {
+  issue: IssueViewModel
+}): JSX.Element | null {
   const { httpOrigin, openFileInWorktree, openArtifact } = useRuntimeSelector(
     (s) => ({
       httpOrigin: s.httpOrigin,
@@ -153,7 +159,7 @@ export function IssueAgentActivity({ issue }: { issue: IssueViewModel }): JSX.El
                       <span className="min-w-0 truncate">{label}</span>
                       {added && (
                         <span className="flex-none text-muted-foreground/60" title={a.addedAt}>
-                          {added}
+                          <IssueAge stamp={a.addedAt} />
                         </span>
                       )}
                     </figcaption>
@@ -204,4 +210,4 @@ export function IssueAgentActivity({ issue }: { issue: IssueViewModel }): JSX.El
       {lightbox && <MediaLightbox {...lightbox} onClose={() => setLightbox(null)} />}
     </div>
   )
-}
+})

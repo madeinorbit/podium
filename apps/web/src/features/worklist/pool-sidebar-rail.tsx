@@ -1,16 +1,17 @@
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { agentBadge, type MotionPhase, mostUrgentSession, STALE_INACTIVE_MS } from '@podium/client-core/values'
 import { LOADING, type MobxPool } from '@podium/client-graph'
-import { compareStructural, computed, observer } from '@podium/client-graph/react'
+import { compareStructural, computed, observer, WorklistProvider, useWorklistModel } from '@podium/client-graph/react'
 import { motionPhase } from '@podium/client-graph/worklist/rollup'
 import type { SidebarWorktree } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import { machinePathBasename, machinePathsEqual } from '@podium/model/browser'
 
 import { FolderPlus, GitBranch, Plus, Search } from 'lucide-react'
-import { Fragment, type JSX, useMemo, useState } from 'react'
+import { Fragment, type JSX, useEffect, useMemo, useState } from 'react'
 import { openAddProject } from '@/app/desktop-menu'
 import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool } from '@/app/store-worklist-pool'
@@ -27,7 +28,7 @@ import { type PoolWorkActions, usePoolUnifiedWork } from './use-pool-unified-wor
 
 export function PoolSidebarRail(): JSX.Element | null {
   const pool = useWorklistPool()
-  return pool ? <PoolRail pool={pool} /> : null
+  return pool ? <WorklistProvider model={worklistView(pool)}><PoolRail pool={pool} /></WorklistProvider> : null
 }
 
 /** The rail's waiting pick shows no time: read the clock untracked and pair it
@@ -51,7 +52,9 @@ export function railWaitingNow(pool: MobxPool, waiting: readonly SessionView[]):
 
 const PoolRail = observer(function PoolRail({ pool }: { pool: MobxPool }): JSX.Element {
   const layout = usePoolLayoutState()
-  const sections = sidebarView(pool).sections(layout)
+  const model = useWorklistModel()!
+  useEffect(() => model.setLayout(layout), [model, layout])
+  const sections = model.sections(layout)
   const actions = usePoolUnifiedWork(pool)
   const { startNewTask } = useNewTask({ bindChord: true })
   const setPaletteOpen = useRuntimeSelector((s) => s.setPaletteOpen)
@@ -200,7 +203,7 @@ const PoolRailTile = observer(function PoolRailTile({
           const tree = kind === 'worktree' ? sidebarView(pool).worktree(id) : undefined
           let count = 0
           if (value !== undefined && value !== LOADING) {
-            const model = pool.issue(id)!
+            const model = worklistView(pool).knownRow(id)!
             const waiting = model.aggregate.railWaiting
             count =
               ((model.ownFacts.state === 'ready' && model.ownFacts.finished

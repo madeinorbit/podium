@@ -15,7 +15,6 @@ export function issueInput(
   gitState: Input | undefined,
   deps: readonly SliceDepEdge[],
   blocked: boolean,
-  sessionFacts: SliceIssue['sessionFacts'],
 ): SliceIssue | undefined {
   if (!projection) return undefined
   let memo = composed
@@ -24,7 +23,6 @@ export function issueInput(
     userState ?? NONE,
     gitState ?? NONE,
     deps,
-    sessionFacts ?? NONE,
   ]) {
     let next = memo.next.get(key)
     if (!next) {
@@ -46,7 +44,6 @@ export function issueInput(
     gitState: git,
     deps,
     blocked,
-    sessionFacts,
   } as unknown as SliceIssue
   return memo.value
 }

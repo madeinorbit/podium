@@ -3,6 +3,8 @@ import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
 import { sidebarNested } from './worklist/sidebar'
 import { MODEL_CLASSES, type ModelHost } from './models'
+import { worklistView } from './worklist/view-model'
+import { headerModel } from './header-companion'
 import { aggregatePartOf, LOADING, ownAttentionPartOf, unitOwnPartOf, unitsBelowPartOf } from './worklist/rollup'
 
 /**
@@ -49,7 +51,7 @@ function fixture() {
 }
 
 it('keeps a parent-only reader asleep when its unchanged parent becomes unplaced', () => {
-  const pool = fixture(), child = pool.issue('child')!
+  const pool = fixture(), child = pool.worklistRow('child')!
   let parentRuns = 0, placementRuns = 0
   let parent: string | null = null, placed = false
   const stopParent = autorun(() => { parentRuns++; parent = child.nestParent })
@@ -73,7 +75,7 @@ it('keeps a parent-only reader asleep when its unchanged parent becomes unplaced
 })
 
 it('the sidebar uses the shared parent answer without demanding child placement', () => {
-  const pool = fixture(), root = pool.issue('root')!, child = pool.issue('child')!
+  const pool = fixture(), root = pool.worklistRow('root')!, child = pool.worklistRow('child')!
   const placement = vi.spyOn(child, 'placed', 'get').mockImplementation(() => {
     throw new Error('A parent-only reader demanded placement')
   })
@@ -83,7 +85,7 @@ it('the sidebar uses the shared parent answer without demanding child placement'
 })
 
 it('resident, ordering and finished readers ignore a title change', () => {
-  const pool = fixture(), root = pool.issue('root')!
+  const pool = fixture(), root = pool.worklistRow('root')!
   let stateRuns = 0, finishedRuns = 0, rankRuns = 0, titleRuns = 0
   const stops = [
     autorun(() => { stateRuns++; void root.ownFacts.state }),
@@ -101,15 +103,13 @@ it('resident, ordering and finished readers ignore a title change', () => {
 })
 
 it('roster IDs do not change when headless own presence changes', () => {
-  const pool = fixture(), root = pool.issue('root')!
+  const pool = fixture(), root = pool.worklistRow('root')!
   let runs = 0, ids: readonly string[] = []
   const stop = autorun(() => { runs++; ids = root.rosterIds })
   const before = ids
   try {
     runInAction(() => pool.apply({ type: 'update', rows: [
-      { kind: 'issue', id: 'root', value: issueRow('root', {
-        sessionFacts: { headlessStaffed: true },
-      }) as never },
+      { kind: 'session', id: 'headless', value: sessionRow({ sessionId: 'headless', headless: true }) as never },
     ] }))
     expect(ids).toBe(before)
     expect(runs).toBe(1)
@@ -128,12 +128,13 @@ it('session ownership reads do not demand the independent worktree link', () => 
 
 it('archive, host-location and seat-motion readers ignore independent cursor and title edits', () => {
   const pool = fixture(), seat = pool.model('session', 'seat')!
+  const row = worklistView(pool).session(seat), header = headerModel(pool).session(seat)
   let archiveRuns = 0, hostRuns = 0, workingRuns = 0, titleRuns = 0
   const stops = [
-    autorun(() => { archiveRuns++; void seat.retention?.archived }),
-    autorun(() => { hostRuns++; void seat.headerHost?.cwd }),
-    autorun(() => { workingRuns++; const verdict = seat.verdict; if (verdict && typeof verdict !== 'symbol') void verdict.working }),
-    autorun(() => { titleRuns++; void seat.headerWorking?.title }),
+    autorun(() => { archiveRuns++; void row.retention?.archived }),
+    autorun(() => { hostRuns++; void header.headerHost?.cwd }),
+    autorun(() => { workingRuns++; const verdict = row.verdict; if (verdict && typeof verdict !== 'symbol') void verdict.working }),
+    autorun(() => { titleRuns++; void header.headerWorking?.title }),
   ]
   try {
     runInAction(() => pool.apply({ type: 'update', rows: [
@@ -145,7 +146,7 @@ it('archive, host-location and seat-motion readers ignore independent cursor and
 
 
 it('an unknown row keeps the previous progress defaults while its formal child remains', () => {
-  const pool = fixture(), root = pool.issue('root')!
+  const pool = fixture(), root = pool.worklistRow('root')!
   runInAction(() => pool.apply({ type: 'update', rows: [
     { kind: 'issue', id: 'child', value: issueRow('child', { parentId: 'root', closedReason: 'done', closedAt: stamp }) as never },
   ] }))
@@ -160,7 +161,7 @@ it('an unknown row keeps the previous progress defaults while its formal child r
 })
 
 it('a working reader never demands seat order or sidebar facts', () => {
-  const pool = fixture(), root = pool.issue('root')!
+  const pool = fixture(), root = pool.worklistRow('root')!
   const readSeat = pool.rollupInputs.seat
   const guard = vi.spyOn(pool.rollupInputs, 'seat').mockImplementation(id => {
     const seat = readSeat(id)
@@ -185,7 +186,7 @@ it('a working reader never demands seat order or sidebar facts', () => {
 })
 
 it('progress counts do not acquire staffing or seat presence', () => {
-  const pool = fixture(), root = pool.issue('root')!, child = pool.issue('child')!
+  const pool = fixture(), root = pool.worklistRow('root')!, child = pool.worklistRow('child')!
   const guards = [root, child].map(model => vi.spyOn(model, 'openOwn', 'get').mockImplementation(() => {
     throw new Error('A count demanded staffing')
   }))
@@ -212,7 +213,7 @@ it('all demanded attention and progress fields equal the eager parts, including 
   const stop = autorun(() => {
     try {
       for (const id of ['root', 'child', 'leaf']) {
-        const model = pool.issue(id)!
+        const model = pool.worklistRow(id)!
         expect(model.ownAttention, `${id} own`).toEqual(ownAttentionPartOf(pool.rollupInputs, model))
         expect(model.aggregate, `${id} aggregate`).toEqual(aggregatePartOf(pool.rollupInputs, id, model))
         expect(model.unitOwn, `${id} unit`).toEqual(unitOwnPartOf(pool.rollupInputs, id, model))
@@ -222,7 +223,7 @@ it('all demanded attention and progress fields equal the eager parts, including 
   })
   try {
     if (failure !== undefined) throw failure
-    expect(pool.issue('root')!.unitsBelow.members).toBe(2)
+    expect(pool.worklistRow('root')!.unitsBelow.members).toBe(2)
   }
   finally { stop(); pool.dispose() }
 })

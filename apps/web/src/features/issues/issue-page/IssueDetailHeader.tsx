@@ -1,3 +1,6 @@
+import { issueObserver as observer } from './issue-observer'
+import type { SessionModel } from '@podium/client-graph/models'
+import { edgeIssue, useIssueEdgeResolver } from './issue-edges'
 import { isFinished } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
 /**
@@ -33,7 +36,7 @@ import { WorkingMark } from '@/lib/motion'
 import { issueRefLong } from '../issue-card'
 import type { IssuePageCommands } from '../issue-page-commands'
 import { repoMatesOf } from '../issue-page-model'
-import { useIssuePageCatalog, useIssuePageIssues } from './issue-page-data'
+import { useIssuePageCatalog, useIssuePageContext } from './issue-page-data'
 import {
   type IssuePageMenuAction,
   type IssuePageMenuEntry,
@@ -41,13 +44,13 @@ import {
   startsGroup,
 } from './issue-page-menu'
 
-export function IssueDetailHeader({
+export const IssueDetailHeader = observer(function IssueDetailHeader({
   issue,
   repoName,
   busy,
   commands,
   targets,
-  sessions,
+  sessions: suppliedSessions,
   prev,
   next,
   onBack,
@@ -60,19 +63,25 @@ export function IssueDetailHeader({
   /** Repo-mates — supersede/duplicate targets, from the page model. */
   targets?: IssueViewModel[]
   /** Member sessions — the header's live-state readout (POD-591). */
-  sessions: SessionView[]
+  sessions?: SessionView[]
   prev?: IssueId
   next?: IssueId
   onBack: () => void
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
-  const issues = useIssuePageIssues()
-  const parent = issue.parentId ? issues.find((i) => i.id === issue.parentId) : undefined
-  const phases = sessions.map((s) => motionPhase(s, issue as unknown as IssueViewModel))
-  const working = phases.filter((p) => p === 'working').length
-  // "Needs you" is the ISSUE's own flag or any session waiting on a human. Both
-  // mean the same thing to the operator, and the header is where they look
-  // before deciding whether this task is their next move.
+  const page = useIssuePageContext()
+  const resolve = useIssueEdgeResolver()
+  const parent = edgeIssue(resolve(issue.parentId))
+  const members = suppliedSessions ?? page?.views.row(issue.id).activeSessions
+  if (typeof members === 'symbol') throw members
+  const phases = (members ?? []).map((session) =>
+    'motion' in session
+      ? isFinished(issue)
+        ? 'done'
+        : (session as SessionModel).motion
+      : motionPhase(session, issue),
+  )
+  const working = phases.filter((phase) => phase === 'working').length
   const needsYou = issue.needsHuman || phases.includes('waiting')
   return (
     <header className="flex h-10 flex-none items-center gap-2 border-hairline-bar border-b bg-bar px-3">
@@ -95,7 +104,7 @@ export function IssueDetailHeader({
               data-pressable
               type="button"
               className="max-w-[160px] truncate font-mono text-[11px] text-text-dim tabular-nums leading-none hover:text-foreground"
-              title={`${issueDisplayRef(parent)} · ${parent.title}${parent.archived ? ' · archived' : ''}`}
+              title={`${issueDisplayRef(parent)} · ${'authoredTitle' in parent ? parent.authoredTitle : parent.title}${parent.archived ? ' · archived' : ''}`}
               onClick={() => onNavigate(parent.id)}
             >
               {issueDisplayRef(parent)}
@@ -108,7 +117,7 @@ export function IssueDetailHeader({
           data-pressable
           type="button"
           className="cursor-pointer rounded font-mono text-[11px] text-foreground tabular-nums leading-none hover:text-primary"
-          title={`${issueDisplayRef(issue)} · ${issue.title} — click to copy "${issueDisplayRef(issue)}"`}
+          title={`${issueDisplayRef(issue)} · ${'authoredTitle' in issue ? issue.authoredTitle : issue.title} — click to copy "${issueDisplayRef(issue)}"`}
           onClick={() =>
             copyToClipboard(issueDisplayRef(issue), `Copied ${issueDisplayRef(issue)}`)
           }
@@ -175,14 +184,14 @@ export function IssueDetailHeader({
       </div>
     </header>
   )
-}
+})
 
 /**
  * The header `…` overflow menu. `commands` is the page's named-command set
  * (toast-wrapping runner included); `onDeleted` returns to the board after a
  * confirmed delete or restore.
  */
-export function IssueOverflowMenu({
+export const IssueOverflowMenu = observer(function IssueOverflowMenu({
   issue,
   busy,
   commands,
@@ -297,4 +306,4 @@ export function IssueOverflowMenu({
       )}
     </DropdownMenu>
   )
-}
+})

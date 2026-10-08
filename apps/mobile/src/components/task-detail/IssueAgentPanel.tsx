@@ -1,4 +1,5 @@
-import { relativeTime } from '@podium/client-core/focus'
+import { issueObserver as observer } from '../../client/issue-observer'
+import { IssueAge } from './IssueAge'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { artifactKind } from '@podium/client-core/values'
 import type { IssuePanelArtifact } from '@podium/model'
@@ -31,7 +32,11 @@ import { SectionHeading } from './chrome'
  * remain intact for agent tooling; this reader surface simply does not expose
  * or mutate the checklist.
  */
-export function IssueAgentPanel({ issue }: { issue: IssueViewModel }) {
+export const IssueAgentPanel = observer(function IssueAgentPanel({
+  issue,
+}: {
+  issue: IssueViewModel
+}) {
   const httpOrigin = useHttpOrigin()
   const profile = useOptionalServerProfile()
   // Prefer the immutable hosted id. The slug fallback keeps URL-selected web
@@ -64,21 +69,27 @@ export function IssueAgentPanel({ issue }: { issue: IssueViewModel }) {
             <View key={`${d.addedAt}:${d.text}`} style={styles.deferred}>
               <View style={styles.deferredDot} />
               <Text style={styles.deferredText}>{d.text}</Text>
-              <Text style={styles.stamp}>{relativeTime(d.addedAt, Date.now())}</Text>
+              <Text style={styles.stamp}><IssueAge stamp={d.addedAt} /></Text>
             </View>
           ))}
         </View>
       ) : null}
     </View>
   )
-}
+})
 
 /**
  * One artifact. Images and video posters preview inline; everything else is a
  * file row. A row with no reachable URL — a legacy path-only entry on a machine
  * this phone cannot reach — stays inert rather than offering a tap that fails.
  */
-function ArtifactRow({ artifact, url }: { artifact: IssuePanelArtifact; url: string | null }) {
+const ArtifactRow = observer(function ArtifactRow({
+  artifact,
+  url,
+}: {
+  artifact: IssuePanelArtifact
+  url: string | null
+}) {
   const { bearer } = useServerProfile()
   const [broken, setBroken] = useState(false)
   const [open, setOpen] = useState(false)
@@ -107,7 +118,7 @@ function ArtifactRow({ artifact, url }: { artifact: IssuePanelArtifact; url: str
             <Text style={styles.captionText} numberOfLines={1}>
               {label}
             </Text>
-            <Text style={styles.stamp}>{relativeTime(artifact.addedAt, Date.now())}</Text>
+            <Text style={styles.stamp}><IssueAge stamp={artifact.addedAt} /></Text>
           </View>
         </PressableScale>
       ) : (
@@ -122,7 +133,7 @@ function ArtifactRow({ artifact, url }: { artifact: IssuePanelArtifact; url: str
           <Text style={styles.fileName} numberOfLines={1}>
             {label}
           </Text>
-          <Text style={styles.stamp}>{relativeTime(artifact.addedAt, Date.now())}</Text>
+          <Text style={styles.stamp}><IssueAge stamp={artifact.addedAt} /></Text>
         </PressableScale>
       )}
       {open ? (
@@ -130,7 +141,7 @@ function ArtifactRow({ artifact, url }: { artifact: IssuePanelArtifact; url: str
       ) : null}
     </>
   )
-}
+})
 
 const styles = StyleSheet.create({
   section: {

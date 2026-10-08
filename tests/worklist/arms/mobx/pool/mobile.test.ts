@@ -87,7 +87,7 @@ describe('mobile pool values', () => {
         // loads trigger the eager mark-read after the selection write settled.
         await settled(ctx)
         feeds.flush(); settle(handle.pool)
-        expect(tracked(() => mobileWorkView(handle.pool).row({ id: ctx.targets.visibleRootId, kind: 'issue' })))
+        expect(tracked(() => ({ ...mobileWorkView(handle.pool).row({ id: ctx.targets.visibleRootId, kind: 'issue' }) as object })))
           .toMatchObject({ unread: false })
       }
       if (identityFailure) throw identityFailure
@@ -148,12 +148,12 @@ describe('mobile pool values', () => {
       const session = run.ctx.cache.read('session', sessionId)!.value as Record<string, unknown>
       upsert(run.ctx, 'session', sessionId, { ...session, busy: false, agentState: undefined })
       run.feed().flush(); locals.flush(); settle(handle.pool)
-      expect(tracked(() => mobileWorkView(handle.pool).row(ref))).toMatchObject({ draftOnly: true, draftQuiet: true, unread: false, navigation: { kind: 'session', id: sessionId } })
+      expect(tracked(() => ({ ...mobileWorkView(handle.pool).row(ref) as object }))).toMatchObject({ draftOnly: true, draftQuiet: true, unread: false, navigation: { kind: 'session', id: sessionId } })
       const stop = reaction(() => mobileWorkView(handle.pool).row(ref), () => {}, { fireImmediately: true })
       try {
         await run.apply({ kind: 'phaseChange', sessionId, phase: 'idle' })
         locals.flush(); settle(handle.pool)
-        expect(tracked(() => mobileWorkView(handle.pool).row(ref))).toMatchObject({ draftOnly: true, draftQuiet: false })
+        expect(tracked(() => ({ ...mobileWorkView(handle.pool).row(ref) as object }))).toMatchObject({ draftOnly: true, draftQuiet: false })
         expect(tracked(() => poolMobileSnapshot(handle.pool)).pending).toBe(0)
         expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool)))).digest('hex')).toMatchSnapshot('last green draft output')
       } finally { stop() }

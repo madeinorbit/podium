@@ -1,7 +1,10 @@
+import { createRequire } from 'node:module'
 import { EMPTY_PENDING } from '../../../../tests/worklist/shared/src/row-source'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { addSink, resetLogging, type LogRecord } from '@podium/logger'
-import { observe } from 'mobx'
+import { autorun, getDependencyTree, observe, Reaction } from 'mobx'
+import { enableDebugNames } from '../debug-name'
+import { IssueSessionFactsIndex, type IssueSessionFacts } from './issue-session-facts'
 import type { ColdIndex } from './cold-index'
 import type { PendingOverlay } from '@podium/client-core/command-reducers'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -47,6 +50,7 @@ function fixture(options: RowSourceOptions = { pending: EMPTY_PENDING }) {
     tables,
     put,
     session,
+    replace() { addressed({ type: 'replace', reason: 'bootstrap' }) },
     update(...ids: string[]) {
       addressed({ type: 'update', rows: ids.map((id) => ({ kind: 'sessions', id })) })
     },
@@ -56,6 +60,66 @@ function fixture(options: RowSourceOptions = { pending: EMPTY_PENDING }) {
 afterEach(() => {
   vi.restoreAllMocks()
   resetLogging()
+})
+
+it.each([1, 4])('matches the old pending sweep through addressed edits and retirement at %sx', scale => {
+  const maps = {
+    sessions: new Map<string, readonly PendingOverlay[]>(),
+    sessionUserStates: new Map<string, readonly PendingOverlay[]>(),
+    issueProjections: new Map<string, readonly PendingOverlay[]>(),
+    issueUserStates: new Map<string, readonly PendingOverlay[]>(),
+  }
+  const f = fixture({ pending: { byRow: kind => maps[kind] } })
+  const held = new Map<string, unknown>()
+  const stop = f.source.source.subscribe(event => {
+    if (event.type === 'replace') held.clear()
+    for (const row of event.rows) {
+      if (row.value === undefined) held.delete(`${row.kind}:${row.id}`)
+      else held.set(`${row.kind}:${row.id}`, row.value)
+    }
+  })
+  // snapshot retains the old whole-kind pending resolver as the answer oracle.
+  const parity = () => {
+    const rebuilt = new Map<string, unknown>()
+    for (const kind of ['session', 'issue'] as const)
+      for (const row of f.source.source.snapshot(kind))
+        if (row.value !== undefined) rebuilt.set(`${kind}:${row.id}`, row.value)
+    expect(held).toEqual(rebuilt)
+  }
+  const edit = (entity: keyof typeof maps, id: string, patch: Record<string, unknown>) => {
+    maps[entity].set(id, [{ op: 'patch', key: `${entity}:${id}`, entity, id, patch, coveredBy: () => false }])
+    f.source.repaint([{ kind: entity.startsWith('session') ? 'session' : 'issue', id }])
+    parity()
+  }
+  try {
+    f.session('active', 'server')
+    f.put('issueProjections', 'issue', { id: 'issue', title: 'server' })
+    for (let i = 0; i < 32 * scale; i++) f.session(`pending-${i}`, 'server')
+    f.replace(); f.source.flush(); parity()
+    for (let i = 0; i < 32 * scale; i++) edit('sessions', `pending-${i}`, { title: 'pending' })
+    edit('sessions', 'active', { title: 'painted' })
+    edit('sessionUserStates', 'active', { readAt: '2026-10-08' })
+    edit('issueProjections', 'issue', { title: 'painted issue' })
+    edit('issueUserStates', 'issue', { snoozedUntil: '2026-10-10' })
+    f.source.stats.reset()
+    f.put('sessions', 'active', { sessionId: 'active', title: 'server', status: 'running', lastActiveAt: '2026-10-09' })
+    f.update('active'); f.source.flush()
+    console.info('[pending heartbeat]', JSON.stringify({ scale, rowsVisited: f.source.stats.rowsVisited }))
+    expect(f.source.stats.rowsVisited).toBe(1)
+    parity()
+    for (const entity of Object.keys(maps) as (keyof typeof maps)[]) {
+      const id = entity.startsWith('session') ? 'active' : 'issue'
+      maps[entity].delete(id)
+      f.source.repaint([{ kind: entity.startsWith('session') ? 'session' : 'issue', id }])
+      parity()
+    }
+    // A pending insert and its rollback have no feed row to name them.
+    edit('sessions', 'insert', { sessionId: 'insert', title: 'inserted' })
+    maps.sessions.delete('insert')
+    f.source.repaint([{ kind: 'session', id: 'insert' }]); parity()
+    f.tables.get('sessions')!.delete('active')
+    f.update('active'); f.source.flush(); parity()
+  } finally { stop(); f.source.dispose() }
 })
 
 /** Feed failures log through @podium/logger (no console sink in tests), so
@@ -299,4 +363,110 @@ it('disposal cancels queued recovery and a fresh principal has fresh diagnostics
   } finally {
     fresh.source.dispose()
   }
+})
+
+// Kept reference to the pre-change rebuild. This is deliberately independent
+// of the running maxima so removal, archive and rehome errors are observable.
+function rebuiltFacts(rows: Iterable<Record<string, unknown>>, owner: string): IssueSessionFacts {
+  let replicaActivityAt: string | undefined, tipActivityAt: string | undefined
+  let headlessStaffed = false, headlessOccupied = false
+  for (const row of rows) {
+    if (row.issueId !== owner) continue
+    const replica = row.agentKind === 'shell' ? undefined : row.lastActiveAt as string | undefined
+    const tip = row.archived === true ? undefined : row.lastActiveAt as string | undefined
+    if (replica && (!replicaActivityAt || replica > replicaActivityAt)) replicaActivityAt = replica
+    if (tip && (!tipActivityAt || tip > tipActivityAt)) tipActivityAt = tip
+    headlessStaffed ||= row.headless === true && row.archived !== true && row.status !== 'exited'
+    headlessOccupied ||= row.headless === true && row.archived !== true
+  }
+  return { replicaActivityAt, tipActivityAt, headlessStaffed, headlessOccupied }
+}
+const fields = ['replicaActivityAt', 'tipActivityAt', 'headlessStaffed', 'headlessOccupied'] as const
+
+it('matches the old owner-history rebuild on every activity and membership transition', () => {
+  const f = fixture(), index = new IssueSessionFactsIndex()
+  for (const id of ['one', 'two']) f.put('issueProjections', id, { id })
+  const change = (id: string, row?: Record<string, unknown>) => {
+    if (row) f.put('sessions', id, { sessionId: id, ...row })
+    else f.tables.get('sessions')?.delete(id)
+    index.install(id, row)
+    f.update(id); f.source.flush()
+    for (const owner of ['one', 'two']) {
+      const expected = rebuiltFacts(f.tables.get('sessions')?.values() ?? [], owner)
+      const actual = Object.fromEntries(fields.map(field => [field, index.read(owner, field)]))
+      expect(actual).toEqual(expected)
+      // Both the feed and standalone index must match the old rebuild.
+      const published = Object.fromEntries(fields.map(field => [field, f.source.source.issueSessionFact!(owner, field)]))
+      expect(published).toEqual(expected)
+    }
+  }
+  const seat = { issueId: 'one', agentKind: 'codex', lastActiveAt: '2026-10-01', status: 'live' }
+  try {
+    change('a', seat)
+    change('b', { ...seat, headless: true, lastActiveAt: '2026-10-02' })
+    change('archived', { ...seat, archived: true, lastActiveAt: '2026-10-05' })
+    change('shell', { ...seat, agentKind: 'shell', lastActiveAt: '2026-10-06' })
+    change('a', { ...seat, lastActiveAt: '2026-10-07' })
+    change('a', { ...seat, lastActiveAt: '2026-09-01' })
+    change('b', { ...seat, headless: true, archived: true, lastActiveAt: '2026-10-02' })
+    change('b', { ...seat, headless: true, status: 'exited', issueId: 'two', lastActiveAt: '2026-10-02' })
+    change('shell', { ...seat, agentKind: 'codex', lastActiveAt: '2026-10-06' })
+    change('shell')
+    change('archived')
+    change('a')
+    change('b')
+    change('a', seat)
+    index.clear()
+    expect(Object.fromEntries(fields.map(field => [field, index.read('one', field)]))).toEqual(rebuiltFacts([], 'one'))
+  } finally { f.source.dispose() }
+})
+
+it.each([1, 4])('records heartbeat owner-history work and watched fields at %sx', scale => {
+  enableDebugNames()
+  const f = fixture()
+  f.put('issueProjections', 'one', { id: 'one', title: 'Issue', stage: 'in_progress', audience: 'human', repoId: 'repo', worktreePath: '/synthetic',
+    createdAt: '2026-01-01', updatedAt: '2026-10-01', deps: [] })
+  f.put('repos', 'repo', { id: 'repo', path: '/synthetic', prefix: 'POD' })
+  const row = { cwd: '/synthetic', sessionId: 'active', issueId: 'one', agentKind: 'codex', status: 'live', archived: false,
+    lastActiveAt: '2026-10-07', agentState: { phase: 'working', since: '2026-10-01' } }
+  for (let i = 0; i < 128 * scale; i++) f.put('sessions', `history-${i}`, {
+    ...row, sessionId: `history-${i}`, archived: true, status: 'exited', lastActiveAt: '2026-01-01' })
+  f.put('sessions', 'active', row)
+  f.replace(); f.source.flush()
+  const handle = createWorklistPool(f.source.source, fixedLocals({ selectedIssueId: 'one', coarseNow: Date.parse('2026-10-08') }).source)
+  const issue = handle.pool.issueObject('one'), work = handle.pool.worklistRow('one')!
+  const watcher = new Reaction('probe:issue-activity', () => {})
+  watcher.track(() => { void issue.title; void issue.stage; void issue.memberLatestActivity;
+    void work.unread; void work.openOwn; void work.tip; void work.rollup })
+  const names = new Set<string>()
+  const visit = (tree: ReturnType<typeof getDependencyTree>) => {
+    if (/^(IssueModel|WorklistIssue)[@.]/.test(tree.name)) names.add(tree.name)
+    for (const child of tree.dependencies ?? []) visit(child)
+  }
+  visit(getDependencyTree(watcher))
+  const runtime = globalThis as unknown as { Bun?: { gc(force: boolean): void } }
+  const heap = () => {
+    if (!runtime.Bun) return process.memoryUsage().heapUsed
+    runtime.Bun.gc(true)
+    runtime.Bun.gc(true)
+    return (createRequire(import.meta.url)('bun:jsc') as { heapStats(): { heapSize: number } }).heapStats().heapSize
+  }
+  const original = handle.pool.row('issue', 'one')
+  let storedRuns = 0
+  const stop = autorun(() => { void issue.title; void issue.stage; storedRuns++ })
+  try {
+    f.source.stats.reset()
+    f.put('sessions', 'active', { ...row, lastActiveAt: '2026-10-09' })
+    f.update('active')
+    const event = f.source.flush()
+    expect(f.source.stats).toMatchObject({ sessionFactsVisited: 1, sessionFactsRescanned: 0, sessionStaffingChanges: 0 })
+    expect(event?.rows.filter(record => record.kind === 'issue')).toHaveLength(0)
+    expect(handle.pool.row('issue', 'one')).toBe(original)
+    expect(storedRuns).toBe(1)
+    expect(issue.lastActivityAt).toBe('2026-10-09')
+    console.info('[issue heartbeat]', JSON.stringify({ scale, stats: f.source.stats,
+      issueRows: event?.rows.filter(record => record.kind === 'issue').length,
+      rowReplaced: original !== handle.pool.row('issue', 'one'), storedRuns,
+      watchedFields: names.size, heapBytes: heap(), heapSource: runtime.Bun ? 'JSC full-GC heapSize' : 'process heapUsed' }))
+  } finally { stop(); watcher.dispose(); handle.dispose(); f.source.dispose() }
 })

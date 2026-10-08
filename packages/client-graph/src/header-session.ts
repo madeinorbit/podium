@@ -1,5 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
-import { CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, isAgentComputing } from '@podium/model/browser'
+import { computingDeadlineOf } from './shared/session-facts'
 
 export type WorkingSession = Pick<SessionView, 'sessionId' | 'title' | 'name' | 'displayRef' | 'agentKind'>
 
@@ -9,12 +9,7 @@ export const EMPTY_HOST_AGGREGATE = {
 }
 export type HeaderAggregate = typeof EMPTY_HOST_AGGREGATE
 
-export function headerWorkingDeadline(row: SessionView | undefined): number | undefined {
-  if (!row || row.status !== 'live' || !isAgentComputing(row)) return undefined
-  const activity = Math.max(...[row.agentState?.stateObservedAt, row.lastActiveAt, row.agentState?.since]
-    .map((stamp) => Date.parse(stamp ?? '')).filter(Number.isFinite))
-  return Number.isFinite(activity) ? activity + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS : undefined
-}
+export const headerWorkingDeadline = computingDeadlineOf
 
 /** Each resident session contributes independently. The deadline atom changes
  * only when evidence expires, so a minute tick never scans the idle fleet. */

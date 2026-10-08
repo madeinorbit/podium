@@ -4,11 +4,11 @@ import { keyedComputed } from '@podium/mobx-helpers'
  * worklist derivation, second runtime, row copies or new filing reactions. */
 import { compareShallow, computed, type IComputedValue } from 'mobx'
 import type { MobxPool } from '../pool'
-import type { IssueModel } from '../models'
+import { worklistView } from './view-model'
 import { debugName } from '../debug-name'
-import { LOADING, type Loaded } from './rollup'
-import { sidebarActivityAt, sidebarAttention, sidebarIssueRow, sidebarView, type SidebarState } from './sidebar'
-import { mobileIssueValues, mobileWaitingCount, mobileWorktreeValues, type MobileRowValues } from './mobile-row'
+import { LOADING } from './rollup'
+import { sidebarView, type SidebarState } from './sidebar'
+import { mobileWaitingCount } from './mobile-row'
 
 export interface MobileWorkState extends SidebarState {
   /** Search overrides folds; text matching stays in the native UI. */
@@ -39,51 +39,11 @@ export interface MobileWorkSections {
   readonly pending: number
 }
 
-const issueRow = keyedComputed<IssueModel, Loaded<MobileRowValues>, [MobxPool]>(
-  issue => debugName(() => `IssueModel@${issue.id}.mobileWork`),
-  (issue: IssueModel, pool: MobxPool): Loaded<MobileRowValues> => {
-    const sidebar = sidebarIssueRow(issue, pool)
-    return sidebar === LOADING || sidebar === undefined
-      ? sidebar
-      : mobileIssueValues(sidebar, mobileWaitingCount(sidebarAttention(issue, pool), issue.finished === true),
-          sidebarActivityAt(issue, pool))
-  },
-)
-
-/** The screen owns this view in the existing pool registry. */
-export function mobileWorkView(pool: MobxPool): MobileWorkIndex {
-  return pool.sources.view('mobileWork', () => new MobileWorkIndex(pool))
-}
-
-export class MobileWorkIndex {
-  private readonly views = new WeakMap<MobileWorkState, MobileSectionsView>()
-  constructor(private readonly pool: MobxPool) {}
-
-  row(ref: Pick<MobileWorkRef, 'id' | 'kind'>): MobileRowValues | typeof LOADING | undefined {
-    if (ref.kind === 'issue') {
-      const issue = this.pool.issue(ref.id)
-      return issue === undefined ? this.pool.row('issue', ref.id) === LOADING ? LOADING : undefined : issueRow(issue, this.pool)
-    }
-    if (this.pool.row('worktree', ref.id) === LOADING) return LOADING
-    const row = sidebarView(this.pool).worktree(ref.id)
-    if (row === undefined) return undefined
-    if (row.pending > 0) return LOADING
-    return mobileWorktreeValues(ref.id, row.worktree.repoName, row.worktree.branch, row.sessions, row.activityAt)
-  }
-
-  sections(state: MobileWorkState = EMPTY_STATE): MobileWorkSections {
-    let view = this.views.get(state)
-    if (view === undefined) {
-      view = new MobileSectionsView(this.pool, state)
-      this.views.set(state, view)
-    }
-    return view.value.get()
-  }
-}
+/** Both platform adapters obtain the same worklist view model. */
+export function mobileWorkView(pool: MobxPool) { return worklistView(pool).phone }
 
 const EMPTY_IDS: readonly string[] = Object.freeze([])
 const EMPTY_REFS: readonly MobileWorkRef[] = Object.freeze([])
-const ref = (id: string, kind: MobileWorkRef['kind'] = 'issue'): MobileWorkRef => ({ id, kind, listKey: id })
 const band = (key: string, label: string, kind: MobileWorkSection['kind'], data: readonly MobileWorkRef[], snoozedIds: readonly string[] = EMPTY_IDS, closedIds: readonly string[] = EMPTY_IDS): MobileWorkSection => ({
   key, label, kind, total: data.length, data, snoozedIds, closedIds,
   foldKey: `podium:sidebar:work-group-fold:${key}`, collapsed: false,
@@ -98,13 +58,9 @@ interface MobileLane {
 
 /** One computed per resident band, with independent row arrays. Membership
  * changes in one project cannot map/copy another project's native data. */
-class MobileSectionsView {
-  private readonly refs = keyedComputed(() => debugName(() => 'pool.mobileWork.ref'), (key: string) => {
-    const [kind, id, attention] = JSON.parse(key) as [MobileWorkRef['kind'], string, boolean]
-    return { ...ref(id, kind), listKey: attention ? `needs-you:${id}` : id }
-  })
+export class MobileSectionsView {
   private rowRef(id: string, kind: MobileWorkRef['kind'] = 'issue', attention = false): MobileWorkRef {
-    return this.refs(JSON.stringify([kind, id, attention]))
+    return worklistView(this.pool).reference(id, kind, attention)
   }
   private readonly label = keyedComputed(() => debugName(() => 'pool.mobileWork.label'),
     (key: string) => sidebarView(this.pool).band(this.state, key)?.label ?? '')
@@ -176,7 +132,7 @@ class MobileSectionsView {
 
   private waiting(row: MobileWorkRef): { asking: boolean; pending: number } {
     if (row.kind === 'issue') {
-      const issue = this.pool.issue(row.id)
+      const issue = worklistView(this.pool).knownRow(row.id)
       if (issue === undefined) return { asking: false, pending: this.pool.row('issue', row.id) === LOADING ? 1 : 0 }
       return { asking: mobileWaitingCount(issue.aggregate, issue.finished === true) > 0, pending: issue.aggregate.pending }
     }
@@ -208,4 +164,3 @@ class MobileSectionsView {
 function sameSections(a: readonly MobileWorkSection[], b: readonly MobileWorkSection[]): boolean {
   return a.length === b.length && a.every((section, index) => section === b[index])
 }
-const EMPTY_STATE: MobileWorkState = Object.freeze({})

@@ -99,6 +99,15 @@ export function matchIssueTitleRef(
  * The phone target question answers its declared order/text predicate here;
  * other questions narrow the reader's scalar and ancestor checks. */
 export function createReaderIndex(options: { targetSearch?: boolean; recent?: boolean } = {}) {
+  const changes = new Map<string, Set<string>>()
+  let changeReaders = 0
+  let changedId = ''
+  const changed = (key: string) => {
+    if (!changeReaders) return
+    let ids = changes.get(key)
+    if (!ids) changes.set(key, ids = new Set())
+    ids.add(changedId)
+  }
   const mentions = options.targetSearch === false ? undefined : createIssueMentionIndex()
   const repoPaths = new Map<string, string>()
   const reposAtPath = new Map<string, Set<string>>()
@@ -129,7 +138,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
   let replacement = 0
   let repoRevision = 0
   let version = 0
-  const touch = (key: string) => revisions.set(key, ++version)
+  const touch = (key: string) => { revisions.set(key, ++version); changed(key) }
   const compareTargets = (a: string, b: string) =>
     (targetDetails.get(b)?.seq ?? 0) - (targetDetails.get(a)?.seq ?? 0) || byId(a, b)
   const orderedTargetKey = (key: string) => key.startsWith('issue:path:') || key.startsWith('issue:targetRepo:')
@@ -320,7 +329,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         if (ids?.size === 0) {
           buckets.delete(key)
           if (key.startsWith('issue:repo:') && repos.delete(key.slice('issue:repo:'.length)))
-            repoRevision++
+            { repoRevision++; changed('issue:repos') }
         }
         touch(key)
       }
@@ -333,6 +342,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           if (key.startsWith('issue:repo:') && key !== 'issue:repo:') {
             repos.add(key.slice('issue:repo:'.length))
             repoRevision++
+            changed('issue:repos')
           }
         }
         ids.add(id)
@@ -418,16 +428,20 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         archived: Boolean(bits & 4), agent: Boolean(bits & 8),
       }
     },
-    revision(question: ReaderQuestion): number {
-      if (question.kind === 'issueMentionMatches') return Math.max(replacement, revisions.get('issue:mentions') ?? 0)
+    changes,
+    watchChanges(): () => void {
+      changeReaders++
+      return () => {
+        if (--changeReaders === 0) changes.clear()
+      }
+    },
+    revisionKeys(question: ReaderQuestion): string[] {
+      if (question.kind === 'issueMentionMatches') return ['issue:mentions']
       const keys = [`${questionEntity(question)}:all`]
       switch (question.kind) {
         case 'mobileIssueTargets':
-          return Math.max(
-            replacement,
-            revisions.get(`issueRepoPath:${machinePathKey(question.repoPath)}`) ?? 0,
-            ...targetPathKeys(question.repoPath).map(key => revisions.get(`mobileTargets:${key}`) ?? 0),
-          )
+          return [`issueRepoPath:${machinePathKey(question.repoPath)}`,
+            ...targetPathKeys(question.repoPath).map(key => `mobileTargets:${key}`)]
         case 'proposedIssues':
           keys.push('issue:proposed')
           break
@@ -461,7 +475,8 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           keys.push('issue:live')
           break
         case 'spawnIssues':
-          keys.push(`issue:repo:${question.repoId ?? ''}`, `issue:path:${machinePathKey(question.repoPath)}`, 'issue:undeleted')
+          keys.push(`issue:repo:${question.repoId ?? ''}`, 'issue:repo:',
+            `issue:path:${machinePathKey(question.repoPath)}`, 'issue:undeleted')
           break
         case 'boardIssues':
           if (question.priority != null) keys.push(`issue:priority:${question.priority}`)
@@ -471,13 +486,18 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           keys.push('issue:live', 'issue:unarchived', 'issue:undeleted')
           if (question.explorerTab === 'cancelled')
             keys.push('issue:status:cancelled', 'issue:status:duplicate', 'issue:status:superseded')
-          else if (question.explorerTab && question.explorerTab !== 'needs')
+          else if (question.explorerTab === 'needs') keys.push('issue:open')
+          else if (question.explorerTab)
             keys.push(`issue:status:${question.explorerTab}`)
           break
       }
-      return Math.max(replacement, ...keys.map((key) => revisions.get(key) ?? 0))
+      return keys
+    },
+    revision(question: ReaderQuestion): number {
+      return Math.max(replacement, ...this.revisionKeys(question).map(key => revisions.get(key) ?? 0))
     },
     apply(event: RowSourceEvent) {
+      changes.clear()
       if (event.type === 'replace') {
         repoPaths.clear()
         reposAtPath.clear()
@@ -498,6 +518,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         repoRevision++
       }
       for (const record of event.rows) {
+        changedId = record.id
         if (record.kind === 'repo' || record.kind === 'worktree') {
           const row = record.value as Row | undefined
           const id = record.kind === 'repo' || typeof row?.path !== 'string' ? record.id : row.repoId

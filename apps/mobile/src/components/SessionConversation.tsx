@@ -33,7 +33,6 @@ import { AppState, StyleSheet, Text, View } from 'react-native'
 import Svg, { Circle } from 'react-native-svg'
 import type { MobileTrpc } from '../client/trpc'
 import {
-  useSessionContextIssues as useIssues,
   useSessionContextIssue,
   useSessionContextMachine,
   useSessionContextMachineHome,
@@ -41,7 +40,6 @@ import {
   useSessionContextReferenceIssue,
   useSessionConversationPorts,
   mobileConversationPorts,
-  useSessionContextSessions as useSessions,
 } from '../client/use-session-context'
 import { useKeyboardLift } from '../hooks/useKeyboardHeight'
 import { useRefreshableList } from '../hooks/useRefreshableTab'
@@ -387,8 +385,6 @@ const SessionConversationBody = observer(function SessionConversationBody({
   const [peekIssue, setPeekIssue] = useState<IssueViewModel | null>(null)
   const [requestedRef, setRequestedRef] = useState<string | undefined>(undefined)
   // Catalogs belong to the open inspector, not conversation startup.
-  const issues = useIssues(peekIssue !== null)
-  const allSessions = useSessions(peekIssue !== null)
   const referencedIssue = useSessionContextReferenceIssue(requestedRef)
   useEffect(() => {
     if (requestedRef === undefined || referencedIssue === undefined) return
@@ -800,8 +796,6 @@ const SessionConversationBody = observer(function SessionConversationBody({
       <TaskSheet
         pool={pool}
         issue={livePeekIssue}
-        issues={issues}
-        sessions={allSessions}
         onClose={() => setPeekIssue(null)}
         onOpenSession={() => setPeekIssue(null)}
       />

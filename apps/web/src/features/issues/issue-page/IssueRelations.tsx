@@ -1,3 +1,4 @@
+import { issueObserver as observer } from './issue-observer'
 /**
  * THE DEPENDENCY GRAPH SECTION — and the concrete site of §3.1.2's open
  * cross-boundary-edge question (POD-646).
@@ -37,9 +38,9 @@ import { StatusGlyph } from '../issue-glyphs'
 import type { IssuePageCommands } from '../issue-page-commands'
 import { MACHINE_LABEL_SUB, SectionHeading } from './chrome'
 import { edgeIssue, IssueEdgeLink, useIssueEdgeResolver } from './issue-edges'
-import { useIssuePageData } from './issue-page-data'
+import { useIssuePageContext } from './issue-page-data'
 
-export function IssueRelations({
+export const IssueRelations = observer(function IssueRelations({
   issue,
   busy,
   commands,
@@ -61,7 +62,7 @@ export function IssueRelations({
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
   const resolve = useIssueEdgeResolver()
-  const relations = useIssuePageData()?.data.relations ?? groupRelations(issue)
+  const relations = useIssuePageContext()?.issue.relationGroups ?? groupRelations(issue)
   // NOTHING IS A BADGE, NOT A SENTENCE (POD-1224). "No links to other tasks."
   // took a full line under the heading to restate the heading's own subject in
   // the negative — on most tasks, the emptiest band in the rail was also its
@@ -74,45 +75,15 @@ export function IssueRelations({
       {relations.map((group) => (
         <div key={group.section} className="flex flex-col gap-0.5">
           <span className={MACHINE_LABEL_SUB}>{group.section}</span>
-          {group.entries.map((entry) => {
-            const edge = resolve(entry.id)
-            // A `hidden` edge draws nothing — under a `hidden` policy, and for a
-            // genuinely deleted target, there is no edge to show. The REMOVE
-            // control goes with it: an entry with no visible subject would be a
-            // bare X with nothing beside it.
-            if (edge.render === 'hidden') return null
-            const target = edgeIssue(edge)
-            return (
-              <div
-                key={`${group.section}-${entry.direction}-${entry.id}`}
-                className="group -mx-1.5 flex h-7 items-center justify-between gap-2 rounded-[4.8px] px-1.5 transition-colors hover:bg-accent"
-              >
-                {/* The glyph rides a fixed 17px box — the same lead box the
-                    session roster's agent tile occupies — so a relation title
-                    and a session name start on one x, and an edge whose target
-                    is invisible (no glyph) does not slide left out of the
-                    column it shares. */}
-                <span className="flex min-w-0 flex-1 items-center gap-2 text-[12.5px]">
-                  <span className="flex size-[17px] flex-none items-center justify-center">
-                    {target && <StatusGlyph status={issueStatusOf(target)} size={12} />}
-                  </span>
-                  <IssueEdgeLink edge={edge} onNavigate={onNavigate} fallbackId={entry.id} />
-                </span>
-                <button
-                  data-pressable
-                  type="button"
-                  data-hover-reveal
-                  aria-label={`Remove relation ${entry.type} ${entry.id}`}
-                  title="Remove relation"
-                  disabled={busy}
-                  className="shrink-0 rounded-sm text-muted-foreground/60 opacity-0 hover:text-foreground disabled:opacity-50 group-hover:opacity-100"
-                  onClick={() => commands.removeRelation(entry)}
-                >
-                  <X size={12} aria-hidden="true" />
-                </button>
-              </div>
-            )
-          })}
+          {group.entries.map((entry) => (
+            <RelationRow
+              key={`${group.section}-${entry.direction}-${entry.id}`}
+              entry={entry}
+              busy={busy}
+              commands={commands}
+              onNavigate={onNavigate}
+            />
+          ))}
         </div>
       ))}
       {/* Agent-noted soft blockers (issues.blocked_by / dependency_note) —
@@ -176,4 +147,48 @@ export function IssueRelations({
       )}
     </section>
   )
-}
+})
+
+const RelationRow = observer(function RelationRow({
+  entry,
+  busy,
+  commands,
+  onNavigate,
+}: {
+  entry: ReturnType<typeof groupRelations>[number]['entries'][number]
+  busy: boolean
+  commands: IssuePageCommands
+  onNavigate: (id: IssueId) => void
+}) {
+  const resolve = useIssueEdgeResolver(),
+    edge = resolve(entry.id)
+  if (edge.render === 'hidden') return null
+  const target = edgeIssue(edge)
+  return (
+    <div className="group -mx-1.5 flex h-7 items-center justify-between gap-2 rounded-[4.8px] px-1.5 transition-colors hover:bg-accent">
+      {/* The glyph rides a fixed 17px box — the same lead box the
+                    session roster's agent tile occupies — so a relation title
+                    and a session name start on one x, and an edge whose target
+                    is invisible (no glyph) does not slide left out of the
+                    column it shares. */}
+      <span className="flex min-w-0 flex-1 items-center gap-2 text-[12.5px]">
+        <span className="flex size-[17px] flex-none items-center justify-center">
+          {target && <StatusGlyph status={issueStatusOf(target)} size={12} />}
+        </span>
+        <IssueEdgeLink edge={edge} onNavigate={onNavigate} fallbackId={entry.id} />
+      </span>
+      <button
+        data-pressable
+        type="button"
+        data-hover-reveal
+        aria-label={`Remove relation ${entry.type} ${entry.id}`}
+        title="Remove relation"
+        disabled={busy}
+        className="shrink-0 rounded-sm text-muted-foreground/60 opacity-0 hover:text-foreground disabled:opacity-50 group-hover:opacity-100"
+        onClick={() => commands.removeRelation(entry)}
+      >
+        <X size={12} aria-hidden="true" />
+      </button>
+    </div>
+  )
+})

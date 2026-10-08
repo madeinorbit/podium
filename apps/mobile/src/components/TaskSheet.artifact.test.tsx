@@ -1,3 +1,4 @@
+import { MobxPool } from '@podium/client-graph/pool'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssuePanelArtifact } from '@podium/model'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
@@ -16,6 +17,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
  */
 
 afterEach(cleanup)
+vi.mock('../client/mobile-pool', () => ({ useMobilePool: () => null }))
 vi.mock('../client/use-issue-close', () => ({ useIssueCloseGuard: () => () => false }))
 
 vi.mock('expo-haptics', () => ({
@@ -160,15 +162,9 @@ const issue = {
 describe('TaskSheet artifacts', () => {
   it('closes the sheet first, then opens the viewer outside it', async () => {
     const onClose = vi.fn()
-    render(
-      <TaskSheet
-        issue={issue}
-        issues={[issue]}
-        sessions={[]}
-        onClose={onClose}
-        onOpenSession={vi.fn()}
-      />,
-    )
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+    pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: issue.id, value: issue }] })
+    render(<TaskSheet issue={issue} pool={pool} onClose={onClose} onOpenSession={vi.fn()} />)
 
     fireEvent.click(screen.getByLabelText('Open report.html'))
 
@@ -176,5 +172,6 @@ describe('TaskSheet artifacts', () => {
     expect(onClose).toHaveBeenCalledTimes(1)
     await waitFor(() => expect(screen.getByTestId('viewer')).toBeTruthy())
     expect(screen.getByTestId('viewer').textContent).toContain('report.html')
+    pool.dispose()
   })
 })

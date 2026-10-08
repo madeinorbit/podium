@@ -1,4 +1,5 @@
 import { headerEntities } from '@podium/client-graph/header-entities'
+import { headerModel } from '@podium/client-graph/header-companion'
 /** Capture-only control: the pre-delta header algorithms, with their original
  * memo boundaries. Injected by header-session-speed.ts; never app-imported. */
 import type { SessionView } from '@podium/client-core/session-values'
@@ -21,13 +22,13 @@ export function createScanningHeaderSessions(pool: MobxPool, memo: Memo) {
       const cold = coldSummary(id)
       const member = cold ? (cold.status === 'live' && cold.archived !== true
         ? memo(`coldWorking:${id}`, () => headerWorkingSession(coldSummary(id), at => pool.clock.passed(at))) : null)
-        : pool.model('session', id)?.headerWorking
+        : headerModel(pool).session(pool.sessionObject(id)).headerWorking
       return member ? [member] : []
     }),
     aggregate: (machineId: MachineId | undefined) => {
       const result = structuredClone(EMPTY_HOST_AGGREGATE)
       if (!machineId) return result
-      const members = headerEntities(pool).members('machine', machineId, 'sessions').map(id => pool.model('session', id)?.headerHost)
+      const members = headerEntities(pool).members('machine', machineId, 'sessions').map(id => headerModel(pool).session(pool.sessionObject(id)).headerHost)
       for (const id of coldSessionIds(pool)) {
         const summary = coldSummary(id)
         if (summary?.machineId === machineId) members.push(memo(`coldHost:${id}`, () => headerHostSession(coldSummary(id))))
