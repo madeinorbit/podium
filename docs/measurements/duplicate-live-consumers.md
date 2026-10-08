@@ -70,6 +70,12 @@ No full suite or browser interaction run was used.
 | Normal production web build | Green, including compression and bundle budget checks. |
 | Structural census under `meter:flatblock` | Green: 30 checks in three files. 55 readers × nine clicks/deltas × two scales, 1555 counters, 142 fixed counts green, zero unexpected regressions. The 20 existing expected failures remain attributed to POD-5453, POD-5422 and POD-5421. Declared query mechanisms remain flat and reject the planted full scans. |
 
+The lean gate, separate full typecheck, standalone interaction census and normal
+web build were refreshed successfully on candidate `8878aae56d`, rebased onto
+pilot `2f3b8565a3`. The structural capture used the same runtime implementation;
+the intervening change only corrected the retired debouncer comment and recorded
+its results. The final evidence update is documentation only.
+
 Focused notification/transport checks passed 116 tests. Session/conversation ledger
 and daemon projection checks passed 61; relay title/state checks passed 8; broadcast
 residue checks passed 2. Terminal test-reader and native runtime seams passed.
