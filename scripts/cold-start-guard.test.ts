@@ -71,6 +71,15 @@ describe('cold startup admission', () => {
     ]) expect(compare(run(2_500), run(2_400, patch)).status).not.toBe(0)
   })
 
+  it('admits a matched phone or two-axis cell pair and refuses a mismatched one (POD-5594)', () => {
+    const phone = { surface: 'phone', startupBoundary: 'phone-issue-row', cell: 'h10a1' }
+    expect(compare(run(2_500, phone), run(2_400, phone)).status).toBe(0)
+    expect(compare(run(2_500, phone), run(2_400, { ...phone, cell: 'h1a1' })).status).not.toBe(0)
+    expect(compare(run(2_500, phone), run(2_400, { ...phone, surface: 'web' })).status).not.toBe(0)
+    expect(compare(run(2_500), run(2_400, { cell: 'h10a1' })).status).not.toBe(0)
+    expect(compare(run(2_500, phone), run(2_400, { ...phone, startupBoundary: 'sidebar-issue-row' })).status).not.toBe(0)
+  })
+
   it('rejects application errors and cold RPC warnings while retaining explicit fixture noise', () => {
     expect(compare(run(2_500), run(2_400, { errors: ['TypeError: cannot build pool'] })).status).not.toBe(0)
     const warning = ' WARN  web:trpc trpc call could not be sent path=quota.summary error={} platform=test'

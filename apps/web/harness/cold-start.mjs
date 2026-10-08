@@ -15,6 +15,9 @@ const arg = (key, fallback) => process.argv.find(x => x.startsWith(`--${key}=`))
 const mode = arg('mode', 'probe'), scale = Number(arg('scale', '1')), surface = arg('surface', 'web')
 const arm = arg('arm', ''), round = Number(arg('round', '0')), samples = Number(arg('samples', '8'))
 const query = arg('query', '')
+// POD-5594: `--cell=h10a1` names a two-axis startup corpus (history x, active x)
+// written by old-vs-new-corpus.mjs; without it the together-grown `--scale` corpus.
+const cell = arg('cell', ''), corpusKey = cell || `${scale}x`
 const paired = process.argv.includes('--paired')
 const profileSamples = process.argv.includes('--no-profile') ? 0 : 1
 const variantQueries = {
@@ -41,12 +44,12 @@ const controlOnly=process.argv.includes('--control-only')
 const backgroundOnly=process.argv.includes('--background-only')
 const startupOnly=true
 if (hostname() !== 'flatblock' || (!process.argv.includes('--lease-confirmed') && !process.argv.includes('--external-lease'))) throw Error('flatblock with caller-owned bench (timing) or meter (probe/heap) lease required')
-if (!['probe', 'timing', 'memory'].includes(mode) || !['web', 'phone'].includes(surface) || ![1,4].includes(scale) || !arm) throw Error('Invalid capture arguments')
-const out = resolve(arg('out', `.artifacts/old-vs-new/${mode}-${arm}-${surface}-${scale}x-r${round}`))
+if (!['probe', 'timing', 'memory'].includes(mode) || !['web', 'phone'].includes(surface) || ![1,4].includes(scale) || (cell && !/^h\d+a[124]$/.test(cell)) || !arm) throw Error('Invalid capture arguments')
+const out = resolve(arg('out', `.artifacts/old-vs-new/${mode}-${arm}-${surface}-${corpusKey}-r${round}`))
 if (existsSync(resolve(out,'run.json'))) throw Error('Capture output already exists; use a fresh round')
 mkdirSync(out, { recursive: true })
-const corpusBytes = readFileSync(`.artifacts/old-vs-new/corpus-${scale}x.json`)
-const corpus = JSON.parse(corpusBytes), synthetic = controlOnly?[]:JSON.parse(readFileSync(`.artifacts/old-vs-new/rows-${scale}x.json`, 'utf8'))
+const corpusBytes = readFileSync(`.artifacts/old-vs-new/corpus-${corpusKey}.json`)
+const corpus = JSON.parse(corpusBytes), synthetic = controlOnly?[]:JSON.parse(readFileSync(`.artifacts/old-vs-new/rows-${corpusKey}.json`, 'utf8'))
 const issuesById=new Map(corpus.issues.map(issue=>[issue.id,issue])), descendantSessionCounts=new Map()
 for(const session of corpus.sessions) {
   let id=session.issueId;const seen=new Set()
@@ -71,7 +74,7 @@ const productTreeSha256 = createHash('sha256').update(execFileSync('git', ['ls-t
 const harnessBytes=readFileSync(new URL(import.meta.url))
 writeFileSync(resolve(out,'harness-source.mjs'),harnessBytes)
 writeFileSync(resolve(out,'browser-paint-source.ts'),readFileSync(new URL('./browser-paint.ts',import.meta.url)))
-const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm==='old'?'new':arm), round, surface, scale, sha, productTreeSha256,purpose:round>=100?'selector-calibration':'measurement',
+const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm==='old'?'new':arm), round, surface, scale, cell:cell||null, sha, productTreeSha256,purpose:round>=100?'selector-calibration':'measurement',
   harnessSha256:createHash('sha256').update(harnessBytes).digest('hex'),
   durationTimeDomain:'threadTicks',
   startupBoundary:surface==='web'?'sidebar-issue-row':'phone-issue-row',

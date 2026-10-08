@@ -36,6 +36,11 @@ def aborted_rpc_outside_cold(message, windows):
     return True
 
 
+# POD-5594: the phone surface draws the Work tab; a cell names the two-axis
+# startup corpus. Both arms must match surface, scale and cell (provenance).
+BOUNDARIES = {'web': 'sidebar-issue-row', 'phone': 'phone-issue-row'}
+
+
 def cold_samples(paths):
     samples = []
     provenance = []
@@ -45,10 +50,10 @@ def cold_samples(paths):
         run = json.loads(Path(path).read_text())
         if run.get('status') != 'complete' or run.get('controlOnly') or run.get('variants') or run.get('diagnostic'):
             raise ValueError(f'{path}: incomplete or diagnostic capture')
-        if run.get('host') != 'flatblock' or run.get('surface') != 'web' or run.get('scale') != 1:
-            raise ValueError(f'{path}: expected matched flatblock web 1x')
-        if run.get('startupBoundary') != 'sidebar-issue-row':
-            raise ValueError(f'{path}: startup must paint a visible sidebar issue row')
+        if run.get('host') != 'flatblock' or run.get('surface') not in BOUNDARIES:
+            raise ValueError(f'{path}: expected a flatblock web or phone capture')
+        if run.get('startupBoundary') != BOUNDARIES[run['surface']]:
+            raise ValueError(f'{path}: startup must paint a visible {BOUNDARIES[run["surface"]]}')
         cold_windows = [(row['startedAt'], row['inputToPaintMs']) for row in run['actions']
                         if row['action'] == 'app-cold-start' and not row.get('profiled')]
         unexpected = []
@@ -77,7 +82,8 @@ def cold_samples(paths):
         if max(count.get('issue', 0), count.get('issueProjection', 0)) < expected['syntheticIssues'] or count.get('session', 0) < expected['syntheticSessions']:
             raise ValueError(f'{path}: complete corpus did not hydrate')
         provenance.append((run['semanticSha256'], run['browser'], run.get('httpCache'),
-                           run['lease']['cohort'], run['harnessSha256']))
+                           run['lease']['cohort'], run['harnessSha256'],
+                           run['surface'], run.get('scale'), run.get('cell')))
         for row in run['actions']:
             if row['action'] != 'app-cold-start' or row.get('profiled'):
                 continue
@@ -99,7 +105,7 @@ def compare(old_paths, candidate_paths, max_ms=2500):
     old, old_provenance = cold_samples(old_paths)
     candidate, candidate_provenance = cold_samples(candidate_paths)
     if old_provenance != candidate_provenance:
-        raise ValueError('OLD and candidate must use the same corpus, Chromium, collector and paired lease')
+        raise ValueError('OLD and candidate must use the same corpus, surface, Chromium, collector and paired lease')
     old_median = statistics.median(old)
     candidate_median = statistics.median(candidate)
     return {
@@ -112,6 +118,7 @@ def compare(old_paths, candidate_paths, max_ms=2500):
         'oldMaxMs': max(old), 'candidateMaxMs': max(candidate),
         'semanticSha256': old_provenance[0], 'browser': old_provenance[1],
         'cohort': old_provenance[3], 'collectorSha256': old_provenance[4],
+        'surface': old_provenance[5], 'scale': old_provenance[6], 'cell': old_provenance[7],
     }
 
 

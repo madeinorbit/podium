@@ -1,10 +1,17 @@
-"""Foreground OLD/candidate ABBA cold and warm captures under one short lease."""
+"""Foreground OLD/candidate ABBA cold and warm captures under one short lease.
+
+Baseline mode (POD-5594): --cells=h1a1,h10a1,h1a4,h10a4 --checkout=podium-test-5594
+runs one collector per corpus cell in ONE checkout and interleaves the cells the
+same way it interleaves OLD and candidate arms. --surface picks web or phone;
+--meter also holds meter:flatblock for the memory-heavy 10x history corpus.
+"""
 import argparse
 import datetime
 import json
 import os
 import pathlib
 import queue
+import re
 import shlex
 import subprocess
 import threading
@@ -17,17 +24,32 @@ parser.add_argument('--baseline', default='', choices=['', 'current'])
 parser.add_argument('--alternative', default='', choices=['', 'candidate3'])
 parser.add_argument('--samples', type=int, default=8)
 parser.add_argument('--round', type=int, default=2)
+parser.add_argument('--cells', default='', help='comma list of corpus cells; the arms are the cells')
+parser.add_argument('--checkout', default='', help='issue-owned flatblock checkout for --cells')
+parser.add_argument('--surface', default='web', choices=['web', 'phone'])
+parser.add_argument('--meter', action='store_true', help='also hold meter:flatblock (10x history)')
+parser.add_argument('--no-profile', action='store_true')
 args = parser.parse_args()
 if args.samples < 1:
     raise ValueError('At least one paired sample is required')
 cohort = str(uuid.uuid4())
-arms = ['old', *([args.baseline] if args.baseline else []), *([args.alternative] if args.alternative else []), args.candidate]
+cells = [cell for cell in args.cells.split(',') if cell]
+if cells:
+    if not re.fullmatch(r'podium-test-[a-z0-9-]+', args.checkout):
+        raise ValueError('--cells needs an issue-owned --checkout=podium-test-<issue>')
+    if any(not re.fullmatch(r'h[0-9]+a[124]', cell) for cell in cells):
+        raise ValueError('Cells are h<history>a<1|2|4>')
+    arms = cells
+else:
+    arms = ['old', *([args.baseline] if args.baseline else []), *([args.alternative] if args.alternative else []), args.candidate]
+checkouts = {arm: args.checkout if cells else f'podium-test-5513-{arm}' for arm in arms}
+leases = ['bench:flatblock', *(['meter:flatblock'] if args.meter else [])]
 if len(set(arms)) != len(arms):
     raise ValueError('Each checkout must be measured once per round')
 messages = queue.Queue()
 children = {}
 outputs = {}
-held = False
+held = []
 waiting = False
 renewed = 0
 finished = set()
@@ -42,7 +64,7 @@ def ssh(command, **kwargs):
     return subprocess.run(['ssh', '-o', 'BatchMode=yes', 'flatblock', command], check=True, **kwargs)
 
 def write(arm, filename, value):
-    path = f'podium-test-5513-{arm}/{outputs[arm]}/{filename}'
+    path = f'{checkouts[arm]}/{outputs[arm]}/{filename}'
     ssh(f'cat > "$HOME/{path}"', input=value, text=True, capture_output=True)
 
 def collect(arm, child):
@@ -62,7 +84,8 @@ def receive():
             print('Pair collectors are waiting in foreground', flush=True)
             line = None
         if held and time.monotonic() - renewed > 240:
-            subprocess.run(['podium', 'lock', 'renew', 'bench:flatblock', '--ttl', '10m'], check=True)
+            for name in held:
+                subprocess.run(['podium', 'lock', 'renew', name, '--ttl', '10m'], check=True)
             renewed = time.monotonic()
         if line is None:
             continue
@@ -77,12 +100,13 @@ def receive():
 
 try:
     for at, arm in enumerate(arms):
-        outputs[arm] = f'.artifacts/old-vs-new/timing-{arm}-web-1x-r{args.round}'
+        corpus = arm if cells else '1x'
+        outputs[arm] = f'.artifacts/old-vs-new/timing-{arm}-{args.surface}-{corpus}-r{args.round}'
         argv = ['--external-lease', '--paired', '--mode=timing', f'--arm={arm}',
-                '--surface=web', '--scale=1', f'--round={args.round}',
-                f'--samples={args.samples}', f'--port={19661 + at}',
-                f'--out={outputs[arm]}']
-        command = (f'cd "$HOME/podium-test-5513-{arm}" && '
+                f'--surface={args.surface}', '--scale=1', *([f'--cell={arm}'] if cells else []),
+                f'--round={args.round}', f'--samples={args.samples}', f'--port={19661 + at}',
+                f'--out={outputs[arm]}', *(['--no-profile'] if args.no_profile else [])]
+        command = (f'cd "$HOME/{checkouts[arm]}" && '
                    'export PATH="$PWD/.toolchain:$PATH" && '
                    'export LD_LIBRARY_PATH="$PWD/.toolchain/lib" && '
                    'exec .toolchain/bun --conditions=@podium/source apps/web/harness/cold-start.mjs '
@@ -96,33 +120,36 @@ try:
         arm, line = receive()
         if line.startswith('CAPTURE_READY '):
             ready.add(arm)
-    waiter_argv = ['podium', 'lock', 'acquire', 'bench:flatblock', '--ttl', '10m', '--wait', '--json']
-    waiting = True
-    waiter = subprocess.Popen(waiter_argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    (root / f'paired-waiter-r{args.round}-pid.json').write_text(json.dumps({
-        'pid': waiter.pid, 'role': 'paired-lease-waiter', 'argv': waiter_argv,
-    }) + '\n')
-    try:
-        stdout, stderr = waiter.communicate()
-        if waiter.returncode:
-            raise RuntimeError(f'Timing lease waiter failed: {stderr}')
-    finally:
-        if waiter.poll() is None:
-            waiter.terminate()
-            waiter.wait(timeout=20)
-    lease = json.loads(stdout)
-    if not lease.get('data', {}).get('granted'):
-        raise RuntimeError('Paired capture lease not granted')
-    held = True
-    waiting = False
+    grants = {}
+    for name in leases:
+        waiter_argv = ['podium', 'lock', 'acquire', name, '--ttl', '10m', '--wait', '--json']
+        waiting = name
+        waiter = subprocess.Popen(waiter_argv, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        (root / f'paired-waiter-r{args.round}-pid.json').write_text(json.dumps({
+            'pid': waiter.pid, 'role': 'paired-lease-waiter', 'argv': waiter_argv,
+        }) + '\n')
+        try:
+            stdout, stderr = waiter.communicate()
+            if waiter.returncode:
+                raise RuntimeError(f'Lease waiter failed: {stderr}')
+        finally:
+            if waiter.poll() is None:
+                waiter.terminate()
+                waiter.wait(timeout=20)
+        grants[name] = json.loads(stdout)
+        if not grants[name].get('data', {}).get('granted'):
+            raise RuntimeError(f'Paired capture lease {name} not granted')
+        held.append(name)
+        waiting = False
+    lease = grants['bench:flatblock']
     renewed = time.monotonic()
     print(lease.get('text', 'Paired capture lease acquired'), flush=True)
     payload = json.dumps({'name': 'bench:flatblock', 'host': 'ludovico', 'cohort': cohort,
                           'acquiredAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
-                          'grant': lease})
+                          'grant': lease, 'also': sorted(set(held) - {'bench:flatblock'})})
     for arm in arms:
         write(arm, 'lease.json', payload)
-    for step in range(args.samples + 1):
+    for step in range(args.samples + (0 if args.no_profile else 1)):
         order = arms if len(arms) == 2 else arms[step % len(arms):] + arms[:step % len(arms)]
         for arm in (order if step % 2 == 0 else list(reversed(order))):
             write(arm, f'step-{step}.go', cohort)
@@ -135,8 +162,9 @@ try:
                     break
     while len(finished) != len(arms):
         receive()
-    subprocess.run(['podium', 'lock', 'release', 'bench:flatblock'], check=True)
-    held = False
+    for name in reversed(held):
+        subprocess.run(['podium', 'lock', 'release', name], check=True)
+    held = []
     for child in children.values():
         if child.wait() != 0:
             raise RuntimeError('Collector failed during cleanup')
@@ -145,9 +173,9 @@ finally:
     if waiting:
         # The terminated waiter may already have removed its queue entry.
         # A failed cancellation must not prevent recorded-process cleanup.
-        subprocess.run(['podium', 'lock', 'cancel', 'bench:flatblock'], check=False)
-    if held:
-        subprocess.run(['podium', 'lock', 'release', 'bench:flatblock'], check=True)
+        subprocess.run(['podium', 'lock', 'cancel', waiting], check=False)
+    for name in reversed(held):
+        subprocess.run(['podium', 'lock', 'release', name], check=True)
     # Remote cleanup addresses only this run's recorded PIDs, after verifying cwd.
     for arm, child in children.items():
         if child.poll() is None:
@@ -162,6 +190,6 @@ if path.exists():
    if Path(os.readlink(f'/proc/{pid}/cwd'))!=checkout:raise RuntimeError('PID ownership changed')
    os.kill(pid,signal.SIGTERM)
   except (FileNotFoundError,ProcessLookupError):pass
-'''.replace('CHECKOUT', repr(f'podium-test-5513-{arm}')).replace('OUTPUT', repr(outputs[arm]))
+'''.replace('CHECKOUT', repr(checkouts[arm])).replace('OUTPUT', repr(outputs[arm]))
             subprocess.run(['ssh', '-o', 'BatchMode=yes', 'flatblock', 'python3 -'], input=cleanup, text=True)
             child.terminate()
