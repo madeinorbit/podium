@@ -679,8 +679,8 @@ export function describeDriverConformance(target: ConformanceTarget): void {
           // permission on the list with nothing to trip over it. An entitlement
           // is a record of an absence; when the absence ends, so does it.
           expect(
-            permitsNoNativeSteer(driver.id),
-            `driver '${driver.id}' has native steer AND is listed as entitled to decline it — remove it from NO_NATIVE_STEER_DRIVERS`,
+            permitsNoNativeSteer(driver.id, driver.harness),
+            `driver '${driver.id}' (${driver.harness}) has native steer AND is listed as entitled to decline it — remove it from NO_NATIVE_STEER_DRIVERS (or, for generic-pty, NO_NATIVE_STEER_TERMINAL_HARNESSES)`,
           ).toBe(false)
           return
         }
@@ -692,7 +692,7 @@ export function describeDriverConformance(target: ConformanceTarget): void {
         // went on all three of them; the driver-id pin is what makes inheriting
         // it an edit somebody has to make on purpose. See
         // `../../permitted-failures.ts`.
-        assertNoNativeSteerEntitled(target.family, driver.id)
+        assertNoNativeSteerEntitled(target.family, driver.id, driver.harness)
         expect(receipt.outcome === 'queued' || receipt.outcome === 'accepted').toBe(true)
         if (receipt.outcome === 'queued' || receipt.outcome === 'accepted') {
           expect(receipt.deliveredAs).not.toBe('steer')
@@ -2973,6 +2973,7 @@ export function assertNoAttachEntitled(
 export function assertNoNativeSteerEntitled(
   family: DriverFamily,
   driverId: DriverId | (string & {}),
+  harness?: string,
 ): void {
   expect(
     permits(family, 'no-native-steer'),
@@ -2981,7 +2982,7 @@ export function assertNoNativeSteerEntitled(
   expect(
     // The helper deliberately accepts an unlisted string for negative tests;
     // the runtime membership check remains the closed DriverId list.
-    permitsNoNativeSteer(driverId as DriverId),
+    permitsNoNativeSteer(driverId as DriverId, harness),
     `driver '${driverId}' declined native steer without being on the entitled list (${NO_NATIVE_STEER_DRIVERS.join(', ')}) — steering is a per-harness protocol verb, so add it there WITH the measurement or declare 'steer' native`,
   ).toBe(true)
 }

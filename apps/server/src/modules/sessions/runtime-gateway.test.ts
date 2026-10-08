@@ -151,7 +151,7 @@ describe('send', () => {
   })
 
   it('degrades `steer` to the queue and SAYS SO', async () => {
-    const { gateway, forwarded } = makeGateway()
+    const { gateway, forwarded, enqueued } = makeGateway()
     const receipt = await gateway.send({
       sessionId: SESSION,
       text: 'and this too',
@@ -164,6 +164,26 @@ describe('send', () => {
     // separates a degraded delivery from a lie.
     expect(receipt.deliveredAs).toBe('queue')
     expect(forwarded).toEqual([])
+    // The row keeps the mode the caller named (POD-5855): the daemon steers it
+    // where the agent can take it.
+    expect(enqueued).toEqual([expect.objectContaining({ delivery: 'steer' })])
+  })
+
+  it('forwards a stored steer row to its machine, never back into the queue (POD-5855)', async () => {
+    // The durable queue forwards its rows through this same verb. A steer row
+    // that was queued again here became a new row, forwarded back here, without
+    // end.
+    const { gateway, forwarded, enqueued } = makeGateway()
+    await gateway.send({
+      sessionId: SESSION,
+      rowId: 'msg-chat',
+      turnId: 'msg-chat',
+      text: 'typed by a person',
+      origin: 'controller',
+      delivery: 'steer',
+    })
+    expect(forwarded).toEqual([expect.objectContaining({ rowId: 'msg-chat', delivery: 'steer' })])
+    expect(enqueued).toEqual([])
   })
 
   it('forwards the deliveries only a driver can perform', async () => {

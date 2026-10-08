@@ -530,7 +530,7 @@ export class SyncRepository {
     actorId?: string
     onBehalfOf?: string | null
     sourceMessageId?: string | null
-    delivery?: 'when-ready' | 'interrupt'
+    delivery?: 'when-ready' | 'interrupt' | 'steer'
     attachmentsJson?: string | null
   }): Promise<boolean> {
     // `INSERT OR IGNORE` -> `onConflictDoNothing()` [spec rules 31, 31a], and this
@@ -587,7 +587,7 @@ export class SyncRepository {
       actorId: string
       onBehalfOf: string | null
       sourceMessageId: string | null
-      delivery: 'when-ready' | 'interrupt'
+      delivery: 'when-ready' | 'interrupt' | 'steer'
       attachmentsJson: string | null
       retractRequestedAt: number | null
     }[]
@@ -635,7 +635,8 @@ export class SyncRepository {
       actorId: r.actorId as string,
       onBehalfOf: (r.onBehalfOf as string | null) ?? null,
       sourceMessageId: (r.sourceMessageId as string | null) ?? null,
-      delivery: r.delivery === 'interrupt' ? 'interrupt' : 'when-ready',
+      // An unknown mode reads as the one every row had before modes existed.
+      delivery: r.delivery === 'interrupt' || r.delivery === 'steer' ? r.delivery : 'when-ready',
       attachmentsJson: (r.attachmentsJson as string | null) ?? null,
       retractRequestedAt: r.retractRequestedAt == null ? null : Number(r.retractRequestedAt),
     }))

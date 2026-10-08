@@ -3064,6 +3064,31 @@ describe('agent drain via the runtime contract', () => {
     expect(h.sent).toEqual([])
   })
 
+  it("queues a person's chat as a steer; mail, jobs and the creation prompt wait for the boundary (POD-5855)", async () => {
+    vi.useFakeTimers()
+    const h = harness({ hasBoundDriver: true, driverId: 'generic-pty', contractReceipts: [] })
+    await h.inbox.queueInitialPrompt({ sessionId: SID, text: 'the first turn' })
+    for (const [id, inputOrigin] of [
+      ['msg-chat', 'controller'],
+      ['msg-mail', 'mail'],
+      ['msg-job', 'system'],
+      ['msg-continue', 'auto_continue'],
+    ] as const) {
+      await h.inbox.queueText({ sessionId: SID, text: id, inputOrigin, sourceMessageId: id })
+    }
+    await vi.advanceTimersByTimeAsync(500)
+    expect(Object.fromEntries(h.rows.map((row) => [row.text, row.delivery]))).toEqual({
+      'the first turn': 'when-ready',
+      'msg-chat': 'steer',
+      'msg-mail': 'when-ready',
+      'msg-job': 'when-ready',
+      'msg-continue': 'when-ready',
+    })
+    // The mode travels to the daemon with the row.
+    expect(h.contractCalls).toContainEqual(expect.objectContaining({ turnId: 'msg-chat', delivery: 'steer' }))
+    vi.useRealTimers()
+  })
+
   it('persists custody before the RPC and carries creation-prompt identity', async () => {
     vi.useFakeTimers()
     const h = harness({ hasBoundDriver: true, driverId: 'generic-pty', contractPending: true })

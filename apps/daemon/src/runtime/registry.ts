@@ -68,6 +68,7 @@ export function terminalProfileFor(agentKind: AgentKind): TerminalHarnessProfile
     exitLosesUnrecorded: terminal.exitLosesUnrecorded === true,
     lifecycleFromState: terminal.lifecycleFromState === true,
     needsSubmitVerification: harnessNeedsSubmitVerification(agentKind),
+    queuesBusyInput: terminal.queuesBusyInput === true,
     usesRawFirstTurn: harnessUsesRawFirstTurn(agentKind),
     // `export()` is byte-faithful only where the harness declares where its own
     // store lives. Where it does not, the capability says `unsupported` and the

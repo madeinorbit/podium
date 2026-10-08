@@ -138,10 +138,15 @@ export const permitsUnverifiedSend = (
  * exists. Steering is a per-HARNESS protocol verb; this list is the set of
  * harnesses somebody actually looked at and found no verb in.
  *
- *   `generic-pty`     — a TUI has no way to append into an open turn. The
- *                       terminal driver's own capability declaration says so
- *                       (`send.native` is `['when-ready','queue','interrupt']`,
- *                       pinned in `drivers/terminal/terminal.test.ts`).
+ *   `generic-pty`     — a TUI that does not queue mid-turn input has no way to
+ *                       append into an open turn. The terminal driver's own
+ *                       capability declaration says so (`send.native` is
+ *                       `['when-ready','queue','interrupt']`, pinned in
+ *                       `drivers/terminal/terminal.test.ts`). The entitlement
+ *                       is per HARNESS on this one driver id (POD-5855): a
+ *                       profile declaring `queuesBusyInput` adds `steer` and
+ *                       must type it, so the corpus's steer properties, not
+ *                       this list, judge that profile.
  *   `opencode-server` — measured at 1.18.16: a prompt POSTed into an open turn
  *                       becomes a SECOND turn that runs afterwards. See the
  *                       `no-native-steer` doc comment above.
@@ -161,8 +166,25 @@ export const NO_NATIVE_STEER_DRIVERS = [
   'grok-acp',
 ] as const satisfies readonly DriverId[]
 
-export const permitsNoNativeSteer = (driverId: AcceptedDriverId): boolean =>
-  (NO_NATIVE_STEER_DRIVERS as readonly DriverId[]).includes(canonicalDriverId(driverId))
+/**
+ * THE TUIS `generic-pty` MAY DECLINE STEER FOR (POD-5855). Every terminal
+ * harness shares that one driver id, and whether a TUI takes a prompt entered
+ * mid-turn into its own queue is a per-harness measurement
+ * (`runtime.terminal.queuesBusyInput`). These are the ones nobody has measured
+ * doing so: Cursor cannot run past the submit against a fake model, and Pi was
+ * not installed for the POD-4834 runs. `fake-harness` is the corpus's own
+ * synthetic TUI, which models no mid-turn queue.
+ */
+export const NO_NATIVE_STEER_TERMINAL_HARNESSES = ['cursor', 'pi', 'fake-harness'] as const
+
+/** `harness` narrows the `generic-pty` entitlement to the TUIs above; a caller
+ *  that names none asks about the driver id alone. */
+export const permitsNoNativeSteer = (driverId: AcceptedDriverId, harness?: string): boolean => {
+  const id = canonicalDriverId(driverId)
+  if (!(NO_NATIVE_STEER_DRIVERS as readonly DriverId[]).includes(id)) return false
+  return id !== 'generic-pty' || harness === undefined ||
+    (NO_NATIVE_STEER_TERMINAL_HARNESSES as readonly string[]).includes(harness)
+}
 
 /**
  * WHICH DRIVERS MAY ACTUALLY TAKE `no-attach` (POD-4612).

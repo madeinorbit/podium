@@ -407,6 +407,9 @@ export interface TerminalHarnessProfile {
   lifecycleFromState?: boolean
   /** Whether this harness's CLI needs the submit-verify CR nudges. */
   needsSubmitVerification: boolean
+  /** A prompt entered during a running turn goes into the program's own
+   *  queue (POD-5855): see `TerminalRuntimeSpec.queuesBusyInput`. */
+  queuesBusyInput?: boolean
   /** Grok's fresh TUI ignores bracketed paste until its first native turn. */
   usesRawFirstTurn: boolean
   archivable: boolean
@@ -2524,9 +2527,30 @@ export function createTerminalRuntime(
           return enqueue()
         }
 
-        // DEGRADATION IS REPORTED, NEVER SILENT. A TUI cannot append into an open
-        // turn, so `steer` becomes `queue` and `deliveredAs` says so.
-        const requested: TurnDelivery = options.delivery
+        const trackedPhase = host.trackedState(session.sessionId)?.phase
+        // See BUSY IS NOT IDLE below for why the open turn is checked too.
+        const turnOpen = profile?.lifecycleFromState === true || session.epochOpen
+        // A STEER IS TYPED INTO A RUNNING TURN WHERE THE PROGRAM QUEUES IT
+        // (POD-5855). Enter on a busy TUI that declares `queuesBusyInput` does
+        // not cut the turn: the program holds the prompt and takes it in at
+        // its next step, or runs it as the next turn. Into an idle session a
+        // steer is an ordinary new turn, typed as `when-ready` below, as the
+        // Codex driver does. A compaction is not a running turn here: what a
+        // TUI does with input then was never measured, so it waits.
+        const steerNow = options.delivery === 'steer' && profile?.queuesBusyInput === true
+        if (steerNow && trackedPhase === 'working' && turnOpen) {
+          return session.injection.deliver(text, {
+            origin: options.origin,
+            delivery: 'steer',
+            signal: options.signal,
+            ...(input.id !== undefined ? { turnId: input.id } : {}),
+            ...followUps(options),
+          })
+        }
+        // DEGRADATION IS REPORTED, NEVER SILENT. A TUI that does not queue
+        // mid-turn input cannot append into an open turn, so `steer` becomes
+        // `queue` and `deliveredAs` says so.
+        const requested: TurnDelivery = steerNow ? 'when-ready' : options.delivery
         if (requested === 'steer' || requested === 'queue') return enqueue()
         // SEND OUTCOME DECISION (POD-4387): `when-ready` on an idle session is
         // `accepted`, never `queued`. POD-4291's durable-custody change gated
@@ -2571,8 +2595,8 @@ export function createTerminalRuntime(
         // pins it).
         if (
           requested === 'when-ready' &&
-          ['working', 'compacting'].includes(host.trackedState(session.sessionId)?.phase ?? '') &&
-          (profile?.lifecycleFromState === true || session.epochOpen)
+          ['working', 'compacting'].includes(trackedPhase ?? '') &&
+          turnOpen
         ) {
           return { outcome: 'refused', refusal: refuse('busy') }
         }
@@ -2874,6 +2898,7 @@ export function createTerminalRuntime(
       deliveryReady,
       () => !session.disposed,
       slots.deliveryJournal?.(session.sessionId),
+      () => profile?.queuesBusyInput === true,
     )
   }
 
@@ -3305,6 +3330,7 @@ function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCap
     draftReadable: true,
     reportsContextPercent: resolved.reportsContextPercent,
     archivable: resolved.archivable,
+    queuesBusyInput: resolved.queuesBusyInput === true,
   })
   capabilityCache.set(resolved, built)
   return built

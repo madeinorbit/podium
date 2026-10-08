@@ -237,6 +237,11 @@ export const claudeCodeManifest: AgentManifest = {
       // the hook serves turn tracking, and `unverified` is the honest answer
       // when no record comes.
       sendProof: ['transcript-echo'],
+      // Enter while busy writes `queue-operation enqueue` (a held receipt) and
+      // Claude takes the prompt in at the next tool boundary, or as the next
+      // turn after streamed text; several queued prompts stay separate
+      // entries in submit order (2.1.284, POD-4862 S2, S3, S9).
+      queuesBusyInput: true,
     },
     // An explicit terminal preference still opts out; a machine-wide SDK
     // default is stripped before this function runs, so unknown auth cannot

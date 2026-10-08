@@ -231,10 +231,26 @@ export type QueuedRetract = 'cancelled' | 'too-late' | 'waiting' | 'not-queued'
 /**
  * HOW THE DAEMON TYPES A QUEUED ROW (POD-4795). `when-ready` waits for the turn
  * boundary; `interrupt` waits ahead of the other rows and cuts the running
- * turn. One queue, one id per row, two modes — an interrupt is never a second
- * path around the queue.
+ * turn; `steer` (POD-5855) waits ahead of the `when-ready` rows and is handed to
+ * a running turn at once where the agent program queues mid-turn input itself,
+ * else it waits for the boundary too. One queue, one id per row — no mode is a
+ * second path around the queue.
  */
-export type QueuedDelivery = 'when-ready' | 'interrupt'
+export type QueuedDelivery = 'when-ready' | 'interrupt' | 'steer'
+
+/**
+ * THE MODE A ROW TAKES WHEN ITS SENDER NAMES NONE: A PERSON'S CHAT STEERS
+ * (POD-5855). Words a person typed into the chat (`controller`) are handed to
+ * the agent at once — the daemon types them into a running turn wherever the
+ * agent program queues mid-turn input itself, and the program fits them in,
+ * exactly as if the person had typed into its own terminal. Mail, automation
+ * and every other sender keep `when-ready`, the turn boundary their words were
+ * written for. Readiness stays the daemon's: a program that does not queue
+ * mid-turn input gets a steer at the boundary like any row.
+ */
+export function queuedDeliveryFor(origin: ObservationInputOrigin): QueuedDelivery {
+  return origin === 'controller' ? 'steer' : 'when-ready'
+}
 
 export interface InboxQueuePort {
   enqueue(row: {
@@ -683,6 +699,8 @@ export class SessionInbox {
     return await this.queueText({
       ...input,
       mutationId: asMutationId(initialPromptQueueId(input.sessionId)),
+      // The first turn, never a steer into one, whoever wrote it.
+      delivery: 'when-ready',
     })
   }
 
@@ -1168,7 +1186,7 @@ export class SessionInbox {
       queuedAt: this.deps.now(),
       principal,
       sourceMessageId: input.sourceMessageId ?? null,
-      delivery: input.delivery ?? 'when-ready',
+      delivery: input.delivery ?? queuedDeliveryFor(input.inputOrigin ?? 'controller'),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
     })
     const inserted = await insertion

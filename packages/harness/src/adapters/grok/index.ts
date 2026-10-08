@@ -252,6 +252,12 @@ export const grokManifest: AgentManifest = {
       // `turn_completed interrupted` for it, which the reader never makes a
       // prompt entry (1.0.44, POD-4865).
       exitLosesUnrecorded: true,
+      // Enter while busy holds the prompt on screen ("Queued · Enter to send
+      // now") and Grok runs it as a new turn when the running one ends
+      // (1.0.44, POD-4865). Nothing is recorded until then, so the next
+      // prompt waits for that record; a steer never gets a blind Enter, which
+      // would send the held one now and cancel the turn.
+      queuesBusyInput: true,
     },
     // ACP is the preferred Grok mechanism for a logged-in harness: it preserves
     // subscription auth while providing receipts, permission asks, interrupt,

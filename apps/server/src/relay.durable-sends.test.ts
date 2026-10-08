@@ -98,10 +98,12 @@ describe('interrupt and file sends ride the durable queue (POD-4795)', () => {
     // Handed on as a row, never answered `delivered` ahead of the agent.
     expect(sent.message.deliveryStatus).toBe('dispatched')
     await vi.waitFor(() => expect(durableSends(first, sessionId)).toHaveLength(1))
+    // A person's chat is a steer (POD-5855): the daemon hands it to a running
+    // turn where the agent program queues mid-turn input.
     expect(durableSends(first, sessionId)[0]).toMatchObject({
       rowId: sent.message.id,
       turnId: sent.message.id,
-      delivery: 'when-ready',
+      delivery: 'steer',
       attachments: [attachment],
       deliveryRecovery: false,
     })
@@ -117,11 +119,11 @@ describe('interrupt and file sends ride the durable queue (POD-4795)', () => {
       expect(await reg2.modules.sessions.hasQueuedMessage(sessionId, sent.message.id)).toBe(true)
       await reg2.gateway.routeDaemonFrame(reg2.sessionStore.hostMachineId, bind(sessionId))
       await vi.waitFor(() => expect(durableSends(second, sessionId)).toHaveLength(1))
-      // Same row, same id, files and all — as a recovery, because the first
-      // server reserved it before the forward.
+      // Same row, same id, mode, files and all — as a recovery, because the
+      // first server reserved it before the forward.
       expect(durableSends(second, sessionId)[0]).toMatchObject({
         rowId: sent.message.id,
-        delivery: 'when-ready',
+        delivery: 'steer',
         attachments: [attachment],
         deliveryRecovery: true,
       })
@@ -129,6 +131,45 @@ describe('interrupt and file sends ride the durable queue (POD-4795)', () => {
     } finally {
       await reg2.dispose()
       await reg2.sessionStore.close()
+    }
+  })
+
+  it("keeps every other sender's words for the turn boundary (POD-5855)", async () => {
+    const file = dbFile()
+    const daemon: ControlMessage[] = []
+    const reg = await boot(file, daemon)
+    try {
+      const { sessionId } = await reg.modules.sessions.createSession({
+        agentKind: 'claude-code',
+        cwd: '/repo',
+      })
+      await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, bind(sessionId))
+      const chat = await reg.modules.messages.send(
+        { kind: 'operator' },
+        { to: { kind: 'session', id: sessionId }, body: 'typed by a person', urgency: 'next-turn' },
+      )
+      const mail = await reg.modules.messages.send(
+        { kind: 'system', name: 'a job' },
+        {
+          to: { kind: 'session', id: sessionId },
+          body: 'written for the boundary',
+          urgency: 'next-turn',
+        },
+      )
+      // Stored with its mode, which travels to the daemon with the row.
+      const stored = await reg.sessionStore.sync.listQueuedMessages(sessionId)
+      expect(Object.fromEntries(stored.map((row) => [row.id, row.delivery]))).toEqual({
+        [chat.message.id]: 'steer',
+        [mail.message.id]: 'when-ready',
+      })
+      await vi.waitFor(() => expect(durableSends(daemon, sessionId).length).toBeGreaterThan(0))
+      expect(durableSends(daemon, sessionId)[0]).toMatchObject({
+        rowId: chat.message.id,
+        delivery: 'steer',
+      })
+    } finally {
+      await reg.dispose()
+      await reg.sessionStore.close()
     }
   })
 

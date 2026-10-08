@@ -692,6 +692,139 @@ describe('interrupt rows (POD-4795)', () => {
   })
 })
 
+describe('steer rows (POD-5855)', () => {
+  const fixture = (steers: boolean) => {
+    vi.useFakeTimers()
+    let phase = 'working'
+    let refuseBusy = false
+    const log: string[] = []
+    const send = vi.fn(async (input: { text: string }, options?: { delivery?: string }) => {
+      if (refuseBusy) {
+        log.push(`refused ${input.text}`)
+        return { outcome: 'refused', refusal: { reason: 'busy' } }
+      }
+      log.push(`type ${input.text} as ${options?.delivery}`)
+      return {
+        outcome: 'accepted',
+        turnEpoch: 1,
+        deliveredAs: options?.delivery,
+        provenBy: 'transcript-echo',
+        at: new Date().toISOString(),
+      }
+    })
+    const emit = vi.fn()
+    const interrupt = vi.fn(async () => {
+      log.push('cut the turn')
+    })
+    const handle = withDeliveryQueue(
+      {
+        send,
+        interrupt,
+        state: async () => ({ phase }),
+        lease: { state: async () => null },
+      } as unknown as AgentSessionHandle,
+      emit,
+      undefined,
+      undefined,
+      undefined,
+      () => steers,
+    )
+    return {
+      handle,
+      send,
+      emit,
+      log,
+      setPhase: (next: string) => {
+        phase = next
+      },
+      refuseBusy: (next: boolean) => {
+        refuseBusy = next
+      },
+    }
+  }
+  const whenReady = { origin: 'mail', delivery: 'when-ready' } as const
+  const steering = { origin: 'controller', delivery: 'steer' } as const
+  const interrupting = { origin: 'human', delivery: 'interrupt' } as const
+
+  it('types a steer into a running turn at once, ahead of the rows waiting for the boundary', async () => {
+    const f = fixture(true)
+    await f.handle.send({ rowId: 'mail', text: 'mail for the boundary' }, whenReady)
+    const receipt = await f.handle.send({ rowId: 'chat', text: 'from the person' }, steering)
+    // Answered at once, like every row, and ahead of the waiting mail.
+    expect(receipt).toMatchObject({ outcome: 'queued', position: 1 })
+    await vi.advanceTimersByTimeAsync(1000)
+    // Typed into the running turn as a steer; the mail still waits for its boundary.
+    expect(f.log).toEqual(['type from the person as steer'])
+    expect(f.emit.mock.calls.map(([event]) => [event.rowId, event.outcome])).toEqual([
+      ['chat', 'delivered'],
+    ])
+    f.setPhase('idle')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(f.log).toEqual(['type from the person as steer', 'type mail for the boundary as when-ready'])
+  })
+
+  it('waits for the boundary where the driver does not steer a running turn', async () => {
+    const f = fixture(false)
+    await f.handle.send({ rowId: 'chat', text: 'from the person' }, steering)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(f.send).not.toHaveBeenCalled()
+    f.setPhase('idle')
+    await vi.advanceTimersByTimeAsync(1000)
+    // At the boundary it is an ordinary new turn.
+    expect(f.log).toEqual(['type from the person as when-ready'])
+  })
+
+  it.each(['compacting', 'needs_user'])('never types a steer while the agent is %s', async (phase) => {
+    const f = fixture(true)
+    f.setPhase(phase)
+    await f.handle.send({ rowId: 'chat', text: 'from the person' }, steering)
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(f.send).not.toHaveBeenCalled()
+    f.setPhase('idle')
+    await vi.advanceTimersByTimeAsync(1000)
+    expect(f.log).toEqual(['type from the person as when-ready'])
+  })
+
+  it('types a steer to an idle agent as an ordinary turn', async () => {
+    const f = fixture(true)
+    f.setPhase('idle')
+    await f.handle.send({ rowId: 'chat', text: 'nothing running' }, steering)
+    await vi.advanceTimersByTimeAsync(0)
+    expect(f.log).toEqual(['type nothing running as when-ready'])
+  })
+
+  it('keeps steers in arrival order, behind interrupts', async () => {
+    const f = fixture(true)
+    f.setPhase('compacting')
+    await f.handle.send({ rowId: 'plain', text: 'plain' }, whenReady)
+    await f.handle.send({ rowId: 'first', text: 'first steer' }, steering)
+    await f.handle.send({ rowId: 'urgent', text: 'urgent' }, interrupting)
+    await f.handle.send({ rowId: 'second', text: 'second steer' }, steering)
+    await vi.advanceTimersByTimeAsync(1000)
+    f.setPhase('idle')
+    await vi.advanceTimersByTimeAsync(2000)
+    expect(f.send.mock.calls.map(([input]) => input.text)).toEqual([
+      'urgent',
+      'first steer',
+      'second steer',
+      'plain',
+    ])
+  })
+
+  it('retries a steer the driver refused as busy until it can type it', async () => {
+    const f = fixture(true)
+    f.refuseBusy(true)
+    await f.handle.send({ rowId: 'chat', text: 'from the person' }, steering)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(f.log.length).toBeGreaterThan(1)
+    expect(new Set(f.log)).toEqual(new Set(['refused from the person']))
+    f.refuseBusy(false)
+    await vi.advanceTimersByTimeAsync(500)
+    expect(f.log.at(-1)).toBe('type from the person as steer')
+    expect(f.emit).toHaveBeenCalledExactlyOnceWith({ t: 'delivery', rowId: 'chat', outcome: 'delivered' })
+  })
+})
+
 describe('the entry a delivered row became (POD-4774)', () => {
   const fixture = (receiptItem?: { id: string }) => {
     vi.useFakeTimers()

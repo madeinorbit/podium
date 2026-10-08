@@ -90,6 +90,7 @@ function testProfileFor(harness: AgentKind): TerminalHarnessProfile | undefined 
     exitLosesUnrecorded: terminal.exitLosesUnrecorded === true,
     lifecycleFromState: terminal.lifecycleFromState === true,
     needsSubmitVerification: harnessNeedsSubmitVerification(harness),
+    queuesBusyInput: terminal.queuesBusyInput === true,
     usesRawFirstTurn: harnessUsesRawFirstTurn(harness),
     archivable: declaredValue(manifest.handoffTranscript) !== undefined,
     reportsContextPercent: manifest.capabilities.observationProvider !== 'none',
@@ -443,8 +444,20 @@ function makeWorld(options: WorldOptions): {
           // A CLI that is NOT going to accept this turn simply records nothing —
           // which is exactly what an unprovable send looks like from outside.
           if (suppressEcho.delete(msg.sessionId)) return
-          turnEpochs.set(msg.sessionId, (turnEpochs.get(msg.sessionId) ?? 0) + 1)
+          // A PROMPT SUBMITTED INTO A RUNNING TURN JOINS IT (POD-5855): the CLI
+          // records it and opens no turn of its own. One submitted to an idle
+          // CLI opens a turn, as a real CLI does — so the corpus's steer
+          // properties find the turn their first send opened.
+          const running = phases.get(msg.sessionId)?.phase === 'working'
+          if (!running) turnEpochs.set(msg.sessionId, (turnEpochs.get(msg.sessionId) ?? 0) + 1)
           echoUserTurn(msg.sessionId, pasted)
+          if (!running && !profile.lifecycleFromState) {
+            runtime?.observe({
+              type: 'agentObservation',
+              observation: observation(msg.sessionId, 'turn_opened', 'working'),
+            } as DaemonMessage)
+            phases.set(msg.sessionId, { phase: 'working', since: iso(), nativeSubagentCount: 0 })
+          }
       }
       // The fake surface the host hands at bind (POD-4785): the write logic
       // above is verbatim the old `attachment.write`, now as `writeBase64`.

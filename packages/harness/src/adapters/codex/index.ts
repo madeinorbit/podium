@@ -447,6 +447,12 @@ export const codexManifest: AgentManifest = {
       // N4 (POD-4887): Enter-held and Tab-queued messages are lost on a kill;
       // the rollout is the whole conversation (0.155.0, POD-4863).
       exitLosesUnrecorded: true,
+      // Enter while busy holds the prompt in memory and Codex takes it into
+      // the running turn after the tool or text, one rollout entry per prompt
+      // in submit order; Escape re-submits held prompts as a new turn, nothing
+      // lost (0.155.0, POD-4863 S2-S4). Only Enter is typed, never Tab, whose
+      // queue breaks submit order (S9).
+      queuesBusyInput: true,
     },
     // App-server is the default for every LOGGED-IN Codex auth mode when the
     // version probe admits it. A logged-out session needs the PTY's interactive

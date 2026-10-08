@@ -316,6 +316,12 @@ export const opencodeManifest: AgentManifest = {
       // not a causal ObservationProvider. Keep poll state as the sole lifecycle
       // and epoch authority until a causal observer replaces that producer.
       lifecycleFromState: true,
+      // A prompt submitted while busy is stored at once (the screen says
+      // QUEUED) and reaches the model at the running turn's next step, in
+      // submit order, never merged (1.18.33, POD-4864 S2-S3). After an
+      // interrupt it stays stored and unanswered until another prompt starts
+      // a turn.
+      queuesBusyInput: true,
     },
     // The server is the default whenever its version probe admits this machine
     // AND inventory says the harness is logged in. The PTY owns interactive

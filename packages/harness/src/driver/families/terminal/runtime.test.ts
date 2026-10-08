@@ -99,6 +99,7 @@ function testProfileFor(agentKind: AgentKind): TerminalHarnessProfile | undefine
     exitLosesUnrecorded: terminal.exitLosesUnrecorded === true,
     lifecycleFromState: terminal.lifecycleFromState === true,
     needsSubmitVerification: harnessNeedsSubmitVerification(agentKind),
+    queuesBusyInput: terminal.queuesBusyInput === true,
     usesRawFirstTurn: harnessUsesRawFirstTurn(agentKind),
     archivable: declaredValue(manifest.handoffTranscript) !== undefined,
     reportsContextPercent: manifest.capabilities.observationProvider !== 'none',
@@ -1338,7 +1339,9 @@ describe('send receipts', () => {
   })
 
   it('reports a steer downgrade through deliveredAs', async () => {
-    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    // A TUI that does not queue mid-turn input (POD-5855: the shape of every
+    // harness whose manifest does not declare `queuesBusyInput`).
+    const driver = world.runtime.driverFor('claude-code', { ...CLAUDE, queuesBusyInput: false })
     const session = await driver.create(SPEC)
     world.ready(session.binding.sessionId)
     const receipt = await session.send({ text: 'and this' }, { origin: 'mail', delivery: 'steer' })
@@ -1347,6 +1350,17 @@ describe('send receipts', () => {
     // A TUI cannot append into an open turn. The caller learns it did not steer.
     expect(receipt.deliveredAs).toBe('queue')
     expect(receipt.position).toBe(1)
+  })
+
+  it('types a steer into an idle TUI that queues mid-turn input as an ordinary turn (POD-5855)', async () => {
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
+    const receipt = session.send({ text: 'and this' }, { origin: 'mail', delivery: 'steer' })
+    await Promise.resolve()
+    world.echo(session.binding.sessionId, 'and this')
+    // No turn to steer: a new one, and the receipt says so.
+    expect(await receipt).toMatchObject({ outcome: 'accepted', deliveredAs: 'when-ready' })
   })
 
   it('refuses a send while a native prompt is open, and typing nothing is the point', async () => {
@@ -2587,6 +2601,102 @@ describe('the queue drain', () => {
     const delivered = world.written.filter((text) => text !== '\r')
     expect(delivered).toContain('one')
     expect(delivered).toContain('two')
+  })
+})
+
+describe("a person's chat into a busy TUI (POD-5855)", () => {
+  // OpenCode stores a prompt submitted mid-turn at once and takes it in at the
+  // running turn's next step (POD-4864): its manifest declares
+  // `queuesBusyInput`, so a steer row is typed into the running turn while a
+  // when-ready row keeps waiting for the boundary. The control arm is the same
+  // world with the declaration removed: the steer waits like any row.
+  async function busyWorld(profile: TerminalHarnessProfile) {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('opencode', profile)
+    const session = await driver.create({ ...SPEC, harness: 'opencode' })
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    // ECHO-ON-WRITE, as in the POD-4700 world below and for the same reason.
+    const pendingEchoes = new Set(['first turn', 'from the person', 'mail for the boundary'])
+    const real = world.transportFor(sessionId)
+    world.setTerminal(sessionId, new Proxy(real, {
+      get(target, prop) {
+        if (prop === 'writeBase64') {
+          return (dataBase64: string) => {
+            const pasted = pastedText(Buffer.from(dataBase64, 'base64').toString('utf8'))
+            if (pasted !== undefined && pendingEchoes.has(pasted)) {
+              pendingEchoes.delete(pasted)
+              world.echo(sessionId, pasted)
+            }
+            return target.writeBase64(dataBase64)
+          }
+        }
+        return Reflect.get(target, prop, target)
+      },
+    }))
+    const outcomes = (): string[] =>
+      world.frames.flatMap((frame) =>
+        frame.type === 'runtimeEvent' && frame.event.t === 'delivery'
+          ? [`${frame.event.rowId} ${frame.event.outcome}`]
+          : [],
+      )
+    const pastes = (): string[] =>
+      world.written.map(pastedText).filter((text): text is string => text !== undefined)
+    const settle = async (done: () => boolean): Promise<void> => {
+      for (let i = 0; i < 40 && !done(); i++) {
+        await Promise.resolve()
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+    }
+    await session.send(
+      { text: 'first turn', rowId: 'row-first' },
+      { origin: 'controller', delivery: 'when-ready' },
+    )
+    await settle(() => outcomes().includes('row-first delivered'))
+    world.setPhase(sessionId, 'working')
+    world.observe(sessionId, {})
+    expect((await session.state()).phase).toBe('working')
+    const idle = (): void => {
+      world.setPhase(sessionId, 'idle')
+      world.observe(sessionId, {
+        priorPhase: 'working',
+        nextPhase: 'idle',
+        state: { phase: 'idle', since: new Date(world.now()).toISOString(), nativeSubagentCount: 0 },
+      })
+    }
+    return { world, session, outcomes, pastes, settle, idle }
+  }
+
+  it.each([
+    [true, ['first turn', 'from the person'], ['first turn', 'from the person', 'mail for the boundary']],
+    [false, ['first turn'], ['first turn', 'from the person', 'mail for the boundary']],
+  ] as const)('queuesBusyInput %s: typed during the turn %j, after it %j', async (queues, during, after) => {
+    const w = await busyWorld({ ...OPENCODE, queuesBusyInput: queues })
+    // The mail came first and waits for the boundary; the person's words do
+    // not wait behind it.
+    await w.session.send(
+      { text: 'mail for the boundary', rowId: 'row-mail' },
+      { origin: 'mail', delivery: 'when-ready' },
+    )
+    await w.session.send(
+      { text: 'from the person', rowId: 'row-chat' },
+      { origin: 'controller', delivery: 'steer' },
+    )
+    await w.settle(() => w.outcomes().includes('row-chat delivered'))
+    await new Promise((resolve) => setTimeout(resolve, 450))
+    expect(w.pastes()).toEqual(during)
+    expect(w.outcomes().includes('row-chat delivered')).toBe(queues)
+    expect(w.outcomes().includes('row-mail delivered')).toBe(false)
+
+    w.idle()
+    await w.settle(() => w.outcomes().includes('row-mail delivered'))
+    await w.settle(() => w.outcomes().includes('row-chat delivered'))
+    expect(w.pastes()).toEqual(after)
+    expect(w.outcomes().filter((outcome) => outcome.endsWith('delivered')).sort()).toEqual(
+      ['row-chat delivered', 'row-first delivered', 'row-mail delivered'],
+    )
+    expect(w.world.abandoned).toEqual([])
+    w.world.runtime.dispose()
   })
 })
 
@@ -4145,10 +4255,13 @@ describe('interactions', () => {
 describe('capabilities', () => {
   it('declares the terminal weaknesses and claims no others', async () => {
     const world = makeWorld()
-    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const driver = world.runtime.driverFor('claude-code', { ...CLAUDE, queuesBusyInput: false })
     const caps = driver.capabilities()
     expect(caps.send.mayReturnUnverified).toBe(true)
     expect(caps.send.native).not.toContain('steer')
+    // Steer is the manifest's per-harness claim (POD-5855): Claude's TUI takes
+    // a prompt entered mid-turn into its own queue.
+    expect(world.runtime.driverFor('claude-code', CLAUDE).capabilities().send.native).toContain('steer')
     expect(caps.interrupt.fenceOnProviderConfirmation).toBe(true)
     expect(caps.placement).toBe('dedicated')
     // `no-attach` is the EMBEDDED family's exemption. A terminal session's engine
