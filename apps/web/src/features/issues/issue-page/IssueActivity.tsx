@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-observer'
 /**
  * The activity half of the issue page: agent mail, the assistant note, the
  * day-grouped comment/event feed, and the comment composer.

@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-observer'
 /**
  * The properties rail for the issue page. Rendered in the desktop `<aside>` and
  * mirrored inside the mobile `Details` disclosure.

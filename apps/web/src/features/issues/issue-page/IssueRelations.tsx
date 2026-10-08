@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-observer'
 /**
  * THE DEPENDENCY GRAPH SECTION — and the concrete site of §3.1.2's open
  * cross-boundary-edge question (POD-646).

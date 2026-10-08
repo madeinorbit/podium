@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-observer'
 import { useIssuePageContext } from './issue-page-data'
 import { isFinished } from '@podium/model/browser'
 import type { SessionModel } from '@podium/client-graph/models'

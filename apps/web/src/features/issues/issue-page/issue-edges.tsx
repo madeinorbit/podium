@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-observer'
 /**
  * CROSS-BOUNDARY ISSUE EDGES ON THE DETAIL PAGE (POD-646).
  *

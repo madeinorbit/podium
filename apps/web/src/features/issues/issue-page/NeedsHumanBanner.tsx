@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-observer'
 /**
  * THE NEEDS-HUMAN BANNER — a question that belongs to a PERSON (POD-646).
  *

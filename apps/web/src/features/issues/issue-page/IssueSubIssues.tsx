@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-observer'
 import { useIssuePageContext } from './issue-page-data'
 import type { PageIssue } from '@podium/client-graph/issue-page'
 import type { SessionView } from '@podium/client-core/session-values'

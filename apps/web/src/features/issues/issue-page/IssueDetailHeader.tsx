@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-observer'
 import type { SessionModel } from '@podium/client-graph/models'
 import { edgeIssue, useIssueEdgeResolver } from './issue-edges'
 import { isFinished } from '@podium/model/browser'

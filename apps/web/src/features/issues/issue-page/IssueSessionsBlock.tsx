@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-observer'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { useIssuePageContext } from './issue-page-data'
 import type { SessionModel } from '@podium/client-graph/models'

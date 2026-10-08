@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-observer'
 /**
  * The stack of banners above the issue title: deleted, superseded/duplicate,
  * a suggested stage move, and needs-human. Split out of IssuePage.tsx (POD-646).

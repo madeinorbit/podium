@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-observer'
 import { resolveMachinePath } from '@podium/model/browser'
 /**
  * THE AGENT-ACTIVITY PANEL (issues.panel) — what an agent PRODUCED for the

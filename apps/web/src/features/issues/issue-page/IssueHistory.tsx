@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-observer'
 import { issueActivity } from '@podium/client-graph/issue-activity'
 import { useEffect, useMemo, useState } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'

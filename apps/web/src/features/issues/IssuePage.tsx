@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-page/issue-observer'
 import type { IssueId } from '@podium/model/browser'
 import type { CSSProperties, JSX } from 'react'
 import { useEffect, useState } from 'react'

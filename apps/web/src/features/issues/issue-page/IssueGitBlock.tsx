@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-observer'
 /**
  * The Git block of the properties aside: merge / PR / rebase, ordered by the
  * configured merge style, plus the PR link once one exists. Split out of

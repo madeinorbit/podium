@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-observer'
 /**
  * THE PARENT ROW — REPARENT IS A PERMISSION-AFFECTING OPERATION (POD-646).
  *

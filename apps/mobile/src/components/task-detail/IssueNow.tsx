@@ -1,5 +1,5 @@
 import { isFinished } from '@podium/model/browser'
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { motionPhase, sessionTitle } from '@podium/client-core/values'

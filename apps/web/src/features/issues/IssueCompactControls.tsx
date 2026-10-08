@@ -1,6 +1,6 @@
 import { useIssueEdgeResolver, edgeIssue } from './issue-page/issue-edges'
 import type { SessionModel } from '@podium/client-graph/models'
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-page/issue-observer'
 import { isFinished } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'

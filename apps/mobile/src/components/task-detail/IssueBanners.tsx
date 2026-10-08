@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { ISSUE_STAGE_LABELS } from '@podium/client-core/values'
 

@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from '../../client/issue-observer'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MachineId } from '@podium/model'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'

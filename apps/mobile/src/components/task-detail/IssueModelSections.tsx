@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { issuePages } from '@podium/client-graph/issue-page'
 import { useMobilePool } from '../../client/mobile-pool'

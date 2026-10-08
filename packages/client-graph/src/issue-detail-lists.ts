@@ -145,7 +145,7 @@ export function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     'inspector',
     'missionSessions',
     false,
-    (session) => session.retention?.seat === true,
+    (session) => session.agentKind !== 'shell',
     (session) =>
       `${session.asking ? '0' : '1'}|${String(9e15 - (session.activityMs ?? 0)).padStart(16, '0')}`,
   )

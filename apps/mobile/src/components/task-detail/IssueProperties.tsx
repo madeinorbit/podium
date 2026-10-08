@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from '../../client/issue-observer'
 import { isClosed } from '@podium/model/browser'
 import type { PageIssue } from '@podium/client-graph/issue-page'
 import type { IssueViewModel } from '@podium/client-core/replica'

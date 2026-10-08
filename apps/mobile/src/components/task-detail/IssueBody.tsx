@@ -1,6 +1,6 @@
 import { issuePages } from '@podium/client-graph/issue-page'
 import { useMobilePool } from '../../client/mobile-pool'
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from '../../client/issue-observer'
 import { isClosed } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'

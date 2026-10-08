@@ -842,11 +842,11 @@ interface IssueEdits {
 // presence fields above keep their scalar types, and no row is stored here.
 export interface SessionModel extends Readonly<Omit<SessionView, 'archived' | 'condition'>>, RelationGetters<'session'> {}
 
-export interface IssueModel extends Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt'>>, IssueEdits, RelationGetters<'issue'> {}
+export interface IssueModel extends Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'notes'>>, IssueEdits, RelationGetters<'issue'> {}
 
 export type ModelOf = {
   issue: IssueModel &
-    Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt'>> &
+    Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'notes'>> &
     IssueEdits &
     RelationGetters<'issue'>
   session: SessionModel

@@ -1,4 +1,4 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issueObserver as observer } from './issue-observer'
 /**
  * THE ORIGIN BLOCK — where this task came from, whose it is, and who it is for.
  * The last band of the rail, read once and rarely.
