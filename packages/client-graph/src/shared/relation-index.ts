@@ -549,8 +549,11 @@ export function createRelationIndex(schema: ModelSchema): RelationIndex {
       if (count) activeCounts.set(key, count)
       else activeCounts.delete(key)
     }
-    contribute(oldKey, -Number(contributesBefore))
-    contribute(newKey, Number(contributesAfter))
+    if (oldKey === newKey) contribute(newKey, Number(contributesAfter) - Number(contributesBefore))
+    else {
+      contribute(oldKey, -Number(contributesBefore))
+      contribute(newKey, Number(contributesAfter))
+    }
     const order = (member: string, key: string | undefined): void => {
       const previous = orderKeys.get(member)
       if (previous === key) return
