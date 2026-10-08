@@ -919,14 +919,14 @@
     },
     {
       "file": "apps/mobile/src/components/WorkIssueMenu.tsx",
-      "holder": "WorkIssueMenu/hasCloseBlockers",
+      "holder": "WorkIssueMenu/WorkIssueMenu/hasCloseBlockers",
       "rule": "reader-summary",
       "tokens": "430c58b509786a884f0f45df58a7e7cf3347ace348324708ca3f26c6da654e83",
       "gate": [],
       "origin": [
         "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6"
       ],
-      "fingerprint": "1af23134c8559dd8f3f2ee0f3e160e49520b7613c9a9a0ae364d19654e3a1cf6",
+      "fingerprint": "7a72fce0736970b732b0f8f00ced24e786526ccb170e7514e5afdc8044ca985c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -1403,15 +1403,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/mobile/src/screens/InboxScreen.tsx",
-      "holder": "NeedsYouCard/fromTranscript",
+      "file": "apps/mobile/src/components/InboxSessionRow.tsx",
+      "holder": "NeedsYouCard/NeedsYouCard/fromTranscript",
       "rule": "reader-summary",
       "tokens": "72bab457068189531ee4b1b4bc31c2cf73ee96d3c38017cfe52e7c025e3fdebe",
       "gate": [],
       "origin": [
         "f8b028406c7c196403d1a0bce7e9d95aedb0b5b7984ed03cb8f07aca4f9eb256"
       ],
-      "fingerprint": "460ca6dcb54550f45eb6e18162436a1fcca65fb53a0efb1742ad0bea51b7d30f",
+      "fingerprint": "fbb81c048dc7d4c3a77d9088398764f2ebf77636ecaccb8ab9a6e08e4f89c47d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -39681,42 +39681,6 @@
       "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
     },
     {
-      "file": "packages/client-graph/src/mobile-inbox-views.ts",
-      "holder": "createMobileInboxViews/inbox/computed:callback",
-      "rule": "loop:for-of",
-      "tokens": "07c0af2855dfa40d4ca8c39cf238e0bdd733859355efec801f54b4ef4eea257f",
-      "gate": [],
-      "origin": [
-        "19823feac47e5f0a22cc115f021a7dc55858fa1892a3fcccdb0ec55511da6f39"
-      ],
-      "fingerprint": "8710a26c846589dc2dab0bf820c25117033978b3b5b8d8fbe2e7fc29c9788d24",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileInboxViews/inbox/computed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-inbox-views.ts",
-      "holder": "createMobileInboxViews/inbox/computed:callback",
-      "rule": "question:inboxSessions",
-      "tokens": "245b6e5dcad0c7a7e859da9e69933d39ef477fe2f5aeeae254cd4244645a21cd",
-      "gate": [],
-      "origin": [
-        "19823feac47e5f0a22cc115f021a7dc55858fa1892a3fcccdb0ec55511da6f39"
-      ],
-      "fingerprint": "aa357a42a0c28dadbbe967cf8e5e7e915697393e19fbafe41e4cac43fa2b609b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileInboxViews/inbox/computed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "question:inboxSessions carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "packages/client-graph/src/mobile-screens.ts",
       "holder": "createMobileScreenReader/deck/memo:callback",
       "rule": "helper-consumer",
@@ -44389,6 +44353,42 @@
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
       "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/mobile/src/components/WorkIssueMenu.tsx",
+      "holder": "WorkIssueMenu/WorkIssueMenu/origin",
+      "rule": "reader-summary",
+      "tokens": "a68cb8b4d12592dc3366feddedb1dd4a68aa570de2a2641fc8106e38fd986e79",
+      "gate": [],
+      "origin": [
+        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6"
+      ],
+      "fingerprint": "a440c1df3160a164eebc29cd3c16caa1326067ef681049e295b224673e7905fa",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5834",
+      "trigger": "Rendering the pressed issue menu origin",
+      "bound": "One originId point read through issuePages(pool).issue(id); no issue enumeration or copied dictionary.",
+      "reason": "The hook resolves a single shared issue identity; observer sections read their fields. Conservative reader-summary taint does not introduce a collection scan.",
+      "guard": "apps/mobile/src/screens/WorkScreen.pool-actions.test.tsx; existing placement, opening and action assertions unchanged."
+    },
+    {
+      "file": "apps/mobile/src/screens/SessionsScreen.tsx",
+      "holder": "SessionsScreen/SessionsScreen/peekIssue",
+      "rule": "reader-summary",
+      "tokens": "61d22ac41822f69401298bafcf03d55f5d12df245fb86bccfd824516edd09c48",
+      "gate": [],
+      "origin": [
+        "85325d201169d4fbd9afaea57541e9a592de21b635525504418f6b65df0681a6"
+      ],
+      "fingerprint": "8c471b2e4e75596e398a54173362d679964e909486a2599211b7f20eed05b8fc",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5834",
+      "trigger": "Opening the long-pressed roster issue inspector",
+      "bound": "Zero issue demand until a peekId is selected; one issuePages(pool).issue(peekId) point read afterward.",
+      "reason": "The hook resolves a single shared issue identity; observer sections read their fields. Conservative reader-summary taint does not introduce a collection scan.",
+      "guard": "apps/mobile/src/screens/phone-inbox-window.test.tsx: only displayed session and attached issue fields are read; source uses a single explicit selected ID."
     }
   ]
 }
