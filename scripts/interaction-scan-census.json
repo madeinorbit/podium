@@ -39292,344 +39292,197 @@
     },
     {
       "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/activityAt/keyedComputed:callback/roots",
-      "rule": "consume:map",
-      "tokens": "3fb55f6bd4e8e758465242c9d5b543b07ba0d4f8d03ac08cfa3391b059288cd0",
-      "gate": [],
-      "origin": [
-        "bfd1792309d035f2c9348f078f7809feb2d5b619871ea7ef6d952b4df5961313"
-      ],
-      "fingerprint": "948d721f103f040e6fa3a7a0efe876e7c0b800cb79c52e207b155963d3232143",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5640",
-      "trigger": "Supported open launcher choice, catalog or activity update",
-      "bound": "One addressed repository group and its worktree roots.",
-      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
-      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
-    },
-    {
-      "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/activityRoots",
-      "rule": "reader-summary",
-      "tokens": "d560e5ab9b8717559b0acf22923ec12a2b428c6814022f1d7d532b12b2754844",
-      "gate": [],
-      "origin": [
-        "bfd1792309d035f2c9348f078f7809feb2d5b619871ea7ef6d952b4df5961313"
-      ],
-      "fingerprint": "bf7e221cbf89bb6e7f41dfa689abf7b58e49e64c5d2007cc1f67d26436215f4a",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5640",
-      "trigger": "Supported open launcher choice, catalog or activity update",
-      "bound": "One addressed repository group and its worktree roots.",
-      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
-      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
-    },
-    {
-      "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/activityRoots/keyedComputed:callback",
-      "rule": "consume:map",
-      "tokens": "ffac099cee31a05ec7ac5a82858b2e21e7c949523f0bb45878f502c90cf22c9c",
-      "gate": [
-        "then:cad1a3e7240b04c8d2893c0c7a3acd28a5bd3d54e894bded55352cfdbd75ce76"
-      ],
-      "origin": [
-        "bfd1792309d035f2c9348f078f7809feb2d5b619871ea7ef6d952b4df5961313"
-      ],
-      "fingerprint": "a22cf5c20860b1343146a637fa7bdfaf86a77244c99596d916621f010439593b",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5640",
-      "trigger": "Supported open launcher choice, catalog or activity update",
-      "bound": "One addressed repository group and its worktree roots.",
-      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
-      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
-    },
-    {
-      "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/activityRoots/keyedComputed:callback",
+      "holder": "launchOptionViews/view:callback/catalogOnOpen/callback/values/flatMap:callback/at/roots",
       "rule": "spread",
       "tokens": "75061473c6b4cf29c5f6e5beba1f0ea797114887dd83f1866b6f974966e5fe6e",
       "gate": [
-        "then:cad1a3e7240b04c8d2893c0c7a3acd28a5bd3d54e894bded55352cfdbd75ce76"
+        "then:b67437359cc6d933009c18ccbe293383e757d58921df18c4fcc650a23e1bdee5"
       ],
       "origin": [
-        "bfd1792309d035f2c9348f078f7809feb2d5b619871ea7ef6d952b4df5961313"
+        "3a9380db9a6b18688d0b6fea0b0f24d76020d81151bb8099ce4a72315d8d6bff"
       ],
-      "fingerprint": "d6277d7cce766ac9b88a0180703ffe44a1e81556f4a1ed7a2366e4fc9cb5912f",
+      "fingerprint": "8ff1507c88eb62fa7d05af65525c73ce24eaee4f3d8cdda8a5583ed4d9bdeb13",
       "count": 1,
       "classification": "bounded local work",
-      "owner": "POD-5640",
-      "trigger": "Supported open launcher choice, catalog or activity update",
-      "bound": "One addressed repository group and its worktree roots.",
-      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
-      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+      "owner": "POD-5751",
+      "trigger": "Picker open action; live repository metadata and membership updates.",
+      "bound": "Repository choices present on open; usage reads run only once per opening.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
     },
     {
       "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/catalogRoots",
-      "rule": "reader-summary",
-      "tokens": "c086cbb577e4892c87f8691fd3600c3e77c94b22d000c7574ae6d9a3649242fa",
-      "gate": [],
-      "origin": [
-        "c1f43c32efb73e50f02cf220f9c98c9245195f6fc4921b3261fb700737b241ca"
-      ],
-      "fingerprint": "7c69c78a91a479fb9cdc0a6398f3037d8340e66c97979390f36a0974bd786f1c",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5640",
-      "trigger": "Supported open launcher choice, catalog or activity update",
-      "bound": "One addressed repository group and its worktree roots.",
-      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
-      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
-    },
-    {
-      "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/catalogRoots/keyedComputed:callback",
-      "rule": "spread",
-      "tokens": "75061473c6b4cf29c5f6e5beba1f0ea797114887dd83f1866b6f974966e5fe6e",
-      "gate": [
-        "then:cad1a3e7240b04c8d2893c0c7a3acd28a5bd3d54e894bded55352cfdbd75ce76"
-      ],
-      "origin": [
-        "c1f43c32efb73e50f02cf220f9c98c9245195f6fc4921b3261fb700737b241ca"
-      ],
-      "fingerprint": "5f2842ee55eced11b5c3b2d2f0021e157cbaee7dbeee4817c08c0efaddbd47ff",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5640",
-      "trigger": "Supported open launcher choice, catalog or activity update",
-      "bound": "One addressed repository group and its worktree roots.",
-      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
-      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
-    },
-    {
-      "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/catalogRoots/keyedComputed:callback",
+      "holder": "launchOptionViews/view:callback/catalogOnOpen/callback/values/flatMap:callback/at/roots",
       "rule": "consume:map",
       "tokens": "ffac099cee31a05ec7ac5a82858b2e21e7c949523f0bb45878f502c90cf22c9c",
       "gate": [
-        "then:cad1a3e7240b04c8d2893c0c7a3acd28a5bd3d54e894bded55352cfdbd75ce76"
+        "then:b67437359cc6d933009c18ccbe293383e757d58921df18c4fcc650a23e1bdee5"
       ],
       "origin": [
-        "c1f43c32efb73e50f02cf220f9c98c9245195f6fc4921b3261fb700737b241ca"
+        "3a9380db9a6b18688d0b6fea0b0f24d76020d81151bb8099ce4a72315d8d6bff"
       ],
-      "fingerprint": "9c8d537e3009fc26ad30a1bee8a9c38faa105889c437f012a318ea390ad2e7ac",
+      "fingerprint": "822bc8f95d2974cfd43821fed159df312f7822913ef309ee72f524c1b22ecd63",
       "count": 1,
       "classification": "bounded local work",
-      "owner": "POD-5640",
-      "trigger": "Supported open launcher choice, catalog or activity update",
-      "bound": "One addressed repository group and its worktree roots.",
-      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
-      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
-    },
-    {
-      "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/catalogUsage/keyedComputed:callback/roots",
-      "rule": "consume:map",
-      "tokens": "e7d58e8af57b49de95afb185b114af31801742d329cbe9b57b6089ee6dd5eb47",
-      "gate": [],
-      "origin": [
-        "c1f43c32efb73e50f02cf220f9c98c9245195f6fc4921b3261fb700737b241ca"
-      ],
-      "fingerprint": "eb6800571a20c9bb9e06237876b37a23d43718d6326261a449617d63024cd885",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5640",
-      "trigger": "Supported open launcher choice, catalog or activity update",
-      "bound": "One addressed repository group and its worktree roots.",
-      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
-      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+      "owner": "POD-5751",
+      "trigger": "Picker open action; live repository metadata and membership updates.",
+      "bound": "Repository choices present on open; usage reads run only once per opening.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
     },
     {
       "file": "packages/client-graph/src/launch-option-views.ts",
       "holder": "launchOptionViews/view:callback/project",
       "rule": "reader-summary",
-      "tokens": "805a83eb0a8386d30f642739c32b7695ad841a047b7d4759bdf9472ee6a7de02",
+      "tokens": "3db3f3fad087140cdd2c171965b9cb54584602044cd9e5a548a0a552d86d3b85",
       "gate": [],
       "origin": [
-        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
+        "0cf7ee8fedb0b6dd2d068edec860d951e26eae8c364b9645c3fe3e5c19e3d6f8"
       ],
-      "fingerprint": "166e57bfa2ce833050ba896446afa21e1373db3896ca55d450e868dd73d4ea49",
+      "fingerprint": "5302e0cd148a3af08e972551a23fb437c591eb71ff01588d86437756f1671112",
       "count": 1,
       "classification": "visible output",
-      "owner": "POD-5640",
-      "trigger": "Supported launcher is open and its relevant catalog, choice, pins, or usage changes.",
-      "bound": "The open launcher displayed repository option set. Ordering visits candidate IDs/references and cached usage, without rebuilding other group payloads.",
-      "reason": "Repository payloads and root usage are cached per addressed group. Ordering consumes displayed candidates; closed owners release demand.",
-      "guard": "packages/client-graph/src/launch-option-views.test.ts and command-launch-options.test.ts: 1x/4x delta, parity, and close-demand checks."
+      "owner": "POD-5751",
+      "trigger": "Picker open action; live repository metadata and membership updates.",
+      "bound": "Repository choices present on open; usage reads run only once per opening.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
     },
     {
       "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/project/keyedComputed:callback/worktrees",
+      "holder": "launchOptionViews/view:callback/project/keyedComputed:callback",
+      "rule": "reader-summary",
+      "tokens": "95a065cb67491f865fb50b9359022625de44580b4226c07e28da933356ba28d6",
+      "gate": [
+        "then:cad1a3e7240b04c8d2893c0c7a3acd28a5bd3d54e894bded55352cfdbd75ce76"
+      ],
+      "origin": [
+        "0cf7ee8fedb0b6dd2d068edec860d951e26eae8c364b9645c3fe3e5c19e3d6f8"
+      ],
+      "fingerprint": "2cd81ca412ac02247ac0e0474e339fadb6dd5e1e6f1d89337fba5e4de277569f",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5751",
+      "trigger": "Picker open action; live repository metadata and membership updates.",
+      "bound": "Repository choices present on open; usage reads run only once per opening.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/projectForRepository/callback/worktrees",
       "rule": "consume:flatMap",
-      "tokens": "e69ecd4fe85087448046fec87413f2a976be5ef5e93075eda971e6c7c3cae818",
+      "tokens": "db567a702b15d106a6f8811cdf7f57e7e0280212083b7f0cba1a5bad12ee179d",
+      "gate": [],
+      "origin": [
+        "0cf7ee8fedb0b6dd2d068edec860d951e26eae8c364b9645c3fe3e5c19e3d6f8"
+      ],
+      "fingerprint": "9059256219ba21bd186e144e940456b1d6cf0b90e08e1f67c7007850ad8ae45c",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5751",
+      "trigger": "Picker open action; live repository metadata and membership updates.",
+      "bound": "Repository choices present on open; usage reads run only once per opening.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/projectForRepository/callback/worktrees/flatMap:callback",
+      "rule": "consume:some",
+      "tokens": "da22d9c56f0a9b25294daa807c2c444b2a03b183c657ee916fcfc79ba8308928",
+      "gate": [
+        "then:da22d9c56f0a9b25294daa807c2c444b2a03b183c657ee916fcfc79ba8308928"
+      ],
+      "origin": [
+        "e0555e8d966041a6d7b450fc61aed87107631c8b10355df0f5328ed000a52aff"
+      ],
+      "fingerprint": "da1627477321e01c59c810f9fdd2c81658d587449de66556ea71914083878c57",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5751",
+      "trigger": "Picker open action; live repository metadata and membership updates.",
+      "bound": "Repository choices present on open; usage reads run only once per opening.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/projectChoices/computed:callback/flatMap:callback/repo",
+      "rule": "reader-summary",
+      "tokens": "eb9d8205fa27b5ee942ff3a26d19d33839b2dbc7f66f92fb62666339d3a46153",
+      "gate": [],
+      "origin": [
+        "0cf7ee8fedb0b6dd2d068edec860d951e26eae8c364b9645c3fe3e5c19e3d6f8"
+      ],
+      "fingerprint": "30de5a872a9a7c2bad64da7250bc009b1eb014dbf04ef15b378936fe00979444",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5751",
+      "trigger": "Picker open action; live repository metadata and membership updates.",
+      "bound": "Repository choices present on open; usage reads run only once per opening.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
+    },
+    {
+      "file": "packages/client-graph/src/launch-option-views.ts",
+      "holder": "launchOptionViews/view:callback/workOnOpen/callback/values/flatMap:callback/choice",
+      "rule": "reader-summary",
+      "tokens": "95a065cb67491f865fb50b9359022625de44580b4226c07e28da933356ba28d6",
       "gate": [
         "exit:then:f2bfe1df8cedded48f0a2f50d14e92e1b56fefeebe338bdc464576a965b7e745"
       ],
       "origin": [
-        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
+        "0cf7ee8fedb0b6dd2d068edec860d951e26eae8c364b9645c3fe3e5c19e3d6f8"
       ],
-      "fingerprint": "cdcde3e890d2ede9d791f1372465f92cda33924f6f39e24fb20676ac8a42a54c",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5640",
-      "trigger": "Supported launcher is open and its relevant catalog, choice, pins, or usage changes.",
-      "bound": "One addressed repository group and its worktree roots. Metadata rebuilds that group only; usage reuses its cached roots.",
-      "reason": "Repository payloads and root usage are cached per addressed group. Ordering consumes displayed candidates; closed owners release demand.",
-      "guard": "packages/client-graph/src/launch-option-views.test.ts and command-launch-options.test.ts: 1x/4x delta, parity, and close-demand checks."
-    },
-    {
-      "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/project/keyedComputed:callback/worktrees/flatMap:callback",
-      "rule": "consume:some",
-      "tokens": "da22d9c56f0a9b25294daa807c2c444b2a03b183c657ee916fcfc79ba8308928",
-      "gate": [
-        "exit:then:f2bfe1df8cedded48f0a2f50d14e92e1b56fefeebe338bdc464576a965b7e745",
-        "then:da22d9c56f0a9b25294daa807c2c444b2a03b183c657ee916fcfc79ba8308928"
-      ],
-      "origin": [
-        "b018dc5e1ffacf183cb7cab23c6c415c82f619bd1d7d11d574e607c627b95846"
-      ],
-      "fingerprint": "c0e47c08f0d962d9f94286213b3b101c042a0d32c37be68cd516d3a6546c82fd",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5640",
-      "trigger": "Supported launcher is open and its relevant catalog, choice, pins, or usage changes.",
-      "bound": "One addressed repository group and its worktree roots. Metadata rebuilds that group only; usage reuses its cached roots.",
-      "reason": "Repository payloads and root usage are cached per addressed group. Ordering consumes displayed candidates; closed owners release demand.",
-      "guard": "packages/client-graph/src/launch-option-views.test.ts and command-launch-options.test.ts: 1x/4x delta, parity, and close-demand checks."
-    },
-    {
-      "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/projectOrderKey/computed:callback",
-      "rule": "consume:sort",
-      "tokens": "3e27f067274e5495efaf36ff1f1d5087674fa90241bd215124b1afe43045bf5c",
-      "gate": [],
-      "origin": [
-        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
-      ],
-      "fingerprint": "0046cd28511b0df3d18a7f232f5e38a1ffe642447edb4d72df7eb7cbce7837c3",
+      "fingerprint": "861efdff42f22c74b56dec919df6b20fd5da850416a1150b1c64707095788ec3",
       "count": 1,
       "classification": "visible output",
-      "owner": "POD-5640",
-      "trigger": "Supported open launcher choice, catalog or activity update",
-      "bound": "Displayed repository choices, IDs and activity scalars.",
-      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
-      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+      "owner": "POD-5751",
+      "trigger": "Picker open action; live repository metadata and membership updates.",
+      "bound": "Repository choices present on open; usage reads run only once per opening.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
     },
     {
       "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/projectOrderKey/computed:callback",
-      "rule": "consume:map",
-      "tokens": "9f7dbf9e448849f8137bb1aa04bd491439db5ff3b2b1acd5b2f3e718ea6763e4",
-      "gate": [],
-      "origin": [
-        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
-      ],
-      "fingerprint": "fce8c9df6e706a04ae7d14d9957490712b3ee8bca837acd324aced0aaf369e1f",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-5640",
-      "trigger": "Supported open launcher choice, catalog or activity update",
-      "bound": "Displayed repository choices, IDs and activity scalars.",
-      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
-      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
-    },
-    {
-      "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/projectOrderKey/computed:callback/values/flatMap:callback/repo",
-      "rule": "reader-summary",
-      "tokens": "eb9d8205fa27b5ee942ff3a26d19d33839b2dbc7f66f92fb62666339d3a46153",
-      "gate": [],
-      "origin": [
-        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
-      ],
-      "fingerprint": "6900b7489b6152328f7171333865fd76a36afe3b0cafbf1ae3603b4942b91233",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-5640",
-      "trigger": "Supported open launcher choice, catalog or activity update",
-      "bound": "Displayed repository choices, IDs and activity scalars.",
-      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
-      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
-    },
-    {
-      "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/projects/computed:callback/flatMap:callback",
-      "rule": "reader-summary",
-      "tokens": "eb9d8205fa27b5ee942ff3a26d19d33839b2dbc7f66f92fb62666339d3a46153",
-      "gate": [],
-      "origin": [
-        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
-      ],
-      "fingerprint": "3eaaaedf7a8c4d1052b866fe7d37d49a15803a15ff32123c411ef31a2f8d404e",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-5640",
-      "trigger": "Supported open launcher choice, catalog or activity update",
-      "bound": "Displayed repository choices, IDs and activity scalars.",
-      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
-      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
-    },
-    {
-      "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/rootKey/keyedComputed:callback",
+      "holder": "launchOptionViews/view:callback/workOnOpen/callback/values/flatMap:callback/roots",
       "rule": "spread",
-      "tokens": "fe874906964eeb09b257a384067d586316465a21fa855ef6d3ecbfd3297f3e0c",
+      "tokens": "75061473c6b4cf29c5f6e5beba1f0ea797114887dd83f1866b6f974966e5fe6e",
       "gate": [
-        "then:cad1a3e7240b04c8d2893c0c7a3acd28a5bd3d54e894bded55352cfdbd75ce76"
+        "exit:then:f2bfe1df8cedded48f0a2f50d14e92e1b56fefeebe338bdc464576a965b7e745"
       ],
       "origin": [
-        "04beab11dcf0f05f4fdbf0f828eca488167531e9a36cdbb8acebf4ee1fc0f770"
+        "913c7b630ca5536bda6ed202af5a24f9f154b161133f5fa6867ff0f50072be80"
       ],
-      "fingerprint": "2f06c25911be97e12dce387807475dce69f1537db4abd72a6cf53a76c18e7119",
+      "fingerprint": "9bac1ee040f48ad4898cd4a14305ae3044d9f528a9e684cc3b9f621074cae941",
       "count": 1,
       "classification": "bounded local work",
-      "owner": "POD-5640",
-      "trigger": "Supported open launcher choice, catalog or activity update",
-      "bound": "One addressed repository group and its worktree roots.",
-      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
-      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
+      "owner": "POD-5751",
+      "trigger": "Picker open action; live repository metadata and membership updates.",
+      "bound": "Repository choices present on open; usage reads run only once per opening.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
     },
     {
       "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/rootKey/keyedComputed:callback",
+      "holder": "launchOptionViews/view:callback/workOnOpen/callback/values/flatMap:callback/roots",
       "rule": "consume:map",
-      "tokens": "b8069e3666e20f1de7c3946d9e855c781c46ba49fb51ae0abcced50ab4732fbe",
+      "tokens": "ffac099cee31a05ec7ac5a82858b2e21e7c949523f0bb45878f502c90cf22c9c",
       "gate": [
-        "then:cad1a3e7240b04c8d2893c0c7a3acd28a5bd3d54e894bded55352cfdbd75ce76"
+        "exit:then:f2bfe1df8cedded48f0a2f50d14e92e1b56fefeebe338bdc464576a965b7e745"
       ],
       "origin": [
-        "04beab11dcf0f05f4fdbf0f828eca488167531e9a36cdbb8acebf4ee1fc0f770"
+        "913c7b630ca5536bda6ed202af5a24f9f154b161133f5fa6867ff0f50072be80"
       ],
-      "fingerprint": "93aa4ad9e86fbca923325a8e15a2be55232517aa22ba366f662b12a5b7a59fa4",
+      "fingerprint": "92b8b7186cf833816f99a02a11bcb15e3fce9123f83dcd4deee6114da5d9b29d",
       "count": 1,
       "classification": "bounded local work",
-      "owner": "POD-5640",
-      "trigger": "Supported open launcher choice, catalog or activity update",
-      "bound": "One addressed repository group and its worktree roots.",
-      "reason": "Keyed repository and activity projections retain unchanged groups; ordering uses displayed IDs and scalars without reopening session history.",
-      "guard": "launch-option-views.test.ts and actual mobile/web open-launcher-work consumer tests enforce 1x/4x deltas, live MRU order and closed demand."
-    },
-    {
-      "file": "packages/client-graph/src/launch-option-views.ts",
-      "holder": "launchOptionViews/view:callback/usage/keyedComputed:callback/roots",
-      "rule": "reader-summary",
-      "tokens": "2be52f3293bcc8b41f0c1b54f79e525360b6bb4ffe203972c5325a211e75d509",
-      "gate": [],
-      "origin": [
-        "04beab11dcf0f05f4fdbf0f828eca488167531e9a36cdbb8acebf4ee1fc0f770"
-      ],
-      "fingerprint": "567544235993c9e29ab137c8b2d971cd12ca15cff17208edc4c38c6eb12e369d",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5640",
-      "trigger": "Supported launcher is open and its relevant catalog, choice, pins, or usage changes.",
-      "bound": "One addressed repository group and its worktree roots. Metadata rebuilds that group only; usage reuses its cached roots.",
-      "reason": "Repository payloads and root usage are cached per addressed group. Ordering consumes displayed candidates; closed owners release demand.",
-      "guard": "packages/client-graph/src/launch-option-views.test.ts and command-launch-options.test.ts: 1x/4x delta, parity, and close-demand checks."
+      "owner": "POD-5751",
+      "trigger": "Picker open action; live repository metadata and membership updates.",
+      "bound": "Repository choices present on open; usage reads run only once per opening.",
+      "reason": "The picker stores usage order and usage labels in UI state. Live metadata preserves that order and appends new choices without reading usage.",
+      "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
     },
     {
       "file": "packages/client-graph/src/mission-view.ts",
@@ -43736,9 +43589,9 @@
         "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
       ],
       "origin": [
-        "bfd1792309d035f2c9348f078f7809feb2d5b619871ea7ef6d952b4df5961313"
+        "0cf7ee8fedb0b6dd2d068edec860d951e26eae8c364b9645c3fe3e5c19e3d6f8"
       ],
-      "fingerprint": "0318e9b75a3a0c187137b2f295a968c8d673d68b1dfcb031d59adf6b67d1e0a6",
+      "fingerprint": "8078815f77471635c9ad0e82040722aa243b66dd69243b408187fa69dcb29bb6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -43821,72 +43674,9 @@
         "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
       ],
       "origin": [
-        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
-      ],
-      "fingerprint": "712263d18093be2ba673ee08b05b74bbf2d6d98813c9039b6dfa7c44aedb233e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback",
-      "rule": "reader-summary",
-      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
-      "gate": [
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
-        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
-      ],
-      "origin": [
-        "c1f43c32efb73e50f02cf220f9c98c9245195f6fc4921b3261fb700737b241ca"
-      ],
-      "fingerprint": "77b496c426028d5d196ebaf054af794563404689a78dfd633fa29e03f7a5e1d2",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback",
-      "rule": "reader-summary",
-      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
-      "gate": [
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
-        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
-      ],
-      "origin": [
         "b62af815f9048d102aca17f2695d460f40e618bcc845d7a0d3bc1c8b90140c10"
       ],
       "fingerprint": "ca795521ed682566be6b33182562f415cc4bdcf36de8c180f1298371ead02b8b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback",
-      "rule": "reader-summary",
-      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
-      "gate": [
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e",
-        "then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d"
-      ],
-      "origin": [
-        "04beab11dcf0f05f4fdbf0f828eca488167531e9a36cdbb8acebf4ee1fc0f770"
-      ],
-      "fingerprint": "de4f9928c59668092788fc458eb12251608b54ceabf3bc2f21078d742bb4fc7c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -43944,9 +43734,9 @@
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
-        "bfd1792309d035f2c9348f078f7809feb2d5b619871ea7ef6d952b4df5961313"
+        "0cf7ee8fedb0b6dd2d068edec860d951e26eae8c364b9645c3fe3e5c19e3d6f8"
       ],
-      "fingerprint": "7e74f265bb834b33fee749b542abfdbb0b97db3791ca7d43d18330209b084708",
+      "fingerprint": "905fdeb8b1c26944ed9cd6b6f5b4b03e46c863fc9d6e6eae0386ed354dd9e193",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -43995,66 +43785,6 @@
       "bound": "Session history is addressed and flat; repository/worktree catalog cardinality is still unconstrained.",
       "reason": "The session roster scan was removed. Choice metadata still needs demand bounds when its picker is closed; this entry does not waive that remaining repair.",
       "guard": "packages/client-graph/src/settings-questions.test.ts proves flat session-history work and release after close; repository cardinality remains a required follow-up."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback/derive/callback",
-      "rule": "reader-summary",
-      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
-      "gate": [
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
-      ],
-      "origin": [
-        "c1f43c32efb73e50f02cf220f9c98c9245195f6fc4921b3261fb700737b241ca"
-      ],
-      "fingerprint": "cb0df3e10ccad99d8d3d6149c945bb76eef7404021e2dbeea148556dc5a28966",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback/derive/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback/derive/callback",
-      "rule": "reader-summary",
-      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
-      "gate": [
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
-      ],
-      "origin": [
-        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
-      ],
-      "fingerprint": "f4208b2845ec172fc82c17d55a54c83fed947a8cdb343180deeb9558ed546c5d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback/derive/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback/derive/callback",
-      "rule": "reader-summary",
-      "tokens": "17a23fe41db751637eff783db7d8434821df7dd58be2f63141ae093ecfbb74e3",
-      "gate": [
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
-      ],
-      "origin": [
-        "04beab11dcf0f05f4fdbf0f828eca488167531e9a36cdbb8acebf4ee1fc0f770"
-      ],
-      "fingerprint": "fabe1aadfae98b814161bc59b8b35213805420c494a68d4bbd025ca21fe6d36d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback/derive/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/mobx-helpers/src/keyed-computed.ts",
@@ -44130,72 +43860,9 @@
         "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
       ],
       "origin": [
-        "53c8b3ce5d49f4391ad95e9a4865044770e6634af34ad19074ef279c5d932d29"
+        "0cf7ee8fedb0b6dd2d068edec860d951e26eae8c364b9645c3fe3e5c19e3d6f8"
       ],
-      "fingerprint": "a09cfb19d3361e8e2a21161f234a668c0963504314364690e8b820663d40af21",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback/value/computed:callback",
-      "rule": "reader-summary",
-      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
-      "gate": [
-        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
-      ],
-      "origin": [
-        "bfd1792309d035f2c9348f078f7809feb2d5b619871ea7ef6d952b4df5961313"
-      ],
-      "fingerprint": "b742fc319d4e47a7843ff1565f2940282c094ced2d58ff5ceb8b06b7bc6b4a1b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback/value/computed:callback",
-      "rule": "reader-summary",
-      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
-      "gate": [
-        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
-      ],
-      "origin": [
-        "04beab11dcf0f05f4fdbf0f828eca488167531e9a36cdbb8acebf4ee1fc0f770"
-      ],
-      "fingerprint": "c60dd9bfeda751588120ec1783f59ac7e4d1ec9273b7e23f488f035ccb543da4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/mobx-helpers/src/keyed-computed.ts",
-      "holder": "keyedComputed/read/callback/value/computed:callback",
-      "rule": "reader-summary",
-      "tokens": "4e7bb0bf51ae531f35535ea46df3601b747b025f07e196dee7d2ede9d7e8a20b",
-      "gate": [
-        "exit:then:9e99ff28b72d46b70094fd9167e6ea39eef61d3890965aa55c93cbf2c33aa71d",
-        "exit:then:20aba40a100d587b33abe8783fe94cd6fcd1c3240df4efc7b49dd4072378969e"
-      ],
-      "origin": [
-        "c1f43c32efb73e50f02cf220f9c98c9245195f6fc4921b3261fb700737b241ca"
-      ],
-      "fingerprint": "db4780d6cefaabe8c83ff73306bfc32cf8d5de40c925ad0aae51b96b2b9927f6",
+      "fingerprint": "12407c556e14eb4b492174499ff426e42c5105fe43c1ab2e017306005a922fc4",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
