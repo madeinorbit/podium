@@ -4,6 +4,9 @@ import { isFinished } from '../shared/predicates'
 import { awaitingMergeOf } from '../shared/schema'
 import type { SliceIssue } from '../shared/slice-types'
 import { MobxPool } from '../pool'
+import { IssueModel } from '../models'
+import { SCHEMA } from '../shared/schema'
+import { FEED_SPELLING } from '../shared/repo-from-lane'
 import { LOADING } from './rollup'
 
 const stamp = '2026-10-08T12:00:00Z'
@@ -48,6 +51,30 @@ describe('shared worklist record facts keep their answers without a raw-row cach
       const old = answers(previousFacts(pool, name))[field]
       const value = pool.issueObject(name)[field]
       expect(process.env.POD5822_MUTATE_FACTS === '1' ? '__wrong_answer__' : value).toEqual(old)
+    } finally { pool.dispose() }
+  })
+})
+
+// The schema's old installed getter: keys are instance members; declared
+// field answers are kept; every other field reads its original feed spelling.
+const storedFields = Object.keys(SCHEMA.issue.fields).filter(field =>
+  field !== 'id' && !IssueModel.answers.has(field))
+const readOrLoading = (read: () => unknown) => {
+  try { return read() } catch (error) { if (error === LOADING) return LOADING; throw error }
+}
+describe('direct shared issue fields keep the old installed getter answers', () => {
+  for (const [name, patch] of fixtures) for (const field of storedFields) it(`${name}.${field}`, () => {
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
+      name === 'cold' ? { load: () => undefined, schedule: () => () => {} } : {})
+    if (patch) pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: name, value: {
+      id: name, seq: 1, title: name, repoPath: '/synthetic', createdAt: stamp, updatedAt: stamp, ...patch,
+    } as never }] })
+    try {
+      const model = pool.issueObject(name)
+      const spelling = FEED_SPELLING.issue ?? {}
+      const old = readOrLoading(() => model.storedField(spelling[field] ?? field))
+      const value = readOrLoading(() => Reflect.get(model, field))
+      expect(process.env.POD5822_MUTATE_STORED === '1' ? '__wrong_answer__' : value).toEqual(old)
     } finally { pool.dispose() }
   })
 })

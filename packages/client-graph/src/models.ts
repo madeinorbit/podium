@@ -139,15 +139,21 @@ function installFields(
       throw new Error(`[pool] ${entity}.${field} collides with a model member; rename one`)
     }
     const property = spelling[field] ?? field
+    const stored = function (this: EntityModel): unknown {
+      if (field === spec.key) return this.id
+      return this.storedField(property)
+    }
+    // Worklist components read issue facts directly. Retain each watched
+    // answer on the shared model so unrelated fields keep its readers cold.
+    const get = answered ?? (entity === 'issue' ? lazy(stored, {
+      kind: 'getter', name: field, static: false, private: false,
+      access: { has: target => field in target, get: target => stored.call(target) },
+      addInitializer() {}, metadata: undefined,
+    }) : stored)
     Object.defineProperty(prototype, field, {
       configurable: false,
       enumerable: false,
-      get:
-        answered ??
-        function (this: EntityModel): unknown {
-          if (field === spec.key) return this.id
-          return this.storedField(property)
-        },
+      get,
       ...(Object.hasOwn(editable, field)
         ? {
             set(this: IssueModel, value: unknown): void {
