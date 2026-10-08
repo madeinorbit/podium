@@ -11,7 +11,8 @@ import {
 } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
-import { compareStructural, computed, observer } from '@podium/client-graph/react'
+import { compareStructural, computed, observer, WorklistProvider, useWorklistModel } from '@podium/client-graph/react'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import type { SidebarSections, SidebarState } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
@@ -58,7 +59,7 @@ import {
 } from './pool-row-data'
 import { MAX_ROW_SHORTCUTS, useRowShortcuts } from './row-shortcuts'
 import { PanelRow, useCollapsedKeys } from './sidebar-common'
-import { UnifiedIssueRow } from './UnifiedIssueRow'
+import { UnifiedIssueRow, WorklistIssueRow } from './UnifiedIssueRow'
 import { UnifiedWorktreeRow } from './UnifiedWorktreeRow'
 import { type PoolWorkActions, usePoolUnifiedWork } from './use-pool-unified-work'
 import { useRowDrag } from './useRowDrag'
@@ -67,6 +68,7 @@ import { normalizeWorkQuery } from './work-filter'
 import {
   ClosedIssueFold,
   FoldedWorkRow,
+  WorklistFoldedRow,
   FoldPanel,
   foldedMarker,
   PinnedSectionLabel,
@@ -159,6 +161,8 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const pool = useWorklistPool()
   const state = usePoolLayoutState()
+  const model = pool ? worklistView(pool) : null
+  useEffect(() => { model?.setLayout(state) }, [model, state])
   const input = useWorkFilterState()
   const needle = normalizeWorkQuery(input.deferredQuery)
   const count = useMemo(
@@ -181,7 +185,7 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
     [pool, state, needle],
   ).get()
   return (
-    <>
+    <WorklistProvider model={model}>
       <NewTaskRow />
       <WorkSearchField
         filter={{ ...input, ...count }}
@@ -201,7 +205,7 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
         <PoolWorkSections query={input.deferredQuery} scrollRef={scrollRef} />
       </div>
       <MobilePromoCard />
-    </>
+    </WorklistProvider>
   )
 })
 
@@ -247,7 +251,8 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
 }): JSX.Element {
   const state = usePoolLayoutState()
   const actions = usePoolUnifiedWork(pool)
-  const sections = sidebarView(pool).sections(state)
+  const model = useWorklistModel() ?? worklistView(pool)
+  const sections = model.sections(state)
   const stableSlots = useRef(new Map<string, Slot>())
   const { targets, slotById, orderByScope } = useMemo(() => {
     const slotById = new Map<string, Slot>()
@@ -675,6 +680,8 @@ const PoolMotionRow = observer(function PoolMotionRow({
   openMenu: (id: string, event: MouseEvent) => void
 }): JSX.Element | null {
   const { id, kind, lane } = item.value
+  const worklist = useWorklistModel() ?? worklistView(pool)
+  const companion = kind === 'issue' ? worklist.knownRow(id) : undefined
   const folded = lane === 'closed' || lane === 'snoozed'
   const visible = usePanelVisible()
   const draw = useMemo(
@@ -685,7 +692,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
         paint: unknown
       }>(
         () => {
-          const value = kind === 'issue' ? sidebarView(pool).row(id) : undefined
+          const value = companion?.sidebar
           const now = pool.clock.trackedNow()
           let paint: unknown
           if (value !== undefined && value !== LOADING) {
@@ -706,7 +713,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
         },
         { equals: (a, b) => compareStructural(a.paint, b.paint) },
       ),
-    [pool, id, kind, folded, lane],
+    [pool, id, kind, companion, folded, lane],
   )
   // Visible rows own their lazy paint projection; closing a group retires them.
   const lastDraw = useMemo(
@@ -727,8 +734,10 @@ const PoolMotionRow = observer(function PoolMotionRow({
     paint: LOADING,
   }
   const fresh = paint.value
+  // Stored for the exit animation: the departing row must stay still after
+  // its live entity disappears. A mounted row keeps reading its companion.
   const previous = useRef<SidebarRowValues | undefined>(undefined)
-  if (fresh !== undefined && fresh !== LOADING) previous.current = fresh
+  if (fresh !== undefined && fresh !== LOADING) previous.current = { ...fresh, issue: { ...fresh.issue } }
   const value = fresh === undefined && item.phase === 'exiting' ? previous.current : fresh
   const draftPane = useRuntimeSelector(
     (s) =>
@@ -738,7 +747,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
       value.draftAgentOnly &&
       s.paneA === value.firstSessionId,
   )
-  const active = visible && kind === 'issue' && pool.selection.has(id)
+  const active = visible && companion?.selected === true
   const now = paint.now
   const arriving = animate && item.phase === 'entering'
   const exiting = item.phase === 'exiting'
@@ -767,21 +776,24 @@ const PoolMotionRow = observer(function PoolMotionRow({
     [onGrip],
   )
   const contextMenu = useCallback((event: MouseEvent) => openMenu(id, event), [openMenu, id])
-  const row = useMemo(
-    () => (value !== undefined && value !== LOADING ? poolIssueRow(value) : undefined),
-    [value],
-  )
-  const display = useMemo(
-    () => (value !== undefined && value !== LOADING ? poolIssueDisplay(value) : undefined),
-    [value],
-  )
+  const row = value !== undefined && value !== LOADING ? poolIssueRow(value) : undefined
+  const display = value !== undefined && value !== LOADING ? poolIssueDisplay(value) : undefined
   if (kind === 'issue' && value === undefined) return null
   const inner =
     kind === 'worktree' ? (
       <PoolWorktreeRow pool={pool} path={id} actions={actions} />
     ) : value === LOADING ? (
       <div data-testid="pool-row-loading" aria-busy="true" className="min-h-12" />
-    ) : value === undefined ? null : folded ? (
+    ) : value === undefined ? null : folded && companion && fresh !== undefined ? (
+      <WorklistFoldedRow
+        model={companion}
+        lane={lane as 'closed' | 'snoozed'}
+        now={now}
+        active={active}
+        onSelect={select}
+        onContextMenu={lane === 'closed' ? contextMenu : undefined}
+      />
+    ) : folded ? (
       <MemoFoldedWorkRow
         issue={navigationIssue(value.issue)}
         lane={lane as 'closed' | 'snoozed'}
@@ -789,6 +801,20 @@ const PoolMotionRow = observer(function PoolMotionRow({
         active={active}
         onSelect={select}
         onContextMenu={lane === 'closed' ? contextMenu : undefined}
+      />
+    ) : companion && fresh !== undefined ? (
+      <WorklistIssueRow
+        model={companion}
+        now={now}
+        active={active && (!value.draftAgentOnly || draftPane)}
+        shortcutDigit={digit}
+        resolveMenuData={menuData}
+        onSelectIssue={selectIssue}
+        onSelectPanelForIssue={selectPanel}
+        onOpenIssue={actions.openIssuePage}
+        onRenameIssue={actions.renameIssue}
+        onGripDown={draggable ? grip : undefined}
+        onTuck={value.awaitsTuck ? tuck : undefined}
       />
     ) : (
       <UnifiedIssueRow

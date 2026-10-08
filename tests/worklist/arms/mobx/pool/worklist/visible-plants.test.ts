@@ -5,7 +5,7 @@ import { referenceState } from '../../../../diagnostics/reference-state'
  * FAIL every seed: the generator's forced prefix (`excludedKeeper`,
  * `orphanInWorktree`, `draftVesselStarter`) reaches the branch on every seed,
  * so a plant that stops failing means the shape no longer reaches it. Each
- * plant replaces one field on `IssueModel.prototype` in memory (the
+ * plant replaces one field on `WorklistIssue.prototype` in memory (the
  * group recomputed with the mistake in it) and is restored in a `finally` (a
  * copy of the rule where the rule is more than a line); arm files on disk are
  * never touched.
@@ -25,7 +25,7 @@ import { startGenRun } from '../../../../shared/src/gen/run'
 import type { ScenarioEngine } from '../../../../shared/src/scenarios'
 import { harnessMobxPoolArm } from '../../../../harness/src/adapters/mobx-pool'
 import { installMobxWarnTrap } from '../../../../harness/src/mobx-trap'
-import { IssueModel, type ModelHost } from '@podium/client-graph/models'
+import { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import { type IssueVisibility, type VisibleInputs } from '@podium/client-graph/worklist/visible'
 
 installMobxWarnTrap()
@@ -214,28 +214,28 @@ async function collectOracleLog(sequence: readonly Change[]): Promise<string[]> 
 }
 
 /** The pool inputs an issue object reads (the plants recompute a group over them). */
-function inputsOf(issue: IssueModel): VisibleInputs {
-  return (issue as unknown as { host: ModelHost }).host.visibleInputs
+function inputsOf(issue: WorklistIssue): VisibleInputs {
+  return issue.worklist.host.visibleInputs
 }
 
 /**
- * Replace one field getter on `IssueModel.prototype`; returns the restore.
+ * Replace one field getter on `WorklistIssue.prototype`; returns the restore.
  */
-function patchField<K extends keyof IssueModel>(
+function patchField<K extends keyof WorklistIssue>(
   name: K,
-  get: (this: IssueModel, original: () => IssueModel[K]) => IssueModel[K],
+  get: (this: WorklistIssue, original: () => WorklistIssue[K]) => WorklistIssue[K],
 ): () => void {
-  const descriptor = Object.getOwnPropertyDescriptor(IssueModel.prototype, name)
-  if (descriptor?.get === undefined) throw new Error(`[plants] no getter ${name} on IssueModel`)
+  const descriptor = Object.getOwnPropertyDescriptor(WorklistIssue.prototype, name)
+  if (descriptor?.get === undefined) throw new Error(`[plants] no getter ${name} on WorklistIssue`)
   const original = descriptor.get
-  Object.defineProperty(IssueModel.prototype, name, {
-    get(this: IssueModel) {
-      return get.call(this, () => original.call(this) as IssueModel[K])
+  Object.defineProperty(WorklistIssue.prototype, name, {
+    get(this: WorklistIssue) {
+      return get.call(this, () => original.call(this) as WorklistIssue[K])
     },
     configurable: true,
   })
   return () => {
-    Object.defineProperty(IssueModel.prototype, name, descriptor)
+    Object.defineProperty(WorklistIssue.prototype, name, descriptor)
   }
 }
 

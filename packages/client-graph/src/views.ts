@@ -5,7 +5,7 @@ import { machinePathKey } from '@podium/model/browser'
  * its inputs.
  *
  * ONE RULE, TWO CALLERS. The live pool caches these parts in groups on the
- * one object per issue (`models.ts`, `IssueModel`), over tracked inputs; the
+ * worklist's companion per issue (`worklist/issue.ts`), over tracked inputs; the
  * harness-owned rebuild runs the same functions directly over plain maps
  * built from the feed's snapshot (`directParts`,
  * `harness/src/adapters/mobx-rebuild.ts`). Nothing here knows which: a
@@ -241,11 +241,12 @@ export function closedOf(
   issue: SliceIssue,
   waiting: boolean,
   input: Pick<ViewInputs, 'passed'>,
+  facts?: CloseFacts,
 ): boolean {
-  if (!isClosedTopLevel(issue) || issue.needsHuman === true || awaitingMergeOf(issue) || waiting) return false
+  if (!isClosedTopLevel(issue) || issue.needsHuman === true || (facts ? facts.awaitingMerge : awaitingMergeOf(issue)) || waiting) return false
   if (issueAbandoned(issue)) return true
   if (issue.tuckedAt != null) return true
-  const finishedAt = parseMs(issue.closedAt ?? issue.updatedAt) ?? 0
+  const finishedAt = facts ? facts.finishedMs : parseMs(issue.closedAt ?? issue.updatedAt) ?? 0
   return input.passed(finishedAt + FINISHED_GRACE_MS)
 }
 
@@ -261,8 +262,10 @@ export function foldAtOf(issue: SliceIssue): string {
  * the band and the fold verdict are computed for a row (the rank and the
  * group placement take them from here).
  */
-export function ownPartOfRow(issue: SliceIssue, input: Pick<ViewInputs, 'passed' | 'reached'>): OwnPart {
-  const closed = closedOf(issue, false, input)
+export interface CloseFacts { readonly awaitingMerge: boolean; readonly finishedMs: number }
+
+export function ownPartOfRow(issue: SliceIssue, input: Pick<ViewInputs, 'passed' | 'reached'>, facts?: CloseFacts): OwnPart {
+  const closed = closedOf(issue, false, input, facts)
   return {
     band: bandOf(issue, input),
     repoKey: issue.repoId ?? machinePathKey(issue.repoPath),

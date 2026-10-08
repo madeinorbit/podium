@@ -723,7 +723,7 @@ describe('MobX cold parent reads', () => {
     const plant = vi
       .spyOn(IssueModel.prototype, 'formalParent', 'get')
       .mockImplementation(function (this: IssueModel) {
-        return this.standing?.formalParent ?? null
+        return (this.row as { parentId?: string } | undefined)?.parentId ?? null
       })
     try {
       const reads = replayHeartbeat()

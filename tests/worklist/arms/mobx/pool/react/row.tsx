@@ -19,7 +19,7 @@
 import { observer } from 'mobx-react-lite'
 import { computed } from 'mobx'
 import { type ReactElement, useMemo } from 'react'
-import { hostOf, IssueModel } from '@podium/client-graph/models'
+import { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { sidebarValues } from '@podium/client-graph/worklist/sidebar'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -28,8 +28,8 @@ import type { RowProps } from '../../../../shared/src/row-shell'
 
 export const PoolRow = observer(function PoolRow({ row }: RowProps): ReactElement {
   const sidebar = useMemo(() => {
-    if (!(row instanceof IssueModel)) return undefined
-    const pool = hostOf(row) as MobxPool
+    if (!(row instanceof WorklistIssue)) return undefined
+    const pool = row.worklist.pool
     // Share the real row's reader and paint surface. Retain a scalar rather
     // than its navigation snapshot; equal paint stops ancestor propagation.
     return computed(() => {

@@ -76,7 +76,7 @@ function build(scale: number) {
 /** The members answers, live, and from the plain rebuild (every seat judged directly). */
 function answers(pool: MobxPool) {
   return runInAction(() => {
-    const issue = pool.issueObject(ROOT)
+    const issue = pool.worklistRow(ROOT)!
     const live = {
       retainedSeatIds: issue.retainedSeatIds,
       rosterIds: issue.rosterIds,
@@ -133,7 +133,7 @@ async function run(scale: number) {
   const parity: ReturnType<typeof answers>[] = []
   // What a drawn row and the filing read of the issue.
   const stop = autorun(() => {
-    const issue = pool.issueObject(ROOT)
+    const issue = pool.worklistRow(ROOT)!
     void [
       issue.retainedSeatIds,
       issue.rosterIds,

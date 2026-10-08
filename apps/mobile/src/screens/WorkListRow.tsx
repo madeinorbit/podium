@@ -1,11 +1,14 @@
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
+import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
+import type { WorklistWorktree } from '@podium/client-graph/worklist/worktree'
+import { useWorklistModel } from '@podium/client-graph/react'
 /** Native work-row paint from one addressed pool projection. */
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobileWorkRef } from '@podium/client-graph/worklist/mobile'
 import type { SessionId } from '@podium/model'
-import { compareStructural, computed } from 'mobx'
 import { observer } from 'mobx-react-lite'
-import { memo, useCallback, useEffect, useMemo, useState } from 'react'
+import { memo, useCallback, useEffect, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useMobilePool } from '../client/mobile-pool'
 import { Icon } from '../components/Icon'
@@ -14,7 +17,7 @@ import { PressableScale } from '../components/PressableScale'
 import { NotSavedMark } from '../components/NotSavedMark'
 import { WorkingMark } from '../components/WorkingMark'
 import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
-import { type MobileRowPaint, mobilePaintNow, mobileRowPaint } from '../lib/work-sections'
+import { mobilePaintNow, mobileRowPaint } from '../lib/work-sections'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -40,20 +43,25 @@ export function useDelayedFlag(active: boolean, delayMs: number): boolean {
 /** A row paints only the addressed pool projection. Gesture targets are read
  * from the same reader at the moment of the press. */
 export interface WorkListRowProps {
-  paint: MobileRowPaint
+  row: WorklistIssue | WorklistWorktree
   onTuck?: () => void
   navPending: boolean
   onOpen: () => void
   onLongPress: () => void
 }
 
-export const WorkRow = memo(function WorkRow({
-  paint,
+export const WorkRow = observer(function WorkRow({
+  row,
   onTuck,
   navPending,
   onOpen,
   onLongPress,
 }: WorkListRowProps) {
+  const navLoader = useDelayedFlag(navPending, NAV_LOADER_DELAY_MS)
+  const value = row.mobile
+  if (typeof value === 'symbol') return <View accessibilityLabel="Loading work" />
+  if (!value) return null
+  const paint = mobileRowPaint(value, mobilePaintNow(row.worklist.pool))
   const {
     kind,
     ref,
@@ -74,7 +82,6 @@ export const WorkRow = memo(function WorkRow({
   const rowBg = hex ? flow.rowBg(hex) : color.engraved
   const { phase, working, waitingCount: waiting, decision, unread, draftOnly } = display
   const attention = waiting > 0
-  const navLoader = useDelayedFlag(navPending, NAV_LOADER_DELAY_MS)
 
   return (
     <View
@@ -417,19 +424,11 @@ export const PoolWorkRowSlot = memo(
     onTuck: (id: string) => void
   }) {
     const pool = useMobilePool()
-    // This row owns one small paint computed. Hidden payload/navigation changes
-    // can refresh its inputs without publishing a new value to the observer.
-    const shown = useMemo(
-      () => computed((): MobileRowPaint | 'loading' | null => {
-        if (!pool) return 'loading'
-        const value = mobileWorkView(pool).row({ id: item.id, kind: item.kind })
-        return typeof value === 'symbol'
-          ? 'loading'
-          : value ? mobileRowPaint(value, mobilePaintNow(pool)) : null
-      }, { equals: compareStructural }),
-      [pool, item.id, item.kind],
-    )
-    const paint = shown.get()
+    const context = useWorklistModel()
+    const model = context ?? (pool ? worklistView(pool) : null)
+    const entity = pool && item.kind === 'worktree' ? pool.model('worktree', item.id) : undefined
+    const row = item.kind === 'issue' ? model?.knownRow(item.id) : entity ? model?.tree(entity) : undefined
+    const value = row?.mobile
     const reader = pool ? mobileWorkView(pool) : undefined
     const tuck = useCallback(() => onTuck(item.id), [item.id, onTuck])
     const openRow = useCallback(() => {
@@ -444,15 +443,15 @@ export const PoolWorkRowSlot = memo(
       if (current && typeof current !== 'symbol' && current.sidebar)
         callbacks.onLongPress(current.sidebar.issue as IssueNavigationModel)
     }, [callbacks.onLongPress, item.id, item.kind, reader])
-    if (paint === 'loading') return <View accessibilityLabel="Loading work" />
-    if (!paint) return null
+    if (!pool || typeof value === 'symbol') return <View accessibilityLabel="Loading work" />
+    if (!row || !value) return null
     return (
       <WorkRow
-        paint={paint}
+        row={row}
         navPending={callbacks.navPending}
         onOpen={openRow}
         onLongPress={longPress}
-        onTuck={paint.tuckable ? tuck : undefined}
+        onTuck={value.tuckable ? tuck : undefined}
       />
     )
   }),

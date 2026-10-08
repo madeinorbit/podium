@@ -270,7 +270,7 @@ function paintWindow(pool: MobxPool): () => void {
         { name: `paint.slot.${id}` },
       ),
     )
-    const model = pool.issue(id)
+    const model = pool.worklistRow(id)
     if (model !== undefined) {
       stops.push(autorun(() => void model.inMemory, { name: `paint.shell.${id}` }))
       stops.push(

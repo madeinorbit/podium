@@ -21,7 +21,7 @@ describe('composed sidebar rail counts', () => {
         const legacy = legacyDerivationFromStore(referenceState(ctx.engine), locals.coarseNow)
         for (const row of visibleIssueRows(legacy, locals)) {
           const count = tracked(() => {
-            const model = handle.pool.issue(row.issue.id)!
+            const model = handle.pool.worklistRow(row.issue.id)!
             const values = model.aggregate.railWaiting
             return (
               ((model.ownFacts.state === 'ready' && model.ownFacts.finished

@@ -1,3 +1,4 @@
+import { headerModel } from './header-companion'
 import { headerEntities } from './header-entities'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MachineId } from '@podium/model/browser'
@@ -8,8 +9,6 @@ import {
   EMPTY_HOST_AGGREGATE,
   type HeaderAggregate,
   headerHostSession,
-  headerWorkingDeadline,
-  headerWorkingSession,
   type WorkingSession,
 } from './header-session'
 import type { MobxPool } from './pool'
@@ -68,8 +67,8 @@ export class HeaderSessions {
 
   private readonly resident = cachedKey('pool.header', 'sessionContribution', (id) => {
     const model = this.pool.model('session', id)
-    const host = model?.headerHost ?? null
-    return { working: host?.archived ? null : model?.headerWorking ?? null, host: contribution(host) }
+    const host = (model ? headerModel(this.pool).session(model).headerHost : null) ?? null
+    return { working: host?.archived ? null : (model ? headerModel(this.pool).session(model).headerWorking : null) ?? null, host: contribution(host) }
   }, compareStructural)
   private readonly residentHost = cachedKey('pool.header', 'sessionHost', (id) => this.resident(id).host, compareStructural)
   private readonly residentWorking = cachedKey('pool.header', 'sessionWorking', (id) => this.resident(id).working !== null, Object.is)
@@ -88,7 +87,7 @@ export class HeaderSessions {
     // without publishing the session. Read them in the displayed derivation.
     const row = this.pool.row('session', id, 'summary-fields') as SessionView | typeof LOADING | undefined
     return row && row !== LOADING
-      ? headerWorkingSession(row, (deadline) => this.pool.clock.passed(deadline))
+      ? headerModel(this.pool).session(this.pool.sessionObject(id)).headerWorking
       : evidence.working
   }, compareStructural)
   private readonly roster = computed(() => {
@@ -142,9 +141,10 @@ export class HeaderSessions {
       const value = this.pool.row('session', id, 'summary') as SessionView | typeof LOADING | undefined
       return value === LOADING ? undefined : value
     })
-    const host = contribution(headerHostSession(summary))
-    const deadline = summary?.archived ? undefined : headerWorkingDeadline(summary)
-    const working = deadline === undefined ? null : headerWorkingSession(summary, () => false)
+    const session = this.pool.sessionObject(id), header = headerModel(this.pool).session(session)
+    const host = contribution(summary ? header.headerHost : null)
+    const deadline = !summary || summary.archived ? undefined : session.computingDeadline
+    const working = deadline === undefined ? null : header.headerWorkingEvidence
     runInAction(() => {
       const previous = this.coldContributions.get(id)
       if (!compareStructural(previous ?? null, host)) {

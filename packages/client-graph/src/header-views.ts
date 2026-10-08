@@ -1,3 +1,4 @@
+import { headerModel } from './header-companion'
 import { headerEntities } from './header-entities'
 import { keyedComputed } from '@podium/mobx-helpers'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -8,7 +9,7 @@ import { compareStructural, computed, createAtom, reaction } from 'mobx'
 import { debugName } from './debug-name'
 import { headerIds } from './enumerate'
 import type { HeaderEntity, HeaderRows } from './header-schema'
-import { type HeaderAggregate, headerHostSession } from './header-session'
+import { type HeaderAggregate } from './header-session'
 import { HeaderSessions } from './header-sessions'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
@@ -121,7 +122,7 @@ function createHeaderViews(pool: MobxPool) {
     id: string,
   ): (Partial<SliceSession> & { machineId?: MachineId }) | undefined {
     const model = pool.model('session', id)
-    if (model) return model.headerDock
+    if (model) return headerModel(pool).session(model).headerDock
     const value = pool.row('session', id, 'summary')
     return value === LOADING
       ? undefined
@@ -153,7 +154,8 @@ function createHeaderViews(pool: MobxPool) {
         .ids({ kind: 'headerOccupancy' })
         .flatMap((id) => {
           if (pool.tables.session.has(id)) {
-            const member = pool.model('session', id)?.headerHost
+            const session = pool.model('session', id)
+            const member = session ? headerModel(pool).session(session).headerHost : null
             return member ? [member.cwd] : []
           }
           const summary = pool.row('session', id, 'summary') as
@@ -169,7 +171,8 @@ function createHeaderViews(pool: MobxPool) {
                     | SessionView
                     | typeof LOADING
                     | undefined
-                  return headerHostSession(value === LOADING ? undefined : value)
+                  return value && value !== LOADING
+                    ? headerModel(pool).session(pool.sessionObject(id)).headerHost : null
                 })
               : null
           return member ? [member.cwd] : []

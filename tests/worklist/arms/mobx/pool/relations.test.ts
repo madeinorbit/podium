@@ -1248,9 +1248,11 @@ it('keeps existing declarations within the bookkeeping bound and preserves colla
     // The pilot also maintains addressed issue/session question facts and
     // identity indexes. Count that fixed publication cost, not just the old
     // relation-only baseline; bucket-size invariance is checked below.
+    // Worklist companions and shared scalar facts add demand allocations;
+    // they do not write an observable relation, copy a row or visit a bucket.
     expect({ outside: outsideTotal(count), plain: count.plain }).toEqual({
       outside: 0,
-      plain: { written: 164, deleted: 4, iterated: 112, copied: 0 },
+      plain: { written: 190, deleted: 4, iterated: 112, copied: 0 },
     })
     const ref = { kind: 'codex-thread', value: 'compatibility' }
     r.push(session('S1', { issueId: 'I1', status: 'exited', resume: ref }),
@@ -1267,8 +1269,8 @@ it('a root starts the nesting walk when it gains a parent, including a cycle', (
   let state: { parents: (string | null | undefined)[]; visible: (boolean | undefined)[] }
   const stop = autorun(() => {
     state = {
-      parents: ['I1', 'I2'].map(id => r.pool.issue(id)?.nestParent),
-      visible: ['I1', 'I2'].map(id => r.pool.issue(id)?.placed),
+      parents: ['I1', 'I2'].map(id => r.pool.worklistRow(id)?.nestParent),
+      visible: ['I1', 'I2'].map(id => r.pool.worklistRow(id)?.placed),
     }
   })
   try {

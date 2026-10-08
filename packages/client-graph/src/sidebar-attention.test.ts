@@ -21,7 +21,7 @@ for (const history of [32, 128]) {
       ...Array.from({ length: history }, (_, index) => ({ kind: 'session' as const,
         id: `old-${index}`, value: sender(`old-${index}`) as never })),
     ] })
-    const root = pool.issue('root')!
+    const root = pool.worklistRow('root')!
     // Entity nesting takes every member. This screen must never demand it.
     const members = vi.spyOn(root, 'memberIds', 'get').mockImplementation(() => {
       throw new Error('Sidebar enumerated archived member history')
@@ -45,7 +45,7 @@ for (const history of [32, 128]) {
 it('does not acquire a lane for the nested-child reader without a checkout', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
   pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'root', value: issue('root') }] })
-  const root = pool.issue('root')!
+  const root = pool.worklistRow('root')!
   // Visibility owns its own member demand; isolate the screen's nesting read.
   const keepPresent = autorun(() => { void root.present })
   const lane = vi.spyOn(root, 'laneMemberIds', 'get')
@@ -63,7 +63,7 @@ it('keeps unarchived exited starters, excludes archived/headless starters and fo
     ...['exited', 'archived', 'headless'].map(id => ({ kind: 'session' as const, id: `${id}-sender`,
       value: sender(`${id}-sender`, { archived: id === 'archived', headless: id === 'headless' }) as never })),
   ] })
-  const root = pool.issue('root')!
+  const root = pool.worklistRow('root')!
   let ids: readonly string[] = []
   const stop = autorun(() => { ids = sidebarNested(root, pool) })
   try {
@@ -88,7 +88,7 @@ it('keeps an unarchived exited issueless starter owned by the issue checkout', (
       issueId: undefined, cwd: '/synthetic/lane', archived: false,
     }) as never },
   ] })
-  const root = pool.issue('root')!
+  const root = pool.worklistRow('root')!
   const stop = autorun(() => {
     expect(sidebarNested(root, pool)).toEqual(['lane-child'])
     expect(sidebarAttention(root, pool)).toEqual(root.aggregate)

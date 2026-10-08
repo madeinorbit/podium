@@ -1,22 +1,22 @@
 import { worklistGroups } from './groups'
-import { keyedComputed } from '@podium/mobx-helpers'
 import { machinePathKey, machinePathsEqual } from '@podium/model/browser'
-import { debugName } from '../debug-name'
 import { sidebarRosterView } from './sidebar-roster'
 /** The real sidebar's section projection over resident pool indexes.
  * The small state argument is caller-owned per-user layout/selection data.
  * It is never read from worklistSlice, a selector, or browser storage here.
  */
 
-import { compareStructural, observable, reaction } from 'mobx'
-import { cachedGroup, keyedViews } from '../cached'
-import { hostOf, type IssueModel, type ModelHost, type ModelOf, type SessionModel } from '../models'
+import { compareStructural } from 'mobx'
+import { keyedViews } from '../cached'
+import { hostOf, type IssueModel, type ModelHost } from '../models'
 import type { MobxPool } from '../pool'
 import { createRowOverlay } from '../shared/overlay-row'
 import type { SliceIssue, SliceSession, SliceWorktree } from '../shared/slice-types'
-import { aggregate, attentionGroup, askingOf, phaseOf, LOADING, ownAttentionPartOf, ownFactsOf, seatVerdictOf, type Aggregate, type Loaded } from './rollup'
-import { NO_SIDEBAR_SESSIONS, type SidebarProgress, type SidebarRowValues, sidebarLifecycle, sidebarTimingFromFacts, sortedSidebarSessions } from './sidebar-row'
+import { attentionGroup, LOADING, type Loaded } from './rollup'
+import { type SidebarProgress, type SidebarRowValues, sortedSidebarSessions } from './sidebar-row'
 import { retains } from './visible'
+import { WorklistIssue } from './issue'
+import { worklistView, type Worklist } from './view-model'
 
 const overlayRow = createRowOverlay()
 
@@ -69,8 +69,8 @@ export interface SidebarRoster {
   readonly pending: number
 }
 
-/** One worktree's retained, unrepresented seats. Its existing model caches
- * this index from narrow session/owner facts; payload changes do not wake bands. */
+/** One worktree's retained, unrepresented seats. The worklist companion reads
+ * this resident index from narrow session/owner facts. */
 export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
   const input = host.visibleInputs
   const ids: string[] = []
@@ -80,7 +80,7 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
   for (const id of host.rosterCandidates(path)) {
     const session = host.model('session', id)
     if (session === undefined) continue
-    const retention = session.retention
+    const retention = worklistView(host as MobxPool).session(session).retention
     if (retention === null || !retention.seat || retention.shell) continue
     const owner = session.issueLink === null ? undefined : input.issue(session.issueLink)
     if (owner?.standing?.excluded) continue
@@ -91,45 +91,31 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
   return { ids, pending }
 }
 
-/** Feed summaries stay inside derivation; the legacy navigation record never
- * carried them. The compatibility view borrows all other issue properties. */
-const SIDEBAR_ISSUE_OMISSIONS = Object.freeze({ has: (key: PropertyKey) => key === 'sessionFacts' })
-
-/** Sidebar demand has its own computations: asking for a drawn row must not
- * first fill the entity's history-wide attention and nesting payloads. */
-function memo<V>(name: string, read: (issue: IssueModel, pool: MobxPool) => V) {
-  return keyedComputed<IssueModel, V, [MobxPool]>(
-    issue => debugName(() => `IssueModel@${issue.id}.sidebar.${name}`), read,
-    { context: issue => issue },
-  )
+function companionOf(model: IssueModel | WorklistIssue, pool: MobxPool): WorklistIssue {
+  return model instanceof WorklistIssue ? model : worklistView(pool).row(model)
 }
-
 const EMPTY_IDS: readonly string[] = Object.freeze([])
 
-const lanePath = cachedGroup('sidebar.lanePath', (issue: IssueModel) => {
-  const row = hostOf(issue).rollupInputs.loadedIssue(issue.id)
-  return row === undefined || row === LOADING ? null : row.worktreePath ?? null
-})
-const below: (issue: IssueModel, pool: MobxPool) => readonly string[] = memo('below', (issue, pool): readonly string[] => {
+export function sidebarBelowOf(issue: WorklistIssue, pool: MobxPool): readonly string[] {
   const ids: string[] = []
-  const host = hostOf(issue)
+  const host = issue.worklist.host
   for (const id of pool.graph.many('issue', issue.id, 'treeChildren')) {
     const child = host.visibleInputs.issue(id)
     if (!child) continue
     if (child.present) ids.push(id)
-    else ids.push(...below(child as IssueModel, pool))
+    else ids.push(...(child as WorklistIssue).rowBelow)
   }
   return ids.length === 0 ? EMPTY_IDS : ids.sort()
-})
+}
 
 /** The candidate set excludes archived senders before any iteration. The
  * nesting rule's ownerOf rejects them, including archived non-exited seats.
  * Unarchived exited senders and issueless lane members still contribute. */
-export const sidebarNested = memo('nested', (issue, pool): readonly string[] => {
+export function sidebarNestedOf(issue: WorklistIssue, pool: MobxPool): readonly string[] {
   if (!issue.present) return EMPTY_IDS
-  const host = hostOf(issue)
+  const host = issue.worklist.host
   const ids = new Set<string>()
-  for (const id of below(issue, pool)) {
+  for (const id of issue.rowBelow) {
     const child = host.visibleInputs.issue(id)
     if (child && child.nestParent === issue.id) ids.add(id)
   }
@@ -145,224 +131,38 @@ export const sidebarNested = memo('nested', (issue, pool): readonly string[] => 
     // and resume collapse. Empty started relations need no ownership probe.
     startedBy(sessionId)
   }
-  if (lanePath(issue)) {
+  if (issue.issue.worktreePath) {
     for (const sessionId of issue.laneMemberIds) {
       const session = host.visibleInputs.session(sessionId)
       if (session.retention !== null && !session.retention.archived) startedBy(sessionId)
     }
   }
   return ids.size === 0 ? EMPTY_IDS : [...ids].sort()
-})
-
-// These are the sidebar's resident-demand caches. They do not follow the
-// entity attention graph; replacing them with its fields changes which
-// entities a drawn row warms. The shared parent-ID cache above replaces only
-// the parent projection, which had no separate demand policy.
-const seat = cachedGroup('sidebar.seat', (session: SessionModel) => {
-  const raw = hostOf(session).row('session', session.id)
-  return raw === LOADING || raw === undefined ? raw : seatVerdictOf(raw as SliceSession)
-})
-const facts = memo('facts', issue => ownFactsOf(hostOf(issue).rollupInputs.loadedIssue(issue.id)))
-
-export const sidebarOwnAttention = memo('own', (issue, pool) => {
-  const host = hostOf(issue)
-  return ownAttentionPartOf({ ...host.rollupInputs,
-    seat: id => seat(host.visibleInputs.session(id) as SessionModel),
-  }, {
-    get present() { return issue.present },
-    get ownFacts() { return facts(issue, pool) },
-    get rosterIds() { return issue.rosterIds },
-    get openOwn() { return issue.openOwn },
-    get tip() { return issue.tip },
-  })
-})
-
-export const sidebarAttention: (issue: IssueModel, pool: MobxPool) => Aggregate = memo('attention', (issue, pool): Aggregate => {
-  const own = sidebarOwnAttention(issue, pool)
-  const children: Aggregate[] = []
-  if (!own.cold) for (const id of sidebarNested(issue, pool)) {
-    const child = hostOf(issue).visibleInputs.issue(id)
-    if (child) children.push(sidebarAttention(child as IssueModel, pool))
-  }
-  // Preserve roll-up order for the first error, timer ties and fleet glyphs.
-  children.sort((a, b) => {
-    const x = a.order, y = b.order
-    if (!x || !y) return 0
-    const keyed = Number(!x.sortKey) - Number(!y.sortKey)
-    if (keyed) return keyed
-    if (x.sortKey && y.sortKey && x.sortKey !== y.sortKey) return x.sortKey < y.sortKey ? -1 : 1
-    return (Date.parse(y.createdAt) || 0) - (Date.parse(x.createdAt) || 0) || y.seq - x.seq || x.id.localeCompare(y.id)
-  })
-  return { ...aggregate({ own, children }), order: own.order }
-})
-
-/** A heartbeat changes a scalar, independent of the attention composition. */
-export const sidebarSeatActivity: (issue: IssueModel, pool: MobxPool) => number | null = memo('activity', (issue, pool): number | null => {
-  if (!issue.present || facts(issue, pool).state === 'cold') return null
-  const host = hostOf(issue)
-  let latest: number | null = null
-  for (const id of issue.rosterIds) {
-    const at = host.visibleInputs.session(id).activityMs
-    if (at !== null && (latest === null || at > latest)) latest = at
-  }
-  for (const id of sidebarNested(issue, pool)) {
-    const child = host.visibleInputs.issue(id)
-    const at = child ? sidebarSeatActivity(child as IssueModel, pool) : null
-    if (at !== null && (latest === null || at > latest)) latest = at
-  }
-  return latest
-})
-
-export const sidebarActivityAt = memo('activityAt', (issue, pool) => {
-  const own = issue.ownActivityAt, seat = sidebarSeatActivity(issue, pool)
-  return seat !== null && seat > own ? seat : own
-})
-
-/** One drawn issue payload, shared only while a screen observes it. */
-export const sidebarIssueRow = keyedComputed<IssueModel, Loaded<SidebarRowValues>, [MobxPool]>(
-  model => debugName(() => `IssueModel@${model.id}.sidebar`), sidebarValues, { context: model => model },
-)
-
-/** Formal unit counts, without the sidebar's labels, seats or attention payload. */
-export const sidebarIssueProgress = cachedGroup('sidebarProgress', (model: IssueModel): SidebarProgress | typeof LOADING => {
-  const below = model.unitsBelow, own = model.unitOwn
-  if (below.pending > 0 || own.cold) return LOADING
-  return below.members > 0
-    ? { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, ...below.progress, total: below.units }
-    : { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, total: own.solo ? 1 : 0,
-        ...(own.solo ? { [own.state ?? 'wait']: 1 } : {}) }
-}, (a, b) => a === b || (a !== LOADING && b !== LOADING &&
-  a.total === b.total && a.done === b.done && a.run === b.run && a.review === b.review &&
-  a.stall === b.stall && a.block === b.block && a.wait === b.wait))
-
-export function sidebarValues(model: IssueModel, pool: MobxPool): Loaded<SidebarRowValues> {
-  const host = hostOf(model)
-  const own = host.rollupInputs.loadedIssue(model.id)
-  if (own === LOADING) return LOADING
-  if (own === undefined) return undefined
-  const ownFacts = facts(model, pool)
-  const repo = (model as ModelOf['issue']).repo
-  const issue = overlayRow(
-    own,
-    {
-      displayRef: model.displayRef,
-      // Follow the declared live repo relation; the issue projection can lag a rename.
-      repoPath: repo?.path ?? own.repoPath,
-      readAt: host.visibleInputs.issueRead(model.id),
-      unread: model.unread,
-    },
-    SIDEBAR_ISSUE_OMISSIONS,
-  )
-  const ownAttention = sidebarOwnAttention(model, pool)
-  const agg = sidebarAttention(model, pool)
-  const phase = phaseOf(agg, ownFacts.finished)
-  const asking = askingOf(agg, ownFacts.finished)
-  const activityAt = sidebarActivityAt(model, pool)
-  const sessionFacts = agg.sidebarFacts ?? NO_SIDEBAR_SESSIONS
-  // The own seats' rows, by id: a heartbeat redraws this row only when the
-  // seat is its own (an ancestor's payload carries ids, POD-5423).
-  const sessions: SliceSession[] = []
-  for (const id of ownAttention.sessionIds ?? []) {
-    const seat = host.row('session', id)
-    if (seat !== undefined && seat !== LOADING) sessions.push(seat as SliceSession)
-  }
-  const aggregateSessionIds = agg.sessionIds ?? []
-  const targetId = own.supersededBy ?? own.duplicateOf
-  const origin =
-    model.originRef === null ? undefined : host.rollupInputs.loadedIssue(model.originRef)
-  if (origin === LOADING) return LOADING
-  const originTick =
-    origin === undefined
-      ? null
-      : {
-          id: origin.id,
-          seq: origin.seq,
-          title: origin.title,
-          ref: host.inputs.parts(origin.id)?.label.displayRef ?? `#${origin.seq}`,
-        }
-  const tip = !targetId && !model.openOwn ? model.tip : undefined
-  if (
-    agg.pending > 0 ||
-    model.unitsBelow.pending > 0 ||
-    model.unitOwn.cold ||
-    (tip?.pending ?? 0) > 0
-  )
-    return LOADING
-  const fromChildren = model.unitsBelow.members > 0
-  const progress = sidebarIssueProgress(model)
-  if (progress === LOADING) return LOADING
-  const decision = ownAttention.deciding ? ownFacts.decision : null
-  let continuation: SidebarRowValues['continuation'] = null
-  if (targetId) {
-    if (host.rollupInputs.loadedIssue(targetId) === LOADING) return LOADING
-    const target = host.inputs.parts(targetId)?.label
-    continuation = {
-      kind: own.supersededBy ? 'continued' : 'duplicate',
-      ref: target?.displayRef ?? 'another task',
-    }
-  } else if (!model.openOwn) {
-    const destination = tip?.target
-    if (destination)
-      continuation = {
-        kind: 'continued',
-        ref: host.inputs.parts(destination.id)?.label.displayRef ?? `#${destination.seq}`,
-      }
-  }
-  const readMs = Date.parse(issue.readAt ?? '')
-  const descendantUnread =
-    issue.readAt &&
-    Number.isFinite(readMs) &&
-    ((Date.parse(agg.updatedAt ?? '') || 0) > readMs || (sidebarSeatActivity(model, pool) ?? 0) > readMs) &&
-    sidebarNested(model, pool).length > 0
-  return {
-    idNumber: model.seq,
-    color: own.color ?? null,
-    title: model.title,
-    timing: sidebarTimingFromFacts(
-      sessionFacts,
-      phase,
-      ownFacts.finished,
-      activityAt,
-      agg.decidingAt,
-    ),
-    working: agg.working,
-    asking,
-    originTick,
-    decision,
-    mergeCommits: decision === 'merge' ? (own.gitState?.ahead ?? 0) : 0,
-    progress,
-    fromChildren,
-    statusFromChildren: model.nestParent === null && fromChildren,
-    gitState: own.gitState,
-    unread: !agg.working && (model.unread || Boolean(descendantUnread)),
-    errorClass: ownFacts.finished ? null : sessionFacts.errorClass,
-    internal: own.audience === 'agent',
-    ...sidebarLifecycle(issue, asking, host.inputs.passed, host.inputs.reached),
-    draftAgentOnly: own.isDraftVessel === true && !own.worktreePath && sessions.length > 0,
-    firstSessionId: ownAttention.firstSessionId ?? null,
-    continuation,
-    fleet: sessionFacts.fleet,
-    issue,
-    sessions,
-    aggregateSessionIds,
-    awaitingFirstPrompt:
-      own.isDraftVessel === true &&
-      phase === 'queued' &&
-      aggregateSessionIds.length > 0 &&
-      sessionFacts.allUnstarted,
-  }
 }
 
+export function sidebarNested(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).rowNested }
+export function sidebarOwnAttention(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).ownAttention }
+export function sidebarAttention(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).rowAggregate }
+export function sidebarSeatActivity(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).rowSeatActivity }
+export function sidebarActivityAt(model: IssueModel | WorklistIssue, pool: MobxPool) { return companionOf(model, pool).rowActivityAt }
 
-/** The screen owns this view in the existing pool registry. */
+/** Compatibility records borrow narrow fields, storing no answers. */
+export function sidebarIssueRow(model: IssueModel | WorklistIssue, pool: MobxPool): Loaded<SidebarRowValues> {
+  return companionOf(model, pool).sidebar
+}
+export function sidebarValues(model: IssueModel | WorklistIssue, pool: MobxPool): Loaded<SidebarRowValues> {
+  return companionOf(model, pool).sidebar
+}
+export function sidebarIssueProgress(model: IssueModel | WorklistIssue): SidebarProgress | typeof LOADING {
+  return model instanceof WorklistIssue ? model.rowProgress : worklistView(hostOf(model) as MobxPool).row(model).rowProgress
+}
+
+/** Compatibility adapter; the worklist owns the shared section queries. */
 export function sidebarView(pool: MobxPool): SidebarIndex {
-  return pool.sources.view('sidebar', () => new SidebarIndex(pool))
+  return worklistView(pool).desktop
 }
 
 export class SidebarIndex {
-  private seenSelected: string | null = null
-  private readonly evicted = observable.box(false)
-  private readonly stopSelection: () => void
   /** Views by layout value (`layoutKey`), each released when unobserved. */
   private readonly sectionViews = keyedViews<SidebarSections>(
     'pool.sidebar',
@@ -374,25 +174,8 @@ export class SidebarIndex {
   private readonly bandViews = keyedViews<SidebarBand>('pool.sidebar', 'band', compareStructural)
   private readonly groupViews = keyedViews<GroupFacts>('pool.sidebar', 'group', compareStructural)
   private readonly rosterViews = keyedViews<RosterFacts>('pool.sidebar', 'rosterFacts', compareStructural)
-  constructor(private readonly pool: MobxPool) {
-    // Reaction effects run as actions. Selection history never changes during a render read.
-    this.stopSelection = reaction(
-      () => {
-        const id = pool.selection.keys().next().value ?? null
-        return { id, resident: id === null ? null : pool.resident('issue', id) }
-      },
-      ({ id, resident }) => {
-        if (id !== this.seenSelected) this.seenSelected = null
-        if (id !== null && resident !== 'absent') this.seenSelected = id
-        this.evicted.set(id !== null && resident === 'absent' && this.seenSelected === id)
-      },
-      { fireImmediately: true, equals: compareStructural },
-    )
-  }
-
-  dispose(): void {
-    this.stopSelection()
-  }
+  private get pool() { return this.view.pool }
+  constructor(private readonly view: Worklist) {}
 
   row(id: string): SidebarRowValues | typeof LOADING | undefined {
     const model = this.pool.issue(id)
@@ -403,12 +186,12 @@ export class SidebarIndex {
   /** Read never requests an evicted id. The caller clears selection through
    * its existing action when this answers true. A cold known row still counts. */
   selectionEvicted(): boolean {
-    return this.evicted.get()
+    return this.view.selectionEvicted
   }
 
   active(id: string, state: SidebarState): boolean {
     const model = this.pool.issue(id)
-    if (model?.selected !== true) return false
+    if (model === undefined || !this.view.row(model).selected) return false
     const row = sidebarIssueRow(model, this.pool)
     return (
       row !== undefined &&
@@ -422,7 +205,8 @@ export class SidebarIndex {
     if (lane === undefined || lane === LOADING) return undefined
     const sessions: SliceSession[] = []
     const issues = new Map<string, SliceIssue & { readonly displayRef: string }>()
-    const roster = this.pool.model('worktree', path)?.roster
+    const tree = this.pool.model('worktree', path)
+    const roster = tree ? this.view.tree(tree).roster : undefined
     if (roster === undefined || (!roster.ids.length && roster.pending === 0)) return undefined
     let activityAt = 0,
       pending = roster.pending
@@ -448,7 +232,7 @@ export class SidebarIndex {
             }),
           )
       }
-      activityAt = Math.max(activityAt, Date.parse(session.lastActiveAt) || 0)
+      activityAt = Math.max(activityAt, sessionModel.activityMs ?? 0)
       if (session.status !== 'exited') sessions.push(session)
     }
     const sorted = sortedSidebarSessions(sessions, this.pool.inputs.reached)

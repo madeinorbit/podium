@@ -162,7 +162,7 @@ export function sidebarDiff(pool: MobxPool, derivation: LegacyDerivation, rows: 
     }
     const line = row.continuation ?? rowStatusLine(row, now, 0)
     const seat = (id: string) => pool.row('session', id)
-    if (poolStatusLine(value, pool.issue(row.issue.id)?.activityAt ?? 0, now, seat) !== line) differences.push(`${row.issue.id}.statusLine: ${poolStatusLine(value, pool.issue(row.issue.id)?.activityAt ?? 0, now, seat)} expected ${line}`)
+    if (poolStatusLine(value, pool.worklistRow(row.issue.id)?.activityAt ?? 0, now, seat) !== line) differences.push(`${row.issue.id}.statusLine: ${poolStatusLine(value, pool.worklistRow(row.issue.id)?.activityAt ?? 0, now, seat)} expected ${line}`)
   }
   return differences
 }

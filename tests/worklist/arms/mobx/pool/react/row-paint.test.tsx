@@ -93,7 +93,7 @@ function mount(base: SidebarRowValues) {
   const commits = vi.fn()
   act(() => root.render(
     <Profiler id="ancestor" onRender={commits}>
-      <PoolRow row={pool.issueObject('ancestor')} />
+      <PoolRow row={pool.worklistRow('ancestor')!} />
     </Profiler>,
   ))
   commits.mockClear()

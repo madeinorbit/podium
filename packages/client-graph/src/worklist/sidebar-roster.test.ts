@@ -142,11 +142,11 @@ it('derives sidebar ownership inside the applying action without refiling seats'
   const file = vi.spyOn(sidebarRosterView(pool) as unknown as { fileSeat(id: string): void }, 'fileSeat')
   try {
     expect(pool.graph.one('session', seat.sessionId, 'worktree')).toBe(LANE)
-    expect(pool.issueObject(owner.id).placed).toBe(true)
+    expect(pool.worklistRow(owner.id)!.placed).toBe(true)
     expect([...sidebarRosterView(pool).candidates(LANE)]).toEqual([])
     runInAction(() => {
       pool.apply({ type: 'update', rows: [{ kind: 'issue', id: owner.id, value: { ...owner, audience: 'agent' } as never }] })
-      expect(pool.issueObject(owner.id).placed).toBe(false)
+      expect(pool.worklistRow(owner.id)!.placed).toBe(false)
       expect([...sidebarRosterView(pool).candidates(LANE)]).toEqual(['seat'])
     })
     expect(file).not.toHaveBeenCalled()

@@ -68,18 +68,22 @@ export function mobileIssueValues(sidebar: SidebarRowValues, waitingCount: numbe
   }
 }
 
-export function mobileWorktreeValues(id: string, repoName: string, branch: string | null | undefined, sessions: readonly SliceSession[], activityAt: number): MobileRowValues {
-  const phases = sessions.map(session => motionPhase(session, false))
+export function mobileWorktreeValues(id: string, repoName: string, branch: string | null | undefined, sessions: readonly SliceSession[], activityAt: number,
+  sessionWorking: (session: SliceSession) => boolean = isSessionWorking,
+  sessionOpen: (session: SliceSession) => boolean = session => !session.archived && session.status !== 'exited',
+  stateSince: (session: SliceSession) => number = session => Date.parse(session.agentState?.since ?? session.lastActiveAt),
+): MobileRowValues {
+  const phases = sessions.map(session => motionPhase(session, false, () => sessionWorking(session)))
   const phase = phases.includes('waiting') ? 'waiting' : phases.includes('working') ? 'working'
     : phases.length > 0 && phases.every(value => value === 'done') ? 'done' : 'queued'
-  const working = sessions.some(isSessionWorking)
+  const working = sessions.some(sessionWorking)
   return {
     id, kind: 'worktree', label: `${repoName}${branch ? ` · ${branch}` : ''}`,
-    progress: null, originSeq: null, timing: sidebarTiming(sessions, phase, false, activityAt),
+    progress: null, originSeq: null, timing: sidebarTiming(sessions, phase, false, activityAt, undefined, sessionWorking, stateSince),
     working, waitingCount: phases.filter(value => value === 'waiting').length, decision: null,
     unread: !working && sessions.some(session => session.unread), draftOnly: false, draftQuiet: false,
     color: null, internal: false, pinned: false, snoozed: false, unsnoozed: false, tuckable: false,
-    fleet: fleetOf(sessions), branch: branch ?? null, gitState: undefined, suppressAhead: false,
+    fleet: fleetOf(sessions, sessionOpen), branch: branch ?? null, gitState: undefined, suppressAhead: false,
     attentionAction: null, navigation: sessions[0] ? { kind: 'session', id: sessions[0].sessionId } : null,
     sidebar: null, sessions, activityAt,
   }

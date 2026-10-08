@@ -1,4 +1,6 @@
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
+import { WorklistProvider, useWorklistModel } from '@podium/client-graph/react'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type {
@@ -155,6 +157,11 @@ const readLayout = (pool: MobxPool): MobileWorkState => {
 
 /** The work list reads the existing pool through attachment and principal rebuild. */
 export function WorkScreen() {
+  const pool = useMobilePool()
+  return <WorklistProvider model={pool ? worklistView(pool) : null}><PoolWorkScreen /></WorklistProvider>
+}
+
+function PoolWorkScreen() {
   const router = useRouter()
   const pool = useMobilePool()
   const { markIssueRead, setIssueTucked } = useStoreActions()
@@ -164,6 +171,8 @@ export function WorkScreen() {
   const bottomInset = useContentBottomInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
   const layout = useMobilePoolProjection(readLayout, EMPTY_LAYOUT)
+  const model = useWorklistModel()
+  useEffect(() => { model?.setLayout(layout) }, [model, layout])
   const readSections = useCallback((graph: MobxPool) => mobileWorkView(graph).sections(layout), [layout])
   const split = useMobilePoolProjection(readSections, EMPTY_MOBILE_SPLIT)
   const { issueCount, pinnedCount, attentionCount } = split

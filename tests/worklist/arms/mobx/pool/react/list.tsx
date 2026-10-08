@@ -56,7 +56,7 @@ import {
   useState,
 } from 'react'
 import { RowShell } from '../../../../shared/src/row-shell'
-import type { IssueModel } from '@podium/client-graph/models'
+import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { WorklistGroups } from '@podium/client-graph/worklist/groups'
 import { PoolRow } from './row'
@@ -78,7 +78,7 @@ function itemKey(item: Item): string {
 }
 
 /** Demo renderers; the product package owns the row observation boundaries. */
-function renderPoolRow(model: IssueModel): ReactElement {
+function renderPoolRow(model: WorklistIssue): ReactElement {
   return <RowShell row={model} component={PoolRow} />
 }
 

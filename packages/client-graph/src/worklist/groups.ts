@@ -1,6 +1,7 @@
 import { machinePathBasename } from '@podium/model/browser'
 import { debugName } from '../debug-name'
 import type { MobxPool } from '../pool'
+import { worklistView } from './view-model'
 /**
  * The worklist's groups and closed folds, over the ordered
  * visible ids (`visible.ts`).
@@ -523,7 +524,9 @@ export type WorklistGroupView = WorklistGroups & {
 /** Screen-local fold state and grouping share the existing view lifetime. */
 export function worklistGroups(pool: MobxPool, initiallyFolded = false): WorklistGroupView {
   return pool.sources.view('worklist.groups', () => {
-    const foldLatch = observable.box(initiallyFolded, { name: debugName(() => 'pool.foldLatch') })
+    const view = worklistView(pool)
+    const foldLatch = view.foldLatch
+    if (initiallyFolded) view.setFolded(true)
     const groups = new WorklistGroups({
       node: id => {
         const issue = pool.knownIssue(id)

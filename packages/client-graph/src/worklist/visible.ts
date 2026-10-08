@@ -254,14 +254,15 @@ export function hiddenPresenceOf(
   return { flat: false, keeps, present: false }
 }
 
-export function standingOf(issue: SliceIssue): Standing {
-  const excluded = isExcluded(issue)
-  const finished = isFinished(issue)
+export function standingOf(issue: SliceIssue, facts?: Pick<Standing,
+  'excluded' | 'finished' | 'awaitingMerge' | 'parentId' | 'finishedMs' | 'updatedMs' | 'formalParent'>): Standing {
+  const excluded = facts ? facts.excluded : isExcluded(issue)
+  const finished = facts ? facts.finished : isFinished(issue)
   const human = issue.audience === 'human'
   const activeHuman =
     human &&
     (issue.stage === 'planning' || issue.stage === 'in_progress' || issue.stage === 'review')
-  const awaitingMerge = !excluded && awaitingMergeOf(issue)
+  const awaitingMerge = facts ? facts.awaitingMerge : !excluded && awaitingMergeOf(issue)
   // `issueAwaitingMerge` reads branch and git state off the composed row: the
   // wire carries both, so the verdict is available here (it used to read as
   // never true because no slice field spelled it).
@@ -286,17 +287,17 @@ export function standingOf(issue: SliceIssue): Standing {
     awaitingMerge,
     sessionless,
     rescuable: human && !finished,
-    parentId: issue.parentId || null,
+    parentId: facts ? facts.parentId : issue.parentId || null,
     startedBy:
       !issue.parentId && !spinOff && issue.startedBySession ? issue.startedBySession : null,
     draftVessel: issue.isDraftVessel === true && !issue.worktreePath,
-    finishedMs: parseMs(issue.closedAt ?? issue.updatedAt) ?? 0,
-    updatedMs: parseMs(issue.updatedAt),
+    finishedMs: facts ? facts.finishedMs : parseMs(issue.closedAt ?? issue.updatedAt) ?? 0,
+    updatedMs: facts ? facts.updatedMs : parseMs(issue.updatedAt),
     replicaActivityMs: parseMs(sessionFacts?.replicaActivityAt),
     headlessStaffed: sessionFacts?.headlessStaffed === true,
     deleted: issue.deletedAt != null,
     pinned: issue.pinned === true,
-    formalParent: refs.issue.parent(issue),
+    formalParent: facts ? facts.formalParent : refs.issue.parent(issue),
   }
 }
 

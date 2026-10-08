@@ -119,7 +119,7 @@ import type { RepoRow, ViewInputs } from './views'
 import { worklistGroups } from './worklist/groups'
 import { LOADING, type Loaded, type RollupInputs } from './worklist/rollup'
 import { SeatVerdicts } from './worklist/seat-verdicts'
-import { sidebarView } from './worklist/sidebar'
+import { worklistView } from './worklist/view-model'
 import { sidebarRosterView } from './worklist/sidebar-roster'
 import {
   type HeldIssue,
@@ -244,7 +244,7 @@ export class MobxPool {
   /** The relation engine itself. */
   readonly graph: PoolRelations
   /** The selection local: at most one entry, the selected issue id. */
-  readonly selection: ObservableMap<string, true>
+  get selection(): ObservableMap<string, true> { return worklistView(this).selection }
   /**
    * The read-state lane (POD-4686): each known issue's read cursor, per-key
    * tracked, readable by id only. A mark-read writes one key; only that row's
@@ -274,7 +274,6 @@ export class MobxPool {
   /** The one object per row, by entity: built on first request, never twice. */
   private readonly models: { readonly [E in EntityName]: Map<string, EntityModel> }
   private readonly target: IngestTarget
-  private selectedId: string | null
   /**
    * POD-4678 — clears the maintained seat mirror (a closure over it, so the
    * copy sweep never walks the mirror: it holds only ids, never rows).
@@ -419,10 +418,6 @@ export class MobxPool {
       },
     })
     this.relations = this.graph
-    this.selection = observable.map<string, true>(undefined, {
-      deep: false,
-      name: debugName(() => 'pool.selection'),
-    })
     this.readStates = observable.map<string, string | null>(undefined, {
       deep: false,
       name: debugName(() => 'pool.reads'),
@@ -461,8 +456,7 @@ export class MobxPool {
       issue: (id) => untracked(() => this.row('issue', id, 'peek')) as SliceIssue | undefined,
       now: () => this.clock.peekNow(),
     })
-    sidebarView(this)
-    this.selectedId = null
+    worklistView(this)
     // Every row below comes from the one reader (`row`); none of these
     // functions is replaced after construction (pending changes arrive as
     // rows, from the transaction log). A view reads rows in memory: a row that
@@ -485,7 +479,7 @@ export class MobxPool {
           : tables[entity].has(id),
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
       // Only asked for an issue in memory (`originTickPartOf`): its object.
-      parts: (id) => this.issueObject(id),
+      parts: (id) => worklistView(this).row(this.issueObject(id)),
       rollup: (id) => this.knownIssue(id)?.rollup,
       retainedSeats: (id) => this.knownIssue(id)?.retainedSeatIds ?? [],
       // The maintained SORTED list itself, returned without iterating it. A
@@ -504,13 +498,13 @@ export class MobxPool {
       // untracked-read: visibility-session-peek
       sessionRow: (id) => this.row('session', id, 'peek') as SliceSession | undefined,
       issue: (id) => this.knownIssue(id),
-      session: (id) => this.object('session', id) as SessionModel,
+      session: (id) => worklistView(this).session(this.sessionObject(id)),
       passed: (t) => this.clock.passed(t),
       reached: (t) => this.clock.reached(t),
       loadedIssue: (id) => this.row('issue', id) as Loaded<SliceIssue>,
       loadedSession: (id) => this.row('session', id) as Loaded<SliceSession>,
       issueRead: (id) => this.readCursor(id),
-      nested: (id) => this.issueObject(id).nested,
+      nested: (id) => worklistView(this).row(this.issueObject(id)).nested,
       formalChildren: (id) => links.issue.children.ids(id),
       // The maintained SORTED list itself, returned without iterating it — a
       // membership change yields the new member only. `seatIdsPartOf` reads
@@ -520,7 +514,7 @@ export class MobxPool {
     }
     this.rollupInputs = rollupInputsOf(this.visibleInputs)
     this.worklist = new VisibleCollection({
-      issue: (id) => this.issueObject(id),
+      issue: (id) => worklistView(this).row(this.issueObject(id)),
       fileGroups: (id, filing) => worklistGroups(this).file(id, filing),
     })
     worklistGroups(this, locals.selectedIssueWasFolded === true)
@@ -726,7 +720,7 @@ export class MobxPool {
    */
   knownIssue(id: string): HeldIssue | undefined {
     const known = this.tables.issue.has(id) || this.residency?.known('issue', id) === true
-    return known ? this.issueObject(id) : undefined
+    return known ? worklistView(this).row(this.issueObject(id)) : undefined
   }
 
   /** A model's edit (`issue.title = x`): one transaction of the pool's log. */
@@ -805,6 +799,12 @@ export class MobxPool {
 
   issue(id: string): ModelOf['issue'] | undefined {
     return this.model('issue', id)
+  }
+
+  /** The worklist companion of a resident issue, shared by both screens. */
+  worklistRow(id: string) {
+    const issue = this.issue(id)
+    return issue === undefined ? undefined : worklistView(this).row(issue)
   }
 
   /** TRACKED: the declared parent key, without reading either row's fields.
@@ -1060,17 +1060,11 @@ export class MobxPool {
     for (const entity of ENTITIES) this.models[entity].clear()
     this.residency?.clear()
     this.clock.clear()
-    this.selectedId = null
     // A retired pool may outlive its switch (POD-5402); it must not hold the
     // retired feed's cold index, which carries every row's relations.
     this.indexSeen = undefined
     this.ownIndex = undefined
   }
 
-  private select(id: string | null): void {
-    if (id === this.selectedId) return
-    if (this.selectedId !== null) this.selection.delete(this.selectedId)
-    if (id !== null) this.selection.set(id, true)
-    this.selectedId = id
-  }
+  private select(id: string | null): void { worklistView(this).select(id) }
 }

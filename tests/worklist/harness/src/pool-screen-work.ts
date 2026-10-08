@@ -3,6 +3,7 @@ import { createCommandPalette } from '@podium/client-graph/command-launch-views'
 import { createLaunchCatalogPicker } from '@podium/client-graph/launch-option-views'
 import { createReferencePicker } from '@podium/client-graph/chat-context'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { poolIssuePaint } from '../../../../apps/web/src/features/worklist/pool-row-data'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { headerView } from '@podium/client-graph/header-views'
 import { launchOptionViews } from '@podium/client-graph/launch-option-views'
@@ -90,6 +91,7 @@ import { autorun, compareStructural, observable, runInAction } from 'mobx'
 import { resolvePoolWorkMenu as readPoolWorkMenu } from '../../../../apps/mobile/src/lib/pool-work-menu'
 import {
   MobileSearchSections,
+  mobileRowPaint,
   searchMobileSections,
 } from '../../../../apps/mobile/src/lib/work-sections'
 import {
@@ -161,6 +163,21 @@ function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): string {
       closedReason: null,
       deps: [],
       audience: 'human',
+      // The corpus's first issue/phase seat differ between 1x and 4x. Their
+      // inherited nesting, optional paint fields and execution state cannot
+      // be the addressed neighbourhood: keep these facts fixed as well.
+      worktreePath: null,
+      startedBySession: null,
+      isDraftVessel: false,
+      intentOrigin: 'human',
+      needsHuman: false,
+      asked: false,
+      branch: null,
+      supersededBy: null,
+      duplicateOf: null,
+      deferUntil: null,
+      color: null,
+      linearIdentifier: null,
       updatedAt: ctx.stamp(),
     })
   }
@@ -192,6 +209,16 @@ function seedNeighbourhood(ctx: ScenarioEngine, scale: FixtureScale): string {
       // The guard seat runs the product default harness, as an identifier:
       // the flip below must toggle this seat's own kind (POD-5614).
       agentKind: DEFAULT_HARNESS_AGENT,
+      agentState: { phase: 'working', since: ctx.stamp() },
+      busy: false,
+      offer: null,
+      stoppedAt: null,
+      stopReason: null,
+      snoozedUntil: null,
+      handoffTarget: null,
+      lastInputAt: ctx.stamp(),
+      draftUpdatedAt: null,
+      unread: false,
       lastActiveAt: ctx.stamp(),
     })
   }
@@ -403,7 +430,15 @@ async function measureScreenCells(
       sidebarView(pool).sections(layout),
     )
     const worktree = pool.tables.worktree.keys().next().value!
-    add('sidebar.row', ['PoolRowSlot', 'PoolSidebarRail'], () => sidebarView(pool).row(selected()))
+    // Retain the actual painted fields in the watched read at both versions.
+    // Serializing a wire issue would also observe menu/history-only fields;
+    // retaining only a live companion's port would observe readiness alone.
+    const rowAnswers = (value: unknown) => value === undefined || typeof value === 'symbol'
+      ? value : JSON.parse(JSON.stringify(value))
+    add('sidebar.row', ['PoolRowSlot', 'PoolSidebarRail'], () => {
+      const row = sidebarView(pool).row(selected())
+      return row === undefined || row === LOADING ? row : rowAnswers(poolIssuePaint(row))
+    })
     add('sidebar.worktree', ['PoolWorktreeRow', 'PoolSidebarRail'], () =>
       sidebarView(pool).worktree(worktree, layout),
     )
@@ -415,9 +450,10 @@ async function measureScreenCells(
     add('mobile-work.search', ['PoolWorkScreen'], () =>
       searchMobileSections(pool, mobileWorkView(pool).sections(layout).sections, '', search),
     )
-    add('mobile-work.row', ['PoolWorkRowSlot'], () =>
-      mobileWorkView(pool).row({ kind: 'issue', id: selected() }),
-    )
+    add('mobile-work.row', ['PoolWorkRowSlot'], () => {
+      const row = mobileWorkView(pool).row({ kind: 'issue', id: selected() })
+      return row === undefined || row === LOADING ? row : rowAnswers(mobileRowPaint(row, pool.clock.trackedNow()))
+    })
     add('header.folded', ['FoldedFlightDeckBar'], () => headerView(pool).folded())
     add('header.shipping', ['useShippingCounts'], () => headerView(pool).shipping())
     add('header.fleet', ['FleetOverview'], () => ({

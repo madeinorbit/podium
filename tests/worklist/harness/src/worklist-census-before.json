@@ -1,0 +1,130 @@
+{
+  "base": "f1a6befab8ab2f260a9418e1c080745c4c254a22",
+  "readerContract": "poolIssuePaint / mobileRowPaint inside the watched read; addressed nesting and execution fields identical across scales",
+  "readers": [
+    {
+      "name": "sidebar.row",
+      "consumers": [
+        "PoolRowSlot",
+        "PoolSidebarRail"
+      ]
+    },
+    {
+      "name": "mobile-work.sections",
+      "consumers": [
+        "PoolWorkScreen",
+        "GroupHeader"
+      ]
+    },
+    {
+      "name": "mobile-work.search",
+      "consumers": [
+        "PoolWorkScreen"
+      ]
+    },
+    {
+      "name": "mobile-work.row",
+      "consumers": [
+        "PoolWorkRowSlot"
+      ]
+    },
+    {
+      "name": "header.folded",
+      "consumers": [
+        "FoldedFlightDeckBar"
+      ]
+    },
+    {
+      "name": "header.shipping",
+      "consumers": [
+        "useShippingCounts"
+      ]
+    },
+    {
+      "name": "header.fleet",
+      "consumers": [
+        "FleetOverview"
+      ]
+    }
+  ],
+  "corpus1x": {
+    "issues": 4870,
+    "sessions": 4338
+  },
+  "corpus4x": {
+    "issues": 19471,
+    "sessions": 17346
+  },
+  "growing": [
+    {
+      "action": "open-menu",
+      "kind": "elements",
+      "reader": "consumer:launcher.open-menu",
+      "at1x": 8700,
+      "at4x": 34710,
+      "neighbourhood1x": 6,
+      "neighbourhood4x": 6,
+      "passed": false
+    },
+    {
+      "action": "open-menu",
+      "kind": "elements",
+      "reader": "consumer:launcher.open-menu/ComputedValue@#",
+      "at1x": 17890,
+      "at4x": 71509,
+      "neighbourhood1x": 6,
+      "neighbourhood4x": 6,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "rows",
+      "reader": "SessionModel@guard-history-#.lastActivity",
+      "at1x": 96,
+      "at4x": 384,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "derivations",
+      "reader": "SessionModel@guard-history-#.lastActivity",
+      "at1x": 96,
+      "at4x": 384,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "elements",
+      "reader": "consumer:navigation.navigate-by-ref",
+      "at1x": 92009,
+      "at4x": 365620,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "elements",
+      "reader": "consumer:navigation.navigate-by-ref/Seats.missionSessions@guard-root.partition",
+      "at1x": 33,
+      "at4x": 129,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    },
+    {
+      "action": "navigate-by-ref",
+      "kind": "elements",
+      "reader": "consumer:navigation.navigate-by-ref/NavigationActivity@guard-root.history",
+      "at1x": 96,
+      "at4x": 384,
+      "neighbourhood1x": 7,
+      "neighbourhood4x": 7,
+      "passed": false
+    }
+  ]
+}

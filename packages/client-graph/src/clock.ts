@@ -15,7 +15,6 @@ export const UNTRACKED_READS: Readonly<Record<string, string>> = {
   'transcript-order-snapshot': 'Take the phone transcript items once per order change; the list keys on ids and each row observes its own message.',
   'launch-session-seed': 'Probe session residency without borrowing dependencies; addressed rows and catalog membership track changes.',
   'launch-session-presence': 'Choose resident session detail without a table dependency; catalog membership and row summaries track changes.',
-  'issue-parent-presence': 'Choose resident facts or cold summary; those tracked readers report parent changes.',
   'issue-hidden-presence': 'Probe residency without a duplicate dependency; resident facts or the cold summary track changes.',
   'pool-seat-seed': 'Seed retained seat identities during residency maintenance; relation publications maintain them.',
   'seat-membership-maintenance': 'Read seat membership during verdict maintenance; publication queues refresh the maintained summary.',
@@ -32,4 +31,3 @@ export const UNTRACKED_READS: Readonly<Record<string, string>> = {
   'lazy-batch-probe': 'Ask whether @lazy runs inside a MobX batch; the probe computed must never become a reader\'s dependency.',
   'spawn-sort-peek': 'Read addressed placement rows inside the spawn action without requesting cold payloads.',
 }
-

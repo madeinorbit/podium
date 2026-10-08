@@ -1,4 +1,4 @@
-/** Sidebar facts, carried by the existing issue object and cached groups.
+/** Worklist presentation, borrowed by desktop and phone from their companion.
  * No colour tokens, timer formatting, status copy, or glyphs live here.
  * The compatibility payload lets the current row keep its presentation.
  */
@@ -7,7 +7,7 @@ import { machinePathBasename } from '@podium/model/browser'
 import type { RowOriginTick } from '../shared/row-view'
 import { awaitingMergeOf } from '../shared/schema'
 import type { SliceIssue, SlicePhase, SliceSession } from '../shared/slice-types'
-import { DEFER_NEXT_MESSAGE, FINISHED_GRACE_MS, isClosedTopLevel, issueAbandoned } from '../views'
+import { DEFER_NEXT_MESSAGE, FINISHED_GRACE_MS, isClosedTopLevel, issueAbandoned, type CloseFacts } from '../views'
 import { attentionGroup, isSessionWorking, motionPhase, type UnitState } from './rollup'
 
 export interface SidebarProgress extends Readonly<Record<UnitState, number>> { readonly total: number }
@@ -165,16 +165,18 @@ export function sortedSidebarSessions<T>(
 export function sidebarTiming(
   sessions: readonly SliceSession[], phase: SlicePhase, finished: boolean,
   activityAt: number, decidingAt?: number,
+  executing: (session: SliceSession) => boolean = isSessionWorking,
+  stateSince: (session: SliceSession) => number = session => Date.parse(session.agentState?.since ?? session.lastActiveAt),
 ): SidebarTiming {
-  const since = (s: SliceSession): number => Date.parse(s.agentState?.since ?? s.lastActiveAt)
+  const since = stateSince
   const earliest = (list: readonly SliceSession[]): SliceSession | undefined => list.reduce<SliceSession | undefined>(
     (best, s) => best === undefined || since(s) < since(best) ? s : best, undefined)
   if (phase === 'working') {
-    const anchor = earliest(sessions.filter(isSessionWorking))
+    const anchor = earliest(sessions.filter(executing))
     if (anchor) return { phase, sinceMs: since(anchor), ...(anchor.agentState?.workingMsTotal !== undefined ? { baseMs: anchor.agentState.workingMsTotal } : {}) }
   }
   if (phase === 'waiting') {
-    const anchor = earliest(sessions.filter(s => motionPhase(s, finished) === 'waiting'))
+    const anchor = earliest(sessions.filter(s => motionPhase(s, finished, () => executing(s)) === 'waiting'))
     if (anchor) return { phase, sinceMs: Date.parse(anchor.offer?.createdAt ?? '') || since(anchor) }
     if (decidingAt !== undefined) return { phase, sinceMs: decidingAt }
   }
@@ -186,8 +188,10 @@ export function sidebarTiming(
   return { phase, sinceMs: activityAt }
 }
 
-export function fleetOf(sessions: readonly SliceSession[]): SidebarRowValues['fleet'] {
-  const present = sessions.filter(s => !s.archived && s.status !== 'exited')
+export function fleetOf(sessions: readonly SliceSession[],
+  open: (session: SliceSession) => boolean = session => !session.archived && session.status !== 'exited',
+): SidebarRowValues['fleet'] {
+  const present = sessions.filter(open)
   const tiles: { kind: string | null; parked: boolean }[] = []
   for (const session of present) {
     const kind = session.agentKind ?? null
@@ -322,10 +326,10 @@ export function unstarted(s: SliceSession): boolean {
   return !title || [label?.toLowerCase(), s.agentKind, 'claude code', machinePathBasename(s.cwd).toLowerCase()].includes(title)
 }
 
-export function sidebarLifecycle(issue: SliceIssue, asking: boolean, passed: (at: number) => boolean, reached: (at: number) => boolean) {
-  const settled = isClosedTopLevel(issue) && !issue.needsHuman && !awaitingMergeOf(issue) && !asking
+export function sidebarLifecycle(issue: SliceIssue, asking: boolean, passed: (at: number) => boolean, reached: (at: number) => boolean, facts?: CloseFacts) {
+  const settled = isClosedTopLevel(issue) && !issue.needsHuman && !(facts ? facts.awaitingMerge : awaitingMergeOf(issue)) && !asking
   const eligible = settled && !issueAbandoned(issue) &&
-    !passed((Date.parse(issue.closedAt ?? issue.updatedAt) || 0) + FINISHED_GRACE_MS)
+    !passed((facts ? facts.finishedMs : Date.parse(issue.closedAt ?? issue.updatedAt) || 0) + FINISHED_GRACE_MS)
   const deadline = Date.parse(issue.deferUntil ?? '')
   const timed = issue.deferUntil !== DEFER_NEXT_MESSAGE && Number.isFinite(deadline)
   return { awaitsTuck: eligible && issue.tuckedAt == null, canBringBack: eligible && issue.tuckedAt != null,

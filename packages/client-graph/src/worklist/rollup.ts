@@ -185,7 +185,7 @@ export function isOfferOnlyAttention(session: SliceSession): boolean {
  * `motionPhase(s, rowIssue)` (`session-status.ts:455-474`), with the row's
  * issue reduced to the one fact it reads: whether the ROW is finished.
  */
-export function motionPhase(session: SliceSession, rowFinished: boolean): SlicePhase {
+export function motionPhase(session: SliceSession, rowFinished: boolean, executing: () => boolean = () => isSessionWorking(session)): SlicePhase {
   if (attentionGroup(session) === 'needsYou') {
     if (!(rowFinished && session.offer && !hasNonOfferNeedsYou(session))) return 'waiting'
   }
@@ -193,7 +193,7 @@ export function motionPhase(session: SliceSession, rowFinished: boolean): SliceP
   if (state?.phase === 'ended' || (state?.phase === 'idle' && idleFinishedTurn(state.idle?.kind))) {
     return 'done'
   }
-  if (isSessionWorking(session)) return 'working'
+  if (executing()) return 'working'
   return 'queued'
 }
 
@@ -639,6 +639,8 @@ export interface OwnFacts {
 
 /** The roll-up parts of one issue node. */
 export interface RollupParts {
+  /** Borrowed parsed record stamp; plain rebuilds may supply only the wire row. */
+  readonly updatedMs?: number | null
   /** The own row's decision facts (re-run only when the own row changes). */
   readonly ownFacts: OwnFacts
   /** The declared `issue.parent` forward key: where this node is filed for progress. */
@@ -731,10 +733,10 @@ export function tipPartOf(input: RollupInputs, id: string): Tip {
             seq: issue.seq,
             repoId: issue.repoId,
             staffed: node?.openOwn === true,
-            finished: isFinished(issue),
+            finished: node?.ownFacts.finished ?? isFinished(issue),
             activeAt: new Date(
               Math.max(
-                Date.parse(issue.updatedAt) || 0,
+                node && 'updatedMs' in node ? node.updatedMs ?? 0 : Date.parse(issue.updatedAt) || 0,
                 issue.sessionFacts === undefined
                   ? (node?.seatActivity ?? 0)
                   : Date.parse(issue.sessionFacts.tipActivityAt ?? '') || 0,
@@ -1313,7 +1315,7 @@ export function aggregateFields(input: RollupInputs, id: string, self: RollupSel
 }
 
 export function unitOwnFields(
-  input: RollupInputs, id: string, self: Pick<RollupSelf, 'openOwn' | 'unitsBelow'>,
+  input: RollupInputs, id: string, self: Pick<RollupSelf, 'openOwn' | 'unitsBelow'> & Partial<Pick<RollupSelf, 'ownFacts'>>,
 ): UnitOwn {
   const issue = input.loadedIssue(id)
   if (issue === LOADING) return PENDING_UNIT
@@ -1322,15 +1324,16 @@ export function unitOwnFields(
   const member = () => issue.stage !== 'proposed' && !issueAbandoned(issue)
   const unit = () => member() && !vacated()
   const staffed = () => self.openOwn || self.unitsBelow.staffed === true
+  const finished = () => self.ownFacts?.finished ?? isFinished(issue)
   return {
     cold: false,
     get member() { return member() },
     get unit() { return unit() },
-    get done() { return unit() && isFinished(issue) },
+    get done() { return unit() && finished() },
     get solo() { return !issueAbandoned(issue) && !vacated() },
     get staffed() { return staffed() },
     get state() {
-      return unit() && isFinished(issue) ? 'done' : issue.blocked ? 'block' :
+      return unit() && finished() ? 'done' : issue.blocked ? 'block' :
         issue.stage === 'review' ? 'review' :
           ['planning', 'in_progress', 'shipping'].includes(issue.stage)
             ? issue.stage === 'shipping' || staffed() ? 'run' : 'stall' : 'wait'
@@ -1415,7 +1418,8 @@ export function unitsBelowFields(input: RollupInputs, id: string): Units {
       yield* branches
       for (const member of members) yield {
         own: unitOwnFields(input, member.id, {
-          get openOwn() { return member.node.openOwn }, unitsBelow: staffing,
+          get openOwn() { return member.node.openOwn },
+          get ownFacts() { return member.node.ownFacts }, unitsBelow: staffing,
         }), below: NO_UNITS,
       }
       return

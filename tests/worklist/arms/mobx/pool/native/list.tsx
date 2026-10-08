@@ -15,7 +15,7 @@ import { observer } from 'mobx-react-lite'
 import { type ReactElement, useCallback, useState } from 'react'
 import { SectionList, Text, View } from 'react-native'
 import { RowShell } from '../../../../shared/src/row-shell'
-import type { IssueModel } from '@podium/client-graph/models'
+import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { WorklistGroups } from '@podium/client-graph/worklist/groups'
 import { PoolNativeRow } from './row'
@@ -24,7 +24,7 @@ import { PoolNativeRow } from './row'
 const INITIAL_ROWS = 24
 
 /** Demo renderers; the product package owns the row observation boundaries. */
-function renderNativeRow(model: IssueModel): ReactElement {
+function renderNativeRow(model: WorklistIssue): ReactElement {
   return <RowShell row={model} component={PoolNativeRow} />
 }
 

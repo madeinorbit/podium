@@ -24,7 +24,7 @@ import { legacySidebarRow, legacySidebarSections } from '../../../diagnostics/or
 import { checkSidebar, poolSidebarSnapshot } from '../../../diagnostics/sidebar-check'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { createRowSource } from '../../../shared/src/row-source'
-import { IssueModel } from '@podium/client-graph/models'
+import { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import { LOADING, NO_UNITS, unitsOf, type UnitOwn, type Units } from '@podium/client-graph/worklist/rollup'
 import { directVisibility, type IssueVisibility, type VisibleInputs } from '@podium/client-graph/worklist/visible'
 import {
@@ -228,7 +228,7 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
           (row) => row.issue.id === id,
         )
         if (!legacy) throw new Error('Synthetic legacy row absent')
-        return { actual, expected: legacySidebarRow(legacy, derivation, NOW) }
+        return { actual: JSON.parse(JSON.stringify(actual)), expected: legacySidebarRow(legacy, derivation, NOW) }
       }),
     sections: () =>
       runInAction(() => ({
@@ -370,17 +370,17 @@ describe('POD-5179 reciprocal provenance in the sidebar check corpus', () => {
       expect(sections.expected.bands[0]?.rowIds).toEqual([b.id])
       expect(sections.actual.bands[0]?.rowIds).toEqual([b.id])
       const root = ctx.row(b.id)
-      expect(runInAction(() => ctx.pool.issue(b.id)?.nested)).toEqual([a.id])
+      expect(runInAction(() => ctx.pool.worklistRow(b.id)?.nested)).toEqual([a.id])
       // POD-5423: the subtree's seats travel as ids.
       expect(root.actual.aggregateSessionIds).toEqual(['seat-b', 'seat-a'])
       // The check counts the section root plus both all-visible rows.
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 3 })
       // Breaking and restoring the cycle must update the observed rows, too.
       ctx.updateIssue({ ...a, startedBySession: undefined })
-      expect(runInAction(() => ctx.pool.issue(a.id)?.nested)).toEqual([b.id])
+      expect(runInAction(() => ctx.pool.worklistRow(a.id)?.nested)).toEqual([b.id])
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 3 })
       ctx.updateIssue(a)
-      expect(runInAction(() => ctx.pool.issue(b.id)?.nested)).toEqual([a.id])
+      expect(runInAction(() => ctx.pool.worklistRow(b.id)?.nested)).toEqual([a.id])
       expect(ctx.check()).toMatchObject({ differences: 0, first: null, pending: 0, rows: 3 })
     } finally {
       ctx.dispose()
@@ -502,7 +502,7 @@ describe('POD-5385 cyclic progress in the application sidebar replay', () => {
     const b = issue('cycle-b', { stage: 'backlog', parentId: asIssueId('cycle-a') })
     const ctx = replay(collections(reversed ? [b, a] : [a, b]))
     // Restore the original cached group and child-unit recursion exactly.
-    const unguarded = cachedGroup('unitsBelow', (model: IssueModel) => {
+    const unguarded = cachedGroup('unitsBelow', (model: WorklistIssue) => {
       const children: { own: UnitOwn; below: Units }[] = []
       for (const childId of ctx.pool.rollupInputs.formalChildren(model.id)) {
         const child = ctx.pool.rollupInputs.rollupNode(childId)
@@ -512,8 +512,8 @@ describe('POD-5385 cyclic progress in the application sidebar replay', () => {
       }
       return unitsOf({ children })
     })
-    const plant = vi.spyOn(IssueModel.prototype, 'unitsBelow', 'get').mockImplementation(
-      function (this: IssueModel) { return unguarded(this) },
+    const plant = vi.spyOn(WorklistIssue.prototype, 'unitsBelow', 'get').mockImplementation(
+      function (this: WorklistIssue) { return unguarded(this) },
     )
     try {
       expect(() => ctx.updateIssue({ ...a, stage: 'planning' })).toThrow(/Cycle detected/)
