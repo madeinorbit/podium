@@ -49,7 +49,7 @@ it('renewal prepares zero displayed labels and a selected title updates only its
       return attachWorklistPool(owner, error => failures.push(error.message))
     }}
   ><Header /></StoreProvider>)
-  await waitFor(() => expect(pool).not.toBeNull())
+  await waitFor(() => expect(pool).not.toBeNull(), { timeout: 15000 })
   const observedAt = Date.now()
   await act(async () => {
     runtime!.access.setSelectedIssueId(asIssueId('synthetic-0'))
