@@ -42,7 +42,7 @@ describe('shared worklist record facts keep their answers without a raw-row cach
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
       name === 'cold' ? { load: () => undefined, schedule: () => () => {} } : {})
     if (patch) pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: name, value: {
-      id: name, seq: 1, title: name, createdAt: stamp, updatedAt: stamp, ...patch,
+      id: name, seq: 1, title: name, repoPath: '/synthetic', createdAt: stamp, updatedAt: stamp, ...patch,
     } as never }] })
     try {
       const old = answers(previousFacts(pool, name))[field]

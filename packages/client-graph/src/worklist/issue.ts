@@ -961,8 +961,15 @@ export class WorklistIssue implements HeldIssue, RowView {
     return seat !== null && seat > own ? seat : own
   }
 
-  @lazy get loadedIssue() { return this.host.rollupInputs.loadedIssue(this.id) }
-  @lazy get loadedOrigin() { return this.originRef === null ? undefined : this.host.rollupInputs.loadedIssue(this.originRef) }
+  @lazy get loadedIssue() {
+    const row = this.host.rollupInputs.loadedIssue(this.id)
+    return row === undefined || row === LOADING ? row : this.issue
+  }
+  @lazy get loadedOrigin() {
+    if (this.originRef === null) return undefined
+    const row = this.host.rollupInputs.loadedIssue(this.originRef)
+    return row === undefined || row === LOADING ? row : this.worklist.pool.issueObject(row.id)
+  }
   get continuationTip() { return !this.targetId && !this.openOwn ? this.tip : undefined }
   @lazy private get targetId() { return this.issue.supersededBy ?? this.issue.duplicateOf }
   @lazy get ready(): 'ready' | typeof LOADING | undefined {

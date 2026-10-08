@@ -391,30 +391,36 @@ export class IssueModel extends EntityModel {
 
   // Stored fields and presence
   /** Declared issue facts, usable without loading a historical payload. */
-  @lazy private get factRow(): SliceIssue | undefined {
+  private readFacts(): SliceIssue | undefined {
     const resident = this.host.row('issue', this.id, 'mark')
     if (resident !== LOADING) return resident as SliceIssue | undefined
     const summary = this.host.row('issue', this.id, 'summary-fields')
     return summary === LOADING ? undefined : summary as SliceIssue | undefined
   }
 
-  @lazy get excluded(): boolean { return this.factRow !== undefined && isExcluded(this.factRow) }
+  @lazy get excluded(): boolean {
+    const row = this.readFacts()
+    return row !== undefined && isExcluded(row)
+  }
 
   @lazy get inMemory(): boolean { return this.host.resident('issue', this.id) === 'resident' }
   @lazy get finished(): boolean | undefined {
-    const row = this.factRow
+    const row = this.readFacts()
     return row === undefined ? undefined : isFinished(row)
   }
   @lazy get awaitingMerge(): boolean {
-    const row = this.factRow
+    const row = this.readFacts()
     return row !== undefined && awaitingMergeOf(row)
   }
   @lazy get pendingDecision(): 'merge' | 'review' | null {
-    const row = this.factRow
+    const row = this.readFacts()
     return row ? issuePendingDecision(row as unknown as IssueNavigationModel) : null
   }
-  @lazy get updatedMs(): number | null { return parseMs(this.factRow?.updatedAt) }
-  @lazy get finishedMs(): number { return parseMs(this.factRow?.closedAt ?? this.factRow?.updatedAt) ?? 0 }
+  @lazy get updatedMs(): number | null { return parseMs(this.readFacts()?.updatedAt) }
+  @lazy get finishedMs(): number {
+    const row = this.readFacts()
+    return parseMs(row?.closedAt ?? row?.updatedAt) ?? 0
+  }
 
   // Links and reference: independent of any screen's row label or nesting
   /** The declared `seq` answers a cold row too, without loading its payload. */
@@ -425,7 +431,7 @@ export class IssueModel extends EntityModel {
   @lazy get repoTarget(): string | null { return repoTargetPartOf(this.host.inputs, this.id) }
   @lazy get prefix(): string | null { return prefixPartOf(this.host.inputs, this.repoTarget) }
   @lazy get originRef(): string | null { return originRefPartOf(this.host.inputs, this.id) }
-  @lazy get parentRef(): string | null { return this.factRow?.parentId || null }
+  @lazy get parentRef(): string | null { return this.readFacts()?.parentId || null }
   get formalParent(): string | null { return this.host.formalParent(this.id) }
 
   private readOwnFacts(): OwnFacts { return ownFactsOf(this.host.rollupInputs.loadedIssue(this.id)) }
