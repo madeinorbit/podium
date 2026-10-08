@@ -8,6 +8,7 @@ import type {} from '../test/sidebar-renderer.browser'
 const out = resolve('.artifacts/sidebar-search')
 await mkdir(out, { recursive: true })
 await build({
+  logLevel: 'warn',
   configFile: resolve('apps/web/vite.sidebar-pool-perf.config.ts'),
   mode: 'production',
   build: {
@@ -33,11 +34,11 @@ try {
   await page.goto(`http://127.0.0.1:${server.port}/test/sidebar-renderer.browser.html?rows=80`)
   await page.waitForFunction(() => window.__sidebarRenderer?.ready())
   await expect(page.getByText('Only responsive target')).toBeVisible()
+  await expect(page.getByTestId('project-group-label').first()).toHaveAttribute('aria-expanded', 'true')
   await page.getByTestId('work-scroll').evaluate(node => { node.scrollTop = 1200 })
   await page.waitForTimeout(100)
   await page.getByTestId('work-search-input').fill('synthetic task 1')
   await expect(page.getByTestId('work-search-count')).toHaveText(/^11\//)
-  await page.waitForTimeout(1000)
   const paint = await page.evaluate(() => ({
     groups: [...document.querySelectorAll('[data-testid="project-group"]')].map(node => ({ text: node.textContent, rect: node.getBoundingClientRect().toJSON(), style: node.getAttribute('style') })),
     windows: [...document.querySelectorAll('[data-testid="worklist-window"]')].map(node => ({ text: node.textContent, rect: node.getBoundingClientRect().toJSON(), count: node.getAttribute('data-window-count'), mounted: node.querySelectorAll('[data-window-row]').length })),
@@ -47,6 +48,8 @@ try {
   await writeFile(resolve(out, 'paint.json'), JSON.stringify({ paint, errors }, null, 2))
   console.log(JSON.stringify({ paint, errors }))
   await expect(page.getByText('Synthetic task 10', { exact: true })).toBeVisible()
+  await expect(page.locator('[data-window-row] .shell-work-row-title')).toHaveCount(11)
+  await expect(page.getByTestId('project-group-label')).toHaveAttribute('aria-expanded', 'true')
   expect(errors).toEqual([])
   console.log('Production sidebar search smoke green')
 } finally {

@@ -88,9 +88,23 @@ function localScrollTop(
 ): number {
   if (!scroll) return 0
   if (!container || container === scroll) return scroll.scrollTop
-  const scrollRect = scroll.getBoundingClientRect()
-  const containerRect = container.getBoundingClientRect()
-  return scrollRect.top - containerRect.top
+  return scroll.scrollTop - containerOffset(scroll, container)
+}
+
+/** Virtual rows occupy layout space, before Motion's transient transforms.
+ * Bounding rectangles can leave a filtered group apparently offscreen after
+ * scrollTop clamps, with only its spacer mounted and no later resize to wake it.
+ * Offset parents may skip the scroller (or stop at a contained fold), so put
+ * both elements in the same layout coordinate system before subtracting. */
+function containerOffset(scroll: HTMLElement, container: HTMLElement): number {
+  const top = (element: HTMLElement): number => {
+    let result = 0
+    for (let node: HTMLElement | null = element; node; node = node.offsetParent as HTMLElement | null) {
+      result += node.offsetTop + (node.offsetParent?.clientTop ?? 0)
+    }
+    return result
+  }
+  return top(container) - top(scroll)
 }
 
 /**
@@ -330,9 +344,7 @@ export function useBoundedVirtualList({
     const containerStart =
       !container || container === scroll
         ? 0
-        : container.getBoundingClientRect().top -
-          scroll.getBoundingClientRect().top +
-          scroll.scrollTop
+        : containerOffset(scroll, container)
     const start = containerStart + offsetAt(layout, index)
     const end = start + sizeAt(layout, index)
     const viewStart = scroll.scrollTop
