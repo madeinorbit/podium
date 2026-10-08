@@ -2,7 +2,7 @@ import { headerModel } from './header-companion'
 import { headerEntities } from './header-entities'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MachineId } from '@podium/model/browser'
-import { compareStructural, computed, observable, observe, runInAction, untracked } from 'mobx'
+import { compareShallow, compareStructural, computed, observable, observe, runInAction, untracked } from 'mobx'
 import { cachedKey } from './cached'
 import { seedHeaderSessions } from './enumerate'
 import {
@@ -102,6 +102,16 @@ export class HeaderSessions {
     }
     return values.sort((a, b) => a.sessionId < b.sessionId ? -1 : a.sessionId > b.sessionId ? 1 : 0)
   }, { equals: compareStructural })
+  private readonly ids = computed(() => {
+    const ids: string[] = []
+    for (const id of headerEntities(this.pool).sessionOrder.get()) {
+      if (headerModel(this.pool).session(this.pool.sessionObject(id)).working) ids.push(id)
+    }
+    for (const [id, evidence] of this.coldWorking) {
+      if (!this.pool.clock.passed(evidence.deadline)) ids.push(id)
+    }
+    return ids.sort()
+  }, { equals: compareShallow })
   private readonly count = computed(() => {
     let count = 0
     for (const id of headerEntities(this.pool).sessionOrder.get()) if (this.residentWorking(id)) count++
@@ -177,6 +187,7 @@ export class HeaderSessions {
   }
 
   working(): WorkingSession[] { return this.roster.get() }
+  workingIds(): readonly string[] { return this.ids.get() }
   workingCount(): number { return this.count.get() }
   aggregate(machineId: MachineId | undefined): HeaderAggregate {
     return machineId ? this.machine(machineId) : EMPTY_HOST_AGGREGATE

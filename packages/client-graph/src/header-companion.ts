@@ -2,11 +2,16 @@ import { lazy, companion } from '@podium/mobx-helpers'
 import type { SessionModel } from './models'
 import type { MobxPool } from './pool'
 import { headerDockSession, headerHostSession, headerWorkingSession } from './header-session'
+import { LOADING } from './worklist/rollup'
 
 /** The header has its own presentation rules, independent of the worklist. */
 export class HeaderSession {
   constructor(readonly session: SessionModel) {}
   get id() { return this.session.id }
+  @lazy
+  get working(): boolean {
+    return this.headerWorkingPresent && !this.session.archived
+  }
   @lazy
   private get headerWorkingPresent(): boolean {
     return this.session.known && this.session.computingFresh
@@ -157,9 +162,20 @@ export class HeaderSession {
 }
 
 export class HeaderModel {
+  constructor(private readonly pool: MobxPool) {}
   readonly session = companion((session: SessionModel) => new HeaderSession(session))
+
+  @lazy
+  get selectedIssue() {
+    const id = this.pool.selection.keys().next().value
+    if (!id) return undefined
+    const value = this.pool.row('issue', id)
+    if (value === LOADING) return LOADING
+    if (!value || (value as { deletedAt?: string | null }).deletedAt) return undefined
+    return this.pool.model('issue', id)
+  }
 }
 
 export function headerModel(pool: MobxPool): HeaderModel {
-  return pool.sources.view('header.model', () => new HeaderModel())
+  return pool.sources.view('header.model', () => new HeaderModel(pool))
 }
