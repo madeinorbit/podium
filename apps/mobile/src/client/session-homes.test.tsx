@@ -101,7 +101,15 @@ describe('mobile session read seam', () => {
     expect(seen.rows[0]).toBe(seen.one)
     expect(seen.one).toMatchObject({ readAt: null, unread: true, machineName: '' })
     expect(replica.rows('sessions')[0]).toBe(stored)
-    expect(JSON.parse(screen.getByTestId('values').textContent ?? '{}')).toEqual(sessionValues(raw))
+    // Retired wire cells (displayRef, machineName, condition, handoffTarget,
+    // snoozedUntil) are ignored on read: the joined view derives them from
+    // companions, so with no homes they are empty/undefined rather than the
+    // stored OLD-42-B/Old desk legacy. Storage still holds the raw row.
+    expect(JSON.parse(screen.getByTestId('values').textContent ?? '{}')).toEqual({
+      readAt: null,
+      unread: true,
+      machineName: '',
+    })
   })
 })
 
