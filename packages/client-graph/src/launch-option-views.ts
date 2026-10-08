@@ -42,6 +42,8 @@ export function launchOptionViews(pool: MobxPool) {
       const repo = repository(id)
       return repo ? projectForRepository(repo) : undefined
     })
+    const projectIsEligible = (repo: RepoNavView) =>
+      pins.get().repos.some(path => machinePathsEqual(path, repo.path)) || repo.worktrees.length > 0
     const workOnOpen = (mode: LaunchWorkMode) => {
       const pinned = pins.get().repos
       const values = headerEntities(pool).repositoryGroupIds().flatMap(id => {
@@ -51,7 +53,7 @@ export function launchOptionViews(pool: MobxPool) {
         // are distinct visible order rules; neither remains observed.
         const roots = [repo.path, ...repo.worktrees.map(tree => tree.path)]
         const choice = projectForRepository(repo)
-        const eligible = pinned.some(path => machinePathsEqual(path, repo.path)) || choice.worktrees.length > 0
+        const eligible = projectIsEligible(choice)
         const activity = (match: 'exact' | 'within') => {
           counts.usageQueries++
           return pool.queries.activity({ kind: 'commandRootActivity', roots, match })
@@ -71,14 +73,6 @@ export function launchOptionViews(pool: MobxPool) {
       return { paths, projects: projects.map(value => value.repo.path),
         usageAt: new Map(projects.map(value => [machinePathKey(value.repo.path), value.projectAt])) }
     }
-    const projectChoices = computed(() => {
-      const pinned = pins.get().repos
-      return headerEntities(pool).repositoryGroupIds().flatMap(id => {
-        const repo = project(id)
-        return repo && (pinned.some(path => machinePathsEqual(path, repo.path)) || repo.worktrees.length)
-          ? [repo] : []
-      })
-    })
     const catalogRoot = keyedComputed('launch.catalogRoot', (id: string) => {
       const row = pool.row('repository', id) as GitRepositoryWire | undefined
       return row && typeof row !== 'symbol' ? row : undefined
@@ -122,7 +116,8 @@ export function launchOptionViews(pool: MobxPool) {
       catalogOnOpen,
       picker: (): LaunchCatalogPicker => new LaunchCatalogPicker(pool),
       repository: (id: string) => repository(id),
-      projectChoices: () => projectChoices.get(),
+      project: (id: string) => project(id),
+      projectIsEligible,
       machines: () => machines.get(),
       recentMachine: () => recentMachine.get() ?? undefined,
       origin: (path: string) => origin(machinePathKey(path)),
@@ -188,8 +183,15 @@ export class LaunchWorkPicker {
       .flatMap(id => launchOptionViews(this.pool).repository(id)?.path ?? [])
     return storedOrder(this.pathOrder, paths)
   }
+  @lazy get choices() {
+    const views = launchOptionViews(this.pool)
+    return headerEntities(this.pool).repositoryGroupIds().flatMap(id => {
+      const repo = views.project(id)
+      return repo && views.projectIsEligible(repo) ? [repo] : []
+    })
+  }
   @lazy get repos() {
-    const choices = launchOptionViews(this.pool).projectChoices()
+    const choices = this.choices
     const byPath = new Map(choices.map(repo => [repo.path, repo]))
     return storedOrder(this.projectOrder, choices.map(repo => repo.path)).flatMap(path => byPath.get(path) ?? [])
   }
