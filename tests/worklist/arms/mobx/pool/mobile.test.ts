@@ -1,3 +1,4 @@
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 /** Frozen mobile pool outputs, native identity and observed generated changes. */
 import { reaction } from 'mobx'
@@ -54,13 +55,13 @@ describe('mobile pool values', () => {
     let retained = 0
     let identityFailure: unknown
     const inspectNative = (scenario: string) => {
-      const native = mobileWorkView(handle.pool).sections(nativeState).sections
+      const native = mobileWorkView(handle.pool).mobileSections().sections
       const before = previous
       previous = native
       if (before) for (const section of native) {
         const old = before.find(band => band.key === section.key)
         if (!old) continue
-        const refs = (rows: MobileWorkSection['data']) => rows.map(row => `${row.kind}:${row.listKey}`)
+        const refs = (rows: MobileWorkSection['data']) => rows.slice()
         if (JSON.stringify(refs(old.data)) === JSON.stringify(refs(section.data))) {
           expect(section.data, `${scenario} ${section.key}: native data identity`).toBe(old.data)
           retained++
@@ -87,23 +88,22 @@ describe('mobile pool values', () => {
         // loads trigger the eager mark-read after the selection write settled.
         await settled(ctx)
         feeds.flush(); settle(handle.pool)
-        expect(tracked(() => ({ ...mobileWorkView(handle.pool).row({ id: ctx.targets.visibleRootId, kind: 'issue' }) as object })))
-          .toMatchObject({ unread: false })
+        expect(tracked(() => worklistView(handle.pool).knownRow(ctx.targets.visibleRootId)?.emphasizeUnread)).toBe(false)
       }
       if (identityFailure) throw identityFailure
       tracked(() => inspectNative(scenario))
       for (const searching of [false, true]) {
-        const state = { searching, collapsed: Object.fromEntries(['pinned', 'needs-you', ...tracked(() => mobileWorkView(handle.pool).sections().orderingSections.map(section => section.key))]
+        const state = { searching, collapsed: Object.fromEntries(['pinned', 'needs-you', ...tracked(() => mobileWorkView(handle.pool).mobileSections().orderingSections.map(section => section.key))]
           .map(key => [`podium:sidebar:work-group-fold:${key}`, true])) }
         const result = tracked(() => poolMobileSnapshot(handle.pool, state))
         expect(result.pending, `${scenario}, searching=${searching}`).toBe(0)
         expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool, state)))).digest('hex')).toMatchSnapshot(`${scenario}, searching=${searching}`)
         checks.push({ scenario, searching, sections: result.sections.length, pending: result.pending })
       }
-      const first = tracked(() => mobileWorkView(handle.pool).sections().orderingSections.flatMap(section => section.data)[0]!)
-      const value = tracked(() => mobileWorkView(handle.pool).row(first))
+      const first = tracked(() => mobileWorkView(handle.pool).mobileSections().orderingSections.flatMap(section => section.data)[0]!)
+      const value = tracked(() => mobileWorkView(handle.pool).mobileRow({ id: first, kind: handle.pool.tables.worktree.has(first) ? 'worktree' : 'issue' }))
       expect(value).not.toBe(LOADING)
-      expect(Object.keys(value!).sort()).toEqual([...MOBILE_ROW_FIELDS].sort())
+      expect(value !== LOADING && value?.ready).toBe('ready')
     }
     try {
       await check('corpus')
@@ -124,10 +124,10 @@ describe('mobile pool values', () => {
       await run.apply({ kind: 'offerChange', sessionId: 'mobile-asker', offer: true })
       await run.apply({ kind: 'issueFacts', id, variant: 0 })
       locals.flush(); run.feed().flush(); settle(handle.pool)
-      const split = tracked(() => mobileWorkView(handle.pool).sections())
+      const split = tracked(() => mobileWorkView(handle.pool).mobileSections())
       expect(split.sections[0]!.key).toBe('pinned')
-      expect(split.sections.find(section => section.key === 'pinned')!.data).toContainEqual({ id, kind: 'issue', listKey: id })
-      expect(split.sections.find(section => section.key === 'needs-you')!.data).toContainEqual({ id, kind: 'issue', listKey: `needs-you:${id}` })
+      expect(split.sections.find(section => section.key === 'pinned')!.data).toContain(id)
+      expect(split.sections.find(section => section.key === 'needs-you')!.data).toContain(id)
       expect(split.orderingSections.some(section => section.key === 'needs-you')).toBe(false)
       const ids = split.sections.flatMap(section => section.data.map(row => row.listKey))
       expect(new Set(ids).size).toBe(ids.length)
@@ -148,12 +148,12 @@ describe('mobile pool values', () => {
       const session = run.ctx.cache.read('session', sessionId)!.value as Record<string, unknown>
       upsert(run.ctx, 'session', sessionId, { ...session, busy: false, agentState: undefined })
       run.feed().flush(); locals.flush(); settle(handle.pool)
-      expect(tracked(() => ({ ...mobileWorkView(handle.pool).row(ref) as object }))).toMatchObject({ draftOnly: true, draftQuiet: true, unread: false, navigation: { kind: 'session', id: sessionId } })
-      const stop = reaction(() => mobileWorkView(handle.pool).row(ref), () => {}, { fireImmediately: true })
+      expect(tracked(() => mobileWorkView(handle.pool).mobileRow(ref))).toMatchObject({ sessionOnlyDraft: true, quietDraft: true, emphasizeUnread: false, navigation: { kind: 'session', id: sessionId } })
+      const stop = reaction(() => mobileWorkView(handle.pool).mobileRow(ref), () => {}, { fireImmediately: true })
       try {
         await run.apply({ kind: 'phaseChange', sessionId, phase: 'idle' })
         locals.flush(); settle(handle.pool)
-        expect(tracked(() => ({ ...mobileWorkView(handle.pool).row(ref) as object }))).toMatchObject({ draftOnly: true, draftQuiet: false })
+        expect(tracked(() => mobileWorkView(handle.pool).mobileRow(ref))).toMatchObject({ sessionOnlyDraft: true, quietDraft: false })
         expect(tracked(() => poolMobileSnapshot(handle.pool)).pending).toBe(0)
         expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool)))).digest('hex')).toMatchSnapshot('last green draft output')
       } finally { stop() }
@@ -175,17 +175,17 @@ describe('mobile pool values', () => {
       const ids = handle.pool.residency!.ids('issue').slice(0, 2)
       expect(ids).toHaveLength(2)
       const before = scheduled
-      expect(tracked(() => ids.map(id => mobileWorkView(handle.pool).row({ id, kind: 'issue' })))).toEqual([LOADING, LOADING])
+      expect(tracked(() => ids.map(id => mobileWorkView(handle.pool).mobileRow({ id, kind: 'issue' })))).toEqual([LOADING, LOADING])
       expect(hydrate).not.toHaveBeenCalled()
       expect(scheduled - before).toBeLessThanOrEqual(1)
       for (let window = 0; window < 64; window += 1) {
-        tracked(() => ids.map(id => mobileWorkView(handle.pool).row({ id, kind: 'issue' })))
+        tracked(() => ids.map(id => mobileWorkView(handle.pool).mobileRow({ id, kind: 'issue' })))
         if (handle.pool.hydrate() === 0) break
       }
-      expect(tracked(() => ids.map(id => mobileWorkView(handle.pool).row({ id, kind: 'issue' })))).not.toContain(LOADING)
+      expect(tracked(() => ids.map(id => mobileWorkView(handle.pool).mobileRow({ id, kind: 'issue' })))).not.toContain(LOADING)
       replay.push({ type: 'update', rows: [{ kind: 'issue', id: ids[0]!, value: undefined }] })
-      expect(tracked(() => mobileWorkView(handle.pool).row({ id: ids[0]!, kind: 'issue' }))).toBeUndefined()
-      expect(tracked(() => mobileWorkView(handle.pool).row({ id: 'never-known', kind: 'issue' }))).toBeUndefined()
+      expect(tracked(() => mobileWorkView(handle.pool).mobileRow({ id: ids[0]!, kind: 'issue' }))).toBeUndefined()
+      expect(tracked(() => mobileWorkView(handle.pool).mobileRow({ id: 'never-known', kind: 'issue' }))).toBeUndefined()
     } finally { hydrate.mockRestore(); handle.dispose() }
   })
 

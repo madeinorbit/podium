@@ -1,3 +1,4 @@
+import { worklistView } from '../worklist/view-model'
 // @vitest-environment happy-dom
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -48,7 +49,7 @@ async function mount(inline: boolean, initiallyActive = true, retainWhileInactiv
   const paints = { selected: { selected: true }, empty: { selected: false } }
   const read = (current: MobxPool) => {
     reads++
-    return current.selection.size > 0 && current.selection.has('projection-target')
+    return worklistView(current).selectedId === ('projection-target')
       ? paints.selected
       : paints.empty
   }
@@ -59,7 +60,7 @@ async function mount(inline: boolean, initiallyActive = true, retainWhileInactiv
   // contract without making the component itself an observable consumer.
   const freshReader = (captured: string) => (current: MobxPool) => {
     reads++
-    return current.selection.size > 0 && current.selection.has(captured)
+    return worklistView(current).selectedId === (captured)
       ? paints.selected
       : paints.empty
   }
@@ -144,11 +145,11 @@ async function mount(inline: boolean, initiallyActive = true, retainWhileInactiv
     snapshot: () => snapshot!,
     projections: () => create.mock.calls.length,
     subscriptions: () => subscriptions.reduce((sum, count) => sum + count(), 0),
-    observers: () => getObserverTree(pool!.selection).observers?.length ?? 0,
+    observers: () => getObserverTree(worklistView(pool!), 'selectedId').observers?.length ?? 0,
     // The host also owns a standing sidebar selection reaction. Count this
     // probe's projection separately; unmount still checks every observer.
     projectionObservers: () =>
-      getObserverTree(pool!.selection).observers?.filter((observer) => observer.name === PROJECTION_NAME)
+      getObserverTree(worklistView(pool!), 'selectedId').observers?.filter((observer) => observer.name === PROJECTION_NAME)
         .length ?? 0,
     unmount,
     render,

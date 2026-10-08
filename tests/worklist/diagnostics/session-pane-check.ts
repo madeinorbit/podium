@@ -1,3 +1,4 @@
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { referenceState } from './reference-state'
 /** Optional pane differential, using sidebar-check's positions-only report.
  * Legacy input is diagnostic-only; it never enters the switched read path. */
@@ -77,7 +78,7 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
     }
     return undefined
   }
-  const selectedIssueId = pool.selection.keys().next().value ?? null
+  const selectedIssueId = worklistView(pool).selectedId
   const issueHex = paneIssueColor(pool, selectedIssueId, hex)
   if (issueHex === LOADING) pending++
   const differenceFields: Record<string, number> = {}

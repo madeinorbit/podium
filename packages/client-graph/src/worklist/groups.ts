@@ -1,3 +1,4 @@
+import { sidebarRosterView } from './sidebar-roster'
 import { lazy } from '@podium/mobx-helpers'
 import { MobileSection } from './mobile'
 import { machinePathBasename } from '@podium/model/browser'
@@ -239,6 +240,11 @@ export class GroupNode {
   ) {
   }
 
+  @lazy get rosterBand() {
+    const pool = this.groups.pool, ids = sidebarRosterView(pool).groupIds(this.key)
+    const head = ids[0] === undefined ? undefined : pool.model('worktree', ids[0])
+    return { ids, label: head?.repoName ?? this.key, repoPath: head?.repoPath ?? this.key }
+  }
   @lazy get workSection() {
     const pool = this.groups.pool
     return new MobileSection(pool, this.key, worklistView(pool).mobileSectionsView)

@@ -1,3 +1,4 @@
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { referenceView } from '@podium/client-graph/issue-reference'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
@@ -162,7 +163,7 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
     })
     previousRows = nextRows
     const selectionChanged =
-      (pool.selection.keys().next().value ?? null) !== (state.selectedIssueId ?? null)
+      (worklistView(pool).selectedId) !== (state.selectedIssueId ?? null)
     pool.applyLocals(
       {
         selectedIssueId: state.selectedIssueId ?? null,

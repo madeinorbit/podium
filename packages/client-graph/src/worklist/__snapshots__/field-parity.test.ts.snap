@@ -366,6 +366,207 @@ exports[`merge > sidebar.unsnoozed equals its old port 1`] = `false`;
 
 exports[`merge > sidebar.working equals its old port 1`] = `false`;
 
+exports[`next-message > mobile.activityAt equals its old port 1`] = `1791460800000`;
+
+exports[`next-message > mobile.attentionAction equals its old port 1`] = `null`;
+
+exports[`next-message > mobile.branch equals its old port 1`] = `null`;
+
+exports[`next-message > mobile.color equals its old port 1`] = `null`;
+
+exports[`next-message > mobile.decision equals its old port 1`] = `null`;
+
+exports[`next-message > mobile.draftOnly equals its old port 1`] = `false`;
+
+exports[`next-message > mobile.draftQuiet equals its old port 1`] = `false`;
+
+exports[`next-message > mobile.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [
+    {
+      "kind": "codex",
+      "parked": false,
+    },
+  ],
+  "total": 1,
+}
+`;
+
+exports[`next-message > mobile.gitState equals its old port 1`] = `undefined`;
+
+exports[`next-message > mobile.id equals its old port 1`] = `"root"`;
+
+exports[`next-message > mobile.internal equals its old port 1`] = `false`;
+
+exports[`next-message > mobile.kind equals its old port 1`] = `"issue"`;
+
+exports[`next-message > mobile.label equals its old port 1`] = `"root"`;
+
+exports[`next-message > mobile.navigation equals its old port 1`] = `
+{
+  "id": "root",
+  "kind": "issue",
+}
+`;
+
+exports[`next-message > mobile.originSeq equals its old port 1`] = `null`;
+
+exports[`next-message > mobile.pinned equals its old port 1`] = `false`;
+
+exports[`next-message > mobile.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 0,
+  "review": 0,
+  "run": 1,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`next-message > mobile.sessions equals its old port 1`] = `
+[
+  {
+    "agentKind": "codex",
+    "agentState": {
+      "phase": "working",
+      "since": "2026-10-08T12:00:00Z",
+    },
+    "archived": false,
+    "cwd": "/synthetic",
+    "issueId": "root",
+    "lastActiveAt": "2026-10-08T12:00:00Z",
+    "sessionId": "seat",
+    "status": "live",
+  },
+]
+`;
+
+exports[`next-message > mobile.snoozed equals its old port 1`] = `true`;
+
+exports[`next-message > mobile.suppressAhead equals its old port 1`] = `false`;
+
+exports[`next-message > mobile.timing equals its old port 1`] = `
+{
+  "phase": "working",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`next-message > mobile.tuckable equals its old port 1`] = `false`;
+
+exports[`next-message > mobile.unread equals its old port 1`] = `false`;
+
+exports[`next-message > mobile.unsnoozed equals its old port 1`] = `false`;
+
+exports[`next-message > mobile.waitingCount equals its old port 1`] = `0`;
+
+exports[`next-message > mobile.working equals its old port 1`] = `true`;
+
+exports[`next-message > sidebar.aggregateSessionIds equals its old port 1`] = `
+[
+  "seat",
+]
+`;
+
+exports[`next-message > sidebar.asking equals its old port 1`] = `false`;
+
+exports[`next-message > sidebar.awaitingFirstPrompt equals its old port 1`] = `false`;
+
+exports[`next-message > sidebar.awaitsTuck equals its old port 1`] = `false`;
+
+exports[`next-message > sidebar.canBringBack equals its old port 1`] = `false`;
+
+exports[`next-message > sidebar.color equals its old port 1`] = `null`;
+
+exports[`next-message > sidebar.continuation equals its old port 1`] = `null`;
+
+exports[`next-message > sidebar.decision equals its old port 1`] = `null`;
+
+exports[`next-message > sidebar.deferred equals its old port 1`] = `true`;
+
+exports[`next-message > sidebar.draftAgentOnly equals its old port 1`] = `false`;
+
+exports[`next-message > sidebar.errorClass equals its old port 1`] = `null`;
+
+exports[`next-message > sidebar.firstSessionId equals its old port 1`] = `"seat"`;
+
+exports[`next-message > sidebar.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [
+    {
+      "kind": "codex",
+      "parked": false,
+    },
+  ],
+  "total": 1,
+}
+`;
+
+exports[`next-message > sidebar.fromChildren equals its old port 1`] = `false`;
+
+exports[`next-message > sidebar.gitState equals its old port 1`] = `undefined`;
+
+exports[`next-message > sidebar.idNumber equals its old port 1`] = `1`;
+
+exports[`next-message > sidebar.internal equals its old port 1`] = `false`;
+
+exports[`next-message > sidebar.mergeCommits equals its old port 1`] = `0`;
+
+exports[`next-message > sidebar.originTick equals its old port 1`] = `null`;
+
+exports[`next-message > sidebar.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 0,
+  "review": 0,
+  "run": 1,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`next-message > sidebar.sessions equals its old port 1`] = `
+[
+  {
+    "agentKind": "codex",
+    "agentState": {
+      "phase": "working",
+      "since": "2026-10-08T12:00:00Z",
+    },
+    "archived": false,
+    "cwd": "/synthetic",
+    "issueId": "root",
+    "lastActiveAt": "2026-10-08T12:00:00Z",
+    "sessionId": "seat",
+    "status": "live",
+  },
+]
+`;
+
+exports[`next-message > sidebar.statusFromChildren equals its old port 1`] = `false`;
+
+exports[`next-message > sidebar.timing equals its old port 1`] = `
+{
+  "phase": "working",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`next-message > sidebar.title equals its old port 1`] = `"root"`;
+
+exports[`next-message > sidebar.unread equals its old port 1`] = `false`;
+
+exports[`next-message > sidebar.unsnoozed equals its old port 1`] = `false`;
+
+exports[`next-message > sidebar.working equals its old port 1`] = `true`;
+
 exports[`origin > mobile.activityAt equals its old port 1`] = `1791460800000`;
 
 exports[`origin > mobile.attentionAction equals its old port 1`] = `null`;

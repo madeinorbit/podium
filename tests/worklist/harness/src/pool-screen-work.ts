@@ -1,3 +1,6 @@
+import { worklistView } from '@podium/client-graph/worklist/view-model'
+import { worklistRowStatus } from '../../../../apps/mobile/src/lib/work-sections'
+import { sidebarComparable } from '../../diagnostics/oracle'
 import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
 import { createCommandPalette } from '@podium/client-graph/command-launch-views'
 import { createLaunchCatalogPicker, createLaunchWorkPicker } from '@podium/client-graph/launch-option-views'
@@ -424,6 +427,7 @@ async function measureScreenCells(
         if (!compareStructural(window.get(), next)) runInAction(() => window.set(next))
       }),
     )
+    worklistView(pool).setLayout(layout)
     const selected = () => window.get().selectedIssueId ?? ROOT
     const readers: ScreenReader[] = []
     const add = (name: string, consumers: readonly string[], read: () => unknown) => {
@@ -440,22 +444,22 @@ async function measureScreenCells(
       ? value : JSON.parse(JSON.stringify(value))
     add('sidebar.row', ['PoolRowSlot', 'PoolSidebarRail'], () => {
       const row = sidebarView(pool).row(selected())
-      return row === undefined || row === LOADING ? row : rowAnswers(poolIssuePaint(row))
+      return row === undefined || row === LOADING ? row : rowAnswers(poolIssuePaint(sidebarComparable(row) as never))
     })
     add('sidebar.worktree', ['PoolWorktreeRow', 'PoolSidebarRail'], () =>
       sidebarView(pool).worktree(worktree, layout),
     )
-    add('sidebar.selection', ['PoolSidebar'], () => sidebarView(pool).selectionEvicted())
+    add('sidebar.selection', ['PoolSidebar'], () => sidebarView(pool).selectionGone())
     add('mobile-work.sections', ['PoolWorkScreen', 'GroupHeader'], () =>
-      mobileWorkView(pool).sections(layout),
+      mobileWorkView(pool).mobileSections(),
     )
     const search = new MobileSearchSections()
     add('mobile-work.search', ['PoolWorkScreen'], () =>
-      searchMobileSections(pool, mobileWorkView(pool).sections(layout).sections, '', search),
+      searchMobileSections(pool, mobileWorkView(pool).mobileSections().sections, '', search),
     )
     add('mobile-work.row', ['PoolWorkRowSlot'], () => {
-      const row = mobileWorkView(pool).row({ kind: 'issue', id: selected() })
-      return row === undefined || row === LOADING ? row : rowAnswers(mobileRowPaint(row, pool.clock.trackedNow()))
+      const row = mobileWorkView(pool).mobileRow({ kind: 'issue', id: selected() })
+      return row === undefined || row === LOADING ? row : rowAnswers({ id: row.id, title: row.title, timing: row.timing, working: row.visibleWorking, waiting: row.waitingCount, fleet: row.visibleFleet, ...('issue' in row ? { progress: row.progress, unread: row.emphasizeUnread, status: worklistRowStatus(row, pool.clock.trackedNow()), issue: sidebarComparable(row).issue } : {}) })
     })
     add('header.folded', ['FoldedFlightDeckBar'], () => headerView(pool).folded())
     add('header.shipping', ['useShippingCounts'], () => headerView(pool).shipping())

@@ -1,10 +1,13 @@
 import { compareStructural } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
+import { worklistView } from './view-model'
+import type { SidebarOwner } from './sidebar-roster'
+import type { MobxPool } from '../pool'
 import { hostOf, type SessionModel } from '../models'
 import type { SliceSession } from '../shared/slice-types'
 import { attentionGroup, isOfferOnlyAttention, LOADING, type Loaded as LoadedRow, motionPhase, type SeatVerdict } from './rollup'
 import { fleetOf, unstarted, type SidebarSessionFacts, type SidebarSessionOrder } from './sidebar-row'
-import { type Retention, retentionOf, type SessionVisibility } from './visible'
+import { type Retention, retentionOf, retains, type SessionVisibility } from './visible'
 
 /** Retention and display contributions of a session in the worklist. */
 export class WorklistSession implements SessionVisibility {
@@ -40,6 +43,25 @@ export class WorklistSession implements SessionVisibility {
   }
   @lazy get stale(): boolean {
     return !this.sortWorking && this.host.inputs.passed((Date.parse(this.session.lastActivity) || 0) + 16 * 60 * 60 * 1000)
+  }
+
+  @lazy get phase() { return motionPhase(this.session as unknown as SliceSession, false, () => this.session.executing) }
+  @lazy get rosterCandidate(): boolean {
+    const retention = this.retention
+    if (!retention?.seat || retention.shell) return false
+    const pool = this.host as MobxPool, view = worklistView(pool)
+    const owner = retention.issueId ? view.knownRow(retention.issueId)?.rosterOwner : undefined
+    if (owner?.represented || owner?.excluded) return false
+    const retainedBy = (value: SidebarOwner | undefined) => retains(retention,
+      value?.finishAt === undefined ? undefined : { updatedAt: new Date(value.finishAt).toISOString() },
+      { finished: value?.finishAt !== undefined }, pool.clock)
+    if (!retainedBy(owner)) return false
+    if (retention.issueId === undefined) {
+      const path = pool.graph.one('session', this.id, 'worktree')
+      const tree = path === null ? undefined : pool.model('worktree', path)
+      if (tree && view.tree(tree).representedIssues.some(issue => retainedBy(view.row(issue).rosterOwner))) return false
+    }
+    return true
   }
 
   // Close and retention: sidebar history also considers read/grace state

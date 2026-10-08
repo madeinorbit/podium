@@ -545,7 +545,7 @@ export class MobxPool {
     observe(this.tables.session, (change) => {
       this.seatVerdicts.queueSession(change.name)
     })
-    runInAction(() => this.select(locals.selectedIssueId))
+    runInAction(() => { this.select(locals.selectedIssueId); worklistView(this).setFolded(locals.selectedIssueWasFolded === true) })
     residency?.onDue(() => this.hydrate())
     if (lazy?.worklist !== 'demand') this.worklist.retain()
   }

@@ -339,19 +339,19 @@ function pool() {
   return state.pool
 }
 function value(id = TARGET) {
-  const row = mobileWorkView(pool()).row({ kind: 'issue', id })
-  if (!row || typeof row === 'symbol' || !row.sidebar) throw new Error(`Missing resident ${id}`)
+  const row = mobileWorkView(pool()).mobileRow({ kind: 'issue', id })
+  if (!row || typeof row === 'symbol' || !('issue' in row)) throw new Error(`Missing resident ${id}`)
   return row
 }
 function button(id = TARGET) {
   return screen.getByRole('button', {
-    name: `${value(id).sidebar!.issue.displayRef} ${value(id).label}`,
+    name: `${value(id).issue.displayRef} ${value(id).title}`,
   })
 }
 async function parity() {
   await act(async () => {
     for (let turn = 0; turn < 100; turn++) {
-      mobileWorkView(pool()).sections()
+      mobileWorkView(pool()).mobileSections()
       if (!pool().hydrate()) break
     }
     await Promise.resolve()
@@ -468,16 +468,16 @@ describe('mobile pool work-list actions', () => {
             agentState: { phase: 'working', since: iso(-60_000) },
           })
       })
-      const before = value().sidebar!.issue.unread
+      const before = value().issue.unread
       expect(before).toBe(unread)
       if (unread) expect(value().unread).toBe(false)
       await openMenu()
       await choose(unread ? 'Mark as read' : 'Mark as unread')
       const write = await request(unread ? 'issues.markRead' : 'issues.markUnread')
-      expect(value().sidebar!.issue.unread).toBe(!unread)
+      expect(value().issue.unread).toBe(!unread)
       await parity()
       await settle(write)
-      expect(value().sidebar!.issue.unread).toBe(unread)
+      expect(value().issue.unread).toBe(unread)
     })
 
   it('tucks a completed row immediately, rolls back, and holds accepted tuck until echo', async () => {
@@ -491,7 +491,7 @@ describe('mobile pool work-list actions', () => {
     expect(first.input).toMatchObject({ id: TARGET, tucked: true, mutationId: expect.any(String) })
     expect(screen.queryByRole('button', { name: label })).toBeNull()
     expect(
-      mobileWorkView(pool()).sections()
+      mobileWorkView(pool()).mobileSections()
         .sections.some((section) => section.closedIds.includes(TARGET)),
     ).toBe(true)
     await parity()
@@ -500,7 +500,7 @@ describe('mobile pool work-list actions', () => {
     await choose('Tuck Synthetic task 3 into Closed')
     const second = await request('issues.setTucked')
     await settle(second, true)
-    expect(value().sidebar!.issue.tuckedAt).toBe(iso(0))
+    expect(value().issue.tuckedAt).toBe(iso(0))
     await patch(fixture, TARGET, { tuckedAt: iso(0) })
     expect(screen.queryByRole('button', { name: label })).toBeNull()
   })
@@ -519,12 +519,12 @@ describe('mobile pool work-list actions', () => {
     await choose('Bring back from Closed')
     const write = await request('issues.setTucked')
     expect(write.input).toMatchObject({ tucked: false })
-    expect(value().sidebar!.issue.tuckedAt).toBeNull()
+    expect(value().issue.tuckedAt).toBeNull()
     expect(value().tuckable).toBe(true)
     await parity()
     await settle(write)
     expect(
-      mobileWorkView(pool()).sections()
+      mobileWorkView(pool()).mobileSections()
         .sections.some((section) => section.closedIds.includes(TARGET)),
     ).toBe(true)
   })
@@ -557,7 +557,7 @@ describe('mobile pool work-list actions', () => {
     const write = await request('issues.undefer')
     expect(value().snoozed).toBe(false)
     expect(
-      mobileWorkView(pool()).sections()
+      mobileWorkView(pool()).mobileSections()
         .sections.some((section) => section.data.some((row) => row.id === TARGET)),
     ).toBe(true)
     await parity()
@@ -615,14 +615,14 @@ describe('mobile pool work-list actions', () => {
     await choose('Planning')
     const write = await request('issues.update')
     expect(write.input).toMatchObject({ patch: { stage: 'planning' } })
-    expect(value().sidebar!.issue.stage).toBe('planning')
+    expect(value().issue.stage).toBe('planning')
     await parity()
     await settle(write)
-    expect(value().sidebar!.issue.stage).toBe('in_progress')
+    expect(value().issue.stage).toBe('in_progress')
   })
 
   for (const entry of issueStatusMenuEntries().filter((entry) => entry.terminal))
-    it(`closes as ${entry.label} and restores on refusal`, async () => {
+    it(`closes as ${entry.title} and restores on refusal`, async () => {
       await mount()
       await openMenu()
       await choose('Set status')
@@ -631,10 +631,10 @@ describe('mobile pool work-list actions', () => {
       const intent = parseIssueStatusValue(entry.value)
       if (intent?.kind !== 'close') throw new Error('Expected a terminal status')
       expect(write.input).toMatchObject({ reason: intent.reason })
-      expect(value().sidebar!.issue.stage).toBe('done')
+      expect(value().issue.stage).toBe('done')
       await parity()
       await settle(write)
-      expect(value().sidebar!.issue.stage).toBe('in_progress')
+      expect(value().issue.stage).toBe('in_progress')
     })
 
   it('requires explicit close confirmation for active agents and open children', async () => {
@@ -655,7 +655,7 @@ describe('mobile pool work-list actions', () => {
     const write = await request('issues.close')
     await parity()
     await settle(write)
-    expect(value().sidebar!.issue.stage).toBe('in_progress')
+    expect(value().issue.stage).toBe('in_progress')
   })
 
   for (const color of ['green', null] as const)
@@ -698,12 +698,12 @@ describe('mobile pool work-list actions', () => {
       )
       const write = await request('issues.setPlacement')
       expect(write.input).toMatchObject({ placement, originId: 'synthetic-1' })
-      expect(value().sidebar!.issue.parentId ?? null).toBe(
+      expect(value().issue.parentId ?? null).toBe(
         placement === 'own' ? null : 'synthetic-1',
       )
       await parity()
       await settle(write)
-      expect(value().sidebar!.issue.parentId ?? null).toBe(
+      expect(value().issue.parentId ?? null).toBe(
         placement === 'own' ? 'synthetic-1' : null,
       )
     })
@@ -726,7 +726,7 @@ describe('mobile pool work-list actions', () => {
     await choose('Delete')
     const write = await request('issues.delete')
     expect(
-      mobileWorkView(pool()).sections()
+      mobileWorkView(pool()).mobileSections()
         .sections.every((section) => section.data.every((row) => row.id !== TARGET)),
     ).toBe(true)
     await parity()
@@ -748,7 +748,7 @@ describe('mobile pool work-list actions', () => {
             agentState: { phase: 'needs_user', since: iso(-60_000), need: { kind: 'permission' } },
           })
         })
-        const split = mobileWorkView(pool()).sections()
+        const split = mobileWorkView(pool()).mobileSections()
         expect(split.sections.some((section) => section.kind === 'attention')).toBe(true)
         const ordering = split.orderingSections.find((section) => section.kind === scope)!
         expect(ordering.data.some((row) => row.id === 'synthetic-1')).toBe(true)
@@ -758,7 +758,7 @@ describe('mobile pool work-list actions', () => {
         const patches = planReorderKeys(
           [moving, ...before.filter((id) => id !== moving)],
           moving,
-          (id) => value(id).sidebar!.issue.sortKey,
+          (id) => value(id).issue.sortKey,
         )
         expect(patches.length).toBeGreaterThan(0)
         await act(async () => {
@@ -767,13 +767,13 @@ describe('mobile pool work-list actions', () => {
           )
         })
         expect(
-          mobileWorkView(pool()).sections()
+          mobileWorkView(pool()).mobileSections()
             .orderingSections.find((section) => section.key === ordering.key)!.data[0]!.id,
         ).toBe(moving)
         await parity()
         for (const changed of patches) await settle(await request('issues.update', changed.id))
         expect(
-          mobileWorkView(pool()).sections()
+          mobileWorkView(pool()).mobileSections()
             .orderingSections.find((section) => section.key === ordering.key)!
             .data.map((ref) => ref.id),
         ).toEqual(before)

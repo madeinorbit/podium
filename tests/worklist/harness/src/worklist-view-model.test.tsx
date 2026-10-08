@@ -45,8 +45,7 @@ describe('worklist view model migration', () => {
         snapshotPool(handle.pool)
         tracked(() => { for (const id of Object.keys(expected)) {
           const row = view.knownRow(id)
-          void row?.sidebar
-          void row?.mobile
+          void row?.ready
         } })
         if (handle.pool.hydrate() === 0) break
       }
@@ -54,21 +53,21 @@ describe('worklist view model migration', () => {
       tracked(() => {
         expect(view).toBe(worklistView(handle.pool))
         expect(view.desktop).toBe(sidebarView(handle.pool))
-        expect(view.phone).toBe(mobileWorkView(handle.pool))
-        expect(view.selection).toBe(handle.pool.selection)
+        expect(view).toBe(mobileWorkView(handle.pool))
+        expect(view.selectedId).toBe(locals.selectedIssueId)
         for (const [id, answer] of Object.entries(expected)) {
           const issue = handle.pool.model('issue', id)!, row = view.row(issue)
           expect(plainRowView(row), `row ${id}`).toEqual(answer)
           expect(() => expect({ ...plainRowView(row), title: 'wrong title' }).toEqual(answer)).toThrow()
           expect(view.row(issue)).toBe(row)
           expect(row.issue).toBe(issue)
-          expect(sidebarView(handle.pool).row(id)).toBe(row.sidebar)
-          expect(mobileWorkView(handle.pool).row({ kind: 'issue', id })).toBe(row.mobile)
-          expect(row.mobile).not.toBe(LOADING)
+          expect(sidebarView(handle.pool).row(id)).toBe(row.ready === 'ready' ? row : row.ready)
+          expect(mobileWorkView(handle.pool).mobileRow({ kind: 'issue', id })).toBe(row.ready === 'ready' ? row : row.ready)
+          expect(row.ready).not.toBe(LOADING)
           issues++
         }
         for (const legacyRow of visibleIssueRows(legacy, locals)) {
-          const row = view.knownRow(legacyRow.issue.id)!.sidebar
+          const row = sidebarView(handle.pool).row(legacyRow.issue.id)
           expect(row).not.toBe(LOADING)
           if (row && row !== LOADING) {
             expect(sidebarComparable(row), legacyRow.issue.id).toEqual(legacySidebarRow(legacyRow, legacy, locals.coarseNow))

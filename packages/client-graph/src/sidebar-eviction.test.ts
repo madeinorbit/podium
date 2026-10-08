@@ -1,9 +1,12 @@
 import { sidebarView } from './worklist/sidebar'
+import { observable } from 'mobx'
 import { expect, it } from 'vitest'
 import { MobxPool } from './pool'
 
 it('keeps an observed eviction pending across repeated render reads until selection moves', () => {
   const pool = new MobxPool({ selectedIssueId: 'selected', coarseNow: 0 })
+  const exits = observable.map<string, 'evicted'>()
+  pool.sources.register(['issueExit'], { read: (_kind, id) => ({ kind: exits.get(id) }), dispose() {} })
   try {
     pool.apply({
       type: 'replace',
@@ -22,12 +25,13 @@ it('keeps an observed eviction pending across repeated render reads until select
         },
       ],
     })
-    // Eviction history is maintained on selection/publication; no render read seeds it.
+    // The canonical replica exit survives without an earlier render read.
+    exits.set('selected', 'evicted')
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'selected', value: undefined }] })
-    const reads = Array.from({ length: 2 }, () => sidebarView(pool).selectionEvicted())
+    const reads = Array.from({ length: 2 }, () => sidebarView(pool).selectionGone())
     expect(reads).toEqual([true, true])
     pool.applyLocals({ selectedIssueId: null, coarseNow: 0 }, new Set(['selectedIssueId']))
-    expect(sidebarView(pool).selectionEvicted()).toBe(false)
+    expect(sidebarView(pool).selectionGone()).toBe(false)
   } finally {
     pool.dispose()
   }

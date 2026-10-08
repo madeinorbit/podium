@@ -4,6 +4,7 @@ import { machinePathsEqual } from '@podium/model/browser'
 import { createQueryResult } from '../query-result'
 import type { IssueModel, ModelOf, SessionModel } from '../models'
 import type { Worklist } from './view-model'
+import { sidebarRosterView } from './sidebar-roster'
 import { sidebarRosterOf, type SidebarState } from './sidebar'
 import { LOADING } from './rollup'
 import { fleetOf, sidebarTiming } from './sidebar-row'
@@ -15,6 +16,20 @@ import type { SliceSession } from '../shared/slice-types'
 export class WorklistWorktree {
   constructor(readonly worktree: ModelOf['worktree'], readonly worklist: Worklist) {}
   get id() { return this.worktree.id }
+  @lazy({ equals: compareShallow }) get representedIssues(): readonly IssueModel[] {
+    const pool = this.worklist.pool
+    return [...pool.graph.many('worktree', this.id, 'issues')].map(id => pool.issueObject(id))
+      .filter(issue => this.worklist.row(issue).rosterOwner.represented)
+  }
+  @lazy({ equals: compareShallow }) get candidateIds(): readonly string[] {
+    return [...sidebarRosterView(this.worklist.pool).residentCandidates(this.id)]
+      .filter(id => this.worklist.session(this.worklist.pool.sessionObject(id)).rosterCandidate)
+  }
+  @lazy get hasCandidates(): boolean {
+    for (const id of sidebarRosterView(this.worklist.pool).residentCandidates(this.id))
+      if (this.worklist.session(this.worklist.pool.sessionObject(id)).rosterCandidate) return true
+    return false
+  }
   @lazy({ equals: compareShallow }) get rosterIds(): readonly string[] {
     return sidebarRosterOf(this.worklist.host, this.id).ids
   }
@@ -99,15 +114,18 @@ export class WorklistWorktree {
     return !this.rosterIds.length ? undefined : this.pending > 0 ? LOADING : 'ready'
   }
   @lazy get title() { return `${this.worktree.repoName}${this.worktree.branch ? ` · ${this.worktree.branch}` : ''}` }
-  @lazy({ equals: compareShallow }) private get phases() {
-    return this.sessions.map(session => motionPhase(session as unknown as SliceSession, false, () => session.executing))
-  }
   @lazy get visiblePhase() {
-    return this.phases.includes('waiting') ? 'waiting' : this.phases.includes('working') ? 'working'
-      : this.phases.length > 0 && this.phases.every(phase => phase === 'done') ? 'done' : 'queued'
+    let working = false, done = this.sessions.length > 0
+    for (const session of this.sessions) {
+      const phase = this.worklist.session(session).phase
+      if (phase === 'waiting') return 'waiting'
+      working ||= phase === 'working'
+      done &&= phase === 'done'
+    }
+    return working ? 'working' : done ? 'done' : 'queued'
   }
   @lazy get visibleWorking() { return this.sessions.some(session => session.executing) }
-  @lazy get waitingCount() { return this.phases.filter(phase => phase === 'waiting').length }
+  @lazy get waitingCount() { return this.sessions.reduce((count, session) => count + Number(this.worklist.session(session).phase === 'waiting'), 0) }
   @lazy get visibleUnread() { return !this.visibleWorking && this.sessions.some(session => session.unread) }
   @lazy get timing() {
     return sidebarTiming(this.sessions as unknown as SliceSession[], this.visiblePhase, false, this.activityAt,

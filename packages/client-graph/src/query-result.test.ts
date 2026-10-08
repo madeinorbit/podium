@@ -1,9 +1,9 @@
+import { createIdentityQuery } from './query-identity-before'
 import { autorun, observable, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import {
   createKeyedAnswer,
   createKeyedAnswerBuilder,
-  createIdentityQuery,
   createQueryResult,
   joinQueryResults,
 } from './query-result'

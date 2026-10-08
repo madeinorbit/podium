@@ -1,6 +1,6 @@
 import { parseMs } from '../views'
-import { compareShallow, compareStructural, untracked } from 'mobx'
-import { lazy } from '@podium/mobx-helpers'
+import { compareStructural, untracked } from 'mobx'
+import { lazy, companion } from '@podium/mobx-helpers'
 import { type RowOriginTick, type RowRank, type RowView, isDraftNameSession } from '../shared/row-view'
 import type { SliceIssue, SlicePhase, SliceSession } from '../shared/slice-types'
 import { isExcluded } from '../shared/predicates'
@@ -12,26 +12,41 @@ import { type Aggregate, ownAttentionFields, unitOwnFields, unitsBelowFields,
   LOADING, type OwnAttention, type OwnFacts, type Rollup, rollupPartOf, phaseOf, askingOf,
   seatActivityPartOf, tipPartOf, type UnitOwn, type Units, waitingPartOf } from './rollup'
 import { NO_SIDEBAR_SESSIONS, sidebarLifecycle, sidebarTimingFromFacts, type SidebarRowValues, type SidebarProgress, type SidebarSessionFacts } from './sidebar-row'
-import type { SidebarOwner } from './sidebar-roster'
-import { sidebarBelowOf, sidebarNestedOf } from './sidebar'
+import { worklistLists } from './lists-before'
+import { createIdentityQuery } from '../query-identity-before'
 import { mobileWaitingCount, type MobileRowValues } from './mobile-row'
 import { childIdsPartOf, type HeldIssue, type HiddenIssue, hiddenPresenceOf, keptBelowPartOf,
   laneMemberIdsPartOf, memberIdsPartOf, nestCandidatePartOf, nestParentPartOf,
-  flatPartOf, keepsPartOf, retainedSeatIdsPartOf, rosterIdsPartOf, openOwnPartOf, nestBelowPartOf, nestedPartOf,
+  flatPartOf, keepsPartOf, retainedSeatIdsPartOf, rosterIdsPartOf, openOwnPartOf,
   laneRetainedSeatIdsPartOf, mergeIds, standingOf, type Standing, spinOffIdsPartOf, unreadPartOf } from './visible'
 import type { IssueModel, ModelHost } from '../models'
 import type { Worklist } from './view-model'
 import { AttentionFields } from './attention'
 
+// Identity-only ports and helpers are allocated on demand by companion().
+// Their owner is the view's row companion; their answers remain @lazy fields.
+const filingAttention = companion((row: WorklistIssueBefore) => new AttentionFields(row, () => row.worklist.host.rollupInputs))
+const drawnAttention = companion((row: WorklistIssueBefore) => new AttentionFields(row, () => row.worklist.rowInputs))
+const sidebarPort = companion((row: WorklistIssueBefore) => row.createSidebarPort())
+const mobilePort = companion((row: WorklistIssueBefore) => row.createMobilePort())
+const issuePort = companion((row: WorklistIssueBefore) => row.createIssuePort())
+const attentionSessions = companion((row: WorklistIssueBefore) => row.createAttentionSessionQuery())
+const laneMembers = companion((row: WorklistIssueBefore) => row.createMembershipQuery('lane'))
+const members = companion((row: WorklistIssueBefore) => row.createMembershipQuery('members'))
+const laneRetained = companion((row: WorklistIssueBefore) => row.createMembershipQuery('laneRetained'))
+const retained = companion((row: WorklistIssueBefore) => row.createMembershipQuery('retained'))
+const roster = companion((row: WorklistIssueBefore) => row.createMembershipQuery('roster'))
+const children = companion((row: WorklistIssueBefore) => row.createMembershipQuery('children'))
+const spinOffs = companion((row: WorklistIssueBefore) => row.createMembershipQuery('spinOffs'))
+type MembershipQuestion = 'lane' | 'members' | 'laneRetained' | 'retained' | 'roster' | 'children' | 'spinOffs'
+
 /** One worklist's rules for the shared issue; desktop and phone borrow this object. */
-export class WorklistIssue implements HeldIssue, RowView {
+export class WorklistIssueBefore implements HeldIssue, RowView {
   constructor(readonly issue: IssueModel, readonly worklist: Worklist) {}
+  get visibleChildIds() { return this.rowBelow }
   get id(): string { return this.issue.id }
   get visible(): boolean { return this.issue.visible }
   private get host(): ModelHost { return this.worklist.host }
-
-  @lazy private get filingAttention() { return new AttentionFields(this, () => this.worklist.host.rollupInputs) }
-  @lazy private get visibleAttentionFields() { return new AttentionFields(this, () => this.worklist.rowInputs) }
 
   // Presence and sidebar placement
 
@@ -46,18 +61,13 @@ export class WorklistIssue implements HeldIssue, RowView {
     return this.residentIssue() !== undefined
   }
 
-  @lazy({ equals: compareStructural }) get rosterOwner(): SidebarOwner {
-    return { represented: this.placed, excluded: this.issue.excluded,
-      finishAt: this.issue.finished ? this.issue.finishedMs : undefined }
-  }
-
   private readStanding(): Standing | undefined {
     const row = this.residentIssue()
     if (row === undefined) return undefined
     const issue = this.issue, work = this
     return standingOf(row, {
-      get excluded() { return (work.issue.excluded) }, get finished() { return issue.finished ?? false },
-      get awaitingMerge() { return (work.issue.awaitingMerge) }, get parentId() { return issue.parentRef },
+      get excluded() { return work.standingExcluded }, get finished() { return issue.finished ?? false },
+      get awaitingMerge() { return work.standingAwaitingMerge }, get parentId() { return issue.parentRef },
       get finishedMs() { return issue.finishedMs }, get updatedMs() { return issue.updatedMs },
       get formalParent() { return issue.formalParent },
       get replicaActivityMs() { return parseMs(issue.lastActivityAt) },
@@ -84,25 +94,21 @@ export class WorklistIssue implements HeldIssue, RowView {
       : input.seatList(this.id).length === 0 ? NO_SEATS : input.seatSummary(this.id)
   }
 
-  @lazy({ equals: compareShallow }) private get laneRetainedSeatIds(): readonly string[] {
-    return laneRetainedSeatIdsPartOf(this.host.visibleInputs, this.id, this.standing, this.laneMemberIds)
+  private get laneRetainedSeatIds(): readonly string[] {
+    return laneRetained(this).get()
   }
 
-  @lazy({ equals: compareShallow }) get retainedSeatIds(): readonly string[] {
+  get retainedSeatIds(): readonly string[] {
     const summary = this.explicitSeats
     if (this.standing !== undefined && summary !== undefined && this.laneMemberIds.length === 0) return summary.retained
-    if (this.standing === undefined) return []
-    return summary === undefined ? retainedSeatIdsPartOf(this.host.visibleInputs, this.id, this.standing, this.memberIds)
-      : mergeIds(summary.retained, this.laneRetainedSeatIds)
+    return retained(this).get()
   }
 
   // R2 owns the list: pass through its identity, with no copied ID snapshot.
-  @lazy({ equals: compareShallow }) get rosterIds(): readonly string[] {
+  get rosterIds(): readonly string[] {
     const summary = this.explicitSeats
     if (this.standing !== undefined && summary !== undefined && this.laneMemberIds.length === 0) return summary.roster
-    if (this.standing === undefined) return []
-    return summary === undefined ? rosterIdsPartOf(this.host.visibleInputs, this.retainedSeatIds)
-      : mergeIds(summary.roster, rosterIdsPartOf(this.host.visibleInputs, this.laneRetainedSeatIds))
+    return roster(this).get()
   }
 
   @lazy
@@ -183,12 +189,12 @@ export class WorklistIssue implements HeldIssue, RowView {
     )
   }
 
-  @lazy({ equals: compareShallow }) get nestBelow(): readonly string[] {
-    return nestBelowPartOf(this.host.visibleInputs, this.id)
+  get nestBelow(): readonly string[] {
+    return worklistLists(this).below.get()
   }
 
-  @lazy({ equals: compareShallow }) get nested(): readonly string[] {
-    return nestedPartOf(this.host.visibleInputs, this.id, this)
+  get nested(): readonly string[] {
+    return worklistLists(this).nested.get()
   }
 
   private readTip(): import('./rollup').Tip {
@@ -213,18 +219,19 @@ export class WorklistIssue implements HeldIssue, RowView {
       get updatedAt() { return row.issue.ownFacts.updatedAt },
       get closedAt() { return row.issue.ownFacts.closedAt },
       get coordinatorSessionId() { return row.issue.ownFacts.coordinatorSessionId },
-      get order() { return row.issueOrder },
+      get order() { return row.ownOrder },
     }
   }
 
   @lazy({ equals: compareStructural })
-  get issueOrder(): OwnFacts['order'] {
+  private get ownOrder(): OwnFacts['order'] {
     return this.issue.inMemory ? { id: this.id, seq: this.issue.seq,
       createdAt: this.issue.createdAt, sortKey: this.issue.sortKey } : undefined
   }
 
   // Stored fields and display labels (RowView compatibility)
 
+  @lazy
   get displayRef(): string {
     return this.issue.displayRef
   }
@@ -297,18 +304,22 @@ export class WorklistIssue implements HeldIssue, RowView {
   }
 
   // Stored fields used by row ordering
+  @lazy
   get pinned(): boolean {
     return this.issue.pinned === true
   }
 
+  @lazy
   get sortKey(): string | null {
     return this.issue.sortKey ?? null
   }
 
+  @lazy
   get createdAt(): string {
     return this.issue.createdAt ?? ''
   }
 
+  @lazy
   get seq(): number {
     return this.issue.seq ?? 0
   }
@@ -358,9 +369,35 @@ export class WorklistIssue implements HeldIssue, RowView {
     return this.host.visibleInputs.seatList(this.id)
   }
 
-  @lazy({ equals: compareShallow }) get laneMemberIds(): readonly string[] { return laneMemberIdsPartOf(this.host.visibleInputs, this.id) }
+  get laneMemberIds(): readonly string[] { return laneMembers(this).get() }
 
-  @lazy({ equals: compareShallow }) get memberIds(): readonly string[] { return memberIdsPartOf(this.seatIds, this.laneMemberIds) }
+  get memberIds(): readonly string[] { return members(this).get() }
+
+  /** @internal List policies stay here; query results own membership identity. */
+  createMembershipQuery(question: MembershipQuestion) {
+    return createIdentityQuery({ name: `worklist@${this.id}.${question}`, ids: () => {
+      const input = this.host.visibleInputs
+      switch (question) {
+        case 'lane': return laneMemberIdsPartOf(input, this.id)
+        case 'members': return memberIdsPartOf(this.seatIds, this.laneMemberIds)
+        case 'children': return childIdsPartOf(input, this.id)
+        case 'spinOffs': return spinOffIdsPartOf(input, this.id)
+        case 'laneRetained': return laneRetainedSeatIdsPartOf(input, this.id, this.standing, this.laneMemberIds)
+        case 'retained': {
+          if (this.standing === undefined) return []
+          const summary = this.explicitSeats
+          return summary === undefined ? retainedSeatIdsPartOf(input, this.id, this.standing, this.memberIds)
+            : mergeIds(summary.retained, this.laneRetainedSeatIds)
+        }
+        case 'roster': {
+          if (this.standing === undefined) return []
+          const summary = this.explicitSeats
+          return summary === undefined ? rosterIdsPartOf(input, this.retainedSeatIds)
+            : mergeIds(summary.roster, rosterIdsPartOf(input, this.laneRetainedSeatIds))
+        }
+      }
+    } })
+  }
 
   get hidden(): HiddenIssue | undefined {
     // untracked-read: issue-hidden-presence
@@ -470,9 +507,9 @@ export class WorklistIssue implements HeldIssue, RowView {
       : withWaiting(settled)
   }
 
-  @lazy({ equals: compareShallow }) get childIds(): readonly string[] { return childIdsPartOf(this.host.visibleInputs, this.id) }
+  get childIds(): readonly string[] { return children(this).get() }
 
-  @lazy({ equals: compareShallow }) get spinOffIds(): readonly string[] { return spinOffIdsPartOf(this.host.visibleInputs, this.id) }
+  get spinOffIds(): readonly string[] { return spinOffs(this).get() }
 
   @lazy get keptBelow(): boolean {
     return keptBelowPartOf(this.host.visibleInputs, this.id, this.childIds, this)
@@ -490,6 +527,7 @@ export class WorklistIssue implements HeldIssue, RowView {
     return this.issue.prefix
   }
 
+  @lazy
   get originRef(): string | null {
     return this.issue.originRef
   }
@@ -523,49 +561,110 @@ export class WorklistIssue implements HeldIssue, RowView {
     if (!this.hasStanding) return undefined
     const model = this
     return {
-      get excluded() { return (model.issue.excluded) },
-      get finished() { return (model.issue.finished ?? false) },
-      get agent() { return (model.issue.audience === 'agent') },
-      get activeHuman() { return model.activeHuman },
-      get awaitingMerge() { return (model.issue.awaitingMerge) },
-      get sessionless() { return model.sessionless },
-      get rescuable() { return model.rescuable },
-      get parentId() { return (model.issue.parentRef) },
-      get startedBy() { return model.startedBy },
-      get draftVessel() { return (model.issue.isDraftVessel === true && !model.issue.worktreePath) },
-      get finishedMs() { return model.issue.finishedMs },
-      get updatedMs() { return (model.issue.updatedMs) },
-      get replicaActivityMs() { return model.lastSessionActivity },
-      get headlessStaffed() { return (model.issue.headlessStaffed) },
-      get deleted() { return (model.issue.deletedAt != null) },
-      get pinned() { return (model.issue.pinned === true) },
-      get formalParent() { return (model.issue.formalParent) },
+      get excluded() { return model.standingExcluded },
+      get finished() { return model.standingFinished },
+      get agent() { return model.standingAgent },
+      get activeHuman() { return model.standingActiveHuman },
+      get awaitingMerge() { return model.standingAwaitingMerge },
+      get sessionless() { return model.standingSessionless },
+      get rescuable() { return model.standingRescuable },
+      get parentId() { return model.standingParentId },
+      get startedBy() { return model.standingStartedBy },
+      get draftVessel() { return model.standingDraftVessel },
+      get finishedMs() { return model.standingFinishedMs },
+      get updatedMs() { return model.standingUpdatedMs },
+      get replicaActivityMs() { return model.standingReplicaActivityMs },
+      get headlessStaffed() { return model.standingHeadlessStaffed },
+      get deleted() { return model.standingDeleted },
+      get pinned() { return model.standingPinned },
+      get formalParent() { return model.standingFormalParent },
     }
   }
 
   @lazy
-  get activeHuman(): Standing['activeHuman'] {
+  private get standingExcluded(): Standing['excluded'] {
+    const row = this.residentIssue()
+    return row !== undefined && isExcluded(row)
+  }
+
+  @lazy
+  private get standingFinished(): Standing['finished'] {
+    return this.issue.finished ?? false
+  }
+
+  @lazy
+  private get standingAgent(): Standing['agent'] {
+    return this.readStanding()!.agent
+  }
+
+  @lazy
+  private get standingActiveHuman(): Standing['activeHuman'] {
     return this.readStanding()!.activeHuman
   }
 
   @lazy
-  get sessionless(): Standing['sessionless'] {
+  private get standingAwaitingMerge(): Standing['awaitingMerge'] {
+    return !this.standingExcluded && this.issue.awaitingMerge
+  }
+
+  @lazy
+  private get standingSessionless(): Standing['sessionless'] {
     return this.readStanding()!.sessionless
   }
 
   @lazy
-  get rescuable(): Standing['rescuable'] {
+  private get standingRescuable(): Standing['rescuable'] {
     return this.readStanding()!.rescuable
   }
 
   @lazy
-  get startedBy(): Standing['startedBy'] {
+  private get standingParentId(): Standing['parentId'] {
+    return this.issue.parentRef
+  }
+
+  @lazy
+  private get standingStartedBy(): Standing['startedBy'] {
     return this.readStanding()!.startedBy
   }
 
   @lazy
-  get lastSessionActivity(): Standing['replicaActivityMs'] {
+  private get standingDraftVessel(): Standing['draftVessel'] {
+    return this.readStanding()!.draftVessel
+  }
+
+  @lazy
+  private get standingFinishedMs(): Standing['finishedMs'] {
+    return this.issue.finishedMs
+  }
+
+  @lazy
+  private get standingUpdatedMs(): Standing['updatedMs'] {
+    return this.issue.updatedMs
+  }
+
+  @lazy
+  private get standingReplicaActivityMs(): Standing['replicaActivityMs'] {
     return parseMs(this.issue.lastActivityAt)
+  }
+
+  @lazy
+  private get standingHeadlessStaffed(): Standing['headlessStaffed'] {
+    return this.issue.headlessStaffed
+  }
+
+  @lazy
+  private get standingDeleted(): Standing['deleted'] {
+    return this.readStanding()!.deleted
+  }
+
+  @lazy
+  private get standingPinned(): Standing['pinned'] {
+    return this.readStanding()!.pinned
+  }
+
+  @lazy
+  private get standingFormalParent(): Standing['formalParent'] {
+    return this.issue.formalParent
   }
 
   // ------------------------------------------------------ own-seat attention
@@ -573,213 +672,226 @@ export class WorklistIssue implements HeldIssue, RowView {
   get ownAttention(): OwnAttention {
     const model = this
     return {
-      get cold() { return model.sessionsLoading },
-      get workingSince() { return model.sessionsWorkingSince },
-      get firstSessionId() { return model.firstSessionId },
-      get railWaiting() { return model.waitingCounts },
-      get sessionIds() { return model.attentionSessionIds },
-      get sidebarFacts() { return model.sessionFacts },
-      get updatedAt() { return model.sessionsUpdatedAt },
-      get order() { return model.sessionOrder },
-      get decidingAt() { return model.decisionAt },
-      get seated() { return model.hasSessions },
-      get working() { return model.sessionsWorking },
-      get deciding() { return model.needsDecision },
-      get open() { return model.openSessionFlags },
-      get finished() { return model.finishedSessionFlags },
-      get pending() { return model.pendingSessions },
+      get cold() { return model.ownAttentionCold },
+      get workingSince() { return model.ownAttentionWorkingSince },
+      get firstSessionId() { return model.ownAttentionFirstSessionId },
+      get railWaiting() { return model.ownAttentionRailWaiting },
+      get sessionIds() { return model.ownAttentionSessionIds },
+      get sidebarFacts() { return model.ownAttentionSidebarFacts },
+      get updatedAt() { return model.ownAttentionUpdatedAt },
+      get order() { return model.ownAttentionOrder },
+      get decidingAt() { return model.ownAttentionDecidingAt },
+      get seated() { return model.ownAttentionSeated },
+      get working() { return model.ownAttentionWorking },
+      get deciding() { return model.ownAttentionDeciding },
+      get open() { return model.ownAttentionOpen },
+      get finished() { return model.ownAttentionFinished },
+      get pending() { return model.ownAttentionPending },
     }
   }
 
   @lazy
-  get sessionsLoading(): OwnAttention['cold'] {
+  private get ownAttentionCold(): OwnAttention['cold'] {
     return this.readOwnAttention().cold
   }
 
   @lazy
-  get sessionsWorkingSince(): OwnAttention['workingSince'] {
+  private get ownAttentionWorkingSince(): OwnAttention['workingSince'] {
     return this.readOwnAttention().workingSince
   }
 
+  @lazy
+  private get ownAttentionFirstSessionId(): OwnAttention['firstSessionId'] {
+    return this.readOwnAttention().firstSessionId
+  }
 
-  get waitingCounts(): NonNullable<Aggregate['railWaiting']> | undefined {
-    if (!this.hasWaitingCounts) return undefined
-    const row = this
-    return { get open() { return row.waitingOpenSessions }, get finished() { return row.waitingFinishedSessions },
-      get decisions() { return row.waitingDecisions } }
+  private get ownAttentionRailWaiting(): NonNullable<Aggregate['railWaiting']> | undefined {
+    if (!this.ownAttentionRailWaitingPresent) return undefined
+    const model = this
+    return {
+      get open() { return model.ownAttentionRailWaitingOpen },
+      get finished() { return model.ownAttentionRailWaitingFinished },
+      get decisions() { return model.ownAttentionRailWaitingDecisions },
+    }
   }
 
   @lazy
-  get hasWaitingCounts(): boolean {
+  private get ownAttentionRailWaitingPresent(): boolean {
     return this.readOwnAttention().railWaiting !== undefined
   }
 
   @lazy
-  get waitingOpenSessions(): NonNullable<Aggregate['railWaiting']>['open'] {
+  private get ownAttentionRailWaitingOpen(): NonNullable<Aggregate['railWaiting']>['open'] {
     return this.readOwnAttention().railWaiting!.open
   }
 
   @lazy
-  get waitingFinishedSessions(): NonNullable<Aggregate['railWaiting']>['finished'] {
+  private get ownAttentionRailWaitingFinished(): NonNullable<Aggregate['railWaiting']>['finished'] {
     return this.readOwnAttention().railWaiting!.finished
   }
 
   @lazy
-  get waitingDecisions(): NonNullable<Aggregate['railWaiting']>['decisions'] {
+  private get ownAttentionRailWaitingDecisions(): NonNullable<Aggregate['railWaiting']>['decisions'] {
     return this.readOwnAttention().railWaiting!.decisions
   }
 
-  @lazy({ equals: compareShallow }) get attentionSessionIds(): readonly string[] {
-    return this.readOwnAttention().sessionIds ?? []
+  private get ownAttentionSessionIds(): OwnAttention['sessionIds'] {
+    return attentionSessions(this).get()
   }
 
-  get sessionFacts(): SidebarSessionFacts | undefined {
-    if (!this.hasSessionFacts) return undefined
+  /** @internal Ordered identities from the worklist's seat policy. */
+  createAttentionSessionQuery() {
+    return createIdentityQuery({ name: `worklist@${this.id}.attentionSessions`,
+      ids: () => this.readOwnAttention().sessionIds ?? [] })
+  }
+
+  private get ownAttentionSidebarFacts(): SidebarSessionFacts | undefined {
+    if (!this.ownAttentionSidebarFactsPresent) return undefined
     const model = this
     return {
-      get fleet() { return model.sessionFleet },
-      get working() { return model.workingTimer },
-      get waitingOpen() { return model.waitingOpenTimer },
-      get waitingFinished() { return model.waitingFinishedTimer },
-      get doneSince() { return model.sessionsDoneSince },
-      get totalMs() { return model.sessionsWorkingMs },
-      get errorClass() { return model.sessionErrorClass },
-      get allUnstarted() { return model.sessionsUnstarted },
+      get fleet() { return model.ownAttentionSidebarFactsFleet },
+      get working() { return model.ownAttentionSidebarFactsWorking },
+      get waitingOpen() { return model.ownAttentionSidebarFactsWaitingOpen },
+      get waitingFinished() { return model.ownAttentionSidebarFactsWaitingFinished },
+      get doneSince() { return model.ownAttentionSidebarFactsDoneSince },
+      get totalMs() { return model.ownAttentionSidebarFactsTotalMs },
+      get errorClass() { return model.ownAttentionSidebarFactsErrorClass },
+      get allUnstarted() { return model.ownAttentionSidebarFactsAllUnstarted },
     }
   }
 
   @lazy
-  get hasSessionFacts(): boolean {
+  private get ownAttentionSidebarFactsPresent(): boolean {
     return this.readOwnAttention().sidebarFacts !== undefined
   }
 
   @lazy({ equals: compareStructural })
-  get sessionFleet(): SidebarSessionFacts['fleet'] {
+  private get ownAttentionSidebarFactsFleet(): SidebarSessionFacts['fleet'] {
     return this.readOwnAttention().sidebarFacts!.fleet
   }
 
   @lazy({ equals: compareStructural })
-  get workingTimer(): SidebarSessionFacts['working'] {
+  private get ownAttentionSidebarFactsWorking(): SidebarSessionFacts['working'] {
     return this.readOwnAttention().sidebarFacts!.working
   }
 
   @lazy({ equals: compareStructural })
-  get waitingOpenTimer(): SidebarSessionFacts['waitingOpen'] {
+  private get ownAttentionSidebarFactsWaitingOpen(): SidebarSessionFacts['waitingOpen'] {
     return this.readOwnAttention().sidebarFacts!.waitingOpen
   }
 
   @lazy({ equals: compareStructural })
-  get waitingFinishedTimer(): SidebarSessionFacts['waitingFinished'] {
+  private get ownAttentionSidebarFactsWaitingFinished(): SidebarSessionFacts['waitingFinished'] {
     return this.readOwnAttention().sidebarFacts!.waitingFinished
   }
 
   @lazy
-  get sessionsDoneSince(): SidebarSessionFacts['doneSince'] {
+  private get ownAttentionSidebarFactsDoneSince(): SidebarSessionFacts['doneSince'] {
     return this.readOwnAttention().sidebarFacts!.doneSince
   }
 
   @lazy
-  get sessionsWorkingMs(): SidebarSessionFacts['totalMs'] {
+  private get ownAttentionSidebarFactsTotalMs(): SidebarSessionFacts['totalMs'] {
     return this.readOwnAttention().sidebarFacts!.totalMs
   }
 
   @lazy
-  get sessionErrorClass(): SidebarSessionFacts['errorClass'] {
+  private get ownAttentionSidebarFactsErrorClass(): SidebarSessionFacts['errorClass'] {
     return this.readOwnAttention().sidebarFacts!.errorClass
   }
 
   @lazy
-  get sessionsUnstarted(): SidebarSessionFacts['allUnstarted'] {
+  private get ownAttentionSidebarFactsAllUnstarted(): SidebarSessionFacts['allUnstarted'] {
     return this.readOwnAttention().sidebarFacts!.allUnstarted
   }
 
   @lazy
-  get sessionsUpdatedAt(): OwnAttention['updatedAt'] {
+  private get ownAttentionUpdatedAt(): OwnAttention['updatedAt'] {
     return this.readOwnAttention().updatedAt
   }
 
   @lazy({ equals: compareStructural })
-  get sessionOrder(): OwnAttention['order'] {
+  private get ownAttentionOrder(): OwnAttention['order'] {
     return this.readOwnAttention().order
   }
 
   @lazy
-  get decisionAt(): OwnAttention['decidingAt'] {
+  private get ownAttentionDecidingAt(): OwnAttention['decidingAt'] {
     return this.readOwnAttention().decidingAt
   }
 
   @lazy
-  get hasSessions(): OwnAttention['seated'] {
+  private get ownAttentionSeated(): OwnAttention['seated'] {
     return this.readOwnAttention().seated
   }
 
   @lazy
-  get sessionsWorking(): OwnAttention['working'] {
+  private get ownAttentionWorking(): OwnAttention['working'] {
     return this.readOwnAttention().working
   }
 
   @lazy
-  get needsDecision(): OwnAttention['deciding'] {
+  private get ownAttentionDeciding(): OwnAttention['deciding'] {
     return this.readOwnAttention().deciding
   }
 
-  get openSessionFlags(): import('./rollup').PhaseFlags {
+  private get ownAttentionOpen(): import('./rollup').PhaseFlags {
     const model = this
     return {
-      get waiting() { return model.openSessionsWaiting },
-      get working() { return model.openSessionsWorking },
-      get allDone() { return model.openSessionsDone },
+      get waiting() { return model.ownAttentionOpenWaiting },
+      get working() { return model.ownAttentionOpenWorking },
+      get allDone() { return model.ownAttentionOpenAllDone },
     }
   }
 
   @lazy
-  get openSessionsWaiting(): import('./rollup').PhaseFlags['waiting'] {
+  private get ownAttentionOpenWaiting(): import('./rollup').PhaseFlags['waiting'] {
     return this.readOwnAttention().open.waiting
   }
 
   @lazy
-  get openSessionsWorking(): import('./rollup').PhaseFlags['working'] {
+  private get ownAttentionOpenWorking(): import('./rollup').PhaseFlags['working'] {
     return this.readOwnAttention().open.working
   }
 
   @lazy
-  get openSessionsDone(): import('./rollup').PhaseFlags['allDone'] {
+  private get ownAttentionOpenAllDone(): import('./rollup').PhaseFlags['allDone'] {
     return this.readOwnAttention().open.allDone
   }
 
-  get finishedSessionFlags(): import('./rollup').PhaseFlags {
+  private get ownAttentionFinished(): import('./rollup').PhaseFlags {
     const model = this
     return {
-      get waiting() { return model.finishedSessionsWaiting },
-      get working() { return model.finishedSessionsWorking },
-      get allDone() { return model.finishedSessionsDone },
+      get waiting() { return model.ownAttentionFinishedWaiting },
+      get working() { return model.ownAttentionFinishedWorking },
+      get allDone() { return model.ownAttentionFinishedAllDone },
     }
   }
 
   @lazy
-  get finishedSessionsWaiting(): import('./rollup').PhaseFlags['waiting'] {
+  private get ownAttentionFinishedWaiting(): import('./rollup').PhaseFlags['waiting'] {
     return this.readOwnAttention().finished.waiting
   }
 
   @lazy
-  get finishedSessionsWorking(): import('./rollup').PhaseFlags['working'] {
+  private get ownAttentionFinishedWorking(): import('./rollup').PhaseFlags['working'] {
     return this.readOwnAttention().finished.working
   }
 
   @lazy
-  get finishedSessionsDone(): import('./rollup').PhaseFlags['allDone'] {
+  private get ownAttentionFinishedAllDone(): import('./rollup').PhaseFlags['allDone'] {
     return this.readOwnAttention().finished.allDone
   }
 
   @lazy
-  get pendingSessions(): OwnAttention['pending'] {
+  private get ownAttentionPending(): OwnAttention['pending'] {
     return this.readOwnAttention().pending
   }
 
   // ------------------------------------------------------ nested attention
 
-  get aggregate(): Aggregate { return this.filingAttention.value }
-  get visibleAttention(): Aggregate { return this.visibleAttentionFields.value }
+  get aggregate(): Aggregate { return filingAttention(this).value }
+  get rowAggregate(): Aggregate { return drawnAttention(this).value }
 
   // Progress: formal descendants
 
@@ -938,9 +1050,9 @@ export class WorklistIssue implements HeldIssue, RowView {
 
   // Drawn rows use the same companions on desktop and phone. Their demand
   // follows the resident nesting query, independently of filing the list.
-  @lazy({ equals: compareShallow }) get visibleChildIds(): readonly string[] { return sidebarBelowOf(this, this.worklist.pool) }
-  @lazy({ equals: compareShallow }) get visibleDescendantIds(): readonly string[] { return sidebarNestedOf(this, this.worklist.pool) }
-  get visibleParts(): import('./rollup').RollupSelf {
+  get rowBelow(): readonly string[] { return worklistLists(this).drawnBelow.get() }
+  get rowNested(): readonly string[] { return worklistLists(this).drawnNested.get() }
+  get rowParts(): import('./rollup').RollupSelf {
     const row = this
     return {
       get ownFacts() { return row.ownFacts }, get formalParent() { return row.formalParent },
@@ -949,54 +1061,71 @@ export class WorklistIssue implements HeldIssue, RowView {
       get seatIds() { return row.seatIds },
       get rosterIds() { return row.rosterIds }, get finished() { return row.finished },
       get tip() { return row.tip }, get ownAttention() { return row.ownAttention },
-      get aggregate() { return row.visibleAttention }, get unitOwn() { return row.unitOwn },
-      get unitsBelow() { return row.unitsBelow }, get seatActivity() { return row.visibleSessionActivity },
-      get rollup() { return rollupPartOf(row.visibleParts) },
+      get aggregate() { return row.rowAggregate }, get unitOwn() { return row.unitOwn },
+      get unitsBelow() { return row.unitsBelow }, get seatActivity() { return row.rowSeatActivity },
+      get rollup() { return rollupPartOf(row.rowParts) },
     }
   }
-  @lazy get visibleSessionActivity(): number | null { return seatActivityPartOf(this.worklist.rowInputs, this.id, this.visibleParts) }
-  @lazy get visibleActivityAt(): number {
-    const own = this.ownActivityAt, seat = this.visibleSessionActivity
+  @lazy get rowSeatActivity(): number | null { return seatActivityPartOf(this.worklist.rowInputs, this.id, this.rowParts) }
+  @lazy get rowActivityAt(): number {
+    const own = this.ownActivityAt, seat = this.rowSeatActivity
     return seat !== null && seat > own ? seat : own
   }
 
-  @lazy get loadedIssue() { return this.host.rollupInputs.loadedIssue(this.id) }
-  @lazy get loadedOrigin() { return this.originRef === null ? undefined : this.host.rollupInputs.loadedIssue(this.originRef) }
-  get continuationTip() { return !this.targetId && !this.openOwn ? this.tip : undefined }
+  @lazy private get rowOwn() { return this.host.rollupInputs.loadedIssue(this.id) }
+  @lazy private get rowOrigin() { return this.originRef === null ? undefined : this.host.rollupInputs.loadedIssue(this.originRef) }
+  private get rowTip() { return !this.targetId && !this.openOwn ? this.tip : undefined }
   @lazy private get targetId() { return this.issue.supersededBy ?? this.issue.duplicateOf }
-  @lazy get ready(): 'ready' | typeof LOADING | undefined {
-    if (this.issue.excluded) return undefined
-    if (this.loadedIssue === LOADING || this.loadedOrigin === LOADING) return LOADING
-    if (this.loadedIssue === undefined) return undefined
-    if (this.visibleAttention.pending > 0 || this.unitsBelow.pending > 0 || this.unitOwn.cold || (this.continuationTip?.pending ?? 0) > 0) return LOADING
+  @lazy private get rowState(): 'ready' | typeof LOADING | undefined {
+    if (this.rowOwn === LOADING || this.rowOrigin === LOADING) return LOADING
+    if (this.rowOwn === undefined) return undefined
+    if (this.rowAggregate.pending > 0 || this.unitsBelow.pending > 0 || this.unitOwn.cold || (this.rowTip?.pending ?? 0) > 0) return LOADING
     if (this.targetId && this.host.rollupInputs.loadedIssue(this.targetId) === LOADING) return LOADING
     return 'ready'
   }
 
-  @lazy({ equals: compareShallow }) get sessions(): readonly import('../models').SessionModel[] {
-    const sessions: import('../models').SessionModel[] = []
-    for (const id of this.attentionSessionIds) {
-      if (this.host.resident('session', id) === 'resident') sessions.push(this.worklist.pool.sessionObject(id))
+  // Value adapters borrow live fields. Components receive the companion.
+  private get sidebarRecord() { return sidebarPort(this) }
+  private get mobileRecord() { return mobilePort(this) }
+  get sidebar(): import('./rollup').Loaded<SidebarRowValues> { return this.rowState === 'ready' ? this.sidebarRecord : this.rowState }
+  get mobile(): import('./rollup').Loaded<MobileRowValues> { return this.rowState === 'ready' ? this.mobileRecord : this.rowState }
+
+  get rowIssue(): SliceIssue & { readonly displayRef: string } { return issuePort(this) }
+
+  /** @internal Wire vocabulary for formatters; all facts are read on the model. */
+  createIssuePort(): SliceIssue & { readonly displayRef: string } {
+    const row = this
+    return new Proxy(Object.create(null), {
+      get(_target, key) {
+        return key === 'unread' ? row.unread : key in row.issue
+          ? Reflect.get(row.issue, key) : Reflect.get(row.rowOwn as object, key)
+      },
+      ownKeys() { return [...new Set([...Object.keys(row.rowOwn as object),
+        'displayRef', 'repoPath', 'readAt', 'unread'])] },
+      getOwnPropertyDescriptor() { return { enumerable: true, configurable: true } },
+    }) as SliceIssue & { readonly displayRef: string }
+  }
+  @lazy get rowSessions(): readonly SliceSession[] {
+    const sessions: SliceSession[] = []
+    for (const id of this.ownAttention.sessionIds ?? []) {
+      const session = this.host.row('session', id)
+      if (session !== undefined && session !== LOADING) sessions.push(session as SliceSession)
     }
     return sessions
   }
 
-  @lazy({ equals: compareShallow }) get visibleSessionIds(): readonly string[] { return this.visibleAttention.sessionIds ?? [] }
-  @lazy({ equals: compareStructural }) get visibleFleet() { return (this.visibleAttention.sidebarFacts ?? NO_SIDEBAR_SESSIONS).fleet }
-  @lazy get mergeCommits() { return this.decision === 'merge' ? this.issue.gitState?.ahead ?? 0 : 0 }
-
-  @lazy get visiblePhase() { return phaseOf(this.visibleAttention, this.ownFacts.finished) }
-  @lazy get visibleWorking() { return this.visibleAttention.working }
-  @lazy get visibleAsking() { return askingOf(this.visibleAttention, this.ownFacts.finished) }
-  @lazy get decision() { return this.ownAttention.deciding ? this.ownFacts.decision : null }
-  @lazy({ equals: compareStructural }) get origin(): RowOriginTick | null {
-    const origin = this.loadedOrigin
+  @lazy get rowPhase() { return phaseOf(this.rowAggregate, this.ownFacts.finished) }
+  @lazy get rowWorking() { return this.rowAggregate.working }
+  @lazy get rowAsking() { return askingOf(this.rowAggregate, this.ownFacts.finished) }
+  @lazy get rowDecision() { return this.ownAttention.deciding ? this.ownFacts.decision : null }
+  @lazy({ equals: compareStructural }) get rowOriginTick(): RowOriginTick | null {
+    const origin = this.rowOrigin
     return origin === undefined || origin === LOADING ? null : {
       id: origin.id, seq: origin.seq, title: origin.title,
       ref: this.host.inputs.parts(origin.id)?.label.displayRef ?? `#${origin.seq}`,
     }
   }
-  @lazy({ equals: compareStructural }) get progress(): SidebarProgress | typeof LOADING {
+  @lazy({ equals: compareStructural }) get rowProgress(): SidebarProgress | typeof LOADING {
     const below = this.unitsBelow, own = this.unitOwn
     if (below.pending > 0 || own.cold) return LOADING
     return below.members > 0
@@ -1004,46 +1133,93 @@ export class WorklistIssue implements HeldIssue, RowView {
       : { done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0, total: own.solo ? 1 : 0,
         ...(own.solo ? { [own.state ?? 'wait']: 1 } : {}) }
   }
-  @lazy get hasChildProgress() { return this.unitsBelow.members > 0 }
-  @lazy get showsChildProgress() { return this.nestParent === null && this.hasChildProgress }
-  @lazy({ equals: compareStructural }) get timing() {
-    return sidebarTimingFromFacts(this.visibleAttention.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
-      this.visiblePhase, this.ownFacts.finished, this.visibleActivityAt, this.visibleAttention.decidingAt)
+  @lazy get rowFromChildren() { return this.unitsBelow.members > 0 }
+  @lazy get rowStatusFromChildren() { return this.nestParent === null && this.rowFromChildren }
+  @lazy({ equals: compareStructural }) get rowTiming() {
+    return sidebarTimingFromFacts(this.rowAggregate.sidebarFacts ?? NO_SIDEBAR_SESSIONS,
+      this.rowPhase, this.ownFacts.finished, this.rowActivityAt, this.rowAggregate.decidingAt)
   }
-  @lazy get visibleUnread(): boolean {
-    if (this.visibleWorking) return false
+  @lazy get rowUnread(): boolean {
+    if (this.rowWorking) return false
     const readAt = this.issue.readAt, readMs = Date.parse(readAt ?? '')
     return this.unread || Boolean(readAt && Number.isFinite(readMs) &&
-      ((Date.parse(this.visibleAttention.updatedAt ?? '') || 0) > readMs || (this.visibleSessionActivity ?? 0) > readMs) && this.visibleDescendantIds.length > 0)
+      ((Date.parse(this.rowAggregate.updatedAt ?? '') || 0) > readMs || (this.rowSeatActivity ?? 0) > readMs) && this.rowNested.length > 0)
   }
-  @lazy get errorClass() { return this.ownFacts.finished ? null : (this.visibleAttention.sidebarFacts ?? NO_SIDEBAR_SESSIONS).errorClass }
-  @lazy get sessionOnlyDraft() { return this.issue.isDraftVessel === true && !this.issue.worktreePath && this.sessions.length > 0 }
-  @lazy get firstSessionId() { return this.readOwnAttention().firstSessionId ?? null }
-  @lazy get awaitingFirstPrompt() {
-    return this.issue.isDraftVessel === true && this.visiblePhase === 'queued' &&
-      (this.visibleAttention.sessionIds?.length ?? 0) > 0 && (this.visibleAttention.sidebarFacts ?? NO_SIDEBAR_SESSIONS).allUnstarted
+  @lazy get rowErrorClass() { return this.ownFacts.finished ? null : (this.rowAggregate.sidebarFacts ?? NO_SIDEBAR_SESSIONS).errorClass }
+  @lazy get rowInternal() { return this.issue.audience === 'agent' }
+  @lazy get rowDraftAgentOnly() { return this.issue.isDraftVessel === true && !this.issue.worktreePath && this.rowSessions.length > 0 }
+  @lazy get rowFirstSessionId() { return this.ownAttention.firstSessionId ?? null }
+  @lazy get rowAwaitingFirstPrompt() {
+    return this.issue.isDraftVessel === true && this.rowPhase === 'queued' &&
+      (this.rowAggregate.sessionIds?.length ?? 0) > 0 && (this.rowAggregate.sidebarFacts ?? NO_SIDEBAR_SESSIONS).allUnstarted
   }
-  @lazy({ equals: compareStructural }) get continuation(): SidebarRowValues['continuation'] {
+  @lazy({ equals: compareStructural }) get rowContinuation(): SidebarRowValues['continuation'] {
     if (this.targetId) return { kind: this.issue.supersededBy ? 'continued' : 'duplicate',
       ref: this.host.inputs.parts(this.targetId)?.label.displayRef ?? 'another task' }
-    const destination = this.continuationTip?.target
+    const destination = this.rowTip?.target
     return destination ? { kind: 'continued', ref: this.host.inputs.parts(destination.id)?.label.displayRef ?? `#${destination.seq}` } : null
   }
-  private readLifecycle() { return sidebarLifecycle(this.issue as unknown as SliceIssue, this.visibleAsking, this.host.inputs.passed, this.host.inputs.reached, this.issue) }
-  @lazy get returnedFromDefer() { return this.readLifecycle().unsnoozed }
-  @lazy get canTuck() { return this.readLifecycle().awaitsTuck }
-  @lazy get canBringBack() { return this.readLifecycle().canBringBack }
+  private readLifecycle() { return sidebarLifecycle(this.rowIssue, this.rowAsking, this.host.inputs.passed, this.host.inputs.reached, this.issue) }
+  @lazy get rowDeferred() { return this.readLifecycle().deferred }
+  @lazy get rowUnsnoozed() { return this.readLifecycle().unsnoozed }
+  @lazy get rowAwaitsTuck() { return this.readLifecycle().awaitsTuck }
+  @lazy get rowCanBringBack() { return this.readLifecycle().canBringBack }
 
-  @lazy get waitingCount() { return mobileWaitingCount(this.visibleAttention, this.finished === true) }
-  @lazy get quietDraft() {
-    const first = this.sessions[0]
-    return this.sessionOnlyDraft && !first?.busy && (first?.agentState?.phase ?? 'unknown') === 'unknown'
+  @lazy get mobileWaitingCount() { return mobileWaitingCount(this.rowAggregate, this.finished === true) }
+  @lazy get mobileDraftQuiet() {
+    const first = this.rowSessions[0]
+    return this.rowDraftAgentOnly && !first?.busy && (first?.agentState?.phase ?? 'unknown') === 'unknown'
   }
-  @lazy get emphasizeUnread() { return this.visibleUnread && !this.quietDraft }
-  @lazy get attentionAction() { return this.waitingCount > 0 ? this.decision ? 'Review' as const : 'Answer' as const : null }
-  @lazy({ equals: compareStructural }) get navigation(): MobileRowValues['navigation'] {
-    const first = this.sessions[0]
-    return this.sessionOnlyDraft && first ? { kind: 'session', id: first.sessionId } : { kind: 'issue', id: this.id }
+  @lazy get mobileUnread() { return this.rowUnread && !this.mobileDraftQuiet }
+  @lazy get mobileAttentionAction() { return this.mobileWaitingCount > 0 ? this.rowDecision ? 'Review' as const : 'Answer' as const : null }
+  @lazy({ equals: compareStructural }) get mobileNavigation(): MobileRowValues['navigation'] {
+    const first = this.rowSessions[0]
+    return this.rowDraftAgentOnly && first ? { kind: 'session', id: first.sessionId } : { kind: 'issue', id: this.id }
+  }
+
+  /** @internal Getter-only formatter port; created once by the companion factory. */
+  createSidebarPort(): SidebarRowValues {
+    const row = this
+    return {
+      get idNumber() { return row.issue.seq }, get color() { return row.issue.color ?? null },
+      get title() { return row.title }, get timing() { return row.rowTiming },
+      get working() { return row.rowWorking }, get asking() { return row.rowAsking },
+      get originTick() { return row.rowOriginTick }, get decision() { return row.rowDecision },
+      get mergeCommits() { return row.rowDecision === 'merge' ? row.issue.gitState?.ahead ?? 0 : 0 },
+      get progress() { return row.rowProgress as SidebarProgress },
+      get fromChildren() { return row.rowFromChildren }, get statusFromChildren() { return row.rowStatusFromChildren },
+      get gitState() { return row.issue.gitState }, get unread() { return row.rowUnread },
+      get errorClass() { return row.rowErrorClass }, get internal() { return row.rowInternal },
+      get awaitsTuck() { return row.rowAwaitsTuck }, get canBringBack() { return row.rowCanBringBack },
+      get unsnoozed() { return row.rowUnsnoozed }, get deferred() { return row.rowDeferred },
+      get draftAgentOnly() { return row.rowDraftAgentOnly }, get firstSessionId() { return row.rowFirstSessionId },
+      get continuation() { return row.rowContinuation },
+      get fleet() { return (row.rowAggregate.sidebarFacts ?? NO_SIDEBAR_SESSIONS).fleet },
+      get issue() { return row.rowIssue }, get sessions() { return row.rowSessions },
+      get aggregateSessionIds() { return row.rowAggregate.sessionIds ?? [] },
+      get awaitingFirstPrompt() { return row.rowAwaitingFirstPrompt },
+    }
+  }
+
+  /** @internal Getter-only formatter port; created once by the companion factory. */
+  createMobilePort(): MobileRowValues {
+    const row = this
+    return {
+      get id() { return row.id }, kind: 'issue', get label() { return row.title },
+      get progress() { return row.rowProgress as SidebarProgress }, get originSeq() { return row.rowOriginTick?.seq ?? null },
+      get timing() { return row.rowTiming }, get working() { return row.rowWorking },
+      get waitingCount() { return row.mobileWaitingCount }, get decision() { return row.rowDecision },
+      get unread() { return row.mobileUnread }, get draftOnly() { return row.rowDraftAgentOnly },
+      get draftQuiet() { return row.mobileDraftQuiet }, get color() { return row.issue.color ?? null },
+      get internal() { return row.rowInternal }, get pinned() { return row.issue.pinned === true },
+      get snoozed() { return row.rowDeferred }, get unsnoozed() { return row.rowUnsnoozed },
+      get tuckable() { return row.rowAwaitsTuck }, get fleet() { return row.sidebarRecord.fleet },
+      get branch() { return row.issue.branch ?? null }, get gitState() { return row.issue.gitState },
+      get suppressAhead() { return row.rowDecision === 'merge' },
+      get attentionAction() { return row.mobileAttentionAction }, get navigation() { return row.mobileNavigation },
+      get sidebar() { return row.sidebarRecord }, get sessions() { return row.rowSessions },
+      get activityAt() { return row.rowActivityAt },
+    }
   }
 
 }

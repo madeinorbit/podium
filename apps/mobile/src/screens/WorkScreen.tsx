@@ -2,7 +2,7 @@ import type { MobileWorkSection } from '../lib/work-sections'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { listWindow } from '../components/list-window'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
-import { WorklistProvider, useWorklistModel } from '@podium/client-graph/react'
+import { WorklistProvider, useWorklistModel, observer } from '@podium/client-graph/react'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type {
@@ -431,7 +431,7 @@ function PoolFold({
   )
 }
 
-const PoolFoldRow = memo(function PoolFoldRow({
+const PoolFoldRow = memo(observer(function PoolFoldRow({
   id,
   lane,
   onOpen,
@@ -442,47 +442,32 @@ const PoolFoldRow = memo(function PoolFoldRow({
   onOpen: (issue: IssueNavigationModel) => void
   onLongPress: (issue: IssueNavigationModel, lane: WorkIssueMenuTarget['lane']) => void
 }) {
-  const read = useCallback(
-    (pool: MobxPool) => {
-      const value = mobileWorkView(pool).row({ id, kind: 'issue' })
-      if (!value || typeof value === 'symbol' || !value.sidebar) return null
-      const issue = value.sidebar.issue as unknown as IssueNavigationModel
-      return {
-        title: value.label,
-        ref: issueDisplayRef(issue),
-        // Only a snoozed marker shows time; a closed marker must not wake on ticks.
-        marker: foldedMarker(
-          issue,
-          lane,
-          lane === 'snoozed' ? mobilePaintNow(pool) : pool.clock.peekNow(),
-        ),
-      }
-    },
-    [id, lane],
-  )
-  const value = useMobilePoolProjection(read, null)
-  if (!value) return <View accessibilityLabel="Loading work" />
-  const issue = { id } as IssueNavigationModel
+  const pool = useMobilePool(), worklist = useWorklistModel()
+  const row = (worklist ?? (pool ? worklistView(pool) : undefined))?.knownRow(id)
+  if (!pool || row?.ready !== 'ready') return <View accessibilityLabel="Loading work" />
+  const issue = row.issue as unknown as IssueNavigationModel
+  const ref = issueDisplayRef(issue)
+  const marker = foldedMarker(issue, lane, lane === 'snoozed' ? mobilePaintNow(pool) : pool.clock.peekNow())
   return (
     <PressableScale
       accessibilityRole="button"
-      accessibilityLabel={`${value.ref} ${value.title}`}
+      accessibilityLabel={`${ref} ${row.title}`}
       onPress={() => onOpen(issue)}
       onLongPress={() => onLongPress(issue, lane)}
       delayLongPress={350}
       style={({ pressed }) => [styles.foldedRow, pressed && styles.pressed]}
     >
-      <Text style={styles.foldedRef}>{value.ref}</Text>
+      <Text style={styles.foldedRef}>{ref}</Text>
       <NotSavedMark kind="issue" id={id} />
       <Text style={styles.foldedTitle} numberOfLines={1}>
-        {value.title}
+        {row.title}
       </Text>
-      <Text style={[styles.foldedMarker, value.marker === 'merged' && styles.foldedMerged]}>
-        {value.marker}
+      <Text style={[styles.foldedMarker, marker === 'merged' && styles.foldedMerged]}>
+        {marker}
       </Text>
     </PressableScale>
   )
-})
+}))
 
 /**
  * A band's sticky header — the whole bar is the fold control [POD-724].

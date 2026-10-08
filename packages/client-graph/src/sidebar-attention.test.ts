@@ -29,13 +29,13 @@ for (const history of [32, 128]) {
     let value: ReturnType<ReturnType<typeof sidebarView>['row']>
     const stop = autorun(() => { value = sidebarView(pool).row('root') })
     try {
-      expect(value!).toMatchObject({ working: true, aggregateSessionIds: ['live'], progress: { total: 1 } })
+      expect(value!).toMatchObject({ visibleWorking: true, visibleSessionIds: ['live'], progress: { total: 1 } })
       expect(sidebarNested(root, pool)).toEqual(['child'])
       const read = vi.spyOn(pool, 'row')
       runInAction(() => pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'live',
         value: sender('live', { status: 'live', archived: false, lastActiveAt: '2026-10-05T12:01:00Z',
           agentState: { phase: 'working', since: stamp } }) as never }] }))
-      expect(value!).toMatchObject({ working: true, timing: { sinceMs: Date.parse(stamp) } })
+      expect(value!).toMatchObject({ visibleWorking: true, timing: { sinceMs: Date.parse(stamp) } })
       expect(read.mock.calls.some(([kind, id]) => kind === 'session' && id.startsWith('old-'))).toBe(false)
       expect(members).not.toHaveBeenCalled()
     } finally { stop(); members.mockRestore(); pool.dispose() }

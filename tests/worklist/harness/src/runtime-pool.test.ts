@@ -1,3 +1,4 @@
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { referenceState } from '../../diagnostics/reference-state'
 // @vitest-environment happy-dom
 
@@ -41,7 +42,7 @@ describe('the pool over the app-owned runtime', () => {
       parity()
       const selected = await writeSelectionClick(ctx)
       await Promise.resolve()
-      expect(tracked(() => handle.pool.selection.has(selected))).toBe(true)
+      expect(tracked(() => handle.worklistView(pool).selectedId === selected)).toBe(true)
       parity()
     } finally {
       handle.dispose()

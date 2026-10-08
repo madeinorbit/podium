@@ -1,3 +1,4 @@
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 /** Counts collection-field comparisons for one active selection click. */
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
@@ -18,7 +19,7 @@ export function projectionComparisonMechanism(scale: 1 | 4) {
           },
         }),
       ),
-      selected: current.selection.size,
+      selected: Number(worklistView(current).selectedId !== null),
     }
   })
   projection.getSnapshot()

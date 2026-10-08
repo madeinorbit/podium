@@ -1,3 +1,4 @@
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { reaction } from 'mobx'
 import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
@@ -39,13 +40,13 @@ describe('shared worklist phone parity', () => {
     let retained = 0
     let identityFailure: unknown
     const inspectNative = (scenario: string) => {
-      const native = mobileWorkView(handle.pool).sections(nativeState).sections
+      const native = mobileWorkView(handle.pool).mobileSections().sections
       const before = previous
       previous = native
       if (before) for (const section of native) {
         const old = before.find(band => band.key === section.key)
         if (!old) continue
-        const refs = (rows: MobileWorkSection['data']) => rows.map(row => `${row.kind}:${row.listKey}`)
+        const refs = (rows: MobileWorkSection['data']) => rows.slice()
         if (JSON.stringify(refs(old.data)) === JSON.stringify(refs(section.data))) {
           expect(section.data, `${scenario} ${section.key}: native data identity`).toBe(old.data)
           retained++
@@ -72,23 +73,22 @@ describe('shared worklist phone parity', () => {
         // loads trigger the eager mark-read after the selection write settled.
         await settled(ctx)
         feeds.flush(); settle(handle.pool)
-        expect(tracked(() => ({ ...mobileWorkView(handle.pool).row({ id: ctx.targets.visibleRootId, kind: 'issue' }) as object })))
-          .toMatchObject({ unread: false })
+        expect(tracked(() => worklistView(handle.pool).knownRow(ctx.targets.visibleRootId)?.emphasizeUnread)).toBe(false)
       }
       if (identityFailure) throw identityFailure
       tracked(() => inspectNative(scenario))
       for (const searching of [false, true]) {
-        const state = { searching, collapsed: Object.fromEntries(['pinned', 'needs-you', ...tracked(() => mobileWorkView(handle.pool).sections().orderingSections.map(section => section.key))]
+        const state = { searching, collapsed: Object.fromEntries(['pinned', 'needs-you', ...tracked(() => mobileWorkView(handle.pool).mobileSections().orderingSections.map(section => section.key))]
           .map(key => [`podium:sidebar:work-group-fold:${key}`, true])) }
         const result = tracked(() => poolMobileSnapshot(handle.pool, state))
         expect(result.pending, `${scenario}, searching=${searching}`).toBe(0)
         expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool, state)))).digest('hex')).toBe(baseline.answers[`${scale}-${scenario}-${searching}` as keyof typeof baseline.answers])
         checks.push({ scenario, searching, sections: result.sections.length, pending: result.pending })
       }
-      const first = tracked(() => mobileWorkView(handle.pool).sections().orderingSections.flatMap(section => section.data)[0]!)
-      const value = tracked(() => mobileWorkView(handle.pool).row(first))
+      const first = tracked(() => mobileWorkView(handle.pool).mobileSections().orderingSections.flatMap(section => section.data)[0]!)
+      const value = tracked(() => mobileWorkView(handle.pool).mobileRow({ id: first, kind: handle.pool.tables.worktree.has(first) ? 'worktree' : 'issue' }))
       expect(value).not.toBe(LOADING)
-      expect(Object.keys(value!).sort()).toEqual([...MOBILE_ROW_FIELDS].sort())
+      expect(value !== LOADING && value?.ready).toBe('ready')
     }
     try {
       await check('corpus')

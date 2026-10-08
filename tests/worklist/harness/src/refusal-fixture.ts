@@ -38,7 +38,7 @@ export async function refusalFixture(scale: 1 | 4 = 1) {
   const stop = autorun(() => {
     pool.row('issue', id)
     sidebarView(pool).row(id)
-    mobileWorkView(pool).row({ kind: 'issue', id })
+    mobileWorkView(pool).mobileRow({ kind: 'issue', id })
   })
   for (let round = 0; round < 20 && pool.hydrate(); round++) {}
   stop()

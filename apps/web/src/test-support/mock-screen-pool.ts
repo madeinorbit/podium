@@ -480,7 +480,7 @@ function useFixturePool(): MobxPool {
             .filter((row) => row !== undefined) as unknown as SliceSession[]
           return fixtureSidebarRow(model, members, live.current.issues, sessions())
         },
-        selectionEvicted: (): boolean => {
+        selectionGone: (): boolean => {
           // The real gate answers true once a selected id is gone from the
           // resident rows (an evicted issue leaves without a deletion); the
           // caller clears the selection through its existing action. Like the
@@ -678,7 +678,7 @@ function useFixturePool(): MobxPool {
               fixture.sidebar as {
                 sections: () => SidebarSections
                 row: (id: string) => SidebarRowValues | undefined
-                selectionEvicted: () => boolean
+                selectionGone: () => boolean
               }
             const worklist = {
               setLayout: (_state: unknown): void => {},
@@ -695,8 +695,17 @@ function useFixturePool(): MobxPool {
                   get selected(): boolean {
                     return live.current.state.selectedIssueId === id
                   },
-                  sidebar: value,
-                  rowIssue: model,
+                  ready: 'ready', issue: model,
+                  title: value.title, timing: value.timing, visibleWorking: value.working,
+                  visibleAsking: value.asking, origin: value.originTick, decision: value.decision,
+                  mergeCommits: value.mergeCommits, progress: value.progress,
+                  hasChildProgress: value.fromChildren, showsChildProgress: value.statusFromChildren,
+                  visibleUnread: value.unread, errorClass: value.errorClass,
+                  returnedFromDefer: value.unsnoozed, canTuck: value.awaitsTuck,
+                  canBringBack: value.canBringBack, sessionOnlyDraft: value.draftAgentOnly,
+                  firstSessionId: value.firstSessionId, continuation: value.continuation,
+                  visibleFleet: value.fleet, sessions: value.sessions,
+                  visibleSessionIds: value.aggregateSessionIds, awaitingFirstPrompt: value.awaitingFirstPrompt,
                   foldAt: model
                     ? foldAtOf(model as unknown as SliceIssue)
                     : '',
@@ -705,9 +714,9 @@ function useFixturePool(): MobxPool {
                 }
               },
               desktop: fixture.sidebar,
-              selection: (pool as unknown as { selection: unknown }).selection,
-              get selectionEvicted(): boolean {
-                return sidebar().selectionEvicted()
+              get selectedId() { return live.current.state.selectedIssueId },
+              get selectionGone(): boolean {
+                return sidebar().selectionGone()
               },
               dispose: (): void => {},
             }

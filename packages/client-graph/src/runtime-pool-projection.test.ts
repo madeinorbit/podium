@@ -1,5 +1,5 @@
 import { referenceView } from './issue-reference'
-import { compareStructural, computed, getObserverTree } from 'mobx'
+import { compareStructural, computed, getObserverTree, observable, runInAction } from 'mobx'
 import { _observerFinalizationRegistry } from 'mobx-react-lite'
 import { afterEach, expect, it, vi } from 'vitest'
 import { projectionComparisonMechanism } from '../../../tests/worklist/diagnostics/projection-comparison-mechanism'
@@ -16,14 +16,14 @@ afterEach(() => {
 function fixture() {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   cleanups.push(() => pool.dispose())
-  const observerCount = () => getObserverTree(pool.selection).observers?.length ?? 0
+  const observerCount = () => getObserverTree(worklistView(pool), 'selectedId').observers?.length ?? 0
   // Selection history has its own pool-lifetime reaction (12dc075da6, POD-5547).
   // Measure observers added by projections, independently of that UI state owner.
   const selectionObservers = observerCount()
   // Track size as well as membership so another key can change an observed
   // input while preserving the projected result.
   const read = vi.fn((current: MobxPool) => ({
-    selected: current.selection.size > 0 && current.selection.has('target'),
+    selected: worklistView(current).selectedId === ('target'),
   }))
   const view = createPoolProjection(pool, read, { equals: compareStructural })
   const subscribe = (wake = vi.fn()) => {
@@ -42,38 +42,19 @@ function fixture() {
   }
 }
 
-it('maintains selection history without running projections and releases it with the pool', () => {
-  const f = fixture()
-  // Keep list filing idle so the spy measures selection history alone.
-  f.pool.worklist.clear()
-  const selection = f.pool.selection
-  expect(getObserverTree(selection).observers).toHaveLength(1)
-  expect(f.observers()).toBe(0)
-  const resident = vi.spyOn(f.pool, 'resident')
-  const issue = {
-    id: 'target', seq: 1, prefix: 'POD', title: 'Target', stage: 'review',
-    createdAt: '2026-01-01', updatedAt: '2026-01-01', archived: false,
-    repoPath: '/r', repoId: 'r', deps: [],
-  }
-  f.change('never-seen')
-  expect(worklistView(f.pool).selectionEvicted).toBe(false)
-  f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'target', value: issue as never }] })
+it('derives selection exit lazily without a selection-history reaction', () => {
+  const f = fixture(), view = worklistView(f.pool)
+  const exits = observable.map<string, 'evicted' | 'removed'>()
+  f.pool.sources.register(['issueExit'], { read: (_kind, id) => ({ kind: exits.get(id) }), dispose() {} })
+  expect(getObserverTree(view, 'selectedId').observers ?? []).toHaveLength(0)
   f.change('target')
-  resident.mockClear()
-  f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'other', value: { ...issue, id: 'other' } as never }] })
-  f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'target', value: { ...issue, title: 'Renamed' } as never }] })
-  expect(resident).not.toHaveBeenCalled()
-  // Eviction must be remembered even if no screen read its verdict before removal.
-  f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'target', value: undefined }] })
-  expect(resident).toHaveBeenCalledTimes(1)
-  expect(worklistView(f.pool).selectionEvicted).toBe(true)
-  expect(worklistView(f.pool).selectionEvicted).toBe(true)
+  expect(view.selectionGone).toBe(false)
+  runInAction(() => exits.set('target', 'evicted'))
+  expect(view.selectionGone).toBe(true)
+  expect(view.selectionGone).toBe(true)
   f.change(null)
-  expect(worklistView(f.pool).selectionEvicted).toBe(false)
+  expect(view.selectionGone).toBe(false)
   expect(f.read).not.toHaveBeenCalled()
-  expect(getObserverTree(selection).observers).toHaveLength(1)
-  f.pool.dispose()
-  expect(getObserverTree(selection).observers ?? []).toHaveLength(0)
 })
 
 it('uses reference equality without reading collection fields at either scale', () => {
@@ -88,7 +69,7 @@ it('uses reference equality without reading collection fields at either scale', 
 
 it('does no reads or equality work for a hidden projection, then pulls the latest value once', () => {
   const f = fixture()
-  const read = vi.fn((pool: MobxPool) => [...pool.selection.keys()])
+  const read = vi.fn((pool: MobxPool) => worklistView(pool).selectedId === null ? [] : [worklistView(pool).selectedId])
   const equals = vi.fn((before: string[], next: string[]) => before.join() === next.join())
   const view = createPoolProjection(f.pool, read, { equals })
   const first = view.getSnapshot()
@@ -112,7 +93,7 @@ it('does no reads or equality work for a hidden projection, then pulls the lates
 
 it('retains a visited fold lazily, refreshes hidden changes once, and releases its graph on disposal', () => {
   const f = fixture()
-  const derive = vi.fn(() => f.pool.selection.has('target'))
+  const derive = vi.fn(() => f.worklistView(pool).selectedId === 'target')
   const row = computed(derive)
   const read = vi.fn(() => row.get())
   const view = createPoolProjection(f.pool, read, { retainWhileInactive: true })
@@ -284,7 +265,7 @@ it('rethrows reader errors through getSnapshot and recovers on a real input chan
   const view = createPoolProjection(
     f.pool,
     (current) => {
-      if (current.selection.has('target')) throw failure
+      if (worklistView(current).selectedId === 'target') throw failure
       return { selected: false }
     },
     { equals: compareStructural },

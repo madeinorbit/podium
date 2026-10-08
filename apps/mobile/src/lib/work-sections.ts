@@ -156,9 +156,11 @@ export class MobileSearchSections {
       active.add(source.key)
       const old = this.sources.get(source.key)
       if (old?.source === source) return old.native
-      const native: MobileWorkSection = { ...source, data: source.data.map(id => ({ id,
+      const data = old && old.native.data.length === source.data.length && old.native.data.every((ref, index) => ref.id === source.data[index])
+        ? old.native.data : source.data.map(id => ({ id,
         kind: pool.tables.worktree.has(id) ? 'worktree' : 'issue',
-        listKey: source.kind === 'attention' ? `needs-you:${id}` : id })) }
+        listKey: source.kind === 'attention' ? `needs-you:${id}` : id }))
+      const native: MobileWorkSection = { ...source, data }
       this.sources.set(source.key, { source, native })
       return native
     })

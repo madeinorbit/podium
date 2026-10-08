@@ -1,3 +1,5 @@
+import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 /** POD-4953: the current real sidebar, as its rows and sections read it.
  * Only this oracle imports the legacy derivations. Product code never does.
@@ -38,7 +40,20 @@ export const sessionComparable = (session: unknown) => pick(session, SESSION_CON
 
 /** Compare raw compatibility payloads by the fields presentation actually
  * reads. No old record's irrelevant server supplement enters the oracle. */
-export function sidebarComparable(value: SidebarRowValues): Record<string, unknown> {
+export function sidebarComparable(value: SidebarRowValues | WorklistIssue): Record<string, unknown> {
+  if ('worklist' in value) return {
+    idNumber: value.issue.seq, color: value.issue.color ?? null, title: value.title,
+    timing: value.timing, working: value.visibleWorking, asking: value.visibleAsking,
+    originTick: value.origin, decision: value.decision, mergeCommits: value.mergeCommits,
+    progress: value.progress, fromChildren: value.hasChildProgress, statusFromChildren: value.showsChildProgress,
+    gitState: value.issue.gitState, unread: value.visibleUnread, errorClass: value.errorClass,
+    internal: value.issue.audience === 'agent', unsnoozed: value.returnedFromDefer, deferred: value.issue.deferred,
+    awaitsTuck: value.canTuck, canBringBack: value.canBringBack, draftAgentOnly: value.sessionOnlyDraft,
+    firstSessionId: value.firstSessionId, continuation: value.continuation, fleet: value.visibleFleet,
+    issue: { ...pick(value.issue, ISSUE_CONTENT_FIELDS), unread: value.visibleUnread },
+    sessions: value.sessions.map(sessionComparable), aggregateSessionIds: value.visibleSessionIds,
+    awaitingFirstPrompt: value.awaitingFirstPrompt,
+  }
   return { ...value, issue: pick(value.issue, ISSUE_CONTENT_FIELDS),
     sessions: value.sessions.map(sessionComparable) }
 }
@@ -120,7 +135,7 @@ export function worktreeDiff(pool: MobxPool, derivation: LegacyDerivation, state
     if (value.activityAt !== row.activityAt) differences.push(`${row.worktree.path}.activityAt: ${value.activityAt} expected ${row.activityAt}`)
     if ((value.worktree.branch ?? null) !== (row.worktree.branch ?? null)) differences.push(`${row.worktree.path}.branch`)
     if (value.worktree.repoName !== row.worktree.repoName) differences.push(`${row.worktree.path}.repoName`)
-    const active = pool.selection.size === 0 && state.selectedWorktree === row.worktree.path
+    const active = worklistView(pool).selectedId === null && state.selectedWorktree === row.worktree.path
     if (value.active !== active) differences.push(`${row.worktree.path}.active`)
     for (const session of row.worktree.sessions) {
       if (!session.issueId) continue

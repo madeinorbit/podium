@@ -29,12 +29,8 @@ export function createNavigationActivity(pool: MobxPool): NavigationActivity {
   const seats = sessionSeats(pool)
   /** A session's stamp read from its row: the declared summary, else the row. */
   const rowStamp = (sessionId: string): Loaded<string> => {
-    let session = pool.row('session', sessionId, 'summary')
-    if (session && session !== LOADING && !Object.hasOwn(session, 'lastActiveAt')) {
-      session = pool.row('session', sessionId)
-    }
-    if (session === LOADING) return LOADING
-    return (session as { lastActiveAt?: string } | undefined)?.lastActiveAt || undefined
+    try { return pool.sessionObject(sessionId).lastActivity || undefined }
+    catch (error) { if (error === LOADING) return LOADING; throw error }
   }
   /** The shared scalar stamp ignores a read marker on an archived sender. */
   const retiredStamp = (sessionId: string): Loaded<string> => {
@@ -59,7 +55,7 @@ export function createNavigationActivity(pool: MobxPool): NavigationActivity {
     if (issue && issue !== LOADING && !Object.hasOwn(issue, 'updatedAt'))
       issue = pool.row('issue', id)
     if (issue === LOADING || issue === undefined) return issue
-    let latest: string | undefined = (issue as { updatedAt: string }).updatedAt
+    let latest: string | undefined = pool.issueObject(id).updatedAt
     const partition = seats.partition(MISSION_SCHEMA.members.sessions, id)
     if (partition === LOADING) return LOADING
     // Seated sessions heartbeat: their stamps are read here, with the issue.

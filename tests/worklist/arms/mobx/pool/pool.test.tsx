@@ -1,3 +1,4 @@
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { rowViewOf } from '../../../shared/src/row-snapshots'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 // @vitest-environment happy-dom
@@ -452,7 +453,7 @@ describe('dispose', () => {
     for (const entity of ENTITIES) {
       expect(getObserverTree(pool.tables[entity]).observers ?? [], entity).toEqual([])
     }
-    expect(tracked(() => pool.selection.size)).toBe(0)
+    expect(tracked(() => Number(worklistView(pool).selectedId !== null))).toBe(0)
     expect(getObserverTree(worklistGroups(pool), 'keys').observers ?? []).toEqual([])
     expect(tracked(() => visibleOrderOf(pool))).toEqual([])
     expect(tracked(() => pool.issue(models[0]!.id))).toBeUndefined()

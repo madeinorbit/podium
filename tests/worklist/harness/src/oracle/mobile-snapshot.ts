@@ -1,12 +1,16 @@
+import { worklistView } from '@podium/client-graph/worklist/view-model'
+import { mobileIssueValues, mobileWorktreeValues } from '@podium/client-graph/worklist/mobile-row'
+import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
+import type { WorklistWorktree } from '@podium/client-graph/worklist/worktree'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 /** Pool-only synthetic outputs frozen by the last green pilot parity run. */
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
-import type { MobileWorkRef, MobileWorkSection, MobileWorkState } from '@podium/client-graph/worklist/mobile'
+import type { MobileWorkRef, MobileWorkState } from '@podium/client-graph/worklist/mobile'
 import type { CheckRow, SidebarSnapshot } from '../../../diagnostics/sidebar-check'
 import { sidebarComparable, sessionComparable } from '../../../diagnostics/oracle'
-import { mobileRowPaint } from '../../../../../apps/mobile/src/lib/work-sections'
+import { mobileRowPaint, MobileSearchSections, type MobileWorkSection } from '../../../../../apps/mobile/src/lib/work-sections'
 
 function comparable(value: MobileRowValues): Record<string, unknown> {
   return { ...value, sidebar: value.sidebar ? sidebarComparable(value.sidebar) : null,
@@ -14,7 +18,8 @@ function comparable(value: MobileRowValues): Record<string, unknown> {
 }
 
 function poolRow(pool: MobxPool, ref: MobileWorkRef): CheckRow {
-  const value = mobileWorkView(pool).row(ref)
+  const row = mobileWorkView(pool).mobileRow(ref)
+  const value = row === LOADING || row === undefined ? row : mobileComparable(row)
   if (value === LOADING) return { id: ref.id, pending: true, fields: { loading: true } }
   if (value === undefined) return { id: ref.id, fields: { absent: true } }
   // Include the actual native formatter in the preserved output.
@@ -24,7 +29,10 @@ function poolRow(pool: MobxPool, ref: MobileWorkRef): CheckRow {
 }
 
 export function poolMobileSnapshot(pool: MobxPool, state: MobileWorkState = {}): SidebarSnapshot {
-  const split = mobileWorkView(pool).sections(state)
+  worklistView(pool).setLayout(state)
+  const answer = mobileWorkView(pool).mobileSections()
+  const split = { ...answer, sections: new MobileSearchSections().update(pool, answer.sections, ''),
+    orderingSections: new MobileSearchSections().update(pool, answer.orderingSections, '') }
   let pending = split.pending
   const cache = new Map<string, CheckRow>()
   const row = (ref: MobileWorkRef): CheckRow => {
@@ -47,3 +55,11 @@ export function poolMobileSnapshot(pool: MobxPool, state: MobileWorkState = {}):
   return { pending, sections }
 }
 
+
+export function mobileComparable(row: WorklistIssue | WorklistWorktree): MobileRowValues {
+  if ('issue' in row) return mobileIssueValues(sidebarComparable(row) as unknown as Parameters<typeof mobileIssueValues>[0], row.waitingCount, row.visibleActivityAt)
+  return mobileWorktreeValues(row.id, row.worktree.repoName, row.worktree.branch, row.sessions as never,
+    row.activityAt, session => row.worklist.pool.sessionObject(session.sessionId).executing,
+    session => row.worklist.pool.sessionObject(session.sessionId).open,
+    session => row.worklist.pool.sessionObject(session.sessionId).stateSinceMs)
+}

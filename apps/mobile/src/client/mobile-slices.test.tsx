@@ -97,11 +97,11 @@ function WorklistProbe() {
 
 function readRows(pool: MobxPool) {
   return mobileWorkView(pool)
-    .sections()
+    .mobileSections()
     .sections.flatMap((section) =>
       section.data.flatMap((ref) => {
-        const row = mobileWorkView(pool).row(ref)
-        return row && typeof row !== 'symbol' ? [row.label] : []
+        const row = mobileWorkView(pool).mobileRow({ id: ref, kind: pool.tables.worktree.has(ref) ? 'worktree' : 'issue' })
+        return row && typeof row !== 'symbol' ? [row.title] : []
       }),
     )
     .join('|')

@@ -2,12 +2,11 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import {
   MobileSectionsView,
   type MobileWorkRef,
-  type MobileWorkSection,
 } from '@podium/client-graph/worklist/mobile'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
-import { MobileNativeSections, MobileSearchSections, workGroupFoldKey } from './work-sections'
+import { MobileNativeSections, MobileSearchSections, workGroupFoldKey, type MobileWorkSection } from './work-sections'
 
 // Synthetic resident lanes; the band/fold logic under test is the actual pool
 // projection. Waiting is an addressed fact, never a legacy row derivation.
@@ -91,6 +90,7 @@ function nativeSections(pinned: Row[], groups: Group[]) {
     issue: (id: string) =>
       facts.has(id)
         ? {
+            issue: { finished: false },
             mobileWaitingCount: Number(facts.get(id)!.waiting),
             aggregate: {
               pending: 0,
@@ -105,7 +105,8 @@ function nativeSections(pinned: Row[], groups: Group[]) {
     row: () => undefined,
   } as unknown as MobxPool
   views.set('worklist.view', {
-    foldLatch: observable.box(false),
+    selectedWasFolded: false,
+    layout: {},
     knownRow: pool.issue,
     desktop: (pool as unknown as { sidebar: unknown }).sidebar,
     reference: (id: string, kind = 'issue', attention = false) => ({
@@ -144,7 +145,11 @@ function nativeSections(pinned: Row[], groups: Group[]) {
       for (const row of group.closedRows) file(row.id, group.key, 'closedRows')
     }
   })
-  return new MobileSectionsView(pool, {}).value.get()
+  const sections = new MobileSectionsView(pool, {})
+  ;(views.get('worklist.view') as { mobileSectionsView: MobileSectionsView }).mobileSectionsView = sections
+  const value = sections.value
+  return { ...value, sections: new MobileSearchSections().update(pool, value.sections, ''),
+    orderingSections: new MobileSearchSections().update(pool, value.orderingSections, '') }
 }
 const bandKeys = (split: ReturnType<typeof nativeSections>) =>
   split.sections.map((section) => section.key)

@@ -733,7 +733,7 @@ describe('mobile WorkScreen pool consumer', () => {
       feed.publish('sessions', [replacement])
     })
     await waitFor(() => {
-      const current = mobileWorkView(state.pool!).row(item)
+      const current = mobileWorkView(state.pool!).mobileRow(item)
       expect(current && typeof current !== 'symbol' ? current.navigation?.id : null).toBe(
         replacement.sessionId,
       )

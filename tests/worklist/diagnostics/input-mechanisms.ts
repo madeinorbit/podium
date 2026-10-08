@@ -1,3 +1,4 @@
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 /** One-field invalidation measurements, collected before POD-5420's fixes. */
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -200,7 +201,7 @@ export async function inputMechanisms(scale: 1 | 4) {
     f.pool,
     (pool) => {
       projectionReads++
-      return [...pool.selection]
+      return worklistView(pool).selectedId === null ? [] : [worklistView(pool).selectedId]
     },
     {
       equals: (a, b) => {
