@@ -347,7 +347,7 @@ it('keeps phone board row calls, derivations and collection elements flat at a f
       // text query/title edit. Keep it visible; require the phone's work to be flat.
       const owned = (cell: WorkCounts) => kind === 'elements'
         ? cell.elements - (cell.elementsBy['IssueBoard.textIds'] ?? 0)
-        : cell[kind]
+        : cell[kind]!
       expect(owned(four[i]!)).toBeLessThanOrEqual(owned(one[i]!))
     }
   }
@@ -361,7 +361,7 @@ it('keeps phone board row calls, derivations and collection elements flat at a f
   // Addressed placement reads add a constant overhead; no counter may grow
   // faster than before, including the unchanged shared title/ref query.
   for (const kind of ['rows', 'derivations', 'elements'] as const)
-    expect(four[1]![kind] - one[1]![kind]).toBeLessThanOrEqual(old4[1]![kind] - old1[1]![kind])
+    expect(four[1]![kind]! - one[1]![kind]!).toBeLessThanOrEqual(old4[1]![kind]! - old1[1]![kind]!)
   const planted1 = await workAt(1, true),
     planted4 = await workAt(4, true)
   expect(planted4[3]!.elements).toBeGreaterThan(planted1[3]!.elements)
