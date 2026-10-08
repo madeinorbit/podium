@@ -89,10 +89,10 @@ export class TranscriptGraph {
   private readonly assistants = new LatestTranscriptId(id => this.rank(id))
   private readonly prose = new LatestTranscriptId(id => this.rank(id))
   private readonly questions = new LatestTranscriptId(id => this.rank(id))
-  latestAnswerId: string | undefined
-  latestAssistantId: string | undefined
-  latestProseId: string | undefined
-  pendingQuestionId: string | undefined
+  latestAnswerId: string | undefined = undefined
+  latestAssistantId: string | undefined = undefined
+  latestProseId: string | undefined = undefined
+  pendingQuestionId: string | undefined = undefined
   readonly searchIndex = new TranscriptSearchIndex(id => this.rank(id))
 
   constructor(items: readonly TranscriptItem[] = []) {
