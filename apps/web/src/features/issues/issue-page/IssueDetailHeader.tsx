@@ -74,9 +74,14 @@ export const IssueDetailHeader = observer(function IssueDetailHeader({
   const parent = edgeIssue(resolve(issue.parentId))
   const members = suppliedSessions ?? page?.views.row(issue.id).activeSessions
   if (typeof members === 'symbol') throw members
-  const phases = (members ?? []).map(session => 'motion' in session
-    ? (isFinished(issue) ? 'done' : (session as SessionModel).motion) : motionPhase(session, issue))
-  const working = phases.filter(phase => phase === 'working').length
+  const phases = (members ?? []).map((session) =>
+    'motion' in session
+      ? isFinished(issue)
+        ? 'done'
+        : (session as SessionModel).motion
+      : motionPhase(session, issue),
+  )
+  const working = phases.filter((phase) => phase === 'working').length
   const needsYou = issue.needsHuman || phases.includes('waiting')
   return (
     <header className="flex h-10 flex-none items-center gap-2 border-hairline-bar border-b bg-bar px-3">

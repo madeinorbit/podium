@@ -353,7 +353,15 @@ describe('pool screens work ratios: declared query incrementality', () => {
 
 describe('pool screens work ratios: declared query screen counters', () => {
   it('keeps the original summary, roster and count mechanisms green under the scripted clicks', async () => {
-    const only = new Set(['issue-page.detail', 'issue-page.panel', 'issue-page.phone', 'issue-page.inspector', 'issue-page.catalog', 'session-pane', 'board.card'])
+    const only = new Set([
+      'issue-page.detail',
+      'issue-page.panel',
+      'issue-page.phone',
+      'issue-page.inspector',
+      'issue-page.catalog',
+      'session-pane',
+      'board.card',
+    ])
     let pool: MobxPool | undefined
     const original = runtimePool.createRuntimeWorklistPool
     const spy = vi.spyOn(runtimePool, 'createRuntimeWorklistPool').mockImplementation((...args) => {
@@ -400,11 +408,11 @@ describe('pool screens work ratios: declared query screen counters', () => {
     // text varies: that is input work, rather than growth with hidden history.
     expect(oneInputs).toEqual(fourInputs)
     const verdicts = screenWorkVerdicts(at1x.cells, at4x.cells)
-    const judged = verdicts.filter((value) =>
-      /IssuePage@summaries|IssueBoard@sessions:|IssueBoard@index:|^consumer:session-pane(?:\/|$)/.test(
-        value.reader,
-      ) ||
-      /^consumer:issue-page\.(?:detail|panel|phone|inspector)(?:\/|$)/.test(value.reader),
+    const judged = verdicts.filter(
+      (value) =>
+        /IssuePage@summaries|IssueBoard@sessions:|IssueBoard@index:|^consumer:session-pane(?:\/|$)/.test(
+          value.reader,
+        ) || /^consumer:issue-page\.(?:detail|panel|phone|inspector)(?:\/|$)/.test(value.reader),
     )
     // cf4d2a0373 made the board index demand-only: cards do not retain it.
     // POD-5555 removes that index. Any index work still meets the ratios above,
@@ -431,10 +439,14 @@ describe('pool screens work ratios: declared query screen counters', () => {
     assertScreenWork(judged)
     // These actions keep displayed title/body and crew/child IDs fixed. A +96
     // historical walk is a failure even when an aggregate stays below 2x.
-    const fixedDetail = judged.filter(value => value.kind === 'elements' &&
-      /^consumer:issue-page\.(?:detail|panel|phone|inspector)(?:\/|$)/.test(value.reader) &&
-      ['select', 'navigate-by-ref', 'heartbeat'].includes(value.action))
+    const fixedDetail = judged.filter(
+      (value) =>
+        value.kind === 'elements' &&
+        /^consumer:issue-page\.(?:detail|panel|phone|inspector)(?:\/|$)/.test(value.reader) &&
+        ['select', 'navigate-by-ref', 'heartbeat'].includes(value.action),
+    )
     expect(fixedDetail.length).toBeGreaterThan(0)
-    for (const value of fixedDetail) expect(value.at4x, `${value.reader} ${value.action}`).toBeLessThanOrEqual(value.at1x)
+    for (const value of fixedDetail)
+      expect(value.at4x, `${value.reader} ${value.action}`).toBeLessThanOrEqual(value.at1x)
   }, 1_800_000)
 })

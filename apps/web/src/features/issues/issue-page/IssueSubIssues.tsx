@@ -29,7 +29,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  * `branchRollup` note says the same thing about counts, since a count IS an
  * existence fact and §3.1.2 leaves that policy open.
  */
-import type { IssueId} from '@podium/model/browser'
+import type { IssueId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { Plus } from 'lucide-react'
 import { type JSX, useMemo } from 'react'
@@ -73,7 +73,8 @@ const SubTaskRow = observer(function SubTaskRow({
   onNavigate: (id: IssueId) => void
   onStatusPick: (value: string) => void
 }): JSX.Element {
-  const count = 'confirmedWorkingAgents' in child ? (child as PageIssue).confirmedWorkingAgents : workingAgents
+  const count =
+    'confirmedWorkingAgents' in child ? (child as PageIssue).confirmedWorkingAgents : workingAgents
   const state = issueStateWord(child, count)
   const finished = isFinished(child)
   return (
@@ -152,7 +153,10 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   const rows = suppliedChildren ?? page?.views.row(issue.id).children ?? []
   if (typeof rows === 'symbol') throw rows
   const subIssues = rows
-  const legacyWorkers = suppliedChildren && sessions ? confirmedWorkingAgentCountsByIssue(sessions, now ?? Date.now()) : undefined
+  const legacyWorkers =
+    suppliedChildren && sessions
+      ? confirmedWorkingAgentCountsByIssue(sessions, now ?? Date.now())
+      : undefined
   return (
     <section className="mb-9 flex flex-col gap-1.5" data-testid="sub-issues">
       <SectionHeading

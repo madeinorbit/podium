@@ -56,11 +56,11 @@ import { issueObserver as observer } from '@podium/client-graph/issue-observer'
  */
 import type { CrossBoundaryPolicy, IssueEdge } from '@podium/client-core/values'
 import { type ReferentExit, resolveIssueEdge } from '@podium/client-core/values'
+import { formatLong, issueDisplayRef } from '@podium/protocol'
 import type { IssueId } from '@podium/model/browser'
 import { createContext, type JSX, type ReactNode, useContext, useMemo } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { issueRefLong } from '../issue-card'
-import { useIssuePageContext } from './issue-page-data'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import type { PageIssue } from '@podium/client-graph/issue-page'
 
@@ -102,18 +102,28 @@ export const IssueExitProvider = observer(function IssueExitProvider({
 })
 
 /** Resolve any issue-to-issue reference against the partial world this replica
- *  holds. One resolver per render, closed over the issue rows and the exit
- *  lookup, so a section resolving five edges does one index build. */
+ *  holds. Each edge row reads its addressed target and exit evidence. No neighbourhood
+ *  catalog or index is created while resolving links. */
 export function useIssueEdgeResolver(): (
   id: string | undefined | null,
 ) => IssueEdge<IssueViewModel> {
-  const page = useIssuePageContext()
   const pool = useWorklistPool()
   const override = useContext(IssueExitContext)
-  return useMemo(() => (id) => resolveIssueEdge(id, targetId => {
-    const row = pool?.row('issue', targetId, 'summary')
-    return row && typeof row !== 'symbol' ? pool!.issueObject(targetId) as PageIssue : undefined
-  }, CROSS_BOUNDARY_POLICY, override ?? (targetId => pool?.issueObject(targetId).exitKind)), [pool, override])
+  return useMemo(
+    () => (id) =>
+      resolveIssueEdge(
+        id,
+        (targetId) => {
+          const row = pool?.row('issue', targetId, 'summary-fields')
+          return row && typeof row !== 'symbol'
+            ? (pool!.issueObject(targetId) as PageIssue)
+            : undefined
+        },
+        CROSS_BOUNDARY_POLICY,
+        override ?? ((targetId) => pool?.issueObject(targetId).exitKind),
+      ),
+    [pool, override],
+  )
 }
 
 /** The resolved issue behind a `render: 'issue'` edge, in the page's own model
@@ -193,7 +203,9 @@ export const IssueEdgeLink = observer(function IssueEdgeLink({
         onClick={() => onNavigate(target.id)}
         title={target.id}
       >
-        {issueRefLong(target)}
+        {'authoredTitle' in target
+          ? formatLong(issueDisplayRef(target), (target as PageIssue).authoredTitle)
+          : issueRefLong(target)}
       </button>
       {target.archived && (
         <span

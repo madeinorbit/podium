@@ -60,7 +60,15 @@ export const IssueNow = observer(function IssueNow({
   if (sessions.length === 0) return null
 
   const ranked = [...sessions]
-    .map((session) => ({ session, phase: 'motion' in session ? (isFinished(issue) ? 'done' : (session as SessionModel).motion) : motionPhase(session, issue) }))
+    .map((session) => ({
+      session,
+      phase:
+        'motion' in session
+          ? isFinished(issue)
+            ? 'done'
+            : (session as SessionModel).motion
+          : motionPhase(session, issue),
+    }))
     .sort((a, b) => (PHASE_RANK[a.phase] ?? 9) - (PHASE_RANK[b.phase] ?? 9))
   const working = ranked.filter((r) => r.phase === 'working').length
   const waiting = ranked.filter((r) => r.phase === 'waiting').length

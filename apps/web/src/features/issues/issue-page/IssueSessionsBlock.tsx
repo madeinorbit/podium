@@ -33,7 +33,7 @@ import type { SessionView } from '@podium/client-core/session-values'
  *     alike as "another issue".
  */
 import { motionPhase, motionTiming } from '@podium/client-core/values'
-import type { SessionId} from '@podium/model/browser'
+import type { SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
@@ -180,9 +180,12 @@ export const IssueSessionsBlock = observer(function IssueSessionsBlock({
       {/* Same reading as the dock's, from the roster this block already holds:
           an agent on it, a checkout, or a stage whose name says somebody picked
           it up (see {@link issueWorkBegun}). */}
-      {!issueWorkBegun(issue, memberSessions.filter(session => 'open' in session ? (session as SessionModel).open : isOpenSession(session)).length) && (
-        <LaunchBox issue={issue} busy={busy} commands={commands} machines={machines} />
-      )}
+      {!issueWorkBegun(
+        issue,
+        memberSessions.filter((session) =>
+          'open' in session ? (session as SessionModel).open : isOpenSession(session),
+        ).length,
+      ) && <LaunchBox issue={issue} busy={busy} commands={commands} machines={machines} />}
     </section>
   )
 })

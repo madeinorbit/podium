@@ -63,7 +63,10 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   const rows = suppliedChildren ?? (pool ? issuePages(pool).row(issue.id).children : [])
   if (typeof rows === 'symbol') throw rows
   const subIssues = rows ?? []
-  const legacyWorkers = suppliedChildren && sessions ? confirmedWorkingAgentCountsByIssue(sessions, now ?? Date.now()) : undefined
+  const legacyWorkers =
+    suppliedChildren && sessions
+      ? confirmedWorkingAgentCountsByIssue(sessions, now ?? Date.now())
+      : undefined
   const create = () => {
     const next = title.trim()
     if (!next || busy) return
@@ -150,7 +153,8 @@ const SubTaskRow = observer(function SubTaskRow({
   onStatus: (issue: IssueViewModel) => void
   muted?: boolean
 }) {
-  const count = 'confirmedWorkingAgents' in child ? (child as PageIssue).confirmedWorkingAgents : workingAgents
+  const count =
+    'confirmedWorkingAgents' in child ? (child as PageIssue).confirmedWorkingAgents : workingAgents
   const state = taskStateWord(child, count)
   const stateTint =
     state?.tone === 'attention'

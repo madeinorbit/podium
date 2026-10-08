@@ -62,7 +62,9 @@ import { PoolIssuePage } from './pool-issue-page'
 import { PageComment, PageMail, PageTimeline } from './issue-page/IssueHistory'
 import { useDetailDesktop } from './issue-page/use-detail-viewport'
 
-export const IssuePage = observer(function IssuePage(props: Parameters<typeof IssuePageBody>[0]): JSX.Element {
+export const IssuePage = observer(function IssuePage(
+  props: Parameters<typeof IssuePageBody>[0],
+): JSX.Element {
   return (
     <PoolIssuePage
       issueId={props.issue.id}
@@ -244,24 +246,28 @@ export const IssuePageBody = observer(function IssuePageBody({
 
               {/* Properties (mobile) — the desktop aside is hidden <md, so mirror
                 its rows in a collapsible disclosure above the activity feed. */}
-              {!desktop && <details
-                onToggle={event => setDetailsOpen(event.currentTarget.open)}
-                className="mb-4 rounded-lg border border-border md:hidden"
-                data-testid="issue-details-mobile"
-              >
-                <summary className="cursor-pointer select-none px-3 py-2 font-medium text-[13px] text-foreground">
-                  Details
-                </summary>
-                {detailsOpen && <div className="border-border border-t px-3 py-2">
-                  <IssueProperties
-                    issue={issue}
-                    busy={busy}
-                    commands={commands}
-                    onNavigate={onNavigate}
-                    onRequestClose={requestClose}
-                  />
-                </div>}
-              </details>}
+              {!desktop && (
+                <details
+                  onToggle={(event) => setDetailsOpen(event.currentTarget.open)}
+                  className="mb-4 rounded-lg border border-border md:hidden"
+                  data-testid="issue-details-mobile"
+                >
+                  <summary className="cursor-pointer select-none px-3 py-2 font-medium text-[13px] text-foreground">
+                    Details
+                  </summary>
+                  {detailsOpen && (
+                    <div className="border-border border-t px-3 py-2">
+                      <IssueProperties
+                        issue={issue}
+                        busy={busy}
+                        commands={commands}
+                        onNavigate={onNavigate}
+                        onRequestClose={requestClose}
+                      />
+                    </div>
+                  )}
+                </details>
+              )}
 
               <PageTimeline issue={issue} busy={busy} commands={commands} />
             </div>
@@ -276,18 +282,20 @@ export const IssuePageBody = observer(function IssuePageBody({
         {/* The rail takes its roomier width only where there is room to give:
             just above the md breakpoint the shell's sidebar and this column
             together leave the document around 310px, and 24px matters there. */}
-        {desktop && <aside
-          data-testid="issue-aside"
-          className="hidden w-[272px] shrink-0 overflow-y-auto overscroll-contain border-border/70 border-l bg-rail/55 md:block xl:w-[296px]"
-        >
-          <IssueProperties
-            issue={issue}
-            busy={busy}
-            commands={commands}
-            onNavigate={onNavigate}
-            onRequestClose={requestClose}
-          />
-        </aside>}
+        {desktop && (
+          <aside
+            data-testid="issue-aside"
+            className="hidden w-[272px] shrink-0 overflow-y-auto overscroll-contain border-border/70 border-l bg-rail/55 md:block xl:w-[296px]"
+          >
+            <IssueProperties
+              issue={issue}
+              busy={busy}
+              commands={commands}
+              onNavigate={onNavigate}
+              onRequestClose={requestClose}
+            />
+          </aside>
+        )}
       </div>
 
       <IssueCloseDialog

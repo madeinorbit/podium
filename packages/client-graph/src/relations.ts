@@ -42,7 +42,13 @@ import type { RelationDelta, RelationQueries } from './shared/relation-index'
 import type { RelationReader } from './shared/relation-reader'
 import { type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
 
-export { ancestorPaths, isLinkSpec, type LinkSpec, linkInputs, prefixCandidates } from './shared/relation-index'
+export {
+  ancestorPaths,
+  isLinkSpec,
+  type LinkSpec,
+  linkInputs,
+  prefixCandidates,
+} from './shared/relation-index'
 // The declared link helpers live with the index; kept importable from here.
 export { relationRef }
 
@@ -92,9 +98,16 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   readonly schema: ModelSchema
   private readonly index: () => RelationQueries
   private readonly present: (entity: EntityName, id: string) => boolean
-  private readonly onBucket: (collection: string, target: string, member: string, added: boolean) => void
+  private readonly onBucket: (
+    collection: string,
+    target: string,
+    member: string,
+    added: boolean,
+  ) => void
   /** One atom per slot a derivation has read, while observed. */
-  private readonly atoms = createDemandAtoms<string>((key) => debugName(() => `pool.relation.${key}`) ?? 'Atom')
+  private readonly atoms = createDemandAtoms<string>(
+    (key) => debugName(() => `pool.relation.${key}`) ?? 'Atom',
+  )
   /** Collections by name, and which outgoing links are many-valued (`from.relation`). */
   private readonly collections = new Set<string>()
   private readonly singles = new Set<string>()
@@ -108,7 +121,8 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     for (const from of Object.keys(this.schema) as EntityName[]) {
       for (const [name, spec] of Object.entries(this.schema[from].relations)) {
         const key = `${from}.${name}`
-        if (spec.kind === 'hasMany' || (spec.kind === 'edge' && spec.direction === 'in')) this.collections.add(key)
+        if (spec.kind === 'hasMany' || (spec.kind === 'edge' && spec.direction === 'in'))
+          this.collections.add(key)
         else if (spec.kind === 'edge' && spec.many === true) this.multiples.add(key)
         else this.singles.add(key)
       }
@@ -237,10 +251,15 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
 
   // ------------------------------------------------------------------ slots
 
-  private slot(from: EntityName, id: string, relation: string): { key: string; read: () => ReadonlySet<string> } {
+  private slot(
+    from: EntityName,
+    id: string,
+    relation: string,
+  ): { key: string; read: () => ReadonlySet<string> } {
     id = machinePathKey(id)
     const key = `${from}.${relation}`
-    if (this.multiples.has(key)) return { key: `f:${key}:${id}`, read: () => this.index().targets(from, id, relation) }
+    if (this.multiples.has(key))
+      return { key: `f:${key}:${id}`, read: () => this.index().targets(from, id, relation) }
     if (!this.collections.has(key)) {
       this.spec(from, relation)
       throw new Error(`[pool] ${from}.${relation} is single-valued; read it with one()`)
@@ -279,18 +298,29 @@ export class RelationBuckets {
       : new Map()
   }
 
-  move(address: string, member: string, targets: readonly string[], bucket: (target: string) => string): void {
+  move(
+    address: string,
+    member: string,
+    targets: readonly string[],
+    bucket: (target: string) => string,
+  ): void {
     const previous = this.forwards.get(address) ?? EMPTY_RELATION_IDS
-    if (previous.length === targets.length && previous.every((target, index) => target === targets[index])) return
+    if (
+      previous.length === targets.length &&
+      previous.every((target, index) => target === targets[index])
+    )
+      return
     for (const target of previous) {
       if (targets.includes(target)) continue
-      const key = bucket(target), rest = this.many(key).filter(id => id !== member)
+      const key = bucket(target),
+        rest = this.many(key).filter((id) => id !== member)
       if (rest.length) this.buckets.set(key, rest)
       else this.buckets.delete(key)
     }
     for (const target of targets) {
       if (previous.includes(target)) continue
-      const key = bucket(target), next = [...this.many(key), member]
+      const key = bucket(target),
+        next = [...this.many(key), member]
       if (this.options.sorted) next.sort()
       this.buckets.set(key, next)
     }
@@ -298,7 +328,14 @@ export class RelationBuckets {
     else this.forwards.delete(address)
   }
 
-  one(address: string): string | undefined { return this.forwards.get(address)?.[0] }
-  many(key: string): readonly string[] { return this.buckets.get(key) ?? EMPTY_RELATION_IDS }
-  clear(): void { this.forwards.clear(); this.buckets.clear() }
+  one(address: string): string | undefined {
+    return this.forwards.get(address)?.[0]
+  }
+  many(key: string): readonly string[] {
+    return this.buckets.get(key) ?? EMPTY_RELATION_IDS
+  }
+  clear(): void {
+    this.forwards.clear()
+    this.buckets.clear()
+  }
 }

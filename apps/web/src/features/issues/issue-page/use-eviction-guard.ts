@@ -61,7 +61,11 @@ export function useEvictionGuard(issue: IssueViewModel, onLeave: () => void): vo
 
 /** Both readers share the same per-issue latch. Loading carries no presence
  * answer yet and cannot mean that the issue left the view. */
-export function useEvictionPresenceGuard(issueId: string, present: boolean | null, onLeave: () => void): void {
+export function useEvictionPresenceGuard(
+  issueId: string,
+  present: boolean | null,
+  onLeave: () => void,
+): void {
   const wasPresent = useRef(false)
   const fired = useRef(false)
 

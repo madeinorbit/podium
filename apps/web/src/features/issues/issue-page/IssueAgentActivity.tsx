@@ -53,7 +53,11 @@ import { Button } from '@/components/ui/button'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { SectionHeading } from './chrome'
 
-export const IssueAgentActivity = observer(function IssueAgentActivity({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+export const IssueAgentActivity = observer(function IssueAgentActivity({
+  issue,
+}: {
+  issue: IssueViewModel
+}): JSX.Element | null {
   const { httpOrigin, openFileInWorktree, openArtifact } = useRuntimeSelector(
     (s) => ({
       httpOrigin: s.httpOrigin,

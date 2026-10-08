@@ -6,7 +6,10 @@ import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 
 import { autorun, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
-import { compareSidebarSnapshots, type SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
+import {
+  compareSidebarSnapshots,
+  type SidebarSnapshot,
+} from '../../../tests/worklist/diagnostics/sidebar-check'
 import { automationViews } from './automation-views'
 import { chatMentionIssues, chatReferenceSessions } from './chat-context'
 import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
@@ -261,7 +264,11 @@ function fixture(scale = 1, bootOnly = false) {
         lastActiveAt: old,
         createdAt: old,
         refRepoId: 'query-repo',
-        refSeq: id === 'z-twin' ? 1 : sessionSequences.get(id) ?? (sessionSequences.set(id, sessionSequences.size + 2), sessionSequences.size + 1),
+        refSeq:
+          id === 'z-twin'
+            ? 1
+            : (sessionSequences.get(id) ??
+              (sessionSequences.set(id, sessionSequences.size + 2), sessionSequences.size + 1)),
         refLetter: 'A',
         ...extra,
       },
@@ -446,7 +453,10 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
     read: (pool) => ({
       issues: issuePages(pool).issues(),
       explorer: issuePages(pool).explorer(),
-      panel: (() => { const issue = issuePages(pool).panelIssue({ cwd: '/query/cold/file' }); return issue && issue !== LOADING ? issue.id : issue })(),
+      panel: (() => {
+        const issue = issuePages(pool).panelIssue({ cwd: '/query/cold/file' })
+        return issue && issue !== LOADING ? issue.id : issue
+      })(),
     }),
   },
   {

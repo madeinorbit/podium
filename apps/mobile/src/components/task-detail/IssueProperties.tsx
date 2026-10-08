@@ -73,7 +73,10 @@ export const IssueProperties = observer(function IssueProperties({
   onAddRelation: () => void
 }) {
   const [label, setLabel] = useState('')
-  const relations = 'relationGroups' in issue ? (issue as import('@podium/client-graph/issue-page').PageIssue).relationGroups : groupRelations(issue)
+  const relations =
+    'relationGroups' in issue
+      ? (issue as import('@podium/client-graph/issue-page').PageIssue).relationGroups
+      : groupRelations(issue)
   const parentEdge = resolveEdge(issue.parentId)
   // Merge axis only: a shared checkout's `ahead` is not this task's to land.
   const ahead = issue.gitState?.shared ? 0 : (issue.gitState?.ahead ?? 0)
@@ -313,9 +316,7 @@ export const PropertyBar = observer(function PropertyBar({
   return (
     <View style={styles.bar}>
       <Chip
-        label={
-          isClosed(issue) ? `Closed — ${issue.closedReason}` : ISSUE_STAGE_LABELS[issue.stage]
-        }
+        label={isClosed(issue) ? `Closed — ${issue.closedReason}` : ISSUE_STAGE_LABELS[issue.stage]}
         accessibilityLabel={`Stage ${ISSUE_STAGE_LABELS[issue.stage]} — change`}
         onPress={onStage}
         glyph={<StageGlyph stage={issue.stage} size={13} ground={color.surface} />}

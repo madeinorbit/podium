@@ -64,7 +64,11 @@ export const NeedsHumanBanner = observer(function NeedsHumanBanner({
 })
 
 /** Who asked, and for whom — server fields only. */
-const NeedsHumanAsker = observer(function NeedsHumanAsker({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+const NeedsHumanAsker = observer(function NeedsHumanAsker({
+  issue,
+}: {
+  issue: IssueViewModel
+}): JSX.Element | null {
   const asked = issue.asked
   if (asked?.attribution) {
     return (

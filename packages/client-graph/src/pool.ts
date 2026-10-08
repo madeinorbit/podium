@@ -1,8 +1,5 @@
 import { joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
-import {
-  SETUP_SESSION_SUMMARY_FIELDS,
-  type SetupSession,
-} from './settings-schema'
+import { SETUP_SESSION_SUMMARY_FIELDS, type SetupSession } from './settings-schema'
 import { readSetupSession } from './settings-views'
 import {
   mergePoolSummaries,
@@ -303,11 +300,12 @@ export class MobxPool {
   constructor(locals: SliceLocals, schema?: ModelSchema, lazy?: PoolLazyOptions) {
     this.diagnostics = lazy?.diagnostics ?? new FeedDiagnostics()
     this.issueIdByRef = lazy?.issueIdByRef
-    this.sourcePositionVersion = lazy?.settings === true
-      ? observable.box(0, {
-          name: debugName(() => 'pool.sourcePositionVersion'),
-        })
-      : undefined
+    this.sourcePositionVersion =
+      lazy?.settings === true
+        ? observable.box(0, {
+            name: debugName(() => 'pool.sourcePositionVersion'),
+          })
+        : undefined
     this.tables = createObservableTables()
     // POD-5407: the cold index holds every relation and the cold rule's
     // inputs for every row the feed carries. A source's own index is used as
@@ -474,9 +472,7 @@ export class MobxPool {
       // An issue answers from its object's cached in-memory read (no table
       // probe per run); other entities from the table.
       present: (entity, id) =>
-        entity === 'issue'
-          ? this.issueObject(id).inMemory
-          : tables[entity].has(id),
+        entity === 'issue' ? this.issueObject(id).inMemory : tables[entity].has(id),
       loading: (entity, id) => residency?.loading(entity, id) ?? false,
       // Only asked for an issue in memory (`originTickPartOf`): its object.
       parts: (id) => worklistView(this).row(this.issueObject(id)),
@@ -599,7 +595,12 @@ export class MobxPool {
             : residency.read(core, id)
       if (server === undefined) return undefined
     }
-    if ((core === 'session' || core === 'issue') && (core === 'session' ? 'machineId' in server || 'refRepoId' in server || 'handoffTargetMachineId' in server : 'repoId' in server)) {
+    if (
+      (core === 'session' || core === 'issue') &&
+      (core === 'session'
+        ? 'machineId' in server || 'refRepoId' in server || 'handoffTargetMachineId' in server
+        : 'repoId' in server)
+    ) {
       let view = this.joinedRows.get(server)
       if (!view) {
         view = joinedFields(core, server as Readonly<Record<string, unknown>>, core === 'session' ? SESSION_JOIN_FIELDS : ['repoPath'], (kind, key) => {
@@ -613,7 +614,9 @@ export class MobxPool {
     return server
   }
 
-  get undeletedIssueCount(): number { return this.issueCount.get() }
+  get undeletedIssueCount(): number {
+    return this.issueCount.get()
+  }
 
   /** Source ordering is tracked independently from the named row payload. */
   sourcePosition(entity: 'session', id: string): number | undefined {
@@ -717,7 +720,11 @@ export class MobxPool {
     return exit?.kind
   }
 
-  sessionSeatIds(relation: SeatRelation, issueId: string, archived: boolean): readonly string[] | typeof LOADING {
+  sessionSeatIds(
+    relation: SeatRelation,
+    issueId: string,
+    archived: boolean,
+  ): readonly string[] | typeof LOADING {
     const partition = sessionSeats(this).partition(relation, issueId)
     return partition === LOADING ? LOADING : archived ? partition.archived : partition.present
   }
@@ -885,7 +892,9 @@ export class MobxPool {
     const residency = this.residency
     if (residency === null) return 0
     const batch = residency.take()
-    const refs = residency.takeReferences().filter((ref) => referenceViewIfPresent(this)?.hasRequest(ref))
+    const refs = residency
+      .takeReferences()
+      .filter((ref) => referenceViewIfPresent(this)?.hasRequest(ref))
     const identities = refs.map((ref) => [ref, this.issueIdByRef?.(ref) ?? null] as const)
     const queuedIssues = new Set(batch.filter(([entity]) => entity === 'issue').map(([, id]) => id))
     for (const [, id] of identities) {
@@ -916,22 +925,27 @@ export class MobxPool {
     if (this.disposed) return
     const out = ingestOut()
     runInAction(() => {
-      const machineRows = event.rows.filter(record => record.kind === 'machine')
+      const machineRows = event.rows.filter((record) => record.kind === 'machine')
       if (event.type === 'replace') {
-        const next = new Set(machineRows.filter(record => record.value !== undefined).map(record => record.id))
+        const next = new Set(
+          machineRows.filter((record) => record.value !== undefined).map((record) => record.id),
+        )
         for (const id of this.companionMachineRows.keys())
           if (!next.has(id)) machineRows.push({ kind: 'machine', id, value: undefined })
         // Replace tracked companions in place so existing readers keep
         // watching the same observable across publications.
-        for (const id of [...this.companionMachineRows.keys()]) if (!next.has(id)) this.companionMachineRows.delete(id)
+        for (const id of [...this.companionMachineRows.keys()])
+          if (!next.has(id)) this.companionMachineRows.delete(id)
         for (const record of machineRows) {
           if (record.value !== undefined && typeof record.value === 'object')
             this.companionMachineRows.set(record.id, record.value as Record<string, unknown>)
         }
-      } else for (const record of machineRows) {
-        if (record.value === undefined) this.companionMachineRows.delete(record.id)
-        else if (typeof record.value === 'object') this.companionMachineRows.set(record.id, record.value as Record<string, unknown>)
-      }
+      } else
+        for (const record of machineRows) {
+          if (record.value === undefined) this.companionMachineRows.delete(record.id)
+          else if (typeof record.value === 'object')
+            this.companionMachineRows.set(record.id, record.value as Record<string, unknown>)
+        }
       // Feed companions carry replicated display facts without live presence.
       // Merge them over the live rows they accompany: a wholesale replace
       // drops online/availability and every presence reader goes blind until
@@ -949,7 +963,10 @@ export class MobxPool {
         if (!live || typeof live !== 'object') return record
         return {
           ...record,
-          value: { ...(live as Record<string, unknown>), ...(record.value as Record<string, unknown>) },
+          value: {
+            ...(live as Record<string, unknown>),
+            ...(record.value as Record<string, unknown>),
+          },
         }
       })
       if (mergedMachineRows.length) headerEntities(this).apply(mergedMachineRows as never)
@@ -986,7 +1003,10 @@ export class MobxPool {
         if (!fresh) this.graph.publish(delta)
       }
       this.issueCount.set(index.undeleted('issue'))
-      if (this.sourcePositionVersion !== undefined && this.positionsSeen !== index.positionVersion) {
+      if (
+        this.sourcePositionVersion !== undefined &&
+        this.positionsSeen !== index.positionVersion
+      ) {
         this.positionsSeen = index.positionVersion
         this.sourcePositionVersion.set(this.sourcePositionVersion.get() + 1)
       }

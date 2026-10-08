@@ -1,46 +1,34 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { machinePathBasename } from '@podium/model'
 /**
- * Viewmodel for the issue page (P5d, issue #264): the busy/error mutation
- * runner, the lazy comment thread, the event-log drain, and the pure
- * "what to show" derivations — everything IssuePage renders but none of the
- * JSX. Extracted verbatim from IssuePage.tsx; behavior is unchanged.
+ * Navigation and mutation ports for the issue page. Record facts are read by
+ * observer sections; the activity section owns its shared request history.
  */
 
 import { shallowEqual } from '@podium/client-core'
-import {
-  type ActivityComment,
-  type ActivityItem,
-  buildActivityFeed,
-  type IssueEvent,
-} from '@podium/client-core/values'
 import type { IssueId, SessionId, UserId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useState } from 'react'
 import { toast } from 'sonner'
 import type { Store } from '@/app/store'
 import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { PropertyOption } from '@/lib/PropertyMenu'
 import { issueNeighbors } from './issue-page'
-import {
-  type IssueMailMessage,
-  loadIssueComments,
-  loadIssueEventsPage,
-  loadIssueMail,
-  loadMergeStyle,
-  type MergeStyle,
-  type RunMutation,
-} from './issue-page-commands'
-
-/** Page size for the subject-narrowed event drain. One issue's whole history is
- *  normally far below this, so the drain is a single round trip; a full page is
- *  the signal that more remain. */
-const EVENTS_PAGE = 200
+import { loadMergeStyle, type MergeStyle, type RunMutation } from './issue-page-commands'
 
 export interface IssuePageModel {
   trpc: Trpc
-  issueWrites: Pick<Store, 'updateIssue' | 'deleteIssue' | 'closeIssue' | 'deferIssue' | 'undeferIssue' | 'setIssueLabels' | 'restoreIssue'>
+  issueWrites: Pick<
+    Store,
+    | 'updateIssue'
+    | 'deleteIssue'
+    | 'closeIssue'
+    | 'deferIssue'
+    | 'undeferIssue'
+    | 'setIssueLabels'
+    | 'restoreIssue'
+  >
   busy: boolean
   run: RunMutation
   prev?: IssueId
@@ -52,19 +40,40 @@ export interface IssuePageModel {
 /** Navigation and command ports only. History/editor/roster state belongs to
  * the section that uses it, so typing and clock ticks never rebuild the page. */
 export function useIssuePageModel(issue: IssueViewModel, orderedIds: IssueId[]): IssuePageModel {
-  const ports = useRuntimeSelector(s => ({ trpc: s.trpc, updateIssue: s.updateIssue,
-    deleteIssue: s.deleteIssue, closeIssue: s.closeIssue, deferIssue: s.deferIssue,
-    undeferIssue: s.undeferIssue, setIssueLabels: s.setIssueLabels, restoreIssue: s.restoreIssue,
-    navigateToSession: s.navigateToSession }), shallowEqual)
+  const ports = useRuntimeSelector(
+    (s) => ({
+      trpc: s.trpc,
+      updateIssue: s.updateIssue,
+      deleteIssue: s.deleteIssue,
+      closeIssue: s.closeIssue,
+      deferIssue: s.deferIssue,
+      undeferIssue: s.undeferIssue,
+      setIssueLabels: s.setIssueLabels,
+      restoreIssue: s.restoreIssue,
+      navigateToSession: s.navigateToSession,
+    }),
+    shallowEqual,
+  )
   const [busy, setBusy] = useState(false)
-  const run: RunMutation = async fn => {
+  const run: RunMutation = async (fn) => {
     setBusy(true)
-    try { await fn() } catch (error) { toast.error(error instanceof Error ? error.message : String(error)) }
-    finally { setBusy(false) }
+    try {
+      await fn()
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : String(error))
+    } finally {
+      setBusy(false)
+    }
   }
-  return { trpc: ports.trpc, issueWrites: ports, busy, run,
-    ...issueNeighbors(orderedIds, issue.id), repoName: machinePathBasename(issue.repoPath),
-    openSession: ports.navigateToSession }
+  return {
+    trpc: ports.trpc,
+    issueWrites: ports,
+    busy,
+    run,
+    ...issueNeighbors(orderedIds, issue.id),
+    repoName: machinePathBasename(issue.repoPath),
+    openSession: ports.navigateToSession,
+  }
 }
 
 /** The configured merge style, loaded once per mount ('ff-only' is the safe

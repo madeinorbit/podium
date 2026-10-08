@@ -396,10 +396,20 @@ async function measureScreenCells(
     catalogPicker.open()
     phonePicker.open()
     referencePicker.open()
-    stops.push(() => palettePicker.close(), () => referencePicker.close())
+    stops.push(
+      () => palettePicker.close(),
+      () => referencePicker.close(),
+    )
     const panelOrigin = readLaunchOrigin(pool, '/repo-000')
-    const panelPreferred = panelOrigin !== LOADING && panelOrigin.repo
-      ? runInAction(() => readTargetMachines(pool, panelOrigin.repo, panelOrigin.machines, ['claude-code', 'codex'])) : {}
+    const panelPreferred =
+      panelOrigin !== LOADING && panelOrigin.repo
+        ? runInAction(() =>
+            readTargetMachines(pool, panelOrigin.repo, panelOrigin.machines, [
+              'claude-code',
+              'codex',
+            ]),
+          )
+        : {}
     const mobileInbox = createMobileInboxViews(pool),
       mobileSession = createMobileSessionReader(pool)
     stops.push(() => mobileInbox.dispose())
@@ -488,17 +498,29 @@ async function measureScreenCells(
     add('launcher.launch', ['NewIssueDialog'], () =>
       // NewIssueDialog mounts only when opened. The fresh
       // background terminal recipe has triggers, with no launch catalog demand.
-      scene === 'background-terminal' ? undefined : {
-        catalog: catalogPicker.catalog(),
-        origin: readLaunchOrigin(pool, '/repo-000'),
-      },
+      scene === 'background-terminal'
+        ? undefined
+        : {
+            catalog: catalogPicker.catalog(),
+            origin: readLaunchOrigin(pool, '/repo-000'),
+          },
     )
     add('launcher.panel', ['NewPanelMenu'], () => {
       if (scene === 'background-terminal') return undefined
       const origin = readLaunchOrigin(pool, '/repo-000')
       if (origin === LOADING) return origin
-      return { ...origin, targets: origin.repo
-        ? readTargetMachines(pool, origin.repo, origin.machines, ['claude-code', 'codex'], panelPreferred) : {} }
+      return {
+        ...origin,
+        targets: origin.repo
+          ? readTargetMachines(
+              pool,
+              origin.repo,
+              origin.machines,
+              ['claude-code', 'codex'],
+              panelPreferred,
+            )
+          : {},
+      }
     })
     add('launcher.phone', ['NewWorkButton', 'NewIssueScreen'], () =>
       scene === 'background-terminal' ? undefined : {
@@ -543,29 +565,65 @@ async function measureScreenCells(
     // the retired bundle with a trivial identity-only consumer. Closed Details,
     // completed and retired folds deliberately own no payload demand.
     const detail = (mode: 'page' | 'panel' | 'phone' | 'inspector') => {
-      const issue = mode === 'panel' ? page.panelIssue({ issueId: selected(), cwd: '/synthetic' }) : page.issue(selected())
+      const issue =
+        mode === 'panel'
+          ? page.panelIssue({ issueId: selected(), cwd: '/synthetic' })
+          : page.issue(selected())
       if (!issue || issue === LOADING) return issue
-      const row = page.row(issue.id), children = row.children
-      const crew = mode === 'phone' ? row.phoneSessions : mode === 'inspector' ? row.inspectorSessions : row.activeSessions
+      const row = page.row(issue.id),
+        children = row.children
+      const crew =
+        mode === 'phone'
+          ? row.phoneSessions
+          : mode === 'inspector'
+            ? row.inspectorSessions
+            : row.activeSessions
       if (children === LOADING || crew === LOADING) return LOADING
       const parent = issue.parentId ? pool.issueObject(issue.parentId) : undefined
-      return { id: issue.id, title: row.title, description: issue.description, ref: issue.displayRef,
-        stage: issue.stage, ready: issue.ready, parent: parent?.authoredTitle,
-        childCount: issue.childCount, childDoneCount: issue.childDoneCount,
-        children: children?.filter(child => mode !== 'panel' || !isFinished(child)).map(child => ({
-          id: child.id, title: child.authoredTitle, ref: child.displayRef, stage: child.stage,
-          workers: child.confirmedWorkingAgents,
+      return {
+        id: issue.id,
+        title: row.title,
+        description: issue.description,
+        ref: issue.displayRef,
+        stage: issue.stage,
+        ready: issue.ready,
+        parent: parent?.authoredTitle,
+        childCount: issue.childCount,
+        childDoneCount: issue.childDoneCount,
+        children: children
+          ?.filter((child) => mode !== 'panel' || !isFinished(child))
+          .map((child) => ({
+            id: child.id,
+            title: child.authoredTitle,
+            ref: child.displayRef,
+            stage: child.stage,
+            workers: child.confirmedWorkingAgents,
+          })),
+        crew: crew?.map((session) => ({
+          id: session.sessionId,
+          title: session.title,
+          name: session.name,
+          asking: session.asking,
+          motion: session.motion,
         })),
-        crew: crew?.map(session => ({ id: session.sessionId, title: session.title,
-          name: session.name, asking: session.asking, motion: session.motion })),
-        memberCount: issue.memberCount, retiredCount: mode === 'panel' ? row.retiredCount : undefined,
+        memberCount: issue.memberCount,
+        retiredCount: mode === 'panel' ? row.retiredCount : undefined,
         presence: mode === 'panel' && !crew?.length ? row.presence : undefined,
-        relations: issue.relationGroups }
+        relations: issue.relationGroups,
+      }
     }
-    add('issue-page.detail', ['IssuePage', 'IssueTitle', 'IssueDescription', 'IssueSubIssues', 'IssueNow'], () => detail('page'))
+    add(
+      'issue-page.detail',
+      ['IssuePage', 'IssueTitle', 'IssueDescription', 'IssueSubIssues', 'IssueNow'],
+      () => detail('page'),
+    )
     add('issue-page.panel', ['IssuePanel', 'RecentActivity model owner'], () => detail('panel'))
-    add('issue-page.phone', ['IssueScreen', 'PhoneNow', 'PhoneProperties closed'], () => detail('phone'))
-    add('issue-page.inspector', ['TaskSheet', 'SessionConversation peek'], () => detail('inspector'))
+    add('issue-page.phone', ['IssueScreen', 'PhoneNow', 'PhoneProperties closed'], () =>
+      detail('phone'),
+    )
+    add('issue-page.inspector', ['TaskSheet', 'SessionConversation peek'], () =>
+      detail('inspector'),
+    )
     add('issue-page.catalog', ['IssueContextMenu', 'IssueExplorer'], () => ({
       issues: page.issues(),
       explorer: page.explorer(),
@@ -574,14 +632,24 @@ async function measureScreenCells(
     add('board.catalog', ['useBoardCatalog', 'IssueBoard'], () =>
       readBoardCatalog(pool, false, false),
     )
-    const phoneTasks = new MobileTasksBoard(pool, { showDone: false, expanded: [],
-      filter: { text: 'guard-' }, ordering: 'priority', showAgentTasks: false })
+    const phoneTasks = new MobileTasksBoard(pool, {
+      showDone: false,
+      expanded: [],
+      filter: { text: 'guard-' },
+      ordering: 'priority',
+      showAgentTasks: false,
+    })
     add('phone-tasks.sections', ['IssuesScreen', 'StageSections'], () => phoneTasks.sections)
     add('phone-tasks.proposals', ['ProposalsBanner'], () => phoneTasks.proposals)
     add('phone-tasks.row', ['TaskRow'], () => {
       const issue = phoneTasks.issue(ROOT)
-      return { title: issue.title, stage: issue.stage, working: issue.confirmedWorkingAgents,
-        progress: issue.taskProgress, dependents: issue.dependents }
+      return {
+        title: issue.title,
+        stage: issue.stage,
+        working: issue.confirmedWorkingAgents,
+        progress: issue.taskProgress,
+        dependents: issue.dependents,
+      }
     })
     add('board.query', ['IssueBoard', 'IssueExplorer'], () =>
       board.queryIds({ kind: 'board', showAgentTasks: false }),

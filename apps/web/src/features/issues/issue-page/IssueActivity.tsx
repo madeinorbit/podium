@@ -69,7 +69,11 @@ import { modChord } from '@/lib/mod-chord'
 /** Agent mail addressed to this issue (issue #103) — durable messages other
  *  agents sent to whoever works it. Read-only operator view; listing here never
  *  consumes the recipient's unread status. */
-export const MailSection = observer(function MailSection({ mail }: { mail: IssueMailMessage[] }): JSX.Element | null {
+export const MailSection = observer(function MailSection({
+  mail,
+}: {
+  mail: IssueMailMessage[]
+}): JSX.Element | null {
   if (mail.length === 0) return null
   const now = Date.now()
   return (
@@ -140,7 +144,13 @@ const EVENT_ICONS: Record<IssueEventIcon, LucideIcon> = {
  * continuous spine — a real transition lights its node in the issue colour, a
  * minor one leaves it grey.
  */
-const ActivityEvent = observer(function ActivityEvent({ line, ts }: { line: IssueEventLine; ts: string }): JSX.Element {
+const ActivityEvent = observer(function ActivityEvent({
+  line,
+  ts,
+}: {
+  line: IssueEventLine
+  ts: string
+}): JSX.Element {
   const Icon = EVENT_ICONS[line.icon] ?? EVENT_ICONS.generic
   const minor = line.minor === true
   return (
@@ -267,7 +277,11 @@ const ActivityComment = observer(function ActivityComment({
   )
 })
 
-const ActivityEntryRow = observer(function ActivityEntryRow({ entry }: { entry: ActivityEntry }): JSX.Element | null {
+const ActivityEntryRow = observer(function ActivityEntryRow({
+  entry,
+}: {
+  entry: ActivityEntry
+}): JSX.Element | null {
   if (entry.kind === 'rollup') {
     return (
       <ActivityRollupRow
@@ -438,7 +452,9 @@ export const CommentComposer = observer(function CommentComposer({
             Post
           </Button>
         ) : (
-          <span className="mb-2 select-none font-mono shell-type-micro text-text-faint">{modChord('↵')}</span>
+          <span className="mb-2 select-none font-mono shell-type-micro text-text-faint">
+            {modChord('↵')}
+          </span>
         )}
       </div>
     </div>

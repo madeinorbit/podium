@@ -87,7 +87,9 @@ export const DOCK_STAMP = 'font-mono shell-type-micro leading-none'
  *  session is gone, and reading it as "standing by" would tell the operator an
  *  agent is on this task when none is. Same predicate the Flight Deck counts use. */
 export function isOpenSession(session: SessionView): boolean {
-  return 'open' in session ? (session as SessionModel).open : !session.archived && session.status !== 'exited'
+  return 'open' in session
+    ? (session as SessionModel).open
+    : !session.archived && session.status !== 'exited'
 }
 
 /**
@@ -182,7 +184,11 @@ export function decisionLine(issue: IssueViewModel, active: readonly SessionView
  *  worktree" section rather than trailing the old "Evidence & checks", where a branch
  *  name read as a verification result (POD-516 r3 #6). The branch itself is
  *  machine voice, so it is set in mono. */
-export const IssueGitScope = observer(function IssueGitScope({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+export const IssueGitScope = observer(function IssueGitScope({
+  issue,
+}: {
+  issue: IssueViewModel
+}): JSX.Element | null {
   const git = issue.gitState
   if (!git) return null
   const attributedDirty = git.dirtyOwn ?? (!git.shared && !git.fallback ? git.dirtyFiles : 0)
@@ -349,7 +355,11 @@ export const IssueSessionRow = observer(function IssueSessionRow({
  * dock and left the scroll 0px of content height. The answers now hang off the
  * session that asked (see {@link IssueSessionRow}), inside the scroll.
  */
-export const IssueDecisionBand = observer(function IssueDecisionBand({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+export const IssueDecisionBand = observer(function IssueDecisionBand({
+  issue,
+}: {
+  issue: IssueViewModel
+}): JSX.Element | null {
   const { trpc } = useRuntimeSelector((s) => ({ trpc: s.trpc }), shallowEqual)
   const sessions = useIssuePageSessions()
   const page = useIssuePageContext()
@@ -549,7 +559,7 @@ export const IssueCompactControls = observer(function IssueCompactControls({
     // made. A sub-task the operator planned themselves needs no second opinion
     // on the button; the context menu still offers the move.
     if (action?.kind !== 'start-work' || !issue.startedBySession) return null
-    const origin = issue.deps.find(dep => dep.type === 'discovered-from')?.id ?? issue.parentId
+    const origin = issue.deps.find((dep) => dep.type === 'discovered-from')?.id ?? issue.parentId
     const source = edgeIssue(resolve(origin))
     return discoveredPlacement(issue, source ? new Map([[source.id, source]]) : undefined)
   }, [action?.kind, issue, resolve])
@@ -664,9 +674,7 @@ export const IssueCompactControls = observer(function IssueCompactControls({
    * one-yellow-object rule intact.
    */
   const launchable =
-    !closed &&
-    action?.kind !== 'mark-done' &&
-    !issueWorkBegun(issue, active.length)
+    !closed && action?.kind !== 'mark-done' && !issueWorkBegun(issue, active.length)
 
   return (
     // TWO TIERS, AND THE GAP BETWEEN THEM IS THE POINT (POD-1457).

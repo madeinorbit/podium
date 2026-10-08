@@ -164,14 +164,7 @@ describe('TaskSheet artifacts', () => {
     const onClose = vi.fn()
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
     pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: issue.id, value: issue }] })
-    render(
-      <TaskSheet
-        issue={issue}
-        pool={pool}
-        onClose={onClose}
-        onOpenSession={vi.fn()}
-      />,
-    )
+    render(<TaskSheet issue={issue} pool={pool} onClose={onClose} onOpenSession={vi.fn()} />)
 
     fireEvent.click(screen.getByLabelText('Open report.html'))
 

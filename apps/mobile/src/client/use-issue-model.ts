@@ -11,7 +11,7 @@ import { useMobilePoolProjection } from './mobile-pool'
 
 /** Resolve only the shared issue identity. Sections read their own fields. */
 export function useIssueModel(id: string | undefined) {
-  const read = useCallback((pool: MobxPool) => id ? issuePages(pool).issue(id) : undefined, [id])
+  const read = useCallback((pool: MobxPool) => (id ? issuePages(pool).issue(id) : undefined), [id])
   const issue = useMobilePoolProjection(read, undefined)
   return typeof issue === 'symbol' ? undefined : issue
 }
@@ -20,16 +20,7 @@ export function useIssueModel(id: string | undefined) {
  * picker actually opens, using the already declared repository question. */
 export function useHasIssueMates(issue: IssueViewModel, enabled: boolean) {
   const read = useCallback(
-    (pool: MobxPool) =>
-      enabled &&
-      pool.queries.ids({
-        kind: 'mobileIssueTargets',
-        repoPath: issue.repoPath,
-        excludeId: issue.id,
-        query: '',
-        limit: 1,
-        prefixes: {},
-      }).length > 0,
+    (pool: MobxPool) => enabled && issuePages(pool).row(issue.id).hasTargets,
     [issue, enabled],
   )
   return useMobilePoolProjection(read, false)
@@ -65,8 +56,13 @@ export function useIssueTargets(
 }
 
 export function resolveEdgeFromPool(pool: MobxPool | null, id: string | undefined | null) {
-  return resolveIssueEdge(id, targetId => {
-    const raw = pool?.row('issue', targetId, 'summary')
-    return raw && typeof raw !== 'symbol' ? pool!.issueObject(targetId) as PageIssue : undefined
-  }, 'opaque', targetId => pool?.issueObject(targetId).exitKind)
+  return resolveIssueEdge(
+    id,
+    (targetId) => {
+      const raw = pool?.row('issue', targetId, 'summary-fields')
+      return raw && typeof raw !== 'symbol' ? (pool!.issueObject(targetId) as PageIssue) : undefined
+    },
+    'opaque',
+    (targetId) => pool?.issueObject(targetId).exitKind,
+  )
 }

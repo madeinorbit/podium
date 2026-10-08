@@ -1,3 +1,4 @@
+import type { PageIssue } from '@podium/client-graph/issue-page'
 import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
@@ -5,8 +6,6 @@ import {
   artifactKind,
   artifactUrl,
   basename,
-  buildActivityFeed,
-  type IssueEvent,
   operationalState,
   type PresenceKind,
   type PresenceNote,
@@ -224,7 +223,7 @@ const UnifiedRow = observer(function UnifiedRow({
       type="button"
       onClick={onOpen}
       data-needs-you={needs || undefined}
-      title={`${issueDisplayRef(sub)} ${('authoredTitle' in sub ? (sub as PageIssue).authoredTitle : sub.title)}`}
+      title={`${issueDisplayRef(sub)} ${'authoredTitle' in sub ? (sub as PageIssue).authoredTitle : sub.title}`}
       className={cn(
         DOCK_ROW,
         'grid min-h-[30px] w-full grid-cols-[12px_minmax(0,1fr)_auto] items-center gap-2 border-b border-hairline-soft px-1 py-1 text-left text-foreground hover:bg-accent/40',
@@ -243,7 +242,7 @@ const UnifiedRow = observer(function UnifiedRow({
             closed && 'text-muted-foreground line-through decoration-muted-foreground/40',
           )}
         >
-          {('authoredTitle' in sub ? (sub as PageIssue).authoredTitle : sub.title)}
+          {'authoredTitle' in sub ? (sub as PageIssue).authoredTitle : sub.title}
         </span>
         {sub.archived && (
           <span className="ml-1.5 font-mono text-[10px] text-text-faint uppercase tracking-[0.04em]">
@@ -325,7 +324,11 @@ const ProgressMeter = observer(function ProgressMeter({
  * under the old "Evidence & checks" heading is what made that section read as a
  * junk drawer. Reference information: compact, mono, and late in the scroll.
  */
-const CheckoutPart = observer(function CheckoutPart({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+const CheckoutPart = observer(function CheckoutPart({
+  issue,
+}: {
+  issue: IssueViewModel
+}): JSX.Element | null {
   // An issue with no dedicated worktree is worked in the repo's own checkout —
   // that is still an address, and saying nothing there is what sent the
   // operator hunting for the branch in the git panel.
@@ -348,46 +351,20 @@ const CheckoutPart = observer(function CheckoutPart({ issue }: { issue: IssueVie
 
 /** The five most recent things that happened to this task — comments and
  *  lifecycle events interleaved chronologically, newest first, using the same
- *  `buildActivityFeed` the full issue page's timeline is built from.
+ *  owned history as the full issue timeline.
  *
  *  Comment bodies no longer ride IssueViewModel (#175): the thread is fetched lazily
  *  via the issues.comments proc, re-fetched whenever the issue's updatedAt
  *  moves. */
-const RecentActivity = observer(function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
+const RecentActivity = observer(function RecentActivity({
+  issue,
+}: {
+  issue: IssueViewModel
+}): JSX.Element {
   const activity = useIssueHistory(issue)
+  // Revision observes append-only owned state; the last-five read stays bounded.
+  void activity?.revision
   const shown = activity?.history.items.slice(-5).reverse() ?? []
-  return () => {
-      cancelled = true
-    }
-  }), [issue.id, issue.updatedAt])
-  // Narrowed to THIS issue on the server (POD-532: `subject` filters in SQL, on
-  // `idx_podium_events_subject`), so the dock reads one issue's events instead of
-  // paging the repo-wide log and filtering here. That is what makes keying on
-  // `issue.updatedAt` affordable — the feed now tracks a supervised issue live
-  // instead of going stale until the panel is reopened.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: `issue.updatedAt` is the refetch key, not a read — it is the whole point of POD-532
-  useEffect(() => {
-    let cancelled = false
-    Promise.resolve()
-      .then(() =>
-        trpc.issues.events.query({
-          since: 0,
-          repoPath: issue.repoPath,
-          subject: issue.id,
-          limit: 200,
-        }),
-      )
-      .then((rows) => {
-        if (!cancelled) setEvents(rows.map((row) => ({ ...row, payload: row.payload ?? null })))
-      })
-      .catch(() => {
-        if (!cancelled) setEvents([])
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [issue.id, issue.repoPath, issue.updatedAt, trpc])
-  const shown = buildActivityFeed(comments, events).slice(-5).reverse()
   return (
     <DockPart title="Recent activity" count={shown.length}>
       <div className="flex flex-col gap-1.5" data-testid="dock-recent-activity">
@@ -545,7 +522,11 @@ const InspectHead = observer(function InspectHead({
  * RECEDES UNTIL USED (POD-635), like the page's composer: at rest a flat
  * one-line well with no edge of its own; the enclosure arrives on focus.
  */
-const DockCommentComposer = observer(function DockCommentComposer({ issue }: { issue: IssueViewModel }): JSX.Element {
+const DockCommentComposer = observer(function DockCommentComposer({
+  issue,
+}: {
+  issue: IssueViewModel
+}): JSX.Element {
   const trpc = useRuntimeSelector((s) => s.trpc)
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
@@ -814,7 +795,9 @@ const ProducedAndDeferred = observer(function ProducedAndDeferred({
  */
 import { PoolIssuePanelView } from './pool-issue-page'
 
-export const IssuePanelView = observer(function IssuePanelView(props: Parameters<typeof IssuePanelBody>[0]): JSX.Element {
+export const IssuePanelView = observer(function IssuePanelView(
+  props: Parameters<typeof IssuePanelBody>[0],
+): JSX.Element {
   return <PoolIssuePanelView {...props} />
 })
 
@@ -1103,8 +1086,15 @@ export const IssuePanelBody = observer(function IssuePanelBody({
               total={children.length}
               testId="dock-subtasks-meter"
             />
-            {openChildren.map(sub => <DockChildRow key={sub.id} sub={sub}
-              views={page.views} onOpen={() => openLinked(sub)} onStatusPick={value => rowStatus.pick(sub, value)} />)}
+            {openChildren.map((sub) => (
+              <DockChildRow
+                key={sub.id}
+                sub={sub}
+                views={page.views}
+                onOpen={() => openLinked(sub)}
+                onStatusPick={(value) => rowStatus.pick(sub, value)}
+              />
+            ))}
             {doneChildren.length > 0 && (
               <>
                 <FoldRow
@@ -1236,12 +1226,28 @@ export const IssuePanelBody = observer(function IssuePanelBody({
   )
 })
 
-const DockChildRow = observer(function DockChildRow({ sub, views, onOpen, onStatusPick }: {
-  sub: PageIssue; views: ReturnType<typeof issuePages>; onOpen: () => void; onStatusPick: (value: string) => void
+const DockChildRow = observer(function DockChildRow({
+  sub,
+  views,
+  onOpen,
+  onStatusPick,
+}: {
+  sub: PageIssue
+  views: ReturnType<typeof issuePages>
+  onOpen: () => void
+  onStatusPick: (value: string) => void
 }) {
   const sessions = views.row(sub.id).activeSessions
   if (sessions === LOADING) throw LOADING
   const state = operationalState(sub, sessions)
-  return <UnifiedRow sub={sub} meta={state.label} needs={state.state === 'needs-you' || state.state === 'error'}
-    errored={state.state === 'error'} onOpen={onOpen} onStatusPick={onStatusPick} />
+  return (
+    <UnifiedRow
+      sub={sub}
+      meta={state.label}
+      needs={state.state === 'needs-you' || state.state === 'error'}
+      errored={state.state === 'error'}
+      onOpen={onOpen}
+      onStatusPick={onStatusPick}
+    />
+  )
 })

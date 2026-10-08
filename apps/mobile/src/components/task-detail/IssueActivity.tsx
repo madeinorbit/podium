@@ -200,7 +200,11 @@ const EventLine = observer(function EventLine({ line, ts }: { line: IssueEventLi
   )
 })
 
-const Rollup = observer(function Rollup({ entry }: { entry: Extract<ActivityEntry, { kind: 'rollup' }> }) {
+const Rollup = observer(function Rollup({
+  entry,
+}: {
+  entry: Extract<ActivityEntry, { kind: 'rollup' }>
+}) {
   const [open, setOpen] = useState(false)
   return (
     <>
@@ -241,7 +245,15 @@ const Rollup = observer(function Rollup({ entry }: { entry: Extract<ActivityEntr
  * `createdAt` and an id — no `Attribution`. §3.1.3 A3 says the UI READS the pair
  * and never asserts it, so a row whose server shape has none renders none.
  */
-const Comment = observer(function Comment({ author, body, ts }: { author: string; body: string; ts: string }) {
+const Comment = observer(function Comment({
+  author,
+  body,
+  ts,
+}: {
+  author: string
+  body: string
+  ts: string
+}) {
   return (
     <View style={styles.comment}>
       <View style={styles.commentHead}>

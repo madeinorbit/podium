@@ -38,7 +38,13 @@ interface FileReadResult {
 
 /** Changed-file inventory and wrapped, per-file diffs on the task page. It uses
  * only the store's existing read-only Git and file contracts. */
-export const GitReviewSection = observer(function GitReviewSection({ root, machineId }: { root: string; machineId?: MachineId }) {
+export const GitReviewSection = observer(function GitReviewSection({
+  root,
+  machineId,
+}: {
+  root: string
+  machineId?: MachineId
+}) {
   const { gitStatus, readFileScoped, gitDiffFile } = useStoreHandle().access
   const [header, setHeader] = useState<ReturnType<typeof parseStatus>['header'] | null>(null)
   const [entries, setEntries] = useState<StatusEntry[]>([])

@@ -3,7 +3,12 @@ import { issuePages, type PageIssue } from '@podium/client-graph/issue-page'
 import { issueActivity } from '@podium/client-graph/issue-activity'
 import { useMobilePool } from '../client/mobile-pool'
 import { resolveEdgeFromPool } from '../client/use-issue-model'
-import { PhoneMail, PhoneTimeline, PhoneProperties, PhoneNow } from '../components/task-detail/IssueModelSections'
+import {
+  PhoneMail,
+  PhoneTimeline,
+  PhoneProperties,
+  PhoneNow,
+} from '../components/task-detail/IssueModelSections'
 import { withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -101,7 +106,11 @@ import { color, space } from '../theme/theme'
  * events puts the reply box thousands of pixels down the scroll, so replying
  * would mean first travelling past everything you were replying to.
  */
-export const IssueScreen = observer(function IssueScreen({ dismiss = false }: { dismiss?: boolean } = {}) {
+export const IssueScreen = observer(function IssueScreen({
+  dismiss = false,
+}: {
+  dismiss?: boolean
+} = {}) {
   const params = useLocalSearchParams<{ issueId: IssueId | string[] }>()
   const issueId = decodeURIComponent(
     Array.isArray(params.issueId) ? params.issueId[0] : (params.issueId ?? ''),
@@ -251,11 +260,13 @@ const IssueContent = observer(function IssueContent({
     // close never gets this far (POD-1129).
     requestClose: (reason) => setSheet({ kind: 'confirm-close', reason }),
   })
-  const appendLocalComment = (body: string) => { if (pool) issueActivity(pool, issue.id).appendComment(body) }
+  const appendLocalComment = (body: string) => {
+    if (pool) issueActivity(pool, issue.id).appendComment(body)
+  }
 
   const sessions = detail?.phoneSessions ?? EMPTY_SESSIONS
   if (typeof sessions === 'symbol') throw sessions
-  const agents = sessions.filter(session => session.agentKind !== 'shell')
+  const agents = sessions.filter((session) => session.agentKind !== 'shell')
   const parentEdge = resolveEdgeFromPool(pool, issue.parentId)
   const parent = parentEdge.render === 'issue' ? parentEdge.resolution.value : undefined
   const openIssue = (id: string) => router.replace(`/issue/${encodeURIComponent(id)}`)
@@ -386,7 +397,6 @@ const IssueContent = observer(function IssueContent({
           ) : null}
           <IssueSubIssues
             issue={issue}
-           
             busy={busy}
             commands={commands}
             onOpen={openIssue}

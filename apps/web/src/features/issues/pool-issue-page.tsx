@@ -10,27 +10,41 @@ import { IssueExplorerList } from './explorer/IssueExplorerList'
 import { IssuePageContext } from './issue-page/issue-page-data'
 import { useEvictionPresenceGuard } from './issue-page/use-eviction-guard'
 
-export function PoolIssuePage({ issueId, ...props }: Omit<ComponentProps<typeof IssuePageBody>, 'issue'> & { issueId: string }) {
+export function PoolIssuePage({
+  issueId,
+  ...props
+}: Omit<ComponentProps<typeof IssuePageBody>, 'issue'> & { issueId: string }) {
   const pool = useWorklistPool()
   const read = useCallback((owner: MobxPool) => issuePages(owner).issue(issueId), [issueId])
   const data = useWorklistPoolProjection<Loaded<PageIssue>>(read, undefined)
-  useEvictionPresenceGuard(issueId, !pool || typeof data === 'symbol' ? null : Boolean(data), props.onBack)
+  useEvictionPresenceGuard(
+    issueId,
+    !pool || typeof data === 'symbol' ? null : Boolean(data),
+    props.onBack,
+  )
   if (!pool || !data || typeof data === 'symbol') return null
-  return <IssuePageContext.Provider value={{ issue: data, views: issuePages(pool) }}>
-    <IssuePageBody issue={data} {...props} />
-  </IssuePageContext.Provider>
+  return (
+    <IssuePageContext.Provider value={{ issue: data, views: issuePages(pool) }}>
+      <IssuePageBody issue={data} {...props} />
+    </IssuePageContext.Provider>
+  )
 }
 
 export function PoolIssuePanelView(props: ComponentProps<typeof IssuePanelBody>) {
   const pool = useWorklistPool()
   const { cwd, issueId, sessionId } = props
-  const read = useCallback((owner: MobxPool) => issuePages(owner).panelIssue({ cwd, issueId, sessionId }), [cwd, issueId, sessionId])
+  const read = useCallback(
+    (owner: MobxPool) => issuePages(owner).panelIssue({ cwd, issueId, sessionId }),
+    [cwd, issueId, sessionId],
+  )
   const data = useWorklistPoolProjection<Loaded<PageIssue>>(read, undefined)
   if (!pool || typeof data === 'symbol') return null
   if (!data) return <PoolIssueExplorerList />
-  return <IssuePageContext.Provider value={{ issue: data, views: issuePages(pool) }}>
-    <IssuePanelBody {...props} />
-  </IssuePageContext.Provider>
+  return (
+    <IssuePageContext.Provider value={{ issue: data, views: issuePages(pool) }}>
+      <IssuePanelBody {...props} />
+    </IssuePageContext.Provider>
+  )
 }
 
 function PoolIssueExplorerList() {

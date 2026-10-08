@@ -202,134 +202,138 @@ export function SessionConversation(
   )
   const model = useConversation(
     sessionId,
-    (drafts) => new MobileConversation({
-      sessionId,
-      drafts,
-      readSession: () => (pool ? sessionPaneView(pool).session(sessionId) : undefined),
-      hub: owner.hub,
-      connection: hubConnection(owner.hub),
-      scheduler: {
-        visible: () =>
-          AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
-        onVisibilityChange: (listener) => {
-          const subscription = AppState.addEventListener('change', listener)
-          return () => subscription.remove()
-        },
-      },
-      transcript: {
-        retainHistory: () => !history.current.following || history.current.searching,
-        initialLimit: 80,
-        pageLimit: 80,
-        source: {
-          read: (request) =>
-            when(() => recognized.get()).then(() =>
-              owner.access.trpc.sessions.transcriptRead.query(request),
-            ),
-          subscribe: (id, since, listener) => {
-            let off = () => {}
-            const stop = reaction(
-              () => recognized.get(),
-              (ready) => {
-                off()
-                off = ready ? owner.hub.subscribeTranscript(id, since, listener) : () => {}
+    (drafts) =>
+      new MobileConversation(
+        {
+          sessionId,
+          drafts,
+          readSession: () => (pool ? sessionPaneView(pool).session(sessionId) : undefined),
+          hub: owner.hub,
+          connection: hubConnection(owner.hub),
+          scheduler: {
+            visible: () =>
+              AppState.currentState !== 'background' && AppState.currentState !== 'inactive',
+            onVisibilityChange: (listener) => {
+              const subscription = AppState.addEventListener('change', listener)
+              return () => subscription.remove()
+            },
+          },
+          transcript: {
+            retainHistory: () => !history.current.following || history.current.searching,
+            initialLimit: 80,
+            pageLimit: 80,
+            source: {
+              read: (request) =>
+                when(() => recognized.get()).then(() =>
+                  owner.access.trpc.sessions.transcriptRead.query(request),
+                ),
+              subscribe: (id, since, listener) => {
+                let off = () => {}
+                const stop = reaction(
+                  () => recognized.get(),
+                  (ready) => {
+                    off()
+                    off = ready ? owner.hub.subscribeTranscript(id, since, listener) : () => {}
+                  },
+                  { fireImmediately: true },
+                )
+                return () => {
+                  stop()
+                  off()
+                }
               },
-              { fireImmediately: true },
-            )
-            return () => {
-              stop()
-              off()
-            }
+            },
+            cache: {
+              maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
+              read: (id) => owner.replica.transcriptWindow(id),
+              write: (id, items) => owner.replica.putTranscriptWindow(id, [...items]),
+            },
+          },
+          sends: {
+            records: ports.records,
+            outbox: ports.outbox,
+            initialPending: [
+              ...(props.initialPendingText
+                ? [
+                    {
+                      id: 'pending-first-turn',
+                      deliveryId: 'pending-first-turn',
+                      text: props.initialPendingText,
+                      wire: props.initialPendingText,
+                      at: Date.now(),
+                      state: 'sent' as const,
+                      kind: 'message' as const,
+                      reconcile: 'next-user-item' as const,
+                    },
+                  ]
+                : []),
+              ...ports.outbox.held().map(
+                (send, index): ConversationPendingTurn => ({
+                  id: `outbox-${index}-${send.mutationId}`,
+                  deliveryId: send.mutationId,
+                  text: send.text,
+                  wire: send.text,
+                  at: send.queuedAt,
+                  state: send.state,
+                  kind: 'message',
+                  ...(send.failure
+                    ? {
+                        error: send.failure.message,
+                        ...(send.failure.retryable ? {} : { retryable: false }),
+                      }
+                    : {}),
+                }),
+              ),
+            ],
+            initialJustSent: props.initialPendingText !== undefined,
+            createDeliveryId: () => `msg_${randomUUID()}`,
+            lookupRecords: (ids) =>
+              owner.access.trpc.messages.records
+                .query({ ids: [...ids] })
+                .then((answer) => answer.records),
+            deliver: async (turn) => {
+              try {
+                const session = pool ? sessionPaneView(pool).session(sessionId) : undefined
+                const composer = composerState({
+                  session: session ?? props.session,
+                  headless: false,
+                  turnRunning: false,
+                  compact: false,
+                })
+                const held = ports.outbox.held().some((send) => send.mutationId === turn.deliveryId)
+                const transport = held
+                  ? { kind: 'send' as const, wake: false }
+                  : chatSendTransport(composer)
+                if (transport.kind === 'refused') throw new Error(transport.reason)
+                return await owner.access.sendChat(
+                  { sessionId, text: turn.wire, wake: transport.wake },
+                  asMutationId(turn.deliveryId),
+                )
+              } catch (error) {
+                void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(
+                  () => {},
+                )
+                throw error
+              }
+            },
+            retract: (id) =>
+              owner.access.trpc.messages.cancel
+                .mutate({ id })
+                .then(
+                  (message) =>
+                    (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus,
+                ),
+            discard: (id) => owner.access.discardChat(asMutationId(id)),
+            dismissNotice: (id) =>
+              owner.access.trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
+            dismissOffer: (at) => owner.access.dismissOffer(sessionId, at),
+            optimisticDismissOffer: false,
+            interrupt: (id) => interruptSession(owner.access.trpc.sessions, sessionId, id),
+            optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
           },
         },
-        cache: {
-          maxItems: REPLICA_TRANSCRIPT_ITEM_CAP,
-          read: (id) => owner.replica.transcriptWindow(id),
-          write: (id, items) => owner.replica.putTranscriptWindow(id, [...items]),
-        },
-      },
-      sends: {
-        records: ports.records,
-        outbox: ports.outbox,
-        initialPending: [
-          ...(props.initialPendingText
-            ? [
-                {
-                  id: 'pending-first-turn',
-                  deliveryId: 'pending-first-turn',
-                  text: props.initialPendingText,
-                  wire: props.initialPendingText,
-                  at: Date.now(),
-                  state: 'sent' as const,
-                  kind: 'message' as const,
-                  reconcile: 'next-user-item' as const,
-                },
-              ]
-            : []),
-          ...ports.outbox
-            .held()
-            .map(
-              (send, index): ConversationPendingTurn => ({
-                id: `outbox-${index}-${send.mutationId}`,
-                deliveryId: send.mutationId,
-                text: send.text,
-                wire: send.text,
-                at: send.queuedAt,
-                state: send.state,
-                kind: 'message',
-                ...(send.failure
-                  ? {
-                      error: send.failure.message,
-                      ...(send.failure.retryable ? {} : { retryable: false }),
-                    }
-                  : {}),
-              }),
-            ),
-        ],
-        initialJustSent: props.initialPendingText !== undefined,
-        createDeliveryId: () => `msg_${randomUUID()}`,
-        lookupRecords: (ids) =>
-          owner.access.trpc.messages.records
-            .query({ ids: [...ids] })
-            .then((answer) => answer.records),
-        deliver: async (turn) => {
-          try {
-            const session = (pool ? sessionPaneView(pool).session(sessionId) : undefined)
-            const composer = composerState({
-              session: session ?? props.session,
-              headless: false,
-              turnRunning: false,
-              compact: false,
-            })
-            const held = ports.outbox.held().some((send) => send.mutationId === turn.deliveryId)
-            const transport = held
-              ? { kind: 'send' as const, wake: false }
-              : chatSendTransport(composer)
-            if (transport.kind === 'refused') throw new Error(transport.reason)
-            return await owner.access.sendChat(
-              { sessionId, text: turn.wire, wake: transport.wake },
-              asMutationId(turn.deliveryId),
-            )
-          } catch (error) {
-            void Haptics.notificationAsync(Haptics.NotificationFeedbackType.Error).catch(() => {})
-            throw error
-          }
-        },
-        retract: (id) =>
-          owner.access.trpc.messages.cancel
-            .mutate({ id })
-            .then(
-              (message) =>
-                (message as { deliveryStatus?: MessageDeliveryStatus } | null)?.deliveryStatus,
-            ),
-        discard: (id) => owner.access.discardChat(asMutationId(id)),
-        dismissNotice: (id) =>
-          owner.access.trpc.messages.dismissNotice.mutate({ id }).then(() => {}),
-        dismissOffer: (at) => owner.access.dismissOffer(sessionId, at),
-        optimisticDismissOffer: false,
-        interrupt: (id) => interruptSession(owner.access.trpc.sessions, sessionId, id),
-        optimisticSendCeilingMs: OPTIMISTIC_SEND_CEILING_MS,
-      },
-    }, { hidePendingQuestion: true }),
+        { hidePendingQuestion: true },
+      ),
     { warmLimit: PHONE_WARM_CONVERSATIONS, enabled: pool !== null && readiness.ready },
   )
   return model ? (

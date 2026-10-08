@@ -210,7 +210,9 @@ export class IssueActivityHistory {
   readonly items: ActivityItem[] = []
   private readonly seen = new Set<number>()
   private cursor = 0
-  get since(): number { return this.cursor }
+  get since(): number {
+    return this.cursor
+  }
 
   appendEvents(rows: readonly IssueEvent[]): number {
     let added = 0
@@ -234,8 +236,13 @@ export class IssueActivityHistory {
   }
 
   appendComment(comment: ActivityComment): void {
-    this.insert({ kind: 'comment', id: `c|${comment.author}|${comment.createdAt}|${comment.body}`,
-      ts: comment.createdAt, author: comment.author, body: comment.body })
+    this.insert({
+      kind: 'comment',
+      id: `c|${comment.author}|${comment.createdAt}|${comment.body}`,
+      ts: comment.createdAt,
+      author: comment.author,
+      body: comment.body,
+    })
   }
 
   reset(): void {
@@ -246,11 +253,23 @@ export class IssueActivityHistory {
   }
 
   private insert(item: ActivityItem): void {
-    const compare = (other: ActivityItem) => other.ts < item.ts ? -1 : other.ts > item.ts ? 1
-      : other.kind === item.kind ? 0 : other.kind === 'comment' ? -1 : 1
+    const compare = (other: ActivityItem) =>
+      other.ts < item.ts
+        ? -1
+        : other.ts > item.ts
+          ? 1
+          : other.kind === item.kind
+            ? 0
+            : other.kind === 'comment'
+              ? -1
+              : 1
     const last = this.items[this.items.length - 1]
-    if (!last || compare(last) <= 0) { this.items.push(item); return }
-    let lower = 0, upper = this.items.length
+    if (!last || compare(last) <= 0) {
+      this.items.push(item)
+      return
+    }
+    let lower = 0,
+      upper = this.items.length
     while (lower < upper) {
       const mid = (lower + upper) >>> 1
       if (compare(this.items[mid]!) <= 0) lower = mid + 1

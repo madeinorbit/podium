@@ -32,7 +32,11 @@ import { SectionHeading } from './chrome'
  * remain intact for agent tooling; this reader surface simply does not expose
  * or mutate the checklist.
  */
-export const IssueAgentPanel = observer(function IssueAgentPanel({ issue }: { issue: IssueViewModel }) {
+export const IssueAgentPanel = observer(function IssueAgentPanel({
+  issue,
+}: {
+  issue: IssueViewModel
+}) {
   const httpOrigin = useHttpOrigin()
   const profile = useOptionalServerProfile()
   // Prefer the immutable hosted id. The slug fallback keeps URL-selected web
@@ -79,7 +83,13 @@ export const IssueAgentPanel = observer(function IssueAgentPanel({ issue }: { is
  * file row. A row with no reachable URL — a legacy path-only entry on a machine
  * this phone cannot reach — stays inert rather than offering a tap that fails.
  */
-const ArtifactRow = observer(function ArtifactRow({ artifact, url }: { artifact: IssuePanelArtifact; url: string | null }) {
+const ArtifactRow = observer(function ArtifactRow({
+  artifact,
+  url,
+}: {
+  artifact: IssuePanelArtifact
+  url: string | null
+}) {
   const { bearer } = useServerProfile()
   const [broken, setBroken] = useState(false)
   const [open, setOpen] = useState(false)

@@ -126,7 +126,11 @@ export const IssueDescription = observer(function IssueDescription({
 })
 
 /** The agent brief, collapsed by default — long, and written for agents. */
-export const IssueBrief = observer(function IssueBrief({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+export const IssueBrief = observer(function IssueBrief({
+  issue,
+}: {
+  issue: IssueViewModel
+}): JSX.Element | null {
   if (!issue.brief) return null
   return (
     // Collapsed by default and framed by hairlines rather than a box: the brief
@@ -164,7 +168,11 @@ export const IssueBrief = observer(function IssueBrief({ issue }: { issue: Issue
  * archived, agent-created, internal, a stale hub mirror), because a chip means
  * "this one is not like the others". One fact, one home.
  */
-export const StatusStrip = observer(function StatusStrip({ issue }: { issue: IssueViewModel }): JSX.Element {
+export const StatusStrip = observer(function StatusStrip({
+  issue,
+}: {
+  issue: IssueViewModel
+}): JSX.Element {
   const now = Date.now()
   const created = relativeTime(issue.createdAt, now)
   const updated = relativeTime(issue.updatedAt, now)

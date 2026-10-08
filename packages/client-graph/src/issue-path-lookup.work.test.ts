@@ -322,8 +322,7 @@ it('keeps explicit issue and attached-session precedence over the file-tab path 
     ],
   })
   try {
-    const id = (value: Loaded<PageIssue>) =>
-      value && value !== LOADING ? value.id : value
+    const id = (value: Loaded<PageIssue>) => (value && value !== LOADING ? value.id : value)
     expect(id(views.panelIssue({ issueId: 'explicit', cwd: '/shared/file' }))).toBe('explicit')
     expect(id(views.panelIssue({ sessionId: 'attached', cwd: '/shared/file' }))).toBe('explicit')
     expect(views.panelIssue({ sessionId: 'unattached', cwd: '/shared/file' })).toBeUndefined()
