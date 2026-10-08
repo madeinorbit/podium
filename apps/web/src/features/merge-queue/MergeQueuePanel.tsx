@@ -1,4 +1,9 @@
-import { type RepoLocksState, useRepoLocks } from '@podium/client-core/react'
+import { observer } from '@podium/client-graph/react'
+import type { IssueModel } from '@podium/client-graph/models'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import { useStoreHandle } from '@podium/client-core/react'
+import { MergeQueueView } from './merge-queue-view'
+import { type RepoLocksState } from '@podium/client-core/react'
 import {
   FlaskConical,
   GitMerge,
@@ -26,20 +31,23 @@ import {
 } from './merge-queue-model'
 import { formatReleasedAgo, type ReleasedLane, useReleasedLanes } from './released-lanes'
 
+type QueueIssue = Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'displayRef'> | IssueModel
+
 interface MergeQueuePanelViewProps {
+  model?: MergeQueueView
   state: QueuePanelState
   issues: readonly IssueViewModel[]
   scope: MergeQueueRepoScope
   /** Lanes this client watched leave; the live adapter owns the memory. */
   released?: readonly ReleasedLane[]
   onRefresh: () => void
-  onSelectIssue: (issue: IssueViewModel) => void
+  onSelectIssue: (issue: QueueIssue) => void
 }
 
 interface MergeQueuePanelProps {
   issues: readonly IssueViewModel[]
   scope: MergeQueueRepoScope | null
-  onSelectIssue: (issue: IssueViewModel) => void
+  onSelectIssue: (issue: QueueIssue) => void
 }
 
 /** Project one authoritative whole-repo lock query into the panel's display seam. */
@@ -69,31 +77,18 @@ export function queuePanelState(state: RepoLocksState): QueuePanelState {
   }
 }
 
-/** Live adapter mounted only by the feature-gated queue dock path. */
-export function MergeQueuePanel({
-  issues,
-  scope,
-  onSelectIssue,
-}: MergeQueuePanelProps): JSX.Element {
-  const locks = useRepoLocks(scope?.repoPath ?? null)
-  const state = queuePanelState(locks)
+/** Root opening owns its lock answer and canonical candidate list. */
+export const MergeQueuePanel = observer(function MergeQueuePanel({ issues, scope, onSelectIssue }: MergeQueuePanelProps): JSX.Element {
+  const pool = useWorklistPool()
+  const { trpc } = useStoreHandle().access
+  const view = useMemo(() => pool && scope ? new MergeQueueView(pool, scope, trpc) : null, [pool, scope?.repoPath, scope?.repoId, trpc])
+  useEffect(() => { if (!view) return; view.open(); return () => view.close() }, [view])
+  useEffect(() => { view?.setIssues(issues.map(issue => issue.id)) }, [view, issues])
+  const state = view?.state ?? { status: 'loading' as const }
   const released = useReleasedLanes(state)
-
-  if (!scope) {
-    return <div className="p-3 text-xs text-muted-foreground/70">No active repository.</div>
-  }
-
-  return (
-    <MergeQueuePanelView
-      state={state}
-      issues={issues}
-      scope={scope}
-      released={released}
-      onRefresh={locks.refresh}
-      onSelectIssue={onSelectIssue}
-    />
-  )
-}
+  if (!scope) return <div className="p-3 text-xs text-muted-foreground/70">No active repository.</div>
+  return <MergeQueuePanelView model={view ?? undefined} state={state} issues={issues} scope={scope} released={released} onRefresh={() => view?.refresh()} onSelectIssue={onSelectIssue} />
+})
 
 function QueueSection({
   id,
@@ -129,7 +124,7 @@ function EmptyLine({ children }: { children: ReactNode }): JSX.Element {
   )
 }
 
-function IssueIdentity({ issue }: { issue: IssueViewModel }): JSX.Element {
+const IssueIdentity = observer(function IssueIdentity({ issue }: { issue: QueueIssue }): JSX.Element {
   return (
     <>
       <span className="flex-none font-mono shell-type-micro font-semibold text-info">
@@ -140,13 +135,13 @@ function IssueIdentity({ issue }: { issue: IssueViewModel }): JSX.Element {
       </span>
     </>
   )
-}
+})
 
 function CandidateRow({
   issue,
   onSelect,
 }: {
-  issue: IssueViewModel
+  issue: QueueIssue
   onSelect: () => void
 }): JSX.Element {
   return (
@@ -167,7 +162,7 @@ function ResolvedPrincipal({
   issuesById,
 }: {
   principal: QueuePrincipal
-  issuesById: ReadonlyMap<string, IssueViewModel>
+  issuesById: ReadonlyMap<string, QueueIssue>
 }): JSX.Element {
   const issue = principal.issueId ? issuesById.get(principal.issueId) : undefined
   if (issue) return <IssueIdentity issue={issue} />
@@ -244,8 +239,8 @@ function ActiveLease({
   onSelectIssue,
 }: {
   lock: QueueLock | null
-  issuesById: ReadonlyMap<string, IssueViewModel>
-  onSelectIssue: (issue: IssueViewModel) => void
+  issuesById: ReadonlyMap<string, QueueIssue>
+  onSelectIssue: (issue: QueueIssue) => void
 }): JSX.Element {
   if (!lock) return <EmptyLine>Nothing running now.</EmptyLine>
   const issue = lock.holder.issueId ? issuesById.get(lock.holder.issueId) : undefined
@@ -289,8 +284,8 @@ function Waiters({
   onSelectIssue,
 }: {
   lock: QueueLock | null
-  issuesById: ReadonlyMap<string, IssueViewModel>
-  onSelectIssue: (issue: IssueViewModel) => void
+  issuesById: ReadonlyMap<string, QueueIssue>
+  onSelectIssue: (issue: QueueIssue) => void
 }): JSX.Element {
   const waiters = lock?.queue ?? []
   if (waiters.length === 0) return <EmptyLine>No sessions waiting.</EmptyLine>
@@ -362,11 +357,11 @@ function MergeGroup({
   onSelectIssue,
 }: {
   group: QueueGroupModel
-  issuesById: ReadonlyMap<string, IssueViewModel>
+  issuesById: ReadonlyMap<string, QueueIssue>
   ready: ReactNode
   readyCount: number
   loading?: boolean
-  onSelectIssue: (issue: IssueViewModel) => void
+  onSelectIssue: (issue: QueueIssue) => void
 }): JSX.Element {
   const id = 'merge-queue'
   const Icon = GROUP_ICON[group.kind]
@@ -418,8 +413,8 @@ function LaneGroup({
   onSelectIssue,
 }: {
   group: QueueGroupModel
-  issuesById: ReadonlyMap<string, IssueViewModel>
-  onSelectIssue: (issue: IssueViewModel) => void
+  issuesById: ReadonlyMap<string, QueueIssue>
+  onSelectIssue: (issue: QueueIssue) => void
 }): JSX.Element {
   const id = groupId(group.name)
   const Icon = GROUP_ICON[group.kind]
@@ -550,8 +545,8 @@ function LiveLanes({
   lanes: readonly QueueGroupModel[]
   released: readonly ReleasedLane[]
   loading: boolean
-  issuesById: ReadonlyMap<string, IssueViewModel>
-  onSelectIssue: (issue: IssueViewModel) => void
+  issuesById: ReadonlyMap<string, QueueIssue>
+  onSelectIssue: (issue: QueueIssue) => void
 }): JSX.Element {
   return (
     <section
@@ -621,7 +616,8 @@ function groupId(name: string): string {
  * rest live in a band that carries its own explanation, so the region that is
  * legitimately empty most of the time never reads as a broken panel.
  */
-export function MergeQueuePanelView({
+export const MergeQueuePanelView = observer(function MergeQueuePanelView({
+  model,
   state,
   issues,
   scope,
@@ -630,12 +626,12 @@ export function MergeQueuePanelView({
   onSelectIssue,
 }: MergeQueuePanelViewProps): JSX.Element {
   const issuesById = useMemo(
-    () => new Map<string, IssueViewModel>(issues.map((issue) => [issue.id, issue] as const)),
-    [issues],
+    () => new Map<string, QueueIssue>((model?.issues ?? issues).map((issue) => [issue.id, issue] as const)),
+    [model?.issues, issues],
   )
   const locks = state.status === 'ready' ? state.locks : []
   const { merge, lanes } = queueGroups(locks)
-  const candidates = state.status === 'ready' ? readyMergeCandidates(issues, scope, merge.lock) : []
+  const candidates: readonly QueueIssue[] = state.status === 'ready' ? model?.candidates ?? readyMergeCandidates(issues, scope, merge.lock) : []
   const refreshing = state.status === 'ready' && state.refreshing === true
 
   return (
@@ -723,6 +719,6 @@ export function MergeQueuePanelView({
       )}
     </section>
   )
-}
+})
 
 export type { MergeQueuePanelProps, MergeQueuePanelViewProps }

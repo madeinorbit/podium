@@ -27,7 +27,7 @@ export class MergeQueueView extends RequestAnswer<readonly LockWire[]> {
   @lazy({ equals: compareShallow }) get candidates(): IssueModel[] {
     const lock = queueGroups(this.locks).merge.lock
     const occupied = new Set([lock?.holder.issueId, ...(lock?.queue.map(waiter => waiter.issueId) ?? [])])
-    return this.issues.filter(issue => issue.awaitingMerge && !issue.archived && !issue.deletedAt && issue.audience !== 'agent' && (this.scope.repoId && issue.repoId ? issue.repoId === this.scope.repoId : issue.repoPath === this.scope.repoPath) && !occupied.has(issue.id)).sort((a, b) => {
+    return this.issues.filter(issue => issue.pendingDecision === 'merge' && !issue.archived && !issue.deletedAt && issue.audience !== 'agent' && (this.scope.repoId && issue.repoId ? issue.repoId === this.scope.repoId : issue.repoPath === this.scope.repoPath) && !occupied.has(issue.id)).sort((a, b) => {
       if (a.sortKey && b.sortKey && a.sortKey !== b.sortKey) return a.sortKey < b.sortKey ? -1 : 1
       if (a.sortKey && !b.sortKey) return -1
       if (!a.sortKey && b.sortKey) return 1

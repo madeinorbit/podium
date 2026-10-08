@@ -1,3 +1,5 @@
+import { issuePendingDecision, type IssueNavigationModel } from '@podium/client-core/values'
+import type { IssueProjection } from '@podium/model/browser'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -401,6 +403,10 @@ export class IssueModel extends EntityModel {
   @lazy get awaitingMerge(): boolean {
     const row = this.factRow
     return row !== undefined && awaitingMergeOf(row)
+  }
+  @lazy get pendingDecision(): 'merge' | 'review' | null {
+    const row = this.factRow
+    return row ? issuePendingDecision(row as unknown as IssueNavigationModel) : null
   }
   @lazy get updatedMs(): number | null { return parseMs(this.factRow?.updatedAt) }
   @lazy get finishedMs(): number { return parseMs(this.factRow?.closedAt ?? this.factRow?.updatedAt) ?? 0 }
@@ -883,7 +889,7 @@ interface IssueEdits {
 // presence fields above keep their scalar types, and no row is stored here.
 export interface SessionModel extends Readonly<Omit<SessionView, 'archived' | 'condition'>>, RelationGetters<'session'> {}
 
-export interface IssueModel extends Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'notes'>>, IssueEdits, RelationGetters<'issue'> {}
+export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority'>>, Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'notes'>>, IssueEdits, RelationGetters<'issue'> {}
 
 export type ModelOf = {
   issue: IssueModel &
