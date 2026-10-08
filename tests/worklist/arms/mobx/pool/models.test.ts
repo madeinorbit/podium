@@ -90,6 +90,10 @@ describe('schema fields on models', () => {
                 want = repo!.repoPath
                 joinedPaths += 1
               }
+              // Issue bodies are stored as documents; the model answers their text (IssueModel.answers).
+              if (entity === 'issue' && IssueModel.answers.has(field)) {
+                want = typeof want === 'string' ? want : ((want as { value?: string } | undefined)?.value ?? '')
+              }
               expect(model[field], `${entity}:${id}.${field}`).toBe(want)
               if (want !== undefined)
                 covered[`${entity}.${field}`] = (covered[`${entity}.${field}`] ?? 0) + 1
@@ -116,7 +120,7 @@ describe('schema fields on models', () => {
         }
       }
       expect(checked).toBeGreaterThan(1000)
-      expect(IssueModel.answers.size, 'worklist rules never override stored schema fields').toBe(0)
+      expect([...IssueModel.answers].sort(), 'only issue body text is answered by the model').toEqual(['description', 'notes'])
       expect(draftTitles, 'draft display titles were checked').toBeGreaterThan(0)
       expect(joinedPaths, 'normalized repository paths were checked').toBeGreaterThan(100)
       expect(corpus.sliceIssues.some((issue) =>
