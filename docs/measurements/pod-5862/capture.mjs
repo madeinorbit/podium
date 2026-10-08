@@ -46,6 +46,25 @@ function findPool() {
   }
   return false
 }
+function findRuntime() {
+  const element=document.getElementById('root')
+  const key=element&&Object.keys(element).find(k=>k.startsWith('__reactContainer$'))
+  const start=element?.[key],fibers=[start?.stateNode?.current??start],seen=new Set()
+  while(fibers.length) {
+    const f=fibers.pop();if(!f||seen.has(f))continue;seen.add(f)
+    if(f.child)fibers.push(f.child);if(f.sibling)fibers.push(f.sibling)
+    const objects=[{v:f.memoizedProps,d:0},{v:f.memoizedState,d:0}],checked=new Set()
+    while(objects.length) {
+      const {v,d}=objects.pop();if(!v||typeof v!=='object'||checked.has(v)||d>5)continue;checked.add(v)
+      if(typeof v.ownConversations==='function'){globalThis.__memoryRuntime=new WeakRef(v);return true}
+      for(const [k,descriptor] of Object.entries(Object.getOwnPropertyDescriptors(v))) {
+        if(k==='next'&&d===0)objects.push({v:descriptor.value,d})
+        else if(['pool','host','view','row','model','issue','session','worklist','memoizedState','value','current','deck','owner','runtime','conversation','core','engine','0','1','2','3'].includes(k))objects.push({v:descriptor.value,d:d+1})
+      }
+    }
+  }
+  return false
+}
 function processes(pid) {
   const found=[]
   function visit(id) { try { const stat=readFileSync(`/proc/${id}/status`,'utf8'); const cmd=readFileSync(`/proc/${id}/cmdline`,'utf8'); const kind=/--type=([^\0 ]+)/.exec(cmd)?.[1]??/^Name:\s+(.+)$/m.exec(stat)?.[1]??'browser'; const num=k=>Number(new RegExp(`^${k}:\\s+(\\d+)`,'m').exec(stat)?.[1]??0); const rollup=readFileSync(`/proc/${id}/smaps_rollup`,'utf8');const mem=k=>Number(new RegExp(`^${k}:\\s+(\\d+)`,'m').exec(rollup)?.[1]??0);found.push({pid:id,kind,rssKiB:num('VmRSS'),virtualKiB:num('VmSize'),swapKiB:num('VmSwap'),hwmKiB:num('VmHWM'),privateDirtyKiB:mem('Private_Dirty'),pssKiB:mem('Pss')}); const children=readFileSync(`/proc/${id}/task/${id}/children`,'utf8').trim(); if(children) for(const child of children.split(/\s+/))visit(Number(child)) } catch {} }
@@ -64,8 +83,13 @@ const page = await context.newPage()
 const cdp=engine==='webkit'?null:await context.newCDPSession(page)
 const samples=[]
 const failures=[]
+const consoleCounts={}
+const consoleErrors=[]
+page.on('console',message=>{const type=message.type();consoleCounts[type]=(consoleCounts[type]??0)+1;if(type==='error'&&consoleErrors.length<100){consoleErrors.push({at:new Date().toISOString(),text:message.text(),location:message.location()});save('console-errors-private.json',consoleErrors)}})
 page.on('pageerror', e=>{ failures.push({name:e.name,message:e.message,stack:e.stack}); save('errors-private.json',failures); console.log(JSON.stringify({event:'page-error',count:failures.length})) })
 async function sample(minute, phase) {
+  await page.evaluate(findPool)
+  await page.evaluate(findRuntime)
   await cdp?.send('HeapProfiler.collectGarbage')
   await page.waitForTimeout(150)
   await cdp?.send('HeapProfiler.collectGarbage')
@@ -83,11 +107,19 @@ async function sample(minute, phase) {
     const counts={},pool=globalThis.__memoryPool?.deref(),seen=new Set()
     function walk(v,path,depth){if(!v||typeof v!=='object'||seen.has(v)||depth>3)return;seen.add(v);if(typeof v.size==='number'){counts[path]=v.size;return}if(Array.isArray(v)){counts[path]=v.length;return}for(const [k,d] of Object.entries(Object.getOwnPropertyDescriptors(v)))if(d.value&&typeof d.value==='object')walk(d.value,path+'.'+k,depth+1)}
     if(pool){walk(pool,'pool',0);for(const [key,view] of pool.sources.views)walk(view,'view.'+key,0)}
-    return {commits:p.commits,unmounts:p.unmounts,errors:p.errors,messages:p.messages,dataMessages:p.dataMessages,blockedMessages:p.blockedMessages,sockets:p.sockets,bytes:p.bytes,elements:document.querySelectorAll('*').length,issueRows:document.querySelectorAll('[data-issue-row]').length,animations,storageBytes:usage?.usage??null,storageDetails:usage?.usageDetails??null,idbDatabaseCount:databases.length,idbStores:stores,serviceWorkerControlled:!!navigator.serviceWorker?.controller,resources:performance.getEntriesByType('resource').length,canvas:document.querySelectorAll('canvas').length,xterm:document.querySelectorAll('.xterm').length,workScroll:!!document.querySelector('[data-testid=work-scroll]'),faultText:/Something went wrong|component crashed|This panel crashed/.test(document.body.innerText),marks:performance.getEntriesByType('mark').length,measures:performance.getEntriesByType('measure').length,smil:document.querySelectorAll('animate,animateTransform,animateMotion').length,ownerCounts:counts}
+    const cache=globalThis.__memoryRuntime?.deref()?.conversationCache
+    const transcriptOwners=[]
+    for(const {conversation:c,refs} of cache?.entries.values()??[]) {
+      const graph=c.graph,index=graph?.searchIndex
+      transcriptOwners.push({refs,items:c.transcript?.ids?.length,blocks:graph?.blockIds?.length,
+        index:index?{texts:index.texts.size,postings:index.postings.size,memberships:[...index.postings.values()].reduce((n,v)=>n+v.size,0),gramsById:index.gramsById.size,textChars:[...index.texts.values()].reduce((n,v)=>n+v.length,0)}:null})
+    }
+    return {commits:p.commits,unmounts:p.unmounts,errors:p.errors,messages:p.messages,dataMessages:p.dataMessages,blockedMessages:p.blockedMessages,sockets:p.sockets,bytes:p.bytes,elements:document.querySelectorAll('*').length,issueRows:document.querySelectorAll('[data-issue-row]').length,animations,storageBytes:usage?.usage??null,storageDetails:usage?.usageDetails??null,idbDatabaseCount:databases.length,idbStores:stores,serviceWorkerControlled:!!navigator.serviceWorker?.controller,resources:performance.getEntriesByType('resource').length,canvas:document.querySelectorAll('canvas').length,xterm:document.querySelectorAll('.xterm').length,workScroll:!!document.querySelector('[data-testid=work-scroll]'),faultText:/Something went wrong|component crashed|This panel crashed/.test(document.body.innerText),marks:performance.getEntriesByType('mark').length,measures:performance.getEntriesByType('measure').length,smil:document.querySelectorAll('animate,animateTransform,animateMotion').length,ownerCounts:counts,conversationCache:cache?{entries:cache.entries.size,warm:cache.warm.size,owners:transcriptOwners}:null}
   })
-  const value={minute,phase,at:new Date().toISOString(),heap,dom,metrics,...browserStats,processes:processes(server.process().pid)}
+  const value={minute,phase,at:new Date().toISOString(),heap,dom,metrics,...browserStats,consoleCounts:{...consoleCounts},processes:processes(server.process().pid)}
   samples.push(value); save('samples.json',samples); console.log(JSON.stringify(value))
   if(args.has('sample-allocations')&&cdp)save('allocations-'+minute+'.json',await cdp.send('HeapProfiler.getSamplingProfile'))
+  if(!value.workScroll){save('interruption-private.json',{text:await page.locator('body').innerText()});throw new Error('Capture interrupted: workspace was unmounted')}
 }
 async function snapshot(name) {
   const gzip=createGzip(), dest=createWriteStream(join(out,name+'.heapsnapshot.gz'),{mode:0o600})
@@ -104,13 +136,25 @@ try {
   await page.waitForFunction(()=>!!document.querySelector('[data-testid=work-scroll]'),undefined,{timeout:180000}).catch(async e=>{console.log(JSON.stringify({event:'startup-failure',...(await page.evaluate(async()=>({auth:await fetch('/auth/status').then(r=>r.json()).then(v=>({authed:v.authed,needsAuth:v.needsAuth,readiness:v.readiness?.state})),elements:document.querySelectorAll('*').length})))}));throw e})
   await page.waitForTimeout(10000)
   await page.evaluate(findPool)
+  if(args.has('self')) {
+    const selected=await page.evaluate(()=>{
+      const pool=globalThis.__memoryPool?.deref()
+      const issue=[...(pool?.tables.issue??[])].find(([,r])=>r.seq===5862)?.[0]
+      const seat=[...(pool?.tables.session??[])].find(([,r])=>r.issueId===issue&&!r.exitedAt&&!r.archived)?.[0]
+      const el=document.querySelector('[data-issue-row]'),key=el&&Object.keys(el).find(k=>k.startsWith('__reactFiber$'))
+      for(let f=el?.[key];f;f=f.return)if(issue&&seat&&typeof f.memoizedProps?.onSelectPanelForIssue==='function'){f.memoizedProps.onSelectPanelForIssue({id:issue},seat);return {selected:true}}
+      return {selected:false,issue:!!issue,seat:!!seat}
+    })
+    console.log(JSON.stringify({event:'streaming-self-selection',...selected}));if(!selected.selected)throw new Error('Streaming session could not be selected');await page.waitForTimeout(10000)
+  }
   if(args.has('pilot')) {
     const selected=await page.evaluate(()=>{const pool=globalThis.__memoryPool?.deref();const id=[...(pool?.tables.issue??[])].find(([,row])=>row.seq===4286)?.[0];const el=document.querySelector('[data-issue-row]');const key=el&&Object.keys(el).find(k=>k.startsWith('__reactFiber$'));for(let f=el?.[key];f;f=f.return)if(id&&typeof f.memoizedProps?.onSelectIssue==='function'){f.memoizedProps.onSelectIssue({id});return true}return false})
     console.log(JSON.stringify({event:'pilot-selection',selected}));await page.waitForTimeout(10000)
   }
   if(args.get('panel-mode')==='native') { const button=page.locator('[data-testid=mode-native]:visible').first();if(await button.count())await button.click({timeout:10000}) }
   if(args.has('sample-allocations')&&cdp)await cdp.send('HeapProfiler.startSampling',{samplingInterval:65536})
-  const identity=await page.evaluate(async()=>{ const v=await fetch('/version').then(r=>r.json()); return {appVersion:v.appVersion,sourceDigest:v.sourceDigest,web:v.web?.appVersion,webDigest:v.web?.digest} })
+  const v=await fetch('http://localhost:18787/version').then(r=>r.json())
+  const identity={backend:v.appVersion,backendDigest:v.sourceDigest,wireSchemaDigest:v.wireSchemaDigest}
   if(args.has('dist'))identity.bundleManifest=(()=>{const m=JSON.parse(readFileSync(join(args.get('dist'),'podium-build-manifest.json'),'utf8'));return {sourceCommit:m.sourceCommit,buildStamp:m.buildStamp,fileCount:m.fileCount}})(); save('provenance.json',identity); console.log(JSON.stringify({event:'hydrated',identity}))
   await sample(0,'idle')
   if(args.has('start-snapshot')&&cdp)await snapshot('start')
@@ -138,4 +182,5 @@ try {
     await sample(minute,minute>=Number(args.get('freeze-at')??Infinity)?'feed-frozen':minute>=Number(args.get('pause-css-at')??Infinity)?'css-paused':minute>=Number(args.get('warm-at')??2)?'warm-idle':'idle')
   }
   if(args.has('snapshots')&&cdp)await snapshot('end')
-} finally { await context.close(); await browser.close(); await server.close() }
+} catch(error) { save('capture-failure-private.json',{name:error.name,message:error.message,stack:error.stack});console.log(JSON.stringify({event:'capture-failed',name:error.name,message:error.message}));process.exitCode=1 }
+finally { await context.close(); await browser.close(); await server.close() }

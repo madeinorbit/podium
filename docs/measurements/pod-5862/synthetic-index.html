@@ -1,0 +1,46 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>POD-5862 synthetic index allocation capture</title>
+<p>Public production MobX, generated text, bounded 400-entry search index.</p>
+<script type="module">
+import { h as mobx } from './mobx-DQ1crACs.js'
+const { action, makeObservable, observable } = mobx
+// The reported release's indexing algorithm, with deterministic generated input.
+class Index {
+  texts = observable.map(undefined, {deep:false})
+  postings = observable.map(undefined, {deep:false})
+  gramsById = new Map()
+  constructor() { makeObservable(this,{set:action,clear:action}) }
+  set(id,text) {
+    const normalized=text.toLowerCase()
+    if(this.texts.get(id)===normalized)return
+    const previous=this.gramsById.get(id),next=this.grams(normalized)
+    for(const gram of previous??[])if(!next.has(gram))this.removePosting(gram,id)
+    for(const gram of next) {
+      if(previous?.has(gram))continue
+      let members=this.postings.get(gram)
+      if(!members){members=observable.set([],{deep:false});this.postings.set(gram,members)}
+      members.add(id)
+    }
+    this.gramsById.set(id,next);this.texts.set(id,normalized)
+  }
+  grams(text) {
+    const keys=new Set()
+    for(let width=1;width<=3;width++)for(let at=0;at<=text.length-width;at++)keys.add(text.slice(at,at+width))
+    return keys
+  }
+  removePosting(gram,id) {const members=this.postings.get(gram);members?.delete(id);if(members?.size===0)this.postings.delete(gram)}
+  clear(){this.texts.clear();this.postings.clear();this.gramsById.clear()}
+}
+let seed=5862,updates=0,frozen=false
+const alphabet='abcdefghijklmnopqrstuvwxyz 0123456789_./:[]{}\n'
+function text(){let out='';for(let i=0;i<1500;i++){seed=(Math.imul(seed,1664525)+1013904223)>>>0;out+=alphabet[seed%alphabet.length]}return out}
+const index=new Index()
+for(let i=0;i<400;i++)index.set(String(i),text())
+setInterval(()=>{const value=text();if(!frozen)index.set(String(updates%400),value);updates++},100)
+window.__memorySynthetic={
+  freeze(){frozen=true;index.clear()},
+  counts(){return {updates,frozen,texts:index.texts.size,postings:index.postings.size,
+    memberships:[...index.postings.values()].reduce((n,s)=>n+s.size,0),gramsById:index.gramsById.size}}
+}
+</script>

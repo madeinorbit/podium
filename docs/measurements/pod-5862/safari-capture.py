@@ -113,16 +113,19 @@ def main():
     parser.add_argument('--out', type=Path, required=True)
     parser.add_argument('--minutes', type=int, default=30)
     parser.add_argument('--driver-port', type=int, default=19586)
+    parser.add_argument('--driver-binary', default='/System/Volumes/Preboot/Cryptexes/App/usr/bin/safaridriver')
     parser.add_argument('--native-at', type=int, default=3)
     parser.add_argument('--pause-css-at', type=int, default=-1)
+    parser.add_argument('--synthetic', action='store_true', help='Public-code/generated-text fixture; no credentials or backend')
+    parser.add_argument('--freeze-index-at', type=int, default=-1)
     args = parser.parse_args()
     out = args.out.resolve(); out.mkdir(parents=True, exist_ok=True, mode=0o700)
     os.umask(0o077)
-    token = sys.stdin.readline().strip()
-    if not token: raise RuntimeError('Missing private session credential on stdin')
+    token = None if args.synthetic else sys.stdin.readline().strip()
+    if not args.synthetic and not token: raise RuntimeError('Missing private session credential on stdin')
     with socket.socket() as check: check.bind(('127.0.0.1',args.driver_port))
     before = processes()
-    driver = subprocess.Popen(['/usr/bin/safaridriver','-p',str(args.driver_port)],
+    driver = subprocess.Popen([args.driver_binary,'-p',str(args.driver_port)],
                               stdout=open(out/'driver.log','wb'),stderr=subprocess.STDOUT)
     owned = [{'pid':driver.pid,'role':'driver'}]
     def save(name,value): (out/name).write_text(json.dumps(value,indent=2))
@@ -139,8 +142,9 @@ def main():
         created = request(base,'POST','/session',{'capabilities':{'alwaysMatch':{'browserName':'safari'}}},timeout=30)
         session = created['sessionId']; base += '/session/'+session
         save('capabilities.json',created['capabilities'])
-        request(base,'POST','/url',{'url':args.url+'auth/status'})
-        request(base,'POST','/cookie',{'cookie':{'name':'podium_session','value':token,'path':'/'}})
+        if not args.synthetic:
+            request(base,'POST','/url',{'url':args.url+'auth/status'})
+            request(base,'POST','/cookie',{'cookie':{'name':'podium_session','value':token,'path':'/'}})
         token = None
         request(base,'POST','/window/rect',{'width':1600,'height':1000})
         request(base,'POST','/url',{'url':args.url+'?e2e=1'})
@@ -151,11 +155,12 @@ def main():
         owner = owners[0]; owned.append({'pid':owner,'role':'Safari','command':after[owner]['command']}); save('owned-pids.json',owned)
         execute = lambda script: request(base,'POST','/execute/sync',{'script':script,'args':[]})
         deadline = time.monotonic()+180
-        while not execute('return !!document.querySelector("[data-testid=work-scroll]")'):
+        ready = 'return !!window.__memorySynthetic' if args.synthetic else 'return !!document.querySelector("[data-testid=work-scroll]")'
+        while not execute(ready):
             if time.monotonic()>deadline: raise RuntimeError('Production UI did not hydrate')
             time.sleep(2)
         time.sleep(10)
-        save('pool-found.json',{'found':execute(FIND_POOL)})
+        if not args.synthetic: save('pool-found.json',{'found':execute(FIND_POOL)})
         started = time.monotonic()
         for minute in range(args.minutes+1):
             if minute == args.native_at:
@@ -163,6 +168,8 @@ def main():
                 print(json.dumps({'event':'native-click','clicked':clicked}),flush=True)
             if minute == args.pause_css_at:
                 execute('const s=document.createElement("style");s.textContent="* { animation: none !important; transition: none !important }";document.head.append(s);return true')
+            if minute == args.freeze_index_at:
+                execute('window.__memorySynthetic.freeze();return true')
             left = started + minute*60 - time.monotonic()
             if left>0: time.sleep(left)
             table = processes()
@@ -172,8 +179,11 @@ def main():
                     if not any(p['pid']==pid for p in owned): owned.append({'pid':pid,'role':'WebContent','command':info['command']}); save('owned-pids.json',owned)
                     cohort.append({'pid':pid,'rssKiB':info['rssKiB'],'footprintBytes':footprint(pid)})
             value = {'minute':minute,'at':time.strftime('%Y-%m-%dT%H:%M:%SZ',time.gmtime()),'processes':cohort,**execute(COUNTERS)}
+            if args.synthetic: value['synthetic'] = execute('return window.__memorySynthetic.counts()')
             samples.append(value); save('samples.json',samples)
             print(json.dumps(value,separators=(',',':')),flush=True)
+            if args.synthetic and any((p['footprintBytes'] or 0) > 3*1024**3 for p in cohort):
+                raise RuntimeError('Synthetic capture reached its 3 GiB footprint budget')
     finally:
         if session:
             try: request(base,'DELETE','',timeout=10)
