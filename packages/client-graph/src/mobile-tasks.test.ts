@@ -355,9 +355,13 @@ it('keeps phone board row calls, derivations and collection elements flat at a f
     old4 = await workAt(4, false, true)
   for (const [before, after] of [[old1[1]!, one[1]!], [old4[1]!, four[1]!]] as const) {
     console.info('[phone Tasks total search before/after]', { before, after })
-    for (const kind of ['rows', 'derivations', 'elements'] as const)
+    for (const kind of ['derivations', 'elements'] as const)
       expect(after[kind]).toBeLessThanOrEqual(before[kind])
   }
+  // Addressed placement reads add a constant overhead; no counter may grow
+  // faster than before, including the unchanged shared title/ref query.
+  for (const kind of ['rows', 'derivations', 'elements'] as const)
+    expect(four[1]![kind] - one[1]![kind]).toBeLessThanOrEqual(old4[1]![kind] - old1[1]![kind])
   const planted1 = await workAt(1, true),
     planted4 = await workAt(4, true)
   expect(planted4[3]!.elements).toBeGreaterThan(planted1[3]!.elements)
