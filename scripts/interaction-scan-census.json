@@ -40464,55 +40464,6 @@
     },
     {
       "file": "packages/client-graph/src/shared/row-source.ts",
-      "holder": "createRowSource/flushPending",
-      "rule": "enumerate:keys",
-      "tokens": "33f9036d4b95288afae583c7e5cfdfe25deef737bea77707059358e98f4c52ec",
-      "gate": [
-        "exit:then:5b874aee1f00712b9550e1be05afc4c134bfd3070dd7843cd9ab684900fa98ff",
-        "exit:then:b5e85160cdad82f325c222b87f5a14371327f0797d376ffdd8848abd27587072",
-        "exit:then:2541910273fbbd84fa78b60fbbc233c3b77cd5ac779295e2403418618cbee070",
-        "exit:then:85acecad23f3b3e14b2aa35f47b61fbe3e4ccbf3b6c717b113d30fbc918b49be",
-        "exit:then:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
-      ],
-      "origin": [
-        "b8eb371c7a38c37b2083221d49a381cd7ed368de8550905dceb2a6151fec8ace"
-      ],
-      "fingerprint": "b65ee575a1c90b824ba10e793b217d29db0f9401f5b94bc60994f1210532f1e9",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createRowSource/flush",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "enumerate:keys carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/shared/row-source.ts",
-      "holder": "createRowSource/flushPending",
-      "rule": "loop:for-of",
-      "tokens": "cf732249b160c953db151db292b7c94d8c750bd752d1d69222d16bf918ab9cca",
-      "gate": [
-        "exit:then:5b874aee1f00712b9550e1be05afc4c134bfd3070dd7843cd9ab684900fa98ff",
-        "exit:then:b5e85160cdad82f325c222b87f5a14371327f0797d376ffdd8848abd27587072",
-        "exit:then:2541910273fbbd84fa78b60fbbc233c3b77cd5ac779295e2403418618cbee070",
-        "exit:then:85acecad23f3b3e14b2aa35f47b61fbe3e4ccbf3b6c717b113d30fbc918b49be",
-        "exit:then:f58ab47fb47bd3cd4a94c1071592857da01ddc19950d44ee3ac8e9622ded2ec8"
-      ],
-      "origin": [
-        "8fcec0e7b88a093ba4c022dd57d75f26cc11bcafc9edafc8eff52dc89f3d73b1",
-        "b8eb371c7a38c37b2083221d49a381cd7ed368de8550905dceb2a6151fec8ace"
-      ],
-      "fingerprint": "e51a194521de1bb2c3ec32e368d10e9e2193962b0e44366df6d26d022cee4230",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createRowSource/flush",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/shared/row-source.ts",
       "holder": "createRowSource/indexFor",
       "rule": "loop:for-of",
       "tokens": "c15688486d41b9795e5f308f361ac4c77458d2eebf8c5723cfaace4be57bb905",
