@@ -55,6 +55,11 @@ How every client screen (web, desktop, phone) gets and derives data from the Mob
    - Everything else is a request answer: the view model that asked holds it with its loading and error state (rule 6, "on request"), and it is dropped when the view closes.
    - Never write a derived value into a stored record; it is a `@lazy` field (rule 2).
    - A conversation is split: its record facts live on the shared session and message models; the transcript window, streaming text and send queue are a service, one per open conversation, kept warm in a small cache.
+11. **Time.**
+   - The current time comes from one shared clock in `@podium/mobx-helpers` that ticks only while a watched reader needs it, at the precision the reader asks for (every second under an hour, every minute above for age labels). Nothing reads `Date.now()` in a derived field, and no component starts its own interval.
+   - Something that changes at a known moment (a closed record leaving a list, evidence expiring, a snooze ending) is a deadline: one timer for the next due deadline wakes only what is due; all deadlines are re-checked when the app wakes, becomes visible or regains focus. Built on `createAtom` with `onBecomeObserved`, the pattern MobX documents for custom observables and mobx-utils `now()` uses.
+   - Only the small label or timer component reads the time; rows, pages and lists never do.
+   - Repeated server checks (polling) run only while their view is visible; a server push replaces them wherever possible.
 
 ## How to
 
