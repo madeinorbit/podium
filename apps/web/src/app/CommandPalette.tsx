@@ -3,6 +3,7 @@ import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
   issueReferenceModel,
   panelLabel,
+  isUnstartedSession,
   resolveDefaultAgent,
 } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
@@ -40,6 +41,7 @@ import {
 import type { JSX } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
+import { observer } from 'mobx-react-lite'
 import { openAddProject } from '@/app/desktop-menu'
 import { IssueReference } from '@/components/IssueReference'
 import { Dialog, DialogContent, DialogTitle } from '@/components/ui/dialog'
@@ -58,7 +60,7 @@ import { useSessionGuard } from '@/lib/hooks/use-session-guard'
 import { AgentStatusGlyph, WorkingMark } from '@/lib/motion'
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
 import { useFeature } from '@/lib/use-feature'
-import { sessionDisplayName } from '@/lib/WorkerLabel'
+import { normalizeTitle, sessionDisplayName } from '@/lib/WorkerLabel'
 import {
   useCommandLaunchActions,
   useCommandPaletteData,
@@ -70,7 +72,8 @@ import {
 } from './command-launch-data'
 import {
   defaultHighlight,
-  filterCommands,
+  filterCommandCandidates,
+  type PaletteCandidate,
   flattenGroups,
   GROUP_CAP,
   isResting,
@@ -226,7 +229,7 @@ const GROUP_LABEL: Record<PaletteGroupId, string> = {
   action: 'Actions',
 }
 
-function PaletteDialog(props: Omit<Parameters<typeof PaletteDialogBody>[0], 'data' | 'sessions' | 'selectedSessions' | 'recent'>): JSX.Element {
+function PaletteDialog(props: Omit<Parameters<typeof PaletteDialogBody>[0], 'data' | 'sessions' | 'selectedSessions' | 'recent' | 'openedDefaultAgent'>): JSX.Element {
   const snapshot = useCommandPaletteSnapshot()
   const data = snapshot?.data
   if (!data || data === LOADING)
@@ -238,10 +241,10 @@ function PaletteDialog(props: Omit<Parameters<typeof PaletteDialogBody>[0], 'dat
         </DialogContent>
       </Dialog>
     )
-  return <PaletteDialogBody {...props} data={data} sessions={snapshot!.sessions} selectedSessions={snapshot!.selectedSessions} recent={snapshot!.recent} />
+  return <PaletteDialogBody {...props} data={data} sessions={snapshot!.sessions} selectedSessions={snapshot!.selectedSessions} recent={snapshot!.recent} openedDefaultAgent={snapshot!.defaultAgent} />
 }
 
-function PaletteDialogBody({
+const PaletteDialogBody = observer(function PaletteDialogBody({
   onClose,
   onNewIssue,
   onAddRepo,
@@ -250,11 +253,13 @@ function PaletteDialogBody({
   sessions,
   selectedSessions,
   recent,
+  openedDefaultAgent,
 }: {
   data: Exclude<ReturnType<typeof useCommandPaletteData>, typeof LOADING | undefined>
   sessions: import('@podium/client-core/session-values').SessionView[]
   selectedSessions: import('@podium/client-core/session-values').SessionView[]
   recent: import('@podium/client-graph/command-launch-views').RecentCommand[]
+  openedDefaultAgent: AgentKind
   onClose: () => void
   onNewIssue: () => void
   onAddRepo: () => void
@@ -336,7 +341,7 @@ function PaletteDialogBody({
   // Spawn targets for "New agent": the currently selected worktree AND the
   // sidebar "New <Agent> in <Repo>" button's default (the most recently active
   // repo's primary worktree) — both offered when they differ.
-  const defaultAgent: AgentKind = resolveDefaultAgent(agentSetting, sessions)
+  const defaultAgent: AgentKind = agentSetting ? resolveDefaultAgent(agentSetting, []) : openedDefaultAgent
   /** Close the palette, then run — optimistic close; errors toast downstream. */
   const execute = (run: () => void | Promise<void>): void => {
     onClose()
@@ -376,13 +381,25 @@ function PaletteDialogBody({
     focused ? [focused] : [],
   )
   // biome-ignore lint/correctness/useExhaustiveDependencies: run closures capture stable store actions
-  const commands = useMemo((): PaletteCommand[] => {
-    const out: PaletteCommand[] = []
+  const commands = useMemo((): PaletteCandidate[] => {
+    const out: PaletteCandidate[] = []
+    const add = (...commands: PaletteCommand[]) => out.push(...commands.map(command => ({
+      id: command.id, group: command.group, search: () => command, build: () => command,
+    })))
 
     const sessionCommand = (
       s: (typeof sessions)[number],
       group: 'recent' | 'agent',
-    ): PaletteCommand => ({
+    ): PaletteCandidate => ({
+      id: `${group}-session:${s.sessionId}`,
+      group,
+      eligible: () => !s.archived,
+      // Declared session fields only; formatted labels belong to returned rows.
+      search: () => ({
+        label: s.archived ? '' : isUnstartedSession(s) ? 'New session' : s.name?.trim() || normalizeTitle(s.title) || 'untitled',
+        keywords: [machinePathBasename(s.cwd), s.agentKind, 'agent', 'session'],
+      }),
+      build: () => ({
       id: `${group}-session:${s.sessionId}`,
       group,
       label: sessionDisplayName(s),
@@ -393,8 +410,15 @@ function PaletteDialogBody({
         const current = sessionAtPress(s.sessionId)
         if (current && current !== LOADING) openSession(current.sessionId, current.cwd)
       },
+      }),
     })
-    const issueCommand = (i: PaletteIssue, group: 'recent' | 'task'): PaletteCommand => ({
+    const issueCommand = (i: PaletteIssue, group: 'recent' | 'task'): PaletteCandidate => ({
+      id: `${group}-issue:${i.id}`,
+      group,
+      eligible: () => !('archived' in i && (i.archived || i.deletedAt || i.isDraftVessel)),
+      search: () => ({ label: i.title,
+        keywords: ['task', 'issue', i.displayRef || `#${i.seq}`, STAGE_LABELS[i.stage]] }),
+      build: () => ({
       id: `${group}-issue:${i.id}`,
       group,
       label: i.title,
@@ -404,6 +428,7 @@ function PaletteDialogBody({
         setOpenIssueId(i.id)
         setView('issues')
       },
+      }),
     })
 
     // ── Recent: the resting state's whole answer ──────────────────────────
@@ -424,7 +449,6 @@ function PaletteDialogBody({
     // ── Tasks (local replica + server search hits, deduped) ───────────────
     const localIds = new Set<string>()
     for (const i of issues) {
-      if (i.archived || i.deletedAt || i.isDraftVessel) continue
       localIds.add(i.id)
       out.push(issueCommand(i, 'task'))
     }
@@ -434,14 +458,13 @@ function PaletteDialogBody({
 
     // ── Agents ────────────────────────────────────────────────────────────
     for (const s of sessions) {
-      if (s.archived) continue
       out.push(sessionCommand(s, 'agent'))
     }
 
     // ── Worktrees ─────────────────────────────────────────────────────────
     for (const repo of repoViews) {
       for (const w of repo.worktrees) {
-        out.push({
+        add({
           id: `place:${w.path}`,
           group: 'place',
           label: w.branch ?? (machinePathBasename(w.path) || w.path),
@@ -459,7 +482,7 @@ function PaletteDialogBody({
 
     // ── Actions on the selected task ──────────────────────────────────────
     if (issueMenuData) {
-      out.push(
+      add(
         ...issueMenuPaletteCommands(issueMenuData, {
           trpc,
           markIssueRead,
@@ -492,7 +515,7 @@ function PaletteDialogBody({
         sessionMenuEligibility(focused)
       const snoozed = isSnoozed(focused, Date.now())
       const sess = (cmd: Omit<PaletteCommand, 'group'>): void => {
-        out.push({ ...cmd, group: 'on-agent' })
+        add({ ...cmd, group: 'on-agent' })
       }
       if (canMarkUnread)
         sess({
@@ -596,7 +619,7 @@ function PaletteDialogBody({
     }
 
     // ── Actions: create ───────────────────────────────────────────────────
-    out.push({
+    add({
       id: 'action:new-task',
       group: 'action',
       label: 'New task',
@@ -605,7 +628,7 @@ function PaletteDialogBody({
       run: onNewIssue,
     })
     for (const target of spawnTargets) {
-      out.push({
+      add({
         id: `action:new-agent:${target.path}`,
         group: 'action',
         label: `New ${panelLabel(defaultAgent)} agent in ${machinePathBasename(target.path)}`,
@@ -618,7 +641,7 @@ function PaletteDialogBody({
         },
       })
     }
-    out.push({
+    add({
       id: 'action:add-repo',
       group: 'action',
       label: 'Add repo…',
@@ -641,7 +664,7 @@ function PaletteDialogBody({
       if (view === 'workflows' && !workflowsEnabled) continue
       if (view === 'specs' && !specsEnabled) continue
       if (view === 'automations' && !automationsEnabled) continue
-      out.push({
+      add({
         id: `action:view-${view}`,
         group: 'action',
         label,
@@ -664,7 +687,7 @@ function PaletteDialogBody({
       })
     for (const panel of RIGHT_PANELS) {
       if (!panelAllowed(panel.id)) continue
-      out.push({
+      add({
         id: `action:panel-${panel.id}`,
         group: 'action',
         label: `Open ${panel.label} panel`,
@@ -673,7 +696,7 @@ function PaletteDialogBody({
         run: () => openRightPanel(panel.id),
       })
     }
-    out.push({
+    add({
       id: 'action:panel-close',
       group: 'action',
       label: 'Close side panel',
@@ -685,7 +708,7 @@ function PaletteDialogBody({
     // ── Actions: settings destinations ────────────────────────────────────
     for (const tab of SETTINGS_TABS) {
       if (tab.key === 'notifications' && !notificationsEnabled) continue
-      out.push({
+      add({
         id: `action:settings-${tab.key}`,
         group: 'action',
         label: `Settings · ${tab.label}`,
@@ -718,7 +741,7 @@ function PaletteDialogBody({
     issueMenuData,
   ])
 
-  const groups = useMemo(() => filterCommands(query, commands), [query, commands])
+  const groups = filterCommandCandidates(query, commands)
   const flat = useMemo(() => flattenGroups(groups), [groups])
   // The free-text fallback ("spawn an agent with what I typed") is a QUERY row:
   // with nothing typed it would only restate the Actions group's own "New …
@@ -936,11 +959,12 @@ function PaletteDialogBody({
       </DialogContent>
     </Dialog>
   )
-}
+})
 
 /** The one yellow thing in the palette: what Enter will do, on the row it will
  *  do it to. Reserved space on every row so the hint column never jitters as
- *  the highlight moves. */
+ *  the highlight moves. *})
+
 function PaletteEnterCap(): JSX.Element {
   return (
     <span className="cmdk-row-cap" aria-hidden="true">

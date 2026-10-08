@@ -45,7 +45,7 @@ import { sessionDisplayName } from '@/lib/WorkerLabel'
 import { isOpenSession } from '../IssueCompactControls'
 import { issueRefLong } from '../issue-card'
 import type { IssuePageCommands } from '../issue-page-commands'
-import { issueWorkBegun, LaunchBox, type LaunchMachine } from '../LaunchBox'
+import { useIssueWorkBegun, LaunchBox, type LaunchMachine } from '../LaunchBox'
 import { SectionHeading } from './chrome'
 import { edgeIssue, useIssueEdgeResolver } from './issue-edges'
 
@@ -140,6 +140,7 @@ export const IssueSessionsBlock = observer(function IssueSessionsBlock({
   const resolve = useIssueEdgeResolver()
   const page = useIssuePageContext()
   const row = page?.views.row(issue.id)
+  const workBegun = useIssueWorkBegun(issue.id)
   const memberSessions = suppliedMembers ?? row?.memberSessions ?? []
   const movedOn = suppliedMoved ?? row?.movedOn ?? []
   if (typeof memberSessions === 'symbol' || typeof movedOn === 'symbol') throw LOADING
@@ -180,15 +181,7 @@ export const IssueSessionsBlock = observer(function IssueSessionsBlock({
           })}
         </div>
       )}
-      {/* Same reading as the dock's, from the roster this block already holds:
-          an agent on it, a checkout, or a stage whose name says somebody picked
-          it up (see {@link issueWorkBegun}). */}
-      {!issueWorkBegun(
-        issue,
-        memberSessions.filter((session) =>
-          'open' in session ? (session as SessionModel).open : isOpenSession(session),
-        ).length,
-      ) && <LaunchBox issue={issue} busy={busy} commands={commands} machines={machines} />}
+      {!workBegun && <LaunchBox issue={issue} busy={busy} commands={commands} machines={machines} />}
     </section>
   )
 })

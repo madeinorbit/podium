@@ -148,6 +148,27 @@ function withoutCreateReservation(draft: FirstTaskDraft): FirstTaskDraft {
   }
 }
 
+/** The single first-task picker owns the order for each menu opening. */
+export function useFirstTaskRepositoryPicker(repos: GitRepositoryWire[], repositoryUsage: ReadonlyMap<string, number>) {
+  // Stored on picker open: identities and recency stay still; metadata stays live.
+  const [repoOrder, setRepoOrder] = useState<readonly string[] | null>(null)
+  const repoIdentity = (repo: RepoView) => repo.repoId ?? repo.originUrl ?? machinePathKey(repo.path)
+  const liveRepoChoices = useMemo(() => reposToViews(repos)
+    .filter(view => checkoutForMachine(repos, view, undefined) !== undefined), [repos])
+  const rankedRepoChoices = () => {
+    const usage = new Map<string, number>()
+    for (const repo of repos) usage.set(repo.path, indexedRepoUsageAt(repo, repositoryUsage))
+    const usageFor = (view: RepoView): number => Math.max(usage.get(view.path) ?? 0,
+      ...(view.machines ?? []).map(({ path }) => usage.get(path) ?? 0))
+    return [...liveRepoChoices].sort((a, b) => usageFor(b) - usageFor(a) ||
+      a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
+  }
+  const repoChoices = repoOrder === null ? rankedRepoChoices() : repoOrder.flatMap(id =>
+    liveRepoChoices.find(repo => repoIdentity(repo) === id) ?? [])
+  const onOpenChange = (open: boolean) => setRepoOrder(open ? rankedRepoChoices().map(repoIdentity) : null)
+  return { repoChoices, onOpenChange }
+}
+
 export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   const {
     trpc, uiState, focusIssueSession, spawnDraftAgent, spawnIssueAgent,
@@ -169,22 +190,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * The pool maintains agent usage maxima by path as session keys change.
    * This picker asks only for its displayed repository/worktree roots.
    */
-  const repoChoices = useMemo(() => {
-    const usage = new Map<string, number>()
-    for (const repo of repos) usage.set(repo.path, indexedRepoUsageAt(repo, repositoryUsage))
-    const usageFor = (view: RepoView): number =>
-      Math.max(
-        usage.get(machinePathKey(view.path)) ?? 0,
-        ...(view.machines ?? []).map(({ path }) => usage.get(machinePathKey(path)) ?? 0),
-      )
-    return reposToViews(repos)
-      .filter((view) => checkoutForMachine(repos, view, undefined) !== undefined)
-      .sort(
-        (a, b) =>
-          usageFor(b) - usageFor(a) ||
-          a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }),
-      )
-  }, [repos, repositoryUsage])
+  const { repoChoices, onOpenChange: onRepositoryPickerOpen } = useFirstTaskRepositoryPicker(repos, repositoryUsage)
   /**
    * THE DRAFT IS SUBSCRIBED, NOT SEEDED (POD-1469).
    *
@@ -953,6 +959,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   <ChevronDown className="cold-start-project-caret text-label" aria-hidden="true" />
                 </button>
               }
+              onOpenChange={onRepositoryPickerOpen}
               options={repoChoices.map((repo) => ({ value: repo.path, label: repoLabel(repo) }))}
               selectedValue={selectedRepo?.path}
               placeholder="Choose a project…"

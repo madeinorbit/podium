@@ -2,7 +2,7 @@ import type { SpawnTarget } from '@podium/client-core'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { RepoView } from '@podium/client-core/values'
+import { resolveDefaultAgent, type RepoView } from '@podium/client-core/values'
 import { lazy, keyedComputed } from '@podium/mobx-helpers'
 import { machinePathBasename, machinePathKey, machinePathsEqual, normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
 import {
@@ -287,7 +287,7 @@ function createCommandLaunchViews(pool: MobxPool) {
         return left < right ? -1 : left > right ? 1 : a < b ? -1 : a > b ? 1 : 0
       })
   }
-  function projection(snapshot?: CommandLaunchData, memberIds?: string[]): Loaded<CommandLaunchData> {
+  function projection(snapshot?: CommandLaunchData, memberIds?: string[], opening = false): Loaded<CommandLaunchData> {
     const data = snapshot ?? common.get(),
       ids = snapshot?.sessionIds ?? sessionIds.get(),
       window = read('commandWindow', 'window'),
@@ -304,13 +304,24 @@ function createCommandLaunchViews(pool: MobxPool) {
     let pending = data.pending,
       issues: IssueViewModel[] = []
     {
-      const list = snapshot ? { issues: snapshot.issues, pending: 0 } : browsing.get()
+      const list = snapshot ? { issues: snapshot.issues, pending: 0 } : opening
+        ? (() => {
+          counts.issueBuilds++
+          const issues: IssueViewModel[] = []
+          let pending = 0
+          for (const id of (data as Common).issueIds) {
+            const row = read('commandIssue', id)
+            if (row === LOADING) pending++
+            else if (row) issues.push(pool.issueObject(id) as unknown as IssueViewModel)
+          }
+          return { issues, pending }
+        })() : browsing.get()
       if (list === LOADING || !list) return list
       issues = list.issues
       pending += list.pending
       const id = window.openIssueId ?? window.selectedIssueId,
         position = issues.findIndex((issue) => issue.id === id)
-      if (id && position >= 0) {
+      if (id && position >= 0 && !opening) {
         const row = issues[position]!,
           full = pool.row('issue', id)
         issues = [...issues]
@@ -347,6 +358,7 @@ function createCommandLaunchViews(pool: MobxPool) {
   const palette = computed(() => projection(), { equals: compareStructural })
   return {
     palette: () => palette.get(),
+    opening: () => projection(undefined, undefined, true),
     selected: (snapshot: CommandLaunchData, memberIds: string[]) => projection(snapshot, memberIds),
     memberSessionIds,
     window: windowField,
@@ -370,8 +382,9 @@ export class CommandPaletteView {
   @observableRef accessor snapshot: Loaded<CommandLaunchData> = LOADING
   @observableRef accessor sessions: SessionView[] = []
   @observableRef accessor recent: RecentCommand[] = []
-  @observableRef accessor issueSummaries = new Map<string, IssueViewModel>()
-  @observableRef accessor memberOrders = new Map<string, string[]>()
+  // Stored on open: membership and recency, never copied labels or references.
+  @observableRef accessor memberOrder: { issueId: string; sessionId: string }[] = []
+  @observable accessor defaultAgent = 'codex' as SessionView['agentKind']
   private stopLoading: (() => void) | undefined
 
   constructor(private readonly pool: MobxPool) {}
@@ -380,19 +393,14 @@ export class CommandPaletteView {
     this.close()
     const views = commandLaunchViews(this.pool)
     const take = () => {
-      this.snapshot = views.palette()
-      this.issueSummaries = new Map(this.snapshot && this.snapshot !== LOADING
-        ? this.snapshot.issues.map(issue => [issue.id, issue]) : [])
+      this.snapshot = views.opening()
       const sessions = views.sessions()
-      this.sessions = sessions && sessions !== LOADING ? sessions : []
-      const members = new Map<string, string[]>()
-      for (const session of this.sessions) {
-        if (!session.issueId || session.agentKind === 'shell') continue
-        const ids = members.get(session.issueId) ?? []
-        ids.push(session.sessionId)
-        members.set(session.issueId, ids)
-      }
-      this.memberOrders = members
+      this.sessions = sessions && sessions !== LOADING
+        ? sessions.map(session => this.pool.sessionObject(session.sessionId) as unknown as SessionView) : []
+      this.defaultAgent = resolveDefaultAgent(undefined, sessions && sessions !== LOADING ? sessions : [])
+      this.memberOrder = this.sessions.flatMap(session =>
+        session.issueId && session.agentKind !== 'shell'
+          ? [{ issueId: session.issueId, sessionId: session.sessionId }] : [])
       const stamp = (iso: string | undefined) => iso ? Date.parse(iso) || 0 : 0
       const recent: { at: number; command: RecentCommand }[] = []
       for (const s of this.sessions)
@@ -407,7 +415,7 @@ export class CommandPaletteView {
     take()
     if (this.snapshot === LOADING || this.snapshot === undefined || this.snapshot.pending > 0)
       this.stopLoading = when(() => {
-        const value = views.palette()
+        const value = views.opening()
         return !!value && value !== LOADING && value.pending === 0
       }, take)
   }
@@ -422,12 +430,12 @@ export class CommandPaletteView {
     if (!this.snapshot || this.snapshot === LOADING) return this.snapshot
     const views = commandLaunchViews(this.pool)
     const id = this.contextIssueId
-    const issue = id ? this.issueSummaries.get(id) : undefined
+    const issue = id ? this.snapshot.issues.find(issue => issue.id === id) : undefined
     return views.selected({ ...this.snapshot, issues: issue ? [issue] : [] }, this.memberIds)
   }
   @lazy get memberIds(): string[] {
     const id = this.contextIssueId
-    return id ? this.memberOrders.get(id) ?? [] : []
+    return id ? this.memberOrder.filter(member => member.issueId === id).map(member => member.sessionId) : []
   }
   @lazy({ equals: compareStructural })
   get data(): Loaded<CommandPaletteData> {
@@ -459,7 +467,14 @@ export class CommandPaletteView {
   }
   palette(): Loaded<CommandPaletteData> { return this.data }
   session(id: string) { return commandLaunchViews(this.pool).session(id) }
-  @action close() { this.stopLoading?.(); this.stopLoading = undefined }
+  @action close() {
+    this.stopLoading?.()
+    this.stopLoading = undefined
+    this.snapshot = LOADING
+    this.sessions = []
+    this.recent = []
+    this.memberOrder = []
+  }
 }
 export const createCommandPalette = (pool: MobxPool) => new CommandPaletteView(pool)
 

@@ -99,12 +99,13 @@ type CommandPaletteSnapshot = {
   sessions: SessionView[]
   selectedSessions: SessionView[]
   recent: RecentCommand[]
+  defaultAgent: SessionView['agentKind']
 }
 export function useCommandPaletteSnapshot(active = true): CommandPaletteSnapshot | undefined {
   const pool = useWorklistPool()
-  const picker = useMemo(() => pool ? createCommandPalette(pool) : undefined, [pool])
+  const picker = useMemo(() => pool && active ? createCommandPalette(pool) : undefined, [pool, active])
   useEffect(() => { if (active) picker?.open(); return () => picker?.close() }, [picker, active])
-  const read = useMemo(() => (): CommandPaletteSnapshot | undefined => picker && { data: picker.palette(), sessions: picker.sessions, selectedSessions: picker.selectedSessions, recent: picker.recent }, [picker])
+  const read = useMemo(() => (): CommandPaletteSnapshot | undefined => picker && { data: picker.palette(), sessions: picker.sessions, selectedSessions: picker.selectedSessions, recent: picker.recent, defaultAgent: picker.defaultAgent }, [picker])
   return useWorklistPoolProjection(read, undefined, active)
 }
 export function useCommandPaletteData(active = true): Loaded<CommandPaletteData> {

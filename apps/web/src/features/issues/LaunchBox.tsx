@@ -41,45 +41,19 @@ import { isFinished } from '@podium/model/browser'
  * loudest buttons in the panel on the one task that needed nothing. Its callers
  * mount it only where the work has not begun; there is one face left.
  */
-import type { IssueStage } from '@podium/model/browser'
-import { type JSX, type ReactNode, useState } from 'react'
+import { type JSX, type ReactNode, useCallback, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
+import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { Button } from '@/components/ui/button'
 import type { ChoosableMachine } from '@/features/machines/machine-choices'
 import { cn } from '@/lib/utils'
 import { IssueAgentSettings } from './IssueAgentSettings'
 
-/** Stages whose own name says somebody has picked the work up. Mirrors the
- *  flight deck's `UNDERWAY` bucket (client-core/values/mission.ts) with
- *  `review` added: work under review has been done too, and neither reads as
- *  something to "start". */
-const BEGUN_STAGES: ReadonlySet<IssueStage> = new Set<IssueStage>([
-  'planning',
-  'in_progress',
-  'review',
-  'shipping',
-])
-
-/**
- * HAS SOMEBODY PICKED THIS UP? — the one test both surfaces gate the box on
- * (POD-1585), so the explorer and the full page never disagree about whether a
- * task is still launchable.
- *
- * Three independent proofs, any one of which settles it: an agent on it right
- * now, a checkout it already delivers on, or a stage whose own NAME says
- * somebody picked it up. The stage half matters — an `in_progress` task whose
- * agent has exited is not unstarted work, and offering to "start" it names the
- * wrong move for the state it is in. `review` is in the set on purpose: work
- * under review has been done.
- *
- * The caller counts its own live sessions, which keeps this module clear of the
- * session slice, and of an import edge back through the dock.
- */
-export function issueWorkBegun(
-  issue: Pick<IssueViewModel, 'worktreePath' | 'stage'>,
-  activeSessions: number,
-): boolean {
-  return activeSessions > 0 || Boolean(issue.worktreePath) || BEGUN_STAGES.has(issue.stage)
+/** Both launch surfaces ask the shared issue model at their visibility gate. */
+export function useIssueWorkBegun(id: string): boolean {
+  const read = useCallback((pool: import('@podium/client-graph').MobxPool) =>
+    pool.model('issue', id)?.workBegun ?? true, [id])
+  return useWorklistPoolProjection(read, true)
 }
 
 export type LaunchMachine = ChoosableMachine

@@ -57,7 +57,7 @@ import {
   useIssuePageContext,
   useIssuePageSessions,
 } from './issue-page/issue-page-data'
-import { issueWorkBegun, LaunchBox, type LaunchCommands } from './LaunchBox'
+import { useIssueWorkBegun, LaunchBox, type LaunchCommands } from './LaunchBox'
 
 // The right-click menu exists only after a right-click; loading it on demand
 // keeps the menu (and its handoff machinery) out of the eager bundle.
@@ -553,6 +553,7 @@ export const IssueCompactControls = observer(function IssueCompactControls({
   const active = page ? sessions : issueSessions(issue, sessions).filter(isOpenSession)
   const action = resolveTaskAction(issue, active)
   const closed = isFinished(issue) || issue.archived
+  const workBegun = useIssueWorkBegun(issue.id)
   const statusLabel = issueStatusControlLabel(issue)
   const statusDetail = issueStatusLabel(issue)
   // WHERE THIS WORK WILL LIVE, offered at the moment it starts (POD-679).
@@ -679,8 +680,7 @@ export const IssueCompactControls = observer(function IssueCompactControls({
    * LEFT for a spin-off, so starting is not the move, and it keeps the panel's
    * one-yellow-object rule intact.
    */
-  const launchable =
-    !closed && action?.kind !== 'mark-done' && !issueWorkBegun(issue, active.length)
+  const launchable = !closed && action?.kind !== 'mark-done' && !workBegun
 
   return (
     // TWO TIERS, AND THE GAP BETWEEN THEM IS THE POINT (POD-1457).

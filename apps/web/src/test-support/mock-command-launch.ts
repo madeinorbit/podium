@@ -113,23 +113,20 @@ function useCommandFixture<T>(read: (pool: MobxPool) => T): T {
 
 vi.mock('@/app/command-launch-data', async (original) => ({
   ...(await original<typeof import('@/app/command-launch-data')>()),
-  useCommandLaunchCatalog: () => useCommandFixture(pool => {
-    const picker = pool.sources.view('fixture.launcher', () => {
-      const picker = createLaunchCatalogPicker(pool)
-      picker.open()
-      return picker
-    })
+  useCommandLaunchCatalog: () => {
+    const pool = useCommandFixture(pool => pool)
+    const picker = useMemo(() => createLaunchCatalogPicker(pool), [pool])
+    if (!picker.opened) picker.open()
     return picker.catalog()
-  }),
+  },
   useCommandLaunchOrigin: (path: string) => useCommandFixture(pool => readLaunchOrigin(pool, path)),
-  useCommandPaletteSnapshot: () => useCommandFixture(pool => {
-    const picker = pool.sources.view('fixture.palette', () => {
-      const picker = createCommandPalette(pool)
-      picker.open()
-      return picker
-    })
-    return { data: picker.palette(), sessions: picker.sessions, selectedSessions: picker.selectedSessions, recent: picker.recent }
-  }),
+  useCommandPaletteSnapshot: () => {
+    const pool = useCommandFixture(pool => pool)
+    const picker = useMemo(() => { const view = createCommandPalette(pool); view.open(); return view }, [pool])
+    useEffect(() => () => picker.close(), [picker])
+    return { data: picker.palette(), sessions: picker.sessions, selectedSessions: picker.selectedSessions,
+      recent: picker.recent, defaultAgent: picker.defaultAgent }
+  },
   useCommandSessionLookup: () => useCommandFixture(pool => (id: string) => readSession(pool, id)),
   useCommandIssue: (id: string | null) => useCommandFixture(pool => id === null ? undefined : chatIssue(pool, id)),
   useCommandPaletteData: () => useCommandFixture(readPalette),

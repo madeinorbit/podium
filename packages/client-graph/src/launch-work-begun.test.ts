@@ -17,7 +17,7 @@ it('preserves enabled launch actions across every stage, checkout and session st
     for (const status of [undefined, ...statuses]) for (const archived of [false, true])
       for (const headless of [false, true]) {
         const issue = { id: 'task', seq: 1, title: 'Task', stage, worktreePath,
-          archived: false, createdAt: stamp, updatedAt: stamp }
+          archived: false, repoPath: '/checkout', createdAt: stamp, updatedAt: stamp }
         const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
         pool.apply({ type: 'replace', rows: [
           { kind: 'issue', id: 'task', value: issue as never },
@@ -44,7 +44,7 @@ it('preserves enabled launch actions across every stage, checkout and session st
 it('follows attachment and process state while ignoring archived, moved and shell sessions', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
   pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'task', value: {
-    id: 'task', seq: 1, stage: 'backlog', title: 'Task', createdAt: stamp, updatedAt: stamp,
+    id: 'task', seq: 1, stage: 'backlog', title: 'Task', repoPath: '/checkout', createdAt: stamp, updatedAt: stamp,
   } as never }] })
   const answers: boolean[] = []
   const stop = autorun(() => answers.push(pool.issueObject('task').workBegun))

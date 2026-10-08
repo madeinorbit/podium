@@ -147,7 +147,21 @@ function scoreText(query: string, text: string): number {
  * matches (a keyword hit should never outrank the same-quality label hit).
  * Empty query matches everything at a flat score.
  */
-export function scoreCommand(query: string, cmd: PaletteCommand): number {
+export interface PaletteSearch {
+  label: string
+  keywords?: readonly string[]
+}
+
+/** Search fields are read before any display label, reference or action is built. */
+export interface PaletteCandidate {
+  id: string
+  group: PaletteGroupId
+  eligible?: () => boolean
+  search: () => PaletteSearch
+  build: () => PaletteCommand
+}
+
+export function scoreCommand(query: string, cmd: PaletteSearch): number {
   const q = query.trim().toLowerCase()
   if (!q) return 1
   const label = scoreText(q, cmd.label) * 2
@@ -171,33 +185,33 @@ export function isResting(query: string): boolean {
  * "Close session" above four groups of tasks that merely contain the letters.
  * A fixed order is right for a home screen and wrong for a search result.
  */
-export function filterCommands(query: string, commands: PaletteCommand[]): PaletteGroup[] {
+export function filterCommandCandidates(query: string, candidates: PaletteCandidate[]): PaletteGroup[] {
   const resting = isResting(query)
-  const scored = commands
-    .map((cmd, order) => ({ cmd, order, score: scoreCommand(query, cmd) }))
-    .filter((s) => s.score > 0)
+  const scored = candidates.flatMap((candidate, order) => {
+    const cap = resting ? GROUP_CAP[candidate.group].rest : GROUP_CAP[candidate.group].query
+    if (cap <= 0 || candidate.eligible?.() === false) return []
+    const score = resting ? 1 : scoreCommand(query, candidate.search())
+    return score > 0 ? [{ candidate, order, score }] : []
+  })
   const groups: PaletteGroup[] = []
   for (const group of GROUP_ORDER) {
     const cap = resting ? GROUP_CAP[group].rest : GROUP_CAP[group].query
     if (cap <= 0) continue
-    const mine = scored
-      .filter((s) => s.cmd.group === group)
+    const mine = scored.filter(s => s.candidate.group === group)
       .sort((a, b) => b.score - a.score || a.order - b.order)
     const best = mine[0]
     if (!best) continue
-    groups.push({
-      group,
-      commands: mine.slice(0, cap).map((s) => s.cmd),
-      total: mine.length,
-      top: best.score,
-    })
+    groups.push({ group, commands: mine.slice(0, cap).map(s => s.candidate.build()),
+      total: mine.length, top: best.score })
   }
-  if (!resting) {
-    groups.sort(
-      (a, b) => b.top - a.top || GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group),
-    )
-  }
+  if (!resting) groups.sort((a, b) => b.top - a.top || GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group))
   return groups
+}
+
+export function filterCommands(query: string, commands: PaletteCommand[]): PaletteGroup[] {
+  return filterCommandCandidates(query, commands.map(command => ({
+    id: command.id, group: command.group, search: () => command, build: () => command,
+  })))
 }
 
 /** Flat row list in render order — drives the roving highlight index. */
