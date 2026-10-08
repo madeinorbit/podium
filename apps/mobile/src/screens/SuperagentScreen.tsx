@@ -33,8 +33,8 @@ import { humanizeSendFailure } from '../lib/send-failure'
 import {
   applySuperagentModelPick,
   resolveSuperagentBackend,
-  type SuperagentBackendPick,
   superagentTurnChoice,
+  type SuperagentBackendPick,
 } from '../lib/superagent-backend'
 import { liveTranscriptItem } from '../lib/superagent-transcript'
 import { color, font, sans, space } from '../theme/theme'
@@ -114,7 +114,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
     [superagent.active, backendPick],
   )
   const history = useRef({ following: true, searching: false })
-  const { conversation, podiumSid, binding } = useThreadConversation(backend, history.current)
+  const { conversation, podiumSid, binding } = useThreadConversation(history.current)
   const transcript = conversation?.transcript
   const transcriptLoaded = transcript?.initialLoaded ?? false
   const itemCount = transcript?.ids.length ?? 0
@@ -171,6 +171,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
       setPinRequest((count) => count + 1)
       void conversation.sends.submit({
         text: trimmed,
+        backend: superagentTurnChoice(backend),
         wire: buildImagePrompt(
           attached.map((file) => file.path),
           trimmed,
@@ -180,7 +181,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
           : {}),
       })
     },
-    [conversation],
+    [conversation, backend],
   )
   const retry = useCallback(
     (turn: PendingTurn) => {

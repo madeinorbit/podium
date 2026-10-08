@@ -5,7 +5,10 @@ import type { SessionId, WorkState } from '@podium/model'
 import { asSessionId, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model'
 import { isShortSessionIdentifier, issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState, type ComponentProps, type ReactNode } from 'react'
+import { observer } from 'mobx-react-lite'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
 import { useStoreActions } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import {
@@ -130,7 +133,131 @@ export function SessionScreen() {
   // the sentence must say so before anything is removed.
   const draftAgentCount = useSessionContextIssueAgentCount(issue?.id, confirmDeleteOpen)
 
-  const menuActions = useMemo<SheetAction[]>(() => {
+
+  if (!sessionId || !session) {
+    // A SESSION THAT IS NOT HERE IS THREE DIFFERENT FACTS (doc §3.1 ¶2).
+    // Deleted, evicted from THIS principal's view (a share revoked, or never
+    // granted — it still exists), or simply not arrived yet. This screen used to
+    // render all three as "it may have been removed on the server", which is the
+    // exact defect `resolveReferent` exists to prevent: an eviction rendered as
+    // a deletion. `pending` says "not yet" without spinning forever, and every
+    // state is terminal copy. Only the genuinely pending state moves: removed
+    // and not-visible are settled facts, so animating either would imply that
+    // waiting can change the answer.
+    const absence = sessionLinkAbsence(
+      sessionAbsence(sessionId, session, () => exitKind),
+      link,
+      rawSessionId !== undefined && isShortSessionIdentifier(rawSessionId),
+    )
+    return (
+      <Screen title="Session" onBack={goBack} safeBottom>
+        <BootstrapCrossfade resolved={!booting} placeholder={<DetailSkeleton />}>
+          <EmptyState
+            title={absence.title}
+            body={absence.body}
+            icon={
+              sessionAbsenceShowsLoader(absence, spawnPending) ? (
+                <WorkingMark size={24} label="Waiting for session" />
+              ) : undefined
+            }
+          />
+        </BootstrapCrossfade>
+      </Screen>
+    )
+  }
+
+
+  return (
+    <SessionChrome
+      issue={issue}
+      session={session}
+      served={harnessServed}
+      onBack={goBack}
+      backLabel="Back"
+      bareBack
+      monoSubtitle
+      // No `safeBottom`: the floating composer is the bottom-most thing on this
+      // screen and pays that inset itself, so it can drop it when the keyboard
+      // takes the bottom edge [POD-502].
+      right={
+        <>
+          <HeaderButton
+            label="Open terminal"
+            size={32}
+            onPress={() => router.push(`/session/${encodeURIComponent(sessionId)}/terminal`)}
+          >
+            <Icon as={SquareTerminal} size={17} color={color.textDim} />
+          </HeaderButton>
+          <HeaderButton label="Session actions" onPress={() => setMenuOpen(true)} size={32} bare>
+            <Icon as={MoreVertical} size={17} color={color.textDim} />
+          </HeaderButton>
+        </>
+      }
+    >
+      <SessionConversation
+        session={session}
+        issue={issue}
+        findRequest={findRequest}
+        initialPendingText={optimisticFirstPrompt}
+        onInitialPendingSettled={settleOptimisticFirstPrompt}
+        deferInitialTranscript={spawnPending}
+      />
+      <SessionActionMenu session={session} issue={issue} open={menuOpen}
+        onClose={() => setMenuOpen(false)} nextSession={nextSession}
+        onFind={() => setFindRequest((request) => request + 1)}
+        onDelete={() => setConfirmDeleteOpen(true)} onWorkState={() => setWorkMenuOpen(true)} />
+      <ActionSheet
+        visible={confirmDeleteOpen && draftAgentCount !== undefined}
+        title={DELETE_TASK_TITLE}
+        subtitle={deleteTaskSubtitle(draftAgentCount ?? 0)}
+        actions={[
+          {
+            label: 'Delete',
+            destructive: true,
+            onPress: () => {
+              if (issue) {
+                void store.deleteIssue(issue.id).catch(() => {})
+                goBack()
+              }
+            },
+          },
+        ]}
+        onClose={() => setConfirmDeleteOpen(false)}
+      />
+      <ActionSheet
+        visible={workMenuOpen}
+        title="Work state"
+        actions={WORK_STATES.map((ws) => ({
+          label: ws ? ws[0].toUpperCase() + ws.slice(1) : 'Unsorted',
+          onPress: () => void store.setWorkState(sessionId, ws),
+        }))}
+        onClose={() => setWorkMenuOpen(false)}
+      />
+    </SessionChrome>
+  )
+}
+
+const SessionChrome = observer(function SessionChrome({ issue, session, served, children, ...screen }: {
+  issue: IssueViewModel | undefined; session: SessionView;
+  served: ReturnType<typeof useHarnessDescriptors<MobileTrpc>>['served']; children: ReactNode
+} & Omit<ComponentProps<typeof Screen>, 'title' | 'subtitle' | 'leading' | 'children'>) {
+  const kind = issueAgentKind(session.agentKind)
+  const selectedModel = session.observedModel ?? session.model
+  // Served descriptors for the session's machine (POD-4475): the harness
+  // name and model render from the report, bundled copy offline.
+  const provenance = `${issueAgentLabel(session.agentKind, served)}${kind && selectedModel ? ` · ${modelLabel(kind, selectedModel, undefined, served)}` : ''}`
+
+  return <Screen {...screen} title={issue?.title ?? sessionTitle(session)}
+    subtitle={`${issue ? `${issueDisplayRef(issue)}   ` : ''}${provenance}`}
+    leading={<HarnessChip kind={session.agentKind} size={20} descriptors={served} />}>{children}</Screen>
+})
+
+const SessionActionMenu = observer(function SessionActionMenu({ session, issue, open, onClose, nextSession, onFind, onDelete, onWorkState }: {
+  session: SessionView; issue: IssueViewModel | undefined; open: boolean; onClose: () => void;
+  nextSession: () => void; onFind: () => void; onDelete: () => void; onWorkState: () => void
+}) {
+  const store = useStoreActions()
+  const actions = open ? (() => {
     if (!session) return []
     // A DRAFT'S CHAT GETS A DRAFT'S MENU (2026-08-27 device review). A draft
     // vessel has no worktree and no lifecycle yet — every session-scoped verb
@@ -147,14 +274,14 @@ export function SessionScreen() {
         {
           label: 'Delete',
           destructive: true,
-          onPress: () => setConfirmDeleteOpen(true),
+          onPress: onDelete,
         },
       ]
     }
     const actions: SheetAction[] = [
       {
         label: 'Find in transcript',
-        onPress: () => setFindRequest((request) => request + 1),
+        onPress: onFind,
       },
       ...(issue
         ? [
@@ -169,7 +296,7 @@ export function SessionScreen() {
         label: session.archived ? 'Unarchive' : 'Archive',
         onPress: () => void store.archiveSession(session.sessionId, !session.archived),
       },
-      { label: 'Set work state…', onPress: () => setWorkMenuOpen(true) },
+      { label: 'Set work state…', onPress: onWorkState },
       {
         label: 'Snooze until next message',
         onPress: () => void store.setSnooze(session.sessionId, null),
@@ -207,115 +334,7 @@ export function SessionScreen() {
       })
     }
     return actions
-  }, [issue, nextSession, store, session])
 
-  if (!sessionId || !session) {
-    // A SESSION THAT IS NOT HERE IS THREE DIFFERENT FACTS (doc §3.1 ¶2).
-    // Deleted, evicted from THIS principal's view (a share revoked, or never
-    // granted — it still exists), or simply not arrived yet. This screen used to
-    // render all three as "it may have been removed on the server", which is the
-    // exact defect `resolveReferent` exists to prevent: an eviction rendered as
-    // a deletion. `pending` says "not yet" without spinning forever, and every
-    // state is terminal copy. Only the genuinely pending state moves: removed
-    // and not-visible are settled facts, so animating either would imply that
-    // waiting can change the answer.
-    const absence = sessionLinkAbsence(
-      sessionAbsence(sessionId, session, () => exitKind),
-      link,
-      rawSessionId !== undefined && isShortSessionIdentifier(rawSessionId),
-    )
-    return (
-      <Screen title="Session" onBack={goBack} safeBottom>
-        <BootstrapCrossfade resolved={!booting} placeholder={<DetailSkeleton />}>
-          <EmptyState
-            title={absence.title}
-            body={absence.body}
-            icon={
-              sessionAbsenceShowsLoader(absence, spawnPending) ? (
-                <WorkingMark size={24} label="Waiting for session" />
-              ) : undefined
-            }
-          />
-        </BootstrapCrossfade>
-      </Screen>
-    )
-  }
-
-  const kind = issueAgentKind(session.agentKind)
-  const selectedModel = session.observedModel ?? session.model
-  // Served descriptors for the session's machine (POD-4475): the harness
-  // name and model render from the report, bundled copy offline.
-  const served = harnessServed
-  const provenance = `${issueAgentLabel(session.agentKind, served)}${kind && selectedModel ? ` · ${modelLabel(kind, selectedModel, undefined, served)}` : ''}`
-
-  return (
-    <Screen
-      title={issue?.title ?? sessionTitle(session)}
-      subtitle={`${issue ? `${issueDisplayRef(issue)}   ` : ''}${provenance}`}
-      onBack={goBack}
-      backLabel="Back"
-      bareBack
-      monoSubtitle
-      // No `safeBottom`: the floating composer is the bottom-most thing on this
-      // screen and pays that inset itself, so it can drop it when the keyboard
-      // takes the bottom edge [POD-502].
-      leading={<HarnessChip kind={session.agentKind} size={20} descriptors={served} />}
-      right={
-        <>
-          <HeaderButton
-            label="Open terminal"
-            size={32}
-            onPress={() => router.push(`/session/${encodeURIComponent(sessionId)}/terminal`)}
-          >
-            <Icon as={SquareTerminal} size={17} color={color.textDim} />
-          </HeaderButton>
-          <HeaderButton label="Session actions" onPress={() => setMenuOpen(true)} size={32} bare>
-            <Icon as={MoreVertical} size={17} color={color.textDim} />
-          </HeaderButton>
-        </>
-      }
-    >
-      <SessionConversation
-        session={session}
-        issue={issue}
-        findRequest={findRequest}
-        initialPendingText={optimisticFirstPrompt}
-        onInitialPendingSettled={settleOptimisticFirstPrompt}
-        deferInitialTranscript={spawnPending}
-      />
-      <ActionSheet
-        visible={menuOpen}
-        title={sessionTitle(session)}
-        actions={menuActions}
-        onClose={() => setMenuOpen(false)}
-      />
-      <ActionSheet
-        visible={confirmDeleteOpen && draftAgentCount !== undefined}
-        title={DELETE_TASK_TITLE}
-        subtitle={deleteTaskSubtitle(draftAgentCount ?? 0)}
-        actions={[
-          {
-            label: 'Delete',
-            destructive: true,
-            onPress: () => {
-              if (issue) {
-                void store.deleteIssue(issue.id).catch(() => {})
-                goBack()
-              }
-            },
-          },
-        ]}
-        onClose={() => setConfirmDeleteOpen(false)}
-      />
-      <ActionSheet
-        visible={workMenuOpen}
-        title="Work state"
-        actions={WORK_STATES.map((ws) => ({
-          label: ws ? ws[0].toUpperCase() + ws.slice(1) : 'Unsorted',
-          onPress: () => void store.setWorkState(sessionId, ws),
-        }))}
-        onClose={() => setWorkMenuOpen(false)}
-      />
-    </Screen>
-  )
-}
+  })() : []
+  return <ActionSheet visible={open} title={open ? sessionTitle(session) : ''} actions={actions} onClose={onClose} />
+})

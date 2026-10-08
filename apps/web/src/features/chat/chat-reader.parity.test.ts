@@ -2,7 +2,7 @@ import { TranscriptLog } from '@podium/client-core/conversation'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { expect, it } from 'vitest'
 import { ConversationPresentation as Before } from './conversation-presentation.before'
-import { ConversationPresentation as After } from './conversation-presentation.next'
+import { ConversationPresentation as After } from './conversation-presentation'
 
 const client = { usesWorker: false, computeGraphOnMain: (source: any, query: string, cursor: number) => {
   source.sent(); return { search: source.graph.search(query, cursor), markdownHtml: new Map() }

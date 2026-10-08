@@ -1,9 +1,10 @@
 import { sessionPaneView } from './session-pane'
+import { mobileSessionChromeIssue } from './mobile-session-chrome'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { dedupeSessionsByResume } from '@podium/model'
-import { asIssueId, type MachineWire } from '@podium/model/browser'
+import { type MachineWire } from '@podium/model/browser'
 import { observable, runInAction } from 'mobx'
 import {
   createReferencePicker,
@@ -58,19 +59,9 @@ export function createMobileSessionReader(pool: MobxPool) {
     issue: (id: string | undefined) => mobileSessionIssue(pool, id),
     /** The phone header/menu needs identity and lifecycle fields, not mission seats. */
     chromeIssue(id: string | undefined): Loaded<IssueViewModel> {
-      if (id === undefined) return undefined
-      const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
-      if (!row || row === LOADING || row.deletedAt) return row === LOADING ? LOADING : undefined
-      const repoId = pool.graph.one('issue', id, 'repo')
-      const repo = repoId ? (pool.row('repo', repoId) as Loaded<{ prefix?: string }>) : undefined
-      const prefix = repo && repo !== LOADING ? repo.prefix : undefined
-      return {
-        ...row,
-        id: asIssueId(id),
-        prefix,
-        displayRef: prefix ? `${prefix}-${row.seq}` : `#${row.seq}`,
-      }
+      return mobileSessionChromeIssue(pool, id) as Loaded<IssueViewModel>
     },
+
     issueAgentCount(id: string | undefined): Loaded<number> {
       if (id === undefined) return 0
       const seats = issuePages(pool).attachedSessions(id)

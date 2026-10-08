@@ -7,56 +7,31 @@ import { useConversation, useStoreHandle } from '@podium/client-core/react'
 import { superagentState } from '@podium/client-graph/superagent'
 import { asSessionId, asThreadId, type SessionId } from '@podium/model'
 import { action, observable, reaction } from 'mobx'
-import { useLayoutEffect } from 'react'
+import { useEffect } from 'react'
 import { AppState } from 'react-native'
 import { humanizeSendFailure } from '../lib/send-failure'
-import { superagentTurnChoice, type SuperagentBackend } from '../lib/superagent-backend'
+import { superagentTurnChoice, resolveSuperagentBackend } from '../lib/superagent-backend'
 import { useMobilePool } from './mobile-pool'
 import type { MobileTrpc } from './trpc'
 
 const THREAD_ID = asThreadId('global')
 const CONVERSATION_ID = asSessionId('superagent:global')
-const bindings = new WeakMap<
-  object,
-  {
-    acked: SessionId | undefined
-    cleared: SessionId | undefined
-    backend: SuperagentBackend
-    history: { following: boolean; searching: boolean }
-  }
->()
+class ThreadBinding {
+  @observable accessor acked: SessionId | undefined = undefined
+  @observable accessor cleared: SessionId | undefined = undefined
+}
+// Runtime service identity; only acknowledged routing facts live here.
+const bindings = new WeakMap<object, ThreadBinding>()
 
 /** Thread identity stays stable when its first send learns the headless session. */
 export function useThreadConversation(
-  backend: SuperagentBackend,
   history: { following: boolean; searching: boolean },
 ) {
   const owner = useStoreHandle<MobileTrpc>()
   const pool = useMobilePool()
   let binding = bindings.get(owner)
-  if (!binding) {
-    binding = observable(
-      {
-        acked: undefined as SessionId | undefined,
-        cleared: undefined as SessionId | undefined,
-        backend,
-        history,
-      },
-      {},
-      { deep: false },
-    )
-    bindings.set(owner, binding)
-  }
+  if (!binding) { binding = new ThreadBinding(); bindings.set(owner, binding) }
   const thread = binding
-  // Backend choice is a host input, read at dispatch; it does not own send state.
-  useLayoutEffect(
-    () =>
-      action(() => {
-        thread.backend = backend
-        thread.history = history
-      })(),
-    [thread, backend, history],
-  )
   const readSid = () => {
     const published = pool ? superagentState(pool).activeSessionId : undefined
     return thread.acked ?? (published === thread.cleared ? undefined : published)
@@ -88,7 +63,6 @@ export function useThreadConversation(
       transcript: {
         initialLimit: 80,
         pageLimit: 80,
-        retainHistory: () => !thread.history.following || thread.history.searching,
         source: {
           read: (request) => {
             const sid = readSid()
@@ -154,7 +128,7 @@ export function useThreadConversation(
             const ack = await owner.access.trpc.superagent.sendTurn.mutate({
               threadId: THREAD_ID,
               text: turn.wire,
-              ...superagentTurnChoice(thread.backend),
+              ...(turn.backend ?? superagentTurnChoice(resolveSuperagentBackend(pool ? superagentState(pool).active : undefined, {}))),
             })
             if (ack?.podiumSessionId)
               action(() => {
@@ -174,6 +148,7 @@ export function useThreadConversation(
       enabled: pool !== null && !superagentState(pool).loading,
     },
   )
+  useEffect(() => conversation?.addReader(() => !history.following || history.searching), [conversation, history])
   const podiumSid = readSid()
   return { conversation, podiumSid, binding: thread }
 }

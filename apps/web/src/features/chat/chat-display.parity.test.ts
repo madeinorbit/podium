@@ -5,7 +5,7 @@ import { asSessionId, isAgentComputing } from '@podium/model'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { ChatViewModel } from './chat-view-model'
-import { createWebConversation } from './use-conversation.next'
+import { createWebConversation } from './use-conversation'
 
 function fixture() {
   vi.stubGlobal('Worker', undefined)

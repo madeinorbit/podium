@@ -497,8 +497,8 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
             dayMark={dayMarks.get(pos)} searchMatches={searchMatches} />
         ))}
         <Observer>{() => {
-          const pending = props.chat?.pending ?? props.pending ?? []
-          const session = props.chat?.session ?? props.session
+          const pending = props.chat?.view.pending ?? props.pending ?? []
+          const session = props.chat?.view.session ?? props.session
           return <>{pending.map((p) => {
           // Waiting on the server: behind the turn in flight, or for the
           // session to wake. Once handed on toward the agent the bubble keeps
@@ -678,9 +678,9 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
         }}</Observer>
         <Observer>{() => {
           const turnPreview = props.chat?.conversation.preview ?? props.turnPreview
-          const overlay = props.chat?.headless ? props.chat.conversation.headless : props.overlay
+          const overlay = props.chat?.view.headless ? props.chat.conversation.headless : props.overlay
           const previewHasText = turnPreview?.items.some(item => item.kind === 'text') === true
-          const lastRow = props.chat?.conversation.presentation.tailRow(rows[rows.length - 1]?.row) ?? rows[rows.length - 1]?.row
+          const lastRow = props.chat?.view?.presentation.tailRow(rows[rows.length - 1]?.row) ?? rows[rows.length - 1]?.row
           return <>
       {/* Headless streaming overlay: the in-progress assistant text (or the
           driver's status label) below the last transcript row. Replaced by
@@ -785,11 +785,11 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           phase changes and idle transitions move NO geometry — and as the
           feed's permanent last child it avoids bottom-geometry churn. */}
         <Observer>{() => {
-          const activity = props.chat?.activity ?? props.activity
-          const overlay = props.chat?.headless ? props.chat.conversation.headless : props.overlay
+          const activity = props.chat?.view.activity ?? props.activity
+          const overlay = props.chat?.view.headless ? props.chat.conversation.headless : props.overlay
           const tailActivity = overlay?.status ? { tone: 'working' as const, label: overlay.status } : activity ?? null
-          const session = props.chat?.session ?? props.session
-          const lastRow = props.chat?.conversation.presentation.tailRow(rows[rows.length - 1]?.row) ?? rows[rows.length - 1]?.row
+          const session = props.chat?.view.session ?? props.session
+          const lastRow = props.chat?.view?.presentation.tailRow(rows[rows.length - 1]?.row) ?? rows[rows.length - 1]?.row
           const questionOwnsAttention = (livePendingAskIndex >= 0 || pendingAskBlock !== null) && activity?.tone === 'attention'
           return (
         <div className="feed-tail-slot" data-testid="feed-tail-slot">
@@ -815,9 +815,9 @@ const TranscriptRow = observer(function TranscriptRow({ props, template, index: 
   const { search, revealedRow, expandRuns, sessionId, cwd, openFile, httpOrigin, onOpenImage,
     livePendingAskIndex, onAnswerAsk, answerInteractionId, collapseContext, compact,
     lastAnswerBlockIndex, stickyEnabled, isOperatorPromptRow, attribution, onQuote } = props
-  const ctxSeq = props.chat?.ctxSeq ?? props.ctxSeq ?? null
-  const markdownHtml = props.chat?.conversation.presentation.markdownHtml ?? props.markdownHtml
-  const presentation = props.chat?.conversation.presentation
+  const ctxSeq = props.chat?.view.ctxSeq ?? props.ctxSeq ?? null
+  const markdownHtml = props.chat?.view?.presentation.markdownHtml ?? props.markdownHtml
+  const presentation = props.chat?.view?.presentation
   const row: ChatRow = !presentation ? template : template.kind === 'block'
     ? { ...template, block: presentation.block(template.block.item.id) ?? template.block }
     : template
@@ -855,7 +855,7 @@ const TranscriptRow = observer(function TranscriptRow({ props, template, index: 
                 // live motion, so a tool-result commit cannot remove the working
                 // indicator. MOUNT POSITION, not `idx`: `rows` is the bounded
                 // trailing window while `idx` is the absolute index.
-                live={pos === props.rows.length - 1 && trailingRunIsLive(props.chat?.activity ?? props.activity ?? null,
+                live={pos === props.rows.length - 1 && trailingRunIsLive(props.chat?.view.activity ?? props.activity ?? null,
                   presentation?.tailRow(row) ?? row)}
                 ownsTail={false}
                 arrived={arrived}

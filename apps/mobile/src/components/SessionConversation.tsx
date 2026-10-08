@@ -217,7 +217,6 @@ export function SessionConversation(
         },
       },
       transcript: {
-        retainHistory: () => !history.current.following || history.current.searching,
         initialLimit: 80,
         pageLimit: 80,
         source: {
@@ -332,6 +331,7 @@ export function SessionConversation(
     }, { hidePendingQuestion: true }),
     { warmLimit: PHONE_WARM_CONVERSATIONS, enabled: pool !== null && readiness.ready },
   )
+  useEffect(() => model?.addReader(() => !history.current.following || history.current.searching), [model])
   return model ? (
     <SessionConversationBody {...props} pool={pool} model={model} history={history.current} />
   ) : (

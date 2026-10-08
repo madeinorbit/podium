@@ -1,4 +1,4 @@
-import type { MobileConversationPresentation } from '../lib/conversation-presentation'
+import { MobileTranscriptSearch, type MobileConversationPresentation } from '../lib/conversation-presentation'
 import {
   type ChatBlock,
   failLine,
@@ -1055,13 +1055,18 @@ export const TranscriptList = observer(function TranscriptList({
   )
   const reduceMotion = useReduceMotion()
   const [findOpen, setFindOpen] = useState(false)
-  const [query, setQuery] = useState('')
+  const find = useMemo(() => presentation ? new MobileTranscriptSearch(presentation) : undefined, [presentation])
+  const [legacyQuery, setLegacyQuery] = useState('')
+  const query = find?.query ?? legacyQuery
+  const setQuery = find?.setQuery ?? setLegacyQuery
   const searching = findOpen && query.trim().length > 0
   useLayoutEffect(() => {
     onSearchChange?.(searching)
     return () => onSearchChange?.(false)
   }, [onSearchChange, searching])
-  const [cursor, setCursor] = useState(0)
+  const [legacyCursor, setLegacyCursor] = useState(0)
+  const cursor = find?.cursor ?? legacyCursor
+  const setCursor = find?.setCursor ?? setLegacyCursor
   const [actionText, setActionText] = useState<string | null>(null)
   const [atTail, setAtTail] = useState(true)
   /** Rows that arrived while the operator was reading further up. */
@@ -1185,7 +1190,7 @@ export const TranscriptList = observer(function TranscriptList({
     () => searchModel ? matchMobileTranscript(searchModel, findOpen ? query : '') : undefined,
     [findOpen, query, searchModel],
   )
-  const matches = presentation ? presentation.matches(findOpen ? query : '') : legacyMatches!
+  const matches = find ? find.matches : legacyMatches!
   const search = useMemo(() => positionMobileTranscriptSearch(matches, cursor), [cursor, matches])
   const listRef = useRef<TranscriptViewportHandle>(null)
   const seenKeys = useRef<Set<string> | null>(null)

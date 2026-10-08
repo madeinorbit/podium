@@ -10,8 +10,9 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { chatSendRoute, composerState, parseEnvelopeBatch, type SuperThreadRef, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { asMutationId, asSessionId, HarnessAgent, type SessionId } from '@podium/model/browser'
-import { action, actionBound, compareShallow, computed, makeObservable, observable, observableRef, reaction, runInAction } from 'mobx'
+import { actionBound, compareShallow, computed, observable, reaction } from 'mobx'
 import { useCallback, useEffect, useRef } from 'react'
+import { lazy } from '@podium/mobx-helpers'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { ConversationPresentation, INITIAL_LIMIT, PAGE_LIMIT } from './conversation-presentation'
@@ -30,64 +31,42 @@ const loaded = <T,>(row: T): Loaded<T> | undefined => typeof row === 'symbol' ? 
 
 /** Web ports and worker presentation; the inherited model owns every live state. */
 export class WebConversation extends Conversation {
-  readonly presentation: ConversationPresentation
-  lastSubmittedPrompt: string | null = null
-  ctxSeq: number | null = null
-  backendPick: { model?: string; effort?: string; agentKind?: string | null } = {}
+  /** Mounted reader registry; removing a reader drops all of its UI state. */
+  private readonly views = new Set<ConversationPresentation>()
+  @observable accessor lastSubmittedPrompt: string | null = null
   constructor(
     options: ConversationOptions,
     readonly pool: MobxPool,
     readonly runtime: ClientRuntime<Trpc>,
     readonly mount: ConversationMountOptions,
-    presentation: ConversationPresentation,
   ) {
     super(options)
-    this.presentation = presentation
-    makeObservable(this, {
-      lastSubmittedPrompt: observable,
-      rememberPrompt: actionBound,
-      ctxSeq: observable,
-      backendPick: observableRef,
-      session: computed,
-      thread: computed,
-      backend: computed,
-      ready: computed,
-      hasPending: computed,
-      setBackendModel: actionBound,
-      setBackendEffort: actionBound,
-    })
-    presentation.bind(this.transcript, this.graph)
   }
-  get session(): SessionView | undefined { return sessionPaneView(this.pool).session(this.sessionId) }
-  get thread() { return this.mount.superThread ? loaded(this.pool.row('superThread', this.mount.superThread.threadId)) : undefined }
-  get backend() {
-    const model = this.backendPick.model ?? this.thread?.model ?? 'auto'
-    return {
-      model,
-      effort: this.backendPick.effort ?? this.thread?.effort ?? 'auto',
-      agentKind: this.backendPick.agentKind !== undefined
-        ? this.backendPick.agentKind ?? undefined
-        : model !== 'auto' ? this.thread?.agentKind : undefined,
-    }
+  addView(view: ConversationPresentation): () => void {
+    this.views.add(view)
+    view.bind(this.transcript, this.graph)
+    return () => { this.views.delete(view); view.dispose() }
   }
-  get hasPending(): boolean { return this.sends.bubbles.length > 0 }
-  get ready(): boolean {
+  changed(change: import('@podium/client-core/conversation').TranscriptChange): void {
+    for (const view of this.views) view.changed(change)
+  }
+  get retainHistory(): boolean { return [...this.views].some(view => view.retainHistory) }
+  @lazy get session(): SessionView | undefined { return sessionPaneView(this.pool).session(this.sessionId) }
+  @lazy get thread() { return this.mount.superThread ? loaded(this.pool.row('superThread', this.mount.superThread.threadId)) : undefined }
+  @lazy get hasPending(): boolean { return this.sends.bubbles.length > 0 }
+  @lazy get ready(): boolean {
     const reader = loaded(this.pool.row('chatContextReader', 'reader'))
     const held = loaded(this.pool.row('chatHeld', this.sessionId))
     return !!reader && !!held && reader.records(this.sessionId).pending === 0
   }
-  rememberPrompt(text: string): void { this.lastSubmittedPrompt = text || null }
-  setBackendModel(model: string, agentKind?: string): void {
-    this.backendPick = { ...this.backendPick, model, agentKind: model === 'auto' ? null : agentKind ?? this.backendPick.agentKind, effort: 'auto' }
-  }
-  setBackendEffort(effort: string): void { this.backendPick = { ...this.backendPick, effort } }
-  override dispose(): void { this.presentation.dispose(); super.dispose() }
+  @actionBound rememberPrompt(text: string): void { this.lastSubmittedPrompt = text || null }
+  override dispose(): void { for (const view of this.views) view.dispose(); this.views.clear(); super.dispose() }
+
 }
 
 export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPool, sessionId: SessionId, mount: ConversationMountOptions): WebConversation {
   const store = runtime.access
   const { hub, trpc, replica } = store
-  const presentation = new ConversationPresentation()
   const readSession = () => sessionPaneView(pool).session(sessionId)
   const readReader = () => loaded(pool.row('chatContextReader', 'reader'))
   const recordValues = computed(() => readReader()?.records(sessionId).records ?? [], { equals: compareShallow })
@@ -121,7 +100,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
     ...(typeof hub.connectionHealth === 'function' && typeof hub.on === 'function' ? { connection: hubConnection(hub) } : {}),
     transcript: {
       initialLimit: INITIAL_LIMIT, pageLimit: PAGE_LIMIT,
-      retainHistory: () => presentation.retainHistory,
+      retainHistory: () => conversation?.retainHistory ?? false,
       collapseMachineContext: headless,
       visible: () => typeof document === 'undefined' || document.visibilityState !== 'hidden',
       source: {
@@ -130,7 +109,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
       },
       ...(replica ? { cache: { maxItems: REPLICA_TRANSCRIPT_ITEM_CAP, read: id => replica.transcriptWindow(id), write: (id, items) => replica.putTranscriptWindow(id, [...items]) } } : {}),
     },
-    onTranscriptChange: change => presentation.changed(change),
+    onTranscriptChange: change => conversation?.changed(change),
     ...(mount.superThread ? { latestTurnFailure: () => trpc.superagent.latestTurnFailure.query({ threadId: mount.superThread!.threadId }) } : {}),
     sends: {
       ...(headless ? { reconcile: 'next-user-item' as const } : {
@@ -169,8 +148,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
         }
         if (route.kind === 'refused') { conversation.setTurnError(route.reason); throw new Error(route.reason) }
         const focus = store.getUserFocus()
-        if (mount.compact) runInAction(() => { conversation.ctxSeq = focus.issueId ? loaded(readReader()?.issue(focus.issueId))?.seq ?? null : null })
-        const backend = conversation.backend
+        const backend = turn.backend ?? { model: conversation.thread?.model ?? 'auto', effort: conversation.thread?.effort ?? 'auto', agentKind: conversation.thread?.agentKind }
         const harness = HarnessAgent.safeParse(backend.agentKind)
         const choice = { ...(backend.model ? { model: backend.model } : {}), ...(backend.effort ? { effort: backend.effort } : {}), ...(harness.success && backend.model !== 'auto' ? { agentKind: harness.data } : {}) }
         try {
@@ -182,7 +160,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
         } catch (error) { conversation.setTurnError(error instanceof Error ? error.message : String(error)); throw error }
       },
     },
-  }, pool, runtime, mount, presentation)
+  }, pool, runtime, mount)
   return conversation
 }
 

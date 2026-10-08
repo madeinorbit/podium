@@ -1,8 +1,8 @@
-import { TranscriptGraph } from '../../../../packages/client-core/src/conversation/transcript-graph'
+import { TranscriptGraph } from '@podium/client-core/conversation'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { expect, it } from 'vitest'
 import { MobileConversationPresentation as Before } from './conversation-presentation.before'
-import { MobileConversationPresentation as After, MobileTranscriptSearch } from './conversation-presentation.next'
+import { MobileConversationPresentation as After, MobileTranscriptSearch } from './conversation-presentation'
 import { shapeMobileChatRow } from './transcript-feed'
 
 it('matches the old phone rows and search answers through stream, removal and reset', () => {

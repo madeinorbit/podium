@@ -1,6 +1,8 @@
-import type { TranscriptGraph, TranscriptToolRun } from '@podium/client-core/conversation'
+import type { TranscriptToolRun } from '@podium/client-core/conversation'
 import { isAskUserQuestion, type ChatRow } from '@podium/client-core/values'
-import { action, computed, makeObservable, observable, observableRef, type IComputedValue } from 'mobx'
+import { action, actionBound, compareShallow, observable, observableRef } from 'mobx'
+import { companion, lazy } from '@podium/mobx-helpers'
+import type { TranscriptGraph } from '@podium/client-core/conversation'
 import { appendedTranscriptArrivals, positionMobileTranscriptSearch, type MobileTranscriptMatches, type MobileTranscriptRow } from './transcript-feed'
 
 export type RetainedMobileTranscriptRow = MobileTranscriptRow & { readonly run?: TranscriptToolRun }
@@ -16,13 +18,13 @@ interface RowOwner { id: string; ordinal: number }
  * demanded through addressed computeds, with no reaction-maintained model. */
 export class MobileConversationPresentation {
   readonly keys = observable.array<string>([], { deep: false })
-  version = 0
-  appendCount = 0
-  arrivalKeys: ReadonlySet<string> = new Set()
+  @observable accessor version = 0
+  @observable accessor appendCount = 0
+  @observableRef accessor arrivalKeys: ReadonlySet<string> = new Set()
   private readonly owners = observable.map<string, RowOwner>(undefined, { deep: false })
   private readonly members = observable.map<string, readonly string[]>(undefined, { deep: false })
-  private readonly rowCells = new Map<string, IComputedValue<readonly RetainedMobileTranscriptRow[]>>()
-  private readonly queries = new Map<string, IComputedValue<MobileTranscriptMatches>>()
+  readonly rows = companion((record: NonNullable<ReturnType<TranscriptGraph['record']>>) =>
+    new MobilePresentationRow(record.id, this))
   private readonly assistantIds = observable.array<string>([], { deep: false })
   private readonly seenKeys = new Set<string>()
   private hidden: string | null | undefined
@@ -31,8 +33,6 @@ export class MobileConversationPresentation {
     private readonly shapeRow: (row: ChatRow, options: MobileRowOptions) => MobileTranscriptRow[],
     private readonly rankOf: (id: string) => number,
     private readonly options: { collapseContext?: boolean; hiddenQuestionId?: () => string | null | undefined } = {}) {
-    makeObservable(this, { version: observable, appendCount: observable, arrivalKeys: observableRef,
-      reset: action, apply: action })
     this.hidden = options.hiddenQuestionId?.()
     this.reset()
   }
@@ -49,7 +49,7 @@ export class MobileConversationPresentation {
       return row
     })
   }
-  get latestAssistantKey(): string | undefined { return this.assistantIds.at(-1) }
+  @lazy get latestAssistantKey(): string | undefined { return this.assistantIds.at(-1) }
 
   positionOfKey = (key: string): number | undefined => {
     this.version
@@ -68,9 +68,6 @@ export class MobileConversationPresentation {
 
   matches(query: string): MobileTranscriptMatches {
     const key = query.trim().toLowerCase()
-    let cell = this.queries.get(key)
-    if (!cell) {
-      cell = computed(() => {
         this.version
         const matches: number[] = []
         const matchingRows = new Set<number>()
@@ -88,22 +85,15 @@ export class MobileConversationPresentation {
           }
         }
         return { matches, matchingRows: new Set([...matchingRows].sort((a, b) => a - b)), firstRowByBlock }
-      })
-      this.queries.set(key, cell)
-      if (this.queries.size > 32) this.queries.delete(this.queries.keys().next().value!)
-    }
-    return cell.get()
   }
   search(query: string, cursor: number) { return positionMobileTranscriptSearch(this.matches(query), cursor) }
 
-  reset(): void {
+  @action reset(): void {
     const previous = [...this.keys]
     this.keys.clear()
     this.owners.clear()
     this.members.clear()
     this.assistantIds.clear()
-    this.rowCells.clear()
-    this.queries.clear()
     for (const id of this.graph.rowIds) this.refreshRow(id)
     const current = [...this.keys]
     this.arrivalKeys = appendedTranscriptArrivals(previous, this.seenKeys, current)
@@ -112,7 +102,7 @@ export class MobileConversationPresentation {
     this.version++
   }
 
-  apply(publication: MobileRowPublication): void {
+  @action apply(publication: MobileRowPublication): void {
     const hidden = this.options.hiddenQuestionId?.()
     const previousHidden = this.hidden
     this.hidden = hidden
@@ -141,9 +131,11 @@ export class MobileConversationPresentation {
   }
 
   private rowsFor(id: string): readonly RetainedMobileTranscriptRow[] {
-    let cell = this.rowCells.get(id)
-    if (!cell) {
-      cell = computed((): readonly RetainedMobileTranscriptRow[] => {
+    const record = this.graph.record(id)
+    return record === undefined ? [] : this.rows(record).rows
+  }
+
+  deriveRows(id: string): readonly RetainedMobileTranscriptRow[] {
         const run = this.graph.run(id)
         if (run) {
           const first = run.firstBlock
@@ -158,10 +150,6 @@ export class MobileConversationPresentation {
         return this.shapeRow(row, { collapseContext: this.options.collapseContext,
           hiddenQuestionId: row.kind === 'block' && isAskUserQuestion(row.block.item)
             ? this.options.hiddenQuestionId?.() : undefined, includeEmpty: true })
-      })
-      this.rowCells.set(id, cell)
-    }
-    return cell.get()
   }
 
   private refreshRow(id: string): string[] {
@@ -204,7 +192,6 @@ export class MobileConversationPresentation {
     for (const key of members) this.removeKey(key)
     if (members.length) this.version++
     this.members.delete(id)
-    this.rowCells.delete(id)
   }
   private assistantInsertion(id: string): number {
     let low = 0, high = this.assistantIds.length
@@ -229,5 +216,26 @@ export class MobileConversationPresentation {
     }
     return low
   }
-  dispose(): void { this.rowCells.clear(); this.queries.clear() }
+  dispose(): void {}
+}
+
+class MobilePresentationRow {
+  constructor(readonly id: string, private readonly presentation: MobileConversationPresentation) {}
+  @lazy({ equals: compareShallow }) get rows(): readonly RetainedMobileTranscriptRow[] {
+    return this.presentation.deriveRows(this.id)
+  }
+}
+
+/** A Find reader belongs to one viewport, never to the warm conversation. */
+export class MobileTranscriptSearch {
+  @observable accessor query = ''
+  @observable accessor cursor = 0
+  constructor(readonly presentation: MobileConversationPresentation) {}
+  @lazy get matches(): MobileTranscriptMatches { return this.presentation.matches(this.query) }
+  @lazy get search() { return positionMobileTranscriptSearch(this.matches, this.cursor) }
+  @actionBound setQuery(query: string): void { this.query = query; this.cursor = 0 }
+  @actionBound setCursor(value: number | ((cursor: number) => number)): void {
+    this.cursor = typeof value === 'function' ? value(this.cursor) : value
+  }
+  @actionBound moveCursor(delta: number): void { this.cursor += delta }
 }

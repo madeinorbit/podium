@@ -1,6 +1,8 @@
-import { TranscriptGraph, type TranscriptChange, type TranscriptLog, type TranscriptGraphInsertion } from '@podium/client-core/conversation'
+import { type TranscriptChange, type TranscriptLog, type TranscriptGraphInsertion } from '@podium/client-core/conversation'
 import { type ChatBlock, type ChatRow, type RenderableRow, type TranscriptSearchState } from '@podium/client-core/values'
-import { action, actionBound, computed, makeObservable, observable, observableRef, runInAction, type IComputedValue } from 'mobx'
+import { action, actionBound, compareShallow, observable, observableRef, runInAction } from 'mobx'
+import { companion, lazy } from '@podium/mobx-helpers'
+import { TranscriptGraph } from '@podium/client-core/conversation'
 import { transcriptComputeClient, type TranscriptGraphSource, type WebTranscriptGraphResult } from './transcript-compute-client'
 import { rowIdentity } from './use-feed-arrivals'
 
@@ -38,40 +40,30 @@ class PresentationSource implements TranscriptGraphSource {
   private clear(): void { this.changed.clear(); this.insertions.clear(); this.removed.clear() }
 }
 
-/** Worker and addressed graph state belong to the warm conversation. */
+/** A mounted reader owns its worker demand, search and reading window. */
 export class ConversationPresentation {
-  result: WebTranscriptGraphResult | null = null
-  query = ''
-  cursor = 0
-  renderCount = RENDER_WINDOW
-  followTail = true
-  deepeningSearch = false
+  @observableRef accessor result: WebTranscriptGraphResult | null = null
+  @observable accessor query = ''
+  @observable accessor cursor = 0
+  @observable accessor renderCount = RENDER_WINDOW
+  @observable accessor followTail = true
+  @observable accessor deepeningSearch = false
   private log: TranscriptLog | undefined
   private graph: TranscriptGraph | undefined
   private ownsGraph = false
   private source: PresentationSource | undefined
+  readonly renderedRow = companion((row: ChatRow) => new RenderedTranscriptRow(row, this))
   private readonly emptyMarkdown = new Map<string, string>()
   private request: AbortController | undefined
   private disposed = false
   private deepened = false
-  private heldHead: string | null = null
-  private readonly rendered = new Map<string, IComputedValue<RenderableRow[]>>()
+  @observable accessor heldHead: string | null = null
 
   constructor(private readonly client = transcriptComputeClient()) {
-    makeObservable<this, 'heldHead'>(this, {
-      result: observableRef, query: observable, cursor: observable,
-      renderCount: observable, followTail: observable, heldHead: observable,
-      deepeningSearch: observable,
-      changed: action,
-      blocks: computed, rows: computed, computeReady: computed,
-      markdownHtml: computed, search: computed, renderStart: computed, visibleRows: computed,
-      matchingRows: computed,
-      setQuery: actionBound, moveCursor: actionBound,
-      setRenderCount: actionBound, setFollowTail: actionBound,
-    })
   }
 
   bind(log: TranscriptLog, graph?: TranscriptGraph): void {
+    this.disposed = false
     this.log = log
     this.graph = graph ?? new TranscriptGraph(log.items)
     this.ownsGraph = graph === undefined
@@ -79,39 +71,44 @@ export class ConversationPresentation {
     this.refresh()
   }
   /** Cold structural readers retained for explicit snapshot demands. */
-  get blocks(): ChatBlock[] { return this.computeReady ? this.graph!.structuralBlocks : EMPTY_BLOCKS }
-  get rows(): ChatRow[] { return this.computeReady ? this.graph!.structuralRows : EMPTY_ROWS }
-  get blockCount(): number { return this.computeReady ? this.graph!.blockIds.length : 0 }
-  get rowCount(): number { return this.computeReady ? this.graph!.rowIds.length : 0 }
-  get rowVersion(): number { return this.graph?.version ?? 0 }
-  get lastAnswer() { return this.computeReady ? this.graph!.lastAnswer : { blockIndex: -1, text: '' } }
-  get headKey(): string {
+  @lazy({ equals: compareShallow }) get blocks(): ChatBlock[] { return this.computeReady ? this.graph!.structuralBlocks : EMPTY_BLOCKS }
+  @lazy({ equals: compareShallow }) get rows(): ChatRow[] { return this.computeReady ? this.graph!.structuralRows : EMPTY_ROWS }
+  @lazy get blockCount(): number { return this.computeReady ? this.graph!.blockIds.length : 0 }
+  @lazy get rowCount(): number { return this.computeReady ? this.graph!.rowIds.length : 0 }
+  @lazy get rowVersion(): number { return this.graph?.version ?? 0 }
+  @lazy get lastAnswer() { return this.computeReady ? this.graph!.lastAnswer : { blockIndex: -1, text: '' } }
+  @lazy get headKey(): string {
     const id = this.log?.ids[0]
     return id === undefined ? '' : this.log?.byId.get(id)?.cursor ?? id
   }
-  get pendingAskIndex(): number {
+  @lazy get pendingAskIndex(): number {
     if (!this.computeReady) return -1
     const id = this.graph?.pendingQuestionId
     return id === undefined ? -1 : this.graph!.blockPosition(id) ?? -1
   }
-  get search(): TranscriptSearchState { return this.computeReady ? this.graph!.search(this.query, this.cursor) : EMPTY_SEARCH }
-  get renderStart(): number {
+  @lazy({ equals: compareShallow }) get matches(): readonly string[] {
+    return this.computeReady ? this.graph!.matches(this.query) : []
+  }
+  @lazy get search(): TranscriptSearchState {
+    return this.computeReady ? this.graph!.positionSearch(this.matches, this.cursor, this.query.trim() !== '') : EMPTY_SEARCH
+  }
+  @lazy get renderStart(): number {
     const tail = Math.max(0, this.rowCount - this.renderCount)
     const held = !this.followTail && this.heldHead ? this.graph?.rowPosition(this.heldHead) : undefined
     return held === undefined ? tail : Math.min(tail, held)
   }
-  get visibleRows(): ChatRow[] {
+  @lazy({ equals: compareShallow }) get visibleRows(): ChatRow[] {
     if (!this.computeReady) return EMPTY_ROWS
     return this.graph!.rowIds.slice(this.renderStart).map(id => this.graph!.structuralRow(id)!)
   }
-  get retainHistory(): boolean { return !this.followTail || this.query.trim() !== '' }
-  get computeReady(): boolean { return this.result !== null }
-  get markdownHtml(): ReadonlyMap<string, string> { return this.result?.markdownHtml ?? this.emptyMarkdown }
+  @lazy get retainHistory(): boolean { return !this.followTail || this.query.trim() !== '' }
+  @lazy get computeReady(): boolean { return this.result !== null }
+  @lazy get markdownHtml(): ReadonlyMap<string, string> { return this.result?.markdownHtml ?? this.emptyMarkdown }
 
   block(id: string): ChatBlock | undefined { return this.computeReady ? this.graph?.block(id) : undefined }
   run(id: string) { return this.computeReady ? this.graph?.run(id) : undefined }
-  get matchingRows(): ReadonlySet<string> {
-    return new Set(this.computeReady ? this.graph!.matches(this.query)
+  @lazy get matchingRows(): ReadonlySet<string> {
+    return new Set(this.computeReady ? this.matches
       .map(id => this.graph!.rowIdForBlock(id)!).filter(Boolean) : [])
   }
   rowMatches(id: string): boolean { return this.matchingRows.has(id) }
@@ -128,28 +125,26 @@ export class ConversationPresentation {
   }
 
   renderRows(sticky: boolean, collapseContext: boolean): RenderableRow[] {
-    const key = String(sticky) + ':' + String(collapseContext)
-    let value = this.rendered.get(key)
-    if (!value) {
-      value = computed(() => {
-        const rows: RenderableRow[] = []
-        const start = this.renderStart
-        const prompt = sticky && start > 0 ? this.graph?.operatorBefore(start, collapseContext) : undefined
-        const rowId = prompt === undefined ? undefined : this.graph?.rowIdForBlock(prompt)
-        if (rowId !== undefined) {
-          const row = this.graph!.structuralRow(rowId)
-          const index = this.graph!.rowPosition(rowId)
-          if (row && index !== undefined) rows.push({ row, index })
-        }
-        this.visibleRows.forEach((row, at) => rows.push({ row, index: start + at }))
-        return rows
-      })
-      this.rendered.set(key, value)
+    return sticky ? collapseContext ? this.stickyContextRows : this.stickyRows : this.plainRows
+  }
+  @lazy({ equals: compareShallow }) private get plainRows(): RenderableRow[] { return this.buildRenderRows(false, false) }
+  @lazy({ equals: compareShallow }) private get stickyRows(): RenderableRow[] { return this.buildRenderRows(true, false) }
+  @lazy({ equals: compareShallow }) private get stickyContextRows(): RenderableRow[] { return this.buildRenderRows(true, true) }
+  private buildRenderRows(sticky: boolean, collapseContext: boolean): RenderableRow[] {
+    const rows: RenderableRow[] = []
+    const start = this.renderStart
+    const prompt = sticky && start > 0 ? this.graph?.operatorBefore(start, collapseContext) : undefined
+    const rowId = prompt === undefined ? undefined : this.graph?.rowIdForBlock(prompt)
+    if (rowId !== undefined) {
+      const row = this.graph!.structuralRow(rowId)
+      const index = this.graph!.rowPosition(rowId)
+      if (row && index !== undefined) rows.push(this.renderedRow(row).value!)
     }
-    return value.get()
+    this.visibleRows.forEach(row => rows.push(this.renderedRow(row).value!))
+    return rows
   }
 
-  changed(change: TranscriptChange): void {
+  @action changed(change: TranscriptChange): void {
     if (!this.source || !this.graph || !this.log || this.disposed) return
     if (this.ownsGraph) {
       if (change.rebuild) this.graph.reset(this.log.items)
@@ -158,21 +153,21 @@ export class ConversationPresentation {
     this.source.record(change)
     this.refresh()
   }
-  setQuery(query: string): void {
+  @actionBound setQuery(query: string): void {
     this.query = query
     this.cursor = 0
     if (query.trim()) void this.ensureSearchDepth()
     this.refresh()
   }
-  moveCursor(delta: number): void {
+  @actionBound moveCursor(delta: number): void {
     const total = Math.max(1, this.search.total)
     this.cursor = (this.cursor + delta + total) % total
     this.refresh()
   }
-  setRenderCount(value: number | ((count: number) => number)): void {
+  @actionBound setRenderCount(value: number | ((count: number) => number)): void {
     this.renderCount = typeof value === 'function' ? value(this.renderCount) : value
   }
-  setFollowTail(follow: boolean): void {
+  @actionBound setFollowTail(follow: boolean): void {
     if (follow === this.followTail) return
     this.heldHead = follow ? null : this.visibleRows[0] ? rowIdentity(this.visibleRows[0]) : null
     this.followTail = follow
@@ -216,6 +211,13 @@ export class ConversationPresentation {
     this.request?.abort()
     if (this.source) this.client.forgetGraph(this.source)
     if (this.ownsGraph) this.graph?.dispose()
-    this.rendered.clear()
+  }
+}
+
+class RenderedTranscriptRow {
+  constructor(readonly row: ChatRow, private readonly presentation: ConversationPresentation) {}
+  @lazy({ equals: (a, b) => a?.row === b?.row && a?.index === b?.index }) get value(): RenderableRow | undefined {
+    const index = this.presentation.anchorRow(rowIdentity(this.row))
+    return index === undefined ? undefined : { row: this.row, index }
   }
 }

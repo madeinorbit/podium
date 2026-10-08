@@ -3,8 +3,8 @@ import { chatActivityState, chatSessionReference, composerState, isOperatorPromp
 import { lazy } from '@podium/mobx-helpers'
 import { isAgentComputing, isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { actionBound, compareStructural, observable, observableRef } from 'mobx'
-import { ConversationPresentation } from './conversation-presentation.next'
-import type { WebConversation } from './use-conversation.next'
+import { ConversationPresentation } from './conversation-presentation'
+import type { WebConversation } from './use-conversation'
 
 /** One mounted reader. Shared transcript and send facts stay on Conversation. */
 export class ChatViewModel {

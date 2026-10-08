@@ -18,7 +18,6 @@ import { ImageLightbox } from './ImageLightbox'
 import { IssueChipLiveness } from './IssueChipLiveness'
 import { PinnedBrief } from './PinnedBrief'
 import { TranscriptSearchBar } from './TranscriptSearchBar'
-import { useChatInteractions } from './use-chat-context'
 import { type ChatSurface, useChatLayout } from './use-chat-layout'
 
 /**
@@ -67,32 +66,32 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
       taRef={chat.taRef}
       draft={draft}
       onDraftChange={setDraft}
-      deliverable={chat.composer.deliverable}
-      placeholder={chat.composer.placeholder}
+      deliverable={chat.view.composer.deliverable}
+      placeholder={chat.view.composer.placeholder}
       compact={compact}
       isMobile={chat.isMobile}
       onSend={submit}
       voice={voice}
       attachments={chat.attachments}
-      turnRunning={chat.turnActive}
-      canInterrupt={chat.canInterrupt}
+      turnRunning={chat.view.turnActive}
+      canInterrupt={chat.conversation.sends.canInterrupt}
       onInterrupt={interrupt}
-      interruptError={chat.interruptError}
-      offer={chat.offer}
+      interruptError={chat.conversation.sends.interruptError}
+      offer={chat.view.offer}
       onOfferAction={chat.sendOfferPrompt}
       onOfferDismiss={chat.dismissOffer}
-      session={chat.session}
-      turnError={chat.headlessTurn.turnError}
-      transcriptFreshness={chat.transcriptFreshness}
-      offlineAsOf={chat.offlineAsOf}
-      attached={chat.attached}
+      session={chat.view.session}
+      turnError={chat.view.turnError}
+      transcriptFreshness={chat.conversation.transcript.freshness}
+      offlineAsOf={chat.conversation.transcript.offlineAsOf}
+      attached={chat.view.attached}
       autoFocusKey={sessionId}
-      transcriptSettled={chat.phase !== 'loading'}
+      transcriptSettled={chat.view.phase !== 'loading'}
       {...(superThread
         ? {
-            backend: chat.backend,
-            onBackendModelChange: chat.setBackendModel,
-            onBackendEffortChange: chat.setBackendEffort,
+            backend: chat.view.backend,
+            onBackendModelChange: chat.view.setBackendModel,
+            onBackendEffortChange: chat.view.setBackendEffort,
           }
         : {})}
     />
@@ -183,17 +182,11 @@ const ConversationChatView = observer(function ConversationChatView({
    * replica whose `pendingInteraction` collection has not arrived is a partial
    * world, not an error.
    */
-  const { blocked } = useChatInteractions(sessionId)
   const quoteDraftRef = useRef<((markdown: string) => void) | null>(null)
   const [issueLivenessRoot, setIssueLivenessRoot] = useState<HTMLDivElement | null>(null)
   const quoteIntoDraft = useCallback((markdown: string) => {
     quoteDraftRef.current?.(markdown)
   }, [])
-  // Leave once, quietly. Not a toast and not an animation — see the header.
-  useEffect(() => {
-    if (chat.gone) onLeave?.(sessionId)
-  }, [chat.gone, onLeave, sessionId])
-
   // FIND. Opened from the rail's search button and nowhere else: ⌘F belongs to
   // the sidebar's task filter now (POD-1093, `useWorkFilter`), which is the one
   // chord in the product and cannot be shared — two window listeners on it meant
@@ -201,7 +194,7 @@ const ConversationChatView = observer(function ConversationChatView({
   // every open so pressing the button over an already-open bar remounts it,
   // which re-focuses and selects the surviving query.
   const [find, setFind] = useState<{ open: boolean; seq: number }>({ open: false, seq: 0 })
-  const { setQuery } = chat
+  const setQuery = chat.view.presentation.setQuery
   const closeFind = useCallback(() => {
     setFind((f) => ({ ...f, open: false }))
     // Clear as we leave: a query that survives an invisible bar keeps overriding
@@ -239,54 +232,7 @@ const ConversationChatView = observer(function ConversationChatView({
     return () => ro.disconnect()
   }, [scrollerRef])
 
-  // `chat:interactable` is the actual chat finish line: wait until the textarea
-  // exists, is enabled and focusable, and the transcript has either committed
-  // its settled (including empty) state or is already scrollable. Two rAFs keep
-  // the paint mark ahead of this one, so the trace exposes the paint→input gap.
-  // Retry while the browser is still laying out a committed transcript; the
-  // switch collector's timeout is the outer backstop.
-  // Keep checking until that 10s confirmation deadline. If the predicate never
-  // becomes true, no interactable mark is emitted: timedOut means unconfirmed,
-  // not a measured 10s interactability latency.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: DOM refs are stable; the frame retry observes their mounted/layout state.
-  useEffect(() => {
-    if (!active || !isSwitchTraced(sessionId)) return
-    let cancelled = false
-    let firstFrame: number | undefined
-    let checkFrame: number | undefined
-
-    const check = (): void => {
-      if (cancelled || !isSwitchTraced(sessionId)) return
-      const textarea = chat.taRef.current
-      const transcript = chat.scrollerRef.current
-      const transcriptCommitted = chat.phase !== 'loading'
-      if (isChatInteractable({ textarea, transcript, transcriptCommitted })) {
-        markSwitch(sessionId, SWITCH_TRACE_MARKS.chatInteractable, {
-          composerEnabled: textarea?.disabled === false,
-          composerFocusable: true,
-          transcriptCommitted,
-          transcriptScrollable:
-            transcript !== null && transcript.scrollHeight > transcript.clientHeight,
-        })
-        return
-      }
-      if (typeof requestAnimationFrame === 'function') checkFrame = requestAnimationFrame(check)
-      else return
-    }
-
-    if (typeof requestAnimationFrame === 'function') {
-      firstFrame = requestAnimationFrame(() => {
-        checkFrame = requestAnimationFrame(check)
-      })
-    } else {
-      check()
-    }
-    return () => {
-      cancelled = true
-      if (firstFrame !== undefined) cancelAnimationFrame(firstFrame)
-      if (checkFrame !== undefined) cancelAnimationFrame(checkFrame)
-    }
-  }, [active, chat.phase, sessionId])
+  // Lifecycle observations live in their own leaf.
 
   return (
     /**
@@ -316,6 +262,7 @@ const ConversationChatView = observer(function ConversationChatView({
       // hands the drag to `useFileDropGuard`, which swallows it harmlessly.
       {...(chat.lightbox === null ? chat.attachments.dropHandlers : {})}
     >
+      <ChatLifecycle chat={chat} sessionId={sessionId} active={active} onLeave={onLeave} />
       {/* `offer-lift-region`: an opened offer fold pushes the whole transcript
           up under the panel header instead of resizing it — the feed keeps its
           box, so nothing here re-renders or loses its scroll (POD-1068). */}
@@ -335,7 +282,7 @@ const ConversationChatView = observer(function ConversationChatView({
             scrollerRef={chat.scrollerRef}
             scrollBy={chat.scroll.scrollBy}
             onBodyClick={(e) => {
-              handleChatMdClick(e, sessionId, chat.cwd, chat.openFile)
+              handleChatMdClick(e, sessionId, chat.view.cwd, chat.openFile)
             }}
           />
         )}
@@ -348,32 +295,13 @@ const ConversationChatView = observer(function ConversationChatView({
             entire on-disk history; scrolling up to page in older items extends
             what it covers. */}
         {!compact && (
-          <ChatRail
-            rows={chat.visibleRows}
-            baseIndex={chat.renderStart}
-            isOperatorPromptRow={chat.isOperatorPromptRow}
-            scrollerRef={chat.scrollerRef}
-            scrollToOffset={chat.scroll.scrollToOffset}
-            matches={chat.search.matches}
-            activeMatch={chat.search.activeMatch}
-            findOpen={find.open}
-            onFind={() => setFind((f) => ({ open: true, seq: f.seq + 1 }))}
-            lastAnswerText={chat.lastAnswerText}
-            onTldr={chat.tldr}
-          />
+          <ReadingRail chat={chat} findOpen={find.open}
+            onFind={() => setFind((f) => ({ open: true, seq: f.seq + 1 }))} />
         )}
         {/* Find floats OVER the feed rather than displacing it, so entering and
             leaving the mode never reflows what you were reading. */}
         {!compact && find.open && (
-          <TranscriptSearchBar
-            key={find.seq}
-            query={chat.query}
-            onQueryChange={chat.setQuery}
-            search={chat.search}
-            onCursorMove={chat.moveMatchCursor}
-            deepeningSearch={chat.deepeningSearch}
-            onClose={closeFind}
-          />
+          <FindBar key={find.seq} chat={chat} onClose={closeFind} />
         )}
         {!chat.scroll.atBottom && (
           <button
@@ -392,11 +320,7 @@ const ConversationChatView = observer(function ConversationChatView({
           something. `fallback={null}` because the bar's own empty state is
           nothing: a one-frame gap before a card appears reads as the card
           appearing, while a spinner over the composer would not. */}
-      {blocked && (
-        <Suspense fallback={null}>
-          <PendingInteractionBar sessionId={sessionId} compact={compact} />
-        </Suspense>
-      )}
+      <InteractionGate chat={chat} sessionId={sessionId} compact={compact} />
       {/* Host attachment is state so this leaf re-arms wherever it sits in the
           tree; issue deltas still render only the leaf and mutate attributes. */}
       <IssueChipLiveness root={issueLivenessRoot} />
@@ -420,43 +344,137 @@ const ConversationTranscript = observer(function ConversationTranscript({ chat, 
             setContentRef={chat.scroll.setContentRef}
             onScroll={chat.scroll.onScroll}
             onPointerUp={chat.scroll.onPointerUp}
-            compact={chat.compact}
+            compact={chat.view.compact}
             superagent={chat.conversation.mount.superThread !== undefined}
-            phase={chat.phase}
-            rows={chat.rowsToRender}
-            blockCount={chat.blockCount}
-            markdownHtml={chat.markdownHtml}
-            search={chat.search}
+            phase={chat.view.phase}
+            rows={chat.view.rowsToRender}
+            blockCount={chat.view.presentation.blockCount}
+            markdownHtml={chat.view.presentation.markdownHtml}
+            search={chat.view.presentation.search}
             revealedRow={chat.revealedRow}
-            moreAbove={chat.moreAbove}
-            loadingOlder={chat.loadingOlder}
-            loadOlder={chat.loadOlder}
+            moreAbove={chat.view.moreAbove}
+            loadingOlder={chat.conversation.transcript.loadingOlder}
+            loadOlder={chat.scroll.loadOlder}
             sessionId={sessionId}
-            cwd={chat.cwd}
-            session={chat.session}
+            cwd={chat.view.cwd}
+            session={chat.view.session}
             httpOrigin={chat.httpOrigin}
             openFile={chat.openFile}
             onOpenImage={chat.setLightbox}
             onAnswerAsk={chat.answerAsk}
-            answerInteractionId={chat.answerInteractionId}
-            livePendingAskIndex={chat.livePendingAskIndex}
-            pendingAskBlock={chat.pendingAskBlock}
-            lastAnswerBlockIndex={chat.lastAnswerBlockIndex}
-            collapseContext={chat.headless}
-            stickyEnabled={chat.stickyEnabled}
-            isOperatorPromptRow={chat.isOperatorPromptRow}
+            answerInteractionId={chat.view.question?.id}
+            livePendingAskIndex={chat.view.livePendingAskIndex}
+            pendingAskBlock={chat.view.pendingAskBlock}
+            lastAnswerBlockIndex={chat.view.presentation.lastAnswer.blockIndex}
+            collapseContext={chat.view.headless}
+            stickyEnabled={chat.view.stickyEnabled}
+            isOperatorPromptRow={chat.view.isOperatorPromptRow}
             onRetryPending={chat.retryPending}
             onDiscardPending={chat.discardPending}
             onSendAgain={chat.sendAgain}
             onRetractQueued={chat.retractQueuedMessage}
-            offlineMachineName={chat.offlineMachineName}
-            presenceOfflineMachineName={chat.presenceOfflineMachineName}
-            attribution={chat.attribution}
-            expandRuns={chat.expandRuns}
+            offlineMachineName={chat.conversation.transcript.offlineMachineName}
+            presenceOfflineMachineName={chat.view.presenceOfflineMachineName}
+            attribution={chat.view.attribution}
+            expandRuns={false}
             // Per-message Quote (POD-376): the feed builds the blockquote, the
             // shell owns the draft. Appended rather than replacing, so quoting
             // twice — or quoting into a half-written reply — never eats text.
             onQuote={onQuote}
+          />
+  )
+})
+
+const ChatLifecycle = observer(function ChatLifecycle({ chat, sessionId, active, onLeave }: {
+  chat: ChatSurface; sessionId: SessionId; active: boolean; onLeave?: (sessionId: SessionId) => void
+}) {
+  // Leave once, quietly. Not a toast and not an animation — see the header.
+  useEffect(() => {
+    if (chat.view.gone) onLeave?.(sessionId)
+  }, [chat.view.gone, onLeave, sessionId])
+
+  // `chat:interactable` is the actual chat finish line: wait until the textarea
+  // exists, is enabled and focusable, and the transcript has either committed
+  // its settled (including empty) state or is already scrollable. Two rAFs keep
+  // the paint mark ahead of this one, so the trace exposes the paint→input gap.
+  // Retry while the browser is still laying out a committed transcript; the
+  // switch collector's timeout is the outer backstop.
+  // Keep checking until that 10s confirmation deadline. If the predicate never
+  // becomes true, no interactable mark is emitted: timedOut means unconfirmed,
+  // not a measured 10s interactability latency.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: DOM refs are stable; the frame retry observes their mounted/layout state.
+  useEffect(() => {
+    if (!active || !isSwitchTraced(sessionId)) return
+    let cancelled = false
+    let firstFrame: number | undefined
+    let checkFrame: number | undefined
+
+    const check = (): void => {
+      if (cancelled || !isSwitchTraced(sessionId)) return
+      const textarea = chat.taRef.current
+      const transcript = chat.scrollerRef.current
+      const transcriptCommitted = chat.view.phase !== 'loading'
+      if (isChatInteractable({ textarea, transcript, transcriptCommitted })) {
+        markSwitch(sessionId, SWITCH_TRACE_MARKS.chatInteractable, {
+          composerEnabled: textarea?.disabled === false,
+          composerFocusable: true,
+          transcriptCommitted,
+          transcriptScrollable:
+            transcript !== null && transcript.scrollHeight > transcript.clientHeight,
+        })
+        return
+      }
+      if (typeof requestAnimationFrame === 'function') checkFrame = requestAnimationFrame(check)
+      else return
+    }
+
+    if (typeof requestAnimationFrame === 'function') {
+      firstFrame = requestAnimationFrame(() => {
+        checkFrame = requestAnimationFrame(check)
+      })
+    } else {
+      check()
+    }
+    return () => {
+      cancelled = true
+      if (firstFrame !== undefined) cancelAnimationFrame(firstFrame)
+      if (checkFrame !== undefined) cancelAnimationFrame(checkFrame)
+    }
+  }, [active, chat.view.phase, sessionId])
+
+  return null
+})
+const InteractionGate = observer(function InteractionGate({ chat, sessionId, compact }: {
+  chat: ChatSurface; sessionId: SessionId; compact: boolean
+}) {
+  return chat.view.blocked ? <Suspense fallback={null}><PendingInteractionBar sessionId={sessionId} compact={compact} /></Suspense> : null
+})
+const ReadingRail = observer(function ReadingRail({ chat, findOpen, onFind }: {
+  chat: ChatSurface; findOpen: boolean; onFind: () => void
+}) { return (
+          <ChatRail
+            rows={chat.view.presentation.visibleRows}
+            baseIndex={chat.view.presentation.renderStart}
+            isOperatorPromptRow={chat.view.isOperatorPromptRow}
+            scrollerRef={chat.scrollerRef}
+            scrollToOffset={chat.scroll.scrollToOffset}
+            matches={chat.view.presentation.search.matches}
+            activeMatch={chat.view.presentation.search.activeMatch}
+            findOpen={findOpen}
+            onFind={onFind}
+            lastAnswerText={chat.view.presentation.lastAnswer.text}
+            onTldr={chat.tldr}
+          />
+) })
+const FindBar = observer(function FindBar({ chat, onClose }: { chat: ChatSurface; onClose: () => void }) {
+  return (
+          <TranscriptSearchBar
+            query={chat.view.presentation.query}
+            onQueryChange={chat.view.presentation.setQuery}
+            search={chat.view.presentation.search}
+            onCursorMove={chat.view.presentation.moveCursor}
+            deepeningSearch={chat.view.presentation.deepeningSearch}
+            onClose={onClose}
           />
   )
 })

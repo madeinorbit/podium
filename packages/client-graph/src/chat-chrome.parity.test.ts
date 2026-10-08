@@ -1,7 +1,7 @@
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
-import { createMobileSessionReader } from './mobile-session-context'
-import { mobileSessionChromeIssue } from './mobile-session-chrome.next'
+import { createMobileSessionReader } from './mobile-session-context.before'
+import { mobileSessionChromeIssue } from './mobile-session-chrome'
 import { MobxPool } from './pool'
 
 const issue = (id: string, title = 'Task', pinned = false) => ({ kind: 'issue' as const, id,
