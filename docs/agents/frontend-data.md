@@ -17,24 +17,37 @@ How every client screen (web, desktop, phone) gets and derives data from the Mob
 ## Rules
 
 1. **One shared model per record.** Every screen uses `pool.model(entity, id)`. Never build a second object holding facts about the same record. Group a model's fields by topic (stored fields, links, progress, close, history, presence) under heading comments.
-2. **Derived fields are `@lazy` getters** (`@podium/mobx-helpers`). Nothing is allocated until a field is read; it is dropped when nothing needs it. Reads outside screens (handlers, loops) are remembered for the length of the action, like `@computed`, and outside an action until the current synchronous code has finished, so read fields directly instead of copying them into locals. Use `@lazy({ equals })` only for a small object rebuilt on each run. Do not use `makeObservable`/`makeAutoObservable` on shared models or companions, `computedFn`, `keepAlive`, or hand-made caches.
-3. **Hand down models, read late, keep components small.** Pass a model, a companion or an ID; each small `observer` component reads only the fields it shows. Never pass a bundle of copied values through props or context: one rebuilt in a derived field updates, but every reader redraws when any part changes; one copied once (in a constructor, React state or a ref) goes stale.
+2. **Derived fields are `@lazy` getters** (`@podium/mobx-helpers`). Nothing is allocated until a field is read; it is dropped when nothing needs it. Reads outside screens (handlers, loops) are remembered for the length of the action, like `@computed`, and outside an action until the current synchronous code has finished, so read fields directly instead of copying them into locals. Use `@lazy({ equals })` only for a small object rebuilt on each run, or a list (rule 5). Do not use `computedFn`, `keepAlive`, or hand-made caches.
+3. **Hand down models, read late, keep components small.** Pass a model, a companion or an ID; each small `observer` component reads only the fields it shows, under the field's own name. No adapter objects or Proxies that rename fields for a component: pick the right name once on the model or companion and every component uses it. Never pass a bundle of copied values through props or context: one rebuilt in a derived field updates, but every reader redraws when any part changes; one copied once (in a constructor, React state or a ref) goes stale.
 4. **Every question has one home.**
    - A fact about the record itself → the shared model.
    - A rule of one view → that view's companion, shared by every screen that draws the view. Never copy a view's rules into a second screen's own companion.
-   - UI state → the view model, or the one component that uses it.
+   - UI state → the view model, or the one component that uses it. Store each piece once: one `selectedId`, and each row derives `@lazy get selected() { return this.worklist.selectedId === this.issue.id }`. A value that follows from other state (such as "the selected record is gone", from the sync replica's `exitKind`) is a derived field, never a second field kept in step by a reaction.
    - In doubt, ask: *would the answer change if this view worked differently?* Yes → companion. No → shared model.
    - Never re-derive in a view what the shared model answers. Create a companion class only when a view has its own per-record rules; otherwise pass the bare model.
 5. **One field, one question, the narrowest answer.**
    - Each `@lazy` field answers one question. Bundle parts only if every reader needs all of them and they always change together.
    - Prefer an ID, a number or a boolean over an object.
-   - For lists, pass on the data layer's own list (relation, declared subset, query result); it keeps its identity while unchanged. Do not copy it and do not write "compare with my previous result" code.
+   - For lists, pass on the data layer's own list (relation, declared subset, query result); it keeps its identity while unchanged. A list a view builds is a `@lazy({ equals: compareShallow })` field: MobX keeps the old array while the members are the same. Do not write "compare with my previous result" code. Lists hold shared models, or IDs for records that may not be loaded; a row component gets its companion from the view model.
    - A count shown all the time over many records: the size of a declared subset in the schema when the rule reads only each record's own fields; otherwise one `@lazy` fact per record plus a `@lazy` total, up to about 10,000 records.
 6. **Live by default; three declared exceptions.**
    - **On request**: an expensive or server-side answer wanted only when the user asks. The view model's action loads it into observable fields with a loading flag; nothing runs before or after.
    - **Stored on open**: a value that must not move under the user, or is expensive while its data changes constantly. The view model's `open()` action stores it; it is taken again on the next open. Never on shared models.
    - **Edit draft**: a form editing an existing record works on an edit draft (How to); untouched fields keep following the live record.
 7. **Work over the working set, not all history.** Live lists and counts cover open records, recently closed ones and what a view shows; all-history questions are "on request". Never assume every row is in memory: read through models or `MobxPool.row`, index only resident rows (the one exception is the cold index, `shared/cold-index.ts` with its relation index: only the declared fields and links the working-set rule needs, for every known row), describe unloaded rows with a declared summary, and treat an absent row as `LOADING` with a batched load.
+8. **One way to write state**, in every class (shared models, companions, view models, services):
+   ```ts
+   @observable accessor tab = 'chat'                // a value
+   @observableRef accessor layout: Layout = {}      // replaced whole, never changed inside
+   readonly folded = observable.set<string>()       // a collection whose contents change
+   @action fold(id: string) { this.folded.add(id) } // changes
+   @lazy get visibleCount() { … }                   // derived
+   ```
+   App code does not use `observable.box`, `makeObservable` or `makeAutoObservable`. `createAtom` and `new Reaction` stay inside the data layer and `@podium/mobx-helpers`.
+9. **What may be kept, and for how long.**
+   - "ID → object" maps exist only as: the pool's one model per record, `companion()` maps, the view registry, and the data layer's indexes (cold index, relation index). Any other is a hand-made cache (rule 2).
+   - A view that opens and closes (issue detail, settings, launcher, mission) gets a new view model per opening: its root component creates it, and closing drops it with all its companions. Anything that must survive a reopen, such as a chosen tab, is stored on purpose in the device's screen state.
+   - Views that are always on (the worklist) keep one view model for the session.
 
 ## How to
 
@@ -49,10 +62,13 @@ How every client screen (web, desktop, phone) gets and derives data from the Mob
   class Worklist {
     @observable accessor selectedId: string | null = null
     readonly row = companion((issue: IssueModel) => new WorklistIssue(issue, this))
-    @lazy get roots(): WorklistIssue[] { … }
+    @lazy({ equals: compareShallow }) get roots(): IssueModel[] { … }
   }
   // desktop sidebar and phone Work tab: different components, same Worklist and rows
-  const Row = observer(({ row }: { row: WorklistIssue }) => <div>{row.label} · {row.issue.stage}</div>)
+  const Row = observer(({ issue }: { issue: IssueModel }) => {
+    const row = useWorklist().row(issue)
+    return <div>{row.label} · {issue.stage}</div>
+  })
   ```
 - **Keep a value still while a view is open**:
   ```ts
