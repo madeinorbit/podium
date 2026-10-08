@@ -64,7 +64,7 @@ export function poolRouteFixture(input: {
   // Worktree composition for both entity kinds: issues use the synthetic
   // prefix-as-repoId mapping; sessions may carry real refRepoIds (corpus
   // `after` rows), so file each distinct (prefix, repoId) pair they need.
-  const worktreeRows: { kind: 'worktree'; id: string; value: unknown }[] = [
+  const worktreeRows: { kind: 'worktree'; id: string; value: never }[] = [
     ...[...new Set(issues.flatMap((row) => (row.prefix ? [row.prefix] : [])))].map((prefix) => ({
       kind: 'worktree' as const,
       id: `/synthetic/${prefix}`,
