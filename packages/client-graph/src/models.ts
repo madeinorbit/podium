@@ -1885,7 +1885,7 @@ export class SessionModel extends EntityModel implements SessionVisibility {
   /** Confirmed execution expires at this session's deadline, never on a board-wide tick. */
   @lazy
   get confirmedWorking(): boolean {
-    if (this.archived || !this.exists || this.agentKind === 'shell' || this.status !== 'live') return false
+    if (this.archived || !this.exists || this.headless || this.agentKind === 'shell' || this.status !== 'live') return false
     if (this.phase !== 'working' && this.phase !== 'compacting') return false
     const at = Math.max(...[this.lastActivity, this.agentState?.since, this.agentState?.stateObservedAt]
       .map(stamp => Date.parse(stamp ?? '')).filter(Number.isFinite))

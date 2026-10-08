@@ -62,7 +62,7 @@ export class MobileTasksBoard {
     return value.ids
   }
 
-  private position(id: string, ordering: IssuesOrdering = this.ordering) {
+  private position(id: string, ordering: IssuesOrdering = 'priority') {
     return requireRow(this.pool.row('issueBoardPosition', JSON.stringify([id, ordering])))
   }
 
@@ -117,7 +117,7 @@ export class MobileTasksBoard {
 
   private ordered(ids: readonly string[]): string[] {
     const positions = ids.flatMap((id) => {
-      const row = this.position(id)
+      const row = this.position(id, this.ordering)
       return row ? [row] : []
     })
     return orderIssues(positions, this.ordering).map((row) => row.id)
