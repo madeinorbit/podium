@@ -21,6 +21,7 @@ export function PromptSheet({
   placeholder,
   confirmLabel,
   initialValue = '',
+  preserveEdits = false,
   multiline = true,
   onConfirm,
   onClose,
@@ -32,6 +33,8 @@ export function PromptSheet({
   confirmLabel: string
   /** Seed editable prompts such as Rename; omitted for compose-new prompts. */
   initialValue?: string
+  /** Live record updates may reseed untouched text, but keep the operator's draft. */
+  preserveEdits?: boolean
   multiline?: boolean
   onConfirm: (value: string) => void
   onClose: () => void
@@ -45,7 +48,7 @@ export function PromptSheet({
   const [seed, setSeed] = useState({ visible, initial: initialValue })
   if (visible && (!seed.visible || seed.initial !== initialValue)) {
     setSeed({ visible: true, initial: initialValue })
-    setValue(initialValue)
+    if (!seed.visible || !preserveEdits || value === seed.initial) setValue(initialValue)
   } else if (visible !== seed.visible) {
     setSeed({ visible, initial: initialValue })
   }

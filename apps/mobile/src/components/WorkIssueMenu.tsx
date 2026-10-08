@@ -99,6 +99,7 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
       />
 
       <PromptSheet
+        preserveEdits
         visible={sheet?.kind === 'rename'}
         title="Rename task"
         placeholder="Task title"

@@ -1,7 +1,7 @@
 import type { AttentionGroup } from '@podium/client-core/focus'
 import { action, compareShallow, observable, observableRef, reaction } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
-import { issuePages } from './issue-page'
+import { issuePages, type PageIssue } from './issue-page'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './loading'
@@ -206,9 +206,7 @@ export class ProposalScreening {
   @action resolveIssue(id: string) {
     const issue = this.issue(id)
     if (issue !== LOADING) return issue
-    return new Promise<
-      Exclude<typeof issue | ReturnType<ProposalScreening['issue']>, typeof LOADING>
-    >((resolve) => {
+    return new Promise<PageIssue | undefined>((resolve) => {
       let stop: (() => void) | undefined,
         finished = false
       const finish = (value: ReturnType<ProposalScreening['issue']>) => {
