@@ -98,7 +98,8 @@ it('preserves live shell color and mission answers through keyed ancestry change
     check()
     patch(1, { color: 'teal' })
     check()
-    patch(1, { color: 'unknown-slot' })
+    // A stale synced color must retain the legacy ancestor fallback.
+    patch(1, { color: 'unknown-slot' as never })
     check()
     patch(1, { parentId: issues[2]!.id })
     check()
