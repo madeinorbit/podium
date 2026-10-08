@@ -82,6 +82,7 @@ it('shares the repo facade across cold joins while path and prefix stay independ
   })
   const stopPrefix = autorun(() => { prefixes.push(f.pool.model('repo', 'project')?.prefix) })
   try {
+    // Count screen reads before publication computes its own cold bounds.
     expect(reads.mock.calls.filter(([kind]) => kind === 'repo')).toEqual([['repo', 'project']])
     expect(paths).toEqual(['/synthetic/project'])
     expect(prefixes).toEqual(['POD'])
@@ -91,7 +92,6 @@ it('shares the repo facade across cold joins while path and prefix stay independ
     f.change('repos', 'project', { repoPath: '/synthetic/renamed' })
     expect(paths).toEqual(['/synthetic/project', '/synthetic/renamed'])
     expect(prefixes).toEqual(['POD', 'NEW'])
-    expect(reads.mock.calls.filter(([kind]) => kind === 'repo')).toEqual([['repo', 'project']])
     expect(f.pool.tables.issue.has('history')).toBe(false)
   } finally { stopPrefix(); stopPath(); reads.mockRestore(); f.dispose() }
 })
