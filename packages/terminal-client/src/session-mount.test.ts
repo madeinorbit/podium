@@ -196,17 +196,22 @@ describe('session-mount clear semantics', () => {
 describe('session-mount E2E API handle', () => {
   it('retargets the opt-in E2E API to whichever warm pane becomes active', () => {
     withResizeObserver()
-    const g = globalThis as unknown as { __podium?: unknown }
+    const g = globalThis as unknown as { __podium?: { sessions(): readonly { sessionId: string; title: string }[] } }
+    let synced = [{ sessionId: asSessionId('a'), title: 'Synced title' }]
     const a = fakeHub()
     const b = fakeHub()
     const mountedA = mountSession(document.createElement('div'), {
       hub: a.hub,
       sessionId: asSessionId('a'),
       test: true,
+      testSessions: () => synced,
       active: true,
     })
     const apiA = g.__podium
     expect(apiA).toBeTruthy()
+    expect(apiA?.sessions()).toBe(synced)
+    synced = [{ sessionId: asSessionId('a'), title: 'Updated from sync' }]
+    expect(apiA?.sessions()).toBe(synced)
 
     // A second warm (hidden) pane mounts and claims the shared handle.
     const mountedB = mountSession(document.createElement('div'), {

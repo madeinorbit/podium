@@ -2162,8 +2162,8 @@ export class SocketHub {
         case 'issueGitState':
         case 'sessionUserState':
         case 'machine':
-          // The Replica owns these additive rows. Compatibility observers keep
-          // reading their values from the old issue/session records until cutover.
+          // These rows belong to the Replica. Session, conversation and
+          // automation consumers read synced data without a hub projection.
           break
         case 'shipLane':
           this.shipLaneList = applyChange(
