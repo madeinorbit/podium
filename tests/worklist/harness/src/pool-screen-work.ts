@@ -396,20 +396,10 @@ async function measureScreenCells(
     catalogPicker.open()
     phonePicker.open()
     referencePicker.open()
-    stops.push(
-      () => palettePicker.close(),
-      () => referencePicker.close(),
-    )
+    stops.push(() => palettePicker.close(), () => referencePicker.close())
     const panelOrigin = readLaunchOrigin(pool, '/repo-000')
-    const panelPreferred =
-      panelOrigin !== LOADING && panelOrigin.repo
-        ? runInAction(() =>
-            readTargetMachines(pool, panelOrigin.repo, panelOrigin.machines, [
-              'claude-code',
-              'codex',
-            ]),
-          )
-        : {}
+    const panelPreferred = panelOrigin !== LOADING && panelOrigin.repo
+      ? runInAction(() => readTargetMachines(pool, panelOrigin.repo, panelOrigin.machines, ['claude-code', 'codex'])) : {}
     const mobileInbox = createMobileInboxViews(pool),
       mobileSession = createMobileSessionReader(pool)
     stops.push(() => mobileInbox.dispose())
@@ -498,29 +488,17 @@ async function measureScreenCells(
     add('launcher.launch', ['NewIssueDialog'], () =>
       // NewIssueDialog mounts only when opened. The fresh
       // background terminal recipe has triggers, with no launch catalog demand.
-      scene === 'background-terminal'
-        ? undefined
-        : {
-            catalog: catalogPicker.catalog(),
-            origin: readLaunchOrigin(pool, '/repo-000'),
-          },
+      scene === 'background-terminal' ? undefined : {
+        catalog: catalogPicker.catalog(),
+        origin: readLaunchOrigin(pool, '/repo-000'),
+      },
     )
     add('launcher.panel', ['NewPanelMenu'], () => {
       if (scene === 'background-terminal') return undefined
       const origin = readLaunchOrigin(pool, '/repo-000')
       if (origin === LOADING) return origin
-      return {
-        ...origin,
-        targets: origin.repo
-          ? readTargetMachines(
-              pool,
-              origin.repo,
-              origin.machines,
-              ['claude-code', 'codex'],
-              panelPreferred,
-            )
-          : {},
-      }
+      return { ...origin, targets: origin.repo
+        ? readTargetMachines(pool, origin.repo, origin.machines, ['claude-code', 'codex'], panelPreferred) : {} }
     })
     add('launcher.phone', ['NewWorkButton', 'NewIssueScreen'], () =>
       scene === 'background-terminal' ? undefined : {
@@ -612,8 +590,7 @@ async function measureScreenCells(
         relations: issue.relationGroups,
       }
     }
-    add(
-      'issue-page.detail',
+    add('issue-page.detail',
       ['IssuePage', 'IssueTitle', 'IssueDescription', 'IssueSubIssues', 'IssueNow'],
       () => detail('page'),
     )
@@ -676,7 +653,7 @@ async function measureScreenCells(
     )
     add('chat.detail', ['SessionConversation', 'AgentPanel'], () => ({
       issue: chat.issue(selected()),
-      interactions: chat.interactions(SESSION),
+      interactions: chat.interactions( SESSION),
       records: chat.records(SESSION),
       artifact: chat.artifactIssue({ sessionId: asSessionId(SESSION), issueId: asIssueId(ROOT) }),
       threads: chat.threads(),

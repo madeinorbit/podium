@@ -353,9 +353,7 @@ describe('pool screens work ratios: declared query incrementality', () => {
 
 describe('pool screens work ratios: declared query screen counters', () => {
   it('keeps the original summary, roster and count mechanisms green under the scripted clicks', async () => {
-    const only = new Set([
-      'issue-page.detail',
-      'issue-page.panel',
+    const only = new Set(['issue-page.detail', 'issue-page.panel',
       'issue-page.phone',
       'issue-page.inspector',
       'issue-page.catalog',

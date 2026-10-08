@@ -28,11 +28,7 @@ const EMPTY_DEPENDENTS: readonly { id: string; type: string }[] = Object.freeze(
 /** What a model reads from its pool. */
 export interface ModelHost {
   /** The pool's one row reader (`MobxPool.row`): pending edits overlaid, `LOADING` when not in memory. */
-  row(
-    entity: EntityName,
-    id: string,
-    absent?: 'mark' | 'summary' | 'summary-fields',
-  ): LoadedRow<object>
+  row(entity: EntityName, id: string, absent?: 'mark' | 'summary' | 'summary-fields'): LoadedRow<object>
   /** The pool's shared session object, including an addressed cold session. */
   sessionObject(id: string): SessionModel
   issueObject(id: string): IssueModel
@@ -44,11 +40,7 @@ export interface ModelHost {
   issueExitKind(id: string): ReferentExit | undefined
   readonly queries: Pick<ReaderQueries, 'issueCloseCounts' | 'issueChildCounts'>
   /** Borrow the data layer's archive partition without copying its IDs. */
-  sessionSeatIds(
-    relation: SeatRelation,
-    issueId: string,
-    archived: boolean,
-  ): readonly string[] | typeof LOADING
+  sessionSeatIds(relation: SeatRelation, issueId: string, archived: boolean): readonly string[] | typeof LOADING
   /** The declared parent key, tracked without reading the source or target payload. */
   formalParent(id: string): string | null
   /** What the row view's parts read. */
@@ -74,6 +66,7 @@ function documentText(value: unknown): string {
     ? value
     : ((value as { value?: string } | undefined)?.value ?? '')
 }
+
 
 export class EntityModel {
   /**
@@ -295,6 +288,7 @@ export class IssueModel extends EntityModel {
     return this.host.edit('issue', this.id, patch)
   }
 
+
   // Stored fields: display summaries never promote an undisplayed child.
   override storedField(property: string): unknown {
     if (property === 'readAt') return this.host.visibleInputs.issueRead(this.id)
@@ -423,15 +417,10 @@ export class IssueModel extends EntityModel {
 
   @lazy
   get live(): boolean {
-    let live = false,
-      pending = false
+    let live = false, pending = false
     for (const id of this.host.relations.many('issue', this.id, 'missionSessions')) {
-      try {
-        live ||= this.host.sessionObject(id).open
-      } catch (error) {
-        if (error !== LOADING) throw error
-        pending = true
-      }
+      try { live ||= this.host.sessionObject(id).open }
+      catch (error) { if (error !== LOADING) throw error; pending = true }
     }
     if (!live && pending) throw LOADING
     return live
@@ -453,9 +442,7 @@ export class IssueModel extends EntityModel {
   }
 
   // Links: raw page membership includes headless, history and resume twins.
-  get memberCount(): number {
-    return this.host.relations.size('issue', this.id, 'pageSessions')
-  }
+  get memberCount(): number { return this.host.relations.size('issue', this.id, 'pageSessions') }
 
   @lazy({ equals: compareStructural })
   get memberSessionIds(): ReturnType<typeof asSessionId>[] {
@@ -465,25 +452,17 @@ export class IssueModel extends EntityModel {
   // History: scalar session fields stop display-only changes at each member.
   @lazy({ equals: compareStructural })
   get memberSummary(): { total: number; byPhase: Record<string, number> } {
-    const present = this.presentMemberPhases,
-      archived = this.archivedMemberPhases
+    const present = this.presentMemberPhases, archived = this.archivedMemberPhases
     if (present === LOADING || archived === LOADING) throw LOADING
     const phases = new Map(present)
     for (const [phase, value] of archived) {
       const previous = phases.get(phase)
-      phases.set(
-        phase,
-        previous
-          ? {
-              count: previous.count + value.count,
-              first: previous.first < value.first ? previous.first : value.first,
-            }
-          : value,
-      )
+      phases.set(phase, previous ? { count: previous.count + value.count,
+        first: previous.first < value.first ? previous.first : value.first } : value)
     }
     const byPhase: Record<string, number> = {}
     let total = 0
-    for (const [phase, value] of [...phases].sort((a, b) => (a[1].first < b[1].first ? -1 : 1))) {
+    for (const [phase, value] of [...phases].sort((a, b) => a[1].first < b[1].first ? -1 : 1)) {
       byPhase[phase] = value.count
       total += value.count
     }
@@ -492,30 +471,19 @@ export class IssueModel extends EntityModel {
 
   @lazy
   get memberLatestActivity(): number {
-    const present = this.presentMemberActivity,
-      archived = this.archivedMemberActivity
+    const present = this.presentMemberActivity, archived = this.archivedMemberActivity
     if (present === LOADING || archived === LOADING) throw LOADING
     return Math.max(present, archived)
   }
 
   // Archive contributions stay observed independently: a live heartbeat or
   // phase change never walks the issue's unchanged historical members.
-  @lazy private get presentMemberPhases() {
-    return this.readMemberPhases(false)
-  }
-  @lazy private get archivedMemberPhases() {
-    return this.readMemberPhases(true)
-  }
-  @lazy private get presentMemberActivity() {
-    return this.readMemberActivity(false)
-  }
-  @lazy private get archivedMemberActivity() {
-    return this.readMemberActivity(true)
-  }
+  @lazy private get presentMemberPhases() { return this.readMemberPhases(false) }
+  @lazy private get archivedMemberPhases() { return this.readMemberPhases(true) }
+  @lazy private get presentMemberActivity() { return this.readMemberActivity(false) }
+  @lazy private get archivedMemberActivity() { return this.readMemberActivity(true) }
 
-  private readMemberPhases(
-    archived: boolean,
-  ): ReadonlyMap<string, { count: number; first: string }> | typeof LOADING {
+  private readMemberPhases(archived: boolean): ReadonlyMap<string, { count: number; first: string }> | typeof LOADING {
     const ids = this.host.sessionSeatIds('pageSessions', this.id, archived)
     if (ids === LOADING) return LOADING
     const phases = new Map<string, { count: number; first: string }>()
@@ -526,16 +494,9 @@ export class IssueModel extends EntityModel {
         if (!session.exists) continue
         const phase = session.phase
         const previous = phases.get(phase)
-        phases.set(
-          phase,
-          previous
-            ? { count: previous.count + 1, first: previous.first < id ? previous.first : id }
-            : { count: 1, first: id },
-        )
-      } catch (error) {
-        if (error !== LOADING) throw error
-        pending = true
-      }
+        phases.set(phase, previous ? { count: previous.count + 1,
+          first: previous.first < id ? previous.first : id } : { count: 1, first: id })
+      } catch (error) { if (error !== LOADING) throw error; pending = true }
     }
     return pending ? LOADING : phases
   }
@@ -543,28 +504,20 @@ export class IssueModel extends EntityModel {
   private readMemberActivity(archived: boolean): number | typeof LOADING {
     const ids = this.host.sessionSeatIds('pageSessions', this.id, archived)
     if (ids === LOADING) return LOADING
-    let latest = -Infinity,
-      pending = false
+    let latest = -Infinity, pending = false
     for (const id of ids) {
       try {
         const at = this.host.sessionObject(id).activityMs
         if (at !== null && at > latest) latest = at
-      } catch (error) {
-        if (error !== LOADING) throw error
-        pending = true
-      }
+      } catch (error) { if (error !== LOADING) throw error; pending = true }
     }
     return pending ? LOADING : latest
   }
 
   // Task progress: formal descendants, independent of sidebar/mission placement.
-  get childCount(): number {
-    return this.host.relations.size('issue', this.id, 'treeChildren')
-  }
+  get childCount(): number { return this.host.relations.size('issue', this.id, 'treeChildren') }
 
-  get childDoneCount(): number {
-    return this.childCount ? this.finishedChildren : 0
-  }
+  get childDoneCount(): number { return this.childCount ? this.finishedChildren : 0 }
 
   @lazy
   private get finishedChildren(): number {
@@ -592,17 +545,12 @@ export class IssueModel extends EntityModel {
     return count
   }
 
-  get taskProgress(): TaskProgress | null {
-    return this.childCount ? this.descendantTaskProgress : null
-  }
+  get taskProgress(): TaskProgress | null { return this.childCount ? this.descendantTaskProgress : null }
 
   @lazy({ equals: compareStructural })
   private get descendantTaskProgress(): TaskProgress | null {
-    let total = 0,
-      done = 0,
-      liveAgents = 0
-    const seen = new Set([this.id]),
-      stack = [...this.host.relations.many('issue', this.id, 'treeChildren')]
+    let total = 0, done = 0, liveAgents = 0
+    const seen = new Set([this.id]), stack = [...this.host.relations.many('issue', this.id, 'treeChildren')]
     while (stack.length) {
       const id = stack.pop()!
       if (seen.has(id)) continue
@@ -620,9 +568,7 @@ export class IssueModel extends EntityModel {
 
   // Links: all reverse dependency edges, including their declared type.
   get dependents(): readonly { id: string; type: string }[] {
-    return this.host.relations.size('issue', this.id, 'pageDependents')
-      ? this.dependencySources
-      : EMPTY_DEPENDENTS
+    return this.host.relations.size('issue', this.id, 'pageDependents') ? this.dependencySources : EMPTY_DEPENDENTS
   }
 
   @lazy({ equals: compareStructural })
@@ -733,14 +679,7 @@ export class SessionModel extends EntityModel {
     const summary = this.host.row('session', this.id, 'summary')
     // A complete declared display summary is a usable session object; a
     // partial cutoff still spends the shared batched load window.
-    if (
-      summary &&
-      summary !== LOADING &&
-      ['sessionId', 'cwd', 'status', 'lastActiveAt', 'title'].every((field) =>
-        Object.hasOwn(summary, field),
-      )
-    )
-      return true
+    if (summary && summary !== LOADING && ['sessionId', 'cwd', 'status', 'lastActiveAt', 'title'].every(field => Object.hasOwn(summary, field))) return true
     const row = this.host.row('session', this.id)
     if (row === LOADING) throw LOADING
     return row !== undefined
@@ -757,48 +696,33 @@ export class SessionModel extends EntityModel {
   }
 
   @lazy
-  get open(): boolean {
-    return !this.archived && this.exists && this.status !== 'exited'
-  }
+  get open(): boolean { return !this.archived && this.exists && this.status !== 'exited' }
 
   @lazy
-  get onRoster(): boolean {
-    return !this.archived && this.rosterEligible
-  }
+  get onRoster(): boolean { return !this.archived && this.rosterEligible }
 
   @lazy
-  get rosterEligible(): boolean {
-    return this.exists && !this.headless && this.agentKind !== 'shell'
-  }
+  get rosterEligible(): boolean { return this.exists && !this.headless && this.agentKind !== 'shell' }
 
   // Unlike verdict.working, atWork includes starting/reconnecting before motion.
   @lazy
   get atWork(): boolean {
-    return (
-      this.open &&
-      (this.status === 'starting' || this.status === 'reconnecting' || this.workingMotion)
-    )
-  }
-
-  @lazy // Motion lets an offer/question override execution; verdict.working reports execution alone.
-  get motion(): ReturnType<typeof sessionMotion> {
-    return this.exists ? sessionMotion(this as SessionView) : 'queued'
+    return this.open && (this.status === 'starting' || this.status === 'reconnecting' || this.workingMotion)
   }
 
   @lazy
-  get workingMotion(): boolean {
-    return this.motion === 'working'
-  }
+  // Motion lets an offer/question override execution; verdict.working reports execution alone.
+  get motion(): ReturnType<typeof sessionMotion> { return this.exists ? sessionMotion(this as SessionView) : 'queued' }
 
   @lazy
-  get settled(): boolean {
-    return !this.open || this.motion === 'done'
-  }
+  get workingMotion(): boolean { return this.motion === 'working' }
 
-  @lazy // Execution can read a declared cold summary; the sidebar verdict still waits for residency.
-  get executing(): boolean {
-    return this.exists && isSessionWorking(this as unknown as SliceSession)
-  }
+  @lazy
+  get settled(): boolean { return !this.open || this.motion === 'done' }
+
+  @lazy
+  // Execution can read a declared cold summary; the sidebar verdict still waits for residency.
+  get executing(): boolean { return this.exists && isSessionWorking(this as unknown as SliceSession) }
 
   @lazy
   get stateSinceMs(): number { return Date.parse(this.agentState?.since ?? this.lastActivity) }
@@ -810,11 +734,7 @@ export class SessionModel extends EntityModel {
 
   @lazy
   get asking(): boolean {
-    return (
-      !this.archived &&
-      this.exists &&
-      (this.phase === 'needs_user' || this.phase === 'errored' || Boolean(this.offer))
-    )
+    return !this.archived && this.exists && (this.phase === 'needs_user' || this.phase === 'errored' || Boolean(this.offer))
   }
 
   /** Fresh execution evidence is a session fact; views decide which agents to show. */
@@ -837,45 +757,29 @@ export class SessionModel extends EntityModel {
 
   // History: one scalar per question, shared by navigation and every mission.
   @lazy
-  get phase(): string {
-    return this.exists ? (this.agentState?.phase ?? 'unknown') : 'unknown'
-  }
+  get phase(): string { return this.exists ? this.agentState?.phase ?? 'unknown' : 'unknown' }
 
   @lazy
-  get moved(): boolean {
-    return Boolean(this.handoffTarget)
-  }
+  get moved(): boolean { return Boolean(this.handoffTarget) }
 
   @lazy
-  get lastActivity(): string {
-    return this.lastActiveAt ?? ''
-  }
+  get lastActivity(): string { return this.lastActiveAt ?? '' }
 
   @lazy
-  get lastInput(): string | undefined {
-    return this.lastInputAt
-  }
+  get lastInput(): string | undefined { return this.lastInputAt }
 
   @lazy
-  get transcript(): boolean | undefined {
-    return this.transcriptAvailable
-  }
+  get transcript(): boolean | undefined { return this.transcriptAvailable }
 
   @lazy
-  get historyKind(): SessionView['agentKind'] {
-    return this.agentKind
-  }
+  get historyKind(): SessionView['agentKind'] { return this.agentKind }
 
   // Display joins: these are resolved from linked rows, not stored SessionMeta fields.
   @lazy
-  get machineName(): SessionView['machineName'] {
-    return this.storedField('machineName') as SessionView['machineName']
-  }
+  get machineName(): SessionView['machineName'] { return this.storedField('machineName') as SessionView['machineName'] }
 
   @lazy
-  get condition(): SessionView['condition'] {
-    return this.storedField('condition') as SessionView['condition']
-  }
+  get condition(): SessionView['condition'] { return this.storedField('condition') as SessionView['condition'] }
 
   // Activity: the same timestamp answers activityMs and raw member history.
   @lazy
@@ -936,9 +840,7 @@ interface IssueEdits {
  */
 // Schema-installed session fields are typed by their wire contract. Derived
 // presence fields above keep their scalar types, and no row is stored here.
-export interface SessionModel
-  extends Readonly<Omit<SessionView, 'archived' | 'condition'>>,
-    RelationGetters<'session'> {}
+export interface SessionModel extends Readonly<Omit<SessionView, 'archived' | 'condition'>>, RelationGetters<'session'> {}
 
 export interface IssueModel extends Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt'>>, IssueEdits, RelationGetters<'issue'> {}
 

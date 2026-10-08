@@ -54,9 +54,7 @@ installMobxWarnTrap()
 
 // The fixture's kernel queue uses its pinned clock. Pin the press wall clock
 // to the same initial instant; only decay-clock tests advance the coarse clock.
-beforeEach(() => {
-  vi.useFakeTimers({ toFake: ['Date'] })
-  vi.setSystemTime(FIXED_NOW)
+beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }) vi.setSystemTime(FIXED_NOW)
 })
 
 type Kind = keyof OutboxKinds & string
@@ -102,34 +100,20 @@ function pair(ctx: ScenarioEngine) {
     userId: ctx.engine.principal.userId,
     outbox: ctx.engine.outbox,
     outcomes: ctx.engine.subscribeOutboxOutcomes,
-    enqueue: async (kind, input, opts) => {
-      await ctx.engine.outbox.enqueue(kind, input, opts)
-    },
+    enqueue: async (kind, input, opts) => { await ctx.engine.outbox.enqueue(kind, input, opts) },
     addressed: ctx.replica.subscribeAddressedBatch!.bind(ctx.replica),
   })
-  const rows = createRowSource(ctx.engine, ctx.replica, {
-    mode: 'pooled',
-    pending: transactions.pending,
-  })
+  const rows = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled', pending: transactions.pending })
   const locals = createEngineLocals(ctx.engine)
   const observer = createWorklistPool(rows.source, locals.source)
   transactions.bind(rows)
   observer.pool.attachTransactions(transactions, true)
-  const reference = {
-    pool: observer.pool,
-    transactions,
-    dispose() {
-      observer.dispose()
-      transactions.dispose()
-      locals.dispose()
-      rows.dispose()
+  const reference = { pool: observer.pool, transactions, dispose() { observer.dispose() transactions.dispose() locals.dispose() rows.dispose()
     },
   }
   const pooled = createRuntimeWorklistPool(ctx.engine)
   const handles = { reference, pooled }
-  cleanups.push(() => {
-    handles.pooled.dispose()
-    handles.reference.dispose()
+  cleanups.push(() => { handles.pooled.dispose() handles.reference.dispose()
   })
   return handles
 }
@@ -235,9 +219,7 @@ describe.each([
       const entry = ctx.engine.outbox.pending().find((row) => row.kind === 'issueMarkRead')
       expect(entry).toBeDefined()
       expect(tracked(() => handle.pool.readCursor(id))).toBe(new Date(wallNow).toISOString())
-    } finally {
-      vi.useRealTimers()
-    }
+    } finally { vi.useRealTimers() }
   })
 
   it('paints every painting command kind exactly as the reference does, queued offline', async () => {
@@ -474,19 +456,16 @@ describe.each([
     handles.pooled.pool.mutate('issueSetTucked', { id: t.stageMoveId, tucked: true })
     handles.pooled.pool.mutate('rename', { sessionId: asSessionId(s1!), name: 'Queued name' })
     await settle(ctx)
-    expect(
-      differences(ctx, handles.reference.pool, handles.pooled.pool, [t.visibleRootId]),
-    ).toEqual([])
+    expect(differences(ctx, handles.reference.pool, handles.pooled.pool, [t.visibleRootId])).toEqual(
+      [],
+    )
     handles.pooled.dispose()
     handles.reference.dispose()
     await ctx.reload()
     handles = pair(ctx)
     await settle(ctx)
     expect(
-      differences(ctx, handles.reference.pool, handles.pooled.pool, [
-        t.visibleRootId,
-        t.markReadId,
-      ]),
+      differences(ctx, handles.reference.pool, handles.pooled.pool, [t.visibleRootId, t.markReadId]),
     ).toEqual([])
     expect(tracked(() => handles.pooled.pool.issue(t.visibleRootId)?.title)).toBe('Before reload')
   }, 120_000)
@@ -510,15 +489,11 @@ describe.each([
     expect(referenceState(ctx.engine).pendingSpawnIds.has(spawned.sessionId)).toBe(true)
     // Direct creation has one pool owner; the independent outbox observer
     // receives the server rows later. Assert the first paint at its owner.
-    expect(
-      tracked(() => {
-        const issue = pooled.pool.issue(spawned.issueId)
-        return issue ? { id: issue.id, stage: issue.stage, seq: issue.seq } : undefined
-      }),
-    ).toEqual({
-      id: spawned.issueId,
-      stage: 'backlog',
-      seq: 0,
+    expect(tracked(() => {
+      const issue = pooled.pool.issue(spawned.issueId)
+      return issue ? { id: issue.id, stage: issue.stage, seq: issue.seq } : undefined
+    })).toEqual({
+      id: spawned.issueId, stage: 'backlog', seq: 0,
     })
     expect(tracked(() => pooled.pool.row('session', spawned.sessionId, 'peek'))).toBeDefined()
     // POD-5432 step 6: owning sessions, pool screens read the placeholders
@@ -557,9 +532,7 @@ describe.each([
     await referenceState(ctx.engine).markIssueRead(asIssueId(t.markReadId))
     await ctx.engine.access.updateIssue(asIssueId(t.visibleRootId), { title: 'Runtime action' })
     await settle(ctx)
-    expect(differences(ctx, reference.pool, pooled.pool, [t.visibleRootId, t.markReadId])).toEqual(
-      [],
-    )
+    expect(differences(ctx, reference.pool, pooled.pool, [t.visibleRootId, t.markReadId])).toEqual([])
   }, 120_000)
 
   it('keeps a change on an evicted row and repaints it on readmission, and across a rescope', async () => {
@@ -595,9 +568,7 @@ describe.each([
       userId: engine.principal.userId,
       outbox: engine.outbox,
       outcomes: engine.subscribeOutboxOutcomes,
-      enqueue: async (kind, input, opts) => {
-        await engine.outbox.enqueue(kind, input, opts)
-      },
+      enqueue: async (kind, input, opts) => { await engine.outbox.enqueue(kind, input, opts) },
       addressed: ctx.replica.subscribeAddressedBatch!.bind(ctx.replica),
 
       reduce: (entry) =>
@@ -724,9 +695,7 @@ describe.each([
     // One record per press: the log enqueued through the reference, never twice.
     expect(ctx.engine.outbox.pending().map((e) => e.kind)).toEqual(['issueUpdate', 'rename'])
     const referenceView = referenceState(ctx.engine)
-    expect(referenceView.issueProjections.find((row) => row.id === t.visibleRootId)?.title).toBe(
-      'Routed',
-    )
+    expect(referenceView.issueProjections.find((row) => row.id === t.visibleRootId)?.title).toBe('Routed')
     expect(referenceView.sessions.find((row) => row.sessionId === s1)?.name).toBe('Routed session')
     expect(differences(ctx, reference.pool, pooled.pool, [t.visibleRootId])).toEqual([])
   }, 120_000)
@@ -739,10 +708,9 @@ describe.each([
       userId: engine.principal.userId,
       outbox: engine.outbox,
       outcomes: engine.subscribeOutboxOutcomes,
-      enqueue: async (kind, input, opts) => {
-        await engine.outbox.enqueue(kind, input, opts)
-      },
+      enqueue: async (kind, input, opts) => { await engine.outbox.enqueue(kind, input, opts) },
       addressed: ctx.replica.subscribeAddressedBatch!.bind(ctx.replica),
+
     })
     const rows = createRowSource(engine, engine.replica, {
       mode: 'pooled',
@@ -760,9 +728,7 @@ describe.each([
     })
     const id = ctx.targets.visibleRootId
     const before = tracked(() => planted.pool.issue(id)?.title)
-    await expect(
-      engine.access.updateIssue(asIssueId(id), { title: 'Routed' } as never),
-    ).rejects.toThrow(/pool/i)
+    await expect(engine.access.updateIssue(asIssueId(id), { title: 'Routed' } as never)).rejects.toThrow(/pool/i)
     expect(tracked(() => planted.pool.issue(id)?.title)).toBe(before)
     expect(engine.outbox.pending()).toEqual([])
   }, 120_000)
@@ -838,8 +804,8 @@ describe.each([
       const { work } = await measureWork(async () => {
         counting = true
         try {
-          void referenceState(ctx.engine).updateIssue(asIssueId(id), {
-            title: `Action at ${scale}x`,
+          void referenceState(ctx.engine)
+            .updateIssue(asIssueId(id), { title: `Action at ${scale}x`,
           } as never)
         } finally {
           counting = false
