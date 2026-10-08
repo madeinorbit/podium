@@ -479,7 +479,18 @@ function useDiffs({
       ),
     [entries, cwd, machineId, sources, commitSha, gitDiffFile, gitCommitDiffFile, readFileScoped],
   )
-  useEffect(() => () => view.close(), [view])
+  const lifetime = useMemo(() => ({ mounted: false }), [view])
+  useEffect(() => {
+    lifetime.mounted = true
+    return () => {
+      lifetime.mounted = false
+      // Effect replay reopens the same owner synchronously. Retire real closes
+      // after that replay window so the selected read remains single-flight.
+      queueMicrotask(() => {
+        if (!lifetime.mounted) view.close()
+      })
+    }
+  }, [view, lifetime])
   useEffect(() => {
     if (entry) void view.load(entry)
   }, [view, entry])
