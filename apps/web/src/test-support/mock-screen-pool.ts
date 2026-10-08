@@ -440,6 +440,9 @@ function useFixturePool(): MobxPool {
     const seen = seenSelected
     const pool = {
       notSaved: () => false,
+      // These provider-free fixtures already hand out their record objects.
+      // Real-pool observation tests cover shared model identity and field demand.
+      model: (entity: Parameters<MobxPool['row']>[0], id: string) => pool.row(entity, id),
       selection: {
         // The selected row the fixture store names (the real pool's
         // selection local): rows read it for their selected weight, and the
