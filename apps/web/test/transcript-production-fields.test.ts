@@ -74,10 +74,10 @@ it.each(['desktop', 'phone'] as const)('%s production class-field semantics', as
 })
 
 it.each(['desktop', 'phone'] as const)('%s constructs and observes all transcript facts in production', async compiler => {
-  // Use Vite's actual production pipeline: its bundled TS transform differs
-  // from the development transform that Vitest applies to direct TS imports.
+  // Execute emitted, minified JavaScript, with the phone's actual Babel
+  // configuration applied before bundling, rather than importing TS in Vitest.
   const compiled = await productionModule(compiler)
-  // On the unfixed source this throws MobX minified error nr: 1,
+  // The unfixed phone source throws MobX minified error nr: 1,
   // observable, ObservableObject.latestAnswerId (field not found).
   const graph = new compiled.TranscriptGraph()
   for (const field of fields) {
