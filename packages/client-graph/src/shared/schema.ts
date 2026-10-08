@@ -723,7 +723,6 @@ const DECLARED = defineSchema({
       deletedAt: { type: 'isoDate', optional: true, nullable: true, source: projection() },
       archived: { type: 'boolean', optional: true, source: projection() },
       stage: { type: 'string', source: projection(), note: 'Vocabulary in model/src/predicates/issue-stage.ts; the value set is a view rule (L1b), not a schema rule.' },
-      type: { type: 'string', optional: true, source: projection('type'), note: 'IssueTriage.shape.type / IssueProjection.type: shell mission complexity reads the stored type.' },
       closedReason: { type: 'string', optional: true, nullable: true, source: projection() },
       audience: { type: 'enum', values: ['human', 'agent'], optional: true, source: projection(), note: 'Who the issue is FOR (entities/issue.ts:289).' },
       isDraftVessel: { type: 'boolean', optional: true, source: projection('isDraftVessel') },

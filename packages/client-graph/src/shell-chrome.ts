@@ -22,7 +22,7 @@ class ShellIssue {
   @lazy get colorSelectable() { return !this.issue.archived && !this.issue.deletedAt }
   @lazy get color() { return this.issue.color }
   @lazy get parentId() { return this.issue.parentId }
-  @lazy private get type() { return this.issue.type }
+  @lazy private get type() { return this.issue.type ?? 'task' }
   @lazy private get needsPresentSessions() {
     return Boolean(this.issue.isDraftVessel && !this.issue.worktreePath)
   }
