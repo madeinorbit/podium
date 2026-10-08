@@ -1,6 +1,6 @@
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
-import { createMobileSessionReader } from './mobile-session-context.before'
+import { createMobileSessionReader } from './mobile-session-context.before.test.fixture'
 import { mobileSessionChromeIssue } from './mobile-session-chrome'
 import { MobxPool } from './pool'
 

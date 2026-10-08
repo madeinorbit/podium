@@ -1,7 +1,7 @@
 import { TranscriptLog } from '@podium/client-core/conversation'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { expect, it } from 'vitest'
-import { ConversationPresentation as Before } from './conversation-presentation.before'
+import { ConversationPresentation as Before } from './conversation-presentation.before.test.fixture'
 import { ConversationPresentation as After } from './conversation-presentation'
 
 const client = {

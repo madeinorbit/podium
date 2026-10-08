@@ -1,7 +1,7 @@
 import { TranscriptGraph } from '@podium/client-core/conversation'
 import { type TranscriptItem } from '@podium/model'
 import { expect, it } from 'vitest'
-import { MobileConversationPresentation as Before } from './conversation-presentation.before'
+import { MobileConversationPresentation as Before } from './conversation-presentation.before.test.fixture'
 import {
   MobileConversationPresentation as After,
   MobileTranscriptSearch,

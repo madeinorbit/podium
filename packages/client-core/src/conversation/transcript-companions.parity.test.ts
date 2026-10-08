@@ -2,7 +2,7 @@ import type { TranscriptItem } from '@podium/model'
 import { expect, it } from 'vitest'
 import { autorun } from 'mobx'
 import { lazyKeptCount } from '@podium/mobx-helpers'
-import { TranscriptGraph as Before } from './transcript-graph.before'
+import { TranscriptGraph as Before } from './transcript-graph.before.test.fixture'
 import { TranscriptGraph as After } from './transcript-graph'
 
 const item = (id: string, role: TranscriptItem['role'], text = id): TranscriptItem => ({

@@ -9,8 +9,8 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import '@/test-support/model-catalog-mock'
 import { ChatComposer } from './ChatComposer'
 import { ConversationPresentation } from './conversation-presentation'
-import { TranscriptFeed } from './conversation-render-fixture'
-import { WebConversation } from './conversation-render-fixture'
+import { TranscriptFeed } from './conversation-render.test.fixture'
+import { WebConversation } from './conversation-render.test.fixture'
 import type { ChatSurface } from './use-chat-layout'
 
 const counts = vi.hoisted(() => ({ frames: 0, composer: 0, preview: 0, rows: new Map<string, number>() }))
