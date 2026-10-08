@@ -53,7 +53,9 @@ import { asClientPrincipal } from '../principal'
 import { createKernelReplica, createSideCache } from '../replica/kernel'
 import { memoryStorage, type Replica, type StorageApi } from '../replica/contract'
 import { createReplicaFixture } from '@podium/client-core/test-support/replica'
+import { createRuntimeWorklistPool } from '../../../client-graph/src/runtime-pool'
 import { sessionById } from '../session-index'
+import * as notificationAudio from '../sound/cuelume'
 import type { SocketHub } from '../socket-transport'
 import {
   type Router,
@@ -531,6 +533,66 @@ describe('replicated layout routing', () => {
 })
 
 describe('engine lifecycle', () => {
+  it.each(['before', 'after'] as const)(
+    'plays a newly synced completion with the pool attached %s runtime start',
+    async (attachment) => {
+      const replica = createReplicaFixture()
+      const working = {
+        ...session('sound-session', '/tmp/known-repo/.worktrees/wt1'),
+        agentState: {
+          phase: 'working' as const,
+          since: '2026-07-01T00:00:00.000Z',
+          nativeSubagentCount: 0,
+        },
+      }
+      replica.applySnapshot('sessions', [working])
+      const { engine, hub } = makeEngine({ replica, networkEnabled: false })
+      const play = vi.spyOn(notificationAudio, 'play').mockImplementation(() => {})
+      const focus = vi.spyOn(document, 'hasFocus').mockReturnValue(false)
+      let handle: ReturnType<typeof createRuntimeWorklistPool> | undefined
+      try {
+        if (attachment === 'after') engine.start()
+        handle = createRuntimeWorklistPool(engine)
+        if (attachment === 'before') engine.start()
+        await settle()
+        expect(play).not.toHaveBeenCalled()
+        expect(hub.onCalls).not.toContain('sessions')
+
+        // Exercise the real replica address channel, pool attachment and
+        // runtime-owned reaction. Only the final audio output is stubbed.
+        replica.applyChanges('sessions', [{
+          ...working,
+          agentState: {
+            phase: 'idle',
+            since: '2026-07-01T00:01:00.000Z',
+            nativeSubagentCount: 0,
+            idle: { kind: 'done' },
+          },
+        }], [])
+        await settle()
+        expect(play).toHaveBeenCalledExactlyOnceWith('success')
+
+        engine.dispose()
+        replica.applyChanges('sessions', [{
+          ...working,
+          agentState: {
+            phase: 'needs_user',
+            since: '2026-07-01T00:02:00.000Z',
+            nativeSubagentCount: 0,
+            need: { kind: 'question', summary: 'One more question' },
+          },
+        }], [])
+        await settle()
+        expect(play).toHaveBeenCalledTimes(1)
+      } finally {
+        handle?.dispose()
+        engine.dispose()
+        play.mockRestore()
+        focus.mockRestore()
+      }
+    },
+  )
+
   it('publishes one machine snapshot for duplicate bursts and reporting clock changes', async () => {
     const { engine, hub } = makeEngine()
     engine.start()
