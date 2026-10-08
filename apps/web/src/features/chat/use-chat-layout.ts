@@ -56,10 +56,12 @@ export interface ChatSurface {
 const LAYOUT_ACTIONS = ['trpc', 'openFile', 'httpOrigin', 'tldrSession', 'clearAttachedSession', 'clearTranscriptReveal'] as const
 
 export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
-  const { conversation, sessionId, active, superThread, compact } = opts
+  const { conversation, sessionId, active, compact } = opts
   const { trpc, openFile, httpOrigin, tldrSession, clearAttachedSession, clearTranscriptReveal } = useRuntimeActions(LAYOUT_ACTIONS)
-  const view = useMemo(() => new ChatViewModel(conversation, compact, superThread, clearAttachedSession),
-    [conversation, compact, superThread, clearAttachedSession])
+  // Thread routing belongs to the conversation's existing identity. An inline
+  // parent prop with the same thread must not replace this mounted reader.
+  const view = useMemo(() => new ChatViewModel(conversation, compact, conversation.mount.superThread, clearAttachedSession),
+    [conversation, compact, clearAttachedSession])
   useEffect(() => { view.open(); return () => view.close() }, [view])
   const presentation = view.presentation
   const sticky = useStickyPromptsPreference()
