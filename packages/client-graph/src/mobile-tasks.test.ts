@@ -294,6 +294,7 @@ async function workAt(scale: number, plant = false) {
   )
   const changes = [
     () => board.configure({ ...settings, expanded: ['root'] }),
+    () => board.configure({ ...settings, filter: { ...settings.filter, text: 'root' } }),
     () =>
       pool.applyLocals({ selectedIssueId: 'child', coarseNow: now }, new Set(['selectedIssueId'])),
     () =>
@@ -327,13 +328,13 @@ it('keeps phone board row calls, derivations and collection elements flat at a f
     for (const kind of ['rows', 'derivations', 'elements'] as const)
       expect(four[i]![kind]).toBeLessThanOrEqual(one[i]![kind]!)
     console.info('[phone Tasks work]', {
-      action: ['expand', 'route', 'title', 'heartbeat'][i],
+      action: ['expand', 'search', 'route', 'title', 'heartbeat'][i],
       at1x: one[i],
       at4x: four[i],
     })
   }
   const planted1 = await workAt(1, true),
     planted4 = await workAt(4, true)
-  expect(planted4[2]!.elements).toBeGreaterThan(planted1[2]!.elements)
-  expect(() => expect(planted4[2]!.elements).toBeLessThanOrEqual(planted1[2]!.elements)).toThrow()
+  expect(planted4[3]!.elements).toBeGreaterThan(planted1[3]!.elements)
+  expect(() => expect(planted4[3]!.elements).toBeLessThanOrEqual(planted1[3]!.elements)).toThrow()
 })
