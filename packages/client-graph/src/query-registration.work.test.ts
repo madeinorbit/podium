@@ -17,8 +17,9 @@ it('shares first observed owner query registration with an existing identity rea
       insideReader('registration', () => {
         stop = autorun(() => { void pool.queries.project(question, 'registration', id => id) })
       })
-    }, { trace: true, pool })
-    console.info(JSON.stringify({ work: result.work, sites: [...result.sites!] }))
+    }, { pool })
+    console.info('[shared registration]', JSON.stringify(result.work))
     expect(result.work.rows).toBe(0)
+    expect(result.work.elements).toBe(4)
   } finally { stop(); stopIds(); pool.dispose() }
 })
