@@ -19,6 +19,34 @@ describe('useUsageFeed scan history', () => {
     vi.useRealTimers()
   })
 
+  it('reports a missing usage endpoint as a failed cold feed without crashing', async () => {
+    const { result } = renderHook(() => useUsageFeed({} as Trpc))
+    await act(async () => {})
+    expect(result.current).toMatchObject({ buckets: null, failed: true, waiting: false })
+    expect(result.current.scans).toEqual([])
+  })
+
+  it('keeps the last scan after a synchronous read failure and recovers on retry', async () => {
+    const query = vi.fn()
+      .mockResolvedValueOnce({ hostname: 'test', sampledAt: FIRST, buckets: [] })
+      .mockImplementationOnce(() => { throw new Error('usage unavailable') })
+      .mockResolvedValueOnce({ hostname: 'test', sampledAt: SECOND, buckets: [] })
+    const trpc = { usage: { summary: { query } } } as unknown as Trpc
+    const { result } = renderHook(() => useUsageFeed(trpc))
+    await act(async () => {})
+    const fetchedAt = result.current.fetchedAt
+
+    await act(() => vi.advanceTimersByTimeAsync(90_000))
+    expect(result.current).toMatchObject({ buckets: [], fetchedAt, failed: true, waiting: false })
+    expect(result.current.scans.map(scan => scan.sampledAt)).toEqual([Date.parse(FIRST)])
+
+    await act(async () => result.current.retry())
+    expect(result.current.failed).toBe(false)
+    expect(result.current.scans.map(scan => scan.sampledAt)).toEqual([
+      Date.parse(FIRST), Date.parse(SECOND),
+    ])
+  })
+
   it('advances only when the daemon returns a fresh scan', async () => {
     const query = vi
       .fn()

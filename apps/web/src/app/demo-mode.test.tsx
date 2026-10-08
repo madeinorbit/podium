@@ -8,7 +8,9 @@ import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PoolIssuePage } from '@/features/issues/pool-issue-page'
 import { SidebarUnified } from '@/features/worklist/SidebarUnified'
-import { WebDemoProvider } from './demo-mode'
+import { resetUsageCache } from '@/features/usage/useUsageFeed'
+import { demoTrpc, WebDemoProvider } from './demo-mode'
+import { StatusPerformanceStats } from './StatusPerformanceStats'
 
 /** The runtime opens a socket on start; nothing here is about the transport,
  *  and the real one takes the worker down with an unhandled error event. */
@@ -21,12 +23,14 @@ class SilentSocket {
 }
 
 beforeEach(() => {
+  resetUsageCache()
   ;(globalThis as { WebSocket?: unknown }).WebSocket = SilentSocket
   window.history.replaceState({}, '', '/?demo=1')
 })
 
 afterEach(() => {
   cleanup()
+  resetUsageCache()
   window.history.replaceState({}, '', '/')
   vi.restoreAllMocks()
 })
@@ -59,6 +63,18 @@ describe('web demo mode', () => {
       const issue = DEMO_ISSUES.find((candidate) => candidate.id === id)!
       expect(screen.getByText(issue.title)).not.toBeNull()
     }
+  })
+
+  it('paints issue rows with the shell token-burn footer mounted', async () => {
+    await mountDemo(
+      <>
+        <SidebarUnified />
+        <StatusPerformanceStats trpc={demoTrpc()} />
+      </>,
+    )
+    await waitFor(() =>
+      expect(screen.getByTestId('status-strip-burn').textContent).toBe('measuring token burn'),
+    )
   })
 
   it('paints a demo issue page from the same rows', async () => {
