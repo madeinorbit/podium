@@ -405,6 +405,14 @@ export interface QueryResultSpec<T> {
   has(id: string): boolean
   read(id: string): Loaded<T>
   order?(id: string): string
+  /** Parked duplicates publish one winner at their first member's position.
+   * An active member keeps its entire group visible. Only the changed group
+   * is reconsidered, using the demanded row summaries. */
+  collapse?: {
+    key(value: T): string | undefined
+    keepsGroup(value: T): boolean
+    compare(a: T, b: T): number
+  }
   /** Small existential questions over the same answers, maintained per key. */
   matches?: readonly ((value: T) => boolean)[]
   /** Membership deltas, already keyed by the declared question/relation. */
@@ -417,8 +425,10 @@ export interface QueryResultSpec<T> {
  * reader releases the question, including its cold answers. */
 export function createQueryResult<T>(spec: QueryResultSpec<T>) {
   const entries = new Map<string, { stop(): void; item?: Item<T>; pending: boolean }>()
+  const groups = new Map<string, { members: Map<string, Item<T>>; shown: Map<string, Item<T>> }>()
   let root: Node<T> | undefined,
     cached: T[] | undefined,
+    summary: { rows: T[]; pending: number } | undefined,
     pending = 0
   let stopMembership: (() => void) | undefined
   let started = false
@@ -459,7 +469,59 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
   }
   function changed() {
     cached = undefined
+    summary = undefined
     atom.reportChanged()
+  }
+  function reconcile(key: string): boolean {
+    const group = groups.get(key)!
+    let first: Item<T> | undefined, winner: Item<T> | undefined, active = false
+    for (const item of group.members.values()) {
+      if (!first || compare(item, first) < 0) first = item
+      if (!winner || (spec.collapse!.compare(item.value, winner.value) || compare(item, winner)) < 0)
+        winner = item
+      active ||= spec.collapse!.keepsGroup(item.value)
+    }
+    const next = active ? new Map(group.members) : new Map<string, Item<T>>()
+    if (!active && winner && first) next.set(winner.id, { ...winner, order: first.order })
+    let updated = false
+    for (const [id, before] of group.shown) {
+      if (!next.has(id)) { replaceItem(before, undefined); updated = true }
+    }
+    for (const [id, after] of next) {
+      const before = group.shown.get(id)
+      if (before?.order === after.order && before.value === after.value) continue
+      replaceItem(before, after)
+      updated = true
+    }
+    group.shown = next
+    if (!group.members.size) groups.delete(key)
+    return updated
+  }
+  function updateItem(before: Item<T> | undefined, after: Item<T> | undefined): boolean {
+    if (!spec.collapse) {
+      replaceItem(before, after)
+      return before !== undefined || after !== undefined
+    }
+    const beforeKey = before && spec.collapse.key(before.value),
+      afterKey = after && spec.collapse.key(after.value)
+    if (beforeKey !== undefined) groups.get(beforeKey)!.members.delete(before!.id)
+    if (afterKey !== undefined) {
+      let group = groups.get(afterKey)
+      if (!group) {
+        group = { members: new Map(), shown: new Map() }
+        groups.set(afterKey, group)
+      }
+      group.members.set(after!.id, after!)
+    }
+    let updated = false
+    if (beforeKey === undefined && before) { replaceItem(before, undefined); updated = true }
+    if (!seeding) {
+      if (beforeKey !== undefined) updated = reconcile(beforeKey) || updated
+    }
+    if (afterKey === undefined && after) { replaceItem(undefined, after); updated = true }
+    if (!seeding && afterKey !== undefined && afterKey !== beforeKey)
+      updated = reconcile(afterKey) || updated
+    return updated
   }
   function drop(id: string) {
     const entry = entries.get(id)
@@ -467,13 +529,13 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     entry.stop()
     entries.delete(id)
     if (entry.pending) pending--
-    replaceItem(entry.item, undefined)
+    const updated = updateItem(entry.item, undefined)
     if (entry.pending)
       for (const match of matches) {
         match.atom.reportChanged()
         match.countAtom.reportChanged()
       }
-    changed()
+    if (updated || entry.pending) changed()
   }
   function sync(id: string) {
     if (!spec.has(id)) {
@@ -499,13 +561,13 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       if (entry.pending) pending++
       const oldItem = entry.item
       entry.item = value === undefined || value === LOADING ? undefined : { id, order, value }
-      replaceItem(oldItem, entry.item)
+      const updated = updateItem(oldItem, entry.item)
       if (wasPending !== entry.pending)
         for (const match of matches) {
           match.atom.reportChanged()
           match.countAtom.reportChanged()
         }
-      changed()
+      if (updated || wasPending !== entry.pending) changed()
     }
     entry.stop = () => row.dispose()
     // reaction() schedules its initial run until the outer derivation ends.
@@ -517,8 +579,10 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     stopMembership = undefined
     for (const entry of entries.values()) entry.stop()
     entries.clear()
+    groups.clear()
     root = undefined
     cached = undefined
+    summary = undefined
     pending = 0
     for (const match of matches) match.root = undefined
     started = false
@@ -532,11 +596,14 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       seeding = true
       try {
         for (const id of spec.ids()) sync(id)
+        for (const key of groups.keys()) reconcile(key)
       } finally {
         seeding = false
       }
       const items: Item<T>[] = []
-      for (const entry of entries.values()) if (entry.item) items.push(entry.item)
+      for (const entry of entries.values())
+        if (entry.item && spec.collapse?.key(entry.item.value) === undefined) items.push(entry.item)
+      for (const group of groups.values()) items.push(...group.shown.values())
       root = build(items)
       for (const match of matches)
         match.root = build(items.filter((item) => match.test(item.value)))
@@ -563,6 +630,16 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       const tracked = atom.reportObserved()
       if (!pending && !cached) cached = snapshot(root)
       const result = pending ? LOADING : cached!
+      if (!tracked && !observed.size) clear()
+      return result
+    },
+    /** Partial answers and an exact pending count, without enumerating rows. */
+    summary(): { rows: T[]; pending: number } {
+      start()
+      const tracked = atom.reportObserved()
+      cached ??= snapshot(root)
+      summary ??= { rows: cached, pending }
+      const result = summary
       if (!tracked && !observed.size) clear()
       return result
     },

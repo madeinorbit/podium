@@ -5,7 +5,7 @@ import { parseSessionRef } from '@podium/protocol'
 import { createAtom, type IAtom, observe, untracked } from 'mobx'
 import { residentIds } from './enumerate'
 import type { MobxPool } from './pool'
-import { createKeyedAnswer, createQueryResult } from './query-result'
+import { createKeyedAnswer, createQueryResult, type QueryResultSpec } from './query-result'
 import type { ColdQueries } from './shared/cold-index'
 import type { IssueIdentities } from './shared/issue-identities'
 import type { IssueChildCounts, IssueQuestions } from './shared/issue-questions'
@@ -1253,12 +1253,16 @@ export class ReaderQueries {
   }
   /** A declared question's demanded row answers, maintained by changed key.
    * They use only pool.row in the caller, and disappear when unobserved. */
-  project<T>(question: ReaderQuestion, name: string, read: (id: string) => Loaded<T>): Loaded<T[]> {
+  private projection<T>(
+    question: ReaderQuestion, name: string, read: (id: string) => Loaded<T>,
+    options: Pick<QueryResultSpec<T>, 'order' | 'collapse'> = {},
+  ): ReturnType<typeof createQueryResult<T>> {
     const key = `${name}:${JSON.stringify(question)}`
     let result = this.results.get(key)
     if (!result) {
-      result = createQueryResult<unknown>({
+      const created = createQueryResult<T>({
         name,
+        ...options,
         // untracked-read: query-membership-seed
         ids: () => untracked(() => this.ids(question)),
         // untracked-read: query-membership-probe
@@ -1267,9 +1271,22 @@ export class ReaderQueries {
         subscribe: changed => this.onQuestionMembers(question, changed),
         released: () => this.results.delete(key),
       })
+      result = created
       this.results.set(key, result)
     }
-    return result.get() as Loaded<T[]>
+    return result as ReturnType<typeof createQueryResult<T>>
+  }
+  project<T>(
+    question: ReaderQuestion, name: string, read: (id: string) => Loaded<T>,
+    options: Pick<QueryResultSpec<T>, 'order' | 'collapse'> = {},
+  ): Loaded<T[]> {
+    return this.projection(question, name, read, options).get()
+  }
+  summarize<T>(
+    question: ReaderQuestion, name: string, read: (id: string) => Loaded<T>,
+    options: Pick<QueryResultSpec<T>, 'order' | 'collapse'> = {},
+  ): { rows: T[]; pending: number } {
+    return this.projection(question, name, read, options).summary()
   }
   /** The effective source's indexed candidates, including pending overlays.
    * References, context paths and ranked windows must not add every resident

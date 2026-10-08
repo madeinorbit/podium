@@ -167,30 +167,8 @@ function createShellViews(pool: MobxPool) {
     } as unknown as ShellIssue
   }
   function sessions(): Loaded<SessionView[]> {
-    return memo('sessions', () => {
-      const values: SessionView[] = []
-      const ids = pool.queries
-        .ids({ kind: 'shellSessions' })
-        .filter((id) => !pool.queries.collapsed(id))
-        .sort((a, b) => {
-          const left = pool.queries.orderKey(a),
-            right = pool.queries.orderKey(b)
-          return left < right ? -1 : left > right ? 1 : a.localeCompare(b)
-        })
-      for (const id of ids) {
-        const row = pool.row('session', id, 'summary')
-        if (row === LOADING) {
-          void pool.row('session', id)
-          return LOADING
-        }
-        if (row)
-          values.push(
-            Object.fromEntries(
-              SHELL_SUMMARIES.session.map((key) => [key, (row as Record<string, unknown>)[key]]),
-            ) as unknown as SessionView,
-          )
-      }
-      return values
+    return pool.queries.project({ kind: 'shellSessions' }, 'shell.sessions', session, {
+      order: (id) => pool.queries.orderKey(id),
     })
   }
   function linkedIssue(identifier: string): Loaded<ShellIssue> {
@@ -202,25 +180,19 @@ function createShellViews(pool: MobxPool) {
     return id === undefined ? undefined : session(id)
   }
   function session(id: string): Loaded<SessionView> {
-    if (pool.queries.collapsed(id)) return undefined
-    const row = pool.row('session', id, 'summary')
-    if (row === LOADING) {
-      void pool.row('session', id)
-      return LOADING
-    }
-    return row
-      ? (Object.fromEntries(
-          SHELL_SUMMARIES.session.map((key) => [key, (row as Record<string, unknown>)[key]]),
-        ) as unknown as SessionView)
-      : undefined
+    return memo(`session:${id}`, () => {
+      if (pool.queries.collapsed(id)) return undefined
+      const row = pool.row('session', id, 'summary-fields')
+      if (row === LOADING) return LOADING
+      return row
+        ? (Object.fromEntries(
+            SHELL_SUMMARIES.session.map((key) => [key, (row as Record<string, unknown>)[key]]),
+          ) as unknown as SessionView)
+        : undefined
+    })
   }
   function sessionCount(): number {
-    return memo(
-      'sessionCount',
-      () =>
-        pool.queries.ids({ kind: 'shellSessions' }).filter((id) => !pool.queries.collapsed(id))
-          .length,
-    )
+    return pool.queries.setupSessionCount()
   }
   function issues(): Loaded<IssueViewModel[]> {
     return memo('issues', () => {

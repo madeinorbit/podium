@@ -1,5 +1,4 @@
 import { keyedComputed } from '@podium/mobx-helpers'
-import { dedupeSessionsByResume } from '@podium/model'
 import { DEFAULT_HARNESS_AGENT, machinePathKey } from '@podium/model/browser'
 import { compareStructural } from 'mobx'
 import { debugName } from './debug-name'
@@ -18,19 +17,20 @@ function createSettingsViews(pool: MobxPool) {
   )
   const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
   function sessions() {
-    return memo('sessions', () => {
-      const rows: SetupSession[] = []
-      let pending = 0
-      for (const id of pool.queries.ids({ kind: 'setupSessions' })) {
-        const row = memo(`session:${id}`, () => pool.row('setupSession', id))
-        if (row === LOADING) pending++
-        else if (row) rows.push(row)
-      }
-      // Source positions preserve legacy ties even across a mixed cold/hot
-      // partition. Sorting this temporary summary result creates no index.
-      rows.sort((a, b) => a.setupOrder - b.setupOrder)
-      return { rows: dedupeSessionsByResume(rows), pending }
-    })
+    return pool.queries.summarize(
+      { kind: 'setupSessions' }, 'settings.sessions', (id) => pool.row('setupSession', id), {
+        // Resume winners occupy their group's first source position, including
+        // ties across cold/hot partitions. Headless rows remain independent.
+        order: (id) => String(pool.sourcePosition('session', id) ?? 0).padStart(16, '0'),
+        collapse: {
+          key: (row) => row.resume && !row.headless
+            ? JSON.stringify([row.resume.kind, row.resume.value]) : undefined,
+          keepsGroup: (row) => ['live', 'starting', 'reconnecting'].includes(row.status),
+          compare: (a, b) => resumeRank(b) - resumeRank(a) ||
+            (a.lastActiveAt > b.lastActiveAt ? -1 : a.lastActiveAt < b.lastActiveAt ? 1 : 0),
+        },
+      },
+    )
   }
   function setup(paths: readonly string[] = []) {
     return memo(`setup:${JSON.stringify(paths.map(machinePathKey))}`, () => {
@@ -58,10 +58,14 @@ export function settingsView(pool: MobxPool): ReturnType<typeof createSettingsVi
 
 /** Setup decoration and the first-task decision belong to the setup screen. */
 export function readSetupSession(pool: MobxPool, id: string): Loaded<SetupSession> {
-  const row = pool.row('session', id, 'summary')
+  const row = pool.row('session', id, 'summary-fields')
   return row && row !== LOADING
     ? setupSessionSummary(row as Readonly<Record<string, unknown>>, pool.sourcePosition('session', id))
     : row
+}
+function resumeRank(row: SetupSession): number {
+  return row.status === 'live' ? 3 : row.status === 'starting' || row.status === 'reconnecting'
+    ? 2 : row.status === 'hibernated' ? 1 : 0
 }
 export function settingsHasFirstTask(pool: MobxPool): Loaded<boolean> {
   return pool.undeletedIssueCount > 0
