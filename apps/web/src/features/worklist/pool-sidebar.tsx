@@ -685,7 +685,16 @@ const PoolMotionRow = observer(function PoolMotionRow({
   const folded = lane === 'closed' || lane === 'snoozed'
   const visible = usePanelVisible()
   const fresh = companion?.ready === 'ready' ? companion : companion?.ready
-  const now = pool.clock.trackedNow()
+  // Preserve the existing folded-word clock filter without copying row paint.
+  // Open-row timers already own their clock; their row receives no changing time.
+  const foldedClock = useMemo(() => computed(() => {
+    if (!folded || !companion || companion.ready !== 'ready') return { now: 0, words: '' }
+    const now = pool.clock.trackedNow()
+    const issue = navigationIssue(companion.issue)
+    const stamp = lane === 'closed' ? companion.foldAt : issue.updatedAt
+    return { now, words: JSON.stringify([foldedMarker(issue, lane as 'closed' | 'snoozed', now), stamp ? relativeTime(stamp, now) : null]) }
+  }, { equals: (a, b) => a.words === b.words }), [pool, companion, folded, lane])
+  const now = foldedClock.get().now
   // The existing exit snapshot retains the final paint after archive or eviction.
   const previous = useRef<SidebarRowValues | undefined>(undefined)
   if (fresh !== undefined && fresh !== LOADING) previous.current = sidebarExitSnapshot(fresh)

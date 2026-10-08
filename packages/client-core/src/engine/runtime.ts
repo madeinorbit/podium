@@ -556,7 +556,7 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       sendDebounceMs: init.draftSendDebounceMs,
       persistDebounceMs: init.draftPersistDebounceMs,
     })
-    this.inputs = createKeyedInputs(() => this.state)
+    this.inputs = createKeyedInputs(() => this.state, false, ['selectedIssueId'])
     this.services = this.buildStatics(actions)
     this.access = Object.defineProperties(
       { ...this.services },
@@ -1095,9 +1095,17 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   }): () => void {
     selection.select(this.state.selectedIssueId)
     const read = () => selection.selectedId as IssueId | null
+    const owner = this.state
     Object.defineProperty(this.state, 'selectedIssueId', {
       configurable: true, enumerable: true, get: read,
-      set: (id: IssueId | null) => selection.select(id),
+      set(this: EngineState, id: IssueId | null) {
+        // Navigation plans inherit state. A speculative overlay owns its patch.
+        if (this !== owner) {
+          Object.defineProperty(this, 'selectedIssueId', {
+            configurable: true, enumerable: true, writable: true, value: id,
+          })
+        } else selection.select(id)
+      },
     })
     return () => {
       if (Object.getOwnPropertyDescriptor(this.state, 'selectedIssueId')?.get !== read) return

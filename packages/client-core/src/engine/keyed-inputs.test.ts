@@ -40,6 +40,23 @@ describe('keyed inputs (POD-5433)', () => {
     expect(inputs.readLocal('paletteOpen')).toBe(true)
   })
 
+  it('reads delegated selection from its owner while notifying at batch publication', () => {
+    let selected = 'first' as EngineState['selectedIssueId']
+    const state = { get selectedIssueId() { return selected }, paletteOpen: false } as EngineState
+    const inputs = createKeyedInputs(() => state, false, ['selectedIssueId'])
+    const listener = vi.fn()
+    inputs.onLocals(['selectedIssueId'], listener)
+    selected = 'next' as EngineState['selectedIssueId']
+    state.paletteOpen = true
+    expect(inputs.readLocal('selectedIssueId')).toBe('next')
+    expect(inputs.readLocal('paletteOpen')).toBe(false)
+    expect(listener).not.toHaveBeenCalled()
+    inputs.emit(new Set(['selectedIssueId']))
+    expect(listener).toHaveBeenCalledWith(new Set(['selectedIssueId']))
+    expect(inputs.readLocal('selectedIssueId')).toBe('next')
+    inputs.dispose()
+  })
+
   it('diffs a list by id: unchanged rows keep identity, changed ids and order are named', () => {
     const a = repo('/a'),
       b = repo('/b')

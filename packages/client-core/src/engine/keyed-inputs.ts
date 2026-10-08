@@ -102,8 +102,10 @@ function entriesOf(name: KeyedListName, value: unknown): [string, unknown][] {
  *  only at `emit`, so a reader never sees a local it was not told about.
  *  `live` reads `read()` directly instead (fixtures that mutate a store in
  *  place and may never publish). */
-export function createKeyedInputs(read: () => EngineState, live = false): KeyedInputsChannel {
+export function createKeyedInputs(read: () => EngineState, live = false, directKeys: readonly LocalKey[] = []): KeyedInputsChannel {
   const snapshot: Partial<EngineState> = live ? {} : { ...read() }
+  const direct = new Set(directKeys)
+  for (const key of direct) delete snapshot[key]
   const current = (): Partial<EngineState> => (live ? read() : snapshot)
   const byKey = new Map<LocalKey, Set<{ keys: ReadonlySet<LocalKey>; listener: LocalsListener }>>()
   const lists = new Map<KeyedListName, ListState>()
@@ -168,7 +170,7 @@ export function createKeyedInputs(read: () => EngineState, live = false): KeyedI
         for (const key of entry.keys) byKey.get(key)?.delete(entry)
       }
     },
-    readLocal: (key) => current()[key] as EngineState[typeof key],
+    readLocal: (key) => (direct.has(key) ? read() : current())[key] as EngineState[typeof key],
     onList(name, listener) {
       const list = listState(name, false)
       list.listeners.add(listener)
@@ -181,7 +183,7 @@ export function createKeyedInputs(read: () => EngineState, live = false): KeyedI
     emit(changed) {
       if (disposed) return
       const state = read()
-      for (const key of changed) (snapshot as Record<string, unknown>)[key] = state[key]
+      for (const key of changed) if (!direct.has(key)) (snapshot as Record<string, unknown>)[key] = state[key]
       const published = current()
       const woken = new Map<LocalsListener, Set<LocalKey>>()
       for (const key of changed) {
