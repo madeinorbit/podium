@@ -128,7 +128,7 @@ export function useThreadConversation(
             const ack = await owner.access.trpc.superagent.sendTurn.mutate({
               threadId: THREAD_ID,
               text: turn.wire,
-              ...(turn.backend ?? superagentTurnChoice(resolveSuperagentBackend(pool ? superagentState(pool).active : undefined, {}))),
+              ...superagentTurnChoice(resolveSuperagentBackend(pool ? superagentState(pool).active : undefined, turn.backend ?? {})),
             })
             if (ack?.podiumSessionId)
               action(() => {

@@ -13,7 +13,7 @@ import {
 } from '@podium/client-core/values'
 import { lazy } from '@podium/mobx-helpers'
 import { isAgentComputing, isMachineOfflineForLiveTerminal } from '@podium/model/browser'
-import { actionBound, compareStructural, observable, observableRef } from 'mobx'
+import { actionBound, compareShallow, compareStructural, observable, observableRef } from 'mobx'
 import { ConversationPresentation } from './conversation-presentation'
 import type { WebConversation } from './use-conversation'
 
@@ -96,7 +96,7 @@ export class ChatViewModel {
       ? this.presentation.pendingAskIndex
       : -1
   }
-  @lazy get pendingAskBlock() {
+  @lazy({ equals: compareStructural }) get pendingAskBlock() {
     return pendingAskFromState(
       this.session?.agentState?.need,
       this.session?.status,
@@ -104,7 +104,7 @@ export class ChatViewModel {
       this.livePendingAskIndex >= 0,
     )
   }
-  @lazy get attribution() {
+  @lazy({ equals: compareStructural }) get attribution() {
     return transcriptAttributionTable(this.session)
   }
   @lazy({ equals: compareStructural }) get composer() {
@@ -133,7 +133,7 @@ export class ChatViewModel {
   @lazy get turnError(): string | null {
     return this.conversation.turnError ?? this.conversation.visibleFailure?.error ?? null
   }
-  @lazy get pending() {
+  @lazy({ equals: compareShallow }) get pending() {
     return this.conversation.sends.bubbles.map((bubble) =>
       bubble.error === undefined
         ? bubble
