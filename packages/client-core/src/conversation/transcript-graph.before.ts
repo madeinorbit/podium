@@ -1,3 +1,4 @@
+// Test-only semantic oracle frozen at ebc422f857, before the reader replacement.
 import type { TranscriptItem } from '@podium/model'
 import { action, computed, makeObservable, observable, type IComputedValue, type IObservableArray } from 'mobx'
 import { LatestTranscriptId } from '../transcript/merge'

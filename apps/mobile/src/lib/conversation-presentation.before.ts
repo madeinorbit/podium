@@ -1,3 +1,4 @@
+// Test-only semantic oracle frozen at ebc422f857, before the reader replacement.
 import type { TranscriptGraph, TranscriptToolRun } from '@podium/client-core/conversation'
 import { isAskUserQuestion, type ChatRow } from '@podium/client-core/values'
 import { action, computed, makeObservable, observable, observableRef, type IComputedValue } from 'mobx'

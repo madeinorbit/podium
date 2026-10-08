@@ -14,13 +14,26 @@ export class WebConversation extends Conversation {
     this.addView(presentation)
     const conversation = this
     this.fixtureView = {
-      presentation, headless: false, ctxSeq: null, session: undefined, activity: null,
-      get pending() { return conversation.sends.bubbles },
+      presentation,
+      headless: false,
+      ctxSeq: null,
+      session: undefined,
+      activity: null,
+      get pending() {
+        return conversation.sends.bubbles
+      },
     } as unknown as ChatViewModel
   }
 }
 
 export function TranscriptFeed(props: ComponentProps<typeof Feed>) {
   const chat = props.chat
-  return <Feed {...props} chat={chat ? { ...chat, view: (chat.conversation as WebConversation).fixtureView } : undefined} />
+  return (
+    <Feed
+      {...props}
+      chat={
+        chat ? { ...chat, view: (chat.conversation as WebConversation).fixtureView } : undefined
+      }
+    />
+  )
 }
