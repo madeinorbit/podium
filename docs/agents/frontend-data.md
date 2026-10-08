@@ -4,13 +4,15 @@ How every client screen (web, desktop, phone) gets and derives data from the Mob
 
 ## Words
 
-- **Entity**: a kind of server record (issue, session, worktree, repo, machine, conversation, …).
+- **Entity**: a kind of server record (issue, session, worktree, repo, machine, automation, message, …).
 - **Shared model**: the one object per record, `pool.model('issue', id)` (`IssueModel`, `SessionModel`, … in `models.ts`).
 - **Stored field**: server data. Declared once in `shared/schema.ts`, citing its zod definition in `@podium/model`; it appears on the model automatically.
 - **Derived field**: a value worked out from other data, declared with `@lazy`.
 - **View**: a feature the user sees: the worklist, the mission view, issue detail, the launcher, settings. One view can be drawn by several screens or platforms (the desktop sidebar and the phone Work tab both draw the worklist); they share the view's model and companions and differ only in components.
 - **View model**: one class per view holding its UI state and handing out its companions. The view's root component creates it (or gets it from the app) and passes it down through React context.
 - **Companion**: a small object per record, owned by one view, for rules only that view uses (`WorklistIssue` wraps an `IssueModel`). Created with `companion()` from `@podium/mobx-helpers`, declared once on the view model: one companion per record per view. Never use `companion()` as a cache for part of a row; that part is a `@lazy` field of the companion.
+- **Request answer**: a one-off server answer to one question (search hits, a file tree, a git diff, a receipt). It is not a record and has no shared model.
+- **Service**: an object with a job and a lifetime that is not a record: a conversation's transcript window, streaming and send queue; the connection; the outbox. Written in the rule 8 style.
 - **UI state**: state that never comes from the server: open tab, folds, selection, form input.
 - **Watched read**: a read inside an `observer` component or a MobX reaction.
 
@@ -34,7 +36,7 @@ How every client screen (web, desktop, phone) gets and derives data from the Mob
    - **On request**: an expensive or server-side answer wanted only when the user asks. The view model's action loads it into observable fields with a loading flag; nothing runs before or after.
    - **Stored on open**: a value that must not move under the user, or is expensive while its data changes constantly. The view model's `open()` action stores it; it is taken again on the next open. Never on shared models.
    - **Edit draft**: a form editing an existing record works on an edit draft (How to); untouched fields keep following the live record.
-7. **Work over the working set, not all history.** Live lists and counts cover open records, recently closed ones and what a view shows; all-history questions are "on request". Never assume every row is in memory: read through models or `MobxPool.row`, index only resident rows (the one exception is the cold index, `shared/cold-index.ts` with its relation index: only the declared fields and links the working-set rule needs, for every known row), describe unloaded rows with a declared summary, and treat an absent row as `LOADING` with a batched load.
+7. **Work over the working set, not all history.** Live lists and counts cover open records, recently closed ones and what a view shows; all-history questions are "on request". Never assume every row is in memory: read through models or `MobxPool.row`, index only resident rows (the one exception is the cold index, `shared/cold-index.ts` with its relation index: only the declared fields and links the working-set rule needs, for every known row), describe unloaded rows with a declared summary. A record that is not in memory has exactly one of three answers, and every caller handles all three: **here** (the model), **on its way** (`LOADING`: not loaded yet, or dropped from memory; a batched load is started), or **gone** (deleted on the server, or not visible to this user; with the reason). Never show "on its way" for a record that is gone.
 8. **One way to write state**, in every class (shared models, companions, view models, services):
    ```ts
    @observable accessor tab = 'chat'                // a value
@@ -48,6 +50,11 @@ How every client screen (web, desktop, phone) gets and derives data from the Mob
    - "ID → object" maps exist only as: the pool's one model per record, `companion()` maps, the view registry, and the data layer's indexes (cold index, relation index). Any other is a hand-made cache (rule 2).
    - A view that opens and closes (issue detail, settings, launcher, mission) gets a new view model per opening: its root component creates it, and closing drops it with all its companions. Anything that must survive a reopen, such as a chosen tab, is stored on purpose in the device's screen state.
    - Views that are always on (the worklist) keep one view model for the session.
+10. **Server data: shared model or request answer.**
+   - Anything the server sends that has an ID, can change while the user looks, and is shown in more than one place is a record: it gets a schema entry and a shared model, whether it arrives through sync or through a request. A request that returns records puts them into the pool; the view keeps only their IDs.
+   - Everything else is a request answer: the view model that asked holds it with its loading and error state (rule 6, "on request"), and it is dropped when the view closes.
+   - Never write a derived value into a stored record; it is a `@lazy` field (rule 2).
+   - A conversation is split: its record facts live on the shared session and message models; the transcript window, streaming text and send queue are a service, one per open conversation, kept warm in a small cache.
 
 ## How to
 
