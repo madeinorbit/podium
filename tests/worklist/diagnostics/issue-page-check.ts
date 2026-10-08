@@ -69,7 +69,6 @@ export function poolIssuePageFields(
       worktreePath: raw.worktreePath ?? null,
       readAt: pool.readCursor(id) ?? null,
       tuckedAt: raw.tuckedAt ?? null,
-      labels: raw.labels ?? [],
       deps: raw.deps ?? [],
       childIds: [...pool.graph.many('issue', id, 'treeChildren')].sort(),
       unread: views.row(id).unread,
