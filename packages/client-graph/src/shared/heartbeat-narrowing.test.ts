@@ -73,7 +73,9 @@ it('matches rebuilt cwd activity and presence when paths, kind, and visibility c
     rows.set(id, next); index.set(id, next); check()
   }
   change('a', { cwd: '/repo/nested', agentKind: 'codex', lastActiveAt: '2026-10-01' })
+  const pathsBefore = index.activityPathsBuilt
   change('a', { lastActiveAt: '2026-10-09' })
+  expect(index.activityPathsBuilt - pathsBefore).toBe(0)
   change('b', { cwd: '/repo', agentKind: 'codex', lastActiveAt: '2026-10-08' })
   change('a', { agentKind: 'shell' })
   change('a', { cwd: '/other' })
