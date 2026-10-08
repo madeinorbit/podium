@@ -10,7 +10,6 @@ import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueEvent } from '@podium/client-core/values'
 
 import { asIssueId, asSessionId } from '@podium/model'
-import { spy } from 'mobx'
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { OperatorFocusProvider } from '@/app/operator-focus'
@@ -85,19 +84,6 @@ const setView = vi.fn()
 const setOpenIssueId = vi.fn()
 const updateIssue = vi.fn(async () => ({}))
 
-let traceCase = ''
-let traceReads = 0
-let traceEvents = 0
-let traceAt = 0
-let stopTrace: (() => void) | undefined
-const traceCounts = new Map<string, number>()
-function traceRead() {
-  traceReads++
-  if (traceReads <= 5 || traceReads % 200 === 0) {
-    process.stderr.write(`[inspector trace read] ${traceCase} ${traceReads} ${new Error().stack}\n`)
-  }
-}
-
 const BASE_EVENT_ROWS: IssueEvent[] = [
   {
     id: 1,
@@ -130,19 +116,23 @@ const eventsQuery = vi.fn(async (input?: unknown) => {
 vi.mock('@/lib/use-model-catalog', () => ({ useModelCatalog: () => ({}) }))
 
 vi.mock('@/app/store', () => {
-  const state = () => (traceRead(), {
-    trpc: {
-      issues: {
-        comments: { query: vi.fn(async () => []) },
-        events: { query: eventsQuery },
-        start: { mutate: vi.fn(async () => ({})) },
-        close: { mutate: vi.fn(async () => ({})) },
-        update: { mutate: vi.fn(async () => ({})) },
-        clearNeedsHuman: { mutate: vi.fn(async () => ({})) },
-        panelApply: { mutate: vi.fn(async () => ({})) },
-      },
-      sessions: { sendText: { mutate: vi.fn(async () => ({})) } },
+  // The real owner retains its transport across snapshot reads. Recreating it
+  // here restarts useIssueHistory's effect after each comments publication,
+  // whose revision update renders another snapshot and starts the cycle again.
+  const trpc = {
+    issues: {
+      comments: { query: vi.fn(async () => []) },
+      events: { query: eventsQuery },
+      start: { mutate: vi.fn(async () => ({})) },
+      close: { mutate: vi.fn(async () => ({})) },
+      update: { mutate: vi.fn(async () => ({})) },
+      clearNeedsHuman: { mutate: vi.fn(async () => ({})) },
+      panelApply: { mutate: vi.fn(async () => ({})) },
     },
+    sessions: { sendText: { mutate: vi.fn(async () => ({})) } },
+  }
+  const state = () => ({
+    trpc,
     httpOrigin: '',
     openFileInWorktree: vi.fn(),
     openArtifact: vi.fn(),
@@ -173,34 +163,15 @@ vi.mock('@/app/store', () => {
 const parts = (): string[] =>
   [...document.querySelectorAll('[data-part]')].map((el) => el.getAttribute('data-part') ?? '')
 
-beforeEach((context) => {
-  traceCase = context.task.name
-  traceReads = 0
-  traceEvents = 0
-  traceAt = Date.now()
-  traceCounts.clear()
-  stopTrace = spy((event) => {
-    if (!('name' in event)) return
-    const key = `${event.type}:${String(event.name).replace(/@\d+/g, '@N')}`
-    traceCounts.set(key, (traceCounts.get(key) ?? 0) + 1)
-    traceEvents++
-    if (Date.now() - traceAt < 1000 && traceEvents % 1000 !== 0) return
-    traceAt = Date.now()
-    process.stderr.write(`[inspector trace mobx] ${traceCase} ${JSON.stringify({ reads: traceReads, events: traceEvents,
-      top: [...traceCounts].sort((a, b) => b[1] - a[1]).slice(0, 12) })}\n`)
-  })
-  process.stderr.write(`[inspector trace begin] ${traceCase}\n`)
+beforeEach(() => {
   mockIssues = [ROOT, OPEN_CHILD, DONE_CHILD, GRANDCHILD]
   mockSessions = []
   eventRows = BASE_EVENT_ROWS
 })
 
 afterEach(() => {
-  process.stderr.write(`[inspector trace cleanup] ${traceCase} ${traceReads} ${traceEvents}\n`)
   cleanup()
   vi.clearAllMocks()
-  stopTrace?.()
-  process.stderr.write(`[inspector trace end] ${traceCase} ${traceReads} ${traceEvents}\n`)
 })
 
 describe('IssuePanelView inspector', () => {
@@ -480,6 +451,9 @@ describe('IssuePanelView inspector', () => {
     expect(eventsQuery).toHaveBeenCalledWith(expect.objectContaining({ subject: 'root' }))
     // The child's own creation event belongs to the child's feed, not this one.
     expect(await within(feed).findAllByText('created')).toHaveLength(1)
+    // Publishing the fetched history must not replace its transport and retain
+    // another history effect on every observer render (POD-5810).
+    expect(eventsQuery).toHaveBeenCalledTimes(1)
   })
 
   it('keeps semantic updates when later read receipts arrive', async () => {
