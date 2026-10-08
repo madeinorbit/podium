@@ -7,6 +7,8 @@ import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
  * record of it arrives (POD-4764). After that the record says where it stands.
  */
 export interface ConversationPendingTurn {
+  /** Immutable dispatch choice, retained with the send for retries. */
+  backend?: import('./contracts').ConversationBackendChoice
   id: string
   /** The message id the composer minted: the outbox entry, the server row and
    *  the synced record all carry it. */

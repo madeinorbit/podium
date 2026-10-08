@@ -2,7 +2,7 @@ import type { TranscriptToolRun } from '@podium/client-core/conversation'
 import { isAskUserQuestion, type ChatRow } from '@podium/client-core/values'
 import { action, actionBound, compareShallow, observable, observableRef } from 'mobx'
 import { companion, lazy } from '@podium/mobx-helpers'
-import type { TranscriptGraph } from '../../../../packages/client-core/src/conversation/transcript-graph.next'
+import type { TranscriptGraph } from '../../../../packages/client-core/src/conversation/transcript-graph'
 import { appendedTranscriptArrivals, positionMobileTranscriptSearch, type MobileTranscriptMatches, type MobileTranscriptRow } from './transcript-feed'
 
 export type RetainedMobileTranscriptRow = MobileTranscriptRow & { readonly run?: TranscriptToolRun }

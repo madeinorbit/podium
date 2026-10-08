@@ -1,5 +1,6 @@
 import type { TranscriptItem } from '@podium/model'
-import { action, computed, makeObservable, observable, type IComputedValue, type IObservableArray } from 'mobx'
+import { action, compareShallow, observable, type IObservableArray } from 'mobx'
+import { companion, lazy } from '@podium/mobx-helpers'
 import { LatestTranscriptId } from '../transcript/merge'
 import { isAskUserQuestion } from '../values/ask-question'
 import {
@@ -67,9 +68,9 @@ export class TranscriptGraph {
   private readonly owners = new Map<string, string>()
   private readonly rowByBlock = new Map<string, string | TranscriptToolRun>()
   private readonly toolMembers = new Map<string, ToolMembers>()
-  private readonly blocks = new Map<string, IComputedValue<ChatBlock | undefined>>()
-  private readonly rows = new Map<string, IComputedValue<ChatRow | undefined>>()
-  private readonly queries = new Map<string, IComputedValue<readonly string[]>>()
+  /** Transcript identity index; companions follow records without owning them. */
+  private readonly records = observable.map<string, TranscriptRecord>(undefined, { deep: false })
+  readonly presentation = companion((record: TranscriptRecord) => new TranscriptRecordPresentation(record, this))
   /** The last source mutation's row membership/content journal. */
   rowPublication: TranscriptRowPublication = { reset: true, changed: [], removed: [] }
   private applyDepth = 0
@@ -80,8 +81,8 @@ export class TranscriptGraph {
   private orderedIds: string[] = []
   private readonly ranks = new Map<string, number>()
   private offset = 0
-  private orderVersion = 0
-  private operatorVersion = 0
+  @observable accessor orderVersion = 0
+  @observable accessor operatorVersion = 0
   private readonly operatorIds = [[], []] as [string[], string[]]
   private readonly cursorMembers = new Map<string, string[]>()
   private readonly aliasById = new Map<string, string>()
@@ -89,39 +90,26 @@ export class TranscriptGraph {
   private readonly assistants = new LatestTranscriptId(id => this.rank(id))
   private readonly prose = new LatestTranscriptId(id => this.rank(id))
   private readonly questions = new LatestTranscriptId(id => this.rank(id))
-  latestAnswerId: string | undefined = undefined
-  latestAssistantId: string | undefined = undefined
-  latestProseId: string | undefined = undefined
-  pendingQuestionId: string | undefined = undefined
+  @observable accessor latestAnswerId: string | undefined = undefined
+  @observable accessor latestAssistantId: string | undefined = undefined
+  @observable accessor latestProseId: string | undefined = undefined
+  @observable accessor pendingQuestionId: string | undefined = undefined
   readonly searchIndex = new TranscriptSearchIndex(id => this.rank(id))
 
   constructor(items: readonly TranscriptItem[] = []) {
-    makeObservable<this, 'orderVersion' | 'operatorVersion'>(this, {
-      orderVersion: observable,
-      operatorVersion: observable,
-      latestAnswerId: observable,
-      latestAssistantId: observable,
-      latestProseId: observable,
-      pendingQuestionId: observable,
-      structuralRows: computed,
-      structuralBlocks: computed,
-      lastAnswer: computed,
-      reset: action,
-      apply: action,
-    })
     this.reset(items)
   }
 
   /** Stable list metadata. Content is read through block(id) or row(id). */
-  get structuralRows(): ChatRow[] {
+  @lazy({ equals: compareShallow }) get structuralRows(): ChatRow[] {
     return this.rowIds.map(id => this.skeletons.get(id)!)
   }
 
-  get structuralBlocks(): ChatBlock[] { return this.blockIds.map(id => this.blockSkeletons.get(id)!) }
+  @lazy({ equals: compareShallow }) get structuralBlocks(): ChatBlock[] { return this.blockIds.map(id => this.blockSkeletons.get(id)!) }
   get version(): number { return this.orderVersion }
   structuralRow(id: string): ChatRow | undefined { return this.skeletons.get(id) }
   run(id: string): TranscriptToolRun | undefined { return this.runs.get(id) }
-  get lastAnswer(): LastAnswer {
+  @lazy get lastAnswer(): LastAnswer {
     const answer = this.latestAnswerId
     const prose = this.latestProseId
     return { blockIndex: answer === undefined ? -1 : this.blockPosition(answer) ?? -1,
@@ -144,10 +132,17 @@ export class TranscriptGraph {
     return row === undefined ? undefined : this.rowPosition(row)
   }
 
+  record(id: string): TranscriptRecord | undefined { return this.records.get(id) }
   block(id: string): ChatBlock | undefined {
-    let value = this.blocks.get(id)
-    if (!value) {
-      value = computed<ChatBlock | undefined>(() => {
+    const record = this.record(id)
+    return record === undefined ? undefined : this.presentation(record).block
+  }
+  row(id: string): ChatRow | undefined {
+    const record = this.record(id)
+    return record === undefined ? undefined : this.presentation(record).row
+  }
+
+  deriveBlock(id: string): ChatBlock | undefined {
         const item = this.items.get(id)
         if (!item) return undefined
         const children = this.children.get(id)
@@ -164,16 +159,8 @@ export class TranscriptGraph {
           if (item) related.push(item)
         }
         return pairToolResults(related)[0]
-      })
-      this.blocks.set(id, value)
-    }
-    return value.get()
   }
-
-  row(id: string): ChatRow | undefined {
-    let value = this.rows.get(id)
-    if (!value) {
-      value = computed<ChatRow | undefined>((): ChatRow | undefined => {
+  deriveRow(id: string): ChatRow | undefined {
         const members = this.rowMembers.get(id)
         if (!members?.length) return undefined
         const first = this.block(members[0]!)
@@ -191,10 +178,6 @@ export class TranscriptGraph {
           get title() { return run.title },
           get blockIndices() { return members.map(member => graph.blockPosition(member) ?? -1) },
         }
-      })
-      this.rows.set(id, value)
-    }
-    return value.get()
   }
 
   itemPosition(id: string): number {
@@ -223,21 +206,15 @@ export class TranscriptGraph {
   matches(query: string): readonly string[] {
     const key = query.trim().toLowerCase()
     if (!key) return []
-    let value = this.queries.get(key)
-    if (!value) {
-      value = computed<readonly string[]>(() => {
-        this.orderVersion
-        return this.searchIndex.find(key)
-      })
-      this.queries.set(key, value)
-      // Unobserved old queries can be discarded without changing any observer.
-      if (this.queries.size > 32) this.queries.delete(this.queries.keys().next().value!)
-    }
-    return value.get()
+    this.orderVersion
+    return this.searchIndex.find(key)
   }
 
   search(query: string, cursor: number, verbosity: ChatVerbosity = 'normal'): TranscriptSearchState {
-    const ids = this.matches(query)
+    return this.positionSearch(this.matches(query), cursor, query.trim() !== '', verbosity)
+  }
+
+  positionSearch(ids: readonly string[], cursor: number, filtering: boolean, verbosity: ChatVerbosity = 'normal'): TranscriptSearchState {
     const total = ids.length
     const selected = total ? ((cursor % total) + total) % total : -1
     const activeId = ids[selected]
@@ -246,7 +223,7 @@ export class TranscriptGraph {
     return {
       matches: ids.map(id => this.blockPosition(id)!),
       activeMatch: activeId === undefined ? undefined : this.blockPosition(activeId),
-      activeRow, position: selected + 1, total, filtering: query.trim() !== '',
+      activeRow, position: selected + 1, total, filtering,
     }
   }
 
@@ -263,8 +240,9 @@ export class TranscriptGraph {
     return { blocks, rows, search: this.search('', 0) }
   }
 
-  reset(items: readonly TranscriptItem[]): void {
+  @action reset(items: readonly TranscriptItem[]): void {
     this.items.clear()
+    this.records.clear()
     this.children.clear()
     this.effectChildren.clear()
     this.rowMembers.clear()
@@ -294,20 +272,18 @@ export class TranscriptGraph {
     this.blockIds.clear()
     this.rowIds.clear()
     this.summaryRowIds.clear()
-    ordered.forEach((item, at) => { this.items.set(item.id, item); this.ranks.set(item.id, at) })
+    ordered.forEach((item, at) => { this.setItem(item.id, item); this.ranks.set(item.id, at) })
     for (const item of ordered) this.ingestIdentity(item.id)
     const dirty = new Set(this.blockIds)
     for (const id of dirty) this.indexBlock(id)
     this.repairRows(dirty)
-    for (const id of this.blocks.keys()) if (!this.items.has(id)) this.blocks.delete(id)
-    for (const id of this.rows.keys()) if (!this.rowMembers.has(id)) this.rows.delete(id)
     this.publishFacts()
     this.orderVersion++
     if (this.applyDepth) this.resetRows = true
     else this.rowPublication = { reset: true, changed: [], removed: [] }
   }
 
-  apply(change: TranscriptGraphChange): void {
+  @action apply(change: TranscriptGraphChange): void {
     const outer = this.applyDepth++ === 0
     if (outer) {
       this.resetRows = false
@@ -374,7 +350,7 @@ export class TranscriptGraph {
     const dirty = new Set<string>()
     for (const item of change.changed) {
       const owner = this.owners.get(item.id) ?? item.id
-      this.items.set(item.id, item)
+      this.setItem(item.id, item)
       if (this.owners.has(item.id)) this.indexChildEffects(item.id, this.owners.get(item.id)!)
       dirty.add(owner)
     }
@@ -822,9 +798,21 @@ export class TranscriptGraph {
     return true
   }
 
-  dispose(): void {
-    this.blocks.clear()
-    this.rows.clear()
-    this.queries.clear()
+  private setItem(id: string, item: TranscriptItem): void {
+    this.items.set(id, item)
+    if (!this.records.has(id)) this.records.set(id, new TranscriptRecord(id))
   }
+
+  dispose(): void {}
+}
+
+/** Identity only; transcript facts stay in the ingestion indexes. */
+export class TranscriptRecord {
+  constructor(readonly id: string) {}
+}
+
+export class TranscriptRecordPresentation {
+  constructor(readonly record: TranscriptRecord, private readonly graph: TranscriptGraph) {}
+  @lazy get block(): ChatBlock | undefined { return this.graph.deriveBlock(this.record.id) }
+  @lazy get row(): ChatRow | undefined { return this.graph.deriveRow(this.record.id) }
 }

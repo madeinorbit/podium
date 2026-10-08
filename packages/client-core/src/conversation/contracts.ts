@@ -42,7 +42,15 @@ export interface ConversationDeliveryResult {
   position?: number
 }
 
+/** A command captures the submitting reader's backend choice. */
+export interface ConversationBackendChoice {
+  model?: string
+  effort?: string
+  agentKind?: string
+}
+
 export interface ConversationSendInput {
+  backend?: ConversationBackendChoice
   text: string
   wire?: string
   tags?: TranscriptTag[]

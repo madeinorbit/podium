@@ -566,6 +566,7 @@ export class Sends {
       at: this.clock.now(),
       state: 'sending',
       kind,
+      ...(input.backend ? { backend: input.backend } : {}),
       ...(input.tags && input.tags.length > 0 ? { tags: input.tags } : {}),
       ...(input.toolPaths && input.toolPaths.length > 0 ? { toolPaths: input.toolPaths } : {}),
       ...(input.files && input.files.length > 0 ? { files: input.files } : {}),

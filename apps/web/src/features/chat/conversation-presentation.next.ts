@@ -2,7 +2,7 @@ import { type TranscriptChange, type TranscriptLog, type TranscriptGraphInsertio
 import { type ChatBlock, type ChatRow, type RenderableRow, type TranscriptSearchState } from '@podium/client-core/values'
 import { action, actionBound, compareShallow, observable, observableRef, runInAction } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
-import { TranscriptGraph } from '../../../../../packages/client-core/src/conversation/transcript-graph.next'
+import { TranscriptGraph } from '../../../../../packages/client-core/src/conversation/transcript-graph'
 import { transcriptComputeClient, type TranscriptGraphSource, type WebTranscriptGraphResult } from './transcript-compute-client'
 import { rowIdentity } from './use-feed-arrivals'
 

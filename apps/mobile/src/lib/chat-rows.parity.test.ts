@@ -1,4 +1,4 @@
-import { TranscriptGraph } from '../../../../packages/client-core/src/conversation/transcript-graph.next'
+import { TranscriptGraph } from '../../../../packages/client-core/src/conversation/transcript-graph'
 import { asSessionId, type TranscriptItem } from '@podium/model'
 import { expect, it } from 'vitest'
 import { MobileConversationPresentation as Before } from './conversation-presentation.before'
