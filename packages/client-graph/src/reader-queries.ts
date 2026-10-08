@@ -969,12 +969,10 @@ export class ReaderQueries {
         keys: [],
       }
       this.observed.set(key, state)
-      this.refileQuery(key, state, index)
     }
     if (!state.atom.reportObserved() && created) {
-      this.unrouteQuery(key, state)
       this.observed.delete(key)
-    }
+    } else if (created) this.refileQuery(key, state, index)
     return index
   }
   private publicationTopologyBefore:
