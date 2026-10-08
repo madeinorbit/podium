@@ -185,8 +185,8 @@ export class SidebarIndex {
 
   /** Read never requests an evicted id. The caller clears selection through
    * its existing action when this answers true. A cold known row still counts. */
-  selectionEvicted(): boolean {
-    return this.view.selectionEvicted
+  selectionGone(): boolean {
+    return this.view.selectionGone
   }
 
   active(id: string, state: SidebarState): boolean {
@@ -259,7 +259,7 @@ export class SidebarIndex {
       pending,
       // The selection is read only for the selected worktree: a click
       // elsewhere wakes no other worktree row (POD-5423).
-      active: state.selectedWorktree != null && machinePathsEqual(state.selectedWorktree, path) && this.pool.selection.size === 0,
+      active: state.selectedWorktree != null && machinePathsEqual(state.selectedWorktree, path) && this.view.selectedId === null,
     }
   }
 

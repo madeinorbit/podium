@@ -1,3 +1,4 @@
+import { worklistView } from './worklist/view-model'
 import { lazy, companion } from '@podium/mobx-helpers'
 import type { IssueModel, SessionModel } from './models'
 import type { MobxPool } from './pool'
@@ -173,7 +174,7 @@ export class HeaderModel {
 
   @lazy
   get selectedIssue(): IssueModel | typeof LOADING | undefined {
-    const id = this.pool.selection.keys().next().value
+    const id = worklistView(this.pool).selectedId
     if (!id) return undefined
     const value = this.pool.row('issue', id)
     if (value === LOADING) return LOADING

@@ -1,0 +1,1381 @@
+// Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
+
+exports[`folded-parent > mobile.activityAt equals its old port 1`] = `1791460800000`;
+
+exports[`folded-parent > mobile.attentionAction equals its old port 1`] = `null`;
+
+exports[`folded-parent > mobile.branch equals its old port 1`] = `null`;
+
+exports[`folded-parent > mobile.color equals its old port 1`] = `null`;
+
+exports[`folded-parent > mobile.decision equals its old port 1`] = `null`;
+
+exports[`folded-parent > mobile.draftOnly equals its old port 1`] = `false`;
+
+exports[`folded-parent > mobile.draftQuiet equals its old port 1`] = `false`;
+
+exports[`folded-parent > mobile.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [
+    {
+      "kind": "codex",
+      "parked": false,
+    },
+  ],
+  "total": 1,
+}
+`;
+
+exports[`folded-parent > mobile.gitState equals its old port 1`] = `undefined`;
+
+exports[`folded-parent > mobile.id equals its old port 1`] = `"root"`;
+
+exports[`folded-parent > mobile.internal equals its old port 1`] = `false`;
+
+exports[`folded-parent > mobile.kind equals its old port 1`] = `"issue"`;
+
+exports[`folded-parent > mobile.label equals its old port 1`] = `"root"`;
+
+exports[`folded-parent > mobile.navigation equals its old port 1`] = `
+{
+  "id": "root",
+  "kind": "issue",
+}
+`;
+
+exports[`folded-parent > mobile.originSeq equals its old port 1`] = `null`;
+
+exports[`folded-parent > mobile.pinned equals its old port 1`] = `false`;
+
+exports[`folded-parent > mobile.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 1,
+  "review": 0,
+  "run": 0,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`folded-parent > mobile.sessions equals its old port 1`] = `
+[
+  {
+    "agentKind": "codex",
+    "agentState": {
+      "phase": "working",
+      "since": "2026-10-08T12:00:00Z",
+    },
+    "archived": false,
+    "cwd": "/synthetic",
+    "issueId": "root",
+    "lastActiveAt": "2026-10-08T12:00:00Z",
+    "sessionId": "seat",
+    "status": "live",
+  },
+]
+`;
+
+exports[`folded-parent > mobile.snoozed equals its old port 1`] = `false`;
+
+exports[`folded-parent > mobile.suppressAhead equals its old port 1`] = `false`;
+
+exports[`folded-parent > mobile.timing equals its old port 1`] = `
+{
+  "phase": "working",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`folded-parent > mobile.tuckable equals its old port 1`] = `false`;
+
+exports[`folded-parent > mobile.unread equals its old port 1`] = `false`;
+
+exports[`folded-parent > mobile.unsnoozed equals its old port 1`] = `false`;
+
+exports[`folded-parent > mobile.waitingCount equals its old port 1`] = `0`;
+
+exports[`folded-parent > mobile.working equals its old port 1`] = `true`;
+
+exports[`folded-parent > sidebar.aggregateSessionIds equals its old port 1`] = `
+[
+  "seat",
+]
+`;
+
+exports[`folded-parent > sidebar.asking equals its old port 1`] = `false`;
+
+exports[`folded-parent > sidebar.awaitingFirstPrompt equals its old port 1`] = `false`;
+
+exports[`folded-parent > sidebar.awaitsTuck equals its old port 1`] = `false`;
+
+exports[`folded-parent > sidebar.canBringBack equals its old port 1`] = `false`;
+
+exports[`folded-parent > sidebar.color equals its old port 1`] = `null`;
+
+exports[`folded-parent > sidebar.continuation equals its old port 1`] = `null`;
+
+exports[`folded-parent > sidebar.decision equals its old port 1`] = `null`;
+
+exports[`folded-parent > sidebar.deferred equals its old port 1`] = `false`;
+
+exports[`folded-parent > sidebar.draftAgentOnly equals its old port 1`] = `false`;
+
+exports[`folded-parent > sidebar.errorClass equals its old port 1`] = `null`;
+
+exports[`folded-parent > sidebar.firstSessionId equals its old port 1`] = `"seat"`;
+
+exports[`folded-parent > sidebar.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [
+    {
+      "kind": "codex",
+      "parked": false,
+    },
+  ],
+  "total": 1,
+}
+`;
+
+exports[`folded-parent > sidebar.fromChildren equals its old port 1`] = `true`;
+
+exports[`folded-parent > sidebar.gitState equals its old port 1`] = `undefined`;
+
+exports[`folded-parent > sidebar.idNumber equals its old port 1`] = `1`;
+
+exports[`folded-parent > sidebar.internal equals its old port 1`] = `false`;
+
+exports[`folded-parent > sidebar.mergeCommits equals its old port 1`] = `0`;
+
+exports[`folded-parent > sidebar.originTick equals its old port 1`] = `null`;
+
+exports[`folded-parent > sidebar.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 1,
+  "review": 0,
+  "run": 0,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`folded-parent > sidebar.sessions equals its old port 1`] = `
+[
+  {
+    "agentKind": "codex",
+    "agentState": {
+      "phase": "working",
+      "since": "2026-10-08T12:00:00Z",
+    },
+    "archived": false,
+    "cwd": "/synthetic",
+    "issueId": "root",
+    "lastActiveAt": "2026-10-08T12:00:00Z",
+    "sessionId": "seat",
+    "status": "live",
+  },
+]
+`;
+
+exports[`folded-parent > sidebar.statusFromChildren equals its old port 1`] = `true`;
+
+exports[`folded-parent > sidebar.timing equals its old port 1`] = `
+{
+  "phase": "working",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`folded-parent > sidebar.title equals its old port 1`] = `"root"`;
+
+exports[`folded-parent > sidebar.unread equals its old port 1`] = `false`;
+
+exports[`folded-parent > sidebar.unsnoozed equals its old port 1`] = `false`;
+
+exports[`folded-parent > sidebar.working equals its old port 1`] = `true`;
+
+exports[`merge > mobile.activityAt equals its old port 1`] = `1791460800000`;
+
+exports[`merge > mobile.attentionAction equals its old port 1`] = `null`;
+
+exports[`merge > mobile.branch equals its old port 1`] = `null`;
+
+exports[`merge > mobile.color equals its old port 1`] = `null`;
+
+exports[`merge > mobile.decision equals its old port 1`] = `null`;
+
+exports[`merge > mobile.draftOnly equals its old port 1`] = `false`;
+
+exports[`merge > mobile.draftQuiet equals its old port 1`] = `false`;
+
+exports[`merge > mobile.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [],
+  "total": 0,
+}
+`;
+
+exports[`merge > mobile.gitState equals its old port 1`] = `
+{
+  "ahead": 3,
+  "merged": false,
+}
+`;
+
+exports[`merge > mobile.id equals its old port 1`] = `"root"`;
+
+exports[`merge > mobile.internal equals its old port 1`] = `false`;
+
+exports[`merge > mobile.kind equals its old port 1`] = `"issue"`;
+
+exports[`merge > mobile.label equals its old port 1`] = `"root"`;
+
+exports[`merge > mobile.navigation equals its old port 1`] = `
+{
+  "id": "root",
+  "kind": "issue",
+}
+`;
+
+exports[`merge > mobile.originSeq equals its old port 1`] = `null`;
+
+exports[`merge > mobile.pinned equals its old port 1`] = `false`;
+
+exports[`merge > mobile.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 1,
+  "review": 0,
+  "run": 0,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`merge > mobile.sessions equals its old port 1`] = `[]`;
+
+exports[`merge > mobile.snoozed equals its old port 1`] = `false`;
+
+exports[`merge > mobile.suppressAhead equals its old port 1`] = `false`;
+
+exports[`merge > mobile.timing equals its old port 1`] = `
+{
+  "phase": "done",
+  "sinceMs": 0,
+}
+`;
+
+exports[`merge > mobile.tuckable equals its old port 1`] = `false`;
+
+exports[`merge > mobile.unread equals its old port 1`] = `true`;
+
+exports[`merge > mobile.unsnoozed equals its old port 1`] = `false`;
+
+exports[`merge > mobile.waitingCount equals its old port 1`] = `0`;
+
+exports[`merge > mobile.working equals its old port 1`] = `false`;
+
+exports[`merge > sidebar.aggregateSessionIds equals its old port 1`] = `[]`;
+
+exports[`merge > sidebar.asking equals its old port 1`] = `false`;
+
+exports[`merge > sidebar.awaitingFirstPrompt equals its old port 1`] = `false`;
+
+exports[`merge > sidebar.awaitsTuck equals its old port 1`] = `false`;
+
+exports[`merge > sidebar.canBringBack equals its old port 1`] = `false`;
+
+exports[`merge > sidebar.color equals its old port 1`] = `null`;
+
+exports[`merge > sidebar.continuation equals its old port 1`] = `null`;
+
+exports[`merge > sidebar.decision equals its old port 1`] = `null`;
+
+exports[`merge > sidebar.deferred equals its old port 1`] = `false`;
+
+exports[`merge > sidebar.draftAgentOnly equals its old port 1`] = `false`;
+
+exports[`merge > sidebar.errorClass equals its old port 1`] = `null`;
+
+exports[`merge > sidebar.firstSessionId equals its old port 1`] = `null`;
+
+exports[`merge > sidebar.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [],
+  "total": 0,
+}
+`;
+
+exports[`merge > sidebar.fromChildren equals its old port 1`] = `false`;
+
+exports[`merge > sidebar.gitState equals its old port 1`] = `
+{
+  "ahead": 3,
+  "merged": false,
+}
+`;
+
+exports[`merge > sidebar.idNumber equals its old port 1`] = `1`;
+
+exports[`merge > sidebar.internal equals its old port 1`] = `false`;
+
+exports[`merge > sidebar.mergeCommits equals its old port 1`] = `0`;
+
+exports[`merge > sidebar.originTick equals its old port 1`] = `null`;
+
+exports[`merge > sidebar.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 1,
+  "review": 0,
+  "run": 0,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`merge > sidebar.sessions equals its old port 1`] = `[]`;
+
+exports[`merge > sidebar.statusFromChildren equals its old port 1`] = `false`;
+
+exports[`merge > sidebar.timing equals its old port 1`] = `
+{
+  "phase": "done",
+  "sinceMs": 0,
+}
+`;
+
+exports[`merge > sidebar.title equals its old port 1`] = `"root"`;
+
+exports[`merge > sidebar.unread equals its old port 1`] = `true`;
+
+exports[`merge > sidebar.unsnoozed equals its old port 1`] = `false`;
+
+exports[`merge > sidebar.working equals its old port 1`] = `false`;
+
+exports[`origin > mobile.activityAt equals its old port 1`] = `1791460800000`;
+
+exports[`origin > mobile.attentionAction equals its old port 1`] = `null`;
+
+exports[`origin > mobile.branch equals its old port 1`] = `null`;
+
+exports[`origin > mobile.color equals its old port 1`] = `null`;
+
+exports[`origin > mobile.decision equals its old port 1`] = `null`;
+
+exports[`origin > mobile.draftOnly equals its old port 1`] = `false`;
+
+exports[`origin > mobile.draftQuiet equals its old port 1`] = `false`;
+
+exports[`origin > mobile.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [
+    {
+      "kind": "codex",
+      "parked": false,
+    },
+  ],
+  "total": 1,
+}
+`;
+
+exports[`origin > mobile.gitState equals its old port 1`] = `undefined`;
+
+exports[`origin > mobile.id equals its old port 1`] = `"root"`;
+
+exports[`origin > mobile.internal equals its old port 1`] = `false`;
+
+exports[`origin > mobile.kind equals its old port 1`] = `"issue"`;
+
+exports[`origin > mobile.label equals its old port 1`] = `"root"`;
+
+exports[`origin > mobile.navigation equals its old port 1`] = `
+{
+  "id": "root",
+  "kind": "issue",
+}
+`;
+
+exports[`origin > mobile.originSeq equals its old port 1`] = `8`;
+
+exports[`origin > mobile.pinned equals its old port 1`] = `false`;
+
+exports[`origin > mobile.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 0,
+  "review": 0,
+  "run": 1,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`origin > mobile.sessions equals its old port 1`] = `
+[
+  {
+    "agentKind": "codex",
+    "agentState": {
+      "phase": "working",
+      "since": "2026-10-08T12:00:00Z",
+    },
+    "archived": false,
+    "cwd": "/synthetic",
+    "issueId": "root",
+    "lastActiveAt": "2026-10-08T12:00:00Z",
+    "sessionId": "seat",
+    "status": "live",
+  },
+]
+`;
+
+exports[`origin > mobile.snoozed equals its old port 1`] = `false`;
+
+exports[`origin > mobile.suppressAhead equals its old port 1`] = `false`;
+
+exports[`origin > mobile.timing equals its old port 1`] = `
+{
+  "phase": "working",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`origin > mobile.tuckable equals its old port 1`] = `false`;
+
+exports[`origin > mobile.unread equals its old port 1`] = `false`;
+
+exports[`origin > mobile.unsnoozed equals its old port 1`] = `false`;
+
+exports[`origin > mobile.waitingCount equals its old port 1`] = `0`;
+
+exports[`origin > mobile.working equals its old port 1`] = `true`;
+
+exports[`origin > sidebar.aggregateSessionIds equals its old port 1`] = `
+[
+  "seat",
+]
+`;
+
+exports[`origin > sidebar.asking equals its old port 1`] = `false`;
+
+exports[`origin > sidebar.awaitingFirstPrompt equals its old port 1`] = `false`;
+
+exports[`origin > sidebar.awaitsTuck equals its old port 1`] = `false`;
+
+exports[`origin > sidebar.canBringBack equals its old port 1`] = `false`;
+
+exports[`origin > sidebar.color equals its old port 1`] = `null`;
+
+exports[`origin > sidebar.continuation equals its old port 1`] = `null`;
+
+exports[`origin > sidebar.decision equals its old port 1`] = `null`;
+
+exports[`origin > sidebar.deferred equals its old port 1`] = `false`;
+
+exports[`origin > sidebar.draftAgentOnly equals its old port 1`] = `false`;
+
+exports[`origin > sidebar.errorClass equals its old port 1`] = `null`;
+
+exports[`origin > sidebar.firstSessionId equals its old port 1`] = `"seat"`;
+
+exports[`origin > sidebar.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [
+    {
+      "kind": "codex",
+      "parked": false,
+    },
+  ],
+  "total": 1,
+}
+`;
+
+exports[`origin > sidebar.fromChildren equals its old port 1`] = `false`;
+
+exports[`origin > sidebar.gitState equals its old port 1`] = `undefined`;
+
+exports[`origin > sidebar.idNumber equals its old port 1`] = `1`;
+
+exports[`origin > sidebar.internal equals its old port 1`] = `false`;
+
+exports[`origin > sidebar.mergeCommits equals its old port 1`] = `0`;
+
+exports[`origin > sidebar.originTick equals its old port 1`] = `
+{
+  "id": "origin",
+  "ref": "#8",
+  "seq": 8,
+  "title": "origin",
+}
+`;
+
+exports[`origin > sidebar.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 0,
+  "review": 0,
+  "run": 1,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`origin > sidebar.sessions equals its old port 1`] = `
+[
+  {
+    "agentKind": "codex",
+    "agentState": {
+      "phase": "working",
+      "since": "2026-10-08T12:00:00Z",
+    },
+    "archived": false,
+    "cwd": "/synthetic",
+    "issueId": "root",
+    "lastActiveAt": "2026-10-08T12:00:00Z",
+    "sessionId": "seat",
+    "status": "live",
+  },
+]
+`;
+
+exports[`origin > sidebar.statusFromChildren equals its old port 1`] = `false`;
+
+exports[`origin > sidebar.timing equals its old port 1`] = `
+{
+  "phase": "working",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`origin > sidebar.title equals its old port 1`] = `"root"`;
+
+exports[`origin > sidebar.unread equals its old port 1`] = `false`;
+
+exports[`origin > sidebar.unsnoozed equals its old port 1`] = `false`;
+
+exports[`origin > sidebar.working equals its old port 1`] = `true`;
+
+exports[`quiet-draft > mobile.activityAt equals its old port 1`] = `1791460800000`;
+
+exports[`quiet-draft > mobile.attentionAction equals its old port 1`] = `null`;
+
+exports[`quiet-draft > mobile.branch equals its old port 1`] = `null`;
+
+exports[`quiet-draft > mobile.color equals its old port 1`] = `null`;
+
+exports[`quiet-draft > mobile.decision equals its old port 1`] = `null`;
+
+exports[`quiet-draft > mobile.draftOnly equals its old port 1`] = `true`;
+
+exports[`quiet-draft > mobile.draftQuiet equals its old port 1`] = `true`;
+
+exports[`quiet-draft > mobile.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [
+    {
+      "kind": "codex",
+      "parked": false,
+    },
+  ],
+  "total": 1,
+}
+`;
+
+exports[`quiet-draft > mobile.gitState equals its old port 1`] = `undefined`;
+
+exports[`quiet-draft > mobile.id equals its old port 1`] = `"root"`;
+
+exports[`quiet-draft > mobile.internal equals its old port 1`] = `false`;
+
+exports[`quiet-draft > mobile.kind equals its old port 1`] = `"issue"`;
+
+exports[`quiet-draft > mobile.label equals its old port 1`] = `"root"`;
+
+exports[`quiet-draft > mobile.navigation equals its old port 1`] = `
+{
+  "id": "seat",
+  "kind": "session",
+}
+`;
+
+exports[`quiet-draft > mobile.originSeq equals its old port 1`] = `null`;
+
+exports[`quiet-draft > mobile.pinned equals its old port 1`] = `false`;
+
+exports[`quiet-draft > mobile.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 0,
+  "review": 0,
+  "run": 1,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`quiet-draft > mobile.sessions equals its old port 1`] = `
+[
+  {
+    "agentKind": "codex",
+    "agentState": {
+      "phase": "unknown",
+    },
+    "archived": false,
+    "cwd": "/synthetic",
+    "issueId": "root",
+    "lastActiveAt": "2026-10-08T12:00:00Z",
+    "sessionId": "seat",
+    "status": "live",
+    "title": "Draft agent",
+  },
+]
+`;
+
+exports[`quiet-draft > mobile.snoozed equals its old port 1`] = `false`;
+
+exports[`quiet-draft > mobile.suppressAhead equals its old port 1`] = `false`;
+
+exports[`quiet-draft > mobile.timing equals its old port 1`] = `
+{
+  "phase": "queued",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`quiet-draft > mobile.tuckable equals its old port 1`] = `false`;
+
+exports[`quiet-draft > mobile.unread equals its old port 1`] = `false`;
+
+exports[`quiet-draft > mobile.unsnoozed equals its old port 1`] = `false`;
+
+exports[`quiet-draft > mobile.waitingCount equals its old port 1`] = `0`;
+
+exports[`quiet-draft > mobile.working equals its old port 1`] = `false`;
+
+exports[`quiet-draft > sidebar.aggregateSessionIds equals its old port 1`] = `
+[
+  "seat",
+]
+`;
+
+exports[`quiet-draft > sidebar.asking equals its old port 1`] = `false`;
+
+exports[`quiet-draft > sidebar.awaitingFirstPrompt equals its old port 1`] = `false`;
+
+exports[`quiet-draft > sidebar.awaitsTuck equals its old port 1`] = `false`;
+
+exports[`quiet-draft > sidebar.canBringBack equals its old port 1`] = `false`;
+
+exports[`quiet-draft > sidebar.color equals its old port 1`] = `null`;
+
+exports[`quiet-draft > sidebar.continuation equals its old port 1`] = `null`;
+
+exports[`quiet-draft > sidebar.decision equals its old port 1`] = `null`;
+
+exports[`quiet-draft > sidebar.deferred equals its old port 1`] = `false`;
+
+exports[`quiet-draft > sidebar.draftAgentOnly equals its old port 1`] = `true`;
+
+exports[`quiet-draft > sidebar.errorClass equals its old port 1`] = `null`;
+
+exports[`quiet-draft > sidebar.firstSessionId equals its old port 1`] = `"seat"`;
+
+exports[`quiet-draft > sidebar.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [
+    {
+      "kind": "codex",
+      "parked": false,
+    },
+  ],
+  "total": 1,
+}
+`;
+
+exports[`quiet-draft > sidebar.fromChildren equals its old port 1`] = `false`;
+
+exports[`quiet-draft > sidebar.gitState equals its old port 1`] = `undefined`;
+
+exports[`quiet-draft > sidebar.idNumber equals its old port 1`] = `1`;
+
+exports[`quiet-draft > sidebar.internal equals its old port 1`] = `false`;
+
+exports[`quiet-draft > sidebar.mergeCommits equals its old port 1`] = `0`;
+
+exports[`quiet-draft > sidebar.originTick equals its old port 1`] = `null`;
+
+exports[`quiet-draft > sidebar.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 0,
+  "review": 0,
+  "run": 1,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`quiet-draft > sidebar.sessions equals its old port 1`] = `
+[
+  {
+    "agentKind": "codex",
+    "agentState": {
+      "phase": "unknown",
+    },
+    "archived": false,
+    "cwd": "/synthetic",
+    "issueId": "root",
+    "lastActiveAt": "2026-10-08T12:00:00Z",
+    "sessionId": "seat",
+    "status": "live",
+    "title": "Draft agent",
+  },
+]
+`;
+
+exports[`quiet-draft > sidebar.statusFromChildren equals its old port 1`] = `false`;
+
+exports[`quiet-draft > sidebar.timing equals its old port 1`] = `
+{
+  "phase": "queued",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`quiet-draft > sidebar.title equals its old port 1`] = `"root"`;
+
+exports[`quiet-draft > sidebar.unread equals its old port 1`] = `true`;
+
+exports[`quiet-draft > sidebar.unsnoozed equals its old port 1`] = `false`;
+
+exports[`quiet-draft > sidebar.working equals its old port 1`] = `false`;
+
+exports[`snoozed > mobile.activityAt equals its old port 1`] = `1791460800000`;
+
+exports[`snoozed > mobile.attentionAction equals its old port 1`] = `null`;
+
+exports[`snoozed > mobile.branch equals its old port 1`] = `null`;
+
+exports[`snoozed > mobile.color equals its old port 1`] = `null`;
+
+exports[`snoozed > mobile.decision equals its old port 1`] = `null`;
+
+exports[`snoozed > mobile.draftOnly equals its old port 1`] = `false`;
+
+exports[`snoozed > mobile.draftQuiet equals its old port 1`] = `false`;
+
+exports[`snoozed > mobile.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [
+    {
+      "kind": "codex",
+      "parked": false,
+    },
+  ],
+  "total": 1,
+}
+`;
+
+exports[`snoozed > mobile.gitState equals its old port 1`] = `undefined`;
+
+exports[`snoozed > mobile.id equals its old port 1`] = `"root"`;
+
+exports[`snoozed > mobile.internal equals its old port 1`] = `false`;
+
+exports[`snoozed > mobile.kind equals its old port 1`] = `"issue"`;
+
+exports[`snoozed > mobile.label equals its old port 1`] = `"root"`;
+
+exports[`snoozed > mobile.navigation equals its old port 1`] = `
+{
+  "id": "root",
+  "kind": "issue",
+}
+`;
+
+exports[`snoozed > mobile.originSeq equals its old port 1`] = `null`;
+
+exports[`snoozed > mobile.pinned equals its old port 1`] = `false`;
+
+exports[`snoozed > mobile.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 0,
+  "review": 0,
+  "run": 1,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`snoozed > mobile.sessions equals its old port 1`] = `
+[
+  {
+    "agentKind": "codex",
+    "agentState": {
+      "phase": "working",
+      "since": "2026-10-08T12:00:00Z",
+    },
+    "archived": false,
+    "cwd": "/synthetic",
+    "issueId": "root",
+    "lastActiveAt": "2026-10-08T12:00:00Z",
+    "sessionId": "seat",
+    "status": "live",
+  },
+]
+`;
+
+exports[`snoozed > mobile.snoozed equals its old port 1`] = `true`;
+
+exports[`snoozed > mobile.suppressAhead equals its old port 1`] = `false`;
+
+exports[`snoozed > mobile.timing equals its old port 1`] = `
+{
+  "phase": "working",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`snoozed > mobile.tuckable equals its old port 1`] = `false`;
+
+exports[`snoozed > mobile.unread equals its old port 1`] = `false`;
+
+exports[`snoozed > mobile.unsnoozed equals its old port 1`] = `false`;
+
+exports[`snoozed > mobile.waitingCount equals its old port 1`] = `0`;
+
+exports[`snoozed > mobile.working equals its old port 1`] = `true`;
+
+exports[`snoozed > sidebar.aggregateSessionIds equals its old port 1`] = `
+[
+  "seat",
+]
+`;
+
+exports[`snoozed > sidebar.asking equals its old port 1`] = `false`;
+
+exports[`snoozed > sidebar.awaitingFirstPrompt equals its old port 1`] = `false`;
+
+exports[`snoozed > sidebar.awaitsTuck equals its old port 1`] = `false`;
+
+exports[`snoozed > sidebar.canBringBack equals its old port 1`] = `false`;
+
+exports[`snoozed > sidebar.color equals its old port 1`] = `null`;
+
+exports[`snoozed > sidebar.continuation equals its old port 1`] = `null`;
+
+exports[`snoozed > sidebar.decision equals its old port 1`] = `null`;
+
+exports[`snoozed > sidebar.deferred equals its old port 1`] = `true`;
+
+exports[`snoozed > sidebar.draftAgentOnly equals its old port 1`] = `false`;
+
+exports[`snoozed > sidebar.errorClass equals its old port 1`] = `null`;
+
+exports[`snoozed > sidebar.firstSessionId equals its old port 1`] = `"seat"`;
+
+exports[`snoozed > sidebar.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [
+    {
+      "kind": "codex",
+      "parked": false,
+    },
+  ],
+  "total": 1,
+}
+`;
+
+exports[`snoozed > sidebar.fromChildren equals its old port 1`] = `false`;
+
+exports[`snoozed > sidebar.gitState equals its old port 1`] = `undefined`;
+
+exports[`snoozed > sidebar.idNumber equals its old port 1`] = `1`;
+
+exports[`snoozed > sidebar.internal equals its old port 1`] = `false`;
+
+exports[`snoozed > sidebar.mergeCommits equals its old port 1`] = `0`;
+
+exports[`snoozed > sidebar.originTick equals its old port 1`] = `null`;
+
+exports[`snoozed > sidebar.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 0,
+  "review": 0,
+  "run": 1,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`snoozed > sidebar.sessions equals its old port 1`] = `
+[
+  {
+    "agentKind": "codex",
+    "agentState": {
+      "phase": "working",
+      "since": "2026-10-08T12:00:00Z",
+    },
+    "archived": false,
+    "cwd": "/synthetic",
+    "issueId": "root",
+    "lastActiveAt": "2026-10-08T12:00:00Z",
+    "sessionId": "seat",
+    "status": "live",
+  },
+]
+`;
+
+exports[`snoozed > sidebar.statusFromChildren equals its old port 1`] = `false`;
+
+exports[`snoozed > sidebar.timing equals its old port 1`] = `
+{
+  "phase": "working",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`snoozed > sidebar.title equals its old port 1`] = `"root"`;
+
+exports[`snoozed > sidebar.unread equals its old port 1`] = `false`;
+
+exports[`snoozed > sidebar.unsnoozed equals its old port 1`] = `false`;
+
+exports[`snoozed > sidebar.working equals its old port 1`] = `true`;
+
+exports[`waiting > mobile.activityAt equals its old port 1`] = `1791460800000`;
+
+exports[`waiting > mobile.attentionAction equals its old port 1`] = `"Answer"`;
+
+exports[`waiting > mobile.branch equals its old port 1`] = `null`;
+
+exports[`waiting > mobile.color equals its old port 1`] = `null`;
+
+exports[`waiting > mobile.decision equals its old port 1`] = `null`;
+
+exports[`waiting > mobile.draftOnly equals its old port 1`] = `false`;
+
+exports[`waiting > mobile.draftQuiet equals its old port 1`] = `false`;
+
+exports[`waiting > mobile.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [
+    {
+      "kind": "codex",
+      "parked": false,
+    },
+  ],
+  "total": 1,
+}
+`;
+
+exports[`waiting > mobile.gitState equals its old port 1`] = `undefined`;
+
+exports[`waiting > mobile.id equals its old port 1`] = `"root"`;
+
+exports[`waiting > mobile.internal equals its old port 1`] = `false`;
+
+exports[`waiting > mobile.kind equals its old port 1`] = `"issue"`;
+
+exports[`waiting > mobile.label equals its old port 1`] = `"root"`;
+
+exports[`waiting > mobile.navigation equals its old port 1`] = `
+{
+  "id": "root",
+  "kind": "issue",
+}
+`;
+
+exports[`waiting > mobile.originSeq equals its old port 1`] = `null`;
+
+exports[`waiting > mobile.pinned equals its old port 1`] = `false`;
+
+exports[`waiting > mobile.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 0,
+  "review": 0,
+  "run": 1,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`waiting > mobile.sessions equals its old port 1`] = `
+[
+  {
+    "agentKind": "codex",
+    "agentState": {
+      "phase": "needs_user",
+      "since": "2026-10-08T12:00:00Z",
+    },
+    "archived": false,
+    "cwd": "/synthetic",
+    "issueId": "root",
+    "lastActiveAt": "2026-10-08T12:00:00Z",
+    "sessionId": "seat",
+    "status": "live",
+    "unread": true,
+  },
+]
+`;
+
+exports[`waiting > mobile.snoozed equals its old port 1`] = `false`;
+
+exports[`waiting > mobile.suppressAhead equals its old port 1`] = `false`;
+
+exports[`waiting > mobile.timing equals its old port 1`] = `
+{
+  "phase": "waiting",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`waiting > mobile.tuckable equals its old port 1`] = `false`;
+
+exports[`waiting > mobile.unread equals its old port 1`] = `true`;
+
+exports[`waiting > mobile.unsnoozed equals its old port 1`] = `false`;
+
+exports[`waiting > mobile.waitingCount equals its old port 1`] = `1`;
+
+exports[`waiting > mobile.working equals its old port 1`] = `false`;
+
+exports[`waiting > sidebar.aggregateSessionIds equals its old port 1`] = `
+[
+  "seat",
+]
+`;
+
+exports[`waiting > sidebar.asking equals its old port 1`] = `true`;
+
+exports[`waiting > sidebar.awaitingFirstPrompt equals its old port 1`] = `false`;
+
+exports[`waiting > sidebar.awaitsTuck equals its old port 1`] = `false`;
+
+exports[`waiting > sidebar.canBringBack equals its old port 1`] = `false`;
+
+exports[`waiting > sidebar.color equals its old port 1`] = `null`;
+
+exports[`waiting > sidebar.continuation equals its old port 1`] = `null`;
+
+exports[`waiting > sidebar.decision equals its old port 1`] = `null`;
+
+exports[`waiting > sidebar.deferred equals its old port 1`] = `false`;
+
+exports[`waiting > sidebar.draftAgentOnly equals its old port 1`] = `false`;
+
+exports[`waiting > sidebar.errorClass equals its old port 1`] = `null`;
+
+exports[`waiting > sidebar.firstSessionId equals its old port 1`] = `"seat"`;
+
+exports[`waiting > sidebar.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [
+    {
+      "kind": "codex",
+      "parked": false,
+    },
+  ],
+  "total": 1,
+}
+`;
+
+exports[`waiting > sidebar.fromChildren equals its old port 1`] = `false`;
+
+exports[`waiting > sidebar.gitState equals its old port 1`] = `undefined`;
+
+exports[`waiting > sidebar.idNumber equals its old port 1`] = `1`;
+
+exports[`waiting > sidebar.internal equals its old port 1`] = `false`;
+
+exports[`waiting > sidebar.mergeCommits equals its old port 1`] = `0`;
+
+exports[`waiting > sidebar.originTick equals its old port 1`] = `null`;
+
+exports[`waiting > sidebar.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 0,
+  "review": 0,
+  "run": 1,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`waiting > sidebar.sessions equals its old port 1`] = `
+[
+  {
+    "agentKind": "codex",
+    "agentState": {
+      "phase": "needs_user",
+      "since": "2026-10-08T12:00:00Z",
+    },
+    "archived": false,
+    "cwd": "/synthetic",
+    "issueId": "root",
+    "lastActiveAt": "2026-10-08T12:00:00Z",
+    "sessionId": "seat",
+    "status": "live",
+    "unread": true,
+  },
+]
+`;
+
+exports[`waiting > sidebar.statusFromChildren equals its old port 1`] = `false`;
+
+exports[`waiting > sidebar.timing equals its old port 1`] = `
+{
+  "phase": "waiting",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`waiting > sidebar.title equals its old port 1`] = `"root"`;
+
+exports[`waiting > sidebar.unread equals its old port 1`] = `true`;
+
+exports[`waiting > sidebar.unsnoozed equals its old port 1`] = `false`;
+
+exports[`waiting > sidebar.working equals its old port 1`] = `false`;
+
+exports[`working > mobile.activityAt equals its old port 1`] = `1791460800000`;
+
+exports[`working > mobile.attentionAction equals its old port 1`] = `null`;
+
+exports[`working > mobile.branch equals its old port 1`] = `null`;
+
+exports[`working > mobile.color equals its old port 1`] = `null`;
+
+exports[`working > mobile.decision equals its old port 1`] = `null`;
+
+exports[`working > mobile.draftOnly equals its old port 1`] = `false`;
+
+exports[`working > mobile.draftQuiet equals its old port 1`] = `false`;
+
+exports[`working > mobile.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [
+    {
+      "kind": "codex",
+      "parked": false,
+    },
+  ],
+  "total": 1,
+}
+`;
+
+exports[`working > mobile.gitState equals its old port 1`] = `undefined`;
+
+exports[`working > mobile.id equals its old port 1`] = `"root"`;
+
+exports[`working > mobile.internal equals its old port 1`] = `false`;
+
+exports[`working > mobile.kind equals its old port 1`] = `"issue"`;
+
+exports[`working > mobile.label equals its old port 1`] = `"root"`;
+
+exports[`working > mobile.navigation equals its old port 1`] = `
+{
+  "id": "root",
+  "kind": "issue",
+}
+`;
+
+exports[`working > mobile.originSeq equals its old port 1`] = `null`;
+
+exports[`working > mobile.pinned equals its old port 1`] = `false`;
+
+exports[`working > mobile.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 0,
+  "review": 0,
+  "run": 1,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`working > mobile.sessions equals its old port 1`] = `
+[
+  {
+    "agentKind": "codex",
+    "agentState": {
+      "phase": "working",
+      "since": "2026-10-08T12:00:00Z",
+    },
+    "archived": false,
+    "cwd": "/synthetic",
+    "issueId": "root",
+    "lastActiveAt": "2026-10-08T12:00:00Z",
+    "sessionId": "seat",
+    "status": "live",
+  },
+]
+`;
+
+exports[`working > mobile.snoozed equals its old port 1`] = `false`;
+
+exports[`working > mobile.suppressAhead equals its old port 1`] = `false`;
+
+exports[`working > mobile.timing equals its old port 1`] = `
+{
+  "phase": "working",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`working > mobile.tuckable equals its old port 1`] = `false`;
+
+exports[`working > mobile.unread equals its old port 1`] = `false`;
+
+exports[`working > mobile.unsnoozed equals its old port 1`] = `false`;
+
+exports[`working > mobile.waitingCount equals its old port 1`] = `0`;
+
+exports[`working > mobile.working equals its old port 1`] = `true`;
+
+exports[`working > sidebar.aggregateSessionIds equals its old port 1`] = `
+[
+  "seat",
+]
+`;
+
+exports[`working > sidebar.asking equals its old port 1`] = `false`;
+
+exports[`working > sidebar.awaitingFirstPrompt equals its old port 1`] = `false`;
+
+exports[`working > sidebar.awaitsTuck equals its old port 1`] = `false`;
+
+exports[`working > sidebar.canBringBack equals its old port 1`] = `false`;
+
+exports[`working > sidebar.color equals its old port 1`] = `null`;
+
+exports[`working > sidebar.continuation equals its old port 1`] = `null`;
+
+exports[`working > sidebar.decision equals its old port 1`] = `null`;
+
+exports[`working > sidebar.deferred equals its old port 1`] = `false`;
+
+exports[`working > sidebar.draftAgentOnly equals its old port 1`] = `false`;
+
+exports[`working > sidebar.errorClass equals its old port 1`] = `null`;
+
+exports[`working > sidebar.firstSessionId equals its old port 1`] = `"seat"`;
+
+exports[`working > sidebar.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [
+    {
+      "kind": "codex",
+      "parked": false,
+    },
+  ],
+  "total": 1,
+}
+`;
+
+exports[`working > sidebar.fromChildren equals its old port 1`] = `false`;
+
+exports[`working > sidebar.gitState equals its old port 1`] = `undefined`;
+
+exports[`working > sidebar.idNumber equals its old port 1`] = `1`;
+
+exports[`working > sidebar.internal equals its old port 1`] = `false`;
+
+exports[`working > sidebar.mergeCommits equals its old port 1`] = `0`;
+
+exports[`working > sidebar.originTick equals its old port 1`] = `null`;
+
+exports[`working > sidebar.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 0,
+  "review": 0,
+  "run": 1,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`working > sidebar.sessions equals its old port 1`] = `
+[
+  {
+    "agentKind": "codex",
+    "agentState": {
+      "phase": "working",
+      "since": "2026-10-08T12:00:00Z",
+    },
+    "archived": false,
+    "cwd": "/synthetic",
+    "issueId": "root",
+    "lastActiveAt": "2026-10-08T12:00:00Z",
+    "sessionId": "seat",
+    "status": "live",
+  },
+]
+`;
+
+exports[`working > sidebar.statusFromChildren equals its old port 1`] = `false`;
+
+exports[`working > sidebar.timing equals its old port 1`] = `
+{
+  "phase": "working",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`working > sidebar.title equals its old port 1`] = `"root"`;
+
+exports[`working > sidebar.unread equals its old port 1`] = `false`;
+
+exports[`working > sidebar.unsnoozed equals its old port 1`] = `false`;
+
+exports[`working > sidebar.working equals its old port 1`] = `true`;

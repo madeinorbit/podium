@@ -1,3 +1,4 @@
+import { worklistView } from './worklist/view-model'
 import { attachPreferenceSource } from './preference-source'
 import type { SessionPhaseChange } from '@podium/client-core/sound'
 import { attachSettingsSource } from './settings-source'
@@ -223,6 +224,7 @@ export type WorklistRuntime = RowSourceRuntime &
   LocalsEngine & {
     readonly replica: RowSourceReplica
     readonly ui?: RoutedUiState
+    attachWorklistSelection?(selection: { readonly selectedId: string | null; select(id: string | null): void }): () => void
     attachSessionPhases?(read: () => readonly SessionPhaseChange[]): () => void
   }
 
@@ -300,6 +302,7 @@ export function createRuntimeWorklistPool(
   let stopWriter: (() => void) | undefined
   let locals: ReturnType<typeof createEngineLocals> | undefined
   let handle: WorklistPoolHandle | undefined
+  let stopSelection: (() => void) | undefined
   let stopHeader: (() => void) | undefined
   let stopSounds: (() => void) | undefined
   try {
@@ -323,7 +326,9 @@ export function createRuntimeWorklistPool(
         summaries: options.summaries,
         worklist: 'demand',
       },
+      runtime.attachWorklistSelection ? 'worklist' : 'locals',
     )
+    stopSelection = runtime.attachWorklistSelection?.(worklistView(handle.pool))
     if (options.preferences || options.settings) {
       if (!runtime.ui) throw new Error('Preferences require the existing runtime UI owner')
       attachPreferenceSource(handle.pool, runtime.ui)
@@ -353,6 +358,7 @@ export function createRuntimeWorklistPool(
     handle.pool.attachTransactions(transactions, true)
     stopWriter = attachRuntimeWriter(runtime, transactions)
   } catch (error) {
+    stopSelection?.()
     stopSounds?.()
     stopWriter?.()
     stopHeader?.()
@@ -372,6 +378,7 @@ export function createRuntimeWorklistPool(
       disposed = true
       // First: no action may reach a log that is going away.
       stopWriter?.()
+      stopSelection?.()
       stopSounds?.()
       spawnPools.delete(runtime)
       stopHeader?.()

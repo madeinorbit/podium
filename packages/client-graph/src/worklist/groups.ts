@@ -49,7 +49,7 @@ import { worklistView } from './view-model'
  * latch is one computed, so a click on any other row re-runs nothing here.
  */
 
-import { compareShallow, compareStructural, computed, type IObservableValue, makeObservable, observable } from 'mobx'
+import { compareShallow, compareStructural, computed, makeObservable, observable } from 'mobx'
 import { compareRank, type RowRank } from '../shared/row-view'
 import type { SliceGroup, SliceOrder } from '../shared/slice-types'
 import type { OwnPart } from '../views'
@@ -517,7 +517,6 @@ export class WorklistGroups {
 }
 
 export type WorklistGroupView = WorklistGroups & {
-  readonly foldLatch: IObservableValue<boolean>
   dispose(): void
 }
 
@@ -525,7 +524,6 @@ export type WorklistGroupView = WorklistGroups & {
 export function worklistGroups(pool: MobxPool, initiallyFolded = false): WorklistGroupView {
   return pool.sources.view('worklist.groups', () => {
     const view = worklistView(pool)
-    const foldLatch = view.foldLatch
     if (initiallyFolded) view.setFolded(true)
     const groups = new WorklistGroups({
       node: id => {
@@ -535,10 +533,10 @@ export function worklistGroups(pool: MobxPool, initiallyFolded = false): Worklis
           get visible() { return issue.placed }, get nestParent() { return issue.nestParent },
         }
       },
-      selectedId: () => pool.selection.keys().next().value ?? null,
-      foldLatch: () => foldLatch.get(),
+      selectedId: () => view.selectedId,
+      foldLatch: () => view.selectedWasFolded,
       demand: () => pool.worklist.need(),
     })
-    return Object.assign(groups, { foldLatch, dispose: () => groups.clear() })
+    return Object.assign(groups, { dispose: () => groups.clear() })
   })
 }

@@ -136,9 +136,9 @@ it('compares selection to its old keyed answer before and after replica eviction
       exits.set('root', 'evicted')
       pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'root', value: undefined }] })
     })
-    expect(view.selectionEvicted).toBe(pool.issueObject(view.selectedId!).exitKind !== undefined)
+    expect(view.selectionGone).toBe(true)
     expect(row.selected).toBe(view.selectedId === row.id)
     view.select(null)
-    expect(view.selectionEvicted).toBe(false)
+    expect(view.selectionGone).toBe(false)
   } finally { pool.dispose() }
 })

@@ -345,9 +345,9 @@ export class WorklistIssue implements HeldIssue, RowView {
       (this.aggregate.pending > 0 || this.unitsBelow.pending > 0)) ? true : undefined
   }
 
-  /** The selection local (a keyed read: only a change of THIS row's selection notifies). */
+  /** A scalar computed publishes only when this row gains or loses selection. */
   @lazy get selected(): boolean {
-    return this.worklist.selection.has(this.id)
+    return this.worklist.selectedId === this.id
   }
 
   // Links and history

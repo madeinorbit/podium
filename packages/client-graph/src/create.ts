@@ -1,4 +1,5 @@
 import type { LocalsSource, RowSource } from './shared/source'
+import { worklistView } from './worklist/view-model'
 import { MobxPool, type PoolLazyOptions } from './pool'
 
 export interface WorklistPoolHandle {
@@ -11,6 +12,7 @@ export function createWorklistPool(
   source: RowSource,
   locals: LocalsSource,
   loader: Omit<PoolLazyOptions, 'load' | 'issueIdByRef'> = {},
+  selectionOwner: 'locals' | 'worklist' = 'locals',
 ): WorklistPoolHandle {
   const row = source.row?.bind(source)
   if (row === undefined) {
@@ -42,7 +44,10 @@ export function createWorklistPool(
         : [...source.snapshot('worktree'), ...(source.companions?.() ?? [])],
   })
   const offRows = source.subscribe((event) => pool.apply(event))
-  const offLocals = locals.subscribe((changed) => pool.applyLocals(locals.get(), changed))
+  const offLocals = locals.subscribe((changed) => {
+    if (selectionOwner === 'locals') worklistView(pool).applyLocals(locals.get(), changed)
+    if (changed.has('coarseNow')) pool.applyLocals(locals.get(), new Set(['coarseNow']))
+  })
   return {
     pool,
     dispose(): void {

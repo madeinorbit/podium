@@ -1,7 +1,9 @@
-import { observable, observableRef, action, reaction, compareStructural } from 'mobx'
-import { companion } from '@podium/mobx-helpers'
+import { observable, observableRef, action } from 'mobx'
+import { lazy, companion } from '@podium/mobx-helpers'
 import type { IssueModel, ModelHost, ModelOf, SessionModel } from '../models'
 import type { MobxPool } from '../pool'
+import type { LocalsKey, SliceLocals } from '../shared/slice-types'
+import { worklistGroups } from './groups'
 import { WorklistIssue } from './issue'
 import { WorklistSession } from './session'
 import { WorklistWorktree } from './worktree'
@@ -23,12 +25,14 @@ export class Worklist {
       attention: { id: record.id, kind, listKey: `needs-you:${record.id}` },
     }
   })
-  readonly selection = observable.map<string, true>(undefined, { deep: false })
-  readonly foldLatch = observable.box(false)
-  private seenSelected: string | null = null
-  private readonly evicted = observable.box(false)
-  private readonly stopSelection: () => void
   @observable accessor selectedId: string | null = null
+  @observable accessor selectedWasFolded = false
+
+  @lazy get selectionGone(): boolean {
+    if (this.selectedId === null) return false
+    try { return this.pool.issueObject(this.selectedId).exitKind !== undefined }
+    catch (error) { if (error === LOADING) return false; throw error }
+  }
   @observableRef accessor layout: SidebarState = {}
   readonly host: ModelHost
   readonly desktop: SidebarIndex
@@ -52,30 +56,24 @@ export class Worklist {
   constructor(readonly pool: MobxPool) {
     this.host = pool
     this.desktop = new SidebarIndex(this)
-    this.stopSelection = reaction(
-      () => {
-        const id = this.selection.keys().next().value ?? null
-        return { id, resident: id === null ? null : pool.resident('issue', id) }
-      },
-      ({ id, resident }) => {
-        if (id !== this.seenSelected) this.seenSelected = null
-        if (id !== null && resident !== 'absent') this.seenSelected = id
-        this.evicted.set(id !== null && resident === 'absent' && this.seenSelected === id)
-      },
-      { fireImmediately: true, equals: compareStructural },
-    )
+
   }
 
   @action select(id: string | null): void {
     if (id === this.selectedId) return
-    if (this.selectedId !== null) this.selection.delete(this.selectedId)
-    if (id !== null) this.selection.set(id, true)
+    this.selectedWasFolded = id !== null && worklistGroups(this.pool).placementOf(id)?.closed === true
     this.selectedId = id
   }
 
   @action setLayout(layout: SidebarState): void { this.layout = layout }
-  @action setFolded(folded: boolean): void { this.foldLatch.set(folded) }
-  get selectionEvicted(): boolean { return this.evicted.get() }
+  @action setFolded(folded: boolean): void { this.selectedWasFolded = folded }
+
+  /** Standalone replay sources can supply selection. Runtime selection is
+   * adopted by the worklist instead, and that source carries only the clock. */
+  @action applyLocals(locals: SliceLocals, changed: ReadonlySet<LocalsKey>): void {
+    if (changed.has('selectedIssueId')) this.select(locals.selectedIssueId)
+    if (changed.has('selectedIssueWasFolded')) this.setFolded(locals.selectedIssueWasFolded === true)
+  }
   sections(state: SidebarState = this.layout) { return this.desktop.sections(state) }
   mobileSections(state: MobileWorkState = this.layout) { return this.mobileLayout(state).value.get() }
   desktopRow(id: string) { return this.desktop.row(id) }
@@ -94,7 +92,6 @@ export class Worklist {
     const tree = this.pool.model('worktree', ref.id)
     return tree === undefined ? undefined : this.tree(tree).mobile
   }
-  dispose() { this.stopSelection() }
 
   knownRow(id: string): WorklistIssue | undefined {
     return this.pool.tables.issue.has(id) || this.pool.residency?.known('issue', id) === true

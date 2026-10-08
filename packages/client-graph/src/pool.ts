@@ -253,8 +253,6 @@ export class MobxPool {
   readonly relations: RelationReader
   /** The relation engine itself. */
   readonly graph: PoolRelations
-  /** The selection local: at most one entry, the selected issue id. */
-  get selection(): ObservableMap<string, true> { return worklistView(this).selection }
   /**
    * The read-state lane (POD-4686): each known issue's read cursor, per-key
    * tracked, readable by id only. A mark-read writes one key; only that row's
@@ -499,7 +497,7 @@ export class MobxPool {
       // membership change yields the new member only; the family is never
       // yielded here. Closure-held, ids only.
       seatList: (id) => this.seatList(id),
-      selected: (id) => this.selection.has(id),
+      selected: (id) => worklistView(this).row(this.issueObject(id)).selected,
       reached: (t) => this.clock.reached(t),
       passed: (t) => this.clock.passed(t),
     }
@@ -1079,19 +1077,10 @@ export class MobxPool {
 
   /** One locals notification, one action: only the keys it names. */
   applyLocals(locals: SliceLocals, changed: ReadonlySet<LocalsKey>): void {
-    const selection = changed.has('selectedIssueId')
-    const latch = changed.has('selectedIssueWasFolded')
+    worklistView(this).applyLocals(locals, changed)
     const clock = changed.has('coarseNow')
-    if (!selection && !latch && !clock) return
+    if (!clock) return
     runInAction(() => {
-      if (selection && locals.selectedIssueWasFolded === undefined) {
-        worklistGroups(this).foldLatch.set(
-          locals.selectedIssueId !== null &&
-            worklistGroups(this).placementOf(locals.selectedIssueId)?.closed === true,
-        )
-      }
-      if (selection) this.select(locals.selectedIssueId)
-      if (latch) worklistGroups(this).foldLatch.set(locals.selectedIssueWasFolded === true)
       if (clock) {
         this.clock.advance(locals.coarseNow)
         sidebarRosterView(this).advanceClock(locals.coarseNow)
@@ -1120,7 +1109,7 @@ export class MobxPool {
       for (const entity of ENTITIES) this.tables[entity].clear()
       this.graph.clear()
       this.clearSeats()
-      this.selection.clear()
+      worklistView(this).select(null)
       this.readStates.clear()
       this.seatVerdicts.clear()
       this.issueCount.set(0)

@@ -1086,6 +1086,27 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   /** Writes are immediate; subscribers see only the completed batch, including
    *  its reaction cascade. Reactions read state(), never the published snapshot.
    *  A destroyed runtime refuses every asynchronous writer at this boundary. */
+  /** Transfer the selection once; every legacy state read and write then
+   * delegates to the always-on worklist. Detach takes it back when that view
+   * disappears, before another principal or pool can attach. */
+  attachWorklistSelection(selection: {
+    readonly selectedId: string | null
+    select(id: string | null): void
+  }): () => void {
+    selection.select(this.state.selectedIssueId)
+    const read = () => selection.selectedId as IssueId | null
+    Object.defineProperty(this.state, 'selectedIssueId', {
+      configurable: true, enumerable: true, get: read,
+      set: (id: IssueId | null) => selection.select(id),
+    })
+    return () => {
+      if (Object.getOwnPropertyDescriptor(this.state, 'selectedIssueId')?.get !== read) return
+      Object.defineProperty(this.state, 'selectedIssueId', {
+        configurable: true, enumerable: true, writable: true, value: read(),
+      })
+    }
+  }
+
   private apply(patch: Partial<EngineState>): void {
     if (this.destroyed) return
     if ('machines' in patch) this.lastMachinesMaterial = undefined
