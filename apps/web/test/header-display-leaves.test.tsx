@@ -86,6 +86,7 @@ it('renewal prepares zero displayed labels and a selected title updates only its
   expect(view.container.querySelector('.status-strip-issue-title')?.textContent).toBe('Selected title changed')
   expect(labelPreparations).not.toHaveBeenCalled()
   expect(unrelated.renders).toBe(shellRenders)
+  for (const read of reads) read.mockClear()
   await act(async () => fixture.patch('session', 'synthetic-session-1', { title: 'Own session changed', name: 'Own roster name' }))
   expect(view.container.textContent).toContain('Own session changed')
   expect(view.getByTestId('status-strip-roster').textContent).toContain('Own roster name')
