@@ -1,5 +1,5 @@
 {
-  "base": "f1a6befab8ab2f260a9418e1c080745c4c254a22",
+  "base": "48ec6b08630afcb6cf9922ecf19d9feb64941512",
   "readerContract": "poolIssuePaint / mobileRowPaint inside the watched read; addressed nesting and execution fields identical across scales",
   "readers": [
     {
@@ -60,8 +60,8 @@
       "action": "open-menu",
       "kind": "elements",
       "reader": "consumer:launcher.open-menu",
-      "at1x": 8700,
-      "at4x": 34710,
+      "at1x": 8702,
+      "at4x": 34712,
       "neighbourhood1x": 6,
       "neighbourhood4x": 6,
       "passed": false
@@ -100,8 +100,8 @@
       "action": "navigate-by-ref",
       "kind": "elements",
       "reader": "consumer:navigation.navigate-by-ref",
-      "at1x": 92009,
-      "at4x": 365620,
+      "at1x": 91992,
+      "at4x": 365603,
       "neighbourhood1x": 7,
       "neighbourhood4x": 7,
       "passed": false
