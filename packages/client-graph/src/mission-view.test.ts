@@ -1,10 +1,14 @@
 import { autorun, runInAction } from 'mobx'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from './pool'
-import { missionView, readMissionHandoff, readMissionView, settled } from './mission-view'
+import { missionView, readMissionHandoff, readMissionView, readWorkspaceMission, settled } from './mission-view'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
+import { SHELL_SUMMARIES } from './shell-schema'
+import { createPoolProjection } from './runtime-pool'
 import { LOADING } from './worklist/rollup'
 import { sessionSeats } from './session-seats'
 
@@ -18,15 +22,37 @@ const session = (sessionId: string, issueId: string, patch: Record<string, unkno
   title: 'Agent', name: 'Named agent', agentKind: 'codex', status: 'exited', archived: true, createdAt: stamp, lastActiveAt: stamp,
   readAt: stamp, unread: false, ...patch }) as unknown as SessionView
 function tracked<T>(read: () => T): T { let value!: T; const stop = autorun(() => { value = read() }); stop(); return value }
-function open(rows: IssueNavigationModel[], seats: SessionView[]) {
+function open(rows: IssueNavigationModel[], seats: SessionView[], summaries: { issue: readonly string[]; session: readonly string[] } = MISSION_VIEW_SUMMARIES) {
   const input = new Map<string, object>([...rows.map(row => [`issue:${row.id}`, row] as const), ...seats.map(row => [`session:${row.sessionId}`, row] as const)])
   const load = vi.fn((entity: string, id: string) => input.get(`${entity}:${id}`))
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, { load, summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {} })
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, { load, summaries, schedule: () => () => {} })
   pools.push(pool)
   pool.apply({ type: 'replace', rows: [...rows.map(value => ({ kind: 'issue' as const, id: value.id, value })),
     ...seats.map(value => ({ kind: 'session' as const, id: value.sessionId, value }))] })
   return { pool, load, reader: missionView(pool) }
 }
+
+it.each([
+  ['workspace', (reader: ReturnType<typeof missionView>) => readWorkspaceMission(reader, 'root', 'root')],
+  ['mission pane', (reader: ReturnType<typeof missionView>) => readMissionView(reader, 'root')],
+  ['handoff', (reader: ReturnType<typeof missionView>) => readMissionHandoff(reader, 'root')],
+] as const)('renders a cold %s history as loading and recovers after hydration', (_name, read) => {
+  // The shell makes an archived session's display summary usable before its
+  // handoff/prompt history is resident, just as the production workspace does.
+  const { pool, reader } = open([issue('root')], [session('old', 'root')], {
+    issue: MISSION_VIEW_SUMMARIES.issue,
+    session: [...new Set([...MISSION_VIEW_SUMMARIES.session, ...SHELL_SUMMARIES.session])],
+  })
+  expect(pool.tables.session.has('old')).toBe(false)
+  const projection = createPoolProjection(pool, () => read(reader))
+  const stop = projection.subscribe(() => {})
+  const Surface = () => createElement('output', null, projection.getSnapshot() === LOADING ? 'Loading' : 'Ready')
+  try {
+    expect(renderToStaticMarkup(createElement(Surface))).toBe('<output>Loading</output>')
+    expect(pool.hydrate()).toBe(1)
+    expect(renderToStaticMarkup(createElement(Surface))).toBe('<output>Ready</output>')
+  } finally { stop(); projection.dispose() }
+})
 
 it('uses archived-inclusive relations, small scalar summaries and one batched load for cold display', () => {
   const { pool, load, reader } = open([coldRoot()], [session('old', 'root')])
