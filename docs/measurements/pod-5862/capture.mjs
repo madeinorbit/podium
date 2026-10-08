@@ -34,18 +34,22 @@ function processes(pid) {
 const server = await chromium.launchServer({headless:true,executablePath:'/home/mgw/.cache/ms-playwright/chromium-1234/chrome-linux64/chrome',args:['--no-sandbox','--disable-dev-shm-usage','--enable-precise-memory-info']})
 const browser = await chromium.connect(server.wsEndpoint())
 save('owned-pids.json',{collector:process.pid,browser:server.process().pid})
+save('browser-endpoint.json',{endpoint:server.wsEndpoint()})
 const context = await browser.newContext({ viewport:{width:1600,height:1000} })
 await context.addCookies([{name:'podium_session',value:token,url}])
 await context.addInitScript(init)
 const page = await context.newPage()
 const cdp = await context.newCDPSession(page)
 const samples=[]
+const failures=[]
+page.on('pageerror', e=>{ failures.push({name:e.name,message:e.message,stack:e.stack}); save('errors-private.json',failures); console.log(JSON.stringify({event:'page-error',count:failures.length})) })
 async function sample(minute, phase) {
   await cdp.send('HeapProfiler.collectGarbage')
   await page.waitForTimeout(150)
   await cdp.send('HeapProfiler.collectGarbage')
   const heap=await cdp.send('Runtime.getHeapUsage')
   const dom=await cdp.send('Memory.getDOMCounters')
+  const metrics=Object.fromEntries((await cdp.send('Performance.getMetrics')).metrics.map(x=>[x.name,x.value]))
   const browserStats=await page.evaluate(async () => {
     const p=globalThis.__memoryProbe
     const animations={}
@@ -56,7 +60,7 @@ async function sample(minute, phase) {
     for(const info of databases) { if(!info.name)continue; await new Promise(resolve => { const request=indexedDB.open(info.name); request.onerror=()=>resolve(); request.onsuccess=async()=>{ const db=request.result; try { for(const name of db.objectStoreNames) { const tx=db.transaction(name,'readonly'); const count=await new Promise(r=>{ const q=tx.objectStore(name).count(); q.onsuccess=()=>r(q.result); q.onerror=()=>r(null) }); stores.push({name,count}) } } finally { db.close(); resolve() } } }) }
     return {commits:p.commits,unmounts:p.unmounts,errors:p.errors,messages:p.messages,bytes:p.bytes,elements:document.querySelectorAll('*').length,issueRows:document.querySelectorAll('[data-issue-row]').length,animations,storageBytes:usage?.usage??null,storageDetails:usage?.usageDetails??null,idbDatabaseCount:databases.length,idbStores:stores,serviceWorkerControlled:!!navigator.serviceWorker?.controller,resources:performance.getEntriesByType('resource').length}
   })
-  const value={minute,phase,at:new Date().toISOString(),heap,dom,...browserStats,processes:processes(server.process().pid)}
+  const value={minute,phase,at:new Date().toISOString(),heap,dom,metrics,...browserStats,processes:processes(server.process().pid)}
   samples.push(value); save('samples.json',samples); console.log(JSON.stringify(value))
 }
 async function snapshot(name) {
@@ -70,12 +74,13 @@ async function snapshot(name) {
 try {
   await cdp.send('Performance.enable')
   await page.goto(url+'?e2e=1',{waitUntil:'domcontentloaded',timeout:30000})
-  await page.waitForFunction(()=>document.querySelectorAll('[data-issue-row]').length>=2,undefined,{timeout:180000})
+  console.log(JSON.stringify({event:'loaded', ...(await page.evaluate(()=>({elements:document.querySelectorAll('*').length,rows:document.querySelectorAll('[data-issue-row]').length,password:!!document.querySelector('input[type=password]'),workScroll:!!document.querySelector('[data-testid=work-scroll]'),errors:globalThis.__memoryProbe.errors,loaderText:document.querySelector('[data-testid=work-scroll]')?undefined:document.body.textContent.slice(0,350),inputs:[...document.querySelectorAll('input')].map(e=>e.type)})))}))
+  await page.waitForFunction(()=>!!document.querySelector('[data-testid=work-scroll]'),undefined,{timeout:180000}).catch(async e=>{console.log(JSON.stringify({event:'startup-failure',...(await page.evaluate(async()=>({auth:await fetch('/auth/status').then(r=>r.json()).then(v=>({authed:v.authed,needsAuth:v.needsAuth,readiness:v.readiness?.state})),elements:document.querySelectorAll('*').length})))}));throw e})
   await page.waitForTimeout(10000)
   const identity=await page.evaluate(async()=>{ const v=await fetch('/version').then(r=>r.json()); return {appVersion:v.appVersion,sourceDigest:v.sourceDigest,web:v.web?.appVersion,webDigest:v.web?.digest} })
-  save('provenance.json',identity); console.log(JSON.stringify({event:'hydrated',identity}))
+  if(args.has('dist'))identity.bundleManifest=(()=>{const m=JSON.parse(readFileSync(join(args.get('dist'),'podium-build-manifest.json'),'utf8'));return {sourceCommit:m.sourceCommit,buildStamp:m.buildStamp,fileCount:m.fileCount}})(); save('provenance.json',identity); console.log(JSON.stringify({event:'hydrated',identity}))
   await sample(0,'idle')
-  if(args.has('snapshots'))await snapshot('start')
+  if(args.has('start-snapshot'))await snapshot('start')
   const started=Date.now()
   for(let minute=1;minute<=minutes;minute++) {
     if(minute===Number(args.get('warm-at')??2)) {
