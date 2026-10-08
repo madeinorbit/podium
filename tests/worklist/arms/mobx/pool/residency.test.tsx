@@ -1210,11 +1210,12 @@ describe('history rule warming', () => {
     expect(r.pool.residency?.isCold('session', 'history-starter')).toBe(true)
   })
 
-  it('a renewed keeper loads a cold agent parent only when its live child needs the nesting verdict', () => {
-    for (const lane of [false, true]) {
+  it.each(['issue', 'lane'] as const)(
+    'a renewed keeper loads a cold agent parent only when its live child needs the nesting verdict (%s binding)',
+    (mode) => {
       const r = rig()
       const worktreePath = '/history-rule/parent-lane'
-      const binding = lane ? { cwd: `${worktreePath}/agent` } : { issueId: 'history-parent' }
+      const binding = mode === 'lane' ? { cwd: `${worktreePath}/agent` } : { issueId: 'history-parent' }
       r.push({ type: 'update', rows: [issue('history-outer', { archived: true }),
         issue('history-parent', { parentId: 'history-outer', audience: 'agent', worktreePath,
           stage: 'done', closedAt: old, closedReason: 'done' }),
@@ -1228,8 +1229,8 @@ describe('history rule warming', () => {
       expect(r.pool.residency?.isCold('issue', 'history-parent')).toBe(false)
       expect(r.handle.snapshot().rowsById['history-child']).toBeUndefined()
       r.dispose()
-    }
-  })
+    },
+  )
 })
 
 describe('excluded issue filings', () => {
