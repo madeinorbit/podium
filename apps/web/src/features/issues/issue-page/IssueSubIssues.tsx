@@ -71,7 +71,7 @@ const SubTaskRow = observer(function SubTaskRow({
   child: IssueViewModel
   workingAgents: number
   onNavigate: (id: IssueId) => void
-  onStatusPick: (value: string) => void
+  onStatusPick: (issue: IssueViewModel, value: string) => void
 }): JSX.Element {
   const count =
     'confirmedWorkingAgents' in child ? (child as PageIssue).confirmedWorkingAgents : workingAgents
@@ -91,7 +91,7 @@ const SubTaskRow = observer(function SubTaskRow({
       {/* The glyph is the child's status AND the door onto changing it — a
           sub-task is most often moved from the parent you are reading, not from
           its own page (POD-1271). */}
-      <IssueStatusPicker issue={child} onPick={onStatusPick} />
+      <IssueStatusPicker issue={child} onPick={(value) => onStatusPick(child, value)} />
       <span className="w-[56px] flex-none font-mono shell-type-micro text-text-faint tabular-nums">
         {issueDisplayRef(child)}
       </span>
@@ -173,7 +173,7 @@ export const IssueSubIssues = observer(function IssueSubIssues({
           child={child}
           workingAgents={legacyWorkers?.get(child.id) ?? 0}
           onNavigate={onNavigate}
-          onStatusPick={(value) => status.pick(child, value)}
+          onStatusPick={status.pick}
         />
       ))}
       {/* The close guard for a CHILD, mounted beside the list rather than in

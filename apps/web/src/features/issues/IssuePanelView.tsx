@@ -30,7 +30,7 @@ import {
   Truck,
 } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useOperatorFocus } from '@/app/operator-focus'
 import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import { MediaLightbox } from '@/components/MediaLightbox'
@@ -200,7 +200,7 @@ const UnifiedRow = observer(function UnifiedRow({
   sub: IssueViewModel
   meta: string
   /** The row's glyph is a status picker (POD-1271); the panel applies the pick. */
-  onStatusPick: (value: string) => void
+  onStatusPick: (issue: IssueViewModel, value: string) => void
   /** This row's work is stopped on the operator. The mark is the state word in
    *  attention ink — the SAME mark the sidebar's row (UnifiedIssueRow) and the
    *  Flight Deck's task line use, so one task never reads three ways in three
@@ -211,14 +211,14 @@ const UnifiedRow = observer(function UnifiedRow({
    *  wants you the same way — but red, matching the sidebar row and the session
    *  row that say the same thing about the same agent (POD-1601). */
   errored?: boolean
-  onOpen: () => void
+  onOpen: (issue: IssueViewModel) => void
 }): JSX.Element {
   const closed = isFinished(sub)
   return (
     <button
       data-pressable
       type="button"
-      onClick={onOpen}
+      onClick={() => onOpen(sub)}
       data-needs-you={needs || undefined}
       title={`${issueDisplayRef(sub)} ${'authoredTitle' in sub ? (sub as PageIssue).authoredTitle : sub.title}`}
       className={cn(
@@ -227,7 +227,7 @@ const UnifiedRow = observer(function UnifiedRow({
         sub.archived && 'opacity-60',
       )}
     >
-      <IssueStatusPicker issue={sub} onPick={onStatusPick} />
+      <IssueStatusPicker issue={sub} onPick={(value) => onStatusPick(sub, value)} />
       <span className="min-w-0 truncate">
         {/* The ref is an address, not part of the sentence — mono, and the
             faintest ink on the row, so the title is what the eye lands on. */}
@@ -862,11 +862,6 @@ export const IssuePanelBody = observer(function IssuePanelBody({
   // came to wear a progress bar reading "0 of 1 done".
   const [showCompleted, setShowCompleted] = useState(false)
   const [showRetired, setShowRetired] = useState(false)
-  const children = detail.children
-  if (children === LOADING) throw LOADING
-  // Typed relations (POD-85): the compact disclosure surface — the sidebar
-  // whispers (⤷ tick), this panel names every edge.
-  const relations = issue.relationGroups
 
   /**
    * Move the SHELL to a task (POD-1151).
@@ -878,7 +873,7 @@ export const IssuePanelBody = observer(function IssuePanelBody({
    * issue the task hangs from (itself when it already is one), then FOCUS the
    * task within it.
    */
-  const showInDeck = (target: IssueViewModel): void => {
+  const showInDeck = useCallback((target: IssueViewModel): void => {
     const root = page.views.destination(target.id)
     if (!root || typeof root === 'symbol') return
     const resolved = page.views.row(target.id).dockActiveSessions
@@ -898,18 +893,22 @@ export const IssuePanelBody = observer(function IssuePanelBody({
       void markSessionRead(targetSession.sessionId)
     }
     setView('workspace')
-  }
+  }, [page.views, setSelectedIssueId, setFocusedIssueId, markIssueRead, setPane, markSessionRead, setView])
 
   /** What a linked task row does: browse deeper in the explorer, or — with no
    *  trail to browse in — move the shell as it always did. */
-  const openLinked = (target: IssueViewModel): void => {
+  const openLinked = useCallback((target: IssueViewModel): void => {
     if (onNavigate) {
       void markIssueRead(target.id)
       onNavigate(target.id)
       return
     }
     showInDeck(target)
-  }
+  }, [onNavigate, markIssueRead, showInDeck])
+
+  const children = detail.children
+  if (children === LOADING) throw LOADING
+  const relations = issue.relationGroups
 
   // NO ISSUE, NO PANEL OF ITS OWN. An id that resolves to nothing is not a
   // state worth describing — the explorer's own level 0 is what "no task" looks
@@ -1068,8 +1067,8 @@ export const IssuePanelBody = observer(function IssuePanelBody({
               <UnifiedRow
                 sub={parent}
                 meta={parent.archived ? 'Archived' : 'Parent'}
-                onOpen={() => openLinked(parent)}
-                onStatusPick={(value) => rowStatus.pick(parent, value)}
+                onOpen={openLinked}
+                onStatusPick={rowStatus.pick}
               />
             ) : (
               <Hint>{issue.parentId}</Hint>
@@ -1089,8 +1088,8 @@ export const IssuePanelBody = observer(function IssuePanelBody({
                 key={sub.id}
                 sub={sub}
                 views={page.views}
-                onOpen={() => openLinked(sub)}
-                onStatusPick={(value) => rowStatus.pick(sub, value)}
+                onOpen={openLinked}
+                onStatusPick={rowStatus.pick}
               />
             ))}
             {doneChildren.length > 0 && (
@@ -1106,8 +1105,8 @@ export const IssuePanelBody = observer(function IssuePanelBody({
                       key={sub.id}
                       sub={sub}
                       meta="Done"
-                      onOpen={() => openLinked(sub)}
-                      onStatusPick={(value) => rowStatus.pick(sub, value)}
+                      onOpen={openLinked}
+                      onStatusPick={rowStatus.pick}
                     />
                   ))}
               </>
@@ -1133,8 +1132,8 @@ export const IssuePanelBody = observer(function IssuePanelBody({
                       key={`${group.section}-${entry.direction}-${entry.id}`}
                       sub={target}
                       meta={entry.type}
-                      onOpen={() => openLinked(target)}
-                      onStatusPick={(value) => rowStatus.pick(target, value)}
+                      onOpen={openLinked}
+                      onStatusPick={rowStatus.pick}
                     />
                   ) : (
                     <div
@@ -1232,8 +1231,8 @@ const DockChildRow = observer(function DockChildRow({
 }: {
   sub: PageIssue
   views: ReturnType<typeof issuePages>
-  onOpen: () => void
-  onStatusPick: (value: string) => void
+  onOpen: (issue: IssueViewModel) => void
+  onStatusPick: (issue: IssueViewModel, value: string) => void
 }) {
   const sessions = views.row(sub.id).dockActiveSessions
   if (sessions === LOADING) throw LOADING
