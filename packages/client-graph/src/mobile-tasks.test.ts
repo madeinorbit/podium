@@ -325,13 +325,13 @@ it('keeps phone board row calls, derivations and collection elements flat at a f
   const one = await workAt(1),
     four = await workAt(4)
   for (let i = 0; i < one.length; i++) {
-    for (const kind of ['rows', 'derivations', 'elements'] as const)
-      expect(four[i]![kind]).toBeLessThanOrEqual(one[i]![kind]!)
     console.info('[phone Tasks work]', {
       action: ['expand', 'search', 'route', 'title', 'heartbeat'][i],
       at1x: one[i],
       at4x: four[i],
     })
+    for (const kind of ['rows', 'derivations', 'elements'] as const)
+      expect(four[i]![kind]).toBeLessThanOrEqual(one[i]![kind]!)
   }
   const planted1 = await workAt(1, true),
     planted4 = await workAt(4, true)
