@@ -615,7 +615,10 @@ export function AgentPanel({
     focusOnMount: false,
     focusWhenReady: true,
     test: E2E,
-    testSessions: () => testPool ? readSessions(testPool).map(row => ({ sessionId: row.sessionId, title: row.title })) : [],
+    testSessions: () => {
+      const rows = testPool ? readSessions(testPool) : undefined
+      return Array.isArray(rows) ? rows.map(row => ({ sessionId: row.sessionId, title: row.title })) : []
+    },
     echoLatencyEnabled,
     // Applied synchronously in onMounted below. Passing it here would make
     // useTerminalSession apply it a second time in its initial appearance
