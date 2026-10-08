@@ -21,6 +21,9 @@ import { FEED_SPELLING } from '@podium/client-graph/shared/repo-from-lane'
 import { type EntityName, SCHEMA } from '@podium/client-graph/shared/schema'
 import { harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { IssueModel } from '@podium/client-graph/models'
+import { MobxPool } from '@podium/client-graph/pool'
+import type { RowRecord } from '@podium/client-graph/shared/source'
+import { autorun } from 'mobx'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
 import { ENTITIES } from '@podium/client-graph/tables'
@@ -28,6 +31,32 @@ import { ENTITIES } from '@podium/client-graph/tables'
 installMobxWarnTrap()
 
 describe('schema fields on models', () => {
+  it('answers document bodies as live text while preserving absent notes', () => {
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+    const row = (description: unknown, notes?: unknown): RowRecord => ({
+      kind: 'issue', id: 'body', value: { id: 'body', description, notes },
+    }) as RowRecord
+    pool.apply({ type: 'replace', rows: [row({ value: 'Description' }, { value: 'Notes' })] })
+    const issue = pool.issueObject('body')
+    const answers: [string, string | undefined][] = []
+    const stop = autorun(() => answers.push([issue.description, issue.notes]))
+    try {
+      expect(answers.at(-1)).toEqual(['Description', 'Notes'])
+      expect(issue.description.trim()).toBe('Description')
+      // Raw documents stay in storage; every model reader gets the text answer.
+      expect(issue.storedField('description')).toEqual({ value: 'Description' })
+      pool.apply({ type: 'update', rows: [row({ value: 'Updated' }, { value: '' })] })
+      expect(answers.at(-1)).toEqual(['Updated', ''])
+      pool.apply({ type: 'update', rows: [row('Legacy text', 'Legacy notes')] })
+      expect(answers.at(-1)).toEqual(['Legacy text', 'Legacy notes'])
+      pool.apply({ type: 'update', rows: [row(undefined)] })
+      expect(answers.at(-1)).toEqual(['', undefined])
+    } finally {
+      stop()
+      pool.dispose()
+    }
+  })
+
   it('reads every declared field of every entity off a model, from the fed row', () => {
     const corpus = buildCorpus(1)
     const projections = new Map<string, (typeof corpus.issueProjections)[number]>(
