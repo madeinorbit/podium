@@ -72,13 +72,49 @@ it.each([1, 4])('matches the old observed query walk and records heartbeat bookk
     stops.push(autorun(() => { recent = pool.queries.ids({ kind: 'headerRecentSession' }) }))
     stops.push(autorun(() => { count = pool.queries.count('session'); setup = pool.queries.setupSessionCount(); machine = pool.queries.latestMachineSession(['machine']) }))
     const revisions = vi.spyOn(source, 'readerRevision'), membership = vi.spyOn(source, 'readerContains')
+    const checks = pool.queries.counts.revisionChecks
+    const probes = pool.queries.counts.membershipChecks
     apply({ type: 'update', rows: [session('active', { lastActiveAt: '2026-10-09' })] })
     console.info('[query heartbeat]', JSON.stringify({ scale, revisionChecks: revisions.mock.calls.length,
-      membershipChecks: membership.mock.calls.length }))
+      membershipChecks: membership.mock.calls.length,
+      allRevisionChecks: pool.queries.counts.revisionChecks - checks,
+      allMembershipChecks: pool.queries.counts.membershipChecks - probes }))
+    expect(revisions.mock.calls.length).toBe(0)
+    expect(membership.mock.calls.length).toBe(0)
+    expect(pool.queries.counts.revisionChecks - checks).toBe(1)
+    expect(pool.queries.counts.membershipChecks - probes).toBe(0)
     apply({ type: 'update', rows: [session('active', { archived: true }), session('other', { issueId: 'two' })] })
     apply({ type: 'update', rows: [issue('one', { priority: 1, stage: 'proposed', worktreePath: '/repo' })] })
     apply({ type: 'update', rows: [session('added', { issueId: 'two' })] })
     apply({ type: 'update', rows: [{ kind: 'session', id: 'added', value: undefined }] })
     apply({ type: 'replace', rows: [...rows.values()] })
+  } finally { for (const stop of stops) stop(); pool.dispose() }
+})
+
+it('routes projected membership once per changed key and retains both projections on replacement', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  const session = (patch: object = {}): RowRecord => ({ kind: 'session', id: 'a', value: {
+    sessionId: 'a', agentKind: 'codex', status: 'live', archived: false, cwd: '/repo', ...patch,
+  } } as RowRecord)
+  let first: unknown, second: unknown
+  const question = { kind: 'inboxSessions' } as const
+  pool.apply({ type: 'replace', rows: [session()] })
+  const stops = [
+    autorun(() => { first = pool.queries.project(question, 'first', id => id) }),
+    autorun(() => { second = pool.queries.project(question, 'second', id => id) }),
+  ]
+  try {
+    expect(first).toEqual(['a']); expect(second).toEqual(['a'])
+    let before = pool.queries.counts.membershipChecks
+    pool.apply({ type: 'update', rows: [session({ lastActiveAt: '2026-10-09' })] })
+    expect(pool.queries.counts.membershipChecks - before).toBe(0)
+    before = pool.queries.counts.membershipChecks
+    pool.apply({ type: 'update', rows: [session({ archived: true })] })
+    expect(pool.queries.counts.membershipChecks - before).toBe(2)
+    expect(first).toEqual([]); expect(second).toEqual([])
+    pool.apply({ type: 'replace', rows: [session()] })
+    expect(first).toEqual(['a']); expect(second).toEqual(['a'])
+    pool.apply({ type: 'update', rows: [session({ archived: true })] })
+    expect(first).toEqual([]); expect(second).toEqual([])
   } finally { for (const stop of stops) stop(); pool.dispose() }
 })
