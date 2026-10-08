@@ -60,7 +60,13 @@ describe('IndexedDB connection lifecycle', () => {
       view.cache.applyAtomic(
         {
           operations: [
-            { kind: 'upsert', entity: 'issue', entityId: 'ADA-1', value: { title: 'saved' } },
+            {
+              kind: 'upsert',
+              entity: 'issue',
+              entityId: 'ADA-1',
+              value: { title: 'saved' },
+              provenance: { seq: 1 },
+            },
           ],
           cursor: CURSOR,
         },
@@ -111,7 +117,7 @@ describe('IndexedDB connection lifecycle', () => {
       }
       const durable = await readDurable(factory)
       expect(durable[ENTITY_STORE]).toMatchObject([
-        { entityId: 'ADA-1', value: { title: 'saved' } },
+        { entityId: 'ADA-1', value: { title: 'saved' }, provenance: { seq: 1 } },
       ])
       expect(durable[META_STORE]).toMatchObject([{ key: 'cursor', value: CURSOR }])
       expect(durable[OUTBOX_STORE]).toMatchObject([{ record: RECORD }])
@@ -129,13 +135,25 @@ describe('IndexedDB connection lifecycle', () => {
     opens.mock.results[0]!.value.result.close()
     view.cache.applyAtomic({
       operations: [
-        { kind: 'upsert', entity: 'issue', entityId: 'ADA-1', value: { title: 'first' } },
+        {
+          kind: 'upsert',
+          entity: 'issue',
+          entityId: 'ADA-1',
+          value: { title: 'first' },
+          provenance: { seq: 1 },
+        },
       ],
       cursor: CURSOR,
     })
     view.cache.applyAtomic({
       operations: [
-        { kind: 'upsert', entity: 'issue', entityId: 'ADA-1', value: { title: 'second' } },
+        {
+          kind: 'upsert',
+          entity: 'issue',
+          entityId: 'ADA-1',
+          value: { title: 'second' },
+          provenance: { seq: 2 },
+        },
       ],
       cursor: { ...CURSOR, seq: 2 },
     })
