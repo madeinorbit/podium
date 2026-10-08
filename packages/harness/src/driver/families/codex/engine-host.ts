@@ -153,6 +153,8 @@ export function evaluateCodexVersionProbe(output: string, ok: boolean): CodexPro
 export function codexAppServerConfigArgs(input: {
   /** The session's MCP declaration, forwarded by the driver from `SessionSpec`. */
   mcpServers?: { transport: 'path'; path: string } | { transport: 'inline'; config: string }
+  /** The session's instructions, as Codex's developer instructions. */
+  instructions?: string
   /** Reads a `transport: 'path'` config off disk. Injected so this stays a pure
    *  function of its inputs in tests. */
   readConfig?(path: string): string | undefined
@@ -184,6 +186,11 @@ export function codexAppServerConfigArgs(input: {
           ['-c', 'sandbox_workspace_write.network_access=true']
         : []),
       ...mcp.args,
+      // The terminal adapter's own override, so a session's instructions reach
+      // Codex the same way whichever driver runs it (POD-5814).
+      ...(input.instructions
+        ? ['-c', `developer_instructions=${JSON.stringify(input.instructions)}`]
+        : []),
     ],
     env: mcp.env,
   }
@@ -609,6 +616,7 @@ export function createCodexEngineHost(deps: CodexEngineHostDeps): CodexRuntimeHo
 
       const config = codexAppServerConfigArgs({
         ...(input.mcpServers ? { mcpServers: input.mcpServers } : {}),
+        ...(input.instructions ? { instructions: input.instructions } : {}),
         readConfig: (path) => {
           try {
             return readFileSync(path, 'utf8')

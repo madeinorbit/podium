@@ -34,7 +34,7 @@ vi.mock('./runtime.js', async (importOriginal) => {
 import { createOpencodeSessionRuntime } from './session.js'
 import { opencodeFlavor } from './engine-facts.js'
 import { manifestFor } from '../../../registry.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
+import { createMemoryDriverSlots, serverFamilyLaunch } from '../../testing/index.js'
 
 function world() {
   const sessionId = 'opencode-status-test' as SessionId
@@ -114,7 +114,7 @@ describe('opencode daemon turn status', () => {
   it('publishes working from the accepted turn before provider status arrives', async () => {
     const w = world()
 
-    await w.daemon.launch({ sessionId: w.sessionId, cwd: '/work' })
+    await w.daemon.launch(serverFamilyLaunch({ sessionId: w.sessionId, cwd: '/work' }))
     expect(
       w.sent.find((message) => message.type === 'bind'),
     ).toMatchObject({ attachKinds: ['client'] })

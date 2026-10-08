@@ -96,7 +96,6 @@ function world(): World {
     },
     sessionCwdTracker: { clear: () => {}, setLaunchCwd: async () => {} },
     sessionBinding: { transition: async () => ({ status: 'unchanged' }) },
-    primeInjector: { reset: () => {} },
     reattachGate: (fn: () => Promise<void>) => fn(),
     tailSeedGate: () => {},
     send: (msg: DaemonMessage) => sent.push(msg),

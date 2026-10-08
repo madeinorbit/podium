@@ -31,9 +31,10 @@ import {
 import { createDurableProcess } from '@podium/process/durable'
 import { manifestFor } from '@podium/harness'
 import type { SessionId } from '@podium/model'
+import { serverFamilyLaunch } from '@podium/harness/driver/testing'
 import { stageRuntimeAttachment } from '../runtime/attachment-staging.js'
 import {
-  composeEngineEnv,
+  engineEnvBuilder,
   dialEngineSocket,
   engineSocketRoot,
 } from '../runtime/host.js'
@@ -71,7 +72,7 @@ const codexHost = createCodexEngineHost({
   supervision: sessionEngines,
   stageAttachment: stageRuntimeAttachment,
   resources: noResources,
-  buildEnv: composeEngineEnv,
+  buildEnv: engineEnvBuilder(() => ({})),
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
   checkVersion: () => codexAppServerVersionProbe(),
   dialSocket: sessionEngines.dialerFor(dialEngineSocket),
@@ -101,7 +102,7 @@ const opencodeHost = createOpencodeEngineHost({
   supervision: sessionEngines,
   stageAttachment: stageRuntimeAttachment,
   resources: noResources,
-  buildEnv: composeEngineEnv,
+  buildEnv: engineEnvBuilder(() => ({})),
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
   checkVersion: ({ executable }) =>
     opencodeVersionProbeForExecutable(executable).then((v) => (v.drivable ? null : v.diagnostic)),
@@ -127,7 +128,7 @@ const grokHost = createGrokEngineHost({
   engines: sessionEngines.ownerFor<GrokAcpJournalEntry>(grokFacts.journalNamespace),
   supervision: sessionEngines,
   resources: noResources,
-  buildEnv: composeEngineEnv,
+  buildEnv: engineEnvBuilder(() => ({})),
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
   checkVersion: () => grokAcpVersionProbe(),
 })
@@ -155,7 +156,7 @@ const claudeEngine = createClaudeEngineHost({
   facts: claudeFacts,
   engines: sessionEngines.ownerFor<ClaudeEngineJournalEntry>(claudeFacts.journalNamespace),
   supervision: sessionEngines,
-  buildEnv: composeEngineEnv,
+  buildEnv: engineEnvBuilder(() => ({})),
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
 })
 const claudeRuntime = createClaudeSdkSessionRuntime({ driverSlots: driverSlotsOver(testSessions()),
@@ -174,11 +175,13 @@ const claudeRuntime = createClaudeSdkSessionRuntime({ driverSlots: driverSlotsOv
     readFileBytes: async () => new Uint8Array(),
   },
 })
-const claudeHandle = await claudeRuntime.launch({
-  sessionId: 'claude-surv-1' as SessionId,
-  cwd: workdir,
-  initialPrompt: 'survive this',
-})
+const claudeHandle = await claudeRuntime.launch(
+  serverFamilyLaunch({
+    sessionId: 'claude-surv-1' as SessionId,
+    cwd: workdir,
+    initialPrompt: 'survive this',
+  }),
+)
 const claudeReadySince = Date.now()
 let claudeEntry = claudeEngine.bindings.recorded('claude-surv-1' as SessionId)
 while (!claudeEntry?.process.pid) {

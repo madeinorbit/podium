@@ -19,6 +19,7 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import type { ProcessIdentity, SessionBinding } from '../binding.js'
 import type { AgentSessionHandle, RuntimeDriver } from '../driver.js'
 import type { RuntimeEvent } from '../events.js'
+import type { SessionSpec } from '../session-spec.js'
 
 /**
  * The frame-stream ports every server-family session adapter needs from
@@ -52,14 +53,16 @@ export interface ServerSessionFramePorts {
   ): (event: RuntimeEvent) => void
 }
 
-/** The launch facts every server family takes: identity, directory, model. */
+/**
+ * What every server family starts a session from: the server's session id and
+ * the contract's own {@link SessionSpec}, whole. The family maps each field to
+ * its harness's native channel (instructions, MCP, env, model) — nothing on the
+ * way flattens the spec into a narrower launch shape that a family would then
+ * have to rebuild with stubs.
+ */
 export interface ServerFamilyLaunch {
   sessionId: SessionId
-  cwd: string
-  model?: string
-  effort?: string
-  env?: Readonly<Record<string, string>>
-  initialPrompt?: string
+  spec: SessionSpec
 }
 
 /**

@@ -1,6 +1,4 @@
-import { createBoundaryContext } from '@podium/harness/driver/host'
-import { primeHookResponse } from './prime-injector'
-import { createPrimeInjector } from './prime-injector'
+import { boundaryHookResponse, createBoundaryContext } from '@podium/harness/driver/host'
 import { composeResponders } from './mail-injector'
 import { access, mkdtemp, rm } from 'node:fs/promises'
 import { request } from 'node:http'
@@ -335,7 +333,7 @@ describe('prime response deadline', () => {
     let resolve!: (value: { ok: boolean; result: string }) => void
     let calls = 0
     let laterCalls = 0
-    const injector = createPrimeInjector(async () => {
+    const context = createBoundaryContext(async () => {
       if (++calls === 1) return new Promise<{ ok: boolean; result: string }>((done) => { resolve = done })
       return { ok: true, result: 'fresh prime' }
     })
@@ -343,7 +341,8 @@ describe('prime response deadline', () => {
       port: 0,
       onPayload: () => {},
       respondTimeoutMs: 30,
-      boundaryContext: injector.respondTo,
+      boundaryContext: (_sessionId, payload, signal) =>
+        boundaryHookResponse(context.respond, payload, signal),
       respondTo: composeResponders(async () => { laterCalls++; return null }),
     })
     try {
@@ -369,7 +368,7 @@ it('delivers driver prime even when all legacy responders are absent', async () 
   const ing = await startHookIngest({
     port: 0,
     onPayload: () => {},
-    boundaryContext: (_sessionId, payload, signal) => primeHookResponse(context.respond, payload, signal),
+    boundaryContext: (_sessionId, payload, signal) => boundaryHookResponse(context.respond, payload, signal),
   })
   try {
     const endpoint = ing.endpointFor(asSessionId('driver-only'))
@@ -457,7 +456,7 @@ describe('prime boundary per-harness parity', () => {
     const mailPayloads: unknown[] = []
     const ing = await startParityIngest(harness, {
       boundaryContext: (_sessionId, payload, signal) =>
-        primeHookResponse(context.respond, payload, signal),
+        boundaryHookResponse(context.respond, payload, signal),
       respondTo: async (_sessionId, payload) => {
         mailPayloads.push(payload)
         return null
@@ -496,7 +495,7 @@ describe('prime boundary per-harness parity', () => {
     const ing = await startParityIngest(harness, {
       respondTimeoutMs: 30,
       boundaryContext: (_sessionId, payload, signal) =>
-        primeHookResponse(context.respond, payload, signal),
+        boundaryHookResponse(context.respond, payload, signal),
       respondTo: async () => {
         mailCalls++
         return null
@@ -519,31 +518,30 @@ describe('prime boundary per-harness parity', () => {
   runHttp('cancels an expired prime fetch instead of continuing to mail', cancelsExpired)
   runCodex('cancels an expired prime fetch instead of continuing to mail', cancelsExpired)
 
-  const prefersDriver: (harness: ParityHarness) => Promise<void> = async (harness) => {
+  const primesOnceThenFallsThrough: (harness: ParityHarness) => Promise<void> = async (harness) => {
     const context = createBoundaryContext(async () => ({ ok: true, result: 'driver prime' }))
-    const legacy = createPrimeInjector(async () => ({ ok: true, result: 'legacy prime' }))
-    let legacyCalls = 0
+    let laterCalls = 0
     const ing = await startParityIngest(harness, {
       boundaryContext: (_sessionId, payload, signal) =>
-        primeHookResponse(context.respond, payload, signal),
-      respondTo: composeResponders(async (sessionId, payload, signal) => {
-        legacyCalls++
-        return legacy.respondTo(sessionId, payload, signal)
+        boundaryHookResponse(context.respond, payload, signal),
+      respondTo: composeResponders(async () => {
+        laterCalls++
+        return null
       }),
     })
     try {
       const first = await ing.post(parityPayload(harness, 'SessionStart'))
       expect(JSON.parse(first.text).hookSpecificOutput.additionalContext).toBe('driver prime')
-      expect(legacyCalls).toBe(0)
-      // The legacy responder stays armed behind the driver: once the driver
-      // is consumed, the same event falls through to it instead of going empty.
+      expect(laterCalls).toBe(0)
+      // The driver primes once; the next boundary falls through to the
+      // remaining responders instead of priming again.
       const second = await ing.post(parityPayload(harness, 'UserPromptSubmit'))
-      expect(JSON.parse(second.text).hookSpecificOutput.additionalContext).toBe('legacy prime')
-      expect(legacyCalls).toBe(1)
+      expect(second.text).toBe('{}')
+      expect(laterCalls).toBe(1)
     } finally {
       await ing.close()
     }
   }
-  runHttp('prefers driver prime over a legacy responder answering the same event', prefersDriver)
-  runCodex('prefers driver prime over a legacy responder answering the same event', prefersDriver)
+  runHttp('primes once from the driver, then falls through to later responders', primesOnceThenFallsThrough)
+  runCodex('primes once from the driver, then falls through to later responders', primesOnceThenFallsThrough)
 })

@@ -69,7 +69,8 @@ export {
   type TerminalDriverReport,
   type TerminalForeignWrites,
   type TerminalReattachControl,
-  type TerminalSpawnControl,
+  type TerminalLaunch,
+  type TerminalLaunched,
   type TerminalTransport,
   type TerminalMailBoundaryContext,
 } from './host-ports.js'

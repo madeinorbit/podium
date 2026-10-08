@@ -131,7 +131,6 @@ it('parks the losing Terminal when a reattach and an adopting spawn race for one
     reattachGate: (fn: () => Promise<void>) => fn(),
     tailSeedGate: () => {},
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
-    primeInjector: { reset: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
   } as unknown as DaemonContext

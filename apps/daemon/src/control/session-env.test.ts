@@ -1,8 +1,10 @@
 import { mkdtempSync, readFileSync, rmSync, statSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
+import type { SessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
-import { materializeLaunchFiles } from './session'
+import { engineEnvBuilder } from '../runtime/host'
+import { materializeLaunchFiles, sessionProcessEnv } from './session'
 import {
   foreignCredentialEnv,
   headlessSpawnEnv,
@@ -168,6 +170,42 @@ it('leaves a default instance exactly as before — daemon env plus overlays', (
   expect(env.HOME).toBe(process.env.HOME)
   expect(env.PATH).toBe(process.env.PATH)
   expect(env.MANAGED).toBe('x')
+})
+
+it('binds the relay pair and browser shim into every session process (POD-5814)', () => {
+  const settingsDir = mkdtempSync(join(tmpdir(), 'podium-session-env-'))
+  try {
+    const ctx = {
+      agentRelayEndpointFor: (id: string) => `http://127.0.0.1:45778/session/${id}`,
+      instanceId: 'default',
+      instanceUuid: 'instance-uuid',
+      settingsDir,
+    }
+    const agent = sessionProcessEnv(ctx, 'agent-1' as SessionId, 'claude-code')
+    expect(agent.PODIUM_AGENT_RELAY).toBe('http://127.0.0.1:45778/session/agent-1')
+    expect(agent.PODIUM_SESSION_RELAY).toBe('http://127.0.0.1:45778/session/agent-1')
+    expect(agent.BROWSER).toBe(join(settingsDir, 'browser-shims', 'podium-browser-open'))
+    // A shell is the operator: transport, never the delegate identity.
+    const shell = sessionProcessEnv(ctx, 'shell-1' as SessionId, 'shell')
+    expect(shell.PODIUM_SESSION_RELAY).toBe('http://127.0.0.1:45778/session/shell-1')
+    expect(shell.PODIUM_AGENT_RELAY).toBeUndefined()
+  } finally {
+    rmSync(settingsDir, { recursive: true, force: true })
+  }
+})
+
+it("gives every engine child its own session's relay, which a spawn frame cannot redirect", () => {
+  const buildEnv = engineEnvBuilder((sessionId) => ({
+    PODIUM_AGENT_RELAY: `http://relay/session/${sessionId}`,
+  }))
+  const env = buildEnv({
+    sessionId: 'engine-1' as SessionId,
+    agentKind: 'codex',
+    sessionEnv: { PODIUM_AGENT_RELAY: 'http://elsewhere/session/other' },
+    harnessEnv: { PODIUM_AGENT_RELAY: 'http://also/not/this' },
+  })
+  expect(env.PODIUM_AGENT_RELAY).toBe('http://relay/session/engine-1')
+  expect(env.PODIUM_SESSION_ID).toBe('engine-1')
 })
 
 it('materializes nested ephemeral launch files with owner-only permissions', () => {

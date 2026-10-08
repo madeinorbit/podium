@@ -3,7 +3,6 @@ import {
   type BoundaryContextOperation,
   type BoundaryContextRequest,
   createBoundaryContext,
-  type InstalledTerminalInstrumentation,
   prepareTerminalInstrumentation,
   reportInstrumentationDegradation,
   withDeliveryQueue,
@@ -13,7 +12,6 @@ import type {
   TerminalDriverReport,
   TerminalHostPorts,
   TerminalReattachControl,
-  TerminalSpawnControl,
   TerminalTransport,
 } from './host-ports.js'
 import { respondToMailBoundary } from './mail-boundary.js'
@@ -532,12 +530,12 @@ export interface TerminalRuntime {
    */
   reportOomKill(sessionId: SessionId, scopeUnit?: string): void
 
-  /** Creation with a server-assigned identity and the existing launch frame. */
+  /** Creation under a server-assigned identity, from the contract's spec: the
+   *  same path `driver.create()`/`resume()` take with an id they minted. */
   createWithId(
     sessionId: SessionId,
     spec: SessionSpec,
     profile: TerminalHarnessProfile,
-    launch: (instrumentation: InstalledTerminalInstrumentation) => Promise<void>,
     resume?: ResumeRef,
   ): Promise<AgentSessionHandle>
 
@@ -2907,35 +2905,6 @@ export function createTerminalRuntime(
    * taken them live, so a `bind` followed by an `agentExit` still means the
    * session came up and then died rather than the reverse.
    */
-  /**
-   * Register a freshly minted session, unless the host's own launch already did.
-   *
-   * THE DAEMON'S LAUNCH PATH REGISTERS (POD-2107). `host.launch` is
-   * `launchSpawn`, which puts a flagged session behind the contract itself
-   * before it announces the bind — so by the time `create()` resolves there is
-   * already a record, and calling `register()` again reaches `openSession`'s
-   * REBIND branch: the binding version and observer generation jump and an
-   * `adopted` process event goes out, for a session that was born one await ago
-   * and has been adopted by nobody. A consumer reading that stream is told the
-   * binding changed under it before the first turn.
-   *
-   * Only `create()` and `resume()` use this, and only because they MINTED the
-   * id: a record under an id nothing else has seen yet can only be the one this
-   * call's own launch made. `adopt()` deliberately does not — its whole purpose
-   * is to rebind an existing conversation, and the version bump is the point.
-   */
-  function registerOrReuse(
-    registration: TerminalSessionRegistration,
-    profile: TerminalHarnessProfile,
-  ): AgentSessionHandle {
-    const already = slots.get(registration.sessionId)
-    if (already) {
-      replayHeldFrames(registration.sessionId)
-      return already
-    }
-    return register(registration, profile)
-  }
-
   function replayHeldFrames(sessionId: SessionId): void {
     const held = pendingFrames.get(sessionId)
     if (!held) return
@@ -3003,11 +2972,16 @@ export function createTerminalRuntime(
     },
   }
 
+  /**
+   * ONE CREATION PATH (POD-5814), whoever minted the id: install the session's
+   * hook wiring, have the host launch the harness from the spec, put the
+   * session behind the contract under the lease the host reports, then let the
+   * host announce it. The handle exists before the bind names it.
+   */
   async function createWithId(
     sessionId: SessionId,
     spec: SessionSpec,
     profile: TerminalHarnessProfile,
-    launch: (instrumentation: InstalledTerminalInstrumentation) => Promise<void>,
     resume?: ResumeRef,
   ): Promise<AgentSessionHandle> {
     contexts.get(sessionId)?.reset()
@@ -3024,16 +2998,30 @@ export function createTerminalRuntime(
         reportInstrumentationDegradation(host, spec.harness, instrumentation, (message) =>
           host.send(message as TerminalDriverReport),
         )
-        await launch(instrumentation)
-        return registerOrReuse(
+        const launched = await host.launch({
+          sessionId,
+          spec,
+          instrumentation,
+          ...(resume ? { resume } : {}),
+        })
+        const handle = register(
           {
             sessionId,
             agentKind: spec.harness as AgentKind,
             cwd: spec.workdir,
             resume: resume ?? null,
+            ...(launched.observerGeneration !== undefined
+              ? { observerGeneration: launched.observerGeneration }
+              : {}),
+            ...(launched.bindingVersion !== undefined
+              ? { bindingVersion: launched.bindingVersion }
+              : {}),
+            ...(launched.terminal ? { terminal: launched.terminal } : {}),
           },
           profile,
         )
+        launched.announce()
+        return handle
       })
     } catch (error) {
       if (!slots.get(sessionId)) {
@@ -3169,25 +3157,11 @@ export function createTerminalRuntime(
         capabilities: () => capabilitiesFor(profile),
 
         async create(spec: SessionSpec): Promise<AgentSessionHandle> {
-          const sessionId = asSessionId(randomUUID())
-          return createWithId(sessionId, spec, profile, (instrumentation) =>
-            host.launch(spawnControlFor(sessionId, harness, spec), instrumentation),
-          )
+          return createWithId(asSessionId(randomUUID()), spec, profile)
         },
 
         async resume(ref: ResumeRef, spec: SessionSpec): Promise<AgentSessionHandle> {
-          const sessionId = asSessionId(randomUUID())
-          return createWithId(
-            sessionId,
-            spec,
-            profile,
-            (instrumentation) =>
-              host.launch(
-                { ...spawnControlFor(sessionId, harness, spec), resume: ref },
-                instrumentation,
-              ),
-            ref,
-          )
+          return createWithId(asSessionId(randomUUID()), spec, profile, ref)
         },
 
         async adopt(bound: RuntimeSessionBinding): Promise<AgentSessionHandle> {
@@ -3634,31 +3608,3 @@ function questionScriptFor(
   return { ok: true, script: { keys, at } }
 }
 
-/**
- * A `TerminalSpawnControl` for a contract-initiated session.
- *
- * NOTE WHAT IS ABSENT: `binding`. A spawn frame's binding instruction is
- * SERVER-authored — it carries the authenticated principal and the machine-access
- * verdict — and the driver is on the machine side of that line. So `create()`
- * goes through the daemon's LAUNCH path (which is what actually starts a process)
- * rather than through `handleSpawn` (which performs the binding transition first).
- * A server-initiated spawn still takes the full path; this one is for the direct
- * driving the conformance corpus and the e2e lane do.
- */
-function spawnControlFor(
-  sessionId: SessionId,
-  agentKind: AgentKind,
-  spec: SessionSpec,
-): TerminalSpawnControl {
-  return {
-    type: 'spawn',
-    sessionId,
-    agentKind,
-    cwd: spec.workdir,
-    geometry: { cols: 120, rows: 40 },
-    ...(spec.model.model ? { model: spec.model.model } : {}),
-    ...(spec.model.effort ? { effort: spec.model.effort } : {}),
-    ...(spec.initialPrompt ? { initialPrompt: spec.initialPrompt } : {}),
-    ...(spec.env ? { env: { ...spec.env } } : {}),
-  } as TerminalSpawnControl
-}

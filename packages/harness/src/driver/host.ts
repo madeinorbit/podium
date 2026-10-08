@@ -56,6 +56,9 @@ export * from './families/terminal/composer-sync.js'
  *  supervisor owns spawn/re-attach/kill, families compose argv/env and bind
  *  protocol. Implemented once in the daemon's process-supervision wiring. */
 export * from './families/engine-supervision.js'
+/** The hook-shaped boundary-context wire (POD-5814): one codec for a terminal
+ *  session's HTTP hooks and the Claude stream engine's in-band callbacks. */
+export * from './families/boundary-hook.js'
 /** The shared lost-queue reporter every server-family session adapter wires. */
 export { reportQueueAbandonment } from './families/queue-report.js'
 /** One-shot headless turns under podium-host and the `RuntimeDriver

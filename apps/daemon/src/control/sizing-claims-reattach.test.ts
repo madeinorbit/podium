@@ -180,7 +180,6 @@ function ctxFor(sent: Array<{ type: string; resizesBefore: number }>): DaemonCon
       onResize: () => {},
     },
     sessionCwdTracker: { clear: () => {}, setLaunchCwd: () => {} },
-    primeInjector: { reset: () => {} },
     reattachGate: (fn: () => Promise<void>) => fn(),
     sessionBinding: { transition: async () => ({ status: 'unchanged' as const }) },
     tailSeedGate: () => {},

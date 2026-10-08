@@ -109,6 +109,15 @@ describe('the spawn config', () => {
     expect(args.join(' ')).toContain('sandbox_mode="workspace-write"')
   })
 
+  it("hands a session's instructions to Codex as developer instructions (POD-5814)", () => {
+    expect(codexAppServerConfigArgs({}).args.join(' ')).not.toContain('developer_instructions')
+    const { args } = codexAppServerConfigArgs({ instructions: 'Run "podium issue prime".\nThen work.' })
+    expect(args.slice(-2)).toEqual([
+      '-c',
+      'developer_instructions="Run \\"podium issue prime\\".\\nThen work."',
+    ])
+  })
+
   it('opens network access only when an MCP server is actually mounted', () => {
     // A Podium MCP server is on loopback and is unreachable from a sandbox with
     // no network, so mounting one without this is mounting nothing. Opening it

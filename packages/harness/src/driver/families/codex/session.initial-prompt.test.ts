@@ -16,11 +16,11 @@ import type { SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { manifestFor } from '../../../registry.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
+import { createMemoryDriverSlots, serverFamilyLaunch } from '../../testing/index.js'
 import { codexEngineFacts } from './engine-facts.js'
-import { createCodexSessionRuntime, type DaemonCodexRuntime } from './session.js'
 import type { CodexRuntimeHost } from './runtime.js'
-import { startFakeAppServer, type FakeAppServer } from './test-support/fake-app-server.js'
+import { createCodexSessionRuntime, type DaemonCodexRuntime } from './session.js'
+import { type FakeAppServer, startFakeAppServer } from './test-support/fake-app-server.js'
 
 const SESSION_ID = 'codex-initial-prompt' as SessionId
 const PROMPT = 'What is 7 times 8?'
@@ -84,7 +84,9 @@ describe('codex launch with an initial prompt', () => {
     })
     runtimes.push(runtime)
 
-    await runtime.launch({ sessionId: SESSION_ID, cwd: '/work', initialPrompt: PROMPT })
+    await runtime.launch(
+      serverFamilyLaunch({ sessionId: SESSION_ID, cwd: '/work', initialPrompt: PROMPT }),
+    )
 
     const server = servers.get(SESSION_ID)!
     expect(server).toBeDefined()

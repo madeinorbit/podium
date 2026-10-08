@@ -46,7 +46,7 @@ import {
 } from '@podium/harness/driver/host'
 import { stageRuntimeAttachment } from './attachment-staging'
 import {
-  composeEngineEnv,
+  engineEnvBuilder,
   dialEngineSocket,
   engineSocketRoot,
 } from './host'
@@ -276,7 +276,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       stageAttachment: stageRuntimeAttachment,
       resources,
       homeDir: instanceHome,
-      buildEnv: composeEngineEnv,
+      buildEnv: engineEnvBuilder(() => ({})),
       gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
       checkVersion: ({ executable }) =>
         opencodeVersionProbeForExecutable(executable).then((v) => (v.drivable ? null : v.diagnostic)),
@@ -319,7 +319,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       stageAttachment: stageRuntimeAttachment,
       resources,
       homeDir: instanceHome,
-      buildEnv: composeEngineEnv,
+      buildEnv: engineEnvBuilder(() => ({})),
       gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
       checkVersion: () => codexAppServerVersionProbe(),
       dialSocket: engines.dialerFor(dialEngineSocket),
@@ -365,7 +365,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       resources,
       homeDir: instanceHome,
       instanceUuid,
-      buildEnv: composeEngineEnv,
+      buildEnv: engineEnvBuilder(() => ({})),
       gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
       checkVersion: () => grokAcpVersionProbe(),
     })
@@ -409,7 +409,7 @@ describe('a launched server-driver child runs in the INSTANCE home', () => {
       facts: grokEngineFacts(manifestFor('grok')!),
       resources,
       homeDir: instanceHome,
-      buildEnv: composeEngineEnv,
+      buildEnv: engineEnvBuilder(() => ({})),
       gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
       checkVersion: () => grokAcpVersionProbe(),
     })

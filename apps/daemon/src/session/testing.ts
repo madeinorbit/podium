@@ -3,7 +3,13 @@
  * never imports this module.
  */
 
-import type { SessionId } from '@podium/model'
+import type {
+  AgentSessionHandle,
+  SessionSpec,
+  TerminalLaunch,
+  TerminalLaunched,
+} from '@podium/harness/driver/host'
+import type { ResumeRef, SessionId } from '@podium/model'
 import type {
   DurableAttachment,
   DurableProcess,
@@ -75,5 +81,52 @@ export function stubDurable(
     kill: adapter.kill,
     list: adapter.list,
     hasMasterSync: adapter.hasMasterSync,
+  }
+}
+
+/**
+ * The machine runtime's terminal source as the daemon drives it (POD-5814),
+ * for tests that stop short of a real terminal family: `create`/`resume`
+ * launch through the daemon's own terminal host port from the spec, register
+ * a minimal terminal handle, and announce — the family's order. The launch is
+ * passed in so this module never loads `control/session` ahead of a test's
+ * mocks.
+ */
+export function testTerminalRuntime(
+  ctx: DaemonContext,
+  launch: (ctx: DaemonContext, input: TerminalLaunch) => Promise<TerminalLaunched>,
+): {
+  create(spec: SessionSpec, sessionId: SessionId): Promise<AgentSessionHandle>
+  resume(ref: ResumeRef, spec: SessionSpec, sessionId: SessionId): Promise<AgentSessionHandle>
+  handleFor(sessionId: SessionId): AgentSessionHandle | undefined
+  has(sessionId: SessionId): boolean
+  clearTerminal(sessionId: SessionId): void
+} {
+  const handles = new Map<SessionId, AgentSessionHandle>()
+  const createWithId = async (sessionId: SessionId, spec: SessionSpec, resume?: ResumeRef) => {
+    const launched = await launch(ctx, {
+      sessionId,
+      spec,
+      instrumentation: { args: [] },
+      ...(resume ? { resume } : {}),
+    })
+    const handle = {
+      binding: {
+        sessionId,
+        harness: spec.harness,
+        family: 'terminal',
+        driver: spec.selection.preference,
+      },
+    } as AgentSessionHandle
+    handles.set(sessionId, handle)
+    launched.announce()
+    return handle
+  }
+  return {
+    create: (spec, sessionId) => createWithId(sessionId, spec),
+    resume: (ref, spec, sessionId) => createWithId(sessionId, spec, ref),
+    handleFor: (sessionId) => handles.get(sessionId),
+    has: (sessionId) => handles.has(sessionId),
+    clearTerminal: (sessionId) => void handles.delete(sessionId),
   }
 }

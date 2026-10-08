@@ -69,7 +69,6 @@ function daemonContext(): { ctx: DaemonContext; sent: DaemonMessage[] } {
     outputScheduler: { enqueue: () => {}, remove: () => {}, flushNow: () => {} },
     observers: { clearSession: () => {} },
     sessionCwdTracker: { clear: () => {} },
-    primeInjector: { reset: () => {} },
     send: (msg: DaemonMessage) => sent.push(msg),
   } as unknown as DaemonContext
   return { ctx, sent }

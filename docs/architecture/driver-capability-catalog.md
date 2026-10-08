@@ -291,7 +291,7 @@ Format: behaviour — where it lives today — where it should land.
 - Spec §8 moves ingest inside the terminal driver's boundary; none of the install/refresh machinery has a contract row.
 
 **Injection into live sessions**
-- Prime injection (`SessionStart`/`UserPromptSubmit` → `additionalContext`, re-armed on `PreCompact`) and mail delivery at the blocking boundary (claude/codex block `Stop`; grok can only deny a sacrificial `PreToolUse` — POD-2026 may retire that if grok's advertised blocking stop is real), with loop guards and cooldowns — `mail-injector.ts`, `prime-injector.ts` → spec says mail collapses into `send()`; until it does, this is load-bearing.
+- Prime injection (`SessionStart`/`UserPromptSubmit` → `additionalContext`, re-armed on `PreCompact`) and mail delivery at the blocking boundary (claude/codex block `Stop`; grok can only deny a sacrificial `PreToolUse` — POD-2026 may retire that if grok's advertised blocking stop is real), with loop guards and cooldowns — `mail-injector.ts` → spec says mail collapses into `send()`; until it does, this is load-bearing. Prime is the driver's `boundaryContext` (POD-5814): one `createBoundaryContext` per session incarnation, answered through `families/boundary-hook.ts` over a terminal session's HTTP hooks or the Claude stream engine's in-band `hook_callback`.
 - Submit-verification ladders, raw-first-turn, ready heuristics, echo confirmation — mostly ported into `drivers/terminal/injection.ts` as shipped constants; a THIRD un-sanitized envelope builder still lives in `packages/composer` (POD-2733).
 
 **Observation**

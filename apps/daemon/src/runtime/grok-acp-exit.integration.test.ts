@@ -24,11 +24,12 @@ vi.mock('@podium/process/durable', async () => {
 import { createGrokEngineHost, grokEngineFacts } from '@podium/harness/driver/host'
 import { manifestFor } from '@podium/harness'
 import { grokAcpVersionProbe, resetGrokAcpVersionProbe } from './version-probe'
-import { composeEngineEnv } from './host'
+import { engineEnvBuilder } from './host'
 import { createSessionEngineScope } from '../session/engines.js'
 import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import { createDurableProcess } from '@podium/process/durable'
 import { createGrokSessionRuntime } from '@podium/harness/driver/host'
+import { serverFamilyLaunch } from '@podium/harness/driver/testing'
 import { driverSlotsOver } from '../session/driver-slots.js'
 import { testSessions } from '../session/testing.js'
 import { SessionRegistry } from '../session/registry.js'
@@ -144,7 +145,7 @@ describe('Grok ACP real scoped child boundary', () => {
         engines: engines.ownerFor(facts.journalNamespace),
         supervision: engines,
         resources: () => undefined,
-        buildEnv: composeEngineEnv,
+        buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
         checkVersion: () => grokAcpVersionProbe(),
       })
@@ -161,7 +162,7 @@ describe('Grok ACP real scoped child boundary', () => {
       })
       const sessionId = asSessionId('grok-real-scoped-exit')
 
-      await runtime.launch({ sessionId, cwd: root })
+      await runtime.launch(serverFamilyLaunch({ sessionId, cwd: root }))
       expect(readFileSync(rig.scopeArgs, 'utf8')).toContain('--scope')
       const childPid = Number(readFileSync(rig.childPid, 'utf8'))
       expect(childPid).toBeGreaterThan(0)

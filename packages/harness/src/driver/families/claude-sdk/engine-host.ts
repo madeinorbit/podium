@@ -29,6 +29,8 @@
 
 import { createLogger } from '@podium/logger'
 import { markNeverSent } from '../../errors.js'
+import { type BoundaryContextSource, createBoundaryContext } from '../../boundary-context.js'
+import { instructionsText } from '../../session-spec.js'
 import type { HarnessAgent, SessionId } from '@podium/model'
 import type { ScopeResources } from '../../capabilities.js'
 import type { ProcessIdentity } from '../../binding.js'
@@ -138,6 +140,13 @@ export interface ClaudeEngineHostDeps {
   }): Record<string, string>
   /** Immutable supervisor ownership stamp for orphan attribution. */
   instanceUuid?: string
+  /**
+   * The session's hidden startup/compaction context (the issue prime) — the
+   * same source the terminal family primes from. Present = every engine this
+   * host binds registers the boundary hooks in band and answers them through
+   * one boundary context per engine incarnation (POD-5814).
+   */
+  boundaryContextSource?(sessionId: SessionId): ReturnType<BoundaryContextSource>
   /** How long a SIGTERM stop waits for the child to exit. Shared with the
    *  reap that has to outlast it — arrives as a value rather than living
    *  here twice. */
@@ -391,9 +400,7 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
   }
 
   function spawnSpec(input: StartTurnInput): ClaudeStreamTurnSpec {
-    const instructions = input.spec.instructions.supported
-      ? input.spec.instructions.value.instructions.map((entry) => entry.content).join('\n\n')
-      : undefined
+    const instructions = instructionsText(input.spec)
     const mcpConfig =
       input.spec.mcpServers.supported && input.spec.mcpServers.value.transport === 'inline'
         ? input.spec.mcpServers.value.config
@@ -436,10 +443,16 @@ export function createClaudeEngineHost(deps: ClaudeEngineHostDeps): ClaudeEngine
     // The id this invocation named (`--session-id` fresh, `--resume` after):
     // the CLI keeps it, and reports it only once a user line arrives.
     const claudeSessionId = spec.sessionUuid ?? spec.resumeValue
+    // ONE BOUNDARY CONTEXT PER INCARNATION: a fresh spawn or an adopt sends a
+    // fresh `initialize`, and the context primes once more on it — the same
+    // re-prime a terminal session gets after a daemon restart.
+    const source = deps.boundaryContextSource
+    const boundary = source ? createBoundaryContext(() => source(sessionId)) : undefined
     held.client = createClaudeStreamClient(transport, {
       ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
       ...(spec.contextPrompt ? { contextPrompt: spec.contextPrompt } : {}),
       ...(claudeSessionId ? { sessionId: claudeSessionId } : {}),
+      ...(boundary ? { boundaryContext: boundary.respond } : {}),
     })
     return held.client.ready
   }

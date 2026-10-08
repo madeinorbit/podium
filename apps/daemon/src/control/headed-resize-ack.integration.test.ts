@@ -126,7 +126,6 @@ function daemonContext(): Harness {
     },
     observers: { onResize: () => {}, clearSession: () => {} },
     sessionCwdTracker: { clear: () => {} },
-    primeInjector: { reset: () => {} },
     send: (msg: DaemonMessage) => sent.push(msg),
   } as unknown as DaemonContext
   return { ctx, sent, output: () => out }

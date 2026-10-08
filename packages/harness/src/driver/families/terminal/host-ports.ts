@@ -55,7 +55,6 @@ import type { AgentRuntimeState } from '@podium/model'
 import type { SessionBinding } from '../../binding.js'
 import type { RuntimeEvent } from '../../events.js'
 
-export type TerminalSpawnControl = Extract<ControlMessage, { type: 'spawn' }>
 export type TerminalReattachControl = Extract<ControlMessage, { type: 'reattach' }>
 
 /**
@@ -115,6 +114,28 @@ export type TerminalMailBoundaryContext = (
   signal?: AbortSignal,
 ) => Promise<string | null>
 
+/** What the terminal host launches one session from. */
+export interface TerminalLaunch {
+  sessionId: SessionId
+  spec: SessionSpec
+  instrumentation: InstalledTerminalInstrumentation
+  /** The conversation to continue; absent = a new one. */
+  resume?: ResumeRef
+}
+
+/** What the host hands back once the session's process is up. */
+export interface TerminalLaunched {
+  /** The live surface the driver writes through. */
+  terminal?: TerminalTransport
+  /** The observation lease the server issued with the spawn, which every
+   *  event this driver emits must carry. Absent = the driver's own first. */
+  observerGeneration?: number
+  bindingVersion?: number
+  /** Announce the session live (the bind). Called once, after the driver has
+   *  registered the handle the bind names. */
+  announce(): void
+}
+
 /**
  * Everything the terminal driver needs from its host, named explicitly.
  *
@@ -160,9 +181,7 @@ export interface TerminalHostPorts {
   /** The daemon half of the survival table — dispose the bridge, reap the host.
    * Keyed by session: the daemon resolves the entry's durable label itself. */
   stopSession(input: { sessionId: SessionId }): Promise<boolean>
-  /** The existing spawn path. `create()`/`resume()` go through it rather than
-   *  around it, which is what keeps a contract-driven session byte-identical to
-   *  a server-spawned one.
+  /** Write this session's per-session hook wiring before its harness starts.
    *
    *  KEPT AS A PORT (POD-4414 review 3): install needs daemon-only state —
    *  the settings/home directories the per-session hook files are written
@@ -172,10 +191,19 @@ export interface TerminalHostPorts {
     sessionId: SessionId,
     spec: SessionSpec,
   ): Promise<InstalledTerminalInstrumentation>
-  launch(
-    msg: TerminalSpawnControl,
-    instrumentation?: InstalledTerminalInstrumentation,
-  ): Promise<void>
+  /**
+   * Start this session's harness in a durable PTY, FROM THE CONTRACT'S OWN SPEC
+   * (POD-5814): the host composes the argv through the harness adapter (the
+   * spec's instructions, model, first prompt; the resume ref), binds the
+   * session's process env, and wires the bridge, observers and screen.
+   *
+   * The host owns what is not the driver's: the PTY's size, the durable label,
+   * and the observation lease the server issued with the spawn. It hands back
+   * the lease the driver envelopes its events with, the live terminal, and the
+   * announcement — the bind — which the driver makes once it holds its handle.
+   * Nothing is announced before that.
+   */
+  launch(input: TerminalLaunch): Promise<TerminalLaunched>
   /** A cursor-anchored transcript slice in the slice shape ({items, head, tail,
    *  hasMore}) with direction — the Store read over the live source, and the
    *  only transcript capability the host offers (POD-4471: the items-only

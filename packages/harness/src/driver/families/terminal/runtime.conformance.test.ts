@@ -398,7 +398,8 @@ function makeWorld(options: WorldOptions): {
       bridgeOf.delete(sessionId)
       return true
     },
-    launch: async (msg) => {
+    launch: async ({ sessionId, spec, resume }) => {
+      const msg = { sessionId, cwd: spec.workdir, agentKind: spec.harness as AgentKind, resume }
       alive.set(msg.sessionId, true)
       // A RESUMED launch is handed the conversation it is reopening; a fresh one
       // will mint its own when the first turn is written. Either way the ref the
@@ -410,36 +411,6 @@ function makeWorld(options: WorldOptions): {
       )
       phases.set(msg.sessionId, { phase: 'idle', since: iso(), nativeSubagentCount: 0 })
       turnEpochs.set(msg.sessionId, 0)
-      // THE CLI CAME UP. A real daemon says so with a `bind` frame — the same one
-      // `Session.markLive` flips the server's status on — and the queue drain
-      // waits for it, because typing into a session that is still painting is the
-      // POD-549 no-op. A fixture that skipped it would leave every session
-      // permanently `starting` and quietly disable the drain it means to test.
-      //
-      // AND IT ARRIVES ON A MACROTASK, WHICH IS NOT A DETAIL (POD-2085). The
-      // driver registers the session AFTER `launch()` resolves, and it drops any
-      // frame naming a session it has not registered yet. A `queueMicrotask`
-      // here therefore delivered the bind BEFORE registration, every time: the
-      // frame was discarded, `live` stayed false, and the ready-poll drain
-      // abandoned every queued turn at its deadline without typing — the exact
-      // silent loss this fixture's own comment says it exists to prevent. It went
-      // unnoticed because no property looked at what a queued turn DOES until
-      // POD-2085 added one. A real bind crosses a socket long after the spawn
-      // call returns; one macrotask is the smallest honest way to say so.
-      setTimeout(() => {
-        runtime?.observe({
-          type: 'bind',
-          sessionId: msg.sessionId,
-          cmd: 'fixture',
-          cwd: msg.cwd,
-          agentKind: msg.agentKind,
-          geometry: { cols: 120, rows: 40 },
-        })
-        // The store this launch was pointed at already exists on disk, so the
-        // harness reports it as soon as it is up rather than at a first turn it
-        // is not going to be the author of.
-        if (msg.resume) postResumeRef(msg.sessionId)
-      })
       const write = (dataBase64: string, role?: TerminalWriteRole) => {
           if (role !== 'message') {
             foreignCounts.set(msg.sessionId, (foreignCounts.get(msg.sessionId) ?? 0) + 1)
@@ -478,6 +449,28 @@ function makeWorld(options: WorldOptions): {
       // The fake surface the host hands at bind (POD-4785): the write logic
       // above is verbatim the old `attachment.write`, now as `writeBase64`.
       bridgeOf.set(msg.sessionId, { live: true, writeBase64: write })
+      return {
+        // THE CLI CAME UP, and the host says so with the `bind` frame its
+        // announcement sends — the same one `Session.markLive` flips the
+        // server's status on — and the queue drain waits for it, because typing
+        // into a session that is still painting is the POD-549 no-op. The driver
+        // announces only once it has registered the session (POD-5814), so the
+        // frame names a session it already holds: the POD-2085 drop cannot occur.
+        announce: () => {
+          runtime?.observe({
+            type: 'bind',
+            sessionId: msg.sessionId,
+            cmd: 'fixture',
+            cwd: msg.cwd,
+            agentKind: msg.agentKind,
+            geometry: { cols: 120, rows: 40 },
+          })
+          // The store this launch was pointed at already exists on disk, so the
+          // harness reports it as soon as it is up rather than at a first turn
+          // it is not going to be the author of.
+          if (msg.resume) postResumeRef(msg.sessionId)
+        },
+      }
     },
     readHistory: async (session, range) => pageHistory(transcriptFor(session.sessionId), session.sessionId, range),
     archiveTranscript: async ({ resumeValue }) => {

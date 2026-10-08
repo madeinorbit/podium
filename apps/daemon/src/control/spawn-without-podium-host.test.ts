@@ -5,9 +5,9 @@ import { asSessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterAll, expect, it, vi } from 'vitest'
 import { noDurableBackendRefusal } from '../durable-backend'
-import { testSessions } from '../session/testing.js'
+import { testSessions, testTerminalRuntime } from '../session/testing.js'
 import type { DaemonContext } from './context'
-import { launchSpawn } from './session'
+import { launchSpawn, launchTerminalProcess } from './session'
 
 /**
  * NO SPAWN WITHOUT PODIUM-HOST (POD-4617; human decision 2026-09-22: "fail
@@ -38,7 +38,6 @@ function hostlessContext(sent: DaemonMessage[]) {
     settingsDir,
     launch,
     // Present so an agent spawn is refused for the host, not for a missing runtime.
-    agentRuntime: { bindTerminal: vi.fn(), createTerminal: vi.fn() },
     sessions: testSessions(),
     durableLabelFor: (id: string) => `podium-${id}`,
     sessionBinding: { transition: async () => ({ status: 'applied' }) },
@@ -51,12 +50,16 @@ function hostlessContext(sent: DaemonMessage[]) {
     },
     tailSeedGate: () => {},
     sessionCwdTracker: { setLaunchCwd: vi.fn(async () => {}), clear: () => {} },
-    primeInjector: { reset: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
   }
+  const daemon = ctx as unknown as DaemonContext
+  daemon.agentRuntime = testTerminalRuntime(
+    daemon,
+    launchTerminalProcess,
+  ) as unknown as DaemonContext['agentRuntime']
   return {
-    ctx: ctx as unknown as DaemonContext,
+    ctx: daemon,
     launch,
     setLaunchCwd: ctx.sessionCwdTracker.setLaunchCwd,
   }
@@ -88,8 +91,11 @@ it.each([
   expect(setLaunchCwd).not.toHaveBeenCalled()
   expect(ctx.sessions.get(sessionId)?.attached).toBeFalsy()
   expect(sent.filter((m) => m.type === 'bind')).toEqual([])
-  // And the one specific refusal, naming podium-host.
-  expect(sent).toEqual([{ type: 'spawnError', sessionId, message: noDurableBackendRefusal() }])
+  // And the one specific refusal, naming podium-host — after the driver choice
+  // an agent spawn announces before anything launches.
+  expect(sent.filter((m) => m.type !== 'driverSelected')).toEqual([
+    { type: 'spawnError', sessionId, message: noDurableBackendRefusal() },
+  ])
   expect(noDurableBackendRefusal()).toContain('podium-host')
 })
 

@@ -39,8 +39,8 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { SpawnOptions } from '@podium/process/screen'
 import { afterAll, beforeEach, expect, it, vi } from 'vitest'
+import { stubDurable, testSessions, testTerminalRuntime } from '../session/testing.js'
 import type { DaemonContext } from './context'
-import { stubDurable, testSessions } from '../session/testing.js'
 
 /** Claude's hook settings file is written here at spawn; nothing reads it back. */
 const settingsDir = mkdtempSync(join(tmpdir(), 'podium-strip-env-settings-'))
@@ -62,25 +62,14 @@ const fakeSpawn = (opts: SpawnOptions) => {
   }
 }
 
-const { sessionHandlers } = await import('./session')
+const { launchTerminalProcess, sessionHandlers } = await import('./session')
 
 function contextForSpawn(): DaemonContext {
-  return {
+  const ctx = {
     send: () => {},
     instanceId: 'default',
     backend: 'none',
     durable: stubDurable(fakeSpawn),
-    // Admits an agent spawn (every profiled kind needs a runtime to bind it).
-    // The runtime's terminal create runs the daemon's launch with no
-    // instrumentation — these tests read what reaches the pty layer, nothing after.
-    agentRuntime: {
-      createTerminal: async (
-        _id: string,
-        _spec: unknown,
-        _profile: unknown,
-        launch: (i: { args: string[]; env: Record<string, string> }) => Promise<void>,
-      ) => launch({ args: [], env: {} }),
-    },
     machineId: 'strip-env-test-machine',
     settingsDir,
     launch: (_kind: string, opts: { cwd: string }) => ({
@@ -95,10 +84,17 @@ function contextForSpawn(): DaemonContext {
     outputScheduler: { enqueue: () => {}, remove: () => {} },
     observers: { initSessionObservers: () => {}, clearSession: () => {} },
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
-    primeInjector: { reset: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
   } as unknown as DaemonContext
+  // Admits an agent spawn (every profiled kind needs a runtime to create it):
+  // the runtime's terminal create runs the daemon's launch with no
+  // instrumentation — these tests read what reaches the pty layer, nothing after.
+  ctx.agentRuntime = testTerminalRuntime(
+    ctx,
+    launchTerminalProcess,
+  ) as unknown as DaemonContext['agentRuntime']
+  return ctx
 }
 
 async function spawnOptionsFor(frame: Record<string, unknown>): Promise<SpawnOptions> {

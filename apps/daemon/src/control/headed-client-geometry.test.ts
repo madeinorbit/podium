@@ -107,7 +107,6 @@ function harness(over: { reportGeometry?: boolean; refuse?: boolean } = {}): Har
     outputScheduler: { enqueue: () => {}, remove: () => {}, flushNow: () => {} },
     observers: { clearSession: () => {}, onResize: () => {} },
     sessionCwdTracker: { clear: () => {} },
-    primeInjector: { reset: () => {} },
     send: (msg: DaemonMessage) => {
       // THE SUPPRESSION SWITCH THAT ARMS THIS SUITE. With the report dropped the
       // daemon still does everything else exactly as before, and only the wire

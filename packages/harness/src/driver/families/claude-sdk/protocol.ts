@@ -38,7 +38,9 @@
 
 import { randomUUID } from 'node:crypto'
 import type { HeadlessTurnEvent } from '@podium/protocol'
+import type { BoundaryContextOperation } from '../../boundary-context.js'
 import { markNeverSent } from '../../errors.js'
+import { BOUNDARY_HOOK_EVENTS, boundaryHookAnswer } from '../boundary-hook.js'
 import { HeadlessTurnFailure } from '../turn-error.js'
 import { formatClaudeSdkResultFailure, redactClaudeSdkFailureDetail } from './classify.js'
 
@@ -192,15 +194,52 @@ export function claudeStreamEnvOverlay(input: {
  * servers, JSON schema and full init config here; this family sends what it
  * owns: the appended system prompt (the orchestrator prompt APPENDS to the
  * claude_code preset — same posture as harness-exec's --append-system-prompt)
- * and nothing else. Every key is optional on the CLI side.
+ * and, for a session with a boundary context, the boundary hooks. Every key is
+ * optional on the CLI side.
+ *
+ * THE BOUNDARY HOOKS ARE IN BAND (POD-5814). Registered here, they come back as
+ * `hook_callback` control requests on this same stdio channel — no settings
+ * file, no HTTP listener. RUN, not read (claude-code 2.1.294 against a fake
+ * model server): UserPromptSubmit fires on every user line, and `/compact`
+ * fires PreCompact then SessionStart(source `compact`); additionalContext from
+ * each lands in the next model request. The startup SessionStart never calls
+ * back in stream-json — it fires before `initialize` registers anything — so the
+ * first prompt is what primes.
  */
-export function initializePayload(spec: Pick<ClaudeStreamTurnSpec, 'systemPrompt' | 'contextPrompt'>): {
+export function initializePayload(
+  spec: Pick<ClaudeStreamTurnSpec, 'systemPrompt' | 'contextPrompt'> & { boundaryHooks?: boolean },
+): {
   subtype: 'initialize'
   appendSystemPrompt?: string
+  hooks?: Record<string, Array<{ matcher: null; hookCallbackIds: string[] }>>
 } {
   const append = [spec.systemPrompt, spec.contextPrompt].filter(Boolean).join('\n\n').trim()
-  return append ? { subtype: 'initialize', appendSystemPrompt: append } : { subtype: 'initialize' }
+  return {
+    subtype: 'initialize',
+    ...(append ? { appendSystemPrompt: append } : {}),
+    ...(spec.boundaryHooks
+      ? {
+          hooks: Object.fromEntries(
+            BOUNDARY_HOOK_EVENTS.map((event) => [
+              event,
+              [{ matcher: null, hookCallbackIds: [boundaryHookCallbackId(event)] }],
+            ]),
+          ),
+        }
+      : {}),
+  }
 }
+
+/** The callback id a boundary hook is registered under; the CLI echoes it. */
+function boundaryHookCallbackId(event: (typeof BOUNDARY_HOOK_EVENTS)[number]): string {
+  return `podium_boundary_${event}`
+}
+
+const BOUNDARY_HOOK_CALLBACK_IDS = new Set<string>(BOUNDARY_HOOK_EVENTS.map(boundaryHookCallbackId))
+
+/** How long a boundary callback may wait on its context before answering
+ *  without it. The operation stays armed, so the next boundary tries again. */
+const BOUNDARY_HOOK_DEADLINE_MS = 10_000
 
 /** One user turn, as the CLI reads it in streaming-input mode. Byte-identical
  *  in shape to what the SDK writes for a string prompt (`session_id: ""`,
@@ -417,6 +456,9 @@ export function createClaudeStreamClient(
      *  `--resume`), which the CLI keeps. What `ready` answers with until the
      *  CLI reports one itself. */
     sessionId?: string
+    /** The session's hidden startup/compaction context. Present = the
+     *  boundary hooks are registered and answered in band. */
+    boundaryContext?: BoundaryContextOperation
   },
 ): ClaudeStreamClient {
   const namedSessionId = spec.sessionId ?? ''
@@ -555,6 +597,25 @@ export function createClaudeStreamClient(
     writeLine(JSON.stringify({ type: 'control_response', response: { subtype: 'success', request_id: requestId, response } }))
   }
 
+  /**
+   * Answer one boundary hook off the pump: the context fetch is a relay round
+   * trip, and the CLI waits on this callback, not on the stream. A fetch that
+   * fails or outlives its deadline answers with nothing; the operation stays
+   * armed for the next boundary.
+   */
+  function answerBoundaryHook(
+    requestId: string,
+    boundary: BoundaryContextOperation,
+    input: unknown,
+  ): void {
+    const deadline = AbortSignal.timeout(BOUNDARY_HOOK_DEADLINE_MS)
+    void boundaryHookAnswer(boundary, input, deadline)
+      .catch(() => null)
+      .then((answer) => {
+        if (!closed) writeControlResponse(requestId, answer ? { ...answer } : {})
+      })
+  }
+
   function writeControlError(requestId: string, error: Error | string): void {
     const message = error instanceof Error ? error.message : error
     writeLine(
@@ -656,10 +717,16 @@ export function createClaudeStreamClient(
         return
       }
       if (subtype === 'hook_callback') {
-        // Podium registers no in-process hooks, so the CLI must never ask —
-        // answer as an error rather than parking the turn on a callback that
-        // does not exist.
-        if (requestId) writeControlError(requestId, new Error('no hook callback is registered'))
+        const callback = request as { callback_id?: string; input?: unknown }
+        const boundary = spec.boundaryContext
+        if (!boundary || !callback.callback_id || !BOUNDARY_HOOK_CALLBACK_IDS.has(callback.callback_id)) {
+          // Only the boundary hooks are ever registered — answer anything else
+          // as an error rather than parking the turn on a callback that does
+          // not exist.
+          if (requestId) writeControlError(requestId, new Error('no hook callback is registered'))
+          return
+        }
+        if (requestId) answerBoundaryHook(requestId, boundary, callback.input)
         return
       }
       if (subtype === 'elicitation') {
@@ -879,7 +946,7 @@ export function createClaudeStreamClient(
     JSON.stringify({
       type: 'control_request',
       request_id: initializeId,
-      request: initializePayload(spec),
+      request: initializePayload({ ...spec, boundaryHooks: spec.boundaryContext !== undefined }),
     }),
   )
   /**

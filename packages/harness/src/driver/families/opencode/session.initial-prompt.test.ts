@@ -16,7 +16,7 @@ import type { SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { manifestFor } from '../../../registry.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
+import { createMemoryDriverSlots, serverFamilyLaunch } from '../../testing/index.js'
 import { opencodeFlavor } from './engine-facts.js'
 import { createOpencodeSessionRuntime, type DaemonOpencodeRuntime } from './session.js'
 import { makeOpencodeTestHost } from './test-support/host.js'
@@ -46,12 +46,21 @@ describe('opencode launch with an initial prompt', () => {
     })
     runtimes.push(runtime)
 
-    await runtime.launch({ sessionId: SESSION_ID, cwd: '/work', initialPrompt: 'What is 7 times 8?' })
+    await runtime.launch(
+      serverFamilyLaunch({
+        sessionId: SESSION_ID,
+        cwd: '/work',
+        initialPrompt: 'What is 7 times 8?',
+        instructions: [{ source: 'podium:issues', content: 'Run `podium issue prime`.' }],
+      }),
+    )
 
     const server = engine.serverFor(SESSION_ID)!
     const opencodeSessionId = runtime.handleFor(SESSION_ID)!.binding.resume!.value
     await vi.waitFor(() => expect(server.promptCount(opencodeSessionId)).toBe(1))
     expect(JSON.stringify(server.lastPrompt(opencodeSessionId))).toContain('What is 7 times 8?')
+    // The spec's instructions ride the prompt as opencode's `system` (POD-5814).
+    expect(server.lastPrompt(opencodeSessionId)?.system).toBe('Run `podium issue prime`.')
 
     const turnStarted = await vi.waitFor(() => {
       const event = sent

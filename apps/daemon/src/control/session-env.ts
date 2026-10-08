@@ -160,6 +160,9 @@ export function serverChildEnv(input: {
   instanceUuid?: string
   /** Exact Podium session this child serves. */
   sessionId?: string
+  /** The session's Podium env (relay pair, browser shim) — the same overlay
+   *  the PTY path binds. Its stamps below still win. */
+  podiumEnv?: Readonly<Record<string, string>>
 }, processEnv: NodeJS.ProcessEnv = process.env): NodeJS.ProcessEnv {
   const env: NodeJS.ProcessEnv = {
     ...processEnv,
@@ -167,6 +170,7 @@ export function serverChildEnv(input: {
       ...(input.sessionEnv ? { sessionEnv: input.sessionEnv } : {}),
       ...(input.harnessEnv ? { harnessEnv: input.harnessEnv } : {}),
       podiumEnv: {
+        ...input.podiumEnv,
         ...(input.instanceUuid ? { PODIUM_INSTANCE_UUID: input.instanceUuid } : {}),
         ...(input.sessionId ? { PODIUM_SESSION_ID: input.sessionId } : {}),
         ...(input.homeDir

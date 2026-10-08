@@ -88,7 +88,6 @@ function harness(over: Partial<DaemonContext> = {}): {
     outputScheduler,
     observers: { clearSession: () => {} },
     sessionCwdTracker: { clear: () => {} },
-    primeInjector: { reset: () => {} },
     send: (msg: DaemonMessage) => {
       sent.push(msg)
       if (msg.type === 'geometryApplied')

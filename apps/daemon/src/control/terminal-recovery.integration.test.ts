@@ -74,7 +74,6 @@ it('rebuilds the screen from a durable survivor, and a link-B reattach never sig
         clearSession: () => {},
       },
       sessionCwdTracker: { clear: () => {}, setLaunchCwd: () => {} },
-      primeInjector: { reset: () => {} },
       reattachGate: (fn: () => Promise<void>) => fn(),
       tailSeedGate: () => {},
       send: (msg: DaemonMessage) => sent.push(msg),

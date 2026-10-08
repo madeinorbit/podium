@@ -31,7 +31,7 @@ import { SpawnMessage } from '@podium/protocol'
 import { hasBunTerminal } from '@podium/process/pty'
 import { credentialEnv } from '@podium/runtime'
 import type { DaemonContext } from '../src/control/context'
-import { launchSpawn } from '../src/control/session'
+import { launchTerminalSpawn } from '../src/control/session'
 
 const CREDENTIAL = 'sk-test-xyz'
 /** A key on the DAEMON, standing in for one an operator exported before starting it. */
@@ -162,7 +162,6 @@ async function dumpEnvOfSpawnedProcess(
     },
     observers: { initSessionObservers: () => {}, clearSession: () => {} },
     sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
-    primeInjector: { reset: () => {} },
     hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
     agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
   } as unknown as DaemonContext
@@ -184,7 +183,7 @@ async function dumpEnvOfSpawnedProcess(
   })
   // The environment contract lives at the terminal launch boundary. Server
   // admission is orthogonal and has its own process-level coverage.
-  await launchSpawn(ctx, msg, { handled: false })
+  await launchTerminalSpawn(ctx, msg)
   // The handler dispatches the launch and returns; the bridge appears when the
   // PTY is up, an await or two later. Wait for it rather than racing it.
   await waitFor(() => bridges.has(sessionId)).catch(() => {

@@ -121,8 +121,6 @@ export interface DaemonContext {
   agentRuntime?: DaemonMachineRuntime
   /** Resolves hook cwds to worktree roots; cleared on session exit. */
   sessionCwdTracker: SessionCwdTracker
-  /** Re-arms prime injection when a session dies. */
-  primeInjector: { reset(sessionId: SessionId): void }
   /** Bounds the reattach spawn fan-out (REATTACH_CONCURRENCY). */
   reattachGate<T>(fn: () => Promise<T>): Promise<T>
   /** Paces transcript reseeds independently of immediate bridge wiring. */

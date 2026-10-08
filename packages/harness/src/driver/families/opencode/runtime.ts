@@ -89,7 +89,7 @@ import type {
   PendingInteraction,
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import type { ModelPolicy, SessionSpec } from '../../session-spec.js'
+import { instructionsText, type ModelPolicy, type SessionSpec } from '../../session-spec.js'
 import type {
   AnswerOptions,
   AttachmentStager,
@@ -1579,6 +1579,10 @@ export function createOpencodeRuntime(
     }
     const model = modelFor(session.spec, input)
     const effort = effortFor(session.spec, input)
+    // The session's instructions ride every prompt as opencode's own `system`
+    // field (POD-5814): v1 takes it per prompt, and the v2 client keeps it as
+    // the session's `podium-system` instructions entry.
+    const system = instructionsText(session.spec)
     session.observedConfiguration = undefined
     const epochBeforePrompt = session.turnEpoch
     onTypingStarted?.()
@@ -1602,6 +1606,7 @@ export function createOpencodeRuntime(
       // POD-3081 made the sticky half real, which makes the two halves of the
       // precedence rule worth stating identically.
       ...(effort ? { variant: effort } : {}),
+      ...(system ? { system } : {}),
     })
     /**
      * OPENCODE OPENED THE TURN FIRST, AND MAY HAVE CLOSED IT (POD-4813).
