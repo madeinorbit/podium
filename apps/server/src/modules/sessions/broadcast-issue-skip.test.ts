@@ -47,7 +47,7 @@ describe('POD-797 session broadcasts never republish issue residue', () => {
     return { reg, s1, clientId, inbox }
   }
 
-  it('attach/detach emits sessionsChanged but not issuesChanged', async () => {
+  it('attach/detach emits neither a duplicate session list nor issue residue', async () => {
     const { reg, s1, clientId, inbox } = await setup()
 
     // A full session switch: attach the new session, detach the old — only
