@@ -30,7 +30,7 @@ export class HeaderSession {
     return this.headerWorkingFields
   }
 
-  /** Legacy readers can still ask for these fields individually. Display leaves use session. */
+  /** Legacy readers can still ask for these fields individually. Display leaves read the companion scalars. */
   @lazy
   get headerWorkingFields(): NonNullable<ReturnType<typeof headerWorkingSession>> {
     const model = this
