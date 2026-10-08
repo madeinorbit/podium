@@ -136,7 +136,10 @@ export function createSidebarFixture(
     }
   let replica = makeReplica()
   function makeReplica() {
-    return createKernelReplica({
+    // The synthetic kernel owns exit evidence, just as the real kernel does.
+    const exits = new Map<string, 'evicted' | 'removed'>()
+    const result = createKernelReplica({
+      exits: (entity, id) => exits.get(`${entity}:${id}`),
       cache: {
         readCursor: () => null,
         readEntities: () => [...records.values()],
@@ -145,6 +148,13 @@ export function createSidebarFixture(
       },
       side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
     })
+    const deliver = result.onKernelEvent.bind(result)
+    return Object.assign(result, { onKernelEvent(event: Parameters<typeof deliver>[0]) {
+      if (event.type === 'removed' || event.type === 'evicted') exits.set(`${event.entity}:${event.entityId}`, event.type)
+      if (event.type === 'upserted') exits.delete(`${event.record.entity}:${event.record.entityId}`)
+      if (event.type === 'bootstrap-installed') exits.clear()
+      deliver(event)
+    } })
   }
   const api = {
     discovery: {

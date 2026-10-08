@@ -19,7 +19,7 @@ class SharedMenuTarget implements WorkIssueMenuTarget {
   ) {}
   @lazy get canBringBack() {
     return this.lane === 'closed'
-      ? this.pool.worklistRow(this.issue.id)?.rowCanBringBack
+      ? this.pool.worklistRow(this.issue.id)?.canBringBack
       : undefined
   }
   @lazy get sessionCount() {

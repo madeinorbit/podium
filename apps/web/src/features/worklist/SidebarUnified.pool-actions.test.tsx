@@ -476,7 +476,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
         'synthetic-8',
       )
       expect(pool!.row('issue', 'synthetic-8')).not.toBe(LOADING)
-      expect(actions.resolveMenuData('synthetic-8').single[0]?.memberSessionIds).toEqual([
+      expect(pool!.issueObject('synthetic-8').memberSessionIds).toEqual([
         'synthetic-session-8',
       ])
       expect(pool!.row('session', 'synthetic-session-8')).toMatchObject({
@@ -496,7 +496,7 @@ describe('pool navigation uses the existing gesture semantics', () => {
         members: [...members.keys()],
         issueSessions: [...mission].map((id) => [
           id,
-          actions.resolveMenuData(id).single[0]?.memberSessionIds,
+          pool!.issueObject(id).memberSessionIds,
         ]),
         reads: [...pool!.tables.session.keys()].map((id) => pool!.row('session', id)),
       }),
@@ -931,17 +931,17 @@ describe('real pool row mutations and receipts', () => {
     await menu()
     fireEvent.click(await item('Mark as unread'))
     const unread = await request('issues.markUnread')
-    expect(value().issue.unread).toBe(true)
+    expect(value().unread).toBe(true)
     await parity()
     await refuse(unread)
-    expect(value().issue.unread).toBe(false)
+    expect(value().unread).toBe(false)
   })
 
   it('offers the same sidebar menu vocabulary and resolves live cascade counts and members on open', async () => {
     await mount()
     const resolved = actions.resolveMenuData('synthetic-1').single[0]!
     expect(resolved.childCount).toBe(2)
-    expect(resolved.memberSessionIds).toEqual(['synthetic-session-1'])
+    expect(pool!.issueObject(resolved.id).memberSessionIds).toEqual(['synthetic-session-1'])
     await menu()
     for (const name of [
       'Open in tasks',
@@ -976,15 +976,15 @@ describe('real pool row mutations and receipts', () => {
         deferUntil: new Date(NOW + 3600000).toISOString(),
       }),
     )
-    expect(value().issue.unread).toBe(true)
+    expect(value().unread).toBe(true)
     expect(actions.resolveMenuData(TARGET).single[0]?.unread).toBe(true)
     await menu()
     fireEvent.click(await item('Mark as read'))
     const read = await request('issues.markRead')
-    expect(value().issue.unread).toBe(false)
+    expect(value().unread).toBe(false)
     await parity()
     await refuse(read)
-    expect(value().issue.unread).toBe(true)
+    expect(value().unread).toBe(true)
     await menu()
     fireEvent.click(await item('Snooze / defer'))
     fireEvent.click(await item('Unsnooze'))
@@ -1128,10 +1128,10 @@ describe('real pool row mutations and receipts', () => {
     const deleteDialog = await screen.findByRole('alertdialog')
     fireEvent.click(within(deleteDialog).getByRole('button', { name: 'Delete' }))
     const deletion = await request('issues.delete')
-    expect(value().issue.deletedAt).toBeTruthy()
+    expect(pool!.issueObject(TARGET).deletedAt).toBeTruthy()
     await parity()
     await refuse(deletion)
-    expect(value().issue.deletedAt).toBeFalsy()
+    expect(pool!.issueObject(TARGET).deletedAt).toBeFalsy()
   })
 
   it('treats eviction as absence, never requests the evicted row, and accepts readmission', async () => {
