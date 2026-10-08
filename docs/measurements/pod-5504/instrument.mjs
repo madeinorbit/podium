@@ -19,12 +19,12 @@ let times: Record<string, number> = {}
 const answers = new Map<string, unknown>()
 const disabled = observable.box('')
 export function idleCount(key: string, amount = 1) { counts[key] = (counts[key] ?? 0) + amount }
-export function idleRead<T>(key: string, body: () => T): T {
+export function idleRead<T>(key: string, body: () => T, cacheKey = key): T {
   const selected = disabled.get()
-  if ((selected === key || selected === 'all') && answers.has(key)) return answers.get(key) as T
+  if ((selected.split('+').includes(key) || selected === 'all') && answers.has(cacheKey)) return answers.get(cacheKey) as T
   const start = performance.now()
   idleCount(key)
-  try { const value = body(); answers.set(key, value); return value }
+  try { const value = body(); answers.set(cacheKey, value); return value }
   finally { times[key] = (times[key] ?? 0) + performance.now() - start }
 }
 export function idleFreezer(body: () => void) { (g.__idleFreezers ??= []).push(body) }
@@ -35,7 +35,7 @@ for (const [proto, method, key] of [[computedProto, 'computeValue_', 'computedRu
   ;(proto as any)[method] = function (...args: unknown[]) { idleCount(key); return original.apply(this, args) }
 }
 g.__idleMobx = { reset() { counts = {}; times = {} }, read() { return { counts: { ...counts }, inclusiveMs: { ...times } } } }
-g.__idleAblations = { set(key: string) { runInAction(() => disabled.set(key)); if (key === 'index' || key === 'all') for (const stop of g.__idleFreezers ?? []) stop() } }
+g.__idleAblations = { set(key: string) { runInAction(() => disabled.set(key)) } }
 `)
 function memoWrap(s,prefix){
  const needle='  function memo<T>(key: string, read: () => T): T {'
@@ -49,7 +49,17 @@ function memoWrap(s,prefix){
 edit(graph+'shell-views.ts',s=>memoWrap(s,'shell'))
 edit(graph+'settings-views.ts',s=>memoWrap(s,'settings'))
 edit(graph+'chat-context.ts',s=>"import { idleRead } from './idle-cpu-measurement'\n"+s.replace('mentions: () => chatMentionIssues(pool, counts),',"mentions: () => idleRead('chat.mentions', () => chatMentionIssues(pool, counts)),").replace('sessions: () => chatReferenceSessions(pool, counts),',"sessions: () => idleRead('chat.references', () => chatReferenceSessions(pool, counts)),"))
-edit(graph+'issue-board-source.ts',s=>"import { idleCount, idleFreezer } from './idle-cpu-measurement'\n"+s.replace('  const stops = new Map<string, () => void>()','  const stops = new Map<string, () => void>()\n  const indexStops = new Set<() => void>()\n  idleFreezer(() => { for (const stop of indexStops) stop(); indexStops.clear() })').replace('  function indexKeys(row: IssueViewModel): Set<string> {','  function indexKeys(row: IssueViewModel): Set<string> {\n    idleCount(\'indexKeys\')').replace('    stops.set(id, () => {','    indexStops.add(stop)\n    stops.set(id, () => {\n      indexStops.delete(stop)'))
+edit(graph+'issue-board-source.ts',s=>"import { idleCount, idleRead } from './idle-cpu-measurement'\n"+s.replace('  function indexKeys(row: IssueViewModel): Set<string> {','  function indexKeys(row: IssueViewModel): Set<string> {\n    idleCount(\'indexKeys\')').replace('      () => {\n        const row = facts(id)\n        return row && row !== LOADING ? indexKeys(row) : new Set<string>()\n      },', "      () => idleRead('index', () => {\n        const row = facts(id)\n        return row && row !== LOADING ? indexKeys(row) : new Set<string>()\n      }, 'index:' + id),"))
 edit(graph+'runtime-pool.ts',s=>"import { idleCount } from './idle-cpu-measurement'\n"+s.replace('  const state = projectionState(pool, read, options)','  idleCount(\'projectionCreated\')\n  const state = projectionState(pool, read, options)').replace('    subscribe(wake: () => void): () => void {','    subscribe(wake: () => void): () => void {\n      idleCount(\'projectionSubscriptions\')').replace('        state.listeners.delete(listener)','        idleCount(\'projectionUnsubscriptions\')\n        state.listeners.delete(listener)').replace('  if (!state.dirty) return','  if (!state.dirty) return\n  idleCount(\'projectionRefresh\')').replace('  const owned = new Set(options.owns ?? [])','  idleCount(\'poolCreated\')\n  const owned = new Set(options.owns ?? [])'))
-edit(graph+'pool.ts',s=>"import { idleCount } from './idle-cpu-measurement'\n"+s.replace('  apply(event: RowSourceEvent): void {','  apply(event: RowSourceEvent): void {\n    idleCount(\'poolApplications\')\n    idleCount(\'poolRowsDelivered\', event.rows.length)\n    for (const row of event.rows) idleCount('poolRows_' + row.kind)'))
+edit(graph+'pool.ts',s=>"import { idleCount } from './idle-cpu-measurement'\n"+s.replace('  apply(event: RowSourceEvent): void {','  apply(event: RowSourceEvent): void {\n    idleCount(\'poolApplications\')\n    idleCount(\'poolRowsDelivered\', event.rows.length)\n    for (const row of event.rows) idleCount(\'poolRows_\' + row.kind)'))
 console.log(JSON.stringify({event:'instrumented',label,base}))
+
+edit(graph+'reader-queries.ts',s=>{
+ const needle='  activity(question: SessionActivityQuestion): number {'
+ const start=s.indexOf(needle)
+ if(start<0)throw new Error('Activity seam absent')
+ let cursor=start+needle.length,depth=1
+ while(depth&&cursor<s.length){if(s[cursor]==='{')depth++;else if(s[cursor]==='}')depth--;cursor++}
+ const body=s.slice(start+needle.length,cursor-1).replace("    const resident = residentIds(this.pool, 'session')", "    const resident = residentIds(this.pool, 'session')\n    idleCount('activityResidentVisits', resident.length)\n    idleCount('activity_' + question.kind)")
+ return "import { idleCount, idleRead } from './idle-cpu-measurement'\n"+s.slice(0,start)+needle+"\n    return idleRead('reader.activity', () => {"+body+"\n    }, 'reader.activity:' + JSON.stringify(question))\n  }"+s.slice(cursor)
+})
