@@ -1823,20 +1823,20 @@
       "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
       "holder": "SuperagentScreen/SuperagentScreen",
       "rule": "reader-summary",
-      "tokens": "1a430f93c760f588ba5f61c8738a9d7e22eb0d8c163e66e93628cb49addd1370",
+      "tokens": "ce6fa133ba4bf716701b9ca68feb4a8ab266028ced99e1bd6594c40316dab112",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "68e3937b5ddc0e3225b88b6d2c8452c91e69bf5f15e60db36fd51bd6fccaaa54",
         "d7d1283b420779e4456f3da32f99f6ffa2bd5ae35362572cca620bd871c3821d"
       ],
-      "fingerprint": "949aab3d92bc2d8421d442760ec8203d70e32d24fde356ee363f1030584f58dd",
+      "fingerprint": "dd2c0dd364028cad534c043c8cb3dafb140b8c313fee355b944b381e395d3e5b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Superagent screen reads its existing pool superagent slice.",
       "bound": "The existing superagentState reader still enumerates its thread catalogue; no new bound is claimed.",
-      "reason": "Wrapping the screen in observer moves the reader-summary fingerprint but does not repair the inherited catalogue demand.",
+      "reason": "Moving backend and history reader options off the runtime binding changes this fingerprint; the existing superagent thread catalogue demand remains unproven.",
       "guard": "Exact fingerprint and multiplicity only. This entry preserves existing catalogue debt and does not establish bounded work."
     },
     {
@@ -6188,20 +6188,19 @@
       "file": "apps/web/src/features/chat/ChatView.tsx",
       "holder": "ConversationChatView/ConversationChatView/chat",
       "rule": "reader-summary",
-      "tokens": "24c485129bae02247213aa76bd0f4ada1c134315cb8e463d837bc67cd4e90980",
+      "tokens": "6abf833d96594c6a5a92efeb477913619b41d2e2615710e00051ae023aa8b0a6",
       "gate": [],
       "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "3867b12a3065faa4384a2fe935624b5db4eef30898c33bb8fc7a22b6d96dbc2e",
-        "547db8df8b01307ab9621264bd8b4e1efbd729dc505e23d25c70da28198f4172"
+        "547db8df8b01307ab9621264bd8b4e1efbd729dc505e23d25c70da28198f4172",
+        "b3a0e815881ca9a1415d443494ad51ea3c7ab00ae8daac519f2f52a1f5fd1ff7"
       ],
-      "fingerprint": "f171b0a19d0cf7dc38c190beaab1c316bc247fa04b58c6b95ccd6119f6138ec7",
+      "fingerprint": "004229d48a542972d7a2e936455fb7c6a64b21c0c8731b8dc31ba8b0d9638680",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of useChatSurface",
+      "trigger": "Mount one chat reader and its DOM layout.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "Display facts are read by leaf observers, but inherited conversation/context initialization taint remains; this entry claims no new collection bound.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -6319,24 +6318,6 @@
     },
     {
       "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/attachedSession",
-      "rule": "reader-summary",
-      "tokens": "a9c131e9177b981032963a32b72294af250d7dd6296659c4846e0f23729862a7",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "c80051833f597a6666f86b6cb13995018d370fc7f50ae24308402a483690cc55",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/attachedSession through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
       "holder": "useChatLayout/attachments",
       "rule": "reader-summary",
       "tokens": "f6cbe29c9003ac9e3d135955ae4765468c9cf902318dc0656a736a06ca3d3df0",
@@ -6352,186 +6333,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/attribution/useMemo:callback",
-      "rule": "reader-summary",
-      "tokens": "abbd26b8c28bba9e7d74eaedeb9652d25f2fbb3ce4affa8742f5fe8ac62b7bd2",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "e0f60716d600bd91ce8c13dbc7304a0df1e004ca55215eebcb39ddebe9307817",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/attribution/useMemo:callback through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/composer/composer",
-      "rule": "helper-consumer",
-      "tokens": "8ea4d3ea58ea54d83e8dc6b5fb8016cfd56df6a71a7bd9889d76fb23bbb0bc2a",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "7fdcffd1662799603ce5260aecb43aa34d3a0958dca4c7e34ac3cf3287c798fe",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/composer/composer through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/isOperatorPromptRow/useCallback:callback",
-      "rule": "reader-summary",
-      "tokens": "51f96ca5320fba4ade7421f633e4f106649222ce7b0bbf51c238aa0aa49aea09",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "a93c1114396fa52fd87bf3eddef11930f1adb8e21d86b925bff1270cdc9b96ae",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/isOperatorPromptRow/useCallback:callback through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/pendingAskBlock/useMemo:callback",
-      "rule": "reader-summary",
-      "tokens": "c045856622a8428af0f570979cbeca35ac3bb4843dafc1a33af4a91feace6e9d",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "90763f989872a93ee10b2c94cfc4f7a41c6738a6573df07af6e47a00881282cf",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/pendingAskBlock/useMemo:callback through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/presenceOfflineMachineName",
-      "rule": "reader-summary",
-      "tokens": "6cd417e73aeb3569160d3d1ad2ace3e3e940e03c7899265e36d26bcdc68ed4fa",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "6da588f28de396fea8d4e44cb79b6e887a9070c5d0bcf309dd9f3cc7a729251c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/presenceOfflineMachineName through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/reference/useMemo:callback",
-      "rule": "helper-consumer",
-      "tokens": "b418f5aff7dd77cb496ddf2016654a3621f28316493f35efc6b57174b75a8b8c",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "2701992e2d2e92bdf75c2c9ca6c47ca9751bd2c718233064f16999817b59ed0a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/reference/useMemo:callback through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/revealedRow",
-      "rule": "helper-consumer",
-      "tokens": "f3b7d26bbb5bd57eeb3564298c55d04c6f8874c133b82861e3e0b78044e06360",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "013c56d8533fc4dbd980a6a202af3ac1c3c807f6ce6f289806d95ec4148bbe75",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/revealedRow through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/scroll",
-      "rule": "reader-summary",
-      "tokens": "926c592a78fad4a444fb7c46031e20df5a07ce197878a89ca4df0ceeb56fa945",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "8120487080ef8a40bce30ff2225404790cac1d7d392dabd6f59310d0f3cbece8",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/scroll through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/scroll",
-      "rule": "helper-consumer",
-      "tokens": "1d8123f67206ca93620882a3638fa695a06975e7b00f099096cca92784005d49",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "e15c156570638cd376d103fadf57475dd492490d9f440eee9e7bef9b9603bc4a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/scroll through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/chat/use-chat-layout.ts",
-      "holder": "useChatLayout/session",
-      "rule": "reader-summary",
-      "tokens": "ace0369328eb7e5037201c37526ab39efe3820892d903c6e7e372e933c488826",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "58d9ebfc18c4a55373f5d37c79d054463e54c4cd5bebbb48bcb6ff7060ae15f2",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useChatLayout/session through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
     },
     {
       "file": "apps/web/src/features/chat/use-conversation.ts",
@@ -6561,13 +6362,13 @@
         "exit:then:2a9160b19112a59c7b44e568540986db57a63545f1718707ed26b3ea3dbe9c22",
         "exit:then:7bfb3344dbaea3cdaa21f524bc923bcbd20abdf6b8811e30d62ec3214f8e6e2f",
         "exit:then:428b96db192d1298d116f9c9c4b57e996d06a4e69ae24c5435497bd0edb495c4",
-        "exit:then:a4f01c1f557572df82188da12e5d6f8b1f32779f15ba0e80723a4de234029536",
+        "exit:then:ba29f097750b237e5e7f6c15767909430764e037b261f12dac5a9d97c58b3b04",
         "exit:then:1f514a0dff4fa91030eabaff13a4dd5cf7302b10a2151aac0ef27d498360df90"
       ],
       "origin": [
-        "9e3ab54102e54b826d5014c201259dbde55983e7dae0d47b6d2aa7e821123c39"
+        "61a891836489df421d8a7033b5c0f15c439c273e5e688e516fb082699530e816"
       ],
-      "fingerprint": "accaada69ed75e8e9ffcaaedd1fe19711c6915f4154db1520e466e13b60a866c",
+      "fingerprint": "3433d3d70e882b4eaa0e118dee4155f2d2d43d92c2a00e152fbf65c2a197139b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -6580,14 +6381,14 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/deliver/callback/composer",
       "rule": "helper-consumer",
-      "tokens": "d8437f23225ae80aeeac1dc5cc49c267aebac16fa43c4ced9c360a43df76f234",
+      "tokens": "49bf61a43fbd26d45af68c6ad69ac9587233d2a4d2f600f0d7d373f90a9e78b3",
       "gate": [
-        "exit:then:a4f01c1f557572df82188da12e5d6f8b1f32779f15ba0e80723a4de234029536"
+        "exit:then:ba29f097750b237e5e7f6c15767909430764e037b261f12dac5a9d97c58b3b04"
       ],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "6ae120f028c759c8ed23da210c5077400326ced4411276b44f98e9e48f91517d",
+      "fingerprint": "7c68f0e3d72ce07685b80f76303e015b994df167de24c65c5e189cd69ba10c05",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -6600,12 +6401,12 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "useConversation/conversation/useOwnedConversation:callback",
       "rule": "reader-summary",
-      "tokens": "32ae18bd6d9daca3037bcf6cede819db72f1919064932334af0e729feae5e6d5",
+      "tokens": "aabfbc860c5522b1f7a97ed3e8af3ebaaad60e9f23c5eba20e4cc5d24fd9d9c5",
       "gate": [],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "c04794d866b3e7107931cba16fb6013d2d932871ffa76b897e1275214597d419",
+      "fingerprint": "df726d084751a32ddfba2ed97c0886d4b019d87a9a45d68bd1b56b962b2f0280",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -19475,12 +19276,12 @@
       "file": "packages/client-core/src/conversation/transcript-graph.ts",
       "holder": "TranscriptGraph/reset",
       "rule": "consume:forEach",
-      "tokens": "c2c8db843ba50293f1ff31eac98725ada0c084d29cf0d9e192f0dc372965cd43",
+      "tokens": "6bfcc2abee0171c62a7f38cb4366e1a6f168b9fa5c620b2231b40ffdd284339b",
       "gate": [],
       "origin": [
         "3ed4953e6673c6f70560dd7e1d93f842526e821ec554750f403bfe9ec65de148"
       ],
-      "fingerprint": "04f3d2fb49e2641d1904b5095ce2c1ccf566b22dc01944e9714c90700e4a117e",
+      "fingerprint": "168163e8eca76c12955fec88100958ca5f738178e360f8c25e1adf5db2c4ac3b",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5629",
@@ -19529,12 +19330,12 @@
       "file": "packages/client-core/src/conversation/transcript-graph.ts",
       "holder": "TranscriptGraph/reset",
       "rule": "enumerate:forEach",
-      "tokens": "c2c8db843ba50293f1ff31eac98725ada0c084d29cf0d9e192f0dc372965cd43",
+      "tokens": "6bfcc2abee0171c62a7f38cb4366e1a6f168b9fa5c620b2231b40ffdd284339b",
       "gate": [],
       "origin": [
-        "746726e3483c64f1c86f8b422cc0b3394d97776c94a2a3289f015396cf71d348"
+        "01b46fe5bebbaeb60e5247456f6454db78157fc013ff9c8fa28644ca7ee4813a"
       ],
-      "fingerprint": "d3544e73e517daf2668d14b21807d0ea30636a83db33953e378a4a8e02707aaf",
+      "fingerprint": "ea4b20218d2ee50c340afb9f42b9adf0056af9c707db3ffb5404c4ebed01928b",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5629",
@@ -23112,154 +22913,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/chat.ts",
-      "holder": "chatSessionReference/resolved/resolveReferent:callback",
-      "rule": "helper-consumer",
-      "tokens": "c97c5dca9d34f18fe1d874e79447a9c6ea40b9e349fb5f6815dbf76e544c393a",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "e3442aec11ccfce17750e65ac81dc365009b63e331bfee918c249fde32ef88f1",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of chatSessionReference/resolved/resolveReferent:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/compose/chat.ts",
-      "holder": "isOperatorPromptRow",
-      "rule": "reader-summary",
-      "tokens": "0499f44b4750ca73814e8b4723772b44230467ae54c1397664a3f1536876ad03",
-      "gate": [
-        "&&:59cb4eed39d3f9fedd97db55e3aad0ca598053c55a4768b7860bf41360d3ac49"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "3ea2e8bc064a95fedc5cfe6bbf58561943c38718b9e1c2be3ac89c2d0fa66df5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of isOperatorPromptRow through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "packages/client-core/src/values/compose/chat.ts",
-      "holder": "transcriptAttribution/actorId",
-      "rule": "reader-summary",
-      "tokens": "4c3d1fe55cb6fdf69838f3554f43dabca66be5d519c62697d5ef925bc1249b2b",
-      "gate": [
-        "then:b84c668efc44361d61c5ae275a09ca16e344f1467eeaeecf1bc5268da74b1619"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "194c7fcd7c4036d8580ae1f694a8bdbbd349b73e3cd31c6ec24fda14afee212f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of transcriptAttribution/actorId through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "packages/client-core/src/values/compose/chat.ts",
-      "holder": "transcriptAttribution/onBehalfOf",
-      "rule": "reader-summary",
-      "tokens": "f4df56c61f49fe886ee486f47df799398974342c71c0983044287b2fb505eb39",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "6fae85612d5ca542ab130b30b70c514ce7ec1f38d91fa40bfa4c2bb132620f26",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of transcriptAttribution/onBehalfOf through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "packages/client-core/src/values/compose/chat.ts",
-      "holder": "transcriptAttributionTable/agent",
-      "rule": "reader-summary",
-      "tokens": "d87e32710ca0da26ed1bee9c4cf2c468d88f5f60689ae69fbd6ca434d284d9b6",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "74d5a0404bacba9e3ff5b6cc8ef24f415019f32cb4b36a3b08b153fa410bb4a0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of transcriptAttributionTable/agent through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "packages/client-core/src/values/compose/chat.ts",
-      "holder": "transcriptAttributionTable/human",
-      "rule": "reader-summary",
-      "tokens": "f2ac19d5388c5c2ba67ca85b8b2ff5722b41a71de3dbdcd941d32872a52c34fe",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "78d4623de85a875e0c72cf366220f50ffe4b045e5515dd6d6f259557f12f6abc",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of transcriptAttributionTable/human through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "packages/client-core/src/values/compose/chat.ts",
-      "holder": "transcriptAttributionTable/pair/callback",
-      "rule": "reader-summary",
-      "tokens": "97449c4d323785f0f746d6dee6b32144d3e519e65715d667615fba3418fee563",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "8b14e466454f3fe034217915a1fc2976d9aef41d962371605443fbbfa9e6d82a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of transcriptAttributionTable/pair/callback through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "packages/client-core/src/values/compose/chat.ts",
-      "holder": "transcriptAttributionTable/system",
-      "rule": "reader-summary",
-      "tokens": "edd19cc1f417761880f6a433fddb26061320f897b1c8e9afe08031d3da41a284",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "19b88f78d5e6229315e352dec0eed81d62937cfba1506b965ad5a8a33c169589",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of transcriptAttributionTable/system through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
     },
     {
       "file": "packages/client-core/src/values/compose/issues.ts",
@@ -28268,7 +27921,7 @@
       "trigger": "A newly fetched issue event page is appended.",
       "bound": "One supplied page (the shared request owner asks for at most 200 rows per RPC); retained history is never enumerated for ID deduplication.",
       "reason": "The history owns its ID index and formats only new rows, with stable event/feed arrays and cursor advancement.",
-      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1\u21921 for 128/512 retained events; a planted retained-ID map/Set fails."
+      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1→1 for 128/512 retained events; a planted retained-ID map/Set fails."
     },
     {
       "file": "packages/client-core/src/values/issue-board-filter.ts",
@@ -33500,27 +33153,6 @@
     },
     {
       "file": "packages/client-core/src/values/session-status.ts",
-      "holder": "chatActivity/badge",
-      "rule": "reader-summary",
-      "tokens": "5d6d35ea98e41f864f065f4c21636f92fdc2968ff92f4e695ab379379efc19e7",
-      "gate": [
-        "exit:then:caa1f3fc6907093ff35fff49ab6d5b6aa2df8cf607beeae392c189e8a8065215",
-        "exit:then:6d6a6f6b36bc0443f46dc6650a79b724bc6db8c627183f7d11ea828aa04914a4"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "79586f683417b408afc192bc5adeb36c1f699620bab3bb34a1f64225b8db5b50",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of chatActivity/badge through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "packages/client-core/src/values/session-status.ts",
       "holder": "panelLabel",
       "rule": "helper-consumer",
       "tokens": "133016c3d1ad08dff3265b5f55d7bee93ba0d26ae0a176eec9b707502eed5f8f",
@@ -38281,7 +37913,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
