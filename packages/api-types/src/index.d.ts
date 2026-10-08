@@ -1419,17 +1419,6 @@ interface TelemetryState {
     endpoint: string;
 }
 
-/**
- * The superagent (modules/superagent): the orchestrator with cross-project
- * context. The always-there 'global' thread plus per-session 'btw' threads and
- * per-repo concierge threads, persisted in SQLite. A superagent thread is a
- * persistent HEADLESS harness session: the harness owns the conversation
- * history (resume by id), its transcript renders through the normal Podium
- * transcript pipeline, and a turn is fire-and-forget — sendTurn acks as soon as
- * the daemon accepts the turn, progress streams to clients as
- * `headlessActivity` frames, and the canonical items arrive via the tail.
- */
-
 /** One durable turn failure, as `latestTurnFailure` serves it. `userText` is
  *  null when the turn reached a harness (the transcript carries the prompt);
  *  the user row is persisted only for turns that provably never dispatched. */
@@ -1987,8 +1976,8 @@ type Output_accounts_login = Pick<{
     createdAt: string;
     controllerId: string | null;
     geometry: {
-        rows: number;
         cols: number;
+        rows: number;
     };
     epoch: number;
     clientCount: number;
@@ -2157,8 +2146,8 @@ type Output_accounts_login = Pick<{
     createdAt: string;
     controllerId: string | null;
     geometry: {
-        rows: number;
         cols: number;
+        rows: number;
     };
     epoch: number;
     clientCount: number;
@@ -2510,7 +2499,7 @@ type Output_discovery_refreshRepos = {
         adoptable?: boolean | undefined;
         components?: ("server" | "daemon")[] | undefined;
         inventory?: {
-            os: "linux" | "darwin";
+            os: "linux" | "darwin" | "win32";
             arch: "x64" | "arm64";
             agents: {
                 installed: boolean | null;
@@ -2638,7 +2627,7 @@ type Output_machines_applyUpdate = {
         adoptable?: boolean | undefined;
         components?: ("server" | "daemon")[] | undefined;
         inventory?: {
-            os: "linux" | "darwin";
+            os: "linux" | "darwin" | "win32";
             arch: "x64" | "arm64";
             agents: {
                 installed: boolean | null;
@@ -3338,8 +3327,8 @@ type Output_issues_get = (null) | ({
         createdAt: string;
         controllerId: string | null;
         geometry: {
-            rows: number;
             cols: number;
+            rows: number;
         };
         epoch: number;
         clientCount: number;
@@ -4918,6 +4907,7 @@ type Input_issues_update = {
     };
     mutationId?: string | undefined;
     expectedRevision?: number | undefined;
+    confirmInterrupt?: boolean | undefined;
 };
 type Input_issues_attachSession = {
     sessionId: string;
@@ -5249,7 +5239,7 @@ type Output_issues_ship = {
         repoId: string & z.BRAND<"RepoId">;
         targetBranch: string;
         destination: string;
-        state: "preflight" | "queued" | "held" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "cancelled";
+        state: "queued" | "held" | "preflight" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "cancelled";
         stateChangedAt: string;
         approvedBaseSha: string;
         approvedHeadSha: string;
@@ -5309,7 +5299,7 @@ type Output_issues_ship = {
         repoId: string & z.BRAND<"RepoId">;
         targetBranch: string;
         destination: string;
-        state: "preflight" | "queued" | "held" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped";
+        state: "queued" | "held" | "preflight" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped";
         humanState: "in_progress" | "shipped" | "waiting" | "needs_you";
         activity: "held" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "waiting" | "checking";
         queuedAt: string;
@@ -5347,7 +5337,7 @@ type Output_issues_cancelShip = {
     repoId: string & z.BRAND<"RepoId">;
     targetBranch: string;
     destination: string;
-    state: "preflight" | "queued" | "held" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "cancelled";
+    state: "queued" | "held" | "preflight" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "cancelled";
     stateChangedAt: string;
     approvedBaseSha: string;
     approvedHeadSha: string;
@@ -5408,7 +5398,7 @@ type Output_issues_resolveShipHold = {
         repoId: string & z.BRAND<"RepoId">;
         targetBranch: string;
         destination: string;
-        state: "preflight" | "queued" | "held" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "cancelled";
+        state: "queued" | "held" | "preflight" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "cancelled";
         stateChangedAt: string;
         approvedBaseSha: string;
         approvedHeadSha: string;
@@ -5468,7 +5458,7 @@ type Output_issues_resolveShipHold = {
         repoId: string & z.BRAND<"RepoId">;
         targetBranch: string;
         destination: string;
-        state: "preflight" | "queued" | "held" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped";
+        state: "queued" | "held" | "preflight" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped";
         humanState: "in_progress" | "shipped" | "waiting" | "needs_you";
         activity: "held" | "composing" | "validating" | "repairing" | "landing" | "publishing" | "verifying" | "shipped" | "waiting" | "checking";
         queuedAt: string;
@@ -5823,8 +5813,15 @@ type Input_issues_setPlacement = {
 type Input_issues_setCoordinator = {
     id: string;
     sessionId?: string | null | undefined;
-    claim?: boolean | undefined;
     expectedRevision?: number | undefined;
+    claim?: boolean | undefined;
+};
+type Input_issues_close = {
+    id: string;
+    mutationId?: string | undefined;
+    reason?: string | undefined;
+    expectedRevision?: number | undefined;
+    confirmInterrupt?: boolean | undefined;
 };
 type Output_issues_mailSend = ({
     reason?: string | undefined;
@@ -6234,7 +6231,7 @@ type Output_automations_runs = Array<{
 type Input_specs_save = {
     id: string;
     repoPath: string;
-    status?: "draft" | "superseded" | "active" | undefined;
+    status?: "superseded" | "active" | "draft" | undefined;
     parent?: string | undefined;
     title?: string | undefined;
     body?: string | undefined;
@@ -8096,12 +8093,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "close": TRPC.TRPCMutationProcedure<{
-            input: {
-                id: string;
-                mutationId?: string | undefined;
-                reason?: string | undefined;
-                expectedRevision?: number | undefined;
-            };
+            input: Input_issues_close;
             output: Output_issues_setState;
             meta: unknown;
         }>;
@@ -8563,11 +8555,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Output_automations_create;
             meta: unknown;
         }>;
-        "update": TRPC.TRPCMutationProcedure<{
-            input: Input_automations_update;
-            output: Output_automations_create;
-            meta: unknown;
-        }>;
         "remove": TRPC.TRPCMutationProcedure<{
             input: {
                 id: string;
@@ -8575,6 +8562,11 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: {
                 removed: boolean;
             };
+            meta: unknown;
+        }>;
+        "update": TRPC.TRPCMutationProcedure<{
+            input: Input_automations_update;
+            output: Output_automations_create;
             meta: unknown;
         }>;
         "setEnabled": TRPC.TRPCMutationProcedure<{
