@@ -1,21 +1,14 @@
-import { groupSessions, withoutShells } from '@podium/client-core/focus'
-import type { IssueViewModel } from '@podium/client-core/replica'
-import { sessionCardModel } from '@podium/client-core/values'
-import type { SessionMeta } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
-import {
-  useSessionContextBooting as useBooting,
-  useSessionContextIssues as useIssues,
-  useSessionContextIssue,
-  useSessionContextSessions as useSessions,
-} from '../client/use-session-context'
+import { observer } from 'mobx-react-lite'
+import { useInboxData } from '../client/use-inbox-data'
+import { useIssueModel } from '../client/use-issue-model'
+import { InboxSessionRow } from './InboxScreen'
 import { BootstrapCrossfade, WorkSkeleton } from '../components/LaunchPlaceholders'
 import { NewWorkButton } from '../components/NewWorkButton'
 import { PullToRefreshBoundary } from '../components/PullToRefreshBoundary'
 import { Screen } from '../components/Screen'
-import { SessionCard } from '../components/SessionCard'
 import { CountPill } from '../components/StatusGlyphs'
 import { TaskSheet } from '../components/TaskSheet'
 import { useMobilePool } from '../client/mobile-pool'
@@ -31,20 +24,16 @@ import { color, font, mono, monoLabel, space } from '../theme/theme'
  * Long-press peeks the task in the shared inspector sheet, without leaving the
  * roster.
  */
-export function SessionsScreen() {
+export const SessionsScreen = observer(function SessionsScreen() {
   const pool = useMobilePool()
   const router = useRouter()
-  const sessions = useSessions()
-  const issues = useIssues()
+  const { groups, booting } = useInboxData()
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
-  const booting = useBooting()
   const bottomInset = useContentBottomInset()
-  const now = Date.now()
-  const [peek, setPeek] = useState<{ issue: IssueViewModel; session: SessionMeta } | null>(null)
-  const peekIssue = useSessionContextIssue(peek?.issue.id)
+  const [peekId, setPeekId] = useState<string | undefined>()
+  const peekIssue = useIssueModel(peekId)
 
-  const groups = useMemo(() => groupSessions(withoutShells(sessions)), [sessions])
   const sections = useMemo(
     () =>
       [
@@ -54,9 +43,6 @@ export function SessionsScreen() {
       ].filter((s) => s.data.length > 0),
     [groups],
   )
-
-  const issueFor = (session: SessionMeta): IssueViewModel | undefined =>
-    session.issueId ? issues.find((issue) => issue.id === session.issueId) : undefined
 
   return (
     <Screen
@@ -73,7 +59,7 @@ export function SessionsScreen() {
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <SectionList
             sections={sections}
-            keyExtractor={(session) => session.sessionId}
+            keyExtractor={(id) => id}
             stickySectionHeadersEnabled={false}
             contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + space.lg }]}
             refreshControl={refreshControl}
@@ -97,19 +83,7 @@ export function SessionsScreen() {
                 <View style={styles.sectionRule} />
               </View>
             )}
-            renderItem={({ item: session }) => {
-              const issue = issueFor(session)
-              return (
-                <SessionCard
-                  model={sessionCardModel(session, issue, now)}
-                  issue={issue}
-                  session={session}
-                  agentColor={session.agentColor}
-                  onPress={() => router.push(sessionHref(session.sessionId, '/work'))}
-                  onLongPress={issue ? () => setPeek({ issue, session }) : undefined}
-                />
-              )
-            }}
+            renderItem={({ item: id }) => <InboxSessionRow id={id} onLongPress={setPeekId} />}
             ListEmptyComponent={
               // Guarded on `booting` even though the crossfade covers this
               // screen: ListEmptyComponent is rendered by the list whenever its
@@ -130,16 +104,16 @@ export function SessionsScreen() {
       </BootstrapCrossfade>
       <TaskSheet
         pool={pool}
-        issue={peekIssue ?? peek?.issue ?? null}
-        onClose={() => setPeek(null)}
+        issue={peekIssue ?? null}
+        onClose={() => setPeekId(undefined)}
         onOpenSession={(session) => {
-          setPeek(null)
+          setPeekId(undefined)
           router.push(sessionHref(session.sessionId, '/'))
         }}
       />
     </Screen>
   )
-}
+})
 
 const styles = StyleSheet.create({
   // Bottom padding is paid inline from useContentBottomInset: the last card has

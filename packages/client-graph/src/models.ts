@@ -531,13 +531,7 @@ export class IssueModel extends EntityModel {
 
   @lazy
   private get finishedChildren(): number {
-    let done = 0
-    for (const id of this.host.relations.many('issue', this.id, 'treeChildren')) {
-      const row = this.host.row('issue', id, 'summary-fields') as LoadedRow<SliceIssue>
-      if (row === LOADING) throw LOADING
-      if (row && isFinished(row)) done++
-    }
-    return done
+    return this.host.queries.issueChildCounts(this.id).childDoneCount
   }
 
   get confirmedWorkingAgents(): number {

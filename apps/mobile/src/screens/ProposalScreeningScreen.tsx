@@ -1,16 +1,15 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { IssueId } from '@podium/model'
+import { ProposalScreening } from '@podium/client-graph/mobile-triage'
+import { LOADING } from '@podium/client-graph/loading'
+import { observer } from 'mobx-react-lite'
+import { useMobilePool } from '../client/mobile-pool'
+import { issueObserver } from '../client/issue-observer'
 import { machinePathBasename } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import { useSafeAreaInsets } from 'react-native-safe-area-context'
 import { useStoreActions, useTrpc } from '../client/hooks'
-import {
-  reconcileScreeningIds,
-  useScreeningQueue,
-  useScreeningRows,
-} from '../client/use-inbox-data'
 import { Icon } from '../components/Icon'
 import { Check, Inbox, Play, RotateCcw, SkipForward, X } from '../components/icons'
 import { PressableScale } from '../components/PressableScale'
@@ -19,11 +18,6 @@ import { ScreeningCard } from '../components/ScreeningCard'
 import { EmptyState } from '../components/ui'
 import { applyScreeningDecision, type ScreeningOutcome, screeningTally } from '../lib/screening'
 import { color, font, leading, mono, monoLabel, radius, sans, space } from '../theme/theme'
-
-interface Deck {
-  order: IssueId[]
-  index: number
-}
 
 interface Failure {
   id: string
@@ -34,10 +28,7 @@ interface Failure {
 
 const repoName = (issue: IssueViewModel) => machinePathBasename(issue.repoPath)
 const refOf = (issue: IssueViewModel) => issue.displayRef ?? `#${issue.seq}`
-const sameDeck = (a: Deck, b: Deck) =>
-  a.index === b.index &&
-  a.order.length === b.order.length &&
-  a.order.every((id, i) => id === b.order[i])
+const VisibleScreeningCard = issueObserver(ScreeningCard)
 
 /**
  * "Screen proposed" [POD-277] — one agent proposal at a time, decided in a
@@ -53,40 +44,24 @@ const sameDeck = (a: Deck, b: Deck) =>
  * only drops undecided cards that left the lane and appends new arrivals at the
  * end (see reconcileScreeningIds), so the card under the thumb never swaps.
  */
-export function ProposalScreeningScreen() {
+export const ProposalScreeningScreen = observer(function ProposalScreeningScreen() {
   const router = useRouter()
-  const queue = useScreeningQueue()
+  const pool = useMobilePool()
   const trpc = useTrpc()
   const { closeIssue } = useStoreActions()
   const insets = useSafeAreaInsets()
-  const [deck, setDeck] = useState<Deck>(() => ({
-    order: queue.queue,
-    index: 0,
-  }))
+  const deck = useMemo(() => pool ? new ProposalScreening(pool) : null, [pool])
+  useEffect(() => deck?.open(), [deck])
   const [outcomes, setOutcomes] = useState<Record<string, ScreeningOutcome>>({})
   const [failures, setFailures] = useState<Failure[]>([])
   const [pending, setPending] = useState<string[]>([])
   const inFlight = useRef(new Set<string>())
-  const readIds = useMemo(
-    () => [
-      deck.order[deck.index] ?? '',
-      deck.order[deck.index + 1] ?? '',
-      ...failures.map((failure) => failure.id),
-    ],
-    [deck, failures],
-  )
-  const rows = useScreeningRows(readIds)
-  const booting = queue.booting || rows.loading
-  const issueById = useCallback((id: string) => rows.issues[id], [rows.issues])
-
-  // Fold live board changes into the open deck (never around the current card).
-  useEffect(() => {
-    if (queue.booting) return
-    setDeck((prev) => {
-      const next = reconcileScreeningIds(prev.order, prev.index, queue.queue)
-      return sameDeck(prev, next) ? prev : next
-    })
-  }, [queue.booting, queue.queue])
+  const issueById = useCallback((id: string) => {
+    const issue = deck?.issue(id)
+    return issue === LOADING ? undefined : issue
+  }, [deck])
+  const current = deck?.current
+  const booting = !deck || deck.booting || current === LOADING
 
   const run = useCallback(
     async (issue: IssueViewModel, outcome: ScreeningOutcome) => {
@@ -129,10 +104,10 @@ export function ProposalScreeningScreen() {
       // mutation is a no-op rather than a double promote/close.
       if (inFlight.current.has(issue.id)) return
       setOutcomes((o) => ({ ...o, [issue.id]: outcome }))
-      setDeck((prev) => ({ ...prev, index: Math.min(prev.index + 1, prev.order.length) }))
+      deck?.advance()
       void run(issue, outcome)
     },
-    [run],
+    [run, deck],
   )
 
   const retry = useCallback(
@@ -155,19 +130,17 @@ export function ProposalScreeningScreen() {
     else router.replace('/issues')
   }, [router])
 
-  const current = issueById(deck.order[deck.index] ?? '')
-  const next = issueById(deck.order[deck.index + 1] ?? '')
   const tally = useMemo(() => screeningTally(Object.values(outcomes)), [outcomes])
   const skipped = useMemo(
-    () => deck.order.slice(0, deck.index).filter((id) => outcomes[id] === 'skipped'),
-    [deck, outcomes],
+    () => deck?.order.slice(0, deck.index).filter((id) => outcomes[id] === 'skipped') ?? [],
+    [deck?.order, deck?.index, outcomes],
   )
   // The store paints from the local replica first; an empty board while the
   // socket is still down is "not loaded yet", not "nothing to screen".
   const failure = failures[failures.length - 1]
 
   const body = (() => {
-    if (booting) {
+    if (booting || !deck || current === LOADING) {
       return (
         <View style={styles.centered}>
           <ActivityIndicator color={color.accentTint} />
@@ -212,7 +185,7 @@ export function ProposalScreeningScreen() {
                     for (const id of skipped) delete kept[id]
                     return kept
                   })
-                  setDeck({ order: skipped, index: 0 })
+                  deck.restart(skipped)
                 }}
                 style={({ pressed }) => [styles.summaryBtn, pressed && styles.summaryBtnPressed]}
               >
@@ -256,8 +229,8 @@ export function ProposalScreeningScreen() {
           <View style={styles.cardWrap}>
             {/* The card underneath, peeking as a rim — the deck has depth only
                 while something is actually behind it. */}
-            {next ? <View style={styles.behindCard} pointerEvents="none" /> : null}
-            <ScreeningCard
+            {deck.nextId ? <View style={styles.behindCard} pointerEvents="none" /> : null}
+            <VisibleScreeningCard
               key={current.id}
               issue={current}
               repoName={repoName(current)}
@@ -276,9 +249,9 @@ export function ProposalScreeningScreen() {
     <Screen
       title="Screen proposed"
       subtitle={
-        deck.order.length === 0
+        !deck || deck.order.length === 0
           ? undefined
-          : current
+          : current && current !== LOADING
             ? `${deck.index + 1} of ${deck.order.length} · ${repoName(current)}`
             : `${tally.total} decided`
       }
@@ -322,7 +295,7 @@ export function ProposalScreeningScreen() {
             </PressableScale>
           </View>
         ) : null}
-        {current ? (
+        {current && current !== LOADING ? (
           <View style={[styles.actions, { paddingBottom: Math.max(insets.bottom, space.md) }]}>
             <ActionButton
               label="Decline"
@@ -351,7 +324,7 @@ export function ProposalScreeningScreen() {
       </View>
     </Screen>
   )
-}
+})
 
 function ActionButton({
   label,

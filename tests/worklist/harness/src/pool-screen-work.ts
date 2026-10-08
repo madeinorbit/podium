@@ -752,7 +752,7 @@ async function measureScreenCells(
       () => ({
         inbox: mobileInbox.inbox(),
         screening: mobileInbox.screening(),
-        rows: mobileInbox.screeningRows([ROOT]),
+        row: mobileInbox.issue(ROOT),
         ref: mobileInbox.session(ref),
         route: mobileInbox.route({ kind: 'issue', issue: '#999999', search: '', hash: '' }),
       }),

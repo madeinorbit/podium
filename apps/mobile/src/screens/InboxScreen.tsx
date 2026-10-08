@@ -3,6 +3,11 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { pendingAskFromState, sessionCardModel } from '@podium/client-core/values'
 
 import { useRouter } from 'expo-router'
+import { observer } from 'mobx-react-lite'
+import { useMobilePool } from '../client/mobile-pool'
+import { issuePages } from '@podium/client-graph/issue-page'
+import { LOADING } from '@podium/client-graph/loading'
+import { issueObserver } from '../client/issue-observer'
 import { useMemo } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
 import { useStoreActions, useTrpc } from '../client/hooks'
@@ -30,7 +35,7 @@ import { color, font, mono, monoLabel, radius, sans, space } from '../theme/them
  * A needs-you card that can be answered without leaving the Inbox: when the
  * agent is blocked on an AskUserQuestion, the options render inline.
  */
-function NeedsYouCard({
+const NeedsYouCard = issueObserver(function NeedsYouCard({
   session,
   issue,
   now,
@@ -68,7 +73,7 @@ function NeedsYouCard({
   const model = pending ? { ...base, summary: null } : base
 
   return (
-    <SessionCard
+    <ObservedSessionCard
       model={model}
       issue={issue}
       session={session}
@@ -100,9 +105,28 @@ function NeedsYouCard({
           <Text style={styles.continueText}>Continue</Text>
         </PressableScale>
       ) : null}
-    </SessionCard>
+    </ObservedSessionCard>
   )
-}
+})
+
+export const InboxSessionRow = issueObserver(function InboxSessionRow({ id, needsYou = false, onLongPress }: {
+  id: string
+  needsYou?: boolean
+  onLongPress?: (issueId: string) => void
+}) {
+  const pool = useMobilePool()
+  const router = useRouter()
+  if (!pool) return null
+  const session = pool.sessionObject(id) as unknown as SessionView
+  const issue = session.issueId ? issuePages(pool).issue(session.issueId) : undefined
+  if (issue === LOADING) throw LOADING
+  if (needsYou) return <NeedsYouCard session={session} issue={issue} now={Date.now()} />
+  return <ObservedSessionCard model={sessionCardModel(session, issue, Date.now())}
+    issue={issue} session={session} agentColor={session.agentColor}
+    onPress={() => router.push(sessionHref(session.sessionId, '/work'))}
+    onLongPress={issue && onLongPress ? () => onLongPress(issue.id) : undefined} />
+})
+const ObservedSessionCard = issueObserver(SessionCard)
 
 function inboxSubtitle(needsYou: number, working: number, connected: boolean): string {
   if (!connected) return 'reconnecting…'
@@ -111,13 +135,12 @@ function inboxSubtitle(needsYou: number, working: number, connected: boolean): s
   return 'all clear'
 }
 
-export function InboxScreen() {
+export const InboxScreen = observer(function InboxScreen() {
   const router = useRouter()
-  const { groups, issues, booting, outboxSize } = useInboxData()
+  const { groups, booting, outboxSize } = useInboxData()
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
   const bottomInset = useContentBottomInset()
-  const now = Date.now()
 
   const sections = useMemo(
     () =>
@@ -128,12 +151,6 @@ export function InboxScreen() {
       ].filter((s) => s.data.length > 0),
     [groups],
   )
-
-  // An issue this principal cannot see resolves to undefined and renders as
-  // NOTHING — not as a deletion and not as a spinner (doc §3.1 ¶2). The card
-  // keeps its session identity either way.
-  const issueFor = (session: SessionView): IssueViewModel | undefined =>
-    session.issueId ? issues[session.issueId] : undefined
 
   return (
     <Screen
@@ -161,7 +178,7 @@ export function InboxScreen() {
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <SectionList
             sections={sections}
-            keyExtractor={(session) => session.sessionId}
+            keyExtractor={(id) => id}
             stickySectionHeadersEnabled={false}
             refreshControl={refreshControl}
             {...refreshAccessibilityProps}
@@ -180,18 +197,8 @@ export function InboxScreen() {
                 <View style={styles.sectionRule} />
               </View>
             )}
-            renderItem={({ item: session, section }) =>
-              section.key === 'needsYou' ? (
-                <NeedsYouCard session={session} issue={issueFor(session)} now={now} />
-              ) : (
-                <SessionCard
-                  model={sessionCardModel(session, issueFor(session), now)}
-                  issue={issueFor(session)}
-                  session={session}
-                  agentColor={session.agentColor}
-                  onPress={() => router.push(sessionHref(session.sessionId, '/work'))}
-                />
-              )
+            renderItem={({ item: id, section }) =>
+              <InboxSessionRow id={id} needsYou={section.key === 'needsYou'} />
             }
             ListEmptyComponent={
               // Guarded on `booting` even though the crossfade covers this
@@ -215,7 +222,7 @@ export function InboxScreen() {
       </BootstrapCrossfade>
     </Screen>
   )
-}
+})
 
 const styles = StyleSheet.create({
   // Bottom padding is paid inline from useContentBottomInset: the last card has

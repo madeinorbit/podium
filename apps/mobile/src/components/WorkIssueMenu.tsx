@@ -8,7 +8,9 @@ import {
   parseIssueStatusValue,
 } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useState } from 'react'
+import { observer } from 'mobx-react-lite'
+import { useIssueModel } from '../client/use-issue-model'
 import { useStoreActions } from '../client/hooks'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import { DELETE_TASK_TITLE, deleteTaskSubtitle } from '../lib/task-delete'
@@ -42,9 +44,8 @@ type MenuSheet =
  * reorder pair went in the 2026-08-28 follow-up review). Nested desktop
  * flyouts become one-at-a-time bottom sheets.
  */
-export function WorkIssueMenu({
+export const WorkIssueMenu = observer(function WorkIssueMenu({
   target,
-  issues,
   onClose,
 }: {
   target: WorkIssueMenuTarget
@@ -52,8 +53,7 @@ export function WorkIssueMenu({
   sessions: readonly SessionView[]
   onClose: () => void
 }) {
-  // Actions only — identity-stable, so the open menu does not re-render on
-  // every store publish while an agent streams underneath it.
+  // Actions retain their owner; displayed facts follow the shared issue.
   const store = useStoreActions()
   const hasCloseBlockers = useIssueCloseGuard()
   const [sheet, setSheet] = useState<MenuSheet>({ kind: 'menu' })
@@ -68,10 +68,9 @@ export function WorkIssueMenu({
     if (sheet === null) onClose()
   }, [onClose, sheet])
 
-  const placement = useMemo(
-    () => discoveredPlacement(issue, new Map(issues.map((candidate) => [candidate.id, candidate]))),
-    [issue, issues],
-  )
+  const placement = discoveredPlacement(issue)
+  const origin = useIssueModel(placement?.originId ?? undefined)
+  const originRef = origin ? issueDisplayRef(origin) : null
   const sessionCount = target.sessionCount
   const actionIds = workMenuActionIds(issue, target.lane, {
     placement: placement?.originId != null,
@@ -182,8 +181,8 @@ export function WorkIssueMenu({
         return {
           label:
             placement.placement === 'mission'
-              ? `Move to top level (out of ${placement.originRef ?? 'this mission'})`
-              : `Move into ${placement.originRef ?? 'the task that found it'}`,
+              ? `Move to top level (out of ${originRef ?? 'this mission'})`
+              : `Move into ${originRef ?? 'the task that found it'}`,
           onPress: () =>
             finish(
               store.setIssuePlacement(
@@ -212,4 +211,4 @@ export function WorkIssueMenu({
         }
     }
   }
-}
+})

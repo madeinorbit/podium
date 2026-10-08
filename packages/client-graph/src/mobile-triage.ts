@@ -2,9 +2,64 @@ import type { AttentionGroup } from '@podium/client-core/focus'
 import { action, compareShallow, observable, observableRef, reaction } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
 import { issuePages } from './issue-page'
-import { readScreeningEntry, screeningOrderKey } from './mobile-inbox-views'
+import type { IssueViewModel } from '@podium/client-core/replica'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './loading'
+
+type ScreeningSummary = Pick<
+  IssueViewModel,
+  | 'id'
+  | 'stage'
+  | 'parentId'
+  | 'archived'
+  | 'deletedAt'
+  | 'isDraftVessel'
+  | 'audience'
+  | 'priority'
+  | 'seq'
+>
+const isScreenableRoot = (issue: ScreeningSummary) =>
+  issue.stage === 'proposed' &&
+  !issue.archived &&
+  !issue.deletedAt &&
+  !issue.isDraftVessel &&
+  issue.audience !== 'agent'
+/** Order key for the queue: priority ascending, then newest first. Fixed-width
+ * complements keep lexicographic order equal to the numeric sort, so the
+ * keeper's tree maintains the queue order one changed key at a time. */
+export const screeningOrderKey = (issue: ScreeningSummary) => {
+  const priority = Math.trunc(issue.priority ?? 0) + 0x80000000
+  const newestFirst = 0xffffffff - Math.max(0, Math.trunc(issue.seq ?? 0))
+  return `${String(priority).padStart(10, '0')}:${String(newestFirst).padStart(10, '0')}`
+}
+interface ScreeningEntry {
+  id: ScreeningSummary['id']
+  key: string
+}
+/** One proposed issue's queue membership, read through its own summary plus
+ * its ancestor chain. The keeper tracks exactly those rows, so an unrelated
+ * proposal change never re-reads this entry. */
+export function readScreeningEntry(pool: MobxPool, id: string): Loaded<ScreeningEntry> {
+  const row = pool.row('issue', id, 'summary') as Loaded<ScreeningSummary>
+  if (row === LOADING) return LOADING
+  if (!row || !isScreenableRoot(row)) return undefined
+  const seen = new Set<string>([row.id])
+  let parentId = row.parentId,
+    pending = false
+  while (parentId && !seen.has(parentId)) {
+    seen.add(parentId)
+    const parent = pool.row('issue', parentId, 'summary') as Loaded<ScreeningSummary>
+    if (parent === LOADING) {
+      pending = true
+      break
+    }
+    if (!parent) break
+    if (parent.stage === 'proposed') return undefined
+    parentId = parent.parentId
+  }
+  if (pending) return LOADING
+  return { id: row.id, key: screeningOrderKey(row) }
+}
 
 const EMPTY: string[] = []
 /** Complement timestamp code units so the query tree maintains newest-first order. */
@@ -63,7 +118,7 @@ export function screeningQueue(pool: MobxPool): Loaded<string[]> {
 
 /** Explicit opening order: retain the decided prefix, remove departed cards and
  * append arrivals. This is UI state; no issue facts are stored in the deck. */
-export function reconcileScreeningIds(order: readonly string[], index: number, queue: readonly string[]) {
+export function reconcileScreeningIds<T extends string>(order: readonly T[], index: number, queue: readonly T[]) {
   const end = Math.min(Math.max(index, 0), order.length)
   const screenable = new Set(queue), seen = new Set(order)
   const next = order.slice(0, end)
