@@ -3,6 +3,7 @@ import type { SessionRow } from '../../store'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SessionRepository } from './repository'
 import { Session } from './session'
+import { disposeOracles, makeOracle } from './oracle-support'
 
 const makeSession = (index: number) => new Session({
   ownerUserId: firstAdminMemberId(),
@@ -68,7 +69,10 @@ const mutations: [string, (s: Session) => void][] = [
   ['geometry', (s) => { s.terminal.applyDaemonGeometry({ cols: 90, rows: 30 }) }],
 ]
 
-afterEach(() => vi.restoreAllMocks())
+afterEach(async () => {
+  vi.restoreAllMocks()
+  await disposeOracles()
+})
 
 describe('changed session activity saving', () => {
   it('matches the old flush answers on the same activity, clean, fenced and retry fixtures', async () => {
@@ -182,6 +186,33 @@ describe('changed session activity saving', () => {
     clean.terminal.recordInputActivity()
     await flushCandidate(f.repo)
     expect(f.written.map((row) => row.id)).toEqual(['dirty-2', 'dirty-1'])
+  })
+
+  it('persists counter-only activity without publishing duplicate session wire bytes', async () => {
+    const o = await makeOracle()
+    const { sessionId } = await o.reg.modules.sessions.createSession({
+      agentKind: 'claude-code',
+      cwd: '/work',
+    })
+    await o.reg.modules.sessions.flushBroadcasts()
+    const session = o.reg.modules.sessions.sessions.get(sessionId)!
+    const writes = vi.spyOn(o.store.sessions, 'upsertSession')
+    const projection = vi.fn()
+    const off = o.reg.modules.sessions.onSessionProjection(projection)
+    try {
+      session.terminal.recordInputActivity()
+      session.terminal.acceptOutput(Buffer.from('hello'), 2)
+      await o.reg.modules.sessions.flushActivity()
+      expect(writes).toHaveBeenCalledTimes(1)
+      const row = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)!
+      expect(row.inputCount).toBe(1)
+      expect(row.outputCount).toBe(2)
+      expect(projection).not.toHaveBeenCalled()
+      await o.reg.modules.sessions.flushActivity()
+      expect(writes).toHaveBeenCalledTimes(1)
+    } finally {
+      off()
+    }
   })
 
   it('retains the failed ID and the unvisited backlog for a later retry', async () => {
