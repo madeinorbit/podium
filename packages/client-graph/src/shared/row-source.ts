@@ -867,34 +867,9 @@ export function createRowSource(
       byKey.set(key, { kind, id, value })
     }
 
-    // 2. Rows the pool log names — overlaid now, or overlaid at the last flush —
-    //    emitted only when their value moved from what the arms hold.
-    const pendingRows = new Map<string, { kind: 'session' | 'issue'; id: string }>()
-    for (const id of pending.sessions.keys())
-      pendingRows.set(`session:${id}`, { kind: 'session', id })
-    for (const id of pending.sessionUserStates.keys())
-      pendingRows.set(`session:${id}`, { kind: 'session', id })
-    for (const id of pending.issueUserStates.keys())
-      pendingRows.set(`issue:${id}`, { kind: 'issue', id })
-    for (const id of pending.issueProjections.keys())
-      pendingRows.set(`issue:${id}`, { kind: 'issue', id })
-    for (const key of overlaid.keys()) {
-      if (pendingRows.has(key)) continue
-      const colon = key.indexOf(':')
-      pendingRows.set(key, {
-        kind: key.slice(0, colon) as 'session' | 'issue',
-        id: key.slice(colon + 1),
-      })
-    }
-    for (const [key, { kind, id }] of pendingRows) {
-      if (addressed.has(key)) continue
-      stats.rowsVisited += 1
-      const held = overlaid.has(key) ? overlaid.get(key) : resolve(kind, id, null)
-      const value = retain(key, resolve(kind, id, pending))
-      if (hasOverlays(kind, id, pending)) overlaid.set(key, value)
-      else overlaid.delete(key)
-      if (value !== held) byKey.set(key, { kind, id, value })
-    }
+    // Pending-log changes (including retirement and rollback) already name
+    // their rows through repaint. Feed changes above reconcile their own
+    // overlays; unrelated pending rows need no work on this publication.
 
     if (byKey.size === 0) return null
     const event: RowSourceEvent = { type: 'update', rows: [...byKey.values()] }

@@ -105,6 +105,7 @@ it.each([1, 4])('matches the old pending sweep through addressed edits and retir
     f.put('sessions', 'active', { sessionId: 'active', title: 'server', status: 'running', lastActiveAt: '2026-10-09' })
     f.update('active'); f.source.flush()
     console.info('[pending heartbeat]', JSON.stringify({ scale, rowsVisited: f.source.stats.rowsVisited }))
+    expect(f.source.stats.rowsVisited).toBe(1)
     parity()
     for (const entity of Object.keys(maps) as (keyof typeof maps)[]) {
       const id = entity.startsWith('session') ? 'active' : 'issue'
