@@ -91,3 +91,11 @@ Final checks on flatblock at product candidate `9af3ba25f0`:
 
 Only sweep components/styles, focused sweep tests and this evidence change in
 the issue branch. The working-mark lane remains separate.
+
+Before landing, the issue rebased onto `df4b96aa92` (the companion working-mark
+evidence). Product and structural-test source bytes were verified unchanged.
+The rebased candidate `988d4e345a` passed `bun run test` again (all 29 typecheck
+tasks successful, lean gate green and zero scan ratchet errors), the full
+`speed:structural` lane under `meter:flatblock` (30 passed, seven filtered skips,
+5891 MiB peak worker RSS), and the normal production web build. This final
+paragraph changes documentation only and does not require another runtime gate.
