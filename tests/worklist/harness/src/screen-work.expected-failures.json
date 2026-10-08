@@ -174,41 +174,6 @@
         }
       },
       {
-        "reader": "consumer:mobile-inbox",
-        "actions": {
-          "select": ["rows", "elements"],
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:mobile-inbox/ComputedValue@#",
-        "actions": {
-          "select": ["rows", "elements"],
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
-        }
-      },
-      {
-        "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root",
-        "actions": {
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
-        }
-      },
-      {
         "reader": "consumer:mobile-session",
         "actions": {
           "select": ["rows", "elements"],
