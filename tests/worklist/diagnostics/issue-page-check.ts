@@ -31,25 +31,21 @@ export const SESSION_FIELDS = ['sessionId', 'issueId', 'refIssueId', 'displayRef
   'agentKind', 'agentColor', 'headless', 'status', 'archived', 'agentState', 'lastActiveAt',
   'createdAt', 'stoppedAt', 'stopReason', 'handoffTarget', 'offer', 'readAt', 'unread',
   'snoozedUntil', 'createdBy', 'machineId', 'resumable'] as const
-const pick = (row: object, fields: readonly string[]) => Object.fromEntries(fields.map((key) => [key, Reflect.get(row, key)]))
+const pick = (row: object, fields: readonly string[]) => Object.fromEntries(fields.map(key => [key, Reflect.get(row, key)]))
 const sessionSnapshot = (row: SessionView) => pick(row, SESSION_FIELDS)
 export interface IssuePageCheckRow {
   id: string
   value: object | typeof LOADING
 }
-export interface IssuePageDifference { issueId: string position: number field: string
-}
+export interface IssuePageDifference { issueId: string; position: number; field: string }
 export interface IssuePageCheckResult {
-  issues: number positions: number differences: number pending: number first: IssuePageDifference | null
+  issues: number; positions: number; differences: number; pending: number; first: IssuePageDifference | null
   acceptedDeadlineDifferences: number
 }
 
-function snapshot(issue: IssueViewModel, children: IssueViewModel[], roster: SessionView[], moved: SessionView[],
-) {
-  return { fields: pick(issue, ISSUE_PAGE_CHECK_FIELDS), children: children.map((row) => pick(row, ISSUE_PAGE_CHECK_FIELDS)),
-    members: (issue.memberSessionIds ?? []).map((id) => roster.find((row) => row.sessionId === id))
-      .filter(Boolean)
-      .map((row) => sessionSnapshot(row!)),
+function snapshot(issue: IssueViewModel, children: IssueViewModel[], roster: SessionView[], moved: SessionView[]) {
+  return { fields: pick(issue, ISSUE_PAGE_CHECK_FIELDS), children: children.map(row => pick(row, ISSUE_PAGE_CHECK_FIELDS)),
+    members: (issue.memberSessionIds ?? []).map(id => roster.find(row => row.sessionId === id)).filter(Boolean).map(row => sessionSnapshot(row!)),
     roster: roster.map(sessionSnapshot), moved: moved.map(sessionSnapshot), relations: groupRelations(issue),
   }
 }
@@ -78,15 +74,11 @@ export function poolIssuePageFields(
     unread: views.row(id).unread,
   } as unknown as IssueViewModel
 }
-export function legacyIssuePageSnapshot(issues: readonly IssueViewModel[], sessions: readonly SessionView[],
-): IssuePageCheckRow[] {
+export function legacyIssuePageSnapshot(issues: readonly IssueViewModel[], sessions: readonly SessionView[]): IssuePageCheckRow[] {
   // This diagnostic owns full input arrays. Build temporary indexes once;
   // checking every page must not turn into pages × sessions on the operator corpus.
   const children = new Map<string, IssueViewModel[]>(), attached = new Map<string, SessionView[]>(), moved = new Map<string, SessionView[]>()
-  const append = <T>(map: Map<string, T[]>, id: string, row: T) => { const bucket = map.get(id)
-    if (bucket) bucket.push(row)
-    else map.set(id, [row])
-  }
+  const append = <T,>(map: Map<string, T[]>, id: string, row: T) => { const bucket = map.get(id); if (bucket) bucket.push(row); else map.set(id, [row]) }
   for (const issue of issues) if (issue.parentId && !issue.deletedAt) append(children, issue.parentId, issue)
   for (const bucket of children.values()) bucket.sort((a, b) => a.seq - b.seq)
   const byId = new Map(sessions.map((seat, position) => [seat.sessionId as string, { seat, position }]))
@@ -94,18 +86,16 @@ export function legacyIssuePageSnapshot(issues: readonly IssueViewModel[], sessi
     if (seat.issueId) append(attached, seat.issueId, seat)
     if (seat.refIssueId && seat.issueId != null && seat.issueId !== seat.refIssueId && !seat.archived) append(moved, seat.refIssueId, seat)
   }
-  return issues.map((issue) => {
-    const roster = new Map((attached.get(issue.id) ?? []).map((seat) => [seat.sessionId as string, seat]),
-    )
-    for (const id of issue.memberSessionIds ?? []) { const seat = byId.get(id)?.seat if (seat) roster.set(id, seat)
-    }
+  return issues.map(issue => {
+    const roster = new Map((attached.get(issue.id) ?? []).map(seat => [seat.sessionId as string, seat]))
+    for (const id of issue.memberSessionIds ?? []) { const seat = byId.get(id)?.seat; if (seat) roster.set(id, seat) }
     const ordered = [...roster.values()].sort((a, b) => byId.get(a.sessionId)!.position - byId.get(b.sessionId)!.position)
     return { id: issue.id, value: snapshot(issue, children.get(issue.id) ?? [], ordered, moved.get(issue.id) ?? []) }
   })
 }
 export function poolIssuePageSnapshot(pool: MobxPool): IssuePageCheckRow[] {
   const views = issuePages(pool)
-  return knownIds(pool, 'issue').map((id) => {
+  return knownIds(pool, 'issue').map(id => {
     const issue = poolIssuePageFields(pool, id), roster = views.attachedSessions(id)
     if (!issue || issue === LOADING || !roster || roster === LOADING) return { id, value: LOADING }
     const children: IssueViewModel[] = []
@@ -144,11 +134,9 @@ export function issuePageFirstDifference(expected: unknown, actual: unknown, at 
   return null
 }
 export function compareIssuePageSnapshots(expected: readonly IssuePageCheckRow[], actual: readonly IssuePageCheckRow[],
-  report?: (difference: IssuePageDifference) => void,
-): IssuePageCheckResult {
+  report?: (difference: IssuePageDifference) => void): IssuePageCheckResult {
   let differences = 0, pending = 0, first: IssuePageDifference | null = null
-  const flag = (difference: IssuePageDifference) => { differences++ first ??= difference report?.(difference)
-  }
+  const flag = (difference: IssuePageDifference) => { differences++; first ??= difference; report?.(difference) }
   const index = (rows: readonly IssuePageCheckRow[]) => {
     const result = new Map<string, IssuePageCheckRow>()
     for (const [position, row] of rows.entries()) {
@@ -161,24 +149,21 @@ export function compareIssuePageSnapshots(expected: readonly IssuePageCheckRow[]
   const ids = [...new Set([...left.keys(), ...right.keys()])].sort()
   for (const [position, issueId] of ids.entries()) {
     const e = left.get(issueId), a = right.get(issueId)
-    if (!e || !a) { flag({ issueId, position, field: 'issue' }) continue
-    }
-    if (e.value === LOADING || a.value === LOADING) { pending++ continue
-    }
+    if (!e || !a) { flag({ issueId, position, field: 'issue' }); continue }
+    if (e.value === LOADING || a.value === LOADING) { pending++; continue }
     const field = issuePageFirstDifference(e.value, a.value)
     if (field) flag({ issueId, position, field })
   }
   return { issues: expected.length, positions: ids.length, differences, pending, first, acceptedDeadlineDifferences: 0 }
 }
 export function checkIssuePages(pool: MobxPool, issues: readonly IssueViewModel[], sessions: readonly SessionView[],
-  report?: (difference: IssuePageDifference) => void,
-): IssuePageCheckResult {
+  report?: (difference: IssuePageDifference) => void): IssuePageCheckResult {
   // Operator decision via POD-4286 (2026-10-02): deadlines update without a
   // row publication. The legacy view cache waits for a row/marker change.
   // Compute that one expected change independently of the pool's deadline
   // reader; a broken pool expiry still fails, as does every other field.
   let acceptedDeadlineDifferences = 0
-  const expected = issues.map((issue) => {
+  const expected = issues.map(issue => {
     const deferred = issue.deferUntil != null && Date.parse(issue.deferUntil) > pool.clock.current
     if (deferred === issue.deferred) return issue
     const ready = !issue.blocked && !deferred && !isFinished(issue)
@@ -190,8 +175,7 @@ export function checkIssuePages(pool: MobxPool, issues: readonly IssueViewModel[
 }
 
 export function startIssuePageCheck(runtime: ClientRuntime<PodiumClientApi>, pool: MobxPool,
-  report: (result: IssuePageCheckResult & { state: string; checks: number }) => void, intervalMs = 5000,
-): () => void {
+  report: (result: IssuePageCheckResult & { state: string; checks: number }) => void, intervalMs = 5000): () => void {
   if (!Number.isFinite(intervalMs) || intervalMs <= 0) throw new Error('Page check interval must be positive')
   let checks = 0, disposed = false
   const empty = { issues: 0, positions: 0, differences: 0, pending: 0, first: null, acceptedDeadlineDifferences: 0 }
@@ -205,8 +189,5 @@ export function startIssuePageCheck(runtime: ClientRuntime<PodiumClientApi>, poo
       report({ ...result, state: result.pending ? 'waiting' : result.differences ? 'different' : 'match', checks: ++checks })
     } catch { report({ ...empty, state: 'error', checks }) }
   }, intervalMs)
-  return () => {
-    if (!disposed) { disposed = true clearInterval(timer) report({ ...empty, state: 'off', checks })
-    }
-  }
+  return () => { if (!disposed) { disposed = true; clearInterval(timer); report({ ...empty, state: 'off', checks }) } }
 }

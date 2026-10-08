@@ -16,7 +16,6 @@ import type { OutboxKinds } from '@podium/client-core/engine'
 import { LOADING } from '@podium/client-graph'
 import { createWorklistPool, type WorklistPoolHandle } from '@podium/client-graph/create'
 import { poolIssuePageSnapshot } from '../../diagnostics/issue-page-check'
-import { issuePages } from '@podium/client-graph/issue-page'
 import { missions } from '@podium/client-graph/mission'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
@@ -54,8 +53,7 @@ installMobxWarnTrap()
 
 // The fixture's kernel queue uses its pinned clock. Pin the press wall clock
 // to the same initial instant; only decay-clock tests advance the coarse clock.
-beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }) vi.setSystemTime(FIXED_NOW)
-})
+beforeEach(() => { vi.useFakeTimers({ toFake: ['Date'] }); vi.setSystemTime(FIXED_NOW) })
 
 type Kind = keyof OutboxKinds & string
 
@@ -108,13 +106,10 @@ function pair(ctx: ScenarioEngine) {
   const observer = createWorklistPool(rows.source, locals.source)
   transactions.bind(rows)
   observer.pool.attachTransactions(transactions, true)
-  const reference = { pool: observer.pool, transactions, dispose() { observer.dispose() transactions.dispose() locals.dispose() rows.dispose()
-    },
-  }
+  const reference = { pool: observer.pool, transactions, dispose() { observer.dispose(); transactions.dispose(); locals.dispose(); rows.dispose() } }
   const pooled = createRuntimeWorklistPool(ctx.engine)
   const handles = { reference, pooled }
-  cleanups.push(() => { handles.pooled.dispose() handles.reference.dispose()
-  })
+  cleanups.push(() => { handles.pooled.dispose(); handles.reference.dispose() })
   return handles
 }
 
@@ -184,8 +179,8 @@ function differences(
     const ma = canon(mission(a))
     const mb = canon(mission(b))
     if (ma !== mb) out.push(`mission of ${id}\n  reference ${ma}\n  pool   ${mb}`)
-    const pa = canon(settled(a, () => poolIssuePageSnapshot(a).find((row) => row.id === id)?.value))
-    const pb = canon(settled(b, () => poolIssuePageSnapshot(b).find((row) => row.id === id)?.value))
+    const pa = canon(settled(a, () => poolIssuePageSnapshot(a).find(row => row.id === id)?.value))
+    const pb = canon(settled(b, () => poolIssuePageSnapshot(b).find(row => row.id === id)?.value))
     if (pa !== pb) out.push(`issue page ${id}\n  reference ${pa}\n  pool   ${pb}`)
   }
   return out
@@ -216,7 +211,7 @@ describe.each([
       const id = ctx.targets.markReadId
       handle.pool.mutate('issueMarkRead', { id: asIssueId(id) })
       await settle(ctx)
-      const entry = ctx.engine.outbox.pending().find((row) => row.kind === 'issueMarkRead')
+      const entry = ctx.engine.outbox.pending().find(row => row.kind === 'issueMarkRead')
       expect(entry).toBeDefined()
       expect(tracked(() => handle.pool.readCursor(id))).toBe(new Date(wallNow).toISOString())
     } finally { vi.useRealTimers() }
@@ -805,8 +800,7 @@ describe.each([
         counting = true
         try {
           void referenceState(ctx.engine)
-            .updateIssue(asIssueId(id), { title: `Action at ${scale}x`,
-          } as never)
+            .updateIssue(asIssueId(id), { title: `Action at ${scale}x` } as never)
         } finally {
           counting = false
         }
