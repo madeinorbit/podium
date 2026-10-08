@@ -21,10 +21,13 @@ function useLegacyBuffers(head: typeof first) {
 
 describe('revision draft compared with the previous editor', () => {
   it('matches the old answer when a clean editor follows a new head', () => {
-    const { result, rerender } = renderHook((head) => ({
-      old: useLegacyBuffers(head),
-      next: useWorkflowEditDraft(head),
-    }), { initialProps: first })
+    const { result, rerender } = renderHook(
+      (head) => ({
+        old: useLegacyBuffers(head),
+        next: useWorkflowEditDraft(head),
+      }),
+      { initialProps: first },
+    )
     rerender(next)
     expect(result.current.next.instructions).toBe(result.current.old.instructions)
     expect(result.current.next.steps).toBe(result.current.old.steps)
@@ -32,10 +35,13 @@ describe('revision draft compared with the previous editor', () => {
   })
 
   it('matches the old answer for a same-revision refresh while typing', () => {
-    const { result, rerender } = renderHook((head) => ({
-      old: useLegacyBuffers(head),
-      next: useWorkflowEditDraft(head),
-    }), { initialProps: first })
+    const { result, rerender } = renderHook(
+      (head) => ({
+        old: useLegacyBuffers(head),
+        next: useWorkflowEditDraft(head),
+      }),
+      { initialProps: first },
+    )
     act(() => {
       result.current.old.setInstructions('Mine')
       result.current.next.setInstructions('Mine')
@@ -49,10 +55,13 @@ describe('revision draft compared with the previous editor', () => {
   })
 
   it('preserves both texts where the old answer silently replaces them', () => {
-    const { result, rerender } = renderHook((head) => ({
-      old: useLegacyBuffers(head),
-      next: useWorkflowEditDraft(head),
-    }), { initialProps: first })
+    const { result, rerender } = renderHook(
+      (head) => ({
+        old: useLegacyBuffers(head),
+        next: useWorkflowEditDraft(head),
+      }),
+      { initialProps: first },
+    )
     act(() => {
       result.current.old.setInstructions('Mine')
       result.current.next.setInstructions('Mine')
@@ -69,6 +78,32 @@ describe('revision draft compared with the previous editor', () => {
 })
 
 describe('revision draft', () => {
+  it('acknowledges step defaults without replacing text typed during a save', () => {
+    const { result, rerender } = renderHook(useWorkflowEditDraft, { initialProps: first })
+    act(() => result.current.setSteps('[{"id":"step","title":"Step"}]'))
+    const submitted = { instructions: first.instructions, steps: result.current.steps }
+    act(() => result.current.saved(submitted))
+    act(() => result.current.setInstructions('More typing'))
+    rerender({
+      ...first,
+      revisionId: 'rev-mine',
+      steps: JSON.stringify(
+        [{ id: 'step', title: 'Step', instructions: '', completionGuidance: '' }],
+        null,
+        2,
+      ),
+    })
+    expect(result.current.instructions).toBe('More typing')
+    expect(result.current.steps).toBe(
+      JSON.stringify(
+        [{ id: 'step', title: 'Step', instructions: '', completionGuidance: '' }],
+        null,
+        2,
+      ),
+    )
+    expect(result.current.hasNewVersion).toBe(false)
+  })
+
   it('follows the new head after edits are reverted to the base', () => {
     const { result, rerender } = renderHook(useWorkflowEditDraft, { initialProps: first })
     act(() => result.current.setInstructions('Mine'))

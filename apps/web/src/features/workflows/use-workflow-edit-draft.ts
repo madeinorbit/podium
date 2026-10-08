@@ -1,3 +1,4 @@
+import { WorkflowStep } from '@podium/protocol'
 import { useState } from 'react'
 
 export interface WorkflowEditText {
@@ -12,7 +13,10 @@ interface WorkflowEditBase extends WorkflowEditText {
 function sameText(head: WorkflowEditText, text: WorkflowEditText): boolean {
   if (head.instructions !== text.instructions) return false
   try {
-    return head.steps === JSON.stringify(JSON.parse(text.steps), null, 2)
+    // The write schema supplies defaults for omitted step fields.
+    return (
+      head.steps === JSON.stringify(WorkflowStep.array().parse(JSON.parse(text.steps)), null, 2)
+    )
   } catch {
     return false
   }
@@ -37,7 +41,13 @@ export function useWorkflowEditDraft(head: WorkflowEditBase) {
     } else if (draft.saved && sameText(head, draft.saved)) {
       // Acknowledgement may arrive before or after the refreshed head. Edits
       // typed during the save remain dirty against the revision just saved.
-      setDraft({ ...draft, base: head, saved: null })
+      setDraft({
+        base: head,
+        instructions:
+          draft.instructions === draft.saved.instructions ? head.instructions : draft.instructions,
+        steps: draft.steps === draft.saved.steps ? head.steps : draft.steps,
+        saved: null,
+      })
     }
   }
 
@@ -55,7 +65,13 @@ export function useWorkflowEditDraft(head: WorkflowEditBase) {
       setDraft({ base: head, instructions: head.instructions, steps: head.steps, saved: null })
     },
     saved(text: WorkflowEditText) {
-      setDraft((current) => ({ ...current, saved: sameText(current.base, text) ? null : text }))
+      setDraft((current) => ({
+        ...current,
+        saved:
+          current.base.revisionId !== draft.base.revisionId && sameText(current.base, text)
+            ? null
+            : text,
+      }))
     },
   }
 }

@@ -13,18 +13,16 @@
  * rendered by the same `CommandButton`, and nothing in this file restructures.
  */
 import type { WorkflowScope } from '@podium/protocol'
-import {
-  workflowLibraryEntries,
-  workflowRevisionDetail,
-} from '@podium/client-core/values'
+import { workflowLibraryEntries, workflowRevisionDetail } from '@podium/client-core/values'
 import { Plus, ShieldCheck } from 'lucide-react'
 import type { FormEvent, JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { cn } from '@/lib/utils'
 import { Button } from '@/components/ui/button'
 import type { WorkflowsSource } from './use-workflows'
+import { useWorkflowEditDraft } from './use-workflow-edit-draft'
 import { workflowCommands, type WorkflowRights } from './workflow-commands'
-import { CommandButton, Empty, Field } from './workflow-ui'
+import { CommandButton, Empty, Field, type Dispatch } from './workflow-ui'
 
 function parseSteps(raw: string): unknown[] {
   const parsed = JSON.parse(raw) as unknown
@@ -84,13 +82,9 @@ export function WorkflowLibrary({
 
       <section className="min-h-0 overflow-y-auto p-5">
         {creating ? (
-          <CreateWorkflow
-            source={source}
-            rights={rights}
-            onCreated={() => setCreating(false)}
-          />
+          <CreateWorkflow source={source} rights={rights} onCreated={() => setCreating(false)} />
         ) : source.detail ? (
-          <WorkflowEditor source={source} rights={rights} />
+          <WorkflowEditor key={source.detail.workflow.id} source={source} rights={rights} />
         ) : (
           <Empty>Create a workflow to define how an agent should work.</Empty>
         )}
@@ -230,21 +224,26 @@ function WorkflowEditor({
   const detail = source.detail
   const model = detail ? workflowRevisionDetail(detail) : null
   const head = model?.head
-  const [instructions, setInstructions] = useState(model?.instructions ?? '')
-  const [steps, setSteps] = useState(model?.stepsJson ?? '[]')
-
-  // Re-seed the buffers when the HEAD REVISION changes — a new revision, a
-  // different workflow, or a re-read after a write. Keyed on the revision id
-  // rather than on the detail object so a refetch that returns the same revision
-  // does not discard what the user is typing.
-  useEffect(() => {
-    setInstructions(model?.instructions ?? '')
-    setSteps(model?.stepsJson ?? '[]')
-    // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the head revision, deliberately.
-  }, [head?.id])
+  const draft = useWorkflowEditDraft({
+    revisionId: head?.id ?? '',
+    instructions: model?.instructions ?? '',
+    steps: model?.stepsJson ?? '[]',
+  })
 
   if (!model) return <Empty>Select a workflow.</Empty>
   if (!head) return <Empty>This workflow has no revision.</Empty>
+
+  const revisionInput = () => ({
+    workflowId: model.workflowId,
+    instructions: draft.instructions,
+    steps: parseSteps(draft.steps),
+  })
+  const saveRevision: Dispatch = async (command, input) => {
+    const text = { instructions: draft.instructions, steps: draft.steps }
+    const applied = await source.dispatch(command, input)
+    if (applied) draft.saved(text)
+    return applied
+  }
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
@@ -266,31 +265,52 @@ function WorkflowEditor({
           revision {head.version} · {head.published ? 'published' : 'candidate'}
         </span>
       </div>
+      {draft.hasNewVersion && (
+        <div
+          role="status"
+          className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3"
+        >
+          <p className="text-sm">
+            Version {head.version} was saved meanwhile. Your unsaved text is kept.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <CommandButton
+              command={workflowCommands.revise}
+              rights={rights}
+              dispatch={saveRevision}
+              input={revisionInput}
+            >
+              Save mine as the next version
+            </CommandButton>
+            <Button variant="outline" onClick={() => draft.discard()}>
+              Discard mine and load version {head.version}
+            </Button>
+          </div>
+        </div>
+      )}
       <Field label="Instructions (Markdown)">
         <textarea
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
+          value={draft.instructions}
+          onChange={(e) => draft.setInstructions(e.target.value)}
           className="input min-h-64 font-mono text-xs"
         />
       </Field>
       <Field label="Ordered steps (JSON)">
         <textarea
-          value={steps}
-          onChange={(e) => setSteps(e.target.value)}
+          value={draft.steps}
+          onChange={(e) => draft.setSteps(e.target.value)}
           className="input min-h-44 font-mono text-xs"
         />
       </Field>
       <div className="flex gap-2">
-        <CommandButton
-          command={workflowCommands.revise}
-          rights={rights}
-          dispatch={source.dispatch}
-          input={() => ({
-            workflowId: model.workflowId,
-            instructions,
-            steps: parseSteps(steps),
-          })}
-        />
+        {!draft.hasNewVersion && (
+          <CommandButton
+            command={workflowCommands.revise}
+            rights={rights}
+            dispatch={saveRevision}
+            input={revisionInput}
+          />
+        )}
         {!head.published && (
           <CommandButton
             variant="outline"
