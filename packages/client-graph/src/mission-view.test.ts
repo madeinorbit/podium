@@ -39,7 +39,8 @@ it.each([
 ] as const)('renders a cold %s history as loading and recovers after hydration', (_name, read) => {
   // The shell makes an archived session's display summary usable before its
   // handoff/prompt history is resident, just as the production workspace does.
-  const { pool, reader } = open([coldRoot()], [session('old', 'root')], {
+  const history = [session('old', 'root'), session('older', 'root'), session('oldest', 'root')]
+  const { pool, reader } = open([coldRoot()], history, {
     issue: MISSION_VIEW_SUMMARIES.issue,
     session: [...new Set([...MISSION_VIEW_SUMMARIES.session, ...SHELL_SUMMARIES.session])],
   })
@@ -51,9 +52,20 @@ it.each([
   const Surface = () => createElement('output', null, projection.getSnapshot() === LOADING ? 'Loading' : 'Ready')
   try {
     expect(renderToStaticMarkup(createElement(Surface))).toBe('<output>Loading</output>')
-    expect(pool.hydrate()).toBe(1)
+    expect(pool.hydrate()).toBe(history.length)
     expect(renderToStaticMarkup(createElement(Surface))).toBe('<output>Ready</output>')
+    expect(projection.getSnapshot()).not.toBe(LOADING)
+    expect(tracked(() => reader.history('root'))).toMatchObject({ count: 3, roster: 3 })
   } finally { stop(); projection.dispose() }
+})
+
+it('preserves real history errors at the workspace reader boundary', () => {
+  const { pool, reader } = open([issue('root')], [session('old', 'root')])
+  const failure = new Error('Broken history')
+  vi.spyOn(pool.sessionObject('old'), 'moved', 'get').mockImplementation(() => { throw failure })
+  const projection = createPoolProjection(pool, () => readWorkspaceMission(reader, 'root', 'root'))
+  try { expect(() => projection.getSnapshot()).toThrow(failure) }
+  finally { projection.dispose() }
 })
 
 it('uses archived-inclusive relations, small scalar summaries and one batched load for cold display', () => {

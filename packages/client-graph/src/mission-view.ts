@@ -765,7 +765,26 @@ export class MissionViewReader {
     if (ids === LOADING) return LOADING
     const all = this.factsOfIds(ids)
     if (all === LOADING) return LOADING
-    const facts = all.filter(session => session.archived)
+    const facts: SessionFacts[] = []
+    let pending = false
+    for (const session of all) {
+      // A declared display summary can satisfy exists while these history
+      // fields still throw LOADING. Settle at the reader boundary and visit
+      // every archived sender so their payloads share one load window.
+      const archived = settled(() => {
+        if (!session.archived) return false
+        void session.rosterEligible
+        void session.lastActivity
+        void session.moved
+        void session.lastInput
+        void session.transcript
+        void session.historyKind
+        return true
+      })
+      if (archived === LOADING) pending = true
+      else if (archived) facts.push(session)
+    }
+    if (pending) return LOADING
     let newest: SessionFacts | undefined
     for (const session of facts) if (!newest || session.lastActivity > newest.lastActivity) newest = session
     return { count: facts.length, roster: facts.filter(session => session.rosterEligible).length, newest: newest?.sessionId,
