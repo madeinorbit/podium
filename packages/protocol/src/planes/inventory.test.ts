@@ -174,6 +174,17 @@ describe('ADR 7 D1 — three planes, command as a class inside control', () => {
 })
 
 describe('ADR 7 D3/D4/D5 — the ambiguous cases ship as resolved', () => {
+  it.each([
+    'sessionsChanged', 'sessionViewDelta', 'sessionTitleChanged', 'sessionAgentStateChanged',
+    'conversationsChanged', 'automationsChanged', 'automationRunsChanged',
+  ])('retires the duplicate server carrier %s', (type) => {
+    expect(SERVER_PLANE_CLASS).not.toHaveProperty(type)
+  })
+
+  it('retains daemon conversation discovery ingress', () => {
+    expect(DAEMON_PLANE_CLASS.conversationsChanged).toBe('control.entity')
+  })
+
   it('titles: the spinner-rate message is stream; the entity field is control', () => {
     expect(SERVER_PLANE_CLASS).not.toHaveProperty('sessionTitleChanged')
     expect(DAEMON_PLANE_CLASS.title).toBe('stream.live')
