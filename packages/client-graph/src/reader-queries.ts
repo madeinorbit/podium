@@ -895,7 +895,7 @@ export class ReaderQueries {
   }
   private publishQueries(reset = false, companionChanged = false): void {
     const index = this.index()
-    const keys = reset ? [...this.observed.keys(), ...this.questionMembers.keys()] : this.dirtyQueries.keys()
+    const keys = reset ? new Set([...this.observed.keys(), ...this.questionMembers.keys()]) : this.dirtyQueries.keys()
     for (const key of keys) {
       const members = this.questionMembers.get(key)
       if (members) {
@@ -906,7 +906,6 @@ export class ReaderQueries {
           for (const listener of [...members.listeners]) listener(undefined)
         } else for (const id of this.dirtyQueries.get(key) ?? [])
           for (const listener of members.listeners) listener(id)
-        continue
       }
       const state = this.observed.get(key)
       if (!state) continue
@@ -932,20 +931,26 @@ export class ReaderQueries {
       ...(this.sourceOnly(question) ? [] : this.residents.revisionKeys(question))])]
   }
   private onQuestionMembers(question: ReaderQuestion, listener: (id: string | undefined) => void): () => void {
-    const key = `members:${JSON.stringify(question)}`
+    const questionKey = JSON.stringify(question)
+    // Source-only projections and identity readers ask the same revision
+    // question. Share its existing routes rather than registering them twice.
+    const key = this.sourceOnly(question) ? questionKey : `members:${questionKey}`
+    const observed = this.observed.get(key)
     let state = this.questionMembers.get(key)
     if (!state) {
-      state = { question, keys: this.questionRoutesFor(question, this.index()), listeners: new Set() }
+      state = { question, keys: observed?.keys ?? this.questionRoutesFor(question, this.index()), listeners: new Set() }
       this.questionMembers.set(key, state)
-      this.registerRoutes(key, state.keys)
+      if (!observed) this.registerRoutes(key, state.keys)
     }
     state.listeners.add(listener)
     return () => {
       state.listeners.delete(listener)
       if (!state.listeners.size) {
-        this.unrouteQuery(key, state)
         this.questionMembers.delete(key)
-        this.dirtyQueries.delete(key)
+        if (!this.observed.has(key)) {
+          this.unrouteQuery(key, state)
+          this.dirtyQueries.delete(key)
+        }
       }
     }
   }
@@ -958,10 +963,12 @@ export class ReaderQueries {
       state = {
         atom: createAtom(`history.${key}`, undefined, () => {
           const state = this.observed.get(key)
-          if (state) this.unrouteQuery(key, state)
           this.observed.delete(key)
           this.identities.delete(key)
-          this.dirtyQueries.delete(key)
+          if (state && !this.questionMembers.has(key)) {
+            this.unrouteQuery(key, state)
+            this.dirtyQueries.delete(key)
+          }
         }),
         version: revision(index),
         revision,
