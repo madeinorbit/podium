@@ -1,5 +1,5 @@
 import { lazy, companion } from '@podium/mobx-helpers'
-import type { SessionModel } from './models'
+import type { IssueModel, SessionModel } from './models'
 import type { MobxPool } from './pool'
 import { headerDockSession, headerHostSession, headerWorkingSession } from './header-session'
 import { LOADING } from './worklist/rollup'
@@ -172,7 +172,7 @@ export class HeaderModel {
   readonly session = companion((session: SessionModel) => new HeaderSession(session))
 
   @lazy
-  get selectedIssue() {
+  get selectedIssue(): IssueModel | typeof LOADING | undefined {
     const id = this.pool.selection.keys().next().value
     if (!id) return undefined
     const value = this.pool.row('issue', id)
