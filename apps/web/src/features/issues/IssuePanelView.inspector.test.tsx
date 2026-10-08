@@ -94,7 +94,7 @@ const traceCounts = new Map<string, number>()
 function traceRead() {
   traceReads++
   if (traceReads <= 5 || traceReads % 200 === 0) {
-    console.error('[inspector trace read]', traceCase, traceReads, new Error().stack)
+    process.stderr.write(`[inspector trace read] ${traceCase} ${traceReads} ${new Error().stack}\n`)
   }
 }
 
@@ -181,26 +181,26 @@ beforeEach((context) => {
   traceCounts.clear()
   stopTrace = spy((event) => {
     if (!('name' in event)) return
-    const key = `${event.type}:${event.name}`
+    const key = `${event.type}:${String(event.name).replace(/@\d+/g, '@N')}`
     traceCounts.set(key, (traceCounts.get(key) ?? 0) + 1)
     traceEvents++
     if (Date.now() - traceAt < 1000 && traceEvents % 1000 !== 0) return
     traceAt = Date.now()
-    console.error('[inspector trace mobx]', traceCase, { reads: traceReads, events: traceEvents,
-      top: [...traceCounts].sort((a, b) => b[1] - a[1]).slice(0, 12) })
+    process.stderr.write(`[inspector trace mobx] ${traceCase} ${JSON.stringify({ reads: traceReads, events: traceEvents,
+      top: [...traceCounts].sort((a, b) => b[1] - a[1]).slice(0, 12) })}\n`)
   })
-  console.error('[inspector trace begin]', traceCase)
+  process.stderr.write(`[inspector trace begin] ${traceCase}\n`)
   mockIssues = [ROOT, OPEN_CHILD, DONE_CHILD, GRANDCHILD]
   mockSessions = []
   eventRows = BASE_EVENT_ROWS
 })
 
 afterEach(() => {
-  console.error('[inspector trace cleanup]', traceCase, traceReads, traceEvents)
+  process.stderr.write(`[inspector trace cleanup] ${traceCase} ${traceReads} ${traceEvents}\n`)
   cleanup()
   vi.clearAllMocks()
   stopTrace?.()
-  console.error('[inspector trace end]', traceCase, traceReads, traceEvents)
+  process.stderr.write(`[inspector trace end] ${traceCase} ${traceReads} ${traceEvents}\n`)
 })
 
 describe('IssuePanelView inspector', () => {
