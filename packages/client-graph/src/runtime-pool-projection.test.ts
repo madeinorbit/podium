@@ -44,6 +44,8 @@ function fixture() {
 
 it('maintains selection history without running projections and releases it with the pool', () => {
   const f = fixture()
+  // Keep list filing idle so the spy measures selection history alone.
+  f.pool.worklist.clear()
   const selection = f.pool.selection
   expect(getObserverTree(selection).observers).toHaveLength(1)
   expect(f.observers()).toBe(0)
