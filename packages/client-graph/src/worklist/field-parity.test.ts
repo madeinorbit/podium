@@ -3,9 +3,8 @@ import { describe, expect, it } from 'vitest'
 import { MobxPool } from '../pool'
 import { LOADING } from './rollup'
 import { worklistView } from './view-model'
-import { WorklistIssueBefore } from './issue-before'
+import { WorklistIssueBefore } from './issue-before.test-helper'
 import type { WorklistIssue } from './issue'
-import { NO_SIDEBAR_SESSIONS } from './sidebar-row'
 
 const stamp = '2026-10-08T12:00:00Z'
 const issue = (id: string, patch: object = {}) => ({ id, seq: 1, title: id,
@@ -26,7 +25,7 @@ const sidebarFields = {
   asking: (r: WorklistIssue) => r.visibleAsking,
   originTick: (r: WorklistIssue) => r.origin,
   decision: (r: WorklistIssue) => r.decision,
-  mergeCommits: (r: WorklistIssue) => r.decision === 'merge' ? r.issue.gitState?.ahead ?? 0 : 0,
+  mergeCommits: (r: WorklistIssue) => r.mergeCommits,
   progress: (r: WorklistIssue) => r.progress,
   fromChildren: (r: WorklistIssue) => r.hasChildProgress,
   statusFromChildren: (r: WorklistIssue) => r.showsChildProgress,
@@ -41,9 +40,9 @@ const sidebarFields = {
   draftAgentOnly: (r: WorklistIssue) => r.sessionOnlyDraft,
   firstSessionId: (r: WorklistIssue) => r.firstSessionId,
   continuation: (r: WorklistIssue) => r.continuation,
-  fleet: (r: WorklistIssue) => (r.visibleAttention.sidebarFacts ?? NO_SIDEBAR_SESSIONS).fleet,
+  fleet: (r: WorklistIssue) => r.visibleFleet,
   sessions: (r: WorklistIssue) => r.sessions.map(session => session.row),
-  aggregateSessionIds: (r: WorklistIssue) => r.visibleAttention.sessionIds ?? [],
+  aggregateSessionIds: (r: WorklistIssue) => r.visibleSessionIds,
   awaitingFirstPrompt: (r: WorklistIssue) => r.awaitingFirstPrompt,
 }
 const mobileFields = {
@@ -65,7 +64,7 @@ const mobileFields = {
   snoozed: (r: WorklistIssue) => r.issue.deferred,
   unsnoozed: (r: WorklistIssue) => r.returnedFromDefer,
   tuckable: (r: WorklistIssue) => r.canTuck,
-  fleet: (r: WorklistIssue) => (r.visibleAttention.sidebarFacts ?? NO_SIDEBAR_SESSIONS).fleet,
+  fleet: (r: WorklistIssue) => r.visibleFleet,
   branch: (r: WorklistIssue) => r.issue.branch ?? null,
   gitState: (r: WorklistIssue) => r.issue.gitState,
   suppressAhead: (r: WorklistIssue) => r.decision === 'merge',
@@ -74,10 +73,10 @@ const mobileFields = {
   sessions: (r: WorklistIssue) => r.sessions.map(session => session.row),
   activityAt: (r: WorklistIssue) => r.visibleActivityAt,
 }
-const cases = ['next-message', 'working', 'waiting', 'folded-parent', 'merge', 'quiet-draft', 'snoozed', 'origin'] as const
+const cases = ['next-message', 'working', 'waiting', 'folded-parent', 'merge', 'awaiting-merge', 'quiet-draft', 'snoozed', 'origin'] as const
 function fixture(name: typeof cases[number]) {
   const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(stamp) })
-  const patch = name === 'next-message' ? { deferUntil: 'next-message' } : name === 'merge' ? { stage: 'done', gitState: { ahead: 3, merged: false } }
+  const patch = name === 'next-message' ? { deferUntil: 'next-message' } : name === 'awaiting-merge' ? { stage: 'done', branch: 'issue/merge', gitState: { ahead: 3, shared: false, merged: false } } : name === 'merge' ? { stage: 'done', gitState: { ahead: 3, merged: false } }
     : name === 'quiet-draft' ? { isDraftVessel: true }
       : name === 'snoozed' ? { deferUntil: '2026-10-09T12:00:00Z' }
         : name === 'origin' ? { deps: [{ id: 'origin', type: 'discovered-from' }] } : {}
@@ -89,7 +88,7 @@ function fixture(name: typeof cases[number]) {
     { kind: 'session', id: 'seat', value: session('seat', 'root', name === 'waiting'
       ? { agentState: { phase: 'needs_user', since: stamp }, unread: true }
       : name === 'quiet-draft' ? { title: 'Draft agent', agentState: { phase: 'unknown' } }
-        : name === 'merge' ? { status: 'exited', agentState: { phase: 'done', since: stamp } } : {}) as never },
+        : (name === 'merge' || name === 'awaiting-merge') ? { status: 'exited', agentState: { phase: 'done', since: stamp } } : {}) as never },
   ] })
   return pool
 }

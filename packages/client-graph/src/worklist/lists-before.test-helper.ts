@@ -1,8 +1,8 @@
 import { companion } from '@podium/mobx-helpers'
-import { createIdentityQuery } from '../query-identity-before'
+import { createIdentityQuery } from '../query-identity-before.test-helper'
 import { sidebarBelowOf, sidebarNestedOf } from './sidebar'
 import { nestBelowPartOf, nestedPartOf } from './visible'
-import type { WorklistIssueBefore } from './issue-before'
+import type { WorklistIssueBefore } from './issue-before.test-helper'
 
 /** The worklist supplies policies; the data query owns ordered ID identity. */
 export const worklistLists = companion((row: WorklistIssueBefore) => ({

@@ -12,11 +12,11 @@ Worklist-created membership lists are shallow-equal lazy model/ID fields. Mobile
 
 ## Before/after proof
 
-The old implementation is preserved only in test oracles (`issue-before.ts`, `lists-before.ts`, `query-identity-before.ts`, `mobile-before.ts`, `heartbeat-before.ts`). Production imports none of them. The initial port parity proof ran before deleting adapters, including a deliberately wrong candidate; the expanded proof compares each moved/renamed answer with its frozen predecessor on the same fixtures.
+The old implementation is preserved only in test oracles (`issue-before.test-helper.ts`, `lists-before.test-helper.ts`, `query-identity-before.test-helper.ts`, `mobile-before.test-helper.ts`, `heartbeat-before.test-helper.ts`). Production imports none of them. The initial port parity proof ran before deleting adapters, including a deliberately wrong candidate; the expanded proof compares each moved/renamed answer with its frozen predecessor on the same fixtures.
 
 `field-parity.test.ts` covers working, waiting, folded parents, merge decisions, quiet drafts, timed defer, next-message defer and spin-off origins, plus unknown, LOADING and selected evicted records. `state-parity.test.tsx` exercises a real row click (render counts old row 2, new row 2, unrelated row 1), compares old/new mobile sections and roster partitions, and proves an unrelated heartbeat invokes zero roster sorts and zero folded-header count reads. The changed issue’s navigation activity still advances.
 
-Expanded proof: 1,310 checks green. With `POD5822_MUTATE=1`, 1,306 checks fail and the four independent boundary checks pass. The original pre-deletion proof was 373 green; its wrong-answer control failed 371 checks.
+Expanded proof: 1,473 checks green. With `POD5822_MUTATE=1`, 1,469 checks fail and the four independent boundary checks pass. The original pre-deletion proof was 373 green; its wrong-answer control failed 371 checks.
 
 ## Shared answers and remaining helpers
 

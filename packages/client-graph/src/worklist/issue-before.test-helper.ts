@@ -12,8 +12,8 @@ import { type Aggregate, ownAttentionFields, unitOwnFields, unitsBelowFields,
   LOADING, type OwnAttention, type OwnFacts, type Rollup, rollupPartOf, phaseOf, askingOf,
   seatActivityPartOf, tipPartOf, type UnitOwn, type Units, waitingPartOf } from './rollup'
 import { NO_SIDEBAR_SESSIONS, sidebarLifecycle, sidebarTimingFromFacts, type SidebarRowValues, type SidebarProgress, type SidebarSessionFacts } from './sidebar-row'
-import { worklistLists } from './lists-before'
-import { createIdentityQuery } from '../query-identity-before'
+import { worklistLists } from './lists-before.test-helper'
+import { createIdentityQuery } from '../query-identity-before.test-helper'
 import { mobileWaitingCount, type MobileRowValues } from './mobile-row'
 import { childIdsPartOf, type HeldIssue, type HiddenIssue, hiddenPresenceOf, keptBelowPartOf,
   laneMemberIdsPartOf, memberIdsPartOf, nestCandidatePartOf, nestParentPartOf,

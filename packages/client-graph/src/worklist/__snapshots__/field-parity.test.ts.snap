@@ -1,5 +1,172 @@
 // Vitest Snapshot v1, https://vitest.dev/guide/snapshot.html
 
+exports[`awaiting-merge > mobile.activityAt equals its old port 1`] = `1791460800000`;
+
+exports[`awaiting-merge > mobile.attentionAction equals its old port 1`] = `"Review"`;
+
+exports[`awaiting-merge > mobile.branch equals its old port 1`] = `"issue/merge"`;
+
+exports[`awaiting-merge > mobile.color equals its old port 1`] = `null`;
+
+exports[`awaiting-merge > mobile.decision equals its old port 1`] = `"merge"`;
+
+exports[`awaiting-merge > mobile.draftOnly equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > mobile.draftQuiet equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > mobile.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [],
+  "total": 0,
+}
+`;
+
+exports[`awaiting-merge > mobile.gitState equals its old port 1`] = `
+{
+  "ahead": 3,
+  "merged": false,
+  "shared": false,
+}
+`;
+
+exports[`awaiting-merge > mobile.id equals its old port 1`] = `"root"`;
+
+exports[`awaiting-merge > mobile.internal equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > mobile.kind equals its old port 1`] = `"issue"`;
+
+exports[`awaiting-merge > mobile.label equals its old port 1`] = `"root"`;
+
+exports[`awaiting-merge > mobile.navigation equals its old port 1`] = `
+{
+  "id": "root",
+  "kind": "issue",
+}
+`;
+
+exports[`awaiting-merge > mobile.originSeq equals its old port 1`] = `null`;
+
+exports[`awaiting-merge > mobile.pinned equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > mobile.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 1,
+  "review": 0,
+  "run": 0,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`awaiting-merge > mobile.sessions equals its old port 1`] = `[]`;
+
+exports[`awaiting-merge > mobile.snoozed equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > mobile.suppressAhead equals its old port 1`] = `true`;
+
+exports[`awaiting-merge > mobile.timing equals its old port 1`] = `
+{
+  "phase": "waiting",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`awaiting-merge > mobile.tuckable equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > mobile.unread equals its old port 1`] = `true`;
+
+exports[`awaiting-merge > mobile.unsnoozed equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > mobile.waitingCount equals its old port 1`] = `1`;
+
+exports[`awaiting-merge > mobile.working equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > sidebar.aggregateSessionIds equals its old port 1`] = `[]`;
+
+exports[`awaiting-merge > sidebar.asking equals its old port 1`] = `true`;
+
+exports[`awaiting-merge > sidebar.awaitingFirstPrompt equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > sidebar.awaitsTuck equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > sidebar.canBringBack equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > sidebar.color equals its old port 1`] = `null`;
+
+exports[`awaiting-merge > sidebar.continuation equals its old port 1`] = `null`;
+
+exports[`awaiting-merge > sidebar.decision equals its old port 1`] = `"merge"`;
+
+exports[`awaiting-merge > sidebar.deferred equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > sidebar.draftAgentOnly equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > sidebar.errorClass equals its old port 1`] = `null`;
+
+exports[`awaiting-merge > sidebar.firstSessionId equals its old port 1`] = `null`;
+
+exports[`awaiting-merge > sidebar.fleet equals its old port 1`] = `
+{
+  "nativeCount": 0,
+  "parkedCount": 0,
+  "tiles": [],
+  "total": 0,
+}
+`;
+
+exports[`awaiting-merge > sidebar.fromChildren equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > sidebar.gitState equals its old port 1`] = `
+{
+  "ahead": 3,
+  "merged": false,
+  "shared": false,
+}
+`;
+
+exports[`awaiting-merge > sidebar.idNumber equals its old port 1`] = `1`;
+
+exports[`awaiting-merge > sidebar.internal equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > sidebar.mergeCommits equals its old port 1`] = `3`;
+
+exports[`awaiting-merge > sidebar.originTick equals its old port 1`] = `null`;
+
+exports[`awaiting-merge > sidebar.progress equals its old port 1`] = `
+{
+  "block": 0,
+  "done": 1,
+  "review": 0,
+  "run": 0,
+  "stall": 0,
+  "total": 1,
+  "wait": 0,
+}
+`;
+
+exports[`awaiting-merge > sidebar.sessions equals its old port 1`] = `[]`;
+
+exports[`awaiting-merge > sidebar.statusFromChildren equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > sidebar.timing equals its old port 1`] = `
+{
+  "phase": "waiting",
+  "sinceMs": 1791460800000,
+}
+`;
+
+exports[`awaiting-merge > sidebar.title equals its old port 1`] = `"root"`;
+
+exports[`awaiting-merge > sidebar.unread equals its old port 1`] = `true`;
+
+exports[`awaiting-merge > sidebar.unsnoozed equals its old port 1`] = `false`;
+
+exports[`awaiting-merge > sidebar.working equals its old port 1`] = `false`;
+
 exports[`folded-parent > mobile.activityAt equals its old port 1`] = `1791460800000`;
 
 exports[`folded-parent > mobile.attentionAction equals its old port 1`] = `null`;

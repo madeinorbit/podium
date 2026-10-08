@@ -49,27 +49,23 @@ vi.mock('./UnifiedWorktreeRow', async (importOriginal) => {
           commits: (mode.worktrees.get(path)?.commits ?? 0) + 1,
         })
       })
-      return original.UnifiedWorktreeRow(props)
+      return <original.UnifiedWorktreeRow {...props} />
     },
   }
 })
 
-vi.mock('./UnifiedIssueRow', async (importOriginal) => {
-  const original = await importOriginal<typeof import('./UnifiedIssueRow')>()
-  const React = await import('react')
-  const { memo, useLayoutEffect } = React
-  const Counted = memo((props: Parameters<typeof original.UnifiedIssueRow>[0]) => {
-    // Props carry the issue model under different keys depending on the caller.
-    const record = props as unknown as Record<string, unknown>
-    const row = record['row'] as { issue?: { id: string } } | undefined
-    const issue = (record['issue'] as { id: string } | undefined) ?? row?.issue
-    const id = issue?.id ?? (record['issueId'] as string | undefined)
+// Count the actual rendered shell: a companion now updates inside its observer,
+// so a wrapper around the old copied-props boundary no longer sees those renders.
+vi.mock('./WorkRowShell', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./WorkRowShell')>()
+  const { useLayoutEffect } = await import('react')
+  return { ...original, WorkRowShell: (props: Parameters<typeof original.WorkRowShell>[0]) => {
+    const id = props.domMark
     useLayoutEffect(() => {
       if (id) mode.commits.set(id, (mode.commits.get(id) ?? 0) + 1)
     })
-    return React.createElement(original.UnifiedIssueRow, props)
-  })
-  return { ...original, UnifiedIssueRow: Counted }
+    return <original.WorkRowShell {...props} />
+  } }
 })
 vi.mock('./sidebar-common', async (importOriginal) => {
   const original = await importOriginal<typeof import('./sidebar-common')>()
@@ -87,10 +83,12 @@ vi.mock('./sidebar-common', async (importOriginal) => {
 vi.mock('./work-folds', async (importOriginal) => {
   const original = await importOriginal<typeof import('./work-folds')>()
   const { useLayoutEffect } = await import('react')
+  const { observer } = await import('@podium/client-graph/react')
   const CountedFolded = (props: Parameters<typeof original.FoldedWorkRow>[0]) => {
     const record = props as unknown as Record<string, unknown>
     const row = record['row'] as { issue?: { id: string } } | undefined
-    const issue = (record['issue'] as { id: string } | undefined) ?? row?.issue
+    const model = record['model'] as { issue?: { id: string } } | undefined
+    const issue = model?.issue ?? (record['issue'] as { id: string } | undefined) ?? row?.issue
     const session = record['session'] as { sessionId: string } | undefined
     const id = issue?.id ?? session?.sessionId
     useLayoutEffect(() => {
@@ -98,7 +96,7 @@ vi.mock('./work-folds', async (importOriginal) => {
     })
     return original.FoldedWorkRow(props)
   }
-  return { ...original, FoldedWorkRow: CountedFolded }
+  return { ...original, FoldedWorkRow: CountedFolded, WorklistFoldedRow: observer(CountedFolded) }
 })
 vi.mock('@/features/mobile-handoff/MobilePromoCard', () => ({ MobilePromoCard: () => null }))
 

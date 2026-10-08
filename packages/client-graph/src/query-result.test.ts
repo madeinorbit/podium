@@ -1,4 +1,4 @@
-import { createIdentityQuery } from './query-identity-before'
+import { createIdentityQuery } from './query-identity-before.test-helper'
 import { autorun, observable, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import {

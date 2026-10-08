@@ -1,17 +1,19 @@
 // @vitest-environment happy-dom
 import { act, cleanup, render, screen } from '@testing-library/react'
-import { afterEach, expect, it } from 'vitest'
+import { afterEach, expect, it, vi } from 'vitest'
 import { MobxPool } from '@podium/client-graph/pool'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { WorklistIssueRow, UnifiedIssueRow } from './UnifiedIssueRow'
 import { poolIssueDisplay, poolIssueRow, sidebarExitSnapshot } from './pool-row-data'
+// Optimistic write marks are independent of the departure-paint boundary.
+vi.mock('@/components/NotSavedMark', () => ({ NotSavedMark: () => null }))
 const stamp = '2026-10-08T12:00:00Z'
 afterEach(cleanup)
 it('an archived resident merge row exits with its previous paint and supplies no live drawing row', async () => {
   const pool = new MobxPool({ selectedIssueId: 'merge', coarseNow: Date.parse(stamp) })
   const record = { id: 'merge', seq: 3, title: 'Ready to land', repoPath: '/synthetic', stage: 'done',
-    createdAt: stamp, updatedAt: stamp, closedAt: stamp, audience: 'human', gitState: { ahead: 3, merged: false } }
+    createdAt: stamp, updatedAt: stamp, closedAt: stamp, audience: 'human', branch: 'issue/merge', gitState: { ahead: 3, shared: false, merged: false } }
   pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'merge', value: record as never }] })
   const row = worklistView(pool).row(pool.issueObject('merge'))
   const callbacks = { now: Date.parse(stamp), onSelectIssue() {}, onSelectPanelForIssue() {}, onOpenIssue() {}, onRenameIssue() {} }
