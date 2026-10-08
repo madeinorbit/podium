@@ -750,8 +750,12 @@ async function measureScreenCells(
       'mobile-inbox',
       ['InboxScreen', 'SessionsScreen', 'ScreeningScreen', 'PodiumLinkHost'],
       () => ({
-        inbox: mobileInbox.inbox(),
-        screening: mobileInbox.screening(),
+        inbox: {
+          groups: mobileInbox.inbox().groups,
+          booting: mobileInbox.inbox().booting,
+          outboxSize: mobileInbox.inbox().outboxSize,
+        },
+        screening: { queue: mobileInbox.screening().queue, booting: mobileInbox.screening().booting },
         row: mobileInbox.issue(ROOT),
         ref: mobileInbox.session(ref),
         route: mobileInbox.route({ kind: 'issue', issue: '#999999', search: '', hash: '' }),
