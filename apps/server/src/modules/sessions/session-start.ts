@@ -235,8 +235,7 @@ export class SessionStart {
     if (process.env.PODIUM_REHEARSAL === '1') throw new Error('Session spawn disabled during upgrade rehearsal')
     // Resolve the agent down to a concrete AgentKind. `agentKind` may be absent,
     // or carry a non-AgentKind sentinel like 'auto'. 'auto' is NOT a valid
-    // AgentKind: persisting or broadcasting it fails the sessionsChanged
-    // zod-parse and silently wipes the whole session list on every client.
+    // AgentKind: persisting it produces an invalid synced session row.
     const requested = AgentKind.safeParse(input.agentKind)
     const agentKind = requested.success
       ? requested.data

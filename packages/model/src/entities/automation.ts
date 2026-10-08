@@ -1,14 +1,12 @@
 /**
  * Scheduled automations — relocated verbatim from `@podium/protocol`'s
  * `messages/automations.ts` at POD-300. Byte-identical on the wire, pinned by
- * `packages/protocol/src/messages/wire-golden.json`; the two carrier frames
- * (`automationsChanged` / `automationRunsChanged`) stay in protocol.
+ * `packages/protocol/src/messages/wire-golden.json`. Automation definitions and
+ * runs now reach clients through sync; their separate list carriers are retired.
  *
  * These two are here because the codebase's OWN replicated-entity taxonomy
- * names them: `MetadataEntityKind` in protocol's `messages/sync.ts` is
- * `['session', 'issue', 'conversation', 'automation', 'automationRun']`, and
- * codec.ts quarantines their carrier frames element-wise exactly as it does
- * `sessionsChanged`. Anything that rides a `metadataDelta` is an entity.
+ * names them in `MetadataEntityKind` in protocol's `messages/sync.ts`.
+ * Anything that rides a `metadataDelta` is an entity.
  *
  * ---------------------------------------------------------------------------
  * NOTES FOR THE ISSUES BEHIND THIS ONE (docs/multi-user-readiness.md, human

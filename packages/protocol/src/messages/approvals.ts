@@ -108,8 +108,8 @@ export type ApprovalStatus = z.infer<typeof ApprovalStatus>
  *   - The constant was RENAMED `COLLECTION_MESSAGE_ELEMENTS` → `QUARANTINABLE`,
  *     and with it the question it answers. It no longer means "is this an
  *     element-wise delta collection?" but "is this a homogeneous array we can
- *     quarantine per-element?" — `sessionsChanged` and `hostMetricsChanged` are
- *     on it and are snapshots too.
+ *     quarantine per-element?" — `hostMetricsChanged` is on it and is a
+ *     snapshot too. The separate session-list carrier has since been retired.
  *   - POD-2205 added the `approvalsChanged` entry, so that the closed op catalog
  *     can GROW (a new op kind, a new `channel` target) without one row an older
  *     bundle cannot read refusing the whole snapshot and freezing the operator's

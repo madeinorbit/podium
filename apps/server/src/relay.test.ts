@@ -1879,7 +1879,7 @@ describe('SessionRegistry', () => {
     })
     const c = sink()
     attachTestClient(reg.clientGateway, c.send)
-    c.sent.length = 0 // drop the welcome + initial sessionsChanged
+    c.sent.length = 0 // drop startup frames
 
     await reg.gateway.routeDaemonFrame(reg.sessionStore.hostMachineId, {
       type: 'title',
@@ -1921,7 +1921,7 @@ describe('SessionRegistry', () => {
       })
     }
 
-    // One title, one broadcast — however many frames the harness paints.
+    // The stored title remains stable across every spinner frame.
     expect(c.sent.map(m => m.type)).not.toContain('sessionTitleChanged')
     expect((await reg.modules.sessions.listSessions(undefined, 'rpc')).find(s => s.sessionId === sessionId)?.title).toBe('rename functionality')
   })
@@ -2614,7 +2614,7 @@ describe('agent state', () => {
       )?.agentState,
     ).toEqual(STATE)
   })
-  it('rebases daemon tracker resets and broadcasts the canonical persisted total', async () => {
+  it('rebases daemon tracker resets into the canonical synced total', async () => {
     const reg = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     await attachHostDaemon(reg, () => {})
     const { sessionId } = await reg.modules.sessions.createSession({
