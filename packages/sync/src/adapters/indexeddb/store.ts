@@ -143,6 +143,14 @@ export class IndexedDbOpenTimeoutError extends Error {
   }
 }
 
+/** Reopening a closed connection failed; unlike corruption, this must never clear the DB. */
+export class IndexedDbReconnectError extends Error {
+  override readonly name = 'IndexedDbReconnectError'
+  constructor(cause: unknown) {
+    super('Could not reopen the closed IndexedDB connection', { cause })
+  }
+}
+
 export interface IndexedDbStoreOptions {
   /** Optional cache retention policy. Defaults to keeping every entity kind.
    * Excluded kinds are ignored on ingest and retired from older disk caches;
@@ -326,12 +334,17 @@ export class IndexedDbSyncStore {
   /** Spans whose mirror publishes before durability — see `autocommitEager`. */
   private readonly eagerSpans = new WeakSet<IdbSpan>()
 
+  private reopening: Promise<void> | undefined
+  private closeRequested = false
+  /** beginSpan's void commit reports failures through its documented settled() boundary. */
+  private readonly manualCommits: Promise<void>[] = []
+
   transactCount = 0
   outboxCommits = 0
   cacheCommits = 0
 
   private constructor(
-    private readonly db: IdbDatabaseLike,
+    private db: IdbDatabaseLike,
     private readonly options: IndexedDbStoreOptions,
   ) {}
 
@@ -383,7 +396,16 @@ export class IndexedDbSyncStore {
       // Decode failure or unreadable region: clear the whole replica DB and proceed
       // as a cold client (D4.5). The outbox is lost with it, which is why this path
       // is LOUD rather than silent.
-      await store.clearAll()
+      if (error instanceof IndexedDbReconnectError) {
+        store.degrade('unavailable', 'unavailable', error)
+        return store
+      }
+      try {
+        await store.clearAll()
+      } catch (fatal) {
+        store.degrade('unavailable', 'unavailable', fatal)
+        return store
+      }
       options.onDegraded({ mode: 'degraded-memory', cause: 'corrupt', error })
       store.mode = 'durable'
     }
@@ -482,7 +504,8 @@ export class IndexedDbSyncStore {
 
   /** Everything enqueued so far, in every region, has reached IndexedDB (or failed). */
   async settled(): Promise<void> {
-    await Promise.all(COMMIT_LANES.map((lane) => this.laneTails[lane]))
+    const manual = this.manualCommits.splice(0)
+    await Promise.all([...COMMIT_LANES.map((lane) => this.laneTails[lane]), ...manual])
   }
 
   /**
@@ -497,6 +520,7 @@ export class IndexedDbSyncStore {
   async rehydrate(): Promise<void> {
     if (this.durability() !== 'durable') return
     await this.settled()
+    if (this.durability() !== 'durable') return
     await this.hydrate()
   }
 
@@ -521,7 +545,8 @@ export class IndexedDbSyncStore {
   async rehydrateOutbox(): Promise<void> {
     if (this.durability() !== 'durable') return
     await this.laneTails.outbox
-    const tx = this.db.transaction([OUTBOX_STORE], 'readonly')
+    if (this.durability() !== 'durable') return
+    const tx = await this.transaction([OUTBOX_STORE], 'readonly')
     const outbox = (await requestAsPromise(
       tx.objectStore(OUTBOX_STORE).getAll(),
     )) as StoredOutboxRecord[]
@@ -534,18 +559,81 @@ export class IndexedDbSyncStore {
   }
 
   close(): void {
+    this.closeRequested = true
     this.db.close()
+  }
+
+  /**
+   * Recover ONLY a refused transaction open: no request has been issued, so the
+   * draft and its durable preconditions are still safe to try on a fresh handle.
+   * Never call `open()` here: its cold-start corruption policy may delete the DB,
+   * and rehydrating would replace the mirror beneath pending/eager drafts.
+   *
+   * Cache and outbox lanes share a reopen, but keep their own transactions. After
+   * explicit teardown, late work uses a one-transaction connection and closes it
+   * immediately: close() lets that transaction finish without leaking a handle.
+   * The await ends BEFORE any requests are issued; it never keeps a live native
+   * transaction waiting on unrelated work.
+   */
+  private async transaction(
+    names: string[],
+    mode: 'readonly' | 'readwrite',
+  ): Promise<IdbTransactionLike> {
+    if (!this.closeRequested) {
+      try {
+        return this.db.transaction(names, mode)
+      } catch (error) {
+        if ((error as { name?: unknown } | null)?.name !== 'InvalidStateError') throw error
+      }
+      if (this.reopening === undefined) {
+        this.db.close()
+        this.reopening = this.reopenDatabase()
+          .then((db) => {
+            this.db = db
+            if (this.closeRequested) db.close()
+          })
+          .finally(() => {
+            this.reopening = undefined
+          })
+      }
+      await this.reopening
+      if (!this.closeRequested) return this.db.transaction(names, mode)
+    }
+    const db = await this.reopenDatabase()
+    try {
+      return db.transaction(names, mode)
+    } finally {
+      db.close()
+    }
+  }
+
+  private async reopenDatabase(): Promise<IdbDatabaseLike> {
+    try {
+      return await openDatabase(
+        this.options.factory,
+        this.options.databaseName ?? REPLICA_DB_NAME,
+        this.options.openTimeoutMs,
+      )
+    } catch (error) {
+      throw new IndexedDbReconnectError(error)
+    }
   }
 
   // ── internals ────────────────────────────────────────────────────────────
 
   private beginOwnSpan(): IdbSpan {
-    return new IdbSpan(async (span) => await this.enqueueCommit(span))
+    // Return the queue's observed promise itself. An async/await wrapper creates
+    // an orphan rejection for beginSpan().commit(), whose port returns void.
+    return new IdbSpan((span) => this.enqueueCommit(span))
   }
 
   /** `ReplicaCacheStore.beginSpan()`'s implementation — see the note on `IdbSpan`. */
   beginSpan(): OwnedSyncSpan {
-    return this.beginOwnSpan()
+    return new IdbSpan((span) => {
+      const commit = this.enqueueCommit(span)
+      this.manualCommits.push(commit)
+      return commit
+    })
   }
 
   private readonly drafts = new Map<IdbSpan, SpanDraft>()
@@ -696,7 +784,11 @@ export class IndexedDbSyncStore {
           // continues in memory with the degradation surfaced, which is D4.4
           // exactly. Any non-quota failure here is a store that cannot be written
           // to at all, so it degrades the same way rather than silently retrying.
-          this.degrade('degraded-memory', 'corrupt', error)
+          this.degrade(
+            'degraded-memory',
+            error instanceof IndexedDbReconnectError ? 'unavailable' : 'corrupt',
+            error,
+          )
           throw error
         }
         // The native transaction aborted, so the durable side is byte-identical to
@@ -736,7 +828,7 @@ export class IndexedDbSyncStore {
    * with its own mirror.
    */
   private async commitDraft(draft: SpanDraft): Promise<void> {
-    const tx = this.db.transaction(scopeOf(draft), 'readwrite')
+    const tx = await this.transaction(scopeOf(draft), 'readwrite')
     const completion = transactionCompletion(tx)
     try {
       if (draft.expectations.length > 0) {
@@ -800,7 +892,7 @@ export class IndexedDbSyncStore {
   }
 
   private async hydrate(): Promise<void> {
-    const tx = this.db.transaction([...ALL_STORES], 'readonly')
+    const tx = await this.transaction([...ALL_STORES], 'readonly')
     const entities = (await requestAsPromise(
       tx.objectStore(ENTITY_STORE).getAll(),
     )) as StoredEntity[]
@@ -812,7 +904,7 @@ export class IndexedDbSyncStore {
     // rows before opening the mirror, so sign-out also leaves no hidden rows.
     const excluded = entities.filter((row) => !this.retainsEntity(row.entity))
     if (excluded.length > 0) {
-      const retire = this.db.transaction([ENTITY_STORE], 'readwrite')
+      const retire = await this.transaction([ENTITY_STORE], 'readwrite')
       const completion = transactionCompletion(retire)
       for (const row of excluded) {
         retire.objectStore(ENTITY_STORE).delete([row.principal, row.entity, row.entityId])
@@ -923,7 +1015,7 @@ export class IndexedDbSyncStore {
       return
     }
 
-    const tx = this.db.transaction([...ALL_STORES], 'readwrite')
+    const tx = await this.transaction([...ALL_STORES], 'readwrite')
     const completion = transactionCompletion(tx)
     for (const rewrite of entities.rewrites) {
       const { principal, record } = rewrite.row
@@ -970,7 +1062,7 @@ export class IndexedDbSyncStore {
   }
 
   private async clearAll(): Promise<void> {
-    const tx = this.db.transaction([...ALL_STORES], 'readwrite')
+    const tx = await this.transaction([...ALL_STORES], 'readwrite')
     const completion = transactionCompletion(tx)
     for (const name of ALL_STORES) tx.objectStore(name).clear()
     await completion
