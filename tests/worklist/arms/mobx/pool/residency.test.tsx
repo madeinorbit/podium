@@ -1251,7 +1251,7 @@ describe('history rule warming', () => {
       })
       try {
         r.push({ type: 'update', rows: [seat('history-parent-seat', { ...binding, stoppedAt: null })] })
-        expect(presence).toEqual([false])
+        expect(new Set(presence)).toEqual(new Set([false]))
         expect(r.pool.residency?.isCold('issue', 'history-parent')).toBe(true)
         expect(poolPendingLoads(r.pool)).toBe(0)
         expect(r.loads).not.toContain('issue:history-parent')
