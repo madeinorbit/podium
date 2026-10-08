@@ -13,7 +13,7 @@ joining extra machines to it.
 One line, no build toolchain:
 
 ```bash
-curl -fsSL https://github.com/madeinorbit/podium/releases/latest/download/install.sh | sh
+curl -fsSL https://podium.do/install.sh | sh
 ```
 
 `install.sh` is a **bootstrap**. It selects the prebuilt Linux x86_64 or ARM64 headless bundle,
@@ -156,7 +156,7 @@ Switch channels by setting `updateChannel` in `~/.podium/config.json`, or instal
 channel directly:
 
 ```bash
-curl -fsSL https://github.com/madeinorbit/podium/releases/latest/download/install.sh | sh -s -- --channel edge
+curl -fsSL https://podium.do/install.sh | sh -s -- --channel edge
 ```
 
 (The `PODIUM_UPDATE_CHANNEL` env var overrides the config for a single `podium update` run.)

@@ -8,6 +8,7 @@
 
 <p align="center">
   <a href="https://podium.do/">Website</a> ·
+  <a href="https://podium.do/download">Download</a> ·
   <a href="#get-started">Get started</a> ·
   <a href="https://podium.do/docs">Docs</a> ·
   <a href="https://github.com/madeinorbit/podium/releases">Releases</a> ·
@@ -104,9 +105,9 @@ See the [update guide](https://podium.do/docs/guides/update-backup) for stable a
 
 ### Start on your desktop
 
-**[Download Podium →](https://github.com/madeinorbit/podium/releases/latest)**
+**[Download Podium →](https://podium.do/download)**
 
-Choose the package for your machine from the release assets. macOS is supported; Windows and Linux desktop packages are previews. Available architectures depend on the release. See the [installation guide](https://podium.do/docs/getting-started/install) for details.
+The download page picks the build for your machine. macOS is supported on Apple silicon and Intel; the Linux desktop AppImage is experimental, and Windows is coming soon. See the [installation guide](https://podium.do/docs/getting-started/install) for details.
 
 Open Podium, set up the coding agents you want to use, and start with a repository and a task. You can begin with one agent, then ask it to coordinate a larger effort when you're ready.
 
@@ -115,7 +116,7 @@ Open Podium, set up the coding agents you want to use, and start with a reposito
 Install the headless server on Linux x86_64 or ARM64:
 
 ```bash
-curl -fsSL https://github.com/madeinorbit/podium/releases/latest/download/install.sh | sh
+curl -fsSL https://podium.do/install.sh | sh
 ```
 
 Follow the setup prompts. If setup didn't run during installation, run `podium setup`. Run `podium` to start the instance; it prints the browser URL. If your shell doesn't yet find the command, open a new login shell so the installer's PATH change takes effect.
