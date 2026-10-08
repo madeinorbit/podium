@@ -532,7 +532,12 @@ export class IssueModel extends EntityModel implements HeldIssue, RowView {
 
   @lazy
   get present(): boolean {
-    if (this.hidden !== undefined) return false
+    if (this.hidden !== undefined) {
+      // A live child's nesting walk reads presence alone. Keep the cold
+      // keeper bound observed so renewal can queue the parent's load.
+      void this.keeps
+      return false
+    }
     const standing = this.standing
     return standing !== undefined && !standing.excluded &&
       (this.flat || (standing.rescuable && this.keeps))

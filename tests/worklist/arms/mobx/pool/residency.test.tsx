@@ -1225,10 +1225,40 @@ describe('history rule warming', () => {
       expect(poolPendingLoads(r.pool)).toBe(0)
       expect(r.handle.snapshot().rowsById['history-child']).toBeDefined()
       r.push({ type: 'update', rows: [seat('history-parent-seat', { ...binding, stoppedAt: null })] })
+      expect(r.pool.residency?.isCold('issue', 'history-parent')).toBe(true)
+      expect(poolPendingLoads(r.pool)).toBeGreaterThan(0)
+      expect(r.loads).not.toContain('issue:history-parent')
       drain(r)
       expect(r.pool.residency?.isCold('issue', 'history-parent')).toBe(false)
       expect(r.handle.snapshot().rowsById['history-child']).toBeUndefined()
       r.dispose()
+    },
+  )
+
+  it.each(['issue', 'lane'] as const)(
+    'a renewed keeper leaves a cold agent parent unloaded without a live descendant (%s binding)',
+    (mode) => {
+      const r = rig()
+      const worktreePath = '/history-rule/parent-lane'
+      const binding = mode === 'lane' ? { cwd: `${worktreePath}/agent` } : { issueId: 'history-parent' }
+      r.push({ type: 'update', rows: [issue('history-outer', { archived: true }),
+        issue('history-parent', { parentId: 'history-outer', audience: 'agent', worktreePath,
+          stage: 'done', closedAt: old, closedReason: 'done' }),
+        seat('history-parent-seat', { ...binding, stoppedAt: old })] })
+      const presence: boolean[] = []
+      const stop = autorun(() => {
+        presence.push(r.pool.model('issue', 'history-parent').present)
+      })
+      try {
+        r.push({ type: 'update', rows: [seat('history-parent-seat', { ...binding, stoppedAt: null })] })
+        expect(presence).toEqual([false])
+        expect(r.pool.residency?.isCold('issue', 'history-parent')).toBe(true)
+        expect(poolPendingLoads(r.pool)).toBe(0)
+        expect(r.loads).not.toContain('issue:history-parent')
+      } finally {
+        stop()
+        r.dispose()
+      }
     },
   )
 })
