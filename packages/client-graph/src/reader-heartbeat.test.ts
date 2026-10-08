@@ -122,7 +122,7 @@ it('routes projected membership once per changed key and retains both projection
 it('routes the open explorer facet when an issue finishes without leaving live history', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   const issue = (stage: string): RowRecord => ({ kind: 'issue', id: 'a', value: {
-    id: 'a', title: 'Issue', stage, audience: 'human', deps: [],
+    id: 'a', title: 'Issue', stage, audience: 'human', deps: [], repoPath: '/repo',
     createdAt: '2026-10-01', updatedAt: '2026-10-01',
   } } as RowRecord)
   pool.apply({ type: 'replace', rows: [issue('in_progress')] })
