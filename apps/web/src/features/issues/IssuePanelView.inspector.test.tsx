@@ -1,3 +1,7 @@
+// The panel reads through the real pool's issue-page views, so the real
+// pool fixture must win over the hand-mock pool that mock-core-store-handle
+// pulls in: the last store-worklist-pool mock wins, and the real fixture
+// supports issue-page while the hand mock rejects it.
 import '@/test-support/mock-core-store-handle'
 import '@/test-support/mock-pool-fixture'
 import '@/test-support/model-catalog-mock'
@@ -128,7 +132,7 @@ vi.mock('@/app/store', () => {
     httpOrigin: '',
     openFileInWorktree: vi.fn(),
     openArtifact: vi.fn(),
-    uiState: { get: () => null, set: vi.fn() },
+    uiState: { get: () => null, set: vi.fn(), subscribe: () => () => {} },
     issues: mockIssues,
     sessions: mockSessions,
     repos: [],
