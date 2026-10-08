@@ -6398,7 +6398,7 @@
         "binding": {
           "sessionId": "binding.sessionId",
           "driver": "binding.driver",
-          "family": "embedded",
+          "family": "server",
           "harness": "binding.harness",
           "workdir": "binding.workdir",
           "resume": {
@@ -6478,12 +6478,7 @@
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
-      "parseChanged": {
-        "binding.family": {
-          "wire": "embedded",
-          "parsed": "server"
-        }
-      },
+      "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"server\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":3},\"bindingVersion\":3},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"plan-approval\",\"payload\":{\"v\":1,\"plan\":\"interactions[0].payload.plan\",\"autoAcceptOffered\":true},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"hook\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":3}},\"observerGeneration\":3,\"turnEpoch\":3,\"t\":\"metadata\",\"change\":{\"kind\":\"color\",\"source\":\"transcript\",\"color\":\"metadata[0].change.color\"}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
@@ -6494,7 +6489,7 @@
         "binding": {
           "sessionId": "binding.sessionId",
           "driver": "binding.driver",
-          "family": "embedded",
+          "family": "terminal",
           "harness": "binding.harness",
           "workdir": "binding.workdir",
           "resume": {
@@ -6579,14 +6574,9 @@
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
-      "parseChanged": {
-        "binding.family": {
-          "wire": "embedded",
-          "parsed": "server"
-        }
-      },
+      "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"server\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":4},\"bindingVersion\":4},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"elicitation\",\"payload\":{\"v\":1,\"message\":\"interactions[0].payload.message\",\"requestedSchema\":{\"interactions[0].payload.requestedSchema.key\":{\"unknownFixture\":\"interactions[0].payload.requestedSchema.interactions[0].payload.requestedSchema.key\"}},\"serverName\":\"interactions[0].payload.serverName\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"metadata\",\"change\":{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":4}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":4},\"bindingVersion\":4},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"elicitation\",\"payload\":{\"v\":1,\"message\":\"interactions[0].payload.message\",\"requestedSchema\":{\"interactions[0].payload.requestedSchema.key\":{\"unknownFixture\":\"interactions[0].payload.requestedSchema.interactions[0].payload.requestedSchema.key\"}},\"serverName\":\"interactions[0].payload.serverName\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":4}},\"observerGeneration\":4,\"turnEpoch\":4,\"t\":\"metadata\",\"change\":{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":4}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "SessionSnapshot",
@@ -6595,7 +6585,7 @@
         "binding": {
           "sessionId": "binding.sessionId",
           "driver": "binding.driver",
-          "family": "embedded",
+          "family": "server",
           "harness": "binding.harness",
           "workdir": "binding.workdir",
           "resume": {
@@ -6676,12 +6666,7 @@
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
-      "parseChanged": {
-        "binding.family": {
-          "wire": "embedded",
-          "parsed": "server"
-        }
-      },
+      "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"server\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":5},\"bindingVersion\":5},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"login\",\"payload\":{\"v\":1,\"provider\":\"interactions[0].payload.provider\",\"reason\":\"re-auth\",\"url\":\"interactions[0].payload.url\"},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":5}},\"observerGeneration\":5,\"turnEpoch\":5,\"t\":\"metadata\",\"change\":{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":5}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
@@ -6692,7 +6677,7 @@
         "binding": {
           "sessionId": "binding.sessionId",
           "driver": "binding.driver",
-          "family": "embedded",
+          "family": "terminal",
           "harness": "binding.harness",
           "workdir": "binding.workdir",
           "resume": {
@@ -6773,14 +6758,9 @@
         "at": "2026-01-02T03:04:05.000Z"
       },
       "parseAdded": {},
-      "parseChanged": {
-        "binding.family": {
-          "wire": "embedded",
-          "parsed": "server"
-        }
-      },
+      "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"server\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":6},\"bindingVersion\":6},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"recovery\",\"payload\":{\"v\":1,\"reason\":\"unknown\",\"prompt\":\"interactions[0].payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"t\":\"metadata\",\"change\":{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":6}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
+      "encoded": "{\"binding\":{\"sessionId\":\"binding.sessionId\",\"driver\":\"binding.driver\",\"family\":\"terminal\",\"harness\":\"binding.harness\",\"workdir\":\"binding.workdir\",\"resume\":{\"kind\":\"binding.resume.kind\",\"value\":\"binding.resume.value\"},\"principal\":\"binding.principal\",\"process\":{\"key\":\"binding.process.key\",\"scopeUnit\":\"binding.process.scopeUnit\",\"pid\":6},\"bindingVersion\":6},\"state\":{\"state.key\":{\"unknownFixture\":\"state.state.key\"}},\"cursor\":{\"segmentId\":\"cursor.segmentId\",\"predecessorSegmentId\":\"cursor.predecessorSegmentId\",\"pathHint\":\"cursor.pathHint\",\"device\":\"cursor.device\",\"inode\":\"cursor.inode\",\"integrity\":\"cursor.integrity\",\"components\":{\"cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"interactions\":[{\"id\":\"interactions[0].id\",\"sessionId\":\"interactions[0].sessionId\",\"kind\":\"recovery\",\"payload\":{\"v\":1,\"reason\":\"unknown\",\"prompt\":\"interactions[0].payload.prompt\",\"offered\":[\"abandon\"]},\"askedAt\":\"2026-01-02T03:04:05.000Z\",\"source\":\"screen-classifier\",\"answerable\":\"keystroke-emulated\",\"policyVerdict\":\"escalated\",\"expiresAt\":\"2026-01-02T03:04:05.000Z\"}],\"draft\":\"draft\",\"title\":\"title\",\"metadata\":[{\"at\":\"2026-01-02T03:04:05.000Z\",\"provenance\":\"replay\",\"cursor\":{\"segmentId\":\"metadata[0].cursor.segmentId\",\"predecessorSegmentId\":\"metadata[0].cursor.predecessorSegmentId\",\"pathHint\":\"metadata[0].cursor.pathHint\",\"device\":\"metadata[0].cursor.device\",\"inode\":\"metadata[0].cursor.inode\",\"integrity\":\"metadata[0].cursor.integrity\",\"components\":{\"metadata[0].cursor.components.key\":6}},\"observerGeneration\":6,\"turnEpoch\":6,\"t\":\"metadata\",\"change\":{\"kind\":\"context\",\"source\":\"transcript\",\"percent\":6}}],\"at\":\"2026-01-02T03:04:05.000Z\"}"
     },
     {
       "schema": "TranscriptItemDelta",

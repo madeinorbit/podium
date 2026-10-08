@@ -145,6 +145,12 @@
               "fifteen": 1,
               "cpuCount": 1
             },
+            "disk": {
+              "path": "hosts[0].disk.path",
+              "totalBytes": 1,
+              "usedBytes": 1,
+              "availableBytes": 1
+            },
             "idleCapUnmet": 1,
             "reclaimableAttachments": 1,
             "sessionsMemory": {
@@ -185,7 +191,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"hostMetricsChanged\",\"hosts\":[{\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"hosts[0].daemonReadiness.reason\",\"quarantinedBindings\":1},\"quarantinedBindings\":1,\"hostname\":\"hosts[0].hostname\",\"machineId\":\"hosts[0].machineId\",\"name\":\"hosts[0].name\",\"sampledAt\":\"hosts[0].sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1,\"stalledPct\":1},\"loop\":{\"at\":\"hosts[0].loop.at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"profileSuppressed\":1,\"profilerCostMs\":1,\"buckets\":{\"hosts[0].loop.buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"hosts[0].loop.nestedBuckets[0]\"],\"inclusive\":[\"hosts[0].loop.inclusive[0]\"]}}]}"
+      "encoded": "{\"type\":\"hostMetricsChanged\",\"hosts\":[{\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"hosts[0].daemonReadiness.reason\",\"quarantinedBindings\":1},\"quarantinedBindings\":1,\"hostname\":\"hosts[0].hostname\",\"machineId\":\"hosts[0].machineId\",\"name\":\"hosts[0].name\",\"sampledAt\":\"hosts[0].sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"disk\":{\"path\":\"hosts[0].disk.path\",\"totalBytes\":1,\"usedBytes\":1,\"availableBytes\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1,\"stalledPct\":1},\"loop\":{\"at\":\"hosts[0].loop.at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"profileSuppressed\":1,\"profilerCostMs\":1,\"buckets\":{\"hosts[0].loop.buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"hosts[0].loop.nestedBuckets[0]\"],\"inclusive\":[\"hosts[0].loop.inclusive[0]\"]}}]}"
     },
     {
       "schema": "HostMetricsMessage",
@@ -233,6 +239,12 @@
           "fifteen": 1,
           "cpuCount": 1
         },
+        "disk": {
+          "path": "disk.path",
+          "totalBytes": 1,
+          "usedBytes": 1,
+          "availableBytes": 1
+        },
         "idleCapUnmet": 1,
         "reclaimableAttachments": 1,
         "sessionsMemory": {
@@ -271,7 +283,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"type\":\"hostMetrics\",\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1},\"quarantinedBindings\":1,\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1,\"stalledPct\":1},\"loop\":{\"at\":\"loop.at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"profileSuppressed\":1,\"profilerCostMs\":1,\"buckets\":{\"loop.buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"loop.nestedBuckets[0]\"],\"inclusive\":[\"loop.inclusive[0]\"]}}"
+      "encoded": "{\"type\":\"hostMetrics\",\"daemonReadiness\":{\"state\":\"attached\",\"reason\":\"daemonReadiness.reason\",\"quarantinedBindings\":1},\"quarantinedBindings\":1,\"hostname\":\"hostname\",\"machineId\":\"machineId\",\"name\":\"name\",\"sampledAt\":\"sampledAt\",\"memory\":{\"totalBytes\":1,\"availableBytes\":1,\"swapTotalBytes\":1,\"swapFreeBytes\":1},\"load\":{\"one\":1,\"five\":1,\"fifteen\":1,\"cpuCount\":1},\"disk\":{\"path\":\"disk.path\",\"totalBytes\":1,\"usedBytes\":1,\"availableBytes\":1},\"idleCapUnmet\":1,\"reclaimableAttachments\":1,\"sessionsMemory\":{\"currentBytes\":1,\"highBytes\":1,\"stalledPct\":1},\"loop\":{\"at\":\"loop.at\",\"component\":\"server\",\"level\":\"off\",\"utilizationPct\":1,\"utilizationMaxPct\":1,\"runqueueWaitPct\":1,\"blockedPct\":1,\"stalls\":1,\"stallP50Ms\":1,\"stallP99Ms\":1,\"stallMaxMs\":1,\"heapUsedBytes\":1,\"rssBytes\":1,\"selfCostPct\":1,\"profileSuppressed\":1,\"profilerCostMs\":1,\"buckets\":{\"loop.buckets.key\":{\"wallMs\":1,\"count\":1}},\"coverage\":1,\"nestedBuckets\":[\"loop.nestedBuckets[0]\"],\"inclusive\":[\"loop.inclusive[0]\"]}}"
     },
     {
       "schema": "MachineDiagnosticMessage",
