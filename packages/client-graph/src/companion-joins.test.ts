@@ -3,7 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs'
 import { sessionValues } from '@podium/client-core/session-values'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { autorun, observe } from 'mobx'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { createWorklistPool } from './create'
 import { fixedLocals } from './shared/locals-source'
 import { createRowSource } from './shared/row-source'
@@ -70,6 +70,30 @@ it('preserves display parity against the frozen base synthetic corpus', () => {
     expect(actual).toEqual(JSON.parse(readFileSync(path, 'utf8')))
     expect(f.pool.row('issue', 'history', 'summary')).toMatchObject({ repoPath: '/synthetic/project' })
   } finally { f.dispose() }
+})
+
+it('shares the repo facade across cold joins while path and prefix stay independent', () => {
+  const f = fixture(4)
+  const reads = vi.spyOn(f.pool, 'row')
+  const paths: unknown[] = [], prefixes: unknown[] = []
+  const stopPath = autorun(() => {
+    const row = f.pool.row('issue', 'history', 'summary-fields') as Row
+    paths.push(row.repoPath)
+  })
+  const stopPrefix = autorun(() => { prefixes.push(f.pool.model('repo', 'project')?.prefix) })
+  try {
+    expect(reads.mock.calls.filter(([kind]) => kind === 'repo')).toEqual([['repo', 'project']])
+    expect(paths).toEqual(['/synthetic/project'])
+    expect(prefixes).toEqual(['POD'])
+    f.change('repos', 'project', { prefix: 'NEW' })
+    expect(paths).toEqual(['/synthetic/project'])
+    expect(prefixes).toEqual(['POD', 'NEW'])
+    f.change('repos', 'project', { repoPath: '/synthetic/renamed' })
+    expect(paths).toEqual(['/synthetic/project', '/synthetic/renamed'])
+    expect(prefixes).toEqual(['POD', 'NEW'])
+    expect(reads.mock.calls.filter(([kind]) => kind === 'repo')).toEqual([['repo', 'project']])
+    expect(f.pool.tables.issue.has('history')).toBe(false)
+  } finally { stopPrefix(); stopPath(); reads.mockRestore(); f.dispose() }
 })
 
 for (const scale of [1, 4] as const) it(`touches one companion and zero session rows at ${scale}x with fresh cold/hot readers`, () => {

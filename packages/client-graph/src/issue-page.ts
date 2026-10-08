@@ -221,7 +221,7 @@ function createIssuePageViews(pool: MobxPool) {
     if (!repoId) return undefined
     if (prefixes?.has(repoId)) return prefixes.get(repoId)
     const value = memo(`prefix:${repoId}`, () => {
-      const repo = pool.row('repo', repoId) as { prefix?: string } | undefined
+      const repo = pool.model('repo', repoId)
       return repo?.prefix ?? undefined
     })
     prefixes?.set(repoId, value)

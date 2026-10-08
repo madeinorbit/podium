@@ -718,6 +718,11 @@ class RepoModel extends EntityModel {
   constructor(id: string, host: ModelHost) {
     super('repo', id, host)
   }
+
+  /** One addressed facade for every join. Its fields still track independently. */
+  @lazy override get row(): StoredRow | undefined {
+    return super.row
+  }
 }
 
 /**
