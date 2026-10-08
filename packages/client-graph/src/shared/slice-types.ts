@@ -1,3 +1,4 @@
+import type { IssueType } from '@podium/model/browser'
 import type { SessionValues } from '@podium/client-core/session-values'
 /**
  * POD-4442 — the frozen worklist slice all three round-two arms build.
@@ -37,6 +38,8 @@ export interface SliceIssue {
   deletedAt?: string | null
   archived?: boolean
   stage: string
+  /** Stored IssueProjection.type, used by shell mission complexity. */
+  type?: IssueType
   closedReason?: string | null
   audience?: 'human' | 'agent'
   isDraftVessel?: boolean

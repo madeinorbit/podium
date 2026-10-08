@@ -29,7 +29,8 @@ class ShellIssue {
     return present === LOADING ? LOADING : !present.length
   }
   @lazy({ equals: compareShallow }) get missionRoot() {
-    return { id: this.id, type: this.type, childCount: this.issue.closeChildren.childCount }
+    return { id: this.id, title: this.issue.authoredTitle, type: this.type,
+      childCount: this.issue.closeChildren.childCount }
   }
 }
 
