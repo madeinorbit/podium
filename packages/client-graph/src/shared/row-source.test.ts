@@ -49,6 +49,7 @@ function fixture(options: RowSourceOptions = { pending: EMPTY_PENDING }) {
     tables,
     put,
     session,
+    replace() { addressed({ type: 'replace', reason: 'bootstrap' }) },
     update(...ids: string[]) {
       addressed({ type: 'update', rows: ids.map((id) => ({ kind: 'sessions', id })) })
     },
@@ -363,13 +364,15 @@ it('matches the old owner-history rebuild on every activity and membership trans
 it.each([1, 4])('records heartbeat owner-history work and watched fields at %sx', scale => {
   enableDebugNames()
   const f = fixture()
-  f.put('issueProjections', 'one', { id: 'one', title: 'Issue', stage: 'in_progress', audience: 'human',
+  f.put('issueProjections', 'one', { id: 'one', title: 'Issue', stage: 'in_progress', audience: 'human', repoId: 'repo', worktreePath: '/synthetic',
     createdAt: '2026-01-01', updatedAt: '2026-10-01', deps: [] })
-  const row = { sessionId: 'active', issueId: 'one', agentKind: 'codex', status: 'live', archived: false,
+  f.put('repos', 'repo', { id: 'repo', path: '/synthetic', prefix: 'POD' })
+  const row = { cwd: '/synthetic', sessionId: 'active', issueId: 'one', agentKind: 'codex', status: 'live', archived: false,
     lastActiveAt: '2026-10-07', agentState: { phase: 'working', since: '2026-10-01' } }
   for (let i = 0; i < 128 * scale; i++) f.put('sessions', `history-${i}`, {
     ...row, sessionId: `history-${i}`, archived: true, status: 'exited', lastActiveAt: '2026-01-01' })
   f.put('sessions', 'active', row)
+  f.replace(); f.source.flush()
   const handle = createWorklistPool(f.source.source, fixedLocals({ selectedIssueId: 'one', coarseNow: Date.parse('2026-10-08') }).source)
   const issue = handle.pool.issueObject('one'), work = handle.pool.worklistRow('one')!
   const watcher = new Reaction('probe:issue-activity', () => {})
