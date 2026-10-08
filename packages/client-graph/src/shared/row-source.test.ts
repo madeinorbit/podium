@@ -62,6 +62,65 @@ afterEach(() => {
   resetLogging()
 })
 
+it.each([1, 4])('matches the old pending sweep through addressed edits and retirement at %sx', scale => {
+  const maps = {
+    sessions: new Map<string, readonly PendingOverlay[]>(),
+    sessionUserStates: new Map<string, readonly PendingOverlay[]>(),
+    issueProjections: new Map<string, readonly PendingOverlay[]>(),
+    issueUserStates: new Map<string, readonly PendingOverlay[]>(),
+  }
+  const f = fixture({ pending: { byRow: kind => maps[kind] } })
+  const held = new Map<string, unknown>()
+  const stop = f.source.source.subscribe(event => {
+    if (event.type === 'replace') held.clear()
+    for (const row of event.rows) {
+      if (row.value === undefined) held.delete(`${row.kind}:${row.id}`)
+      else held.set(`${row.kind}:${row.id}`, row.value)
+    }
+  })
+  // snapshot retains the old whole-kind pending resolver as the answer oracle.
+  const parity = () => {
+    const rebuilt = new Map<string, unknown>()
+    for (const kind of ['session', 'issue'] as const)
+      for (const row of f.source.source.snapshot(kind))
+        if (row.value !== undefined) rebuilt.set(`${kind}:${row.id}`, row.value)
+    expect(held).toEqual(rebuilt)
+  }
+  const edit = (entity: keyof typeof maps, id: string, patch: Record<string, unknown>) => {
+    maps[entity].set(id, [{ op: 'patch', key: `${entity}:${id}`, entity, id, patch, coveredBy: () => false }])
+    f.source.repaint([{ kind: entity.startsWith('session') ? 'session' : 'issue', id }])
+    parity()
+  }
+  try {
+    f.session('active', 'server')
+    f.put('issueProjections', 'issue', { id: 'issue', title: 'server' })
+    for (let i = 0; i < 32 * scale; i++) f.session(`pending-${i}`, 'server')
+    f.replace(); f.source.flush(); parity()
+    for (let i = 0; i < 32 * scale; i++) edit('sessions', `pending-${i}`, { title: 'pending' })
+    edit('sessions', 'active', { title: 'painted' })
+    edit('sessionUserStates', 'active', { readAt: '2026-10-08' })
+    edit('issueProjections', 'issue', { title: 'painted issue' })
+    edit('issueUserStates', 'issue', { snoozedUntil: '2026-10-10' })
+    f.source.stats.reset()
+    f.put('sessions', 'active', { sessionId: 'active', title: 'server', status: 'running', lastActiveAt: '2026-10-09' })
+    f.update('active'); f.source.flush()
+    console.info('[pending heartbeat]', JSON.stringify({ scale, rowsVisited: f.source.stats.rowsVisited }))
+    parity()
+    for (const entity of Object.keys(maps) as (keyof typeof maps)[]) {
+      const id = entity.startsWith('session') ? 'active' : 'issue'
+      maps[entity].delete(id)
+      f.source.repaint([{ kind: entity.startsWith('session') ? 'session' : 'issue', id }])
+      parity()
+    }
+    // A pending insert and its rollback have no feed row to name them.
+    edit('sessions', 'insert', { sessionId: 'insert', title: 'inserted' })
+    maps.sessions.delete('insert')
+    f.source.repaint([{ kind: 'session', id: 'insert' }]); parity()
+    f.tables.get('sessions')!.delete('active')
+    f.update('active'); f.source.flush(); parity()
+  } finally { stop(); f.source.dispose() }
+})
+
 /** Feed failures log through @podium/logger (no console sink in tests), so
  * collect the records instead of spying on console.error. */
 function collectFeedLogs() {
