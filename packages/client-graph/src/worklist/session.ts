@@ -108,9 +108,10 @@ export class WorklistSession implements SessionVisibility {
     }
   }
 
-  @lazy
+  // An open row uses the record's motion; only a finished row suppresses
+  // offer-only attention. Borrow the shared lazy field without another cache.
   private get verdictOpen(): SeatVerdict['open'] {
-    return motionPhase(this.verdictRow, false, () => this.session.executing)
+    return this.session.motion
   }
 
   @lazy
@@ -118,7 +119,6 @@ export class WorklistSession implements SessionVisibility {
     return motionPhase(this.verdictRow, true, () => this.session.executing)
   }
 
-  @lazy
   private get verdictWorkingSinceMs(): SeatVerdict['workingSinceMs'] {
     return this.session.executionSinceMs
   }
