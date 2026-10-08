@@ -1,3 +1,4 @@
+import { createRequire } from 'node:module'
 import { EMPTY_PENDING } from '../../../../tests/worklist/shared/src/row-source'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { addSink, resetLogging, type LogRecord } from '@podium/logger'
@@ -383,6 +384,13 @@ it.each([1, 4])('records heartbeat owner-history work and watched fields at %sx'
     for (const child of tree.dependencies ?? []) visit(child)
   }
   visit(getDependencyTree(watcher))
+  const runtime = globalThis as unknown as { Bun?: { gc(force: boolean): void } }
+  const heap = () => {
+    if (!runtime.Bun) return process.memoryUsage().heapUsed
+    runtime.Bun.gc(true)
+    runtime.Bun.gc(true)
+    return (createRequire(import.meta.url)('bun:jsc') as { heapStats(): { heapSize: number } }).heapStats().heapSize
+  }
   const original = handle.pool.row('issue', 'one')
   let storedRuns = 0
   const stop = autorun(() => { void issue.title; void issue.stage; storedRuns++ })
@@ -399,6 +407,6 @@ it.each([1, 4])('records heartbeat owner-history work and watched fields at %sx'
     console.info('[issue heartbeat]', JSON.stringify({ scale, stats: f.source.stats,
       issueRows: event?.rows.filter(record => record.kind === 'issue').length,
       rowReplaced: original !== handle.pool.row('issue', 'one'), storedRuns,
-      watchedFields: names.size, heapBytes: process.memoryUsage().heapUsed }))
+      watchedFields: names.size, heapBytes: heap(), heapSource: runtime.Bun ? 'JSC full-GC heapSize' : 'process heapUsed' }))
   } finally { stop(); watcher.dispose(); handle.dispose(); f.source.dispose() }
 })
