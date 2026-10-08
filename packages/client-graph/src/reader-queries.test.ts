@@ -36,6 +36,60 @@ import { LOADING } from './worklist/rollup'
 const now = Date.parse('2026-10-03T12:00:00Z'),
   old = '2020-01-01T00:00:00Z'
 
+it('hydrates normalized issue facets without reading the repository companion', () => {
+  const issue = {
+    id: 'cold', seq: 7, repoId: 'repo', title: 'Cold issue', stage: 'done',
+    archived: true, audience: 'agent', createdAt: old, updatedAt: old, deps: [],
+  }
+  const lane = {
+    path: '/repo/checkout', repoId: 'repo', repoPath: '/repo', prefix: 'SYN', repoName: 'Repo',
+  }
+  const fields: PropertyKey[] = []
+  const countedLane = new Proxy(lane, {
+    get(row, field, receiver) {
+      fields.push(field)
+      return Reflect.get(row, field, receiver)
+    },
+  })
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
+    load: () => issue, schedule: () => () => {},
+  })
+  let stop: (() => void) | undefined
+  try {
+    pool.apply({ type: 'replace', rows: [
+      { kind: 'worktree', id: lane.path, value: countedLane },
+      { kind: 'issue', id: issue.id, value: issue },
+    ] as RowRecord[] })
+    expect(pool.row('issue', issue.id)).toBe(LOADING)
+    fields.length = 0
+    expect(pool.hydrate()).toBe(1)
+    expect(fields).toEqual([])
+    expect(pool.queries.linkedIssueId('SYN-7')).toBe(issue.id)
+    const query = { kind: 'boardIssues', archived: true, projectPaths: ['/repo'] } as const
+    expect(pool.queries.ids(query)).toEqual([issue.id])
+
+    const shownPaths: unknown[] = []
+    stop = autorun(() => {
+      const row = pool.row('issue', issue.id) as { repoPath: string }
+      shownPaths.push(row.repoPath)
+    })
+    expect(shownPaths).toEqual(['/repo'])
+    pool.apply({ type: 'update', rows: [
+      { kind: 'worktree', id: lane.path, value: { ...lane, repoPath: '/renamed' } },
+    ] as RowRecord[] })
+    expect(shownPaths).toEqual(['/repo', '/renamed'])
+    expect(pool.queries.ids(query)).toEqual([])
+    expect(pool.queries.ids({ ...query, projectPaths: ['/renamed'] })).toEqual([issue.id])
+
+    // Painted fields remain authoritative even before the source catches up.
+    runInAction(() => pool.tables.issue.set(issue.id, { ...issue, deletedAt: old }))
+    expect(pool.queries.ids({ ...query, projectPaths: ['/renamed'] })).toEqual([])
+  } finally {
+    stop?.()
+    pool.dispose()
+  }
+})
+
 it('addresses ancestor scope independently of presentation, resident overlays and source replacement', () => {
   const issue = (patch: object = {}): RowRecord =>
     ({

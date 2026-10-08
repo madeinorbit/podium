@@ -125,10 +125,7 @@ export class ReaderQueries {
           change.type === 'delete'
             ? undefined
             : (pool.row('repo', change.name) as Readonly<Record<string, unknown>> | undefined)
-        this.changeRepoIdentity(
-          change.name,
-          typeof row?.prefix === 'string' ? row.prefix : undefined,
-        )
+        this.updateRepo(change.name, row)
       }),
     )
     this.stopTables.push(
@@ -206,15 +203,17 @@ export class ReaderQueries {
       if (present) this.residentIssueIds.add(id)
       else this.residentIssueIds.delete(id)
     }
+    // Index stored fields, including painted edits, from the resident slot.
+    // A display facade would evaluate companion joins during hydration.
     // untracked-read: reader-resident-maintenance
-    const row = present ? untracked(() => this.pool.row(entity, id, 'summary-fields')) : undefined
+    const row = present ? untracked(() => this.pool.tables[entity].get(id)) : undefined
     this.residents.apply({
       type: 'update',
       rows: [
         {
           kind: entity,
           id,
-          value: row && row !== LOADING ? row : undefined,
+          value: row,
         } as RowSourceEvent['rows'][number],
       ],
     })
@@ -223,7 +222,7 @@ export class ReaderQueries {
         if (present)
           questions.set(
             id,
-            row && row !== LOADING ? (row as Readonly<Record<string, unknown>>) : undefined,
+            row as Readonly<Record<string, unknown>> | undefined,
           )
         else questions.setFacts(id, this.index().sessionQuestionFact(id))
       })
@@ -232,7 +231,7 @@ export class ReaderQueries {
         if (present)
           identities.set(
             id,
-            row && row !== LOADING ? (row as Readonly<Record<string, unknown>>) : undefined,
+            row as Readonly<Record<string, unknown>> | undefined,
           )
         else identities.setFact(id, this.index().issueIdentityFact(id))
       })
@@ -240,7 +239,7 @@ export class ReaderQueries {
         if (present)
           questions.set(
             id,
-            row && row !== LOADING ? (row as Readonly<Record<string, unknown>>) : undefined,
+            row as Readonly<Record<string, unknown>> | undefined,
           )
         else questions.setFacts(id, this.index().issueQuestionFact(id))
       })
@@ -255,6 +254,15 @@ export class ReaderQueries {
         state.atom.reportChanged()
       }
     }
+  }
+  private updateRepo(id: string, row: Readonly<Record<string, unknown>> | undefined): void {
+    // Repository facets join normalized resident keys when a query asks for
+    // them. Keep them current on repository changes, never on issue loads.
+    this.residents.apply({
+      type: 'update',
+      rows: [{ kind: 'repo', id, value: row } as RowSourceEvent['rows'][number]],
+    })
+    this.changeRepoIdentity(id, typeof row?.prefix === 'string' ? row.prefix : undefined)
   }
   private sessionQuestions(): SessionQuestions {
     const index = this.index()
@@ -941,7 +949,7 @@ export class ReaderQueries {
         const row = untracked(() => this.pool.row('repo', id)) as
           | Readonly<Record<string, unknown>>
           | undefined
-        this.changeRepoIdentity(id, row && typeof row.prefix === 'string' ? row.prefix : undefined)
+        this.updateRepo(id, row)
       }
       const delta = index.changes(event)
       for (const [entity, id] of [...delta.flips, ...delta.orders])
