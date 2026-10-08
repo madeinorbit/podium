@@ -12,9 +12,11 @@ How every client screen (web, desktop, phone) gets and derives data from the Mob
 - **View model**: one class per view holding its UI state and handing out its companions. The view's root component creates it (or gets it from the app) and passes it down through React context.
 - **Companion**: a small object per record, owned by one view, for rules only that view uses (`WorklistIssue` wraps an `IssueModel`). Created with `companion()` from `@podium/mobx-helpers`, declared once on the view model: one companion per record per view. Never use `companion()` as a cache for part of a row; that part is a `@lazy` field of the companion.
 - **Request answer**: a one-off server answer to one question (search hits, a file tree, a git diff, a receipt). It is not a record and has no shared model.
-- **Service**: an object with a job and a lifetime that is not a record: a conversation's transcript window, streaming and send queue; the connection; the outbox. Written in the rule 8 style.
+- **Service**: an object with a job and a lifetime that is not a record: a conversation's transcript window, streaming and send queue; the connection; the outbox. Written in the rule 8 style. Services own their reactions; screens never read a service directly.
 - **Edit draft** and **message draft**: an edit draft holds a form's unsaved changes to an existing record (`draft()`, local to the view). A message draft is the chat text being typed to an agent: a stored field of the session, synced to other devices; never built with `draft()`.
 - **UI state**: state that never comes from the server: open tab, folds, selection, form input.
+- **UiStore**: the app-wide screen state saved on this device (which view is open, selection, panes, tabs, open files, focus), read before the first paint.
+- **LiveStore**: current server values that are not records (connection, quota, usage), pushed by the server, never saved; each new value replaces the old. A live value of a record (a machine's load) is a field on that record's shared model (rule 1).
 - **Watched read**: a read inside an `observer` component or a MobX reaction.
 
 ## Rules
@@ -25,7 +27,7 @@ How every client screen (web, desktop, phone) gets and derives data from the Mob
 4. **Every question has one home.**
    - A fact about the record itself → the shared model.
    - A rule of one view → that view's companion, shared by every screen that draws the view. Never copy a view's rules into a second screen's own companion.
-   - UI state → the view model, or the one component that uses it. Store each piece once: one `selectedId`, and each row derives `@lazy get selected() { return this.worklist.selectedId === this.issue.id }`. A value that follows from other state (such as "the selected record is gone", from the sync replica's `exitKind`) is a derived field, never a second field kept in step by a reaction.
+   - UI state → the view model while the view is open, or the one component that uses it; app-wide screen state that is saved on the device → the UiStore. Store each piece once: one `selectedId`, and each row derives `@lazy get selected() { return this.worklist.selectedId === this.issue.id }`. A value that follows from other state (such as "the selected record is gone", from the sync replica's `exitKind`) is a derived field, never a second field kept in step by a reaction.
    - In doubt, ask: *would the answer change if this view worked differently?* Yes → companion. No → shared model.
    - Never re-derive in a view what the shared model answers. Create a companion class only when a view has its own per-record rules; otherwise pass the bare model.
 5. **One field, one question, the narrowest answer.**
@@ -49,7 +51,7 @@ How every client screen (web, desktop, phone) gets and derives data from the Mob
    App code does not use `observable.box`, `makeObservable` or `makeAutoObservable`. `createAtom` and `new Reaction` stay inside the data layer and `@podium/mobx-helpers`.
 9. **What may be kept, and for how long.**
    - "ID → object" maps exist only as: the pool's one model per record, `companion()` maps, the view registry, and the data layer's indexes (cold index, relation index). Any other is a hand-made cache (rule 2).
-   - A view that opens and closes (issue detail, settings, launcher, mission) gets a new view model per opening: its root component creates it, and closing drops it with all its companions. Anything that must survive a reopen, such as a chosen tab, is stored on purpose in the device's screen state.
+   - A view that opens and closes (issue detail, settings, launcher, mission) gets a new view model per opening: its root component creates it, and closing drops it with all its companions. Anything that must survive a reopen, such as a chosen tab, is stored on purpose in the UiStore.
    - Views that are always on (the worklist) keep one view model for the session.
 10. **Server data: shared model or request answer.**
    - Anything the server sends that has an ID, can change while the user looks, and is shown in more than one place is a record: it gets a schema entry and a shared model, whether it arrives through sync or through a request. A request that returns records puts them into the pool; the view keeps only their IDs.
