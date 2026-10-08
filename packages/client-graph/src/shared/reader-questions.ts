@@ -467,7 +467,8 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           keys.push('issue:live')
           break
         case 'spawnIssues':
-          keys.push(`issue:repo:${question.repoId ?? ''}`, `issue:path:${machinePathKey(question.repoPath)}`, 'issue:undeleted')
+          keys.push(`issue:repo:${question.repoId ?? ''}`, 'issue:repo:',
+            `issue:path:${machinePathKey(question.repoPath)}`, 'issue:undeleted')
           break
         case 'boardIssues':
           if (question.priority != null) keys.push(`issue:priority:${question.priority}`)
@@ -477,7 +478,8 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           keys.push('issue:live', 'issue:unarchived', 'issue:undeleted')
           if (question.explorerTab === 'cancelled')
             keys.push('issue:status:cancelled', 'issue:status:duplicate', 'issue:status:superseded')
-          else if (question.explorerTab && question.explorerTab !== 'needs')
+          else if (question.explorerTab === 'needs') keys.push('issue:open')
+          else if (question.explorerTab)
             keys.push(`issue:status:${question.explorerTab}`)
           break
       }
