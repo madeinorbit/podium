@@ -85,7 +85,7 @@ describe('bounded variable-height issue window', () => {
     const container = view.getByTestId('nested-container')
     sizeViewport(scroll, 320)
     let precedingHeight = 0
-    vi.spyOn(container, 'offsetParent', 'get').mockReturnValue(scroll)
+    Object.defineProperty(container, 'offsetParent', { configurable: true, value: scroll })
     vi.spyOn(container, 'offsetTop', 'get').mockImplementation(() => precedingHeight)
     scroll.scrollTop = 800
     fireEvent.scroll(scroll); flushViewport()
@@ -215,7 +215,7 @@ describe('bounded variable-height issue window', () => {
     const scroll = view.getByTestId('nested-scroll')
     const container = view.getByTestId('nested-container')
     sizeViewport(scroll, 320)
-    vi.spyOn(container, 'offsetParent', 'get').mockReturnValue(scroll)
+    Object.defineProperty(container, 'offsetParent', { configurable: true, value: scroll })
     vi.spyOn(container, 'offsetTop', 'get').mockReturnValue(19_760)
     scroll.scrollTop = 20_000
     fireEvent.scroll(scroll)
@@ -235,7 +235,7 @@ describe('bounded variable-height issue window', () => {
     vi.spyOn(scroll, 'offsetTop', 'get').mockReturnValue(120)
     vi.spyOn(fold, 'offsetTop', 'get').mockReturnValue(400)
     vi.spyOn(fold, 'clientTop', 'get').mockReturnValue(2)
-    vi.spyOn(container, 'offsetParent', 'get').mockReturnValue(fold)
+    Object.defineProperty(container, 'offsetParent', { configurable: true, value: fold })
     vi.spyOn(container, 'offsetTop', 'get').mockReturnValue(40)
     scroll.scrollTop = 322
     fireEvent.scroll(scroll)
