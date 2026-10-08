@@ -141,40 +141,7 @@
         0
       ]
     },
-    "addressedRootWalks": [
-      {
-        "action": "heartbeat",
-        "kind": "elements",
-        "reader": "consumer:launcher.launch/launch.catalogUsage",
-        "at1x": 201,
-        "at4x": 801,
-        "neighbourhood1x": 7,
-        "neighbourhood4x": 7,
-        "passed": false,
-        "owner": "POD-5708",
-        "reason": "addressed root walk for MRU; incremental max needs a maintained aggregate",
-        "derivations": [
-          1,
-          1
-        ]
-      },
-      {
-        "action": "heartbeat",
-        "kind": "elements",
-        "reader": "consumer:launcher.phone/launch.usage",
-        "at1x": 231,
-        "at4x": 900,
-        "neighbourhood1x": 7,
-        "neighbourhood4x": 7,
-        "passed": false,
-        "owner": "POD-5708",
-        "reason": "addressed root walk for MRU; incremental max needs a maintained aggregate",
-        "derivations": [
-          2,
-          2
-        ]
-      }
-    ],
+    "addressedRootWalks": [],
     "sharedColdDemand": {
       "owner": "POD-5716",
       "designOwner": "POD-5708",

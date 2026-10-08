@@ -60,7 +60,9 @@ it.each(['NewWorkButton', 'NewIssueScreen'] as const)('meters actual open %s at 
     const app = await renderWithMobileStore(<Host />, data)
     const attached = pool as MobxPool | null
     if (!attached) throw new Error('Mobile pool missing')
+    const usageQuery = vi.spyOn(attached.queries, 'activity')
     async function measured(action: string, fn: () => unknown) {
+      usageQuery.mockClear()
       const result = await measureWork(async () => insideReader(`mobile.${surface}.${action}`, async () => {
         await act(async () => { await fn() })
         for (let at = 0; at < 20; at++) {
@@ -69,6 +71,8 @@ it.each(['NewWorkButton', 'NewIssueScreen'] as const)('meters actual open %s at 
           if (!loaded) break
         }
       }), { pool: attached! })
+      if (['catalog', 'usage', 'heartbeat', 'picker-heartbeat', 'closed-heartbeat'].includes(action))
+        expect(usageQuery, `${surface} ${action} usage reads at ${scale}x`).not.toHaveBeenCalled()
       return { action, ...result.work }
     }
     const cells = []
@@ -102,6 +106,10 @@ it.each(['NewWorkButton', 'NewIssueScreen'] as const)('meters actual open %s at 
     }
     await act(async () => { surface === 'NewWorkButton' ? fireEvent.click(screen.getByLabelText('Dismiss launcher')) : show(false) })
     cells.push(await measured('closed-heartbeat', () => app.replica.applyChanges('sessions', [{ ...data.sessions[0]!, createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-05T00:00:00Z' }], [])))
+    usageQuery.mockClear()
+    await act(async () => { surface === 'NewWorkButton' ? fireEvent.click(screen.getByLabelText('New work')) : show(true) })
+    expect(usageQuery).toHaveBeenCalled()
+    usageQuery.mockRestore()
     samples.push({ scale, repositories: data.repos.length, sessions: data.sessions.length, cells })
     app.unmount(); cleanup()
   }

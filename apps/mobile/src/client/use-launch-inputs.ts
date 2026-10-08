@@ -1,10 +1,10 @@
 import { headerView } from '@podium/client-graph/header-views'
 import type { RepoView } from '@podium/client-core/values'
-import { launchOptionViews } from '@podium/client-graph/launch-option-views'
+import { createLaunchWorkPicker } from '@podium/client-graph/launch-option-views'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { MachineWire } from '@podium/model'
-import { useCallback } from 'react'
-import { useMobilePoolProjection } from './mobile-pool'
+import { useCallback, useEffect, useMemo } from 'react'
+import { useMobilePool, useMobilePoolProjection } from './mobile-pool'
 
 const EMPTY = { repo: undefined as RepoView | undefined, machines: [] as MachineWire[] }
 export function useLaunchInputs(repoPath: string) {
@@ -23,8 +23,16 @@ export function useLaunchRepositoryCount() {
   return useMobilePoolProjection(readRepositoryCount, 0)
 }
 
-const readRepositoryPaths = (pool: MobxPool) => launchOptionViews(pool).repositoryPaths()
+/** Each mounted launcher takes recency once. Its metadata projections stay live. */
+export function useLaunchWorkPicker() {
+  const pool = useMobilePool()
+  const picker = useMemo(() => pool ? createLaunchWorkPicker(pool) : undefined, [pool])
+  useEffect(() => { picker?.open() }, [picker])
+  return picker
+}
 const NO_REPOSITORIES: string[] = []
 export function useLaunchRepositoryPaths() {
-  return useMobilePoolProjection(readRepositoryPaths, NO_REPOSITORIES)
+  const picker = useLaunchWorkPicker()
+  const read = useCallback(() => picker?.opened ? picker.repositoryPaths : NO_REPOSITORIES, [picker])
+  return useMobilePoolProjection(read, NO_REPOSITORIES)
 }

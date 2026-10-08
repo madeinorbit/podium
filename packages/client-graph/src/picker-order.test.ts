@@ -57,7 +57,7 @@ it('stores new-task catalog order while machine/catalog metadata stays live', ()
   const query = vi.spyOn(pool.queries, 'activity').mockImplementation(q => activity.get(q.roots[0]!) ?? 0)
   const picker = createLaunchCatalogPicker(pool)
   picker.open()
-  expect(picker.catalog()).toEqual(launchOptionViews(pool).catalog())
+  expect(picker.catalog()).toMatchObject(launchOptionViews(pool).catalogOnOpen())
   expect(() => expect(picker.catalog().repoPaths).toEqual(['/b', '/a'])).toThrow()
   let runs = 0
   const stop = autorun(() => { picker.catalog(); runs++ })

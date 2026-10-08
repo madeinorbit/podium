@@ -66,7 +66,9 @@ it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1
     if (!attached) throw new Error('Web pool missing')
     // Complete the lazy attachment while closed; no choice projection is read.
     await waitFor(() => expect(attached.sources.peekView('launch.options')).toBeTruthy())
+    const usageQuery = vi.spyOn(attached.queries, 'activity')
     async function measured(action: string, fn: () => unknown) {
+      usageQuery.mockClear()
       const result = await measureWork(async () => insideReader(`web.${surface}.${action}`, async () => {
         await act(async () => { await fn() })
         for (let at = 0; at < 20; at++) {
@@ -75,6 +77,8 @@ it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1
           if (!loaded) break
         }
       }), { pool: attached! })
+      if (['catalog', 'usage', 'heartbeat', 'closed-heartbeat'].includes(action))
+        expect(usageQuery, `${surface} ${action} usage reads at ${scale}x`).not.toHaveBeenCalled()
       return { action, ...result.work }
     }
     const cells = []
@@ -91,6 +95,13 @@ it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1
     cells.push(await measured('heartbeat', () => fixture.patch('session', 'synthetic-session-0', { lastActiveAt: '2026-10-04T00:00:00Z' })))
     await act(async () => { surface === 'NewPanelMenu' ? fireEvent.click(screen.getByRole('button', { name: 'New panel' })) : show(false) })
     cells.push(await measured('closed-heartbeat', () => fixture.patch('session', 'synthetic-session-0', { lastActiveAt: '2026-10-05T00:00:00Z' })))
+    usageQuery.mockClear()
+    if (surface === 'NewIssueDialog') {
+      await act(async () => { show(true) })
+      expect(usageQuery).toHaveBeenCalled()
+      expect(screen.getByLabelText('Title')).toBeTruthy()
+    }
+    usageQuery.mockRestore()
     expect(fatal).not.toHaveBeenCalled()
     expect(commandLaunchViews(attached).counts.catalogBuilds).toBe(0)
     expect(commandLaunchViews(attached).counts.addressedSessionReads).toBe(0)
@@ -104,7 +115,7 @@ it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1
     const closed = sample.cells.find(cell => cell.action === 'closed-heartbeat')!
     expect(heartbeat.rows).toBe(closed.rows)
     if (surface === 'NewPanelMenu') expect(heartbeat.elements - closed.elements).toBeLessThanOrEqual(16)
-    else expect(heartbeat.elementsBy?.['consumer:web.NewIssueDialog.heartbeat/launch.catalogUsage'] ?? 0).toBeLessThanOrEqual(11)
+    else expect(heartbeat.elementsBy?.['consumer:web.NewIssueDialog.heartbeat/launch.catalogUsage'] ?? 0).toBe(0)
     expect(sample.cells.find(cell => cell.action === 'catalog')!.rows).toBeLessThanOrEqual(6)
   }
   expect(samples[1]!.cells.find(cell => cell.action === 'heartbeat')!.rows).toBe(samples[0]!.cells.find(cell => cell.action === 'heartbeat')!.rows)

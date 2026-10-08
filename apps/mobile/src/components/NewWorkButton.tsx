@@ -1,4 +1,4 @@
-import { launchOptionViews } from '@podium/client-graph/launch-option-views'
+import type { LaunchWorkPicker } from '@podium/client-graph/launch-option-views'
 import { relativeTime } from '@podium/client-core/focus'
 import { useHarnessDescriptors, useModelCatalog } from '@podium/client-core/react'
 import {
@@ -18,7 +18,6 @@ import {
   spawnTargetForRepo,
   usableMachines,
 } from '@podium/client-core/values'
-import type { MobxPool } from '@podium/client-graph/pool'
 import type { AgentKind, MachineId, MachineWire } from '@podium/model'
 import { machinePathsEqual } from '@podium/model/browser'
 import { usePathname, useRouter } from 'expo-router'
@@ -26,6 +25,7 @@ import { type Dispatch, type SetStateAction, useCallback, useMemo, useState } fr
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useStoreActions } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
+import { useLaunchWorkPicker } from '../client/use-launch-inputs'
 import type { MobileTrpc } from '../client/trpc'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
 import {
@@ -62,13 +62,13 @@ const EMPTY_INPUTS = {
   repos: [] as RepoNavView[],
   recentMachine: undefined as { machineId: string; createdAt: string } | undefined,
 }
-function usePoolLaunchInputs() {
-  const readLaunchInputs = useCallback((pool: MobxPool) => launchOptionViews(pool).newWork(), [])
+function usePoolLaunchInputs(picker: LaunchWorkPicker | undefined) {
+  const readLaunchInputs = useCallback(() => picker?.opened ? picker.newWork() : EMPTY_INPUTS, [picker])
   return useMobilePoolProjection(readLaunchInputs, EMPTY_INPUTS)
 }
-/** Each displayed project owns its live usage scalar independently. */
-function ProjectUsage({ path }: { path: string }) {
-  const read = useCallback((pool: MobxPool) => launchOptionViews(pool).repositoryActivity(path), [path])
+/** Usage labels share the opening's recency snapshot with its ordering. */
+function ProjectUsage({ path, picker }: { path: string; picker: LaunchWorkPicker | undefined }) {
+  const read = useCallback(() => picker?.repositoryActivity(path) ?? 0, [path, picker])
   const used = useMobilePoolProjection(read, 0)
   return <Text style={styles.rowSub} numberOfLines={1}>
     {used ? `last used ${relativeTime(new Date(used).toISOString(), Date.now())}` : 'not used yet'}
@@ -143,7 +143,8 @@ function NewWorkLauncher({
   const pathname = usePathname()
   const router = useRouter()
   const { spawnDraftAgent } = useStoreActions()
-  const { machines, repos, recentMachine } = usePoolLaunchInputs()
+  const picker = useLaunchWorkPicker()
+  const { machines, repos, recentMachine } = usePoolLaunchInputs(picker)
   const [query, setQuery] = useState('')
   const [modelPick, setModelPick] = usePersistedUiState<string | null>(
     NEW_WORK_MODEL_KEY,
@@ -630,7 +631,7 @@ function NewWorkLauncher({
                     <Text style={styles.rowTitle} numberOfLines={1}>
                       {repo.name}
                     </Text>
-                    <ProjectUsage path={repo.path} />
+                    <ProjectUsage path={repo.path} picker={picker} />
                   </View>
                     {selectedRepo && machinePathsEqual(repo.path, selectedRepo.path) ? (
                     <Text style={styles.check}>✓</Text>

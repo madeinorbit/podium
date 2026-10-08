@@ -4,7 +4,7 @@ import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { headerEntities } from './header-entities'
-import { createLaunchCatalogPicker, createLaunchWorkPicker, launchOptionViews } from './launch-option-views'
+import { createLaunchCatalogPicker, createLaunchWorkPicker } from './launch-option-views'
 import { MobxPool } from './pool'
 import type { RowRecord } from './shared/source'
 
@@ -54,14 +54,11 @@ function legacyOrder(f: ReturnType<typeof fixture>) {
 }
 
 for (const scale of [1, 4]) it(`matches the live order at open, then freezes usage until reopen at ${scale}x`, async () => {
-  const f = fixture(scale), views = launchOptionViews(f.pool)
+  const f = fixture(scale)
   const catalog = createLaunchCatalogPicker(f.pool), phone = createLaunchWorkPicker(f.pool)
   catalog.open(); phone.open()
   const expected = legacyOrder(f)
-  // These direct old/new comparisons run before deleting the live sorter.
-  expect(views.catalog()).toMatchObject(expected.catalog)
-  expect(views.newWork().repos).toEqual(expected.projects)
-  expect(views.repositoryPaths()).toEqual(expected.paths)
+  // 6b75d37794 proved this oracle and these pickers against the live sorter.
   expect(catalog.catalog()).toMatchObject(expected.catalog)
   expect(phone.newWork().repos).toEqual(expected.projects)
   expect(phone.repositoryPaths).toEqual(expected.paths)
@@ -94,5 +91,31 @@ for (const scale of [1, 4]) it(`matches the live order at open, then freezes usa
     expect(phone.repos[0]?.path).toBe('/two/Twin')
     expect(phone.repositoryPaths[0]).toBe('/two/Twin')
     expect(phone.repositoryActivity('/two/Twin')).toBe(Date.parse('2026-01-05T00:00:00Z'))
+    query.mockClear()
+    headerEntities(f.pool).apply([
+      { kind: 'repository', id: 'new', value: { kind: 'repository', path: '/new', worktrees: [] } },
+      { kind: 'repository', id: 'r1', value: undefined },
+    ])
+    expect(catalog.repoPaths).toEqual(['/two/Twin', '/zeta', '/one/Twin', '/new'])
+    expect(phone.repositoryPaths).toEqual(['/two/Twin', '/zeta', '/one/Twin', '/new'])
+    expect(phone.repos.map(repo => repo.path)).toEqual(['/two/Twin', '/zeta', '/one/Twin', '/new'])
+    expect(query).not.toHaveBeenCalled()
   } finally { stops.forEach(stop => stop()); query.mockRestore(); f.pool.dispose() }
+})
+
+it('keeps discovery order for the initial choice while displaying basename ties, including empty/worktree-only catalogs', () => {
+  const f = fixture(1)
+  const catalog = createLaunchCatalogPicker(f.pool)
+  try {
+    f.pool.apply({ type: 'replace', rows: [] })
+    catalog.open()
+    expect(catalog.initialRepoPath).toBe('/zeta')
+    expect(catalog.repoPaths).toEqual(['/alpha', '/one/Twin', '/two/Twin', '/zeta'])
+    headerEntities(f.pool).apply(f.repositories.map((_, i) => ({ kind: 'repository', id: `r${i}`, value: undefined })))
+    catalog.open()
+    expect(catalog.catalog()).toMatchObject({ initialRepoPath: '', repoPaths: [] })
+    headerEntities(f.pool).apply([{ kind: 'repository', id: 'worktree', value: { kind: 'worktree', path: '/only-tree', worktrees: [] } }])
+    catalog.open()
+    expect(catalog.catalog()).toMatchObject({ initialRepoPath: '/only-tree', repoPaths: [] })
+  } finally { f.pool.dispose() }
 })

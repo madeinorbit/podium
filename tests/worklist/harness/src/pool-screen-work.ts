@@ -1,6 +1,6 @@
 import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
 import { createCommandPalette } from '@podium/client-graph/command-launch-views'
-import { createLaunchCatalogPicker } from '@podium/client-graph/launch-option-views'
+import { createLaunchCatalogPicker, createLaunchWorkPicker } from '@podium/client-graph/launch-option-views'
 import { createReferencePicker } from '@podium/client-graph/chat-context'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { poolIssuePaint } from '../../../../apps/web/src/features/worklist/pool-row-data'
@@ -96,7 +96,6 @@ import {
 } from '../../../../apps/mobile/src/lib/work-sections'
 import {
   readFiles,
-  readLaunchCatalog,
   readLaunchOrigin,
   readTargetMachines,
   readOpen,
@@ -390,11 +389,12 @@ async function measureScreenCells(
     const shell = shellViews(pool),
       page = issuePages(pool),
       chat = createChatContextReader(pool)
-    const palettePicker = createCommandPalette(pool), catalogPicker = createLaunchCatalogPicker(pool), referencePicker = createReferencePicker(pool)
+    const palettePicker = createCommandPalette(pool), catalogPicker = createLaunchCatalogPicker(pool), phonePicker = createLaunchWorkPicker(pool), referencePicker = createReferencePicker(pool)
     // These consumers represent open menus. The action owns their ordering,
     // outside any reaction; reopen is also exercised by the focused answer tests.
     palettePicker.open()
     catalogPicker.open()
+    phonePicker.open()
     referencePicker.open()
     stops.push(() => palettePicker.close(), () => referencePicker.close())
     const panelOrigin = readLaunchOrigin(pool, '/repo-000')
@@ -502,8 +502,8 @@ async function measureScreenCells(
     })
     add('launcher.phone', ['NewWorkButton', 'NewIssueScreen'], () =>
       scene === 'background-terminal' ? undefined : {
-        work: launchOptionViews(pool).newWork(),
-        paths: launchOptionViews(pool).repositoryPaths(),
+        work: phonePicker.newWork(),
+        paths: phonePicker.repositoryPaths,
       },
     )
     add('launcher.palette', ['CommandPalette'], () => palettePicker.palette())
