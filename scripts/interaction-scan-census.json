@@ -44229,6 +44229,106 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "This existing picker map is now visible to transitive scan analysis after the reader refactor. It retains the catalogue classification; sharing does not bound picker-open cardinality.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mobile-session-context.ts",
+      "holder": "pooledMobileSessions",
+      "rule": "spread",
+      "tokens": "4a509824cb1f9c3e942e1ab266ac76763ad91fdc9325e4156fb8640a5eb9e0af",
+      "gate": [
+        "exit:then:061f406a330a1a8a2525a5f16bc3470800ce6b4fe526634c10fe628df606cf36"
+      ],
+      "origin": [
+        "4eab0a14671de9a80a778c822e11a1f2dcdbfb4977269c607531dafe3eec12df"
+      ],
+      "fingerprint": "1e902f6c891ea70073a769c820d275d308e323b7e13606a45174062ffdb5ceff",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5848",
+      "trigger": "Invocation of pooledMobileSessions (phone roster pooled models for shared identity, rule 1)",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "spread carries catalogue or unconstrained collection taint; phone roster requires pooled models for shared identity, so a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mobile-session-context.ts",
+      "holder": "pooledMobileSessions",
+      "rule": "loop:for-of",
+      "tokens": "285e360d4a05003b5365a8a29bec863cb624b6d66b09075a337cd377295e1090",
+      "gate": [
+        "exit:then:061f406a330a1a8a2525a5f16bc3470800ce6b4fe526634c10fe628df606cf36"
+      ],
+      "origin": [
+        "4eab0a14671de9a80a778c822e11a1f2dcdbfb4977269c607531dafe3eec12df"
+      ],
+      "fingerprint": "a6e5f3510f1e6c4e6932063a24f76fd7d6d2b33327194675229b536f7964f320",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5848",
+      "trigger": "Invocation of pooledMobileSessions (phone roster pooled models for shared identity, rule 1)",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "loop:for-of carries catalogue or unconstrained collection taint; phone roster requires pooled models for shared identity, so a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mobile-session-context.ts",
+      "holder": "pooledMobileSessions",
+      "rule": "materialize:Set",
+      "tokens": "d8e3ac183bf991308f93c1ccdfb3f0636f126b2211a5bf1e14c02060cdd9fcd6",
+      "gate": [
+        "exit:then:061f406a330a1a8a2525a5f16bc3470800ce6b4fe526634c10fe628df606cf36"
+      ],
+      "origin": [
+        "4eab0a14671de9a80a778c822e11a1f2dcdbfb4977269c607531dafe3eec12df"
+      ],
+      "fingerprint": "cf216d65acb26032675d0045cb75019cb338a530489d861260087c098f2db7b4",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5848",
+      "trigger": "Invocation of pooledMobileSessions (phone roster pooled models for shared identity, rule 1)",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "materialize:Set carries catalogue or unconstrained collection taint; phone roster requires pooled models for shared identity, so a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mobile-session-context.ts",
+      "holder": "pooledMobileSessions/known",
+      "rule": "question:referenceSessions",
+      "tokens": "3321028675d2138093fb7cf67a24b454679465114d0388da8fc620f4b6c2940e",
+      "gate": [
+        "exit:then:061f406a330a1a8a2525a5f16bc3470800ce6b4fe526634c10fe628df606cf36"
+      ],
+      "origin": [
+        "4eab0a14671de9a80a778c822e11a1f2dcdbfb4977269c607531dafe3eec12df"
+      ],
+      "fingerprint": "9ff930a3d7c87dbe28fc340deb509aff0ccf477341a44cd2f3bca07913b7e19a",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5848",
+      "trigger": "Invocation of pooledMobileSessions (phone roster pooled models for shared identity, rule 1)",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "question:referenceSessions carries catalogue or unconstrained collection taint; phone roster requires pooled models for shared identity, so a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/mobile-session-context.ts",
+      "holder": "pooledMobileSessions/present",
+      "rule": "materialize:Set",
+      "tokens": "e99af3c7e7a649e6156c3d50e3ce5ddac9fcba4ba08fa3c14d48a5c5c8f4825a",
+      "gate": [
+        "exit:then:061f406a330a1a8a2525a5f16bc3470800ce6b4fe526634c10fe628df606cf36"
+      ],
+      "origin": [
+        "4eab0a14671de9a80a778c822e11a1f2dcdbfb4977269c607531dafe3eec12df"
+      ],
+      "fingerprint": "7829f4082342f60f0504fd5bfff50b4f575b2bba8b1777bd6991a66eb15fd3b5",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5848",
+      "trigger": "Invocation of pooledMobileSessions (phone roster pooled models for shared identity, rule 1)",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "materialize:Set carries catalogue or unconstrained collection taint; phone roster requires pooled models for shared identity, so a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     }
   ]
 }
