@@ -745,7 +745,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       phases: () => this.sessionPhases?.() ?? [],
       visibleSessionIds: () => this.getUserFocus().visibleSessionIds ?? [],
     })
-    this.sounds.start()
+    // The provider starts the runtime before attaching the pool. Wait for its
+    // observable source; attachSessionPhases starts sounds when it arrives.
+    if (this.sessionPhases) this.sounds.start()
     offs.push(() => this.sounds?.stop())
 
     // Presence feeds the server's smart router (skip mobile push while visible).

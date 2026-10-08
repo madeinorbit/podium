@@ -1,4 +1,4 @@
-import { observe } from 'mobx'
+import { observable, observe, runInAction } from 'mobx'
 import { fixtureNavigation } from '../../test-support/navigation'
 import type { SessionView, SessionViewInput } from '../session-values'
 import type { IssueViewModel } from '../values/issue-type'
@@ -56,6 +56,8 @@ import { createReplicaFixture } from '@podium/client-core/test-support/replica'
 import { createRuntimeWorklistPool } from '../../../client-graph/src/runtime-pool'
 import { sessionById } from '../session-index'
 import * as notificationAudio from '../sound/cuelume'
+import type { NotificationSession, SessionPhaseChange } from '../sound/notification-sounds'
+import { installMobxWarnTrap } from '../../../../tests/worklist/harness/src/mobx-trap'
 import type { SocketHub } from '../socket-transport'
 import {
   type Router,
@@ -1613,4 +1615,119 @@ describe('principal-owned conversations', () => {
       }),
     ).toThrow('owner has changed')
   })
+})
+
+// Keep the full strict trap scoped to these lifecycle tests; the older engine
+// fixtures above also exercise legacy reads outside reactions.
+describe('notification sound phase-source lifecycle', () => {
+  installMobxWarnTrap({ errors: true })
+
+  it.each([
+    ['before', 'source first'],
+    ['before', 'runtime first'],
+    ['after', 'source first'],
+    ['after', 'runtime first'],
+  ] as const)(
+    'attaches %s start and detaches %s without an empty reaction or replay',
+    async (attachment, cleanup) => {
+      const { engine } = makeEngine({ networkEnabled: false })
+      const play = vi.spyOn(notificationAudio, 'play').mockImplementation(() => {})
+      vi.spyOn(document, 'hasFocus').mockReturnValue(false)
+      const working: NotificationSession = {
+        agentKind: 'claude-code',
+        archived: false,
+        agentState: {
+          phase: 'working',
+          since: '2026-07-01T00:00:00.000Z',
+          nativeSubagentCount: 0,
+        },
+      }
+      const done: NotificationSession = {
+        ...working,
+        agentState: {
+          phase: 'idle',
+          since: '2026-07-01T00:01:00.000Z',
+          nativeSubagentCount: 0,
+          idle: { kind: 'done' },
+        },
+      }
+      const errored: NotificationSession = {
+        ...working,
+        agentState: {
+          phase: 'errored',
+          since: '2026-07-01T00:02:00.000Z',
+          nativeSubagentCount: 0,
+          error: { class: 'api', retryable: true },
+        },
+      }
+      const edge = (current: NotificationSession): SessionPhaseChange[] => [{
+        sessionId: asSessionId('sound-session'), previous: working, current,
+      }]
+      const phases = observable({ changes: edge(done) }, {}, { deep: false })
+      const read = vi.fn(() => phases.changes)
+      let detach: (() => void) | undefined
+      let detachReplacement: (() => void) | undefined
+      try {
+        if (attachment === 'after') engine.start()
+        expect(read).not.toHaveBeenCalled()
+        detach = engine.attachSessionPhases(read)
+        if (attachment === 'before') expect(read).not.toHaveBeenCalled()
+        engine.start()
+        engine.start()
+        expect(read).toHaveBeenCalledTimes(1)
+        expect(play).not.toHaveBeenCalled()
+
+        runInAction(() => { phases.changes = edge(done) })
+        expect(play).toHaveBeenCalledExactlyOnceWith('success')
+        expect(read).toHaveBeenCalledTimes(2)
+
+        if (cleanup === 'source first') {
+          detach()
+        } else {
+          engine.dispose()
+        }
+        runInAction(() => { phases.changes = edge(errored) })
+        expect(read).toHaveBeenCalledTimes(2)
+        expect(play).toHaveBeenCalledTimes(1)
+        if (cleanup === 'source first') engine.dispose()
+        else detach()
+        detach()
+        runInAction(() => { phases.changes = edge(errored) })
+        expect(read).toHaveBeenCalledTimes(2)
+        expect(play).toHaveBeenCalledTimes(1)
+
+        // Restarting without a source must still wait; reattachment seeds the
+        // current edge without replaying it, even after a stale detach callback.
+        engine.start()
+        const replacement = vi.fn(() => phases.changes)
+        detachReplacement = engine.attachSessionPhases(replacement)
+        expect(replacement).toHaveBeenCalledTimes(1)
+        expect(play).toHaveBeenCalledTimes(1)
+        detach()
+        runInAction(() => { phases.changes = edge(errored) })
+        expect(play).toHaveBeenNthCalledWith(2, 'error')
+
+        // A source may outlive reversible runtime cleanup. It stays silent
+        // while stopped and resumes only for new edges after the next start.
+        engine.dispose()
+        runInAction(() => { phases.changes = edge(done) })
+        expect(replacement).toHaveBeenCalledTimes(2)
+        engine.start()
+        expect(replacement).toHaveBeenCalledTimes(3)
+        expect(play).toHaveBeenCalledTimes(2)
+        runInAction(() => { phases.changes = edge(done) })
+        expect(play).toHaveBeenNthCalledWith(3, 'success')
+        engine.destroy()
+        engine.start()
+        runInAction(() => { phases.changes = edge(errored) })
+        expect(replacement).toHaveBeenCalledTimes(4)
+        expect(play).toHaveBeenCalledTimes(3)
+        await settle()
+      } finally {
+        detachReplacement?.()
+        detach?.()
+        engine.destroy()
+      }
+    },
+  )
 })
