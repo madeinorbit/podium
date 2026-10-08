@@ -1,16 +1,14 @@
+import { observer } from '@podium/client-graph/react'
+import { NetworkSettingsView } from '../network-view'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useMemo } from 'react'
 import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { Button } from '@/components/ui/button'
 import { type NetworkSaveController, NetworkStep } from '@/features/setup/network-step'
 import { forcedNotice, useForcedSetting } from '../use-forced-setting'
 import { Row, Section } from './shared'
 
-interface NetworkInfo {
-  mode: string | null
-  publicUrl: string | null
-  serverUrl: string | null
-  /** Where the web UI is served from, when it is not this server (PDM-26). */
+/** Where the web UI is served from, when it is not this server (PDM-26). */
   appUrl?: string | null
   /** Credentialed cross-site origins this deployment allows. */
   allowedOrigins?: string[]
@@ -23,7 +21,7 @@ interface NetworkInfo {
  * (`daemon`) / viewer (`client`) boxes show which server they connect to instead (change = re-run
  * setup). Fills the gap where the CLI's `podium setup → change URL` had no web equivalent.
  */
-export function NetworkSection({
+export const NetworkSection = observer(function NetworkSection({
   onSaveStateChange,
 }: {
   onSaveStateChange?: (state: NetworkSaveController | null) => void
@@ -32,23 +30,12 @@ export function NetworkSection({
   const forcedPublicUrl = useForcedSetting('publicUrl')
   const forcedAppUrl = useForcedSetting('appUrl')
   const forcedOrigins = useForcedSetting('allowedOrigins')
-  // undefined = loading, null = failed. Do not guess that this is a host until mode is known:
-  // the host form can change topology, so briefly showing it on a worker is unsafe.
-  const [info, setInfo] = useState<NetworkInfo | null | undefined>(undefined)
+  const view = useMemo(() => new NetworkSettingsView(trpc), [trpc])
+  useEffect(() => { void view.refresh(true); return () => view.close() }, [view])
+  const load = (showLoading = false): void => { void view.refresh(showLoading) }
+  const info = view.answer
 
-  const load = useCallback(
-    (showLoading = false): void => {
-      if (showLoading) setInfo(undefined)
-      trpc.setup.info
-        .query()
-        .then(setInfo)
-        .catch(() => setInfo(null))
-    },
-    [trpc],
-  )
-  useEffect(() => load(true), [load])
-
-  if (info === undefined) {
+  if (info === undefined && !view.error) {
     return (
       <Section title="Network" hint="Loading the network configuration for this machine.">
         <p role="status" className="settings-prose">
@@ -58,7 +45,7 @@ export function NetworkSection({
     )
   }
 
-  if (info === null) {
+  if (!info) {
     return (
       <Section title="Network" hint="Choose how this machine connects to Podium.">
         <div className="flex items-center justify-between gap-3 rounded-md border border-destructive/30 bg-destructive/5 p-3">
@@ -155,4 +142,4 @@ export function NetworkSection({
       )}
     </Section>
   )
-}
+})

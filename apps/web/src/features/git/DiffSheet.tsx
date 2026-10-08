@@ -1,16 +1,16 @@
+import { DiffView } from './diff-view'
 import { useStoreHandle } from '@podium/client-core/react'
 import { DIFF_SHEET_WRAP_KEY } from '@podium/client-core/ui-state'
 import { observer } from '@podium/client-graph/react'
 import type { MachineId } from '@podium/model'
 import { GitBranch, GitCommitHorizontal, RefreshCw, WrapText } from 'lucide-react'
-import { observable, type ObservableMap, runInAction } from 'mobx'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
 import type { Trpc } from '@/app/trpc'
 import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
-import { type DiffRow, type ParsedDiff, parseDiff, splitPath } from './diff-model'
-import { entryBadge, entryStatus, entryTone, type StatusEntry, untrackedDiff } from './git-panel'
+import { type DiffRow,  splitPath } from './diff-model'
+import { entryBadge, entryStatus, entryTone, type StatusEntry } from './git-panel'
 
 /**
  * THE DIFF SHEET — reading the working tree at reading size.
@@ -447,153 +447,20 @@ const SKELETON_WIDTHS = [38, 62, 47, 71, 29, 55, 66, 41, 58, 34, 49, 63]
 // the diff cache
 // ---------------------------------------------------------------------------
 
-type DiffState = {
-  loading: boolean
-  parsed?: ParsedDiff
-  error?: string
-  /** There is nothing to diff, and that is not a failure — see the folder case. */
-  note?: string
-}
+type DiffCache = DiffView
 
-type DiffCache = {
-  states: ObservableMap<string, DiffState>
-  totals: { settled: number; added: number; removed: number }
-  active: boolean
-}
-
-/**
- * Git reports an untracked FOLDER as a single entry (`.artifacts/POD-1/`), so
- * there is no file to read and no diff to ask for. That is an answer, not an
- * error: the row states what it is rather than showing "could not be read" in
- * destructive red for a folder that is behaving normally.
- */
-const UNTRACKED_FOLDER =
-  'A new folder. Git lists it as one entry until something inside it is tracked, so there is no diff to show yet.'
-
-/** A binary blob has no lines. Saying so is the answer; red is for failures. */
-const BINARY_FILE = 'A binary file — there are no text lines to diff.'
-const TOO_LARGE = 'This file is too large to read here.'
-
-/**
- * Only the file being read is fetched. Visited files stay cached under the
- * sheet owner, so going back is instant, but opening the sheet on one file of
- * F issues one payload request — never one per rail row. There is no
- * background prefetch or completion pump. Each arrival updates one map entry
- * and the running totals; only that path's readers and the totals observe it.
- */
-
-function useDiffs({
-  entries,
-  entry,
-  cwd,
-  machineId,
-  sources,
-  commit,
-}: {
-  entries: StatusEntry[]
-  entry: StatusEntry | undefined
-  cwd: string
-  machineId?: MachineId
-  sources?: Record<string, string> | undefined
-  commit?: { sha: string } | undefined
-}): DiffCache {
+/** The sheet owns one answer model per inventory/source identity. */
+function useDiffs({ entries, entry, cwd, machineId, sources, commit }: {
+  entries: StatusEntry[]; entry: StatusEntry | undefined; cwd: string
+  machineId?: MachineId; sources?: Record<string, string>; commit?: { sha: string }
+}): DiffView {
   const { gitDiffFile, gitCommitDiffFile, readFileScoped } = useStoreHandle<Trpc>().access
-  // The sha, not the object: the caller builds its commit descriptor inline, so
-  // depending on the object would rebuild `load` on every render for a value
-  // that never changed.
   const commitSha = commit?.sha
-  // A new inventory or payload source owns a new cache. Old requests retain
-  // their old owner and cannot overwrite a refreshed result at the same path.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: these values define the cache's lifetime, even though its initial contents are empty.
-  const cache = useMemo<DiffCache>(
-    () => ({
-      states: observable.map<string, DiffState>(undefined, { deep: false }),
-      totals: observable({ settled: 0, added: 0, removed: 0 }),
-      active: false,
-    }),
-    [entries, cwd, machineId, sources, commitSha],
-  )
-  useEffect(() => {
-    cache.active = true
-    return () => {
-      cache.active = false
-    }
-  }, [cache])
-
-  const load = useCallback(
-    (entry: StatusEntry) => {
-      if (cache.states.has(entry.path)) return
-      runInAction(() => cache.states.set(entry.path, { loading: true }))
-      void (async () => {
-        let next: DiffState
-        try {
-          const given = sources?.[entry.path]
-          if (commitSha) {
-            // Inside a commit every file is answered the same way — there is no
-            // untracked half, and no working tree to read: the object database
-            // already holds both sides.
-            const r = await gitCommitDiffFile({
-              machineId,
-              root: cwd,
-              sha: commitSha,
-              path: entry.path,
-            })
-            next = r.ok
-              ? { loading: false, parsed: parseDiff(r.output) }
-              : { loading: false, error: r.output || 'git could not diff this file.' }
-          } else if (given !== undefined) {
-            // The caller already HAS the diff — a transcript's own record of what
-            // a tool changed. Asking git for it would answer a different
-            // question and, for anything already committed, answer "nothing".
-            next = { loading: false, parsed: parseDiff(given) }
-          } else if (entry.untracked && entry.path.endsWith('/')) {
-            next = { loading: false, note: UNTRACKED_FOLDER }
-          } else if (entry.untracked) {
-            // A new file has no HEAD side, so it is READ rather than diffed. The
-            // read refuses a binary or oversized file by naming which it was —
-            // and neither is a failure the reader should see in red.
-            const r = await readFileScoped({ kind: 'worktree', machineId, root: cwd }, entry.path)
-            next =
-              r.ok && r.content !== undefined
-                ? { loading: false, parsed: parseDiff(untrackedDiff(r.content)) }
-                : 'binary' in r && r.binary
-                  ? { loading: false, note: BINARY_FILE }
-                  : 'tooLarge' in r && r.tooLarge
-                    ? { loading: false, note: TOO_LARGE }
-                    : {
-                        loading: false,
-                        error:
-                          ('error' in r ? r.error : undefined) ?? 'This file could not be read.',
-                      }
-          } else {
-            const r = await gitDiffFile({ machineId, root: cwd, path: entry.path })
-            next = r.ok
-              ? { loading: false, parsed: parseDiff(r.output) }
-              : { loading: false, error: r.output || 'git could not diff this file.' }
-          }
-        } catch (e) {
-          next = { loading: false, error: e instanceof Error ? e.message : String(e) }
-        }
-        if (!cache.active) return
-        runInAction(() => {
-          cache.states.set(entry.path, next)
-          // Folders, binaries, and errors are settled answers too.
-          cache.totals.settled += 1
-          cache.totals.added += next.parsed?.added ?? 0
-          cache.totals.removed += next.parsed?.removed ?? 0
-        })
-      })()
-    },
-    [cache, cwd, machineId, gitDiffFile, gitCommitDiffFile, readFileScoped, sources, commitSha],
-  )
-
-  // Selection is resolved once by the sheet; completions never search the rail.
-  useEffect(() => {
-    if (!entry) return
-    load(entry)
-  }, [entry, load])
-
-  return cache
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the inventory is part of this opening's identity.
+  const view = useMemo(() => new DiffView(cwd, machineId, { gitDiffFile, gitCommitDiffFile, readFileScoped }, sources, commitSha), [entries, cwd, machineId, sources, commitSha, gitDiffFile, gitCommitDiffFile, readFileScoped])
+  useEffect(() => () => view.close(), [view])
+  useEffect(() => { if (entry) void view.load(entry) }, [view, entry])
+  return view
 }
 
 // ---------------------------------------------------------------------------

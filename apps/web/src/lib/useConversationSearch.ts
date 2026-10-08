@@ -1,58 +1,27 @@
-import { useEffect, useRef, useState } from 'react'
+import { ConversationSearchView, type ConversationRecord } from '@podium/client-graph/conversation-search'
+import { useObserver } from 'mobx-react-lite'
+import { useEffect, useMemo } from 'react'
 import { useRuntimeSelector } from '@/app/store'
-import type { Trpc } from '@/app/trpc'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 
-/**
- * One conversation-search hit. Derived from the server's procedure return type
- * (not re-declared), so the shape can't silently drift from the index row — a
- * renamed/added column is a compile error at every use site.
- */
-export type ConversationHit = Awaited<ReturnType<Trpc['conversations']['search']['query']>>[number]
+export type ConversationHit = ConversationRecord
 
-/**
- * Debounced, race-guarded conversation search shared by the search modal, the
- * new-panel resume picker, and the superagent @-menu. The seq ref drops a slow
- * response for a stale query so it can't overwrite the current results.
- */
+/** Debounce and enabled state control when the view asks; its model owns the
+ * answer, record ids, loading/error and response fence. */
 export function useConversationSearch(opts: {
-  query: string
-  projectPath?: string
-  limit: number
-  /** When false, the hook does nothing and returns no hits (e.g. @-menu closed). */
-  enabled?: boolean
-  debounceMs?: number
-}): { hits: ConversationHit[]; busy: boolean } {
+  query: string; projectPath?: string; limit: number; enabled?: boolean; debounceMs?: number
+}): ConversationSearchView | null {
   const trpc = useRuntimeSelector((s) => s.trpc)
+  const pool = useWorklistPool()
+  const view = useMemo(() => pool ? new ConversationSearchView(pool, input => trpc.conversations.search.query(input)) : null, [pool, trpc])
   const { query, projectPath, limit, enabled = true, debounceMs = 160 } = opts
-  const [hits, setHits] = useState<ConversationHit[]>([])
-  const [busy, setBusy] = useState(false)
-  const seq = useRef(0)
-
   useEffect(() => {
-    if (!enabled) {
-      setHits([])
-      setBusy(false)
-      return
-    }
-    const mySeq = ++seq.current
-    setBusy(true)
-    const t = setTimeout(() => {
-      trpc.conversations.search
-        .query({
-          ...(query.trim() ? { query: query.trim() } : {}),
-          ...(projectPath ? { projectPath } : {}),
-          limit,
-        })
-        .then((rows) => {
-          if (seq.current === mySeq) setHits(rows)
-        })
-        .catch(() => {})
-        .finally(() => {
-          if (seq.current === mySeq) setBusy(false)
-        })
-    }, debounceMs)
-    return () => clearTimeout(t)
-  }, [trpc, query, projectPath, limit, enabled, debounceMs])
-
-  return { hits, busy }
+    if (!view) return
+    if (!enabled) { view.close(); return }
+    view.prepare()
+    const timer = setTimeout(() => { void view.search({ ...(query.trim() ? { query: query.trim() } : {}), ...(projectPath ? { projectPath } : {}), limit }) }, debounceMs)
+    return () => { clearTimeout(timer); view.cancel() }
+  }, [view, query, projectPath, limit, enabled, debounceMs])
+  useEffect(() => () => view?.close(), [view])
+  return useObserver(() => { void view?.hits; void view?.loading; void view?.error; return view })
 }

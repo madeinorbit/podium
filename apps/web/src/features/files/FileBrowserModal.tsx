@@ -1,20 +1,19 @@
+import { observer } from '@podium/client-graph/react'
+import { FileBrowserView } from './file-browser-view'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MachineId } from '@podium/model'
 import { isMachinePathWithinRoot, joinMachinePath, machinePathDirname } from '@podium/model'
 import { ChevronUp, Folder, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useRef, useState } from 'react'
-import { formatAppError } from '@/app/AppErrorPage'
+import { useEffect, useMemo } from 'react'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
-import { compareEntries } from './entry-order'
 import { FileTypeIcon } from './file-icon'
 
-type Entry = { name: string; isDir: boolean }
 
-export function FileBrowserModal({
+export const FileBrowserModal = observer(function FileBrowserModal({
   root,
   machineId,
   title,
@@ -27,42 +26,10 @@ export function FileBrowserModal({
 }): JSX.Element {
   const { listDir, openFileInWorktree } = useStoreHandle<Trpc>().access
   const isMobile = useIsMobile()
-  const [path, setPath] = useState(root)
-  const [entries, setEntries] = useState<Entry[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [resolvedRoot, setResolvedRoot] = useState<string | null>(null)
-  const resolvedRootRef = useRef<string | null>(null)
-
-  const load = useCallback(
-    async (next: string) => {
-      setLoading(true)
-      setError(null)
-      setEntries([])
-      try {
-        const r = await listDir({ machineId, root, path: next })
-        if (!r.ok) {
-          setError(r.error ?? 'Could not open directory')
-          return
-        }
-        if (resolvedRootRef.current === null) {
-          resolvedRootRef.current = r.path
-          setResolvedRoot(r.path)
-        }
-        setPath(r.path)
-        setEntries([...r.entries].sort(compareEntries))
-      } catch (e) {
-        setError(formatAppError(e, 'Could not open directory'))
-      } finally {
-        setLoading(false)
-      }
-    },
-    [listDir, machineId, root],
-  )
-
-  useEffect(() => {
-    void load(root)
-  }, [load, root])
+  const view = useMemo(() => new FileBrowserView(root, machineId, listDir), [root, machineId, listDir])
+  useEffect(() => { void view.open(); return () => view.close() }, [view])
+  const { path, entries, loading, error, resolvedRoot } = view
+  const load = (next: string): Promise<void> => view.open(next)
 
   const atRoot = resolvedRoot == null || path === resolvedRoot
   const parentCandidate = machinePathDirname(path)
@@ -150,4 +117,4 @@ export function FileBrowserModal({
       </DialogContent>
     </Dialog>
   )
-}
+})

@@ -1,7 +1,8 @@
+import { GitView, type ReviewDiffAnswer } from '@podium/client-graph/git-view'
 import { issueObserver as observer } from '../../client/issue-observer'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MachineId } from '@podium/model'
-import { memo, useCallback, useEffect, useRef, useState } from 'react'
+import { memo, useEffect, useMemo, useState } from 'react'
 import { ActivityIndicator, StyleSheet, Text, View } from 'react-native'
 import {
   type DiffRow,
@@ -10,31 +11,12 @@ import {
   entryStatus,
   GIT_DIFF_PAGE,
   GIT_FILE_PAGE,
-  type ParsedDiff,
-  parseDiff,
-  parseStatus,
-  type StatusEntry,
-  untrackedDiff,
 } from '../../lib/git-review'
 import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
 import { ChevronDown, ChevronRight, RefreshCw } from '../icons'
 import { PressableScale } from '../PressableScale'
 import { SectionHeading } from './chrome'
-
-type DiffState =
-  | { kind: 'loading' }
-  | { kind: 'ready'; parsed: ParsedDiff }
-  | { kind: 'note'; message: string }
-  | { kind: 'error'; message: string }
-
-interface FileReadResult {
-  ok: boolean
-  content?: string
-  error?: string
-  binary?: boolean
-  tooLarge?: boolean
-}
 
 /** Changed-file inventory and wrapped, per-file diffs on the task page. It uses
  * only the store's existing read-only Git and file contracts. */
@@ -46,138 +28,17 @@ export const GitReviewSection = observer(function GitReviewSection({
   machineId?: MachineId
 }) {
   const { gitStatus, readFileScoped, gitDiffFile } = useStoreHandle().access
-  const [header, setHeader] = useState<ReturnType<typeof parseStatus>['header'] | null>(null)
-  const [entries, setEntries] = useState<StatusEntry[]>([])
-  const [statusError, setStatusError] = useState<string | null>(null)
-  const [refreshing, setRefreshing] = useState(true)
-  const [openPath, setOpenPath] = useState<string | null>(null)
-  const [diffs, setDiffs] = useState<Record<string, DiffState>>({})
+  const view = useMemo(() => new GitView(root, machineId, { gitStatus, readFileScoped, gitDiffFile }), [root, machineId, gitStatus, readFileScoped, gitDiffFile])
+  useEffect(() => { void view.refresh(); return () => view.close() }, [view])
+  const header = view.reviewStatus?.header
+  const entries = view.reviewStatus?.entries ?? []
+  const statusError = view.error
+  const refreshing = view.inventory.loading
+  const { openPath, diffs } = view
   const [visibleFiles, setVisibleFiles] = useState(GIT_FILE_PAGE)
-  // One generation owns both status and its per-file reads. A Refresh begins
-  // a new snapshot immediately, so an older slow response cannot refill the
-  // cache after it was cleared.
-  const reviewGeneration = useRef(0)
-
-  const gitArgs = useCallback(
-    () => ({ root, ...(machineId === undefined ? {} : { machineId }) }),
-    [machineId, root],
-  )
-
-  const refresh = useCallback(async () => {
-    const generation = ++reviewGeneration.current
-    setRefreshing(true)
-    setStatusError(null)
-    setOpenPath(null)
-    setDiffs({})
-    try {
-      const result = await gitStatus(gitArgs())
-      if (generation !== reviewGeneration.current) return
-      if (!result.ok) throw new Error(result.output || 'Git status could not be read.')
-      const parsed = parseStatus(result.output)
-      setHeader(parsed.header)
-      setEntries(parsed.entries)
-      setVisibleFiles(GIT_FILE_PAGE)
-    } catch (error) {
-      if (generation !== reviewGeneration.current) return
-      setStatusError(error instanceof Error ? error.message : String(error))
-    } finally {
-      if (generation === reviewGeneration.current) setRefreshing(false)
-    }
-  }, [gitArgs, gitStatus])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
-
-  const loadDiff = useCallback(
-    async (entry: StatusEntry) => {
-      const generation = reviewGeneration.current
-      setDiffs((current) => ({ ...current, [entry.path]: { kind: 'loading' } }))
-      try {
-        let next: DiffState
-        if (entry.untracked && entry.path.endsWith('/')) {
-          next = { kind: 'note', message: 'Open this folder on desktop to review its contents.' }
-        } else if (entry.untracked) {
-          const result = (await readFileScoped(
-            { kind: 'worktree', root, ...(machineId === undefined ? {} : { machineId }) },
-            entry.path,
-          )) as FileReadResult
-          next =
-            result.ok && result.content !== undefined
-              ? { kind: 'ready', parsed: parseDiff(untrackedDiff(result.content)) }
-              : result.binary
-                ? { kind: 'note', message: 'Binary file. No text diff is available.' }
-                : result.tooLarge
-                  ? { kind: 'note', message: 'This file is too large for an inline review.' }
-                  : { kind: 'error', message: result.error || 'This file could not be read.' }
-        } else if (entry.renamedFrom && (entry.y === 'R' || entry.y === 'C')) {
-          // A worktree-only move is represented as an untracked destination
-          // plus a deleted source relative to HEAD. The one-path diff contract
-          // cannot include both halves, so combine its source deletion with the
-          // destination bytes from the existing scoped read contract.
-          const sourceResult = await gitDiffFile({
-            root,
-            path: entry.renamedFrom,
-            ...(machineId === undefined ? {} : { machineId }),
-          })
-          const destinationResult = (await readFileScoped(
-            { kind: 'worktree', root, ...(machineId === undefined ? {} : { machineId }) },
-            entry.path,
-          )) as FileReadResult
-          next = !sourceResult.ok
-            ? { kind: 'error', message: sourceResult.output || 'Git could not diff this file.' }
-            : destinationResult.ok && destinationResult.content !== undefined
-              ? {
-                  kind: 'ready',
-                  parsed: parseDiff(
-                    [sourceResult.output, untrackedDiff(destinationResult.content)]
-                      .filter(Boolean)
-                      .join('\n'),
-                  ),
-                }
-              : destinationResult.binary
-                ? { kind: 'note', message: 'Binary file. No text diff is available.' }
-                : destinationResult.tooLarge
-                  ? { kind: 'note', message: 'This file is too large for an inline review.' }
-                  : {
-                      kind: 'error',
-                      message: destinationResult.error || 'This file could not be read.',
-                    }
-        } else {
-          const result = await gitDiffFile({
-            root,
-            path: entry.path,
-            ...(machineId === undefined ? {} : { machineId }),
-          })
-          next = result.ok
-            ? { kind: 'ready', parsed: parseDiff(result.output) }
-            : { kind: 'error', message: result.output || 'Git could not diff this file.' }
-        }
-        if (generation === reviewGeneration.current) {
-          setDiffs((current) => ({ ...current, [entry.path]: next }))
-        }
-      } catch (error) {
-        if (generation !== reviewGeneration.current) return
-        setDiffs((current) => ({
-          ...current,
-          [entry.path]: {
-            kind: 'error',
-            message: error instanceof Error ? error.message : String(error),
-          },
-        }))
-      }
-    },
-    [machineId, root, gitDiffFile, readFileScoped],
-  )
-
-  const toggle = (entry: StatusEntry): void => {
-    if (openPath === entry.path) {
-      setOpenPath(null)
-      return
-    }
-    setOpenPath(entry.path)
-    if (!diffs[entry.path]) void loadDiff(entry)
-  }
+  useEffect(() => { if (view.inventory.answer?.status.ok) setVisibleFiles(GIT_FILE_PAGE) }, [view.inventory.answer])
+  const refresh = (): Promise<void> => view.refresh()
+  const toggle = (entry: Parameters<GitView['toggleFile']>[0]): void => view.toggleFile(entry)
 
   const branchDetail = header
     ? [
@@ -279,9 +140,9 @@ export const GitReviewSection = observer(function GitReviewSection({
   )
 })
 
-const DiffBody = memo(function DiffBody({ state }: { state: DiffState | undefined }) {
+const DiffBody = memo(function DiffBody({ state }: { state: ReviewDiffAnswer | undefined }) {
   const [visibleRows, setVisibleRows] = useState(GIT_DIFF_PAGE)
-  if (!state || state.kind === 'loading') {
+  if (!state || state.loading) {
     return (
       <View style={styles.diffMessage}>
         <ActivityIndicator size="small" color={color.textFaint} />
@@ -289,9 +150,10 @@ const DiffBody = memo(function DiffBody({ state }: { state: DiffState | undefine
       </View>
     )
   }
-  if (state.kind === 'error') return <Text style={styles.diffError}>{state.message}</Text>
-  if (state.kind === 'note') return <Text style={styles.note}>{state.message}</Text>
-  const { parsed } = state
+  if (state.error) return <Text style={styles.diffError}>{state.error}</Text>
+  if (state.answer?.note) return <Text style={styles.note}>{state.answer.note}</Text>
+  const parsed = state.answer?.parsed
+  if (!parsed) return null
   if (parsed.rows.length === 0) {
     return <Text style={styles.note}>No text diff for this file.</Text>
   }

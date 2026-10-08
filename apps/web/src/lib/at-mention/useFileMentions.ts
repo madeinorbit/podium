@@ -1,8 +1,9 @@
 import type { MachineId } from '@podium/model'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo } from 'react'
+import { useObserver } from 'mobx-react-lite'
 import { useRuntimeSelector } from '@/app/store'
 import type { AtOption } from './at-mention'
-import { fileMentions } from './mention-sources'
+import { FileMentionView } from '../search-views'
 
 /**
  * FILE ROWS FOR THE @-MENU (POD-412), scoped to one checkout.
@@ -37,36 +38,13 @@ export function useFileMentions({
   debounceMs?: number
 }): AtOption[] {
   const trpc = useRuntimeSelector((s) => s.trpc)
-  const [options, setOptions] = useState<AtOption[]>([])
-  const seq = useRef(0)
-
+  const view = useMemo(() => new FileMentionView(trpc), [trpc])
   useEffect(() => {
-    // A bare `@` offers no files. With nothing typed there is no such thing as a
-    // relevant path — the shallowest six files in a repository are `LICENSE` and
-    // friends, which is noise sitting on top of the issues, which ARE meaningful
-    // unqueried (the ones touched most recently). One character in, files earn
-    // their place.
-    const active = enabled && !!query && !!root && root !== '/'
-    if (!active) {
-      setOptions([])
-      return
-    }
-    const mySeq = ++seq.current
-    const timer = setTimeout(() => {
-      trpc.files.search
-        .query({ root, query, limit, ...(machineId ? { machineId } : {}) })
-        .then((result) => {
-          if (seq.current === mySeq) setOptions(fileMentions(result.paths))
-        })
-        // A picker is a convenience: a checkout that cannot be read (offline
-        // machine, not a git repository) offers no file rows and says nothing.
-        // The issue rows beside them are unaffected.
-        .catch(() => {
-          if (seq.current === mySeq) setOptions([])
-        })
-    }, debounceMs)
-    return () => clearTimeout(timer)
-  }, [trpc, query, root, machineId, enabled, limit, debounceMs])
-
-  return options
+    if (!enabled || !query || !root || root === '/') { view.close(); return }
+    view.prepare()
+    const timer = setTimeout(() => { void view.search({ root, query, limit, ...(machineId ? { machineId } : {}) }) }, debounceMs)
+    return () => { clearTimeout(timer); view.cancel() }
+  }, [view, query, root, machineId, enabled, limit, debounceMs])
+  useEffect(() => () => view.close(), [view])
+  return useObserver(() => view.options)
 }

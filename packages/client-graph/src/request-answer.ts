@@ -31,6 +31,14 @@ export class RequestAnswer<T> {
     }
   }
 
+  /** A debounce belongs to this question too: fence its predecessor now. */
+  @action prepare(clear = false): void {
+    ++this.sequence
+    this.loading = true
+    this.error = null
+    if (clear) this.answer = undefined
+  }
+
   /** Invalidate a pending/debounced read without discarding the last reading. */
   @action cancel(): void {
     ++this.sequence

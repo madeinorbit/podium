@@ -26,7 +26,7 @@ export class FileDocumentView extends RequestAnswer<ReadResult> {
   @observable accessor saving = false
   @observableRef accessor saveFeedback: Feedback | null = null
   @observable accessor reloadNonce = 0
-  private savedContent = ''
+  @observable private accessor savedContent = ''
   private generation = 0
   constructor(readonly scope: FileScope, readonly path: string, private readonly ports: DocumentPorts, private readonly notices: DocumentNotices) { super() }
   @lazy get editable(): boolean { return this.scope.kind !== 'artifact' }

@@ -1,10 +1,12 @@
+import { observer } from '@podium/client-graph/react'
+import { GitView } from '@podium/client-graph/git-view'
 import { relativeTime } from '@podium/client-core/focus'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { MachineId } from '@podium/model/browser'
 import { ChevronRight, GitBranch, Maximize2, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { GitStamp } from '@/components/GitStamp'
 import { Button } from '@/components/ui/button'
 import { DiffSheet } from './DiffSheet'
@@ -13,14 +15,8 @@ import {
   entryTitle,
   entryTone,
   type LogEntry,
-  parseCommitFiles,
-  parseLog,
-  parseStatus,
   type StatusEntry,
 } from './git-panel'
-
-/** An unfolded commit's file list: in flight, arrived, or refused. */
-type CommitFilesState = { loading: boolean; entries?: StatusEntry[]; error?: string }
 
 /** Three lines of plausible path lengths — enough to read as a list arriving,
  *  short enough that it never claims a size the answer might not have. */
@@ -94,7 +90,7 @@ function FileRow({
  * "nothing changed" about a landed change, which is why the commit ops are
  * their own pair rather than the working-tree one pointed at a sha.
  */
-export function GitPanelView({
+export const GitPanelView = observer(function GitPanelView({
   cwd,
   machineId,
   issue,
@@ -103,79 +99,20 @@ export function GitPanelView({
   machineId?: MachineId
   issue?: IssueViewModel
 }): JSX.Element {
-  const { gitStatus, gitLog, gitCommitFiles } = useStoreHandle().access
-  const [status, setStatus] = useState<ReturnType<typeof parseStatus> | null>(null)
-  const [log, setLog] = useState<LogEntry[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
+  const access = useStoreHandle().access
+  const { gitStatus, gitLog, gitCommitFiles, gitDiffFile, readFileScoped } = access
+  const view = useMemo(() => new GitView(cwd, machineId, { gitStatus, gitLog, gitCommitFiles, gitDiffFile, readFileScoped }), [cwd, machineId, gitStatus, gitLog, gitCommitFiles, gitDiffFile, readFileScoped])
+  useEffect(() => { void view.refresh(true); return () => view.close() }, [view])
+  const { status, log, error, now, openShas, commitFiles } = view
+  const loading = view.inventory.loading
+  const refresh = (): Promise<void> => view.refresh(true)
+  const toggleCommit = (sha: string): void => view.toggleCommit(sha)
   /**
    * What the diff sheet is open on; null while it is closed. A `commit` makes
    * the path a file INSIDE that commit rather than one in the working tree —
    * the same sheet, reading from history instead of from disk.
    */
   const [reading, setReading] = useState<{ path: string; commit?: LogEntry } | null>(null)
-  const [now, setNow] = useState(() => Date.now())
-  /** Which commit rows are unfolded, and what each one's file list came back as. */
-  const [openShas, setOpenShas] = useState<ReadonlySet<string>>(() => new Set<string>())
-  const [commitFiles, setCommitFiles] = useState<Record<string, CommitFilesState>>({})
-  const filesInflight = useRef(new Set<string>())
-
-  const refresh = useCallback(async () => {
-    setLoading(true)
-    try {
-      const [st, lg] = await Promise.all([
-        gitStatus({ machineId, root: cwd }),
-        gitLog({ machineId, root: cwd }),
-      ])
-      setError(st.ok ? null : st.output || 'git status failed')
-      setStatus(st.ok ? parseStatus(st.output) : null)
-      setLog(lg.ok ? parseLog(lg.output) : [])
-      setNow(Date.now())
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e))
-    } finally {
-      setLoading(false)
-    }
-  }, [gitStatus, gitLog, machineId, cwd])
-
-  useEffect(() => {
-    void refresh()
-  }, [refresh])
-
-  /**
-   * Unfold: fetch the commit's file list once. A sha IS its content, so this
-   * cache never goes stale and a refresh deliberately does not clear it — the
-   * files of `88af79d` are the files of `88af79d` for as long as the repo
-   * exists. Re-folding a row keeps them, so the second look is instant.
-   */
-  useEffect(() => {
-    for (const sha of openShas) {
-      if (commitFiles[sha] || filesInflight.current.has(sha)) continue
-      filesInflight.current.add(sha)
-      setCommitFiles((prev) => ({ ...prev, [sha]: { loading: true } }))
-      void (async () => {
-        let next: CommitFilesState
-        try {
-          const r = await gitCommitFiles({ machineId, root: cwd, sha })
-          next = r.ok
-            ? { loading: false, entries: parseCommitFiles(r.output) }
-            : { loading: false, error: r.output || 'git could not read this commit.' }
-        } catch (e) {
-          next = { loading: false, error: e instanceof Error ? e.message : String(e) }
-        }
-        setCommitFiles((prev) => ({ ...prev, [sha]: next }))
-      })()
-    }
-  }, [openShas, commitFiles, gitCommitFiles, machineId, cwd])
-
-  const toggleCommit = useCallback((sha: string) => {
-    setOpenShas((prev) => {
-      const next = new Set(prev)
-      if (!next.delete(sha)) next.add(sha)
-      return next
-    })
-  }, [])
-
   const header = status?.header
   const attributed = new Set(issue?.gitState?.commits ?? [])
   const readingCommitFiles = reading?.commit ? (commitFiles[reading.commit.sha]?.entries ?? []) : []
@@ -408,4 +345,4 @@ export function GitPanelView({
       ) : null}
     </div>
   )
-}
+})

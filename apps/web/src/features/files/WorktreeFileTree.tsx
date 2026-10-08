@@ -1,23 +1,19 @@
+import { observer } from '@podium/client-graph/react'
+import { FileTreeView } from './file-tree-view'
 import { useStoreHandle } from '@podium/client-core/react'
 import { basename } from '@podium/client-core/values'
 import type { MachineId } from '@podium/model'
 import { joinMachinePath, machinePathBasename, machinePathDirname, machinePathRelativeToRoot, resolveMachinePath } from '@podium/model'
 import { ChevronDown, ChevronRight, Folder, FolderOpen, RefreshCw, Search, X } from 'lucide-react'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useId, useRef, useState } from 'react'
-import { formatAppError } from '@/app/AppErrorPage'
+import { useEffect, useId, useMemo, useRef, useState } from 'react'
 import { useClickIntent } from '@/app/click-intent'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { compareEntries } from './entry-order'
 import { FileTypeIcon } from './file-icon'
 
 type Entry = { name: string; isDir: boolean }
-
-function sortEntries(entries: Entry[]): Entry[] {
-  return [...entries].sort(compareEntries)
-}
 
 /**
  * ONE ROW OF THE TREE, on the flight deck's open contract (POD-788).
@@ -160,7 +156,7 @@ function SearchResultRow({
 
 /** Lazy collapsible file tree over a worktree checkout. State is keyed per-root
  *  by the parent (via `key={root}`), so switching sessions re-roots cleanly. */
-export function WorktreeFileTree({
+export const WorktreeFileTree = observer(function WorktreeFileTree({
   root,
   machineId,
 }: {
@@ -168,82 +164,26 @@ export function WorktreeFileTree({
   machineId?: MachineId
 }): JSX.Element {
   const { listDir, openFileInWorktree, trpc } = useStoreHandle<Trpc>().access
-  // dir path → its listed entries (presence = loaded); separate expanded set.
-  const [children, setChildren] = useState<Record<string, Entry[]>>({})
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
-  const [loadingDirs, setLoadingDirs] = useState<Set<string>>(new Set())
-  const [error, setError] = useState<string | null>(null)
+  const view = useMemo(() => new FileTreeView(root, machineId, { listDir, trpc }), [root, machineId, listDir, trpc])
+  const { children, expanded, loadingDirs, error } = view
   const [query, setQuery] = useState('')
-  const [searchPaths, setSearchPaths] = useState<string[]>([])
-  const [searching, setSearching] = useState(false)
-  const [searchError, setSearchError] = useState(false)
+  const searchPaths = view.search.answer ?? []
+  const searching = view.search.loading
+  const searchError = view.search.error
   const [activeSearchIndex, setActiveSearchIndex] = useState(0)
   const searchRef = useRef<HTMLInputElement | null>(null)
-  const searchSeq = useRef(0)
   const searchListId = useId()
   const searchInputId = useId()
 
-  const load = useCallback(
-    async (dir: string) => {
-      setLoadingDirs((s) => new Set(s).add(dir))
-      try {
-        const r = await listDir({ machineId, root, path: dir })
-        if (!r.ok) {
-          setError(r.error ?? 'Could not open directory')
-          return
-        }
-        setError(null)
-        // Key by the requested dir (not r.path) so child lookups by joined path hit.
-        setChildren((c) => ({ ...c, [dir]: sortEntries(r.entries) }))
-      } catch (e) {
-        setError(formatAppError(e, 'Could not open directory'))
-      } finally {
-        setLoadingDirs((s) => {
-          const next = new Set(s)
-          next.delete(dir)
-          return next
-        })
-      }
-    },
-    [listDir, machineId, root],
-  )
-
-  useEffect(() => {
-    void load(root)
-  }, [load, root])
-
+  useEffect(() => { void view.load(root); return () => view.close() }, [view, root])
   useEffect(() => {
     const trimmed = query.trim()
-    const seq = ++searchSeq.current
-    if (!trimmed) {
-      setSearchPaths([])
-      setActiveSearchIndex(0)
-      setSearching(false)
-      setSearchError(false)
-      return
-    }
-    setSearching(true)
-    setSearchPaths([])
-    setSearchError(false)
-    const timer = setTimeout(() => {
-      trpc.files.search
-        .query({ root, query: trimmed, limit: 50, ...(machineId ? { machineId } : {}) })
-        .then((result) => {
-          if (searchSeq.current !== seq) return
-          setSearchPaths(result.paths)
-          setActiveSearchIndex(0)
-          setSearching(false)
-        })
-        .catch(() => {
-          if (searchSeq.current !== seq) return
-          setSearchPaths([])
-          setActiveSearchIndex(0)
-          setSearching(false)
-          setSearchError(true)
-        })
-    }, 120)
-    return () => clearTimeout(timer)
-  }, [machineId, query, root, trpc])
+    if (!trimmed) { view.search.close(); setActiveSearchIndex(0); return }
+    view.search.prepare(true)
+    const timer = setTimeout(() => { void view.searchFiles(trimmed) }, 120)
+    return () => { clearTimeout(timer); view.search.cancel() }
+  }, [view, query])
+  useEffect(() => { setActiveSearchIndex(0) }, [view.search.answer])
 
   useEffect(() => {
     if (!query.trim() || !searchPaths[activeSearchIndex]) return
@@ -252,24 +192,8 @@ export function WorktreeFileTree({
       ?.scrollIntoView?.({ block: 'nearest' })
   }, [activeSearchIndex, query, searchListId, searchPaths])
 
-  const toggleDir = (dir: string) => {
-    setExpanded((s) => {
-      const next = new Set(s)
-      if (next.has(dir)) {
-        next.delete(dir)
-      } else {
-        next.add(dir)
-      }
-      return next
-    })
-    if (children[dir] === undefined) void load(dir)
-  }
-
-  const refresh = () => {
-    setChildren({})
-    setExpanded(new Set())
-    void load(root)
-  }
+  const toggleDir = (dir: string): void => view.toggleDir(dir)
+  const refresh = (): void => view.refresh()
 
   const openSearchPath = (path: string, permanent: boolean): void => {
     openFileInWorktree({
@@ -466,4 +390,4 @@ export function WorktreeFileTree({
       </div>
     </div>
   )
-}
+})

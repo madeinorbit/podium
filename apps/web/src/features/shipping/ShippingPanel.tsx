@@ -1,3 +1,5 @@
+import { observer } from '@podium/client-graph/react'
+import { ReceiptView } from './receipt-view'
 import {
   shippingActivityLabel,
   shippingElapsed,
@@ -6,7 +8,6 @@ import {
   type ShippingWaitingLane,
 } from '@podium/client-core/values'
 import type {
-  DeliveryReceipt,
   ShipHoldAction,
   ShipLaneProjection,
   ShipOrderId,
@@ -221,40 +222,17 @@ function ReceiptValue({ children }: { children: string }): JSX.Element {
   return <code title={children}>{children}</code>
 }
 
-type ReceiptState =
-  | { kind: 'loading' }
-  | { kind: 'loaded'; receipt: DeliveryReceipt | null }
-  | { kind: 'error'; message: string }
-
-function DeliveryReceiptDetail({
+const DeliveryReceiptDetail = observer(function DeliveryReceiptDetail({
   orderId,
   commands,
 }: {
   orderId: ShipOrderId
   commands: ShippingPanelCommands
 }): JSX.Element {
-  const [reload, setReload] = useState(0)
-  const [state, setState] = useState<ReceiptState>({ kind: 'loading' })
+  const view = useMemo(() => new ReceiptView(orderId, commands), [orderId, commands])
+  useEffect(() => { void view.refresh(); return () => view.close() }, [view])
 
-  useEffect(() => {
-    let current = true
-    setState({ kind: 'loading' })
-    void commands.getReceipt({ orderId }).then(
-      (receipt) => {
-        if (current) setState({ kind: 'loaded', receipt })
-      },
-      (error) => {
-        if (current) {
-          setState({ kind: 'error', message: formatAppError(error, 'Could not load receipt') })
-        }
-      },
-    )
-    return () => {
-      current = false
-    }
-  }, [commands, orderId, reload])
-
-  if (state.kind === 'loading') {
+  if (view.loading || view.answer === undefined && !view.error) {
     return (
       <section
         className="border-t border-hairline-soft px-3.5 py-3"
@@ -273,7 +251,7 @@ function DeliveryReceiptDetail({
     )
   }
 
-  if (state.kind === 'error') {
+  if (view.error) {
     return (
       <section
         className="border-t border-hairline-soft px-3.5 py-3"
@@ -286,13 +264,13 @@ function DeliveryReceiptDetail({
           DELIVERY RECEIPT
         </h4>
         <p className="mt-2 text-[10.5px] leading-4 text-destructive" role="alert">
-          {state.message}
+          {view.error}
         </p>
         <button
           data-pressable
           type="button"
           className="mt-2 rounded-md border border-border px-2.5 py-1.5 text-[10.5px] font-medium text-foreground hover:bg-secondary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/35"
-          onClick={() => setReload((value) => value + 1)}
+          onClick={() => void view.refresh()}
         >
           Try again
         </button>
@@ -300,7 +278,7 @@ function DeliveryReceiptDetail({
     )
   }
 
-  if (!state.receipt) {
+  if (!view.answer) {
     return (
       <section
         className="border-t border-hairline-soft px-3.5 py-3"
@@ -319,7 +297,7 @@ function DeliveryReceiptDetail({
     )
   }
 
-  const receipt = state.receipt
+  const receipt = view.answer
   const completedAt = new Date(receipt.completedAt)
   return (
     <section className="border-t border-hairline-soft" aria-labelledby="delivery-receipt-title">
@@ -368,7 +346,7 @@ function DeliveryReceiptDetail({
       </p>
     </section>
   )
-}
+})
 
 type CommandFeedback =
   | { kind: 'idle' }
