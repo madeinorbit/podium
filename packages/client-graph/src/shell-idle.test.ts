@@ -108,3 +108,22 @@ it('preserves live shell color and mission answers through keyed ancestry change
     f.pool.dispose()
   }
 })
+
+
+it('keeps an archived selected child summary-only while its mission stays visible', () => {
+  const f = shellFixture(), views = shellViews(f.pool)
+  const archived = { ...f.issues[1]!, archived: true, stage: 'done' as const }
+  f.issues[1] = archived
+  try {
+    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: archived.id,
+      value: archived }] as never })
+    const chrome = views.chrome()
+    expect(chrome).not.toBe(LOADING)
+    expect(chrome).toHaveProperty('colorIssue', undefined)
+    expect(chrome).toHaveProperty('missionRoot.id', f.issues[0]!.id)
+    expect(f.pool.hydrate()).toBe(0)
+    expect(f.loads).toEqual([])
+  } finally {
+    f.pool.dispose()
+  }
+})

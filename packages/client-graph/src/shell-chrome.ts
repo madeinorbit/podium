@@ -17,6 +17,9 @@ class ShellIssue {
     if (row === LOADING) { void this.pool.row('issue', this.id); return LOADING }
     return row ? true : undefined
   }
+  // Color selection is summary-only, including an archived child of a live
+  // mission. The mission itself still demands its full row below.
+  @lazy get colorSelectable() { return !this.issue.archived && !this.issue.deletedAt }
   @lazy get color() { return this.issue.color }
   @lazy get parentId() { return this.issue.parentId }
   @lazy private get type() { return this.issue.type }
@@ -49,7 +52,7 @@ export class ShellChrome {
     if (!state.selectedIssueId) return undefined
     const value = this.issue(this.pool.issueObject(state.selectedIssueId))
     if (value.known === LOADING) return LOADING
-    return value.known && value.issue.visible ? value : undefined
+    return value.known && value.colorSelectable ? value : undefined
   }
   @lazy private get colorsReady(): Loaded<boolean> {
     let current = this.colorIssue
