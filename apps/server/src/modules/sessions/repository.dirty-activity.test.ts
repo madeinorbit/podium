@@ -49,7 +49,16 @@ function fixture(count: number) {
   return { repo, rows, sessions, store, written, projected }
 }
 
-const flushCandidate = (repo: SessionRepository) => repo.flushDirtyActivity()
+// The pre-queue algorithm, retained as the same-fixture behavioral oracle.
+async function oldFlush(f: ReturnType<typeof fixture>): Promise<void> {
+  for (const session of f.sessions.values()) {
+    if (session.terminal.activityDirty && await f.repo.persistActivityIfWritable(session)) {
+      session.terminal.clearActivityDirty()
+    }
+  }
+}
+
+const flushCandidate = (repo: SessionRepository) => repo.flushActivity()
 
 const mutations: [string, (s: Session) => void][] = [
   ['resume', (s) => s.terminal.recordResumeActivity()],
@@ -73,7 +82,7 @@ describe('changed session activity saving', () => {
       f.store.transferFenceActive = true
     }
     const compare = async () => {
-      await old.repo.flushActivity()
+      await oldFlush(old)
       await flushCandidate(candidate.repo)
       expect(candidate.written).toEqual(old.written)
       expect(candidate.projected).toEqual(old.projected)
@@ -92,7 +101,7 @@ describe('changed session activity saving', () => {
       f.rows[0]!.terminal.recordInputActivity()
       f.store.sessions.upsertSession.mockRejectedValueOnce(new Error('retry'))
     }
-    await expect(old.repo.flushActivity()).rejects.toThrow('retry')
+    await expect(oldFlush(old)).rejects.toThrow('retry')
     await expect(flushCandidate(candidate.repo)).rejects.toThrow('retry')
     await compare()
     expect(candidate.written).toHaveLength(6)
@@ -173,6 +182,20 @@ describe('changed session activity saving', () => {
     clean.terminal.recordInputActivity()
     await flushCandidate(f.repo)
     expect(f.written.map((row) => row.id)).toEqual(['dirty-2', 'dirty-1'])
+  })
+
+  it('retains the failed ID and the unvisited backlog for a later retry', async () => {
+    const f = fixture(2)
+    f.rows.forEach((s) => s.terminal.recordResumeActivity())
+    await flushCandidate(f.repo) // Establish the durable baselines first.
+    f.written.length = 0
+    f.rows.forEach((s) => s.terminal.recordInputActivity())
+    f.store.sessions.upsertSession.mockRejectedValueOnce(new Error('retry'))
+    await expect(flushCandidate(f.repo)).rejects.toThrow('retry')
+    expect(f.rows.every((s) => s.terminal.activityDirty)).toBe(true)
+    await flushCandidate(f.repo)
+    expect(f.written.map((row) => row.id)).toEqual(['dirty-0', 'dirty-1'])
+    expect(f.rows.every((s) => !s.terminal.activityDirty)).toBe(true)
   })
 
   it('drops removed and explicitly cleaned sessions without writing them', async () => {

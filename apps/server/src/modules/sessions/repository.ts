@@ -739,33 +739,8 @@ export class SessionRepository {
     return true
   }
 
-  /** Persist every session whose activity counters advanced since the last flush.
-   *  Keeps the per-frame / per-keystroke path off the DB — the timer above calls
-   *  this on a coarse interval, so a busy session writes at most once per tick. */
-  async flushActivity(): Promise<void> {
-    // SINGLE-FLIGHT (POD-3258). The dirty flag is cleared AFTER the persist, so
-    // it is only a fence while the pair is one uninterrupted turn. Once the
-    // persist awaits, an overlapping flush walks the same map, finds the same
-    // session still marked dirty, and persists the row a second time — two
-    // ledger commits and two projections for one counter advance. Skipped, not
-    // queued: `activityDirty` is the durable-ish record of what still needs
-    // writing, so anything this pass does not reach stays marked and goes out on
-    // the next 12 s tick.
-    if (this.flushingActivity) return
-    this.flushingActivity = true
-    try {
-      for (const s of this.sessions.values()) {
-        if (s.terminal.activityDirty && (await this.persistActivityIfWritable(s))) {
-          s.terminal.clearActivityDirty()
-        }
-      }
-    } finally {
-      this.flushingActivity = false
-    }
-  }
-
   /** Drain only the IDs dirty at entry; newer activity stays queued for the next tick. */
-  async flushDirtyActivity(): Promise<void> {
+  async flushActivity(): Promise<void> {
     if (this.flushingActivity) return
     this.flushingActivity = true
     try {
