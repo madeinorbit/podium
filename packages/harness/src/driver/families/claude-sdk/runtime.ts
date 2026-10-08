@@ -634,7 +634,9 @@ export function createClaudeSdkRuntime(
           ? ('auth-expired' as const)
           : failure.errorClass === 'usage_limit' || failure.errorClass === 'rate_limit'
             ? ('rate-limit' as const)
-            : ('provider-error' as const)
+            : failure.errorClass === 'timeout'
+              ? ('timeout' as const)
+              : ('provider-error' as const)
       const disposition = interrupted
         ? ('retryable' as const)
         : failure.errorClass === 'authentication'

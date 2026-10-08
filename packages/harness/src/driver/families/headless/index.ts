@@ -16,7 +16,6 @@ export {
   runHostedHeadlessTurn,
 } from './turn.js'
 export {
-  DEFAULT_HEADLESS_TURN_TIMEOUT_MS,
   type HeadlessEmit,
   HeadlessTurnError,
   type HeadlessTurnHandle,

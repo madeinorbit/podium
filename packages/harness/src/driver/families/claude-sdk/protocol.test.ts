@@ -444,6 +444,31 @@ describe('the stream client', () => {
     }
   })
 
+  it('lets a turn without a deadline run as long as it takes', async () => {
+    vi.useFakeTimers()
+    try {
+      const fake = fakeTransport()
+      const client = createClaudeStreamClient(fake.transport, {})
+      const turn = client.turn('hello', {
+        onPartialText: () => {},
+        onPermission: () => {},
+        onToolCall: () => {},
+        onToolResult: () => {},
+        emit: () => {},
+      })
+      completeTurn(fake, 'sess-long')
+      await vi.advanceTimersByTimeAsync(3_600_000)
+      const interrupts = fake.writes
+        .map((line) => JSON.parse(line))
+        .filter((msg) => msg.type === 'control_request' && msg.request?.subtype === 'interrupt')
+      expect(interrupts).toEqual([])
+      fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'all of it' }))
+      await expect(turn.done).resolves.toMatchObject({ output: 'all of it' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('reports a result error with the harness session id attached', async () => {
     const fake = fakeTransport()
     const client = createClaudeStreamClient(fake.transport, {})

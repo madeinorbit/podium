@@ -11,8 +11,6 @@ import type { AccountId, HarnessAgent, SessionId } from '@podium/model'
 import type { HeadlessTurnEvent } from '@podium/protocol'
 import { HeadlessTurnFailure } from '../turn-error.js'
 
-export const DEFAULT_HEADLESS_TURN_TIMEOUT_MS = 600_000
-
 export interface HeadlessTurnSpec {
   agent: HarnessAgent
   accountId: AccountId
@@ -32,6 +30,8 @@ export interface HeadlessTurnSpec {
   resumeValue?: string
   /** Server pre-minted first-turn session id (pre-mintable harnesses). */
   sessionUuid?: string
+  /** Deadline for the turn, kept across a daemon restart. Absent = no
+   *  deadline: the turn runs until it ends or is interrupted. */
   timeoutMs?: number
   /** Instance-owned child environment (HOME + CLI/session routing). */
   env?: Record<string, string>

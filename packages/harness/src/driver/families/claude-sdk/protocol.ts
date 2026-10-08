@@ -44,8 +44,6 @@ import { formatClaudeSdkResultFailure, redactClaudeSdkFailureDetail } from './cl
 
 export { HeadlessTurnFailure }
 
-/** How long a turn may run before the client interrupts and kills its grace. */
-export const CLAUDE_STREAM_DEFAULT_TURN_TIMEOUT_MS = 600_000
 /**
  * How long an operator interrupt waits for the CLI's own verdict before the
  * answer degrades to `unconfirmed`. Bounds the REPORT, not the wind-down —
@@ -89,6 +87,9 @@ export interface ClaudeStreamTurnSpec {
   structuredPermissions?: true
   /** Instance-owned child environment (HOME + CLI/session routing). */
   env?: Record<string, string>
+  /** Deadline for one turn, after which the client interrupts it and fails it
+   *  as timed out. Absent = no deadline: an agent turn runs until it ends or
+   *  the operator stops it. */
   timeoutMs?: number
 }
 
@@ -455,8 +456,7 @@ export function createClaudeStreamClient(
         settled: boolean
         resolve(value: ClaudeStreamTurnOutcome): void
         reject(error: Error): void
-        timer: ReturnType<typeof setTimeout>
-        killTimer?: ReturnType<typeof setTimeout>
+        timer?: ReturnType<typeof setTimeout>
       }
     | undefined
 
@@ -482,7 +482,6 @@ export function createClaudeStreamClient(
     turn.settled = true
     clearOpenTurn(turn)
     clearTimeout(turn.timer)
-    if (turn.killTimer) clearTimeout(turn.killTimer)
     const failure = new HeadlessTurnFailure(message, sessionId || undefined)
     turn.refuse(failure)
     turn.reject(failure)
@@ -494,7 +493,6 @@ export function createClaudeStreamClient(
     turn.settled = true
     clearOpenTurn(turn)
     clearTimeout(turn.timer)
-    if (turn.killTimer) clearTimeout(turn.killTimer)
     // A turn that ran to its end without the CLI ever acking the line proved
     // nothing about the line: unaccepted, whatever the turn produced.
     turn.refuse(
@@ -976,17 +974,16 @@ export function createClaudeStreamClient(
         settled: false,
         resolve,
         reject,
-        timer: setTimeout(() => undefined, 0),
       }
-      clearTimeout(turn.timer)
-      const timeoutMs = spec.timeoutMs ?? CLAUDE_STREAM_DEFAULT_TURN_TIMEOUT_MS
-      turn.timer = setTimeout(() => {
-        const current = openTurn
-        if (!current || current.settled) return
-        current.timedOut = true
-        sendInterrupt()
-      }, timeoutMs)
-      turn.timer.unref?.()
+      if (spec.timeoutMs !== undefined) {
+        turn.timer = setTimeout(() => {
+          const current = openTurn
+          if (!current || current.settled) return
+          current.timedOut = true
+          sendInterrupt()
+        }, spec.timeoutMs)
+        turn.timer.unref?.()
+      }
       openTurn = turn
       callbacks.emit({ kind: 'status', status: 'starting' })
       // The first turn waits for the handshake: a user line before the

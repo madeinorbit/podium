@@ -102,7 +102,7 @@ export interface TurnInput {
    *
    * Distinct from `ProcedureOptions.timeoutMs`, which bounds the caller's
    * WAIT: this bounds the harness child itself, exactly as the legacy
-   * `HeadlessTurnRequestMessage.timeoutMs` did. Absent = runner default.
+   * `HeadlessTurnRequestMessage.timeoutMs` did. Absent = no deadline.
    */
   timeoutMs?: number
   /**

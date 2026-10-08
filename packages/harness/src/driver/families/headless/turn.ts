@@ -38,7 +38,6 @@ import {
   needsAllocation,
 } from './invocation.js'
 import {
-  DEFAULT_HEADLESS_TURN_TIMEOUT_MS,
   type HeadlessEmit,
   HeadlessTurnError,
   type HeadlessTurnHandle,
@@ -252,7 +251,7 @@ export function runHostedHeadlessTurn(
   const headless = headlessFor(spec.agent)
   const now = deps.now ?? Date.now
   const identityHash = turnIdentityHash(identity)
-  const timeoutMs = spec.timeoutMs ?? DEFAULT_HEADLESS_TURN_TIMEOUT_MS
+  const timeoutMs = spec.timeoutMs
   const structured = spec.structuredPermissions === true
 
   let settled = false
@@ -341,6 +340,7 @@ export function runHostedHeadlessTurn(
   }
 
   const armDeadline = (createdAt: number): void => {
+    if (timeoutMs === undefined) return
     const remaining = Math.max(1, timeoutMs - (now() - createdAt))
     deadline = setTimeout(() => {
       if (settled || disposed) return
@@ -470,7 +470,7 @@ export function runHostedHeadlessTurn(
     const client = createClaudeStreamClient(transport, {
       ...(spec.systemPrompt ? { systemPrompt: spec.systemPrompt } : {}),
       ...(spec.contextPrompt ? { contextPrompt: spec.contextPrompt } : {}),
-      timeoutMs,
+      ...(timeoutMs !== undefined ? { timeoutMs } : {}),
     })
     structuredClient = client
     const hooks = input.hooks
