@@ -43870,6 +43870,42 @@
       "bound": "Zero issue demand until a peekId is selected; one issuePages(pool).issue(peekId) point read afterward.",
       "reason": "The hook resolves a single shared issue identity; observer sections read their fields. Conservative reader-summary taint does not introduce a collection scan.",
       "guard": "apps/mobile/src/screens/phone-inbox-window.test.tsx: only displayed session and attached issue fields are read; source uses a single explicit selected ID."
+    },
+    {
+      "file": "apps/web/src/features/merge-queue/merge-queue-view.ts",
+      "holder": "MergeQueueView/candidates",
+      "rule": "consume:filter",
+      "tokens": "962218f8c8da82ab269308ceaa185523c423d8d852aed0be315262f857d2de8c",
+      "gate": [],
+      "origin": [
+        "569b307e23c6ed895aff6b3cd5b1f4076ed16a3572e37d4ba2f5f98d8a7c09f7"
+      ],
+      "fingerprint": "1a43d001311910d1a761d8eb530fbc9a71d9ea0a331fd840ac4b06f9d4192997",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "The open merge queue observes its lazy candidate list.",
+      "bound": "The existing shellIssues catalogue supplies the IDs; it has no proven named-demand or cardinality cap.",
+      "reason": "Candidate filtering and ordering moved into the view model without changing the upstream catalogue. Its existing acquisition debt remains owned by POD-5530.",
+      "guard": "Exact fingerprint and multiplicity. Paired legacy fixtures preserve membership and order; this entry does not claim the upstream catalogue has been bounded."
+    },
+    {
+      "file": "apps/web/src/features/merge-queue/merge-queue-view.ts",
+      "holder": "MergeQueueView/candidates",
+      "rule": "consume:sort",
+      "tokens": "b88b54c18c0f6c1c866589fae57fdad20d7c0a887e778c84b96ffffb895a1b11",
+      "gate": [],
+      "origin": [
+        "569b307e23c6ed895aff6b3cd5b1f4076ed16a3572e37d4ba2f5f98d8a7c09f7"
+      ],
+      "fingerprint": "578fe37f1b5a7b6296ff1958029d9bdf97cee5408f01cf2eb000636f98778a2a",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "The open merge queue observes its lazy candidate list.",
+      "bound": "The existing shellIssues catalogue supplies the IDs; it has no proven named-demand or cardinality cap.",
+      "reason": "Candidate filtering and ordering moved into the view model without changing the upstream catalogue. Its existing acquisition debt remains owned by POD-5530.",
+      "guard": "Exact fingerprint and multiplicity. Paired legacy fixtures preserve membership and order; this entry does not claim the upstream catalogue has been bounded."
     }
   ]
 }
