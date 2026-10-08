@@ -136,14 +136,16 @@ async function assertNoWorkingSessionsForAgentClose(
   if (ctx.caller.capability.scope.kind === 'all' || confirmInterrupt) return
   const issue = await ctx.reports.get(id)
   if (!issue) return
-  const working = (await ctx.deps.listSessionsForIssue(issue.worktreePath ?? null, issue.id))
-    .filter((session) => isAgentComputing(session))
+  const working = (
+    await ctx.deps.listSessionsForIssue(issue.worktreePath ?? null, issue.id)
+  ).filter((session) => isAgentComputing(session))
   if (working.length === 0) return
   const self = ctx.caller.capability.actorSessionId
   const ownIncluded = working.some((session) => session.sessionId === self)
   const names = working
     .map((session) =>
-      session.sessionId === self ? 'your own session' : `"${session.name ?? session.title}"`)
+      session.sessionId === self ? 'your own session' : `"${session.name ?? session.title}"`,
+    )
     .join(', ')
   throw new IssueRefusal(
     `close refused: ${working.length === 1 ? 'a session' : `${working.length} sessions`} on ` +
