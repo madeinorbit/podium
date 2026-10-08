@@ -49,3 +49,38 @@ sounds, the browser terminal test reader, native runtime startup, daemon title
 projection, session/conversation ledger publication and relay title/state handling.
 The sound policy comparison uses the same fixtures as the retired list algorithm;
 32- and 128-session cases assert that one phase update addresses exactly one row.
+
+Candidate validation ran in `~/podium-test-5796` on flatblock with the copied
+Bun 1.4.2 toolchain, `node` linked to that Bun, one test worker, and a 3 GiB RSS
+stop guard. No full suite or browser interaction run was used.
+
+| Required check | Result |
+| --- | --- |
+| Lean gate, after restoring the generated API declarations | Green: 154 checks in 4 of 1853 collected files (0.2%). |
+| Separate full typecheck | 29 of 29 tasks successful; 23 cached. |
+| Standalone interaction scan census | 2257 fingerprints, 2258 occurrences, zero ratchet errors. |
+| Normal production web build | Green, including compression and bundle budget checks. |
+| Structural census under `meter:flatblock` | Incomplete. Three full attempts captured identical 1× counters, then hit the 3 GiB RSS stop limit during 4× setup. A focused seven-reader capture also hit that limit. Landing remains pending. |
+
+Focused notification/transport checks passed 116 tests. Session/conversation ledger
+and daemon projection checks passed 61; relay title/state checks passed 8; broadcast
+residue checks passed 2. Terminal test-reader and native runtime seams passed.
+Deleting the new service's `done` cue temporarily made the comparison against the
+retired policy fail on that exact missing cue; restored code passed the comparison.
+
+Unrelated failures were reproduced on the pilot base and reported to POD-4286:
+one protocol lenient-parse test still treats `machine` as an unknown entity kind,
+five golden fixture checks drift on host/model or `driverFamily` samples, and five
+pool projection observer-count assertions see an extra existing observer. Their
+fixes are outside this removal. The new pool-based sound test also revealed a
+missing client-core cache input; this change adds client-graph sources to those
+typecheck and test keys, and the lean configuration check now passes.
+
+Structural attempts used the standard command, a smaller Bun collection target,
+and finally `--execArgv=--smol` on the actual worker. Recorded workers 2232920,
+2245683, 2266098 and 2286611 were stopped at the RSS limit. The first survived
+SIGTERM and was subsequently killed by its recorded PID; later guards use
+SIGKILL. The worker-level attempt used `BUN_JSC_forceRAMSize=536870912` and still
+exceeded 3 GiB. No complete 4× result or flat-or-better claim is available.
+The operator was asked to authorize a 6 GiB ceiling for this census only. The
+meter lease is released while that decision is pending; no landing has occurred.
