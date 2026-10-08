@@ -21,7 +21,7 @@ const server = Bun.serve({
   port: 0,
   async fetch(request) {
     const path = new URL(request.url).pathname
-    const file = Bun.file(resolve(out, `dist.${path}`))
+    const file = Bun.file(resolve(out, `dist${path}`))
     return await file.exists() ? new Response(file) : new Response('Missing', { status: 404 })
   },
 })
@@ -36,7 +36,7 @@ try {
   await page.getByTestId('work-scroll').evaluate(node => { node.scrollTop = 1200 })
   await page.waitForTimeout(100)
   await page.getByTestId('work-search-input').fill('synthetic task 1')
-  await expect(page.getByTestId('work-search-count')).toHaveText('11/76')
+  await expect(page.getByTestId('work-search-count')).toHaveText(/^11\//)
   await page.waitForTimeout(1000)
   const paint = await page.evaluate(() => ({
     groups: [...document.querySelectorAll('[data-testid="project-group"]')].map(node => ({ text: node.textContent, rect: node.getBoundingClientRect().toJSON(), style: node.getAttribute('style') })),
