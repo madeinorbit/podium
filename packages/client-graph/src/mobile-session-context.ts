@@ -1,6 +1,8 @@
 import { sessionPaneView } from './session-pane'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
+import type { SessionView } from '@podium/client-core/session-values'
+import { dedupeSessionsByResume } from '@podium/model'
 import { asIssueId, type MachineWire } from '@podium/model/browser'
 import { observable, runInAction } from 'mobx'
 import {
@@ -8,7 +10,6 @@ import {
   chatInteractions,
   chatMentionIssues,
   chatRecords,
-  createReferenceSessionProjection,
 } from './chat-context'
 import { CHAT_CONTEXT_ENTITIES } from './chat-context-schema'
 import { ChatContextSource } from './chat-context-source'
@@ -33,6 +34,22 @@ export function mobileSessionIssue(pool: MobxPool, id: string | undefined): Load
   const row = issuePages(pool).issue(id)
   if (!row || row === LOADING || row.deletedAt) return row === LOADING ? LOADING : undefined
   return row
+}
+
+/** Phone roster: pooled session models, not projected copies. */
+function pooledMobileSessions(pool: MobxPool) {
+  const order = pool.row('chatSessionOrder', 'order')
+  const sessions: SessionView[] = []
+  let pending = !order || typeof order === 'symbol' ? 1 : 0
+  if (!order || typeof order === 'symbol') return { sessions, pending }
+  const known = pool.queries.ids({ kind: 'referenceSessions' })
+  const present = new Set(known)
+  for (const id of new Set([...order.ids.filter((id) => present.has(id)), ...known])) {
+    const row = pool.row('session', id, 'summary-fields') as Loaded<SessionView>
+    if (typeof row === 'symbol') pending++
+    else if (row) sessions.push(row)
+  }
+  return { sessions: dedupeSessionsByResume(sessions), pending }
 }
 
 export function createMobileSessionReader(pool: MobxPool) {
@@ -61,11 +78,11 @@ export function createMobileSessionReader(pool: MobxPool) {
     },
     nextSession: (id: string) => runInAction(() => pool.queries.nextTriageSession(id)),
     referencePicker: () => createReferencePicker(pool),
-    sessions: () => pool.sources
-      .view('mobile-reference-sessions', () =>
-        createReferenceSessionProjection(pool),
-      )
-      .sessions(),
+    // Rule 1 (one shared model per record): the phone roster hands out the
+    // pooled session models, so addressed useSession and list useSessions are
+    // the same object. The chat reference projection stays for chat-reference
+    // presentation values only.
+    sessions: () => pooledMobileSessions(pool),
     issues: () => chatMentionIssues(pool),
     machine: (id: string | undefined): MachineWire | undefined =>
       id === undefined ? undefined : pool.row('machine', id) as MachineWire | undefined,
