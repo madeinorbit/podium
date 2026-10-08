@@ -50,6 +50,50 @@ const seat = (id: string, patch: object = {}): RowRecord =>
     },
   }) as RowRecord
 
+/** Fixed drawn neighbourhood: adding parent history may not add detail work.
+ * The catalog negative control keeps identical output and must be rejected. */
+it('rejects hidden neighbour history and planted catalogs on open and heartbeat', async () => {
+  async function capture(scale: 1 | 4, planted = false) {
+    const pool = new MobxPool({ selectedIssueId: 'child', coarseNow: Date.parse(old) })
+    pool.apply({ type: 'replace', rows: [
+      issue('root', { stage: 'planning' }),
+      issue('child', { parentId: 'root', stage: 'planning' }),
+      seat('shown', { issueId: 'child', refIssueId: 'child', archived: false, status: 'running' }),
+      ...Array.from({ length: 32 * scale }, (_, n) => seat(`hidden-${n}`)),
+      ...Array.from({ length: 128 * scale }, (_, n) => issue(`outside-${n}`)),
+    ] })
+    const views = issuePages(pool)
+    let displayed: unknown, stop = () => {}
+    const read = () => {
+      if (planted) views.issues()
+      const page = views.data('child')
+      if (!page || page === LOADING) throw new Error('Detail fixture is not loaded')
+      displayed = { title: page.title, description: page.issue.description,
+        children: page.children.map(child => child.id),
+        members: page.memberSessions.map(member => member.sessionId) }
+    }
+    try {
+      const open = await measureWork(async () => insideReader('detail guard open', () => {
+        stop = autorun(read)
+      }), { pool })
+      const heartbeat = await measureWork(async () => insideReader('detail guard heartbeat', () => {
+        pool.apply({ type: 'update', rows: [seat('shown', { issueId: 'child', refIssueId: 'child',
+          archived: false, status: 'running', lastActiveAt: '2026-10-08T08:00:00Z' })] })
+      }), { pool })
+      return { displayed, open: open.work, heartbeat: heartbeat.work }
+    } finally { stop(); views.dispose(); pool.dispose() }
+  }
+  const one = await capture(1), four = await capture(4)
+  expect(one.displayed).toEqual(four.displayed)
+  expect(one.open.rows).toBeGreaterThan(0)
+  for (const action of ['open', 'heartbeat'] as const)
+    for (const counter of ['rows', 'derivations', 'elements'] as const)
+      expect(four[action][counter], `${action}: ${counter}`).toBeLessThanOrEqual(one[action][counter])
+  const plantedOne = await capture(1, true), plantedFour = await capture(4, true)
+  expect(plantedOne.displayed).toEqual(plantedFour.displayed)
+  expect(plantedFour.open.elements).toBeGreaterThan(plantedOne.open.elements)
+})
+
 it('preserves detail catalogs, continuations and roster lifecycle without reading worktree choices', () => {
   const root = issue('root'),
     hop = issue('hop', { deps: [{ id: 'root', type: 'discovered-from' }] }),
