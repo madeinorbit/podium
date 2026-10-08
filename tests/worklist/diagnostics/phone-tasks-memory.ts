@@ -5,7 +5,7 @@ const { heapStats } = createRequire(import.meta.url)('bun:jsc') as {
 }
 const bunRuntime = globalThis as unknown as { Bun: { gc(force: boolean): void } }
 import { lazyKeptCount } from '@podium/mobx-helpers'
-import { autorun } from 'mobx'
+import { autorun, computed } from 'mobx'
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import {
   MOBILE_SCREEN_SUMMARIES,
@@ -89,6 +89,18 @@ const heap = () => {
 }
 await Promise.resolve()
 const baseline = heap()
+// Outside counter, pinned to the same MobX internals as the structural meter.
+// Count all observed cache fields as well as model @lazy slots: the old path
+// retains keyed computeds, so a lazy-only total would omit its caches.
+const caches = new Set<{ observers_: Set<unknown> }>()
+const proto = Object.getPrototypeOf(computed(() => 0)) as {
+  computeValue_(...args: unknown[]): unknown
+}
+const computeValue = proto.computeValue_
+proto.computeValue_ = function (...args: unknown[]) {
+  caches.add(this as unknown as { observers_: Set<unknown> })
+  return computeValue.apply(this, args)
+}
 const stops: (() => void)[] = []
 if (mode === 'before') {
   const old = createLegacyMobileTasks(pool)
@@ -146,11 +158,13 @@ console.log(
     issues: count,
     sessions: sessions.length,
     shown: count / 4,
-    watchedFields,
+    watchedLazyFields: watchedFields,
+    watchedCacheFields: [...caches].filter((cache) => cache.observers_.size > 0).length,
     heapBeforeBoard: baseline,
     heapWithBoard: retained,
     boardHeap: retained - baseline,
   }),
 )
 for (const stop of stops.reverse()) stop()
+proto.computeValue_ = computeValue
 pool.dispose()

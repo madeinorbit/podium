@@ -10,7 +10,8 @@ import { MOBILE_TASK_STAGES, type MobileTasksOptions } from './mobile-screens-sc
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
 
-export type MobileTaskIssue = ModelOf['issue'] & Readonly<Pick<IssueViewModel, 'type' | 'priority'>>
+export type MobileTaskIssue = ModelOf['issue'] &
+  Readonly<Pick<IssueViewModel, 'type' | 'priority' | 'stage' | 'closedReason'>>
 
 export interface MobileTaskIds {
   readonly stage: (typeof MOBILE_TASK_STAGES)[number]
