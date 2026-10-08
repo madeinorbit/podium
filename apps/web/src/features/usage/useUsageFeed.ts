@@ -91,7 +91,9 @@ export function useUsageFeed(trpc: Trpc): UsageFeed {
   const query = usePolledQuery<UsageAnswer>({
     key: CACHE_KEY,
     intervalMs: REFRESH_MS,
-    read: () => trpc.usage.summary.query(),
+    // A synchronous endpoint failure must enter the poller's rejected-read
+    // path too, so optional host telemetry cannot take down the shell.
+    read: async () => trpc.usage.summary.query(),
     onData: recordScan,
   })
   return {

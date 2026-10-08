@@ -85,6 +85,11 @@ export function demoTrpc(): Trpc {
     features: {
       state: { query: async () => ({ devMode: true, channel: 'edge', flags: [] }) },
     },
+    usage: {
+      // The shell footer and usage sheet share this host-telemetry reader.
+      // Demo sessions have no harvested usage or real scan timestamps.
+      summary: { query: async () => ({ hostname: 'demo', buckets: [] }) },
+    },
     superagent: {
       // The screen reads this thread's session transcript, so the demo thread
       // must name a session DEMO_TRANSCRIPTS has rows for (POD-344).
