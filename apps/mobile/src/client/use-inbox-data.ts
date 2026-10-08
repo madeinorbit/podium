@@ -40,7 +40,9 @@ const readHosts = (pool: Pool) => headerView(pool).metrics()
 /** Readers stay mounted while the existing pool attaches. */
 export function useInboxData(): InboxData {
   const data = useMobilePoolProjection(readInbox, EMPTY_INBOX)
-  return demoEnabled() && data.booting ? { groups: data.groups, outboxSize: data.outboxSize, booting: false } : data
+  return demoEnabled() && data.booting
+    ? { groups: data.groups, outboxSize: data.outboxSize, booting: false }
+    : data
 }
 
 export function useScreeningQueue(): typeof EMPTY_QUEUE {
@@ -116,6 +118,5 @@ export function usePoolLinkData(target: PodiumTarget | null) {
   }, [])
   return { ...data, resolveRoute }
 }
-
 
 export { reconcileScreeningIds } from '@podium/client-graph/mobile-triage'

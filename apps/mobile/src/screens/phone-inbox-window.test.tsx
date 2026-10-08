@@ -1,3 +1,5 @@
+import type { MobxPool as Pool } from '@podium/client-graph/pool'
+import type { IssueModel as Issue, SessionModel as Session } from '@podium/client-graph/models'
 import { MobxPool } from '@podium/client-graph/pool'
 import { MobileInbox } from '@podium/client-graph/mobile-triage'
 import { IssueModel, SessionModel } from '@podium/client-graph/models'
@@ -5,7 +7,7 @@ import { autorun } from 'mobx'
 import { cleanup, render, act } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 
-const state = vi.hoisted(() => ({ pool: null as MobxPool | null }))
+const state = vi.hoisted(() => ({ pool: null as Pool | null }))
 vi.mock('../client/mobile-pool', () => ({ useMobilePool: () => state.pool }))
 vi.mock('expo-router', () => ({ useRouter: () => ({ push() {} }) }))
 vi.mock('../components/SessionCard', () => ({
@@ -71,14 +73,14 @@ it('mounts one displayed group without resolving other session or off-deck issue
   const sessionField = SessionModel.prototype.storedField,
     issueField = IssueModel.prototype.storedField
   const sessions = vi.spyOn(SessionModel.prototype, 'storedField').mockImplementation(function (
-    this: SessionModel,
+    this: Session,
     field: string,
   ) {
     if (field === 'title') displayedSessions.push(this.id)
     return sessionField.call(this, field)
   })
   const issues = vi.spyOn(IssueModel.prototype, 'storedField').mockImplementation(function (
-    this: IssueModel,
+    this: Issue,
     field: string,
   ) {
     if (field === 'title') displayedIssues.push(this.id)

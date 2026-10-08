@@ -30,7 +30,12 @@ export function resolvePoolWorkMenu(
     if (!model || !raw || raw === LOADING) return null
     // Only the Closed lane shows the inverse-fold eligibility. Live menus
     // acquire close concerns on the status press, rather than warming rollups.
-    const lifecycle = sidebarLifecycle(raw, lane === 'closed' && pool.worklistRow(id)!.asking, pool.inputs.passed, pool.inputs.reached)
+    const lifecycle = sidebarLifecycle(
+      raw,
+      lane === 'closed' && pool.worklistRow(id)!.asking,
+      pool.inputs.passed,
+      pool.inputs.reached,
+    )
     const issue = {
       ...raw,
       displayRef: model.displayRef,

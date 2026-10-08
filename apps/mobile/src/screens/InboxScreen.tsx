@@ -109,7 +109,11 @@ const NeedsYouCard = issueObserver(function NeedsYouCard({
   )
 })
 
-export const InboxSessionRow = issueObserver(function InboxSessionRow({ id, needsYou = false, onLongPress }: {
+export const InboxSessionRow = issueObserver(function InboxSessionRow({
+  id,
+  needsYou = false,
+  onLongPress,
+}: {
   id: string
   needsYou?: boolean
   onLongPress?: (issueId: string) => void
@@ -121,10 +125,16 @@ export const InboxSessionRow = issueObserver(function InboxSessionRow({ id, need
   const issue = session.issueId ? issuePages(pool).issue(session.issueId) : undefined
   if (issue === LOADING) throw LOADING
   if (needsYou) return <NeedsYouCard session={session} issue={issue} now={Date.now()} />
-  return <ObservedSessionCard model={sessionCardModel(session, issue, Date.now())}
-    issue={issue} session={session} agentColor={session.agentColor}
-    onPress={() => router.push(sessionHref(session.sessionId, '/work'))}
-    onLongPress={issue && onLongPress ? () => onLongPress(issue.id) : undefined} />
+  return (
+    <ObservedSessionCard
+      model={sessionCardModel(session, issue, Date.now())}
+      issue={issue}
+      session={session}
+      agentColor={session.agentColor}
+      onPress={() => router.push(sessionHref(session.sessionId, '/work'))}
+      onLongPress={issue && onLongPress ? () => onLongPress(issue.id) : undefined}
+    />
+  )
 })
 const ObservedSessionCard = issueObserver(SessionCard)
 
@@ -197,9 +207,9 @@ export const InboxScreen = observer(function InboxScreen() {
                 <View style={styles.sectionRule} />
               </View>
             )}
-            renderItem={({ item: id, section }) =>
+            renderItem={({ item: id, section }) => (
               <InboxSessionRow id={id} needsYou={section.key === 'needsYou'} />
-            }
+            )}
             ListEmptyComponent={
               // Guarded on `booting` even though the crossfade covers this
               // screen: ListEmptyComponent is rendered by the list whenever its

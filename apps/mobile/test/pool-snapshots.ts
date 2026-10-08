@@ -135,27 +135,37 @@ export function mobileInboxSnapshot(
   if (!views) return { pending: true }
   const inbox = views.inbox(),
     screening = views.screening(),
-    rows = input.screeningIds.map(id => views.issue(id))
+    rows = input.screeningIds.map((id) => views.issue(id))
   return {
     window: { booting: inbox.booting, outboxSize: inbox.outboxSize },
     groups: Object.fromEntries(
       (['needsYou', 'idle', 'working'] as const).map((key) => [
         key,
         inbox.groups[key].map((id) => {
-          const session = inbox.session(id) as unknown as import('@podium/client-core/session-values').SessionView
+          const session = inbox.session(
+            id,
+          ) as unknown as import('@podium/client-core/session-values').SessionView
           const resolved = session.issueId ? inbox.issue(session.issueId) : undefined
           const issue = typeof resolved === 'symbol' ? undefined : resolved
-          return { id: session.sessionId,
-            ...sessionCardModel(session, issue, input.now), issue: card(issue),
-            agentState: session.agentState, offer: session.offer,
-            agentColor: session.agentColor, busy: session.busy }
+          return {
+            id: session.sessionId,
+            ...sessionCardModel(session, issue, input.now),
+            issue: card(issue),
+            agentState: session.agentState,
+            offer: session.offer,
+            agentColor: session.agentColor,
+            busy: session.busy,
+          }
         }),
       ]),
     ),
     screening: screening.queue,
-    cards: input.screeningIds.map((id, at) => ({ id, card: card(typeof rows[at] === 'symbol' ? undefined : rows[at]) })),
+    cards: input.screeningIds.map((id, at) => ({
+      id,
+      card: card(typeof rows[at] === 'symbol' ? undefined : rows[at]),
+    })),
     chips: input.tokens.map(({ token, kind, prefix }) => views.chip(token, kind, prefix)),
     routes: input.targets.map((target) => views.route(target)),
-    loading: rows.some(row => typeof row === 'symbol'),
+    loading: rows.some((row) => typeof row === 'symbol'),
   }
 }

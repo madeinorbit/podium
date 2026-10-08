@@ -10,6 +10,7 @@ import {
 import { issueDisplayRef } from '@podium/protocol'
 import { useEffect, useState } from 'react'
 import { observer } from 'mobx-react-lite'
+import { useMobilePool } from '../client/mobile-pool'
 import { useIssueModel } from '../client/use-issue-model'
 import { useStoreActions } from '../client/hooks'
 import { useIssueCloseGuard } from '../client/use-issue-close'
@@ -58,6 +59,8 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
   const hasCloseBlockers = useIssueCloseGuard()
   const [sheet, setSheet] = useState<MenuSheet>({ kind: 'menu' })
   const issue = target.issue
+  const pool = useMobilePool()
+  const unread = pool?.worklistRow(issue.id)?.unread ?? issue.unread
   const closeIf = (kind: NonNullable<MenuSheet>['kind']) => () =>
     setSheet((current) => (current?.kind === kind ? null : current))
 
@@ -166,9 +169,9 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
         return { label: 'Rename', onPress: () => setSheet({ kind: 'rename' }) }
       case 'read':
         return {
-          label: issue.unread ? 'Mark as read' : 'Mark as unread',
+          label: unread ? 'Mark as read' : 'Mark as unread',
           onPress: () =>
-            finish(issue.unread ? store.markIssueRead(issue.id) : store.markIssueUnread(issue.id)),
+            finish(unread ? store.markIssueRead(issue.id) : store.markIssueUnread(issue.id)),
         }
       case 'status':
         return { label: 'Set status', onPress: () => setSheet({ kind: 'status' }) }

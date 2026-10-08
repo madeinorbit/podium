@@ -134,9 +134,7 @@ export function createMobileInboxViews(pool: MobxPool) {
         answers === LOADING || answers === undefined
           ? []
           : [...answers]
-              .sort(
-                (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.id < b.id ? -1 : 1),
-              )
+              .sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : a.id < b.id ? -1 : 1))
               .map((entry) => entry.id)
       return { queue, booting: loading }
     },
@@ -165,10 +163,17 @@ export function createMobileInboxViews(pool: MobxPool) {
   function chip(token: string, refKind: 'issue' | 'session', prefix: string) {
     const known = pool.queries.hasIssuePrefix(prefix, true)
     const model = known && refKind === 'issue' ? referenceView(pool).read(token) : null
-    const unavailable: IssueReferenceModel | null = known && refKind === 'issue' ? {
-      ref: token.trim(), issueId: null, title: null, stage: null,
-      availability: 'unavailable', accessibleLabel: `Task ${token.trim()} is unavailable`,
-    } : null
+    const unavailable: IssueReferenceModel | null =
+      known && refKind === 'issue'
+        ? {
+            ref: token.trim(),
+            issueId: null,
+            title: null,
+            stage: null,
+            availability: 'unavailable',
+            accessibleLabel: `Task ${token.trim()} is unavailable`,
+          }
+        : null
     return {
       known,
       model: model === LOADING ? unavailable : (model ?? unavailable),
@@ -182,9 +187,9 @@ export function createMobileInboxViews(pool: MobxPool) {
     if (!parseSessionRef(trimmed)) return direct === LOADING ? LOADING : undefined
     let pending = false
     // Reference membership is indexed by the feed; rows still use one reader.
-    const ids = pool.queries.ids({ kind: 'sessionReference', ref: trimmed }).sort((a, b) =>
-      pool.queries.orderKey(a).localeCompare(pool.queries.orderKey(b)),
-    )
+    const ids = pool.queries
+      .ids({ kind: 'sessionReference', ref: trimmed })
+      .sort((a, b) => pool.queries.orderKey(a).localeCompare(pool.queries.orderKey(b)))
     for (const id of ids) {
       if (pool.queries.collapsed(id)) continue
       const row = pool.row('session', id, 'summary') as Loaded<SessionView>

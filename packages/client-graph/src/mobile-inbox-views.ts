@@ -24,18 +24,32 @@ export function createMobileInboxViews(pool: MobxPool) {
   }
   const inbox = new MobileInbox(pool)
   class ScreeningQueue {
-    @lazy get queue() { const ids = screeningQueue(pool); return ids === LOADING || !ids ? [] : ids }
-    @lazy get booting() { return booting() || screeningQueue(pool) === LOADING }
+    @lazy get queue() {
+      const ids = screeningQueue(pool)
+      return ids === LOADING || !ids ? [] : ids
+    }
+    @lazy get booting() {
+      return booting() || screeningQueue(pool) === LOADING
+    }
   }
   const screening = new ScreeningQueue()
-  function issue(id: string) { return issuePages(pool).issue(id) }
+  function issue(id: string) {
+    return issuePages(pool).issue(id)
+  }
   function chip(token: string, refKind: 'issue' | 'session', prefix: string) {
     const known = pool.queries.hasIssuePrefix(prefix, true)
     const model = known && refKind === 'issue' ? referenceView(pool).read(token) : null
-    const unavailable: IssueReferenceModel | null = known && refKind === 'issue' ? {
-      ref: token.trim(), issueId: null, title: null, stage: null,
-      availability: 'unavailable', accessibleLabel: `Task ${token.trim()} is unavailable`,
-    } : null
+    const unavailable: IssueReferenceModel | null =
+      known && refKind === 'issue'
+        ? {
+            ref: token.trim(),
+            issueId: null,
+            title: null,
+            stage: null,
+            availability: 'unavailable',
+            accessibleLabel: `Task ${token.trim()} is unavailable`,
+          }
+        : null
     return {
       known,
       model: model === LOADING ? unavailable : (model ?? unavailable),
@@ -49,9 +63,9 @@ export function createMobileInboxViews(pool: MobxPool) {
     if (!parseSessionRef(trimmed)) return direct === LOADING ? LOADING : undefined
     let pending = false
     // Reference membership is indexed by the feed; rows still use one reader.
-    const ids = pool.queries.ids({ kind: 'sessionReference', ref: trimmed }).sort((a, b) =>
-      pool.queries.orderKey(a).localeCompare(pool.queries.orderKey(b)),
-    )
+    const ids = pool.queries
+      .ids({ kind: 'sessionReference', ref: trimmed })
+      .sort((a, b) => pool.queries.orderKey(a).localeCompare(pool.queries.orderKey(b)))
     for (const id of ids) {
       if (pool.queries.collapsed(id)) continue
       const row = pool.row('session', id, 'summary') as Loaded<SessionView>
