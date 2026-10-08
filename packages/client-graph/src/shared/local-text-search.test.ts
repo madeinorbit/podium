@@ -52,6 +52,38 @@ const feedIssue = (id: string, seq: number, extra: object = {}): RowRecord => ({
 })
 
 describe('feed local text id set (targetDetails, no facts, no descriptions)', () => {
+  it('keeps text revision quiet for facets and advances for title/ref membership only', () => {
+    const index = createReaderIndex()
+    const repo = { kind: 'repo' as const, id: 'phone', value: { repoPath: '/phone', prefix: 'POD' } }
+    let row = feedIssue('target', 7)
+    index.apply({ type: 'replace', rows: [repo, row] })
+    const patch = (fields: object) => {
+      row = { ...row, value: { ...row.value, ...fields } }
+      index.apply({ type: 'update', rows: [row] })
+    }
+    const before = index.localTextRevision()
+    for (const fields of [{ stage: 'review' }, { priority: 4 }, { archived: true }]) {
+      patch(fields)
+      expect(index.localTextRevision()).toBe(before)
+    }
+    const changes = [
+      () => patch({ title: 'Renamed target' }),
+      () => patch({ seq: 8 }),
+      () => index.apply({ type: 'update', rows: [{ ...repo, value: { ...repo.value, prefix: 'NEW' } }] }),
+      () => index.apply({ type: 'update', rows: [feedIssue('another', 9)] }),
+      () => index.apply({ type: 'remove', rows: [{ kind: 'issue', id: 'another' }] }),
+      () => patch({ repoId: 'elsewhere' }),
+    ]
+    for (const change of changes) {
+      const previous = index.localTextRevision()
+      change()
+      expect(index.localTextRevision()).toBeGreaterThan(previous)
+    }
+    expect([...index.localTextIds('renamed')]).toEqual(['target'])
+    patch({ deletedAt: '2026-10-03T12:00:00Z' })
+    expect([...index.localTextIds('renamed')]).toEqual([])
+  })
+
   it('returns title/ref parity on the seed corpus and ignores bodies', () => {
     const index = createReaderIndex()
     const rows = Array.from({ length: 640 }, (_, at) =>

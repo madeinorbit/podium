@@ -296,6 +296,8 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
             removeTarget(key, id)
         if (next) targetDetails.set(id, next)
         else targetDetails.delete(id)
+        if (moved || previous?.title !== next?.title || previous?.repoId !== next?.repoId)
+          touch('issue:localText')
         for (const key of after)
           if (
             afterEligible &&
@@ -378,14 +380,9 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       path = machinePathKey(path)
       return Math.max(replacement, revisions.get(`issueRepoPath:${path}`) ?? 0)
     },
-    /** Board/explorer per-keystroke revision: title/seq only, never facets.
-     * Derived from the existing per-path text publications, so no extra
-     * publication-clock bump beyond the picker's own. */
+    /** Board/explorer title/ref membership, independent of picker facets. */
     localTextRevision(): number {
-      let at = replacement
-      for (const [key, value] of revisions)
-        if (key.startsWith('mobileTargets:') && value > at) at = value
-      return at
+      return Math.max(replacement, revisions.get('issue:localText') ?? 0)
     },
     /** One shared title/ref scan over the feed-maintained short lowercase
      * strings (POD-5561). One pass, no fact objects, no descriptions. The
@@ -517,6 +514,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           if (record.kind === 'worktree' && row && !Object.hasOwn(row, 'prefix')) continue
           const before = repoPrefixes.get(id), next = typeof row?.prefix === 'string' ? row.prefix : undefined
           if (before !== next) {
+            touch('issue:localText')
             if (before) { prefixRepos.get(before)?.delete(id); touch(`session:prefix:${before}`) }
             if (next) {
               let ids = prefixRepos.get(next)
