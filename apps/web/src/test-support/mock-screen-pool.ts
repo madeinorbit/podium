@@ -429,7 +429,9 @@ function useFixturePool(): MobxPool {
     const current = () => live.current.state
     const sessions = () => current().sessions ?? []
     const machines = () => current().machines ?? []
-    const messages = () => current().messageRecords ?? []
+    // Warm conversations keep their first pool. Publish message replacements
+    // through the shared fixture signal so their observers see later receipts.
+    const messages = () => signal.get().state.messageRecords ?? []
     const interactions = () => current().pendingInteractions ?? []
     const threads = () => current().superThreads ?? []
     const repos = () => current().repos ?? []
