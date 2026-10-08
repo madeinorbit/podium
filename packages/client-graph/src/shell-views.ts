@@ -5,14 +5,14 @@ import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { ActiveWorktree } from '@podium/client-core/values'
-import type { RepoId } from '@podium/model/browser'
+import { asSessionId, type RepoId } from '@podium/model/browser'
 import { compareShallow, compareStructural } from 'mobx'
 import { headerIds } from './enumerate'
 import type { HeaderRows } from './header-schema'
 import { headerView } from './header-views'
 import { missionView } from './mission-view'
 import { missions } from './mission'
-import type { IssueModel } from './models'
+import type { IssueModel, SessionModel } from './models'
 import type { MobxPool } from './pool'
 import { SHELL_SUMMARIES, type ShellIssue, type ShellRows } from './shell-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -122,6 +122,118 @@ export class ShellChrome {
       if (error !== LOADING) throw error
       return LOADING
     }
+  }
+}
+
+/** Shell rule over one shared session: the dock may route by it when it is
+ * a visible (not collapsed) session whose summary is here. One row read; a
+ * heartbeat's equal answer stops here. */
+export class ShellDockSession {
+  constructor(readonly session: SessionModel, private readonly pool: MobxPool) {}
+  @lazy get known(): Loaded<boolean> {
+    if (this.pool.queries.collapsed(this.session.id)) return undefined
+    const row = this.pool.row('session', this.session.id, 'summary-fields')
+    return row === LOADING ? LOADING : row ? true : undefined
+  }
+}
+
+/** The right dock's routing: which checkout it serves and the issues it
+ * shows for it, one question per field. A session is read through its scalar
+ * fields, so its heartbeat re-resolves nothing; the recent-session fallback
+ * stays live by design. Catalogues stay with the queue/shipping panels. */
+export class ShellDock {
+  private readonly session = companion((session: SessionModel) => new ShellDockSession(session, this.pool))
+  private readonly issue = companion((issue: IssueModel) => new ShellIssueChrome(issue, this.pool))
+  constructor(private readonly pool: MobxPool, private readonly files: () => Loaded<ShellRows['shellFile'][]>) {}
+
+  @lazy private get paneA(): Loaded<string | null> {
+    const state = this.pool.row('shellWindow', 'window')
+    return !state || state === LOADING ? LOADING : state.paneA
+  }
+  @lazy private get selectedFile(): Loaded<ShellRows['shellFile']> {
+    const paneA = this.paneA, files = this.files()
+    if (paneA === LOADING || files === LOADING) return LOADING
+    return files?.find((file) => file.id === paneA)
+  }
+  /** The session the dock resolved its checkout from: the pane's session,
+   * else (no pane session or file checkout) the most recent unarchived one. */
+  @lazy get activeSession(): Loaded<SessionModel> {
+    const paneA = this.paneA, file = this.selectedFile
+    if (paneA === LOADING || file === LOADING) return LOADING
+    if (paneA && !file) {
+      const selected = this.pool.sessionObject(paneA), known = this.session(selected).known
+      if (known === LOADING) return LOADING
+      if (known) return selected
+    }
+    if (file?.worktreePath) return undefined
+    const excluded: string[] = []
+    for (;;) {
+      const id = this.pool.queries.indexed({ kind: 'headerRecentSession', excluded })[0]
+      if (!id) return undefined
+      const candidate = this.pool.sessionObject(id), known = this.session(candidate).known
+      if (known === LOADING) return LOADING
+      if (known && !candidate.archived) return candidate
+      excluded.push(id)
+    }
+  }
+  @lazy({ equals: compareStructural }) get active(): Loaded<ActiveWorktree | null> {
+    const session = this.activeSession
+    if (session === LOADING) return LOADING
+    if (session) return { cwd: session.cwd, machineId: session.machineId, sessionId: asSessionId(session.id) }
+    const tab = this.selectedFile
+    if (tab === LOADING) return LOADING
+    if (!tab?.worktreePath) return null
+    return {
+      cwd: tab.worktreePath,
+      machineId: tab.scope.kind === 'worktree' ? tab.scope.machineId : undefined,
+      ...(tab.issueId ? { issueId: tab.issueId } : {}),
+    }
+  }
+  /** The live issue whose checkout contains the active cwd. */
+  @lazy private get containing(): Loaded<IssueModel> {
+    const active = this.active
+    if (active === LOADING) return LOADING
+    const id = active ? this.pool.queries.containingIssueId(active.cwd) : undefined
+    return id ? this.known(id) : undefined
+  }
+  @lazy private get attached(): Loaded<IssueModel> {
+    const active = this.active, session = this.activeSession
+    if (active === LOADING || session === LOADING) return LOADING
+    const id = active?.issueId ?? session?.issueId
+    return id ? this.known(id) : this.containing
+  }
+  @lazy({ equals: compareStructural }) get scope(): Loaded<{ repoId: RepoId | null; repoPath: string } | null> {
+    const active = this.active
+    if (active === LOADING) return LOADING
+    if (!active) return null
+    const discovered = headerEntities(this.pool).shippingScope(active.cwd, active.machineId)
+    if (discovered) return { repoId: discovered.repoId as RepoId | null, repoPath: discovered.repoPath }
+    const attached = this.attached
+    if (attached === LOADING) return LOADING
+    return attached ? { repoId: (attached.repoId ?? null) as RepoId | null, repoPath: attached.repoPath } : null
+  }
+  /** Explicit file attachment wins over checkout containment. */
+  @lazy get gitIssue(): Loaded<IssueModel> {
+    const active = this.active
+    if (active === LOADING) return LOADING
+    const explicit = active?.issueId ? this.known(active.issueId) : undefined
+    return explicit === LOADING ? LOADING : explicit ?? this.containing
+  }
+  @lazy get mailIssueId(): Loaded<string> {
+    const session = this.activeSession
+    if (session === LOADING) return LOADING
+    if (session?.issueId) return session.issueId
+    const containing = this.containing
+    return containing === LOADING ? LOADING : containing?.id
+  }
+  @lazy get shipping(): Loaded<{ unfinishedCount: number; decisionCount: number }> {
+    const scope = this.scope
+    return scope === LOADING ? LOADING : headerEntities(this.pool).shippingCounts(scope?.repoId ?? null)
+  }
+
+  private known(id: string): Loaded<IssueModel> {
+    const issue = this.pool.issueObject(id), known = this.issue(issue).known
+    return known === LOADING ? LOADING : known ? issue : undefined
   }
 }
 
@@ -274,6 +386,7 @@ function createShellViews(pool: MobxPool) {
     })
   }
   const shellChrome = new ShellChrome(pool, sessionCount)
+  const shellDock = new ShellDock(pool, files)
   function chrome() { return shellChrome.value }
   function dock(includeCatalog = false): Loaded<ShellDockData> {
     return memo(includeCatalog ? 'dockCatalog' : 'dock', () => {
@@ -383,6 +496,7 @@ function createShellViews(pool: MobxPool) {
     repositories,
     chrome,
     dock,
+    dockView: shellDock,
     shipping,
     close,
   }

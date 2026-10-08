@@ -1,7 +1,7 @@
-import { observer } from '@podium/client-graph/react'
 import { GitView } from '@podium/client-graph/git-view'
 import { relativeTime } from '@podium/client-core/focus'
 import { useStoreHandle } from '@podium/client-core/react'
+import { observer } from '@podium/client-graph/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { MachineId } from '@podium/model/browser'
 import { ChevronRight, GitBranch, Maximize2, RefreshCw } from 'lucide-react'
@@ -84,6 +84,9 @@ function FileRow({
  * "nothing changed" about a landed change, which is why the commit ops are
  * their own pair rather than the working-tree one pointed at a sha.
  */
+/** The checkout's issue, as the panel reads it: the shared issue's own fields. */
+export type GitPanelIssue = Pick<IssueViewModel, 'branch' | 'gitState' | 'displayRef'>
+
 export const GitPanelView = observer(function GitPanelView({
   cwd,
   machineId,
@@ -91,7 +94,7 @@ export const GitPanelView = observer(function GitPanelView({
 }: {
   cwd: string
   machineId?: MachineId
-  issue?: IssueViewModel
+  issue?: GitPanelIssue | undefined
 }): JSX.Element {
   const access = useStoreHandle().access
   const { gitStatus, gitLog, gitCommitFiles, gitDiffFile, readFileScoped } = access
