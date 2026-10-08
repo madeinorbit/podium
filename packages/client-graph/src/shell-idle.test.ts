@@ -1,5 +1,7 @@
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
+import { legacyShellSnapshot } from '../../../tests/worklist/diagnostics/shell-check'
+import { effectiveIssueColorHex } from '../../../apps/web/src/lib/issueColors'
 import { shellFixture } from '../../../tests/worklist/diagnostics/shell-fixture'
 import { shellViews } from './shell-views'
 import { LOADING } from './worklist/rollup'
@@ -51,6 +53,56 @@ it.each([128, 512])('does not rebuild idle shell issue projections per unrelated
     counts.mockRestore()
     questions.mockRestore()
     projections.mockRestore()
+    f.pool.dispose()
+  }
+})
+
+
+it('preserves live shell color and mission answers through keyed ancestry changes', () => {
+  const f = shellFixture(), views = shellViews(f.pool)
+  let issues = [...f.issues]
+  const patch = (index: number, values: Partial<typeof issues[number]>) => {
+    issues = issues.map((issue, i) => i === index ? { ...issue, ...values } : issue)
+    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: issues[index]!.id,
+      value: issues[index]! }] as never })
+  }
+  const check = () => {
+    let chrome = views.chrome()
+    for (let batch = 0; chrome === LOADING && batch < 8; batch++) {
+      f.pool.hydrate()
+      chrome = views.chrome()
+    }
+    expect(chrome).not.toBe(LOADING)
+    if (!chrome || chrome === LOADING) throw new Error('shell did not settle')
+    const selected = issues.find(issue => issue.id === f.state().selectedIssueId &&
+      !issue.archived && !issue.deletedAt)
+    expect(effectiveIssueColorHex(chrome.colorIssue, chrome.colorById)).toBe(
+      effectiveIssueColorHex(selected, id => issues.find(issue => issue.id === id)),
+    )
+    const expected = legacyShellSnapshot(f.state(), issues).sections.find(section => section.key === 'chrome')!.fields
+    expect(chrome.missionRoot?.id ?? null).toBe(expected.missionRootId)
+    expect(Boolean(chrome.missionRoot && (chrome.missionRoot.type === 'epic' ||
+      chrome.missionRoot.childCount >= 6))).toBe(expected.missionExpanded)
+  }
+  try {
+    check()
+    patch(0, { color: 'violet', type: 'epic' })
+    check()
+    patch(1, { color: 'teal' })
+    check()
+    patch(1, { color: 'unknown-slot' })
+    check()
+    patch(1, { parentId: issues[2]!.id })
+    check()
+    patch(2, { color: 'rose', parentId: issues[1]!.id })
+    check()
+    patch(1, { archived: true })
+    check()
+    patch(1, { archived: false, deletedAt: '2026-10-08T14:00:00Z' })
+    check()
+    f.change({ selectedIssueId: null })
+    check()
+  } finally {
     f.pool.dispose()
   }
 })
