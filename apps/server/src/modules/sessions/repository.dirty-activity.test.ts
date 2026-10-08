@@ -188,7 +188,7 @@ describe('changed session activity saving', () => {
     expect(f.written.map((row) => row.id)).toEqual(['dirty-2', 'dirty-1'])
   })
 
-  it('persists counter-only activity without publishing duplicate session wire bytes', async () => {
+  it('persists output counters without publishing duplicate session wire bytes', async () => {
     const o = await makeOracle()
     const { sessionId } = await o.reg.modules.sessions.createSession({
       agentKind: 'claude-code',
@@ -200,12 +200,12 @@ describe('changed session activity saving', () => {
     const projection = vi.fn()
     const off = o.reg.modules.sessions.onSessionProjection(projection)
     try {
-      session.terminal.recordInputActivity()
+      session.terminal.recordObservationActivity()
       session.terminal.acceptOutput(Buffer.from('hello'), 2)
       await o.reg.modules.sessions.flushActivity()
       expect(writes).toHaveBeenCalledTimes(1)
       const row = (await o.store.sessions.loadSessions()).find((r) => r.id === sessionId)!
-      expect(row.inputCount).toBe(1)
+      expect(row.activityCount).toBe(1)
       expect(row.outputCount).toBe(2)
       expect(projection).not.toHaveBeenCalled()
       await o.reg.modules.sessions.flushActivity()
