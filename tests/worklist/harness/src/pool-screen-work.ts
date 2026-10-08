@@ -4,6 +4,7 @@ import { createLaunchCatalogPicker, createLaunchWorkPicker } from '@podium/clien
 import { createReferencePicker } from '@podium/client-graph/chat-context'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { poolIssuePaint } from '../../../../apps/web/src/features/worklist/pool-row-data'
+import { effectiveIssueColorHex } from '../../../../apps/web/src/lib/issueColors'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { headerView } from '@podium/client-graph/header-views'
 import { launchOptionViews } from '@podium/client-graph/launch-option-views'
@@ -468,7 +469,14 @@ async function measureScreenCells(
       session: headerView(pool).session(SESSION),
       occupancy: headerView(pool).occupancyKey(),
     }))
-    add('shell.chrome', ['AppBody', 'AppShell'], () => shell.chrome())
+    add('shell.chrome', ['AppBody', 'AppShell'], () => {
+      const value = shell.chrome()
+      if (!value || value === LOADING) return value
+      // AppShell reads color scalars late from stable companions. Count those
+      // watched reads too, and retain their answer rather than the live port.
+      const { colorIssue, colorById, ...chrome } = value
+      return { ...chrome, color: effectiveIssueColorHex(colorIssue, colorById) }
+    })
     add('shell.dock', ['AppShell'], () => shell.dock())
     // These actions do not deliver URLs or open a browser target. The real
     // always-mounted hosts retain no catalog/row demand in that state. Their
