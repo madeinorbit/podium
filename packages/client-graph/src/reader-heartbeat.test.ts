@@ -118,3 +118,21 @@ it('routes projected membership once per changed key and retains both projection
     expect(first).toEqual([]); expect(second).toEqual([])
   } finally { for (const stop of stops) stop(); pool.dispose() }
 })
+
+it('routes the open explorer facet when an issue finishes without leaving live history', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  const issue = (stage: string): RowRecord => ({ kind: 'issue', id: 'a', value: {
+    id: 'a', title: 'Issue', stage, audience: 'human', deps: [],
+    createdAt: '2026-10-01', updatedAt: '2026-10-01',
+  } } as RowRecord)
+  pool.apply({ type: 'replace', rows: [issue('in_progress')] })
+  let seen: string[] = []
+  const stop = autorun(() => { seen = pool.queries.ids({ kind: 'boardIssues', explorerTab: 'needs' }) })
+  try {
+    expect(seen).toEqual(['a'])
+    pool.apply({ type: 'update', rows: [issue('done')] })
+    expect(seen).toEqual([])
+    pool.apply({ type: 'update', rows: [issue('in_progress')] })
+    expect(seen).toEqual(['a'])
+  } finally { stop(); pool.dispose() }
+})
