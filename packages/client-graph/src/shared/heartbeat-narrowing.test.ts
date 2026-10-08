@@ -58,7 +58,7 @@ it('matches rebuilt cwd activity and presence when paths, kind, and visibility c
     for (const root of ['/repo', '/repo/nested', '/other', 'C:\\repo', 'C:\\repo\\nested'])
       for (const match of ['within', 'exact'] as const)
         for (const agentsOnly of [true, false]) {
-          const q = { roots: [root], match, agentsOnly }
+          const q = { kind: 'commandRootActivity' as const, roots: [root], match, agentsOnly }
           expect(index.activity(q)).toBe(old.activity(q))
           expect(index.hasWithin(root)).toBe(old.hasWithin(root))
         }
