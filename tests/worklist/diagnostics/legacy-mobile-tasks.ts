@@ -1,53 +1,97 @@
 /** Frozen pre-migration phone Tasks reader. Test oracle and before-memory control only. */
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { confirmedWorkingAgentCount, orderIssues, type IssueRow, type TaskProgress } from '@podium/client-core/values'
+import {
+  confirmedWorkingAgentCount,
+  orderIssues,
+  type IssueRow,
+  type TaskProgress,
+} from '@podium/client-core/values'
 import { ISSUE_STATUS_LABELS } from '@podium/model/browser'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { compareShallow, computed, type IComputedValue } from 'mobx'
 import type { BoardQuery } from '../../../packages/client-graph/src/issue-board-schema'
-import { MOBILE_TASK_STAGES, type MobileTasksOptions } from '../../../packages/client-graph/src/mobile-screens-schema'
+import {
+  MOBILE_TASK_STAGES,
+  type MobileTasksOptions,
+} from '../../../packages/client-graph/src/mobile-screens-schema'
 import type { MobileTasksData, MobileTaskSection } from './mobile-task-snapshot'
 import type { MobxPool } from '../../../packages/client-graph/src/pool'
 import { isFinished } from '../../../packages/client-graph/src/shared/predicates'
 import { LOADING, type Loaded } from '../../../packages/client-graph/src/worklist/rollup'
-const byId = (a: string, b: string) => a < b ? -1 : a > b ? 1 : 0
-const requireRow = <T>(row: Loaded<T>): T | undefined => { if (row === LOADING) throw LOADING; return row }
-const settled = <T>(read: () => T): T | typeof LOADING => { try { return read() } catch (error) { if (error === LOADING) return LOADING; throw error } }
+const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
+const requireRow = <T>(row: Loaded<T>): T | undefined => {
+  if (row === LOADING) throw LOADING
+  return row
+}
+const settled = <T>(read: () => T): T | typeof LOADING => {
+  try {
+    return read()
+  } catch (error) {
+    if (error === LOADING) return LOADING
+    throw error
+  }
+}
 function screenSnapshot<T extends object>(
   data: IComputedValue<T | typeof LOADING>,
   keys: readonly (keyof T)[],
   overrides: Partial<{ [K in keyof T]: IComputedValue<T[K] | typeof LOADING> }> = {},
   identities: readonly (keyof T)[] = [],
 ): IComputedValue<T | typeof LOADING> {
-  const fields = keys.map(key => [key, overrides[key] ?? computed(() => {
-    const value = data.get()
-    return value === LOADING ? LOADING : value[key]
-  }, { equals: identities.includes(key) ? Object.is : compareShallow })] as const)
-  return computed(() => {
-    const entries = fields.map(([key, field]) => [key, field.get()] as const)
-    if (entries.some(([, value]) => value === LOADING)) return LOADING
-    return Object.fromEntries(entries) as T
-  }, { equals: compareShallow })
+  const fields = keys.map(
+    (key) =>
+      [
+        key,
+        overrides[key] ??
+          computed(
+            () => {
+              const value = data.get()
+              return value === LOADING ? LOADING : value[key]
+            },
+            { equals: identities.includes(key) ? Object.is : compareShallow },
+          ),
+      ] as const,
+  )
+  return computed(
+    () => {
+      const entries = fields.map(([key, field]) => [key, field.get()] as const)
+      if (entries.some(([, value]) => value === LOADING)) return LOADING
+      return Object.fromEntries(entries) as T
+    },
+    { equals: compareShallow },
+  )
 }
 
 export function createLegacyMobileTasks(pool: MobxPool) {
-  const cache = keyedComputed('LegacyMobileTasks', (_key: string, create: () => IComputedValue<unknown>) => create())
-  const taskRows = keyedComputed('MobileScreen.taskRow', (key: string): IssueRow<IssueViewModel> => {
-    const [id, depth, childCount, expanded] = JSON.parse(key) as [string, number, number, boolean]
-    const issue = requireRow(pool.row('issueBoardRow', id))
-    if (!issue) throw LOADING
-    return { issue, depth, childCount, expanded }
-  })
-  const taskProgress = keyedComputed('MobileScreen.taskProgress', (key: string) => {
-    const card = requireRow(pool.row('issueBoardCard', key))
-    if (!card) throw LOADING
-    return card.progress
-  }, { equals: compareShallow })
+  const cache = keyedComputed(
+    'LegacyMobileTasks',
+    (_key: string, create: () => IComputedValue<unknown>) => create(),
+  )
+  const taskRows = keyedComputed(
+    'MobileScreen.taskRow',
+    (key: string): IssueRow<IssueViewModel> => {
+      const [id, depth, childCount, expanded] = JSON.parse(key) as [string, number, number, boolean]
+      const issue = requireRow(pool.row('issueBoardRow', id))
+      if (!issue) throw LOADING
+      return { issue, depth, childCount, expanded }
+    },
+  )
+  const taskProgress = keyedComputed(
+    'MobileScreen.taskProgress',
+    (key: string) => {
+      const card = requireRow(pool.row('issueBoardCard', key))
+      if (!card) throw LOADING
+      return card.progress
+    },
+    { equals: compareShallow },
+  )
   const stats = { tasks: 0 }
   let disposed = false
-  function memo<T>(key: string, create: () => IComputedValue<T | typeof LOADING>): T | typeof LOADING {
-    return disposed ? LOADING : cache(key, create).get() as T | typeof LOADING
+  function memo<T>(
+    key: string,
+    create: () => IComputedValue<T | typeof LOADING>,
+  ): T | typeof LOADING {
+    return disposed ? LOADING : (cache(key, create).get() as T | typeof LOADING)
   }
   function query(options: BoardQuery) {
     const result = requireRow(pool.row('issueBoardQuery', JSON.stringify(options)))
@@ -57,23 +101,35 @@ export function createLegacyMobileTasks(pool: MobxPool) {
   function tasks(options: MobileTasksOptions): MobileTasksData | typeof LOADING {
     return memo(`tasks:${JSON.stringify(options)}`, () => {
       const data = computed(() => settled(() => readTasks(options)))
-      const sections = MOBILE_TASK_STAGES.map(stage => {
-        const rows = computed(() => {
-          const value = data.get()
-          return value === LOADING ? LOADING : value.board.find(section => section.stage === stage)?.rows ?? []
-        }, { equals: compareShallow })
+      const sections = MOBILE_TASK_STAGES.map((stage) => {
+        const rows = computed(
+          () => {
+            const value = data.get()
+            return value === LOADING
+              ? LOADING
+              : (value.board.find((section) => section.stage === stage)?.rows ?? [])
+          },
+          { equals: compareShallow },
+        )
         return computed((): MobileTaskSection | typeof LOADING => {
           const value = rows.get()
           if (value === LOADING) return LOADING
           return { stage, title: ISSUE_STATUS_LABELS[stage], rows: value }
         })
       })
-      const board = computed(() => {
-        const result = sections.map(section => section.get())
-        if (result.some(section => section === LOADING)) return LOADING
-        return (result as MobileTaskSection[]).filter(section => section.rows.length)
-      }, { equals: compareShallow })
-      return screenSnapshot(data, ['issues', 'sessions', 'board', 'workingByIssue', 'progressByIssue', 'proposals'], { board })
+      const board = computed(
+        () => {
+          const result = sections.map((section) => section.get())
+          if (result.some((section) => section === LOADING)) return LOADING
+          return (result as MobileTaskSection[]).filter((section) => section.rows.length)
+        },
+        { equals: compareShallow },
+      )
+      return screenSnapshot(
+        data,
+        ['issues', 'sessions', 'board', 'workingByIssue', 'progressByIssue', 'proposals'],
+        { board },
+      )
     })
   }
   function readTasks(options: MobileTasksOptions): MobileTasksData {
@@ -87,8 +143,7 @@ export function createLegacyMobileTasks(pool: MobxPool) {
       if (value) models.set(id, value)
       return value
     }
-    const parent = (id: string) =>
-      pool.graph.one('issue', id, 'treeParent') ?? issue(id)?.parentId
+    const parent = (id: string) => pool.graph.one('issue', id, 'treeParent') ?? issue(id)?.parentId
     const audience = (id: string): boolean => {
       const row = issue(id)
       if (!row || (row.isDraftVessel && !row.deletedAt)) return false
@@ -258,10 +313,20 @@ export function createLegacyMobileTasks(pool: MobxPool) {
         ),
       )
       if (!card) throw LOADING
-      workingByIssue.set(row.issue.id, confirmedWorkingAgentCount(card.fleet, pool.clock.trackedNow()))
-      progressByIssue.set(row.issue.id, taskProgress(JSON.stringify({
-        id: row.issue.id, now: pool.clock.trackedNow(), agents: options.showAgentTasks,
-      })))
+      workingByIssue.set(
+        row.issue.id,
+        confirmedWorkingAgentCount(card.fleet, pool.clock.trackedNow()),
+      )
+      progressByIssue.set(
+        row.issue.id,
+        taskProgress(
+          JSON.stringify({
+            id: row.issue.id,
+            now: pool.clock.trackedNow(),
+            agents: options.showAgentTasks,
+          }),
+        ),
+      )
       for (const seat of card.sessions) sessions.set(seat.sessionId, seat)
     }
     // The banner is independent of board filters and agent-task visibility.
@@ -295,12 +360,23 @@ export function createLegacyMobileTasks(pool: MobxPool) {
     }
     return {
       issues: [...models.values()].sort((a, b) => byId(a.id, b.id)),
-      sessions: [...sessions.values()].sort((a, b) => Date.parse(a.createdAt) - Date.parse(b.createdAt) || byId(a.sessionId, b.sessionId)),
+      sessions: [...sessions.values()].sort(
+        (a, b) =>
+          Date.parse(a.createdAt) - Date.parse(b.createdAt) || byId(a.sessionId, b.sessionId),
+      ),
       board,
       workingByIssue,
       progressByIssue,
       proposals: proposalCount,
     }
   }
-  return { tasks, dispose() { disposed = true; cache.clear(); taskRows.clear(); taskProgress.clear() } }
+  return {
+    tasks,
+    dispose() {
+      disposed = true
+      cache.clear()
+      taskRows.clear()
+      taskProgress.clear()
+    },
+  }
 }

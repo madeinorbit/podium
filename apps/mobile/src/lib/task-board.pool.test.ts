@@ -1,9 +1,9 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { taskStateWord } from '@podium/client-core/values'
 import type {
-  MobileTaskSection,
   MobileTasksOptions,
 } from '@podium/client-graph/mobile-screens-schema'
+import type { MobileTaskSection } from '../../../../tests/worklist/diagnostics/mobile-task-snapshot'
 import { asIssueId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import { readPoolTasks } from '../../test/pool-board-fixture'

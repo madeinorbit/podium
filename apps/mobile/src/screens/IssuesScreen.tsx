@@ -1,6 +1,5 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
-import type { IssueModel } from '@podium/client-graph/models'
-import { MobileTasksBoard } from '@podium/client-graph/mobile-tasks'
+import { MobileTasksBoard, type MobileTaskIssue } from '@podium/client-graph/mobile-tasks'
 import type { BoardListRow } from '@podium/client-graph/issue-board-schema'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { observer } from 'mobx-react-lite'
@@ -96,11 +95,11 @@ export const IssuesScreen = observer(function IssuesScreen() {
   const [filter, setFilter] = useState<BoardFilter>({})
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [rowMenu, setRowMenu] = useState<{
-    issue: IssueModel
+    issue: MobileTaskIssue
     kind: 'actions' | 'status'
   } | null>(null)
   const [closeIntent, setCloseIntent] = useState<{
-    issue: IssueModel
+    issue: MobileTaskIssue
     reason: IssueCloseReason
   } | null>(null)
   const [actionError, setActionError] = useState<string | null>(null)
@@ -140,8 +139,10 @@ export const IssuesScreen = observer(function IssuesScreen() {
   )
   const pool = useMobilePool()
   const booting = useBooting() || !pool
-  const board = useMemo(() => pool ? new MobileTasksBoard(pool, options) : null, [pool])
-  useEffect(() => { board?.configure(options) }, [board, options])
+  const board = useMemo(() => (pool ? new MobileTasksBoard(pool, options) : null), [pool])
+  useEffect(() => {
+    board?.configure(options)
+  }, [board, options])
   const chips = useMemo(() => filterChips(filter), [filter])
 
   // Proposals are inert until the operator decides [spec:SP-6144] — the deck
@@ -209,21 +210,21 @@ export const IssuesScreen = observer(function IssuesScreen() {
         </View>
       ) : null}
       <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
-          <StageSections
-            board={board}
-            listRef={listRef}
-            refreshControl={refreshControl}
-            refreshAccessibilityProps={refreshAccessibilityProps}
-            minimizeOnScroll={minimizeOnScroll}
-            bottomInset={bottomInset}
-            booting={booting}
-            chips={chips}
-            onScreenProposals={() => router.push('/screen-proposed')}
-            onOpen={(id) => router.push(`/issue/${encodeURIComponent(id)}`)}
-            onToggleExpanded={toggleExpanded}
-            onRemoveFilter={(key) => setFilter((current) => clearChip(current, key))}
-            onOpenActions={(issue) => setRowMenu({ issue, kind: 'actions' })}
-          />
+        <StageSections
+          board={board}
+          listRef={listRef}
+          refreshControl={refreshControl}
+          refreshAccessibilityProps={refreshAccessibilityProps}
+          minimizeOnScroll={minimizeOnScroll}
+          bottomInset={bottomInset}
+          booting={booting}
+          chips={chips}
+          onScreenProposals={() => router.push('/screen-proposed')}
+          onOpen={(id) => router.push(`/issue/${encodeURIComponent(id)}`)}
+          onToggleExpanded={toggleExpanded}
+          onRemoveFilter={(key) => setFilter((current) => clearChip(current, key))}
+          onOpenActions={(issue) => setRowMenu({ issue, kind: 'actions' })}
+        />
       </PullToRefreshBoundary>
       <TaskFiltersSheet
         visible={filtersOpen}
@@ -315,7 +316,7 @@ export const IssuesScreen = observer(function IssuesScreen() {
     )
   }
 
-  function selectStatus(issue: IssueModel, value: string): void {
+  function selectStatus(issue: MobileTaskIssue, value: string): void {
     const intent = parseIssueStatusValue(value)
     if (!intent) return
     if (intent.kind === 'stage') {
@@ -378,7 +379,7 @@ const StageSections = observer(function StageSections({
   onOpen: (id: string) => void
   onToggleExpanded: (id: string) => void
   onRemoveFilter: (key: keyof BoardFilter) => void
-  onOpenActions: (issue: IssueModel) => void
+  onOpenActions: (issue: MobileTaskIssue) => void
 }) {
   // Keys come from `../lib/fold-keys` — the ui-state classifier is default-closed
   // and THROWS on an unregistered key, so an invented `tasks.stage.<stage>` took
@@ -415,103 +416,108 @@ const StageSections = observer(function StageSections({
 
   return (
     <BootstrapCrossfade resolved={!pending} placeholder={<TasksSkeleton />}>
-    <SectionList
-      ref={listRef as never}
-      sections={sections}
-      keyExtractor={(row) => row.id}
-      stickySectionHeadersEnabled
-      contentInsetAdjustmentBehavior="automatic"
-      keyboardDismissMode="interactive"
-      refreshControl={refreshControl}
-      contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + space.lg }]}
-      {...refreshAccessibilityProps}
-      {...minimizeOnScroll}
-      ListHeaderComponent={
-        <>
-          <StorageNoticeAlert />
-          <RefreshOffer />
-          {chips.length > 0 ? (
-            <View style={styles.filterSummary} accessibilityRole="summary">
-              {chips.map((chip) => (
-                <PressableScale
-                  key={chip.key}
-                  accessibilityRole="button"
-                  accessibilityLabel={`Remove ${chip.label} filter`}
-                  onPress={() => onRemoveFilter(chip.key)}
-                  style={({ pressed }) => [styles.filterChip, pressed && styles.filterChipPressed]}
-                >
-                  <Text style={styles.filterChipText}>{chip.label}</Text>
-                  <Icon as={X} size={11} color={color.textDim} />
-                </PressableScale>
-              ))}
-            </View>
-          ) : null}
-          {board ? <ProposalsBanner board={board} onScreenProposals={onScreenProposals} /> : null}
-        </>
-      }
-      renderSectionHeader={({ section }) => (
-        <StageHeader
-          stage={section.stage}
-          title={section.title}
-          count={section.total}
-          collapsed={folds[section.stage][0]}
-          onToggle={folds[section.stage][1]}
-        />
-      )}
-      renderItem={({ item }) => (
-        <TaskRow
-          row={item}
-          issue={board!.pool.issueObject(item.id)}
-          onOpen={onOpen}
-          onToggleExpanded={onToggleExpanded}
-          onOpenActions={onOpenActions}
-        />
-      )}
-      // The inter-stage breath the header's marginTop used to (incorrectly)
-      // provide — footer space scrolls away with its section instead of
-      // travelling with the pinned bar.
-      renderSectionFooter={() => <View style={styles.sectionGap} />}
-      ListEmptyComponent={
-        // Guarded on `booting` even though the crossfade covers this screen:
-        // ListEmptyComponent is rendered whenever the data is empty, with no
-        // notion of whether loading has finished, so without this the empty
-        // state is CONSTRUCTED during bootstrap and sits in the tree — and in
-        // the accessibility tree — underneath an opaque placeholder.
-        pending ? null : (
-          <EmptyState title="No tasks" body="Tasks filed in your repos show up here." />
-        )
-      }
-    />
+      <SectionList
+        ref={listRef as never}
+        sections={sections}
+        keyExtractor={(row) => row.id}
+        stickySectionHeadersEnabled
+        contentInsetAdjustmentBehavior="automatic"
+        keyboardDismissMode="interactive"
+        refreshControl={refreshControl}
+        contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + space.lg }]}
+        {...refreshAccessibilityProps}
+        {...minimizeOnScroll}
+        ListHeaderComponent={
+          <>
+            <StorageNoticeAlert />
+            <RefreshOffer />
+            {chips.length > 0 ? (
+              <View style={styles.filterSummary} accessibilityRole="summary">
+                {chips.map((chip) => (
+                  <PressableScale
+                    key={chip.key}
+                    accessibilityRole="button"
+                    accessibilityLabel={`Remove ${chip.label} filter`}
+                    onPress={() => onRemoveFilter(chip.key)}
+                    style={({ pressed }) => [
+                      styles.filterChip,
+                      pressed && styles.filterChipPressed,
+                    ]}
+                  >
+                    <Text style={styles.filterChipText}>{chip.label}</Text>
+                    <Icon as={X} size={11} color={color.textDim} />
+                  </PressableScale>
+                ))}
+              </View>
+            ) : null}
+            {board ? <ProposalsBanner board={board} onScreenProposals={onScreenProposals} /> : null}
+          </>
+        }
+        renderSectionHeader={({ section }) => (
+          <StageHeader
+            stage={section.stage}
+            title={section.title}
+            count={section.total}
+            collapsed={folds[section.stage][0]}
+            onToggle={folds[section.stage][1]}
+          />
+        )}
+        renderItem={({ item }) => (
+          <TaskRow
+            row={item}
+            issue={board!.issue(item.id)}
+            onOpen={onOpen}
+            onToggleExpanded={onToggleExpanded}
+            onOpenActions={onOpenActions}
+          />
+        )}
+        // The inter-stage breath the header's marginTop used to (incorrectly)
+        // provide — footer space scrolls away with its section instead of
+        // travelling with the pinned bar.
+        renderSectionFooter={() => <View style={styles.sectionGap} />}
+        ListEmptyComponent={
+          // Guarded on `booting` even though the crossfade covers this screen:
+          // ListEmptyComponent is rendered whenever the data is empty, with no
+          // notion of whether loading has finished, so without this the empty
+          // state is CONSTRUCTED during bootstrap and sits in the tree — and in
+          // the accessibility tree — underneath an opaque placeholder.
+          pending ? null : (
+            <EmptyState title="No tasks" body="Tasks filed in your repos show up here." />
+          )
+        }
+      />
     </BootstrapCrossfade>
   )
 })
 
-const ProposalsBanner = observer(function ProposalsBanner({ board, onScreenProposals }: {
+const ProposalsBanner = observer(function ProposalsBanner({
+  board,
+  onScreenProposals,
+}: {
   board: MobileTasksBoard
   onScreenProposals: () => void
 }) {
   const proposals = board.proposals
   if (proposals === LOADING || proposals === 0) return null
   return (
-
-            <PressableScale
-              accessibilityRole="button"
-              accessibilityLabel="Screen proposed"
-              accessibilityHint={`Decide on ${proposals} proposal${proposals === 1 ? '' : 's'} one at a time`}
-              onPress={onScreenProposals}
-              style={({ pressed }) => [styles.screenRow, pressed && styles.screenRowPressed]}
-            >
-              <View style={styles.screenIcon}>
-                <Icon as={Layers} size={16} color={color.accentTint} />
-              </View>
-              <View style={styles.screenText}>
-                <Text style={styles.screenTitle}>Screen proposed</Text>
-                <Text style={styles.screenSub}>
-                  {`${proposals} proposal${proposals === 1 ? '' : 's'} waiting on your call`}
-                </Text>
-              </View>
-              <Icon as={ChevronRight} size={16} color={color.textFaint} />
-            </PressableScale>
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel="Screen proposed"
+      accessibilityHint={`Decide on ${proposals} proposal${proposals === 1 ? '' : 's'} one at a time`}
+      onPress={onScreenProposals}
+      style={({ pressed }) => [styles.screenRow, pressed && styles.screenRowPressed]}
+    >
+      <View style={styles.screenIcon}>
+        <Icon as={Layers} size={16} color={color.accentTint} />
+      </View>
+      <View style={styles.screenText}>
+        <Text style={styles.screenTitle}>Screen proposed</Text>
+        <Text style={styles.screenSub}>
+          {`${proposals} proposal${proposals === 1 ? '' : 's'} waiting on your call`}
+        </Text>
+      </View>
+      <Icon as={ChevronRight} size={16} color={color.textFaint} />
+    </PressableScale>
   )
 })
 
@@ -613,23 +619,28 @@ const TaskRow = observer(function TaskRow({
   onOpenActions,
 }: {
   row: BoardListRow
-  issue: IssueModel
+  issue: MobileTaskIssue
   onOpen: (id: string) => void
   onToggleExpanded: (id: string) => void
-  onOpenActions: (issue: IssueModel) => void
+  onOpenActions: (issue: MobileTaskIssue) => void
 }) {
   // The shared load window resolves just this drawn row; membership stays live.
   if (!issue.row) return <View style={styles.rowWrap} />
-  let workingAgents: number, progress: IssueModel['taskProgress']
-  try { workingAgents = issue.confirmedWorkingAgents; progress = issue.taskProgress }
-  catch (error) { if (error === LOADING) return <View style={styles.rowWrap} />; throw error }
+  let workingAgents: number, progress: MobileTaskIssue['taskProgress']
+  try {
+    workingAgents = issue.confirmedWorkingAgents
+    progress = issue.taskProgress
+  } catch (error) {
+    if (error === LOADING) return <View style={styles.rowWrap} />
+    throw error
+  }
   const hex = issueColorHex(issue.color)
   const resting = issue.stage === 'backlog' || issue.stage === 'proposed'
   const repo = machinePathBasename(issue.repoPath) ?? ''
   const parent = issue.treeParent
   const parentModel = parent === LOADING ? null : parent
   const childCount = row.childCount
-  const state = taskStateWord(issue as RankedTaskIssue, workingAgents, progress)
+  const state = taskStateWord(issue as unknown as RankedTaskIssue, workingAgents, progress)
   const stateColor =
     state?.tone === 'attention'
       ? color.needsYouText
@@ -725,7 +736,9 @@ const TaskRow = observer(function TaskRow({
               <Pill label={`${childCount} sub-task${childCount === 1 ? '' : 's'}`} />
             </PressableScale>
           ) : null}
-          {parentModel ? <Text style={styles.from}>from {issueDisplayRef(parentModel)}</Text> : null}
+          {parentModel ? (
+            <Text style={styles.from}>from {issueDisplayRef(parentModel)}</Text>
+          ) : null}
           <Text style={styles.repo} numberOfLines={1}>
             {repo}
           </Text>

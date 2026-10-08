@@ -520,7 +520,7 @@ async function measureScreenCells(
     add('phone-tasks.sections', ['IssuesScreen', 'StageSections'], () => phoneTasks.sections)
     add('phone-tasks.proposals', ['ProposalsBanner'], () => phoneTasks.proposals)
     add('phone-tasks.row', ['TaskRow'], () => {
-      const issue = pool.issueObject(ROOT)
+      const issue = phoneTasks.issue(ROOT)
       return { title: issue.title, stage: issue.stage, working: issue.confirmedWorkingAgents,
         progress: issue.taskProgress, dependents: issue.dependents }
     })
