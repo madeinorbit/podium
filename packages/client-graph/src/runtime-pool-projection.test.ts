@@ -5,6 +5,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { projectionComparisonMechanism } from '../../../tests/worklist/diagnostics/projection-comparison-mechanism'
 import { MobxPool } from './pool'
 import { createPoolProjection } from './runtime-pool'
+import { worklistView } from './worklist/view-model'
 
 const cleanups: (() => void)[] = []
 afterEach(() => {
@@ -15,9 +16,12 @@ afterEach(() => {
 function fixture() {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   cleanups.push(() => pool.dispose())
+  const observerCount = () => getObserverTree(pool.selection).observers?.length ?? 0
+  // Selection history has its own pool-lifetime reaction (12dc075da6, POD-5547).
+  // Measure observers added by projections, independently of that UI state owner.
+  const selectionObservers = observerCount()
   // Track size as well as membership so another key can change an observed
-  // input while preserving the projected result. The size atom also exposes
-  // the projection's real observer lifetime through getObserverTree.
+  // input while preserving the projected result.
   const read = vi.fn((current: MobxPool) => ({
     selected: current.selection.size > 0 && current.selection.has('target'),
   }))
@@ -34,9 +38,41 @@ function fixture() {
     subscribe,
     change: (id: string | null) =>
       pool.applyLocals({ selectedIssueId: id, coarseNow: 0 }, new Set(['selectedIssueId'])),
-    observers: () => getObserverTree(pool.selection).observers?.length ?? 0,
+    observers: () => observerCount() - selectionObservers,
   }
 }
+
+it('maintains selection history without running projections and releases it with the pool', () => {
+  const f = fixture()
+  const selection = f.pool.selection
+  expect(getObserverTree(selection).observers).toHaveLength(1)
+  expect(f.observers()).toBe(0)
+  const resident = vi.spyOn(f.pool, 'resident')
+  const issue = {
+    id: 'target', seq: 1, prefix: 'POD', title: 'Target', stage: 'review',
+    createdAt: '2026-01-01', updatedAt: '2026-01-01', archived: false,
+    repoPath: '/r', repoId: 'r', deps: [],
+  }
+  f.change('never-seen')
+  expect(worklistView(f.pool).selectionEvicted).toBe(false)
+  f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'target', value: issue as never }] })
+  f.change('target')
+  resident.mockClear()
+  f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'other', value: { ...issue, id: 'other' } as never }] })
+  f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'target', value: { ...issue, title: 'Renamed' } as never }] })
+  expect(resident).not.toHaveBeenCalled()
+  // Eviction must be remembered even if no screen read its verdict before removal.
+  f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'target', value: undefined }] })
+  expect(resident).toHaveBeenCalledTimes(1)
+  expect(worklistView(f.pool).selectionEvicted).toBe(true)
+  expect(worklistView(f.pool).selectionEvicted).toBe(true)
+  f.change(null)
+  expect(worklistView(f.pool).selectionEvicted).toBe(false)
+  expect(f.read).not.toHaveBeenCalled()
+  expect(getObserverTree(selection).observers).toHaveLength(1)
+  f.pool.dispose()
+  expect(getObserverTree(selection).observers ?? []).toHaveLength(0)
+})
 
 it('uses reference equality without reading collection fields at either scale', () => {
   for (const scale of [1, 4] as const) {
