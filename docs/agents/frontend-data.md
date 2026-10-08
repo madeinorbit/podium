@@ -13,6 +13,7 @@ How every client screen (web, desktop, phone) gets and derives data from the Mob
 - **Companion**: a small object per record, owned by one view, for rules only that view uses (`WorklistIssue` wraps an `IssueModel`). Created with `companion()` from `@podium/mobx-helpers`, declared once on the view model: one companion per record per view. Never use `companion()` as a cache for part of a row; that part is a `@lazy` field of the companion.
 - **Request answer**: a one-off server answer to one question (search hits, a file tree, a git diff, a receipt). It is not a record and has no shared model.
 - **Service**: an object with a job and a lifetime that is not a record: a conversation's transcript window, streaming and send queue; the connection; the outbox. Written in the rule 8 style.
+- **Edit draft** and **message draft**: an edit draft holds a form's unsaved changes to an existing record (`draft()`, local to the view). A message draft is the chat text being typed to an agent: a stored field of the session, synced to other devices; never built with `draft()`.
 - **UI state**: state that never comes from the server: open tab, folds, selection, form input.
 - **Watched read**: a read inside an `observer` component or a MobX reaction.
 
