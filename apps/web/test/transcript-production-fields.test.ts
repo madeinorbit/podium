@@ -13,12 +13,12 @@ const fields = ['latestAnswerId', 'latestAssistantId', 'latestProseId', 'pending
 type Compiler = 'desktop' | 'phone'
 
 function phoneSource(source: string): string {
-  // Resolve through Expo's preset, just as apps/mobile/babel.config.js does
+  // Resolve Babel through Metro, just as the production Expo exporter does
   // under the isolated linker, without adding a second Babel dependency.
   const mobileRequire = createRequire(`${root}apps/mobile/package.json`)
   const expoRequire = createRequire(mobileRequire.resolve('expo/package.json'))
-  const presetRequire = createRequire(expoRequire.resolve('babel-preset-expo/package.json'))
-  const babel = presetRequire('@babel/core') as {
+  const metroRequire = createRequire(expoRequire.resolve('@expo/metro-config/package.json'))
+  const babel = metroRequire('@babel/core') as {
     transformSync: (source: string, options: object) => { code: string }
   }
   return babel.transformSync(source, {
