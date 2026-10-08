@@ -1,5 +1,6 @@
 import { compareStructural } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
+import { descending } from './worktree'
 import { hostOf, type SessionModel } from '../models'
 import type { SliceSession } from '../shared/slice-types'
 import { attentionGroup, isOfferOnlyAttention, LOADING, type Loaded as LoadedRow, motionPhase, type SeatVerdict } from './rollup'
@@ -21,6 +22,25 @@ export class WorklistSession implements SessionVisibility {
 
   private readRetention(): Retention | null {
     return retentionOf(this.host.visibleInputs.sessionRow(this.id))
+  }
+
+  /** The ordering question reads scalar facts; session payload replacement
+   * with identical motion cannot wake the ordered roster. */
+  @lazy private get sortWorking(): boolean {
+    return attentionGroup(this.session as unknown as SliceSession) === 'working'
+  }
+  @lazy get sortKey(): string {
+    const until = this.session.snoozedUntil
+    const timed = typeof until === 'string' && this.host.inputs.reached(Date.parse(until))
+    const rank = this.sortWorking ? 2 : until === null || (typeof until === 'string' && !timed) ? 1 : 0
+    const active = this.session.lastActivity
+    const draft = this.session.draftUpdatedAt
+    const latest = draft && draft > active ? draft : active
+    const recency = timed && until > latest ? until : latest
+    return `${rank}\0${descending(recency)}\0${descending(this.session.createdAt ?? '')}`
+  }
+  @lazy get stale(): boolean {
+    return !this.sortWorking && this.host.inputs.passed((Date.parse(this.session.lastActivity) || 0) + 16 * 60 * 60 * 1000)
   }
 
   // Close and retention: sidebar history also considers read/grace state

@@ -201,65 +201,17 @@ export class SidebarIndex {
   }
 
   worktree(path: string, state: SidebarState = {}): SidebarWorktree | undefined {
-    const lane = this.pool.row('worktree', path)
-    if (lane === undefined || lane === LOADING) return undefined
-    const sessions: SliceSession[] = []
-    const issues = new Map<string, SliceIssue & { readonly displayRef: string }>()
-    const tree = this.pool.model('worktree', path)
-    const roster = tree ? this.view.tree(tree).roster : undefined
-    if (roster === undefined || (!roster.ids.length && roster.pending === 0)) return undefined
-    let activityAt = 0,
-      pending = roster.pending
-    for (const id of roster.ids) {
-      const sessionModel = this.pool.model('session', id)
-      const row = this.pool.row('session', id)
-      if (row === LOADING) {
-        pending += 1
-        continue
-      }
-      if (row === undefined || sessionModel === undefined) continue
-      const session = row as SliceSession
-      const owner =
-        sessionModel.issueLink === null ? undefined : this.pool.knownIssue(sessionModel.issueLink)
-      if (session.issueId && owner) {
-        const raw = this.pool.row('issue', session.issueId)
-        if (raw === LOADING) pending += 1
-        else if (raw !== undefined)
-          issues.set(
-            session.issueId,
-            overlayRow(raw as SliceIssue, {
-              displayRef: this.pool.issue(session.issueId)!.displayRef,
-            }),
-          )
-      }
-      activityAt = Math.max(activityAt, sessionModel.activityMs ?? 0)
-      if (session.status !== 'exited') sessions.push(session)
-    }
-    const sorted = sortedSidebarSessions(sessions, this.pool.inputs.reached)
-    const candidates = sorted.filter(
-      (s) =>
-        attentionGroup(s) !== 'working' &&
-        this.pool.inputs.passed((Date.parse(s.lastActiveAt) || 0) + 16 * 60 * 60 * 1000),
-    )
-    const staleIds = new Set(
-      sorted.length > 5 && candidates.length > 3
-        ? [...candidates]
-            .sort((a, b) => b.lastActiveAt.localeCompare(a.lastActiveAt))
-            .slice(3)
-            .map((s) => s.sessionId)
-        : [],
-    )
+    const model = this.pool.model('worktree', path)
+    if (!model) return undefined
+    const tree = this.view.tree(model)
+    if (!tree.rosterIds.length && tree.pending === 0) return undefined
     return {
-      worktree: lane as SliceWorktree,
-      sessions: sorted,
-      visible: sorted.filter((s) => !staleIds.has(s.sessionId)),
-      stale: sorted.filter((s) => staleIds.has(s.sessionId)),
-      issues: [...issues.values()],
-      activityAt,
-      pending,
-      // The selection is read only for the selected worktree: a click
-      // elsewhere wakes no other worktree row (POD-5423).
-      active: state.selectedWorktree != null && machinePathsEqual(state.selectedWorktree, path) && this.view.selectedId === null,
+      worktree: model as unknown as SliceWorktree,
+      sessions: tree.sessions as unknown as readonly SliceSession[],
+      visible: tree.visible as unknown as readonly SliceSession[],
+      stale: tree.stale as unknown as readonly SliceSession[],
+      issues: tree.issues as unknown as SidebarWorktree['issues'],
+      activityAt: tree.activityAt, pending: tree.pending, active: tree.active(state),
     }
   }
 

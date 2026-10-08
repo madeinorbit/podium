@@ -1,3 +1,4 @@
+import type { SessionModel } from './models'
 import { headerModel } from './header-companion'
 import { headerEntities } from './header-entities'
 import { keyedComputed } from '@podium/mobx-helpers'
@@ -201,7 +202,7 @@ function createHeaderViews(pool: MobxPool) {
     const ids = missions(pool).members(root.id)
     if (ids === LOADING) return FOLDED_LOADING
     const seats = sessionSeats(pool)
-    const sessions = new Map<string, SliceSession>()
+    const sessions = new Map<string, SessionModel>()
     let loading = false,
       needs = 0
     // Placement can hide a provenance branch behind an archived owner.
@@ -223,7 +224,7 @@ function createHeaderViews(pool: MobxPool) {
       )
         continue
       const owner = value.startedBySession
-        ? sessionSummary(value.startedBySession)?.issueId
+        ? pool.sessionObject(value.startedBySession).issueLink
         : undefined
       const parent = owner && ids.has(owner) && owner !== id ? owner : root.id
       const siblings = grafts.get(parent) ?? []
@@ -255,18 +256,17 @@ function createHeaderViews(pool: MobxPool) {
       let asking = false,
         staffed = false
       for (const sid of present(id)) {
-        const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
-        if (member === LOADING) {
+        const resident = pool.resident('session', sid)
+        if (resident === 'loading') {
           loading = true
           continue
         }
-        if (!member || member.archived || member.headless || member.agentKind === 'shell') continue
+        if (resident === 'absent') continue
+        const member = pool.sessionObject(sid)
+        if (member.archived || member.headless || member.agentKind === 'shell') continue
         sessions.set(sid, member)
-        staffed ||= sessionPresentOnTask(member as SessionView)
-        asking ||=
-          member.agentState?.phase === 'needs_user' ||
-          member.agentState?.phase === 'errored' ||
-          !!member.offer
+        staffed ||= member.open
+        asking ||= member.asking
       }
       const vacated = !staffed && pool.graph.size('issue', id, 'spinOffs') > 0
       if (
@@ -278,15 +278,13 @@ function createHeaderViews(pool: MobxPool) {
       for (const child of grafts.get(id) ?? []) collect(child)
     }
     collect(root.id)
-    const crew = [...sessions.values()].filter((member) =>
-      sessionPresentOnTask(member as SessionView),
-    )
+    const crew = [...sessions.values()].filter(member => member.open)
     if (
       root.isDraftVessel &&
       !root.worktreePath &&
       !present(root.id).some((sid) => {
-        const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
-        return member && member !== LOADING && !member.archived
+        const state = pool.resident('session', sid)
+        return state === 'resident' && !pool.sessionObject(sid).archived
       })
     )
       return { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading }
@@ -297,7 +295,7 @@ function createHeaderViews(pool: MobxPool) {
       root,
       progress: progress && progress !== LOADING ? progress : NO_PROGRESS,
       live: crew.length,
-      working: crew.filter(isSessionWorking).length,
+      working: crew.filter(member => member.executing).length,
       needs,
       loading,
     }

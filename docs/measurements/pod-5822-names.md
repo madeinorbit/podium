@@ -1,6 +1,6 @@
 # Worklist field names
 
-Naming proposal for POD-5822, based on `integrate/4286-pilot` at `ddc113ec4c59d438d9dc847867ef4f8bb7d085f8`. Prepared before changing code; sent to POD-5708 for the operator’s decision.
+Naming proposal for POD-5822, based on `integrate/4286-pilot` at `ddc113ec4c59d438d9dc847867ef4f8bb7d085f8`. Prepared before changing code; accepted by the operator through POD-5708 on 2026-10-08, with the corrections below applied.
 
 The desktop sidebar and phone Work tab use the same companion and shared issue. `issue.*` means a direct `IssueModel` read and deletion of the companion copy. A name beginning `visible` describes the subtree actually drawn after folding; the existing filing answers cover the retained subtree and are a different question. `self` means deletion of an adapter-only field, not a new property. Stored optional values keep their existing display defaults at the component read.
 
@@ -32,7 +32,7 @@ The three ports’ exhaustive contracts, their raw issue fallback, and the `stan
 | `sidebar.draftAgentOnly / mobile.draftOnly / rowDraftAgentOnly` | `sessionOnlyDraft` | Is this draft represented by its agent session alone? |
 | `sidebar.firstSessionId / rowFirstSessionId` | `firstSessionId` | Which own attention session comes first? |
 | `sidebar.continuation / rowContinuation` | `continuation` | Where did this work continue, or which issue duplicates it? |
-| `sidebar.fleet / mobile.fleet` | `fleet` | Which agents are in the visible subtree? |
+| `sidebar.fleet / mobile.fleet` | `visibleFleet` | Which agents are in the visible subtree? |
 | `sidebar.issue / rowIssue / createIssuePort Proxy` | `issue` | Which shared issue is this row about? No second issue object. |
 | `sidebar.sessions / mobile.sessions / rowSessions` | `sessions` | Which loaded own attention SessionModels belong to this row? |
 | `sidebar.aggregateSessionIds` | `visibleSessionIds` | Which sessions belong to the visible subtree? |
@@ -98,11 +98,11 @@ The three ports’ exhaustive contracts, their raw issue fallback, and the `stan
 | `createIssuePort.duplicateOf` | `issue.duplicateOf` | Shared record fact; the Proxy fallback and row copy disappear. |
 | `createIssuePort.displayRef` | `issue.displayRef` | Shared record fact; the Proxy fallback and row copy disappear. |
 | `createIssuePort.unread` | `visibleUnread` | The old Proxy overrides the record with worklist retention unread; read the companion explicitly. |
-| `standing.excluded / standingExcluded` | `excluded` | Filing/presence rule, or shared record fact as named. |
+| `standing.excluded / standingExcluded` | `issue.excluded` | Shared record exclusion predicate. |
 | `standing.finished / standingFinished` | `issue.finished` | Filing/presence rule, or shared record fact as named. |
-| `standing.agent / standingAgent` | `agentFiled` | Filing/presence rule, or shared record fact as named. |
+| `standing.agent / standingAgent` | `issue.audience` | Filing/presence rule, or shared record fact as named. |
 | `standing.activeHuman / standingActiveHuman` | `activeHuman` | Filing/presence rule, or shared record fact as named. |
-| `standing.awaitingMerge / standingAwaitingMerge` | `mergePending` | Filing/presence rule, or shared record fact as named. |
+| `standing.awaitingMerge / standingAwaitingMerge` | `issue.awaitingMerge` | Filing/presence rule, or shared record fact as named. |
 | `standing.sessionless / standingSessionless` | `sessionless` | Filing/presence rule, or shared record fact as named. |
 | `standing.rescuable / standingRescuable` | `rescuable` | Filing/presence rule, or shared record fact as named. |
 | `standing.parentId / standingParentId` | `issue.parentRef` | Filing/presence rule, or shared record fact as named. |
@@ -163,3 +163,5 @@ The three ports’ exhaustive contracts, their raw issue fallback, and the `stan
 | `ownFacts.closedAt` | `issue.ownFacts.closedAt` | Already answered by IssueModel; keep only the internal rollup interface, with direct reads. |
 | `ownFacts.coordinatorSessionId` | `issue.ownFacts.coordinatorSessionId` | Already answered by IssueModel; keep only the internal rollup interface, with direct reads. |
 | `ownFacts.order / ownOrder` | `issueOrder` | Issue ordering tuple needed only by the worklist rollup. |
+
+The own-session `workingTimer`, `waitingOpenTimer`, and `waitingFinishedTimer` answers are objects containing timer anchors (sinceMs/stateSince/baseMs), not bare timestamps. The accepted timer names therefore apply. The shared `issue.deferred` answer includes DEFER_NEXT_MESSAGE; this also keeps `issue.ready` false until that defer ends.
