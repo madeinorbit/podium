@@ -1,6 +1,7 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { asSessionId, isFinished } from '@podium/model/browser'
-import type { TaskProgress } from '@podium/client-core/values'
+import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, type TaskProgress } from '@podium/client-core/values'
+import type { ReaderQueries } from './reader-queries'
 import { motionPhase as sessionMotion } from '@podium/client-core/values'
 
 /** One shared object per server record. Schema fields and relations are installed
@@ -35,6 +36,9 @@ export interface ModelHost {
   sessionArchiveField(id: string): boolean | undefined
   /** Whether the cutoff declares a stored session field, even when optional. */
   sessionSummaryField(property: string): boolean
+  issueSummaryField(property: string): boolean
+  issueExitKind(id: string): ReferentExit | undefined
+  readonly queries: Pick<ReaderQueries, 'issueCloseCounts' | 'issueChildCounts'>
   /** Borrow the data layer's archive partition without copying its IDs. */
   sessionSeatIds(relation: SeatRelation, issueId: string, archived: boolean): readonly string[] | typeof LOADING
   /** The declared parent key, tracked without reading the source or target payload. */
@@ -55,6 +59,10 @@ export interface ModelHost {
   resident(entity: EntityName, id: string): Residence
   /** Resident fallback seats; cold rows are requested from a declared lane summary. */
   rosterCandidates(path: string): Iterable<string>
+}
+
+function documentText(value: unknown): string {
+  return typeof value === 'string' ? value : (value as { value?: string } | undefined)?.value ?? ''
 }
 
 export class EntityModel {
@@ -267,6 +275,7 @@ export type RelationGetters<E extends EntityName> = {
 
 /** The one shared issue record. Worklist presentation belongs to WorklistIssue. */
 export class IssueModel extends EntityModel {
+  static override readonly answers: ReadonlySet<string> = new Set(['description', 'notes'])
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
   }
@@ -276,9 +285,59 @@ export class IssueModel extends EntityModel {
     return this.host.edit('issue', this.id, patch)
   }
 
+  // Stored fields: display summaries never promote an undisplayed child.
   override storedField(property: string): unknown {
-    return property === 'readAt' ? this.host.visibleInputs.issueRead(this.id) : super.storedField(property)
+    if (property === 'readAt') return this.host.visibleInputs.issueRead(this.id)
+    const resident = this.host.row('issue', this.id, 'mark')
+    if (resident !== LOADING) return (resident as Record<string, unknown> | undefined)?.[property]
+    if (this.host.issueSummaryField(property)) {
+      const summary = this.host.row('issue', this.id, 'summary')
+      if (summary !== LOADING) return (summary as Record<string, unknown> | undefined)?.[property]
+    }
+    const row = this.host.row('issue', this.id)
+    if (row === LOADING) throw LOADING
+    return (row as Record<string, unknown> | undefined)?.[property]
   }
+
+  @lazy get authoredTitle(): string { return String(this.storedField('title') ?? '') }
+  @lazy get description(): string { return documentText(this.storedField('description')) }
+  @lazy get notes(): string | undefined {
+    const value = this.storedField('notes')
+    return value === undefined ? undefined : documentText(value)
+  }
+
+  // Links: exit evidence is an addressed source read, never a neighbour map.
+  @lazy get exitKind(): ReferentExit | undefined { return this.host.issueExitKind(this.id) }
+  @lazy get relationGroups() {
+    return groupRelations({ deps: (this.storedField('deps') ?? []) as Parameters<typeof groupRelations>[0]['deps'],
+      dependents: this.dependents as Parameters<typeof groupRelations>[0]['dependents'] })
+  }
+
+  // Readiness: only the defer deadline depends on the pool clock.
+  @lazy get deferred(): boolean {
+    const deadline = Date.parse(String(this.storedField('deferUntil') ?? ''))
+    return Number.isFinite(deadline) && !this.host.inputs.passed(deadline)
+  }
+  @lazy get ready(): boolean {
+    return !this.storedField('blocked') && !this.deferred && !isFinished(this.row ?? {})
+  }
+
+  // Close: one question per field; counts borrow the maintained data layer.
+  @lazy get closeNeedsHuman(): boolean { return Boolean(this.storedField('needsHuman')) }
+  @lazy get closeQuestion(): string | undefined {
+    return (this.storedField('asked') as { question?: string } | undefined)?.question
+  }
+  @lazy get closeGit(): IssueCloseScalarSubject['git'] {
+    const git = this.storedField('gitState') as import('@podium/model').IssueGitState | undefined
+    return git ? { dirty: git.dirtyOwn ?? (!git.shared && !git.fallback ? git.dirtyFiles : 0),
+      delivery: git.shared ? (git.commits?.length ?? 0) : (git.ahead ?? 0), shared: !!git.shared, merged: git.merged } : undefined
+  }
+  get closeMembers(): IssueCloseMemberCounts { return this.host.queries.issueCloseCounts(this.id) }
+  get closeChildren() { return this.host.queries.issueChildCounts(this.id) }
+  /** Existing scalar consumers share the raw member fact, without another cache. */
+  get sessionSummary() { return this.memberSummary }
+
+
 
 
   // Stored fields and presence

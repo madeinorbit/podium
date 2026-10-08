@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 /**
  * The stack of banners above the issue title: deleted, superseded/duplicate,
  * a suggested stage move, and needs-human. Split out of IssuePage.tsx (POD-646).
@@ -20,13 +21,13 @@ import type { IssuePageCommands } from '../issue-page-commands'
 import { IssueEdgeLink, useIssueEdgeResolver } from './issue-edges'
 import { NeedsHumanBanner } from './NeedsHumanBanner'
 
-export function IssueBanners({
+export const IssueBanners = observer(function IssueBanners({
   issue,
   busy,
   commands,
   onBack,
   onNavigate,
-}: {
+}): {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
@@ -81,10 +82,10 @@ export function IssueBanners({
 
 /** Superseded-by / duplicate-of banner — the stored relation values were only
  *  settable before; now the current state reads back, with click-through. */
-export function LifecycleBanner({
+export const LifecycleBanner = observer(function LifecycleBanner({
   issue,
   onNavigate,
-}: {
+}): {
   issue: IssueViewModel
   onNavigate: (id: IssueId) => void
 }): JSX.Element | null {

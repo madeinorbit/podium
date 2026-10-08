@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 /**
  * The two shapes every properties row is built from: a labelled row, and the
  * full-width ghost button used as a `PropertyMenu` trigger. Split out of
@@ -10,10 +11,10 @@ import { forwardRef } from 'react'
 import { Button } from '@/components/ui/button'
 
 /** One labeled row in the properties sidebar: a fixed-width label + a value cell. */
-export function PropertyRow({
+export const PropertyRow = observer(function PropertyRow({
   label,
   children,
-}: {
+}): {
   label: string
   children: ReactNode
 }): JSX.Element {

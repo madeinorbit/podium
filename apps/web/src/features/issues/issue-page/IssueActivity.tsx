@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 /**
  * The activity half of the issue page: agent mail, the assistant note, the
  * day-grouped comment/event feed, and the comment composer.
@@ -68,7 +69,7 @@ import { modChord } from '@/lib/mod-chord'
 /** Agent mail addressed to this issue (issue #103) — durable messages other
  *  agents sent to whoever works it. Read-only operator view; listing here never
  *  consumes the recipient's unread status. */
-export function MailSection({ mail }: { mail: IssueMailMessage[] }): JSX.Element | null {
+export const MailSection = observer(function MailSection({ mail }: { mail: IssueMailMessage[] }): JSX.Element | null {
   if (mail.length === 0) return null
   const now = Date.now()
   return (
@@ -115,7 +116,7 @@ export function MailSection({ mail }: { mail: IssueMailMessage[] }): JSX.Element
       ))}
     </section>
   )
-}
+})
 
 /** Glyph per event-line kind (the pure formatter returns a stable `icon` key so
  *  it stays JSX-free and unit-testable; the mapping to a real icon lives here). */
@@ -139,7 +140,7 @@ const EVENT_ICONS: Record<IssueEventIcon, LucideIcon> = {
  * continuous spine — a real transition lights its node in the issue colour, a
  * minor one leaves it grey.
  */
-function ActivityEvent({ line, ts }: { line: IssueEventLine; ts: string }): JSX.Element {
+const ActivityEvent = observer(function ActivityEvent({ line, ts }: { line: IssueEventLine; ts: string }): JSX.Element {
   const Icon = EVENT_ICONS[line.icon] ?? EVENT_ICONS.generic
   const minor = line.minor === true
   return (
@@ -164,16 +165,16 @@ function ActivityEvent({ line, ts }: { line: IssueEventLine; ts: string }): JSX.
       </span>
     </div>
   )
-}
+})
 
 /** A collapsed run of minor events — one line, opened in place. */
-function ActivityRollupRow({
+const ActivityRollupRow = observer(function ActivityRollupRow({
   label,
   count,
   firstTs,
   ts,
   items,
-}: {
+}): {
   label: string
   count: number
   firstTs: string
@@ -239,11 +240,11 @@ function ActivityRollupRow({
  * has no pair renders none. Deriving one from `author` would be exactly the
  * synthesis A3 forbids. See the ledger for the upstream that would supply it.
  */
-function ActivityComment({
+const ActivityComment = observer(function ActivityComment({
   author,
   body,
   ts,
-}: {
+}): {
   author: string
   body: string
   ts: string
@@ -266,7 +267,7 @@ function ActivityComment({
   )
 }
 
-function ActivityEntryRow({ entry }: { entry: ActivityEntry }): JSX.Element | null {
+const ActivityEntryRow = observer(function ActivityEntryRow({ entry }: { entry: ActivityEntry }): JSX.Element | null {
   if (entry.kind === 'rollup') {
     return (
       <ActivityRollupRow
@@ -282,25 +283,25 @@ function ActivityEntryRow({ entry }: { entry: ActivityEntry }): JSX.Element | nu
     return <ActivityComment author={entry.author} body={entry.body} ts={entry.ts} />
   }
   return <ActivityEvent line={entry.line} ts={entry.ts} />
-}
+})
 
 /** The mono day divider that carries the date the rows no longer restate. */
-function DayDivider({ label }: { label: string }): JSX.Element {
+const DayDivider = observer(function DayDivider({ label }: { label: string }): JSX.Element {
   return (
     <div className="mt-4 mb-2 flex items-center gap-2.5 first:mt-0">
       <span className={MACHINE_LABEL}>{label}</span>
       <span className="h-px flex-1 bg-border/60" aria-hidden="true" />
     </div>
   )
-}
+})
 
 /** The activity section: assistant note, then the day-grouped feed. */
-export function IssueActivitySection({
+export const IssueActivitySection = observer(function IssueActivitySection({
   issue,
   busy,
   commands,
   feed,
-}: {
+}): {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
@@ -377,13 +378,13 @@ export function IssueActivitySection({
  * It grows with what you type and stops at a third of the viewport, so a long
  * reply never eats the history it is replying to. Cmd/Ctrl+Enter posts.
  */
-export function CommentComposer({
+export const CommentComposer = observer(function CommentComposer({
   issueId,
   busy,
   value,
   onChange,
   onPost,
-}: {
+}): {
   issueId: IssueId
   busy: boolean
   value: string

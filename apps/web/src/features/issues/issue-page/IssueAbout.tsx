@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 /**
  * THE ORIGIN BLOCK — where this task came from, whose it is, and who it is for.
  * The last band of the rail, read once and rarely.
@@ -103,7 +104,7 @@ export const ABOUT_ROWS: readonly AboutRowSpec[] = [
   },
 ]
 
-export function IssueAbout({ issue }: { issue: IssueViewModel }): JSX.Element {
+export const IssueAbout = observer(function IssueAbout({ issue }: { issue: IssueViewModel }): JSX.Element {
   return (
     <section className="flex flex-col gap-2" data-testid="issue-about">
       <SectionHeading>Origin</SectionHeading>
@@ -124,15 +125,15 @@ export function IssueAbout({ issue }: { issue: IssueViewModel }): JSX.Element {
       </div>
     </section>
   )
-}
+})
 
 /** One label/value line in the Origin block; empty values render nothing. */
-function AboutRow({
+const AboutRow = observer(function AboutRow({
   label,
   value,
   title,
   testId,
-}: {
+}): {
   label: string
   value: string
   title?: string

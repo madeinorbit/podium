@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 /**
  * THE NEEDS-HUMAN BANNER — a question that belongs to a PERSON (POD-646).
  *
@@ -26,11 +27,11 @@ import { Button } from '@/components/ui/button'
 import type { IssuePageCommands } from '../issue-page-commands'
 import { AttributionPair } from './AttributionPair'
 
-export function NeedsHumanBanner({
+export const NeedsHumanBanner = observer(function NeedsHumanBanner({
   issue,
   busy,
   commands,
-}: {
+}): {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
@@ -63,7 +64,7 @@ export function NeedsHumanBanner({
 }
 
 /** Who asked, and for whom — server fields only. */
-function NeedsHumanAsker({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+const NeedsHumanAsker = observer(function NeedsHumanAsker({ issue }: { issue: IssueViewModel }): JSX.Element | null {
   const asked = issue.asked
   if (asked?.attribution) {
     return (
@@ -80,4 +81,4 @@ function NeedsHumanAsker({ issue }: { issue: IssueViewModel }): JSX.Element | nu
       Asked by session <span className="font-mono">{legacyAsker}</span>
     </p>
   )
-}
+})

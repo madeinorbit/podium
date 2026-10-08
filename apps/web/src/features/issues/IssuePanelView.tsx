@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
@@ -59,7 +60,11 @@ import {
 } from './IssueCompactControls'
 import { IssueStatusPicker } from './IssueStatusPicker'
 import { issueIdTitle } from './issue-card'
-import { useIssuePageData, useIssuePageIssues } from './issue-page/issue-page-data'
+import { useIssuePageData } from './issue-page/issue-page-data'
+import { useIssueHistory } from './issue-page/IssueHistory'
+import { issuePages, type PageIssue } from '@podium/client-graph/issue-page'
+import { useIssueEdgeResolver, edgeIssue } from './issue-page/issue-edges'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { useIssueStatusApply } from './use-issue-status-apply'
 
 // Where the task's identity lives, since POD-743: the HEAD of this panel. The
@@ -69,9 +74,9 @@ import { useIssueStatusApply } from './use-issue-status-apply'
 // stage still survives exactly twice: the trail's glyph-free ref, and the stage
 // dropdown's own label.
 
-function Hint({ children }: { children: string }): JSX.Element {
+const Hint = observer(function Hint({ children }: { children: string }): JSX.Element {
   return <div className={cn(DOCK_BODY, 'py-0.5 text-text-faint italic')}>{children}</div>
-}
+})
 
 /** Presence-note kind → its mark. The words come from `mission.ts` so the deck
  *  and the dock say the same thing about the same task; only the glyph is local
@@ -90,7 +95,7 @@ const PRESENCE_ICON: Record<PresenceKind, LucideIcon> = {
 /** Why nobody is on this task. A blank where an agent row would be is the one
  *  thing this section must never render — "no session" is several different
  *  situations and only one of them is a problem. */
-function PresenceLine({ note }: { note: PresenceNote }): JSX.Element {
+const PresenceLine = observer(function PresenceLine({ note }: { note: PresenceNote }): JSX.Element {
   const Icon = PRESENCE_ICON[note.kind]
   return (
     <div
@@ -111,18 +116,18 @@ function PresenceLine({ note }: { note: PresenceNote }): JSX.Element {
       {note.text}
     </div>
   )
-}
+})
 
 /** A section of the single scroll. The approved inspector is one continuous
  *  read, so a section is a heading and a hairline — no chevron, no per-section
  *  collapse, no nested tier. */
-function DockPart({
+const DockPart = observer(function DockPart({
   title,
   count,
   meta,
   testId,
   children,
-}: {
+}): {
   title: string
   count?: number
   /** One machine-voice fact ABOUT the section, parked past the hairline — an
@@ -161,11 +166,11 @@ function DockPart({
 
 /** The fold rows the inspector uses instead of collapsible sections: a single
  *  quiet line that says exactly what it is hiding. */
-function FoldRow({
+const FoldRow = observer(function FoldRow({
   open,
   label,
   onToggle,
-}: {
+}): {
   open: boolean
   label: string
   onToggle: () => void
@@ -188,14 +193,14 @@ function FoldRow({
 
 /** One task row in Work / Relations — the unified row the rest of the shell uses:
  *  stage glyph, ref, title, state word. */
-function UnifiedRow({
+const UnifiedRow = observer(function UnifiedRow({
   sub,
   meta,
   needs = false,
   errored = false,
   onOpen,
   onStatusPick,
-}: {
+}): {
   sub: IssueViewModel
   meta: string
   /** The row's glyph is a status picker (POD-1271); the panel applies the pick. */
@@ -282,12 +287,12 @@ function UnifiedRow({
  * room for the gauge's inner padding or its reading, so the extents meet edge
  * to edge and the reading stays outside the track.
  */
-function ProgressMeter({
+const ProgressMeter = observer(function ProgressMeter({
   done,
   run = 0,
   total,
   testId,
-}: {
+}): {
   done: number
   run?: number
   total: number
@@ -320,7 +325,7 @@ function ProgressMeter({
  * under the old "Evidence & checks" heading is what made that section read as a
  * junk drawer. Reference information: compact, mono, and late in the scroll.
  */
-function CheckoutPart({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+const CheckoutPart = observer(function CheckoutPart({ issue }: { issue: IssueViewModel }): JSX.Element | null {
   // An issue with no dedicated worktree is worked in the repo's own checkout —
   // that is still an address, and saying nothing there is what sent the
   // operator hunting for the branch in the git panel.
@@ -339,7 +344,7 @@ function CheckoutPart({ issue }: { issue: IssueViewModel }): JSX.Element | null 
       )}
     </DockPart>
   )
-}
+})
 
 /** The five most recent things that happened to this task — comments and
  *  lifecycle events interleaved chronologically, newest first, using the same
@@ -348,22 +353,10 @@ function CheckoutPart({ issue }: { issue: IssueViewModel }): JSX.Element | null 
  *  Comment bodies no longer ride IssueViewModel (#175): the thread is fetched lazily
  *  via the issues.comments proc, re-fetched whenever the issue's updatedAt
  *  moves. */
-function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
-  const trpc = useRuntimeSelector((s) => s.trpc)
-  const [comments, setComments] = useState<IssueComment[]>([])
-  const [events, setEvents] = useState<IssueEvent[]>([])
-  // biome-ignore lint/correctness/useExhaustiveDependencies: refetch on issue switch / count change only; trpc is a stable store singleton
-  useEffect(() => {
-    let cancelled = false
-    Promise.resolve()
-      .then(() => trpc.issues.comments.query({ id: issue.id }))
-      .then((rows) => {
-        if (!cancelled) setComments(rows)
-      })
-      .catch(() => {
-        // best-effort — keep whatever we already have
-      })
-    return () => {
+const RecentActivity = observer(function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
+  const activity = useIssueHistory(issue)
+  const shown = activity?.history.items.slice(-5).reverse() ?? []
+  return () => {
       cancelled = true
     }
   }, [issue.id, issue.updatedAt])
@@ -427,7 +420,7 @@ function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
           same fact said twice. */}
     </DockPart>
   )
-}
+})
 
 /**
  * The task head: the ref and the one control strip. Fixed above the scroll —
@@ -445,12 +438,12 @@ function RecentActivity({ issue }: { issue: IssueViewModel }): JSX.Element {
  * own step up (`shell-type-reading`), not the task page's 18px subject step —
  * this is a column you live in, not a sheet you visit.
  */
-function InspectHead({
+const InspectHead = observer(function InspectHead({
   issue,
   title,
   onRename,
   onOpenInWork,
-}: {
+}): {
   issue: IssueViewModel
   /** What this task is CALLED — `issueDisplayTitle`, derived once by the panel
    *  body, which already holds the session list it needs. Never `issue.title`
@@ -552,7 +545,7 @@ function InspectHead({
  * RECEDES UNTIL USED (POD-635), like the page's composer: at rest a flat
  * one-line well with no edge of its own; the enclosure arrives on focus.
  */
-function DockCommentComposer({ issue }: { issue: IssueViewModel }): JSX.Element {
+const DockCommentComposer = observer(function DockCommentComposer({ issue }: { issue: IssueViewModel }): JSX.Element {
   const trpc = useRuntimeSelector((s) => s.trpc)
   const [body, setBody] = useState('')
   const [busy, setBusy] = useState(false)
@@ -610,7 +603,7 @@ function DockCommentComposer({ issue }: { issue: IssueViewModel }): JSX.Element 
       )}
     </div>
   )
-}
+})
 
 /** What the work produced, and what it parked — artifacts, then deferred notes,
  *  each under its own plain heading.
@@ -622,10 +615,10 @@ function DockCommentComposer({ issue }: { issue: IssueViewModel }): JSX.Element 
  *  section as a junk drawer, and an agent's private plan is not something the
  *  human is meant to tick off here. The full issue page still lists todos for
  *  anyone who wants them. What is left is named for what it is. */
-function ProducedAndDeferred({
+const ProducedAndDeferred = observer(function ProducedAndDeferred({
   issue,
   machineId,
-}: {
+}): {
   issue: IssueViewModel
   machineId?: MachineId
 }): JSX.Element | null {
@@ -821,17 +814,17 @@ function ProducedAndDeferred({
  */
 import { PoolIssuePanelView } from './pool-issue-page'
 
-export function IssuePanelView(props: Parameters<typeof IssuePanelBody>[0]): JSX.Element {
+export const IssuePanelView = observer(function IssuePanelView(props: Parameters<typeof IssuePanelBody>[0]): JSX.Element {
   return <PoolIssuePanelView {...props} />
-}
+})
 
-export function IssuePanelBody({
+export const IssuePanelBody = observer(function IssuePanelBody({
   cwd,
   machineId,
   sessionId,
   issueId,
   onNavigate,
-}: {
+}): {
   cwd: string
   machineId?: MachineId
   sessionId?: SessionId
@@ -849,7 +842,7 @@ export function IssuePanelBody({
   onNavigate?: (issueId: IssueId) => void
 }): JSX.Element {
   const page = useIssuePageData()!
-  const pooled = page.data
+  const detail = page.views.row(page.issue.id)
   const {
     trpc,
     updateIssue,
@@ -870,28 +863,28 @@ export function IssuePanelBody({
     }),
     shallowEqual,
   )
-  const sessions = pooled.sessions
-  const issues = useIssuePageIssues()
+  const resolve = useIssueEdgeResolver()
   // Every task row in this column carries its own status door (POD-1271); the
   // apply and its close guard are shared by all of them, once, here.
-  const rowStatus = useIssueStatusApply(pooled.sessions)
+  const rowStatus = useIssueStatusApply()
   const { setFocusedIssueId } = useOperatorFocus()
-  const issue = pooled.issue
+  const issue = page.issue
   // WHAT THIS TASK COST. Read here rather than inside the section so the hook
   // sits above this component's own early return for an unresolvable id — and
   // so the section stays a pure render of a view, which is what lets the task
   // detail page reuse it against its own feed.
   const { view: costView } = useTaskCost(trpc, issue?.id ?? null)
-  const issueById = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
+
   // DIRECT children only — the artifact's Subtasks section is one tier deep
   // with a completed fold, not a flattened recursive subtree. The meter counts
   // exactly this list and nothing else (POD-516 r3 #4): it used to walk the
   // whole subtree AND count the issue itself, which is how a childless task
   // came to wear a progress bar reading "0 of 1 done".
-  const children = pooled.children
+  const children = detail.children
+  if (children === LOADING) throw LOADING
   // Typed relations (POD-85): the compact disclosure surface — the sidebar
   // whispers (⤷ tick), this panel names every edge.
-  const relations = pooled.relations
+  const relations = issue.relationGroups
   const [showCompleted, setShowCompleted] = useState(false)
   const [showRetired, setShowRetired] = useState(false)
 
@@ -908,7 +901,7 @@ export function IssuePanelBody({
   const showInDeck = (target: IssueViewModel): void => {
     const root = page.views.destination(target.id)
     if (!root || typeof root === 'symbol') return
-    const resolved = page.views.attachedSessions(target.id)
+    const resolved = page.views.row(target.id).activeSessions
     if (!resolved || typeof resolved === 'symbol') return
     setSelectedIssueId(root.id)
     setFocusedIssueId(target.id)
@@ -954,31 +947,20 @@ export function IssuePanelBody({
     (c) => c.stage === 'in_progress' || c.stage === 'review',
   ).length
 
-  const all = issueSessions(issue, sessions)
-  // Needs-you first — the answer affordance lives on the session row, so a
-  // waiting agent belongs where the eye starts. Then the coordinator, then
-  // most-recently-active. The five-row fold this ordering was written to
-  // survive is gone (POD-1859): the roster lists EVERY open session, and the
-  // Cost section below accounts for the ones it will never show.
-  const activeSessions = all.filter(isOpenSession).sort((a, b) => {
-    const aNeeds = sessionNeedsHuman(a)
-    const bNeeds = sessionNeedsHuman(b)
-    if (aNeeds !== bNeeds) return aNeeds ? -1 : 1
-    if (a.sessionId === issue.coordinatorSessionId) return -1
-    if (b.sessionId === issue.coordinatorSessionId) return 1
-    return b.lastActiveAt.localeCompare(a.lastActiveAt)
-  })
-  const retiredSessions = all.filter((s) => !isOpenSession(s))
+  const activeSessions = detail.activeSessions
+  const retiredCount = detail.retiredCount
+  const retiredSessions = showRetired ? detail.retiredSessions : []
+  if (activeSessions === LOADING || retiredSessions === LOADING) throw LOADING
   // Total over the stage vocabulary since POD-516/9a05afd59: the only null is
   // "this issue has live sessions", which is the branch that renders agent rows
   // instead. No local fallback — a second set of words here is what drifts.
   // The whole slice as the fourth argument, not just this issue's sessions: a
   // hop's destination holds none of THESE, and reading where the work went is
   // what tells a vacated origin from one whose agent simply retired.
-  const presence = pooled.presence
+  const presence = activeSessions.length ? null : detail.presence
 
   const notesAt = issue.notesUpdatedAt ?? issue.updatedAt
-  const parent = issue.parentId ? issueById.get(issue.parentId) : undefined
+  const parent = edgeIssue(resolve(issue.parentId))
 
   // WORKABLE: the same predicate the control strip closes on — a closure with a
   // reason, or an archive, is the end of the work. `deckDestinationFor` already
@@ -992,7 +974,7 @@ export function IssuePanelBody({
   // paths are the fallback arm of `sessionsForIssueNav` and are read only for a
   // row with no `memberSessionIds`; the view-model builder always supplies them,
   // so this is the shape the derivation asks for rather than a lookup it makes.
-  const title = pooled.title
+  const title = detail.title
   // UNCAUGHT, like every other outboxed curation write (`use-unified-work.ts`):
   // the queue keeps a rejected write, replays it on reconnect, and parks it in
   // the recovery surface with its own toast. A `.catch` here would be a second
@@ -1121,20 +1103,8 @@ export function IssuePanelBody({
               total={children.length}
               testId="dock-subtasks-meter"
             />
-            {openChildren.map((sub) => {
-              const state = operationalState(sub, issueSessions(sub, sessions), issueById)
-              return (
-                <UnifiedRow
-                  key={sub.id}
-                  sub={sub}
-                  meta={state.label}
-                  needs={state.state === 'needs-you' || state.state === 'error'}
-                  errored={state.state === 'error'}
-                  onOpen={() => openLinked(sub)}
-                  onStatusPick={(value) => rowStatus.pick(sub, value)}
-                />
-              )
-            })}
+            {openChildren.map(sub => <DockChildRow key={sub.id} sub={sub}
+              views={page.views} onOpen={() => openLinked(sub)} onStatusPick={value => rowStatus.pick(sub, value)} />)}
             {doneChildren.length > 0 && (
               <>
                 <FoldRow
@@ -1169,7 +1139,7 @@ export function IssuePanelBody({
               <div key={group.section} className="mb-1.5">
                 <div className="label-mono mb-0.5">{group.section}</div>
                 {group.entries.map((entry) => {
-                  const target = issueById.get(entry.id)
+                  const target = edgeIssue(resolve(entry.id))
                   return target ? (
                     <UnifiedRow
                       key={`${group.section}-${entry.direction}-${entry.id}`}
@@ -1228,11 +1198,11 @@ export function IssuePanelBody({
               // it, in the FLIGHT DECK'S OWN WORDS (mission.ts owns the vocabulary),
               // so one task never reads two ways in two columns.
               presence && <PresenceLine note={presence} />}
-          {retiredSessions.length > 0 && (
+          {retiredCount > 0 && (
             <>
               <FoldRow
                 open={showRetired}
-                label={`Retired · ${retiredSessions.length}`}
+                label={`Retired · ${retiredCount}`}
                 onToggle={() => setShowRetired((v) => !v)}
               />
               {showRetired &&
@@ -1265,3 +1235,13 @@ export function IssuePanelBody({
     </div>
   )
 }
+
+const DockChildRow = observer(function DockChildRow({ sub, views, onOpen, onStatusPick }: {
+  sub: PageIssue; views: ReturnType<typeof issuePages>; onOpen: () => void; onStatusPick: (value: string) => void
+}) {
+  const sessions = views.row(sub.id).activeSessions
+  if (sessions === LOADING) throw LOADING
+  const state = operationalState(sub, sessions)
+  return <UnifiedRow sub={sub} meta={state.label} needs={state.state === 'needs-you' || state.state === 'error'}
+    errored={state.state === 'error'} onOpen={onOpen} onStatusPick={onStatusPick} />
+})

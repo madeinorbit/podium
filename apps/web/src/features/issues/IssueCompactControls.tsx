@@ -1,3 +1,6 @@
+import { useIssueEdgeResolver, edgeIssue } from './issue-page/issue-edges'
+import type { SessionModel } from '@podium/client-graph/models'
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 import { isFinished } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
@@ -84,7 +87,7 @@ export const DOCK_STAMP = 'font-mono shell-type-micro leading-none'
  *  session is gone, and reading it as "standing by" would tell the operator an
  *  agent is on this task when none is. Same predicate the Flight Deck counts use. */
 export function isOpenSession(session: SessionView): boolean {
-  return !session.archived && session.status !== 'exited'
+  return 'open' in session ? (session as SessionModel).open : !session.archived && session.status !== 'exited'
 }
 
 /**
@@ -179,7 +182,7 @@ export function decisionLine(issue: IssueViewModel, active: readonly SessionView
  *  worktree" section rather than trailing the old "Evidence & checks", where a branch
  *  name read as a verification result (POD-516 r3 #6). The branch itself is
  *  machine voice, so it is set in mono. */
-export function IssueGitScope({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+export const IssueGitScope = observer(function IssueGitScope({ issue }: { issue: IssueViewModel }): JSX.Element | null {
   const git = issue.gitState
   if (!git) return null
   const attributedDirty = git.dirtyOwn ?? (!git.shared && !git.fallback ? git.dirtyFiles : 0)
@@ -209,7 +212,7 @@ export function IssueGitScope({ issue }: { issue: IssueViewModel }): JSX.Element
       )}
     </div>
   )
-}
+})
 
 /** The obligation, said ONCE per session row (POD-1269).
  *
@@ -220,7 +223,7 @@ export function IssueGitScope({ issue }: { issue: IssueViewModel }): JSX.Element
  *  task. The roster now only raises the flag; the offer itself is read and
  *  answered in the conversation, one click away on the row.
  */
-function SessionNeedsYou(): JSX.Element {
+const SessionNeedsYou = observer(function SessionNeedsYou(): JSX.Element {
   return (
     <span
       className="shell-type-micro flex-none rounded-full border border-attention/45 bg-attention/10 px-1.5 py-[2px] font-semibold text-attention"
@@ -229,7 +232,7 @@ function SessionNeedsYou(): JSX.Element {
       Needs you
     </span>
   )
-}
+})
 
 /**
  * One session under "Agents & sessions": the harness tile and name the rest of
@@ -243,10 +246,10 @@ function SessionNeedsYou(): JSX.Element {
  * itself, and the buttons that answer it, live in the conversation the row
  * opens (POD-1269).
  */
-export function IssueSessionRow({
+export const IssueSessionRow = observer(function IssueSessionRow({
   session,
   onOpen,
-}: {
+}): {
   session: SessionView
   onOpen: () => void
 }): JSX.Element {
@@ -346,7 +349,7 @@ export function IssueSessionRow({
  * dock and left the scroll 0px of content height. The answers now hang off the
  * session that asked (see {@link IssueSessionRow}), inside the scroll.
  */
-export function IssueDecisionBand({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+export const IssueDecisionBand = observer(function IssueDecisionBand({ issue }: { issue: IssueViewModel }): JSX.Element | null {
   const { trpc } = useRuntimeSelector((s) => ({ trpc: s.trpc }), shallowEqual)
   const sessions = useIssuePageSessions()
   const active = issueSessions(issue, sessions).filter(isOpenSession)
@@ -386,7 +389,7 @@ export function IssueDecisionBand({ issue }: { issue: IssueViewModel }): JSX.Ele
       </div>
     </div>
   )
-}
+})
 
 /**
  * The start control's second half: WHERE the work will live once it runs.
@@ -397,11 +400,11 @@ export function IssueDecisionBand({ issue }: { issue: IssueViewModel }): JSX.Ele
  * ticked, so the menu reads as a confirmation with an escape hatch instead of
  * an open question the operator has to answer every time.
  */
-function PlacementMenu({
+const PlacementMenu = observer(function PlacementMenu({
   placement,
   busy,
   onStart,
-}: {
+}): {
   placement: { placement: ProposalPlacement; originRef: string | null }
   busy: boolean
   onStart: (moveTo: ProposalPlacement) => void
@@ -493,10 +496,10 @@ function PlacementMenu({
  * issue's state resolves to, and the shared issue context menu. Every other
  * lifecycle affordance lives in that menu rather than competing for the row.
  */
-export function IssueCompactControls({
+export const IssueCompactControls = observer(function IssueCompactControls({
   issue,
   onRename,
-}: {
+}): {
   issue: IssueViewModel
   /** Open the head's inline title editor. Supplying it is what puts `Rename`
    *  in the menu below (`renameEnabled: onRename !== undefined`) — this strip
@@ -520,7 +523,7 @@ export function IssueCompactControls({
     shallowEqual,
   )
   const machines = usePoolMachines()
-  const issues = useIssuePageIssues()
+  const resolve = useIssueEdgeResolver()
   const sessions = useIssuePageSessions()
   const [menu, setMenu] = useState<{ x: number; y: number } | null>(null)
   const menuIssues = useIssuePageCatalog(Boolean(menu))
@@ -544,9 +547,10 @@ export function IssueCompactControls({
     // made. A sub-task the operator planned themselves needs no second opinion
     // on the button; the context menu still offers the move.
     if (action?.kind !== 'start-work' || !issue.startedBySession) return null
-    const byId = new Map(issues.map((candidate) => [candidate.id as string, candidate]))
-    return discoveredPlacement(issue, byId)
-  }, [action?.kind, issue, issues])
+    const origin = issue.deps.find(dep => dep.type === 'discovered-from')?.id ?? issue.parentId
+    const source = edgeIssue(resolve(origin))
+    return discoveredPlacement(issue, source ? new Map([[source.id, source]]) : undefined)
+  }, [action?.kind, issue, resolve])
 
   if (isSystemOwnedIssueStage(issue.stage)) {
     return (

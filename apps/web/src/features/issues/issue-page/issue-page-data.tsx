@@ -2,7 +2,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import {
-  type IssuePageData,
+  type PageIssue,
   type IssuePageViews,
   issuePages,
 } from '@podium/client-graph/issue-page'
@@ -12,7 +12,7 @@ import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 /** Nested controls reuse their page's addressed values. Other pool surfaces
  * read the declared catalog; attachment never falls back to a store slice. */
 export const IssuePageDataContext = createContext<{
-  data: IssuePageData
+  issue: PageIssue
   views: IssuePageViews
 } | null>(null)
 export const IssuePageWorldContext = createContext<{
@@ -46,15 +46,14 @@ function usePoolSessions(): SessionView[] {
   return value && typeof value !== 'symbol' ? value.sessions : EMPTY_SESSIONS
 }
 export function useIssuePageIssues(): IssueViewModel[] {
-  const page = useIssuePageData()
   const world = useContext(IssuePageWorldContext)
   // The host fixes the context for this component's lifetime.
   // biome-ignore lint/correctness/useHookAtTopLevel: Pool page/world bodies unmount before their provider disappears.
-  return page?.data.issues ?? world?.issues ?? usePoolIssues()
+  return world?.issues ?? usePoolIssues()
 }
 export function useIssuePageSessions(): SessionView[] {
   const page = useIssuePageData()
   const world = useContext(IssuePageWorldContext)
   // biome-ignore lint/correctness/useHookAtTopLevel: Pool page/world bodies unmount before their provider disappears.
-  return page?.data.sessions ?? world?.sessions ?? usePoolSessions()
+  return (page ? page.views.row(page.issue.id).activeSessions : world?.sessions ?? usePoolSessions()) as SessionView[]
 }

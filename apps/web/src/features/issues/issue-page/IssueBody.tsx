@@ -1,3 +1,5 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { useIssuePageData } from './issue-page-data'
 import { isClosed } from '@podium/model/browser'
 /**
  * The issue's own text: inline-editable title, the at-a-glance status strip, the
@@ -18,24 +20,26 @@ import { MACHINE_LABEL, SectionHeading, StatusChip } from './chrome'
 
 /** Inline-editable title. `editing` is owned by the page so Escape-to-board and
  *  the issue-switch reset stay in one place. */
-export function IssueTitle({
+export const IssueTitle = observer(function IssueTitle({
   issue,
   busy,
   editing,
   onEditingChange,
   onCommit,
-}: {
+}): {
   issue: IssueViewModel
   busy: boolean
   editing: boolean
   onEditingChange: (editing: boolean) => void
   onCommit: (value: string) => void
 }): JSX.Element {
+  const page = useIssuePageData()
+  const title = page?.views.row(issue.id).title ?? issue.title
   if (editing) {
     return (
       <Input
         key={`title-${issue.id}`}
-        defaultValue={issue.title}
+        defaultValue={title}
         aria-label="Task title"
         autoFocus
         disabled={busy}
@@ -61,19 +65,19 @@ export function IssueTitle({
       onClick={() => onEditingChange(true)}
       title="Click to edit title"
     >
-      {issue.title}
+      {title}
     </button>
   )
 }
 
 /** Inline-editable description. Cmd/Ctrl+Enter commits; Escape cancels. */
-export function IssueDescription({
+export const IssueDescription = observer(function IssueDescription({
   issue,
   busy,
   editing,
   onEditingChange,
   onCommit,
-}: {
+}): {
   issue: IssueViewModel
   busy: boolean
   editing: boolean
@@ -122,7 +126,7 @@ export function IssueDescription({
 }
 
 /** The agent brief, collapsed by default — long, and written for agents. */
-export function IssueBrief({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+export const IssueBrief = observer(function IssueBrief({ issue }: { issue: IssueViewModel }): JSX.Element | null {
   if (!issue.brief) return null
   return (
     // Collapsed by default and framed by hairlines rather than a box: the brief
@@ -143,7 +147,7 @@ export function IssueBrief({ issue }: { issue: IssueViewModel }): JSX.Element | 
       </div>
     </details>
   )
-}
+})
 
 /**
  * THE DOSSIER LINE under the title — one line of machine voice, plus a chip for
@@ -160,7 +164,7 @@ export function IssueBrief({ issue }: { issue: IssueViewModel }): JSX.Element | 
  * archived, agent-created, internal, a stale hub mirror), because a chip means
  * "this one is not like the others". One fact, one home.
  */
-export function StatusStrip({ issue }: { issue: IssueViewModel }): JSX.Element {
+export const StatusStrip = observer(function StatusStrip({ issue }: { issue: IssueViewModel }): JSX.Element {
   const now = Date.now()
   const created = relativeTime(issue.createdAt, now)
   const updated = relativeTime(issue.updatedAt, now)
@@ -210,7 +214,7 @@ export function StatusStrip({ issue }: { issue: IssueViewModel }): JSX.Element {
           under POD-353 rather than restoring this one. */}
     </div>
   )
-}
+})
 
 const LONG_FORM_FIELDS = [
   { field: 'design', label: 'Design' },
@@ -233,11 +237,11 @@ type LongFormField = (typeof LONG_FORM_FIELDS)[number]['field']
  * by clicking it. The empty case now renders nothing at all, which is what an
  * empty field should look like.
  */
-export function LongFormFields({
+export const LongFormFields = observer(function LongFormFields({
   issue,
   busy,
   commands,
-}: {
+}): {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands

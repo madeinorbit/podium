@@ -42,7 +42,9 @@
  */
 import { useEffect, useRef } from 'react'
 import type { IssueViewModel } from '@/app/store'
-import { useIssuePageIssues } from './issue-page-data'
+import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import type { MobxPool } from '@podium/client-graph'
+import { useCallback } from 'react'
 
 /**
  * Navigate away, once and silently, if the open issue leaves this principal's
@@ -52,8 +54,9 @@ import { useIssuePageIssues } from './issue-page-data'
  * @param onLeave what to do when it goes — the page passes its `onBack`
  */
 export function useEvictionGuard(issue: IssueViewModel, onLeave: () => void): void {
-  const issues = useIssuePageIssues()
-  useEvictionPresenceGuard(issue.id, issues.some(row => row.id === issue.id), onLeave)
+  const read = useCallback((pool: MobxPool) => pool.row('issue', issue.id, 'mark'), [issue.id])
+  const row = useWorklistPoolProjection(read, undefined)
+  useEvictionPresenceGuard(issue.id, typeof row === 'symbol' ? null : Boolean(row), onLeave)
 }
 
 /** Both readers share the same per-issue latch. Loading carries no presence

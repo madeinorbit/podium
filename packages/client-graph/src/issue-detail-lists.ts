@@ -1,0 +1,55 @@
+import type { SessionModel } from './models'
+import type { PageIssue } from './issue-page'
+import type { MobxPool } from './pool'
+import { createQueryResult } from './query-result'
+import { LOADING } from './worklist/rollup'
+
+/** These are data-layer query results of model identities. Display-only field
+ * changes are read by the row observers and do not replace a roster. */
+export function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
+  const child = createQueryResult<PageIssue>({
+    name: `IssueDetail@children:${issue.id}`,
+    ids: () => pool.graph.many('issue', issue.id, 'treeChildren'),
+    has: id => pool.queries.hasMember('issue', issue.id, 'treeChildren', id),
+    order: id => {
+      const row = pool.row('issue', id, 'summary') as { seq?: number } | typeof LOADING | undefined
+      return row === LOADING ? '' : String(row?.seq ?? 0).padStart(12, '0')
+    },
+    read: id => {
+      const row = pool.row('issue', id, 'summary') as { deletedAt?: string } | typeof LOADING | undefined
+      return row === LOADING ? LOADING : row && !row.deletedAt ? pool.issueObject(id) as PageIssue : undefined
+    },
+    subscribe: changed => pool.queries.onMembers('issue', issue.id, 'treeChildren', changed),
+  })
+  const seats = (name: string, relation: 'pageSessions' | 'missionSessions' | 'bornSessions',
+    archived: boolean | undefined, keep: (session: SessionModel) => boolean,
+    order?: (session: SessionModel) => string) => createQueryResult<SessionModel>({
+      name: `IssueDetail@${name}:${issue.id}`,
+      ids: () => pool.graph.many('issue', issue.id, relation),
+      has: id => pool.queries.hasMember('issue', issue.id, relation, id),
+      ...(order ? { order: (id: string) => {
+        const session = pool.sessionObject(id)
+        try { return archived !== undefined && session.archived !== archived ? id : order(session) }
+        catch (error) { if (error === LOADING) return id; throw error }
+      } } : {}),
+      read: id => {
+        const session = pool.sessionObject(id)
+        try { return (archived === undefined || session.archived === archived) && session.exists && keep(session) ? session : undefined }
+        catch (error) { if (error === LOADING) return LOADING; throw error }
+      },
+      subscribe: changed => pool.queries.onMembers('issue', issue.id, relation, changed),
+    })
+  const members = seats('members', 'pageSessions', undefined, () => true)
+  const liveMembers = seats('live-members', 'pageSessions', false, () => true)
+  const active = seats('active', 'pageSessions', false, session => session.open,
+    session => `${session.asking ? '0' : '1'}|${session.sessionId === issue.coordinatorSessionId ? '0' : '1'}|${String(9e15 - (session.activityMs ?? 0)).padStart(16, '0')}`)
+  const retired = seats('retired', 'pageSessions', undefined, session => !session.open)
+  const moved = seats('moved', 'bornSessions', false, session => Boolean(session.issueId && session.issueId !== issue.id),
+    session => pool.queries.orderKey(session.sessionId))
+  const phone = seats('phone', 'missionSessions', false, () => true,
+    session => pool.queries.orderKey(session.sessionId))
+  const inspector = seats('inspector', 'missionSessions', false, session => session.retention?.seat === true,
+    session => `${session.asking ? '0' : '1'}|${String(9e15 - (session.activityMs ?? 0)).padStart(16, '0')}`)
+  return { children: child, members, liveMembers, active, retired, moved, phone, inspector,
+    dispose() { for (const list of [child, members, liveMembers, active, retired, moved, phone, inspector]) list.dispose() } }
+}

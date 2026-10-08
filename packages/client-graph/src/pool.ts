@@ -707,6 +707,16 @@ export class MobxPool {
     return this.residency?.hasSummaryField('session', property) ?? false
   }
 
+  issueSummaryField(property: string): boolean {
+    return this.residency?.hasSummaryField('issue', property) ?? false
+  }
+
+  issueExitKind(id: string) {
+    const exit = this.row('issueExit', id)
+    if (exit === LOADING) throw LOADING
+    return exit?.kind
+  }
+
   sessionSeatIds(relation: SeatRelation, issueId: string, archived: boolean): readonly string[] | typeof LOADING {
     const partition = sessionSeats(this).partition(relation, issueId)
     return partition === LOADING ? LOADING : archived ? partition.archived : partition.present

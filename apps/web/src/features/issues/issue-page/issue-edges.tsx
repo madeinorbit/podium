@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 /**
  * CROSS-BOUNDARY ISSUE EDGES ON THE DETAIL PAGE (POD-646).
  *
@@ -59,7 +60,9 @@ import type { IssueId } from '@podium/model/browser'
 import { createContext, type JSX, type ReactNode, useContext, useMemo } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { issueRefLong } from '../issue-card'
-import { useIssuePageData, useIssuePageIssues } from './issue-page-data'
+import { useIssuePageData } from './issue-page-data'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import type { PageIssue } from '@podium/client-graph/issue-page'
 
 /**
  * THE SHIPPED CHOICE: an invisible issue is shown as an OPAQUE reference.
@@ -88,10 +91,10 @@ const IssueExitContext = createContext<IssueExitLookup | undefined>(undefined)
 /** OVERRIDE the exit lookup for a subtree. Without one the resolver reads the
  *  replica (POD-1510); this is how a test drives all four states without a sync
  *  kernel, and how a surface could opt into a narrower world. */
-export function IssueExitProvider({
+export const IssueExitProvider = observer(function IssueExitProvider({
   exitOf,
   children,
-}: {
+}): {
   exitOf: IssueExitLookup
   children: ReactNode
 }): JSX.Element {
@@ -104,21 +107,13 @@ export function IssueExitProvider({
 export function useIssueEdgeResolver(): (
   id: string | undefined | null,
 ) => IssueEdge<IssueViewModel> {
-  const issues = useIssuePageIssues()
   const page = useIssuePageData()
+  const pool = useWorklistPool()
   const override = useContext(IssueExitContext)
-  const exits = page?.data.exits
-  const fromPool = useMemo(() => (id: string) => exits?.[id], [exits])
-  const exitOf = override ?? fromPool
-  return useMemo(() => {
-    const byId = new Map(issues.map((i) => [i.id as string, i]))
-    // The slice is typed over `IssueViewModel`; `IssueViewModel` is a superset of it
-    // (plus projection-only and rollup fields), so the lookup widens rather than
-    // rebuilding a second index in the wire's shape.
-    const lookup = (id: string): IssueViewModel | undefined =>
-      byId.get(id) as IssueViewModel | undefined
-    return (id) => resolveIssueEdge(id, lookup, CROSS_BOUNDARY_POLICY, exitOf)
-  }, [issues, exitOf])
+  return useMemo(() => (id) => resolveIssueEdge(id, targetId => {
+    const row = pool?.row('issue', targetId, 'summary')
+    return row && typeof row !== 'symbol' ? pool!.issueObject(targetId) as PageIssue : undefined
+  }, CROSS_BOUNDARY_POLICY, override ?? (targetId => pool?.issueObject(targetId).exitKind)), [pool, override])
 }
 
 /** The resolved issue behind a `render: 'issue'` edge, in the page's own model
@@ -145,11 +140,11 @@ export const OPAQUE_EDGE_LABEL = 'an issue you do not have access to'
  *  - `hidden`  — nothing at all. A genuinely deleted target has no edge to draw,
  *                and so does an invisible one under a `hidden` policy.
  */
-export function IssueEdgeLink({
+export const IssueEdgeLink = observer(function IssueEdgeLink({
   edge,
   onNavigate,
   fallbackId,
-}: {
+}): {
   edge: IssueEdge<IssueViewModel>
   onNavigate: (id: IssueId) => void
   /** Shown while `pending` — the id we were pointed at. */

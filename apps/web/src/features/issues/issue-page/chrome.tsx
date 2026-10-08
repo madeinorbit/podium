@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 /**
  * The issue page's shared chrome — a section heading and a status pill.
  *
@@ -33,12 +34,12 @@ export const MACHINE_LABEL_SUB = 'font-mono text-[10px] text-text-faint uppercas
 
 /** Uniform section label; `count` renders as a quiet tabular badge, `action` as
  *  a trailing control that only surfaces on section hover (`group-hover`). */
-export function SectionHeading({
+export const SectionHeading = observer(function SectionHeading({
   children,
   count,
   action,
   tone = 'utility',
-}: {
+}): {
   children: ReactNode
   count?: string
   action?: ReactNode
@@ -78,11 +79,11 @@ export function SectionHeading({
  * agent-created, a stale hub mirror. Before POD-591 every fact was a pill, and
  * a strip where everything is emphasised emphasises nothing.
  */
-export function StatusChip({
+export const StatusChip = observer(function StatusChip({
   children,
   tone = 'muted',
   title,
-}: {
+}): {
   children: ReactNode
   tone?: 'muted' | 'amber' | 'violet' | 'sky'
   title?: string

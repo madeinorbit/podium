@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 import type { IssueId } from '@podium/model/browser'
 import type { CSSProperties, JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -58,8 +59,10 @@ import { useIssuePageModel } from './issue-page-model'
  * and the eviction guard below. Pushing any of those down would duplicate them.
  */
 import { PoolIssuePage } from './pool-issue-page'
+import { PageComment, PageMail, PageTimeline } from './issue-page/IssueHistory'
+import { useDetailDesktop } from './issue-page/use-detail-viewport'
 
-export function IssuePage(props: Parameters<typeof IssuePageBody>[0]): JSX.Element {
+export const IssuePage = observer(function IssuePage(props: Parameters<typeof IssuePageBody>[0]): JSX.Element {
   return (
     <PoolIssuePage
       issueId={props.issue.id}
@@ -68,30 +71,28 @@ export function IssuePage(props: Parameters<typeof IssuePageBody>[0]): JSX.Eleme
       onNavigate={props.onNavigate}
     />
   )
-}
+})
 
-export function IssuePageBody({
+export const IssuePageBody = observer(function IssuePageBody({
   issue,
   orderedIds,
   onBack,
   onNavigate,
-}: {
+}): {
   issue: IssueViewModel
   orderedIds: IssueId[]
   onBack: () => void
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
   const model = useIssuePageModel(issue, orderedIds)
-  const { busy, run, prev, next, repoName, feed, mail, children, issues, sessions } = model
-  const { memberSessions, openSession } = model
-  const now = useNow(60_000)
+  const { busy, run, prev, next, repoName } = model
+  const { openSession } = model
   const commands = issuePageCommands({ trpc: model.trpc, issue, run, ...model.issueWrites })
 
   // If this issue is unshared while open (POD-1077 evict), leave — once, and
   // with no deletion affordance of any kind. See ./issue-page/use-eviction-guard.ts.
   useEvictionGuard(issue, onBack)
 
-  const [commentBody, setCommentBody] = useState('')
   const [editingTitle, setEditingTitle] = useState(false)
   const [editingDesc, setEditingDesc] = useState(false)
   const [addingChild, setAddingChild] = useState(false)
@@ -110,24 +111,11 @@ export function IssuePageBody({
   // an open editor never carries across to the next issue.
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
   useEffect(() => {
-    setCommentBody('')
     setEditingTitle(false)
     setEditingDesc(false)
     setAddingChild(false)
     setChildTitle('')
   }, [issue.id])
-
-  // Post the composed comment, appending it optimistically so it shows without
-  // waiting for the broadcast round-trip (the updatedAt-keyed refetch then
-  // replaces the local copy with server truth).
-  const postComment = (): void => {
-    const body = commentBody.trim()
-    if (!body) return
-    commands.postComment(body, (posted) => {
-      model.appendLocalComment(posted)
-      setCommentBody('')
-    })
-  }
 
   // Escape returns to the board — but not while an editor/menu is open (Esc there
   // cancels the local edit), nor while a form field is focused.
@@ -165,6 +153,8 @@ export function IssuePageBody({
     setChildTitle('')
   }
 
+  const desktop = useDetailDesktop()
+  const [detailsOpen, setDetailsOpen] = useState(false)
   const issueHex = issueColorHex(issue.color)
 
   return (
@@ -184,7 +174,6 @@ export function IssuePageBody({
         repoName={repoName}
         busy={busy}
         commands={commands}
-        sessions={memberSessions}
         prev={prev}
         next={next}
         onBack={onBack}
@@ -220,7 +209,7 @@ export function IssuePageBody({
               {/* What is true right now: live agents, and where the branch is.
                 The page used to know less about its own task than the sidebar
                 row for it did — see the module note. */}
-              <IssueNow issue={issue} sessions={memberSessions} onOpenSession={openSession} />
+              <IssueNow issue={issue} onOpenSession={openSession} />
 
               <IssueDescription
                 issue={issue}
@@ -242,9 +231,6 @@ export function IssuePageBody({
 
               <IssueSubIssues
                 issue={issue}
-                subIssues={children}
-                sessions={sessions}
-                now={now}
                 busy={busy}
                 addingChild={addingChild}
                 childTitle={childTitle}
@@ -254,18 +240,19 @@ export function IssuePageBody({
                 onNavigate={onNavigate}
               />
 
-              <MailSection mail={mail} />
+              <PageMail issue={issue} />
 
               {/* Properties (mobile) — the desktop aside is hidden <md, so mirror
                 its rows in a collapsible disclosure above the activity feed. */}
-              <details
+              {!desktop && <details
+                onToggle={event => setDetailsOpen(event.currentTarget.open)}
                 className="mb-4 rounded-lg border border-border md:hidden"
                 data-testid="issue-details-mobile"
               >
                 <summary className="cursor-pointer select-none px-3 py-2 font-medium text-[13px] text-foreground">
                   Details
                 </summary>
-                <div className="border-border border-t px-3 py-2">
+                {detailsOpen && <div className="border-border border-t px-3 py-2">
                   <IssueProperties
                     issue={issue}
                     busy={busy}
@@ -273,29 +260,23 @@ export function IssuePageBody({
                     onNavigate={onNavigate}
                     onRequestClose={requestClose}
                   />
-                </div>
-              </details>
+                </div>}
+              </details>}
 
-              <IssueActivitySection issue={issue} busy={busy} commands={commands} feed={feed} />
+              <PageTimeline issue={issue} busy={busy} commands={commands} />
             </div>
           </div>
 
           {/* Pinned, not appended. A task with 26 artifacts and a day of events
               put the reply box six thousand pixels down the scroll, so replying
               meant first travelling past everything you were replying to. */}
-          <CommentComposer
-            issueId={issue.id}
-            busy={busy}
-            value={commentBody}
-            onChange={setCommentBody}
-            onPost={postComment}
-          />
+          <PageComment issue={issue} busy={busy} commands={commands} />
         </div>
 
         {/* The rail takes its roomier width only where there is room to give:
             just above the md breakpoint the shell's sidebar and this column
             together leave the document around 310px, and 24px matters there. */}
-        <aside
+        {desktop && <aside
           data-testid="issue-aside"
           className="hidden w-[272px] shrink-0 overflow-y-auto overscroll-contain border-border/70 border-l bg-rail/55 md:block xl:w-[296px]"
         >
@@ -306,7 +287,7 @@ export function IssuePageBody({
             onNavigate={onNavigate}
             onRequestClose={requestClose}
           />
-        </aside>
+        </aside>}
       </div>
 
       <IssueCloseDialog

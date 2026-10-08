@@ -1,3 +1,6 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { useIssuePageData } from './issue-page-data'
+import type { PageIssue } from '@podium/client-graph/issue-page'
 import type { SessionView } from '@podium/client-core/session-values'
 /**
  * The sub-task list — one flat list in slice order, plus an inline add-row.
@@ -59,18 +62,19 @@ const STATE_TONE = {
  * outright: a state word or nothing, so every row in the list ends on the same
  * axis and a quiet child reads as quiet rather than as an identity badge.
  */
-function SubTaskRow({
+const SubTaskRow = observer(function SubTaskRow({
   child,
   workingAgents,
   onNavigate,
   onStatusPick,
-}: {
+}): {
   child: IssueViewModel
   workingAgents: number
   onNavigate: (id: IssueId) => void
   onStatusPick: (value: string) => void
 }): JSX.Element {
-  const state = issueStateWord(child, workingAgents)
+  const count = 'confirmedWorkingAgents' in child ? (child as PageIssue).confirmedWorkingAgents : workingAgents
+  const state = issueStateWord(child, count)
   const finished = isFinished(child)
   return (
     <button
@@ -115,9 +119,9 @@ function SubTaskRow({
   )
 }
 
-export function IssueSubIssues({
+export const IssueSubIssues = observer(function IssueSubIssues({
   issue,
-  subIssues,
+  subIssues: suppliedChildren,
   sessions,
   now,
   busy,
@@ -127,14 +131,14 @@ export function IssueSubIssues({
   onChildTitleChange,
   onCreate,
   onNavigate,
-}: {
+}): {
   issue: IssueViewModel
   /** Named `subIssues` rather than `children`: a `children` PROP on a component
    *  that does not render its React children is the one thing React's own
    *  vocabulary reserves, and biome's noChildrenProp is right to refuse it. */
-  subIssues: IssueViewModel[]
-  sessions: SessionView[]
-  now: number
+  subIssues?: IssueViewModel[]
+  sessions?: SessionView[]
+  now?: number
   busy: boolean
   addingChild: boolean
   childTitle: string
@@ -144,10 +148,10 @@ export function IssueSubIssues({
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
   const status = useIssueStatusApply()
-  const workingByChild = useMemo(
-    () => confirmedWorkingAgentCountsByIssue(subIssues, sessions, now),
-    [now, sessions, subIssues],
-  )
+  const page = useIssuePageData()
+  const rows = suppliedChildren ?? page?.views.row(issue.id).children ?? []
+  if (typeof rows === 'symbol') throw rows
+  const subIssues = rows
   return (
     <section className="mb-9 flex flex-col gap-1.5" data-testid="sub-issues">
       <SectionHeading
@@ -162,7 +166,7 @@ export function IssueSubIssues({
         <SubTaskRow
           key={child.id}
           child={child}
-          workingAgents={workingByChild.get(child.id) ?? 0}
+          workingAgents={0}
           onNavigate={onNavigate}
           onStatusPick={(value) => status.pick(child, value)}
         />

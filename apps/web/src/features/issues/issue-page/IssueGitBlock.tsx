@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 /**
  * The Git block of the properties aside: merge / PR / rebase, ordered by the
  * configured merge style, plus the PR link once one exists. Split out of
@@ -19,12 +20,12 @@ import { SectionHeading } from './chrome'
 
 const MERGE_LABEL = 'FF-only merge'
 
-export function IssueGitBlock({
+export const IssueGitBlock = observer(function IssueGitBlock({
   issue,
   busy,
   commands,
   mergeStyle,
-}: {
+}): {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands

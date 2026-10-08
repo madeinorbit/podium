@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 /**
  * THE DEPENDENCY GRAPH SECTION — and the concrete site of §3.1.2's open
  * cross-boundary-edge question (POD-646).
@@ -39,7 +40,7 @@ import { MACHINE_LABEL_SUB, SectionHeading } from './chrome'
 import { edgeIssue, IssueEdgeLink, useIssueEdgeResolver } from './issue-edges'
 import { useIssuePageData } from './issue-page-data'
 
-export function IssueRelations({
+export const IssueRelations = observer(function IssueRelations({
   issue,
   busy,
   commands,
@@ -49,7 +50,7 @@ export function IssueRelations({
   onAddRelTypeChange,
   onOptionsOpenChange,
   onNavigate,
-}: {
+}): {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
@@ -61,7 +62,7 @@ export function IssueRelations({
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
   const resolve = useIssueEdgeResolver()
-  const relations = useIssuePageData()?.data.relations ?? groupRelations(issue)
+  const relations = useIssuePageData()?.issue.relationGroups ?? groupRelations(issue)
   // NOTHING IS A BADGE, NOT A SENTENCE (POD-1224). "No links to other tasks."
   // took a full line under the heading to restate the heading's own subject in
   // the negative — on most tasks, the emptiest band in the rail was also its

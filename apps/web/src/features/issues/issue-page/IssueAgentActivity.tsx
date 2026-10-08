@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 import { resolveMachinePath } from '@podium/model/browser'
 /**
  * THE AGENT-ACTIVITY PANEL (issues.panel) — what an agent PRODUCED for the
@@ -52,7 +53,7 @@ import { Button } from '@/components/ui/button'
 import { currentWorkspaceSlug } from '@/lib/workspace-request'
 import { SectionHeading } from './chrome'
 
-export function IssueAgentActivity({ issue }: { issue: IssueViewModel }): JSX.Element | null {
+export const IssueAgentActivity = observer(function IssueAgentActivity({ issue }: { issue: IssueViewModel }): JSX.Element | null {
   const { httpOrigin, openFileInWorktree, openArtifact } = useRuntimeSelector(
     (s) => ({
       httpOrigin: s.httpOrigin,
@@ -204,4 +205,4 @@ export function IssueAgentActivity({ issue }: { issue: IssueViewModel }): JSX.El
       {lightbox && <MediaLightbox {...lightbox} onClose={() => setLightbox(null)} />}
     </div>
   )
-}
+})
