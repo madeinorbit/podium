@@ -38,7 +38,6 @@ function build(scale: number) {
     updatedAt: '2026-10-03T10:00:00Z',
     readAt: '2026-10-03T11:00:00Z',
     deps: [],
-    sessionFacts: { replicaActivityAt: '2026-10-03T11:59:00Z' },
   }
   const session = (id: string, extra: Row): Row => ({
     sessionId: id,
@@ -159,7 +158,6 @@ async function run(scale: number) {
       const at = new Date(stamp).toISOString()
       publish([
         { kind: 'session', value: { ...seat, lastActiveAt: at } },
-        { kind: 'issue', value: { ...root, sessionFacts: { replicaActivityAt: at } } },
       ])
     })
     await step('mark-read', () =>

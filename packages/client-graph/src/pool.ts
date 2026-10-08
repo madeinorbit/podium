@@ -1,3 +1,4 @@
+import { IssueSessionFactsIndex, type IssueSessionFacts, type IssueSessionFactReader } from './shared/issue-session-facts'
 import { joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
 import {
   SETUP_SESSION_SUMMARY_FIELDS,
@@ -171,6 +172,7 @@ function cursorOnlyChange(previous: object, next: object): boolean {
 /** Residency options: the per-row read, and (tests) the window and timer. */
 export interface PoolLazyOptions {
   readonly diagnostics?: FeedDiagnostics
+  readonly issueSessionFact?: IssueSessionFactReader
   readonly load: LoadRow
   /** The feed's cold index (`RowSource.cold`), holding these declared summary fields. */
   readonly cold?: (summaries: PoolSummaryFields) => ColdQueries
@@ -230,6 +232,8 @@ export interface LazyMembers {
 export class MobxPool {
   /** Failure counters and replacement recovery status for this principal. */
   readonly diagnostics: FeedDiagnostics
+  readonly issueSessionFact: IssueSessionFactReader
+  private readonly sessionFactsIndex: IssueSessionFactsIndex | undefined
   /** Each summarised issue's explicit seats, judged per seat change (POD-5423). */
   private readonly seatVerdicts: SeatVerdicts
   readonly sources = new PoolSources()
@@ -302,6 +306,8 @@ export class MobxPool {
 
   constructor(locals: SliceLocals, schema?: ModelSchema, lazy?: PoolLazyOptions) {
     this.diagnostics = lazy?.diagnostics ?? new FeedDiagnostics()
+    this.sessionFactsIndex = lazy?.issueSessionFact ? undefined : new IssueSessionFactsIndex()
+    this.issueSessionFact = lazy?.issueSessionFact ?? this.sessionFactsIndex!.read
     this.issueIdByRef = lazy?.issueIdByRef
     this.sourcePositionVersion = lazy?.settings === true
       ? observable.box(0, {
@@ -492,6 +498,12 @@ export class MobxPool {
     }
     this.visibleInputs = {
       links,
+      issueSessionFact: (id, field) => {
+        const issue = this.issueObject(id)
+        return (field === 'replicaActivityAt' ? issue.lastActivityAt :
+          field === 'tipActivityAt' ? issue.tipActivityAt :
+          field === 'headlessStaffed' ? issue.headlessStaffed : issue.headlessOccupied) as IssueSessionFacts[typeof field]
+      },
       // Hot or cold: a cold row is read by id through the feed, never loaded.
       // untracked-read: visibility-issue-peek
       issueRow: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
@@ -917,6 +929,11 @@ export class MobxPool {
     if (this.disposed) return
     const out = ingestOut()
     runInAction(() => {
+      if (this.sessionFactsIndex) {
+        if (event.type === 'replace') this.sessionFactsIndex.clear()
+        for (const record of event.rows) if (record.kind === 'session')
+          this.sessionFactsIndex.install(record.id, record.value as Record<string, unknown> | undefined)
+      }
       const machineRows = event.rows.filter((record) => record.kind === 'machine')
       if (event.type === 'replace') {
         const next = new Set(machineRows.filter((record) => record.value !== undefined).map((record) => record.id),
@@ -1058,6 +1075,7 @@ export class MobxPool {
   dispose(): void {
     this.queries.dispose()
     this.disposed = true
+    this.sessionFactsIndex?.clear()
     runInAction(() => {
       this.worklist.clear()
       this.sources.dispose()

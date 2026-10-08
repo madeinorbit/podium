@@ -708,7 +708,6 @@ describe('pool explorer target', () => {
     const draft = poolIssue('draft', {
       isDraftVessel: true,
       worktreePath: null,
-      sessionFacts: { tipActivityAt: '2026-10-02T00:00:00Z' },
     })
     const other = poolIssue('other')
     const sessions = [
@@ -736,16 +735,6 @@ describe('pool explorer target', () => {
       )
       expect(legacy).toBeUndefined()
       expect(poolExplorerTarget(pool, 'draft', null)).toBe(null)
-      pool.apply({
-        type: 'update',
-        rows: [
-          {
-            kind: 'issue',
-            id: 'draft',
-            value: { ...draft, sessionFacts: { ...draft.sessionFacts, headlessOccupied: true } },
-          },
-        ],
-      })
       // An exited non-archived headless attachment survives resume collapse.
       const headless = {
         sessionId: 'headless',
@@ -761,8 +750,9 @@ describe('pool explorer target', () => {
           'draft' as never,
         )?.id,
       ).toBe('draft')
+      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'headless', value: headless as SliceSession }] })
       expect(poolExplorerTarget(pool, 'draft', null)).toBe('draft')
-      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'draft', value: draft }] })
+      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'headless', value: undefined }] })
       expect(poolExplorerTarget(pool, 'draft', null)).toBe(null)
     } finally {
       pool.dispose()

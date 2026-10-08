@@ -109,9 +109,7 @@ it('roster IDs do not change when headless own presence changes', () => {
   const before = ids
   try {
     runInAction(() => pool.apply({ type: 'update', rows: [
-      { kind: 'issue', id: 'root', value: issueRow('root', {
-        sessionFacts: { headlessStaffed: true },
-      }) as never },
+      { kind: 'session', id: 'headless', value: sessionRow({ sessionId: 'headless', headless: true }) as never },
     ] }))
     expect(ids).toBe(before)
     expect(runs).toBe(1)

@@ -1,3 +1,4 @@
+import type { IssueSessionFactReader } from './shared/issue-session-facts'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asSessionId, isFinished } from '@podium/model/browser'
 import { groupRelations, type IssueCloseMemberCounts, type IssueCloseScalarSubject, type ReferentExit, type TaskProgress } from '@podium/client-core/values'
@@ -27,6 +28,7 @@ const EMPTY_DEPENDENTS: readonly { id: string; type: string }[] = Object.freeze(
 
 /** What a model reads from its pool. */
 export interface ModelHost {
+  readonly issueSessionFact: IssueSessionFactReader
   /** The pool's one row reader (`MobxPool.row`): pending edits overlaid, `LOADING` when not in memory. */
   row(entity: EntityName, id: string, absent?: 'mark' | 'summary' | 'summary-fields'): LoadedRow<object>
   /** The pool's shared session object, including an addressed cold session. */
@@ -313,6 +315,13 @@ export class IssueModel extends EntityModel {
     const value = this.storedField('notes')
     return value === undefined ? undefined : documentText(value)
   }
+
+  // Activity and headless presence: raw ownership maxima/counters include
+  // cold history and never replace the stored issue record.
+  @lazy get lastActivityAt(): string | undefined { return this.host.issueSessionFact(this.id, 'replicaActivityAt') }
+  @lazy get tipActivityAt(): string | undefined { return this.host.issueSessionFact(this.id, 'tipActivityAt') }
+  @lazy get headlessStaffed(): boolean { return this.host.issueSessionFact(this.id, 'headlessStaffed') }
+  @lazy get headlessOccupied(): boolean { return this.host.issueSessionFact(this.id, 'headlessOccupied') }
 
   // Links: exit evidence is an addressed source read, never a neighbour map.
   @lazy get exitKind(): ReferentExit | undefined {

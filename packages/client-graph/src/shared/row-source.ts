@@ -4,7 +4,9 @@ import { type SessionValueInput, sessionValues } from '@podium/client-core/sessi
 import { machinePathKey, machinePathsEqual } from '@podium/model'
 import { machinePathBasename } from '@podium/model/browser'
 import { type ColdIndex, type ColdQueries, createColdIndex, type HeldSummaries } from './cold-index'
-import { ISSUE_SESSION_FACTS_SUMMARY, SCHEMA } from './schema'
+import { SCHEMA } from './schema'
+import { runInAction } from 'mobx'
+import { IssueSessionFactsIndex } from './issue-session-facts'
 /** Addressed replica rows, optionally painted by PoolTransactions.
  * The feed folds the supplied per-row transaction lists over kernel truth. There is no runtime record snapshot or whole-list optimism fold.
  * Kernel addresses and transaction repaint calls name exactly the touched
@@ -102,6 +104,8 @@ export interface RowSourceStats {
   /** Failed cold-index or listener applications, including recovery attempts. */
   applyErrors: number
   sessionFactsVisited: number
+  sessionFactsRescanned: number
+  sessionStaffingChanges: number
   reset(): void
 }
 
@@ -328,6 +332,8 @@ export function createRowSource(
     events: 0,
     applyErrors: 0,
     sessionFactsVisited: 0,
+    sessionFactsRescanned: 0,
+    sessionStaffingChanges: 0,
     reset() {
       stats.rowsVisited = 0
       stats.enumerations = 0
@@ -335,6 +341,8 @@ export function createRowSource(
       stats.events = 0
       stats.applyErrors = 0
       stats.sessionFactsVisited = 0
+      stats.sessionFactsRescanned = 0
+      stats.sessionStaffingChanges = 0
     },
   }
 
@@ -404,86 +412,18 @@ export function createRowSource(
   const incoming = new Map<string, Set<string>>()
   const closure = new Map<string, boolean>()
   let edgesReady = false
-  // Two timestamps and a staffing bit, never retained session records.
-  // Supplement the retained R2 roster with headless seats (which never take
-  // part in resume collapse). Normal/shell staffing uses the existing roster.
-  const rawSessionFacts = new Map<
-    string,
-    {
-      owner: string
-      replica?: string
-      tip?: string
-      headlessStaffed: boolean
-      headlessOccupied: boolean
-    }
-  >()
-  const sessionsByOwner = new Map<
-    string,
-    Map<
-      string,
-      { replica?: string; tip?: string; headlessStaffed: boolean; headlessOccupied: boolean }
-    >
-  >()
-  const issueSessionFacts = new Map<string, NonNullable<SliceIssue['sessionFacts']>>()
+  // Maintained raw ownership facts are read as scalars by IssueModel. They
+  // never become part of an issue row or a synthetic issue publication.
+  const issueSessionFacts = new IssueSessionFactsIndex()
   let sessionFactsReady = false
 
-  function installSessionFacts(id: string, row: AnyRow | undefined): string[] {
-    const owners = new Set<string>()
-    const before = rawSessionFacts.get(id)
-    if (before) {
-      owners.add(before.owner)
-      sessionsByOwner.get(before.owner)?.delete(id)
-    }
-    rawSessionFacts.delete(id)
-    if (row && typeof row.issueId === 'string') {
-      const facts = {
-        owner: row.issueId,
-        replica: row.agentKind === 'shell' ? undefined : (row.lastActiveAt as string | undefined),
-        tip: row.archived === true ? undefined : (row.lastActiveAt as string | undefined),
-        headlessStaffed: row.headless === true && row.archived !== true && row.status !== 'exited',
-        headlessOccupied: ISSUE_SESSION_FACTS_SUMMARY.headlessOccupied.test(row),
-      }
-      owners.add(facts.owner)
-      rawSessionFacts.set(id, facts)
-      let members = sessionsByOwner.get(facts.owner)
-      if (!members) {
-        members = new Map()
-        sessionsByOwner.set(facts.owner, members)
-      }
-      members.set(id, facts)
-    }
-    const moved: string[] = []
-    for (const owner of owners) {
-      let replicaActivityAt: string | undefined, tipActivityAt: string | undefined
-      let headlessStaffed = false,
-        headlessOccupied = false
-      for (const facts of sessionsByOwner.get(owner)?.values() ?? EMPTY) {
-        stats.sessionFactsVisited += 1
-        if (facts.replica && (!replicaActivityAt || facts.replica > replicaActivityAt))
-          replicaActivityAt = facts.replica
-        if (facts.tip && (!tipActivityAt || facts.tip > tipActivityAt)) tipActivityAt = facts.tip
-        headlessStaffed ||= facts.headlessStaffed
-        headlessOccupied ||= facts.headlessOccupied
-      }
-      const previous = issueSessionFacts.get(owner)
-      if (
-        !previous ||
-        previous.replicaActivityAt !== replicaActivityAt ||
-        previous.tipActivityAt !== tipActivityAt ||
-        previous.headlessStaffed !== headlessStaffed ||
-        previous.headlessOccupied !== headlessOccupied
-      ) {
-        issueSessionFacts.set(owner, {
-          replicaActivityAt,
-          tipActivityAt,
-          headlessStaffed,
-          headlessOccupied,
-        })
-        moved.push(owner)
-      }
-      if (sessionsByOwner.get(owner)?.size === 0) sessionsByOwner.delete(owner)
-    }
-    return moved
+  function installSessionFacts(id: string, row: AnyRow | undefined): void {
+    const scanned = issueSessionFacts.stats.rescanned
+    const staffing = issueSessionFacts.stats.staffingChanges
+    issueSessionFacts.install(id, row)
+    stats.sessionFactsVisited += 1 + issueSessionFacts.stats.rescanned - scanned
+    stats.sessionFactsRescanned += issueSessionFacts.stats.rescanned - scanned
+    stats.sessionStaffingChanges += issueSessionFacts.stats.staffingChanges - staffing
   }
 
   function ensureSessionFacts(): void {
@@ -577,7 +517,6 @@ export function createRowSource(
       gitState,
       deps,
       blocked,
-      issueSessionFacts.get(id) ?? NO_SESSION_FACTS,
     )
   }
 
@@ -818,6 +757,10 @@ export function createRowSource(
   }
 
   function flush(): RowSourceEvent | null {
+    return runInAction(flushPending)
+  }
+
+  function flushPending(): RowSourceEvent | null {
     if (disposed) return null
     const recovering = diagnostics.resyncPending
     const hadReplace = pendingReplace !== null || recovering
@@ -843,8 +786,6 @@ export function createRowSource(
       closure.clear()
       ensureEdges()
       sessionFactsReady = false
-      rawSessionFacts.clear()
-      sessionsByOwner.clear()
       issueSessionFacts.clear()
       ensureSessionFacts()
       stats.enumerations += 1
@@ -898,9 +839,7 @@ export function createRowSource(
       }
       if (address.kind === 'sessions') {
         ensureSessionFacts()
-        for (const owner of installSessionFacts(address.id, authority('sessions', address.id))) {
-          addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
-        }
+        installSessionFacts(address.id, authority('sessions', address.id))
         addressed.set(`session:${address.id}`, { kind: 'session', id: address.id })
         continue
       }
@@ -1070,6 +1009,7 @@ export function createRowSource(
 
   const source: RowSource = {
     diagnostics,
+    issueSessionFact: issueSessionFacts.read,
     snapshot,
     companions: () => [...snapshot('repo'), ...snapshot('machine')],
     row,
@@ -1196,6 +1136,7 @@ export function createRowSource(
         }
       }
       listeners.clear()
+      issueSessionFacts.clear()
       coldIndex = null
       coldNeedsReseed = false
       diagnostics.resyncPending = false
@@ -1208,7 +1149,6 @@ export function createRowSource(
 }
 
 const EMPTY: readonly never[] = [] as const
-const NO_SESSION_FACTS = Object.freeze({})
 
 interface RepoProject {
   index: number

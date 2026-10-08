@@ -334,10 +334,9 @@ it('matches the old owner-history rebuild on every activity and membership trans
       const expected = rebuiltFacts(f.tables.get('sessions')?.values() ?? [], owner)
       const actual = Object.fromEntries(fields.map(field => [field, index.read(owner, field)]))
       expect(actual).toEqual(expected)
-      // Before removal of the old production path, this also compares both
-      // implementations against exactly the same raw records.
-      const old = (f.source.source.row?.('issue', owner) as { sessionFacts?: IssueSessionFacts })?.sessionFacts
-      if (old) expect(actual).toEqual({ ...rebuiltFacts([], owner), ...old })
+      // Both the feed and standalone index must match the old rebuild.
+      const published = Object.fromEntries(fields.map(field => [field, f.source.source.issueSessionFact!(owner, field)]))
+      expect(published).toEqual(expected)
     }
   }
   const seat = { issueId: 'one', agentKind: 'codex', lastActiveAt: '2026-10-01', status: 'live' }
@@ -392,6 +391,11 @@ it.each([1, 4])('records heartbeat owner-history work and watched fields at %sx'
     f.put('sessions', 'active', { ...row, lastActiveAt: '2026-10-09' })
     f.update('active')
     const event = f.source.flush()
+    expect(f.source.stats).toMatchObject({ sessionFactsVisited: 1, sessionFactsRescanned: 0, sessionStaffingChanges: 0 })
+    expect(event?.rows.filter(record => record.kind === 'issue')).toHaveLength(0)
+    expect(handle.pool.row('issue', 'one')).toBe(original)
+    expect(storedRuns).toBe(1)
+    expect(issue.lastActivityAt).toBe('2026-10-09')
     console.info('[issue heartbeat]', JSON.stringify({ scale, stats: f.source.stats,
       issueRows: event?.rows.filter(record => record.kind === 'issue').length,
       rowReplaced: original !== handle.pool.row('issue', 'one'), storedRuns,

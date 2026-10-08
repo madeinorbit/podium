@@ -1,3 +1,4 @@
+import type { IssueSessionFactReader } from '../shared/issue-session-facts'
 import { isFinished, isExcluded } from '../shared/predicates'
 /**
  * The worklist's visible collection and its order, over the pool's graph.
@@ -127,6 +128,7 @@ export const FINISHED_UNREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
 
 /** Everything the visibility parts read. Tracked in the live pool; plain in the rebuild. */
 export interface VisibleInputs {
+  readonly issueSessionFact?: IssueSessionFactReader
   /** Every relation, by typed name (POD-4758, `shared/src/links.ts`). */
   readonly links: RelationLinks
   /** An issue's row, hot or cold (a cold one read by id through the feed); undefined when unknown. */
@@ -255,7 +257,8 @@ export function hiddenPresenceOf(
 }
 
 export function standingOf(issue: SliceIssue, facts?: Pick<Standing,
-  'excluded' | 'finished' | 'awaitingMerge' | 'parentId' | 'finishedMs' | 'updatedMs' | 'formalParent'>): Standing {
+  'excluded' | 'finished' | 'awaitingMerge' | 'parentId' | 'finishedMs' | 'updatedMs' | 'formalParent' |
+  'replicaActivityMs' | 'headlessStaffed'>, sessionFact?: IssueSessionFactReader): Standing {
   const excluded = facts ? facts.excluded : isExcluded(issue)
   const finished = facts ? facts.finished : isFinished(issue)
   const human = issue.audience === 'human'
@@ -276,7 +279,6 @@ export function standingOf(issue: SliceIssue, facts?: Pick<Standing,
           ? 'drop'
           : 'decay'
   const spinOff = issue.deps?.some((dep) => dep.type === 'discovered-from') === true
-  const sessionFacts = issue.sessionFacts
   // No `readAt`: the cursor lives in the read-state lane
   // (`VisibleInputs.issueRead`), so a mark-read never re-runs this.
   return {
@@ -293,8 +295,8 @@ export function standingOf(issue: SliceIssue, facts?: Pick<Standing,
     draftVessel: issue.isDraftVessel === true && !issue.worktreePath,
     finishedMs: facts ? facts.finishedMs : parseMs(issue.closedAt ?? issue.updatedAt) ?? 0,
     updatedMs: facts ? facts.updatedMs : parseMs(issue.updatedAt),
-    replicaActivityMs: parseMs(sessionFacts?.replicaActivityAt),
-    headlessStaffed: sessionFacts?.headlessStaffed === true,
+    replicaActivityMs: facts ? facts.replicaActivityMs : parseMs(sessionFact?.(issue.id, 'replicaActivityAt')),
+    headlessStaffed: facts ? facts.headlessStaffed : sessionFact?.(issue.id, 'headlessStaffed') === true,
     deleted: issue.deletedAt != null,
     pinned: issue.pinned === true,
     formalParent: facts ? facts.formalParent : refs.issue.parent(issue),
@@ -313,11 +315,11 @@ export interface IssueFacts {
 /** The facts group of `issue` (the fold verdict and the band are computed once, here). */
 function issueFactsOf(
   issue: SliceIssue,
-  input: Pick<VisibleInputs, 'passed' | 'reached'>,
+  input: Pick<VisibleInputs, 'passed' | 'reached' | 'issueSessionFact'>,
 ): IssueFacts {
   const part = ownPartOfRow(issue, input)
   return {
-    standing: standingOf(issue),
+    standing: standingOf(issue, undefined, input.issueSessionFact),
     part,
     placement: placementOfPart(part, issue.repoPath),
   }
@@ -542,6 +544,7 @@ export function rollupInputsOf(input: VisibleInputs): RollupInputs {
   return {
     reached: input.reached,
     loadedIssue: (id) => input.loadedIssue(id),
+    tipActivityAt: input.issueSessionFact ? (id) => input.issueSessionFact!(id, 'tipActivityAt') : undefined,
     spinOffCount: (id) => input.links.issue.spinOffs.size(id),
     nested: (id) => input.nested(id),
     formalChildren: (id) => input.formalChildren(id),
@@ -1193,7 +1196,7 @@ export function directVisibility(
     get standing() {
       return once('standing', () => {
         const issue = input.issueRow(id)
-        return issue === undefined ? undefined : standingOf(issue)
+        return issue === undefined ? undefined : standingOf(issue, undefined, input.issueSessionFact)
       })
     },
     get parentRef() {

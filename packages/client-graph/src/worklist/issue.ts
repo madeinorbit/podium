@@ -1,3 +1,4 @@
+import { parseMs } from '../views'
 import { compareStructural, untracked } from 'mobx'
 import { lazy, companion } from '@podium/mobx-helpers'
 import { type RowOriginTick, type RowRank, type RowView, isDraftNameSession } from '../shared/row-view'
@@ -68,6 +69,8 @@ export class WorklistIssue implements HeldIssue, RowView {
       get awaitingMerge() { return work.standingAwaitingMerge }, get parentId() { return issue.parentRef },
       get finishedMs() { return issue.finishedMs }, get updatedMs() { return issue.updatedMs },
       get formalParent() { return issue.formalParent },
+      get replicaActivityMs() { return parseMs(issue.lastActivityAt) },
+      get headlessStaffed() { return issue.headlessStaffed },
     })
   }
 
@@ -640,12 +643,12 @@ export class WorklistIssue implements HeldIssue, RowView {
 
   @lazy
   private get standingReplicaActivityMs(): Standing['replicaActivityMs'] {
-    return this.readStanding()!.replicaActivityMs
+    return parseMs(this.issue.lastActivityAt)
   }
 
   @lazy
   private get standingHeadlessStaffed(): Standing['headlessStaffed'] {
-    return this.readStanding()!.headlessStaffed
+    return this.issue.headlessStaffed
   }
 
   @lazy
@@ -1096,7 +1099,7 @@ export class WorklistIssue implements HeldIssue, RowView {
         return key === 'unread' ? row.unread : key in row.issue
           ? Reflect.get(row.issue, key) : Reflect.get(row.rowOwn as object, key)
       },
-      ownKeys() { return [...new Set([...Object.keys(row.rowOwn as object).filter(key => key !== 'sessionFacts'),
+      ownKeys() { return [...new Set([...Object.keys(row.rowOwn as object),
         'displayRef', 'repoPath', 'readAt', 'unread'])] },
       getOwnPropertyDescriptor() { return { enumerable: true, configurable: true } },
     }) as SliceIssue & { readonly displayRef: string }

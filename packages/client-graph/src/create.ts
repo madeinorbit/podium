@@ -21,6 +21,7 @@ export function createWorklistPool(
   const pool = new MobxPool(locals.get(), undefined, {
     ...loader,
     diagnostics: source.diagnostics,
+    issueSessionFact: source.issueSessionFact,
     load: row,
     issueIdByRef: source.issueIdByRef?.bind(source),
     cold: source.cold?.bind(source),

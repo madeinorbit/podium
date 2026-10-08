@@ -437,8 +437,8 @@ export class CommandPaletteView {
     const issue = selected.issues[0]
     // The menu consumes live eligibility, not the cursor stamp or embedded
     // session activity. Its session actions use their addressed row readers.
-    const { readAt: _cursor, sessionFacts: _activity, ...issueFields } =
-      (issue ?? {}) as Partial<IssueViewModel & { sessionFacts?: unknown }>
+    const { readAt: _cursor, ...issueFields } =
+      (issue ?? {}) as Partial<IssueViewModel>
     return snapshot && snapshot !== LOADING ? {
       ...selected, issues: snapshot.issues,
       selectedIssue: issue ? issueFields as IssueViewModel : undefined,

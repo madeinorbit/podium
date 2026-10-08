@@ -606,6 +606,7 @@ export { LOADING, type Loaded } from '../loading'
 
 /** What the roll-up parts read. Tracked in the live pool; plain in the rebuild. */
 export interface RollupInputs {
+  readonly tipActivityAt?: (id: string) => string | undefined
   reached?(at: number): boolean
   /** The row when resident; `LOADING` when cold (the read queues its load); undefined when unknown. */
   loadedIssue(id: string): Loaded<SliceIssue>
@@ -737,9 +738,9 @@ export function tipPartOf(input: RollupInputs, id: string): Tip {
             activeAt: new Date(
               Math.max(
                 node && 'updatedMs' in node ? node.updatedMs ?? 0 : Date.parse(issue.updatedAt) || 0,
-                issue.sessionFacts === undefined
+                input.tipActivityAt === undefined
                   ? (node?.seatActivity ?? 0)
-                  : Date.parse(issue.sessionFacts.tipActivityAt ?? '') || 0,
+                  : Date.parse(input.tipActivityAt(spinOffId) ?? '') || 0,
               ),
             ).toISOString(),
           }

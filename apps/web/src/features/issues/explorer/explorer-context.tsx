@@ -98,7 +98,7 @@ export function poolExplorerTarget(
   const root = poolMissionRoot(pool, selectedId)
   if (root === LOADING) return LOADING
   if (!root || root.archived || root.deletedAt) return null
-  if (root.isDraftVessel && !root.worktreePath && !root.sessionFacts?.headlessOccupied) {
+  if (root.isDraftVessel && !root.worktreePath && !pool.issueObject(root.id).headlessOccupied) {
     let occupied = false
     for (const id of pool.graph.many('issue', root.id, 'sessions')) {
       const session = pool.row('session', id, 'summary')
