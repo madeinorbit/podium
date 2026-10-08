@@ -1,0 +1,241 @@
+{
+  "collectedAt": "2026-10-08T19:51:11.452Z",
+  "sourceRef": "d3d67cf8e1c03782782f052c1a3249a3f3ab510b",
+  "legacySourceRef": "44809b1850edeab84130043f135736dc0f55c19a",
+  "browser": "148.0.7778.96",
+  "headless": true,
+  "viewport": {
+    "width": 1600,
+    "height": 1000
+  },
+  "marks": 4,
+  "windowSeconds": 60,
+  "warmupSeconds": 3,
+  "profiler": false,
+  "traceRecorder": false,
+  "fixture": "isolated exact mark markup/motion CSS; no live data, React updates or messages",
+  "rows": [
+    {
+      "arm": "legacy-running",
+      "elapsedSeconds": 60.03144400008023,
+      "styleCount": 0,
+      "styleMs": 0,
+      "layoutCount": 0,
+      "layoutMs": 0,
+      "scriptMs": 0,
+      "taskMs": 169.41500000000005,
+      "beforeState": {
+        "visible": "visible",
+        "marks": 4,
+        "circles": 32,
+        "visibleMarks": 4,
+        "animations": [
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 3799.8619997739493
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 3799.8619997739493
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 3799.8619997739493
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 3799.8619997739493
+          }
+        ]
+      },
+      "afterState": {
+        "visible": "visible",
+        "marks": 4,
+        "circles": 32,
+        "visibleMarks": 4,
+        "animations": [
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 63864.077999773945
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 63864.077999773945
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 63864.077999773945
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 63864.077999773945
+          }
+        ]
+      }
+    },
+    {
+      "arm": "legacy-paused",
+      "elapsedSeconds": 60.00543599994853,
+      "styleCount": 0,
+      "styleMs": 0,
+      "layoutCount": 0,
+      "layoutMs": 0,
+      "scriptMs": 0,
+      "taskMs": 1.0570000000000301,
+      "beforeState": {
+        "visible": "visible",
+        "marks": 4,
+        "circles": 32,
+        "visibleMarks": 4,
+        "animations": [
+          {
+            "name": "podium-mark-frames",
+            "playState": "paused",
+            "currentTime": 63897.37999977395
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "paused",
+            "currentTime": 63897.37999977395
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "paused",
+            "currentTime": 63897.37999977395
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "paused",
+            "currentTime": 63897.37999977395
+          }
+        ]
+      },
+      "afterState": {
+        "visible": "visible",
+        "marks": 4,
+        "circles": 32,
+        "visibleMarks": 4,
+        "animations": [
+          {
+            "name": "podium-mark-frames",
+            "playState": "paused",
+            "currentTime": 63897.37999977395
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "paused",
+            "currentTime": 63897.37999977395
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "paused",
+            "currentTime": 63897.37999977395
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "paused",
+            "currentTime": 63897.37999977395
+          }
+        ]
+      }
+    },
+    {
+      "arm": "legacy-restored",
+      "elapsedSeconds": 60.003938999958336,
+      "styleCount": 1,
+      "styleMs": 0.219,
+      "layoutCount": 0,
+      "layoutMs": 0,
+      "scriptMs": 0,
+      "taskMs": 59.344999999999985,
+      "beforeState": {
+        "visible": "visible",
+        "marks": 4,
+        "circles": 32,
+        "visibleMarks": 4,
+        "animations": [
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 66897.24999986468
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 66897.24999986468
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 66897.24999986468
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 66897.24999986468
+          }
+        ]
+      },
+      "afterState": {
+        "visible": "visible",
+        "marks": 4,
+        "circles": 32,
+        "visibleMarks": 4,
+        "animations": [
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 126894.90399986469
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 126894.90399986469
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 126894.90399986469
+          },
+          {
+            "name": "podium-mark-frames",
+            "playState": "running",
+            "currentTime": 126894.90399986469
+          }
+        ]
+      }
+    },
+    {
+      "arm": "current-static",
+      "elapsedSeconds": 60.003795999567956,
+      "styleCount": 0,
+      "styleMs": 0,
+      "layoutCount": 0,
+      "layoutMs": 0,
+      "scriptMs": 0,
+      "taskMs": 0.5950000000000122,
+      "beforeState": {
+        "visible": "visible",
+        "marks": 4,
+        "circles": 32,
+        "visibleMarks": 4,
+        "animations": []
+      },
+      "afterState": {
+        "visible": "visible",
+        "marks": 4,
+        "circles": 32,
+        "visibleMarks": 4,
+        "animations": []
+      }
+    }
+  ]
+}
