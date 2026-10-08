@@ -600,13 +600,30 @@ export class IndexedDbSyncStore {
           })
       }
       await this.reopening
-      if (!this.closeRequested) return this.db.transaction(names, mode)
+      if (!this.closeRequested) return this.recoveredTransaction(this.db, names, mode)
     }
     const db = await this.reopenDatabase()
     try {
-      return db.transaction(names, mode)
+      return this.recoveredTransaction(db, names, mode)
     } finally {
       db.close()
+    }
+  }
+
+  private recoveredTransaction(
+    db: IdbDatabaseLike,
+    names: string[],
+    mode: 'readonly' | 'readwrite',
+  ): IdbTransactionLike {
+    try {
+      return db.transaction(names, mode)
+    } catch (error) {
+      // Bound the retry. A second close is unavailable storage, never corruption:
+      // open() must not route this refusal into its destructive clearAll policy.
+      if ((error as { name?: unknown } | null)?.name === 'InvalidStateError') {
+        throw new IndexedDbReconnectError(error)
+      }
+      throw error
     }
   }
 

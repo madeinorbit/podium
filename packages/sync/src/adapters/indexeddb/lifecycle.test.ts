@@ -301,4 +301,48 @@ describe('IndexedDB connection lifecycle', () => {
     expect(durable[OUTBOX_STORE]).toMatchObject([{ record: RECORD }])
     expect(durable[META_STORE]).toEqual([])
   })
+
+  it('does not clear authored rows when the recovered connection also closes during startup', async () => {
+    const factory = freshFactory()
+    const seed = await IndexedDbSyncStore.open({ factory, onDegraded: vi.fn() })
+    await seed.viewFor(PRINCIPAL).outbox.apply({
+      put: [RECORD],
+      expect: [{ mutationId: RECORD.mutationId, expect: 'absent' }],
+    })
+    seed.close()
+    const nativeOpen = factory.open.bind(factory)
+    const deletes = vi.spyOn(factory, 'deleteDatabase')
+    let closed = 0
+    const opens = vi.spyOn(factory, 'open').mockImplementation((name, version) => {
+      const request = nativeOpen(name, version)
+      return new Proxy(request, {
+        get(target, key) {
+          const value = Reflect.get(target, key)
+          if (key === 'result' && closed < 2) {
+            closed += 1
+            value.close()
+          }
+          return value
+        },
+      })
+    })
+    const onDegraded = vi.fn()
+    const store = await IndexedDbSyncStore.open({ factory, onDegraded })
+    expect(store.durability()).toBe('unavailable')
+    expect(opens).toHaveBeenCalledTimes(2)
+    expect(deletes).not.toHaveBeenCalled()
+    expect(onDegraded).toHaveBeenCalledWith(
+      expect.objectContaining({
+        cause: 'unavailable',
+        error: expect.objectContaining({
+          name: 'IndexedDbReconnectError',
+          cause: expect.objectContaining({ name: 'InvalidStateError' }),
+        }),
+      }),
+    )
+    store.close()
+    // Only the first two handles close. If the refusal were treated as corrupt,
+    // a third, writable handle would clearAll() and destroy this authored row.
+    expect((await readDurable(factory))[OUTBOX_STORE]).toMatchObject([{ record: RECORD }])
+  })
 })
