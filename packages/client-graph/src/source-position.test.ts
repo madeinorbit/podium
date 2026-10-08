@@ -143,3 +143,37 @@ it('refreshes observed positions when a source rebuilds its index with the same 
     expect(read).not.toHaveBeenCalled()
   } finally { stop(); f.pool.dispose() }
 })
+
+it('releases position demand and notifies existing readers when the pool is disposed', () => {
+  const f = fixture('source', [session('a'), session('b')])
+  const position = vi.spyOn(f.index(), 'position')
+  const first = vi.fn(() => f.pool.sourcePosition('session', 'a'))
+  const second = vi.fn(() => f.pool.sourcePosition('session', 'a'))
+  const stopFirst = autorun(first), stopSecond = autorun(second)
+  try {
+    stopFirst()
+    second.mockClear()
+    f.publish({ type: 'replace', rows: [session('b'), session('a')] })
+    expect(first).toHaveBeenCalledOnce()
+    expect(second).toHaveBeenCalledOnce()
+    expect(second.mock.results[0]?.value).toBe(2)
+    stopSecond()
+    position.mockClear()
+    f.publish({ type: 'replace', rows: [session('a'), session('b')] })
+    expect(position).not.toHaveBeenCalled()
+    // Imperative probes return current values but retain no position keys.
+    expect(f.pool.sourcePosition('session', 'a')).toBe(1)
+    position.mockClear()
+    f.publish({ type: 'replace', rows: [session('b'), session('a')] })
+    expect(position).not.toHaveBeenCalled()
+    const read = vi.fn(() => f.pool.sourcePosition('session', 'a'))
+    const stop = autorun(read)
+    try {
+      read.mockClear()
+      f.pool.dispose()
+      expect(read).toHaveBeenCalledOnce()
+      expect(read.mock.results[0]?.value).toBeUndefined()
+      expect(f.pool.sourcePosition('session', 'a')).toBeUndefined()
+    } finally { stop() }
+  } finally { stopFirst(); stopSecond(); position.mockRestore(); f.pool.dispose() }
+})
