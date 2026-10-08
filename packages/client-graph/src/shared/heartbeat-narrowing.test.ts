@@ -1,10 +1,12 @@
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { createRelationIndex } from './relation-index'
 import { collapsedIds, SCHEMA } from './schema'
 import { createSessionQuestions } from './session-questions'
 
 it.each([1, 4])('matches rebuilt resume winners and order through group transitions at %sx', scale => {
-  const index = createRelationIndex(SCHEMA)
+  const keeps = vi.fn(SCHEMA.session.collapse!.keepsGroup)
+  const index = createRelationIndex({ ...SCHEMA, session: { ...SCHEMA.session,
+    collapse: { ...SCHEMA.session.collapse!, keepsGroup: keeps } } })
   const rows = new Map<string, Record<string, unknown>>()
   const row = (status: string, conversationId = 'group', patch: object = {}) => ({
     resume: { kind: 'codex', value: conversationId }, status, lastActiveAt: '2026-10-01', ...patch,
@@ -31,7 +33,10 @@ it.each([1, 4])('matches rebuilt resume winners and order through group transiti
   }
   for (let i = 0; i < 32 * scale; i++) change(`history-${i}`, row('exited'))
   change('active', row('live'))
+  keeps.mockClear()
   change('active', row('live', 'group', { lastActiveAt: '2026-10-09' }))
+  console.info('[resume heartbeat]', JSON.stringify({ scale, activeChecks: keeps.mock.calls.length }))
+  expect(keeps.mock.calls.length).toBe(2)
   change('history-0', row('exited', 'group', { lastActiveAt: '2026-10-10' }))
   change('second-active', row('live'))
   change('active', row('exited'))
