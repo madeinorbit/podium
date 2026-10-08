@@ -1,7 +1,6 @@
+import { type InstallerChannel, installerUrl } from '@podium/runtime/installer'
 import { encodeJoin } from '@podium/runtime/join'
 import { wssFrom } from '@podium/runtime/setup'
-
-const RELEASE_BASE = 'https://github.com/madeinorbit/podium/releases'
 
 // The machine may be a bare distro image with neither curl nor wget. Keep this
 // outer bootstrap limited to fetching install.sh; install.sh itself installs the
@@ -19,17 +18,6 @@ const BARE_LINUX_FETCH = [
 ].join('; ')
 
 /**
- * Keep a new daemon on the same release train as the server that admitted it.
- *
- * A rolling channel (`edge`, `dev`) publishes onto a standing tag named after itself, so its
- * installer URL is constant; only stable moves, and `releases/latest` is what tracks it.
- */
-function installerUrl(channel: JoinReleaseChannel): string {
-  return channel === 'stable'
-    ? RELEASE_BASE + '/latest/download/install.sh'
-    : `${RELEASE_BASE}/download/${channel}/install.sh`
-}
-/**
  * Build the ready-to-paste join command for a new machine. The outer POSIX-sh
  * bootstrap installs curl when a bare supported distro has no downloader, then
  * runs install.sh from a complete temporary file.
@@ -44,7 +32,7 @@ function installerUrl(channel: JoinReleaseChannel): string {
  * new machine onto edge — the paste is the whole point, and a paste you have to edit is a
  * paste that gets edited wrong.
  */
-export type JoinReleaseChannel = 'stable' | 'edge' | 'dev'
+export type JoinReleaseChannel = InstallerChannel
 
 export function buildJoinCommand(p: {
   publicUrl?: string

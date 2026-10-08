@@ -113,7 +113,7 @@ is a single copy-paste — you never type a URL, a `--server`, or a `--pair` fla
 2. Copy the one line. It looks like:
 
    ```bash
-   sh -c '<download bootstrap>' sh https://github.com/madeinorbit/podium/releases/latest/download/install.sh --channel stable --agents codex,claude-code,grok --join <TOKEN>
+   sh -c '<download bootstrap>' sh https://podium.do/install.sh --channel stable --agents codex,claude-code,grok --join <TOKEN>
    ```
 
    The UI supplies the complete command (the shortened placeholder above is only for

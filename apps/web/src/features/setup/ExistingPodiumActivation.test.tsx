@@ -16,7 +16,7 @@ import {
 const MACHINE_PAIRING_TOKEN =
   'eyJ2IjoxLCJzZXJ2ZXJVcmwiOiJ3c3M6Ly9wb2RpdW0uZXhhbXBsZS5jb20iLCJwYWlyQ29kZSI6IlBBSVItQ09ERSJ9'
 const MACHINE_PAIRING_COMMAND =
-  'sh -c \'set -eu; sh "$1" "$@"\' sh https://github.com/madeinorbit/podium/releases/latest/download/install.sh --channel stable --agents codex,claude-code,grok --managed --join ' +
+  'sh -c \'set -eu; sh "$1" "$@"\' sh https://podium.do/install.sh --channel stable --agents codex,claude-code,grok --managed --join ' +
   MACHINE_PAIRING_TOKEN
 
 const uiValues = new Map<string, string>()
