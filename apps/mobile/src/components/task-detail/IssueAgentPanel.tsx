@@ -1,5 +1,5 @@
 import { issueObserver as observer } from '../../client/issue-observer'
-import { relativeTime } from '@podium/client-core/focus'
+import { IssueAge } from './IssueAge'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { artifactKind } from '@podium/client-core/values'
 import type { IssuePanelArtifact } from '@podium/model'
@@ -69,7 +69,7 @@ export const IssueAgentPanel = observer(function IssueAgentPanel({
             <View key={`${d.addedAt}:${d.text}`} style={styles.deferred}>
               <View style={styles.deferredDot} />
               <Text style={styles.deferredText}>{d.text}</Text>
-              <Text style={styles.stamp}>{relativeTime(d.addedAt, Date.now())}</Text>
+              <Text style={styles.stamp}><IssueAge stamp={d.addedAt} /></Text>
             </View>
           ))}
         </View>
@@ -118,7 +118,7 @@ const ArtifactRow = observer(function ArtifactRow({
             <Text style={styles.captionText} numberOfLines={1}>
               {label}
             </Text>
-            <Text style={styles.stamp}>{relativeTime(artifact.addedAt, Date.now())}</Text>
+            <Text style={styles.stamp}><IssueAge stamp={artifact.addedAt} /></Text>
           </View>
         </PressableScale>
       ) : (
@@ -133,7 +133,7 @@ const ArtifactRow = observer(function ArtifactRow({
           <Text style={styles.fileName} numberOfLines={1}>
             {label}
           </Text>
-          <Text style={styles.stamp}>{relativeTime(artifact.addedAt, Date.now())}</Text>
+          <Text style={styles.stamp}><IssueAge stamp={artifact.addedAt} /></Text>
         </PressableScale>
       )}
       {open ? (

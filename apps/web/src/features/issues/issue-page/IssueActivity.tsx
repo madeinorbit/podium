@@ -28,7 +28,7 @@ import { issueObserver as observer } from './issue-observer'
  */
 
 import type { IssueId } from '@podium/model'
-import { relativeTime } from '@podium/client-core/focus'
+import { IssueAge, IssueDayLabel } from './IssueAge'
 import {
   type ActivityDay,
   type ActivityEntry,
@@ -56,7 +56,7 @@ import {
   Trash2,
   Unlock,
 } from 'lucide-react'
-import type { JSX } from 'react'
+import type { JSX, ReactNode } from 'react'
 import { useEffect, useState } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { Button } from '@/components/ui/button'
@@ -75,7 +75,6 @@ export const MailSection = observer(function MailSection({
   mail: IssueMailMessage[]
 }): JSX.Element | null {
   if (mail.length === 0) return null
-  const now = Date.now()
   return (
     <section className="mb-9 flex flex-col gap-2" data-testid="issue-mail">
       <SectionHeading count={String(mail.length)}>Mail</SectionHeading>
@@ -110,7 +109,7 @@ export const MailSection = observer(function MailSection({
               className="ml-auto flex-none font-mono shell-type-micro text-text-faint tabular-nums"
               title={eventStamp(m.createdAt)}
             >
-              {relativeTime(m.createdAt, now)}
+              <IssueAge stamp={m.createdAt} />
             </span>
           </div>
           <p className="whitespace-pre-wrap break-words text-[13.5px] text-foreground/90 leading-[1.6]">
@@ -300,7 +299,7 @@ const ActivityEntryRow = observer(function ActivityEntryRow({
 })
 
 /** The mono day divider that carries the date the rows no longer restate. */
-const DayDivider = observer(function DayDivider({ label }: { label: string }): JSX.Element {
+const DayDivider = observer(function DayDivider({ label }: { label: ReactNode }): JSX.Element {
   return (
     <div className="mt-4 mb-2 flex items-center gap-2.5 first:mt-0">
       <span className={MACHINE_LABEL}>{label}</span>
@@ -355,7 +354,7 @@ export const IssueActivitySection = observer(function IssueActivitySection({
                 className="font-mono shell-type-micro text-text-faint tabular-nums"
                 title={eventStamp(issue.notesUpdatedAt)}
               >
-                {relativeTime(issue.notesUpdatedAt, Date.now())}
+                <IssueAge stamp={issue.notesUpdatedAt} />
               </span>
             )}
           </div>
@@ -369,7 +368,7 @@ export const IssueActivitySection = observer(function IssueActivitySection({
         <div data-testid="activity-feed">
           {days.map((day) => (
             <div key={day.key}>
-              <DayDivider label={day.label} />
+              <DayDivider label={<IssueDayLabel day={day.key} stamp={day.entries[0]?.ts ?? ''} />} />
               {day.entries.map((entry) => (
                 <ActivityEntryRow key={entry.id} entry={entry} />
               ))}

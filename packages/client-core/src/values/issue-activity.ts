@@ -341,7 +341,9 @@ export function eventStamp(ts: string): string {
   return Number.isNaN(at.getTime()) ? ts : at.toLocaleString()
 }
 
-function dayLabelOf(key: string, at: Date, now: number): string {
+export function activityDayLabel(key: string, stamp: string, now: number): string {
+  const at = new Date(stamp)
+  if (Number.isNaN(at.getTime())) return key
   const today = new Date(now)
   if (key === dayKeyOf(today)) return 'Today'
   if (key === dayKeyOf(new Date(now - 86_400_000))) return 'Yesterday'
@@ -424,10 +426,9 @@ export function groupActivityFeed(items: ActivityItem[], now: number): ActivityD
 
 function finishDay(day: { key: string; items: ActivityItem[] }, now: number): ActivityDay {
   const first = day.items[0]
-  const at = first ? new Date(first.ts) : new Date(now)
   return {
     key: day.key,
-    label: Number.isNaN(at.getTime()) ? day.key : dayLabelOf(day.key, at, now),
+    label: activityDayLabel(day.key, first?.ts ?? new Date(now).toString(), now),
     entries: collapseMinor(day.items),
   }
 }

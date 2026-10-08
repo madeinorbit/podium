@@ -42,6 +42,7 @@ import { resolveMachinePath } from '@podium/model/browser'
 
 import { shallowEqual } from '@podium/client-core'
 import { relativeTime } from '@podium/client-core/focus'
+import { IssueAge } from './IssueAge'
 import { artifactKind, artifactUrl, basename } from '@podium/client-core/values'
 import type { IssuePanelArtifact } from '@podium/model/browser'
 import { FileText, Play } from 'lucide-react'
@@ -158,7 +159,7 @@ export const IssueAgentActivity = observer(function IssueAgentActivity({
                       <span className="min-w-0 truncate">{label}</span>
                       {added && (
                         <span className="flex-none text-muted-foreground/60" title={a.addedAt}>
-                          {added}
+                          <IssueAge stamp={a.addedAt} />
                         </span>
                       )}
                     </figcaption>

@@ -3,6 +3,7 @@ import { useMobilePool } from '../../client/mobile-pool'
 import { issueObserver as observer } from '../../client/issue-observer'
 import { isClosed } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
+import { useCoarseNow } from '../../client/hooks'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { isPendingSync, isUpstreamStale, isViaHub } from '@podium/model'
 import { useState } from 'react'
@@ -50,7 +51,7 @@ export const IssueTitle = observer(function IssueTitle({
 })
 
 export const StatusStrip = observer(function StatusStrip({ issue }: { issue: IssueViewModel }) {
-  const now = Date.now()
+  const now = useCoarseNow() || Date.now()
   const created = relativeTime(issue.createdAt, now)
   const updated = relativeTime(issue.updatedAt, now)
   const facts = [

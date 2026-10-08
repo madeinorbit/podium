@@ -1,5 +1,5 @@
 import { issueObserver as observer } from '../../client/issue-observer'
-import { relativeTime } from '@podium/client-core/focus'
+import { IssueAge, IssueDayLabel } from './IssueAge'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import {
   type ActivityEntry,
@@ -58,7 +58,6 @@ import { MachineLabel, SectionHeading } from './chrome'
 
 export const MailSection = observer(function MailSection({ mail }: { mail: IssueMailMessage[] }) {
   if (mail.length === 0) return null
-  const now = Date.now()
   return (
     <View style={styles.section} testID="issue-mail">
       <SectionHeading label="Mail" count={String(mail.length)} />
@@ -77,7 +76,7 @@ export const MailSection = observer(function MailSection({ mail }: { mail: Issue
             {m.status === 'claimed' && m.claimedBy ? (
               <Text style={styles.claimed}>claimed · {m.claimedBy}</Text>
             ) : null}
-            <Text style={styles.stamp}>{relativeTime(m.createdAt, now)}</Text>
+            <Text style={styles.stamp}><IssueAge stamp={m.createdAt} /></Text>
           </View>
           <Text style={styles.mailBody} selectable>
             {m.body}
@@ -145,7 +144,7 @@ export const IssueActivitySection = observer(function IssueActivitySection({
           <View style={styles.assistantHead}>
             <MachineLabel>Assistant</MachineLabel>
             {issue.notesUpdatedAt ? (
-              <Text style={styles.stamp}>{relativeTime(issue.notesUpdatedAt, Date.now())}</Text>
+              <Text style={styles.stamp}><IssueAge stamp={issue.notesUpdatedAt} /></Text>
             ) : null}
           </View>
           <Text style={styles.assistantBody} selectable>
@@ -163,7 +162,7 @@ export const IssueActivitySection = observer(function IssueActivitySection({
           {days.map((day) => (
             <View key={day.key}>
               <View style={styles.day}>
-                <MachineLabel>{day.label}</MachineLabel>
+                <MachineLabel><IssueDayLabel day={day.key} stamp={day.entries[0]?.ts ?? ''} /></MachineLabel>
                 <View style={styles.dayRule} />
               </View>
               {day.entries.map((entry) => (

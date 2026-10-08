@@ -1,5 +1,5 @@
 import { issueObserver as observer } from './issue-page/issue-observer'
-import { relativeTime } from '@podium/client-core/focus'
+import { IssueAge } from './issue-page/IssueAge'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   artifactKind,
@@ -129,7 +129,7 @@ const DockPart = observer(function DockPart({
   /** One machine-voice fact ABOUT the section, parked past the hairline — an
    *  age, a size. It goes here rather than inside the body so the body stays
    *  the thing the section is actually for. */
-  meta?: string
+  meta?: ReactNode
   testId?: string
   children: ReactNode
 }): JSX.Element {
@@ -382,7 +382,7 @@ const RecentActivity = observer(function RecentActivity({
                 {item.kind === 'comment' ? item.body : item.line.text}
               </span>
               <span className={cn(DOCK_STAMP, 'mt-0.5 flex-none text-text-faint')}>
-                {relativeTime(item.ts, Date.now())}
+                <IssueAge stamp={item.ts} />
               </span>
             </div>
           ))
@@ -1016,7 +1016,7 @@ export const IssuePanelBody = observer(function IssuePanelBody({
         <DockPart
           title="Current update"
           testId="dock-current-update"
-          meta={notesAt ? relativeTime(notesAt, Date.now()) : undefined}
+          meta={notesAt ? <IssueAge stamp={notesAt} /> : undefined}
         >
           <p
             className={cn(
