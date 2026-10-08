@@ -1,6 +1,6 @@
 import { expect, it } from 'vitest'
 import { createRelationIndex } from './relation-index'
-import { collapseIds, SCHEMA } from './schema'
+import { collapsedIds, SCHEMA } from './schema'
 import { createSessionQuestions } from './session-questions'
 
 it.each([1, 4])('matches rebuilt resume winners and order through group transitions at %sx', scale => {
@@ -14,7 +14,7 @@ it.each([1, 4])('matches rebuilt resume winners and order through group transiti
     if (next) rows.set(id, next)
     else rows.delete(id)
     index.begin(); index.changed('session', id, existed, next); index.flush()
-    const rebuilt = collapseIds(SCHEMA.session.collapse, [...rows].map(([id, row]) => ({ id, row })))
+    const rebuilt = collapsedIds(SCHEMA.session.collapse, rows)
     for (const member of rows.keys()) expect(index.collapsed('session', member)).toBe(rebuilt.has(member))
     // Rebuilding the old resolver also checks the first-member winner position.
     const groups = new Map<string, string[]>()
@@ -44,6 +44,7 @@ it.each([1, 4])('matches rebuilt resume winners and order through group transiti
   change('second-active')
   change('history-0')
   index.clear()
+  rows.clear()
   change('fresh', row('exited'))
 })
 
