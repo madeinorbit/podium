@@ -490,7 +490,7 @@ describe('the loader', () => {
     r.reads.reset()
     r.fire()
     const stats = r.reads.stats()
-    expect(stats.rows).toBe(1)
+    expect(stats.rows, JSON.stringify(stats)).toBe(1)
     expect(stats.byEntity).toEqual({ issue: 1 })
     expect(stats.sample).toEqual([`issue:${closed.id}`])
   })
