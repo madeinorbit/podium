@@ -60,7 +60,7 @@ import {
 } from './IssueCompactControls'
 import { IssueStatusPicker } from './IssueStatusPicker'
 import { issueIdTitle } from './issue-card'
-import { useIssuePageData } from './issue-page/issue-page-data'
+import { useIssuePageContext } from './issue-page/issue-page-data'
 import { useIssueHistory } from './issue-page/IssueHistory'
 import { issuePages, type PageIssue } from '@podium/client-graph/issue-page'
 import { useIssueEdgeResolver, edgeIssue } from './issue-page/issue-edges'
@@ -127,7 +127,7 @@ const DockPart = observer(function DockPart({
   meta,
   testId,
   children,
-}): {
+}: {
   title: string
   count?: number
   /** One machine-voice fact ABOUT the section, parked past the hairline — an
@@ -162,7 +162,7 @@ const DockPart = observer(function DockPart({
       {children}
     </section>
   )
-}
+})
 
 /** The fold rows the inspector uses instead of collapsible sections: a single
  *  quiet line that says exactly what it is hiding. */
@@ -170,7 +170,7 @@ const FoldRow = observer(function FoldRow({
   open,
   label,
   onToggle,
-}): {
+}: {
   open: boolean
   label: string
   onToggle: () => void
@@ -189,7 +189,7 @@ const FoldRow = observer(function FoldRow({
       {label}
     </button>
   )
-}
+})
 
 /** One task row in Work / Relations — the unified row the rest of the shell uses:
  *  stage glyph, ref, title, state word. */
@@ -200,7 +200,7 @@ const UnifiedRow = observer(function UnifiedRow({
   errored = false,
   onOpen,
   onStatusPick,
-}): {
+}: {
   sub: IssueViewModel
   meta: string
   /** The row's glyph is a status picker (POD-1271); the panel applies the pick. */
@@ -224,7 +224,7 @@ const UnifiedRow = observer(function UnifiedRow({
       type="button"
       onClick={onOpen}
       data-needs-you={needs || undefined}
-      title={`${issueDisplayRef(sub)} ${sub.title}`}
+      title={`${issueDisplayRef(sub)} ${('authoredTitle' in sub ? (sub as PageIssue).authoredTitle : sub.title)}`}
       className={cn(
         DOCK_ROW,
         'grid min-h-[30px] w-full grid-cols-[12px_minmax(0,1fr)_auto] items-center gap-2 border-b border-hairline-soft px-1 py-1 text-left text-foreground hover:bg-accent/40',
@@ -243,7 +243,7 @@ const UnifiedRow = observer(function UnifiedRow({
             closed && 'text-muted-foreground line-through decoration-muted-foreground/40',
           )}
         >
-          {sub.title}
+          {('authoredTitle' in sub ? (sub as PageIssue).authoredTitle : sub.title)}
         </span>
         {sub.archived && (
           <span className="ml-1.5 font-mono text-[10px] text-text-faint uppercase tracking-[0.04em]">
@@ -264,7 +264,7 @@ const UnifiedRow = observer(function UnifiedRow({
       </span>
     </button>
   )
-}
+})
 
 /**
  * ONE meter primitive, and it always sits with the list it counts (POD-516 r3
@@ -292,7 +292,7 @@ const ProgressMeter = observer(function ProgressMeter({
   run = 0,
   total,
   testId,
-}): {
+}: {
   done: number
   run?: number
   total: number
@@ -317,7 +317,7 @@ const ProgressMeter = observer(function ProgressMeter({
       </span>
     </div>
   )
-}
+})
 
 /**
  * Where this task lives (POD-516 r3 #6). A branch and a worktree path are not
@@ -359,7 +359,7 @@ const RecentActivity = observer(function RecentActivity({ issue }: { issue: Issu
   return () => {
       cancelled = true
     }
-  }, [issue.id, issue.updatedAt])
+  }), [issue.id, issue.updatedAt])
   // Narrowed to THIS issue on the server (POD-532: `subject` filters in SQL, on
   // `idx_podium_events_subject`), so the dock reads one issue's events instead of
   // paging the repo-wide log and filtering here. That is what makes keying on
@@ -443,7 +443,7 @@ const InspectHead = observer(function InspectHead({
   title,
   onRename,
   onOpenInWork,
-}): {
+}: {
   issue: IssueViewModel
   /** What this task is CALLED — `issueDisplayTitle`, derived once by the panel
    *  body, which already holds the session list it needs. Never `issue.title`
@@ -531,7 +531,7 @@ const InspectHead = observer(function InspectHead({
       <IssueCompactControls issue={issue} onRename={rename.begin} />
     </header>
   )
-}
+})
 
 /**
  * Post an update without leaving the panel (POD-743).
@@ -618,7 +618,7 @@ const DockCommentComposer = observer(function DockCommentComposer({ issue }: { i
 const ProducedAndDeferred = observer(function ProducedAndDeferred({
   issue,
   machineId,
-}): {
+}: {
   issue: IssueViewModel
   machineId?: MachineId
 }): JSX.Element | null {
@@ -796,7 +796,7 @@ const ProducedAndDeferred = observer(function ProducedAndDeferred({
       {lightbox && <MediaLightbox {...lightbox} onClose={() => setLightbox(null)} />}
     </>
   )
-}
+})
 
 /**
  * Issue tab of the right dock: the approved task inspector. A two-row fixed
@@ -824,7 +824,7 @@ export const IssuePanelBody = observer(function IssuePanelBody({
   sessionId,
   issueId,
   onNavigate,
-}): {
+}: {
   cwd: string
   machineId?: MachineId
   sessionId?: SessionId
@@ -841,7 +841,7 @@ export const IssuePanelBody = observer(function IssuePanelBody({
    */
   onNavigate?: (issueId: IssueId) => void
 }): JSX.Element {
-  const page = useIssuePageData()!
+  const page = useIssuePageContext()!
   const detail = page.views.row(page.issue.id)
   const {
     trpc,
@@ -880,13 +880,13 @@ export const IssuePanelBody = observer(function IssuePanelBody({
   // exactly this list and nothing else (POD-516 r3 #4): it used to walk the
   // whole subtree AND count the issue itself, which is how a childless task
   // came to wear a progress bar reading "0 of 1 done".
+  const [showCompleted, setShowCompleted] = useState(false)
+  const [showRetired, setShowRetired] = useState(false)
   const children = detail.children
   if (children === LOADING) throw LOADING
   // Typed relations (POD-85): the compact disclosure surface — the sidebar
   // whispers (⤷ tick), this panel names every edge.
   const relations = issue.relationGroups
-  const [showCompleted, setShowCompleted] = useState(false)
-  const [showRetired, setShowRetired] = useState(false)
 
   /**
    * Move the SHELL to a task (POD-1151).
@@ -1234,7 +1234,7 @@ export const IssuePanelBody = observer(function IssuePanelBody({
       {rowStatus.dialog}
     </div>
   )
-}
+})
 
 const DockChildRow = observer(function DockChildRow({ sub, views, onOpen, onStatusPick }: {
   sub: PageIssue; views: ReturnType<typeof issuePages>; onOpen: () => void; onStatusPick: (value: string) => void

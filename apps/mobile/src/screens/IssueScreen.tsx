@@ -1,3 +1,9 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issuePages, type PageIssue } from '@podium/client-graph/issue-page'
+import { issueActivity } from '@podium/client-graph/issue-activity'
+import { useMobilePool } from '../client/mobile-pool'
+import { resolveEdgeFromPool } from '../client/use-issue-model'
+import { PhoneMail, PhoneTimeline, PhoneProperties, PhoneNow } from '../components/task-detail/IssueModelSections'
 import { withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -19,7 +25,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
 import { useCoarseNow, useConnected, useStoreActions, useTrpc } from '../client/hooks'
 import { useIssueCloseGuard } from '../client/use-issue-close'
-import { useHasIssueMates, useIssueInputs, useIssueTargets } from '../client/use-issue-inputs'
+import { useHasIssueMates, useIssueModel, useIssueTargets } from '../client/use-issue-model'
 import {
   useSessionContextBooting as useBooting,
   useSessionContextIssue as useIssue,
@@ -95,13 +101,13 @@ import { color, space } from '../theme/theme'
  * events puts the reply box thousands of pixels down the scroll, so replying
  * would mean first travelling past everything you were replying to.
  */
-export function IssueScreen({ dismiss = false }: { dismiss?: boolean } = {}) {
+export const IssueScreen = observer(function IssueScreen({ dismiss = false }: { dismiss?: boolean } = {}) {
   const params = useLocalSearchParams<{ issueId: IssueId | string[] }>()
   const issueId = decodeURIComponent(
     Array.isArray(params.issueId) ? params.issueId[0] : (params.issueId ?? ''),
   )
   const router = useRouter()
-  const issue = useIssue(issueId)
+  const issue = useIssueModel(issueId)
   const booting = useBooting()
   const connected = useConnected()
 
@@ -142,7 +148,7 @@ export function IssueScreen({ dismiss = false }: { dismiss?: boolean } = {}) {
       )}
     </BootstrapCrossfade>
   )
-}
+})
 
 /** Which single-level sheet the page is showing. One at a time, by construction
  *  — a sheet raised over a sheet is the nested-modal case react-native-web does
@@ -178,7 +184,7 @@ const EMPTY_TARGET_IDS: string[] = []
 
 const RELATION_TYPES = ['blocks', 'related', 'discovered-from'] as const
 
-function IssueContent({
+const IssueContent = observer(function IssueContent({
   issue,
   onBack,
   dismiss,
@@ -194,10 +200,8 @@ function IssueContent({
   const actions = useStoreActions()
   const hasCloseBlockers = useIssueCloseGuard()
   const { sendChat } = actions
-  const coarseNow = useCoarseNow()
-  const inputs = useIssueInputs(issue)
-  const issues = inputs?.issues ?? EMPTY_ISSUES
-  const allSessions = inputs?.sessions ?? EMPTY_SESSIONS
+  const pool = useMobilePool()
+  const detail = pool ? issuePages(pool).row(issue.id) : undefined
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -247,18 +251,13 @@ function IssueContent({
     // close never gets this far (POD-1129).
     requestClose: (reason) => setSheet({ kind: 'confirm-close', reason }),
   })
-  const { feed, mail, appendLocalComment } = useIssueActivity(issue)
+  const appendLocalComment = (body: string) => { if (pool) issueActivity(pool, issue.id).appendComment(body) }
 
-  const sessions = useMemo(
-    () => allSessions.filter((s) => s.issueId === issue.id && !s.archived),
-    [allSessions, issue.id],
-  )
-  // The Now block is about AGENTS. A shell is a terminal the operator opened on
-  // the task's checkout, not something computing on its behalf, so it belongs in
-  // the roster and not in "who is working".
-  const agents = useMemo(() => withoutShells(sessions), [sessions])
-  const children = inputs?.children ?? EMPTY_ISSUES
-  const parent = inputs?.parent
+  const sessions = detail?.phoneSessions ?? EMPTY_SESSIONS
+  if (typeof sessions === 'symbol') throw sessions
+  const agents = sessions.filter(session => session.agentKind !== 'shell')
+  const parentEdge = resolveEdgeFromPool(pool, issue.parentId)
+  const parent = parentEdge.render === 'issue' ? parentEdge.resolution.value : undefined
   const openIssue = (id: string) => router.replace(`/issue/${encodeURIComponent(id)}`)
   const openSession = (id: SessionId) =>
     router.push(sessionHref(id, `/issue/${encodeURIComponent(issue.id)}`))
@@ -276,18 +275,7 @@ function IssueContent({
    */
   const closeIf = (kind: NonNullable<OpenSheet>['kind']) => () =>
     setSheet((cur) => (cur?.kind === kind ? null : cur))
-  const resolveEdge = useMemo(() => {
-    const byId = new Map(issues.map((candidate) => [candidate.id, candidate]))
-    return (id: string | undefined | null) =>
-      resolveIssueEdge(
-        id,
-        (targetId) => byId.get(targetId as IssueId),
-        'opaque',
-        (targetId) => inputs?.exits[targetId],
-      )
-  }, [issues, inputs?.exits])
-
-  if (!inputs) return <DetailSkeleton />
+  const resolveEdge = (id: string | undefined | null) => resolveEdgeFromPool(pool, id)
 
   const repoName = machinePathBasename(issue.repoPath)
   const breadcrumb = parent
@@ -385,7 +373,7 @@ function IssueContent({
             onType={() => setSheet({ kind: 'type' })}
           />
 
-          <IssueNow issue={issue} sessions={agents} onOpenSession={openSession} />
+          <PhoneNow issue={issue} onOpenSession={openSession} />
           <IssueDescription issue={issue} busy={busy} commands={commands} />
           <IssueBrief issue={issue} />
           <LongFormFields issue={issue} busy={busy} commands={commands} />
@@ -398,20 +386,15 @@ function IssueContent({
           ) : null}
           <IssueSubIssues
             issue={issue}
-            subIssues={children}
+           
             busy={busy}
             commands={commands}
-            sessions={allSessions}
-            now={coarseNow}
             onOpen={openIssue}
             onStatus={(child) => setSheet({ kind: 'child-status', child })}
           />
-          <MailSection mail={mail} />
-          <IssueProperties
+          <PhoneMail issue={issue} />
+          <PhoneProperties
             issue={issue}
-            sessions={sessions}
-            parent={parent}
-            resolveEdge={resolveEdge}
             busy={busy}
             commands={commands}
             open={detailsOpen}
@@ -421,7 +404,7 @@ function IssueContent({
             onPickParent={() => setSheet({ kind: 'parent' })}
             onAddRelation={() => setSheet({ kind: 'relation-type' })}
           />
-          <IssueActivitySection issue={issue} busy={busy} commands={commands} feed={feed} />
+          <PhoneTimeline issue={issue} busy={busy} commands={commands} />
         </ScrollView>
 
         {/* Pinned with the composer, not placed where the failing control was. A
@@ -699,7 +682,7 @@ function IssueContent({
     }
     void run(() => actions.closeIssue(child.id, intent.reason))
   }
-}
+})
 
 /** The Details fold, remembered per principal in the replica's ui-state — the
  *  same store and key namespace the sidebar's folds use, so the phone and the

@@ -23,7 +23,6 @@ import { type IssueViewModel, useRuntimeSelector } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { PropertyOption } from '@/lib/PropertyMenu'
 import { issueNeighbors } from './issue-page'
-import { useIssuePageData, useIssuePageIssues } from './issue-page/issue-page-data'
 import {
   type IssueMailMessage,
   loadIssueComments,

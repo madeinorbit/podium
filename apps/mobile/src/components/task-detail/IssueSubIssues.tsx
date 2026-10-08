@@ -1,3 +1,6 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
+import { issuePages, type PageIssue } from '@podium/client-graph/issue-page'
+import { useMobilePool } from '../../client/mobile-pool'
 import { isFinished } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -35,9 +38,9 @@ import { SectionHeading } from './chrome'
  * computing sessions are joined by issue membership before the selector ranks
  * them against needs-human, blocking, merge and subtree state.
  */
-export function IssueSubIssues({
+export const IssueSubIssues = observer(function IssueSubIssues({
   issue,
-  subIssues,
+  subIssues: suppliedChildren,
   busy,
   commands,
   sessions,
@@ -46,20 +49,21 @@ export function IssueSubIssues({
   onStatus,
 }: {
   issue: IssueViewModel
-  subIssues: IssueViewModel[]
+  subIssues?: IssueViewModel[]
   busy: boolean
   commands: IssueCommands
-  sessions: readonly SessionView[]
-  now: number
+  sessions?: readonly SessionView[]
+  now?: number
   onOpen: (id: string) => void
   onStatus: (issue: IssueViewModel) => void
 }) {
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
-  const workingByIssue = useMemo(
-    () => confirmedWorkingAgentCountsByIssue(subIssues, sessions, now),
-    [now, sessions, subIssues],
-  )
+  const pool = useMobilePool()
+  const rows = suppliedChildren ?? (pool ? issuePages(pool).row(issue.id).children : [])
+  if (typeof rows === 'symbol') throw rows
+  const subIssues = rows ?? []
+  const legacyWorkers = suppliedChildren && sessions ? confirmedWorkingAgentCountsByIssue(sessions, now ?? Date.now()) : undefined
   const create = () => {
     const next = title.trim()
     if (!next || busy) return
@@ -77,7 +81,7 @@ export function IssueSubIssues({
         <SubTaskRow
           key={child.id}
           child={child}
-          workingAgents={workingByIssue.get(child.id) ?? 0}
+          workingAgents={legacyWorkers?.get(child.id) ?? 0}
           onOpen={onOpen}
           onStatus={onStatus}
           muted={isFinished(child)}
@@ -130,10 +134,10 @@ export function IssueSubIssues({
       )}
     </View>
   )
-}
+})
 
 /** One sub-task, in the board row's grammar: stage glyph, ref, title, state. */
-function SubTaskRow({
+const SubTaskRow = observer(function SubTaskRow({
   child,
   workingAgents,
   onOpen,
@@ -146,7 +150,8 @@ function SubTaskRow({
   onStatus: (issue: IssueViewModel) => void
   muted?: boolean
 }) {
-  const state = taskStateWord(child, workingAgents)
+  const count = 'confirmedWorkingAgents' in child ? (child as PageIssue).confirmedWorkingAgents : workingAgents
+  const state = taskStateWord(child, count)
   const stateTint =
     state?.tone === 'attention'
       ? color.needsYouText
@@ -169,21 +174,21 @@ function SubTaskRow({
       </PressableScale>
       <PressableScale
         accessibilityRole="button"
-        accessibilityLabel={`${issueDisplayRef(child)} ${child.title}`}
+        accessibilityLabel={`${issueDisplayRef(child)} ${'authoredTitle' in child ? (child as PageIssue).authoredTitle : child.title}`}
         onPress={() => onOpen(child.id)}
         scaleTo={0.995}
         style={({ pressed }) => [styles.rowBody, pressed && styles.rowPressed]}
       >
         <Text style={styles.ref}>{issueDisplayRef(child)}</Text>
         <Text style={styles.title} numberOfLines={1}>
-          {child.title}
+          {'authoredTitle' in child ? (child as PageIssue).authoredTitle : child.title}
         </Text>
         {child.archived ? <Text style={styles.archived}>ARCHIVED</Text> : null}
         {state ? <Text style={[styles.state, { color: stateTint }]}>{state.text}</Text> : null}
       </PressableScale>
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   section: {

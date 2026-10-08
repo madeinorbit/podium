@@ -86,7 +86,7 @@ import { IssueParentRow } from './IssueParentRow'
 import { IssueRelations } from './IssueRelations'
 import { IssueSessionsBlock } from './IssueSessionsBlock'
 import { useIssueEdgeResolver } from './issue-edges'
-import { useIssuePageCatalog, useIssuePageData } from './issue-page-data'
+import { useIssuePageCatalog, useIssuePageContext } from './issue-page-data'
 import { PropertyRow, TriggerButton } from './property-chrome'
 
 /** The properties stack. `commands` is the page's named-command set (all
@@ -98,14 +98,14 @@ export const IssueProperties = observer(function IssueProperties({
   commands,
   onNavigate,
   onRequestClose,
-}): {
+}: {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
   onNavigate: (id: IssueId) => void
   onRequestClose: (reason: IssueCloseReason) => void
 }): JSX.Element {
-  const page = useIssuePageData()!
+  const page = useIssuePageContext()!
   const { trpc, navigateToSession } = useRuntimeSelector(
     (s) => ({
       trpc: s.trpc,
@@ -352,7 +352,7 @@ export const IssueProperties = observer(function IssueProperties({
       </RailSection>
     </div>
   )
-}
+})
 
 /** The long-tail properties: a row each when SET, nothing when not. */
 type LongTailKey = 'estimate' | 'due' | 'defer' | 'type'
@@ -371,9 +371,9 @@ const RailSection = observer(function RailSection({
    *  rather than one — the parent row followed by Relations. Property rows
    *  inside a band stack flush; they carry their own 30px. */
   gap = 'flush',
-}): {
+}: {
   children: ReactNode
   gap?: 'flush' | 'loose'
 }): JSX.Element {
   return <div className={cn('flex flex-col px-5 py-4', gap === 'loose' && 'gap-4')}>{children}</div>
-}
+})

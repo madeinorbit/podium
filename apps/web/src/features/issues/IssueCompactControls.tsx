@@ -54,7 +54,7 @@ import { IssueCloseDialog, type IssueCloseReason, useIssueCloseGuard } from './i
 import { PoolIssueContextMenu } from './issue-menu-pool-inputs'
 import {
   useIssuePageCatalog,
-  useIssuePageIssues,
+  useIssuePageContext,
   useIssuePageSessions,
 } from './issue-page/issue-page-data'
 import { issueWorkBegun, LaunchBox, type LaunchCommands } from './LaunchBox'
@@ -249,7 +249,7 @@ const SessionNeedsYou = observer(function SessionNeedsYou(): JSX.Element {
 export const IssueSessionRow = observer(function IssueSessionRow({
   session,
   onOpen,
-}): {
+}: {
   session: SessionView
   onOpen: () => void
 }): JSX.Element {
@@ -336,7 +336,7 @@ export const IssueSessionRow = observer(function IssueSessionRow({
       )}
     </div>
   )
-}
+})
 
 /**
  * The `decision-band`: bold "Needs you" and ONE line saying what the decision
@@ -352,7 +352,8 @@ export const IssueSessionRow = observer(function IssueSessionRow({
 export const IssueDecisionBand = observer(function IssueDecisionBand({ issue }: { issue: IssueViewModel }): JSX.Element | null {
   const { trpc } = useRuntimeSelector((s) => ({ trpc: s.trpc }), shallowEqual)
   const sessions = useIssuePageSessions()
-  const active = issueSessions(issue, sessions).filter(isOpenSession)
+  const page = useIssuePageContext()
+  const active = page ? sessions : issueSessions(issue, sessions).filter(isOpenSession)
   if (!issueNeedsHuman(issue, active)) return null
 
   return (
@@ -404,7 +405,7 @@ const PlacementMenu = observer(function PlacementMenu({
   placement,
   busy,
   onStart,
-}): {
+}: {
   placement: { placement: ProposalPlacement; originRef: string | null }
   busy: boolean
   onStart: (moveTo: ProposalPlacement) => void
@@ -489,7 +490,7 @@ const PlacementMenu = observer(function PlacementMenu({
       </DropdownMenuContent>
     </DropdownMenu>
   )
-}
+})
 
 /**
  * The task head's control strip: the stage dropdown, the ONE primary action the
@@ -499,7 +500,7 @@ const PlacementMenu = observer(function PlacementMenu({
 export const IssueCompactControls = observer(function IssueCompactControls({
   issue,
   onRename,
-}): {
+}: {
   issue: IssueViewModel
   /** Open the head's inline title editor. Supplying it is what puts `Rename`
    *  in the menu below (`renameEnabled: onRename !== undefined`) — this strip
@@ -532,7 +533,8 @@ export const IssueCompactControls = observer(function IssueCompactControls({
   const [closing, setClosing] = useState(false)
   const [starting, setStarting] = useState(false)
 
-  const active = issueSessions(issue, sessions).filter(isOpenSession)
+  const page = useIssuePageContext()
+  const active = page ? sessions : issueSessions(issue, sessions).filter(isOpenSession)
   const action = resolveTaskAction(issue, active)
   const closed = isFinished(issue) || issue.archived
   const statusLabel = issueStatusControlLabel(issue)
@@ -842,4 +844,4 @@ export const IssueCompactControls = observer(function IssueCompactControls({
       />
     </div>
   )
-}
+})

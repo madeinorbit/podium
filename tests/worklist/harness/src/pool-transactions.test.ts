@@ -15,6 +15,7 @@ import { overlaysForOutboxEntry } from '@podium/client-core/command-reducers'
 import type { OutboxKinds } from '@podium/client-core/engine'
 import { LOADING } from '@podium/client-graph'
 import { createWorklistPool, type WorklistPoolHandle } from '@podium/client-graph/create'
+import { poolIssuePageSnapshot } from '../../diagnostics/issue-page-check'
 import { issuePages } from '@podium/client-graph/issue-page'
 import { missions } from '@podium/client-graph/mission'
 import type { MobxPool } from '@podium/client-graph/pool'
@@ -179,8 +180,8 @@ function differences(
     const ma = canon(mission(a))
     const mb = canon(mission(b))
     if (ma !== mb) out.push(`mission of ${id}\n  reference ${ma}\n  pool   ${mb}`)
-    const pa = canon(settled(a, () => issuePages(a).data(id)))
-    const pb = canon(settled(b, () => issuePages(b).data(id)))
+    const pa = canon(settled(a, () => poolIssuePageSnapshot(a).find(row => row.id === id)?.value))
+    const pb = canon(settled(b, () => poolIssuePageSnapshot(b).find(row => row.id === id)?.value))
     if (pa !== pb) out.push(`issue page ${id}\n  reference ${pa}\n  pool   ${pb}`)
   }
   return out

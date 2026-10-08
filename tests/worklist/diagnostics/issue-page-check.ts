@@ -49,6 +49,20 @@ function snapshot(issue: IssueViewModel, children: IssueViewModel[], roster: Ses
     roster: roster.map(sessionSnapshot), moved: moved.map(sessionSnapshot), relations: groupRelations(issue),
   }
 }
+/** Diagnostic projection of the former page vocabulary. Production hands
+ * down identities; this explicit whole-world comparison alone copies fields. */
+export function poolIssuePageFields(pool: MobxPool, id: string): IssueViewModel | typeof LOADING | undefined {
+  const views = issuePages(pool), issue = views.issue(id)
+  if (!issue || issue === LOADING) return issue
+  const raw = issue.row as Record<string, unknown>
+  const fields = pick(issue, ISSUE_PAGE_CHECK_FIELDS)
+  return { ...fields, title: issue.authoredTitle, prefix: issue.prefix ?? undefined,
+    branch: raw.branch ?? null, worktreePath: raw.worktreePath ?? null,
+    readAt: pool.readCursor(id) ?? null, tuckedAt: raw.tuckedAt ?? null,
+    labels: raw.labels ?? [], deps: raw.deps ?? [],
+    childIds: [...pool.graph.many('issue', id, 'treeChildren')].sort(),
+    unread: views.row(id).unread } as unknown as IssueViewModel
+}
 export function legacyIssuePageSnapshot(issues: readonly IssueViewModel[], sessions: readonly SessionView[]): IssuePageCheckRow[] {
   // This diagnostic owns full input arrays. Build temporary indexes once;
   // checking every page must not turn into pages × sessions on the operator corpus.
@@ -71,11 +85,11 @@ export function legacyIssuePageSnapshot(issues: readonly IssueViewModel[], sessi
 export function poolIssuePageSnapshot(pool: MobxPool): IssuePageCheckRow[] {
   const views = issuePages(pool)
   return knownIds(pool, 'issue').map(id => {
-    const issue = views.issue(id), roster = views.attachedSessions(id)
+    const issue = poolIssuePageFields(pool, id), roster = views.attachedSessions(id)
     if (!issue || issue === LOADING || !roster || roster === LOADING) return { id, value: LOADING }
     const children: IssueViewModel[] = []
     for (const childId of pool.graph.many('issue', id, 'treeChildren')) {
-      const child = views.issue(childId)
+      const child = poolIssuePageFields(pool, childId)
       if (child === LOADING) return { id, value: LOADING }
       if (child && !child.deletedAt) children.push(child)
     }

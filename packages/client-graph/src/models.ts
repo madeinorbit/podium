@@ -291,7 +291,7 @@ export class IssueModel extends EntityModel {
     const resident = this.host.row('issue', this.id, 'mark')
     if (resident !== LOADING) return (resident as Record<string, unknown> | undefined)?.[property]
     if (this.host.issueSummaryField(property)) {
-      const summary = this.host.row('issue', this.id, 'summary')
+      const summary = this.host.row('issue', this.id, 'summary-fields')
       if (summary !== LOADING) return (summary as Record<string, unknown> | undefined)?.[property]
     }
     const row = this.host.row('issue', this.id)
@@ -319,7 +319,10 @@ export class IssueModel extends EntityModel {
     return Number.isFinite(deadline) && !this.host.inputs.passed(deadline)
   }
   @lazy get ready(): boolean {
-    return !this.storedField('blocked') && !this.deferred && !isFinished(this.row ?? {})
+    return !this.storedField('blocked') && !this.deferred && !isFinished({
+      stage: this.storedField('stage') as string,
+      closedReason: this.storedField('closedReason') as string | null | undefined,
+    })
   }
 
   // Close: one question per field; counts borrow the maintained data layer.
@@ -328,7 +331,7 @@ export class IssueModel extends EntityModel {
     return (this.storedField('asked') as { question?: string } | undefined)?.question
   }
   @lazy get closeGit(): IssueCloseScalarSubject['git'] {
-    const git = this.storedField('gitState') as import('@podium/model').IssueGitState | undefined
+    const git = this.storedField('gitState') as import('@podium/client-core/values').IssueCloseSubject['gitState']
     return git ? { dirty: git.dirtyOwn ?? (!git.shared && !git.fallback ? git.dirtyFiles : 0),
       delivery: git.shared ? (git.commits?.length ?? 0) : (git.ahead ?? 0), shared: !!git.shared, merged: git.merged } : undefined
   }
@@ -408,6 +411,8 @@ export class IssueModel extends EntityModel {
   }
 
   // Links: raw page membership includes headless, history and resume twins.
+  get memberCount(): number { return this.host.relations.size('issue', this.id, 'pageSessions') }
+
   @lazy({ equals: compareStructural })
   get memberSessionIds(): ReturnType<typeof asSessionId>[] {
     return [...this.host.relations.many('issue', this.id, 'pageSessions')].sort().map(asSessionId)
@@ -487,7 +492,7 @@ export class IssueModel extends EntityModel {
   private get finishedChildren(): number {
     let done = 0
     for (const id of this.host.relations.many('issue', this.id, 'treeChildren')) {
-      const row = this.host.row('issue', id, 'summary') as LoadedRow<SliceIssue>
+      const row = this.host.row('issue', id, 'summary-fields') as LoadedRow<SliceIssue>
       if (row === LOADING) throw LOADING
       if (row && isFinished(row)) done++
     }

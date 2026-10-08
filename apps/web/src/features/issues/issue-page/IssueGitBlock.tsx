@@ -25,7 +25,7 @@ export const IssueGitBlock = observer(function IssueGitBlock({
   busy,
   commands,
   mergeStyle,
-}): {
+}: {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
@@ -116,4 +116,4 @@ export const IssueGitBlock = observer(function IssueGitBlock({
       )}
     </section>
   )
-}
+})

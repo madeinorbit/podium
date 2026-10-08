@@ -1,26 +1,14 @@
 [
   {
-    "issue": "POD-5618",
-    "reason": "Confirmed unchanged-pilot IssuePage growth: collecting references from all archived related sessions adds 96 elements when closed history grows from 32 to 128. Coordinator authorized these two exact entries; the detail-view owner removes them with its repair.",
-    "readers": [
-      {
-        "reader": "consumer:issue-page.detail/IssuePage@page:guard-root",
-        "actions": { "select": ["elements"] }
-      },
-      {
-        "reader": "consumer:issue-page.detail/IssuePage@page:guard-child",
-        "actions": { "navigate-by-ref": ["elements"] }
-      }
-    ]
-  },
-  {
     "issue": "POD-5421",
     "reason": "The separate navigation navigate-by-ref allowance remains engine republication work. All 32 mission/task and session-menu allowances were retired by POD-5672 after the complete fixed-source 1x/4x census; no menu allowance remains in this group.",
     "readers": [
       {
         "reader": "consumer:navigation.navigate-by-ref",
         "actions": {
-          "navigate-by-ref": ["elements"]
+          "navigate-by-ref": [
+            "elements"
+          ]
         }
       }
     ]
@@ -32,27 +20,56 @@
       {
         "reader": "consumer:shell.chrome/ComputedValue@#",
         "actions": {
-          "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows"],
-          "heartbeat": ["rows"],
-          "machine-flip": ["rows", "elements"]
+          "pane-switch": [
+            "rows",
+            "elements"
+          ],
+          "navigate-by-ref": [
+            "rows"
+          ],
+          "heartbeat": [
+            "rows"
+          ],
+          "machine-flip": [
+            "rows",
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:shell.dock/ComputedValue@#",
         "actions": {
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["elements"],
-          "navigate-by-ref": ["elements"],
-          "heartbeat": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
+          "stage-change": [
+            "rows",
+            "elements"
+          ],
+          "pane-switch": [
+            "elements"
+          ],
+          "navigate-by-ref": [
+            "elements"
+          ],
+          "heartbeat": [
+            "rows",
+            "elements"
+          ],
+          "lane-change": [
+            "rows",
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:superagent",
         "actions": {
-          "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"]
+          "pane-switch": [
+            "rows",
+            "elements"
+          ],
+          "navigate-by-ref": [
+            "rows",
+            "elements"
+          ]
         }
       }
     ]
@@ -64,8 +81,14 @@
       {
         "reader": "consumer:sidebar.sections/WorklistGroups@#.latchedOpenId",
         "actions": {
-          "heartbeat": ["derivations", "elements"],
-          "lane-change": ["derivations", "elements"]
+          "heartbeat": [
+            "derivations",
+            "elements"
+          ],
+          "lane-change": [
+            "derivations",
+            "elements"
+          ]
         }
       }
     ]
@@ -77,182 +100,402 @@
       {
         "reader": "consumer:automations",
         "actions": {
-          "heartbeat": ["elements"]
+          "heartbeat": [
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:board.card/IssueBoard@card:{\"id\":\"guard-root\",\"now\":#}",
         "actions": {
-          "navigate-by-ref": ["elements"],
-          "heartbeat": ["elements"],
-          "machine-flip": ["elements"],
-          "lane-change": ["elements"]
+          "navigate-by-ref": [
+            "elements"
+          ],
+          "heartbeat": [
+            "elements"
+          ],
+          "machine-flip": [
+            "elements"
+          ],
+          "lane-change": [
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:board.card/IssueBoard@row:guard-root",
         "actions": {
-          "navigate-by-ref": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"]
+          "navigate-by-ref": [
+            "rows",
+            "elements"
+          ],
+          "machine-flip": [
+            "rows",
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-child\",\"now\":#,\"windowed\":true}",
         "actions": {
-          "select": ["elements"],
-          "stage-change": ["elements"]
+          "select": [
+            "elements"
+          ],
+          "stage-change": [
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:board.model/IssueBoard@board:{\"display\":{\"layout\":\"board\",\"ordering\":\"priority\",\"showAgentTasks\":false},\"filter\":{},\"expanded\":[],\"isMobile\":false,\"openIssueId\":\"guard-root\",\"now\":#,\"windowed\":true}",
         "actions": {
-          "navigate-by-ref": ["elements"],
-          "heartbeat": ["elements"],
-          "machine-flip": ["elements"],
-          "lane-change": ["elements"]
+          "navigate-by-ref": [
+            "elements"
+          ],
+          "heartbeat": [
+            "elements"
+          ],
+          "machine-flip": [
+            "elements"
+          ],
+          "lane-change": [
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:board.model/IssueBoard@catalog:false",
         "actions": {
-          "stage-change": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
+          "stage-change": [
+            "rows",
+            "elements"
+          ],
+          "heartbeat": [
+            "rows",
+            "elements"
+          ],
+          "lane-change": [
+            "rows",
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:board.model/IssueBoard@query:{\"kind\":\"board\",\"filter\":{},\"showAgentTasks\":false}",
         "actions": {
-          "stage-change": ["elements"],
-          "heartbeat": ["elements"],
-          "lane-change": ["elements"]
+          "stage-change": [
+            "elements"
+          ],
+          "heartbeat": [
+            "elements"
+          ],
+          "lane-change": [
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:board.model/IssueBoard@row:guard-root",
         "actions": {
-          "heartbeat": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
+          "heartbeat": [
+            "rows",
+            "elements"
+          ],
+          "lane-change": [
+            "rows",
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:board.query/IssueBoard@query:{\"kind\":\"board\",\"showAgentTasks\":false}",
         "actions": {
-          "stage-change": ["elements"],
-          "heartbeat": ["elements"],
-          "lane-change": ["elements"]
+          "stage-change": [
+            "elements"
+          ],
+          "heartbeat": [
+            "elements"
+          ],
+          "lane-change": [
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:chat.references",
         "actions": {
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
+          "stage-change": [
+            "rows",
+            "elements"
+          ],
+          "pane-switch": [
+            "rows",
+            "elements"
+          ],
+          "navigate-by-ref": [
+            "rows",
+            "elements"
+          ],
+          "heartbeat": [
+            "rows",
+            "elements"
+          ],
+          "machine-flip": [
+            "rows",
+            "elements"
+          ],
+          "lane-change": [
+            "rows",
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:issue-page.detail/IssuePage@members:guard-root",
         "actions": {
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"]
+          "navigate-by-ref": [
+            "rows",
+            "elements"
+          ],
+          "heartbeat": [
+            "rows",
+            "elements"
+          ],
+          "machine-flip": [
+            "rows",
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:issue-page.detail/IssuePage@page:guard-child",
         "actions": {
-          "select": ["rows", "elements"],
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"]
+          "select": [
+            "rows",
+            "elements"
+          ],
+          "stage-change": [
+            "rows",
+            "elements"
+          ],
+          "pane-switch": [
+            "rows",
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:issue-page.detail/IssuePage@page:guard-root",
         "actions": {
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
+          "navigate-by-ref": [
+            "rows",
+            "elements"
+          ],
+          "heartbeat": [
+            "rows",
+            "elements"
+          ],
+          "machine-flip": [
+            "rows",
+            "elements"
+          ],
+          "lane-change": [
+            "rows",
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:launcher.launch/ComputedValue@#",
         "actions": {
-          "navigate-by-ref": ["elements"]
+          "navigate-by-ref": [
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:launcher.palette/ComputedValue@#",
         "actions": {
-          "select": ["rows", "elements"],
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"],
-          "open-menu": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
+          "select": [
+            "rows",
+            "elements"
+          ],
+          "stage-change": [
+            "rows",
+            "elements"
+          ],
+          "pane-switch": [
+            "rows",
+            "elements"
+          ],
+          "open-menu": [
+            "rows",
+            "elements"
+          ],
+          "navigate-by-ref": [
+            "rows",
+            "elements"
+          ],
+          "heartbeat": [
+            "rows",
+            "elements"
+          ],
+          "machine-flip": [
+            "rows",
+            "elements"
+          ],
+          "lane-change": [
+            "rows",
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:mobile-inbox",
         "actions": {
-          "select": ["rows", "elements"],
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
+          "select": [
+            "rows",
+            "elements"
+          ],
+          "stage-change": [
+            "rows",
+            "elements"
+          ],
+          "pane-switch": [
+            "rows",
+            "elements"
+          ],
+          "navigate-by-ref": [
+            "rows",
+            "elements"
+          ],
+          "heartbeat": [
+            "rows",
+            "elements"
+          ],
+          "machine-flip": [
+            "rows",
+            "elements"
+          ],
+          "lane-change": [
+            "rows",
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:mobile-inbox/ComputedValue@#",
         "actions": {
-          "select": ["rows", "elements"],
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
+          "select": [
+            "rows",
+            "elements"
+          ],
+          "stage-change": [
+            "rows",
+            "elements"
+          ],
+          "pane-switch": [
+            "rows",
+            "elements"
+          ],
+          "navigate-by-ref": [
+            "rows",
+            "elements"
+          ],
+          "heartbeat": [
+            "rows",
+            "elements"
+          ],
+          "machine-flip": [
+            "rows",
+            "elements"
+          ],
+          "lane-change": [
+            "rows",
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:mobile-inbox/IssuePage@issue:guard-root",
         "actions": {
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
+          "stage-change": [
+            "rows",
+            "elements"
+          ],
+          "pane-switch": [
+            "rows",
+            "elements"
+          ],
+          "navigate-by-ref": [
+            "rows",
+            "elements"
+          ],
+          "heartbeat": [
+            "rows",
+            "elements"
+          ],
+          "machine-flip": [
+            "rows",
+            "elements"
+          ],
+          "lane-change": [
+            "rows",
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:mobile-session",
         "actions": {
-          "select": ["rows", "elements"],
-          "stage-change": ["rows", "elements"],
-          "pane-switch": ["rows", "elements"],
-          "navigate-by-ref": ["rows", "elements"],
-          "heartbeat": ["rows", "elements"],
-          "machine-flip": ["rows", "elements"],
-          "lane-change": ["rows", "elements"]
+          "select": [
+            "rows",
+            "elements"
+          ],
+          "stage-change": [
+            "rows",
+            "elements"
+          ],
+          "pane-switch": [
+            "rows",
+            "elements"
+          ],
+          "navigate-by-ref": [
+            "rows",
+            "elements"
+          ],
+          "heartbeat": [
+            "rows",
+            "elements"
+          ],
+          "machine-flip": [
+            "rows",
+            "elements"
+          ],
+          "lane-change": [
+            "rows",
+            "elements"
+          ]
         }
       },
       {
         "reader": "consumer:workflows",
         "actions": {
-          "select": ["elements"],
-          "pane-switch": ["elements"],
-          "navigate-by-ref": ["elements"],
-          "heartbeat": ["elements"],
-          "lane-change": ["elements"]
+          "select": [
+            "elements"
+          ],
+          "pane-switch": [
+            "elements"
+          ],
+          "navigate-by-ref": [
+            "elements"
+          ],
+          "heartbeat": [
+            "elements"
+          ],
+          "lane-change": [
+            "elements"
+          ]
         }
       }
     ]

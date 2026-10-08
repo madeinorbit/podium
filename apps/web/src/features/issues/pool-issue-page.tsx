@@ -7,7 +7,7 @@ import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist
 import { IssuePageBody } from './IssuePage'
 import { IssuePanelBody } from './IssuePanelView'
 import { IssueExplorerList } from './explorer/IssueExplorerList'
-import { IssuePageDataContext } from './issue-page/issue-page-data'
+import { IssuePageContext } from './issue-page/issue-page-data'
 import { useEvictionPresenceGuard } from './issue-page/use-eviction-guard'
 
 export function PoolIssuePage({ issueId, ...props }: Omit<ComponentProps<typeof IssuePageBody>, 'issue'> & { issueId: string }) {
@@ -16,9 +16,9 @@ export function PoolIssuePage({ issueId, ...props }: Omit<ComponentProps<typeof 
   const data = useWorklistPoolProjection<Loaded<PageIssue>>(read, undefined)
   useEvictionPresenceGuard(issueId, !pool || typeof data === 'symbol' ? null : Boolean(data), props.onBack)
   if (!pool || !data || typeof data === 'symbol') return null
-  return <IssuePageDataContext.Provider value={{ issue: data, views: issuePages(pool) }}>
+  return <IssuePageContext.Provider value={{ issue: data, views: issuePages(pool) }}>
     <IssuePageBody issue={data} {...props} />
-  </IssuePageDataContext.Provider>
+  </IssuePageContext.Provider>
 }
 
 export function PoolIssuePanelView(props: ComponentProps<typeof IssuePanelBody>) {
@@ -28,9 +28,9 @@ export function PoolIssuePanelView(props: ComponentProps<typeof IssuePanelBody>)
   const data = useWorklistPoolProjection<Loaded<PageIssue>>(read, undefined)
   if (!pool || typeof data === 'symbol') return null
   if (!data) return <PoolIssueExplorerList />
-  return <IssuePageDataContext.Provider value={{ issue: data, views: issuePages(pool) }}>
+  return <IssuePageContext.Provider value={{ issue: data, views: issuePages(pool) }}>
     <IssuePanelBody {...props} />
-  </IssuePageDataContext.Provider>
+  </IssuePageContext.Provider>
 }
 
 function PoolIssueExplorerList() {

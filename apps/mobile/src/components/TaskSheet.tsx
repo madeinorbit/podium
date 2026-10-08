@@ -1,5 +1,9 @@
+import { issuePages, type PageIssue } from '@podium/client-graph/issue-page'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { useMobilePool } from '../client/mobile-pool'
+import { resolveEdgeFromPool } from '../client/use-issue-model'
 import type { SessionModel } from '@podium/client-graph/models'
-import { observer } from 'mobx-react-lite'
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -81,25 +85,25 @@ const SESSION_CHIP = 20
  *  during another's dismissal). */
 const SHEET_EXIT_MS = 280
 
-export function TaskSheet({
+export const TaskSheet = observer(function TaskSheet({
   pool,
-  issue,
-  issues,
-  sessions,
+  issue: suppliedIssue,
   onClose,
   onOpenSession,
   onOpenIssue,
-}: {
+}): {
   pool?: MobxPool | null
   issue: IssueViewModel | null
-  issues: readonly IssueViewModel[]
-  sessions: readonly SessionView[]
   onClose: () => void
   onOpenSession: (session: SessionView) => void
   /** Retarget the sheet at another task (a subtask row). Absent = navigate. */
   onOpenIssue?: (issue: IssueViewModel) => void
 }) {
   const trpc = useTrpc()
+  const attachedPool = useMobilePool()
+  pool ??= attachedPool
+  const resolved = suppliedIssue && pool ? issuePages(pool).issue(suppliedIssue.id) : null
+  const issue = typeof resolved === 'symbol' ? null : resolved
   const router = useRouter()
   const hex = issue ? (issueColorHex(issue.color) ?? FLOW_HEX) : FLOW_HEX
 
@@ -142,8 +146,6 @@ export function TaskSheet({
             <SheetHead
               pool={pool}
               issue={issue}
-              issues={issues}
-              sessions={sessions}
               hex={hex}
               onOpenSession={onOpenSession}
             />
@@ -156,8 +158,6 @@ export function TaskSheet({
           <SheetBody
             pool={pool}
             issue={issue}
-            issues={issues}
-            sessions={sessions}
             onOpenArtifact={openArtifact}
             onOpenSession={onOpenSession}
             onOpenIssue={(target) => {
@@ -186,15 +186,11 @@ export function TaskSheet({
 const SheetHead = observer(function SheetHead({
   pool,
   issue,
-  sessions,
-  issues,
   hex,
   onOpenSession,
 }: {
   pool?: MobxPool | null
   issue: IssueViewModel
-  sessions: readonly SessionView[]
-  issues: readonly IssueViewModel[]
   hex: string
   onOpenSession: (session: SessionView) => void
 }) {
@@ -203,12 +199,12 @@ const SheetHead = observer(function SheetHead({
   const hasCloseBlockers = useIssueCloseGuard()
   const [stageOpen, setStageOpen] = useState(false)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
-  const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
-  const mine = sessions.map(s => (pool?.sessionObject(s.sessionId) ?? s) as SessionModel & SessionView)
-    .filter(s => s.issueId === issue.id && !s.archived && s.agentKind !== 'shell')
-  const asking = mine.filter(s => s.asking)
-  const op = operationalState(issue, mine, byId)
-  const presence = presenceNote(issue, mine, byId)
+  const detail = pool ? issuePages(pool).row(issue.id) : undefined
+  const mine = detail?.inspectorSessions ?? []
+  if (typeof mine === 'symbol') throw mine
+  const asking = mine.filter(session => session.asking)
+  const op = operationalState(issue, mine)
+  const presence = detail?.presence
 
   return (
     <View style={styles.head}>
@@ -236,7 +232,7 @@ const SheetHead = observer(function SheetHead({
       </View>
 
       <Text numberOfLines={2} style={styles.title}>
-        {issue.title}
+        {detail?.title ?? issue.title}
       </Text>
 
       <View style={styles.decide}>
@@ -332,29 +328,24 @@ const SheetHead = observer(function SheetHead({
 const SheetBody = observer(function SheetBody({
   pool,
   issue,
-  issues,
-  sessions,
   onOpenArtifact,
   onOpenSession,
   onOpenIssue,
 }: {
   pool?: MobxPool | null
   issue: IssueViewModel
-  issues: readonly IssueViewModel[]
-  sessions: readonly SessionView[]
   /** Hands the artifact up: the viewer must present ABOVE this sheet's modal. */
   onOpenArtifact: (artifact: IssuePanelArtifact, url: string) => void
   onOpenSession: (s: SessionView) => void
   onOpenIssue: (issue: IssueViewModel) => void
 }) {
-  const children = useMemo(() => subIssuesOf(issues, issue.id), [issues, issue.id])
-  const relations = useMemo(() => groupRelations(issue), [issue])
-  const byId = useMemo(() => new Map(issues.map((i) => [i.id, i])), [issues])
-  const mine = sessions.map(s => (pool?.sessionObject(s.sessionId) ?? s) as SessionModel & SessionView)
-    .filter(s => s.issueId === issue.id && !s.archived && s.agentKind !== 'shell')
-    .sort((a, b) => Number(b.asking) - Number(a.asking) || b.lastActiveAt.localeCompare(a.lastActiveAt))
   const httpOrigin = useHttpOrigin()
   const profile = useOptionalServerProfile()
+  const detail = pool ? issuePages(pool).row(issue.id) : undefined
+  const children = detail?.children ?? []
+  const mine = detail?.inspectorSessions ?? []
+  if (typeof children === 'symbol' || typeof mine === 'symbol') throw LOADING
+  const relations = (issue as PageIssue).relationGroups
   // Prefer the immutable hosted id. The slug fallback keeps URL-selected web
   // profiles scoped when an id is not available yet.
   const workspace = profile?.config.workspaceId ?? profile?.config.workspaceSlug
@@ -403,71 +394,21 @@ const SheetBody = observer(function SheetBody({
       {children.length > 0 ? (
         <Part
           title="Subtasks"
-          meta={`${children.filter(c => pool?.issueObject(c.id).finished).length} / ${children.length}`}
+          meta={`${issue.childDoneCount} / ${issue.childCount}`}
         >
-          {children.map((child) => (
-            <PressableScale
-              key={child.id}
-              accessibilityRole="button"
-              accessibilityLabel={`${issueDisplayRef(child)} ${child.title}`}
-              onPress={() => onOpenIssue(child)}
-              scaleTo={0.99}
-              style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-            >
-              <Text style={styles.rowRef}>{issueDisplayRef(child)}</Text>
-              <Text numberOfLines={1} style={styles.rowTitle}>
-                {child.title}
-              </Text>
-              <Icon as={ChevronRight} size={14} color={color.textMicro} />
-            </PressableScale>
-          ))}
+          {children.map(child => <SheetChildRow key={child.id} child={child} onOpenIssue={onOpenIssue} />)}
         </Part>
       ) : null}
 
       {mine.length > 0 ? (
         <Part title="Agents & sessions" meta={String(mine.length)}>
-          {mine.map((session) => {
-            const tone = kindTone(session.agentKind)
-            return (
-              <PressableScale
-                key={session.sessionId}
-                accessibilityRole="button"
-                accessibilityLabel={`Open ${sessionTitle(session)}`}
-                onPress={() => onOpenSession(session)}
-                scaleTo={0.99}
-                style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}
-              >
-                <View style={[styles.kind, { backgroundColor: tone.bg }]}>
-                  <AgentMark kind={session.agentKind} size={markSize(SESSION_CHIP)} ink={tone.fg} />
-                </View>
-                <Text numberOfLines={1} style={styles.rowTitle}>
-                  {sessionTitle(session)}
-                </Text>
-                {session.asking ? <View style={styles.dot} /> : null}
-                <Text style={styles.rowStamp}>
-                  {relativeTime(session.lastActiveAt, Date.now())}
-                </Text>
-              </PressableScale>
-            )
-          })}
+          {mine.map(session => <SheetSessionRow key={session.sessionId} session={session} onOpenSession={onOpenSession} />)}
         </Part>
       ) : null}
 
       {relations.length > 0 ? (
         <Part title="Relations" meta={String(relations.length)}>
-          {relations.map((rel) => (
-            <View key={rel.section} style={styles.row}>
-              <Text style={styles.rowRef}>{rel.section}</Text>
-              <Text numberOfLines={1} style={styles.rowTitle}>
-                {rel.entries
-                  .map((entry) => {
-                    const target = byId.get(entry.id)
-                    return target ? issueDisplayRef(target) : entry.id.slice(0, 8)
-                  })
-                  .join(', ')}
-              </Text>
-            </View>
-          ))}
+          {relations.map(rel => <SheetRelationRow key={rel.section} rel={rel} pool={pool ?? null} />)}
         </Part>
       ) : null}
 
@@ -507,6 +448,35 @@ function Part({
     </View>
   )
 }
+
+const SheetChildRow = observer(function SheetChildRow({ child, onOpenIssue }: { child: PageIssue; onOpenIssue: (issue: IssueViewModel) => void }) {
+  return <PressableScale accessibilityRole="button" accessibilityLabel={`${issueDisplayRef(child)} ${child.authoredTitle}`}
+    onPress={() => onOpenIssue(child)} scaleTo={0.99} style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
+    <Text style={styles.rowRef}>{issueDisplayRef(child)}</Text>
+    <Text numberOfLines={1} style={styles.rowTitle}>{child.authoredTitle}</Text>
+    <Icon as={ChevronRight} size={14} color={color.textMicro} />
+  </PressableScale>
+})
+const SheetSessionRow = observer(function SheetSessionRow({ session, onOpenSession }: { session: SessionModel; onOpenSession: (session: SessionView) => void }) {
+  const tone = kindTone(session.agentKind)
+  return <PressableScale accessibilityRole="button" accessibilityLabel={`Open ${sessionTitle(session)}`}
+    onPress={() => onOpenSession(session)} scaleTo={0.99} style={({ pressed }) => [styles.row, pressed && styles.rowPressed]}>
+    <View style={[styles.kind, { backgroundColor: tone.bg }]}><AgentMark kind={session.agentKind} size={markSize(SESSION_CHIP)} ink={tone.fg} /></View>
+    <Text numberOfLines={1} style={styles.rowTitle}>{sessionTitle(session)}</Text>
+    {session.asking ? <View style={styles.dot} /> : null}
+    <Text style={styles.rowStamp}>{relativeTime(session.lastActiveAt, Date.now())}</Text>
+  </PressableScale>
+})
+const SheetRelationRow = observer(function SheetRelationRow({ rel, pool }: { rel: PageIssue['relationGroups'][number]; pool: MobxPool | null }) {
+  return <View style={styles.row}>
+    <Text style={styles.rowRef}>{rel.section}</Text>
+    <Text numberOfLines={1} style={styles.rowTitle}>{rel.entries.map(entry => {
+      const edge = resolveEdgeFromPool(pool, entry.id)
+      const target = edge.render === 'issue' ? edge.resolution.value : undefined
+      return target ? issueDisplayRef(target) : edge.render === 'opaque' ? 'Private task' : entry.id.slice(0, 8)
+    }).join(', ')}</Text>
+  </View>
+})
 
 const styles = StyleSheet.create({
   flex: { flex: 1 },

@@ -1,4 +1,3 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 /**
  * ATTRIBUTION IS A PAIR, AND THE CLIENT ONLY EVER READS IT (POD-646).
  *
@@ -64,11 +63,11 @@ function actorKindLabel(actor: Attribution['actor']): string {
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const shortenId = (id: string): string => (UUID_RE.test(id) ? id.slice(0, 8) : id)
 
-export const AttributionPair = observer(function AttributionPair({
+export function AttributionPair({
   attribution,
   className,
   compact = false,
-}): {
+}: {
   attribution?: Attribution
   className?: string
   /** Dense single-line rows (the sidebar's session roster): shorten a uuid

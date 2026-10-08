@@ -1,5 +1,5 @@
 import { issueObserver as observer } from '@podium/client-graph/issue-observer'
-import { useIssuePageData } from './issue-page-data'
+import { useIssuePageContext } from './issue-page-data'
 import { isClosed } from '@podium/model/browser'
 /**
  * The issue's own text: inline-editable title, the at-a-glance status strip, the
@@ -26,14 +26,14 @@ export const IssueTitle = observer(function IssueTitle({
   editing,
   onEditingChange,
   onCommit,
-}): {
+}: {
   issue: IssueViewModel
   busy: boolean
   editing: boolean
   onEditingChange: (editing: boolean) => void
   onCommit: (value: string) => void
 }): JSX.Element {
-  const page = useIssuePageData()
+  const page = useIssuePageContext()
   const title = page?.views.row(issue.id).title ?? issue.title
   if (editing) {
     return (
@@ -68,7 +68,7 @@ export const IssueTitle = observer(function IssueTitle({
       {title}
     </button>
   )
-}
+})
 
 /** Inline-editable description. Cmd/Ctrl+Enter commits; Escape cancels. */
 export const IssueDescription = observer(function IssueDescription({
@@ -77,7 +77,7 @@ export const IssueDescription = observer(function IssueDescription({
   editing,
   onEditingChange,
   onCommit,
-}): {
+}: {
   issue: IssueViewModel
   busy: boolean
   editing: boolean
@@ -123,7 +123,7 @@ export const IssueDescription = observer(function IssueDescription({
       )}
     </section>
   )
-}
+})
 
 /** The agent brief, collapsed by default — long, and written for agents. */
 export const IssueBrief = observer(function IssueBrief({ issue }: { issue: IssueViewModel }): JSX.Element | null {
@@ -241,7 +241,7 @@ export const LongFormFields = observer(function LongFormFields({
   issue,
   busy,
   commands,
-}): {
+}: {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
@@ -298,4 +298,4 @@ export const LongFormFields = observer(function LongFormFields({
       ))}
     </div>
   )
-}
+})

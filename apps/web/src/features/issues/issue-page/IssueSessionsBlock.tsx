@@ -1,6 +1,6 @@
 import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { useIssuePageData } from './issue-page-data'
+import { useIssuePageContext } from './issue-page-data'
 import type { SessionModel } from '@podium/client-graph/models'
 import type { SessionView } from '@podium/client-core/session-values'
 /**
@@ -64,7 +64,7 @@ const SessionRosterRow = observer(function SessionRosterRow({
   muted = false,
   trailing,
   title,
-}): {
+}: {
   session: SessionView
   issue: IssueViewModel
   onOpen: () => void
@@ -112,7 +112,7 @@ const SessionRosterRow = observer(function SessionRosterRow({
       )}
     </button>
   )
-}
+})
 
 export const IssueSessionsBlock = observer(function IssueSessionsBlock({
   issue,
@@ -122,7 +122,7 @@ export const IssueSessionsBlock = observer(function IssueSessionsBlock({
   movedOn: suppliedMoved,
   machines,
   onOpenSession,
-}): {
+}: {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
@@ -135,7 +135,7 @@ export const IssueSessionsBlock = observer(function IssueSessionsBlock({
   onOpenSession: (session: { sessionId: SessionId }) => void
 }): JSX.Element {
   const resolve = useIssueEdgeResolver()
-  const page = useIssuePageData()
+  const page = useIssuePageContext()
   const row = page?.views.row(issue.id)
   const memberSessions = suppliedMembers ?? row?.memberSessions ?? []
   const movedOn = suppliedMoved ?? row?.movedOn ?? []
@@ -185,4 +185,4 @@ export const IssueSessionsBlock = observer(function IssueSessionsBlock({
       )}
     </section>
   )
-}
+})

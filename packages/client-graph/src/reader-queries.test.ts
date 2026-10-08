@@ -446,7 +446,7 @@ const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown
     read: (pool) => ({
       issues: issuePages(pool).issues(),
       explorer: issuePages(pool).explorer(),
-      panel: issuePages(pool).panel({ cwd: '/query/cold/file' }),
+      panel: (() => { const issue = issuePages(pool).panelIssue({ cwd: '/query/cold/file' }); return issue && issue !== LOADING ? issue.id : issue })(),
     }),
   },
   {

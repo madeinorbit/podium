@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 import { isClosed } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -41,7 +42,7 @@ import { Disclosure, MachineLabel } from './chrome'
  * only when it has something to say. Burying the stage picker two taps deep is
  * how a task sits in the wrong lane all afternoon.
  */
-export function IssueProperties({
+export const IssueProperties = observer(function IssueProperties({
   issue,
   sessions,
   parent,
@@ -72,7 +73,7 @@ export function IssueProperties({
   onAddRelation: () => void
 }) {
   const [label, setLabel] = useState('')
-  const relations = groupRelations(issue)
+  const relations = 'relationGroups' in issue ? (issue as import('@podium/client-graph/issue-page').PageIssue).relationGroups : groupRelations(issue)
   const parentEdge = resolveEdge(issue.parentId)
   // Merge axis only: a shared checkout's `ahead` is not this task's to land.
   const ahead = issue.gitState?.shared ? 0 : (issue.gitState?.ahead ?? 0)
@@ -284,7 +285,7 @@ export function IssueProperties({
       </Disclosure>
     </View>
   )
-}
+})
 
 /**
  * The two everyday properties stay visible under the title: stage and priority.
@@ -298,7 +299,7 @@ export function IssueProperties({
  * single-level sheet raised by the SCREEN, which is why they take handlers
  * rather than owning the sheets themselves.
  */
-export function PropertyBar({
+export const PropertyBar = observer(function PropertyBar({
   issue,
   onStage,
   onPriority,
@@ -348,9 +349,9 @@ export function PropertyBar({
       ) : null}
     </View>
   )
-}
+})
 
-function Chip({
+const Chip = observer(function Chip({
   label,
   accessibilityLabel,
   onPress,
@@ -377,18 +378,18 @@ function Chip({
       <Text style={styles.caret}>▾</Text>
     </PressableScale>
   )
-}
+})
 
-function Row({ label, children }: { label: string; children: ReactNode }) {
+const Row = observer(function Row({ label, children }: { label: string; children: ReactNode }) {
   return (
     <View style={styles.row}>
       <MachineLabel>{label}</MachineLabel>
       <View style={styles.rowBody}>{children}</View>
     </View>
   )
-}
+})
 
-function Ghost({
+const Ghost = observer(function Ghost({
   label,
   busy,
   onPress,
@@ -418,9 +419,9 @@ function Ghost({
       <Text style={[styles.ghostText, primary && styles.ghostPrimaryText]}>{label}</Text>
     </PressableScale>
   )
-}
+})
 
-function External({ label, url }: { label: string; url: string }) {
+const External = observer(function External({ label, url }: { label: string; url: string }) {
   return (
     <PressableScale
       accessibilityRole="link"
@@ -432,7 +433,7 @@ function External({ label, url }: { label: string; url: string }) {
       <Icon as={ExternalLink} size={12} color={color.info} />
     </PressableScale>
   )
-}
+})
 
 const styles = StyleSheet.create({
   section: {

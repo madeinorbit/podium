@@ -85,7 +85,7 @@ import {
 } from '@podium/client-graph/superagent'
 import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { asIssueId, asSessionId, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
+import { asIssueId, asSessionId, DEFAULT_HARNESS_AGENT, isFinished } from '@podium/model/browser'
 import type { WorkflowRunWire } from '@podium/protocol'
 import { autorun, compareStructural, observable, runInAction } from 'mobx'
 import { resolvePoolWorkMenu as readPoolWorkMenu } from '../../../../apps/mobile/src/lib/pool-work-menu'
@@ -539,10 +539,33 @@ async function measureScreenCells(
       members: navigation.missionMembers(ROOT),
       readAt: navigation.issueReadAt(selected()),
     }))
-    add('issue-page.detail', ['IssuePage'], () => page.data(selected()))
-    add('issue-page.panel', ['IssuePanel', 'IssueScreen'], () =>
-      page.panel({ issueId: selected(), cwd: '/synthetic' }),
-    )
+    // Exercise the fields read by the mounted sections, rather than replacing
+    // the retired bundle with a trivial identity-only consumer. Closed Details,
+    // completed and retired folds deliberately own no payload demand.
+    const detail = (mode: 'page' | 'panel' | 'phone' | 'inspector') => {
+      const issue = mode === 'panel' ? page.panelIssue({ issueId: selected(), cwd: '/synthetic' }) : page.issue(selected())
+      if (!issue || issue === LOADING) return issue
+      const row = page.row(issue.id), children = row.children
+      const crew = mode === 'phone' ? row.phoneSessions : mode === 'inspector' ? row.inspectorSessions : row.activeSessions
+      if (children === LOADING || crew === LOADING) return LOADING
+      const parent = issue.parentId ? pool.issueObject(issue.parentId) : undefined
+      return { id: issue.id, title: row.title, description: issue.description, ref: issue.displayRef,
+        stage: issue.stage, ready: issue.ready, parent: parent?.authoredTitle,
+        childCount: issue.childCount, childDoneCount: issue.childDoneCount,
+        children: children?.filter(child => mode !== 'panel' || !isFinished(child)).map(child => ({
+          id: child.id, title: child.authoredTitle, ref: child.displayRef, stage: child.stage,
+          workers: child.confirmedWorkingAgents,
+        })),
+        crew: crew?.map(session => ({ id: session.sessionId, title: session.title,
+          name: session.name, asking: session.asking, motion: session.motion })),
+        memberCount: issue.memberCount, retiredCount: mode === 'panel' ? row.retiredCount : undefined,
+        presence: mode === 'panel' && !crew?.length ? row.presence : undefined,
+        relations: issue.relationGroups }
+    }
+    add('issue-page.detail', ['IssuePage', 'IssueTitle', 'IssueDescription', 'IssueSubIssues', 'IssueNow'], () => detail('page'))
+    add('issue-page.panel', ['IssuePanel', 'RecentActivity model owner'], () => detail('panel'))
+    add('issue-page.phone', ['IssueScreen', 'PhoneNow', 'PhoneProperties closed'], () => detail('phone'))
+    add('issue-page.inspector', ['TaskSheet', 'SessionConversation peek'], () => detail('inspector'))
     add('issue-page.catalog', ['IssueContextMenu', 'IssueExplorer'], () => ({
       issues: page.issues(),
       explorer: page.explorer(),

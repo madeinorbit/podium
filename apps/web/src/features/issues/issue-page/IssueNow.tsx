@@ -1,5 +1,5 @@
 import { issueObserver as observer } from '@podium/client-graph/issue-observer'
-import { useIssuePageData } from './issue-page-data'
+import { useIssuePageContext } from './issue-page-data'
 import { isFinished } from '@podium/model/browser'
 import type { SessionModel } from '@podium/client-graph/models'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -49,12 +49,12 @@ export const IssueNow = observer(function IssueNow({
   issue,
   sessions: suppliedSessions,
   onOpenSession,
-}): {
+}: {
   issue: IssueViewModel
   sessions?: SessionView[]
   onOpenSession: (sessionId: SessionView['sessionId']) => void
 }): JSX.Element | null {
-  const page = useIssuePageData()
+  const page = useIssuePageContext()
   const sessions = suppliedSessions ?? page?.views.row(issue.id).lists.liveMembers.get() ?? []
   if (typeof sessions === 'symbol') throw sessions
   if (sessions.length === 0) return null
@@ -68,7 +68,7 @@ export const IssueNow = observer(function IssueNow({
   // finished. The block promises what is happening NOW, so it shows the live
   // ones and lets the rail's full roster answer "who has ever been here".
   const shown = ranked.filter((r) => r.phase === 'working' || r.phase === 'waiting').slice(0, 2)
-  const restCount = (page ? page.issue.memberSessionIds.length : ranked.length) - shown.length
+  const restCount = (page ? page.issue.memberCount : ranked.length) - shown.length
 
   // NOTHING IS LIVE — so the block spends no structure on saying so (POD-635).
   // A task whose agents all finished yesterday was still getting the page's
@@ -150,4 +150,4 @@ export const IssueNow = observer(function IssueNow({
       )}
     </section>
   )
-}
+})

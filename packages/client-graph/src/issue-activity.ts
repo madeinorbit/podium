@@ -74,7 +74,7 @@ export class IssueActivityStore {
     this.pending = false
     const run = async () => {
       try {
-        for (let page = 0; page < 100; page++) {
+        for (;;) {
           const before = this.history.since
           const rows = await ports.events({ since: before, repoPath: this.issue.repoPath, subject: this.issue.id, limit: 200 })
           if (epoch !== this.epoch) return

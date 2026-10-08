@@ -851,6 +851,13 @@ const DECLARED = defineSchema({
         inverse: 'missionIssue',
         lazy: true,
         why: 'Every explicit mission sender, including headless and archived sessions; never cwd-only seats.',
+        subsets: {
+          unarchived: { fields: ['archived'], test: row => !row['archived'],
+            why: 'Phone detail reads only the displayed roster while its history fold is closed.' },
+          retiredAgents: { fields: ['archived', 'status', 'agentKind'],
+            test: row => row['agentKind'] !== 'shell' && (!!row['archived'] || row['status'] === 'exited'),
+            why: 'The dock counts retired visible agents without loading their payloads.' },
+        },
       }),
       handoffSessions: hasMany({
         to: 'session', inverse: 'handoffIssue', lazy: true,
@@ -906,6 +913,10 @@ const DECLARED = defineSchema({
       pageSessions: hasMany({
         to: 'session', inverse: 'pageIssue', lazy: true,
         why: 'Raw non-shell attachment IDs used by page counts and destructive-action prompts.',
+        subsets: {
+          unarchived: { fields: ['archived'], test: row => !row['archived'],
+            why: 'Active detail sections demand live membership without enumerating hidden archive history.' },
+        },
       }),
       supersedingIssue: belongsTo({
         to: 'issue', foreignKey: 'supersededBy', targetKey: 'id', inverse: 'supersededIssues', lazy: true,

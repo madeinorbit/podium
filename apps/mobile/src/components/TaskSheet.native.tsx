@@ -11,8 +11,6 @@ export function TaskSheet({
 }: {
   pool?: MobxPool | null
   issue: IssueViewModel | null
-  issues: readonly IssueViewModel[]
-  sessions: readonly SessionView[]
   onClose: () => void
   onOpenSession: (session: SessionView) => void
   onOpenIssue?: (issue: IssueViewModel) => void

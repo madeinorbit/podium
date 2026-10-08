@@ -60,7 +60,7 @@ import type { IssueId } from '@podium/model/browser'
 import { createContext, type JSX, type ReactNode, useContext, useMemo } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { issueRefLong } from '../issue-card'
-import { useIssuePageData } from './issue-page-data'
+import { useIssuePageContext } from './issue-page-data'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import type { PageIssue } from '@podium/client-graph/issue-page'
 
@@ -94,12 +94,12 @@ const IssueExitContext = createContext<IssueExitLookup | undefined>(undefined)
 export const IssueExitProvider = observer(function IssueExitProvider({
   exitOf,
   children,
-}): {
+}: {
   exitOf: IssueExitLookup
   children: ReactNode
 }): JSX.Element {
   return <IssueExitContext.Provider value={exitOf}>{children}</IssueExitContext.Provider>
-}
+})
 
 /** Resolve any issue-to-issue reference against the partial world this replica
  *  holds. One resolver per render, closed over the issue rows and the exit
@@ -107,7 +107,7 @@ export const IssueExitProvider = observer(function IssueExitProvider({
 export function useIssueEdgeResolver(): (
   id: string | undefined | null,
 ) => IssueEdge<IssueViewModel> {
-  const page = useIssuePageData()
+  const page = useIssuePageContext()
   const pool = useWorklistPool()
   const override = useContext(IssueExitContext)
   return useMemo(() => (id) => resolveIssueEdge(id, targetId => {
@@ -144,7 +144,7 @@ export const IssueEdgeLink = observer(function IssueEdgeLink({
   edge,
   onNavigate,
   fallbackId,
-}): {
+}: {
   edge: IssueEdge<IssueViewModel>
   onNavigate: (id: IssueId) => void
   /** Shown while `pending` — the id we were pointed at. */
@@ -205,4 +205,4 @@ export const IssueEdgeLink = observer(function IssueEdgeLink({
       )}
     </span>
   )
-}
+})

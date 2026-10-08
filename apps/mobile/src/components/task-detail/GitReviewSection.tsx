@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MachineId } from '@podium/model'
 import { memo, useCallback, useEffect, useRef, useState } from 'react'
@@ -37,7 +38,7 @@ interface FileReadResult {
 
 /** Changed-file inventory and wrapped, per-file diffs on the task page. It uses
  * only the store's existing read-only Git and file contracts. */
-export function GitReviewSection({ root, machineId }: { root: string; machineId?: MachineId }) {
+export const GitReviewSection = observer(function GitReviewSection({ root, machineId }: { root: string; machineId?: MachineId }) {
   const { gitStatus, readFileScoped, gitDiffFile } = useStoreHandle().access
   const [header, setHeader] = useState<ReturnType<typeof parseStatus>['header'] | null>(null)
   const [entries, setEntries] = useState<StatusEntry[]>([])
@@ -270,7 +271,7 @@ export function GitReviewSection({ root, machineId }: { root: string; machineId?
       )}
     </View>
   )
-}
+})
 
 const DiffBody = memo(function DiffBody({ state }: { state: DiffState | undefined }) {
   const [visibleRows, setVisibleRows] = useState(GIT_DIFF_PAGE)
@@ -317,7 +318,7 @@ const DiffBody = memo(function DiffBody({ state }: { state: DiffState | undefine
   )
 })
 
-export function DiffLine({ row }: { row: DiffRow }) {
+export const DiffLine = observer(function DiffLine({ row }: { row: DiffRow }) {
   if (row.kind === 'hunk') {
     return (
       <View
@@ -362,7 +363,7 @@ export function DiffLine({ row }: { row: DiffRow }) {
       </Text>
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   section: { marginTop: space.xl },

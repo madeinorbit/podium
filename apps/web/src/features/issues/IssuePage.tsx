@@ -78,7 +78,7 @@ export const IssuePageBody = observer(function IssuePageBody({
   orderedIds,
   onBack,
   onNavigate,
-}): {
+}: {
   issue: IssueViewModel
   orderedIds: IssueId[]
   onBack: () => void
@@ -299,4 +299,4 @@ export const IssuePageBody = observer(function IssuePageBody({
       />
     </div>
   )
-}
+})

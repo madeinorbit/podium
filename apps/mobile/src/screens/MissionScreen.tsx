@@ -238,8 +238,6 @@ export const MissionScreen = observer(function MissionScreen() {
       <TaskSheet
         pool={pool}
         issue={peek}
-        issues={issues}
-        sessions={sessions}
         onClose={() => setPeek(null)}
         onOpenSession={(session) => {
           setPeek(null)

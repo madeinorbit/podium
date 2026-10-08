@@ -1,4 +1,3 @@
-import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 /**
  * A DATE, PICKED THE APP'S WAY (POD-591).
  *
@@ -58,14 +57,14 @@ const QUICK: { label: string; days: number }[] = [
   { label: 'In a month', days: 30 },
 ]
 
-export const DateProperty = observer(function DateProperty({
+export function DateProperty({
   value,
   placeholder,
   ariaLabel,
   disabled,
   onSelect,
   onClear,
-}): {
+}: {
   /** Stored ISO date (or datetime — only the date part is read), or null. */
   value: string | null | undefined
   placeholder: string
@@ -142,12 +141,12 @@ export const DateProperty = observer(function DateProperty({
 /** The estimate field, as a menu of the sizes people actually pick plus a free
  *  entry — the bare number spinner it replaces was the rail's other native
  *  control, and it asked for minutes with no sense of scale. */
-export const EstimateProperty = observer(function EstimateProperty({
+export function EstimateProperty({
   value,
   disabled,
   onSelect,
   onClear,
-}): {
+}: {
   value: number | null | undefined
   disabled?: boolean
   onSelect: (minutes: number) => void

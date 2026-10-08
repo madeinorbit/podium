@@ -85,7 +85,7 @@ export const IssueParentRow = observer(function IssueParentRow({
   onOptionsOpenChange,
   onSetParent,
   onNavigate,
-}): {
+}: {
   issue: IssueViewModel
   /** The parent reference, resolved against the partial world — an issue the
    *  principal cannot see renders per the surface's cross-boundary policy
@@ -174,4 +174,4 @@ export const IssueParentRow = observer(function IssueParentRow({
       </p>
     </div>
   )
-}
+})

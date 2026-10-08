@@ -1,5 +1,5 @@
 import { issueObserver as observer } from '@podium/client-graph/issue-observer'
-import { useIssuePageData } from './issue-page-data'
+import { useIssuePageContext } from './issue-page-data'
 import type { PageIssue } from '@podium/client-graph/issue-page'
 import type { SessionView } from '@podium/client-core/session-values'
 /**
@@ -67,7 +67,7 @@ const SubTaskRow = observer(function SubTaskRow({
   workingAgents,
   onNavigate,
   onStatusPick,
-}): {
+}: {
   child: IssueViewModel
   workingAgents: number
   onNavigate: (id: IssueId) => void
@@ -98,7 +98,7 @@ const SubTaskRow = observer(function SubTaskRow({
           glyph beside them already carries WHICH ending. No strikethrough: the
           list is scanned for what is left, not read as a crossed-out receipt. */}
       <span className={cn('min-w-0 flex-1 truncate', finished && 'text-text-dim')}>
-        {child.title}
+        {'authoredTitle' in child ? (child as PageIssue).authoredTitle : child.title}
       </span>
       {child.archived && (
         <span className="flex-none font-mono shell-type-micro text-text-faint uppercase tracking-[0.04em]">
@@ -117,7 +117,7 @@ const SubTaskRow = observer(function SubTaskRow({
       )}
     </button>
   )
-}
+})
 
 export const IssueSubIssues = observer(function IssueSubIssues({
   issue,
@@ -131,7 +131,7 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   onChildTitleChange,
   onCreate,
   onNavigate,
-}): {
+}: {
   issue: IssueViewModel
   /** Named `subIssues` rather than `children`: a `children` PROP on a component
    *  that does not render its React children is the one thing React's own
@@ -148,10 +148,11 @@ export const IssueSubIssues = observer(function IssueSubIssues({
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
   const status = useIssueStatusApply()
-  const page = useIssuePageData()
+  const page = useIssuePageContext()
   const rows = suppliedChildren ?? page?.views.row(issue.id).children ?? []
   if (typeof rows === 'symbol') throw rows
   const subIssues = rows
+  const legacyWorkers = suppliedChildren && sessions ? confirmedWorkingAgentCountsByIssue(sessions, now ?? Date.now()) : undefined
   return (
     <section className="mb-9 flex flex-col gap-1.5" data-testid="sub-issues">
       <SectionHeading
@@ -166,7 +167,7 @@ export const IssueSubIssues = observer(function IssueSubIssues({
         <SubTaskRow
           key={child.id}
           child={child}
-          workingAgents={0}
+          workingAgents={legacyWorkers?.get(child.id) ?? 0}
           onNavigate={onNavigate}
           onStatusPick={(value) => status.pick(child, value)}
         />
@@ -210,4 +211,4 @@ export const IssueSubIssues = observer(function IssueSubIssues({
       )}
     </section>
   )
-}
+})

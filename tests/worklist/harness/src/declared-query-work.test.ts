@@ -353,7 +353,7 @@ describe('pool screens work ratios: declared query incrementality', () => {
 
 describe('pool screens work ratios: declared query screen counters', () => {
   it('keeps the original summary, roster and count mechanisms green under the scripted clicks', async () => {
-    const only = new Set(['issue-page.detail', 'issue-page.panel', 'issue-page.catalog', 'session-pane', 'board.card'])
+    const only = new Set(['issue-page.detail', 'issue-page.panel', 'issue-page.phone', 'issue-page.inspector', 'issue-page.catalog', 'session-pane', 'board.card'])
     let pool: MobxPool | undefined
     const original = runtimePool.createRuntimeWorklistPool
     const spy = vi.spyOn(runtimePool, 'createRuntimeWorklistPool').mockImplementation((...args) => {
@@ -404,16 +404,17 @@ describe('pool screens work ratios: declared query screen counters', () => {
       /IssuePage@summaries|IssueBoard@sessions:|IssueBoard@index:|^consumer:session-pane(?:\/|$)/.test(
         value.reader,
       ) ||
-      (value.reader === 'consumer:issue-page.detail/IssuePage@page:guard-root' && value.action === 'select') ||
-      (value.reader === 'consumer:issue-page.detail/IssuePage@page:guard-child' && value.action === 'navigate-by-ref') ||
-      ((value.reader === 'consumer:issue-page.detail' || value.reader === 'consumer:issue-page.panel') && value.action === 'navigate-by-ref') ||
-      (value.reader === 'consumer:issue-page.detail/IssuePage@issue:guard-root' && value.action === 'machine-flip'),
+      /^consumer:issue-page\.(?:detail|panel|phone|inspector)(?:\/|$)/.test(value.reader),
     )
     // cf4d2a0373 made the board index demand-only: cards do not retain it.
     // POD-5555 removes that index. Any index work still meets the ratios above,
     // but only the mounted summary, roster and pane readers must do work here.
     for (const pattern of [
       /IssuePage@summaries/,
+      /^consumer:issue-page.detail/,
+      /^consumer:issue-page.panel/,
+      /^consumer:issue-page.phone/,
+      /^consumer:issue-page.inspector/,
       /IssueBoard@sessions:/,
       /^consumer:session-pane/,
     ])
@@ -428,5 +429,12 @@ describe('pool screens work ratios: declared query screen counters', () => {
       JSON.stringify({ at1x, at4x, judged, oneInputs, fourInputs }, null, 2),
     )
     assertScreenWork(judged)
+    // These actions keep displayed title/body and crew/child IDs fixed. A +96
+    // historical walk is a failure even when an aggregate stays below 2x.
+    const fixedDetail = judged.filter(value => value.kind === 'elements' &&
+      /^consumer:issue-page\.(?:detail|panel|phone|inspector)(?:\/|$)/.test(value.reader) &&
+      ['select', 'navigate-by-ref', 'heartbeat'].includes(value.action))
+    expect(fixedDetail.length).toBeGreaterThan(0)
+    for (const value of fixedDetail) expect(value.at4x, `${value.reader} ${value.action}`).toBeLessThanOrEqual(value.at1x)
   }, 1_800_000)
 })

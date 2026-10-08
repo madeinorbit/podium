@@ -38,7 +38,7 @@ import { StatusGlyph } from '../issue-glyphs'
 import type { IssuePageCommands } from '../issue-page-commands'
 import { MACHINE_LABEL_SUB, SectionHeading } from './chrome'
 import { edgeIssue, IssueEdgeLink, useIssueEdgeResolver } from './issue-edges'
-import { useIssuePageData } from './issue-page-data'
+import { useIssuePageContext } from './issue-page-data'
 
 export const IssueRelations = observer(function IssueRelations({
   issue,
@@ -50,7 +50,7 @@ export const IssueRelations = observer(function IssueRelations({
   onAddRelTypeChange,
   onOptionsOpenChange,
   onNavigate,
-}): {
+}: {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
@@ -62,7 +62,7 @@ export const IssueRelations = observer(function IssueRelations({
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
   const resolve = useIssueEdgeResolver()
-  const relations = useIssuePageData()?.issue.relationGroups ?? groupRelations(issue)
+  const relations = useIssuePageContext()?.issue.relationGroups ?? groupRelations(issue)
   // NOTHING IS A BADGE, NOT A SENTENCE (POD-1224). "No links to other tasks."
   // took a full line under the heading to restate the heading's own subject in
   // the negative — on most tasks, the emptiest band in the rail was also its
@@ -177,4 +177,4 @@ export const IssueRelations = observer(function IssueRelations({
       )}
     </section>
   )
-}
+})

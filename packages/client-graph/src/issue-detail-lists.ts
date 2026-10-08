@@ -12,11 +12,11 @@ export function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     ids: () => pool.graph.many('issue', issue.id, 'treeChildren'),
     has: id => pool.queries.hasMember('issue', issue.id, 'treeChildren', id),
     order: id => {
-      const row = pool.row('issue', id, 'summary') as { seq?: number } | typeof LOADING | undefined
+      const row = pool.row('issue', id, 'summary-fields') as { seq?: number } | typeof LOADING | undefined
       return row === LOADING ? '' : String(row?.seq ?? 0).padStart(12, '0')
     },
     read: id => {
-      const row = pool.row('issue', id, 'summary') as { deletedAt?: string } | typeof LOADING | undefined
+      const row = pool.row('issue', id, 'summary-fields') as { deletedAt?: string } | typeof LOADING | undefined
       return row === LOADING ? LOADING : row && !row.deletedAt ? pool.issueObject(id) as PageIssue : undefined
     },
     subscribe: changed => pool.queries.onMembers('issue', issue.id, 'treeChildren', changed),
@@ -25,8 +25,11 @@ export function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     archived: boolean | undefined, keep: (session: SessionModel) => boolean,
     order?: (session: SessionModel) => string) => createQueryResult<SessionModel>({
       name: `IssueDetail@${name}:${issue.id}`,
-      ids: () => pool.graph.many('issue', issue.id, relation),
-      has: id => pool.queries.hasMember('issue', issue.id, relation, id),
+      ids: () => archived === false && relation !== 'bornSessions'
+        ? pool.graph.subset('issue', issue.id, relation, 'unarchived')
+        : pool.graph.many('issue', issue.id, relation),
+      has: id => pool.queries.hasMember('issue', issue.id, relation, id) &&
+        (archived !== false || pool.queries.sessionStoredField(id, 'archived') !== true),
       ...(order ? { order: (id: string) => {
         const session = pool.sessionObject(id)
         try { return archived !== undefined && session.archived !== archived ? id : order(session) }
@@ -34,10 +37,20 @@ export function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
       } } : {}),
       read: id => {
         const session = pool.sessionObject(id)
-        try { return (archived === undefined || session.archived === archived) && session.exists && keep(session) ? session : undefined }
+        try { return (archived === undefined || session.archived === archived) && session.exists && !pool.queries.collapsed(id) && keep(session) ? session : undefined }
         catch (error) { if (error === LOADING) return LOADING; throw error }
       },
-      subscribe: changed => pool.queries.onMembers('issue', issue.id, relation, changed),
+      subscribe: changed => {
+        const stopMembers = pool.queries.onMembers('issue', issue.id, relation, changed)
+        // A previously hidden archived seat is not subscribed by the query.
+        // Feed deltas admit it when it joins the declared live subset.
+        const stopRows = archived === false ? pool.queries.onChange(event => {
+          if (event.type === 'replace') return
+          for (const row of event.rows) if (row.kind === 'session' &&
+            pool.queries.hasMember('issue', issue.id, relation, row.id)) changed(row.id)
+        }) : undefined
+        return () => { stopMembers(); stopRows?.() }
+      },
     })
   const members = seats('members', 'pageSessions', undefined, () => true)
   const liveMembers = seats('live-members', 'pageSessions', false, () => true)

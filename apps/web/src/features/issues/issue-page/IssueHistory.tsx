@@ -25,7 +25,7 @@ export const PageMail = observer(function PageMail({ issue }: { issue: IssueView
 })
 export const PageTimeline = observer(function PageTimeline({ issue, busy, commands }: { issue: IssueViewModel; busy: boolean; commands: IssuePageCommands }) {
   const history = useIssueHistory(issue)
-  return <IssueActivitySection issue={issue} busy={busy} commands={commands} feed={history?.history.items ?? emptyFeed} />
+  return <IssueActivitySection issue={issue} busy={busy} commands={commands} feed={history?.history.items ?? emptyFeed} revision={history?.getSnapshot() ?? 0} />
 })
 export const PageComment = observer(function PageComment({ issue, busy, commands }: { issue: IssueViewModel; busy: boolean; commands: IssuePageCommands }) {
   const pool = useWorklistPool()

@@ -31,7 +31,7 @@ export const NeedsHumanBanner = observer(function NeedsHumanBanner({
   issue,
   busy,
   commands,
-}): {
+}: {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
@@ -61,7 +61,7 @@ export const NeedsHumanBanner = observer(function NeedsHumanBanner({
       </Button>
     </div>
   )
-}
+})
 
 /** Who asked, and for whom — server fields only. */
 const NeedsHumanAsker = observer(function NeedsHumanAsker({ issue }: { issue: IssueViewModel }): JSX.Element | null {

@@ -133,7 +133,7 @@ const AboutRow = observer(function AboutRow({
   value,
   title,
   testId,
-}): {
+}: {
   label: string
   value: string
   title?: string
@@ -151,4 +151,4 @@ const AboutRow = observer(function AboutRow({
       </span>
     </PropertyRow>
   )
-}
+})

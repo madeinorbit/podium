@@ -1,7 +1,7 @@
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
-import { issuePages, type IssuePageData } from './issue-page'
+import { issuePages, type PageIssue } from './issue-page'
 import { MobxPool } from './pool'
 import { createColdIndex } from './shared/cold-index'
 import { createIssueQuestions } from './shared/issue-questions'
@@ -56,7 +56,7 @@ it('bounds a file-tab page selection and updates with large histories sharing it
     })
     const views = issuePages(pool),
       ids = vi.spyOn(pool.queries, 'ids')
-    let current: Loaded<IssuePageData>,
+    let current: Loaded<PageIssue>,
       paints = 0,
       stop = () => {}
     const measure = (name: string, action: () => void) =>
@@ -64,12 +64,12 @@ it('bounds a file-tab page selection and updates with large histories sharing it
     const chosen = () => {
       expect(current).not.toBe(LOADING)
       expect(current).toBeDefined()
-      return (current as IssuePageData).issue.id
+      return (current as PageIssue).id
     }
     try {
       const first = await measure('file-tab issue first demand', () => {
         stop = autorun(() => {
-          current = views.panel({ cwd: '/shared/src/file' })
+          current = views.panelIssue({ cwd: '/shared/src/file' })
           paints++
         })
       })
@@ -135,11 +135,11 @@ it('bounds a file-tab page selection and updates with large histories sharing it
       expect(chosen()).toBe('runner')
       expect(ids.mock.calls.some(([question]) => question.kind === 'containingIssues')).toBe(false)
       stop()
-      const builds = views.stats.panels
+      const builds = paints
       const closed = await measure('closed file-tab issue owner update', () =>
         pool.apply({ type: 'update', rows: [issue('runner', 4, '/shared/src')] }),
       )
-      expect(views.stats.panels).toBe(builds)
+      expect(paints).toBe(builds)
       const control = await measure('planted whole-path-history winner scan', () => {
         let best: { id: string; seq: number; worktreePath: string } | undefined
         for (const id of pool.queries.ids({ kind: 'containingIssues', cwd: '/shared/src/file' })) {
@@ -322,12 +322,12 @@ it('keeps explicit issue and attached-session precedence over the file-tab path 
     ],
   })
   try {
-    const id = (value: Loaded<IssuePageData>) =>
-      value && value !== LOADING ? value.issue.id : value
-    expect(id(views.panel({ issueId: 'explicit', cwd: '/shared/file' }))).toBe('explicit')
-    expect(id(views.panel({ sessionId: 'attached', cwd: '/shared/file' }))).toBe('explicit')
-    expect(views.panel({ sessionId: 'unattached', cwd: '/shared/file' })).toBeUndefined()
-    expect(id(views.panel({ sessionId: 'missing', cwd: '/shared/file' }))).toBe('path')
+    const id = (value: Loaded<PageIssue>) =>
+      value && value !== LOADING ? value.id : value
+    expect(id(views.panelIssue({ issueId: 'explicit', cwd: '/shared/file' }))).toBe('explicit')
+    expect(id(views.panelIssue({ sessionId: 'attached', cwd: '/shared/file' }))).toBe('explicit')
+    expect(views.panelIssue({ sessionId: 'unattached', cwd: '/shared/file' })).toBeUndefined()
+    expect(id(views.panelIssue({ sessionId: 'missing', cwd: '/shared/file' }))).toBe('path')
   } finally {
     views.dispose()
     pool.dispose()

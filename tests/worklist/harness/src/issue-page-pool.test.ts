@@ -171,12 +171,11 @@ describe('declared issue page', () => {
       task('hop', { seq: 2, stage: 'done', deps: [{ id: 'root', type: 'discovered-from' }] }),
       task('tip', { seq: 3, deps: [{ id: 'hop', type: 'discovered-from' }] }),
       task('unrelated')], [seat('worker', 'tip', { agentState: { phase: 'working' } }), seat('elsewhere', 'unrelated')])
-    const page = tracked(() => ctx.views.data('root'))
-    if (!page || page === LOADING) throw new Error('Missing continuation fixture page')
+    const page = ctx.views.row('root')
     const world = ctx.world(), current = world.find(row => row.id === 'root')!
     expect(page.presence).toEqual(presenceNote(current, [], new Map(world.map(row => [row.id, row])), ctx.visible()))
     expect(page.presence).toMatchObject({ text: 'Work continued in T-3' })
-    expect(page.sessions.map(row => row.sessionId)).toEqual(['worker'])
+    expect(page.activeSessions).toEqual([])
   })
 
   it('reacts to a cursor-only mark without replacing the issue payload', () => {
@@ -209,7 +208,7 @@ describe('declared issue page', () => {
       seat('b-middle', 'root'),
       seat('c-winner', 'root', { status: 'hibernated', resume: twin, refIssueId: 'born' }),
     ])
-    const stop = reaction(() => ctx.views.data('root'), () => {}, { fireImmediately: true })
+    const stop = reaction(() => ctx.views.issue('root'), () => {}, { fireImmediately: true })
     try {
       const roster = () => tracked(() => ctx.views.attachedSessions('root'))
       expect(roster()).toMatchObject([{ sessionId: 'c-winner' }, { sessionId: 'b-middle' }])
@@ -235,11 +234,10 @@ describe('declared issue page', () => {
       seat('twin-b', 'root', { status: 'exited', resume: { kind: 'codex-thread', value: 'same' } }),
       seat('moved', 'child-a', { refIssueId: 'root' } as Partial<SliceSession>)])
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
-    const page = tracked(() => ctx.views.data('root'))
-    if (!page || page === LOADING) throw new Error('Missing test page')
+    const page = ctx.views.row('root')
     expect(page.issue.sessionSummary).toEqual({ total: 4, byPhase: { waiting: 1, unknown: 2, working: 1 } })
-    expect(page.children.map(row => row.id)).toEqual(['child-a', 'child-b'])
-    expect(page.memberSessions.some(row => row.sessionId === 'shell')).toBe(false)
+    expect(page.children !== LOADING ? page.children?.map(row => row.id) : LOADING).toEqual(['child-a', 'child-b'])
+    expect(page.memberSessions !== LOADING ? page.memberSessions?.some(row => row.sessionId === 'shell') : LOADING).toBe(false)
     expect(page.issue.dependents.map(row => row.type)).toEqual(['blocks', 'custom-edge'])
     expect(page.title).toBe(issueDisplayTitle(ctx.world().find(row => row.id === 'root')!, ctx.visible(), ['/synthetic']))
     expect(page.presence).toEqual(presenceNote(page.issue, ctx.visible().filter(s => s.issueId === 'root'),
@@ -277,8 +275,8 @@ describe('declared issue page', () => {
       { cwd: '/synthetic', sessionId: 'attached' }, { cwd: '/synthetic', issueId: 'arch', sessionId: 'attached' },
       { cwd: '/synthetic', issueId: 'deleted' }, { cwd: '/synthetic', sessionId: 'archived' } ]) {
       const expected = issueForPanel({ ...args, issues: ctx.world(), sessions: ctx.visible() } as Parameters<typeof issueForPanel>[0])
-      const actual = tracked(() => ctx.views.panel(args))
-      expect(actual && actual !== LOADING ? actual.issue.id : null).toBe(expected?.id ?? null)
+      const actual = tracked(() => ctx.views.panelIssue(args))
+      expect(actual && actual !== LOADING ? actual.id : null).toBe(expected?.id ?? null)
     }
     for (const id of ['root', 'child', 'arch', 'deleted', 'draft', 'unknown']) {
       const expected = deckDestinationFor(ctx.world(), ctx.visible(), asIssueId(id))
@@ -287,13 +285,16 @@ describe('declared issue page', () => {
     }
   })
 
-  it('batches a cold issue payload and its raw member fields in one window', () => {
+  it('loads issue identity before demanding its raw member fields', () => {
     const ctx = open([task('arch', { archived: true })],
       [seat('old', 'arch', { archived: true, status: 'exited' })], true)
     expect(tracked(() => ctx.views.issue('arch'))).toBe(LOADING)
     expect(ctx.load).not.toHaveBeenCalled()
-    expect(ctx.pool.hydrate()).toBe(2)
-    expect(tracked(() => ctx.views.issue('arch'))).toMatchObject({ id: 'arch', sessionSummary: { total: 1 } })
+    expect(ctx.pool.hydrate()).toBe(1)
+    expect(tracked(() => ctx.views.issue('arch'))).toMatchObject({ id: 'arch' })
+    expect(tracked(() => ctx.views.row('arch').memberSessions)).toBe(LOADING)
+    expect(ctx.pool.hydrate()).toBe(1)
+    expect(tracked(() => ctx.views.issue('arch'))).toMatchObject({ sessionSummary: { total: 1 } })
   })
 
   it('uses cold summaries for menus and batches page payload loads without peek', () => {
@@ -310,12 +311,12 @@ describe('declared issue page', () => {
     expect(tracked(() => [...ctx.pool.graph.many('issue', 'arch', 'bornSessions')])).toEqual(['born-a', 'born-b'])
     expect(tracked(() => ctx.views.menuIssues())).not.toBe(LOADING)
     expectSummaryReadsOnly(ctx, before)
-    expect(tracked(() => ctx.views.data('arch'))).toBe(LOADING)
-    expect(tracked(() => ctx.views.panel({ issueId: 'arch', cwd: '/synthetic' }))).toBe(LOADING)
+    expect(tracked(() => ctx.views.issue('arch'))).toBe(LOADING)
+    expect(tracked(() => ctx.views.panelIssue({ issueId: 'arch', cwd: '/synthetic' }))).toBe(LOADING)
     expectSummaryReadsOnly(ctx, before)
-    expect(ctx.pool.hydrate()).toBe(7)
-    const page = tracked(() => ctx.views.data('arch'))
-    expect(page && page !== LOADING ? page.issue.id : null).toBe('arch')
+    expect(ctx.pool.hydrate()).toBe(1)
+    const page = tracked(() => ctx.views.issue('arch'))
+    expect(page && page !== LOADING ? page.id : null).toBe('arch')
     expect(ctx.check()).toMatchObject({ differences: 0 })
     ctx.pool.hydrate()
     expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
@@ -329,7 +330,7 @@ describe('declared issue page', () => {
 
   it('updates markers, fields, raw membership and relations without stale derived values', () => {
     const ctx = open([task('root'), task('other'), task('child', { parentId: 'root' })], [seat('worker', 'root')])
-    const stop = reaction(() => ctx.views.data('root'), () => {}, { fireImmediately: true })
+    const stop = reaction(() => ctx.views.issue('root'), () => {}, { fireImmediately: true })
     try {
       ctx.patch('issue', 'root', task('root', { title: 'New title', readAt: '2026-10-01T12:00:00Z', pinned: true }))
       ctx.patch('issue', 'child', task('child', { parentId: 'root', stage: 'done' }))
@@ -341,7 +342,7 @@ describe('declared issue page', () => {
         memberSessionIds: [], dependents: [{ id: 'other', type: 'relates' }], sessionSummary: { total: 0 } })
     } finally { stop() }
     ctx.pool.dispose()
-    expect(runInAction(() => ctx.views.data('root'))).toBe(LOADING)
+    expect(runInAction(() => ctx.views.issue('root'))).toBe(LOADING)
   })
 })
 

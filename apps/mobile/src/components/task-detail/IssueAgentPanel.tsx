@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { artifactKind } from '@podium/client-core/values'
@@ -31,7 +32,7 @@ import { SectionHeading } from './chrome'
  * remain intact for agent tooling; this reader surface simply does not expose
  * or mutate the checklist.
  */
-export function IssueAgentPanel({ issue }: { issue: IssueViewModel }) {
+export const IssueAgentPanel = observer(function IssueAgentPanel({ issue }: { issue: IssueViewModel }) {
   const httpOrigin = useHttpOrigin()
   const profile = useOptionalServerProfile()
   // Prefer the immutable hosted id. The slug fallback keeps URL-selected web
@@ -71,14 +72,14 @@ export function IssueAgentPanel({ issue }: { issue: IssueViewModel }) {
       ) : null}
     </View>
   )
-}
+})
 
 /**
  * One artifact. Images and video posters preview inline; everything else is a
  * file row. A row with no reachable URL — a legacy path-only entry on a machine
  * this phone cannot reach — stays inert rather than offering a tap that fails.
  */
-function ArtifactRow({ artifact, url }: { artifact: IssuePanelArtifact; url: string | null }) {
+const ArtifactRow = observer(function ArtifactRow({ artifact, url }: { artifact: IssuePanelArtifact; url: string | null }) {
   const { bearer } = useServerProfile()
   const [broken, setBroken] = useState(false)
   const [open, setOpen] = useState(false)
@@ -130,7 +131,7 @@ function ArtifactRow({ artifact, url }: { artifact: IssuePanelArtifact; url: str
       ) : null}
     </>
   )
-}
+})
 
 const styles = StyleSheet.create({
   section: {

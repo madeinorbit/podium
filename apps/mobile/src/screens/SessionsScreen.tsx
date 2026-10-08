@@ -131,8 +131,6 @@ export function SessionsScreen() {
       <TaskSheet
         pool={pool}
         issue={peekIssue ?? peek?.issue ?? null}
-        issues={issues}
-        sessions={sessions}
         onClose={() => setPeek(null)}
         onOpenSession={(session) => {
           setPeek(null)

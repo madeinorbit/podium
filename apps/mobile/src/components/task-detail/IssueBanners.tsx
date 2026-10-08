@@ -1,3 +1,4 @@
+import { issueObserver as observer } from '@podium/client-graph/issue-observer'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { ISSUE_STAGE_LABELS } from '@podium/client-core/values'
 
@@ -24,7 +25,7 @@ import { PressableScale } from '../PressableScale'
  * issue was deleted" from a `.find()` miss is exactly the defect that policy
  * exists to prevent.
  */
-export function IssueBanners({
+export const IssueBanners = observer(function IssueBanners({
   issue,
   busy,
   commands,
@@ -114,7 +115,7 @@ export function IssueBanners({
       ) : null}
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   stack: {

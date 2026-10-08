@@ -63,10 +63,7 @@ export class IssuePageRow {
   get inspectorSessions() { return this.lists.inspector.get() }
   /** A closed retired fold reads IDs plus live exited seats, never archived payloads. */
   get retiredCount(): number {
-    const archived = this.pool.sessionSeatIds('pageSessions', this.issue.id, true)
-    const present = this.lists.liveMembers.get()
-    if (archived === LOADING || present === LOADING) throw LOADING
-    return archived.length + (present ?? []).filter(session => !session.open).length
+    return this.pool.graph.subsetSize('issue', this.issue.id, 'missionSessions', 'retiredAgents')
   }
   dispose() { this.lists.dispose() }
 }
@@ -103,7 +100,6 @@ function createIssuePageViews(pool: MobxPool) {
       return () => { stopTable(); stopFeed() }
     },
   })
-  const stats = { issues: 0, pages: 0, panels: 0 }
   let disposed = false
   function memo<T>(key: string, read: () => T, identity = false): T {
     if (disposed) return LOADING as T
@@ -123,8 +119,9 @@ function createIssuePageViews(pool: MobxPool) {
     return roster(id, 'pageSessions').get()
   }
   function closeFacts(id: string): Loaded<{ subject: IssueCloseScalarSubject; members: IssueCloseMemberCounts }> {
-    const model = issue(id)
-    if (!model || model === LOADING) return model
+    const known = pool.row('issue', id, 'summary-fields')
+    if (!known || known === LOADING) return known
+    const model = pool.issueObject(id) as PageIssue
     try {
       return { subject: { needsHuman: model.closeNeedsHuman,
         asked: model.closeQuestion === undefined ? undefined : { question: model.closeQuestion },
@@ -351,7 +348,7 @@ function createIssuePageViews(pool: MobxPool) {
     memberSessions,
     attachedSessions,
     closeFacts,
-    stats,
+    hasTargets,
     dispose() {
       disposed = true
       cache.clear()

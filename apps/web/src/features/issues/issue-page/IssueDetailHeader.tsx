@@ -36,7 +36,7 @@ import { WorkingMark } from '@/lib/motion'
 import { issueRefLong } from '../issue-card'
 import type { IssuePageCommands } from '../issue-page-commands'
 import { repoMatesOf } from '../issue-page-model'
-import { useIssuePageCatalog, useIssuePageData } from './issue-page-data'
+import { useIssuePageCatalog, useIssuePageContext } from './issue-page-data'
 import {
   type IssuePageMenuAction,
   type IssuePageMenuEntry,
@@ -55,7 +55,7 @@ export const IssueDetailHeader = observer(function IssueDetailHeader({
   next,
   onBack,
   onNavigate,
-}): {
+}: {
   issue: IssueViewModel
   repoName: string
   busy: boolean
@@ -69,7 +69,7 @@ export const IssueDetailHeader = observer(function IssueDetailHeader({
   onBack: () => void
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
-  const page = useIssuePageData()
+  const page = useIssuePageContext()
   const resolve = useIssueEdgeResolver()
   const parent = edgeIssue(resolve(issue.parentId))
   const members = suppliedSessions ?? page?.views.row(issue.id).activeSessions
@@ -179,7 +179,7 @@ export const IssueDetailHeader = observer(function IssueDetailHeader({
       </div>
     </header>
   )
-}
+})
 
 /**
  * The header `…` overflow menu. `commands` is the page's named-command set
@@ -192,7 +192,7 @@ export const IssueOverflowMenu = observer(function IssueOverflowMenu({
   commands,
   targets: suppliedTargets,
   onDeleted,
-}): {
+}: {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
@@ -301,4 +301,4 @@ export const IssueOverflowMenu = observer(function IssueOverflowMenu({
       )}
     </DropdownMenu>
   )
-}
+})

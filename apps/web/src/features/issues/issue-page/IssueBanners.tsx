@@ -27,7 +27,7 @@ export const IssueBanners = observer(function IssueBanners({
   commands,
   onBack,
   onNavigate,
-}): {
+}: {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
@@ -78,14 +78,14 @@ export const IssueBanners = observer(function IssueBanners({
       <NeedsHumanBanner issue={issue} busy={busy} commands={commands} />
     </>
   )
-}
+})
 
 /** Superseded-by / duplicate-of banner — the stored relation values were only
  *  settable before; now the current state reads back, with click-through. */
 export const LifecycleBanner = observer(function LifecycleBanner({
   issue,
   onNavigate,
-}): {
+}: {
   issue: IssueViewModel
   onNavigate: (id: IssueId) => void
 }): JSX.Element | null {
@@ -115,4 +115,4 @@ export const LifecycleBanner = observer(function LifecycleBanner({
       )}
     </div>
   )
-}
+})

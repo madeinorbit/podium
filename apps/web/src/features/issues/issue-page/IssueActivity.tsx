@@ -174,7 +174,7 @@ const ActivityRollupRow = observer(function ActivityRollupRow({
   firstTs,
   ts,
   items,
-}): {
+}: {
   label: string
   count: number
   firstTs: string
@@ -227,7 +227,7 @@ const ActivityRollupRow = observer(function ActivityRollupRow({
         )}
     </>
   )
-}
+})
 
 /**
  * A comment. Renders its ATTRIBUTION PAIR when the server sent one (§3.1.3 A3) —
@@ -244,7 +244,7 @@ const ActivityComment = observer(function ActivityComment({
   author,
   body,
   ts,
-}): {
+}: {
   author: string
   body: string
   ts: string
@@ -265,7 +265,7 @@ const ActivityComment = observer(function ActivityComment({
       </p>
     </div>
   )
-}
+})
 
 const ActivityEntryRow = observer(function ActivityEntryRow({ entry }: { entry: ActivityEntry }): JSX.Element | null {
   if (entry.kind === 'rollup') {
@@ -301,11 +301,12 @@ export const IssueActivitySection = observer(function IssueActivitySection({
   busy,
   commands,
   feed,
-}): {
+}: {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
   feed: ActivityItem[]
+  revision?: number
 }): JSX.Element {
   // Days are derived per render against a coarse clock: the only thing `now`
   // decides is whether a group says "Today", so re-deriving on a timer would
@@ -370,7 +371,7 @@ export const IssueActivitySection = observer(function IssueActivitySection({
       )}
     </section>
   )
-}
+})
 
 /**
  * The comment composer, pinned by IssuePage below the scrolling document.
@@ -384,7 +385,7 @@ export const CommentComposer = observer(function CommentComposer({
   value,
   onChange,
   onPost,
-}): {
+}: {
   issueId: IssueId
   busy: boolean
   value: string
@@ -442,4 +443,4 @@ export const CommentComposer = observer(function CommentComposer({
       </div>
     </div>
   )
-}
+})
