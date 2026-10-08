@@ -1,4 +1,5 @@
-import { issueReferenceModel, type IssueReferenceSource } from '@podium/client-core/values'
+import { issueReferenceModel } from '@podium/client-core/values'
+import { asIssueId, type IssueStage } from '@podium/model/browser'
 import { observer } from 'mobx-react-lite'
 import type { JSX } from 'react'
 import { IssueReference } from '@/components/IssueReference'
@@ -97,7 +98,15 @@ const SelectedHeaderIssue = observer(function SelectedHeaderIssue() {
       <span className="status-strip-seam" aria-hidden="true" />
       <span className="status-strip-issue" title={issue.title}>
         <IssueReference
-          model={issueReferenceModel(issue as IssueReferenceSource)}
+          model={issueReferenceModel({
+            id: asIssueId(issue.id),
+            seq: issue.seq,
+            title: issue.title,
+            stage: issue.stage as IssueStage,
+            displayRef: issue.displayRef,
+            archived: issue.archived,
+            deletedAt: issue.deletedAt ?? undefined,
+          })}
           size={11}
           refClassName="status-strip-ref"
           titleClassName="status-strip-issue-title"
