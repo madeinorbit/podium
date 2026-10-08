@@ -1,6 +1,7 @@
 import { IssueSessionFactsIndex, type IssueSessionFacts, type IssueSessionFactReader } from './shared/issue-session-facts'
 import type { SessionPhaseChange, NotificationSession } from '@podium/client-core/sound'
 import { asSessionId } from '@podium/model'
+import { createDemandAtoms } from '@podium/mobx-helpers'
 import { joinedFields, SESSION_JOIN_FIELDS } from './shared/joined-fields'
 import {
   SETUP_SESSION_SUMMARY_FIELDS,
@@ -65,7 +66,6 @@ import type { OutboxKinds } from '@podium/client-core/engine'
 import {
   compareStructural,
   type IObservableArray,
-  type IObservableValue,
   type ObservableMap,
   observable,
   observe,
@@ -241,7 +241,9 @@ export class MobxPool {
   readonly sources = new PoolSources()
   /** The index's `positionVersion` the settings rows last saw. */
   private positionsSeen = -1
-  private readonly sourcePositionVersion: IObservableValue<number> | undefined
+  /** Only demanded positions are retained; the cold index owns the values. */
+  private readonly sourcePositions = new Map<string, number | undefined>()
+  private readonly sourcePositionDemand: ReturnType<typeof createDemandAtoms<string>> | undefined
   /** The source index's undeleted issue count, published with each batch. */
   private readonly issueCount = observable.box(0)
   readonly tables: PoolTables
@@ -313,9 +315,10 @@ export class MobxPool {
     this.sessionFactsIndex = lazy?.issueSessionFact ? undefined : new IssueSessionFactsIndex()
     this.issueSessionFact = lazy?.issueSessionFact ?? this.sessionFactsIndex!.read
     this.issueIdByRef = lazy?.issueIdByRef
-    this.sourcePositionVersion = lazy?.settings === true
-      ? observable.box(0, {
-          name: debugName(() => 'pool.sourcePositionVersion'),
+    this.sourcePositionDemand = lazy?.settings === true
+      ? createDemandAtoms<string>((id) => `pool.sourcePosition:${id}`, {
+          onObserved: (id) => this.sourcePositions.set(id, this.coldIndex().position('session', id)),
+          onUnobserved: (id) => this.sourcePositions.delete(id),
         })
       : undefined
     this.tables = createObservableTables()
@@ -634,7 +637,7 @@ export class MobxPool {
 
   /** Source ordering is tracked independently from the named row payload. */
   sourcePosition(entity: 'session', id: string): number | undefined {
-    this.sourcePositionVersion?.get()
+    if (!this.disposed) this.sourcePositionDemand?.observe(id)
     // untracked-read: pool-session-position
     return untracked(() => this.coldIndex().position(entity, id))
   }
@@ -1022,9 +1025,17 @@ export class MobxPool {
         if (!fresh) this.graph.publish(delta)
       }
       this.issueCount.set(index.undeleted('issue'))
-      if (this.sourcePositionVersion !== undefined && this.positionsSeen !== index.positionVersion) {
+      if (this.sourcePositionDemand !== undefined &&
+        (fresh || event.type === 'replace' || this.positionsSeen !== index.positionVersion)) {
         this.positionsSeen = index.positionVersion
-        this.sourcePositionVersion.set(this.sourcePositionVersion.get() + 1)
+        // Ordinary publications address only their session ids. A replacement
+        // or rebuilt index can move any demanded position, even at the same
+        // version; compare those keys without opening the session catalog.
+        if (fresh || event.type === 'replace') {
+          for (const id of this.sourcePositionDemand.keys()) this.refreshSourcePosition(index, id)
+        } else for (const record of event.rows) {
+          if (record.kind === 'session') this.refreshSourcePosition(index, record.id)
+        }
       }
       // An attach files its resident sessions as they enter the table
       // (`observe` above); a history row it carries is never visited.
@@ -1089,6 +1100,15 @@ export class MobxPool {
     })
   }
 
+  private refreshSourcePosition(index: ColdQueries, id: string): void {
+    const atom = this.sourcePositionDemand?.get(id)
+    if (!atom) return
+    const position = index.position('session', id)
+    if (Object.is(this.sourcePositions.get(id), position)) return
+    this.sourcePositions.set(id, position)
+    atom.reportChanged()
+  }
+
   /** Empty every table, model cache, selection and clock registration. */
   dispose(): void {
     this.queries.dispose()
@@ -1104,6 +1124,11 @@ export class MobxPool {
       this.readStates.clear()
       this.seatVerdicts.clear()
       this.issueCount.set(0)
+      for (const [id, position] of this.sourcePositions) {
+        if (position !== undefined) this.sourcePositionDemand?.get(id)?.reportChanged()
+      }
+      this.sourcePositionDemand?.clear()
+      this.sourcePositions.clear()
     })
     for (const entity of ENTITIES) this.models[entity].clear()
     this.residency?.clear()
