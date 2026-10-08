@@ -24,7 +24,7 @@ import { isFinished } from '../shared/predicates'
  * the publication's or the load window's action (`flush`), like the sidebar
  * roster index.
  */
-import { observableRef } from 'mobx'
+import { observableRef, runInAction } from 'mobx'
 import { nextUp } from '../clock'
 import type { SliceIssue, SliceSession } from '../shared/slice-types'
 import { activityMsOf, retains, retentionOf } from './visible'
@@ -100,9 +100,10 @@ function finishOf(issue: SliceIssue | undefined): string {
 }
 
 class SeatSummaryEntry {
-  @observableRef accessor summary: SeatSummary
+  @observableRef accessor summary: SeatSummary = NO_SEATS
   constructor(summary: SeatSummary, readonly verdicts: Map<string, Verdict>, public finish: string) {
-    this.summary = summary
+    // The entry is not published until construction finishes.
+    runInAction(() => { this.summary = summary })
   }
 }
 
