@@ -1,13 +1,24 @@
 import { useStoreHandle } from '@podium/client-core/react'
 import { type FileScope, scopeKey } from '@podium/client-core/values'
-import { useObserver } from 'mobx-react-lite'
 import { useEffect, useMemo } from 'react'
 import { toast } from 'sonner'
 import type { Trpc } from '@/app/trpc'
 import { registerReloadGuard } from '@/lib/reload-preparation'
+import { useViewFields } from '@/lib/use-view-fields'
 import { FileDocumentView } from './file-document-view'
 
 export type FileDocument = FileDocumentView
+
+const documentFields = (view: FileDocumentView) => [
+  view.status,
+  view.message,
+  view.content,
+  view.dirty,
+  view.saving,
+  view.saveFeedback,
+  view.baseHash,
+  view.reloadNonce,
+]
 
 /** Bind one document owner to the opening; editors and previews read that
  * same buffer. The hook subscribes existing non-observer editor roots. */
@@ -25,15 +36,6 @@ export function useFileDocument(scope: FileScope, path: string): FileDocumentVie
     return () => view.close()
   }, [view])
   useEffect(() => registerReloadGuard(() => view.reloadBlock), [view])
-  return useObserver(() => {
-    void view.status
-    void view.message
-    void view.content
-    void view.dirty
-    void view.saving
-    void view.saveFeedback
-    void view.baseHash
-    void view.reloadNonce
-    return view
-  })
+  useViewFields(view, documentFields)
+  return view
 }
