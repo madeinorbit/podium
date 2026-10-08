@@ -502,7 +502,10 @@ export class IndexedDbSyncStore {
     },
   }
 
-  /** Everything enqueued so far, in every region, has reached IndexedDB (or failed). */
+  /**
+   * Everything enqueued so far has settled. Async ports report their own errors;
+   * a beginSpan() commit has no async port, so its failure is reported here.
+   */
   async settled(): Promise<void> {
     const manual = this.manualCommits.splice(0)
     await Promise.all([...COMMIT_LANES.map((lane) => this.laneTails[lane]), ...manual])
@@ -622,8 +625,8 @@ export class IndexedDbSyncStore {
   // ── internals ────────────────────────────────────────────────────────────
 
   private beginOwnSpan(): IdbSpan {
-    // Return the queue's observed promise itself. An async/await wrapper creates
-    // an orphan rejection for beginSpan().commit(), whose port returns void.
+    // Keep the queue's rejection observer: an async/await wrapper would create
+    // a second rejected promise, requiring a separate observer on every path.
     return new IdbSpan((span) => this.enqueueCommit(span))
   }
 
@@ -1520,8 +1523,9 @@ function openDatabase(
         db.close()
         return
       }
-      // Another tab is upgrading. Close so it is not blocked; this connection's
-      // owner cold-starts rather than holding the whole origin hostage (D4.6).
+      // Another tab is upgrading. Close so it is not blocked (D4.6). A pending
+      // draft may reopen before its next transaction; an incompatible version
+      // refuses through the owning port, never by deleting the durable rows.
       db.onversionchange = () => {
         db.close()
       }
