@@ -50,16 +50,19 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
   const trpc = useTrpc()
   const { closeIssue } = useStoreActions()
   const insets = useSafeAreaInsets()
-  const deck = useMemo(() => pool ? new ProposalScreening(pool) : null, [pool])
+  const deck = useMemo(() => (pool ? new ProposalScreening(pool) : null), [pool])
   useEffect(() => deck?.open(), [deck])
   const [outcomes, setOutcomes] = useState<Record<string, ScreeningOutcome>>({})
   const [failures, setFailures] = useState<Failure[]>([])
   const [pending, setPending] = useState<string[]>([])
   const inFlight = useRef(new Set<string>())
-  const issueById = useCallback((id: string) => {
-    const issue = deck?.issue(id)
-    return issue === LOADING ? undefined : issue
-  }, [deck])
+  const issueById = useCallback(
+    (id: string) => {
+      const issue = deck?.issue(id)
+      return issue === LOADING ? undefined : issue
+    },
+    [deck],
+  )
   const current = deck?.current
   const booting = !deck || deck.booting || current === LOADING
 
@@ -111,8 +114,11 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
   )
 
   const retry = useCallback(
-    (failure: Failure) => {
-      const issue = issueById(failure.id)
+    async (failure: Failure) => {
+      if (!deck || inFlight.current.has(failure.id)) return
+      inFlight.current.add(failure.id)
+      const issue = await deck.resolveIssue(failure.id)
+      inFlight.current.delete(failure.id)
       if (!issue) {
         setFailures((f) => f.filter((entry) => entry.id !== failure.id))
         return
@@ -120,7 +126,7 @@ export const ProposalScreeningScreen = observer(function ProposalScreeningScreen
       setOutcomes((o) => ({ ...o, [issue.id]: failure.outcome }))
       void run(issue, failure.outcome)
     },
-    [issueById, run],
+    [deck, run],
   )
 
   // Opened from a deep link / notification there is nothing to go back to, so

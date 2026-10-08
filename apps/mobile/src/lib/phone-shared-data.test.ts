@@ -11,32 +11,60 @@ import { reconcileScreeningIds } from '../../test/legacy-screening-order'
 import { workMenuActionIds } from './work-menu'
 
 const stamp = '2026-10-08T12:00:00Z'
-const issue = (id: string, patch: object = {}) => ({ id, title: id, repoPath: '/synthetic',
-  stage: 'proposed', seq: 1, priority: 2, audience: 'human', createdAt: stamp, updatedAt: stamp,
-  blockedByNotes: [], ...patch })
-const session = (id: string, patch: object = {}) => ({ sessionId: id, cwd: '/synthetic',
-  issueId: 'a', agentKind: 'codex', status: 'live', createdAt: stamp, lastActiveAt: stamp,
-  title: id, ...patch })
+const issue = (id: string, patch: object = {}) => ({
+  id,
+  title: id,
+  repoPath: '/synthetic',
+  stage: 'proposed',
+  seq: 1,
+  priority: 2,
+  audience: 'human',
+  createdAt: stamp,
+  updatedAt: stamp,
+  blockedByNotes: [],
+  ...patch,
+})
+const session = (id: string, patch: object = {}) => ({
+  sessionId: id,
+  cwd: '/synthetic',
+  issueId: 'a',
+  agentKind: 'codex',
+  status: 'live',
+  createdAt: stamp,
+  lastActiveAt: stamp,
+  title: id,
+  ...patch,
+})
 function fixture(extra = 0) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
   pool.sources.register(['mobileInboxState'], { read: () => ({ hasCursor: true }), dispose() {} })
   const issues = [issue('a', { seq: 3 }), issue('b', { seq: 2 }), issue('c')]
-  const sessions = [session('ask', { agentState: { phase: 'needs_user', since: stamp } }),
+  const sessions = [
+    session('ask', { agentState: { phase: 'needs_user', since: stamp } }),
     session('work', { agentState: { phase: 'working', since: stamp } }),
     session('idle', { status: 'hibernated', agentState: { phase: 'working', since: stamp } }),
     session('offer', { offer: { message: 'Decide', actions: [] } }),
-    session('shell', { agentKind: 'shell' }), session('headless', { headless: true }),
+    session('shell', { agentKind: 'shell' }),
+    session('headless', { headless: true }),
     session('archived', { archived: true }),
-    ...Array.from({ length: extra }, (_, at) => session(`hidden-${at}`, { archived: true }))]
-  pool.apply({ type: 'replace', rows: [
-    ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
-    ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
-  ] })
+    ...Array.from({ length: extra }, (_, at) => session(`hidden-${at}`, { archived: true })),
+  ]
+  pool.apply({
+    type: 'replace',
+    rows: [
+      ...issues.map((value) => ({ kind: 'issue' as const, id: value.id, value })),
+      ...sessions.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
+    ],
+  })
   return { pool, old: createMobileInboxViews(pool), inbox: new MobileInbox(pool) }
 }
 function oldGroups(old: ReturnType<typeof createMobileInboxViews>) {
-  return Object.fromEntries(Object.entries(old.inbox().groups).map(([group, rows]) =>
-    [group, rows.map(row => row.sessionId)]))
+  return Object.fromEntries(
+    Object.entries(old.inbox().groups).map(([group, rows]) => [
+      group,
+      rows.map((row) => row.sessionId),
+    ]),
+  )
 }
 
 it('compares shared menu facts and actions with the old captured menu on the same fixture', () => {
@@ -46,76 +74,178 @@ it('compares shared menu facts and actions with the old captured menu on the sam
       const old = resolvePoolWorkMenu(f.pool, 'a', lane)!
       const next = resolveSharedWorkMenu(f.pool, 'a', lane)!
       expect(next.target.issue).toBe(f.pool.model('issue', 'a'))
-      for (const key of ['id', 'title', 'displayRef', 'unread', 'childCount', 'childDoneCount'] as const)
+      for (const key of [
+        'id',
+        'title',
+        'displayRef',
+        'unread',
+        'childCount',
+        'childDoneCount',
+      ] as const)
         expect(next.target.issue[key]).toEqual(old.target.issue[key])
       expect(next.target.sessionCount).toBe(old.target.sessionCount)
-      expect(workMenuActionIds(next.target.issue, lane, { placement: false }))
-        .toEqual(workMenuActionIds(old.target.issue, lane, { placement: false }))
+      expect(workMenuActionIds(next.target.issue, lane, { placement: false })).toEqual(
+        workMenuActionIds(old.target.issue, lane, { placement: false }),
+      )
     }
-  } finally { f.old.dispose(); f.pool.dispose() }
+  } finally {
+    f.old.dispose()
+    f.pool.dispose()
+  }
 })
 
 it('compares ID groups and displayed session identities with the old inbox on the same fixture', () => {
   const f = fixture()
-  const stop = autorun(() => { void f.inbox.groups })
+  const stop = autorun(() => {
+    void f.inbox.groups
+  })
   try {
     expect(f.inbox.groups).toEqual(oldGroups(f.old))
     for (const ids of Object.values(f.inbox.groups)) {
-      const models = ids.map(id => f.inbox.session(id))
-      expect(models.map(row => row.sessionId)).toEqual(ids)
-      expect(models.slice().sort((a, b) => compareRecency(a as never, b as never)).map(row => row.id)).toEqual(ids)
+      const models = ids.map((id) => f.inbox.session(id))
+      expect(models.map((row) => row.sessionId)).toEqual(ids)
+      expect(
+        models
+          .slice()
+          .sort((a, b) => compareRecency(a as never, b as never))
+          .map((row) => row.id),
+      ).toEqual(ids)
     }
-    f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'work', value:
-      session('work', { agentState: { phase: 'idle', since: stamp, idle: { kind: 'done' } } }) }] })
+    f.pool.apply({
+      type: 'update',
+      rows: [
+        {
+          kind: 'session',
+          id: 'work',
+          value: session('work', {
+            agentState: { phase: 'idle', since: stamp, idle: { kind: 'done' } },
+          }),
+        },
+      ],
+    })
     expect(f.inbox.groups).toEqual(oldGroups(f.old))
-  } finally { stop(); f.old.dispose(); f.pool.dispose() }
+  } finally {
+    stop()
+    f.old.dispose()
+    f.pool.dispose()
+  }
 })
 
 it('compares stable deck order with old queue/reconciliation through edits, removals and arrivals', () => {
-  const f = fixture(), deck = new ProposalScreening(f.pool)
+  const f = fixture(),
+    deck = new ProposalScreening(f.pool)
   const close = deck.open()
-  let oldOrder = f.old.screening().queue, oldIndex = 0
+  let oldOrder = f.old.screening().queue,
+    oldIndex = 0
   try {
     expect(deck.order).toEqual(oldOrder)
-    deck.advance(); oldIndex++
-    for (const value of [issue('b', { stage: 'backlog' }), issue('z', { priority: 0, seq: 99 }),
-      issue('c', { priority: 0 }), issue('a', { stage: 'done' })]) {
+    deck.advance()
+    oldIndex++
+    for (const value of [
+      issue('b', { stage: 'backlog' }),
+      issue('z', { priority: 0, seq: 99 }),
+      issue('c', { priority: 0 }),
+      issue('a', { stage: 'done' }),
+    ]) {
       f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: value.id, value }] })
       const old = reconcileScreeningIds(oldOrder, oldIndex, f.old.screening().queue)
-      oldOrder = old.order; oldIndex = old.index
+      oldOrder = old.order
+      oldIndex = old.index
       expect(deck.order).toEqual(oldOrder)
       expect(deck.index).toBe(oldIndex)
     }
     expect(deck.order).toEqual(['a', 'c', 'z'])
-  } finally { close(); f.old.dispose(); f.pool.dispose() }
+  } finally {
+    close()
+    f.old.dispose()
+    f.pool.dispose()
+  }
 })
 
-for (const scale of [1, 4]) it(`keeps unrelated activity out of groups and off-deck card facts cold at ${scale}x`, () => {
-  const f = fixture(32 * scale), deck = new ProposalScreening(f.pool)
-  const close = deck.open(), stop = autorun(() => { void f.inbox.groups })
-  try {
-    const groups = f.inbox.groups
-    const reads = vi.spyOn(f.pool, 'row')
-    f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'hidden-0', value:
-      session('hidden-0', { archived: true, lastActiveAt: '2026-10-08T13:00:00Z' }) }] })
-    expect(f.inbox.groups).toBe(groups)
-    // Pool publication may inspect the addressed archive marker; no inbox member is reread.
-    expect(reads.mock.calls.filter(([kind, id]) => kind === 'session' && id !== 'hidden-0')).toHaveLength(0)
-    reads.mockClear()
-    const displayed: string[] = []
-    const stored = SessionModel.prototype.storedField
-    const fields = vi.spyOn(SessionModel.prototype, 'storedField').mockImplementation(function (this: SessionModel, name: string) {
-      if (name === 'title') displayed.push(this.id)
-      return stored.call(this, name)
-    })
+for (const scale of [1, 4])
+  it(`keeps unrelated activity out of groups and off-deck card facts cold at ${scale}x`, () => {
+    const f = fixture(32 * scale),
+      deck = new ProposalScreening(f.pool)
+    const close = deck.open(),
+      stop = autorun(() => {
+        void f.inbox.groups
+      })
     try {
-      for (const id of f.inbox.groups.needsYou) void f.inbox.session(id).title
-      expect(displayed).toEqual(f.inbox.groups.needsYou)
-    } finally { fields.mockRestore() }
-    reads.mockClear()
-    const current = deck.current
-    if (current && typeof current !== 'symbol') void current.title
-    expect(reads.mock.calls.filter(([kind, id, mode]) => kind === 'issue' && mode !== 'summary' && id === 'c'))
-      .toHaveLength(0)
-  } finally { close(); stop(); f.old.dispose(); f.pool.dispose() }
+      const groups = f.inbox.groups
+      const reads = vi.spyOn(f.pool, 'row')
+      f.pool.apply({
+        type: 'update',
+        rows: [
+          {
+            kind: 'session',
+            id: 'hidden-0',
+            value: session('hidden-0', { archived: true, lastActiveAt: '2026-10-08T13:00:00Z' }),
+          },
+        ],
+      })
+      expect(f.inbox.groups).toBe(groups)
+      // Pool publication may inspect the addressed archive marker; no inbox member is reread.
+      expect(
+        reads.mock.calls.filter(([kind, id]) => kind === 'session' && id !== 'hidden-0'),
+      ).toHaveLength(0)
+      reads.mockClear()
+      const displayed: string[] = []
+      const stored = SessionModel.prototype.storedField
+      const fields = vi.spyOn(SessionModel.prototype, 'storedField').mockImplementation(function (
+        this: SessionModel,
+        name: string,
+      ) {
+        if (name === 'title') displayed.push(this.id)
+        return stored.call(this, name)
+      })
+      try {
+        for (const id of f.inbox.groups.needsYou) void f.inbox.session(id).title
+        expect(displayed).toEqual(f.inbox.groups.needsYou)
+      } finally {
+        fields.mockRestore()
+      }
+      reads.mockClear()
+      const current = deck.current
+      if (current && typeof current !== 'symbol') void current.title
+      expect(
+        reads.mock.calls.filter(
+          ([kind, id, mode]) => kind === 'issue' && mode !== 'summary' && id === 'c',
+        ),
+      ).toHaveLength(0)
+    } finally {
+      close()
+      stop()
+      f.old.dispose()
+      f.pool.dispose()
+    }
+  })
+
+it('keeps opening choices while shared menu titles, child counts and action targets update', () => {
+  const f = fixture(),
+    menu = resolveSharedWorkMenu(f.pool, 'a', 'live')!
+  const stop = autorun(() => {
+    void menu.target.issue.title
+    void menu.target.issue.childCount
+    void menu.target.sessionCount
+  })
+  try {
+    f.pool.apply({
+      type: 'update',
+      rows: [
+        { kind: 'issue', id: 'a', value: issue('a', { title: 'Changed while open' }) },
+        { kind: 'issue', id: 'child', value: issue('child', { parentId: 'a', stage: 'done' }) },
+        { kind: 'session', id: 'arrival', value: session('arrival') },
+      ],
+    })
+    expect(menu.target.issue.title).toBe('Changed while open')
+    expect(menu.target.issue.childCount).toBe(1)
+    expect(menu.target.issue.childDoneCount).toBe(1)
+    expect(menu.target.issue.id).toBe('a')
+    expect(menu.target.lane).toBe('live')
+    expect(menu.target.sessionCount).toBe(resolvePoolWorkMenu(f.pool, 'a')!.target.sessionCount)
+  } finally {
+    stop()
+    f.old.dispose()
+    f.pool.dispose()
+  }
 })
