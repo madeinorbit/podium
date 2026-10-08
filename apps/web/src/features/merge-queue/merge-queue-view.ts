@@ -58,7 +58,7 @@ export class MergeQueueView extends RequestAnswer<readonly LockWire[]> {
   }
   @lazy({ equals: compareShallow }) get candidates(): IssueModel[] {
     const lock = queueGroups(this.locks).merge.lock
-    const occupied = new Set([
+    const occupied = new Set<string | null | undefined>([
       lock?.holder.issueId,
       ...(lock?.queue.map((waiter) => waiter.issueId) ?? []),
     ])
