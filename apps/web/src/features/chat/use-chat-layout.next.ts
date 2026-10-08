@@ -7,7 +7,6 @@ import { usePoolMachine } from '@/app/header-data'
 import { useRuntimeActions } from '@/app/keyed-runtime'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import { useStickyPromptsPreference } from '@/lib/sticky-prompts'
-import type { PendingItem } from './chat'
 import { ChatViewModel } from './chat-view-model'
 import { RENDER_WINDOW } from './conversation-presentation.next'
 import { type UseAttachmentsResult, useAttachments } from './use-attachments'
@@ -95,15 +94,18 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
     setRenderCount: presentation.setRenderCount, loadOlder: scroll.loadOlder,
     scrollToBlock: scroll.scrollToBlock, clear: clearTranscriptReveal,
   })
-  // Unknown presence does not count as a reconnect.
-  const presence = view.presenceOfflineMachineName
-  const previousPresence = useRef(presence)
+  // Unknown presence does not count as a reconnect. Losing the selected
+  // machine or hiding the pane also does not fabricate an online transition.
+  const machineId = active ? view.session?.machineId : undefined
+  const presenceMachine = usePoolMachine(machineId)
+  const presenceOnline = presenceMachine ? !isMachineOfflineForLiveTerminal(presenceMachine) : undefined
+  const previousPresenceOnline = useRef(presenceOnline)
   useEffect(() => {
-    const previous = previousPresence.current
-    previousPresence.current = presence
-    if (previous !== null && presence === null && log.initialLoaded)
+    const previous = previousPresenceOnline.current
+    previousPresenceOnline.current = presenceOnline
+    if (previous === false && presenceOnline === true && log.initialLoaded)
       void log.refresh({ disclose: true }).catch(() => {})
-  }, [presence, log])
+  }, [presenceOnline, log])
 
   const attachments = useAttachments({ sessionId, trpc })
   const sends = conversation.sends

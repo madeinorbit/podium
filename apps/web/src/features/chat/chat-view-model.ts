@@ -25,7 +25,7 @@ export class ChatViewModel {
   }
   @lazy get session(): SessionView | undefined {
     const pool = this.conversation.pool
-    const row = pool.row('session', this.conversation.sessionId, 'mark')
+    const row = pool.row('session', this.conversation.sessionId)
     return !row || typeof row === 'symbol' ? undefined : pool.model('session', this.conversation.sessionId) as unknown as SessionView
   }
   @lazy get reference() {

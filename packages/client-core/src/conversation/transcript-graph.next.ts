@@ -211,7 +211,10 @@ export class TranscriptGraph {
   }
 
   search(query: string, cursor: number, verbosity: ChatVerbosity = 'normal'): TranscriptSearchState {
-    const ids = this.matches(query)
+    return this.positionSearch(this.matches(query), cursor, query.trim() !== '', verbosity)
+  }
+
+  positionSearch(ids: readonly string[], cursor: number, filtering: boolean, verbosity: ChatVerbosity = 'normal'): TranscriptSearchState {
     const total = ids.length
     const selected = total ? ((cursor % total) + total) % total : -1
     const activeId = ids[selected]
@@ -220,7 +223,7 @@ export class TranscriptGraph {
     return {
       matches: ids.map(id => this.blockPosition(id)!),
       activeMatch: activeId === undefined ? undefined : this.blockPosition(activeId),
-      activeRow, position: selected + 1, total, filtering: query.trim() !== '',
+      activeRow, position: selected + 1, total, filtering,
     }
   }
 

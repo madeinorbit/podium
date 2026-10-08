@@ -1,7 +1,8 @@
-import type { TranscriptGraph, TranscriptToolRun } from '@podium/client-core/conversation'
+import type { TranscriptToolRun } from '@podium/client-core/conversation'
 import { isAskUserQuestion, type ChatRow } from '@podium/client-core/values'
-import { action, compareShallow, observable, observableRef } from 'mobx'
+import { action, actionBound, compareShallow, observable, observableRef } from 'mobx'
 import { companion, lazy } from '@podium/mobx-helpers'
+import type { TranscriptGraph } from '../../../../packages/client-core/src/conversation/transcript-graph.next'
 import { appendedTranscriptArrivals, positionMobileTranscriptSearch, type MobileTranscriptMatches, type MobileTranscriptRow } from './transcript-feed'
 
 export type RetainedMobileTranscriptRow = MobileTranscriptRow & { readonly run?: TranscriptToolRun }
@@ -232,6 +233,9 @@ export class MobileTranscriptSearch {
   constructor(readonly presentation: MobileConversationPresentation) {}
   @lazy get matches(): MobileTranscriptMatches { return this.presentation.matches(this.query) }
   @lazy get search() { return positionMobileTranscriptSearch(this.matches, this.cursor) }
-  @action setQuery(query: string): void { this.query = query; this.cursor = 0 }
-  @action moveCursor(delta: number): void { this.cursor += delta }
+  @actionBound setQuery(query: string): void { this.query = query; this.cursor = 0 }
+  @actionBound setCursor(value: number | ((cursor: number) => number)): void {
+    this.cursor = typeof value === 'function' ? value(this.cursor) : value
+  }
+  @actionBound moveCursor(delta: number): void { this.cursor += delta }
 }
