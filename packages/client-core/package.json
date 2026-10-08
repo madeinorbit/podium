@@ -235,6 +235,7 @@
     "@podium/harness": "workspace:*",
     "@podium/logger": "workspace:*",
     "@podium/model": "workspace:*",
+    "@podium/mobx-helpers": "workspace:*",
     "@podium/protocol": "workspace:*",
     "@podium/runtime": "workspace:*",
     "@podium/sync": "workspace:*",
