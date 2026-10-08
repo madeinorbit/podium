@@ -6,7 +6,6 @@ import { observer } from 'mobx-react-lite'
 import { ISSUES_DISPLAY_KEY } from '@podium/client-core/ui-state'
 import {
   type BoardFilter,
-  clearChip,
   filterChips,
   readSharedIssuesDisplay as readMobileTaskDisplay,
   type RankedTaskIssue,
@@ -60,7 +59,8 @@ import { stageColor } from '../theme/stage'
 import { color, font, leading, mono, monoLabel, radius, sans, space, spring } from '../theme/theme'
 
 const usesNativeHeader = process.env.EXPO_OS !== 'web'
-const CLOSED_STATUSES = new Set(['done', 'cancelled', 'duplicate', 'superseded'])
+const NO_CHIPS: ReturnType<typeof filterChips> = []
+const NO_FILTER: BoardFilter = {}
 
 /**
  * THE TASKS TAB — high-level work, plus proposals that need a call [POD-947].
@@ -76,24 +76,7 @@ export const IssuesScreen = observer(function IssuesScreen() {
   const router = useRouter()
   const store = useStoreActions()
   const hasCloseBlockers = useIssueCloseGuard()
-  const [showDone, setShowDone] = useState(false)
-  /**
-   * Which parents are showing their children — local, exactly as the desktop
-   * board holds it (`IssuesView`'s own `expanded` state). Not replicated
-   * ui-state: expanding an epic is a look, not a preference, and the desk and
-   * the phone are looking at different things at the same moment.
-   */
-  const [expanded, setExpanded] = useState<ReadonlySet<string>>(() => new Set())
-  const toggleExpanded = useCallback((id: string) => {
-    setExpanded((current) => {
-      const next = new Set(current)
-      if (!next.delete(id)) next.add(id)
-      return next
-    })
-  }, [])
-  const [query, setQuery] = useState('')
   const [searchOpen, setSearchOpen] = useState(false)
-  const [filter, setFilter] = useState<BoardFilter>({})
   const [filtersOpen, setFiltersOpen] = useState(false)
   const [rowMenu, setRowMenu] = useState<{
     issue: MobileTaskIssue
@@ -114,37 +97,30 @@ export const IssuesScreen = observer(function IssuesScreen() {
   const bottomInset = useContentBottomInset()
   const minimizeOnScroll = useMinimizeTabBarOnScroll()
 
-  const effectiveFilter = useMemo<BoardFilter>(
-    () => ({ ...filter, ...(query.trim() ? { text: query } : {}) }),
-    [filter, query],
-  )
-  const filterShowsDone =
-    effectiveFilter.status === 'closed' ||
-    (effectiveFilter.stage !== undefined && CLOSED_STATUSES.has(effectiveFilter.stage))
-  const options = useMemo(
-    () => ({
-      showDone: showDone || filterShowsDone,
-      expanded: [...expanded],
-      filter: effectiveFilter,
-      ordering: display.ordering,
-      showAgentTasks: display.showAgentTasks,
-    }),
-    [
-      display.ordering,
-      display.showAgentTasks,
-      effectiveFilter,
-      expanded,
-      filterShowsDone,
-      showDone,
-    ],
-  )
   const pool = useMobilePool()
   const booting = useBooting() || !pool
-  const board = useMemo(() => (pool ? new MobileTasksBoard(pool, options) : null), [pool])
+  // The board holds the view's options (show done, open parents, filter and
+  // search) and its lists; it is built once per pool.
+  const board = useMemo(
+    () =>
+      pool
+        ? new MobileTasksBoard(pool, {
+            showDone: false,
+            expanded: [],
+            filter: {},
+            ordering: display.ordering,
+            showAgentTasks: display.showAgentTasks,
+          })
+        : null,
+    [pool],
+  )
+  // The display preference stays saved in ui-state until the UiStore (POD-5797)
+  // holds it; the board follows it from here.
   useEffect(() => {
-    board?.configure(options)
-  }, [board, options])
-  const chips = useMemo(() => filterChips(filter), [filter])
+    board?.showDisplay(display)
+  }, [board, display])
+  const chips = board?.chips ?? NO_CHIPS
+  const showDone = board?.showDone ?? false
 
   // Proposals are inert until the operator decides [spec:SP-6144] — the deck
   // flow is the fast way through them, so the board leads with it whenever any
@@ -161,7 +137,7 @@ export const IssuesScreen = observer(function IssuesScreen() {
               label={searchOpen ? 'Close task search' : 'Search tasks'}
               onPress={() => {
                 setSearchOpen((open) => !open)
-                if (searchOpen) setQuery('')
+                if (searchOpen) board?.search('')
               }}
             >
               <Icon as={searchOpen ? X : Search} size={18} color={color.textDim} />
@@ -176,7 +152,7 @@ export const IssuesScreen = observer(function IssuesScreen() {
           <PressableScale
             accessibilityRole="button"
             accessibilityLabel={showDone ? 'Hide done tasks' : 'Show done tasks'}
-            onPress={() => setShowDone((v) => !v)}
+            onPress={() => board?.toggleShowDone()}
             hitSlop={8}
           >
             <Text style={styles.toggle}>{showDone ? 'Hide done' : 'Show done'}</Text>
@@ -191,8 +167,8 @@ export const IssuesScreen = observer(function IssuesScreen() {
         <Stack.SearchBar
           placeholder="Search tasks or ID"
           hideWhenScrolling
-          onChangeText={(event) => setQuery(event.nativeEvent.text)}
-          onCancelButtonPress={() => setQuery('')}
+          onChangeText={(event) => board?.search(event.nativeEvent.text)}
+          onCancelButtonPress={() => board?.search('')}
         />
       ) : null}
       {!usesNativeHeader && searchOpen ? (
@@ -201,8 +177,8 @@ export const IssuesScreen = observer(function IssuesScreen() {
           <TextInput
             autoFocus
             accessibilityLabel="Search tasks"
-            value={query}
-            onChangeText={setQuery}
+            value={board?.query ?? ''}
+            onChangeText={(text) => board?.search(text)}
             placeholder="Search tasks or ID…"
             placeholderTextColor={color.textFaint}
             style={styles.searchInput}
@@ -222,17 +198,16 @@ export const IssuesScreen = observer(function IssuesScreen() {
           chips={chips}
           onScreenProposals={() => router.push('/screen-proposed')}
           onOpen={(id) => router.push(`/issue/${encodeURIComponent(id)}`)}
-          onToggleExpanded={toggleExpanded}
-          onRemoveFilter={(key) => setFilter((current) => clearChip(current, key))}
+          onRemoveFilter={(key) => board?.clearFilter(key)}
           onOpenActions={(issue) => setRowMenu({ issue, kind: 'actions' })}
         />
       </PullToRefreshBoundary>
       <TaskFiltersSheet
         visible={filtersOpen}
-        filter={filter}
+        filter={board?.filter ?? NO_FILTER}
         ordering={display.ordering}
         showAgentTasks={display.showAgentTasks}
-        onFilter={setFilter}
+        onFilter={(filter) => board?.setFilter(filter)}
         onOrdering={(ordering) => setDisplay({ ...display, ordering })}
         onShowAgentTasks={(showAgentTasks) => setDisplay({ ...display, showAgentTasks })}
         onClose={() => setFiltersOpen(false)}
@@ -362,7 +337,6 @@ const StageSections = observer(function StageSections({
   chips,
   onScreenProposals,
   onOpen,
-  onToggleExpanded,
   onRemoveFilter,
   onOpenActions,
 }: {
@@ -378,7 +352,6 @@ const StageSections = observer(function StageSections({
   chips: ReturnType<typeof filterChips>
   onScreenProposals: () => void
   onOpen: (id: string) => void
-  onToggleExpanded: (id: string) => void
   onRemoveFilter: (key: keyof BoardFilter) => void
   onOpenActions: (issue: MobileTaskIssue) => void
 }) {
@@ -399,6 +372,7 @@ const StageSections = observer(function StageSections({
     done: useCollapsed(stageFoldKey('done'), true),
   }
 
+  const onToggleExpanded = useCallback((id: string) => board?.toggleExpanded(id), [board])
   const membership = board?.sections ?? LOADING
   const pending = booting || membership === LOADING
   const sections: Section[] = (membership === LOADING ? [] : membership).map((s) => ({
