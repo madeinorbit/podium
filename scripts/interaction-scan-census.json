@@ -2473,14 +2473,14 @@
     },
     {
       "file": "apps/web/src/app/FlightDeckWaterfall.tsx",
-      "holder": "FlightDeckWaterfall/FlightDeckWaterfall/fitAll/useCallback:callback",
+      "holder": "WaterfallContent/WaterfallContent/fitAll/useCallback:callback",
       "rule": "helper-consumer",
       "tokens": "ea1f91fb44009acf46463e078ab5e12e8bf877014527e60d1a37a469bd7d6fc7",
       "gate": [],
       "origin": [
-        "457b60b2fda0734148e502f7f866935fd7cdf4df97f0fa2aba0e5bcc5e4fb3e9"
+        "2e82cf0dc160c20eb26b646dba9fe12f087c585ddbf9310953525605bba89db8"
       ],
-      "fingerprint": "4503a41738d67762f3478bb46bbb73df32e2f037c36806c0676817e1f53f4149",
+      "fingerprint": "d1e6352340fea7d47a9f6e268a387874f3e42c202872020391b9eb37dbc05802",
       "count": 1,
       "classification": "bounded local work",
       "trigger": "Fit All click only",
@@ -2491,16 +2491,16 @@
     },
     {
       "file": "apps/web/src/app/FlightDeckWaterfall.tsx",
-      "holder": "WaterfallIssue/WaterfallIssue",
+      "holder": "WaterfallIssue/WaterfallIssue/content/settled:callback",
       "rule": "consume:map",
       "tokens": "6eb2a2a62d74655d1cefbf1f03afde3993a8395d449c7730cdf273a0be7eec50",
       "gate": [
         "then:1b5c7ee7b3c81956cd9c1ff251161dc044a7c886e0f04e2485ee475cbd5188c3"
       ],
       "origin": [
-        "b77e64be04854c284e19d055687db8d437802d3ebfe86bb36bd68d08240264b3"
+        "3434f0d2b9878af0d466164cd61908574cf4f91058d852606f760c9e4df1973c"
       ],
-      "fingerprint": "0e6d9996fbc890c1aef622de863b019bcb2d05d2007a147ff554d7682a7b8063",
+      "fingerprint": "cfe8040ecf588a91b85401f2aa1496f1ea1e8765db0e6502ae2ec64474306d13",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5633",
@@ -2511,16 +2511,16 @@
     },
     {
       "file": "apps/web/src/app/FlightDeckWaterfall.tsx",
-      "holder": "WaterfallIssue/WaterfallIssue/attention",
+      "holder": "WaterfallIssue/WaterfallIssue/content/settled:callback/attention",
       "rule": "consume:some",
       "tokens": "547d9f8e70c42534b796a2a204a528bf6447b3fd58db76f3eca5ca03fd95992e",
       "gate": [
         "||:491d3f1ed22c70e67020a17d5f1d149882cfca02cdb933403eaf936a2a75cf20"
       ],
       "origin": [
-        "91a2a46d37977b9caaabcef3ea7a45b1f3ae9547c82f23380ae164b134bf0d92"
+        "a4c721c2c0b2e775a985ad4a549d787c0597b571b15202d6d8777b64469490d0"
       ],
-      "fingerprint": "e8464f2ac459b04f34b72af33b612178387c1695843ac141b9d34dfac1f26974",
+      "fingerprint": "8cfb8e38008593a53cb7115ae92ba0b8a102402c8acbea75d871426e26d33674",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5633",
@@ -2531,16 +2531,16 @@
     },
     {
       "file": "apps/web/src/app/FlightDeckWaterfall.tsx",
-      "holder": "WaterfallIssue/WaterfallIssue/coordinator",
+      "holder": "WaterfallIssue/WaterfallIssue/content/settled:callback/coordinator",
       "rule": "consume:find",
       "tokens": "629493ca1b40c5bd4e235310e4dcd51ddfb5cf3ef185e647dde341d1459c03c6",
       "gate": [
         "then:37ff8b38ba1fae837c74108df2242e4d119de67914c48d3eb1fc18d5a4413a50"
       ],
       "origin": [
-        "10296d3a72e5afdacb070887b67fcaae56179051b59264008e2dc6b559445040"
+        "809169c4e45207ecc38210cadb4f5f84493967d2d36404394a10ef76ae95a77c"
       ],
-      "fingerprint": "d59d38fa2a16ae959eb731458fa00dbaff8a8bb3ccd3d1ce6d05a317c0106d2c",
+      "fingerprint": "5825c52e9152188e0f60a15fafb034b039cdb28a227bed4940279051baa89048",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5633",
@@ -2551,14 +2551,14 @@
     },
     {
       "file": "apps/web/src/app/FlightDeckWaterfall.tsx",
-      "holder": "WaterfallIssue/WaterfallIssue/visibleSessions",
+      "holder": "WaterfallIssue/WaterfallIssue/content/settled:callback/visibleSessions",
       "rule": "consume:filter",
       "tokens": "678606dd127d8120daed4fabf1e539f7e3551161ad4ecb76bad4f5e6a03542c1",
       "gate": [],
       "origin": [
-        "b77e64be04854c284e19d055687db8d437802d3ebfe86bb36bd68d08240264b3"
+        "3434f0d2b9878af0d466164cd61908574cf4f91058d852606f760c9e4df1973c"
       ],
-      "fingerprint": "424321fb6fb86abc238633896bfc5b7b4be54ff68cdcd740260989dd49566ac8",
+      "fingerprint": "94521266729960431c97408103193980a4b2ef754a54ed2b46062f8465d4da8c",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5633",
@@ -4248,7 +4248,7 @@
       "count": 1,
       "classification": "bounded local work",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session’s activity samples",
+      "bound": "One addressed session\u2019s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences",
       "owner": "POD-5633"
@@ -4270,7 +4270,7 @@
       "count": 1,
       "classification": "bounded local work",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session’s activity samples",
+      "bound": "One addressed session\u2019s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences",
       "owner": "POD-5633"
@@ -25045,7 +25045,7 @@
       "trigger": "A newly fetched issue event page is appended.",
       "bound": "One supplied page (the shared request owner asks for at most 50 rows per RPC); retained history is never enumerated for ID deduplication.",
       "reason": "The history owns its ID index and formats only new rows, with stable event/feed arrays and cursor advancement.",
-      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1→1 for 128/512 retained events; a planted retained-ID map/Set fails."
+      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1\u21921 for 128/512 retained events; a planted retained-ID map/Set fails."
     },
     {
       "file": "packages/client-core/src/values/issue-activity.ts",
@@ -35091,7 +35091,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
