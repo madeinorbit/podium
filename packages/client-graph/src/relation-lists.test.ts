@@ -106,7 +106,9 @@ it('keeps declared subset lists stable and follows members moving in and out', (
   })
   const firstIds = ids, firstReady = ready
   try {
-    expect(subset.ready).toBe(firstReady)
+    // A handle retained outside the watched getter stays live too. Its lazy
+    // fields have their own observation lifetime, like any @lazy field.
+    expect(subset.ready.map(row => row.id)).toEqual(firstReady.map(row => row.id))
     expect(collection.issueless).toBe(collection.issueless)
     runInAction(() => pool.apply({ type: 'update', rows: [session('free', { issueId: undefined, title: 'renamed' }), issue('other', { title: 'unrelated' })] }))
     expect(ids).toBe(firstIds); expect(ready).toBe(firstReady); expect(paints).toBe(1)
