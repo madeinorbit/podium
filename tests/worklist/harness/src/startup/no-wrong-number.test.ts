@@ -50,7 +50,7 @@ describe('the check itself', () => {
       ['hidden', null, 'done', true],
     ] as const
     pool.apply({ type: 'replace', rows: rows.map(([id, parentId, stage, archived]) => ({
-      kind: 'issue', id, value: { id, parentId, stage, archived, title: id, seq: 1,
+      kind: 'issue' as const, id, value: { id, parentId, stage, archived, title: id, seq: 1,
         deps: [], createdAt: stamp, updatedAt: stamp, readAt: stamp },
     })) })
     try {
