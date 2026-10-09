@@ -82,7 +82,7 @@ const result = { version:1, mode, arm, comparisonArm:arg('comparison-arm',arm===
   warmStartup:'Reload with retained durable data and preferences; cursor resume without augmented snapshot',
   sameOriginTracePriming:true,
   semanticSha256:createHash('sha256').update(corpusBytes).digest('hex'),controlOnly,backgroundOnly,query,variants,paired,
-  build:JSON.parse(readFileSync('apps/web/dist/podium-build.json','utf8')),
+  build:JSON.parse(readFileSync(`apps/${surface === 'phone' ? 'mobile' : 'web'}/dist/podium-build.json`,'utf8')),
   diagnostic:existsSync('apps/web/dist/ablation-provenance.json'),
   corpus: { syntheticIssues:corpus.issues.length, syntheticSessions:corpus.sessions.length, extraLiveIssues:2, extraLiveSessions:2 },
   largeMissionTargets:largeMissionTargets.map(issue=>({id:issue.id,repoId:issue.repoId,assignedDescendantSessions:descendantSessionCounts.get(issue.id)})),

@@ -14,6 +14,7 @@ import queue
 import re
 import shlex
 import subprocess
+import sys
 import threading
 import time
 import uuid
@@ -39,6 +40,13 @@ if cells:
         raise ValueError('--cells needs an issue-owned --checkout=podium-test-<issue>')
     if any(not re.fullmatch(r'h[0-9]+a[124]', cell) for cell in cells):
         raise ValueError('Cells are h<history>a<1|2|4>')
+    # One process tree at a time: four idle collectors still retain four
+    # corpora, harnesses and browsers. The baseline controller interleaves
+    # complete cold/warm pairs by restarting the collector between cells.
+    command = [sys.executable, str(pathlib.Path(__file__).with_name('startup-baseline.py')),
+               f'--checkout={args.checkout}', f'--cells={args.cells}',
+               f'--surface={args.surface}', f'--samples={args.samples}', f'--round={args.round}']
+    raise SystemExit(subprocess.call(command))
     arms = cells
 else:
     arms = ['old', *([args.baseline] if args.baseline else []), *([args.alternative] if args.alternative else []), args.candidate]
