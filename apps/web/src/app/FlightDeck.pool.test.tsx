@@ -209,14 +209,14 @@ async function settled() {
 }
 
 describe('rendered mission pane parity', () => {
-  it.each([1, 4] as const)('paints a cold runtime mission at %sx using the automatic loader', async (scale) => {
+  it.each([[1, 'i1766'], [4, 'i13916'], [4, 'i14941']] as const)('paints a cold runtime mission at %sx (%s) using the automatic loader', async (scale, id) => {
     const ctx = await startScenarioEngine(scale, { seed: 4443 })
     const handle = createRuntimeWorklistPool(ctx.engine, screenOptions(poolBackedScreens, ctx.engine))
     pool.dispose()
     pool = handle.pool
     state.pool = pool
     state.replica = ctx.engine.replica
-    state.selectedIssueId = scale === 1 ? 'i1766' : 'i13916'
+    state.selectedIssueId = id
     state.paneA = 's0'
     const errors = vi.spyOn(console, 'error')
     try {

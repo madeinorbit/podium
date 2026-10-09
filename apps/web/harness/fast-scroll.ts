@@ -75,7 +75,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
       }
       await page.keyboard.press('Escape')
       if (fixture === 'lists' && variant === 'full') await page.getByTestId('flight-deck-scroller').waitFor({ state: 'visible' })
-      if (fixture === 'lists' && ['scroll','list'].includes(variant)) await page.getByTestId('column-scroll').first().waitFor({ state: 'visible' }).catch(async () => { if (variant !== 'list') throw new Error('Tasks board did not mount') })
+      if (fixture === 'lists' && ['scroll','list'].includes(variant)) await page.getByTestId(variant === 'list' ? 'issues-list' : 'column-scroll').first().waitFor({ state: 'visible' })
       if (errors.length) throw new Error(errors.join('; '))
       const candidates = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('*')]
         .filter(el => el.clientHeight > 100 && el.clientWidth > 100 && el.scrollHeight > el.clientHeight + 300 && ['auto', 'scroll'].includes(getComputedStyle(el).overflowY) && el.getBoundingClientRect().right > 0 && el.getBoundingClientRect().left < innerWidth)
