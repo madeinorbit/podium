@@ -1,0 +1,582 @@
+{
+  "arm": "before",
+  "baseline": "8376e9744be109420e51d837a13c8c31ec917ab3",
+  "revision": "534eeb6350a20dccefd5519f0586e0a726e1d543",
+  "browser": "153.0.8010.12",
+  "samples": [
+    {
+      "loaded": 200,
+      "elements": 4028,
+      "drawn": 200,
+      "top": 45015,
+      "height": 45915,
+      "gap": 0,
+      "key": "message-8054",
+      "offset": -78.890625,
+      "text": [
+        "Message 8054 — native-needle-8054.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:27",
+        "AnswerMessage 8055 — native-needle-8055.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:28",
+        "Message 8056 — native-needle-8056.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:29",
+        "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
+      ],
+      "following": true,
+      "heapUsed": 9007496,
+      "heapTotal": 9650176,
+      "rendererResidentBytes": 407154688
+    },
+    {
+      "loaded": 1000,
+      "elements": 20030,
+      "drawn": 1000,
+      "top": 227935,
+      "height": 228835,
+      "gap": 0,
+      "key": "message-8054",
+      "offset": -79.265625,
+      "text": [
+        "Message 8054 — native-needle-8054.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:27",
+        "AnswerMessage 8055 — native-needle-8055.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:28",
+        "Message 8056 — native-needle-8056.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:29",
+        "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
+      ],
+      "following": false,
+      "heapUsed": 16653116,
+      "heapTotal": 17776640,
+      "rendererResidentBytes": 466522112
+    },
+    {
+      "loaded": 2200,
+      "elements": 44030,
+      "drawn": 2200,
+      "top": 502243,
+      "height": 503143,
+      "gap": 0,
+      "key": "message-8054",
+      "offset": -79.453125,
+      "text": [
+        "Message 8054 — native-needle-8054.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:27",
+        "AnswerMessage 8055 — native-needle-8055.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:28",
+        "Message 8056 — native-needle-8056.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:29",
+        "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
+      ],
+      "following": false,
+      "heapUsed": 28626536,
+      "heapTotal": 30883840,
+      "rendererResidentBytes": 557379584
+    },
+    {
+      "loaded": 4200,
+      "elements": 84034,
+      "drawn": 4200,
+      "top": 959518,
+      "height": 960418,
+      "gap": 0,
+      "key": "message-8054",
+      "offset": -79.265625,
+      "text": [
+        "Message 8054 — native-needle-8054.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:27",
+        "AnswerMessage 8055 — native-needle-8055.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:28",
+        "Message 8056 — native-needle-8056.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:29",
+        "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
+      ],
+      "following": false,
+      "heapUsed": 48571228,
+      "heapTotal": 51855360,
+      "rendererResidentBytes": 702492672
+    },
+    {
+      "loaded": 6200,
+      "elements": 124036,
+      "drawn": 6200,
+      "top": 1416746,
+      "height": 1417646,
+      "gap": 0,
+      "key": "message-8054",
+      "offset": -79.828125,
+      "text": [
+        "Message 8054 — native-needle-8054.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:27",
+        "AnswerMessage 8055 — native-needle-8055.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:28",
+        "Message 8056 — native-needle-8056.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:29",
+        "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
+      ],
+      "following": false,
+      "heapUsed": 68346516,
+      "heapTotal": 72437760,
+      "rendererResidentBytes": 827506688
+    },
+    {
+      "loaded": 8058,
+      "elements": 161194,
+      "drawn": 8058,
+      "top": 1841484,
+      "height": 1842384,
+      "gap": 0,
+      "key": "message-8054",
+      "offset": -79.765625,
+      "text": [
+        "Message 8054 — native-needle-8054.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:27",
+        "AnswerMessage 8055 — native-needle-8055.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:28",
+        "Message 8056 — native-needle-8056.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:29",
+        "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
+      ],
+      "following": false,
+      "heapUsed": 87160572,
+      "heapTotal": 92098560,
+      "rendererResidentBytes": 942755840
+    }
+  ],
+  "pagingAnchor": {
+    "before": {
+      "loaded": 6200,
+      "elements": 124036,
+      "drawn": 6200,
+      "top": 457008,
+      "height": 1417646,
+      "gap": 959738,
+      "key": "message-3856",
+      "offset": -86.625,
+      "text": [
+        "Message 3856 — native-needle-3856.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n15:29",
+        "ProcessMessage 3857 — native-needle-3857.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n15:30",
+        "Message 3858 — native-needle-3858.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n15:31",
+        "AnswerMessage 3859 — native-needle-3859.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n15:32",
+        "Message 3860 — native-needle-3860.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n15:33"
+      ],
+      "following": false
+    },
+    "after": {
+      "loaded": 6600,
+      "elements": 132038,
+      "drawn": 6600,
+      "top": 548492,
+      "height": 1509129,
+      "gap": 959737,
+      "key": "message-3856",
+      "offset": -86.9375,
+      "text": [
+        "Message 3856 — native-needle-3856.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n15:29",
+        "ProcessMessage 3857 — native-needle-3857.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n15:30",
+        "Message 3858 — native-needle-3858.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n15:31",
+        "AnswerMessage 3859 — native-needle-3859.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n15:32",
+        "Message 3860 — native-needle-3860.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n15:33"
+      ],
+      "following": false
+    }
+  },
+  "fastScroll": [
+    {
+      "top": 76729,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 153457,
+      "visible": 4,
+      "drawn": 8058
+    },
+    {
+      "top": 230186,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 306914,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 383643,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 460371,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 537100,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 613828,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 690557,
+      "visible": 4,
+      "drawn": 8058
+    },
+    {
+      "top": 767285,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 844014,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 920742,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 997471,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1074199,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1150928,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1227656,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1304385,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1381113,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1457842,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1534570,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1611299,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1688027,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1764756,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1841484,
+      "visible": 4,
+      "drawn": 8058
+    },
+    {
+      "top": 0,
+      "visible": 4,
+      "drawn": 8058
+    },
+    {
+      "top": 76729,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 153457,
+      "visible": 4,
+      "drawn": 8058
+    },
+    {
+      "top": 230186,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 306914,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 383643,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 460371,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 537100,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 613828,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 690557,
+      "visible": 4,
+      "drawn": 8058
+    },
+    {
+      "top": 767285,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 844014,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 920742,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 997471,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1074199,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1150928,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1227656,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1304385,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1381113,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1457842,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1534570,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1611299,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1688027,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1764756,
+      "visible": 5,
+      "drawn": 8058
+    },
+    {
+      "top": 1841484,
+      "visible": 4,
+      "drawn": 8058
+    },
+    {
+      "top": 0,
+      "visible": 4,
+      "drawn": 8058
+    }
+  ],
+  "jump": {
+    "loaded": 8058,
+    "elements": 161194,
+    "drawn": 8058,
+    "top": 914236,
+    "height": 1842384,
+    "gap": 927248,
+    "key": "message-3998",
+    "offset": -135.421875,
+    "text": [
+      "Message 3998 — native-needle-3998.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:51",
+      "AnswerMessage 3999 — native-needle-3999.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:52",
+      "Message 4000 — native-needle-4000.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:53",
+      "ProcessMessage 4001 — native-needle-4001.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:54",
+      "Message 4002 — native-needle-4002.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:55"
+    ],
+    "following": false
+  },
+  "wheel": {
+    "loaded": 8058,
+    "elements": 161194,
+    "drawn": 8058,
+    "top": 915836,
+    "height": 1842384,
+    "gap": 925648,
+    "key": "message-4005",
+    "offset": -125.984375,
+    "text": [
+      "ProcessMessage 4005 — native-needle-4005.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:58",
+      "Message 4006 — native-needle-4006.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:59",
+      "AnswerMessage 4007 — native-needle-4007.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n18:00",
+      "Message 4008 — native-needle-4008.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n18:01",
+      "ProcessMessage 4009 — native-needle-4009.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n18:02"
+    ],
+    "following": false
+  },
+  "selectionCopy": {
+    "selected": "The viewport retains the same line lengths and message spacing.\n\n17:58\n\nMessage 4006 — native-needle-4006.",
+    "copied": "The viewport retains the same line lengths and message spacing.\n\n17:58\n\nMessage 4006 — native-needle-4006."
+  },
+  "nativeFind": {
+    "selection": "",
+    "beforematch": 0,
+    "stats": {
+      "loaded": 8058,
+      "elements": 161194,
+      "drawn": 8058,
+      "top": 914155,
+      "height": 1842384,
+      "gap": 927329,
+      "key": "message-3998",
+      "offset": -54.421875,
+      "text": [
+        "Message 3998 — native-needle-3998.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:51",
+        "AnswerMessage 3999 — native-needle-3999.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:52",
+        "Message 4000 — native-needle-4000.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:53",
+        "ProcessMessage 4001 — native-needle-4001.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:54",
+        "Message 4002 — native-needle-4002.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:55"
+      ],
+      "following": false
+    }
+  },
+  "nativeFindRoundTrip": [
+    {
+      "query": "native-needle-4000",
+      "loaded": 8058,
+      "elements": 161194,
+      "drawn": 8058,
+      "top": 914155,
+      "height": 1842384,
+      "gap": 927329,
+      "key": "message-3998",
+      "offset": -54.421875,
+      "text": [
+        "Message 3998 — native-needle-3998.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:51",
+        "AnswerMessage 3999 — native-needle-3999.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:52",
+        "Message 4000 — native-needle-4000.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:53",
+        "ProcessMessage 4001 — native-needle-4001.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:54",
+        "Message 4002 — native-needle-4002.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:55"
+      ],
+      "following": false
+    },
+    {
+      "query": "native-needle-6000",
+      "loaded": 8058,
+      "elements": 161194,
+      "drawn": 8058,
+      "top": 1371430,
+      "height": 1842384,
+      "gap": 470054,
+      "key": "message-5998",
+      "offset": -54.234375,
+      "text": [
+        "Message 5998 — native-needle-5998.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n03:11",
+        "AnswerMessage 5999 — native-needle-5999.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n03:12",
+        "Message 6000 — native-needle-6000.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n03:13",
+        "ProcessMessage 6001 — native-needle-6001.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n03:14",
+        "Message 6002 — native-needle-6002.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n03:15"
+      ],
+      "following": false
+    },
+    {
+      "query": "native-needle-4000",
+      "loaded": 8058,
+      "elements": 161194,
+      "drawn": 8058,
+      "top": 914155,
+      "height": 1842384,
+      "gap": 927329,
+      "key": "message-3998",
+      "offset": -54.421875,
+      "text": [
+        "Message 3998 — native-needle-3998.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:51",
+        "AnswerMessage 3999 — native-needle-3999.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:52",
+        "Message 4000 — native-needle-4000.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:53",
+        "ProcessMessage 4001 — native-needle-4001.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:54",
+        "Message 4002 — native-needle-4002.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:55"
+      ],
+      "following": false
+    }
+  ],
+  "nativeReveal": {
+    "loaded": 8058,
+    "elements": 161194,
+    "drawn": 8058,
+    "top": 914155,
+    "height": 1842384,
+    "gap": 927329,
+    "key": "message-3998",
+    "offset": -54.421875,
+    "text": [
+      "Message 3998 — native-needle-3998.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:51",
+      "AnswerMessage 3999 — native-needle-3999.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:52",
+      "Message 4000 — native-needle-4000.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:53",
+      "ProcessMessage 4001 — native-needle-4001.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:54",
+      "Message 4002 — native-needle-4002.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:55"
+    ],
+    "following": false,
+    "selection": "native-needle-4000"
+  },
+  "emptyFindClose": {
+    "loaded": 8058,
+    "elements": 161194,
+    "drawn": 8058,
+    "top": 914155,
+    "height": 1842384,
+    "gap": 927329,
+    "key": "message-3998",
+    "offset": -54.421875,
+    "text": [
+      "Message 3998 — native-needle-3998.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:51",
+      "AnswerMessage 3999 — native-needle-3999.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:52",
+      "Message 4000 — native-needle-4000.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:53",
+      "ProcessMessage 4001 — native-needle-4001.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:54",
+      "Message 4002 — native-needle-4002.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n17:55"
+    ],
+    "following": false
+  },
+  "keyboardFocus": {
+    "tag": "A",
+    "text": "a link",
+    "row": "message-0"
+  },
+  "errors": []
+}

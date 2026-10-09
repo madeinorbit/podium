@@ -13,6 +13,8 @@ A search/minimap block jump restores the addressed row outside React's commit,
 then the same controller aligns its actual geometry. Restored history does not
 replay the arrival animation. Window updates use the same eager animation-frame
 commit and three-viewport buffer used by POD-5880.
+An addressed jump restores its surrounding buffer before moving the viewport,
+so its first paint contains more than the one addressed row.
 
 Native keyboard Find temporarily mounts all loaded rich rows. The browser needs
 the original text ranges to preserve its match count, highlight and repeated
@@ -45,12 +47,37 @@ native renderer allocations; it is not WKWebView physical footprint. There is
 no native Mac runner available to this lane. The coordinator owns any native
 check after landing, as recorded in the issue mail.
 
-Final paired capture is pending. The completed provisional captures have the
-same 1,842,384px height at 8,058 messages, with 161,194 attached elements before
-and 24,481 after (84.81% fewer). The buffered tail contains 16 rich rows.
-Retained shells, text and loaded data still grow with history; this is a lower
-slope, not a claim of flat whole-process memory. Final memory numbers and the
-complete top-to-bottom-and-back capture will be saved alongside this report.
+The matched production captures on `534eeb6350`, based on pilot `8376e9744b`,
+completed both arms without application errors or budget stops. At 8,058 messages,
+attached elements fall 84.81%, JS heap falls 50.35%, and renderer resident memory
+falls 37.51%. The buffered tail contains 16 rich rows; fast scrolling mounts at
+most 29. Transcript height is exactly equal in all six samples and ends at
+1,842,384px. Retained shells, text and loaded data still grow with history;
+this is a lower slope, not a claim of flat whole-process memory.
+
+| Loaded messages | Elements before / after | JS heap MiB before / after | Renderer RSS MiB before / after |
+| ---: | ---: | ---: | ---: |
+| 200 | 4,028 / 913 | 8.59 / 8.78 | 388.29 / 371.94 |
+| 1,000 | 20,030 / 3,313 | 15.88 / 12.11 | 444.91 / 402.32 |
+| 2,200 | 44,030 / 6,913 | 27.30 / 17.27 | 531.56 / 432.25 |
+| 4,200 | 84,034 / 12,913 | 46.32 / 25.50 | 669.95 / 476.18 |
+| 6,200 | 124,036 / 18,913 | 65.18 / 33.70 | 789.17 / 519.18 |
+| 8,058 | 161,194 / 24,481 | 83.12 / 41.27 | 899.08 / 561.86 |
+
+Both arms have 50 fast-scroll first-paint samples with zero empty viewports.
+The 400-row prepend retains message-3856, with -0.3125px drift before and
+0.6875px after; the shared block jump has exactly the same key and offset.
+Selected and natively copied text is identical across both arms. Native Find
+returns to message 4000 after visiting 6000, commits the same selected word on
+Escape, and leaves 28 rich rows mounted. Closing an empty Find also leaves 28.
+Native Tab reaches the same first message link. The addressed-view screenshots
+show the same line lengths, spacing, controls and scrollbar position.
+
+[Original capture](before.json) and [windowed capture](after.json) contain the
+saved samples and interaction results. The normal memory curve is sampled before
+native Find expands the rows. The Find/scroll/copy run's peak single-process RSS
+was 1,934 MiB before and 1,398 MiB after, so the temporary full-row session is
+visible in the resource evidence and is not represented as buffered memory.
 
 The proof drives real wheel input, native clipboard copy after a selection
 leaves the viewport, and Chrome's actual Find bar on a private Xvfb display.
@@ -63,9 +90,9 @@ the first off-window message control. The screenshot includes Chrome's own
 
 All validation runs on flatblock with checkout-local Bun 1.4.2, `node -> bun`,
 one focused file per run, and the resource guard. Completed focused files have
-15 window tests and 30 scroll tests green; two new stable-shell/layout-order
-regressions await their final run. The preceding feed-motion run had 13 tests
-green. The full typecheck, lean gate, final scan, normal web build, structural
+15 window tests, 33 scroll tests and 13 feed-motion tests green (61 focused tests,
+not a suite result). The largest focused test process was 533 MiB, below the
+3 GiB worker limit. The full typecheck, lean gate, final scan, normal web build, structural
 census and landing belong to POD-5895; none is claimed green for this candidate.
 
 To reproduce after frozen worktree setup on flatblock, use the pinned toolchain

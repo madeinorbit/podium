@@ -40,4 +40,4 @@ $('checks').innerHTML=[['Fast-scroll first paints',`${b.fastScroll.length} sampl
 function show(arm){$('shot').src=images[arm];for(const name of ['before','after'])$(name).setAttribute('aria-pressed',String(name===arm))}
 for(const arm of ['before','after'])$(arm).onclick=()=>show(arm);$('phase').oninput=render;$('metric').onchange=render;$('source').textContent=`Chromium ${a.browser}. Capture source ${a.revision}. Baseline ${a.baseline??'see README'}. Heavy gates and landing are owned by POD-5895.`;render();show('after');
 </script></html>'''
-Path(args.out).write_text(html.replace('__DATA__', json.dumps(data).replace('</', '<\/')).replace('__IMAGES__', json.dumps(images)))
+Path(args.out).write_text(html.replace('__DATA__', json.dumps(data).replace('</', r'<\/')).replace('__IMAGES__', json.dumps(images)))
