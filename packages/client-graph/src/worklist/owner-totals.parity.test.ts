@@ -69,8 +69,13 @@ it('cold/LOADING and absent verdicts retain their old answers without warming ti
   const pool = new MobxPool({ coarseNow: Date.parse(stamp) }, undefined, {
     load: () => undefined, schedule: () => () => {},
   })
-  const cold = session('cold', { archived: true, status: 'exited', lastActiveAt: '2026-01-01T00:00:00Z' })
-  pool.apply({ type: 'replace', rows: [{ kind: 'session', id: 'cold', value: cold as never }] })
+  const old = '2026-01-01T00:00:00Z'
+  const cold = session('cold', { issueId: 'cold-owner', archived: true, status: 'exited', lastActiveAt: old })
+  pool.apply({ type: 'replace', rows: [
+    { kind: 'issue', id: 'cold-owner', value: { id: 'cold-owner', seq: 1, title: 'Cold owner',
+      repoPath: '/synthetic', stage: 'done', closedAt: old, updatedAt: old, createdAt: old } },
+    { kind: 'session', id: 'cold', value: cold as never },
+  ] })
   try {
     const view = worklistView(pool)
     expect(pool.resident('session', 'cold')).toBe('loading')
