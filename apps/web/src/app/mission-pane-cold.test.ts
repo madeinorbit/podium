@@ -3,7 +3,8 @@ import { createPoolProjection, createRuntimeWorklistPool } from '@podium/client-
 import { LOADING } from '@podium/client-graph'
 import { expect, it } from 'vitest'
 import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
-import { missionPaneReader } from '../../../../tests/worklist/harness/src/mission-pane'
+import { MissionScreen } from '@podium/client-graph/mission-screen'
+import { settled } from '@podium/client-graph/mission-view'
 import { poolBackedScreens } from './pool-screens'
 
 it.each([1, 4] as const)('settles a cold production mission at %sx before its first visible pane', async (scale) => {
@@ -11,8 +12,16 @@ it.each([1, 4] as const)('settles a cold production mission at %sx before its fi
   const handle = createRuntimeWorklistPool(ctx.engine, screenOptions(poolBackedScreens, ctx.engine))
   const input = { selectedIssueId: scale === 1 ? 'i1766' : 'i13916', paneA: 's0', paneB: null, split: false,
     mode: 'full' as const, handoff: false }
-  const reader = missionPaneReader(handle.pool)
-  const projection = createPoolProjection(handle.pool, () => reader.read(input))
+  const screen = new MissionScreen(handle.pool, input.selectedIssueId, { development: true })
+  screen.open()
+  // The deleted reader returned a lazy deck once its opening boundary was
+  // ready. Preserve that question; rich fields load in their small observers.
+  const projection = createPoolProjection(handle.pool, () => {
+    if (!screen.ready) return LOADING
+    for (const id of [input.paneA, input.split ? input.paneB : null])
+      if (id && settled(() => handle.pool.sessionObject(id).exists) === LOADING) return LOADING
+    return screen
+  })
   const stop = projection.subscribe(() => {})
   let pane = projection.getSnapshot()
   try {
@@ -30,10 +39,10 @@ it.each([1, 4] as const)('settles a cold production mission at %sx before its fi
     console.info('[mission cold batches]', JSON.stringify({ scale, batches }))
     expect(batches.filter(Boolean).length, `cold loader batches: ${batches.join(', ')}`).toBeLessThanOrEqual(4)
     if (pane === LOADING) throw new Error('Cold mission did not settle')
-    expect(pane.root).toBe(input.selectedIssueId)
-    expect('bands' in pane && pane.bands.length).toBeGreaterThan(0)
+    expect(pane.reader.issue(pane.rootId)).toMatchObject({ id: input.selectedIssueId })
+    expect(pane.rows.length).toBeGreaterThan(0)
   } finally {
-    reader.dispose()
+    screen.close()
     stop()
     projection.dispose()
     handle.dispose()
