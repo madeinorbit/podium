@@ -83,6 +83,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
         const box = await page.locator(selector).boundingBox()
         if (!box || box.x < 0 || box.x + box.width > (fixture.startsWith('phone') ? 390 : 1600)) continue
         const tag = `${fixture}-${variant}-${candidate.index}`
+        if (process.argv.includes('--prepare-scroll')) await page.addStyleTag({ content: `${selector} { will-change: scroll-position; }` })
         if (process.argv.includes('--paint-buffer')) await page.addStyleTag({ content: `${selector} [data-window-row], ${selector} > div > div { contain: layout paint; will-change: transform; }` })
         await page.locator(selector).evaluate(el => { el.scrollTop = 0 })
         await page.waitForTimeout(250)
