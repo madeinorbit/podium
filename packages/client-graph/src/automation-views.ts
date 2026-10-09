@@ -16,7 +16,7 @@ export const EMPTY_EXCLUSIONS: TargetExclusions = { unauthorized: 0, unreachable
 /** Value reads always use pool.row. Memos live only while observed. Catalog
  * relations cover resident definitions/runs, and cold sessions contribute only
  * the existing declared summary. This layer owns no runtime or mutations. */
-function createAutomationViews(pool: MobxPool) {
+export function createAutomationViews(pool: MobxPool) {
   const targetViews = createAutomationTargets(pool)
   // Summaries build fresh arrays/records; equal answers must not wake consumers.
   const cache = keyedComputed(

@@ -296,7 +296,7 @@ const byId = (a: string, b: string): number => (a < b ? -1 : a > b ? 1 : 0)
 
 /** Presentation helpers preserve the existing vocabulary. Every fact fed to
  * them comes through this pool's one reader and its declared relationships. */
-function createIssuePageViews(pool: MobxPool) {
+export function createIssuePageViews(pool: MobxPool) {
   // Explicit menu/explorer catalogs keep their existing lifetime and comparison.
   const cache = keyedComputed(
     (key: string) => `IssuePage@${key}`,
