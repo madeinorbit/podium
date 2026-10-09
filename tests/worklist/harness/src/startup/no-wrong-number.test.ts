@@ -23,6 +23,7 @@ import {
 } from './no-wrong-number'
 import { collectGarbage, fullPool, openStartupFeed, partialPool, type StartupFeed } from './startup-states'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { MobxPool } from '@podium/client-graph/pool'
 
 let feed: StartupFeed
 let questions: ReturnType<typeof startupQuestions>
@@ -38,6 +39,31 @@ beforeAll(async () => {
 }, 600_000)
 
 describe('the check itself', () => {
+  it('asks a selected parent for its mission root progress, with zero for an invisible root', () => {
+    const stamp = '2026-10-01T12:00:00Z'
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+    const rows = [
+      ['root', null, 'in_progress', false],
+      ['branch', 'root', 'in_progress', false],
+      ['leaf', 'branch', 'done', false],
+      ['sibling', 'root', 'review', false],
+      ['hidden', null, 'done', true],
+    ] as const
+    pool.apply({ type: 'replace', rows: rows.map(([id, parentId, stage, archived]) => ({
+      kind: 'issue', id, value: { id, parentId, stage, archived, title: id, seq: 1,
+        deps: [], createdAt: stamp, updatedAt: stamp, readAt: stamp },
+    })) })
+    try {
+      const answers = ask(pool, startupQuestions({ roots: [], parents: ['branch', 'hidden'], needles: [] }))
+      expect(answers.get('closed-children:mission:branch')).toEqual({
+        total: 3, done: 1, review: 1, stall: 1, run: 0, block: 0, wait: 0,
+      })
+      expect(answers.get('closed-children:mission:hidden')).toEqual({
+        total: 0, done: 0, review: 0, stall: 0, run: 0, block: 0, wait: 0,
+      })
+    } finally { pool.dispose() }
+  })
+
   it('accepts equal and LOADING, flags anything else, refuses an unsettled control', () => {
     const expected = new Map<string, unknown>([['counts:a', 3], ['search:b', ['x']], ['counts:c', 1]])
     const report = checkNoWrongNumber(expected, new Map<string, unknown>([['counts:a', 3], ['search:b', LOADING], ['counts:c', 0]]))

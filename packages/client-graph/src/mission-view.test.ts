@@ -174,6 +174,24 @@ it('passes an unloaded child through its own and every ancestor rollup', () => {
   } finally { stop() }
 })
 
+it('a standalone progress read batches cold siblings without preparing their display fields', () => {
+  const children = Array.from({ length: 32 }, (_, index) => issue(`child-${index}`, {
+    ...coldRoot(), id: `child-${index}`, parentId: 'root',
+  }))
+  const { pool, load, reader } = open([issue('root'), ...children], [])
+  const display = vi.spyOn(reader, 'readIssue')
+  let result: unknown
+  const stop = autorun(() => { result = reader.deck('root').progress })
+  try {
+    expect(result).toBe(LOADING)
+    expect(load).not.toHaveBeenCalled()
+    expect(pool.hydrate()).toBe(children.length)
+    expect(result).toMatchObject({ total: children.length, done: children.length })
+    expect(pool.hydrate()).toBe(0)
+    expect(display).not.toHaveBeenCalled()
+  } finally { stop() }
+})
+
 it('keeps crew presentation unobserved when a hidden row asks only for its collapsed task count', () => {
   const { reader } = open([issue('root'), issue('child', { parentId: 'root' })], [
     session('crew', 'child', { archived: false, status: 'live' }),

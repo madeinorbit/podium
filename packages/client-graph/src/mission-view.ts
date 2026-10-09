@@ -433,16 +433,24 @@ export class MissionDeckIssueModel implements FlightDeckRow {
 
 const progress = ((deck: MissionDeckModel): MissionProgress | typeof LOADING => settled(() => {
   const { view } = deck, members = requireLoaded(deck.members)
+  const scope: string[] = []
+  let pending = false
+  // Progress is also read without the pane's topology. Request every member's
+  // visibility together so cold siblings do not load one per scalar read.
+  for (const id of members) {
+    const visible = settled(() => view.facts(id).visible)
+    if (visible === LOADING) pending = true
+    else if (visible) scope.push(id)
+  }
+  if (pending) return LOADING
   const formal = new Set<string>(), stack = [...view.pool.graph.many('issue', deck.id, 'children')]
   while (stack.length) {
     const id = stack.pop()!
     if (id === deck.id || formal.has(id) || !view.facts(id).visible) continue
     formal.add(id); stack.push(...view.pool.graph.many('issue', id, 'children'))
   }
-  const scope = [...members].filter(id => view.facts(id).visible)
   // Progress needs staffing throughout this formal scope. Observe every
   // required crew before propagating LOADING instead of loading one per frame.
-  let pending = false
   for (const id of scope) if (settled(() => view.facts(id).live) === LOADING) pending = true
   if (pending) return LOADING
   const accepted = scope.filter(id => formal.has(id) && view.facts(id).stage !== 'proposed' && !issueAbandoned(view.facts(id)))

@@ -179,7 +179,10 @@ export function startupQuestions(targets: StartupTargets): StartupQuestion[] {
       return { childCount: model.childCount, childDoneCount: model.childDoneCount }
     })
     add('closed-children', `mission:${id}`, (pool) => {
-      return missionView(pool).deck(id, 'full').progress
+      const view = missionView(pool), root = view.selectedRoot(id)
+      if (root === LOADING) return LOADING
+      return root ? view.deck(root.id, 'full').progress
+        : { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
     })
     add('closed-children', `board-card:${id}`, (pool) => {
       const card = board(pool).issue(id)
