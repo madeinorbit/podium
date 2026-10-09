@@ -21,6 +21,10 @@ args = parser.parse_args()
 upstream = urlsplit(args.upstream)
 assert upstream.scheme == 'https' and upstream.hostname == 'ludovico.shetland-banjo.ts.net'
 stamp = json.loads((args.web / 'podium-build.json').read_text())
+tls = ssl.create_default_context()
+# The runner's default OpenSSL handshake times out on this route; this verified
+# certificate/ECDHE context reaches the same endpoint as macOS curl.
+tls.set_ecdh_curve('prime256v1')
 routes = ('/health', '/version', '/trpc', '/sync', '/files', '/setup', '/auth', '/client', '/daemon', '/mobile')
 hop = {'connection', 'transfer-encoding', 'keep-alive', 'host', 'upgrade'}
 
@@ -45,7 +49,7 @@ class Handler(SimpleHTTPRequestHandler):
             super().do_GET()
 
     def proxy(self):
-        conn = http.client.HTTPSConnection(upstream.hostname, upstream.port, timeout=90)
+        conn = http.client.HTTPSConnection(upstream.hostname, upstream.port, timeout=30, context=tls)
         try:
             headers = {k:v for k,v in self.headers.items() if k.lower() not in hop}
             headers['Host'] = upstream.netloc
@@ -77,7 +81,7 @@ class Handler(SimpleHTTPRequestHandler):
             conn.close()
 
     def websocket(self):
-        remote = ssl.create_default_context().wrap_socket(socket.create_connection((upstream.hostname, upstream.port), timeout=30), server_hostname=upstream.hostname)
+        remote = tls.wrap_socket(socket.create_connection((upstream.hostname, upstream.port), timeout=30), server_hostname=upstream.hostname)
         try:
             lines = [f'{self.command} {self.path} HTTP/1.1', f'Host: {upstream.netloc}']
             lines += [f'{k}: {v}' for k,v in self.headers.items() if k.lower() != 'host']

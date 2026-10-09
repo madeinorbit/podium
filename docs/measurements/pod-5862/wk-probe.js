@@ -1,5 +1,9 @@
 // Counters and normal navigation/history controls only. Never exports text/IDs.
-window.__memoryWK={errors:0,selected:false};
+window.__memoryWK={errors:0,selected:false,health:{},listenerAdds:0,listenerRemoves:0};
+for(const [method,key] of [['addEventListener','listenerAdds'],['removeEventListener','listenerRemoves']]){
+  const original=EventTarget.prototype[method];
+  EventTarget.prototype[method]=function(...args){window.__memoryWK[key]++;return original.apply(this,args)};
+}
 addEventListener('error',()=>window.__memoryWK.errors++);
 addEventListener('unhandledrejection',()=>window.__memoryWK.errors++);
 window.__memoryWK.find=function(){
@@ -25,7 +29,9 @@ window.__memoryWK.find=function(){
   return !!pool&&!!runtime;
 };
 window.__memoryWK.sample=function(minute){
-  const p=window.__memoryWK;p.find();
+  const p=window.__memoryWK;if(!p.pool?.deref()||!p.runtime?.deref())p.find();
+  if(!p.probing){p.probing=true;fetch('/auth/status').then(r=>r.json()).then(v=>p.health={authed:v.authed,needsAuth:v.needsAuth,ready:v.readiness?.state}).catch(()=>p.health={fetchFailed:true}).finally(()=>p.probing=false)}
+  navigator.storage?.estimate().then(v=>p.storage={usageBytes:v.usage,quotaBytes:v.quota});
   const pool=p.pool?.deref(),runtime=p.runtime?.deref();
   let action=null;
   if(!p.selected&&pool){
@@ -49,5 +55,6 @@ window.__memoryWK.sample=function(minute){
   }
   return {minute,at:new Date().toISOString(),action,selected:p.selected,errors:p.errors,elements:document.querySelectorAll('*').length,
     workScroll:!!document.querySelector('[data-testid=work-scroll]'),canvas:document.querySelectorAll('canvas').length,
-    animations:document.getAnimations().length,owners,cacheEntries:cache?.entries.size,warmEntries:cache?.warm.size,visibility:document.visibilityState};
+    animations:document.getAnimations().length,owners,cacheEntries:cache?.entries.size,warmEntries:cache?.warm.size,visibility:document.visibilityState,
+    health:p.health,storage:p.storage,jsHeapBytes:performance.memory?.usedJSHeapSize??null,listenerAdds:p.listenerAdds,listenerRemoves:p.listenerRemoves,passwordInputs:document.querySelectorAll('input[type=password]').length};
 };

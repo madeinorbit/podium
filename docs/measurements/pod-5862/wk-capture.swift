@@ -9,6 +9,9 @@ final class Capture: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     var timer: Timer?
     var minute = -1
     var busy = false
+    var navigationFinished = false
+    var navigationError: Int?
+    var attributed = false
     let args = CommandLine.arguments
     var root: URL { URL(fileURLWithPath: args[2], isDirectory: true) }
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -28,21 +31,36 @@ final class Capture: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         let url = URL(string: args[1])!
         let token = readLine() ?? ""
         guard !token.isEmpty else { NSApp.terminate(nil); return }
-        let cookie = HTTPCookie(properties: [.name:"podium_session",.value:token,.domain:url.host!,.path:"/",.secure:url.scheme == "https" ? "TRUE" : "FALSE"])!
-        config.websiteDataStore.httpCookieStore.setCookie(cookie) { self.web.load(URLRequest(url: url)) }
+        var properties: [HTTPCookiePropertyKey:Any] = [.name:"podium_session",.value:token,.domain:url.host!,.path:"/"]
+        if url.scheme == "https" { properties[.secure] = "TRUE" }
+        let cookie = HTTPCookie(properties: properties)!
+        config.websiteDataStore.httpCookieStore.setCookie(cookie) {
+            print("{\"event\":\"cookie-set\",\"secure\":\(cookie.isSecure)}"); fflush(stdout)
+            self.web.load(URLRequest(url: url))
+        }
         let owned = "{\"pid\":\(ProcessInfo.processInfo.processIdentifier),\"nonpersistent\":true}"
         try! owned.write(to: root.appendingPathComponent("owned-app.json"), atomically: true, encoding: .utf8)
-    }
-    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
-        if timer != nil { return }
         timer = Timer.scheduledTimer(withTimeInterval: 45, repeats: false) { _ in
             self.sample()
             self.timer = Timer.scheduledTimer(withTimeInterval: 60, repeats: true) { _ in self.sample() }
         }
     }
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) { navigationFinished = true }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) { navigationError = (error as NSError).code }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) { navigationError = (error as NSError).code }
     func sample() {
         if busy { return }
         busy = true
+        if !attributed {
+            attributed = true
+            print("{\"event\":\"attribution-start\"}"); fflush(stdout)
+            web.evaluateJavaScript("const until=performance.now()+2500;let n=0;while(performance.now()<until)n+=Math.sqrt(n+1);n") { _, _ in
+                print("{\"event\":\"attribution-end\"}"); fflush(stdout)
+                self.busy = false
+                self.sample()
+            }
+            return
+        }
         minute += 1
         let script = "JSON.stringify(window.__memoryWK.sample(\(minute)))"
         web.evaluateJavaScript(script) { result, error in
@@ -53,7 +71,7 @@ final class Capture: NSObject, NSApplicationDelegate, WKNavigationDelegate {
                 print(value)
                 fflush(stdout)
             } else {
-                print("{\"event\":\"probe-error\",\"minute\":\(self.minute)}")
+                print("{\"event\":\"probe-error\",\"minute\":\(self.minute),\"loading\":\(self.web.isLoading),\"navigationFinished\":\(self.navigationFinished),\"navigationError\":\(self.navigationError.map(String.init) ?? "null")}")
                 fflush(stdout)
             }
             if self.minute >= Int(self.args[4])! {
