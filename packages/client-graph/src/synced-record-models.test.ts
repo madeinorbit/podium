@@ -1,20 +1,34 @@
 import { EMPTY_PENDING } from '../../../tests/worklist/shared/src/row-source'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { machineViewsFromWire } from '@podium/client-core/values'
-import type { MachineWire } from '@podium/model'
+import { AutomationRunWire, AutomationWire, MachineProjection, MachineWire } from '@podium/model'
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { createWorklistPool } from './create'
 import { headerEntities } from './header-entities'
 import { automationViews } from './automation-views'
 import { workflowMachines } from './workflow-views'
+import { shellViews } from './shell-views'
+import { SCHEMA } from './shared/schema'
 import { here, isGone, requireHere } from './lookup'
 import { fixedLocals } from './shared/locals-source'
 import { createRowSource } from './shared/row-source'
 
 const stamp = '2026-10-09T12:00:00Z'
-const machine = { id: 'host', name: 'Workstation', hostname: 'synthetic', online: true,
+const machine = { ...MachineWire.parse({ id: 'host', name: 'Workstation', hostname: 'synthetic', online: true,
   lastSeenAt: stamp, use: 'granted', updateChannelOverride: null, targetVersion: '1.0',
+  revokedAt: null, supersededBy: null, supersedable: true, owned: true, transferable: true,
+  unowned: false, adoptable: false, podiumManaged: true,
+  presenceSource: 'supervisor', serviceAssignment: { server: false, agentExecution: true },
+  services: { server: { policy: 'disabled', state: 'stopped', observedAt: stamp },
+    agentExecution: { policy: 'enabled', state: 'available', observedAt: stamp } },
+  availability: { epoch: 'synthetic', server: false, daemon: true, supervisor: true },
+  daemonReadiness: { state: 'ready', reason: 'Synthetic fixture', quarantinedBindings: 0 },
+  components: ['daemon'], inventory: { os: 'linux', arch: 'x64', agents: [], tools: [] },
+  harnessVersions: [{ harness: 'codex', version: '1.0', firstSeen: stamp, lastSeen: stamp }],
+  deliveryCaps: ['synthetic'], serverMoveEligibility: { eligible: true },
+  updateChannel: 'stable', appVersion: '1.0', wireSchemaDigest: 'synthetic', installKind: 'source',
+  buildReportedAt: stamp, versionState: 'current', targetUnavailableReason: null }),
   loggedOutHarnesses: ['codex'] }
 const automation = { id: 'scheduled', name: 'Daily task', enabled: true, repoPath: '/synthetic',
   scheduleKind: 'cron', cron: '0 9 * * *', runAt: null, targetSessionId: null,
@@ -60,6 +74,11 @@ it('schema-installed model fields preserve every old wire answer on the same fix
   const f = fixture()
   try {
     for (const [entity, , row] of examples) {
+      const wireFields = entity === 'machine'
+        ? [...new Set([...Object.keys(MachineWire.shape), ...Object.keys(MachineProjection.shape)])]
+        : Object.keys((entity === 'automation' ? AutomationWire : AutomationRunWire).shape)
+      expect(Object.keys(SCHEMA[entity].fields).sort()).toEqual(wireFields.sort())
+      expect(Object.keys(row).sort()).toEqual(wireFields.sort())
       const model = requireHere(f.pool.model(entity, row.id))
       if (process.env.PODIUM_RECORD_NEGATIVE_CONTROL && entity === 'machine')
         Object.defineProperty(model, 'name', { value: 'Wrong answer' })
@@ -106,7 +125,7 @@ it('live machine presence and replicated facts share one model across replacemen
   } finally { f.dispose() }
 })
 
-it('workflow placement, automation definitions, history runs and session links read the shared identities', () => {
+it('machine settings, workflow placement, automations, runs and session links read the shared identities', () => {
   const f = fixture()
   try {
     const placement = workflowMachines(f.pool)
@@ -115,11 +134,14 @@ it('workflow placement, automation definitions, history runs and session links r
       name: view.machine.name, grants: view.grants, availability: view.availability }))
     expect(values(placement.views)).toEqual(values(oldPlacement))
     expect(placement.views[0]!.machine).toBe(f.pool.model('machine', 'host'))
+    const settingsMachines = shellViews(f.pool).machines()
+    expect(settingsMachines[0]).toBe(f.pool.model('machine', 'host'))
     expect(automationViews(f.pool).list().automations[0]).toBe(f.pool.model('automation', 'scheduled'))
     expect(automationViews(f.pool).run('fire')).toBe(f.pool.model('automationRun', 'fire'))
     expect(automationViews(f.pool).session('seat')).toBe(f.pool.model('session', 'seat'))
     f.publish('machines', 'host', { ...machine, name: 'Renamed host', online: false })
     expect(placement.views[0]!.machine.name).toBe('Renamed host')
+    expect(settingsMachines[0]!.name).toBe('Renamed host')
     expect(values(workflowMachines(f.pool).views)).toEqual(values(machineViewsFromWire([{ ...machine, name: 'Renamed host', online: false } as unknown as MachineWire])))
   } finally { f.dispose() }
 })
