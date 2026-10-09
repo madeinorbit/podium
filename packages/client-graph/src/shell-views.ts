@@ -1,4 +1,4 @@
-import { omitGone } from './lookup'
+import { here, omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 import { companion, keyedComputed, lazy } from '@podium/mobx-helpers'
 import type { Store } from '@podium/client-core/engine'
@@ -120,7 +120,7 @@ export class ShellDockSession {
   constructor(readonly session: SessionModel, private readonly pool: MobxPool) {}
   @lazy get known(): Loaded<boolean> {
     if (this.pool.queries.collapsed(this.session.id)) return undefined
-    const row = this.pool.row('session', this.session.id, 'summary-fields')
+    const row = omitGone(this.pool.row('session', this.session.id, 'summary-fields'))
     return row === LOADING ? LOADING : row ? true : undefined
   }
 }
@@ -135,7 +135,7 @@ export class ShellDock {
   constructor(private readonly pool: MobxPool, private readonly files: () => Loaded<ShellRows['shellFile'][]>) {}
 
   @lazy private get paneA(): Loaded<string | null> {
-    const state = this.pool.row('shellWindow', 'window')
+    const state = omitGone(this.pool.row('shellWindow', 'window'))
     return !state || state === LOADING ? LOADING : state.paneA
   }
   @lazy private get selectedFile(): Loaded<ShellRows['shellFile']> {
@@ -258,7 +258,7 @@ function createShellViews(pool: MobxPool) {
     if (!value) return undefined
     const input = value as unknown as Record<string, unknown>,
       repoId = input.repoId as string | undefined
-    const repo = repoId ? (omitGone(pool.row('repo', repoId)) as { prefix?: string } | undefined) : undefined
+    const repo = repoId ? (here(pool.row('repo', repoId)) as { prefix?: string } | undefined) : undefined
     const prefix = repo?.prefix
     return {
       ...(full ? input : Object.fromEntries(SHELL_SUMMARIES.issue.map((key) => [key, input[key]]))),
@@ -309,7 +309,7 @@ function createShellViews(pool: MobxPool) {
   function repositories(): HeaderRows['repository'][] {
     return memo('repositories', () =>
       headerIds(pool, 'repository').flatMap((id) => {
-        const value = omitGone(pool.row('repository', id)) as HeaderRows['repository'] | undefined
+        const value = here(pool.row('repository', id)) as HeaderRows['repository'] | undefined
         return value ? [value] : []
       }),
     )
@@ -317,7 +317,7 @@ function createShellViews(pool: MobxPool) {
   function machines(): Store['machines'] {
     return memo('machines', () =>
       headerIds(pool, 'machine').flatMap((id) => {
-        const value = omitGone(pool.row('machine', id)) as HeaderRows['machine'] | undefined
+        const value = here(pool.row('machine', id)) as HeaderRows['machine'] | undefined
         return value ? [value] : []
       }),
     )
@@ -325,7 +325,7 @@ function createShellViews(pool: MobxPool) {
   function orders(): HeaderRows['shipOrder'][] {
     return memo('orders', () =>
       headerIds(pool, 'shipOrder').flatMap((id) => {
-        const row = omitGone(pool.row('shipOrder', id)) as HeaderRows['shipOrder'] | undefined
+        const row = here(pool.row('shipOrder', id)) as HeaderRows['shipOrder'] | undefined
         return row ? [row] : []
       }),
     )

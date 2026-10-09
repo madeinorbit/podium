@@ -1,7 +1,8 @@
+import { omitGone } from './lookup'
 import { worklistView } from './worklist/view-model'
 import type { SessionView } from '@podium/client-core/session-values'
 import { companion, lazy } from '@podium/mobx-helpers'
-import { asIssueId, type IssueId, machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
+import { asIssueId, type IssueId, type MachineWire, machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
 import type { IssueModel, SessionModel } from './models'
 import type { MobxPool } from './pool'
 import type { SessionPaneRows } from './session-pane-schema'
@@ -19,14 +20,14 @@ export class PaneSession {
   /** The loaded display row is here (`LOADING` while its batched load runs).
    * One row read; an equal answer stops a heartbeat at this field. */
   @lazy get present(): Loaded<boolean> {
-    const row = this.pool.row('session', this.session.id)
+    const row = omitGone(this.pool.row('session', this.session.id))
     return row === LOADING ? LOADING : row !== undefined
   }
   /** Explicit attachment wins. Checkout candidates are reached through the
    * schema's existing inverse buckets, never a scan or a separate ownership map.
    * These are the same exact slash boundaries the old pane tested. */
   @lazy get stampIssue(): Loaded<IssueModel> {
-    if (this.present !== true) return undefined
+    if (this.present !== true) return this.present === LOADING ? LOADING : undefined
     const { issueId, cwd } = this.session
     if (issueId) {
       const attached = eligiblePaneIssue(this.pool, issueId)
@@ -49,8 +50,8 @@ export class PaneSession {
   }
 
   private loadedIssue(id: string): Loaded<IssueModel> {
-    const row = this.pool.row('issue', id)
-    return row === LOADING ? LOADING : row ? this.pool.issueObject(id) : undefined
+    // A gone attachment is omitted; a pending payload keeps the stamp loading.
+    return omitGone(this.pool.model('issue', id))
   }
 }
 

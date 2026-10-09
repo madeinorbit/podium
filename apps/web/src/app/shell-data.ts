@@ -1,4 +1,4 @@
-import { omitGone } from '@podium/client-graph/lookup'
+import { here } from '@podium/client-graph/lookup'
 import { allowImperativeRead, assertReactiveRead } from '@podium/mobx-helpers'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -77,8 +77,7 @@ export function useShellShipping() {
 export function useShellWindow() {
   if (import.meta.env.DEV) assertReactiveRead('useShellWindow')
   const pool = useWorklistPool()
-  const value = omitGone(pool?.row('shellWindow', 'window'))
-  return value === LOADING ? undefined : value
+  return pool ? here(pool.row('shellWindow', 'window')) : undefined
 }
 export function useShellApprovals() {
   if (import.meta.env.DEV) assertReactiveRead('useShellApprovals')

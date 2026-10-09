@@ -1,4 +1,4 @@
-import { omitGone } from './lookup'
+import { here, omitGone } from './lookup'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MachineWire } from '@podium/model/browser'
 import { headerIds } from './enumerate'
@@ -14,7 +14,7 @@ export function paneWindow(pool: MobxPool): Loaded<SessionPaneRows['sessionPaneW
 }
 export function paneMachines(pool: MobxPool): MachineWire[] {
   return headerIds(pool, 'machine').flatMap(id => {
-    const row = omitGone(pool.row('machine', id)) as MachineWire | undefined
+    const row = here(pool.row('machine', id)) as MachineWire | undefined
     return row ? [row] : []
   })
 }

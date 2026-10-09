@@ -1,3 +1,4 @@
+import { omitGone, requireHere } from './lookup'
 import { headerEntities } from './header-entities'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { ActiveWorktree } from '@podium/client-core/values'
@@ -5,7 +6,7 @@ import type { RepoId } from '@podium/model/browser'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asSessionId, machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
 import { autorun } from 'mobx'
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { shellFixture } from '../../../tests/worklist/diagnostics/shell-fixture'
 import { sessionPaneFixture, SESSION_PANE_NOW } from '../../../tests/worklist/diagnostics/session-pane-fixture'
 import { measureWork } from '../../../tests/worklist/harness/src/work-meter'
@@ -23,7 +24,7 @@ import { LOADING, type Loaded } from './worklist/rollup'
 /** The removed pane reader, verbatim (POD-5878): it took the whole session row. */
 function paneStampIssue(pool: MobxPool, session: SessionView | undefined) {
   const eligible = (id: string) => {
-    const summary = pool.row('issue', id, 'summary') as { archived?: boolean; deletedAt?: string | null } | undefined | typeof LOADING
+    const summary = omitGone(pool.row('issue', id, 'summary')) as { archived?: boolean; deletedAt?: string | null } | undefined | typeof LOADING
     if (summary === LOADING) return LOADING
     return summary && !summary.archived && !summary.deletedAt ? summary : undefined
   }
@@ -31,7 +32,7 @@ function paneStampIssue(pool: MobxPool, session: SessionView | undefined) {
   if (session.issueId) {
     const attached = eligible(session.issueId)
     if (attached === LOADING) return LOADING
-    if (attached) return pool.row('issue', session.issueId) as { id: string } | undefined | typeof LOADING
+    if (attached) return omitGone(pool.row('issue', session.issueId)) as { id: string } | undefined | typeof LOADING
   }
   const paths = machinePathSeparator(session.cwd) === '\\' ? machinePathAncestors(session.cwd) : [session.cwd]
   if (machinePathSeparator(session.cwd) === '/') for (let at = session.cwd.lastIndexOf('/'); at >= 0; at = session.cwd.lastIndexOf('/', at - 1)) {
@@ -42,7 +43,7 @@ function paneStampIssue(pool: MobxPool, session: SessionView | undefined) {
     for (const id of pool.relations.many('worktree', path, 'issues')) {
       const candidate = eligible(id)
       if (candidate === LOADING) return LOADING
-      if (candidate) return pool.row('issue', id) as { id: string } | undefined | typeof LOADING
+      if (candidate) return omitGone(pool.row('issue', id)) as { id: string } | undefined | typeof LOADING
     }
   }
   return undefined
@@ -349,4 +350,41 @@ it('keeps selected-issue ownership and inherited tint equal and live through the
       value: { ...f.issues[1]!, archived: true } }] as never })
     expect(panes.issueHex(hex)).toBeUndefined()
   } finally { stop(); f.pool.dispose() }
+})
+
+
+it('omits gone pane sessions and attachments while preserving a pending stamp and dock lookup', () => {
+  const base = sessionPaneFixture()[0]!
+  const sessions = [
+    { ...base, sessionId: asSessionId('pane'), issueId: 'private-issue', cwd: '/elsewhere' },
+    { ...base, sessionId: asSessionId('gone-attachment'), issueId: 'removed-issue', cwd: '/elsewhere' },
+  ]
+  const exits = new Set(['removed-session', 'removed-issue'])
+  const load = vi.fn((_entity: string, _id: string) => undefined)
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: SESSION_PANE_NOW }, undefined, {
+    load, schedule: () => () => {}, exitKind: (_entity, id) => exits.has(id) ? 'removed' : undefined,
+  })
+  pool.apply({ type: 'replace', rows: sessions.map(value => ({ kind: 'session', id: value.sessionId, value })) as never })
+  const panes = sessionPaneView(pool)
+  try {
+    const removed = panes.pane(pool.sessionObject('removed-session'))
+    expect(removed.present).toBe(false)
+    expect(panes.loaded('removed-session')).toBeUndefined()
+    expect(removed.stampIssue).toBeUndefined()
+    expect(panes.loaded('gone-attachment')!.stampIssue).toBeUndefined()
+    const pane = panes.pane(requireHere(pool.model('session', 'pane')))
+    expect(pane.present).toBe(true)
+    expect(pane.stampIssue).toBe(LOADING)
+    expect(panes.pane(pool.sessionObject('private-session')).present).toBe(LOADING)
+    const dock = shellViews(pool).dock
+    expect(dock.gitIssue).toBe(LOADING)
+    expect(pool.hydrate()).toBe(2)
+    expect(pane.stampIssue).toBeUndefined()
+    expect(panes.loaded('private-session')).toBeUndefined()
+    expect(dock.gitIssue).toBeUndefined()
+    expect(pool.hydrate()).toBe(0)
+    expect(load).toHaveBeenCalledTimes(2)
+    expect(load.mock.calls.flat()).not.toContain('removed-session')
+    expect(load.mock.calls.flat()).not.toContain('removed-issue')
+  } finally { pool.dispose() }
 })
