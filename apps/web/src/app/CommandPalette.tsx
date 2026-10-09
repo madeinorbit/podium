@@ -966,8 +966,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
 
 /** The one yellow thing in the palette: what Enter will do, on the row it will
  *  do it to. Reserved space on every row so the hint column never jitters as
- *  the highlight moves. *})
-
+ *  the highlight moves. */
 function PaletteEnterCap(): JSX.Element {
   return (
     <span className="cmdk-row-cap" aria-hidden="true">
