@@ -1,5 +1,5 @@
 import { MobileConversation } from '../lib/mobile-conversation'
-import { sessionPaneView } from '@podium/client-graph/session-pane'
+import { loadedPaneSession } from '@podium/client-graph/session-pane'
 import { hubConnection, PHONE_WARM_CONVERSATIONS } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
 import { REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
@@ -43,7 +43,7 @@ export function useThreadConversation(
       drafts,
       headless: true,
       streamSessionId: readSid,
-      readSession: () => (pool ? sessionPaneView(pool).session(readSid()) : undefined),
+      readSession: () => (pool ? loadedPaneSession(pool, readSid()) : undefined),
       readTurnRunning: () => (pool ? superagentState(pool).active?.turnRunning : undefined),
       initialTurnRunning: pool ? superagentState(pool).active?.turnRunning : false,
       hub: owner.hub,

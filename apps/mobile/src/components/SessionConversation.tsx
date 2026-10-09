@@ -1,5 +1,5 @@
 import { MobileConversation } from '../lib/mobile-conversation'
-import { sessionPaneView } from '@podium/client-graph/session-pane'
+import { loadedPaneSession } from '@podium/client-graph/session-pane'
 import {
   type Conversation,
   PHONE_WARM_CONVERSATIONS,
@@ -205,7 +205,7 @@ export function SessionConversation(
     (drafts) => new MobileConversation({
       sessionId,
       drafts,
-      readSession: () => (pool ? sessionPaneView(pool).session(sessionId) : undefined),
+      readSession: () => (pool ? loadedPaneSession(pool, sessionId) : undefined),
       hub: owner.hub,
       connection: hubConnection(owner.hub),
       scheduler: {
@@ -292,7 +292,7 @@ export function SessionConversation(
             .then((answer) => answer.records),
         deliver: async (turn) => {
           try {
-            const session = (pool ? sessionPaneView(pool).session(sessionId) : undefined)
+            const session = (pool ? loadedPaneSession(pool, sessionId) : undefined)
             const composer = composerState({
               session: session ?? props.session,
               headless: false,
