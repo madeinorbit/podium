@@ -192,7 +192,7 @@ it('keeps only the buffer drawn across repeated native Find jumps without duplic
 })
 
 it('preserves native Find ranges for its session, then returns to the buffer around the committed selection', () => {
-  vi.useFakeTimers()
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   act(() => root.render(<Fixture key="native-find" count={100} />))
   act(() => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true })))
   act(() => vi.runAllTimers())
@@ -210,7 +210,7 @@ it('preserves native Find ranges for its session, then returns to the buffer aro
 })
 
 it('leaves app-handled Find in the buffer and releases an empty native Find on Escape', () => {
-  vi.useFakeTimers()
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout'] })
   act(() => root.render(<Fixture key="empty-find" count={100} />))
   const handled = new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true, cancelable: true })
   const prevent = (event: KeyboardEvent) => event.preventDefault()
