@@ -101,7 +101,7 @@ export function useTranscriptWindow(
       if (show === entry.mounted) continue
       if (!show) {
         entry.height = entry.node.getBoundingClientRect().height
-        entry.text = entry.node.innerText
+        entry.text = entry.node.innerText ?? entry.node.textContent ?? ''
       }
       entry.mounted = show
       if (show) mounted.current.add(key)
@@ -221,8 +221,8 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
       // Preserve the exact text node owned by native Find while it is open.
       // Draw the real message beneath it immediately, without a blank jump.
       entry.current!.finding = true
-      entry.current!.mounted = true
-      flushSync(() => { setFinding(true); setMounted(true) })
+      flushSync(() => setFinding(true))
+      ref.current!.dispatchEvent(new Event('podium-transcript-reveal', { bubbles: true }))
     }
     node.addEventListener('beforematch', found)
     return () => node.removeEventListener('beforematch', found)
@@ -232,7 +232,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
     const finish = () => {
       entry.current!.finding = false
       setFinding(false)
-      windowing.refresh()
+      requestAnimationFrame(windowing.refresh)
     }
     const transfer = () => {
       const selection = document.getSelection()
@@ -283,7 +283,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
     {!mounted && <button type="button" className="sr-only" aria-label={entry.current?.text}
       onFocus={(event) => {
         const reverse = event.relatedTarget instanceof Node && Boolean(ref.current!.compareDocumentPosition(event.relatedTarget) & Node.DOCUMENT_POSITION_FOLLOWING)
-        flushSync(() => { entry.current!.mounted = true; setMounted(true) })
+        ref.current!.dispatchEvent(new Event('podium-transcript-reveal', { bubbles: true }))
         const controls = [...ref.current!.querySelectorAll<HTMLElement>('button, input, textarea, a[href], [tabindex]')]
           .filter(control => control.tabIndex >= 0 && !control.matches(':disabled') && control.getClientRects().length > 0)
         ;(reverse ? controls.at(-1) : controls[0])?.focus({ preventScroll: true })
