@@ -51,7 +51,7 @@ describe('the check itself', () => {
     ] as const
     pool.apply({ type: 'replace', rows: rows.map(([id, parentId, stage, archived]) => ({
       kind: 'issue' as const, id, value: { id, parentId, stage, archived, title: id, seq: 1,
-        deps: [], createdAt: stamp, updatedAt: stamp, readAt: stamp },
+        repoPath: '/synthetic', deps: [], createdAt: stamp, updatedAt: stamp, readAt: stamp },
     })) })
     try {
       const answers = ask(pool, startupQuestions({ roots: [], parents: ['branch', 'hidden'], needles: [] }))
