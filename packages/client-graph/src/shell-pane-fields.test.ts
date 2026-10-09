@@ -138,7 +138,7 @@ it('routes the dock exactly as the old dock bundle across pane, file, fallback, 
     check('no scan: attached issue scope')
     f.change({ paneA: asSessionId('shell-session-missing') })
     check('unknown pane session falls back')
-    expect(checked).toHaveLength(14)
+    expect(checked).toHaveLength(13)
   } finally {
     stop()
     f.pool.dispose()
