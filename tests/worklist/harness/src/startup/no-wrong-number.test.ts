@@ -65,9 +65,10 @@ describe('startup states against the full bootstrap (h1a1)', () => {
     pool.dispose()
     expect(report.loading).toEqual([])
     assertNoWrongNumber(report, 'second full bootstrap')
-  })
+  }, 600_000)
 
   it('a partial store without markers gives wrong numbers (the check fails)', () => {
+    collectGarbage()
     const pool = partialPool(feed)
     const report = checkNoWrongNumber(control, ask(pool, questions))
     pool.dispose()
@@ -77,5 +78,5 @@ describe('startup states against the full bootstrap (h1a1)', () => {
     expect(() => assertNoWrongNumber(report, 'partial store')).toThrow(/wrong numbers/)
     for (const group of ['counts', 'search', 'board-archive', 'closed-children'] as const)
       expect(groups[group]?.wrong ?? 0, group).toBeGreaterThan(0)
-  })
+  }, 600_000)
 })

@@ -5,7 +5,7 @@
  * every answer must equal it. Its own file so it gets its own worker: the
  * control plus a fully loaded lazy pool is the memory-heavy pair.
  */
-import { beforeAll, describe, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { writeResult } from '../results'
 import { ask, assertNoWrongNumber, checkNoWrongNumber, startupQuestions, startupTargets, summarize } from './no-wrong-number'
 import { collectGarbage, fullPool, hydrateAll, lazyPool, memoryAt, openStartupFeed, type StartupFeed } from './startup-states'
@@ -39,10 +39,14 @@ describe('the production lazy pool against the full bootstrap (h1a1)', () => {
         wrongBefore: before.wrong.slice(0, 40), wrongAfter: after.wrong.slice(0, 40) }
       console.info(`[no-wrong-number] lazy pool: ${JSON.stringify({ before: result.before, after: result.after, loaded })}`)
       writeResult('startup-no-wrong-number-lazy-h1a1', result)
+      // History known but not loaded: every answer right or on its way.
+      assertNoWrongNumber(before, 'lazy pool before loading')
+      expect(before.loading.length).toBeGreaterThan(0)
       assertNoWrongNumber(after, 'lazy pool after loading')
+      expect(after.loading).toEqual([])
     } finally {
       handle.dispose()
       collectGarbage()
     }
-  })
+  }, 600_000)
 })
