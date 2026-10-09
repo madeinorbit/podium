@@ -107,7 +107,10 @@ function setup(history: number) {
   let usage = buckets()
   const reads = {
     task: vi.fn(async () => cost),
-    comparison: vi.fn(async () => ({ task: cost, cohort: { medianUsdPerReply: 0.2, taskCount: 6 } })),
+    comparison: vi.fn(async ({ includeSessions }: { includeSessions: boolean }) => ({
+      task: includeSessions ? cost : { ...cost, sessions: [] },
+      cohort: { medianUsdPerReply: 0.2, taskCount: 6 },
+    })),
     // RPC responses own fresh arrays, even when their contents are unchanged.
     tasks: vi.fn(async () => taskRows()),
     usage: vi.fn(async () => ({ hostname: 'fixture', buckets: usage })),
