@@ -52,6 +52,8 @@ Validation found a constructor-registration cycle and a lane-reset subscriber lo
 
 A lean gate attempt was interrupted during API declaration generation at 3,364,984 KiB, before a complete typecheck or lean result. Following the coordinator's updated shared-lane instruction, this session stopped its own checks, canceled the census queue and released a lease granted during cancellation. Remaining recorded gate PIDs were checked; no further run was started. POD-5895 owns the lean gate, full typecheck, scan ratchet, normal web build, census and final pilot validation/landing.
 
+The shared batch's full typecheck rejected candidate `1384a343f91a06cf89848a032890a7b9f55e355b`: the lane atom passed `debugName()`'s optional result where MobX requires a string. The follow-up repair uses the existing generic `'Atom'` fallback when debug names are disabled. This changes no membership or order logic; shared-lane validation of the repaired candidate remains pending.
+
 ## Scope
 
 The focused desktop measurement reads source membership, while the phone measurement includes its native array boundary. The unchanged web suites establish behavior and mount guards; they do not establish complete React interaction work ratios. The canonical census still needs to run on the final pilot base.

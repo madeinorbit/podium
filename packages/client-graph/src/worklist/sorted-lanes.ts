@@ -72,7 +72,7 @@ export class SortedLanes<K, S> {
     let lane = this.lanes.get(key)
     if (!lane) {
       lane = { answer: createKeyedAnswer<Member<S>>((a, b) => this.compare(a.sort, b.sort)),
-        atom: createAtom(debugName(() => `${this.name}.lane`)) }
+        atom: createAtom(debugName(() => `${this.name}.lane`) ?? 'Atom') }
       this.lanes.set(key, lane)
     }
     lane.answer.set(id, '', member)
