@@ -96,8 +96,8 @@ export class EntityModel {
   ) {}
 
   /** The row as the pool shows it (the one reader: tracked, pending edits overlaid). */
-  get row(): Lookup<StoredRow> {
-    return this.host.row(this.entity, this.id) as Lookup<StoredRow>
+  get row(): Lookup<Readonly<Record<string, unknown>>> {
+    return this.host.row(this.entity, this.id) as Lookup<Readonly<Record<string, unknown>>>
   }
 
   /** Schema-installed fields use the same reader, with no copied row. */
@@ -957,7 +957,7 @@ class RepoModel extends EntityModel {
   }
 
   /** One addressed facade for every join. Its fields still track independently. */
-  @lazy override get row(): Lookup<StoredRow> {
+  @lazy override get row(): Lookup<Readonly<Record<string, unknown>>> {
     return super.row
   }
 }

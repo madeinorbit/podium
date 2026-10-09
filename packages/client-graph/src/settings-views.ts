@@ -61,7 +61,7 @@ export function settingsView(pool: MobxPool): ReturnType<typeof createSettingsVi
 export function readSetupSession(pool: MobxPool, id: string): Loaded<SetupSession> {
   const row = omitGone(pool.row('session', id, 'summary-fields'))
   return row && row !== LOADING
-    ? setupSessionSummary(row as Readonly<Record<string, unknown>>, pool.sourcePosition('session', id))
+    ? setupSessionSummary(row as unknown as Readonly<Record<string, unknown>>, pool.sourcePosition('session', id))
     : row
 }
 function resumeRank(row: SetupSession): number {

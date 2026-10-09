@@ -108,7 +108,7 @@ export function createIssueBoardSource(
   function readFacts(id: string): Loaded<IssueViewModel> {
     const row = omitGone(pool.row('issue', id, 'summary-fields'))
     if (!row || row === LOADING) return row
-    const raw = row as Record<string, unknown>
+    const raw = row as unknown as Record<string, unknown>
     // Cold input already IS the declared summary. Picking every field again
     // allocates dozens of pairs per historical candidate. Resident facts keep
     // only the declared fields, so no document is retained by this index.

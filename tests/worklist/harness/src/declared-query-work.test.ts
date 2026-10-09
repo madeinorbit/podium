@@ -158,7 +158,7 @@ async function measured(
       row &&
       issueIsActionable(
         row as Parameters<typeof issueIsActionable>[0],
-        (seats as SessionView[]).filter((seat) => !seat.archived),
+        (seats as unknown as SessionView[]).filter((seat) => !seat.archived),
       )
     return { ids: asking ? ['root'] : [] }
   }
@@ -202,7 +202,7 @@ async function measured(
     }
     if (mechanism === 'roster' && plant)
       vi.spyOn(board, 'sessions').mockImplementation(() => {
-        const rows = fullRoster() as SessionView[]
+        const rows = fullRoster() as unknown as SessionView[]
         return plant === 'wrong'
           ? rows.map((value) => ({ ...value, title: 'Planted mistake' }))
           : rows

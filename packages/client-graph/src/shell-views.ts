@@ -156,7 +156,7 @@ function createShellViews(pool: MobxPool) {
       return LOADING
     }
     if (!value) return undefined
-    const input = value as Record<string, unknown>,
+    const input = value as unknown as Record<string, unknown>,
       repoId = input.repoId as string | undefined
     const repo = repoId ? (omitGone(pool.row('repo', repoId)) as { prefix?: string } | undefined) : undefined
     const prefix = repo?.prefix
@@ -187,7 +187,7 @@ function createShellViews(pool: MobxPool) {
       if (row === LOADING) return LOADING
       return row
         ? (Object.fromEntries(
-            SHELL_SUMMARIES.session.map((key) => [key, (row as Record<string, unknown>)[key]]),
+            SHELL_SUMMARIES.session.map((key) => [key, (row as unknown as Record<string, unknown>)[key]]),
           ) as unknown as SessionView)
         : undefined
     })

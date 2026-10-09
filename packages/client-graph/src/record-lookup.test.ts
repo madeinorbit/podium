@@ -100,6 +100,14 @@ function lookupTypes(pool: MobxPool) {
   void row.id
   // @ts-expect-error an addressed lookup never returns undefined
   const absent: undefined = model
+  if (row !== LOADING) {
+    // @ts-expect-error checking only loading leaves Gone to handle
+    void row.id
+  }
+  if (model !== LOADING) {
+    // @ts-expect-error checking only loading leaves Gone to handle
+    void model.title
+  }
   if (model !== LOADING && !isGone(model)) void model.title
   if (row !== LOADING && !isGone(row)) void row.id
   const complete: Lookup<unknown> = model

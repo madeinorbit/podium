@@ -604,7 +604,7 @@ function ColdConversation({ id }: { id: string }) {
     (pool: MobxPool) => {
       state.pool = pool
       const session = omitGone(pool.row('session', id, 'summary'))
-      return session && typeof session !== 'symbol' ? (session as SessionView) : undefined
+      return session && typeof session !== 'symbol' ? (session as unknown as SessionView) : undefined
     },
     [id],
   )

@@ -157,7 +157,7 @@ function previousReferenceSessions(pool: MobxPool) {
   for (const id of new Set([...order.ids.filter(id => present.has(id)), ...known])) {
     const row = omitGone(pool.row('session', id, 'summary-fields'))
     if (typeof row === 'symbol') pending++
-    else if (row) sessions.push(row as import('@podium/client-core/session-values').SessionView)
+    else if (row) sessions.push(row as unknown as import('@podium/client-core/session-values').SessionView)
   }
   return { sessions: dedupeSessionsByResume(sessions), pending }
 }

@@ -441,7 +441,7 @@ function createIssuePageViews(pool: MobxPool) {
     if (!row || row === LOADING) return row
     // Pick declared menu facts even for a resident row: a read cursor or
     // body update cannot invalidate the whole menu/edge lookup world.
-    const value = row as Record<string, unknown>
+    const value = row as unknown as Record<string, unknown>
     const fields = Object.fromEntries(ISSUE_PAGE_SUMMARIES.issue.map((key) => [key, value[key]]))
     const inverse = readDependents(id)
     if (inverse === LOADING) return LOADING

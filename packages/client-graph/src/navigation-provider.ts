@@ -24,7 +24,7 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       for (const key of pool.queries.ids({ kind: 'commandIssueSessions', issueId: id, archived: false })) {
         const row = omitGone(pool.row('session', key))
         if (row === LOADING) return NAVIGATION_LOADING
-        if (row) rows.push(row as SessionView)
+        if (row) rows.push(row as unknown as SessionView)
       }
       return rows
     },

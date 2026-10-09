@@ -290,7 +290,7 @@ export class SidebarIndex {
     const index = sidebarRosterView(this.pool)
     const repos = [...index.projects]
       .map((path) => omitGone(this.pool.row('worktree', path)))
-      .filter((row): row is SliceWorktree => row !== undefined && row !== LOADING)
+      .filter((row) => row !== undefined && row !== LOADING)
       .filter(
         (lane) =>
           state.pinnedRepos?.some(path => machinePathsEqual(path, lane.path)) ||

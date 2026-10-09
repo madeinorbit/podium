@@ -1,6 +1,6 @@
 # Frontend data
 
-How client code (web, desktop, phone) holds, derives and shows data. The data layer is the MobX pool in `packages/client-graph`; helpers come from `@podium/mobx-helpers`. Every frontend change follows this guide. Some homes named here are still being built: the shared clock (POD-5863), the three-answer lookup (POD-5867), the UiStore (POD-5797) and the LiveStore (POD-5798). Until one lands, leave that state where it is today, and add no new code in the old pattern.
+How client code (web, desktop, phone) holds, derives and shows data. The data layer is the MobX pool in `packages/client-graph`; helpers come from `@podium/mobx-helpers`. Every frontend change follows this guide. Some homes named here are still being built: the shared clock (POD-5863), the UiStore (POD-5797) and the LiveStore (POD-5798). Until one lands, leave that state where it is today, and add no new code in the old pattern.
 
 ## Where things live
 
@@ -70,6 +70,15 @@ A **view** is a feature the user sees: the worklist, mission, issue detail, laun
 
 ## How to
 
+- **Look up one record:** `pool.model(entity, id)` and `pool.row(entity, id)` return `Lookup<T>`: the model/row, `LOADING`, or `Gone`. Import `LOADING` and `isGone` from `@podium/client-graph` and handle each answer:
+  ```ts
+  const issue = pool.model('issue', id)
+  if (issue === LOADING) return renderLoading()
+  if (isGone(issue)) return renderGone(issue.reason)
+  return renderIssue(issue)
+  ```
+  A cold, unknown or evicted issue/session starts the shared batched load. A replica `removed` exit returns `Gone` with reason `removed` immediately, even while its removal publication is pending. An unsuccessful load settles as `Gone` with reason `not-visible`; another read never restarts it until the feed changes that ID or replaces the scope. A resident row carrying soft-delete metadata is still a row, so restore flows can read it. `EntityModel.row` preserves the same three answers.
+  A nullable list/view can deliberately omit gone records with `omitGone(answer)`; it must still handle `LOADING`. Optional resident details/counts can use `here(answer)` to omit pending and gone records. Both helpers live in `@podium/client-graph/lookup` and document the caller's omission policy. Maintenance modes (`mark`, `peek`) do not start a load; summary modes return only declared fields and may load when the summary is incomplete.
 - **Per-record rules for one view, with selection and a list:**
   ```ts
   class WorklistIssue {
