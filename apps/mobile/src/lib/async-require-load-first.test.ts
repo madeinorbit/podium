@@ -9,8 +9,8 @@ const paths = { '42': chunk }
 
 /** Exercise Metro's actual CommonJS entry, with only Expo's final require stubbed. */
 function loader(load: (bundle: string) => Promise<void>, platform = 'web') {
-  const expo = Object.assign(vi.fn(() => Promise.resolve('screen')), {
-    unstable_importMaybeSync: vi.fn(() => 'screen'),
+  const expo = Object.assign(vi.fn((_id: number, _paths: Record<string, string> | null, _name?: string) => Promise.resolve('screen')), {
+    unstable_importMaybeSync: vi.fn((_id: number, _paths: Record<string, string> | null) => 'screen'),
     prefetch: vi.fn(), unstable_resolve: vi.fn(), unstable_createWorker: vi.fn(),
   })
   const module = { exports: {} as typeof expo }
@@ -121,8 +121,9 @@ describe('phone lazy chunk recovery', () => {
 
   it('leaves module evaluation errors rejected without a recovery loop', async () => {
     const failure = new Error('Broken module factory')
-    const load = vi.fn().mockRejectedValue(failure)
-    const { asyncRequire } = loader(load)
+    const load = vi.fn().mockResolvedValue(undefined)
+    const { asyncRequire, expo } = loader(load)
+    expo.mockRejectedValueOnce(failure)
     await expect(asyncRequire(42, paths)).rejects.toBe(failure)
     await vi.advanceTimersByTimeAsync(7000)
     expect(load).toHaveBeenCalledTimes(1)
