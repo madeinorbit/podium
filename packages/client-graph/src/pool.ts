@@ -19,15 +19,15 @@ import {
 /**
  * POD-4565 (Ma1) — the MobX pool: one per principal. Entity tables from the
  * declared schema (`tables.ts`), models built on first access (`models.ts`),
- * row views (`views.ts`), and the locals as tracked state (selection as a
- * one-entry map, the clock as deadlines, `clock.ts`).
+ * row views (`views.ts`), and the locals as tracked state (selection in
+ * Worklist, the clock as deadlines, `clock.ts`).
  *
  * WRITE PATH. `apply(event)` is one `runInAction`: an `update` ingests each
  * record (`ingestRecord`; the same object is a no-op, `undefined` removes);
  * a `replace` reseeds every table in the same action (`reseed`,
  * `enumerate.ts`), so no observer sees a half-installed pool. Removed rows
- * drop their model. `applyLocals` is the other action: a click moves two
- * selection keys, a tick fires the deadlines it crosses.
+ * drop their model. `applyLocals` is the other action: selection delegates to
+ * Worklist, and a tick fires the deadlines it crosses.
  *
  * RELATIONS (POD-4566, `relations.ts`). Every table write inside that action
  * tells the relation engine, which maintains every declared relation from
