@@ -461,6 +461,34 @@ describe('transcript scrolling', () => {
     expect(loadOlder).toHaveBeenCalledTimes(1)
   })
 
+  it('anchors to the stable window shell when its rich row is folded away', () => {
+    renderHarness(<Harness />)
+    const rich = row('row-0')
+    const shell = document.createElement('div')
+    shell.dataset.transcriptRow = 'row-0'
+    rich.replaceWith(shell); shell.append(rich)
+    const original = HTMLElement.prototype.getBoundingClientRect
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) {
+      if (this !== shell) return original.call(this)
+      const box = original.call(shell.firstElementChild ?? shell)
+      return rect(box.top - 24, box.height)
+    })
+    scrollTo(80)
+    rich.remove()
+    shell.dataset.block = '0'; shell.dataset.rowKey = 'row-0'
+    resize()
+    expect(scroller().scrollTop).toBe(80)
+  })
+
+  it('restores a prepend before the window chooses its buffer, without waiting for ResizeObserver', () => {
+    renderHarness(<Harness />)
+    scrollTo(80)
+    act(() => root.render(<Harness keys={['older-a', 'older-b', ...held]} />))
+    act(() => scroller().dispatchEvent(new Event('podium-transcript-layout')))
+    expect(scroller().scrollTop).toBe(280)
+    expect(top('row-0')).toBe(-80)
+  })
+
   it('preserves the newer reading position when the reader moves during a page request', () => {
     renderHarness(<Harness moreAbove />)
     scrollTo(80)

@@ -116,10 +116,13 @@ export function useDomTranscriptScroll(
     for (const row of scroller.querySelectorAll<HTMLElement>('[data-block]')) {
       const rect = row.getBoundingClientRect()
       if (rect.bottom <= viewport.top || rect.top >= viewport.bottom) continue
+      // The rich row can leave the window during a prepend. Its measured shell
+      // stays connected and includes the same margins/day mark before and after.
+      const retained = row.closest<HTMLElement>('[data-transcript-row]') ?? row
       readingAnchor.current = {
-        element: row,
+        element: retained,
         key: row.dataset.rowKey,
-        offset: rect.top - viewport.top,
+        offset: retained.getBoundingClientRect().top - viewport.top,
         scrollTop: scroller.scrollTop,
       }
       return
@@ -311,6 +314,7 @@ export function useDomTranscriptScroll(
       readingAnchor.current = null
       writtenTop.current = null
     }
+    const onWindowLayout = () => reconcileLayout(true)
     let touchY: number | undefined
     const onUpwardInput = (): void => {
       releaseFollow()
@@ -375,6 +379,7 @@ export function useDomTranscriptScroll(
     scroller.addEventListener('keydown', onKeyDown)
     scroller.addEventListener('pointerdown', onPointerDown)
     scroller.addEventListener('podium-transcript-find-start', onNativeFind)
+    scroller.addEventListener('podium-transcript-layout', onWindowLayout)
     scroller.addEventListener('beforematch', onNativeFind, true)
     return () => {
       scroller.removeEventListener('wheel', onWheel)
@@ -383,9 +388,10 @@ export function useDomTranscriptScroll(
       scroller.removeEventListener('keydown', onKeyDown)
       scroller.removeEventListener('pointerdown', onPointerDown)
       scroller.removeEventListener('podium-transcript-find-start', onNativeFind)
+      scroller.removeEventListener('podium-transcript-layout', onWindowLayout)
       scroller.removeEventListener('beforematch', onNativeFind, true)
     }
-  }, [active, scroller, releaseFollow, loadOlderAnchored, setFollowing])
+  }, [active, scroller, releaseFollow, loadOlderAnchored, setFollowing, reconcileLayout])
 
   const onPointerUp = useCallback(() => {
     const selection = window.getSelection()

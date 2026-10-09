@@ -185,8 +185,12 @@ export function useTranscriptWindow(
       const entry = entries.current.get(key)
       if (entry && !entry.node.hasAttribute('data-transcript-placeholder')) entry.height = measuredHeight(entry.node)
     }
+    // The shared controller restores the reading anchor before we choose the
+    // new buffer. Otherwise a large prepend folds the retained viewport away
+    // using the old scrollTop, then paints shells at the corrected position.
+    scrollRef.current?.dispatchEvent(new Event('podium-transcript-layout'))
     refresh()
-  }, [keys, refresh, layoutKey, schedule])
+  }, [keys, refresh, layoutKey, schedule, scrollRef])
   useLayoutEffect(() => {
     const scroll = scrollRef.current
     if (!scroll) return
