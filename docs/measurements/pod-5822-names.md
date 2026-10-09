@@ -40,6 +40,8 @@ The three ports’ exhaustive contracts, their raw issue fallback, and the `stan
 | `mobile.id / row.id` | `issue.id` | Which issue? |
 | `mobile.kind` | `issue.entity` | Which entity kind? |
 | `mobile.waitingCount / mobileWaitingCount` | `waitingCount` | How many visible attention items need a reply or decision? |
+| worktree formatter `sessions.length` | `sessionCount` | How many live roster sessions are there? |
+| worktree formatter `sessions.filter(isSessionWorking).length` | `workingCount` | How many roster sessions are executing? |
 | `mobile.draftQuiet / mobileDraftQuiet` | `quietDraft` | Is the session-only draft still quiet? |
 | `mobile.pinned / row.pinned / own.pinned` | `issue.pinned` | Is this issue pinned? |
 | `mobile.branch` | `issue.branch` | Which saved branch? |

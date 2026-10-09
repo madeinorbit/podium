@@ -318,6 +318,11 @@ export class MobileNativeSections {
 export function worklistRowStatus(value: WorklistIssue | WorklistWorktree, now: number): string {
   const sidebar = 'issue' in value ? value : undefined
   if (!sidebar) {
+    const tree = value as WorklistWorktree
+    if (tree.visiblePhase === 'working')
+      return `${tree.workingCount > 1 ? `${tree.workingCount} agents · ` : ''}working`
+    if (tree.visiblePhase !== 'waiting')
+      return `${tree.sessionCount > 1 ? `${tree.sessionCount} agents · ` : ''}${tree.visiblePhase === 'done' ? 'done' : 'idle'}`
     // The existing worktree formatter is pure and sees this roster alone.
     return rowStatusLine(
       {

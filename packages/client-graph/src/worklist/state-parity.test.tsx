@@ -116,6 +116,7 @@ it('the lazy phone sections match the old keyed sections through fold and select
 
 const treeFields = ['id', 'title', 'timing', 'visiblePhase', 'visibleWorking', 'waitingCount',
   'visibleUnread', 'visibleFleet', 'navigation', 'activityAt', 'pending', 'ready',
+  'sessionCount', 'workingCount',
   'sessions', 'visible', 'stale', 'issues'] as const
 for (const state of ['waiting', 'working', 'queued', 'stale'] as const) {
   it.each(treeFields)(`the ${state} worktree keeps the old %s answer`, field => {
@@ -136,6 +137,8 @@ for (const state of ['waiting', 'working', 'queued', 'stale'] as const) {
         id: phone.id, title: phone.label, timing: phone.timing, visiblePhase: phone.timing.phase,
         visibleWorking: phone.working, waitingCount: phone.waitingCount, visibleUnread: phone.unread,
         visibleFleet: phone.fleet, navigation: phone.navigation, activityAt: old.activityAt,
+        sessionCount: old.sessions.length,
+        workingCount: old.sessions.filter(session => pool.sessionObject(session.sessionId).executing).length,
         pending: old.pending, ready: old.pending ? LOADING : 'ready',
         sessions: old.sessions.map(row => row.sessionId), visible: old.visible.map(row => row.sessionId),
         stale: old.stale.map(row => row.sessionId), issues: old.issues.map(row => row.id),

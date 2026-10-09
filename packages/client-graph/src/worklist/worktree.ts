@@ -1,5 +1,5 @@
 import { lazy } from '@podium/mobx-helpers'
-import { compareShallow, reaction } from 'mobx'
+import { compareShallow, compareStructural, reaction } from 'mobx'
 import { machinePathsEqual } from '@podium/model/browser'
 import { createQueryResult } from '../query-result'
 import type { IssueModel, ModelOf, SessionModel } from '../models'
@@ -125,14 +125,16 @@ export class WorklistWorktree {
     return working ? 'working' : done ? 'done' : 'queued'
   }
   @lazy get visibleWorking() { return this.sessions.some(session => session.executing) }
+  @lazy get sessionCount() { return this.sessions.length }
+  @lazy get workingCount() { return this.sessions.reduce((count, session) => count + Number(session.executing), 0) }
   @lazy get waitingCount() { return this.sessions.reduce((count, session) => count + Number(this.worklist.session(session).phase === 'waiting'), 0) }
   @lazy get visibleUnread() { return !this.visibleWorking && this.sessions.some(session => session.unread) }
-  @lazy get timing() {
+  @lazy({ equals: compareStructural }) get timing() {
     return sidebarTiming(this.sessions as unknown as SliceSession[], this.visiblePhase, false, this.activityAt,
       undefined, session => this.worklist.pool.sessionObject(session.sessionId).executing,
       session => this.worklist.pool.sessionObject(session.sessionId).stateSinceMs)
   }
-  @lazy get visibleFleet() {
+  @lazy({ equals: compareStructural }) get visibleFleet() {
     return fleetOf(this.sessions as unknown as SliceSession[], session => this.worklist.pool.sessionObject(session.sessionId).open)
   }
   @lazy get navigation() { return this.sessions[0] ? { kind: 'session' as const, id: this.sessions[0].sessionId } : null }

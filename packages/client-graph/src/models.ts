@@ -431,7 +431,7 @@ export class IssueModel extends EntityModel {
   // Links and reference: independent of any screen's row label or nesting
   /** The declared `seq` answers a cold row too, without loading its payload. */
   @lazy get displayRef(): string {
-    const seq = this.factRow?.seq
+    const seq = this.readFacts()?.seq
     return seq === undefined ? '' : displayRefOf(seq, this.prefix)
   }
   @lazy get repoTarget(): string | null { return repoTargetPartOf(this.host.inputs, this.id) }
@@ -536,7 +536,7 @@ export class IssueModel extends EntityModel {
   // Read state: the replica rollup. Updated, or a non-shell member (archived
   // included) active, after this user's read cursor; a deleted issue reads as read.
   @lazy get unread(): boolean {
-    const row = this.factRow
+    const row = this.readFacts()
     if (row === undefined || row.deletedAt) return false
     const read = parseMs(this.host.visibleInputs.issueRead(this.id))
     if (read === null) return true
