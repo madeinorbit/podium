@@ -848,6 +848,7 @@
         "src/store/auth.ts",
         "src/store/automations.golden.test.ts",
         "src/store/automations.ts",
+        "src/store/claude-sdk-state-publication.test.ts",
         "src/store/committed-rows.ts",
         "src/store/conversations.ts",
         "src/store/conversations/index.ts",

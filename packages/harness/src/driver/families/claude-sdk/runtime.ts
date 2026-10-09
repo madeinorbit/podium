@@ -337,13 +337,13 @@ export function createClaudeSdkRuntime(
     components: { seq },
   })
 
-  function push(core: SessionCore, body: RuntimeEventBody): void {
+  function push(core: SessionCore, body: RuntimeEventBody, at = host.now()): void {
     core.seq += 1
     core.log.push({
       seq: core.seq,
       event: {
         ...body,
-        at: host.now(),
+        at,
         provenance: 'live',
         cursor: cursorAt(core, core.seq),
         observerGeneration: core.observerGeneration,
@@ -357,15 +357,16 @@ export function createClaudeSdkRuntime(
   function openTurn(core: SessionCore, origin: SendOptions['origin']): number {
     core.turnEpoch += 1
     core.turnOpen = true
-    core.state = { ...core.state, phase: 'working', since: host.now() }
     push(core, { t: 'turn', ev: { ev: 'started', turnEpoch: core.turnEpoch, origin } })
+    // Open the epoch before its causal state event so the server gate admits it.
+    foldState(core, { kind: 'prompt_submitted' })
     return core.turnEpoch
   }
 
   function foldState(core: SessionCore, change: AgentStateEvent): void {
     const at = host.now()
     core.state = reduceAgentState(core.state, change, at)
-    push(core, { t: 'state', change })
+    push(core, { t: 'state', change }, at)
   }
 
   function publishItem(core: SessionCore, item: TranscriptItem): void {
@@ -791,25 +792,12 @@ export function createClaudeSdkRuntime(
       answerable: 'structured',
     }
     core.interactions.set(request.id, interaction)
-    core.state = {
-      ...core.state,
-      phase: 'needs_user',
-      since: host.now(),
-      need: {
-        kind: 'permission',
-        summary: request.toolName,
-        ask: { toolName: request.toolName, ...(summary ? { detail: summary } : {}) },
-      },
-    }
     push(core, { t: 'interaction', ev: { ev: 'asked', interaction } })
-    push(core, {
-      t: 'state',
-      change: {
-        kind: 'needs_user',
-        need: 'permission',
-        summary: request.toolName,
-        ask: { toolName: request.toolName, ...(summary ? { detail: summary } : {}) },
-      },
+    foldState(core, {
+      kind: 'needs_user',
+      need: 'permission',
+      summary: request.toolName,
+      ask: { toolName: request.toolName, ...(summary ? { detail: summary } : {}) },
     })
   }
 
@@ -826,17 +814,8 @@ export function createClaudeSdkRuntime(
     core.interactions.set(id, interaction)
     core.interactionResponders.set(id, () => {})
     const need = spec.kind === 'question' ? 'question' : 'permission'
-    core.state = {
-      ...core.state,
-      phase: 'needs_user',
-      since: host.now(),
-      need: { kind: need, summary: spec.kind },
-    }
     push(core, { t: 'interaction', ev: { ev: 'asked', interaction } })
-    push(core, {
-      t: 'state',
-      change: { kind: 'needs_user', need, summary: spec.kind },
-    })
+    foldState(core, { kind: 'needs_user', need, summary: spec.kind })
     return id
   }
 
@@ -1222,6 +1201,7 @@ export function createClaudeSdkRuntime(
         if (core.answered.has(interactionId)) return { ok: false, reason: 'already-answered' }
         const interaction = core.interactions.get(interactionId)
         if (!interaction) return { ok: false, reason: 'unknown-interaction' }
+        const epoch = core.turnEpoch
         const responder = core.interactionResponders.get(interactionId)
         let delivered: unknown
         if (interaction.kind === 'permission') {
@@ -1269,6 +1249,9 @@ export function createClaudeSdkRuntime(
         core.interactions.delete(interactionId)
         core.interactionResponders.delete(interactionId)
         core.answered.add(interactionId)
+        // The provider can finish while its answer is being delivered. Do not
+        // reopen that closed epoch or publish its answer into a later turn.
+        if (!core.alive || core.turnEpoch !== epoch || core.fenced.has(epoch)) return { ok: true }
         push(core, {
           t: 'interaction',
           ev: {
@@ -1279,12 +1262,7 @@ export function createClaudeSdkRuntime(
           },
         })
         if (core.interactions.size === 0) {
-          core.state = {
-            ...core.state,
-            phase: core.turnOpen ? 'working' : 'idle',
-            since: host.now(),
-            need: undefined,
-          }
+          foldState(core, { kind: core.turnOpen ? 'activity' : 'session_started' })
         }
         return { ok: true }
       },
@@ -1470,7 +1448,7 @@ export function createClaudeSdkRuntime(
     parked.delete(sessionId)
     cores.set(sessionId, core)
     processCores.set(core.binding.process.key, core)
-    push(core, { t: 'state', change: { kind: 'session_started' } })
+    foldState(core, { kind: 'session_started' })
     return core
   }
 
