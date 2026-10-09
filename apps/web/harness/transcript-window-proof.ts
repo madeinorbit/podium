@@ -50,6 +50,12 @@ if (!(await readFile(`/proc/${displayPid}/cmdline`, 'utf8')).includes(`${nativeT
 const stopDisplay = () => process.kill(displayPid, 'SIGTERM')
 const browser = await chromium.launch({ headless: false, executablePath: resolve(process.env.HOME!, '.cache/ms-playwright/chromium-1243/chrome-linux64/chrome'), args: ['--no-sandbox'], env: nativeEnv }).catch(error => { stopDisplay(); throw error })
 const nativeKey = (...keys: string[]) => execFileSync(`${nativeTools}/usr/bin/xdotool`, ['key', '--clearmodifiers', ...keys], { env: nativeEnv })
+const openMenuFind = async () => {
+  for (const key of ['alt+f', 'f', 'Right', 'Return']) {
+    nativeKey(key)
+    await new Promise(done => setTimeout(done, 100))
+  }
+}
 await measure()
 async function measure() {
 try {
@@ -64,13 +70,22 @@ try {
   console.log('Fonts ready')
   await page.waitForTimeout(300)
   if (process.argv.includes('--menu-probe')) {
+    await page.evaluate(() => { (window as any).__nativeFindEvents = 0; document.addEventListener('beforematch', () => (window as any).__nativeFindEvents++, true) })
     const id = execFileSync(`${nativeTools}/usr/bin/xdotool`, ['search', '--onlyvisible', '--class', 'chrom(e|ium)'], { env: nativeEnv, encoding: 'utf8' }).trim().split('\n')[0]!
     execFileSync(`${nativeTools}/usr/bin/xdotool`, ['windowfocus', '--sync', id], { env: nativeEnv })
-    for (const key of ['alt+f', 'f', 'Right', 'Return']) {
-      nativeKey(key)
-      await page.waitForTimeout(200)
-      execFileSync('python3', ['apps/web/harness/xvfb-screen.py', resolve(framebuffer, 'Xvfb_screen0'), resolve(directory, `menu-${key}.png`)])
+    await openMenuFind()
+    for (const query of ['native-needle-7950', 'native-needle-8000', 'native-needle-7950']) {
+      nativeKey('ctrl+a')
+      execFileSync(`${nativeTools}/usr/bin/xdotool`, ['type', '--clearmodifiers', '--delay', '0', query], { env: nativeEnv })
+      await page.waitForTimeout(300)
+      const result = await page.evaluate(() => ({ stats: (window as any).__transcriptWindowProof.stats(), beforematch: (window as any).__nativeFindEvents }))
+      console.log(JSON.stringify({ query, result }))
+      execFileSync('python3', ['apps/web/harness/xvfb-screen.py', resolve(framebuffer, 'Xvfb_screen0'), resolve(directory, 'menu-result.png')])
+      if (!result.stats.text.some((text: string) => text.includes(query)) || !result.beforematch) throw new Error('Native menu probe did not reveal its match')
     }
+    nativeKey('Escape')
+    await page.waitForTimeout(100)
+    console.log(JSON.stringify(await page.evaluate(() => ({ stats: (window as any).__transcriptWindowProof.stats(), selection: document.getSelection()?.toString() }))))
     return
   }
   const cdp = await page.context().newCDPSession(page)
@@ -158,8 +173,9 @@ try {
   const windowId = execFileSync(`${nativeTools}/usr/bin/xdotool`, ['search', '--onlyvisible', '--class', 'chrom(e|ium)'], { env: nativeEnv, encoding: 'utf8' }).trim().split('\n')[0]!
   execFileSync(`${nativeTools}/usr/bin/xdotool`, ['windowfocus', '--sync', windowId], { env: nativeEnv })
   const menuFind = process.argv.includes('--menu-find')
-  // Chrome's menu handles this accelerator outside the page's keydown path.
-  nativeKey(...(menuFind ? ['alt+f', 'ctrl+f'] : ['ctrl+f']))
+  // Open the actual Find-and-edit submenu outside the page's keydown path.
+  if (menuFind) await openMenuFind()
+  else nativeKey('ctrl+f')
   execFileSync(`${nativeTools}/usr/bin/xdotool`, ['type', '--clearmodifiers', '--delay', '0', 'native-needle-4000'], { env: nativeEnv })
   await page.waitForTimeout(300)
   const nativeFind = await page.evaluate(() => ({ selection: document.getSelection()?.toString(), beforematch: (window as any).__nativeFindEvents, stats: (window as any).__transcriptWindowProof.stats() }))
