@@ -202,7 +202,7 @@ describe('reference card updates (POD-5831)', () => {
           ...others.map((n) => seat(`busy-${n}`, `other-${n}`))],
       )
       const runs = { card: 0, target: 0, parent: 0, working: 0, old: 0 }
-      const seen: { title?: string; target?: string | null; working?: string | null } = {}
+      const seen: { title?: string; sessionTitle?: string; target?: string | null; working?: string | null } = {}
       const stops = [
         autorun(() => {
           const value = readRefTarget(pool, 'POD-3').target
@@ -220,6 +220,7 @@ describe('reference card updates (POD-5831)', () => {
         autorun(() => {
           const value = readRefTarget(pool, 'POD-1-A').target
           const issueId = value?.kind === 'session' ? value.session.issueId : undefined
+          seen.sessionTitle = value?.kind === 'session' ? value.session.title : undefined
           seen.working = workingIssueRef('POD-1-A', issueId ? readIssueDisplayRef(pool, issueId) : '')
           runs.working++
         }),
@@ -229,7 +230,7 @@ describe('reference card updates (POD-5831)', () => {
         }),
       ]
       try {
-        expect(seen).toEqual({ title: 'Task 3', target: 'moved', working: 'POD-3' })
+        expect(seen).toEqual({ title: 'Task 3', sessionTitle: 'moved', target: 'moved', working: 'POD-3' })
         const settled = { ...runs }
         // Unrelated sessions: renamed, heartbeating, finishing.
         for (const n of others.slice(0, 8))
@@ -244,7 +245,13 @@ describe('reference card updates (POD-5831)', () => {
           { kind: 'session', id: 'moved', value: seat('moved', 'leaf', { displayRef: 'POD-1-A', lastActiveAt: stamp(40) }) },
         ] as never })
         expect(runs.target).toBe(settled.target)
-        // A displayed title.
+        // A displayed session title follows its own row.
+        pool.apply({ type: 'update', rows: [
+          { kind: 'session', id: 'moved', value: seat('moved', 'leaf', { displayRef: 'POD-1-A', title: 'Renamed session', lastActiveAt: stamp(40) }) },
+        ] as never })
+        expect(seen.sessionTitle).toBe('Renamed session')
+        expect(runs.target).toBe(settled.target)
+        // A displayed issue title.
         pool.apply({ type: 'update', rows: [
           { kind: 'issue', id: 'leaf', value: issue('leaf', 3, { parentId: 'mid', title: 'Renamed task' }) },
         ] as never })
@@ -256,6 +263,12 @@ describe('reference card updates (POD-5831)', () => {
         expect(seen.target).toBe('up')
         // The working label follows the re-home.
         expect(seen.working).toBe(null)
+        // When the covering session exits, the next live ancestor covers it.
+        pool.apply({ type: 'update', rows: [
+          { kind: 'session', id: 'up', value: seat('up', 'mid', { displayRef: 'POD-2-A', status: 'exited' }) },
+        ] as never })
+        expect(seen.target).toBe('moved')
+        expect(newTarget(pool, 'POD-3')).toEqual(oldTarget(pool, 'POD-3'))
         expect(runs.parent).toBe(settled.parent)
         console.info(`POD-5831 card re-runs from 8 unrelated session changes at ${scale}x`, {
           new: 0,

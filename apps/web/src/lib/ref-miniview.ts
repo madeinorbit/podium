@@ -167,4 +167,3 @@ export function workingIssueRef(birthRef: string | undefined, currentRef: string
   }
   return currentRef
 }
-
