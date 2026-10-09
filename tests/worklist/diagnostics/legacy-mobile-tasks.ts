@@ -2,6 +2,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
+  type BoardFilter,
   confirmedWorkingAgentCount,
   orderIssues,
   type IssueRow,
@@ -20,6 +21,11 @@ import type { MobileTasksData, MobileTaskSection } from './mobile-task-snapshot'
 import type { MobxPool } from '../../../packages/client-graph/src/pool'
 import { isFinished } from '../../../packages/client-graph/src/shared/predicates'
 import { LOADING, type Loaded } from '../../../packages/client-graph/src/worklist/rollup'
+
+// The old screen's rule, copied: a closed-work filter turned Show done on.
+const CLOSED_STATUSES = new Set(['done', 'cancelled', 'duplicate', 'superseded'])
+const filterShowsDone = (filter: BoardFilter) =>
+  filter.status === 'closed' || (filter.stage !== undefined && CLOSED_STATUSES.has(filter.stage))
 const byId = (a: string, b: string) => (a < b ? -1 : a > b ? 1 : 0)
 const requireRow = <T>(row: Loaded<T>): T | undefined => {
   if (row === LOADING) throw LOADING
@@ -160,8 +166,9 @@ export function createLegacyMobileTasks(pool: MobxPool) {
       }
       return false
     }
-    const eligible = (id: string) =>
-      audience(id) && (options.showDone || !isFinished(issue(id) ?? {}))
+    // The old screen folded a closed-work filter into Show done before asking.
+    const showDone = options.showDone || filterShowsDone(options.filter)
+    const eligible = (id: string) => audience(id) && (showDone || !isFinished(issue(id) ?? {}))
     const matched = new Set(
       query({
         kind: 'board',

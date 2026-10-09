@@ -27,6 +27,9 @@ const requireRow = <T>(row: Loaded<T>): T | undefined => {
   return row
 }
 const CLOSED_STATUSES: ReadonlySet<string> = new Set(['done', 'cancelled', 'duplicate', 'superseded'])
+/** A filter that asks for closed work shows done work whatever the toggle says. */
+export const filterShowsDone = (filter: BoardFilter): boolean =>
+  filter.status === 'closed' || (filter.stage !== undefined && CLOSED_STATUSES.has(filter.stage))
 const PROPOSALS: BoardQuery = { kind: 'board', filter: { stage: 'proposed' }, showAgentTasks: true }
 
 /** The phone board's rules about one issue. Facts about the issue itself stay
@@ -323,12 +326,7 @@ export class MobileTasksBoard {
 
   /** Done work shows when toggled on, or when the filter asks for closed work. */
   @lazy get includesDone(): boolean {
-    const filter = this.searchFilter
-    return (
-      this.showDone ||
-      filter.status === 'closed' ||
-      (filter.stage !== undefined && CLOSED_STATUSES.has(filter.stage))
-    )
+    return this.showDone || filterShowsDone(this.searchFilter)
   }
 
   // --- Records

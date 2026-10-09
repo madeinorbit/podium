@@ -12,6 +12,11 @@ import { MOBILE_TASK_STAGES, type MobileTasksOptions } from '@podium/client-grap
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING, type Loaded } from '@podium/client-graph/worklist/rollup'
 
+// The old screen's rule, copied: a closed-work filter turned Show done on.
+const CLOSED_STATUSES = new Set(['done', 'cancelled', 'duplicate', 'superseded'])
+const filterShowsDone = (filter: BoardFilter) =>
+  filter.status === 'closed' || (filter.stage !== undefined && CLOSED_STATUSES.has(filter.stage))
+
 type MobileTaskIssue = ModelOf['issue'] &
   Readonly<Pick<IssueViewModel, 'type' | 'priority' | 'stage' | 'closedReason'>>
 
@@ -40,7 +45,8 @@ export class MobileTasksBoardBefore {
     readonly pool: MobxPool,
     options: MobileTasksOptions,
   ) {
-    this.showDone = options.showDone
+    // The old screen folded a closed-work filter into Show done before asking.
+    this.showDone = options.showDone || filterShowsDone(options.filter)
     this.expanded = options.expanded
     this.filter = options.filter
     this.ordering = options.ordering
@@ -48,7 +54,7 @@ export class MobileTasksBoardBefore {
   }
 
   @action configure(options: MobileTasksOptions) {
-    this.showDone = options.showDone
+    this.showDone = options.showDone || filterShowsDone(options.filter)
     this.expanded = options.expanded
     this.filter = options.filter
     this.ordering = options.ordering
