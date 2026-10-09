@@ -30,6 +30,7 @@ parser.add_argument('--checkout', default='', help='issue-owned flatblock checko
 parser.add_argument('--surface', default='web', choices=['web', 'phone'])
 parser.add_argument('--meter', action='store_true', help='also hold meter:flatblock (10x history)')
 parser.add_argument('--no-profile', action='store_true')
+parser.add_argument('--meter-held', action='store_true')
 args = parser.parse_args()
 if args.samples < 1:
     raise ValueError('At least one paired sample is required')
@@ -45,7 +46,8 @@ if cells:
     # complete cold/warm pairs by restarting the collector between cells.
     command = [sys.executable, str(pathlib.Path(__file__).with_name('startup-baseline.py')),
                f'--checkout={args.checkout}', f'--cells={args.cells}',
-               f'--surface={args.surface}', f'--samples={args.samples}', f'--round={args.round}']
+               f'--surface={args.surface}', f'--samples={args.samples}', f'--round={args.round}',
+               *(['--meter-held'] if args.meter_held else [])]
     raise SystemExit(subprocess.call(command))
     arms = cells
 else:

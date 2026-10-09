@@ -6,6 +6,7 @@ reload. Raw run ledgers and Chromium Paint traces stay in the remote checkout.
 import argparse
 import datetime
 import json
+import os
 from pathlib import Path
 import re
 import shlex
@@ -26,6 +27,7 @@ def main():
     parser.add_argument('--surface', default='web', choices=['web', 'phone'])
     parser.add_argument('--samples', default=8, type=int)
     parser.add_argument('--round', default=1, type=int)
+    parser.add_argument('--meter-held', action='store_true', help='reuse the current session\'s caller-owned meter lease')
     args = parser.parse_args()
     cells = args.cells.split(',')
     if not re.fullmatch(r'podium-test-[a-z0-9-]+', args.checkout):
@@ -42,7 +44,12 @@ def main():
     outputs = {cell: [] for cell in cells}
     grants = {}
     try:
-        for name in ['meter:flatblock', 'bench:flatblock']:
+        if args.meter_held:
+            status = subprocess.run(['podium', 'lock', 'status', 'meter:flatblock', '--json'], check=True, capture_output=True, text=True)
+            holder = (json.loads(status.stdout).get('data') or {}).get('holder', {})
+            if not os.environ.get('PODIUM_SESSION_ID') or holder.get('sessionId') != os.environ['PODIUM_SESSION_ID']:
+                raise RuntimeError('--meter-held requires this session to own meter:flatblock')
+        for name in ([] if args.meter_held else ['meter:flatblock']) + ['bench:flatblock']:
             grant = subprocess.run(['podium', 'lock', 'acquire', name, '--wait', '--ttl', '45m', '--json'], check=True, capture_output=True, text=True)
             grants[name] = json.loads(grant.stdout)
             if not grants[name].get('data', {}).get('granted'):
@@ -52,7 +59,7 @@ def main():
                               'acquiredAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
                               'grant': grants['bench:flatblock'], 'also': ['meter:flatblock']})
         for step in range(args.samples):
-            for name in held:
+            for name in ['meter:flatblock', 'bench:flatblock']:
                 subprocess.run(['podium', 'lock', 'renew', name, '--ttl', '45m'], check=True)
             for cell in sample_order(cells, step):
                 relative = f'.artifacts/old-vs-new/timing-{cell}-{args.surface}-{cell}-r{args.round}-s{step}'
