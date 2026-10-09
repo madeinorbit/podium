@@ -50,6 +50,8 @@ if (!(await readFile(`/proc/${displayPid}/cmdline`, 'utf8')).includes(`${nativeT
 const stopDisplay = () => process.kill(displayPid, 'SIGTERM')
 const browser = await chromium.launch({ headless: false, executablePath: resolve(process.env.HOME!, '.cache/ms-playwright/chromium-1243/chrome-linux64/chrome'), args: ['--no-sandbox'], env: nativeEnv }).catch(error => { stopDisplay(); throw error })
 const nativeKey = (...keys: string[]) => execFileSync(`${nativeTools}/usr/bin/xdotool`, ['key', '--clearmodifiers', ...keys], { env: nativeEnv })
+await measure()
+async function measure() {
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 }, reducedMotion: 'reduce' })
   const errors: string[] = []; page.on('pageerror', error => { errors.push(error.message); console.log('Page error:', error.message) })
@@ -65,16 +67,20 @@ try {
   const browserCdp = await browser.newBrowserCDPSession()
   const samples = []
   let pagingAnchor
-  for (const target of [200, 1000, 2200, 4200, 6200, 8058]) {
-    if (target === 8058) {
-      await page.evaluate(() => (window as any).__transcriptWindowProof.jump(2000))
+  const anchorOnly = process.argv.includes('--anchor-only')
+  for (const target of anchorOnly ? [200, 1000] : [200, 1000, 2200, 4200, 6200, 8058]) {
+    if (target === (anchorOnly ? 1000 : 8058)) {
+      await page.evaluate(index => (window as any).__transcriptWindowProof.jump(index), anchorOnly ? 100 : 2000)
       await page.waitForTimeout(100)
       const before = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
       await page.evaluate(() => (window as any).__transcriptWindowProof.page())
       await page.waitForTimeout(100)
       const after = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
       pagingAnchor = { before, after }
+      await writeFile(resolve(directory, 'paging-anchor.json'), JSON.stringify(pagingAnchor, null, 2))
+      console.log(JSON.stringify({ pagingAnchor }))
       if (before.key !== after.key || Math.abs(before.offset - after.offset) > 1) throw new Error('Paging changed the reading anchor')
+      if (anchorOnly) return
       await page.evaluate(() => (window as any).__transcriptWindowProof.bottom())
     }
     while (await page.evaluate(() => (window as any).__transcriptWindowProof.stats().loaded) < target) {
@@ -192,3 +198,4 @@ try {
   console.log(JSON.stringify({ arm, samples: samples.map(({ loaded, elements, drawn, heapUsed }) => ({ loaded, elements, drawn, heapUsed })), blankFrames: fastScroll.filter(sample => sample.visible === 0).length, jump: { key: jump.key, offset: jump.offset }, errors }))
   if (errors.length || fastScroll.some(sample => sample.visible === 0)) throw new Error('Production scroll proof failed')
 } finally { await browser.close(); stopDisplay(); await new Promise<void>(done => server.close(() => done())) }
+}
