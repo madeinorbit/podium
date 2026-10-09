@@ -38,6 +38,7 @@ Worker counters are one response behind the main-thread sample.</p>
 <svg id="chart" viewBox="0 0 1000 340" aria-label="Native memory and owner curve"></svg>
 <small id="caption"></small><table id="table"></table>
 <p><b>Matched workload:</b> real operator records, normal history paging once per minute,
+followed by an idle phase in the fixed capture (minutes 21–25; live intake continues),
 in an AppKit <code>WKWebView</code> on the leased Tart Mac (macOS/Safari 26.6.2).
 The reported frontend is <code>0.1.1-dev.283+de058fe</code>.
 The fixed frontend is <code>23fec0a035</code>: that same source plus the two product files,
@@ -73,6 +74,7 @@ const rows=data[run.value],key=metric.value,all=Object.values(data).flat(),maxX=
 const x=n=>70+n/maxX*900,y=n=>290-n/maxY*250;
 let svg='';for(let i=0;i<=4;i++){const n=maxY*i/4,at=y(n);svg+=`<line x1="70" x2="970" y1="${at}" y2="${at}" stroke="#e2e8ee"/><text x="62" y="${at+5}" text-anchor="end" font-size="12">${Math.round(n).toLocaleString()}</text>`}
 if(run.value===Object.keys(data)[0])svg+=`<line x1="${x(7)}" x2="${x(7)}" y1="25" y2="290" stroke="#a25700" stroke-dasharray="5 4"/><text x="${x(7)+7}" y="24" font-size="12">Search index removed</text>`;
+const idle=rows.find(r=>r.action==='idle');if(idle)svg+=`<line x1="${x(idle.minute)}" x2="${x(idle.minute)}" y1="25" y2="290" stroke="#617c62" stroke-dasharray="5 4"/><text x="${x(idle.minute)+7}" y="24" font-size="12">Idle</text>`;
 svg+=`<polyline points="${rows.map(r=>`${x(r.minute)},${y(r[key])}`).join(' ')}" fill="none" stroke="#1978b6" stroke-width="3"/>`;
 for(const r of rows)svg+=`<circle cx="${x(r.minute)}" cy="${y(r[key])}" r="3" fill="#1978b6"><title>Minute ${r.minute}: ${r[key].toLocaleString()}</title></circle>`;
 svg+=`<text x="70" y="318" font-size="12">0 min</text><text x="970" y="318" text-anchor="end" font-size="12">${maxX} min</text>`;
