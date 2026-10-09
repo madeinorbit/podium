@@ -478,11 +478,12 @@ it.each([1, 4])('records heartbeat owner-history work and watched fields at %sx'
 })
 
 
-it('runs zero issue derivations for revision-only and identical publications', () => {
+it.each([false, true])('runs zero issue derivations for revision-only and identical publications (git: %s)', withGit => {
   const f = fixture()
   const projection = { id: 'one', seq: 1, title: 'Issue', stage: 'in_progress', audience: 'human', repoId: 'repo',
     createdAt: '2026-01-01', updatedAt: '2026-10-01', revision: 1 }
   f.put('issueProjections', 'one', projection)
+  if (withGit) f.put('issueGitStates', 'one', { id: 'one', shared: false, ahead: 1 })
   f.put('repos', 'repo', { id: 'repo', path: '/synthetic', prefix: 'POD' })
   const handle = createWorklistPool(f.source.source, fixedLocals({ selectedIssueId: 'one', coarseNow: 0 }).source)
   const issue = handle.pool.issueObject('one')
