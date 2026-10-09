@@ -12,6 +12,7 @@ import {
 import { useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import type { IssueCommands, IssueMailMessage } from '../../lib/issue-detail'
+import type { IssueHistoryView } from '@podium/client-graph/issue-activity'
 import { alpha } from '../../theme/mix'
 import { color, font, leading, mono, radius, sans, space } from '../../theme/theme'
 import { Icon } from '../Icon'
@@ -109,12 +110,14 @@ export const IssueActivitySection = observer(function IssueActivitySection({
   busy,
   commands,
   feed,
+  history,
 }: {
   issue: IssueViewModel
   busy: boolean
   commands: IssueCommands
   feed: ActivityItem[]
   revision?: number
+  history?: IssueHistoryView
 }) {
   // Days are derived per render against a coarse clock: the only thing `now`
   // decides is whether a group says "Today", so re-deriving on a timer would
@@ -153,6 +156,8 @@ export const IssueActivitySection = observer(function IssueActivitySection({
         </View>
       ) : null}
 
+      {history ? <EarlierActivity history={history} /> : null}
+
       {days.length === 0 ? (
         <Text style={styles.empty}>
           Nothing has happened on this task yet. Comments and state changes land here.
@@ -173,6 +178,36 @@ export const IssueActivitySection = observer(function IssueActivitySection({
         </View>
       )}
     </View>
+  )
+})
+
+/** Full history is on request: the feed opens on its newest page, and this
+ *  pages further back each time it is pressed. */
+const EarlierActivity = observer(function EarlierActivity({
+  history,
+}: {
+  history: IssueHistoryView
+}) {
+  if (!history.hasEarlier && !history.error) return null
+  return (
+    <PressableScale
+      accessibilityRole="button"
+      accessibilityLabel="Show earlier activity"
+      accessibilityState={{ disabled: history.loading }}
+      disabled={history.loading}
+      onPress={() => void history.loadEarlier()}
+      style={styles.event}
+      testID="activity-earlier"
+    >
+      <View style={[styles.node, styles.nodeMinor]} />
+      <Text style={[styles.eventText, styles.eventMinor]}>
+        {history.loading
+          ? 'Loading earlier activity…'
+          : history.error
+            ? `Could not load earlier activity: ${history.error}. Tap to retry.`
+            : 'Show earlier activity'}
+      </Text>
+    </PressableScale>
   )
 })
 

@@ -8,6 +8,7 @@ import {
   parseIssueStatusValue,
 } from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
+import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
 
 /**
  * THE TASK PAGE'S CALL SURFACE [POD-724] — the phone half of the desktop's
@@ -63,10 +64,7 @@ interface Mutate<I, O = unknown> {
 interface IssueDetailProcs {
   issues: {
     comments: Query<{ id: string }, ActivityComment[]>
-    events: Query<
-      { since: number; repoPath?: string; subject?: string; limit?: number },
-      IssueEvent[]
-    >
+    events: Query<Parameters<IssueActivityPorts['events']>[0], IssueEvent[]>
     mailInbox: Mutate<{ id: string }, IssueMailMessage[]>
     create: Mutate<
       { repoPath: string; title: string; parentId?: string; startNow: boolean },
@@ -317,30 +315,13 @@ export function issueCommands({
 export const loadIssueComments = (trpc: MobileTrpc, id: string): Promise<ActivityComment[]> =>
   issueProcs(trpc).issues.comments.query({ id })
 
-/** Stop paging when the cursor does not advance, or after this many pages.
- *  A stuck `since` (same 200 rows forever) used to recurse without bound. */
-export const ISSUE_EVENTS_MAX_PAGES = 20
-
-export function shouldContinueEventDrain(args: {
-  pageLength: number
-  pageSize: number
-  sinceBefore: number
-  sinceAfter: number
-  pages: number
-  maxPages?: number
-}): boolean {
-  if (args.pageLength < args.pageSize) return false
-  if (args.sinceAfter <= args.sinceBefore) return false
-  if (args.pages >= (args.maxPages ?? ISSUE_EVENTS_MAX_PAGES)) return false
-  return true
-}
-
-/** One ascending, cursor-paged slice of the issue event log, narrowed to a
- *  single issue's subject SERVER-side (POD-532) so a page holds only rows this
- *  feed will render. */
+/** One cursor-paged slice of the issue event log, narrowed to a single issue's
+ *  subject SERVER-side (POD-532) so a page holds only rows this feed will
+ *  render: ascending from `since`, or newest first below `before` when `order`
+ *  is `desc` (POD-5832). */
 export const loadIssueEventsPage = (
   trpc: MobileTrpc,
-  args: { since: number; repoPath: string; subject: string; limit: number },
+  args: Parameters<IssueActivityPorts['events']>[0],
 ): Promise<IssueEvent[]> => issueProcs(trpc).issues.events.query(args)
 
 /** The issue's agent mailbox. `mailInbox` is a mutation (recipients consume

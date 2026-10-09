@@ -1774,8 +1774,11 @@ type Input_issues_create = {
     type?: "automation" | "bug" | "chore" | "decision" | "epic" | "feature" | "milestone" | "spike" | "story" | "task" | undefined;
 };
 type Input_issues_events = {
+    before?: number | undefined;
+    excludeKinds?: string[] | undefined;
     kinds?: string[] | undefined;
     limit?: number | undefined;
+    order?: "asc" | "desc" | undefined;
     repoPath?: string | undefined;
     since?: number | undefined;
     subject?: string | undefined;

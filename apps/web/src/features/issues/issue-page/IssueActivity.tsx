@@ -63,6 +63,7 @@ import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
 import { cn } from '@/lib/utils'
 import type { IssueMailMessage, IssuePageCommands } from '../issue-page-commands'
+import type { IssueHistoryView } from '@podium/client-graph/issue-activity'
 import { MACHINE_LABEL, SectionHeading } from './chrome'
 import { modChord } from '@/lib/mod-chord'
 
@@ -298,6 +299,31 @@ const ActivityEntryRow = observer(function ActivityEntryRow({
   return <ActivityEvent line={entry.line} ts={entry.ts} />
 })
 
+/** Full history is on request: the feed opens on its newest page, and this
+ *  pages further back each time it is pressed. */
+const EarlierActivity = observer(function EarlierActivity({
+  history,
+}: {
+  history: IssueHistoryView
+}): JSX.Element | null {
+  if (!history.hasEarlier && !history.error) return null
+  return (
+    <div className="mb-2 flex items-center gap-2 text-[12px] text-text-faint">
+      <Button
+        type="button"
+        variant="ghost"
+        size="sm"
+        disabled={history.loading}
+        onClick={() => void history.loadEarlier()}
+        data-testid="activity-earlier"
+      >
+        {history.loading ? 'Loading earlier activity…' : 'Show earlier activity'}
+      </Button>
+      {history.error && <span role="alert">Could not load earlier activity: {history.error}</span>}
+    </div>
+  )
+})
+
 /** The mono day divider that carries the date the rows no longer restate. */
 const DayDivider = observer(function DayDivider({ label }: { label: ReactNode }): JSX.Element {
   return (
@@ -314,12 +340,14 @@ export const IssueActivitySection = observer(function IssueActivitySection({
   busy,
   commands,
   feed,
+  history,
 }: {
   issue: IssueViewModel
   busy: boolean
   commands: IssuePageCommands
   feed: ActivityItem[]
   revision?: number
+  history?: IssueHistoryView
 }): JSX.Element {
   // Days are derived per render against a coarse clock: the only thing `now`
   // decides is whether a group says "Today", so re-deriving on a timer would
@@ -363,6 +391,8 @@ export const IssueActivitySection = observer(function IssueActivitySection({
           </p>
         </div>
       )}
+
+      {history && <EarlierActivity history={history} />}
 
       {days.length > 0 && (
         <div data-testid="activity-feed">

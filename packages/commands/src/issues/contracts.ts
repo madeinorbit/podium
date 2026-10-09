@@ -231,6 +231,15 @@ export const eventsInput = z.object({
    *  filtering client-side (POD-532). */
   subject: z.string().min(1).optional(),
   limit: z.number().int().min(1).max(1000).optional(),
+  /** Leave out these kinds (bookkeeping a feed never shows) so a page carries
+   *  only rows its reader can use (POD-5832). */
+  excludeKinds: z.array(z.string()).optional(),
+  /** `desc` pages backward: the newest rows below `before` (or the newest
+   *  overall), newest first. A view showing the last few things reads one
+   *  bounded page instead of draining the log from its start (POD-5832). A
+   *  server without these fields answers ascending from `since`. */
+  order: z.enum(['asc', 'desc']).optional(),
+  before: z.number().int().min(1).optional(),
 })
 
 export const linearSearchInput = z.object({ query: z.string() })

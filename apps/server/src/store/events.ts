@@ -8,7 +8,7 @@
 import type { SessionId } from '@podium/model'
 import { ISSUE_EVENTS_DEFAULT_LIMIT, ProviderCursor } from '@podium/protocol'
 import { RuntimeEvent } from '@podium/protocol/daemon'
-import { and, asc, desc, eq, gt, inArray, lte, max, not, or, sql } from 'drizzle-orm'
+import { and, asc, desc, eq, gt, inArray, lt, lte, max, not, notInArray, or, sql } from 'drizzle-orm'
 import {
   podiumEvents,
   runtimeEventCheckpoints,
@@ -463,20 +463,37 @@ export class EventsRepository {
    * thousands of irrelevant rows over the wire and lost any issue whose events
    * fell outside the newest page. `idx_podium_events_subject` makes the narrowed
    * read a search rather than a table walk.
+   *
+   * `order: 'desc'` pages BACKWARD instead (POD-5832): the newest rows below
+   * `before` (or the newest overall without it), newest first. A view that shows
+   * the last few things asks for one bounded page here rather than draining the
+   * log from its start. `excludeKinds` drops bookkeeping kinds the feed never
+   * shows, so a page holds rows a reader can use. Both ride the same subject
+   * index: `id` is the rowid, so the index is already in id order.
    */
   async listEventsSince(
     sinceId: number,
-    opts?: { kinds?: string[]; repoPath?: string; subject?: string; limit?: number },
+    opts?: {
+      kinds?: string[]
+      excludeKinds?: string[]
+      repoPath?: string
+      subject?: string
+      limit?: number
+      before?: number
+      order?: 'asc' | 'desc'
+    },
   ): Promise<PodiumEventRecord[]> {
     const where = [gt(podiumEvents.id, sinceId)]
+    if (opts?.before != null) where.push(lt(podiumEvents.id, opts.before))
     if (opts?.kinds?.length) where.push(inArray(podiumEvents.kind, opts.kinds))
+    if (opts?.excludeKinds?.length) where.push(notInArray(podiumEvents.kind, opts.excludeKinds))
     if (opts?.repoPath) where.push(eq(podiumEvents.repoPath, opts.repoPath))
     if (opts?.subject) where.push(eq(podiumEvents.subject, opts.subject))
     const rows = await this.db
       .select()
       .from(podiumEvents)
       .where(and(...where))
-      .orderBy(asc(podiumEvents.id))
+      .orderBy(opts?.order === 'desc' ? desc(podiumEvents.id) : asc(podiumEvents.id))
       .limit(opts?.limit ?? ISSUE_EVENTS_DEFAULT_LIMIT)
       .all()
     return rows.map(rowToEvent)

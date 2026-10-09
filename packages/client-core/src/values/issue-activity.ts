@@ -62,7 +62,13 @@ export interface IssueEventLine {
 // particular, read/unread belongs in the audit log because it drives per-user
 // attention, but viewing an issue is not activity ON that issue. Keep all of
 // these out of the human timeline so they cannot displace comments or changes.
-const HIDDEN_KINDS = new Set(['issue.state', 'issue.panel', 'issue.read', 'issue.unread'])
+export const HIDDEN_ISSUE_EVENT_KINDS: readonly string[] = [
+  'issue.state',
+  'issue.panel',
+  'issue.read',
+  'issue.unread',
+]
+const HIDDEN_KINDS = new Set(HIDDEN_ISSUE_EVENT_KINDS)
 
 function asRecord(payload: unknown): Record<string, unknown> {
   return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {}
@@ -178,6 +184,8 @@ export type ActivityItem =
  * chronological; the sort is stable, so equal-timestamp ties keep insertion
  * order (comments before events).
  */
+const commentId = (c: ActivityComment) => `c|${c.author}|${c.createdAt}|${c.body}`
+
 export function buildActivityFeed(
   comments: ActivityComment[],
   events: IssueEvent[],
@@ -186,7 +194,7 @@ export function buildActivityFeed(
   for (const c of comments) {
     items.push({
       kind: 'comment',
-      id: `c|${c.author}|${c.createdAt}|${c.body}`,
+      id: commentId(c),
       ts: c.createdAt,
       author: c.author,
       body: c.body,
@@ -201,7 +209,9 @@ export function buildActivityFeed(
   return items
 }
 
-/** One issue's owned history. Event deduplication remembers IDs at ingress;
+/** One issue's owned history: a CONTIGUOUS window of its event log, from the
+ * oldest page loaded (`floor`) up to the newest event seen (`since`), merged
+ * with the comment thread. Event deduplication remembers IDs at ingress;
  * appending a page never visits, copies or sorts the retained event history.
  * Out-of-order timestamps use binary insertion; equal stamps keep comments
  * before events, then the server's event arrival order. */
@@ -209,36 +219,67 @@ export class IssueActivityHistory {
   readonly events: IssueEvent[] = []
   readonly items: ActivityItem[] = []
   private readonly seen = new Set<number>()
+  private readonly commentIds = new Set<string>()
   private cursor = 0
+  private lowest = 0
+  private shown = 0
+  /** Newest event id loaded: the forward cursor. */
   get since(): number {
     return this.cursor
+  }
+  /** Oldest event id loaded (0 when none): the backward cursor. */
+  get floor(): number {
+    return this.lowest
+  }
+  /** Event lines in `items` (hidden kinds excluded). */
+  get visibleEvents(): number {
+    return this.shown
   }
 
   appendEvents(rows: readonly IssueEvent[]): number {
     let added = 0
     for (const event of rows) {
       this.cursor = Math.max(this.cursor, event.id)
+      this.lowest = this.lowest === 0 ? event.id : Math.min(this.lowest, event.id)
       if (this.seen.has(event.id)) continue
       this.seen.add(event.id)
       this.events.push(event)
       added++
       const line = formatIssueEvent(event)
-      if (line) this.insert({ kind: 'event', id: `e|${event.id}`, ts: event.ts, line })
+      if (!line) continue
+      this.shown++
+      this.insert({ kind: 'event', id: `e|${event.id}`, ts: event.ts, line })
     }
     return added
   }
 
-  replaceComments(comments: readonly ActivityComment[]): void {
-    // A comments RPC is a replacement, unlike the cursor-paged event append.
-    for (let index = this.items.length - 1; index >= 0; index--)
-      if (this.items[index]?.kind === 'comment') this.items.splice(index, 1)
-    for (const comment of comments) this.appendComment(comment)
+  /** Bring the thread to `comments`. A comment the thread already holds keeps
+   * its item (same object, same place); only gone and new ones move. Returns
+   * whether anything changed. */
+  replaceComments(comments: readonly ActivityComment[]): boolean {
+    const next = new Set(comments.map(commentId))
+    let changed = false
+    for (let index = this.items.length - 1; index >= 0; index--) {
+      const item = this.items[index]
+      if (item?.kind !== 'comment' || next.has(item.id)) continue
+      this.items.splice(index, 1)
+      this.commentIds.delete(item.id)
+      changed = true
+    }
+    for (const comment of comments) {
+      if (this.commentIds.has(commentId(comment))) continue
+      this.appendComment(comment)
+      changed = true
+    }
+    return changed
   }
 
   appendComment(comment: ActivityComment): void {
+    const id = commentId(comment)
+    this.commentIds.add(id)
     this.insert({
       kind: 'comment',
-      id: `c|${comment.author}|${comment.createdAt}|${comment.body}`,
+      id,
       ts: comment.createdAt,
       author: comment.author,
       body: comment.body,
@@ -249,7 +290,10 @@ export class IssueActivityHistory {
     this.events.length = 0
     this.items.length = 0
     this.seen.clear()
+    this.commentIds.clear()
     this.cursor = 0
+    this.lowest = 0
+    this.shown = 0
   }
 
   private insert(item: ActivityItem): void {

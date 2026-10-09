@@ -165,6 +165,56 @@ describe('SessionStore event log', () => {
     expect(plan).not.toContain('SCAN podium_events')
   })
 
+  // POD-5832: a view that shows the last few things pages BACKWARD from the
+  // newest row, one bounded page at a time, instead of draining from id 0.
+  it('pages one subject newest first below a cursor, without bookkeeping kinds', async () => {
+    const store = await openTestStore(':memory:')
+    const ids: number[] = []
+    for (let n = 0; n < 7; n++)
+      ids.push(
+        await store.events.appendEvent({
+          ts: `t${n}`,
+          kind: n % 3 === 1 ? 'issue.read' : 'issue.pinned',
+          subject: n === 5 ? 'POD-2' : 'POD-1',
+          repoPath: '/r',
+        }),
+      )
+    const page = (before?: number) =>
+      store.events.listEventsSince(0, {
+        subject: 'POD-1',
+        order: 'desc',
+        limit: 2,
+        excludeKinds: ['issue.read'],
+        ...(before != null ? { before } : {}),
+      })
+    // Visible POD-1 rows are n = 0, 2, 3, 6 (n = 1, 4 are reads; n = 5 is POD-2).
+    const newest = await page()
+    expect(newest.map((e) => e.id)).toEqual([ids[6], ids[3]])
+    const older = await page(newest.at(-1)!.id)
+    expect(older.map((e) => e.id)).toEqual([ids[2], ids[0]])
+    expect(await page(older.at(-1)!.id)).toEqual([])
+    // Ascending stays the default, and `before` bounds it too.
+    expect(
+      (await store.events.listEventsSince(ids[0]!, { subject: 'POD-1', before: ids[6] })).map(
+        (e) => e.id,
+      ),
+    ).toEqual([ids[1], ids[2], ids[3], ids[4]])
+
+    const db = openDatabase(':memory:')
+    runDrizzleMigrations(db, DRIZZLE_MIGRATIONS)
+    const plan = (
+      db
+        .prepare(
+          "EXPLAIN QUERY PLAN SELECT * FROM podium_events WHERE id > ? AND id < ? AND kind NOT IN ('issue.read') AND subject = ? ORDER BY id DESC LIMIT ?",
+        )
+        .all(0, 100, 'POD-1', 50) as { detail: string }[]
+    )
+      .map((r) => r.detail)
+      .join(' | ')
+    expect(plan).toContain('idx_podium_events_subject')
+    expect(plan).not.toContain('TEMP B-TREE')
+  })
+
   it('reads a kind window with the last prior value for step-function consumers', async () => {
     const store = await openTestStore(':memory:')
     await store.events.appendEvent({

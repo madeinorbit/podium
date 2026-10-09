@@ -58,6 +58,7 @@ import { IssueStatusPicker } from './IssueStatusPicker'
 import { issueIdTitle } from './issue-card'
 import { useIssuePageContext } from './issue-page/issue-page-data'
 import { useIssueHistory } from './issue-page/IssueHistory'
+import { RECENT_ACTIVITY_SIZE } from '@podium/client-graph/issue-activity'
 import { issuePages, type PageIssue } from '@podium/client-graph/issue-page'
 import { useIssueEdgeResolver, edgeIssue } from './issue-page/issue-edges'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -358,10 +359,11 @@ const RecentActivity = observer(function RecentActivity({
 }: {
   issue: IssueViewModel
 }): JSX.Element {
-  const activity = useIssueHistory(issue)
+  // Asks the shared history for the newest few lines only, never every page.
+  const activity = useIssueHistory(issue, RECENT_ACTIVITY_SIZE)?.activity
   // Revision observes append-only owned state; the last-five read stays bounded.
   void activity?.revision
-  const shown = activity?.history.items.slice(-5).reverse() ?? []
+  const shown = activity?.history.items.slice(-RECENT_ACTIVITY_SIZE).reverse() ?? []
   return (
     <DockPart title="Recent activity" count={shown.length}>
       <div className="flex flex-col gap-1.5" data-testid="dock-recent-activity">

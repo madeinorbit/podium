@@ -983,7 +983,7 @@ export class IssueReportsModule {
   /** Durable event-log read; cursor = the last event id the caller has seen. */
   async listEvents(
     sinceId: number,
-    opts?: { kinds?: string[]; repoPath?: string; subject?: string; limit?: number },
+    opts?: Parameters<SessionStore['events']['listEventsSince']>[1],
   ): Promise<Awaited<ReturnType<SessionStore['events']['listEventsSince']>>> {
     return await this.store.deps.store.events.listEventsSince(sinceId, opts)
   }

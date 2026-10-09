@@ -529,9 +529,12 @@ const defs = {
     handler: async (ctx, input) =>
       await ctx.reports.listEvents(input.since, {
         ...(input.kinds ? { kinds: input.kinds } : {}),
+        ...(input.excludeKinds ? { excludeKinds: input.excludeKinds } : {}),
         ...(input.repoPath ? { repoPath: input.repoPath } : {}),
         ...(input.subject ? { subject: input.subject } : {}),
         ...(input.limit != null ? { limit: input.limit } : {}),
+        ...(input.before != null ? { before: input.before } : {}),
+        ...(input.order ? { order: input.order } : {}),
       }),
   }),
   // hits the external Linear API — 'write' keeps read-only callers from driving it

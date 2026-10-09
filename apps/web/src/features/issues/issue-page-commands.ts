@@ -14,6 +14,7 @@
 
 import type { ActivityComment, IssueEvent, RelationEntry } from '@podium/client-core/values'
 import type { IssueUpdatePatch } from '@podium/commands'
+import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
 import { type IssueId, parseIssueStatusValue } from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
@@ -229,13 +230,16 @@ export function issuePageCommands({
 export const loadIssueComments = (trpc: Trpc, id: string): Promise<ActivityComment[]> =>
   trpc.issues.comments.query({ id })
 
-/** One ascending, cursor-paged slice of the issue event log. `subject` narrows
- *  the page to a single issue's events in SQL (POD-532); omit it for the
- *  repo-wide read. */
+/** One cursor-paged slice of one issue's event log, narrowed to its subject in
+ *  SQL (POD-532): ascending from `since`, or newest first below `before` when
+ *  `order` is `desc` (POD-5832). */
 export const loadIssueEventsPage = (
   trpc: Trpc,
-  args: { since: number; repoPath: string; subject?: string; limit: number },
-): Promise<IssueEvent[]> => trpc.issues.events.query(args) as Promise<IssueEvent[]>
+  args: Parameters<IssueActivityPorts['events']>[0],
+): Promise<IssueEvent[]> =>
+  trpc.issues.events.query({ ...args, excludeKinds: [...args.excludeKinds] }) as Promise<
+    IssueEvent[]
+  >
 
 /** The configured git merge style (drives which git action is primary). */
 export const loadMergeStyle = async (trpc: Trpc): Promise<MergeStyle> =>
