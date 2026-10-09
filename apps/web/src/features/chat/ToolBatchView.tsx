@@ -369,6 +369,7 @@ export const ToolBatchView = observer(function ToolBatchView({
       className={rowClass}
       data-block={index}
       data-row-key={run?.ids[0] ?? row.blocks[0]!.item.id}
+      data-transcript-retain={open || diffPath !== null ? '' : undefined}
       data-row-aliases={run ? undefined : JSON.stringify(row.blocks.map((block) => block.item.id))}
     >
       {/* No rail — tool activity stays quiet, aligned with prose via the spacer. */}
@@ -381,6 +382,7 @@ export const ToolBatchView = observer(function ToolBatchView({
         <div
           className="work-line"
           data-state={activeWaiting ? 'wait' : active ? 'live' : live ? 'handoff' : 'done'}
+          data-transcript-run-view=""
           data-open={expanded ? 'true' : 'false'}
           data-single={count === 1 ? 'true' : undefined}
           data-settle={settling ? 'true' : undefined}
@@ -408,6 +410,7 @@ export const ToolBatchView = observer(function ToolBatchView({
             type="button"
             className="work-line-row"
             onClick={toggle}
+            data-transcript-run-toggle=""
             aria-expanded={expanded}
             aria-label={accessibleSummary}
             title={title}

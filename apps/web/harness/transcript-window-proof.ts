@@ -107,7 +107,9 @@ try {
   const found = await page.evaluate(() => (window as any).find('native-needle-4000', false, false, true))
   await page.waitForTimeout(100)
   const nativeFind = await page.evaluate(() => ({ found: document.getSelection()?.toString(), stats: (window as any).__transcriptWindowProof.stats() }))
-  if (!found || !nativeFind.found?.includes('native-needle-4000') || !nativeFind.stats.text.some((text: string) => text.includes('native-needle-4000'))) throw new Error('Native Find did not reveal the off-window message')
+  console.log(JSON.stringify({ nativeFindResult: found, nativeFind }))
+  await writeFile(resolve(directory, 'native-find.json'), JSON.stringify({ found, nativeFind }, null, 2))
+  if (!found || !nativeFind.found?.includes('native-needle-4000') || !nativeFind.stats.text.some((text: string) => text.includes('native-needle-4000'))) { if (arm === 'after') throw new Error('Native Find did not reveal the off-window message'); errors.push('Baseline native Find did not keep its match in the viewport') }
   await page.evaluate(() => document.getSelection()!.removeAllRanges())
   await page.evaluate(() => (window as any).__transcriptWindowProof.jump(4000))
   await page.waitForTimeout(100)

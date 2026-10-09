@@ -87,7 +87,7 @@ export function useTranscriptWindow(
       // Preserve both selection endpoints and the entire selected interval,
       // focused controls, and user-opened tool/detail state across scrolling.
       if (range?.intersectsNode(node) || node.contains(scroll.ownerDocument.activeElement) ||
-          node.querySelector('[aria-expanded="true"], [data-open="true"], dialog[open], details[open]') ||
+          node.querySelector('[data-transcript-retain], [aria-expanded="true"]:not([data-transcript-run-toggle]), [data-open="true"]:not([data-transcript-run-view]), dialog[open], details[open]') ||
           [...node.querySelectorAll('img')].some(image => !image.complete)) next.add(key)
     }
     // A selection may span shells, including a Select All from the browser's
