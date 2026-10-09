@@ -10,6 +10,7 @@ import { IssuePanelView } from '../IssuePanelView'
 import { useIssueExplorer } from './explorer-context'
 import { crumbTrail } from './explorer-nav'
 import { IssueExplorerList } from './IssueExplorerList'
+import { IssueViewsContext, useIssueViews } from '../issue-page/opening-context'
 
 /** How long a level takes to come in. Matches the shell's one-shot morph band
  *  (150–400ms) — structural motion, not a status signal. */
@@ -41,6 +42,21 @@ interface Frame {
  * readout of a movement rather than the only evidence one happened.
  */
 export function IssueExplorer({
+  cwd,
+  machineId,
+}: {
+  cwd: string
+  machineId?: MachineId
+}): JSX.Element {
+  const views = useIssueViews()
+  return (
+    <IssueViewsContext.Provider value={views}>
+      <IssueExplorerBody cwd={cwd} machineId={machineId} />
+    </IssueViewsContext.Provider>
+  )
+}
+
+function IssueExplorerBody({
   cwd,
   machineId,
 }: {

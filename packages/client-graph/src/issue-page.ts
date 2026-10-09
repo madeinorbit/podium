@@ -12,6 +12,7 @@ import {
 import { asIssueId, asSessionId } from '@podium/model/browser'
 import { compareStructural, observe } from 'mobx'
 import { ISSUE_PAGE_SUMMARIES } from './issue-page-schema'
+import { ExplorerRow } from './issue-board-cards'
 import { missions } from './mission'
 import { missionView } from './mission-view'
 import type { MobxPool } from './pool'
@@ -461,6 +462,7 @@ export function createIssuePageViews(pool: MobxPool) {
     detailLists.add(page.lists)
     return page
   })
+  const explorerCompanions = companion((model: PageIssue) => new ExplorerRow(model, pool))
   function row(id: string): IssuePageRow {
     return companions(pool.issueObject(id) as PageIssue)
   }
@@ -568,6 +570,7 @@ export function createIssuePageViews(pool: MobxPool) {
     summary,
     issues,
     row,
+    explorerRow: explorerCompanions,
     pool,
     panelIssue,
     destination,
@@ -580,6 +583,7 @@ export function createIssuePageViews(pool: MobxPool) {
       cache.clear()
       identities.clear()
       clearCompanions(companions)
+      clearCompanions(explorerCompanions)
       explorerSeats.dispose()
       summaryIssues.dispose()
       explorerIssues.dispose()

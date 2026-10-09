@@ -1,6 +1,7 @@
 import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
-import { boardCards } from '@podium/client-graph/issue-board-cards'
+import { useIssueViews } from '../issue-page/opening-context'
+import type { PageIssue } from '@podium/client-graph/issue-page'
 
 import { issueDisplayRef } from '@podium/protocol'
 import { Search, X } from 'lucide-react'
@@ -309,12 +310,12 @@ const ExplorerRow = observer(function ExplorerRow({
   onStatusPick: (value: string, issue: IssueViewModel) => void
 }): JSX.Element | null {
   const pool = useWorklistPool()
-  if (!pool) return <ExplorerRowLoading />
-  const cards = boardCards(pool)
-  const issue = cards.issue(id)
+  const views = useIssueViews()
+  if (!pool || !views) return <ExplorerRowLoading />
+  const issue = pool.issueObject(id) as PageIssue
   // An issue the pool does not know draws nothing, as before.
   if (issue.finished === undefined) return null
-  const state = cards.explorerRow(issue).state
+  const state = views.explorerRow(issue).state
   const closed = isFinished(issue)
   // An errored task is a needs-you with a cause (POD-1601): the row's own
   // `data-needs-you` tint is what makes it findable in a long list, and an

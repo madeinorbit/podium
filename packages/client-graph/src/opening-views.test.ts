@@ -3,6 +3,7 @@ import { expect, it } from 'vitest'
 import { createIssuePageViews } from './issue-page'
 import { createSettingsViews } from './settings-views'
 import { createAutomationViews } from './automation-views'
+import { boardCards } from './issue-board-cards'
 import {
   beforeIssuePages,
   beforeSettingsView,
@@ -77,6 +78,8 @@ it('keeps the old and opening-owned answers identical on the same fixtures', () 
       if (process.env.PODIUM_OPENING_WRONG === '1') next.title = 'wrong opening'
       expect(next).toEqual(read(oldIssue, n))
       expect(next.title).toBe(`Task ${n}`)
+      const model = pool.issueObject(`issue-${n}`) as Parameters<typeof nextIssue.explorerRow>[0]
+      expect(nextIssue.explorerRow(model).state).toEqual(boardCards(pool).explorerRow(model).state)
     }
     expect(nextSettings.setup()).toEqual(oldSettings.setup())
     expect(nextSettings.sessions()).toEqual(oldSettings.sessions())
@@ -101,9 +104,11 @@ it('collects opening models and companions after fifty closes while their pool s
       settings = createSettingsViews(pool),
       automation = createAutomationViews(pool)
     const row = issue.row(`issue-${n}`)
+    const explorerRow = issue.explorerRow(row.issue)
     const stop = autorun(() => {
       void row.children
       void row.activeSessions
+      void explorerRow.state
       issue.issues()
       issue.explorer()
       settings.setup()
@@ -115,6 +120,7 @@ it('collects opening models and companions after fifty closes while their pool s
     for (const [kind, value] of [
       ['issue', issue],
       ['companion', row],
+      ['explorer companion', explorerRow],
       ['settings', settings],
       ['automation', automation],
     ] as const)
@@ -133,7 +139,7 @@ it('collects opening models and companions after fifty closes while their pool s
   const reachable = refs.filter(({ ref }) => ref.deref() !== undefined).map(({ kind }) => kind)
   console.info(
     'opening reachability',
-    JSON.stringify({ openings: 50, models: 150, companions: 50, reachable }),
+    JSON.stringify({ openings: 50, models: 150, companions: 100, reachable }),
   )
   expect(reachable).toEqual([])
   expect(pool.issueObject('issue-49').authoredTitle).toBe('Task 49')
