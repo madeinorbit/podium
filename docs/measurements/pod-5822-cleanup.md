@@ -8,7 +8,9 @@ On pilot `e734b506f9`, the implementation's final lean gate is green (4 of 1,874
 
 The current native click/menu case passes both corpus sizes: opening the menu reads one row and runs five derivations at each size. Production sidebar and issue-page renders pass with zero renderer errors; both screenshots are attached. The narrow stored-field boundary adds 2.026% total retained heap, and every wrapped field is justified below, satisfying the coordinator's approximately-2%-or-field-justification decision.
 
-The remaining scope decision is the phone paint fixture's duplicated visible target after POD-5880. The attached `Phone paint fixture proposal` selects an issue drawn once and preserves every original assertion. Reversible focused runs pass zero unshown-edit commits and one title-edit commit at both 1x and 4x, without memory stops. The committed fixture and production window remain unchanged while POD-4286 reviews that adjustment against the brief's names/imports-only test restriction. POD-5885 owns the separately established frozen phone hash drift.
+POD-4286 explicitly authorized the attached phone paint fixture patch on 2026-10-09, overriding the brief's names/imports-only test restriction for this fixture input. It selects an issue drawn once after POD-5880 enlarged the list window and preserves every original assertion. Reversible focused runs pass zero unshown-edit commits and one title-edit commit at both 1x and 4x, without memory stops; the approved patch is now applied. The production window is unchanged.
+
+The coordinator also explicitly accepted the twelve-field memory result (+2.026%) and the ratio-only navigation census exception. Navigation work decreases at both scales, with no other growing-key regression or absolute increase. The 1x native rows/styles golden fails on the unchanged pilot because of POD-5880's larger viewport; POD-5885 owns that stale snapshot and the separately established frozen 4x phone hash drift. Their expected values and assertions are unchanged here. These are accepted landing limitations, not green phone snapshot results.
 
 ## Result
 

@@ -768,9 +768,11 @@ describe('mobile WorkScreen pool consumer', () => {
       const cells: unknown[] = []
       const { view, corpus, feed } = await mount(scale)
       const initial = output(view.container)
-      const label = view.container
-        .querySelector('[data-label^="POD-"]')!
-        .getAttribute('data-label')!
+      // Meter an issue drawn once; a title edit commits every visible band copy.
+      const labels = [...view.container.querySelectorAll('[data-label^="POD-"]')]
+        .map(row => row.getAttribute('data-label')!)
+      const label = labels.find(label => labels.indexOf(label) === labels.lastIndexOf(label))!
+      expect(label).toBeDefined()
       const seq = Number(label.match(/POD-(\d+)/)![1])
       const target = corpus.issueProjections.find((row) => row.seq === seq)!
       expect(target).toBeDefined()
