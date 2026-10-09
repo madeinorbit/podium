@@ -70,13 +70,16 @@ export class MobileSection {
 
 /** One section model owned by the always-on worklist. */
 export class MobileSectionsView implements MobileWorkSections {
-  constructor(readonly pool: MobxPool, private readonly initialState?: MobileWorkState) {}
+  readonly pinned: MobileSection
+  readonly attention: MobileSection
+  constructor(readonly pool: MobxPool, private readonly initialState?: MobileWorkState) {
+    this.pinned = new MobileSection(pool, 'pinned', this)
+    this.attention = new MobileSection(pool, 'needs-you', this)
+  }
   get state(): MobileWorkState { return this.initialState ?? worklistView(this.pool).layout }
   @lazy({ equals: compareShallow }) get projectKeys() { return sidebarView(this.pool).bandKeys(this.state) }
   project(key: string): MobileSection { return worklistGroups(this.pool).group(key).workSection }
   section(key: string): MobileSection { return key === 'pinned' ? this.pinned : key === 'needs-you' ? this.attention : this.project(key) }
-  readonly pinned = new MobileSection(this.pool, 'pinned', this)
-  readonly attention = new MobileSection(this.pool, 'needs-you', this)
   @lazy({ equals: compareShallow }) get attentionIds() {
     return [...this.pinned.attentionIds, ...this.projectKeys.flatMap(key => this.project(key).attentionIds)]
   }

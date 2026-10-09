@@ -148,7 +148,7 @@ function installFields(
     const get = answered ?? (entity === 'issue' ? lazy(stored, {
       kind: 'getter', name: field, static: false, private: false,
       access: { has: target => field in target, get: target => stored.call(target) },
-      addInitializer() {}, metadata: undefined,
+      addInitializer() {}, metadata: {},
     }) : stored)
     Object.defineProperty(prototype, field, {
       configurable: false,

@@ -64,7 +64,7 @@ it.each([true, false])('a cold reference uses only declared identity (%s) withou
   ] })
   try {
     const stored = pool.row('issue', 'cold-ref', 'summary-fields')
-    expect(stored && stored !== LOADING ? stored.seq : undefined).toBe(declared ? 0 : undefined)
+    expect(stored && stored !== LOADING ? Reflect.get(stored, 'seq') : undefined).toBe(declared ? 0 : undefined)
     expect(pool.issueObject('cold-ref').displayRef).toBe(declared ? displayRefOf(0, 'POD') : '')
     expect(pool.tables.issue.has('cold-ref')).toBe(false)
     expect(schedule).not.toHaveBeenCalled()

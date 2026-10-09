@@ -43,7 +43,7 @@ function answers(row: SliceIssue | undefined) {
 describe('shared worklist record facts keep their answers without a raw-row cache', () => {
   for (const [name, patch] of fixtures) for (const field of fields) it(`${name}.${field}`, () => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
-      name === 'cold' ? { load: () => undefined, schedule: () => () => {} } : {})
+      name === 'cold' ? { load: () => undefined, schedule: () => () => {} } : undefined)
     if (patch) pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: name, value: {
       id: name, seq: 1, title: name, repoPath: '/synthetic', createdAt: stamp, updatedAt: stamp, ...patch,
     } as never }] })
@@ -65,7 +65,7 @@ const readOrLoading = (read: () => unknown) => {
 describe('direct shared issue fields keep the old installed getter answers', () => {
   for (const [name, patch] of fixtures) for (const field of storedFields) it(`${name}.${field}`, () => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
-      name === 'cold' ? { load: () => undefined, schedule: () => () => {} } : {})
+      name === 'cold' ? { load: () => undefined, schedule: () => () => {} } : undefined)
     if (patch) pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: name, value: {
       id: name, seq: 1, title: name, repoPath: '/synthetic', createdAt: stamp, updatedAt: stamp, ...patch,
     } as never }] })
