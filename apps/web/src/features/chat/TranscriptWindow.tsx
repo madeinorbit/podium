@@ -21,6 +21,7 @@ interface TranscriptWindow {
   register: (key: string, entry: Entry) => () => void
   refresh: () => void
   schedule: () => void
+  remeasure: (key: string) => void
 }
 
 export function useTranscriptWindow(
@@ -135,6 +136,15 @@ export function useTranscriptWindow(
       flushSync(refresh)
     })
   }, [refresh])
+  const remeasure = useCallback((key: string) => {
+    const entry = entries.current.get(key)
+    if (!entry) return
+    entry.height = 0
+    entry.mounted = true
+    mounted.current.add(key)
+    entry.publish(true)
+    schedule()
+  }, [schedule])
   useLayoutEffect(() => {
     ordered.current = keys
     operators.current = keys.filter(key => entries.current.get(key)?.operator)
@@ -231,13 +241,13 @@ export function useTranscriptWindow(
       frame.current = null
     }
   }, [refresh, schedule, scrollRef])
-  return useMemo(() => ({ register, refresh, schedule }), [register, refresh, schedule])
+  return useMemo(() => ({ register, refresh, schedule, remeasure }), [register, refresh, schedule, remeasure])
 }
 
 /** A stable shell also lets the existing minimap and scroll controller address
  * off-window rows. Rich content is mounted only while needed by the reader. */
-export function TranscriptWindowRow({ window: windowing, rowKey, index, children }: {
-  window: TranscriptWindow; rowKey: string; index: number; children: ReactNode | ((remounted: boolean) => ReactNode)
+export function TranscriptWindowRow({ window: windowing, rowKey, index, geometryKey, children }: {
+  window: TranscriptWindow; rowKey: string; index: number; geometryKey?: string; children: ReactNode | ((remounted: boolean) => ReactNode)
 }): JSX.Element {
   const ref = useRef<HTMLDivElement | null>(null)
   const proxy = useRef<HTMLDivElement | null>(null)
@@ -246,6 +256,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
   const entry = useRef<Entry | null>(null)
   const wasMounted = useRef(true)
   const remounted = useRef(false)
+  const previousGeometryKey = useRef(geometryKey)
   if (mounted && !wasMounted.current) remounted.current = true
   const publish = useCallback((show: boolean, found?: boolean) => {
     setMounted(show)
@@ -256,6 +267,13 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
     entry.current = value
     return windowing.register(rowKey, value)
   }, [rowKey, windowing, publish])
+  useLayoutEffect(() => {
+    if (previousGeometryKey.current === geometryKey) return
+    previousGeometryKey.current = geometryKey
+    // A prepend can remove the old leading day mark or change its turn seam.
+    // Remeasure that boundary row, even while its rich content is offscreen.
+    windowing.remeasure(rowKey)
+  }, [geometryKey, rowKey, windowing])
   useLayoutEffect(() => {
     if (!mounted || !entry.current) { wasMounted.current = mounted; return }
     entry.current.height = ref.current!.getBoundingClientRect().height

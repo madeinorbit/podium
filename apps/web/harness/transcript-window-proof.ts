@@ -110,13 +110,19 @@ try {
   const nativeFind = await page.evaluate(() => ({ selection: document.getSelection()?.toString(), beforematch: (window as any).__nativeFindEvents, stats: (window as any).__transcriptWindowProof.stats() }))
   console.log(JSON.stringify({ nativeFindResult: found, nativeFind }))
   await writeFile(resolve(directory, 'native-find.json'), JSON.stringify({ found, nativeFind }, null, 2))
-  if (!found || !nativeFind.stats.text.some((text: string) => text.includes('native-needle-4000'))) throw new Error('Native Find did not reveal the off-window message')
+  if (!found || nativeFind.selection !== 'native-needle-4000') throw new Error('Native Find lost its matched range')
+  // Chromium window.find commits a range without guaranteeing a scroll in
+  // the unwindowed baseline. Exercise the browser's reveal of that range too.
+  await page.evaluate(() => document.getSelection()?.anchorNode?.parentElement?.scrollIntoView({ block: 'center' }))
+  await page.waitForTimeout(100)
+  const nativeReveal = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
+  if (!nativeReveal.text.some((text: string) => text.includes('native-needle-4000'))) throw new Error('Native Find range reveal failed')
   await page.screenshot({ path: resolve(directory, 'find.png') })
   await page.evaluate(() => document.getSelection()!.removeAllRanges())
   await page.evaluate(() => (window as any).__transcriptWindowProof.jump(4000))
   await page.waitForTimeout(100)
   await page.screenshot({ path: resolve(directory, 'window.png') })
-  const report = { arm, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), browser: browser.version(), samples, fastScroll, jump, wheel, selectionCopy: { selected, copied }, nativeFind, errors }
+  const report = { arm, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), browser: browser.version(), samples, fastScroll, jump, wheel, selectionCopy: { selected, copied }, nativeFind, nativeReveal, errors }
   await writeFile(resolve(directory, 'report.json'), JSON.stringify(report, null, 2))
   console.log(JSON.stringify({ arm, samples: samples.map(({ loaded, elements, drawn, heapUsed }) => ({ loaded, elements, drawn, heapUsed })), blankFrames: fastScroll.filter(sample => sample.visible === 0).length, jump: { key: jump.key, offset: jump.offset }, errors }))
   if (errors.length || fastScroll.some(sample => sample.visible === 0)) throw new Error('Production scroll proof failed')

@@ -500,7 +500,8 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           </button>
         )}
         {rows.map(({ row, index }, pos) => (
-          <TranscriptWindowRow key={rowIdentity(row)} window={windowing} rowKey={rowIdentity(row)} index={index}>
+          <TranscriptWindowRow key={rowIdentity(row)} window={windowing} rowKey={rowIdentity(row)} index={index}
+            geometryKey={`${dayMarks.get(pos) ?? ''}:${pos > 0 && isOperatorPromptRow(row) ? 'open' : turnPosition(row)}:${processPosition(row, rows[pos - 1]?.row)}`}>
             {(remounted) => <TranscriptRow props={props} template={row} index={index} pos={pos}
               previous={rows[pos - 1]?.row} arrived={!remounted && arriving.has(rowIdentity(row))}
               dayMark={dayMarks.get(pos)} searchMatches={searchMatches} />}
