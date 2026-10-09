@@ -925,6 +925,7 @@
         "src/store/repos-read-cost.test.ts",
         "src/store/repos-registry-golden.test.ts",
         "src/store/repos.ts",
+        "src/store/runtime-event-driver-ordering.test.ts",
         "src/store/runtime-events.test.ts",
         "src/store/runtime-late-workspace.test.ts",
         "src/store/server-secrets.test.ts",

@@ -818,12 +818,13 @@ export function createGrokAcpRuntime(
     delivery.deadline = Date.now() + RECEIPT_WATCH_MS
     session.receiptWatches.set(promptId, delivery)
     session.openTurnEpoch = epoch
-    foldState(session, { kind: 'prompt_submitted' }, at, 'live')
+    // Open the epoch before publishing state that depends on it.
     emit(
       session,
       { t: 'turn', ev: { ev: 'started', turnEpoch: epoch, origin: delivery.origin } },
       at,
     )
+    foldState(session, { kind: 'prompt_submitted' }, at, 'live')
     delivery.settle({
       outcome: 'accepted',
       turnEpoch: epoch,

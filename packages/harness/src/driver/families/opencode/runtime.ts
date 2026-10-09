@@ -750,21 +750,18 @@ export function createOpencodeRuntime(
         const opened = !wasBusy && session.busy
         if (opened) {
           session.turnEpoch = Math.max(session.turnEpoch, session.fencedTurnEpoch) + 1
-          persist(session)
-          if (session.interactions.size === 0) {
-            session.state = { phase: 'working', since: at, nativeSubagentCount: 0 }
-          }
-        }
-        const change = statusToStateEvent(event.properties.status, at)
-        if (change) emit(session, { t: 'state', change }, at)
-        // Opening a turn is what `busy` means, and the epoch is what every
-        // subsequent event is fenced against.
-        if (opened) {
+          // External clients can open a turn too. Its start must be the first
+          // event in the new epoch, before busy/retry publishes activity.
           emit(
             session,
             { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin: 'human' } },
             at,
           )
+        }
+        const change = statusToStateEvent(event.properties.status, at)
+        if (change) {
+          session.state = reduceAgentState(session.state, change, at)
+          emit(session, { t: 'state', change }, at)
         }
         break
       }
@@ -1623,7 +1620,6 @@ export function createOpencodeRuntime(
     // epoch is no receipt proof: send() still waits for the stored text part.
     session.turnEpoch += 1
     session.busy = true
-    session.state = { phase: 'working', since: iso(), nativeSubagentCount: 0 }
     /**
      * THE EPOCH IS DURABLE FROM THE MOMENT THE TURN OPENS, not from the moment
      * an event happens to be emitted.
@@ -1653,7 +1649,11 @@ export function createOpencodeRuntime(
      * and the two cannot double up, because it fires only on the busy
      * transition and this path has already set `busy`.
      */
-    emit(session, { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin } }, iso())
+    const at = iso()
+    emit(session, { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin } }, at)
+    const change: AgentStateEvent = { kind: 'prompt_submitted' }
+    session.state = reduceAgentState(session.state, change, at)
+    emit(session, { t: 'state', change }, at)
     return admission
   }
 

@@ -2164,8 +2164,11 @@ describe('a message Codex holds in memory', () => {
     await w.handle.send(row('msg_race', 'raced'), whenReady)
     await expect.poll(() => w.liveServer().turnStarts).toBe(1)
     await settle()
-    // No turn of ours opened, so no turn event and no new epoch.
-    expect(turnStarts(w.events())).toEqual([])
+    // The foreign turn opens one epoch. Our silently steered input opens none.
+    expect(turnStarts(w.events())).toMatchObject([
+      { t: 'turn', turnEpoch: 1, ev: { ev: 'started', turnEpoch: 1, origin: 'human' } },
+    ])
+    expect((await w.handle.snapshot()).turnEpoch).toBe(1)
     // The other client's own input is not ours, even as the turn's first item.
     w.liveServer().emitUserMessage('theirs', 'usr-theirs', { clientId: null })
     await settle()

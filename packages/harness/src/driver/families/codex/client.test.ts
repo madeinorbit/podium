@@ -34,7 +34,16 @@ describe('the moment an answer is read', () => {
       const initialized = client.handshake(handshake.initializeRequest.params)
       receive(handshake.initializeResponse)
       await initialized
-      const answered = client.call('turn/start', {}, { onAnswer: () => void seen.push('answer') })
+      const answered = client.call(
+        'turn/start',
+        {},
+        {
+          onAnswer: (result) => {
+            expect(result).toEqual({ turn: { id: 'turn-theirs' } })
+            seen.push('answer')
+          },
+        },
+      )
       const outgoing = JSON.parse(writes.at(-1) ?? '{}')
       const started = (id: string) => ({
         method: 'turn/started',

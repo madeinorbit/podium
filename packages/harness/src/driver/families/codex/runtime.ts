@@ -538,6 +538,9 @@ interface DriverSession {
   /** A turn we have accepted but whose `turn/started` has not landed yet. This
    *  is the measured window between the ack and the open turn. */
   pendingTurnId: CodexTurnId | undefined
+  /** Active status can precede both the start ack and notification. Hold it
+   *  until the new epoch has been announced to downstream consumers. */
+  pendingStatus: { change: AgentStateEvent; at: string } | undefined
   /** Provider turn ids whose terminal notification has already been folded. */
   fencedTurnIds: Set<CodexTurnId>
   asks: Map<string, OpenAsk>
@@ -676,6 +679,22 @@ export function createCodexRuntime(
     })
   }
 
+  function publishState(session: DriverSession, change: AgentStateEvent, at: string): void {
+    session.state = reduceAgentState(session.state, change, at)
+    emit(session, { t: 'state', change }, at)
+  }
+
+  function beginTurn(session: DriverSession, origin: SendOptions['origin'], at: string): void {
+    session.turnEpoch += 1
+    // emit persists the epoch synchronously, including in the ack-before-open
+    // window. State must follow this event for the server to admit it.
+    emit(session, { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin } }, at)
+    publishState(session, { kind: 'prompt_submitted' }, at)
+    const pending = session.pendingStatus
+    session.pendingStatus = undefined
+    if (pending) publishState(session, pending.change, pending.at)
+  }
+
   // -- notification ingestion ----------------------------------------------
 
   /**
@@ -702,9 +721,16 @@ export function createCodexRuntime(
         break
       }
       case 'thread/status/changed': {
+        if (note.params.status.type !== 'active') session.pendingStatus = undefined
         const at = iso()
         const change = statusToStateEvent(note.params.status, at)
-        if (change) emit(session, { t: 'state', change }, at)
+        if (change) {
+          if (session.openTurnId === undefined && session.pendingTurnId === undefined) {
+            session.pendingStatus = { change, at }
+          } else {
+            publishState(session, change, at)
+          }
+        }
         break
       }
       case 'thread/tokenUsage/updated': {
@@ -725,9 +751,15 @@ export function createCodexRuntime(
       }
       case 'turn/started': {
         const at = iso(note.params.turn.startedAt ? note.params.turn.startedAt * 1000 : undefined)
-        session.openTurnId = note.params.turn.id
+        const turnId = note.params.turn.id
+        if (session.fencedTurnIds.has(turnId)) break
+        // A native client can open a turn without our RPC. A notification may
+        // also arrive after the RPC answer but before deliver resumes.
+        if (session.pendingTurnId !== turnId && session.openTurnId !== turnId) {
+          beginTurn(session, 'human', at)
+        }
+        session.openTurnId = turnId
         session.pendingTurnId = undefined
-        session.state = { phase: 'working', since: at, nativeSubagentCount: 0 }
         // The turn is only STEERABLE from here — see STEER_OPEN_TIMEOUT_MS.
         for (const wake of [...session.turnOpenWaiters]) wake()
         session.turnOpenWaiters.clear()
@@ -1289,6 +1321,7 @@ export function createCodexRuntime(
     const at = iso(turn.completedAt ? turn.completedAt * 1000 : undefined)
     session.openTurnId = undefined
     session.pendingTurnId = undefined
+    session.pendingStatus = undefined
     if (ended.length > 0) {
       void proveNotRecorded(
         session,
@@ -1472,8 +1505,14 @@ export function createCodexRuntime(
         ...(effort && effort !== 'auto' ? { effort } : {}),
       },
       {
-        onAnswer: () => {
+        onAnswer: (answer) => {
           openAtAnswer = session.openTurnId
+          const turnId = (answer as { turn?: { id?: string } }).turn?.id
+          if (turnId !== undefined && turnId === openAtAnswer) return
+          // Publish at the synchronous ack boundary: status, items and the
+          // start notification may all arrive before this await resumes.
+          session.pendingTurnId = turnId
+          beginTurn(session, origin, iso())
         },
       },
     )
@@ -1510,29 +1549,11 @@ export function createCodexRuntime(
      * Measured: `turn/start` answers with a `Turn` whose status is `inProgress`
      * BEFORE the `turn/started` notification arrives, and a `turn/steer` sent in
      * that window is refused with "no active turn to steer". So the id is parked
-     * as PENDING here and only becomes the open turn when Codex says it has
+     * as PENDING at the ack and only becomes the open turn when Codex says it has
      * started. Treating the ack as the open turn is what would make a steer
      * race, and the race is silent because the refusal looks like "the turn
      * already ended".
      */
-    session.pendingTurnId = result.turn?.id
-    session.turnEpoch += 1
-    session.state = { phase: 'working', since: iso(), nativeSubagentCount: 0 }
-    /**
-     * THE EPOCH IS DURABLE FROM THE MOMENT THE TURN OPENS, not from the moment
-     * an event happens to be emitted. Both carriers are written here — the
-     * in-process stream position and the journal — because leaving it to
-     * `emit()` made the epoch's durability depend on a notification ARRIVING,
-     * and a supervisor restart in the window between the ack and the first
-     * notification rebound the session at an older epoch. W5's review caught
-     * exactly this with its snapshot→adopt round-trip.
-     */
-    streamPositions.set(session.binding.process.key, {
-      seq: session.seq,
-      turnEpoch: session.turnEpoch,
-    })
-    persist(session)
-    emit(session, { t: 'turn', ev: { ev: 'started', turnEpoch: session.turnEpoch, origin } }, iso())
     const { transcriptItem, harnessRef } = turnId
       ? awaited('turn', turnId)
       : { transcriptItem: undefined, harnessRef: undefined }
@@ -2669,6 +2690,7 @@ export function createCodexRuntime(
       seq: Math.max(carried?.seq ?? 0, journalled?.seq ?? 0),
       openTurnId: undefined,
       pendingTurnId: undefined,
+      pendingStatus: undefined,
       fencedTurnIds: new Set(),
       asks: new Map(),
       answered: new Set(),
