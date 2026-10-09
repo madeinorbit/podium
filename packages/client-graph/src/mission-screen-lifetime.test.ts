@@ -78,6 +78,10 @@ it('opening and closing a mission 50 times leaves no view model or companion rea
     // Flat: fifty openings leave no more reachable than one, and one leaves none.
     const afterMany = await reachable(many)
     console.info('[mission lifetime]', JSON.stringify({ openings: 50, afterOne, afterMany, keptAfterOne, keptAfterMany: kept() }))
+    if (afterMany) console.info('[mission lifetime targets]', JSON.stringify(many.flatMap((ref, index) => {
+      const value = ref.deref()
+      return value ? [{ opening: Math.floor(index / (many.length / 50)), kind: value.constructor.name }] : []
+    })))
     expect(afterMany).toBe(afterOne)
     expect(afterOne).toBe(0)
     expect(kept()).toBe(keptAfterOne)
