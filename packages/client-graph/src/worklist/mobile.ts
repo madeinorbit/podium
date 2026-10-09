@@ -55,20 +55,20 @@ export class MobileSection {
     if (key !== 'needs-you') this.members = this.memberQuery()
   }
   private memberQuery() {
-    const groups = worklistGroups(this.pool), index = sidebarRosterView(this.pool)
-    const lane = this.kind === 'pinned' ? groups.rootPinned : groups.rootOpen
+    const groups = () => worklistGroups(this.pool), index = () => sidebarRosterView(this.pool)
+    const lane = () => this.kind === 'pinned' ? groups().rootPinned : groups().rootOpen
     const key = this.kind === 'pinned' ? 'pinned' : this.key
     const worktree = (id: string) => this.pool.tables.worktree.has(id)
     return createQueryResult<string>({
       name: `worklist.phone@${this.key}.members`,
-      ids: function* () { yield* lane.lane(key); if (key !== 'pinned') yield* index.groupCandidates(key) },
-      has: id => lane.hasIn(key, id) || (key !== 'pinned' && index.hasGroupCandidate(key, id)),
+      ids: function* () { yield* lane().lane(key); if (key !== 'pinned') yield* index().groupCandidates(key) },
+      has: id => lane().hasIn(key, id) || (key !== 'pinned' && index().hasGroupCandidate(key, id)),
       read: id => {
-        if (!worktree(id)) return lane.hasIn(key, id) ? id : undefined
+        if (!worktree(id)) return lane().hasIn(key, id) ? id : undefined
         const tree = this.pool.model('worktree', id)
         return tree && worklistView(this.pool).tree(tree).hasCandidates ? id : undefined
       },
-      order: id => worktree(id) ? JSON.stringify([1, id]) : JSON.stringify([0, groups.rankOf(id)]),
+      order: id => worktree(id) ? JSON.stringify([1, id]) : JSON.stringify([0, groups().rankOf(id)]),
       compareOrder: (a, b) => {
         const left = JSON.parse(a) as [number, RowRank | string], right = JSON.parse(b) as [number, RowRank | string]
         return left[0] - right[0] || (left[0] === 0 ? compareRank(left[1] as RowRank, right[1] as RowRank)
@@ -77,8 +77,8 @@ export class MobileSection {
       matches: [id => this.root.sectionAsking(id, worktree(id)), id => !this.root.sectionAsking(id, worktree(id))],
       totals: [id => this.root.waiting(id, worktree(id)).pending],
       subscribe: changed => {
-        const stop = lane.subscribe(key, changed)
-        const stopTrees = key === 'pinned' ? undefined : index.subscribeGroupCandidates(key, changed)
+        const stop = lane().subscribe(key, changed)
+        const stopTrees = key === 'pinned' ? undefined : index().subscribeGroupCandidates(key, changed)
         return () => { stop(); stopTrees?.() }
       },
     })
