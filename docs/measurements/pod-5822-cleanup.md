@@ -2,6 +2,14 @@
 
 POD-5822 follows the frontend data guide rules 3, 4, 5, 8 and 9 and the names approved by POD-5708 on 2026-10-08. The canonical name table was committed before implementation in `4b7de6fe0f`; its approved corrections are in `pod-5822-names.md`.
 
+## Current candidate
+
+On pilot `e734b506f9`, the implementation's final lean gate is green (4 of 1,874 files, 154 checks), full typecheck passes all 29 projects, and the interaction scan reports zero ratchet errors. The normal web build passes at 2,144,359 eager raw bytes, below the unchanged 2,150,000 ceiling. The current canonical structural census passes 30 checks; the additional comparison repeats only the coordinator's accepted ratio exception, with no new growing keys or absolute increases.
+
+The current native click/menu case passes both corpus sizes: opening the menu reads one row and runs five derivations at each size. Production sidebar and issue-page renders pass with zero renderer errors; both screenshots are attached. The narrow stored-field boundary adds 2.026% total retained heap, and every wrapped field is justified below, satisfying the coordinator's approximately-2%-or-field-justification decision.
+
+The remaining scope decision is the phone paint fixture's duplicated visible target after POD-5880. The attached `Phone paint fixture proposal` selects an issue drawn once and preserves every original assertion. Reversible focused runs pass zero unshown-edit commits and one title-edit commit at both 1x and 4x, without memory stops. The committed fixture and production window remain unchanged while POD-4286 reviews that adjustment against the brief's names/imports-only test restriction. POD-5885 owns the separately established frozen phone hash drift.
+
 ## Result
 
 Desktop sidebar, rail and phone Work rows read `WorklistIssue`, `WorklistWorktree` or their shared record directly. The three forwarding ports, issue Proxy and per-row helper companion maps are removed. Shared record facts use `IssueModel` names; worklist-specific facts keep one canonical field. The existing departure snapshot remains the only frozen row paint.
@@ -49,7 +57,7 @@ The coordinator-requested cold reference test demonstrated the old shared getter
 | `gitState` | Git stamp and merge affordance. |
 | `parentBranch` | Merge tooltip. |
 
-The final narrow comparison, on pilot `69c89de202`, has the same 19,468 issues, 17,216 sessions and 769 shown rows in both runs. Total post-GC heap is 1,204,624,515 before and 1,229,031,782 after (+2.02613069%). Watched computeds are 244,639 before and 256,435 after; watched IssueModel fields are 50,449 before and 62,245 after (+11,796). The worklist increment is 1,095,440,273 before and 1,144,969,708 after (+4.5214%); the separately measured pre-worklist heaps are 109,184,242 and 84,062,074 bytes. Both totals are reported rather than hiding that starting-heap difference. The exact JSON and per-name counts are attached as `Narrow 4x retained heap comparison` and were mailed to POD-4286 and POD-5708 with the field justifications above. The approximately 2% decision's exact 2.026% boundary is awaiting coordinator confirmation.
+The final narrow comparison, on pilot `69c89de202`, has the same 19,468 issues, 17,216 sessions and 769 shown rows in both runs. Total post-GC heap is 1,204,624,515 before and 1,229,031,782 after (+2.02613069%). Watched computeds are 244,639 before and 256,435 after; watched IssueModel fields are 50,449 before and 62,245 after (+11,796). The worklist increment is 1,095,440,273 before and 1,144,969,708 after (+4.5214%); the separately measured pre-worklist heaps are 109,184,242 and 84,062,074 bytes. Both totals are reported rather than hiding that starting-heap difference. The exact JSON and per-name counts are attached as `Narrow 4x retained heap comparison` and were mailed to POD-4286 and POD-5708 with the field justifications above.
 
 `worklist-production-smoke.ts` verifies one sidebar row and its issue page from the normal production build in an isolated harness. Flatblock's missing `libasound.so.2` is extracted rootlessly into this test checkout's `.toolchain/browser-libs`, following the documented browser setup; the host package installation is unchanged.
 
@@ -115,3 +123,5 @@ The earlier canonical structural census passed all 30 checks (7 filtered). The c
 The final narrow-boundary census repeats that result under the acquired `meter:flatblock` lease. Canonical `speed:structural` passes all 30 checks (7 filtered). Inspecting every entry in the additional comparison finds seven growing counters before and six after, no new growing keys, no absolute increases among those counters, and exactly the accepted navigation ratio-only red with the same numbers above. Its assertion remains red and is reported as the coordinator's accepted exception, not as a green test. The lease was released after both measurements completed.
 
 The isolated production smoke passes against the normal compiled `69c89de202` candidate: the expanded sidebar displays the created issue, its issue page displays the same title, and there are zero renderer errors. The screenshot is attached as `Production issue page render`. The diagnostic waits for the sidebar to mount before probing its expand button; checking immediately after the loading shell disappeared had missed that button and left the sidebar collapsed.
+
+The production smoke also passes against the green normal build on `e734b506f9`, with an expanded-sidebar screenshot added. Its readiness loop waits for the isolated scratch repo to be registered: the server's health endpoint responds before that seeding step finishes. That change affects only the diagnostic, not application startup or instance behavior.

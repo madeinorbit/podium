@@ -36,9 +36,15 @@ try {
     assert(Date.now() < deadline, 'Harness health deadline')
     await pause()
   }
-  const repos = await rpc<string[]>('repos.list', {}, 'GET')
-  const repoPath = repos.find(path => path.endsWith(`zz-podium-e2e-repo-${port}`))
-  assert(repoPath, 'Isolated scratch repository is registered')
+  let repoPath: string | undefined
+  for (;;) {
+    const repos = await rpc<string[]>('repos.list', {}, 'GET')
+    repoPath = repos.find(path => path.endsWith(`zz-podium-e2e-repo-${port}`))
+    if (repoPath) break
+    assert(server.exitCode === null, 'Harness is still running')
+    assert(Date.now() < deadline, 'Isolated scratch repository registration deadline')
+    await pause()
+  }
   const title = 'Worklist shared field smoke'
   const issue = await rpc<{ id: string }>('issues.create', { repoPath, title, startNow: false })
   await rpc('issues.update', { id: issue.id, patch: { stage: 'planning' } })
