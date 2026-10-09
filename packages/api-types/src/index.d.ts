@@ -1739,6 +1739,13 @@ type Input_issues_attachSession = {
     sessionId: string;
     targetId?: string | undefined;
 };
+type Input_issues_close = {
+    confirmInterrupt?: boolean | undefined;
+    expectedRevision?: number | undefined;
+    id: string;
+    mutationId?: string | undefined;
+    reason?: string | undefined;
+};
 type Input_issues_create = {
     assignee?: string | undefined;
     audience?: "agent" | "human" | undefined;
@@ -1840,6 +1847,7 @@ type Input_issues_subscriptionAdd = {
     };
 };
 type Input_issues_update = {
+    confirmInterrupt?: boolean | undefined;
     expectedRevision?: number | undefined;
     id: string;
     mutationId?: string | undefined;
@@ -6469,6 +6477,14 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: _podium_model.TaskCostWire;
             meta: unknown;
         }>;
+        "taskComparison": TRPC.TRPCQueryProcedure<{
+            input: {
+                includeSessions?: boolean | undefined;
+                issueId: string;
+            };
+            output: _podium_model.TaskCostComparisonWire;
+            meta: unknown;
+        }>;
         "tasks": TRPC.TRPCQueryProcedure<{
             input: (undefined) | ({
                 [k: string]: unknown;
@@ -6776,12 +6792,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             meta: unknown;
         }>;
         "close": TRPC.TRPCMutationProcedure<{
-            input: {
-                expectedRevision?: number | undefined;
-                id: string;
-                mutationId?: string | undefined;
-                reason?: string | undefined;
-            };
+            input: Input_issues_close;
             output: Output_issues_addComment;
             meta: unknown;
         }>;
