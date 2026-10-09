@@ -43,7 +43,6 @@ import { attachIssuePageSource } from '@podium/client-graph/issue-page-source'
 import {
   missionView,
   readMissionActionInputs,
-  readWorkspaceMission,
 } from '@podium/client-graph/mission-view'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import {
@@ -109,6 +108,15 @@ import {
   readPalette,
 } from '../../../../apps/web/src/app/command-launch-readers'
 import { missionPaneReader } from './mission-pane'
+import { missionRootId } from '@podium/client-graph/mission-screen'
+import {
+  coordinatorsOf,
+  fieldOf,
+  hasAnyTaskOf,
+  issueOf,
+  onScreenOf,
+  rootOf,
+} from '../../../../apps/web/src/app/workspace-mission-reads'
 import { createPoolNavigationProvider } from '../../../../apps/web/src/app/pool-navigation-provider'
 import {
   type FixtureScale,
@@ -545,9 +553,24 @@ async function measureScreenCells(
         handoff: scene !== 'background-terminal',
       }),
     )
-    add('mission.workspace', ['Workspace', 'FoldedFlightDeckBar'], () =>
-      readWorkspaceMission(missionView(pool), selected(), selected()),
-    )
+    add('mission.workspace', ['Workspace', 'FoldedFlightDeckBar'], () => {
+      const id = selected()
+      const issueId = issueOf(pool, id, id)
+      const root = missionRootId(pool, id)
+      const folded = typeof root === 'string' ? missionPane.open(root) : undefined
+      return {
+        root: rootOf(pool, id),
+        issueId,
+        worktreePath: typeof issueId === 'string' ? fieldOf(pool, issueId, 'worktreePath') : null,
+        repoPath: typeof issueId === 'string' ? fieldOf(pool, issueId, 'repoPath') : null,
+        coordinators: coordinatorsOf(pool, id),
+        onScreen: onScreenOf(pool, id),
+        hasAnyTask: hasAnyTaskOf(pool),
+        folded: folded?.ready
+          ? { progress: folded.progress, live: folded.liveCount, working: folded.workingCount, needs: folded.needsCount }
+          : LOADING,
+      }
+    })
     add('mission.menu', ['PoolIssueContextMenu', 'PoolSessionContextMenu'], () =>
       readMissionActionInputs(missionView(pool), [selected()]),
     )

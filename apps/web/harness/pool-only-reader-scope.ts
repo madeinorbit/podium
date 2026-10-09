@@ -17,6 +17,7 @@ export const WORKSPACE_READER_FILES = [
   'apps/web/src/app/MachinesPanel.tsx',
   'apps/web/src/app/FoldedFlightDeckBar.tsx',
   'apps/web/src/app/workspace-mission.ts',
+  'apps/web/src/app/workspace-mission-reads.ts',
   'apps/web/src/app/RightRail.tsx',
   'apps/web/src/app/AgentConcurrencyHistory.tsx',
   'apps/web/src/app/shell-data.ts',

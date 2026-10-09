@@ -79,6 +79,7 @@ export function missionPaneReader(pool: MobxPool, visible = 24) {
   }
   return {
     read,
+    open,
     screen: (rootId: string) => screens.get(rootId),
     dispose() {
       for (const screen of screens.values()) screen.close()
