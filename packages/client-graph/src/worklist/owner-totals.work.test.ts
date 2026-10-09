@@ -1,6 +1,7 @@
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from '../pool'
+import { requireHere } from '../lookup'
 import { worklistView } from './view-model'
 import { fleetOf, sidebarTiming } from './sidebar-row'
 import type { SliceSession } from '../shared/slice-types'
@@ -20,7 +21,7 @@ async function measure(history: number, legacy: boolean, hidden = false, readSta
     ...[...live, ...Array.from({ length: history }, (_, n) => sender(`old-${n}`, true))]
       .map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })),
   ] })
-  const tree = worklistView(pool).tree(pool.model('worktree', lane)!)
+  const tree = worklistView(pool).tree(requireHere(pool.model('worktree', lane)))
   const stop = autorun(() => insideReader('owner totals', () => {
     if (legacy) {
       const shown = tree.sessions as unknown as SliceSession[]

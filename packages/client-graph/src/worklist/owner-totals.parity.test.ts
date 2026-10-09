@@ -1,6 +1,7 @@
 import { autorun, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { MobxPool } from '../pool'
+import { requireHere } from '../lookup'
 import { LOADING, motionPhase, seatVerdictOf } from './rollup'
 import { fleetOf, sidebarSessionFacts, sidebarTiming } from './sidebar-row'
 import { worklistView } from './view-model'
@@ -53,7 +54,7 @@ describe('owner totals equal the previous roster helpers', () => {
       { kind: 'worktree', id: lane, value: { path: lane, repoPath: '/synthetic', repoName: 'Synthetic' } },
       ...rows.map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })),
     ] })
-    const tree = worklistView(pool).tree(pool.model('worktree', lane)!)
+    const tree = worklistView(pool).tree(requireHere(pool.model('worktree', lane)))
     const stop = autorun(() => { void tree.timing; void tree.visibleFleet })
     try {
       const shown = tree.sessions as unknown as SliceSession[]
@@ -94,7 +95,7 @@ it('live totals follow heartbeat, read state and archiving on the same records',
     { kind: 'worktree', id: lane, value: { path: lane, repoPath: '/synthetic' } },
     { kind: 'session', id: 'seat', value: row as never },
   ] })
-  const tree = worklistView(pool).tree(pool.model('worktree', lane)!)
+  const tree = worklistView(pool).tree(requireHere(pool.model('worktree', lane)))
   const stop = autorun(() => {
     const shown = tree.sessions as unknown as SliceSession[]
     expect(candidate(tree.timing)).toEqual(sidebarTiming(shown, tree.visiblePhase, false, tree.activityAt))
