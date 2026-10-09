@@ -283,14 +283,15 @@ async function makePage() {
   return {page,context,cdp}
 }
 const url=()=> (surface==='phone'?`${base}/mobile/work?server=${encodeURIComponent(relay)}&e2e=1`:`${base}/?server=${encodeURIComponent(relay)}&e2e=1`)+(activeQuery?'&'+activeQuery:'')
-async function ready(page,{controlById=false}={}) {
+async function ready(page,{controlById=false,firstRow=false}={}) {
   if(surface==='phone') {
     await page.waitForFunction(()=>!!document.querySelector('[aria-label="Search work"]') || document.body.innerText.includes('CANNOT START'),undefined,{timeout:120000})
     const failure=await page.evaluate(()=>document.body.innerText.includes('CANNOT START')?document.body.innerText.slice(0,700):null)
     if(failure)throw Error('Phone startup refused: '+failure)
   }
   else await page.locator('aside').first().waitFor({timeout:120000})
-  if(controlById && surface==='web')await page.locator(`aside [data-issue-row="${controls[0].issue.id}"]`).first().waitFor({timeout:120000})
+  if(firstRow)await page.waitForFunction(()=>window.__comparisonStartup===true,undefined,{timeout:120000})
+  else if(controlById && surface==='web')await page.locator(`aside [data-issue-row="${controls[0].issue.id}"]`).first().waitFor({timeout:120000})
   else if(controlById)await page.getByText(/Comparison target A/).first().waitFor({timeout:120000})
   else await page.getByText('Comparison target A',{exact:true}).first().waitFor({timeout:120000})
   await page.evaluate(()=>document.fonts.ready); await frames(page); await pause(1200)
@@ -319,7 +320,7 @@ let recordIndex=0
 async function startup(fixture,name,profile=false) {
   const stop=await trace(fixture.cdp), before=await metrics(fixture.cdp), load=loadavg(), began=new Date().toISOString()
   if(profile){await fixture.cdp.send('Profiler.enable');await fixture.cdp.send('Profiler.setSamplingInterval',{interval:100});await fixture.cdp.send('Profiler.start')}
-  await fixture.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});await ready(fixture.page)
+  await fixture.page.goto(url(),{waitUntil:'domcontentloaded',timeout:120000});await ready(fixture.page,{firstRow:true})
   const cpu=profile?(await fixture.cdp.send('Profiler.stop')).profile:null
   const events=await stop(), after=await metrics(fixture.cdp)
   const stem=`${name}-${recordIndex++}`
