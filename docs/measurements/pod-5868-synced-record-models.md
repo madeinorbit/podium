@@ -48,6 +48,48 @@ requested synced-run window as IDs and resolves `AutomationRunModel` fields.
 Automation session links resolve `SessionModel` while preserving the existing
 setup-session presence and loading policy.
 
+## Shared-gate rejection and repair
+
+POD-5895 rejected candidate `924b6785cb` in B12. The full typecheck emitted
+12 diagnostics at seven sites: two production typings, a diagnostic callback,
+and four fixture maps that still named only four entity kinds. The normal web
+build also exceeded the unchanged eager budget: 2,154,878 bytes against
+2,150,000. Removing this range cleared the type errors; the isolated
+prerequisite `38732017a0` still exceeded that budget by five bytes. The actual
+pilot `d12bee4103` built green. These are attributed failures, not gate passes.
+
+Repair `04def30478` keeps source membership keyed by strings, preserves the
+boolean setup-presence policy, explicitly types the diagnostic's model input,
+and narrows fixture tables to the entities they actually contain. Fixture
+values, expected answers, assertion predicates and pinned cold-set digests are
+unchanged; the read-fence probe ignores every kind except issue/session.
+
+Repair `a9b0d53bf9` defers the complete new field declarations and constructors
+in `synced-models.ts`. The seven generic table identity/residency entries remain
+available at receipt. A pending model lookup subscribes to class registration
+and returns `LOADING`; registration uses the same field/relation installers as
+the startup kinds. It neither ingests records on read nor creates another row
+store. The complete field declarations and constructor bodies were relocated
+byte-for-byte from the prior candidate.
+
+The existing shared projection moved byte-for-byte to `pool-projection.ts`.
+Its two startup consumers import this leaf, so they no longer pull runtime
+settings attachment and the new definitions into the eager graph. The runtime
+module re-exports the same API. The emitted-source boundary test now also
+checks that the synced-model module is absent from the pool's eager sources;
+no byte ceiling changed. Schema/model fixtures and structural instrumentation
+load the definitions by imports, preserving their existing checks. A new
+focused test covers input rows already in the tables before loading, two
+waiting views per kind, shared identity after loading and later field changes.
+
+The light scan remains at 2,210 fingerprints, 2,211 occurrences and zero ratchet
+errors after these repairs. Their focused runtime receipts and the replacement
+shared typecheck/build/census are pending. The 190-case table below records the
+previous focused migration proof, not validation of the deferred-loading repair.
+POD-4286 withdrew its temporary typecheck/build exceptions: those commands
+remain exclusively in POD-5895's lane. No remote validation ran during the
+POD-5911 trace window.
+
 ## Focused proof
 
 All test commands ran sequentially on flatblock in `~/podium-test-5868`, using
