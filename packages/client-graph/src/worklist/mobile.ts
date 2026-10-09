@@ -1,5 +1,5 @@
 import { here, omitGone } from '../lookup'
-import { createQueryResult, concatQueryResults, queryRows, EMPTY_QUERY_ROWS } from '../query-result'
+import { createQueryResult, concatQueryResults } from '../query-result'
 import { compareRank } from '../shared/row-view'
 import { sidebarRosterView } from './sidebar-roster'
 import { worklistGroups } from './groups'
@@ -45,7 +45,7 @@ export interface MobileWorkSections {
 export function mobileWorkView(pool: MobxPool) { return worklistView(pool) }
 
 
-const EMPTY_IDS = EMPTY_QUERY_ROWS
+const EMPTY_IDS: readonly string[] = Object.freeze([])
 
 /** Per-group lazy fields belong to the existing group row, never a keyed cache. */
 export class MobileSection {
@@ -80,6 +80,9 @@ export class MobileSection {
     })
   }
   private query() { this.pool.worklist.need(); return this.members! }
+  private ids(rows: readonly string[] | typeof LOADING | undefined): readonly string[] {
+    return rows === LOADING || rows === undefined ? EMPTY_IDS : rows
+  }
   get label() { return this.key === 'pinned' ? 'Pinned' : this.key === 'needs-you' ? 'Needs you' : this.projectLabel }
   @lazy private get projectLabel() { return sidebarView(this.pool).band(this.root.state, this.key)?.label ?? '' }
   get kind(): MobileWorkSection['kind'] { return this.key === 'pinned' ? 'pinned' : this.key === 'needs-you' ? 'attention' : 'project' }
@@ -89,9 +92,9 @@ export class MobileSection {
     : this.kind === 'project' ? worklistGroups(this.pool).rootOpen.lane(this.key) : EMPTY_IDS }
   get snoozedIds() { return this.kind === 'project' ? worklistGroups(this.pool).rootSnoozed.lane(this.key) : EMPTY_IDS }
   get closedIds() { return this.kind === 'project' ? worklistGroups(this.pool).rootClosed.lane(this.key) : EMPTY_IDS }
-  get allIds(): readonly string[] { return this.kind === 'attention' ? this.root.attentionIds : queryRows(this.query().get()) }
-  get attentionIds(): readonly string[] { return this.kind === 'attention' ? this.root.attentionIds : queryRows(this.query().getMatch(0)) }
-  get liveIds(): readonly string[] { return this.kind === 'project' ? queryRows(this.query().getMatch(1)) : this.allIds }
+  get allIds(): readonly string[] { return this.kind === 'attention' ? this.root.attentionIds : this.ids(this.query().get()) }
+  get attentionIds(): readonly string[] { return this.kind === 'attention' ? this.root.attentionIds : this.ids(this.query().getMatch(0)) }
+  get liveIds(): readonly string[] { return this.kind === 'project' ? this.ids(this.query().getMatch(1)) : this.allIds }
   @lazy get pending(): number {
     if (this.kind === 'attention') return 0
     const value = this.query().total(0)

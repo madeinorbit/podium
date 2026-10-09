@@ -1,12 +1,6 @@
 import { compareStructural, createAtom, type IAtom, Reaction, untracked } from 'mobx'
 import { LOADING, type Loaded } from './worklist/rollup'
 
-export const EMPTY_QUERY_ROWS: readonly never[] = Object.freeze([])
-/** Lists expose no rows until the declared question is ready. */
-export function queryRows<T>(rows: Loaded<readonly T[]>): readonly T[] {
-  return rows === LOADING || rows === undefined ? EMPTY_QUERY_ROWS : rows
-}
-
 interface Item<T> {
   id: string
   order: string
@@ -332,7 +326,7 @@ export function createKeyedAnswer<T>(
     set(id: string, order: string, value: T): void {
       const before = item(id)
       if (before?.order === order && before.value === value) return
-      const after = { id, order, value, ...(point ? { point: point(value) } : {}) }
+      const after = { id, order, value, point: point?.(value) }
       keys = put(keys, { id, order: id, value: after })
       root = replace(root, before, after, compareItems)
     },
@@ -378,7 +372,7 @@ export function createKeyedAnswerBuilder<T>(
         }
         const before = pending.get(id)
         if (before?.order === order && before.value === value) return
-        pending.set(id, { id, order, value, ...(point ? { point: point(value) } : {}) })
+        pending.set(id, { id, order, value, point: point?.(value) })
       },
       delete(id) {
         if (pending) pending.delete(id)
@@ -430,6 +424,7 @@ export interface QueryResultSpec<T> {
  * a changed answer updates one tree path. Nothing remains after the last
  * reader releases the question, including its cold answers. */
 export function createQueryResult<T>(spec: QueryResultSpec<T>) {
+  const partition = spec.partition
   const compareItems = spec.compareOrder
     ? (a: Item<T>, b: Item<T>) => spec.compareOrder!(a.order, b.order) || a.id.localeCompare(b.id)
     : compare<T>
@@ -462,7 +457,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
   const matches = (spec.matches ?? []).map((_test, index) => makeAnswer(
     `${spec.name}.matches:${index}`, `${spec.name}.match:${index}`, `${spec.name}.count:${index}`,
   ))
-  const partitions = spec.partition ? ['visible', 'hidden'].map(name => makeAnswer(`${spec.name}.${name}`)) : []
+  const partitions = partition ? ['visible', 'hidden'].map(name => makeAnswer(`${spec.name}.${name}`)) : []
   const answers = [...matches, ...partitions]
   const totals = (spec.totals ?? []).map((_read, index) => ({
     value: 0, atom: makeAtom(`${spec.name}.total:${index}`),
@@ -470,7 +465,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
   const countAtom = makeAtom(`${spec.name}.size`)
   let partitionRoot: Node<T> | undefined
   const partitionCompare = (a: Item<T>, b: Item<T>) =>
-    spec.partition!.compareOrder(a.order, b.order) || a.id.localeCompare(b.id)
+    partition!.compareOrder(a.order, b.order) || a.id.localeCompare(b.id)
   const partitionItem = (item: Item<T> | undefined) => item?.partitionOrder === undefined
     ? undefined : { ...item, order: item.partitionOrder }
   function retained(tree: Node<T> | undefined, count: number): Set<string> {
@@ -479,7 +474,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     return ids
   }
   function hidden(item: Item<T> | undefined, tree: Node<T> | undefined, keep: Set<string>): boolean {
-    return item !== undefined && size(tree) > spec.partition!.minimumSize && item.partitionOrder !== undefined && !keep.has(item.id)
+    return item !== undefined && size(tree) > partition!.minimumSize && item.partitionOrder !== undefined && !keep.has(item.id)
   }
   function updateAnswer(answer: ReturnType<typeof makeAnswer>, before: Item<T> | undefined, after: Item<T> | undefined) {
     if (before === after) return
@@ -491,19 +486,21 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     if (size(answer.root) !== count) answer.countAtom.reportChanged()
   }
   function updatePartition(before: Item<T> | undefined, after: Item<T> | undefined, previousRoot: Node<T> | undefined) {
-    if (!spec.partition) return
-    const oldKeep = retained(partitionRoot, spec.partition.keepFirst)
+    if (!partition) return
+    const { keepFirst, minimumSize } = partition
+    const oldKeep = retained(partitionRoot, keepFirst)
     partitionRoot = replace(partitionRoot, partitionItem(before), partitionItem(after), partitionCompare)
-    const newKeep = retained(partitionRoot, spec.partition.keepFirst)
+    const newKeep = retained(partitionRoot, keepFirst)
     const affected = new Set([...oldKeep, ...newKeep])
     if (before) affected.add(before.id)
     if (after) affected.add(after.id)
     // Crossing the all-visible threshold can affect at most minimumSize+1 rows.
-    if ((size(previousRoot) <= spec.partition.minimumSize) !== (size(root) <= spec.partition.minimumSize))
-      for (const id of [...retained(previousRoot, spec.partition.minimumSize + 1), ...retained(root, spec.partition.minimumSize + 1)]) affected.add(id)
+    if ((size(previousRoot) <= minimumSize) !== (size(root) <= minimumSize))
+      for (const id of [...retained(previousRoot, minimumSize + 1), ...retained(root, minimumSize + 1)]) affected.add(id)
+    const answerAt = (id: string, changed: Item<T> | undefined, other: Item<T> | undefined) =>
+      id === changed?.id ? changed : id === other?.id ? undefined : entries.get(id)?.item
     for (const id of affected) {
-      const oldItem = id === before?.id ? before : id === after?.id ? undefined : entries.get(id)?.item
-      const newItem = id === after?.id ? after : id === before?.id ? undefined : entries.get(id)?.item
+      const oldItem = answerAt(id, before, after), newItem = answerAt(id, after, before)
       const wasHidden = hidden(oldItem, previousRoot, oldKeep), isHidden = hidden(newItem, root, newKeep)
       for (const [index, answer] of partitions.entries()) updateAnswer(answer,
         Number(wasHidden) === index ? oldItem : undefined, Number(isHidden) === index ? newItem : undefined)
@@ -609,7 +606,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
         next = { order: spec.order?.(id) ?? id, value,
           matches: here ? (spec.matches ?? []).map(test => test(value)) : [],
           totals: here ? (spec.totals ?? []).map(read => read(value)) : [],
-          partitionOrder: here ? spec.partition?.order(value) : undefined }
+          partitionOrder: here ? partition?.order(value) : undefined }
       })
       if (!next || compareStructural(previous, next)) return
       previous = next
@@ -663,9 +660,9 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       for (const [index, match] of matches.entries())
         match.root = build(items.filter(item => item.matches?.[index]), compareItems)
       for (const [index, total] of totals.entries()) total.value = items.reduce((sum, item) => sum + (item.totals?.[index] ?? 0), 0)
-      if (spec.partition) {
+      if (partition) {
         partitionRoot = build(items.filter(item => item.partitionOrder !== undefined).map(item => partitionItem(item)!), partitionCompare)
-        const keep = retained(partitionRoot, spec.partition.keepFirst)
+        const keep = retained(partitionRoot, partition.keepFirst)
         for (const [index, answer] of partitions.entries())
           answer.root = build(items.filter(item => Number(hidden(item, root, keep)) === index), compareItems)
       }
@@ -722,7 +719,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       return read(total.atom, () => total.value)
     },
     partition(hidden: boolean): Loaded<T[]> {
-      if (!spec.partition) throw new Error('Undeclared query partition')
+      if (!partition) throw new Error('Undeclared query partition')
       return rows(partitions[Number(hidden)]!)
     },
     dispose: clear,
