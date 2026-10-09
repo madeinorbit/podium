@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { LoginGate, LoginView } from './LoginGate'
 
 afterEach(() => {
@@ -139,8 +139,6 @@ describe('LoginGate', () => {
 })
 
 describe('LoginView', () => {
-  beforeEach(() => localStorage.clear())
-
   function typePasswordAndSubmit(value: string) {
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value } })
     fireEvent.click(screen.getByRole('button', { name: /log in/i }))
@@ -336,9 +334,6 @@ describe('LoginGate success reveal', () => {
       expect(screen.queryByText('APP-READY')).toBeNull()
 
       fireEvent.change(input, { target: { value: 'pw' } })
-      fireEvent.change(screen.getByLabelText(/^email$/i), {
-        target: { value: 'alice@example.com' },
-      })
       fireEvent.click(screen.getByRole('button', { name: /log in/i }))
       // App mounts behind the still-visible login layer at t=0…
       await vi.waitFor(() => {
