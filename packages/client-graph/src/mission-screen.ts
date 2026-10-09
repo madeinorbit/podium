@@ -187,13 +187,17 @@ export class MissionScreen {
     return this.search(row).words.some((word) => word.includes(needle))
   }
   /** Proposals leave the tree for their own tail, unless they carry sub-tasks. */
-  @lazy({ equals: compareShallow }) private get proposals(): readonly MissionDeckIssueModel[] {
+  @lazy({ equals: compareShallow }) private get proposalIds(): readonly string[] {
     return this.view === 'waterfall' ? [] : this.rows.filter((row) =>
-      row.depth > 0 && row.stage === 'proposed' && requireLoaded(row.deckChildren).length === 0)
+      row.depth > 0 && row.stage === 'proposed' && requireLoaded(row.deckChildren).length === 0).map((row) => row.id)
+  }
+  @lazy({ equals: compareShallow }) private get proposals(): readonly MissionDeckIssueModel[] {
+    const ids = new Set(this.proposalIds)
+    return this.rows.filter((row) => ids.has(row.id))
   }
   @lazy({ equals: compareShallow }) private get tree(): readonly MissionDeckIssueModel[] {
-    const proposals = new Set(this.proposals)
-    return this.rows.filter((row) => !proposals.has(row))
+    const ids = new Set(this.proposalIds)
+    return this.rows.filter((row) => !ids.has(row.id))
   }
   @lazy({ equals: compareShallow }) private get unfoldedIds(): readonly string[] {
     return this.ready ? requireLoaded(this.deck.rowIds(this.mode, this.folds)) : []
@@ -220,12 +224,14 @@ export class MissionScreen {
   }
   /** Branches "fold every branch" acts on: never the root, never a proposal. */
   @lazy({ equals: compareShallow }) get foldable(): readonly MissionDeckIssueModel[] {
-    const proposals = new Set(this.proposals)
-    return this.rows.filter((row) => row.depth > 0 && !proposals.has(row) && row.hasPayload)
+    const ids = new Set(this.proposalIds)
+    return this.rows.filter((row) => row.depth > 0 && !ids.has(row.id) && row.hasPayload)
   }
   @lazy get anyFoldable(): boolean { return this.foldable.length > 0 }
   @lazy get allFolded(): boolean { return this.anyFoldable && this.foldable.every((row) => row.folded(this.folds)) }
   /** Every crew member drawn on a row of this mission, in row order. */
+  /** The mission's members, unfiltered by the view. */
+  @lazy({ equals: compareStructural }) get members(): ReadonlySet<string> { return requireLoaded(this.deck.members) }
   @lazy({ equals: compareShallow }) get crewIds(): readonly string[] { return this.rows.flatMap((row) => row.crewIds) }
   @lazy({ equals: compareStructural }) get inMission(): ReadonlySet<string> { return new Set(this.crewIds) }
   @lazy({ equals: compareShallow }) get rootSessionIds(): readonly string[] { return this.rootRow?.sessionIds(this.mode) ?? [] }
