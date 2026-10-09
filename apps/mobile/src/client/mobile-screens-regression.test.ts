@@ -1,3 +1,4 @@
+import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 /** Exact pool-only phone outputs frozen after the accepted parity controls.
  * Synthetic fixture roots select the same questions and publication gates. */
@@ -123,6 +124,7 @@ it('phone mission batches cold spin-offs and their dependency targets together',
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: FIXED_NOW }, undefined, {
     load, summaries: MOBILE_SCREEN_SUMMARIES, schedule: () => () => {},
   })
+  attachMissionTestPreferences(pool)
   try {
     pool.apply({ type: 'replace', rows: rows.map(value => ({ kind: 'issue' as const, id: value.id, value })) })
     // The phone's opening draws where the work went: every cold spin-off and

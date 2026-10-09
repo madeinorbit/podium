@@ -1,3 +1,4 @@
+import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
 import type { FlightDeckMode } from '@podium/client-core/values'
 import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
@@ -20,6 +21,7 @@ export interface MissionPaneInput {
  * exercises the painted fields rather than an identity-only consumer.
  */
 export function missionPaneReader(pool: MobxPool, visible = 24) {
+  attachMissionTestPreferences(pool)
   const screens = new Map<string, MissionScreen>()
   const open = (rootId: string): MissionScreen => {
     let screen = screens.get(rootId)

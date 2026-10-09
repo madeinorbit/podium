@@ -1,3 +1,4 @@
+import { attachMissionTestPreferences } from './mission-screen.test.fixture'
 import { sidebarView } from './worklist/sidebar'
 import { autorun, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
@@ -43,6 +44,7 @@ it('mission header, mission pane and sidebar agree on empty, absent and legacy r
   const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(stamp) }, undefined, {
     load: (_entity, id) => byId.get(id), summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {},
   })
+  attachMissionTestPreferences(pool)
   const header = headerView(pool)
   const pane = new MissionScreen(pool, 'root')
   const board = createIssueBoardSource(pool)

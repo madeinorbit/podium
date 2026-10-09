@@ -1,4 +1,5 @@
 import { omitGone } from '@podium/client-graph/lookup'
+import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
 /** Pool-only regression output frozen by the accepted phone parity controls. */
 import type { SessionView } from '@podium/client-core/session-values'
 import {
@@ -150,6 +151,7 @@ const NO_DECK: PhoneDeck = { root: undefined, progress: NO_PROGRESS, continuatio
 const openings = new WeakMap<MobxPool, Map<string, MissionScreen>>()
 /** One opening per mission root, as the phone route's root component creates it. */
 function opening(pool: MobxPool, rootId: string): MissionScreen {
+  attachMissionTestPreferences(pool)
   let byRoot = openings.get(pool)
   if (!byRoot) openings.set(pool, (byRoot = new Map()))
   let screen = byRoot.get(rootId)

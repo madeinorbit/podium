@@ -1,4 +1,5 @@
 import { omitGone } from './lookup'
+import { attachMissionTestPreferences } from './mission-screen.test.fixture'
 import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachMobileScreens } from './mobile-screens'
@@ -90,6 +91,7 @@ async function setup(
       ...sessions.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
     ],
   })
+  attachMissionTestPreferences(pool)
   const scans = vi.spyOn(pool.residency!, 'ids')
   await attachMobileScreens(pool)
   disposals.push(() => {
