@@ -46,6 +46,7 @@ beforeEach(() => {
 afterEach(() => {
   document.getSelection()?.removeAllRanges()
   act(() => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals()
+  vi.useRealTimers()
 })
 it('retains exact shells and only the viewport buffer of rich message DOM, even after large jumps', () => {
   expect(host.querySelectorAll('[data-message]').length).toBeLessThan(25)
@@ -191,8 +192,10 @@ it('keeps only the buffer drawn across repeated native Find jumps without duplic
 })
 
 it('preserves native Find ranges for its session, then returns to the buffer around the committed selection', () => {
+  vi.useFakeTimers()
   act(() => root.render(<Fixture key="native-find" count={100} />))
   act(() => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true })))
+  act(() => vi.runAllTimers())
   expect(host.querySelectorAll('[data-message]')).toHaveLength(100)
   scroll(4_000)
   expect(host.querySelectorAll('[data-message]')).toHaveLength(100)
@@ -207,12 +210,17 @@ it('preserves native Find ranges for its session, then returns to the buffer aro
 })
 
 it('leaves app-handled Find in the buffer and releases an empty native Find on Escape', () => {
+  vi.useFakeTimers()
   act(() => root.render(<Fixture key="empty-find" count={100} />))
   const handled = new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true, cancelable: true })
-  handled.preventDefault()
+  const prevent = (event: KeyboardEvent) => event.preventDefault()
+  window.addEventListener('keydown', prevent)
   act(() => document.body.dispatchEvent(handled))
+  window.removeEventListener('keydown', prevent)
+  act(() => vi.runAllTimers())
   expect(host.querySelectorAll('[data-message]').length).toBeLessThan(25)
   act(() => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true })))
+  act(() => vi.runAllTimers())
   expect(host.querySelectorAll('[data-message]')).toHaveLength(100)
   act(() => document.body.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', bubbles: true })))
   paint()

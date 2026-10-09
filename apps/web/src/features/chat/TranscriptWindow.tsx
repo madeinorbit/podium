@@ -239,22 +239,32 @@ export function useTranscriptWindow(
     measureWidth.observe(scroll)
     document.fonts?.addEventListener('loadingdone', remeasure)
     const copy = () => flushSync(refresh)
+    let findTimer: ReturnType<typeof setTimeout> | undefined
     const beginNativeFind = (event: KeyboardEvent) => {
       if (event.defaultPrevented || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'f' || scroll.clientHeight <= 0) return
-      // Native Find owns its ranges and match count outside the document.
-      // Give it the original rich rows for the session, just as Select All
-      // needs them, then release everything except its committed selection.
-      nativeFinding.current = true
-      scroll.dispatchEvent(new Event('podium-transcript-find-start'))
-      flushSync(() => {
-        for (const [key, entry] of entries.current) {
-          entry.mounted = true
-          mounted.current.add(key)
-          entry.publish(true)
-        }
-      })
+      if (findTimer !== undefined || nativeFinding.current) return
+      // Let every app shortcut handler run and let the browser open its bar
+      // before doing the full-row commit.
+      findTimer = setTimeout(() => {
+        findTimer = undefined
+        if (event.defaultPrevented || !scroll.isConnected || scroll.clientHeight <= 0) return
+        // Native Find owns its ranges and match count outside the document.
+        // Give it the original rich rows for the session, just as Select All
+        // needs them, then release everything except its committed selection.
+        nativeFinding.current = true
+        scroll.dispatchEvent(new Event('podium-transcript-find-start'))
+        flushSync(() => {
+          for (const [key, entry] of entries.current) {
+            entry.mounted = true
+            mounted.current.add(key)
+            entry.publish(true)
+          }
+        })
+      }, 0)
     }
     const finishNativeFind = () => {
+      clearTimeout(findTimer)
+      findTimer = undefined
       if (!nativeFinding.current) return
       nativeFinding.current = false
       update()
@@ -277,6 +287,7 @@ export function useTranscriptWindow(
     document.addEventListener('selectionchange', findSelection)
     document.addEventListener('keyup', findKeyUp)
     return () => {
+      clearTimeout(findTimer)
       resize.disconnect()
       measureWidth.disconnect()
       document.fonts?.removeEventListener('loadingdone', remeasure)
