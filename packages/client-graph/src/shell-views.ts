@@ -23,7 +23,8 @@ export class ShellIssueChrome {
   get id() { return this.issue.id }
 
   @lazy get known(): Loaded<boolean> {
-    const row = omitGone(this.pool.row('issue', this.id, 'summary'))
+    const row = omitGone(this.pool.row('issue', this.id, 'summary')) ??
+      omitGone(this.pool.row('issue', this.id))
     if (row === LOADING) { void omitGone(this.pool.row('issue', this.id)); return LOADING }
     return row ? true : undefined
   }
@@ -120,7 +121,9 @@ export class ShellDockSession {
   constructor(readonly session: SessionModel, private readonly pool: MobxPool) {}
   @lazy get known(): Loaded<boolean> {
     if (this.pool.queries.collapsed(this.session.id)) return undefined
-    const row = omitGone(this.pool.row('session', this.session.id, 'summary-fields'))
+    // An absent summary still needs the addressed lookup's pending/gone answer.
+    const row = omitGone(this.pool.row('session', this.session.id, 'summary-fields')) ??
+      omitGone(this.pool.row('session', this.session.id))
     return row === LOADING ? LOADING : row ? true : undefined
   }
 }
