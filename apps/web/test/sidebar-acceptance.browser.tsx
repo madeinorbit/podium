@@ -39,6 +39,9 @@ import { Workspace } from '../src/app/Workspace'
 import { TooltipProvider } from '../src/components/ui/tooltip'
 import { IssueExplorerProvider } from '../src/features/issues/explorer/explorer-context'
 import { IssuePage } from '../src/features/issues/IssuePage'
+import { IssuesView } from '../src/features/issues/IssuesView'
+import { ToolbarSlotProvider, ToolbarSlotTarget } from '../src/app/ToolbarSlot'
+import { IssueExplorerList } from '../src/features/issues/explorer/IssueExplorerList'
 import { SidebarUnified } from '../src/features/worklist/SidebarUnified'
 import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import { seedAcceptanceCache } from './sidebar-acceptance-seed'
@@ -54,6 +57,7 @@ const corpus =
     : buildCorpus(scale, 4443)
 const targets = pickTargets(corpus)
 const full = params.get('surface') === 'full'
+const scrollSurface = params.get('surface') === 'scroll'
 const pageSurface = params.get('surface') === 'page'
 const measured = params.get('measure') === '1'
 const errors: string[] = []
@@ -208,6 +212,8 @@ function Fixture() {
             >
               <SidebarUnified />
             </aside>
+            {scrollSurface && <div className="flex min-h-0 flex-1 flex-col"><ToolbarSlotProvider><ToolbarSlotTarget /><IssuesView /></ToolbarSlotProvider></div>}
+            {scrollSurface && <aside className="flex min-h-0 w-[316px] flex-none"><IssueExplorerList /></aside>}
             {pageSurface && <IssuePageProbe ids={pageTargets} />}
             {full && (
               <>

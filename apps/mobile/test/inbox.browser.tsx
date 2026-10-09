@@ -14,6 +14,9 @@ import { MobileShellProvider } from '../src/client/shell'
 import { PodiumLinkHost } from '../src/components/PodiumLinkHost'
 import { RefChip } from '../src/components/RefChip'
 import { followPodiumLink } from '../src/lib/podium-link'
+import { WorkScreen } from '../src/screens/WorkScreen'
+import { IssuesScreen } from '../src/screens/IssuesScreen'
+import { SessionsScreen } from '../src/screens/SessionsScreen'
 import { InboxScreen } from '../src/screens/InboxScreen'
 import { ProposalScreeningScreen } from '../src/screens/ProposalScreeningScreen'
 import { usePulseFeed } from '../src/screens/usePulseFeed'
@@ -57,7 +60,7 @@ function Pulse() {
 function Surface() {
   owner = useStoreHandle() as ClientRuntime
   pool = useMobilePool()
-  const [screen, setScreen] = useState('inbox')
+  const [screen, setScreen] = useState(new URLSearchParams(location.search).get('scrollScreen') ?? 'inbox')
   return (
     <main>
       <small>
@@ -75,6 +78,10 @@ function Surface() {
           Proposals
         </button>
       </nav>
+      {['work', 'tasks', 'sessions'].map(name => <button key={name} onClick={() => setScreen(name)}>{name}</button>)}
+      {screen === 'work' && <div className="surface"><WorkScreen /></div>}
+      {screen === 'tasks' && <div className="surface"><IssuesScreen /></div>}
+      {screen === 'sessions' && <div className="surface"><SessionsScreen /></div>}
       <Profiler
         id="phone-readers"
         onRender={(_id, _phase, ms) => {
