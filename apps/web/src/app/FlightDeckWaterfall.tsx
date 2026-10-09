@@ -927,159 +927,161 @@ const WaterfallIssue = observer(function WaterfallIssue({
 }): JSX.Element {
   const intent = useClickIntent()
   const content = settled(() => {
-  const historyOpen = item.historyOpen
-  const root = item.row.id === item.view.screen.rootId
-  const future = issueFuture(item.row)
-  const foldable = !root && item.row.hasPayload
-  const indent = root ? 0 : Math.max(0, item.row.depth - 1)
-  const issueRef = item.row.displayRef
-  const coordinator = item.coordinatorId
-    ? item.sessions.find((session) => session.id === item.coordinatorId)
-    : undefined
-  const sessionCount = item.sessionIds.length
-  const issueTitle =
-    root && item.row.descendantIds.length > 0 ? 'Mission coordination' : item.row.title
-  const issueMeta = [
-    issueRef,
-    sessionCount > 0 ? `${sessionCount} session${sessionCount === 1 ? '' : 's'}` : null,
-    coordinator ? sessionDisplayName(coordinator) : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
-  const historyCollapsed = item.historyCollapsed
-  const drawn = new Set(item.drawnSessionIds)
-  const visibleSessions = item.sessions.filter((session) => drawn.has(session.id))
-  const attention =
-    future?.state === 'attention' ||
-    item.sessions.some((session) => sessionAsksOnIssue(item.row.issue, session))
-  return (
-    <div
-      className="waterfall-issue-row"
-      data-flight-issue={item.row.id}
-      data-depth={item.row.depth}
-      data-focused={focused || undefined}
-      data-attention={attention || undefined}
-      style={{ '--waterfall-depth': indent } as CSSProperties}
-    >
-      {/* The task and status are the visible controls. Advanced actions stay on
-          the platform context gesture instead of occupying every row. */}
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: context-click convenience; Shift+F10 is handled by the task button. */}
+    const historyOpen = item.historyOpen
+    const root = item.row.id === item.view.screen.rootId
+    const future = issueFuture(item.row)
+    const foldable = !root && item.row.hasPayload
+    const indent = root ? 0 : Math.max(0, item.row.depth - 1)
+    const issueRef = item.row.displayRef
+    const coordinator = item.coordinatorId
+      ? item.sessions.find((session) => session.id === item.coordinatorId)
+      : undefined
+    const sessionCount = item.sessionIds.length
+    const issueTitle =
+      root && item.row.descendantIds.length > 0 ? 'Mission coordination' : item.row.title
+    const issueMeta = [
+      issueRef,
+      sessionCount > 0 ? `${sessionCount} session${sessionCount === 1 ? '' : 's'}` : null,
+      coordinator ? sessionDisplayName(coordinator) : null,
+    ]
+      .filter(Boolean)
+      .join(' · ')
+    const historyCollapsed = item.historyCollapsed
+    const drawn = new Set(item.drawnSessionIds)
+    const visibleSessions = item.sessions.filter((session) => drawn.has(session.id))
+    const attention =
+      future?.state === 'attention' ||
+      item.sessions.some((session) => sessionAsksOnIssue(item.row.issue, session))
+    return (
       <div
-        className="waterfall-issue-cell"
-        onContextMenu={(event) => {
-          event.preventDefault()
-          onIssueMenu({ x: event.clientX, y: event.clientY })
-        }}
+        className="waterfall-issue-row"
+        data-flight-issue={item.row.id}
+        data-depth={item.row.depth}
+        data-focused={focused || undefined}
+        data-attention={attention || undefined}
+        style={{ '--waterfall-depth': indent } as CSSProperties}
       >
-        <span className="waterfall-tree-guides" aria-hidden="true" />
-        {foldable ? (
-          <button
-            data-pressable
-            type="button"
-            className="waterfall-fold"
-            aria-label={folded ? `Expand ${item.row.title}` : `Collapse ${item.row.title}`}
-            aria-expanded={!folded}
-            onClick={onToggle}
-          >
-            {folded ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
-          </button>
-        ) : (
-          <span className="waterfall-fold" aria-hidden="true" />
-        )}
-        <IssueStatusPicker issue={item.row.issue} size={12} onPick={onStatusPick} />
-        {renameSeed !== null ? (
-          <span className="min-w-0 flex-1 py-0.5">
-            <SessionNameEditor
-              value={renameSeed}
-              onCommit={(title) => {
-                onRenameIssue(title)
-                onRenameDone()
-              }}
-              onCancel={onRenameDone}
-            />
-          </span>
-        ) : (
-          <button
-            data-pressable
-            type="button"
-            className="waterfall-issue-open"
-            aria-current={focused ? 'true' : undefined}
-            title={`${issueRef} · ${item.row.title}`}
-            onClick={() =>
-              intent.press(
-                () => onSelectIssue(false),
-                () => onSelectIssue(true),
-              )
-            }
-            onKeyDown={(event) => {
-              if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
-                event.preventDefault()
-                const rect = event.currentTarget.getBoundingClientRect()
-                onIssueMenu({ x: rect.left + Math.min(rect.width, 24), y: rect.bottom })
-                return
+        {/* The task and status are the visible controls. Advanced actions stay on
+            the platform context gesture instead of occupying every row. */}
+        {/* biome-ignore lint/a11y/noStaticElementInteractions: context-click convenience; Shift+F10 is handled by the task button. */}
+        <div
+          className="waterfall-issue-cell"
+          onContextMenu={(event) => {
+            event.preventDefault()
+            onIssueMenu({ x: event.clientX, y: event.clientY })
+          }}
+        >
+          <span className="waterfall-tree-guides" aria-hidden="true" />
+          {foldable ? (
+            <button
+              data-pressable
+              type="button"
+              className="waterfall-fold"
+              aria-label={folded ? `Expand ${item.row.title}` : `Collapse ${item.row.title}`}
+              aria-expanded={!folded}
+              onClick={onToggle}
+            >
+              {folded ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+            </button>
+          ) : (
+            <span className="waterfall-fold" aria-hidden="true" />
+          )}
+          <IssueStatusPicker issue={item.row.issue} size={12} onPick={onStatusPick} />
+          {renameSeed !== null ? (
+            <span className="min-w-0 flex-1 py-0.5">
+              <SessionNameEditor
+                value={renameSeed}
+                onCommit={(title) => {
+                  onRenameIssue(title)
+                  onRenameDone()
+                }}
+                onCancel={onRenameDone}
+              />
+            </span>
+          ) : (
+            <button
+              data-pressable
+              type="button"
+              className="waterfall-issue-open"
+              aria-current={focused ? 'true' : undefined}
+              title={`${issueRef} · ${item.row.title}`}
+              onClick={() =>
+                intent.press(
+                  () => onSelectIssue(false),
+                  () => onSelectIssue(true),
+                )
               }
-              if (event.key !== 'Enter') return
-              event.preventDefault()
-              intent.commit(() => onSelectIssue(true))
-            }}
-          >
-            <span className="waterfall-issue-title">{issueTitle}</span>
-            <span className="waterfall-issue-meta font-mono">{issueMeta}</span>
-          </button>
-        )}
+              onKeyDown={(event) => {
+                if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                  event.preventDefault()
+                  const rect = event.currentTarget.getBoundingClientRect()
+                  onIssueMenu({ x: rect.left + Math.min(rect.width, 24), y: rect.bottom })
+                  return
+                }
+                if (event.key !== 'Enter') return
+                event.preventDefault()
+                intent.commit(() => onSelectIssue(true))
+              }}
+            >
+              <span className="waterfall-issue-title">{issueTitle}</span>
+              <span className="waterfall-issue-meta font-mono">{issueMeta}</span>
+            </button>
+          )}
+        </div>
+        <div className="waterfall-track-cell">
+          {item.sessions.length > 0 ? (
+            <>
+              {historyCollapsed ? (
+                <WaterfallHistorySummary
+                  row={item}
+                  frame={frame}
+                  expanded={historyOpen}
+                  onToggle={() => item.toggleHistory()}
+                />
+              ) : null}
+              {visibleSessions.map((session) => (
+                <WaterfallSessionBar
+                  key={session.sessionId}
+                  row={item.row}
+                  session={session}
+                  frame={frame}
+                  fact={item.view.seat(session)}
+                  selected={session.sessionId === activeSessionId}
+                  flashed={session.sessionId === flashSessionId}
+                  onOpen={(permanent) => onSelectSession(session, permanent)}
+                  onOpenNative={() => onSelectNative(session)}
+                  onLocalPick={() => onLocalPick(session.sessionId)}
+                />
+              ))}
+            </>
+          ) : future ? (
+            <span
+              role="note"
+              className="waterfall-future-label"
+              data-state={future.state}
+              title={[future.label, future.detail].filter(Boolean).join(': ')}
+              aria-label={[future.label, future.detail].filter(Boolean).join(': ')}
+            >
+              {future.state === 'attention' ? (
+                <span className="waterfall-attention-mark" aria-hidden="true" />
+              ) : (
+                <strong>{future.label}</strong>
+              )}
+              {future.detail ? <span>{future.detail}</span> : null}
+            </span>
+          ) : null}
+        </div>
       </div>
-      <div className="waterfall-track-cell">
-        {item.sessions.length > 0 ? (
-          <>
-            {historyCollapsed ? (
-              <WaterfallHistorySummary
-                row={item}
-                frame={frame}
-                expanded={historyOpen}
-                onToggle={() => item.toggleHistory()}
-              />
-            ) : null}
-            {visibleSessions.map((session) => (
-              <WaterfallSessionBar
-                key={session.sessionId}
-                row={item.row}
-                session={session}
-                frame={frame}
-                fact={item.view.seat(session)}
-                selected={session.sessionId === activeSessionId}
-                flashed={session.sessionId === flashSessionId}
-                onOpen={(permanent) => onSelectSession(session, permanent)}
-                onOpenNative={() => onSelectNative(session)}
-                onLocalPick={() => onLocalPick(session.sessionId)}
-              />
-            ))}
-          </>
-        ) : future ? (
-          <span
-            role="note"
-            className="waterfall-future-label"
-            data-state={future.state}
-            title={[future.label, future.detail].filter(Boolean).join(': ')}
-            aria-label={[future.label, future.detail].filter(Boolean).join(': ')}
-          >
-            {future.state === 'attention' ? (
-              <span className="waterfall-attention-mark" aria-hidden="true" />
-            ) : (
-              <strong>{future.label}</strong>
-            )}
-            {future.detail ? <span>{future.detail}</span> : null}
-          </span>
-        ) : null}
-      </div>
-    </div>
-  )
+    )
   })
   return content === LOADING ? <WaterfallLoading issueId={item.row.id} /> : content
 })
 
 /** Read the mission spine at the reader seam, before mounting its geometry.
  * Header readiness does not guarantee folded membership or search has settled. */
-export const FlightDeckWaterfall = observer(function FlightDeckWaterfall(props: FlightDeckWaterfallProps): JSX.Element {
+export const FlightDeckWaterfall = observer(function FlightDeckWaterfall(
+  props: FlightDeckWaterfallProps,
+): JSX.Element {
   const query = useStoreHandle<Trpc>().access.trpc.sessions?.activityHistory?.query
   const view = useMemo(() => new WaterfallView(props.screen, query), [props.screen, query])
   useLayoutEffect(() => {
@@ -1087,14 +1089,15 @@ export const FlightDeckWaterfall = observer(function FlightDeckWaterfall(props: 
     return () => view.close()
   }, [view])
   useLayoutEffect(() => view.focus(props.activeSessionId), [view, props.activeSessionId])
-  return settled(() => view.rows) === LOADING
-    ? <WaterfallLoading />
-    : <WaterfallContent {...props} view={view} />
+  return !props.screen.rowsReady || settled(() => view.rows) === LOADING ? (
+    <WaterfallLoading />
+  ) : (
+    <WaterfallContent {...props} view={view} />
+  )
 })
 
 const WaterfallContent = observer(function WaterfallContent({
   view,
-  screen,
   scrollRef,
   display,
   focusedIssueId,
@@ -1119,8 +1122,10 @@ const WaterfallContent = observer(function WaterfallContent({
     overscan: 0,
     viewportBuffer: 0,
     initialItems: scrollRef.current?.clientHeight === 0 ? 8 : 0,
-    revealKey: activeSessionId && settled(() => view.followed?.issueLink) !== LOADING
-      ? (view.followed?.issueLink ?? focusedIssueId) : focusedIssueId,
+    revealKey:
+      activeSessionId && settled(() => view.followed?.issueLink) !== LOADING
+        ? (view.followed?.issueLink ?? focusedIssueId)
+        : focusedIssueId,
     pinnedKeys: [],
   })
   const projected = virtual.items.map((item) => view.row(view.rows[item.index]!))
@@ -1128,7 +1133,8 @@ const WaterfallContent = observer(function WaterfallContent({
     if (view.openedNow !== null) settled(() => view.seed(projected.map((item) => item.row)))
   }, [view, view.openedNow, projected])
   const hasFuture = projected.some(
-    (item) => settled(() => item.sessionIds.length === 0 && issueFuture(item.row) !== null) === true,
+    (item) =>
+      settled(() => item.sessionIds.length === 0 && issueFuture(item.row) !== null) === true,
   )
   const [manual, setManual] = useState<WaterfallViewport | null>(null)
   const [flashSessionId, setFlashSessionId] = useState<string | null>(null)
@@ -1609,41 +1615,45 @@ const WaterfallContent = observer(function WaterfallContent({
               <div key={virtualItem.key}>
                 {gap > 0 ? <div aria-hidden="true" style={{ height: gap }} /> : null}
                 <div ref={virtual.measureRef(virtualItem.key)}>
-                  {view.openedNow !== null ? (() => {
-                    const row = settled(() => <WaterfallIssue
-                      key={item.row.id}
-                      item={item}
-                      frame={frame}
-                      focused={focusedIssueId === item.row.id}
-                      activeSessionId={activeSessionId}
-                      flashSessionId={flashSessionId}
-                      renameSeed={renameTarget?.id === item.row.id ? renameTarget.seed : null}
-                      folded={isFolded(item.row)}
-                      onToggle={() => onToggle(item.row)}
-                      onSelectIssue={(permanent) => onSelectIssue(item.row, permanent)}
-                      onSelectSession={(session, permanent) =>
-                        onSelectSession(item.row.id, session, { permanent })
-                      }
-                      onSelectNative={(session) =>
-                        onSelectSession(item.row.id, session, {
-                          permanent: false,
-                          native: true,
-                        })
-                      }
-                      onIssueMenu={(anchor) => onIssueMenu(item.row.id, anchor)}
-                      onStatusPick={(value) => onStatusPick(item.row.id, value)}
-                      onRenameIssue={(title) =>
-                        onRenameIssue(
-                          item.row.id,
-                          title,
-                          renameTarget?.seed ?? item.row.title,
-                        )
-                      }
-                      onRenameDone={onRenameDone}
-                      onLocalPick={onLocalPick}
-                    />)
-                    return row === LOADING ? <WaterfallLoading issueId={item.row.id} /> : row
-                  })() : null}
+                  {view.openedNow !== null
+                    ? (() => {
+                        const row = settled(() => (
+                          <WaterfallIssue
+                            key={item.row.id}
+                            item={item}
+                            frame={frame}
+                            focused={focusedIssueId === item.row.id}
+                            activeSessionId={activeSessionId}
+                            flashSessionId={flashSessionId}
+                            renameSeed={renameTarget?.id === item.row.id ? renameTarget.seed : null}
+                            folded={isFolded(item.row)}
+                            onToggle={() => onToggle(item.row)}
+                            onSelectIssue={(permanent) => onSelectIssue(item.row, permanent)}
+                            onSelectSession={(session, permanent) =>
+                              onSelectSession(item.row.id, session, { permanent })
+                            }
+                            onSelectNative={(session) =>
+                              onSelectSession(item.row.id, session, {
+                                permanent: false,
+                                native: true,
+                              })
+                            }
+                            onIssueMenu={(anchor) => onIssueMenu(item.row.id, anchor)}
+                            onStatusPick={(value) => onStatusPick(item.row.id, value)}
+                            onRenameIssue={(title) =>
+                              onRenameIssue(
+                                item.row.id,
+                                title,
+                                renameTarget?.seed ?? item.row.title,
+                              )
+                            }
+                            onRenameDone={onRenameDone}
+                            onLocalPick={onLocalPick}
+                          />
+                        ))
+                        return row === LOADING ? <WaterfallLoading issueId={item.row.id} /> : row
+                      })()
+                    : null}
                 </div>
               </div>
             )
