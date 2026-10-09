@@ -72,8 +72,8 @@ it('folded branches and archived crew get no display fields prepared before they
     await flush()
     expect(drawn).toEqual(['shown', 'branch'])
     const hidden = new Set(['hidden-a', 'hidden-b'])
-    expect(presentation.mock.calls.filter(([issue]) => hidden.has(issue.id))).toEqual([])
-    expect(title.mock.calls.filter(([issue]) => hidden.has(issue.id))).toEqual([])
+    expect(presentation.mock.calls.filter(([issue]) => hidden.has(issue.id)).map(([issue]) => issue.id)).toEqual([])
+    expect(title.mock.calls.filter(([issue]) => hidden.has(issue.id)).map(([issue]) => issue.id)).toEqual([])
     // Archived senders are counted from their roster flag: no archived list,
     // archived roster or whole attachment list is built before the archive opens.
     expect(archive).not.toHaveBeenCalled()
@@ -84,6 +84,6 @@ it('folded branches and archived crew get no display fields prepared before they
     screen.fold('branch', false)
     await flush()
     expect(drawn).toEqual(['shown', 'branch', 'hidden-a', 'hidden-b'])
-    expect(presentation.mock.calls.filter(([issue]) => hidden.has(issue.id)).length).toBeGreaterThan(0)
+    expect(presentation.mock.calls.filter(([issue]) => hidden.has(issue.id)).map(([issue]) => issue.id).length).toBeGreaterThan(0)
   } finally { stop(); screen.close(); pool.dispose() }
 })

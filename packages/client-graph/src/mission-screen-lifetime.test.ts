@@ -29,7 +29,7 @@ function missionPool() {
 }
 
 /** Open the mission, draw what the deck draws, then close it. */
-function openAndClose(pool: MobxPool, held: WeakRef<object>[]): MissionScreen {
+function openAndClose(pool: MobxPool, held: WeakRef<object>[], owner?: MissionScreen[]): void {
   const screen = new MissionScreen(pool, 'root', { sessionName: session => session.name ?? '' })
   screen.open()
   let rows: readonly MissionDeckIssueModel[] = []
@@ -50,7 +50,7 @@ function openAndClose(pool: MobxPool, held: WeakRef<object>[]): MissionScreen {
   held.push(new WeakRef(screen), new WeakRef(screen.reader), new WeakRef(screen.deck), ...screen.rows.map(row => new WeakRef(row)))
   stop()
   screen.close()
-  return screen
+  owner?.push(screen)
 }
 
 it('opening and closing a mission 50 times leaves no view model or companion reachable', async () => {
@@ -82,7 +82,7 @@ it('a view model still held after close is the leak this test would see', async 
   try {
     const held: WeakRef<object>[] = []
     const owner: MissionScreen[] = []
-    for (let opening = 0; opening < 5; opening++) owner.push(openAndClose(pool, held))
+    for (let opening = 0; opening < 5; opening++) openAndClose(pool, held, owner)
     await turns(); gc(); await turns(); gc()
     expect(held.filter(ref => ref.deref() !== undefined).length).toBeGreaterThanOrEqual(5 * 3)
     expect(owner).toHaveLength(5)

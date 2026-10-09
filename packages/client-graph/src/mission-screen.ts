@@ -128,7 +128,7 @@ export class MissionScreen {
 
   // Preferences: stored once, in the pool's preference rows
   private preference(key: string): string | null {
-    const row = this.pool.row('preference', key)
+    const row = requireLoaded(this.pool.row('preference', key))
     return typeof row === 'object' && row !== null ? row.value : null
   }
   @lazy get preferredView(): MissionScreenView { return readMissionScreenView(this.preference(FLIGHT_DECK_MODE_KEY)) }
@@ -176,9 +176,13 @@ export class MissionScreen {
   @lazy get deck() { return this.reader.deck(this.rootId, this.mode) }
   /** The deck has settled: its shape, numbers, archive count, header and rows. */
   @lazy get ready(): boolean {
-    const deck = this.deck
-    const reads = [deck.topology, deck.progress, deck.archivedCount, deck.headerReady, this.reader.issue(this.rootId), settled(() => deck.rowIds())]
-    return !reads.includes(LOADING)
+    return settled(() => {
+      // A loading device preference must not briefly draw the default folds.
+      // Keep display demand inside this opening until its mode and folds arrive.
+      const deck = this.deck
+      const reads = [deck.topology, deck.progress, deck.archivedCount, deck.headerReady, this.reader.issue(this.rootId), settled(() => deck.rowIds()), this.folds]
+      return !reads.includes(LOADING)
+    }) === true
   }
   @lazy({ equals: compareShallow }) get rows(): readonly MissionDeckIssueModel[] {
     return this.ready ? this.deck.rows() : []
