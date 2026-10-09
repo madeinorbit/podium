@@ -240,7 +240,7 @@ it('FlightDeckHandoff acquires review events without a snapshot subscription', a
   // The timeline's review-return counts are the opening's request answers.
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(issue.updatedAt) })
   pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: issue.id, value: issue }] })
-  const opening = new MissionScreen(pool, issue.id, { issueEvents: (input) => ctx.reads.events(input) })
+  const opening = new MissionScreen(pool, issue.id, { issueEvents: ctx.reads.events })
   opening.open()
   const view = render(
     <FlightDeckHandoff

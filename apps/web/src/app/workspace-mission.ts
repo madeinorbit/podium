@@ -1,5 +1,6 @@
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { asIssueId } from '@podium/model/browser'
 import { useCallback, useMemo } from 'react'
 import { useWorklistPoolProjection } from './store-worklist-pool'
 import { coordinatorsOf, fieldOf, hasAnyTaskOf, issueOf, onScreenOf, rootOf } from './workspace-mission-reads'
@@ -30,7 +31,7 @@ export function useWorkspaceMission(selectedId: string | null, focusedId: string
     [coordinators],
   )
   const issue = useMemo(
-    () => (shownIssueId ? { id: shownIssueId, worktreePath, repoPath: repoPath ?? '' } : undefined),
+    () => (shownIssueId ? { id: asIssueId(shownIssueId), worktreePath, repoPath: repoPath ?? '' } : undefined),
     [shownIssueId, worktreePath, repoPath],
   )
   return {

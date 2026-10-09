@@ -35,7 +35,7 @@ import type { MissionScreen } from '@podium/client-graph/mission-screen'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { observer } from '@podium/client-graph/react'
-import { asIssueId } from '@podium/model'
+import { asIssueId, asSessionId } from '@podium/model'
 import type { IssueId, MachineId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import {
@@ -1384,7 +1384,7 @@ const DeckBrief = observer(function DeckBrief({
 }): JSX.Element {
   const rootSessionId = screen.rootLeadSessionId ?? focusedSessionId ?? undefined
   const draftFilling = Boolean(screen.rootDraftVessel && rootSessionId)
-  const rootDraft = useDraftValue(draftFilling ? rootSessionId : undefined)
+  const rootDraft = useDraftValue(draftFilling && rootSessionId ? asSessionId(rootSessionId) : undefined)
   const authoredBrief = draftFilling ? '' : screen.rootAuthoredBrief
   const briefText =
     authoredBrief ||
@@ -2103,7 +2103,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
       .filter((session) => !(session as SessionModel).archived)
       .map((session) => session.sessionId)
     await spawnIssueAgent(trpc.issues, input)
-    await focusIssueSession(rootId, { excludeSessionIds: existingSessionIds })
+    await focusIssueSession(asIssueId(rootId), { excludeSessionIds: existingSessionIds })
   }
   const selectSession = (
     issueId: IssueId | null,

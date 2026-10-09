@@ -110,7 +110,10 @@ const MissionOpening = observer(function MissionOpening({
         setPreference: (key, raw) =>
           (handleRef.current.access.uiState as RoutedUiState | undefined)?.set(key, raw),
         sessionName: sessionDisplayName,
-        issueEvents: (input) => handleRef.current.access.trpc.issues.events.query(input),
+        issueEvents: (input) => handleRef.current.access.trpc.issues.events.query({
+          ...input,
+          repoPath: input.repoPath ?? undefined,
+        }),
       }),
     [pool, rootId, development],
   )

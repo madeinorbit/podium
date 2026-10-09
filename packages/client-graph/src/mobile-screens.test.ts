@@ -39,7 +39,8 @@ function phone(pool: MobxPool) {
   disposals.push(() => { for (const screen of screens.values()) screen.close() })
   const open = (id: string): MissionScreen | undefined | typeof LOADING => {
     const rootId = missionRootId(pool, id, true)
-    if (rootId === LOADING || !rootId) return rootId
+    if (rootId === LOADING) return LOADING
+    if (!rootId) return undefined
     let screen = screens.get(rootId)
     if (!screen) screens.set(rootId, (screen = new MissionScreen(pool, rootId)))
     return screen.ready && settled(() => screen.crew) !== LOADING ? screen : LOADING
