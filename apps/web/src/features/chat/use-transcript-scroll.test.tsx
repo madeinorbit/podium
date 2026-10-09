@@ -284,7 +284,7 @@ describe('transcript scrolling', () => {
 
   it('does not request history from a browser clamp after a page becomes short', () => {
     renderHarness(<Harness moreAbove />)
-    scrollTo(320)
+    scrollTo(820)
     expect(loadOlder).not.toHaveBeenCalled()
     act(() => {
       // Model the browser clamping the offset before ResizeObserver/event delivery.
