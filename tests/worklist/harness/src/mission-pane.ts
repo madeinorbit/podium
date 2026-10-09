@@ -43,41 +43,54 @@ export function missionPaneReader(pool: MobxPool, visible = 24) {
     const screen = open(rootId)
     if (!screen.ready) return LOADING
     const mode = input.mode
-    const handoff = input.handoff ? screen.reader.handoff(rootId) : undefined
-    if (handoff === LOADING) return LOADING
+    // The small observers all get a turn to request their shown fields even
+    // when a neighbour is cold. A whole-pane diagnostic must not serialize
+    // those requests by returning at the first pending field.
+    let displayPending = false
+    const shown = <T>(read: () => T): T => {
+      const value = settled(read)
+      if (value === LOADING) {
+        displayPending = true
+        // This partial answer is never published while a field is pending.
+        return undefined as T
+      }
+      return value
+    }
+    const handoff = input.handoff ? shown(() => screen.reader.handoff(rootId)) : undefined
     const bands = screen.visibleRows.slice(0, visible).map((row) => ({
       key: row.key,
-      title: row.title,
-      ref: row.displayRef,
-      status: row.status,
-      presentation: settled(() => row.presentation),
-      unread: row.unread(row.folded(screen.folds)),
-      sessions: row.sessionIds(mode),
-      rollup: row.rollup,
+      title: shown(() => row.title),
+      ref: shown(() => row.displayRef),
+      status: shown(() => row.status),
+      presentation: shown(() => row.presentation),
+      unread: shown(() => row.unread(row.folded(screen.folds))),
+      sessions: shown(() => row.sessionIds(mode)),
+      rollup: shown(() => row.rollup),
     }))
-    return {
+    const answer = {
       root: rootId,
       header: {
-        title: screen.rootTitle,
-        ref: screen.rootRef,
-        stage: screen.rootStage,
-        status: screen.rootStatus,
-        brief: screen.rootAuthoredBrief,
-        note: screen.note,
-        presence: screen.presence,
-        progress: screen.progress,
-        live: screen.liveCount,
-        working: screen.workingCount,
-        hosts: screen.agentHosts.map((view) => view.machine.id),
+        title: shown(() => screen.rootTitle),
+        ref: shown(() => screen.rootRef),
+        stage: shown(() => screen.rootStage),
+        status: shown(() => screen.rootStatus),
+        brief: shown(() => screen.rootAuthoredBrief),
+        note: shown(() => screen.note),
+        presence: shown(() => screen.presence),
+        progress: shown(() => screen.progress),
+        live: shown(() => screen.liveCount),
+        working: shown(() => screen.workingCount),
+        hosts: shown(() => screen.agentHosts.map((view) => view.machine.id)),
       },
-      rootSessions: screen.rootRow?.sessionIds(mode) ?? [],
+      rootSessions: shown(() => screen.rootRow?.sessionIds(mode) ?? []),
       bands,
-      proposed: screen.proposedRows.map((row) => row.key),
-      archivedCount: screen.archivedCount,
-      continuation: screen.continuation,
-      departures: screen.otherDepartures,
+      proposed: shown(() => screen.proposedRows.map((row) => row.key)),
+      archivedCount: shown(() => screen.archivedCount),
+      continuation: shown(() => screen.continuation),
+      departures: shown(() => screen.otherDepartures),
       handoff,
     }
+    return displayPending ? LOADING : answer
   })
   return {
     read,
