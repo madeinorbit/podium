@@ -60,7 +60,8 @@ export function poolIssuePageFields(
     const views = issuePages(pool),
       issue = views.issue(id)
     if (!issue || issue === LOADING) return issue
-    const raw = issue.row as Record<string, unknown>
+    const raw = omitGone(issue.row)
+    if (raw === undefined || raw === LOADING) return raw
     const fields = pick(issue, ISSUE_PAGE_CHECK_FIELDS)
     return {
       ...fields,

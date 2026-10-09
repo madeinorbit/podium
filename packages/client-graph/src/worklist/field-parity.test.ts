@@ -1,6 +1,7 @@
 import { autorun, observable, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { MobxPool } from '../pool'
+import { requireHere } from '../lookup'
 import { LOADING } from './rollup'
 import { worklistView } from './view-model'
 import { WorklistIssueBefore } from './issue-before.test-helper'
@@ -41,7 +42,7 @@ const sidebarFields = {
   firstSessionId: (r: WorklistIssue) => r.firstSessionId,
   continuation: (r: WorklistIssue) => r.continuation,
   fleet: (r: WorklistIssue) => r.visibleFleet,
-  sessions: (r: WorklistIssue) => r.sessions.map(session => session.row),
+  sessions: (r: WorklistIssue) => r.sessions.map(session => requireHere(session.row)),
   aggregateSessionIds: (r: WorklistIssue) => r.visibleSessionIds,
   awaitingFirstPrompt: (r: WorklistIssue) => r.awaitingFirstPrompt,
 }
@@ -70,7 +71,7 @@ const mobileFields = {
   suppressAhead: (r: WorklistIssue) => r.decision === 'merge',
   attentionAction: (r: WorklistIssue) => r.attentionAction,
   navigation: (r: WorklistIssue) => r.navigation,
-  sessions: (r: WorklistIssue) => r.sessions.map(session => session.row),
+  sessions: (r: WorklistIssue) => r.sessions.map(session => requireHere(session.row)),
   activityAt: (r: WorklistIssue) => r.visibleActivityAt,
 }
 const cases = ['next-message', 'working', 'waiting', 'folded-parent', 'merge', 'awaiting-merge', 'quiet-draft', 'snoozed', 'origin'] as const

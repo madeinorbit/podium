@@ -76,7 +76,7 @@ describe('worklist view model migration', () => {
         }
         for (const id of handle.pool.tables.session.keys()) {
           const session = handle.pool.sessionObject(id), row = headerModel(handle.pool).session(session)
-          const raw = session.row as SessionView
+          const raw = requireHere(session.row) as unknown as SessionView
           expect(compareStructural(row.headerWorking, headerWorkingSession(raw, handle.pool.inputs.passed)), `${id}.working`).toBe(true)
           expect(compareStructural(row.headerHost, headerHostSession(raw)), `${id}.host`).toBe(true)
           expect(compareStructural(row.headerDock, headerDockSession(raw)), `${id}.dock`).toBe(true)
