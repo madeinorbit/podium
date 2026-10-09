@@ -10,6 +10,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import threading
 import time
 
 parser = argparse.ArgumentParser(description=__doc__)
@@ -31,7 +32,16 @@ timebase = Timebase()
 ctypes.CDLL('/usr/lib/libSystem.B.dylib').mach_timebase_info(ctypes.byref(timebase))
 page_pid = None
 
+def rusage(pid,role):
+    usage=ctypes.create_string_buffer(512)
+    if libproc.proc_pid_rusage(pid,4,usage):return None
+    cpu=sum(ctypes.c_uint64.from_buffer(usage,offset).value for offset in (16,24))*timebase.numer/timebase.denom
+    return {'pid':pid,'role':role,'residentBytes':ctypes.c_uint64.from_buffer(usage,64).value,
+            'footprintBytes':ctypes.c_uint64.from_buffer(usage,72).value,'cpuNanoseconds':cpu}
+
 def processes(owner, candidates=False):
+    if page_pid and not candidates:
+        return [v for v in (rusage(owner,'app'),rusage(page_pid,'webcontent')) if v]
     lines = subprocess.check_output(['ps','-axww','-o','pid=,rss=,comm='], text=True).splitlines()
     result = []
     for line in lines:
@@ -49,6 +59,16 @@ child = subprocess.Popen([args.binary,args.url,str(args.out),args.probe,str(args
 (args.out/'owned-meter.json').write_text(json.dumps({'pid':os.getpid(),'app':child.pid}))
 child.stdin.write(sys.stdin.readline())
 child.stdin.close()
+done=threading.Event()
+def watch_budget():
+    while not done.wait(2):
+        if not page_pid:continue
+        value=rusage(page_pid,'webcontent')
+        if value and value['footprintBytes']>7*1024**3:
+            (args.out/'budget-stop.json').write_text(json.dumps(value))
+            child.terminate()
+            return
+threading.Thread(target=watch_budget,daemon=True).start()
 try:
     initial_cpu = {}
     with (args.out/'curve.jsonl').open('w') as curve:
@@ -73,6 +93,7 @@ try:
                 print(json.dumps({'event':'budget-stop','pid':child.pid}),flush=True)
                 break
 finally:
+    done.set()
     if child.poll() is None:
         child.terminate()
     child.wait(timeout=20)
