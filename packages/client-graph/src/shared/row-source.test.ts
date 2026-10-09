@@ -478,9 +478,10 @@ it.each([1, 4])('records heartbeat owner-history work and watched fields at %sx'
 
 it('runs zero issue derivations for revision-only and identical publications', () => {
   const f = fixture()
-  const projection = { id: 'one', seq: 1, title: 'Issue', stage: 'in_progress', audience: 'human',
+  const projection = { id: 'one', seq: 1, title: 'Issue', stage: 'in_progress', audience: 'human', repoId: 'repo',
     createdAt: '2026-01-01', updatedAt: '2026-10-01', revision: 1 }
   f.put('issueProjections', 'one', projection)
+  f.put('repos', 'repo', { id: 'repo', path: '/synthetic', prefix: 'POD' })
   const handle = createWorklistPool(f.source.source, fixedLocals({ selectedIssueId: 'one', coarseNow: 0 }).source)
   const issue = handle.pool.issueObject('one')
   const runs = { row: 0, title: 0, stage: 0 }
