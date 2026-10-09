@@ -52,7 +52,6 @@ export function WorklistWindow<T>({
     containerRef,
     estimateSize,
     overscan: 3,
-    overscanViewports: 2,
     pinnedKeys: [focusedKey, draggingKey, revealKey],
     revealKey,
   })

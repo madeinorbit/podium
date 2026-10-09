@@ -49,7 +49,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
     } catch { res.writeHead(404); res.end() }
   })
   await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
-  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'],
+  const browser = await chromium.launch({ channel: 'chromium', headless: true, args: ['--no-sandbox'],
     env: { ...process.env, LD_LIBRARY_PATH: resolve('.toolchain/lib') } })
   try {
     const variants = fixture === 'lists' ? ['scroll', 'list', 'explorer', 'full', 'waterfall-css'] : fixture === 'phone-lists' ? ['inbox', 'work', 'tasks', 'sessions', 'target'] : ['chat']
