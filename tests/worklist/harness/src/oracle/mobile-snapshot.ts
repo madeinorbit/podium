@@ -1,4 +1,3 @@
-import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { mobileIssueValues, mobileWorktreeValues } from '@podium/client-graph/worklist/mobile-row'
 import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import type { WorklistWorktree } from '@podium/client-graph/worklist/worktree'
@@ -10,7 +9,7 @@ import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
 import type { MobileWorkRef, MobileWorkState } from '@podium/client-graph/worklist/mobile'
 import type { CheckRow, SidebarSnapshot } from '../../../diagnostics/sidebar-check'
 import { sidebarComparable, sessionComparable } from '../../../diagnostics/oracle'
-import { mobileRowPaint, MobileSearchSections, MobileFoldSections, type MobileWorkSection } from '../../../../../apps/mobile/src/lib/work-sections'
+import { mobileRowPaint, MobileSearchSections, MobileNativeSections, type MobileWorkSection } from '../../../../../apps/mobile/src/lib/work-sections'
 
 function comparable(value: MobileRowValues): Record<string, unknown> {
   return { ...value, sidebar: value.sidebar ? sidebarComparable(value.sidebar) : null,
@@ -42,11 +41,11 @@ export function poolMobileSnapshot(pool: MobxPool, state: MobileWorkState = {}):
       foldKey: section.foldKey, collapsed: false,
     }
   }
-  const sections = new MobileSearchSections().update(pool, answer.sectionKeys.map(key => source(key, false)), '')
-  const collapsed = new Set(sections.filter(section => state.collapsed?.[section.foldKey] === true).map(section => section.key))
+  const native = new MobileSearchSections().update(pool, answer.sectionKeys.map(key => source(key, false)), '')
+  const collapsed = new Set(native.filter(section => state.collapsed?.[section.foldKey] === true).map(section => section.key))
   const split = { issueCount: answer.issueCount, pinnedCount: answer.pinnedCount,
     attentionCount: answer.attentionCount, pending: answer.pending,
-    sections: new MobileFoldSections().update(sections, collapsed, state.searching === true),
+    sections: new MobileNativeSections().update(native, collapsed, state.searching === true),
     orderingSections: new MobileSearchSections(true).update(pool, answer.orderingSectionKeys.map(key => source(key, true)), '') }
   let pending = split.pending
   const cache = new Map<string, CheckRow>()
