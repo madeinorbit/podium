@@ -15,7 +15,8 @@ import {
 import { attachMobileScreens } from '@podium/client-graph/mobile-screens'
 import { MOBILE_SCREEN_SUMMARIES } from '@podium/client-graph/mobile-screens-schema'
 import { MobxPool } from '@podium/client-graph/pool'
-import { missionView, settled } from '@podium/client-graph/mission-view'
+import { MissionScreen } from '@podium/client-graph/mission-screen'
+import { settled } from '@podium/client-graph/mission-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
@@ -99,7 +100,7 @@ it.each([
   }
 })
 
-it('phone addressed issues batch cold siblings and dependency targets together', () => {
+it('phone mission batches cold spin-offs and their dependency targets together', () => {
   const stamp = new Date(FIXED_NOW).toISOString()
   const old = new Date(FIXED_NOW - 30 * 86_400_000).toISOString()
   const issue = (id: string, patch: Record<string, unknown> = {}) => ({
@@ -124,19 +125,23 @@ it('phone addressed issues batch cold siblings and dependency targets together',
   })
   try {
     pool.apply({ type: 'replace', rows: rows.map(value => ({ kind: 'issue' as const, id: value.id, value })) })
-    const reader = missionView(pool), deck = reader.deck('root')
-    const read = () => tracked(() => settled(() => reader.addressedIds(deck)))
-    // The phone reads this cohort for its mission crew before drawing rows.
-    // A cold sibling must not prevent the remaining siblings from requesting their rows.
+    // The phone's opening draws where the work went: every cold spin-off and
+    // the dependency each one waits on. A cold sibling must not prevent the
+    // remaining siblings from requesting their rows.
+    const screen = new MissionScreen(pool, 'root')
+    const read = () => tracked(() => settled(() => screen.ready
+      ? [...screen.otherDepartures.map(departure => departure.issue.id), ...screen.otherDepartures.flatMap(departure =>
+        departure.issue.deps.filter(dep => dep.type === 'blocks').map(dep => dep.id))]
+      : LOADING))
     expect(read()).toBe(LOADING)
     expect(load).not.toHaveBeenCalled()
-    expect(pool.hydrate()).toBe(width)
-    expect(read()).toBe(LOADING)
-    expect(pool.hydrate()).toBe(width)
+    let batches = 0
+    while (pool.hydrate() > 0) batches++
     const addressed = read()
     expect(addressed).not.toBe(LOADING)
-    if (addressed === LOADING) throw new Error('Phone addressed cohort is still loading')
-    expect(new Set(addressed)).toEqual(new Set(rows.slice(0, -1).map(row => row.id)))
+    if (addressed === LOADING) throw new Error('Phone mission is still loading')
+    expect(new Set(addressed)).toEqual(new Set(rows.slice(1, -1).map(row => row.id)))
+    expect(batches).toBeLessThanOrEqual(2)
     expect(load).toHaveBeenCalledTimes(width * 2)
     expect(pool.hydrate()).toBe(0)
     expect(pool.tables.issue.has('unrelated-history')).toBe(false)

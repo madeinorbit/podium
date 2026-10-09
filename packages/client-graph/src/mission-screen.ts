@@ -26,13 +26,13 @@ import { LOADING, type Loaded } from './worklist/rollup'
 export type MissionScreenView = FlightDeckMode | 'waterfall' | 'handoff'
 
 /** `active` is `working`'s old id (POD-1452); an operator who chose it stays there. */
-export const readMissionView = (raw: string | null): MissionScreenView =>
+export const readMissionScreenView = (raw: string | null): MissionScreenView =>
   raw === 'active'
     ? 'working'
     : raw === 'working' || raw === 'needs-you' || raw === 'waterfall' || raw === 'handoff'
       ? raw
       : 'full'
-export const writeMissionView = (view: MissionScreenView): string | null => (view === 'full' ? null : view)
+export const writeMissionScreenView = (view: MissionScreenView): string | null => (view === 'full' ? null : view)
 
 /** The answer's shape the review-return count reads. */
 export type MissionIssueEvent = { kind: string; payload?: unknown }
@@ -128,7 +128,7 @@ export class MissionScreen {
     const row = this.pool.row('preference', key)
     return typeof row === 'object' && row !== null ? row.value : null
   }
-  @lazy get preferredView(): MissionScreenView { return readMissionView(this.preference(FLIGHT_DECK_MODE_KEY)) }
+  @lazy get preferredView(): MissionScreenView { return readMissionScreenView(this.preference(FLIGHT_DECK_MODE_KEY)) }
   @lazy get view(): MissionScreenView {
     const view = this.preferredView
     return !this.options.development && (view === 'waterfall' || view === 'handoff') ? 'full' : view
@@ -141,7 +141,7 @@ export class MissionScreen {
     return readFlightDeckFolds(this.preference(FLIGHT_DECK_FOLDS_KEY))
   }
   @action setView(view: MissionScreenView): void {
-    this.options.setPreference?.(FLIGHT_DECK_MODE_KEY, writeMissionView(view))
+    this.options.setPreference?.(FLIGHT_DECK_MODE_KEY, writeMissionScreenView(view))
   }
   @action setFolds(folds: FlightDeckFoldMap): void {
     this.options.setPreference?.(FLIGHT_DECK_FOLDS_KEY, writeFlightDeckFolds(folds))

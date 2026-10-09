@@ -44,7 +44,6 @@ import {
 import type {
   MissionHandoffValues,
   MissionRowPresentation,
-  MissionViewValues,
 } from '@podium/client-graph/mission-view'
 import { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
