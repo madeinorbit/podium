@@ -41518,219 +41518,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-graph/src/worklist/sidebar-row.ts",
-      "holder": "fleetOf/nativeCount",
-      "rule": "consume:reduce",
-      "tokens": "e0b8dd200ed58a68c7fd9f2ded3e5b16c1f8a60a82675957cfe8753912b8f1dc",
-      "gate": [],
-      "origin": [
-        "5200ece19fb15a839604cc541151397febaf10beeb107dfa3ca1ab35a25b72f8"
-      ],
-      "fingerprint": "f5cca70e7bcd3dd184bb487658bd95f2b5e4e3a95deadbf06026ee21155909d9",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of fleetOf/nativeCount",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 3fc4ede9ce2899eb1f087f7038f867a24c1dc109c572309192ae0ef09eef1fb8."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/sidebar-row.ts",
-      "holder": "fleetOf/parkedCount",
-      "rule": "consume:filter",
-      "tokens": "1bc47c0991a31962b6806a42bd743d285f39e9a8537f209cb137d3bb0c49e5c7",
-      "gate": [],
-      "origin": [
-        "5200ece19fb15a839604cc541151397febaf10beeb107dfa3ca1ab35a25b72f8"
-      ],
-      "fingerprint": "f3ff95950f1279fbee7e6d91814234a67a729e8495b82c2c1c0c24c59dfd16c5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of fleetOf/parkedCount",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: a7192ca0c46af9e11015237e4b1485cb8bd9f7d78a77e364c7b04a152e155af6."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/sidebar-row.ts",
-      "holder": "fleetOf/present",
-      "rule": "consume:filter",
-      "tokens": "323b760aca137607d9befd80611073a664e2e456a66161bdfb67465bcacbf02d",
-      "gate": [],
-      "origin": [
-        "5200ece19fb15a839604cc541151397febaf10beeb107dfa3ca1ab35a25b72f8"
-      ],
-      "fingerprint": "1ea7af6149096696616176cd35a31e01dc47a1c1d6c668b39421793f76ce1c5e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of fleetOf/present",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 5e230b0f300180bdb197830a0222ce50a8e483de5314f42aba8a15f9bdadcd91."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/sidebar-row.ts",
-      "holder": "sidebarTiming/anchor",
-      "rule": "consume:filter",
-      "tokens": "3b7ae6178519fbf0174b5600b3f2184352fbf5b4a7e31a7e1c4f5b5be98b8d23",
-      "gate": [
-        "then:865859f3fedd2bd3b8f15b381f1e45848d2e34cd1eaf270fea554a9afcb24e85"
-      ],
-      "origin": [
-        "bd16e1332dba9debaf8edbe5abac5fc40b6fc9f9af04357f2d0b172b269b7912"
-      ],
-      "fingerprint": "2a3a14d61657b33330c515c5c6bc846ea241876d77f2ce6c685f0d1087208a51",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of sidebarTiming/anchor",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 67b7e46e2d51577c5b891456e1a0e2533feb2889a30ea6e23a02572617a4ed73."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/sidebar-row.ts",
-      "holder": "sidebarTiming/anchor",
-      "rule": "consume:filter",
-      "tokens": "a6f890e3c6d1c8d456edd99b95659889d2782d3b4dc43aeb7a7635330a1a6b1f",
-      "gate": [
-        "then:8dd81954dd0f68f011973c9b476cbc0fcc9efc6e151616b43fac1700df0f5cb7"
-      ],
-      "origin": [
-        "bd16e1332dba9debaf8edbe5abac5fc40b6fc9f9af04357f2d0b172b269b7912"
-      ],
-      "fingerprint": "a5d376964192de0dd88dd7a25469d8e23767dbc7fad5ce341b6783c327ffd664",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of sidebarTiming/anchor",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 68f78d614d8a55b80be2d38a0cb6544eac2e02711056abf9b51b431a5a93530a."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/sidebar-row.ts",
-      "holder": "sidebarTiming/anchor",
-      "rule": "helper-consumer",
-      "tokens": "6dde2372ed6c6d64151e155e38bd5e66fc6e03aa668354a6434de415dad061e6",
-      "gate": [
-        "then:865859f3fedd2bd3b8f15b381f1e45848d2e34cd1eaf270fea554a9afcb24e85"
-      ],
-      "origin": [
-        "bd16e1332dba9debaf8edbe5abac5fc40b6fc9f9af04357f2d0b172b269b7912"
-      ],
-      "fingerprint": "d9459a1be2e0e0714c646f140ffd0781d0949ac668af850d767c7fbe0e531751",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of sidebarTiming/anchor",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: c5e46398214ee3f6fb3dc5749f7bab7c295db49356bcbaf4ecfe6812a726f458."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/sidebar-row.ts",
-      "holder": "sidebarTiming/anchor",
-      "rule": "helper-consumer",
-      "tokens": "084d3f57c789e828691271d42a221e471bba827b3dd786f6648340487ccb3961",
-      "gate": [
-        "then:8dd81954dd0f68f011973c9b476cbc0fcc9efc6e151616b43fac1700df0f5cb7"
-      ],
-      "origin": [
-        "bd16e1332dba9debaf8edbe5abac5fc40b6fc9f9af04357f2d0b172b269b7912"
-      ],
-      "fingerprint": "e9fdaa23a0d36e2406eebe5144d3fc63e198fa77477171f98c1738e4d8f1e02a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of sidebarTiming/anchor",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: dd7d3603eedc601380137a057ebb31c7eaf545a970404f785510e42c8c117bfd."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/sidebar-row.ts",
-      "holder": "sidebarTiming/earliest/callback",
-      "rule": "consume:reduce",
-      "tokens": "44da1b7bb56d65f6a45f5fc10acbb1d5db2571e5a0973633d60448810ca8a5ca",
-      "gate": [],
-      "origin": [
-        "bd16e1332dba9debaf8edbe5abac5fc40b6fc9f9af04357f2d0b172b269b7912"
-      ],
-      "fingerprint": "7f29a4dd0f9e72897cf3b9b3dcdd2c0c73eb2a2e86e3994e4a6912dda1828303",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of sidebarTiming/earliest/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: fe89ef487b73153bdba6d1eef5ba7372810752fe06aee246db9257d72048f5a0."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/sidebar-row.ts",
-      "holder": "sidebarTiming/sinceMs",
-      "rule": "consume:reduce",
-      "tokens": "96282975283d64293617af3993a4a484ee87a973fd5ab19e1d084b7ea4a4e1c5",
-      "gate": [
-        "then:8567155b02b7e0022ad4ad3733fed9ec6d7f1736171d48564f2cac3d24c68188"
-      ],
-      "origin": [
-        "bd16e1332dba9debaf8edbe5abac5fc40b6fc9f9af04357f2d0b172b269b7912"
-      ],
-      "fingerprint": "7d864d0f56f5e44507615f7c45d72e42e8c5ec3de21af686ed44ed237c13d819",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of sidebarTiming/sinceMs",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: c050da4ed70c243ad8526294fd6bedf00c77bd4365f5bcee2333f26fbb2d1f05."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/sidebar-row.ts",
-      "holder": "sidebarTiming/totalMs",
-      "rule": "consume:reduce",
-      "tokens": "4baeddabd57a13b79227575f01aafe3ad7f3818383ddf564ab1c802c4a7b181c",
-      "gate": [
-        "then:8567155b02b7e0022ad4ad3733fed9ec6d7f1736171d48564f2cac3d24c68188",
-        "then:0724ec05ab38cc4ba2cc47b0514bcd8e075f3643922a6a79d17a1970b036d996"
-      ],
-      "origin": [
-        "bd16e1332dba9debaf8edbe5abac5fc40b6fc9f9af04357f2d0b172b269b7912"
-      ],
-      "fingerprint": "85dc776e1097d62fd1dcda4a10c00e9dd4de7e33ffac89be31ee69f12c72a7e4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of sidebarTiming/totalMs",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 2f190fe7bbed253b648a76e8dedafe3d490ff00b5dd3c967424037ee96e9d35f."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/sidebar-row.ts",
-      "holder": "sidebarTiming/totals",
-      "rule": "consume:flatMap",
-      "tokens": "aa59b9ed5c149bf0de8e405bf47271453c86d990253e7220ffb18439a4b8362e",
-      "gate": [
-        "then:8567155b02b7e0022ad4ad3733fed9ec6d7f1736171d48564f2cac3d24c68188"
-      ],
-      "origin": [
-        "bd16e1332dba9debaf8edbe5abac5fc40b6fc9f9af04357f2d0b172b269b7912"
-      ],
-      "fingerprint": "c3abe68619d421193cc0e75864f66f2633673402431b076cd5bd720f4c0c1003",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of sidebarTiming/totals",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 0838275d6bd51e02acebc2a183e25df87e996ba27e6548cce0fa84cddd6985db."
-    },
-    {
       "file": "packages/client-graph/src/worklist/sorted-lanes.ts",
       "holder": "SortedLanes/keys",
       "rule": "enumerate:keys",
@@ -42482,24 +42269,6 @@
     },
     {
       "file": "packages/client-graph/src/worklist/worktree.ts",
-      "holder": "WorklistWorktree/timing",
-      "rule": "helper-consumer",
-      "tokens": "05bd8cfc7b2ce2af412227524692b5d74cb5fe9c325655a774751b2f34c4f7fc",
-      "gate": [],
-      "origin": [
-        "bd16e1332dba9debaf8edbe5abac5fc40b6fc9f9af04357f2d0b172b269b7912"
-      ],
-      "fingerprint": "295dc80e87b257fbc4e285cea9866e081cab798381ebf074933c4a684238a245",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of WorklistWorktree/timing",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The existing pure worktree timing formatter moved behind a structurally equal owner field. It receives the same addressed roster; clock work remains POD-5863 and no roster cap is claimed. Predecessor: d9b8d01ffea114f5c4fa4dfafaef1d2cb67dfd297def388c07b88d9b3ef65387."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/worktree.ts",
       "holder": "WorklistWorktree/visible",
       "rule": "consume:filter",
       "tokens": "23be51cad62ff0a8bb3adc28096ec5eca75418a648cd1aaa9a1f1e975dd1510c",
@@ -42515,24 +42284,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "Visible roster selection now uses the incremental ordered session query and a shallow-equal field, preserving the old stale partition. The filter still has no roster cardinality cap. Predecessor: 87285b46846886482ca53b97873fb4ea01d9d88d6ee20df6b9319f38d39cf74f."
-    },
-    {
-      "file": "packages/client-graph/src/worklist/worktree.ts",
-      "holder": "WorklistWorktree/visibleFleet",
-      "rule": "helper-consumer",
-      "tokens": "8d97c8b744bd28042ff67e8ca83fdbf107cc0a9ffc7ede1afe4507d43be56748",
-      "gate": [],
-      "origin": [
-        "5200ece19fb15a839604cc541151397febaf10beeb107dfa3ca1ab35a25b72f8"
-      ],
-      "fingerprint": "12262525507d2d6dfdd3cc9806abd32956da14c606f4e2dcb890b23cfd69bcae",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of WorklistWorktree/visibleFleet",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The existing fleet formatter moved behind a structurally equal owner field. It receives the same visible roster; no roster cap is claimed. Predecessor: 5f4c24ae5328b1021a4145e21f035d0f3158d9396bff7d08c49252c5f89dc724."
     },
     {
       "file": "packages/client-graph/src/worklist/worktree.ts",
@@ -42625,6 +42376,96 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "Working count is now a scalar owner field replacing formatter phase-list work over the same roster. Shared flags prevent unrelated heartbeat invalidation; no roster cardinality cap is claimed. Predecessor: a83a255169e07758dfcb545046c2870d494320b5baf515c744c403f5643cd55e."
+    },
+    {
+      "file": "packages/client-graph/src/worklist/worktree.ts",
+      "holder": "WorklistWorktree/doneSinceMs",
+      "rule": "loop:for-of",
+      "tokens": "c05a1f41e7dc31956a2a30910f6e9e3d3a07db0df126235efe2446b10a1af782",
+      "gate": [],
+      "origin": [
+        "66c85359938dc063e55b6115c792d817ebe360996b84e821671c749467802cb5"
+      ],
+      "fingerprint": "5beabe58dd187dba53fd1bff6c7e076a54f1a0df17e056055f8756a3e3231296",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "One shown owner member changes, or the worktree row becomes observed.",
+      "bound": "The current shown session roster; the sum still visits its cached per-session contributions.",
+      "reason": "POD-5651 replaces the raw roster timing/fleet helper calls with guide rule 5 lazy session facts and a lazy owner sum. Preserve REQUIRED REPAIR: no roster cardinality cap or constant-time sum is claimed.",
+      "guard": "packages/client-graph/src/worklist/owner-totals.work.test.ts asserts unchanged-peer raw reads are zero, heartbeat/read work is equal at 32/128 archived members, and hidden owner timer/fleet bodies are zero."
+    },
+    {
+      "file": "packages/client-graph/src/worklist/worktree.ts",
+      "holder": "WorklistWorktree/visibleFleet",
+      "rule": "loop:for-of",
+      "tokens": "6dadd163137f1fc7c4f56a3706ed7266d5dbceb1026961e38f6a5ca0f4c1ded3",
+      "gate": [],
+      "origin": [
+        "5200ece19fb15a839604cc541151397febaf10beeb107dfa3ca1ab35a25b72f8"
+      ],
+      "fingerprint": "21631e052f7e7c2fecd39c1c2930adb2a368934e56f8ec506de15d09ae9ac327",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "One shown owner member changes, or the worktree row becomes observed.",
+      "bound": "The current shown session roster; the sum still visits its cached per-session contributions.",
+      "reason": "POD-5651 replaces the raw roster timing/fleet helper calls with guide rule 5 lazy session facts and a lazy owner sum. Preserve REQUIRED REPAIR: no roster cardinality cap or constant-time sum is claimed.",
+      "guard": "packages/client-graph/src/worklist/owner-totals.work.test.ts asserts unchanged-peer raw reads are zero, heartbeat/read work is equal at 32/128 archived members, and hidden owner timer/fleet bodies are zero."
+    },
+    {
+      "file": "packages/client-graph/src/worklist/worktree.ts",
+      "holder": "WorklistWorktree/waitingTimer",
+      "rule": "loop:for-of",
+      "tokens": "6be7a980b4aca0ed9b19502029c03ae3e39b8d096f8f8d8faf74812f8a8ac436",
+      "gate": [],
+      "origin": [
+        "535b0273109fccfa823060ef57e91897e0a009a323158590ce7562be0071749d"
+      ],
+      "fingerprint": "e2ec54d974837463ee57280275da29cd0c7b4a540e09496d3c8db320d185fdb7",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "One shown owner member changes, or the worktree row becomes observed.",
+      "bound": "The current shown session roster; the sum still visits its cached per-session contributions.",
+      "reason": "POD-5651 replaces the raw roster timing/fleet helper calls with guide rule 5 lazy session facts and a lazy owner sum. Preserve REQUIRED REPAIR: no roster cardinality cap or constant-time sum is claimed.",
+      "guard": "packages/client-graph/src/worklist/owner-totals.work.test.ts asserts unchanged-peer raw reads are zero, heartbeat/read work is equal at 32/128 archived members, and hidden owner timer/fleet bodies are zero."
+    },
+    {
+      "file": "packages/client-graph/src/worklist/worktree.ts",
+      "holder": "WorklistWorktree/workingMsTotal",
+      "rule": "loop:for-of",
+      "tokens": "d602c0a58134905fca39801ab108b4525fe4f7ed08e3ffb313b9546b3475e122",
+      "gate": [],
+      "origin": [
+        "239b79787f92aa4d3e3db9dc491af5d90fe7847f2c210af2f52f06b55f744b69"
+      ],
+      "fingerprint": "0d3a32165a2bf5d959649909ffc60969a33b45619e836ac7869e21b76c38ad98",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "One shown owner member changes, or the worktree row becomes observed.",
+      "bound": "The current shown session roster; the sum still visits its cached per-session contributions.",
+      "reason": "POD-5651 replaces the raw roster timing/fleet helper calls with guide rule 5 lazy session facts and a lazy owner sum. Preserve REQUIRED REPAIR: no roster cardinality cap or constant-time sum is claimed.",
+      "guard": "packages/client-graph/src/worklist/owner-totals.work.test.ts asserts unchanged-peer raw reads are zero, heartbeat/read work is equal at 32/128 archived members, and hidden owner timer/fleet bodies are zero."
+    },
+    {
+      "file": "packages/client-graph/src/worklist/worktree.ts",
+      "holder": "WorklistWorktree/workingTimer",
+      "rule": "loop:for-of",
+      "tokens": "525a8766d7ff5852af23c48b37169f7dac5321dfb3a29cf08de335e76e012900",
+      "gate": [],
+      "origin": [
+        "ae00cc06e1cd2ddd2f951638788af3fc7994806166fba98433d3ffb23006ff78"
+      ],
+      "fingerprint": "b40b9058d1c1e0981f32d327f51d9e9b708acb1eee3e0f840f72f1f57aa699e7",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "One shown owner member changes, or the worktree row becomes observed.",
+      "bound": "The current shown session roster; the sum still visits its cached per-session contributions.",
+      "reason": "POD-5651 replaces the raw roster timing/fleet helper calls with guide rule 5 lazy session facts and a lazy owner sum. Preserve REQUIRED REPAIR: no roster cardinality cap or constant-time sum is claimed.",
+      "guard": "packages/client-graph/src/worklist/owner-totals.work.test.ts asserts unchanged-peer raw reads are zero, heartbeat/read work is equal at 32/128 archived members, and hidden owner timer/fleet bodies are zero."
     },
     {
       "file": "packages/mobx-helpers/src/keyed-computed.ts",

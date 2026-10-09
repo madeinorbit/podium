@@ -33,4 +33,38 @@ timestamps/totals (15 other tests skipped). Only after this proof were the
 production roster timing/fleet calls removed. The pure helpers remain the
 independent reference; session facts now have their shared model as home.
 
-Owner work measurements and final gate results remain pending on flatblock.
+## Owner work census
+
+Flatblock, candidate `fed933c4f1`, `meter:flatblock` held:
+`owner-totals.work.test.ts` and unchanged `sidebar-attention.test.ts` ran nine
+tests, all green. The same heartbeat over three shown sessions reads unchanged
+peers' raw agent fields eight times through the old helpers and zero times
+through the shared facts. Growing the archived owner history from 32 to 128
+members leaves the complete update counts identical:
+
+| Change | Row calls, 1x / 4x | Derivation bodies, 1x / 4x | Elements, 1x / 4x |
+| --- | --- | --- | --- |
+| Member heartbeat | 8 / 8 | 24 / 24 | 189 / 189 |
+| Session read state | 8 / 8 | 18 / 18 | 163 / 163 |
+
+After the observer closes, both changes at both history sizes run zero owner
+timer/fleet total bodies and read zero unchanged-peer agent facts. The test
+also asserts that visible timer/fleet bodies actually run, so the hidden
+check cannot pass by looking for a nonexistent derivation name.
+
+## Existing behavior and structural baseline
+
+Final focused parity, existing worklist field parity, and existing model tests
+ran 1,531 tests, all green, on `b47bfd50ee`. No existing assertion changed.
+
+The unchanged pilot `2c4e3bd21e` structural census ran 30 tests across its three
+focused files (seven outside the selected groups skipped), all green. The
+per-reader baseline was saved before testing the candidate.
+
+Five replacement worktree sum scans retain the previous REQUIRED REPAIR
+classification: a lazy sum still visits the shown roster's cached facts; this
+change claims no constant-time sum or universal roster cardinality cap.
+Thirteen removed raw-helper call/consumer fingerprints disappear from the
+source scan. No unrelated classification changes.
+
+Final heavy gates and structural comparison remain pending on flatblock.
