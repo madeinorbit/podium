@@ -7,7 +7,7 @@ const loaded = <T extends object>(row: T | symbol | undefined): row is T =>
   typeof row === 'object' && row !== null
 
 const EMPTY_MACHINES: MachineModel[] = []
-class SettingsMachines {
+export class SettingsMachines {
   constructor(private readonly pool: MobxPool) {}
   @lazy({ equals: compareShallow }) get values(): MachineModel[] {
     const catalog = omitGone(this.pool.row('settingsCatalog', 'catalog'))
