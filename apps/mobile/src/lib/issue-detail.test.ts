@@ -6,6 +6,82 @@ import { describe, expect, it, vi } from 'vitest'
 import type { MobileTrpc } from '../client/trpc'
 import { issueCommands } from './issue-detail'
 
+// ---------------------------------------------------------------------------
+// The close guard's fork (POD-1129). The FACTS are tested where they live, in
+// `client-core`'s `issue-close.test.ts`; what matters here is that this is the
+// surface that decides between guarding and closing, and that it never closes
+// silently over something the derivation raised.
+// ---------------------------------------------------------------------------
+
+const issue = (partial: Partial<IssueViewModel> = {}): IssueViewModel =>
+  ({
+    id: asIssueId('task'),
+    repoPath: '/src/podium',
+    seq: 1,
+    priority: 2,
+    stage: 'in_progress',
+    title: 'A task',
+    description: '',
+    labels: [],
+    deps: [],
+    dependents: [],
+    needsHuman: false,
+    childCount: 0,
+    childDoneCount: 0,
+    parentBranch: 'main',
+    archived: false,
+    ...partial,
+  }) as IssueViewModel
+
+const session = (partial: Partial<SessionViewInput> = {}): SessionView =>
+  ({
+    sessionId: asSessionId('s'),
+    issueId: asIssueId('task'),
+    agentKind: 'codex',
+    title: 'Agent',
+    cwd: '/r/wt',
+    status: 'live',
+    controllerId: null,
+    geometry: { cols: 80, rows: 24 },
+    epoch: 0,
+    clientCount: 1,
+    createdAt: '2026-07-22T10:00:00.000Z',
+    lastActiveAt: '2026-07-22T10:00:00.000Z',
+    origin: { kind: 'spawn' },
+    archived: false,
+    readAt: null,
+    unread: false,
+    ...partial,
+  }) as SessionView
+
+function harness(
+  over: { issue?: IssueViewModel; sessions?: SessionView[]; guarded?: boolean } = {},
+) {
+  const closeIssue = vi.fn(async () => ({}))
+  const updateIssue = vi.fn(async () => ({}))
+  const requestClose = vi.fn()
+  const commands = issueCommands({
+    trpc: {} as MobileTrpc,
+    issue: over.issue ?? issue(),
+    hasCloseBlockers: (id) => blockingCloseConcerns(issueCloseConcerns(over.issue ?? issue(),
+      (over.sessions ?? []).filter(row => row.issueId === id))).length > 0,
+    run: async (fn) => {
+      await fn()
+    },
+    actions: { closeIssue, updateIssue } as never,
+    ...(over.guarded === false ? {} : { requestClose }),
+  })
+  return { commands, closeIssue, updateIssue, requestClose }
+}
+
+const dirty = {
+  updatedAt: '2026-07-23T10:00:00.000Z',
+  branch: 'issue/1129',
+  shared: false,
+  dirtyFiles: 3,
+  dirtyOwn: 3,
+}
+
 describe('selectStatus close guard', () => {
   it('closes on the press when the derivation found nothing at stake', async () => {
     const { commands, closeIssue, requestClose } = harness()
