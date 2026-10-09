@@ -7,13 +7,14 @@ generic tables. No entity adds storage or changes table publication granularity.
 
 ## Scope and base
 
-The complete range is now based on actual landed pilot
-`52556201c0e89240620a5df268b8b6307ffcae36`, which adds POD-5651's owner totals
-above the landed POD-5867 prerequisite `006a4ba7c9`. The complete 23-commit
-model range was rebased from `006a..40fdb4c7f3` to `525..93d751ee32` without
-conflicts; all 23 patches are equal in range-diff. POD-5651's shared session
-facts and history's 50-row bound remain intact. This model range remains
-unlanded; the fresh proof below belongs to this actual base.
+The complete original 24-commit model range `52556201c0..cdd6c8aa1c`
+was reconciled through `ff9dbd502f..17a8e9f363` and is now rebased onto
+actual landed pilot `d05ee9a3b13426cc47744d815938cce4de5e5f5c`.
+The 24 commits end at `04d517985e`; diagnostic repair `0eeab44061` and
+scan-only refresh `c1a45eefe5` follow them. The exact runtime candidate is
+`c1a45eefe5df3a7b6fd119270ca985167d32a983`; this report update changes only
+documentation. The range remains unlanded, with shared validation and landing
+owned by POD-5895.
 
 The coordinator narrowed this issue to synced records. Workflow record models,
 spec metadata, request ingestion and request-record retention remain deferred
@@ -22,7 +23,72 @@ request answers. Workflow placement's machine reader moves here; its workflow
 subject and request collections remain outside this range. POD-5874's separate
 measurement of field publication can apply to these generic tables too.
 
-## Latest reconciliation and proof
+## Landed membership pilot proof
+
+All 24 original commits are retained. Range-diff against the submitted
+`52556201c0..cdd6c8aa1c` has 22 equal patches and two census-context changes.
+Rebase conflicts were confined to the census file; no product-code conflict
+required a manual change. The pilot's existing classification, owner, trigger,
+bound, reason, guard and multiplicity are preserved.
+
+The M3 diagnostic now requires `issue`, `session`, `worktree` and `repo` in
+its `known` map. Other entity keys remain optional for relation enumeration,
+so the existing empty-bucket/reporting behavior is unchanged. This fixes all
+four TS18048 reads at the former lines 277–278. Fixture values and expected
+assertions are unchanged.
+
+The explicitly authorized focused typechecks passed on flatblock at
+`0eeab44061`, before the census-only refresh:
+
+```sh
+bun run typecheck -- --filter=@podium/worklist-tests --only
+bun run typecheck -- --filter=@podium/client-graph --only
+```
+
+Each ran exactly one package task, with no dependency tasks. Turbo summaries:
+`flatblock:/home/mgw/podium-test-5868/.turbo/runs/3KTMEKmUjvrjzYk1vHamIkDUV2q.json`
+and `flatblock:/home/mgw/podium-test-5868/.turbo/runs/3KTMGSCrdGN9jM7N70gs1PTuh25.json`.
+The subsequent census refresh changes no typechecked source.
+
+The following files passed at exact runtime candidate `c1a45eefe5` through
+`bun run test:file -- <paths>`. Saved runner output is on flatblock under
+`/tmp/pod5868-d05-<label>.log`; each count is read from its executed-test summary.
+
+| Focused file | Passed | Log label |
+| --- | ---: | --- |
+| `packages/client-graph/src/synced-record-models.test.ts` | 6 | `models` |
+| `packages/client-graph/src/deferred-models.test.ts` | 1 | `models` |
+| `packages/client-graph/src/models.test.ts` | 13 | `models` |
+| `apps/web/src/app/automation-readers.test.tsx` | 6 | `automation-readers` |
+| `apps/web/src/features/workflows/readers.test.tsx` | 6 | `workflow-readers` |
+| `apps/web/src/features/settings/sections/updates.test.tsx` | 36 | `updates` |
+| `apps/web/src/features/settings/MachinesPanel.test.tsx` | 46 | `machines` |
+| `apps/mobile/src/screens/SettingsScreen.pool.test.tsx` | 4 | `mobile` |
+| `apps/web/test/pool-bundle-boundary.test.ts` | 3 | `bundle` |
+| **Total** | **121** | **Nine focused files, not a suite result** |
+
+All seven invocations ran sequentially and in the foreground in the existing
+`flatblock:~/podium-test-5868` checkout, with its Bun 1.4.2 and `node -> bun`
+alias. The meter lease was checked free before each submitted command. The
+recorded-PID guard sampled a maximum process RSS of 492.7 MiB, stopped no
+worker, and confirmed no recorded process remained live. No React or MobX
+warning appeared. Phone settings retains Bun's existing unsupported
+`moduleSuffixes` warning from the unchanged mobile configuration.
+
+The repaired light scan is GREEN: **2,120 fingerprints, 2,121 occurrences,
+1,959 existing REQUIRED REPAIR entries and zero ratchet errors**, logged at
+`flatblock:/tmp/pod5868-d05-light-scan.log`. Its initial eight errors identified
+four stale entries and four replacements: three mission model-origin shifts
+and one token shift in the already-landed fixture callback. Only their scan
+fields changed; classifications and all human metadata stayed intact. The
+three mission fingerprint repairs match the prior local correction, which was
+included only after this fresh scan showed it was still needed.
+
+No full gates, builds, structural census or landing ran in this continuation.
+All shared checks and integration remain with POD-5895. Workflow/spec record
+work remains held by the coordinator, so this issue stays in progress.
+
+## Historical owner-totals reconciliation and proof
 
 POD-5895 excluded the earlier proposed POD-5866 opening-owned range after its
 retained summary control failed. Its five reader conflicts were against that
