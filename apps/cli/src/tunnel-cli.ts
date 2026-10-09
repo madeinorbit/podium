@@ -324,7 +324,10 @@ export async function downloadCloudflared(
 export async function waitForTunnelUrl(
   opts: { timeoutMs?: number; pollMs?: number; previous?: string } = {},
 ): Promise<string | undefined> {
-  const deadline = Date.now() + (opts.timeoutMs ?? 90_000)
+  // Generous on purpose: cloudflared's own retries, then podium-tunnel holding the URL up
+  // to 45 s until Cloudflare's nameservers serve it. Running out only costs the check —
+  // the tunnel records the address whenever it comes.
+  const deadline = Date.now() + (opts.timeoutMs ?? 150_000)
   for (;;) {
     forgetConfig()
     const url = loadConfig().publicUrl

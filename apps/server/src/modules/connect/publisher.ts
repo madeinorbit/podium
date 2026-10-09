@@ -61,6 +61,8 @@ export class ConnectPublisher {
   #publishedUrl: string | undefined
   #publishedAt = 0
   #inFlight: Promise<void> | undefined
+  /** A URL change arrived while a tick was running: run once more after it. */
+  #rerun = false
   readonly #deps: PublisherDeps
   readonly #setTimer: (fn: () => void, ms: number) => unknown
   readonly #clearTimer: (handle: unknown) => void
@@ -92,6 +94,13 @@ export class ConnectPublisher {
   /** The public URL changed: publish on the next tick rather than in a day. */
   publicUrlChanged(): void {
     if (this.#state === 'transferred' || this.#state === 'stopped') return
+    // A tick already running may have read the OLD url (a reboot: the publisher starts
+    // while the tunnel is still coming up). Joining it would leave the new one for the
+    // 5-minute timer, so ask for one more run after it instead.
+    if (this.#inFlight) {
+      this.#rerun = true
+      return
+    }
     this.#disarm()
     void this.#tick()
   }
@@ -125,6 +134,11 @@ export class ConnectPublisher {
     if (this.#inFlight) return this.#inFlight
     this.#inFlight = this.#run().finally(() => {
       this.#inFlight = undefined
+      if (this.#rerun) {
+        this.#rerun = false
+        this.#disarm()
+        void this.#tick()
+      }
     })
     return this.#inFlight
   }
@@ -192,8 +206,13 @@ export class ConnectPublisher {
 
   #fail(message: string, failure: ConnectFailure): void {
     this.#state = 'backoff'
-    this.#deps.log.warn(message, { ...this.#fields(failure), retryInMs: this.#backoffMs })
-    this.#arm(this.#backoffMs)
+    // While Connect still holds an OLD address, joined machines that lost this server
+    // can only find it once a retry lands, so never wait longer than the normal tick.
+    const pending = this.#deps.publicUrl() !== this.#publishedUrl
+    const ceiling = pending ? TICK_MS : BACKOFF_MAX_MS
+    const delay = Math.min(this.#backoffMs, ceiling)
+    this.#deps.log.warn(message, { ...this.#fields(failure), retryInMs: delay })
+    this.#arm(delay)
     this.#backoffMs = Math.min(this.#backoffMs * 2, BACKOFF_MAX_MS)
   }
 }

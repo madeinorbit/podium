@@ -379,7 +379,7 @@ async function startManagedTunnel(
     return undefined
   }
   const spin = io.spinner()
-  spin.start('Starting the Cloudflare tunnel')
+  spin.start('Starting the Cloudflare tunnel (can take a minute)')
   const url = await tunnel.waitForUrl(previous)
   if (!url) {
     spin.error('The tunnel has not reported an address yet.')

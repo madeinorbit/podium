@@ -1,24 +1,25 @@
-import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
-import { readMachineCredential, machinePublicKeyWire } from '@podium/runtime/machine-credential'
 import { existsSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { CURRENT_CONFIG_VERSION, loadConfig, saveConfig } from '@podium/runtime/config'
 import {
   CHECK_ERROR_SENTENCES,
-  describeCheckError,
   type CheckError,
   type CheckResult,
+  describeCheckError,
 } from '@podium/runtime/connect-check'
+import { writeConnectivity } from '@podium/runtime/connectivity'
 import {
   INSTALLATION_META_KEY,
   INSTALLATION_PRIVATE_KEY,
   mintInstallationIdentity,
 } from '@podium/runtime/installation-identity'
-import { writeConnectivity } from '@podium/runtime/connectivity'
 import { encodeJoin } from '@podium/runtime/join'
+import { machinePublicKeyWire, readMachineCredential } from '@podium/runtime/machine-credential'
+import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { loadCheckIdentity, realCheckReachability } from './cli-reachability'
 import {
   repairConfig,
   runCliSetup,
@@ -27,7 +28,6 @@ import {
   shouldRunCliSetup,
   waitForDaemonEnrollment,
 } from './cli-setup'
-import { loadCheckIdentity, realCheckReachability } from './cli-reachability'
 import type { TailscaleDeps, TailscaleState } from './setup-tailscale'
 import { scriptedIO } from './setup-ui'
 
@@ -412,10 +412,11 @@ describe('runCliSetup', () => {
    * never an operator change over somebody else's.
    */
   describe('Tailscale', () => {
-    const READY = (operator?: string): TailscaleState => ({
+    const READY = (operator?: string, operatorKnown = true): TailscaleState => ({
       kind: 'ready',
       dnsName: 'box.tail1234.ts.net',
       operator,
+      operatorKnown,
     })
 
     function fakeTailscale(
@@ -546,6 +547,19 @@ describe('runCliSetup', () => {
       expect(output.join('\n')).toContain("Tailscale's operator is alice")
       expect(commands).toContain('sudo tailscale funnel --bg 18787')
       expect(loadConfig().publicUrl).toBe('https://box.tail1234.ts.net')
+    })
+
+    it('an operator it cannot read is never replaced: boxes the sudo command instead', async () => {
+      const { deps, runs } = fakeTailscale([READY(undefined, false)])
+      const { prompts, commands, output, done } = runTailscale(
+        ['all-in-one', 'tailscale', 'tailscale-funnel', true, 's3cret', false],
+        deps,
+      )
+      await done
+      expect(prompts.some((p) => p.startsWith('Let mgw manage'))).toBe(false)
+      expect(runs).toEqual([])
+      expect(output.join('\n')).toContain('Could not read whether Tailscale has an operator')
+      expect(commands).toContain('sudo tailscale funnel --bg 18787')
     })
 
     it('Serve is checked from inside the tailnet, never from the internet', async () => {

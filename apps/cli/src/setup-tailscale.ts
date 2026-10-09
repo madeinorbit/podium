@@ -16,7 +16,8 @@
  * denied". Setting the operator REPLACES whoever it was, so this never does that over
  * someone else: it reads the current operator first and
  *  - runs the command itself when it is root or the operator;
- *  - offers `sudo tailscale set --operator=<user>` only when there is no operator at all;
+ *  - offers `sudo tailscale set --operator=<user>` only when there is no operator at all
+ *    (an operator it cannot read counts as one it must not replace);
  *  - otherwise leaves it alone and boxes the one `sudo` command for the operator to run.
  *
  * `tailscale set`, never `tailscale up --operator`: `up` resets every preference not
@@ -39,8 +40,11 @@ export type TailscaleState =
       kind: 'ready'
       /** This machine's MagicDNS name, without the trailing dot. */
       dnsName: string
-      /** tailscaled's operator user; undefined when none is set or it cannot be read. */
+      /** tailscaled's operator user; undefined when none is set. */
       operator: string | undefined
+      /** False when `tailscale debug prefs` could not be read: whether an operator is set is
+       *  then UNKNOWN, and setup must not offer a change that could replace one. */
+      operatorKnown: boolean
     }
 
 export interface TailscaleDeps {
@@ -77,18 +81,23 @@ export function probeTailscale(): TailscaleState {
   }
   const dnsName = parsed.Self?.DNSName?.replace(/\.$/, '')
   if (parsed.BackendState !== 'Running' || !dnsName) return { kind: 'signed-out' }
-  return { kind: 'ready', dnsName, operator: readOperator() }
+  const operator = readOperator()
+  return operator === UNREADABLE
+    ? { kind: 'ready', dnsName, operator: undefined, operatorKnown: false }
+    : { kind: 'ready', dnsName, operator, operatorKnown: true }
 }
 
+const UNREADABLE = Symbol('unreadable')
+
 /** `tailscale debug prefs` is readable without root and names the operator, when set. */
-function readOperator(): string | undefined {
+function readOperator(): string | undefined | typeof UNREADABLE {
   const prefs = spawnText('tailscale', ['debug', 'prefs'])
-  if (!prefs.ok) return undefined
+  if (!prefs.ok) return UNREADABLE
   try {
     const operator = (JSON.parse(prefs.stdout) as { OperatorUser?: unknown }).OperatorUser
     return typeof operator === 'string' && operator !== '' ? operator : undefined
   } catch {
-    return undefined
+    return UNREADABLE
   }
 }
 
@@ -154,7 +163,7 @@ export async function tailscaleStep(
   }
   if (mayRunIt) {
     done = deps.run('tailscale', command)
-  } else if (state.operator === undefined) {
+  } else if (state.operatorKnown && state.operator === undefined) {
     const allow = await io.confirm({
       message: `Let ${user} manage Tailscale's Serve and Funnel? (runs: sudo tailscale set --operator=${user})`,
       initialValue: true,
@@ -162,8 +171,10 @@ export async function tailscaleStep(
     if (!isCancel(allow) && allow && deps.run('sudo', ['tailscale', 'set', `--operator=${user}`])) {
       done = deps.run('tailscale', command)
     }
-  } else {
+  } else if (state.operator !== undefined) {
     io.step(`Tailscale's operator is ${state.operator}; setup leaves that as it is.`)
+  } else {
+    io.step('Could not read whether Tailscale has an operator; setup leaves that as it is.')
   }
 
   while (!done) {

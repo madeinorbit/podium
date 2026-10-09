@@ -240,10 +240,17 @@ fn spawn_poster(
                     Err(_) => break,
                 }
             }
+            let mut waited_for = url.clone();
             let mut attempt = 0usize;
             loop {
                 while let Ok(newer) = urls.try_recv() {
                     url = newer;
+                }
+                // A rotation while the server was unreachable gets its own wait too.
+                if url != waited_for {
+                    wait_for_dns(&url, &dns);
+                    waited_for = url.clone();
+                    continue;
                 }
                 let outcome = match control::post_public_url(&socket, &url) {
                     Ok(PostOutcome::Retry { status }) => {
