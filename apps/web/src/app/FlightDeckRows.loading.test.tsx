@@ -9,6 +9,9 @@ import { type DeckWindow, deckTaskKey } from './flight-deck-window'
 
 const state = vi.hoisted(() => ({ coarseNow: Date.parse('2026-10-09T12:00:00Z'), renameSession: vi.fn() }))
 vi.mock('./store', () => ({ useRuntimeSelector: (read: (store: typeof state) => unknown) => read(state) }))
+vi.mock('@/lib/use-harness-descriptors', () => ({
+  useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' }),
+}))
 afterEach(() => cleanup())
 const rail = { className: 'bg-hairline-soft', width: 1 }
 const common = {
@@ -51,7 +54,7 @@ it('a cold offscreen TaskRow gains real searchable data without reading hidden p
     await act(async () => { f.pool.hydrate() })
     await waitFor(() => expect(ui.getByRole('button', { name: 'Loaded cold task' })).toBeDefined())
     expect(ui.queryByRole('status')).toBeNull()
-    expect(ui.container.querySelector(`[data-deck-placeholder="${deckTaskKey(f.row.key)}"]`)).not.toBeNull()
+    expect(ui.container.querySelector('[data-deck-placeholder]')?.getAttribute('data-deck-placeholder')).toBe(deckTaskKey(f.row.key))
     expect(ui.container.querySelector('.deck-strip')).toBeNull()
     expect(payload).not.toHaveBeenCalled()
   } finally {
