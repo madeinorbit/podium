@@ -1,28 +1,9 @@
-import { createSettingsViews } from '@podium/client-graph/settings-views'
-import type { MobxPool } from '@podium/client-graph'
-import { useOpeningView } from '@podium/client-graph/react'
-import { createContext, useContext, type ReactNode } from 'react'
-import { useWorklistPool } from '@/app/store-worklist-pool'
-import { createSettingsMachineReaders } from './settings-machine-readers'
+import { createContext, useContext } from 'react'
+import type { createWebSettingsView } from './SettingsOpening'
 
-export function createWebSettingsView(pool: MobxPool) {
-  const settings = createSettingsViews(pool)
-  const machines = createSettingsMachineReaders(pool)
-  return {
-    settings,
-    machines,
-    dispose() {
-      settings.dispose()
-      machines.dispose()
-    },
-  }
-}
-const SettingsOpeningContext = createContext<ReturnType<typeof createWebSettingsView> | null>(null)
-export function SettingsOpening({ children }: { children: ReactNode }) {
-  const pool = useWorklistPool()
-  const view = useOpeningView(pool, createWebSettingsView)
-  return <SettingsOpeningContext.Provider value={view}>{children}</SettingsOpeningContext.Provider>
-}
+// Setup reads the context during startup. Keep the settings opening's factory
+// in the settings screen's module so those readers do not load the whole view.
+export const SettingsOpeningContext = createContext<ReturnType<typeof createWebSettingsView> | null>(null)
 export function useSettingsOpening() {
   return useContext(SettingsOpeningContext)
 }
