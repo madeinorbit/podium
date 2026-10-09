@@ -41767,10 +41767,10 @@
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5633",
-      "trigger": "One addressed session geometry read",
-      "bound": "One loaded shared session or legacy fixture session",
-      "reason": "Shared seats supply their existing settled fact; only their timestamps are read. This pure scalar helper enumerates no crew.",
-      "guard": "waterfall-view.parity.test.ts: same-fixture geometry and singleton follow parity"
+      "trigger": "Fit All click only",
+      "bound": "The operator-requested mission domain, once per click",
+      "reason": "The expensive all-history question is on request; pan, zoom, clock and activity never call it.",
+      "guard": "waterfall-work.test.tsx and waterfall-view.parity.test.ts"
     },
     {
       "file": "apps/web/src/app/FlightDeckWaterfall.tsx",

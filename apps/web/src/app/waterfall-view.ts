@@ -183,11 +183,9 @@ export class WaterfallView {
   @lazy({ equals: compareShallow }) get rowIds(): readonly string[] {
     return this.rows.map((row) => row.key)
   }
-  @lazy get followed(): WaterfallSessionModel | undefined {
+  @lazy get followed(): SessionModel | undefined {
     return this.followedSessionId
-      ? (here(this.screen.pool.model('session', this.followedSessionId)) as
-          | WaterfallSessionModel
-          | undefined)
+      ? here(this.screen.pool.model('session', this.followedSessionId))
       : undefined
   }
   @action resume(): void {

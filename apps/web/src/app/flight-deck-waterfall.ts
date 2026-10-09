@@ -128,7 +128,7 @@ export function fitWaterfallViewport(
 /** Follow one addressed session. Width and clock changes never select or sort
  * the crew; the opening/user action owns the followed ID. */
 export function followWaterfallSessionViewport(
-  session: SessionView | undefined,
+  session: SessionView | SessionModel | undefined,
   now: number,
   trackPx: number,
   options: { future?: boolean } = {},
