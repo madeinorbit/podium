@@ -8,6 +8,7 @@ import { chromium } from '@playwright/test'
 
 if (hostname() !== 'flatblock') throw new Error('Run the scroll proof on flatblock')
 console.log(`Fast-scroll foreground PID ${process.pid}`)
+interface ScrollSample { time: number; top: number; blankPx: number; area: number; mounted: number; textBlankPx: number; loadingRows?: number; rows?: unknown[] }
 const arm = process.argv[2]
 if (!['before', 'after'].includes(arm ?? '')) throw new Error('Choose before or after')
 const output = resolve('.artifacts/fast-scroll', arm!)
@@ -27,7 +28,7 @@ if (process.argv.includes('--build')) {
     console.log(`Building ${arm} ${fixture}`)
     await build({ ...base, configFile: false, logLevel: 'warn',
       define: { ...base.define, __DEV__: 'false', 'process.env.NODE_ENV': '"production"' },
-      plugins: [...(arm === 'before' ? [{ name: 'unchanged-product-windowing', enforce: 'pre' as const, load(id: string) { const path = ['packages/client-graph/src/residency.ts', 'apps/web/src/features/worklist/pool-sidebar.tsx', 'apps/web/src/features/worklist/worklist-motion.tsx', 'apps/mobile/src/hooks/useNativeTranscriptScroll.ts', 'apps/web/src/features/issues/use-bounded-virtual-list.ts', 'apps/web/src/app/flight-deck-window.tsx', 'packages/client-core/src/react/use-dom-transcript-scroll.ts', 'apps/mobile/src/components/IssueTargetSheet.tsx', 'apps/mobile/src/components/TranscriptViewport.native.tsx', ...['WorkScreen', 'IssuesScreen', 'InboxScreen', 'SessionsScreen'].map(name => `apps/mobile/src/screens/${name}.tsx`)].find(path => id.endsWith('/' + path)); return path ? execFileSync('git', ['show', 'ff68b5e727:' + path], { encoding: 'utf8' }) : null } }] : []), ...(base.plugins?.filter(plugin => !/meter|acceptance-state/.test((plugin as { name?: string })?.name ?? '')) ?? [])],
+      plugins: [...(arm === 'before' ? [{ name: 'unchanged-product-windowing', enforce: 'pre' as const, load(id: string) { const path = ['packages/client-graph/src/residency.ts', 'apps/web/src/features/worklist/worklist-window.tsx', 'apps/web/src/features/worklist/pool-sidebar.tsx', 'apps/web/src/features/worklist/worklist-motion.tsx', 'apps/mobile/src/hooks/useNativeTranscriptScroll.ts', 'apps/web/src/features/issues/use-bounded-virtual-list.ts', 'apps/web/src/app/flight-deck-window.tsx', 'packages/client-core/src/react/use-dom-transcript-scroll.ts', 'apps/mobile/src/components/IssueTargetSheet.tsx', 'apps/mobile/src/components/TranscriptViewport.native.tsx', ...['WorkScreen', 'IssuesScreen', 'InboxScreen', 'SessionsScreen'].map(name => `apps/mobile/src/screens/${name}.tsx`)].find(path => id.endsWith('/' + path)); return path ? execFileSync('git', ['show', 'ff68b5e727:' + path], { encoding: 'utf8' }) : null } }] : []), ...(base.plugins?.filter(plugin => !/meter|acceptance-state/.test((plugin as { name?: string })?.name ?? '')) ?? [])],
       build: { ...base.build, outDir: resolve(output, fixture), emptyOutDir: true, minify: true, sourcemap: false,
         rolldownOptions: fixture === 'phone-lists' ? { ...base.build?.rolldownOptions, input: resolve('apps/mobile/test/inbox.browser.html') } : base.build?.rolldownOptions,
         rollupOptions: fixture === 'phone-lists' ? { input: resolve('apps/mobile/test/inbox.browser.html') } : base.build?.rollupOptions },
@@ -99,7 +100,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
         const sample = await page.evaluate(({ selector, diagnose }) => {
           const scroll = document.querySelector<HTMLElement>(selector)!
           const rows = '[data-window-row], [data-virtual-issue-key], [data-deck-measure], [data-row-key], [data-testid="work-list-row"]'
-          const state = { samples: [] as { time: number; top: number; blankPx: number; area: number; mounted: number; textBlankPx: number }[], active: true }
+          const state = { samples: [] as ScrollSample[], active: true }
           ;(window as any).__scrollProof = state
           const tick = () => {
             if (!state.active) return
@@ -134,7 +135,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
           await page.waitForTimeout(Math.max(0, start + (step + 1) * 20 - Date.now()))
         }
         await page.waitForTimeout(150)
-        const samples = await page.evaluate(() => { const state = (window as any).__scrollProof; state.active = false; return state.samples as { time: number; top: number; blankPx: number; area: number; mounted: number }[] })
+        const samples = await page.evaluate(() => { const state = (window as any).__scrollProof; state.active = false; return state.samples as ScrollSample[] })
         await cdp.send('Page.stopScreencast')
         await cdp.detach()
         if (Math.max(...samples.map(s => s.top)) - Math.min(...samples.map(s => s.top)) < 300 || frames.length < 10) throw new Error(`${tag}: wheel did not reach the list; no scroll result`)
@@ -160,13 +161,13 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
           }
           return results
         }, { frames, box })
-        const worst = raster.reduce((a, b) => a.blankPx >= b.blankPx ? a : b, raster[0] ?? { blankPx: 0, timestamp: 0 })
+        const worst = raster.reduce((a, b) => a.blankPx >= b.blankPx ? a : b, raster[0] ?? { blankPx: 0, maxGap: 0, timestamp: 0 })
         const frame = frames.find(f => f.timestamp === worst.timestamp)
         if (frame) await writeFile(resolve(output, `${tag}-worst.jpg`), Buffer.from(frame.data, 'base64'))
         const report = { fixture, variant, candidate, samples: samples.length, blankFrames: samples.filter(s => s.blankPx > 20).length,
           maxBlankPx: Math.max(0, ...samples.map(s => s.blankPx)), maxBlankPercent: Math.max(0, ...samples.map(s => s.area ? s.blankPx / s.area * 100 : 0)),
           mountedPeak: Math.max(0, ...samples.map(s => s.mounted)), compositorFrames: frames.length, textBlankFrames: samples.filter((s: any) => s.textBlankPx > 0).length,
-          rasterBlankFrames: raster.filter(r => r.blankPx > 0).length, rasterMaxBlankPx: worst.blankPx,
+          rasterBlankFrames: raster.filter(r => r.blankPx > 0).length, rasterMaxBlankPx: worst.blankPx, rasterMaxBlankArea: worst.blankPx * Math.floor(box.width - 44), rasterMaxBlankPercent: worst.blankPx / Math.floor(box.height - 12) * 100, viewport: box,
           samplesRaw: samples, raster, errors }
         reports.push(report)
         console.log(tag, JSON.stringify({ ...report, samplesRaw: undefined, raster: undefined }))
