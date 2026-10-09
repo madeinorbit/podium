@@ -92,37 +92,17 @@ export function poolWorktreeRow(
 /** Same status vocabulary as the current row, formatted from pool facts.
  * No legacy attention, rollup, membership or worklist selector runs here. */
 export function poolIssueStatus(value: SidebarRowValues): string {
-  if (value.awaitingFirstPrompt) return 'awaiting first prompt'
-  if (value.statusFromChildren) {
-    const { total, done, run, review, stall, block, wait } = value.progress
-    if (total === 0) return 'no active subtasks'
-    const progress = `${done}/${total} ${total === 1 ? 'subtask' : 'subtasks'} done`
-    if (done === total) return progress
-    const next =
-      block > 0
-        ? `${block} blocked`
-        : review > 0
-          ? `${review} in review`
-          : run > 0
-            ? `${run} underway`
-            : stall > 0
-              ? `${stall} stalled`
-              : wait > 0
-                ? `${wait} to go`
-                : null
-    return next ? `${progress} · ${next}` : progress
-  }
-  if (value.decision === 'merge')
-    return value.mergeCommits > 0 ? `ready to merge · ${value.mergeCommits}` : 'ready to merge'
-  if (value.decision === 'review') return 'needs review'
-  if (value.continuation) return `${value.continuation.kind} · ${value.continuation.ref}`
-  if (value.issue.blocked) return 'blocked'
-  return issueStatusLabel(navigationIssue(value.issue)).toLowerCase()
+  return formatIssueStatus(value, value.statusFromChildren)
 }
 
 export function worklistIssueStatus(value: WorklistIssue): string {
+  return formatIssueStatus(value, value.showsChildProgress)
+}
+
+// One vocabulary for the live companion and its frozen departure paint.
+function formatIssueStatus(value: WorklistIssue | SidebarRowValues, showsChildProgress: boolean): string {
   if (value.awaitingFirstPrompt) return 'awaiting first prompt'
-  if (value.showsChildProgress) {
+  if (showsChildProgress) {
     const progressValue = value.progress
     if (progressValue === LOADING) return 'no active subtasks'
     const { total, done, run, review, stall, block, wait } = progressValue
