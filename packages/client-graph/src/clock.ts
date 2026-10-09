@@ -13,6 +13,8 @@ export const UNTRACKED_READS: Readonly<Record<string, string>> = {
   'board-column-seed': 'Seed a board column from its declared stage questions; table and feed subscriptions maintain the column result.',
   'board-column-probe': 'Check one issue against a column\'s stage questions during maintenance; the column subscription reports membership changes.',
   'transcript-order-snapshot': 'Take the phone transcript items once per order change; the list keys on ids and each row observes its own message.',
+  'picker-session-recency': 'A shown reference row keeps the recency it first showed while its picker is open (stored on open).',
+  'picker-issue-recency': 'A shown mention row keeps the recency it first showed while its picker is open (stored on open).',
   'launch-session-seed': 'Probe session residency without borrowing dependencies; addressed rows and catalog membership track changes.',
   'launch-session-presence': 'Choose resident session detail without a table dependency; catalog membership and row summaries track changes.',
   'issue-hidden-presence': 'Probe residency without a duplicate dependency; resident facts or the cold summary track changes.',

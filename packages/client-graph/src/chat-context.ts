@@ -1,4 +1,4 @@
-import { action, compareStructural, observable, observableRef, when } from 'mobx'
+import { action, compareStructural, observable, observableRef, untracked, when } from 'mobx'
 import { headerEntities } from './header-entities'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -8,7 +8,7 @@ import { companion, lazy } from '@podium/mobx-helpers'
 import type { PendingInteractionWire } from '@podium/protocol'
 import { CHAT_CONTEXT_SUMMARIES } from './chat-context-schema'
 import { headerIds } from './enumerate'
-import type { SessionModel } from './models'
+import type { IssueModel, SessionModel } from './models'
 import type { MobxPool } from './pool'
 import type { Loaded } from './worklist/rollup'
 
@@ -250,70 +250,117 @@ export function createChatContextReader(pool: MobxPool) {
   }
 }
 
-/** One open reference/mention picker. Only open/search reads a catalog. */
+/** The reference menu's opening order, as identities only: the server's
+ * recency order, then any other known row. Resume twins fold by the declared
+ * collapse and deleted tasks are outside the mention question, so no row is
+ * read; each entry reads its own row when it is shown. */
+export function referenceSessionOrder(pool: MobxPool): { ids: string[]; pending: number } {
+  const order = pool.row('chatSessionOrder', 'order')
+  if (!order || loading(order)) return { ids: [], pending: loading(order) ? 1 : 0 }
+  const known = pool.queries.ids({ kind: 'referenceSessions' }),
+    present = new Set(known)
+  const ids: string[] = []
+  for (const id of new Set([...order.ids.filter((id) => present.has(id)), ...known]))
+    if (!pool.queries.collapsed(id)) ids.push(id)
+  return { ids, pending: 0 }
+}
+export function mentionIssueOrder(pool: MobxPool): { ids: string[]; pending: number } {
+  const order = pool.row('chatIssueOrder', 'order')
+  if (!order || loading(order)) return { ids: [], pending: loading(order) ? 1 : 0 }
+  const known = pool.queries.ids({ kind: 'mentionIssues' }),
+    present = new Set(known)
+  return { ids: [...new Set([...order.ids.filter((id) => present.has(id)), ...known])], pending: 0 }
+}
+
+/** One open reference/mention picker. Open stores the order (rule 6); search
+ * asks the source for a bounded window. Rows are made for shown entries only. */
 export class ReferencePicker {
   @observableRef accessor sessionIds: string[] = []
   @observableRef accessor issueIds: string[] = []
   @observable accessor pending = 0
-  @observableRef accessor sessionRows: ReferenceSessionRow[] = []
-  @observableRef accessor issueRows: ReferenceIssueRow[] = []
+  // A fresh row map per opening: a row keeps the recency it first showed.
+  @observableRef private accessor sessionRow = companion((model: SessionModel) => new ReferenceSessionRow(this.pool, model.id))
+  @observableRef private accessor issueRow = companion((model: IssueModel) => new ReferenceIssueRow(this.pool, model.id))
   private stopLoading: (() => void) | undefined
   constructor(private readonly pool: MobxPool) {}
   @action close() { this.stopLoading?.(); this.stopLoading = undefined }
   @action open(kind: 'sessions' | 'issues' | 'all' = 'all') {
     this.close()
-    const sessions = kind !== 'issues' ? chatReferenceSessions(this.pool) : undefined
-    const issues = kind !== 'sessions' ? chatMentionIssues(this.pool) : undefined
+    const sessions = kind !== 'issues' ? referenceSessionOrder(this.pool) : undefined
+    const issues = kind !== 'sessions' ? mentionIssueOrder(this.pool) : undefined
     if (sessions) {
-      this.sessionIds = sessions.sessions.map(session => session.sessionId)
-      this.sessionRows = sessions.sessions.map(session => new ReferenceSessionRow(this.pool, session.sessionId, session.lastActiveAt))
+      this.sessionIds = sessions.ids
+      this.sessionRow = companion((model: SessionModel) => new ReferenceSessionRow(this.pool, model.id))
     }
     if (issues) {
-      this.issueIds = issues.issues.map(issue => issue.id)
-      this.issueRows = issues.issues.map(issue => new ReferenceIssueRow(this.pool, issue.id, issue.updatedAt))
+      this.issueIds = issues.ids
+      this.issueRow = companion((model: IssueModel) => new ReferenceIssueRow(this.pool, model.id))
     }
     this.pending = (sessions?.pending ?? 0) + (issues?.pending ?? 0)
     if (this.pending) this.stopLoading = when(() =>
-      (kind !== 'issues' ? chatReferenceSessions(this.pool).pending : 0) +
-      (kind !== 'sessions' ? chatMentionIssues(this.pool).pending : 0) === 0,
+      (kind !== 'issues' ? referenceSessionOrder(this.pool).pending : 0) +
+      (kind !== 'sessions' ? mentionIssueOrder(this.pool).pending : 0) === 0,
       () => this.open(kind))
   }
   @action search(query: string, limit = 5) {
     this.close()
     const result = chatMentionMatches(this.pool, query, limit)
     this.issueIds = result.issues.map(issue => issue.id)
-    this.issueRows = result.issues.map(issue => new ReferenceIssueRow(this.pool, issue.id, issue.updatedAt))
+    this.issueRow = companion((model: IssueModel) => new ReferenceIssueRow(this.pool, model.id))
     this.pending = result.pending
     if (this.pending) this.stopLoading = when(() => chatMentionMatches(this.pool, query, limit).pending === 0,
       () => this.search(query, limit))
   }
+  /** Compatibility lists for consumers of the whole catalog answer: reading
+   * one resolves every entry. Picker rows ask by id instead. */
   @lazy({ equals: compareStructural }) get sessions(): SessionView[] {
-    return this.sessionRows.flatMap(row => { const value = row.presentation; return value && !loading(value) ? [value] : [] })
+    return dedupeSessionsByResume(this.sessionIds.flatMap(id => {
+      const value = this.sessionRow(this.pool.sessionObject(id)).presentation
+      return value && !loading(value) ? [value] : []
+    }))
   }
   @lazy({ equals: compareStructural }) get issues(): IssueViewModel[] {
-    return this.issueRows.flatMap(row => { const value = row.presentation; return value && !loading(value) ? [value] : [] })
+    return this.issueIds.flatMap(id => {
+      const value = this.issueRow(this.pool.issueObject(id)).presentation
+      return value && !loading(value) ? [value] : []
+    })
   }
   session(id: string) { return this.pool.row('session', id, 'summary-fields') as Loaded<SessionView> }
   issue(id: string) { return chatIssue(this.pool, id) }
 }
 export const createReferencePicker = (pool: MobxPool) => new ReferencePicker(pool)
 
-/** Per-row picker companions answer displayed fields; ordering timestamps are
- * consumed only by open/search. The live Agents list retains its timestamp. */
+/** Per-row picker companions answer displayed fields. The recency a row first
+ * showed stays put while the picker is open; the live Agents list keeps its
+ * timestamp. */
 class ReferenceSessionRow {
-  constructor(private readonly pool: MobxPool, readonly id: string, private readonly openedAt: string) {}
+  private readonly openedAt: string
+  constructor(private readonly pool: MobxPool, readonly id: string) {
+    // untracked-read: picker-session-recency
+    this.openedAt = untracked(() => {
+      const row = pool.row('session', id, 'summary-fields') as Loaded<SessionView>
+      return row && !loading(row) ? row.lastActiveAt : ''
+    })
+  }
   @lazy({ equals: compareStructural }) get presentation(): Loaded<SessionView> {
     const row = this.pool.row('session', this.id, 'summary-fields') as Loaded<SessionView>
     if (!row || loading(row)) return row
-    return { ...row, lastActiveAt: this.openedAt }
+    return { ...row, lastActiveAt: this.openedAt || row.lastActiveAt }
   }
 }
 class ReferenceIssueRow {
-  constructor(private readonly pool: MobxPool, readonly id: string, private readonly openedAt: string) {}
+  private readonly openedAt: string
+  constructor(private readonly pool: MobxPool, readonly id: string) {
+    // untracked-read: picker-issue-recency
+    this.openedAt = untracked(() => {
+      const row = chatIssue(pool, id)
+      return row && !loading(row) ? row.updatedAt : ''
+    })
+  }
   @lazy({ equals: compareStructural }) get presentation(): Loaded<IssueViewModel> {
     const row = chatIssue(this.pool, this.id)
     if (!row || loading(row) || row.deletedAt) return undefined
-    const { updatedAt: _recency, ...fields } = row
-    return { ...fields, updatedAt: this.openedAt } as IssueViewModel
+    const { updatedAt, ...fields } = row
+    return { ...fields, updatedAt: this.openedAt || updatedAt } as IssueViewModel
   }
 }

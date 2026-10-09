@@ -445,6 +445,9 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         case 'proposedIssues':
           keys.push('issue:proposed')
           break
+        case 'mentionIssues':
+          keys.push('issue:undeleted')
+          break
         case 'inboxSessions':
           keys.push('session:inbox')
           break
@@ -561,6 +564,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           // Ordered windows are answered by their existing bounded indexes.
           return this.ids(question).includes(id)
         case 'proposedIssues': return has('issue:proposed')
+        case 'mentionIssues': return has('issue:undeleted')
         case 'inboxSessions': return has('session:inbox')
         case 'headerSessions':
         case 'headerOccupancy': return has('session:host')
@@ -641,6 +645,8 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
           return []
         case 'proposedIssues':
           return [...bucket('issue:proposed')]
+        case 'mentionIssues':
+          return [...bucket('issue:undeleted')]
         case 'inboxSessions':
           return [...bucket('session:inbox')]
         case 'headerSessions':
