@@ -55,7 +55,9 @@ A lean gate attempt was interrupted during API declaration generation at 3,364,9
 
 The shared batch's full typecheck rejected candidate `1384a343f91a06cf89848a032890a7b9f55e355b`: the lane atom passed `debugName()`'s optional result where MobX requires a string. The follow-up repair uses the existing generic `'Atom'` fallback when debug names are disabled. This changes no membership or order logic; shared-lane validation of the repaired candidate remains pending.
 
-The shared scan at `99acf386b7` reported ten stale fingerprints for removed operations and five new/changed fingerprints in the native mapping, query bootstrap and phone answer getters. Their exact census metadata is being reconciled with the shared lane; existing classifications remain required repair. The same stack's web build exceeded its eager raw limit by 1,160 bytes (2,151,160 against 2,150,000); attribution is pending isolation, so this report claims neither a green scan nor a green build.
+The shared scan at `99acf386b7` reported ten stale fingerprints for removed operations and five new/changed fingerprints in the native mapping, query bootstrap and phone answer getters. After POD-4286 authorized light source scans in this lane, the flatblock scan supplied the five exact records. The census retires only the ten absent operations and adds all replacements with their existing `REQUIRED REPAIR` classification; every unaffected entry retains its content and order. The normal source scan then passed with **0 ratchet errors** (2,207 fingerprints, 2,208 occurrences, 2,072 required-repair entries). Checksums confirm that the scanner and all four affected source files in that flatblock copy match this branch. The shared lane still owns validation on the final stacked tip.
+
+The same shared stack's web build exceeded its eager raw limit by 1,160 bytes (2,151,160 against 2,150,000). Attribution is pending isolation; this report does not claim a green build.
 
 ## Scope
 
