@@ -26,7 +26,7 @@ export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
   const rawSession = Array.isArray(params.sessionId) ? params.sessionId[0] : params.sessionId
   const missionId = asIssueId(decodeURIComponent(rawId ?? ''))
   const { screen, resolved } = useMissionOpening(missionId)
-  const ready = screen?.ready === true
+  const ready = resolved && screen?.ready === true
   const rootValue = ready ? screen.reader.issue(screen.rootId) : undefined
   const root = rootValue && rootValue !== LOADING ? rootValue : undefined
   const store = useStoreActions()

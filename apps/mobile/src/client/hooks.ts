@@ -6,6 +6,7 @@ import { useStoreHandle } from '@podium/client-core/react'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
+import { settled } from '@podium/client-graph/mission-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { SessionId } from '@podium/model'
@@ -155,7 +156,10 @@ export function useMissionOpening(selectedId: string): { screen: MissionScreen |
     screen.open()
     return () => screen.close()
   }, [screen])
-  return { screen, resolved: Boolean(screen?.ready) || !booting }
+  // An archived member can still own the current conversation. Its live
+  // crew is a shown field even though the deck's visible rows have settled.
+  const ready = Boolean(screen?.ready && settled(() => screen.crew) !== LOADING)
+  return { screen, resolved: ready || (!screen && rootId !== LOADING && !booting) }
 }
 
 /** One page of a session transcript, newest-first, as both transcript readers

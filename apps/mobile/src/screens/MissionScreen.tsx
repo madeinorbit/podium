@@ -69,7 +69,7 @@ export const MissionScreen = observer(function MissionScreen() {
   // as the desktop resolves it — open a child from a notification and you land
   // on the same deck the sidebar would have given you.
   const { screen, resolved } = useMissionOpening(selectedId)
-  const ready = screen?.ready === true
+  const ready = resolved && screen?.ready === true
   const rootValue = ready ? screen.reader.issue(screen.rootId) : undefined
   const root = rootValue && rootValue !== LOADING ? rootValue : undefined
   const missionSessions = ready ? (screen.crew as unknown as readonly SessionView[]) : NO_SESSIONS

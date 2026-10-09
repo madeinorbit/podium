@@ -4,6 +4,7 @@ import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachMobileScreens } from './mobile-screens'
 import { MissionScreen, missionRootId } from './mission-screen'
+import { settled } from './mission-view'
 import { MOBILE_SCREEN_SUMMARIES } from './mobile-screens-schema'
 import { missions } from './mission'
 import { MobxPool } from './pool'
@@ -35,12 +36,13 @@ const NO_PROGRESS = { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, 
  * and `deck` answer what MissionScreen and MissionDeck draw from it. */
 function phone(pool: MobxPool) {
   const screens = new Map<string, MissionScreen>()
+  disposals.push(() => { for (const screen of screens.values()) screen.close() })
   const open = (id: string): MissionScreen | undefined | typeof LOADING => {
     const rootId = missionRootId(pool, id, true)
     if (rootId === LOADING || !rootId) return rootId
     let screen = screens.get(rootId)
     if (!screen) screens.set(rootId, (screen = new MissionScreen(pool, rootId)))
-    return screen.ready ? screen : LOADING
+    return screen.ready && settled(() => screen.crew) !== LOADING ? screen : LOADING
   }
   return {
     open,
@@ -57,7 +59,7 @@ function phone(pool: MobxPool) {
         /** The header issue for a session: its member issue, else the root. */
         header(issueId: string | undefined) {
           const issue = issueId && screen.members.has(issueId) ? screen.reader.issue(issueId) : undefined
-          return issue && issue !== LOADING ? issue : rootValue
+          return issue === LOADING ? LOADING : issue ?? rootValue
         },
       }
     },
@@ -255,8 +257,12 @@ it('an archived child keeps its full header when a current mission session belon
     issue('root'), headerIssue,
     issue('hidden-child', { parentId: 'root', archived: true, stage: 'done', startedBySession: 'starter', notes: 'Hidden notes' }),
   ], [current, starter])
-  disposals.push(autorun(() => reader.mission('root')))
-  for (let round = 0; round < 8 && reader.mission('root') === LOADING; round++) pool.hydrate()
+  const shownHeader = () => {
+    const data = reader.mission('root')
+    return data === LOADING ? LOADING : data.header(data.missionSessions[0]?.issueId)
+  }
+  disposals.push(autorun(shownHeader))
+  for (let round = 0; round < 8 && shownHeader() === LOADING; round++) pool.hydrate()
   const data = reader.mission('root')
   if (data === LOADING) throw new Error('Child header mission is still loading')
   expect(data.root?.id).toBe('root')
@@ -397,4 +403,3 @@ for (const scale of [1, 4] as const)
     expect(screen.rows).toBe(rows)
     console.info('[phone screen unshown]', { scale, publications: draws - before })
   })
-
