@@ -8,8 +8,11 @@ const issue = (id: string, parentId: string | null = null) => ({
   deps: [], repoPath: '/synthetic', createdAt: stamp, updatedAt: stamp,
 })
 
-function fixture() {
-  const rows = new Map([['root', issue('root')], ['child', issue('child', 'root')]])
+function fixture(coldChild = false) {
+  const child = { ...issue('child', 'root'), ...(coldChild ? {
+    stage: 'done', closedAt: '2020-01-01T00:00:00Z', updatedAt: '2020-01-01T00:00:00Z',
+  } : {}) }
+  const rows = new Map([['root', issue('root')], ['child', child]])
   const exits = new Map<string, 'removed'>([['removed', 'removed']])
   const load = vi.fn((_entity: string, id: string) => rows.get(id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
@@ -32,10 +35,10 @@ it('keeps pending workspace selections loading and omits removed or inaccessible
   } finally { f.pool.dispose() }
 })
 
-it('falls back to the mission root when its focused member is removed before publication', () => {
-  const f = fixture()
+it('falls back to the mission root when its cold focused member is removed before publication', () => {
+  const f = fixture(true)
   try {
-    expect(issueOf(f.pool, 'root', 'child')).toBe('child')
+    expect(issueOf(f.pool, 'root', 'child')).toBe(LOADING)
     f.exits.set('child', 'removed')
     expect(issueOf(f.pool, 'root', 'child')).toBe('root')
     expect(f.pool.hydrate()).toBe(0)
