@@ -1052,13 +1052,13 @@ export type ModelOf = {
 /** The installed class registry. Deferred kinds join it before their first model
  * is constructed; generic tables can already ingest all schema entities. */
 export type ModelClass = (new (id: string, host: ModelHost) => EntityModel) & Pick<typeof EntityModel, 'answers'>
-export const MODEL_CLASSES = {
+export const MODEL_CLASSES: Readonly<Partial<Record<EntityName, ModelClass>>> = {
   issue: IssueModel, session: SessionModel, worktree: WorktreeModel, repo: RepoModel,
-} as Readonly<Record<EntityName, ModelClass>>
+}
 
-for (const entity of Object.keys(MODEL_CLASSES) as EntityName[]) {
-  installFields(MODEL_CLASSES[entity].prototype, entity, MODEL_CLASSES[entity].answers)
-  installRelations(MODEL_CLASSES[entity].prototype, entity)
+for (const [entity, Model] of Object.entries(MODEL_CLASSES) as [EntityName, ModelClass][]) {
+  installFields(Model.prototype, entity, Model.answers)
+  installRelations(Model.prototype, entity)
 }
 
 // Registration contains class metadata only, never rows or per-record objects.

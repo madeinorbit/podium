@@ -711,7 +711,7 @@ export class MobxPool {
    * row is in memory (the worklist holds cold issues too; their visibility
    * reads the cold row by id). Untracked: an identity memo.
    */
-  private object(entity: EntityName, id: string, Model = MODEL_CLASSES[entity]): EntityModel {
+  private object(entity: EntityName, id: string, Model = MODEL_CLASSES[entity]!): EntityModel {
     const models = this.models[entity]
     let model = models.get(id)
     if (model === undefined) {
