@@ -7,14 +7,13 @@ generic tables. No entity adds storage or changes table publication granularity.
 
 ## Scope and base
 
-The complete original 24-commit model range `52556201c0..cdd6c8aa1c`
-was reconciled through `ff9dbd502f..17a8e9f363` and is now rebased onto
-actual landed pilot `d05ee9a3b13426cc47744d815938cce4de5e5f5c`.
-The 24 commits end at `04d517985e`; diagnostic repair `0eeab44061` and
-scan-only refresh `c1a45eefe5` follow them. The exact runtime candidate is
-`c1a45eefe5df3a7b6fd119270ca985167d32a983`; this report update changes only
-documentation. The range remains unlanded, with shared validation and landing
-owned by POD-5895.
+The complete 27-commit candidate `d05ee9a3b1..1ae8bb32ed` is now replayed
+onto landed shell/transfer pilot `036a78dd913ae7e700d642ce6fac975c680435f5`.
+All 27 commits remain, ending at `d965538b2b`; scan-only reconciliation
+`546d97aea8` follows. The exact validated runtime candidate is `546d97aea8`;
+this report update changes only documentation. The original 24-commit model
+range `52556201c0..cdd6c8aa1c` and required-four-key diagnostic fix remain
+contained in full. Shared validation and landing remain owned by POD-5895.
 
 The coordinator narrowed this issue to synced records. Workflow record models,
 spec metadata, request ingestion and request-record retention remain deferred
@@ -23,7 +22,65 @@ request answers. Workflow placement's machine reader moves here; its workflow
 subject and request collections remain outside this range. POD-5874's separate
 measurement of field publication can apply to these generic tables too.
 
-## Landed membership pilot proof
+## Landed shell pilot proof
+
+POD-4286 requested this reconciliation after POD-5878's shell range and
+POD-5925's interrupted-transfer fix landed. Range-diff of the complete
+27-commit replacement has 22 equal patches and five context changes:
+three product replay patches and two census patches. No commit was dropped.
+
+The product resolutions retain the shell's `IssueGitState` import and complete
+issue projection contract alongside the synced-model types/exports, and retain
+`Geometry` alongside the four added wire schema types. The landed
+`SessionModel` class block and session geometry declaration are byte-for-byte
+identical to `036a78dd91`. Existing shell pane, dock and attachment code stays
+intact. The shell machine catalogue reads `here(pool.model('machine', id))`,
+retaining the pilot's omission policy while returning the shared machine model.
+
+The two focused package typechecks passed on flatblock at `d965538b2b`:
+
+```sh
+bun run typecheck -- --filter=@podium/client-graph --filter=@podium/worklist-tests --only
+```
+
+Exactly two tasks ran successfully, sequentially at concurrency one; no
+dependency-package tasks ran. Turbo summary:
+`flatblock:/home/mgw/podium-test-5868/.turbo/runs/3KTOsMRf2nGgulhR3B1S7R9x0Gc.json`.
+The subsequent scan reconciliation changes no typechecked source.
+
+All nine files in the previous membership proof below passed again at runtime
+tip `546d97aea8`, with the same 121 executed cases. The additional unchanged
+`packages/client-graph/src/shell-pane-fields.test.ts` passed all six cases,
+covering attachment/path-boundary parity, session geometry and dock routing.
+Its heartbeat witness records zero stamp, ownership, chrome and dock routing
+reader runs, while the legacy stamp and dock readers each run once.
+That is **127 passing cases across ten focused files**, not a suite result.
+
+The seven sequential, foreground `bun run test:file -- <paths>` invocations
+used the existing flatblock checkout's Bun 1.4.2 and `node -> bun` alias.
+Their saved runner logs are `/tmp/pod5868-036a-<label>.log` on flatblock:
+`models` (26), `automation-readers` (6), `workflow-readers` (6), `updates` (36),
+`machines` (46), `mobile` (4) and `bundle` (3). The census lease was checked
+free before each submitted command. The recorded-PID guard stopped no worker,
+sampled at most 720.6 MiB process RSS, and confirmed no recorded process remained
+live. No React/MobX warning appeared; the unchanged mobile configuration retains
+Bun's existing unsupported `moduleSuffixes` warning.
+
+The light scan is GREEN at `546d97aea8`: **2,073 fingerprints, 2,074 occurrences,
+1,912 existing REQUIRED REPAIR entries and zero ratchet errors**, saved at
+`flatblock:/tmp/pod5868-036a-light-scan.log`. The first scan found 43 stale
+fingerprints and 12 replacements left by the model/shell replay. Each replacement
+has a unique corresponding operation in the actual pilot. Reconciliation copies
+its exact classification, owner, trigger, bound, reason, guard and multiplicity,
+refreshes its scan fields, and drops the obsolete fingerprints. This is scan
+reconciliation, not a claimed runtime work reduction or a new allowance.
+
+No full gates, builds, structural census, merge lease or landing ran here.
+The complete replacement goes through POD-4286; POD-5895 retains all shared
+checks and integration. The issue stays in progress pending those receipts,
+and workflow/spec record work stays held.
+
+## Historical membership pilot proof
 
 All 24 original commits are retained. Range-diff against the submitted
 `52556201c0..cdd6c8aa1c` has 22 equal patches and two census-context changes.
