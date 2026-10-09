@@ -23,7 +23,7 @@ if (process.argv.includes('--build')) {
         : fixture === 'phone-lists'
           ? await (await import('../../mobile/vite.conversation-stream.config')).default()
           : await (await import('../../mobile/vite.conversation-stream.config')).default()
-    if (fixture === 'phone-lists') base.resolve!.alias = (base.resolve!.alias as any[]).map(alias => ({ ...alias, replacement: alias.replacement.endsWith('/stub-bottom-sheet.tsx') ? resolve('apps/mobile/test/fast-scroll-sheet.tsx') : alias.replacement }))
+    if (fixture === 'phone-lists') base.resolve!.alias = (base.resolve!.alias as any[]).map(alias => ({ ...alias, replacement: alias.replacement.endsWith('/stub-bottom-sheet.tsx') ? resolve('apps/mobile/test/fast-scroll-sheet.tsx') : alias.replacement.endsWith('/conversation-stream-platform.tsx') ? resolve('apps/mobile/test/fast-scroll-platform.tsx') : alias.replacement }))
     console.log(`Building ${arm} ${fixture}`)
     await build({ ...base, configFile: false, logLevel: 'warn',
       define: { ...base.define, __DEV__: 'false', 'process.env.NODE_ENV': '"production"' },
