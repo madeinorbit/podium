@@ -60,13 +60,14 @@ describe('transcript search demand', () => {
       return !key ? [] : [...texts].filter(([,text]) => text.toLowerCase().includes(key))
         .map(([id]) => id).sort((a,b) => ranks.get(a)!-ranks.get(b)!)
     }
+    let revision = 0
     for (const query of ['', ' ', 'a', 'ab', 'abc', ' NEEDLE ', '💡', 'i̇', 'aab', 'absent']) {
       expect(index.find(query)).toEqual(expected(query))
       let matches: string[] = []
       const stop = autorun(() => { matches = index.find(query) })
       try {
         expect(matches).toEqual(expected(query))
-        texts.set('middle', 'ABC 💡 aab needle updated')
+        texts.set('middle', `updated ${query} 💡 ${revision++}`)
         index.set('middle', texts.get('middle')!)
         expect(matches).toEqual(expected(query))
       } finally { stop() }
