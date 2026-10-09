@@ -61,11 +61,12 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
       await page.evaluate(() => document.fonts.ready)
       if (variant === 'list') { await page.getByTitle('Display', { exact: true }).click(); await page.getByRole('menuitemradio', { name: 'List', exact: true }).click(); await page.keyboard.press('Escape'); await page.waitForTimeout(500) }
       if (fixture === 'lists' && ['full', 'waterfall'].includes(variant)) {
-        const id = await page.evaluate(() => (window as any).__acceptance.targets.missions[0])
+        const id = await page.evaluate(() => { const driver = (window as any).__acceptance; const ids = [...document.querySelectorAll('[data-issue-row]')].map(el => el.getAttribute('data-issue-row')); return driver.shape(ids).filter((s: any) => s.root).sort((a: any, b: any) => b.rows - a.rows)[0].id })
         await page.evaluate(id => (window as any).__acceptance.select(id), id)
         await page.waitForTimeout(1000)
         if (variant === 'waterfall') { await page.getByRole('button', { name: 'Waterfall', exact: true }).click(); await page.waitForTimeout(500) }
       }
+      await page.keyboard.press('Escape')
       const candidates = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('*')]
         .filter(el => el.clientHeight > 100 && el.clientWidth > 100 && el.scrollHeight > el.clientHeight + 300 && ['auto', 'scroll'].includes(getComputedStyle(el).overflowY) && el.getBoundingClientRect().right > 0 && el.getBoundingClientRect().left < innerWidth)
         .map((el, i) => { el.dataset.scrollProof = String(i); return { index: i, class: el.className, testid: el.dataset.testid, height: el.clientHeight, range: el.scrollHeight - el.clientHeight, text: el.innerText.slice(0, 70) } }))
