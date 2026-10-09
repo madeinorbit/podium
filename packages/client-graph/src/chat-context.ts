@@ -314,10 +314,10 @@ export class ReferencePicker {
   /** Compatibility lists for consumers of the whole catalog answer: reading
    * one resolves every entry. Picker rows ask by id instead. */
   @lazy({ equals: compareStructural }) get sessions(): SessionView[] {
-    return dedupeSessionsByResume(this.sessionIds.flatMap(id => {
+    return this.sessionIds.flatMap(id => {
       const value = this.sessionRow(this.pool.sessionObject(id)).presentation
       return value && !loading(value) ? [value] : []
-    }))
+    })
   }
   @lazy({ equals: compareStructural }) get issues(): IssueViewModel[] {
     return this.issueIds.flatMap(id => {
