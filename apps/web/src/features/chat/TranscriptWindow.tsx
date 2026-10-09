@@ -56,6 +56,7 @@ export function useTranscriptWindow(
   const frame = useRef<number | null>(null)
   const selectingAll = useRef(false)
   const armingSelectAll = useRef(false)
+  const nativeFinding = useRef(false)
   const register = useCallback((key: string, entry: Entry) => {
     entries.current.set(key, entry)
     mounted.current.add(key)
@@ -99,7 +100,7 @@ export function useTranscriptWindow(
       found.publish(true, true)
     }
     if (!range && !armingSelectAll.current) selectingAll.current = false
-    if (selectingAll.current) for (const key of list) next.add(key)
+    if (selectingAll.current || nativeFinding.current) for (const key of list) next.add(key)
     // The shelf needs the preceding prompt even across a scrollbar jump into
     // a long turn. Prompt shells are ordered and measured like every other row.
     let low = 0, high = operators.current.length
@@ -238,6 +239,32 @@ export function useTranscriptWindow(
     measureWidth.observe(scroll)
     document.fonts?.addEventListener('loadingdone', remeasure)
     const copy = () => flushSync(refresh)
+    const beginNativeFind = (event: KeyboardEvent) => {
+      if (event.defaultPrevented || !(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'f' || scroll.clientHeight <= 0) return
+      // Native Find owns its ranges and match count outside the document.
+      // Give it the original rich rows for the session, just as Select All
+      // needs them, then release everything except its committed selection.
+      nativeFinding.current = true
+      scroll.dispatchEvent(new Event('podium-transcript-find-start'))
+      flushSync(() => {
+        for (const [key, entry] of entries.current) {
+          entry.mounted = true
+          mounted.current.add(key)
+          entry.publish(true)
+        }
+      })
+    }
+    const finishNativeFind = () => {
+      if (!nativeFinding.current) return
+      nativeFinding.current = false
+      update()
+    }
+    const findSelection = () => {
+      if (!document.getSelection()?.isCollapsed) finishNativeFind()
+    }
+    const findKeyUp = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') finishNativeFind()
+    }
     document.addEventListener('copy', copy, true)
     scroll.addEventListener('scroll', update, { passive: true })
     scroll.addEventListener('podium-transcript-reveal', reveal)
@@ -245,6 +272,9 @@ export function useTranscriptWindow(
     document.addEventListener('selectionchange', update)
     document.addEventListener('keydown', selectAll, true)
     document.addEventListener('focusin', update)
+    window.addEventListener('keydown', beginNativeFind)
+    document.addEventListener('selectionchange', findSelection)
+    document.addEventListener('keyup', findKeyUp)
     return () => {
       resize.disconnect()
       measureWidth.disconnect()
@@ -256,6 +286,9 @@ export function useTranscriptWindow(
       document.removeEventListener('selectionchange', update)
       document.removeEventListener('keydown', selectAll, true)
       document.removeEventListener('focusin', update)
+      window.removeEventListener('keydown', beginNativeFind)
+      document.removeEventListener('selectionchange', findSelection)
+      document.removeEventListener('keyup', findKeyUp)
       if (frame.current !== null) cancelAnimationFrame(frame.current)
       frame.current = null
     }

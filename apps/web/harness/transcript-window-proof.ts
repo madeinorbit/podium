@@ -136,7 +136,7 @@ try {
   console.log(JSON.stringify({ nativeFind }))
   await writeFile(resolve(directory, 'native-find.json'), JSON.stringify(nativeFind, null, 2))
   if (!nativeFind.stats.text.some((text: string) => text.includes('native-needle-4000'))) throw new Error('Native Find did not reveal its off-window match')
-  if (arm === 'after' && !nativeFind.beforematch) throw new Error('Native Find did not exercise beforematch')
+  if (arm === 'after' && nativeFind.stats.drawn !== nativeFind.stats.loaded) throw new Error('Native Find did not retain its original rich ranges')
   await page.screenshot({ path: resolve(directory, 'find.png') })
   execFileSync('python3', ['apps/web/harness/xvfb-screen.py', resolve(framebuffer, 'Xvfb_screen0'), resolve(directory, 'browser-find.png')])
   const nativeFindRoundTrip = [{ query: 'native-needle-4000', ...nativeFind.stats }]
@@ -148,7 +148,6 @@ try {
     await writeFile(resolve(directory, 'find-roundtrip.json'), JSON.stringify({ query, stats }, null, 2))
     execFileSync('python3', ['apps/web/harness/xvfb-screen.py', resolve(framebuffer, 'Xvfb_screen0'), resolve(directory, 'browser-find.png')])
     if (!stats.text.some((text: string) => text.includes(query))) throw new Error('Native Find round-trip did not reveal its match')
-    if (arm === 'after' && stats.drawn >= 64) throw new Error('Native Find retained distant rich rows')
     nativeFindRoundTrip.push({ query, ...stats })
   }
   await page.screenshot({ path: resolve(directory, 'find.png') })
@@ -157,6 +156,7 @@ try {
   await page.waitForTimeout(100)
   const nativeReveal = await page.evaluate(() => ({ ...((window as any).__transcriptWindowProof.stats()), selection: document.getSelection()?.toString() }))
   if (nativeReveal.selection !== 'native-needle-4000') throw new Error('Native Find lost its range when the bar closed')
+  if (arm === 'after' && nativeReveal.drawn >= 64) throw new Error('Native Find did not return to the viewport buffer')
   await page.evaluate(() => document.getSelection()!.removeAllRanges())
   await page.evaluate(() => (window as any).__transcriptWindowProof.jump(4000))
   await page.waitForTimeout(100)

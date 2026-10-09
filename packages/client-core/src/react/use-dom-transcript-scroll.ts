@@ -305,6 +305,12 @@ export function useDomTranscriptScroll(
   // wheel notch or touch move. Nested code/table scrollers keep their own input.
   useEffect(() => {
     if (!active || !scroller) return
+    const onNativeFind = () => {
+      userScrolling.current = false
+      setFollowing(false)
+      readingAnchor.current = null
+      writtenTop.current = null
+    }
     let touchY: number | undefined
     const onUpwardInput = (): void => {
       releaseFollow()
@@ -368,14 +374,18 @@ export function useDomTranscriptScroll(
     scroller.addEventListener('touchmove', onTouchMove, { passive: true })
     scroller.addEventListener('keydown', onKeyDown)
     scroller.addEventListener('pointerdown', onPointerDown)
+    scroller.addEventListener('podium-transcript-find-start', onNativeFind)
+    scroller.addEventListener('beforematch', onNativeFind, true)
     return () => {
       scroller.removeEventListener('wheel', onWheel)
       scroller.removeEventListener('touchstart', onTouchStart)
       scroller.removeEventListener('touchmove', onTouchMove)
       scroller.removeEventListener('keydown', onKeyDown)
       scroller.removeEventListener('pointerdown', onPointerDown)
+      scroller.removeEventListener('podium-transcript-find-start', onNativeFind)
+      scroller.removeEventListener('beforematch', onNativeFind, true)
     }
-  }, [active, scroller, releaseFollow, loadOlderAnchored])
+  }, [active, scroller, releaseFollow, loadOlderAnchored, setFollowing])
 
   const onPointerUp = useCallback(() => {
     const selection = window.getSelection()
