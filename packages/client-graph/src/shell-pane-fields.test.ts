@@ -220,6 +220,14 @@ it('routes the dock exactly as the old dock bundle across pane, file, fallback, 
     f.change({ paneA: null as never, fileTabs: f.fileTabs })
     check('no pane: recent session fallback')
     expect(dock.active).toMatchObject({ sessionId: f.sessions[0]!.sessionId })
+    f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: f.sessions[1]!.sessionId,
+      value: { ...f.sessions[1]!, lastActiveAt: '2026-10-01T13:59:00Z' } }] as never })
+    check('recent fallback follows newer activity')
+    expect(dock.active).toMatchObject({ sessionId: f.sessions[1]!.sessionId })
+    f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: f.sessions[1]!.sessionId,
+      value: f.sessions[1]! }] as never })
+    check('restored recent order picks the first session again')
+    expect(dock.active).toMatchObject({ sessionId: f.sessions[0]!.sessionId })
     // Archive the session the fallback lands on: the next recent one serves.
     f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: f.sessions[0]!.sessionId,
       value: { ...f.sessions[0]!, archived: true } }] as never })
@@ -246,7 +254,7 @@ it('routes the dock exactly as the old dock bundle across pane, file, fallback, 
     check('no scan: attached issue scope')
     f.change({ paneA: asSessionId('shell-session-missing') })
     check('unknown pane session falls back')
-    expect(checked).toHaveLength(14)
+    expect(checked).toHaveLength(16)
   } finally {
     stop()
     f.pool.dispose()
