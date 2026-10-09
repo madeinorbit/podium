@@ -206,7 +206,8 @@ it('routes the dock exactly as the old dock bundle across pane, file, fallback, 
     stop = autorun(() => { legacyDock(f.pool, views); dockAnswers(dock) })
     const checked: string[] = []
     const check = (label: string) => {
-      if (oldAnswers(f.pool, views) === LOADING) f.pool.hydrate()
+      if (oldAnswers(f.pool, views) === LOADING ||
+        Object.values(dockAnswers(dock)).includes(LOADING)) f.pool.hydrate()
       const old = oldAnswers(f.pool, views)
       expect(old, label).not.toBe(LOADING)
       expect(dockAnswers(dock), label).toEqual(old)
@@ -255,7 +256,10 @@ it('routes the dock exactly as the old dock bundle across pane, file, fallback, 
     f.change({ repos: [] })
     check('no scan: attached issue scope')
     f.change({ paneA: asSessionId('shell-session-missing') })
-    check('unknown pane session falls back')
+    // The addressed lookup keeps the dock pending until the batch establishes
+    // that the unknown session is gone, then retains the old recent fallback.
+    expect(dock.active).toBe(LOADING)
+    check('unknown pane session settles gone and falls back')
     expect(checked).toHaveLength(16)
   } finally {
     stop()
@@ -379,7 +383,9 @@ it('omits gone pane sessions and attachments while preserving a pending stamp an
     const dock = new ShellDockSession(pool.sessionObject('private-session'), pool)
     expect(dock.known).toBe(LOADING)
     expect(new ShellDockSession(removed.session, pool).known).toBeUndefined()
-    expect(pool.hydrate()).toBe(2)
+    expect(load).not.toHaveBeenCalled()
+    // hydrate counts installed rows; both requested rows are inaccessible.
+    expect(pool.hydrate()).toBe(0)
     expect(pane.stampIssue).toBeUndefined()
     expect(panes.loaded('private-session')).toBeUndefined()
     expect(dock.known).toBeUndefined()
