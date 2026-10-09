@@ -85,6 +85,8 @@ it('keeps focused and expanded controls alive while other distant rows unmount',
 it('materialises native Find and addressed search targets without discarding their text node', () => {
   const shell = host.querySelector('[data-transcript-row="row-800"]')!
   const text = shell.querySelector('[hidden="until-found"]')!
+  const range = document.createRange(); range.setStart(text.firstChild!, 0); range.setEnd(text.firstChild!, 7)
+  document.getSelection()!.addRange(range)
   act(() => text.dispatchEvent(new Event('beforematch')))
   expect(shell.querySelector('[data-message]')).not.toBeNull()
   expect(text.isConnected).toBe(true)
@@ -175,7 +177,7 @@ it('preserves the matched occurrence when native Find repeats a word in one mess
   expect(selection.anchorOffset).toBe(15)
 })
 
-it('keeps only the buffer drawn across repeated native Find jumps while retaining its text nodes', () => {
+it('keeps only the buffer drawn across repeated native Find jumps without duplicate search text', () => {
   const earlier = host.querySelector('[data-transcript-row="row-600"]')!
   const text = earlier.querySelector('[data-transcript-find-proxy]')!.firstChild!
   act(() => text.parentElement!.dispatchEvent(new Event('beforematch')))
@@ -184,6 +186,6 @@ it('keeps only the buffer drawn across repeated native Find jumps while retainin
   act(() => next.querySelector('[data-transcript-find-proxy]')!.dispatchEvent(new Event('beforematch')))
   scroll(72_000)
   expect(earlier.querySelector('[data-message]')).toBeNull()
-  expect(text.isConnected).toBe(true)
+  expect(text.isConnected).toBe(false)
   expect(host.querySelectorAll('[data-message]').length).toBeLessThan(40)
 })

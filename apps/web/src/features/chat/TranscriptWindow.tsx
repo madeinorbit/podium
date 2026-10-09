@@ -304,10 +304,14 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
     if (!node) return
     if (!finding) node.setAttribute('hidden', 'until-found')
     const found = () => {
-      // Preserve the exact text node owned by native Find while it is open.
-      // Draw the real message beneath it immediately, without a blank jump.
-      entry.current!.finding = true
-      flushSync(() => setFinding(true))
+      // A committed selection owns this text node until its range transfers.
+      // Otherwise replace the proxy at the start of the shell: native Find
+      // retries a removed match from that position in the restored rich row.
+      const selection = document.getSelection()
+      if (selection?.anchorNode && !selection.isCollapsed && node.contains(selection.anchorNode)) {
+        entry.current!.finding = true
+        flushSync(() => setFinding(true))
+      }
       ref.current!.dispatchEvent(new Event('podium-transcript-reveal', { bubbles: true }))
     }
     node.addEventListener('beforematch', found)
@@ -376,9 +380,9 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
     data-transcript-placeholder={!mounted ? '' : undefined}
     data-block={!mounted ? index : undefined} data-row-key={!mounted ? rowKey : undefined}
     style={{ flexShrink: 0, display: 'flow-root', position: 'relative', height: mounted ? undefined : entry.current?.height, minWidth: 0 }}>
-    {mounted && (typeof children === 'function' ? children(remounted.current) : children)}
     {(!mounted || finding) && <div key="find-proxy" ref={proxy} data-transcript-find-proxy="" aria-hidden="true"
       style={{ position: 'absolute', inset: 0, opacity: finding ? 0 : undefined, pointerEvents: 'none', whiteSpace: 'pre-wrap' }}>{entry.current?.text}</div>}
+    {mounted && (typeof children === 'function' ? children(remounted.current) : children)}
     {!mounted && <button type="button" className="sr-only" aria-label={entry.current?.text}
       onFocus={(event) => {
         const reverse = event.relatedTarget instanceof Node && Boolean(ref.current!.compareDocumentPosition(event.relatedTarget) & Node.DOCUMENT_POSITION_FOLLOWING)
