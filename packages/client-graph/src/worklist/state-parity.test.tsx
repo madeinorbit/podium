@@ -12,6 +12,7 @@ import { MobileSectionsBefore } from './mobile-before.test-helper'
 import { worklistView } from './view-model'
 import { sidebarView } from './sidebar'
 import { LOADING } from './rollup'
+import { mobileWorktreeValues } from './mobile-row'
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 const stamp = '2026-10-08T12:00:00Z'
@@ -55,7 +56,11 @@ it('matches folded counts, activity and roster order before and after a heartbea
   const pool = fixture(), tree = worklistView(pool).tree(pool.model('worktree', '/loose')!)
   const check = () => {
     const actual = headerView(pool).folded(), expected = foldedBefore(pool, 'root')
-    expect(process.env.POD5822_MUTATE === '1' ? { ...actual, live: -1 } : actual).toEqual(expected)
+    // The pilot header now carries the shared IssueModel. Compare the same
+    // record answer as the frozen port, then judge the moved count fields.
+    const answer = { ...actual, root: actual.root
+      ? { ...actual.root.row, displayRef: actual.root.displayRef } : actual.root }
+    expect(process.env.POD5822_MUTATE === '1' ? { ...answer, live: -1 } : answer).toEqual(expected)
     const before = worktreeBefore(pool, '/loose')!, after = sidebarView(pool).worktree('/loose')!
     for (const field of ['sessions', 'visible', 'stale'] as const) {
       const ids = after[field].map(session => session.sessionId)
@@ -87,6 +92,10 @@ it('the lazy phone sections match the old keyed sections through fold and select
     for (const layout of [{}, { collapsed: { 'podium:sidebar:work-group-fold:/synthetic': true } }, { searching: true }]) {
       view.setLayout(layout)
       const old = new MobileSectionsBefore(pool, layout).value.get(), sections = view.mobileSections()
+      expect.soft(process.env.POD5822_MUTATE === '1' ? sections.sectionKeys.slice(1) : sections.sectionKeys)
+        .toEqual(old.sections.map(section => section.key))
+      expect.soft(process.env.POD5822_MUTATE === '1' ? sections.orderingSectionKeys.slice(1) : sections.orderingSectionKeys)
+        .toEqual(old.orderingSections.map(section => section.key))
       const fields = (key: string, ordering = false) => {
         const row = sections.section(key), collapsed = !ordering && row.collapsed
         return { key, label: row.label, kind: row.kind, total: ordering ? row.allIds.length : row.total,
@@ -104,3 +113,37 @@ it('the lazy phone sections match the old keyed sections through fold and select
     expect(view.mobileRow({ id: 'root', kind: 'issue' })).not.toBe(LOADING)
   } finally { pool.dispose() }
 })
+
+const treeFields = ['id', 'title', 'timing', 'visiblePhase', 'visibleWorking', 'waitingCount',
+  'visibleUnread', 'visibleFleet', 'navigation', 'activityAt', 'pending', 'ready',
+  'sessions', 'visible', 'stale', 'issues'] as const
+for (const state of ['waiting', 'working', 'queued', 'stale'] as const) {
+  it.each(treeFields)(`the ${state} worktree keeps the old %s answer`, field => {
+    const pool = fixture()
+    try {
+      if (state !== 'waiting') pool.apply({ type: 'update', rows: Array.from({ length: 8 }, (_, index) => {
+        const at = state === 'stale' ? new Date(Date.parse(stamp) - (24 + index) * 3600000).toISOString() : stamp
+        return { kind: 'session' as const, id: `loose-${index}`, value: session(`loose-${index}`, null, {
+          cwd: '/loose', lastActiveAt: at, agentState: { phase: state === 'working' ? 'working' : 'unknown', since: at },
+        }) as never }
+      }) })
+      const old = worktreeBefore(pool, '/loose')!
+      const phone = mobileWorktreeValues('/loose', 'Synthetic', 'loose', old.sessions, old.activityAt,
+        row => pool.sessionObject(row.sessionId).executing, row => pool.sessionObject(row.sessionId).open,
+        row => pool.sessionObject(row.sessionId).stateSinceMs)
+      const row = worklistView(pool).tree(pool.model('worktree', '/loose')!)
+      const expected = {
+        id: phone.id, title: phone.label, timing: phone.timing, visiblePhase: phone.timing.phase,
+        visibleWorking: phone.working, waitingCount: phone.waitingCount, visibleUnread: phone.unread,
+        visibleFleet: phone.fleet, navigation: phone.navigation, activityAt: old.activityAt,
+        pending: old.pending, ready: old.pending ? LOADING : 'ready',
+        sessions: old.sessions.map(row => row.sessionId), visible: old.visible.map(row => row.sessionId),
+        stale: old.stale.map(row => row.sessionId), issues: old.issues.map(row => row.id),
+      }
+      const value = field === 'issues' ? row.issues.map(issue => issue.id)
+        : field === 'sessions' || field === 'visible' || field === 'stale' ? row[field].map(session => session.sessionId)
+        : row[field]
+      expect(process.env.POD5822_MUTATE === '1' ? { wrong: field } : value).toEqual(expected[field])
+    } finally { pool.dispose() }
+  })
+}

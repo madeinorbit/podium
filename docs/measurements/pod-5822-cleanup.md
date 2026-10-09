@@ -22,6 +22,8 @@ Expanded proof: 1,473 checks green. With `POD5822_MUTATE=1`, 1,469 checks fail a
 
 Before removing retained raw records, the expanded field and record-fact proof passed 1,530 checks (1,488 field answers and 42 scalar facts). Its wrong-answer control failed 1,527 checks; the three independent boundary checks stayed green. Before wrapping schema-installed issue fields, all 406 stored-field comparisons passed; their wrong-answer control failed all 406. The same fixtures include open, closed, actual private-branch merge, archived, deleted, cold and missing records.
 
+After the pilot rebase and direct section-key correction, 1,936 issue/record-field checks passed. The expanded state proof passed 67 checks, including 16 worktree fields across waiting, working, queued and stale rosters. Its wrong-answer control failed 66 checks; the actual selection click remained an independent green check. The two section-key lists are also compared directly with the frozen keyed section output and fail their wrong-answer control.
+
 `worklist-issue-fields-memory.ts` holds the same desktop/phone paint questions over the existing 4x corpus and reports watched computeds and post-GC heap. The comparison around the issue getter change is pending; a heap increase above about 5% requires coordinator review before landing. `worklist-production-smoke.ts` will verify one sidebar row and its issue page from the normal production build in an isolated harness.
 
 ## Shared answers and remaining helpers
