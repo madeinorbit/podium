@@ -93,7 +93,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
           void cdp.send('Page.screencastFrameAck', { sessionId: event.sessionId })
         })
         await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 85, everyNthFrame: 1 })
-        const sample = await page.evaluate(({ selector }) => {
+        const sample = await page.evaluate(({ selector, diagnose }) => {
           const scroll = document.querySelector<HTMLElement>(selector)!
           const rows = '[data-window-row], [data-virtual-issue-key], [data-deck-measure], [data-row-key], [data-testid="work-list-row"]'
           const state = { samples: [] as { time: number; top: number; blankPx: number; area: number; mounted: number; textBlankPx: number }[], active: true }
@@ -114,16 +114,16 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
               if (bottom - edge > 20) blankPx += bottom - edge
               area += bottom - top
             }
-            const textRects = [...scroll.querySelectorAll<HTMLElement>('*')].filter(el => [...el.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent?.trim())).map(el => el.getBoundingClientRect()).filter(r => r.width > 0 && r.bottom > box.top && r.top < box.bottom).sort((a,b) => a.top-b.top)
+            const textRects = diagnose ? [...scroll.querySelectorAll<HTMLElement>('*')].filter(el => [...el.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent?.trim())).map(el => el.getBoundingClientRect()).filter(r => r.width > 0 && r.bottom > box.top && r.top < box.bottom).sort((a,b) => a.top-b.top) : []
             let textEdge = box.top, textBlankPx = 0
             for (const r of textRects) { if (r.top - textEdge > 120) textBlankPx += r.top - textEdge; textEdge = Math.max(textEdge, r.bottom) }
-            if (box.bottom - textEdge > 120) textBlankPx += box.bottom - textEdge
+            if (diagnose && box.bottom - textEdge > 120) textBlankPx += box.bottom - textEdge
             state.samples.push({ textBlankPx, time: Date.now(), top: scroll.scrollTop, blankPx, area, mounted: nodes.length })
             requestAnimationFrame(tick)
           }
           requestAnimationFrame(tick)
           return true
-        }, { selector })
+        }, { selector, diagnose: process.argv.includes('--diagnose') })
         void sample
         const start = Date.now()
         for (let step = 0; step < 40; step++) {
