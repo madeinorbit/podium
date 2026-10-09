@@ -1,5 +1,5 @@
 import { here, omitGone } from './lookup'
-import { companion, lazy, keyedComputed } from '@podium/mobx-helpers'
+import { companion, clearCompanions, lazy, keyedComputed } from '@podium/mobx-helpers'
 import type { ModelOf, SessionModel } from './models'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -579,7 +579,7 @@ export function createIssuePageViews(pool: MobxPool) {
       disposed = true
       cache.clear()
       identities.clear()
-      companions.clear()
+      clearCompanions(companions)
       explorerSeats.dispose()
       summaryIssues.dispose()
       explorerIssues.dispose()

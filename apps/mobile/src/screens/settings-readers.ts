@@ -3,14 +3,12 @@ import { omitGone } from '@podium/client-graph/lookup'
 import { useSettingsOpening } from './settings-opening'
 import type { MobxPool } from '@podium/client-graph'
 import type { MobileSettingsDiagnostics } from '@podium/client-graph/mobile-settings'
-import { type MachineOperationsView } from '@podium/client-core/values'
 import { useCallback } from 'react'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 
-export type SettingsMachineStatus = Pick<
-  MachineOperationsView,
-  'id' | 'name' | 'online' | 'statusLabel' | 'updateChannel' | 'updateLabel'
->
+export type { SettingsMachineStatus } from './settings-machine-readers'
+import type { SettingsMachineStatus } from './settings-machine-readers'
+
 export interface SettingsData extends MobileSettingsDiagnostics {
   machineIds: readonly string[]
   machineCount: number

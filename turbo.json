@@ -276,6 +276,7 @@
         "$TURBO_ROOT$/apps/mobile/vite.conversation-stream.config.ts",
         "$TURBO_ROOT$/apps/mobile/vite.inbox.config.ts",
         "$TURBO_ROOT$/apps/mobile/resolve-package.ts",
+        "$TURBO_ROOT$/apps/mobile/src/screens/settings-machine-readers.ts",
         "$TURBO_ROOT$/docs/measurements/click-speed-baseline.json",
         "$TURBO_ROOT$/apps/server/src/features.ts",
         "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
@@ -324,6 +325,7 @@
       "dependsOn": [],
       "inputs": [
         "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/mobile/src/screens/settings-machine-readers.ts",
         "$TURBO_ROOT$/apps/server/src/modules/issues/projection.ts",
         "$TURBO_ROOT$/apps/server/src/test-support/issue-row.ts",
         "$TURBO_ROOT$/vitest.config.ts",

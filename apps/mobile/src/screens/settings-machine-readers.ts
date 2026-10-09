@@ -2,7 +2,8 @@ import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { visibleFleetOperations } from '@podium/client-core/values'
-import type { SettingsMachineStatus } from './settings-readers'
+import type { MachineOperationsView } from '@podium/client-core/values'
+export type SettingsMachineStatus = Pick<MachineOperationsView, 'id' | 'name' | 'online' | 'statusLabel' | 'updateChannel' | 'updateLabel'>
 const EMPTY_IDS: readonly string[] = []
 const UPDATE_STATES = ['current', 'behind', 'ahead', 'unreported', 'unknown'] as const
 const loaded = <T extends object>(row: T | symbol | undefined): row is T =>

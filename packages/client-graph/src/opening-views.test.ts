@@ -14,7 +14,7 @@ import { LOADING } from './loading'
 
 const stamp = '2026-10-01T00:00:00Z'
 function fixture() {
-  const pool = new MobxPool({ coarseNow: Date.parse(stamp) })
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
   pool.apply({
     type: 'replace',
     rows: Array.from(
@@ -44,7 +44,7 @@ function fixture() {
     ['automationCatalog', 'automation', 'settingsCatalog', 'settingsRepository'],
     {
       read(kind, id) {
-        if (kind === 'automationCatalog') return { automations: ['scheduled'] }
+        if (kind === 'automationCatalog') return { automations: ['scheduled'], runs: [] }
         if (kind === 'settingsCatalog') return { machines: [], repositories: [] }
         if (kind === 'automation') return { id, name: 'Scheduled', enabled: true } as never
         return undefined

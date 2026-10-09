@@ -22,7 +22,7 @@ const factories = [
 
 for (const [name, factory] of factories) {
   it(`${name}: fifty openings share their context and release every closed model`, async () => {
-    const pool = new MobxPool({ coarseNow: 0 })
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
     const registry = vi.spyOn(pool.sources, 'view')
     const refs: WeakRef<object>[] = []
     const create = (current: MobxPool) => {
