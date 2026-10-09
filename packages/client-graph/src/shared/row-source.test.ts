@@ -5,6 +5,7 @@ import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/rep
 import { addSink, resetLogging, type LogRecord } from '@podium/logger'
 import { autorun, computed, getDependencyTree, observe, Reaction } from 'mobx'
 import { enableDebugNames } from '../debug-name'
+import { asIssueId, asUserId, issueUserStateRowId } from '@podium/model'
 import { IssueSessionFactsIndex, type IssueSessionFacts } from './issue-session-facts'
 import type { ColdIndex } from './cold-index'
 import type { PendingOverlay } from '@podium/client-core/command-reducers'
@@ -316,6 +317,7 @@ it('recovery includes pending optimism, removals, and rollback', () => {
     }),
   )
   try {
+    f.session('a', 'changed')
     f.update('a')
     f.source.flush()
     overlays.set('a', [
@@ -334,7 +336,7 @@ it('recovery includes pending optimism, removals, and rollback', () => {
     expect(here(handle.pool.row('session', 'removed'))).toBeUndefined()
     overlays.clear()
     f.source.repaint([{ kind: 'session', id: 'a' }])
-    expect(omitGone(handle.pool.row('session', 'a'))).toMatchObject({ title: 'server' })
+    expect(omitGone(handle.pool.row('session', 'a'))).toMatchObject({ title: 'changed' })
   } finally {
     handle.dispose()
     f.source.dispose()
@@ -515,4 +517,84 @@ it('runs zero issue derivations for revision-only and identical publications', (
     expect(issue.stage).toBe('review')
     expect(f.source.truth('issueProjections', 'one')).toHaveProperty('revision', 4)
   } finally { stop(); handle.dispose(); f.source.dispose() }
+})
+
+
+it.each([
+  ['session', 'sessions', 'sessionId'],
+  ['issue', 'issueProjections', 'id'],
+  ['repo', 'repos', 'id'],
+  ['machine', 'machines', 'id'],
+] as const)('skips identical %s fields without pending edits and publishes real changes', (kind, replicaKind, idField) => {
+  const f = fixture()
+  const row = { [idField]: 'one', title: 'before' }
+  f.put(replicaKind, 'one', row)
+  const original = f.source.source.snapshot(kind)[0]!.value
+  try {
+    f.put(replicaKind, 'one', { ...row })
+    f.address({ kind: replicaKind, id: 'one' })
+    expect(f.source.flush()).toBeNull()
+    f.put(replicaKind, 'one', { ...row, title: 'after' })
+    f.address({ kind: replicaKind, id: 'one' })
+    const changed = f.source.flush()!.rows[0]!
+    expect(changed).toMatchObject({ kind, id: 'one', value: { title: 'after' } })
+    expect(changed.value).not.toBe(original)
+    f.tables.get(replicaKind)!.delete('one')
+    f.address({ kind: replicaKind, id: 'one' })
+    expect(f.source.flush()!.rows).toEqual([{ kind, id: 'one', value: undefined }])
+    f.put(replicaKind, 'one', row)
+    f.address({ kind: replicaKind, id: 'one' })
+    expect(f.source.flush()!.rows[0]).toMatchObject({ kind, id: 'one', value: { title: 'before' } })
+  } finally { f.source.dispose() }
+})
+
+it('keeps masked remote changes quiet, then publishes rollback and marker changes', () => {
+  const overlays = new Map<string, readonly PendingOverlay[]>()
+  const f = fixture({ pending: { byRow: kind => kind === 'issueProjections' ? overlays : new Map() } })
+  const row = { id: 'one', title: 'server', revision: 1 }
+  f.put('issueProjections', 'one', row)
+  f.source.source.snapshot('issue')
+  try {
+    overlays.set('one', [{ op: 'patch', key: 'title', entity: 'issueProjections', id: 'one',
+      patch: { title: 'painted' }, coveredBy: () => false }])
+    const painted = f.source.repaint([{ kind: 'issue', id: 'one' }])!.rows[0]!.value
+    f.put('issueProjections', 'one', { ...row, title: 'remote', revision: 2 })
+    f.address({ kind: 'issueProjections', id: 'one' })
+    expect(f.source.flush()).toBeNull()
+    expect(f.source.source.row!('issue', 'one')).toBe(painted)
+    overlays.clear()
+    expect(f.source.repaint([{ kind: 'issue', id: 'one' }])!.rows[0]).toMatchObject({ value: { title: 'remote' } })
+    // Echo retirement with equal visible fields is quiet too.
+    overlays.set('one', [{ op: 'patch', key: 'title', entity: 'issueProjections', id: 'one',
+      patch: { title: 'echoed' }, coveredBy: () => false }])
+    f.source.repaint([{ kind: 'issue', id: 'one' }])
+    f.put('issueProjections', 'one', { ...row, title: 'echoed', revision: 3 })
+    overlays.clear()
+    expect(f.source.repaint([{ kind: 'issue', id: 'one' }])).toBeNull()
+    f.address({ kind: 'issueProjections', id: 'one' })
+    expect(f.source.flush()).toBeNull()
+    const userKey = issueUserStateRowId(asUserId('operator'), asIssueId('one'))
+    f.put('issueUserStates', userKey, { userId: 'operator', entityId: 'one', readAt: '2026-10-09' })
+    f.address({ kind: 'issueUserStates', id: userKey })
+    expect(f.source.flush()!.rows[0]).toMatchObject({ value: { readAt: '2026-10-09' } })
+  } finally { f.source.dispose() }
+})
+
+it('does not let later snapshots swallow pending updates or inserts and replaces the scope', () => {
+  const f = fixture()
+  f.session('one', 'before')
+  f.source.source.snapshot('session')
+  try {
+    f.session('one', 'changed')
+    f.session('two', 'inserted')
+    f.update('one', 'two')
+    expect(f.source.source.snapshot('session')).toHaveLength(2)
+    expect(f.source.flush()!.rows).toHaveLength(2)
+    f.tables.get('sessions')!.delete('one')
+    f.replace()
+    expect(f.source.flush()).toMatchObject({ type: 'replace', rows: [{ kind: 'session', id: 'two' }] })
+    f.session('one', 'changed')
+    f.update('one')
+    expect(f.source.flush()!.rows[0]).toMatchObject({ kind: 'session', id: 'one', value: { title: 'changed' } })
+  } finally { f.source.dispose() }
 })

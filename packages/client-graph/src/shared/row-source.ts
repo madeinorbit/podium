@@ -311,10 +311,11 @@ export function createRowSource(
   let discoveryDirty = false
   let scheduled = false
 
-  /** The value last emitted for each slice row that had overlays at the last
-   *  flush, keyed `session:id` / `issue:id`. Bounded by pending writes: rows
-   *  without overlays are served by the replica/composition memo instead. */
-  const overlaid = new Map<string, RowRecord['value']>()
+  /** Last published values, including bootstrap snapshots. Compare by the
+   *  record's own fields before waking the pool; a new replica object alone
+   *  is not a client change. Removed rows and scope replacements drop entries. */
+  const published = new Map<string, RowRecord['value']>()
+  const seededKinds = new Set<RowRecord['kind']>()
 
   // Worktree lanes memoized by path signature (path|repoId|repoPath|name|prefix).
   const laneCache = new Map<string, { sig: string; lane: SliceWorktree }>()
@@ -521,11 +522,6 @@ export function createRowSource(
     )
   }
 
-  function hasOverlays(kind: 'session' | 'issue', id: string, pending: PendingByRow): boolean {
-    if (kind === 'session') return pending.sessions.has(id) || pending.sessionUserStates.has(id)
-    return pending.issueUserStates.has(id) || pending.issueProjections.has(id)
-  }
-
   function laneFor(
     path: string,
     repoId: string | null,
@@ -701,18 +697,16 @@ export function createRowSource(
 
   /** Keep the previously emitted object when the fold recomposed an equal one. */
   function retain(key: string, value: RowRecord['value']): RowRecord['value'] {
-    if (!overlaid.has(key)) return value
-    const previous = overlaid.get(key)
+    if (!published.has(key)) return value
+    const previous = published.get(key)
     return previous !== undefined && value !== undefined && shallowEqual(previous, value)
       ? previous
       : value
   }
 
   /** Every row of one kind, once: server truth folded with pending overlays,
-   *  plus pending inserts no server row covers yet. Resets that kind's memo
-   *  entries (the caller hands every value it returns to the arms). */
+   *  plus pending inserts no server row covers yet. */
   function enumerate(kind: 'session' | 'issue', pending: PendingByRow): RowRecord[] {
-    for (const key of [...overlaid.keys()]) if (key.startsWith(`${kind}:`)) overlaid.delete(key)
     const ids: string[] = []
     const seen = new Set<string>()
     const add = (id: string | null): void => {
@@ -732,12 +726,11 @@ export function createRowSource(
     const out: RowRecord[] = []
     for (const id of ids) {
       stats.rowsVisited += 1
-      const value = resolve(kind, id, pending)
+      const value = retain(`${kind}:${id}`, resolve(kind, id, pending))
       if (kind === 'issue') {
         const closed = closedInput(id)
         if (closed !== undefined) closure.set(id, closed)
       }
-      if (hasOverlays(kind, id, pending)) overlaid.set(`${kind}:${id}`, value)
       // An insert a server row already covers, or a patch on a row that is
       // gone, resolves to nothing: not a row.
       if (value !== undefined) out.push({ kind, id, value })
@@ -811,7 +804,7 @@ export function createRowSource(
     const byKey = new Map<string, RowRecord>()
     // 0. Discovery: lanes the new `repos` answer moved (O(1) when it did not).
     discoveryRows(byKey)
-    // 1. Kernel-addressed rows: always emitted.
+    // 1. Resolve kernel-addressed rows; publish only changed client values.
     const addressed = new Map<string, { kind: 'session' | 'issue'; id: string }>()
     for (const address of addresses) {
       if (address.kind === 'repos') {
@@ -862,24 +855,39 @@ export function createRowSource(
     }
     for (const [key, { kind, id }] of addressed) {
       stats.rowsVisited += 1
-      const value = retain(key, resolve(kind, id, pending))
-      if (hasOverlays(kind, id, pending)) overlaid.set(key, value)
-      else overlaid.delete(key)
-      byKey.set(key, { kind, id, value })
+      byKey.set(key, { kind, id, value: resolve(kind, id, pending) })
     }
 
     // Pending-log changes (including retirement and rollback) already name
     // their rows through repaint. Feed changes above reconcile their own
     // overlays; unrelated pending rows need no work on this publication.
 
-    if (byKey.size === 0) return null
-    const event: RowSourceEvent = { type: 'update', rows: [...byKey.values()] }
+    return publishUpdate(byKey.values())
+  }
+
+  function publishUpdate(records: Iterable<RowRecord>): RowSourceEvent | null {
+    const rows: RowRecord[] = []
+    for (const record of records) {
+      const key = `${record.kind}:${record.id}`
+      const value = retain(key, record.value)
+      if (published.has(key) && value === published.get(key)) continue
+      rows.push({ ...record, value })
+    }
+    if (rows.length === 0) return null
+    const event: RowSourceEvent = { type: 'update', rows }
     emit(event)
     return event
   }
 
   function emit(event: RowSourceEvent, recovering = false): void {
     stats.events += 1
+    if (event.type === 'replace') published.clear()
+    for (const { kind, id, value } of event.rows) {
+      seededKinds.add(kind)
+      const key = `${kind}:${id}`
+      if (value === undefined) published.delete(key)
+      else published.set(key, value)
+    }
     function failed(kind: 'listener' | 'cold-index', error: unknown): void {
       stats.applyErrors += 1
       diagnostics.resyncPending = true
@@ -927,9 +935,18 @@ export function createRowSource(
       )
     }
     stats.enumerations += 1
-    if (kind === 'repo' || kind === 'machine') return companions(kind)
-    if (kind === 'worktree') return allLanes()
-    return enumerate(kind, readPending())
+    const initial = !seededKinds.has(kind)
+    seededKinds.add(kind)
+    const rows = kind === 'repo' || kind === 'machine' ? companions(kind)
+      : kind === 'worktree' ? allLanes() : enumerate(kind, readPending())
+    return rows.map(record => {
+      const key = `${record.kind}:${record.id}`
+      const value = retain(key, record.value)
+      // Later snapshots may serve fresh truth before its scheduled flush.
+      // They must not hide that change from existing subscribers.
+      if (initial && !published.has(key)) published.set(key, value)
+      return { ...record, value }
+    })
   }
 
   /** One row by id, as `snapshot(kind)` would carry it, with no enumeration
@@ -1036,16 +1053,11 @@ export function createRowSource(
       const key = `${kind}:${id}`
       if (byKey.has(key)) continue
       stats.rowsVisited += 1
-      const held = overlaid.has(key) ? overlaid.get(key) : resolve(kind, id, null)
+      const held = published.has(key) ? published.get(key) : resolve(kind, id, null)
       const value = retain(key, resolve(kind, id, pending))
-      if (hasOverlays(kind, id, pending)) overlaid.set(key, value)
-      else overlaid.delete(key)
       if (value !== held) byKey.set(key, { kind, id, value })
     }
-    if (byKey.size === 0) return null
-    const event: RowSourceEvent = { type: 'update', rows: [...byKey.values()] }
-    emit(event)
-    return event
+    return publishUpdate(byKey.values())
   }
 
   function truth(entity: OverlayTarget, id: string): AnyRow | undefined {
@@ -1085,14 +1097,14 @@ export function createRowSource(
   seedIssueJoins()
   seedSessionJoins()
 
-  // Seed the overlaid memo with the rows already painted at creation, so the
+  // Seed the publication memo with the rows already painted at creation, so the
   // first flush compares against what `snapshot()` would have served. O(pending).
   try {
     const pending = readPending()
     for (const kind of OVERLAID) {
       for (const id of pending[kind].keys()) {
         const row = kind === 'sessions' || kind === 'sessionUserStates' ? 'session' : 'issue'
-        overlaid.set(`${row}:${id}`, resolve(row, id, pending))
+        published.set(`${row}:${id}`, resolve(row, id, pending))
       }
     }
   } catch {
@@ -1121,7 +1133,8 @@ export function createRowSource(
       coldNeedsReseed = false
       diagnostics.resyncPending = false
       pendingAddresses.clear()
-      overlaid.clear()
+      published.clear()
+      seededKinds.clear()
       held = null
       repoIndex = null
     },
