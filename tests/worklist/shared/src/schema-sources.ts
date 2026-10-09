@@ -24,6 +24,7 @@ import {
 import {
   AgentRuntimeState,
   GitRepositoryWire,
+  Geometry,
   GitWorktreeWire,
   IssueDepProjection,
   IssueDepWire,
@@ -64,6 +65,7 @@ export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
   GitRepositoryWire,
   GitWorktreeWire,
   IssueGitState,
+  Geometry,
 }
 
 /** The property names a model schema actually declares. */

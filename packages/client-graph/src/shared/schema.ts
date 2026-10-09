@@ -83,6 +83,7 @@ export type ModelSchemaName =
   | 'GitRepositoryWire'
   | 'GitWorktreeWire'
   | 'IssueGitState'
+  | 'Geometry'
 
 /**
  * Where a row physically arrives from.
