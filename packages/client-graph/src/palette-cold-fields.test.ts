@@ -1,7 +1,7 @@
 import { runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { COMMAND_SUMMARIES } from './command-launch-schema'
-import { commandLaunchViews, createCommandPalette } from './command-launch-views'
+import { commandIssueSearchRef, commandLaunchViews, createCommandPalette } from './command-launch-views'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
@@ -37,7 +37,7 @@ it('matches legacy search fields for cold palette issues without loading their p
       expect(pool.tables.issue.size).toBe(0)
       for (const expected of old.issues) {
         const issue = current.issues.find(issue => issue.id === expected.id)!
-        expect({ title: issue.title, stage: issue.stage, displayRef: issue.displayRef })
+        expect({ title: issue.title, stage: issue.stage, displayRef: commandIssueSearchRef(issue) })
           .toEqual({ title: expected.title, stage: expected.stage, displayRef: expected.displayRef })
       }
       expect(pool.hydrate()).toBe(0)

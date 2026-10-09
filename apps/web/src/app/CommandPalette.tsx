@@ -7,6 +7,7 @@ import {
   resolveDefaultAgent,
 } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
+import { commandIssueSearchRef } from '@podium/client-graph/command-launch-views'
 import { machinePathBasename } from '@podium/model'
 import type { AgentKind, IssueId, SessionId } from '@podium/model/browser'
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'
@@ -417,13 +418,14 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
       group,
       eligible: () => !('archived' in i && (i.archived || i.deletedAt || i.isDraftVessel)),
       search: () => ({ label: i.title,
-        keywords: ['task', 'issue', i.displayRef || `#${i.seq}`, STAGE_LABELS[i.stage]] }),
+        keywords: ['task', 'issue', commandIssueSearchRef(i), STAGE_LABELS[i.stage]] }),
       build: () => ({
         id: `${group}-issue:${i.id}`,
         group,
         label: i.title,
-        keywords: ['task', 'issue', i.displayRef ?? `#${i.seq}`, STAGE_LABELS[i.stage]],
-        issueReference: issueReferenceModel(i),
+        keywords: ['task', 'issue', commandIssueSearchRef(i), STAGE_LABELS[i.stage]],
+        issueReference: issueReferenceModel({ id: i.id, seq: i.seq, title: i.title, stage: i.stage,
+          displayRef: commandIssueSearchRef(i) }),
         run: () => {
           setOpenIssueId(i.id)
           setView('issues')

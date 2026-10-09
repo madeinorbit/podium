@@ -2,7 +2,7 @@ import type { SpawnTarget } from '@podium/client-core'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { resolveDefaultAgent, type RepoView } from '@podium/client-core/values'
+import { canonicalIssueRef, resolveDefaultAgent, type RepoView } from '@podium/client-core/values'
 import { lazy, keyedComputed } from '@podium/mobx-helpers'
 import { machinePathBasename, machinePathKey, machinePathsEqual, normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
 import {
@@ -13,6 +13,7 @@ import {
 } from 'mobx'
 import { COMMAND_SUMMARIES, type CommandLaunchRows } from './command-launch-schema'
 import type { MobxPool } from './pool'
+import { IssueModel } from './models'
 import { isFinished } from './shared/predicates'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -376,6 +377,15 @@ export function commandLaunchViews(pool: MobxPool) {
 
 export type RecentCommand = { kind: 'session' | 'issue'; id: string }
 export type CommandPaletteData = CommandLaunchData & { selectedIssue?: IssueViewModel }
+
+/** Match declared identity fields without the display getter's payload demand.
+ * Rich labels and reference models are constructed only for returned rows. */
+export function commandIssueSearchRef(issue: Pick<IssueViewModel, 'seq' | 'displayRef'>): string {
+  const displayRef = issue instanceof IssueModel ? issue.storedField('displayRef') : issue.displayRef
+  return canonicalIssueRef({ seq: issue.seq,
+    displayRef: typeof displayRef === 'string' ? displayRef : undefined,
+    prefix: issue instanceof IssueModel ? issue.prefix : undefined })
+}
 
 /** A palette mount owns its ordering. Catalog demand lives only in open(). */
 export class CommandPaletteView {
