@@ -8,7 +8,7 @@
 import { beforeAll, describe, it } from 'vitest'
 import { writeResult } from '../results'
 import { ask, assertNoWrongNumber, checkNoWrongNumber, startupQuestions, startupTargets, summarize } from './no-wrong-number'
-import { collectGarbage, fullPool, hydrateAll, lazyPool, openStartupFeed, type StartupFeed } from './startup-states'
+import { collectGarbage, fullPool, hydrateAll, lazyPool, memoryAt, openStartupFeed, type StartupFeed } from './startup-states'
 
 let feed: StartupFeed
 let questions: ReturnType<typeof startupQuestions>
@@ -19,16 +19,21 @@ beforeAll(async () => {
   questions = startupQuestions(startupTargets(feed.rows))
   const pool = fullPool(feed)
   control = ask(pool, questions)
+  memoryAt('control asked')
   pool.dispose()
   collectGarbage()
+  memoryAt('control dropped')
 }, 600_000)
 
 describe('the production lazy pool against the full bootstrap (h1a1)', () => {
   it('the lazy pool, before and after its cold rows load', () => {
     const handle = lazyPool(feed)
     try {
+      memoryAt('lazy pool built')
       const before = checkNoWrongNumber(control, ask(handle.pool, questions))
+      memoryAt('lazy pool asked')
       const loaded = hydrateAll(handle.pool, questions)
+      memoryAt('lazy pool loaded')
       const after = checkNoWrongNumber(control, ask(handle.pool, questions))
       const result = { before: summarize(before), after: summarize(after), loaded,
         wrongBefore: before.wrong.slice(0, 40), wrongAfter: after.wrong.slice(0, 40) }

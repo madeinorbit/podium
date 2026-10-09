@@ -41,7 +41,9 @@ export interface StartupFeed {
 }
 
 export async function openStartupFeed(cell: CorpusCell, seed = 4443): Promise<StartupFeed> {
+  memoryAt('before engine')
   const ctx = await startEngineOnCorpus(buildCorpusCell(cell, seed))
+  memoryAt('engine started')
   let rows: RowRecord[], companions: RowRecord[], locals: SliceLocals
   const handle = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
   try {
@@ -56,6 +58,7 @@ export async function openStartupFeed(cell: CorpusCell, seed = 4443): Promise<St
     ctx.dispose()
   }
   collectGarbage()
+  memoryAt('engine dropped')
   const tables = new Map<string, Map<string, unknown>>()
   for (const row of rows) {
     let table = tables.get(row.kind)
@@ -118,4 +121,10 @@ export function hydrateAll(pool: MobxPool, questions: readonly StartupQuestion[]
 /** Between pools: give back what a disposed pool held (Bun, when present). */
 export function collectGarbage(): void {
   ;(globalThis as { Bun?: { gc(force: boolean): void } }).Bun?.gc(true)
+}
+
+/** Resident memory at a named stage, on stderr (the 3 GB worker cap). */
+export function memoryAt(stage: string): void {
+  if (process.env['PODIUM_STARTUP_MEMORY'] !== '1') return
+  process.stderr.write(`[startup-states] ${stage}: rss ${Math.round(process.memoryUsage().rss / 1048576)} MiB\n`)
 }
