@@ -8,7 +8,6 @@ interface Memo {
   value?: SliceIssue
 }
 const composed: Memo = { next: new WeakMap() }
-const gitObservations = new WeakMap<Input, Input>()
 
 export function issueInput(
   projection: Input | undefined,
@@ -35,13 +34,7 @@ export function issueInput(
   if (memo.value && memo.value.blocked === blocked) return memo.value
   // The git kind's identity is an issue id; its updatedAt is a probe timestamp.
   // Neither is the issue's durable identity or activity timestamp.
-  // Joining a new projection must preserve an unchanged git field's identity.
-  let git = gitState && gitObservations.get(gitState)
-  if (gitState && !git) {
-    const { id: _id, ...observation } = gitState
-    git = observation
-    gitObservations.set(gitState, git)
-  }
+  const git = gitState && (({ id: _id, ...observation }) => observation)(gitState)
   // Server concurrency bookkeeping has no client reader. Keep it in replica
   // truth for command settlement, outside the observable issue record.
   const { revision: _revision, repoPath: _repoPath, prefix: _prefix, displayRef: _displayRef, ...own } = projection

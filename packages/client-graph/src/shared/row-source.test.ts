@@ -481,7 +481,9 @@ it.each([1, 4])('records heartbeat owner-history work and watched fields at %sx'
 it.each([false, true])('runs zero issue derivations for revision-only and identical publications (git: %s)', withGit => {
   const f = fixture()
   const projection = { id: 'one', seq: 1, title: 'Issue', stage: 'in_progress', audience: 'human', repoId: 'repo',
-    createdAt: '2026-01-01', updatedAt: '2026-10-01', revision: 1 }
+    createdAt: '2026-01-01', updatedAt: '2026-10-01', revision: 1,
+    description: { value: 'Context', revision: 1 }, labels: ['quiet'],
+    asked: { question: 'Proceed?', options: ['Continue'] } }
   f.put('issueProjections', 'one', projection)
   if (withGit) f.put('issueGitStates', 'one', { id: 'one', shared: false, ahead: 1 })
   f.put('repos', 'repo', { id: 'repo', path: '/synthetic', prefix: 'POD' })
@@ -499,7 +501,7 @@ it.each([false, true])('runs zero issue derivations for revision-only and identi
     expect(runs).toEqual({ row: 1, title: 1, stage: 1 })
     f.source.stats.reset()
     for (const revision of [2, 3, 3]) {
-      f.put('issueProjections', 'one', { ...projection, revision })
+      f.put('issueProjections', 'one', JSON.parse(JSON.stringify({ ...projection, revision })))
       f.address({ kind: 'issueProjections', id: 'one' })
       const event = f.source.flush()
       // Count evaluations, even when a computed's equal answer hides the
@@ -517,6 +519,12 @@ it.each([false, true])('runs zero issue derivations for revision-only and identi
     expect(issue.title).toBe('Changed')
     expect(issue.stage).toBe('review')
     expect(f.source.truth('issueProjections', 'one')).toHaveProperty('revision', 4)
+    f.put('issueProjections', 'one', { ...projection, revision: 5, title: 'Changed', stage: 'review',
+      description: { value: 'Changed context', revision: 2 } })
+    f.address({ kind: 'issueProjections', id: 'one' })
+    expect(f.source.flush()?.rows).toHaveLength(1)
+    expect(runs).toEqual({ row: 3, title: 2, stage: 2 })
+    expect(handle.pool.row('issue', 'one')).toHaveProperty('description.value', 'Changed context')
   } finally { stop(); handle.dispose(); f.source.dispose() }
 })
 
@@ -528,11 +536,11 @@ it.each([
   ['machine', 'machines', 'id'],
 ] as const)('skips identical %s fields without pending edits and publishes real changes', (kind, replicaKind, idField) => {
   const f = fixture()
-  const row = { [idField]: 'one', title: 'before' }
+  const row = { [idField]: 'one', title: 'before', labels: ['quiet'] }
   f.put(replicaKind, 'one', row)
   const original = f.source.source.snapshot(kind)[0]!.value
   try {
-    f.put(replicaKind, 'one', { ...row })
+    f.put(replicaKind, 'one', JSON.parse(JSON.stringify(row)))
     f.address({ kind: replicaKind, id: 'one' })
     expect(f.source.flush()).toBeNull()
     f.put(replicaKind, 'one', { ...row, title: 'after' })
