@@ -3,7 +3,7 @@ import { createRequire } from 'node:module'
 import { EMPTY_PENDING } from '../../../../tests/worklist/shared/src/row-source'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
 import { addSink, resetLogging, type LogRecord } from '@podium/logger'
-import { autorun, getDependencyTree, observe, Reaction } from 'mobx'
+import { autorun, computed, getDependencyTree, observe, Reaction } from 'mobx'
 import { enableDebugNames } from '../debug-name'
 import { IssueSessionFactsIndex, type IssueSessionFacts } from './issue-session-facts'
 import type { ColdIndex } from './cold-index'
@@ -52,6 +52,9 @@ function fixture(options: RowSourceOptions = { pending: EMPTY_PENDING }) {
     put,
     session,
     replace() { addressed({ type: 'replace', reason: 'bootstrap' }) },
+    address(...rows: { kind: ReplicaKind; id: string }[]) {
+      addressed({ type: 'update', rows })
+    },
     update(...ids: string[]) {
       addressed({ type: 'update', rows: ids.map((id) => ({ kind: 'sessions', id })) })
     },
@@ -470,4 +473,45 @@ it.each([1, 4])('records heartbeat owner-history work and watched fields at %sx'
       rowReplaced: original !== omitGone(handle.pool.row('issue', 'one')), storedRuns,
       watchedFields: names.size, heapBytes: heap(), heapSource: runtime.Bun ? 'JSC full-GC heapSize' : 'process heapUsed' }))
   } finally { stop(); watcher.dispose(); handle.dispose(); f.source.dispose() }
+})
+
+
+it('runs zero issue derivations for revision-only and identical publications', () => {
+  const f = fixture()
+  const projection = { id: 'one', seq: 1, title: 'Issue', stage: 'in_progress', audience: 'human',
+    createdAt: '2026-01-01', updatedAt: '2026-10-01', revision: 1 }
+  f.put('issueProjections', 'one', projection)
+  const handle = createWorklistPool(f.source.source, fixedLocals({ selectedIssueId: 'one', coarseNow: 0 }).source)
+  const issue = handle.pool.issueObject('one')
+  const runs = { row: 0, title: 0, stage: 0 }
+  const readers = [
+    computed(() => { runs.row++; return handle.pool.row('issue', 'one') }),
+    computed(() => { runs.title++; return issue.title }),
+    computed(() => { runs.stage++; return issue.stage }),
+  ]
+  const stop = autorun(() => { for (const reader of readers) reader.get() })
+  const original = handle.pool.row('issue', 'one')
+  try {
+    expect(runs).toEqual({ row: 1, title: 1, stage: 1 })
+    f.source.stats.reset()
+    for (const revision of [2, 3, 3]) {
+      f.put('issueProjections', 'one', { ...projection, revision })
+      f.address({ kind: 'issueProjections', id: 'one' })
+      const event = f.source.flush()
+      // Count evaluations, even when a computed's equal answer hides the
+      // unnecessary work from its observer.
+      expect(runs).toEqual({ row: 1, title: 1, stage: 1 })
+      expect(event).toBeNull()
+      expect(handle.pool.row('issue', 'one')).toBe(original)
+    }
+    expect(original).not.toHaveProperty('revision')
+    expect(f.source.stats).toMatchObject({ events: 0, enumerations: 0, rowsVisited: 3 })
+    f.put('issueProjections', 'one', { ...projection, revision: 4, title: 'Changed', stage: 'review' })
+    f.address({ kind: 'issueProjections', id: 'one' })
+    expect(f.source.flush()?.rows).toHaveLength(1)
+    expect(runs).toEqual({ row: 2, title: 2, stage: 2 })
+    expect(issue.title).toBe('Changed')
+    expect(issue.stage).toBe('review')
+    expect(f.source.truth('issueProjections', 'one')).toHaveProperty('revision', 4)
+  } finally { stop(); handle.dispose(); f.source.dispose() }
 })
