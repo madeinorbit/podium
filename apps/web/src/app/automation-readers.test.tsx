@@ -9,6 +9,7 @@ import { machineViewsFromWire } from '@podium/client-core/values'
 import { AUTOMATION_ENTITIES } from '@podium/client-graph/automation-schema'
 import { AutomationSource } from '@podium/client-graph/automation-source'
 import { checkAutomations } from '../../../../tests/worklist/diagnostics/automation-check'
+import { modelFields } from '../../../../tests/worklist/diagnostics/model-fields'
 import { attachPoolScreens, type PoolScreen, screenOptions } from '@podium/client-graph/host'
 import { MobxPool } from '@podium/client-graph/pool'
 import { PoolSources } from '@podium/client-graph/source-registry'
@@ -355,8 +356,10 @@ it('a collapsed list reads no runs; an opened history shows the legacy newest wi
     const history = new AutomationHistory(automation.id, query, pool)
     expect(history.pending).toBe(true)
     await history.refresh()
-    expect(history.runs).toEqual(legacy[automation.id]!.slice(0, AUTOMATION_HISTORY_LIMIT))
-    expect(history.runs.at(0)).toEqual(legacy[automation.id]![0])
+    if (process.env.PODIUM_AUTOMATION_NEGATIVE_CONTROL)
+      Object.defineProperty(history.runs[0]!, 'outcome', { value: 'Wrong outcome' })
+    expect(history.runs.map(run => modelFields('automationRun', run))).toEqual(legacy[automation.id]!.slice(0, AUTOMATION_HISTORY_LIMIT))
+    expect(modelFields('automationRun', history.runs.at(0)!)).toEqual(legacy[automation.id]![0])
     expect(history.pending).toBe(false)
     history.close()
   }

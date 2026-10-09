@@ -1,11 +1,13 @@
 import type { ReferenceState as Store } from './reference-state'
 import { machineViewsFromWire, placementOptions, profilePlacement, runSubjectReference } from '@podium/client-core/values'
 import type { ExecutionProfileWire, WorkflowRunWire } from '@podium/protocol'
+import { MachineWire } from '@podium/model'
 import { getObserverTree, Reaction, runInAction } from 'mobx'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
+import { modelFields } from './model-fields'
 
 /** RPC rows are borrowed from the caller's sole service. No query, subscription
  * or retained RPC replica is installed by this on-demand comparison. */
@@ -31,10 +33,12 @@ export function legacyWorkflowSnapshot(state: WorkflowCheckStore, inputs: Workfl
 
 export function poolWorkflowSnapshot(pool: MobxPool, inputs: WorkflowCheckInputs): SidebarSnapshot {
   const { views, pending: machinesPending } = workflowMachines(pool)
+  if (process.env.PODIUM_WORKFLOW_NEGATIVE_CONTROL && views[0])
+    Object.defineProperty(views[0].machine, 'name', { value: 'Wrong machine name', configurable: true })
   let pending = machinesPending
   const options = placementOptions(views)
   const sections: SidebarSnapshot['sections'] = [
-    { key: 'placement', fields: { ...options }, pendingFields: machinesPending ? Object.keys(options) : [], rows: [] },
+    { key: 'placement', fields: { ...options, offerable: options.offerable.map(machine => modelFields('machine', machine, Object.keys(MachineWire.shape))) }, pendingFields: machinesPending ? Object.keys(options) : [], rows: [] },
     { key: 'profiles', fields: {}, rows: inputs.profiles.map(profile => ({ id: profile.id, pending: machinesPending > 0, fields: { ...profilePlacement(profile, views) } })) },
     { key: 'subjects', fields: {}, rows: inputs.runs.map(run => {
       const subject = workflowSubject(pool, run)

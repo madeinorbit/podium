@@ -4,6 +4,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import { automationViews, type AutomationTarget, type TargetExclusions } from '@podium/client-graph/automation-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { compareSidebarSnapshots, type CheckSection, type SidebarSnapshot } from './sidebar-check'
+import { modelFields } from './model-fields'
 
 export type AutomationCheckStore = Pick<Store, 'automations' | 'automationRuns' | 'repos' | 'sessions'>
 export type LegacyTargets = (path: string | null) => { choices: readonly AutomationTarget[]; excluded: TargetExclusions }
@@ -36,10 +37,10 @@ export function poolAutomationSnapshot(pool: MobxPool, paths: readonly (string |
     if (!row) return []
     const session = view.session(row.sessionId ?? undefined)
     if (session === LOADING) pending++
-    return [{ id: row.id, pending: session === LOADING, fields: { value: row, session: session && session !== LOADING ? session.sessionId : null } }]
+    return [{ id: row.id, pending: session === LOADING, fields: { value: modelFields('automationRun', row), session: session && session !== LOADING ? session.sessionId : null } }]
   })
   const sections: CheckSection[] = [
-    { key: 'automations', fields: {}, rows: rows(list.automations) },
+    { key: 'automations', fields: {}, rows: list.automations.map(row => ({ id: row.id, fields: { value: modelFields('automation', row) } })) },
     { key: 'runs', fields: {}, rows: runRows },
     { key: 'repositories', fields: { paths: [...new Set(repos.repos.map(repo => repo.path))] }, rows: [] },
     ...paths.map((path, index) => {
