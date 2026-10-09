@@ -468,19 +468,37 @@ it('never accesses legacy session, machine or window collections on the pool inp
 
 it('uses pool facts in the real chat header while leaving transcript reads on the original transport', async () => {
   const row = sessions.find((row) => row.machineId === 'machine-b' && row.condition === undefined)!
-  function Header() {
-  const chatSession = useChatSession(row.sessionId)
-  const chatMachine = usePoolMachine(chatSession?.machineId)
-  const chat = { session: chatSession, presenceOfflineMachineName: chatMachine && isMachineOfflineForLiveTerminal(chatMachine) ? chatMachine.name : null }
-
+  // POD-5622 moved transport ownership from the header to the conversation.
+  // Keep the chrome-only mocks above; mount the real lifecycle hook here.
+  const { useConversation } = await vi.importActual<typeof import('../chat/use-conversation')>(
+    '../chat/use-conversation',
+  )
+  const held = { sends: [] }
+  const reader = { records: () => ({ records: [], pending: 0 }) }
+  f.pool!.sources.register(['chatHeld', 'chatContextReader'], {
+    read: (kind: string) => kind === 'chatHeld' ? held : reader,
+    dispose() {},
+  } as never)
+  function Header({ transcript = false }: { transcript?: boolean }) {
+    const chatSession = useChatSession(row.sessionId)
+    const chatMachine = usePoolMachine(chatSession?.machineId)
+    useConversation(row.sessionId, { deferInitialTranscript: !transcript })
     return (
       <div>
-        {chat.session?.title} {chat.presenceOfflineMachineName}
+        {chatSession?.title}{' '}
+        {chatMachine && isMachineOfflineForLiveTerminal(chatMachine) ? chatMachine.name : null}
       </div>
     )
   }
   const mounted = render(<Header />)
-  await waitFor(() => expect(f.transcriptRead).toHaveBeenCalled())
+  expect(mounted.container.textContent).toBe(`${row.title} Offline host`)
+  expect(f.transcriptRead).not.toHaveBeenCalled()
+  expect(f.transcript).not.toHaveBeenCalled()
+  mounted.rerender(<Header transcript />)
+  await waitFor(() => {
+    expect(f.transcriptRead).toHaveBeenCalled()
+    expect(f.transcript).toHaveBeenCalled()
+  })
   expect(mounted.container.textContent).toBe(`${row.title} Offline host`)
   expect(f.transcriptRead.mock.calls[0]?.[0]).toMatchObject({ sessionId: row.sessionId })
   expect(f.transcript.mock.calls[0]?.[0]).toBe(row.sessionId)
