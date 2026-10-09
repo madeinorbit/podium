@@ -3,6 +3,7 @@ import { type FailureReason, MachineFailureReason } from '@/features/updates/Mac
 
 import { relativeTime } from '@podium/client-core/focus'
 import { observer } from '@podium/client-graph/react'
+import type { MachineModel } from '@podium/client-graph'
 import { asMachineId } from '@podium/model'
 import type { MachineWire, UpdateChannel } from '@podium/model/browser'
 import type { Operation } from '@podium/protocol'
@@ -152,13 +153,14 @@ function useFleetConvergence(trpc: Store['trpc']): {
  * flow that mints a pairing code and shows the daemon command to run.
  */
 function MachinesPanelView({
+  machines,
   showOwnershipTransfer = false,
 }: {
+  machines: readonly MachineModel[]
   /** Dormant until multi-user machine ownership ships. */
   showOwnershipTransfer?: boolean
-} = {}): JSX.Element {
+}): JSX.Element {
   const { trpc, setSettingsTab } = useSettingsClient()
-  const machines = useSettingsMachines()
   const [now, setNow] = useState(() => Date.now())
   const [addOpen, setAddOpen] = useState(false)
   const [recommendServer, setRecommendServer] = useState(false)
@@ -446,9 +448,10 @@ function MachinesPanelView({
  * Settings sheet away mid-pairing".
  */
 const PoolMachinesPanel = observer(MachinesPanelView)
-export function MachinesPanel(props: Parameters<typeof MachinesPanelView>[0] = {}) {
+export function MachinesPanel(props: { showOwnershipTransfer?: boolean } = {}) {
+  const machines = useSettingsMachines()
   const Surface = PoolMachinesPanel
-  return <Surface {...props} />
+  return <Surface {...props} machines={machines} />
 }
 
 function AddMachineFlow({
