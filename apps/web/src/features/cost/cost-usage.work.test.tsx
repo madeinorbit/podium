@@ -107,13 +107,14 @@ function setup(history: number) {
   let usage = buckets()
   const reads = {
     task: vi.fn(async () => cost),
+    comparison: vi.fn(async () => ({ task: cost, cohort: { medianUsdPerReply: 0.2, taskCount: 6 } })),
     // RPC responses own fresh arrays, even when their contents are unchanged.
     tasks: vi.fn(async () => taskRows()),
     usage: vi.fn(async () => ({ hostname: 'fixture', buckets: usage })),
     quota: vi.fn(async () => []),
   }
   const trpc = {
-    cost: { task: { query: reads.task }, tasks: { query: reads.tasks } },
+    cost: { task: { query: reads.task }, taskComparison: { query: reads.comparison }, tasks: { query: reads.tasks } },
     usage: { summary: { query: reads.usage } }, quota: { history: { query: reads.quota } },
   } as unknown as Trpc
   let snapshot = {
@@ -191,7 +192,7 @@ for (const scale of [1, 4]) {
       if (surface === 'MissionCostChip' || surface === 'useMissionCost' || surface === 'useTaskCost') {
         // Task detail requests the sessions; the mission total and popover do not.
         expect(mount.hiddenTranscripts ?? 0).toBe(surface === 'useTaskCost' ? history : 0)
-        expect(ctx.reads.task).toHaveBeenCalledTimes(1)
+        expect(surface === 'useTaskCost' ? ctx.reads.comparison : ctx.reads.task).toHaveBeenCalledTimes(1)
       }
       if (surface === 'MissionCostChip') {
         expect(screen.getByTestId('mission-cost-chip').textContent).toContain('$10')
@@ -238,7 +239,9 @@ for (const scale of [1, 4]) {
         })
         expect(screen.getByTestId('mission-cost-popover')).toBeTruthy()
         expect(disclosure.hiddenTranscripts ?? 0).toBe(0)
-        expect(disclosure.requestedTasks).toBe(6)
+        expect(disclosure.requestedTasks ?? 0).toBe(0)
+        expect(ctx.reads.comparison).toHaveBeenCalledTimes(1)
+        expect(ctx.reads.tasks).not.toHaveBeenCalled()
         report.missionDisclosure = disclosure
       }
       report[surface] = { mount, sessionUpdate, heartbeat, incomingRpcAnswer: refresh }

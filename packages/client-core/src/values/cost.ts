@@ -28,6 +28,8 @@ import type {
   TaskCostState,
   TaskCostWire,
 } from '@podium/model'
+import { RATE_COHORT_MIN_REPLIES } from '@podium/model'
+export { RATE_COHORT_MIN_REPLIES } from '@podium/model'
 import type { HarnessDescriptorWire } from '@podium/protocol'
 import { bucketCostUsd, bucketProvider, type UsageProvider } from './usage'
 import { harnessDescriptorFor } from './harness-labels'
@@ -177,7 +179,6 @@ export function taskRateUsd(estCostUsd: number, messages: number): number | null
  * machine's corpus the qualifying set is ~200 tasks, which is a cohort; the
  * unfiltered set is dominated by tasks that barely ran.
  */
-export const RATE_COHORT_MIN_REPLIES = 20
 
 export interface CostCohort {
   /** Median USD per reply across qualifying tasks; null when none qualify. */

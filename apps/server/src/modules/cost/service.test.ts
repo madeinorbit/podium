@@ -11,7 +11,8 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { IssueId, MachineId, SessionId, UsageSourceWire } from '@podium/model'
-import { afterAll, beforeEach, describe, expect, it } from 'vitest'
+import { costCohort, taskCostView } from '@podium/client-core/values'
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { SessionStore } from '../../store'
 import type { IssueRow, SessionRow } from '../../store/types'
 import { openTestStore } from '../../test-support/open-test-store'
@@ -647,3 +648,48 @@ function existsOnDisk(path: string): boolean {
     return false
   }
 }
+
+
+describe('addressed task comparison', () => {
+  it('matches the old task and corpus answers without reading full corpus rows', async () => {
+    const root = await issue()
+    const child = await issue({ parentId: root.id, stage: 'done', archived: true })
+    const deleted = await issue({ deletedAt: '2026-08-23T00:00:00Z' })
+    const small = await issue()
+    for (const [task, messages] of [[child, 25], [deleted, 400], [small, 20]] as const) {
+      const ses = await session({ issueId: task.id })
+      const path = await transcript(ses.resumeValue as string)
+      const usage = source(path)
+      usage.models[0]!.messages = messages
+      // The window does not define the comparison: all-time models do.
+      await ingest([{ ...usage, windowModels: [] }])
+    }
+    const oldTask = await service.task(root.id)
+    const oldRows = await service.tasks()
+    expect(costCohort(oldRows).taskCount).toBe(1)
+    const corpus = vi.spyOn(store.transcriptCosts, 'allAttributed')
+    const cohort = vi.spyOn(store.transcriptCosts, 'ownCohortTotals')
+    const sessions = vi.spyOn(store.sessions, 'findSessionsByIssueIds')
+    const answer = await service.taskComparison(root.id)
+    expect(answer.task).toEqual(oldTask)
+    expect(answer.cohort).toEqual(costCohort(oldRows))
+    expect(taskCostView(answer.task, answer.cohort))
+      .toEqual(taskCostView(oldTask, costCohort(oldRows)))
+    expect(corpus).not.toHaveBeenCalled()
+    expect(cohort).toHaveBeenCalledTimes(1)
+    expect(sessions).toHaveBeenCalledTimes(1)
+    expect(sessions).toHaveBeenCalledWith(expect.arrayContaining([root.id, child.id]))
+    expect(sessions.mock.calls[0]![0]).toHaveLength(2)
+    expect(Object.keys(answer)).toEqual(['task', 'cohort'])
+    expect(await service.taskComparison(child.id, false))
+      .toMatchObject({ task: { sessions: [] }, cohort: answer.cohort })
+  })
+
+  it('returns an empty comparison for an empty corpus', async () => {
+    const root = await issue()
+    expect(await service.taskComparison(root.id)).toMatchObject({
+      task: { state: 'no-sessions', own: { messages: 0 } },
+      cohort: { medianUsdPerReply: null, taskCount: 0 },
+    })
+  })
+})

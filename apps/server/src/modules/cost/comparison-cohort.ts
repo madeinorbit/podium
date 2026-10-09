@@ -1,4 +1,4 @@
-import { messagesOf, type CostCohortWire, type CostModelTotalWire } from '@podium/model'
+import { RATE_COHORT_MIN_REPLIES, messagesOf, type CostCohortWire, type CostModelTotalWire } from '@podium/model'
 import { bucketCostUsd } from '@podium/model/cost-pricing'
 
 /** Same all-time own-cost rule as client-core's costCohort. */
@@ -6,7 +6,7 @@ export function cohortOfOwnTotals(totals: readonly CostModelTotalWire[][]): Cost
   const rates: number[] = []
   for (const models of totals) {
     const messages = messagesOf(models)
-    if (messages <= 20) continue
+    if (messages <= RATE_COHORT_MIN_REPLIES) continue
     const usd = models.reduce((n, m) => n + bucketCostUsd({ hour: '', ...m }), 0)
     if (usd > 0) rates.push(usd / messages)
   }

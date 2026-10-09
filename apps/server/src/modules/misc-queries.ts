@@ -189,8 +189,7 @@ export const COST_QUERIES = {
    *  Own and rollup are returned separately because the UI draws a labelled
    *  split and cannot derive one from the other.
    *
-   *  TOKENS, NEVER DOLLARS — the one price table lives in client-core and the
-   *  server does not import it. A pure DB read: it opens no transcript, so a
+   *  Tokens are priced through the shared model/cost-pricing table. A pure DB read: it opens no transcript, so a
    *  panel can call it on first paint. */
   task: q(z.object({ issueId: IssueIdField }), async (s, input) =>
     await new CostService(s.store).task(input.issueId),

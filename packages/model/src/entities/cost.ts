@@ -3,7 +3,10 @@
  * a figure MEANS before anyone renders it (POD-1858, foundation of POD-1604).
  *
  * ─────────────────────────────────────────────────────────────────────────────
- * NO DOLLARS CROSS THIS BOUNDARY, AND THAT IS THE DESIGN
+ * Token totals remain the durable accounting shape. The addressed comparison
+ * also carries a priced cohort median; its server and client readers share the
+ * one pure price table in model/cost-pricing.ts, never a second copy.
+ *
  * ─────────────────────────────────────────────────────────────────────────────
  * Every figure here is TOKENS. The one price table lives in
  * `client-core/values/usage.ts` and its header records why there must never
@@ -175,6 +178,9 @@ export const TaskCostWire = z.object({
   sampledAt: z.string().optional(),
 })
 export type TaskCostWire = z.infer<typeof TaskCostWire>
+
+/** All-time OWN replies must exceed this threshold for a stable comparison. */
+export const RATE_COHORT_MIN_REPLIES = 20
 
 /** The all-time own-cost cohort used by an addressed task comparison. */
 export const CostCohortWire = z.object({

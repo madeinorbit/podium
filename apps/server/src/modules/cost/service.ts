@@ -51,6 +51,7 @@ import {
   type IssueId,
   type MachineId,
   messagesOf,
+  RATE_COHORT_MIN_REPLIES,
   type SessionCostWire,
   type SessionId,
   type TaskCostComparisonWire,
@@ -333,7 +334,7 @@ export class CostService {
   /** On-request total and all-time comparison, without building cost.tasks. */
   async taskComparison(issueId: IssueId, includeSessions = true): Promise<TaskCostComparisonWire> {
     const task = await this.task(issueId, includeSessions)
-    const cohort = cohortOfOwnTotals(await this.store.transcriptCosts.ownCohortTotals(20))
+    const cohort = cohortOfOwnTotals(await this.store.transcriptCosts.ownCohortTotals(RATE_COHORT_MIN_REPLIES))
     return { task, cohort }
   }
 
