@@ -5,7 +5,7 @@ import { createSettingsViews } from '@podium/client-graph/settings-views'
 import { createAutomationViews } from '@podium/client-graph/automation-views'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createSettingsMachineReaders as webMachines } from '../features/settings/settings-machine-readers'
-import { createSettingsMachineReaders as phoneMachines } from '../../../../mobile/src/screens/settings-machine-readers'
+import { createSettingsMachineReaders as phoneMachines } from '../../../mobile/src/screens/settings-machine-readers'
 import { act, createContext, useContext, StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { expect, it, vi } from 'vitest'
@@ -22,16 +22,20 @@ const factories = [
 
 for (const [name, factory] of factories) {
   it(`${name}: fifty openings share their context and release every closed model`, async () => {
-    const pool = new MobxPool()
+    const pool = new MobxPool({ coarseNow: 0 })
     const registry = vi.spyOn(pool.sources, 'view')
     const refs: WeakRef<object>[] = []
-    const disposals: ReturnType<typeof vi.fn>[] = []
     const create = (current: MobxPool) => {
       const view = factory(current)
-      const dispose = vi.fn(() => view.dispose())
-      disposals.push(dispose)
-      const owned = { view, dispose }
-      refs.push(new WeakRef(owned))
+      const owned = {
+        view,
+        disposed: 0,
+        dispose() {
+          this.disposed++
+          view.dispose()
+        },
+      }
+      refs.push(new WeakRef(view))
       return owned
     }
     const Context = createContext<ReturnType<typeof create> | null>(null)
@@ -52,7 +56,7 @@ for (const [name, factory] of factories) {
     const host = document.createElement('div')
     const root = createRoot(host)
     try {
-      for (let n = 0; n < 50; n++) {
+      async function cycle() {
         await act(async () =>
           root.render(
             <StrictMode>
@@ -63,8 +67,8 @@ for (const [name, factory] of factories) {
         expect(shown).not.toBeNull()
         expect(shown).not.toBe(previous?.deref())
         previous = new WeakRef(shown!)
-        const active = disposals.at(-1)!
-        expect(active).not.toHaveBeenCalled()
+        const active = shown as ReturnType<typeof create>
+        expect(active.disposed).toBe(0)
         await act(async () =>
           root.render(
             <StrictMode>
@@ -73,11 +77,12 @@ for (const [name, factory] of factories) {
           ),
         )
         expect(shown).toBeNull()
-        expect(active).toHaveBeenCalledTimes(1)
+        expect(active.disposed).toBe(1)
       }
+      for (let n = 0; n < 50; n++) await cycle()
       expect(registry).not.toHaveBeenCalled()
-      // Spies retain their original view closures; drop them before collection.
-      disposals.length = 0
+      // Closing the root also releases React's previous-render fiber.
+      await act(async () => root.render(null))
       for (let turn = 0; turn < 3; turn++) {
         await new Promise((resolve) => setTimeout(resolve, 0))
         ;(globalThis as unknown as { Bun: { gc(force: boolean): void } }).Bun.gc(true)
