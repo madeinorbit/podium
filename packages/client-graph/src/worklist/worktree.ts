@@ -8,7 +8,7 @@ import type { Worklist } from './view-model'
 import { sidebarRosterView } from './sidebar-roster'
 import { sidebarRosterOf, type SidebarState } from './sidebar'
 import { LOADING } from './rollup'
-import { fleetOf, sidebarTiming } from './sidebar-row'
+import { fleetOf, sidebarTiming, sidebarTimingFromFacts, combineSidebarSessionField, NO_SIDEBAR_SESSIONS, type SidebarSessionFacts } from './sidebar-row'
 import { motionPhase } from './rollup'
 import type { SliceSession } from '../shared/slice-types'
 
@@ -138,6 +138,42 @@ export class WorklistWorktree {
   }
   @lazy({ equals: compareStructural }) get visibleFleet() {
     return fleetOf(this.sessions as unknown as SliceSession[], session => this.worklist.pool.sessionObject(session.sessionId).open)
+  }
+  @lazy({ equals: compareStructural }) get factFleet() {
+    let fleet = NO_SIDEBAR_SESSIONS.fleet
+    for (const session of this.sessions) fleet = combineSidebarSessionField('fleet', fleet, session.fleet)
+    return fleet
+  }
+  @lazy({ equals: compareStructural }) private get workingTimer() {
+    let timer: SidebarSessionFacts['working']
+    for (const session of this.sessions) timer = combineSidebarSessionField('working', timer, session.workingTimer)
+    return timer
+  }
+  @lazy({ equals: compareStructural }) private get waitingTimer() {
+    let timer: SidebarSessionFacts['waitingOpen']
+    for (const session of this.sessions) if (session.motion === 'waiting')
+      timer = combineSidebarSessionField('waitingOpen', timer, session.waitingTimer)
+    return timer
+  }
+  @lazy private get doneSinceMs() {
+    let latest = 0
+    for (const session of this.sessions) latest = Math.max(latest, session.doneSinceMs)
+    return latest
+  }
+  @lazy private get workingMsTotal() {
+    let total: number | undefined
+    for (const session of this.sessions) total = combineSidebarSessionField('totalMs', total, session.workingMsTotal)
+    return total
+  }
+  @lazy({ equals: compareStructural }) get factTiming() {
+    const tree = this
+    return sidebarTimingFromFacts({
+      get working() { return tree.workingTimer },
+      get waitingOpen() { return tree.waitingTimer },
+      get doneSince() { return tree.doneSinceMs },
+      get totalMs() { return tree.workingMsTotal },
+      fleet: NO_SIDEBAR_SESSIONS.fleet, errorClass: null, allUnstarted: true,
+    }, this.visiblePhase, false, this.activityAt)
   }
   @lazy get navigation() { return this.sessions[0] ? { kind: 'session' as const, id: this.sessions[0].sessionId } : null }
 }

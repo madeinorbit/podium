@@ -28,6 +28,7 @@ import { DEFER_NEXT_MESSAGE } from './views'
 import { activityMsOf, displayRefOf, parseMs, type RepoRow, repoTargetPartOf, prefixPartOf, originRefPartOf, type ViewInputs } from './views'
 import { LOADING, type Loaded as LoadedRow, type OwnFacts, ownFactsOf, type RollupInputs, isSessionWorking } from './worklist/rollup'
 import type { VisibleInputs } from './worklist/visible'
+import { fleetOf, unstarted, type SidebarSessionFacts } from './worklist/sidebar-row'
 
 const EMPTY_DEPENDENTS: readonly { id: string; type: string }[] = Object.freeze([])
 
@@ -771,7 +772,7 @@ export class IssueModel extends EntityModel {
 
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel {
-  static override readonly answers = new Set(['archived'])
+  static override readonly answers = new Set(['archived', 'unread'])
 
   constructor(id: string, host: ModelHost) {
     super('session', id, host)
@@ -862,6 +863,37 @@ export class SessionModel extends EntityModel {
   get executionSinceMs(): number | null {
     return this.executing && Number.isFinite(this.stateSinceMs) ? this.stateSinceMs : null
   }
+
+  // Timing and fleet: one session's contribution, shared by every owner row.
+  @lazy({ equals: compareStructural })
+  get fleet(): SidebarSessionFacts['fleet'] {
+    return fleetOf([this as unknown as SliceSession], () => this.open)
+  }
+
+  @lazy get workingMsTotal(): number | undefined { return this.agentState?.workingMsTotal }
+
+  @lazy get unread(): SessionView['unread'] { return this.storedField('unread') as SessionView['unread'] }
+
+  @lazy({ equals: compareStructural })
+  get workingTimer(): SidebarSessionFacts['working'] {
+    if (!this.executing) return undefined
+    return { stateSince: this.stateSinceMs, sinceMs: this.stateSinceMs,
+      ...(this.workingMsTotal !== undefined ? { baseMs: this.workingMsTotal } : {}) }
+  }
+
+  @lazy({ equals: compareStructural })
+  get waitingTimer(): NonNullable<SidebarSessionFacts['waitingOpen']> {
+    return { stateSince: this.stateSinceMs,
+      sinceMs: Date.parse(this.offer?.createdAt ?? '') || this.stateSinceMs }
+  }
+
+  @lazy get doneSinceMs(): number { return this.stateSinceMs || 0 }
+
+  @lazy get errorClass(): string | null {
+    return this.open && this.phase === 'errored' ? this.agentState?.error?.class ?? 'unknown' : null
+  }
+
+  @lazy get unstarted(): boolean { return unstarted(this as unknown as SliceSession) }
 
   @lazy
   get asking(): boolean {
