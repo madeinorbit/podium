@@ -5,6 +5,7 @@ import { sidebarNested } from './worklist/sidebar'
 import { MODEL_CLASSES, type ModelHost } from './models'
 import { worklistView } from './worklist/view-model'
 import { headerModel } from './header-companion'
+import { displayRefOf } from './views'
 import { aggregatePartOf, LOADING, ownAttentionPartOf, unitOwnPartOf, unitsBelowPartOf } from './worklist/rollup'
 
 /**
@@ -49,6 +50,27 @@ function fixture() {
   ] })
   return pool
 }
+
+it('a cold reference keeps the stored identity without requesting its payload', () => {
+  const schedule = vi.fn(() => () => {})
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
+    load: () => undefined, schedule, summaries: { issue: ['seq', 'repoPath'] },
+  })
+  pool.apply({ type: 'replace', rows: [
+    { kind: 'repo', id: '/synthetic', value: { id: '/synthetic', path: '/synthetic', prefix: 'POD' } as never },
+    { kind: 'issue', id: 'cold-ref', value: issueRow('cold-ref', {
+      seq: 0, stage: 'done', closedAt: '2020-01-01T00:00:00Z', updatedAt: '2020-01-01T00:00:00Z',
+    }) as never },
+  ] })
+  try {
+    const stored = pool.row('issue', 'cold-ref', 'summary-fields')
+    expect(stored && stored !== LOADING ? stored.seq : undefined).toBe(0)
+    expect(pool.issueObject('cold-ref').displayRef).toBe(displayRefOf(0, 'POD'))
+    expect(pool.tables.issue.has('cold-ref')).toBe(false)
+    expect(schedule).not.toHaveBeenCalled()
+    expect(pool.issueObject('missing-ref').displayRef).toBe('')
+  } finally { pool.dispose() }
+})
 
 it('keeps a parent-only reader asleep when its unchanged parent becomes unplaced', () => {
   const pool = fixture(), child = pool.worklistRow('child')!

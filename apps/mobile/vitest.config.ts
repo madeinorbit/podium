@@ -87,6 +87,10 @@ export default defineConfig({
     dedupe: ['react', 'react-dom'],
     alias: [
       ...sharedAliases,
+      // The Node entry uses CommonJS require and bypasses the React aliases.
+      // Transform the observer's ESM entry so it shares the mobile renderer's
+      // dispatcher, including when imported through client-graph.
+      { find: /^mobx-react-lite$/, replacement: mobileVitestResolution.mobxReactLite },
       // An ABSOLUTE replacement, because this rewrite also fires for inlined
       // third-party code (react-native-svg below), whose files live in the
       // isolated linker's store — a bare `react-native-web` would be resolved
