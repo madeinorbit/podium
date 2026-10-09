@@ -33,6 +33,7 @@ interface Entry {
   text: string
   publish: (mounted: boolean, finding?: boolean) => void
   finding: boolean
+  nativeProxy: boolean
   revealing: boolean
   operator: boolean
 }
@@ -51,6 +52,7 @@ interface TranscriptWindow {
   refresh: () => void
   schedule: () => void
   remeasure: (key: string) => void
+  beginFind: () => void
 }
 
 export function useTranscriptWindow(
@@ -75,6 +77,19 @@ export function useTranscriptWindow(
       mounted.current.delete(key)
     }
   }, [])
+  const beginFind = useCallback(() => {
+    const scroll = scrollRef.current
+    if (!scroll || scroll.clientHeight <= 0) return
+    nativeFinding.current = true
+    scroll.dispatchEvent(new Event('podium-transcript-find-start'))
+    flushSync(() => {
+      for (const [key, entry] of entries.current) {
+        entry.mounted = true
+        mounted.current.add(key)
+        entry.publish(true)
+      }
+    })
+  }, [scrollRef])
   const refresh = useCallback(() => {
     const scroll = scrollRef.current
     if (!scroll || scroll.clientHeight <= 0) return
@@ -272,15 +287,7 @@ export function useTranscriptWindow(
         // Native Find owns its ranges and match count outside the document.
         // Give it the original rich rows for the session, just as Select All
         // needs them, then release everything except its committed selection.
-        nativeFinding.current = true
-        scroll.dispatchEvent(new Event('podium-transcript-find-start'))
-        flushSync(() => {
-          for (const [key, entry] of entries.current) {
-            entry.mounted = true
-            mounted.current.add(key)
-            entry.publish(true)
-          }
-        })
+        beginFind()
       }, 0)
     }
     const finishNativeFind = () => {
@@ -288,6 +295,12 @@ export function useTranscriptWindow(
       findTimer = undefined
       if (!nativeFinding.current) return
       nativeFinding.current = false
+      for (const entry of entries.current.values()) {
+        if (!entry.finding) continue
+        entry.finding = false
+        entry.nativeProxy = false
+        entry.publish(entry.mounted, false)
+      }
       update()
     }
     const findSelection = () => {
@@ -325,8 +338,8 @@ export function useTranscriptWindow(
       if (frame.current !== null) cancelAnimationFrame(frame.current)
       frame.current = null
     }
-  }, [refresh, schedule, scrollRef])
-  return useMemo(() => ({ register, refresh, schedule, remeasure }), [register, refresh, schedule, remeasure])
+  }, [refresh, schedule, scrollRef, beginFind])
+  return useMemo(() => ({ register, refresh, schedule, remeasure, beginFind }), [register, refresh, schedule, remeasure, beginFind])
 }
 
 /** A stable shell also lets the existing minimap and scroll controller address
@@ -348,7 +361,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
     if (found !== undefined) setFinding(found)
   }, [])
   useLayoutEffect(() => {
-    const value: Entry = { node: ref.current!, mounted: true, height: 0, text: '', publish, finding: false, revealing: false, operator: Boolean(ref.current!.querySelector('[data-operator-prompt="true"]')) }
+    const value: Entry = { node: ref.current!, mounted: true, height: 0, text: '', publish, finding: false, nativeProxy: false, revealing: false, operator: Boolean(ref.current!.querySelector('[data-operator-prompt="true"]')) }
     entry.current = value
     return windowing.register(rowKey, value)
   }, [rowKey, windowing, publish])
@@ -370,19 +383,25 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
     if (!node) return
     if (!finding) node.setAttribute('hidden', 'until-found')
     const found = () => {
-      // A committed selection owns this text node until its range transfers.
-      // Otherwise replace the proxy at the start of the shell: native Find
-      // retries a removed match from that position in the restored rich row.
       const selection = document.getSelection()
       if (selection?.anchorNode && !selection.isCollapsed && node.contains(selection.anchorNode)) {
+        // A committed selection owns this node until its range transfers.
         entry.current!.finding = true
         flushSync(() => setFinding(true))
+        ref.current!.dispatchEvent(new Event('podium-transcript-reveal', { bubbles: true }))
+      } else {
+        // Menu Find has no page keydown. Preserve its first range, but lock
+        // that proxy out of painting/search so Blink retries in the original
+        // rich rows without a duplicate hit or a collapsed wrap boundary.
+        entry.current!.finding = true
+        entry.current!.nativeProxy = true
+        flushSync(() => setFinding(true))
+        windowing.beginFind()
       }
-      ref.current!.dispatchEvent(new Event('podium-transcript-reveal', { bubbles: true }))
     }
     node.addEventListener('beforematch', found)
     return () => node.removeEventListener('beforematch', found)
-  }, [mounted, finding])
+  }, [mounted, finding, windowing])
   useLayoutEffect(() => {
     if (!finding) return
     const finish = () => {
@@ -446,9 +465,9 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
     data-transcript-placeholder={!mounted ? '' : undefined}
     data-block={!mounted ? index : undefined} data-row-key={!mounted ? rowKey : undefined}
     style={{ flexShrink: 0, display: 'flow-root', position: 'relative', height: mounted ? undefined : entry.current?.height, minWidth: 0 }}>
-    {(!mounted || finding) && <div key="find-proxy" ref={proxy} data-transcript-find-proxy="" aria-hidden="true"
-      style={{ position: 'absolute', inset: 0, opacity: finding ? 0 : undefined, pointerEvents: 'none', whiteSpace: 'pre-wrap' }}>{entry.current?.text}</div>}
     {mounted && (typeof children === 'function' ? children(remounted.current) : children)}
+    {(!mounted || finding) && <div key="find-proxy" ref={proxy} data-transcript-find-proxy="" aria-hidden="true"
+      style={{ position: 'absolute', inset: 0, opacity: finding ? 0 : undefined, contentVisibility: finding && entry.current?.nativeProxy ? 'hidden' : undefined, pointerEvents: 'none', whiteSpace: 'pre-wrap' }}>{entry.current?.text}</div>}
     {!mounted && <button type="button" className="sr-only" aria-label={entry.current?.text}
       onFocus={(event) => {
         const reverse = event.relatedTarget instanceof Node && Boolean(ref.current!.compareDocumentPosition(event.relatedTarget) & Node.DOCUMENT_POSITION_FOLLOWING)

@@ -181,14 +181,17 @@ it('preserves the matched occurrence when native Find repeats a word in one mess
   expect(selection.anchorOffset).toBe(15)
 })
 
-it('keeps only the buffer drawn across repeated native Find jumps without duplicate search text', () => {
-  const earlier = host.querySelector('[data-transcript-row="row-600"]')!
+it('preserves the menu Find range while excluding its proxy from search, then restores the buffer on close', () => {
+  act(() => root.render(<Fixture key="menu-find" count={100} />))
+  const earlier = host.querySelector('[data-transcript-row="row-60"]')!
   const text = earlier.querySelector('[data-transcript-find-proxy]')!.firstChild!
   act(() => text.parentElement!.dispatchEvent(new Event('beforematch')))
-  scroll(48_000)
-  const next = host.querySelector('[data-transcript-row="row-900"]')!
-  act(() => next.querySelector('[data-transcript-find-proxy]')!.dispatchEvent(new Event('beforematch')))
-  scroll(72_000)
+  expect(text.isConnected).toBe(true)
+  expect(text.parentElement!.style.contentVisibility).toBe('hidden')
+  expect(host.querySelectorAll('[data-message]')).toHaveLength(100)
+  scroll(7_200)
+  act(() => document.body.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', bubbles: true })))
+  paint()
   expect(earlier.querySelector('[data-message]')).toBeNull()
   expect(text.isConnected).toBe(false)
   expect(host.querySelectorAll('[data-message]').length).toBeLessThan(40)
