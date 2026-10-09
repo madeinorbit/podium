@@ -10,7 +10,7 @@ if (hostname() !== 'flatblock') throw new Error('Run on flatblock only')
 const arm = process.argv[2]
 if (arm !== 'before' && arm !== 'after') throw new Error('Choose before or after')
 const directory = resolve('.artifacts/transcript-window', arm)
-const baseline = '8376e9744be109420e51d837a13c8c31ec917ab3'
+const baseline = '38cccb0b8fb980010ae36f216eef00f616d8461e'
 await mkdir(directory, { recursive: true })
 if (process.argv.includes('--build')) {
   const { build } = await import('../node_modules/vite/dist/node/index.js')
@@ -222,7 +222,7 @@ try {
     return { tag: element.tagName, text: element.textContent, row: element.closest('[data-row-key]')?.getAttribute('data-row-key') }
   })
   if (keyboardFocus.row !== 'message-0') throw new Error('Native Tab did not restore the first off-window message control')
-  const report = { arm, baseline, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), browser: browser.version(), samples, pagingAnchor, fastScroll, jump, wheel, selectionCopy: { selected, copied }, nativeFind, nativeFindRoundTrip, nativeReveal, emptyFindClose, keyboardFocus, errors }
+  const report = { arm, baseline, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), browser: browser.version(), menuFind, samples, pagingAnchor, fastScroll, jump, wheel, selectionCopy: { selected, copied }, nativeFind, nativeFindRoundTrip, nativeReveal, emptyFindClose, keyboardFocus, errors }
   await writeFile(resolve(directory, 'report.json'), JSON.stringify(report, null, 2))
   console.log(JSON.stringify({ arm, samples: samples.map(({ loaded, elements, drawn, heapUsed }) => ({ loaded, elements, drawn, heapUsed })), blankFrames: fastScroll.filter(sample => sample.visible === 0).length, jump: { key: jump.key, offset: jump.offset }, errors }))
   if (errors.length || fastScroll.some(sample => sample.visible === 0)) throw new Error('Production scroll proof failed')
