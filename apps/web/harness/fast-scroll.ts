@@ -29,6 +29,7 @@ if (process.argv.includes('--build')) {
       define: { ...base.define, __DEV__: 'false', 'process.env.NODE_ENV': '"production"' },
       plugins: [...(arm === 'before' ? [{ name: 'unchanged-product-windowing', enforce: 'pre' as const, load(id: string) { const path = ['apps/web/src/features/issues/use-bounded-virtual-list.ts', 'apps/web/src/app/flight-deck-window.tsx', 'packages/client-core/src/react/use-dom-transcript-scroll.ts'].find(path => id.endsWith('/' + path)); return path ? execFileSync('git', ['show', 'ff68b5e727:' + path], { encoding: 'utf8' }) : null } }] : []), ...(base.plugins?.filter(plugin => !/meter|acceptance-state/.test((plugin as { name?: string })?.name ?? '')) ?? [])],
       build: { ...base.build, outDir: resolve(output, fixture), emptyOutDir: true, minify: true, sourcemap: false,
+        rolldownOptions: fixture === 'phone-lists' ? { ...base.build?.rolldownOptions, input: resolve('apps/mobile/test/inbox.browser.html') } : base.build?.rolldownOptions,
         rollupOptions: fixture === 'phone-lists' ? { input: resolve('apps/mobile/test/inbox.browser.html') } : base.build?.rollupOptions },
     })
   }
