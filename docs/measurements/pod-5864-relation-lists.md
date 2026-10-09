@@ -44,7 +44,7 @@ index replacement; and the first join into an empty list. The existing model
 and pool collection files pass unchanged: 13 and 4 checks respectively.
 
 The reader audit covers all 69 syntactic relation/subset call sites in the
-client graph, web and mobile production paths. Six belong to the separate
+client graph, web and mobile production paths. Five belong to the separate
 one-argument relation-bucket interface and one to the plain cold index. The
 changed native readers' consumers use iteration, spread, a Set constructor,
 the first iterator item, or query ID providers, all preserved by readonly ID
@@ -82,8 +82,9 @@ that overhead while its dedicated join/leave proof preserves liveness.
 
 ## Final gates and structural census
 
-Final validation on the rebased candidate is pending the shared flatblock
-leases. Earlier lean gate, full typecheck, zero-ratchet scan, normal web build
-and isolated production sidebar/issue-panel render were green before the
-empty-slot optimization. The final results will replace this paragraph before
-landing; those earlier gates are not claimed as validation of the final tip.
+The operator moved heavy validation and landing to the shared POD-5895 lane
+on 2026-10-09. Its final gates and census are pending the candidate handoff.
+Earlier lean gate, full typecheck, zero-ratchet scan, normal web build and
+isolated production sidebar/issue-panel render were green before the empty-slot
+optimization. Those earlier gates are not claimed as validation of the final
+tip. The two production render screenshots are attached to POD-5864.
