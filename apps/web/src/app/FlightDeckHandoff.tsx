@@ -1,13 +1,12 @@
-import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   type HandoffNowEntry,
   type HandoffTranscriptPair,
   type IssueNavigationModel,
-  reviewReturnCount,
   summarizeHandoffSessions,
 } from '@podium/client-core/values'
-import type { MissionHandoffValues } from '@podium/client-graph/mission-view'
+import type { MissionScreen } from '@podium/client-graph/mission-screen'
+import { type MissionHandoffValues, settled } from '@podium/client-graph/mission-view'
 import type { IssueId, SessionId } from '@podium/model/browser'
 import { issueDisplayRef } from '@podium/protocol'
 import { ChevronDown } from 'lucide-react'
@@ -16,11 +15,9 @@ import type { JSX, ReactNode } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 import { renderReadoutMarkdown } from '@/lib/markdown'
 import { cn } from '@/lib/utils'
-import type { Trpc } from './trpc'
 import { useHandoffTranscript } from './use-handoff-transcript'
 
 const INITIAL_ROWS = 8
-const reviewReturnCache = new Map<string, number>()
 
 function formatStamp(value: string | null | undefined): string | null {
   if (!value) return null
@@ -111,58 +108,29 @@ function TranscriptCard({
   )
 }
 
-function useReviewReturns(
-  entries: readonly HandoffNowEntry[],
-  issues: readonly IssueNavigationModel[],
-): ReadonlyMap<string, number> {
-  const trpc = useStoreHandle<Trpc>().access.trpc
-  const ids = useMemo(() => entries.map((entry) => entry.issueId), [entries])
-  const [counts, setCounts] = useState<ReadonlyMap<string, number>>(() => new Map())
-
+/** The review-return suffix of one current entry. The count is asked for when
+ * the entry is shown; a failed read says so instead of counting zero. */
+const ReviewReturnText = observer(function ReviewReturnText({
+  answers,
+  issueId,
+  text,
+  children,
+}: {
+  answers: Pick<MissionScreen, 'reviewReturn' | 'requestReviewReturns' | 'reader'>
+  issueId: string
+  text: string
+  children: (text: string) => ReactNode
+}): JSX.Element {
+  const issue = answers.reader.facts(issueId)
+  const version = settled(() => issue.updatedAt as string)
   useEffect(() => {
-    let cancelled = false
-    if (ids.length === 0) {
-      setCounts(new Map())
-      return
-    }
-    const queue = [...ids]
-    const next = new Map<string, number>()
-    const worker = async (): Promise<void> => {
-      while (queue.length > 0) {
-        const id = queue.shift()
-        if (!id) return
-        const issue = issues.find((candidate) => candidate.id === id)
-        if (!issue) continue
-        const cacheKey = `${issue.id}\n${issue.updatedAt}`
-        const cached = reviewReturnCache.get(cacheKey)
-        if (cached !== undefined) {
-          next.set(id, cached)
-          continue
-        }
-        try {
-          const events = await trpc.issues.events.query({
-            since: 0,
-            repoPath: issue.repoPath ?? null,
-            subject: issue.id,
-            limit: 200,
-          })
-          const count = reviewReturnCount(events)
-          reviewReturnCache.set(cacheKey, count)
-          next.set(id, count)
-        } catch {
-          next.set(id, 0)
-        }
-      }
-    }
-    void Promise.all(Array.from({ length: Math.min(4, queue.length) }, () => worker())).then(() => {
-      if (!cancelled) setCounts(next)
-    })
-    return () => {
-      cancelled = true
-    }
-  }, [ids, issues, trpc])
-  return counts
-}
+    answers.requestReviewReturns(issueId)
+  }, [answers, issueId, version])
+  const answer = answers.reviewReturn(issue)
+  if (answer.error !== null) return <>{children(`${text} Review history could not be read.`)}</>
+  const count = answer.count ?? 0
+  return <>{children(count > 1 ? `${text} Returned from review ${count} times.` : text)}</>
+})
 
 function HandoffEntry({
   issue,
@@ -319,9 +287,10 @@ const HandoffTranscript = observer(function HandoffTranscript({
   )
 })
 
-export function FlightDeckHandoff({
+export const FlightDeckHandoff = observer(function FlightDeckHandoff({
   rootIssue,
-  issues,
+  issue: issueOf,
+  reviewReturns,
   lookupSession,
   visitReadAt,
   proposed,
@@ -331,7 +300,10 @@ export function FlightDeckHandoff({
   poolValues,
 }: {
   rootIssue: IssueNavigationModel
-  issues: readonly IssueNavigationModel[]
+  /** A mission issue's navigation row, by id. */
+  issue: (id: string) => IssueNavigationModel | undefined
+  /** The opening's review-return answers, loaded while an entry is shown. */
+  reviewReturns: Pick<MissionScreen, 'reviewReturn' | 'requestReviewReturns' | 'reader'>
   /** A mission sender by id, archived included. */
   lookupSession: (id: string) => SessionView | undefined
   visitReadAt: string | null
@@ -355,13 +327,11 @@ export function FlightDeckHandoff({
   const [currentLimit, setCurrentLimit] = useState(INITIAL_ROWS)
   const [nextLimit, setNextLimit] = useState(INITIAL_ROWS)
   const displayedCurrent = useMemo(() => current.slice(0, currentLimit), [current, currentLimit])
-  const returns = useReviewReturns(displayedCurrent, issues)
   // biome-ignore lint/correctness/useExhaustiveDependencies: Reset visible limits when the mission changes.
   useEffect(() => {
     setCurrentLimit(INITIAL_ROWS)
     setNextLimit(INITIAL_ROWS)
   }, [rootIssue.id])
-  const issueById = useMemo(() => new Map(issues.map((issue) => [issue.id, issue])), [issues])
 
   const summaryParts = [
     `${summary.computing} computing now`,
@@ -408,15 +378,10 @@ export function FlightDeckHandoff({
         ) : (
           <div className="handoff-events">
             {displayedCurrent.map((entry) => {
-              const issue = issueById.get(entry.issueId)
+              const issue = issueOf(entry.issueId)
               if (!issue) return null
               const session =
                 'sessionId' in entry && entry.sessionId ? lookupSession(entry.sessionId) : undefined
-              const returnCount = returns.get(entry.issueId) ?? 0
-              const text =
-                returnCount > 1
-                  ? `${entry.text} Returned from review ${returnCount} times.`
-                  : entry.text
               const state =
                 entry.kind === 'working'
                   ? 'Computing'
@@ -428,8 +393,8 @@ export function FlightDeckHandoff({
                         ? 'Review'
                         : 'Blocked'
               return (
-                <HandoffEntry
-                  key={entry.issueId}
+                <ReviewReturnText key={entry.issueId} answers={reviewReturns} issueId={entry.issueId} text={entry.text}>
+                {(text) => <HandoffEntry
                   issue={issue}
                   session={session}
                   state={state.toLowerCase()}
@@ -449,7 +414,8 @@ export function FlightDeckHandoff({
                       ? onOpenSession(entry.issueId, session.sessionId)
                       : onOpenIssue(entry.issueId)
                   }
-                />
+                />}
+                </ReviewReturnText>
               )
             })}
             {current.length > currentLimit && (
@@ -468,7 +434,7 @@ export function FlightDeckHandoff({
         ) : (
           <div className="handoff-events">
             {next.slice(0, nextLimit).map((entry, index) => {
-              const issue = issueById.get(entry.issueId)
+              const issue = issueOf(entry.issueId)
               if (!issue) return null
               const session = entry.sessionId ? lookupSession(entry.sessionId) : undefined
               return (
@@ -496,4 +462,4 @@ export function FlightDeckHandoff({
       {proposed && <div className="handoff-proposals">{proposed}</div>}
     </div>
   )
-}
+})
