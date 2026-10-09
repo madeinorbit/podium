@@ -55,6 +55,7 @@ export function PinnedBrief({
   scrollerRef,
   scrollBy,
   onBodyClick,
+  onJump,
 }: {
   brief: PinnedBriefState | null
   /** The feed under the shelf — see `onWheel` below for why it is needed. */
@@ -65,6 +66,8 @@ export function PinnedBrief({
    *  shelf is not a descendant of the row, so it cannot inherit the delegation
    *  and would otherwise be a wall of dead chips. */
   onBodyClick: (e: ReactMouseEvent) => void
+  /** Scroll the feed back to the prompt this shelf is carrying. */
+  onJump: () => void
 }): JSX.Element | null {
   // Opening is a gesture that belongs to the MOMENT, not to the message: any
   // change of which brief the shelf is carrying closes it again, including
@@ -147,16 +150,32 @@ export function PinnedBrief({
     scrollBy(e.deltaY)
   }
 
+  /**
+   * A CLICK ON THE SHELF IS A WAY BACK TO THE PROMPT. Anything interactive
+   * inside it keeps its own meaning — the toggle opens the shelf, refs and file
+   * links open their targets, code blocks copy — and a click that finishes a
+   * text selection is the reader copying words, not asking to move.
+   */
+  const onClick = (e: ReactMouseEvent): void => {
+    onBodyClick(e)
+    if (e.defaultPrevented) return
+    const target = e.target as HTMLElement | null
+    if (target?.closest?.('a, button, input, textarea, select, [data-pressable]')) return
+    const selection = window.getSelection()
+    if (selection && !selection.isCollapsed && selection.toString() !== '') return
+    onJump()
+  }
+
   return (
     <div className="brief-shelf-layer" data-testid="pinned-brief">
-      {/* biome-ignore lint/a11y/noStaticElementInteractions: the wheel handler restores default scrolling the overlay would otherwise swallow; the click handler activates only anchors the markdown pass emitted */}
-      {/* biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users reach those anchors and the toggle natively */}
+      {/* biome-ignore lint/a11y/noStaticElementInteractions: the wheel handler restores default scrolling the overlay would otherwise swallow; the click handler activates anchors the markdown pass emitted and otherwise jumps the feed back to the prompt */}
+      {/* biome-ignore lint/a11y/useKeyWithClickEvents: keyboard users reach those anchors and the toggle natively; the jump is a pointer shortcut for what scrolling already does */}
       <div
         className="brief-shelf"
         data-open={open ? 'true' : undefined}
         data-clipped={clipped && !open ? 'true' : undefined}
         onWheel={onWheel}
-        onClick={onBodyClick}
+        onClick={onClick}
       >
         <div
           // `chat-md` on purpose: the shelf is carrying the reader's own

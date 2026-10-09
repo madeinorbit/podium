@@ -281,6 +281,7 @@ const ConversationChatView = observer(function ConversationChatView({
             brief={chat.scroll.pinnedBrief}
             scrollerRef={chat.scrollerRef}
             scrollBy={chat.scroll.scrollBy}
+            onJump={chat.scroll.scrollToPinned}
             onBodyClick={(e) => {
               handleChatMdClick(e, sessionId, chat.view.cwd, chat.openFile)
             }}

@@ -3813,6 +3813,8 @@ html[data-setup-only="true"] [data-testid="update-panel"] {
   background: var(--card);
   box-shadow: 0 14px 30px -18px var(--chat-shadow);
   pointer-events: auto;
+  /* Clicking the shelf scrolls the feed back to the prompt it carries. */
+  cursor: pointer;
   /* THE BRIEF'S LINE BOX, PUBLISHED WHERE THE SIDE COLUMN CAN SEE IT (POD-1213).
      The time stamps the words but lives in a different column from them, and the
      two were only ever aligned at their TOPS — a 23px line box beside an 11px
