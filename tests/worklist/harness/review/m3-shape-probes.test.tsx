@@ -200,7 +200,7 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
     schedule: () => () => {},
   })
   const pool = handle.pool
-  const known: Record<EntityName, string[]> = {
+  const known: Partial<Record<EntityName, string[]>> = {
     issue: source.snapshot('issue').map((r) => r.id),
     session: source.snapshot('session').map((r) => r.id),
     worktree: source.snapshot('worktree').map((r) => r.id),
@@ -211,7 +211,7 @@ function measure(label: string, source: RowSource, locals: LocalsSource): void {
     if (relation.kind !== 'hasMany' && !(relation.kind === 'edge' && relation.direction === 'in'))
       continue
     let best = { key: '', size: 0 }
-    for (const id of known[from]) {
+    for (const id of known[from] ?? []) {
       const size = tracked(() => pool.relations.size(from, id, name))
       if (size > best.size) best = { key: id, size }
     }

@@ -61,7 +61,9 @@ async function fixture(scale: Scale): Promise<Fixture> {
           .filter((record) => record.value !== undefined)
           .map((record) => [record.id, record.value as unknown as Row]),
       )
-    const tables = { issue: table('issue'), session: table('session'), worktree: table('worktree'), repo: table('repo') }
+    const tables: Record<Kind, ReadonlyMap<string, Row>> & Partial<Record<EntityName, ReadonlyMap<string, Row>>> = {
+      issue: table('issue'), session: table('session'), worktree: table('worktree'), repo: table('repo'),
+    }
     const now = parityLocals(ctx).coarseNow
     const rule = tableColdContext(SCHEMA, (entity: EntityName) => tables[entity], now)
     return {

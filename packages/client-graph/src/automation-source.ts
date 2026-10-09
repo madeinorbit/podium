@@ -105,7 +105,7 @@ export class AutomationSource {
     runInAction(() => {
       const records: RowRecord[] = []
       for (const [kind, rows] of [['automation', definitions], ['automationRun', runs]] as const) {
-        const keep = new Set(rows.map(row => row.id))
+        const keep = new Set<string>(rows.map(row => row.id))
         for (const id of this.ids[kind]) if (!keep.has(id)) records.push({ kind, id, value: undefined })
         for (const row of rows) records.push({ kind, id: row.id, value: row as RowRecord['value'] })
       }

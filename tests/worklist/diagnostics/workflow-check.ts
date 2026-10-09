@@ -4,6 +4,7 @@ import type { ExecutionProfileWire, WorkflowRunWire } from '@podium/protocol'
 import { MachineWire } from '@podium/model'
 import { getObserverTree, Reaction, runInAction } from 'mobx'
 import type { MobxPool } from '@podium/client-graph/pool'
+import type { MachineModel } from '@podium/client-graph/models'
 import { workflowMachines, workflowSubject } from '@podium/client-graph/workflow-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { compareSidebarSnapshots, type SidebarSnapshot } from './sidebar-check'
@@ -39,7 +40,7 @@ export function poolWorkflowSnapshot(pool: MobxPool, inputs: WorkflowCheckInputs
   const options = placementOptions(views)
   const sections: SidebarSnapshot['sections'] = [
     { key: 'placement', fields: Object.fromEntries(Object.entries(options).map(([key, machines]) => [key,
-      machines.map(machine => modelFields('machine', machine, Object.keys(MachineWire.shape))),
+      machines.map((machine: MachineModel) => modelFields('machine', machine, Object.keys(MachineWire.shape))),
     ])), pendingFields: machinesPending ? Object.keys(options) : [], rows: [] },
     { key: 'profiles', fields: {}, rows: inputs.profiles.map(profile => ({ id: profile.id, pending: machinesPending > 0, fields: { ...profilePlacement(profile, views) } })) },
     { key: 'subjects', fields: {}, rows: inputs.runs.map(run => {

@@ -25,7 +25,8 @@ import { openFenceFeeds, parityLocals } from './fence-scenarios'
 
 const KINDS = ['issue', 'session', 'worktree', 'repo'] as const
 type Kind = (typeof KINDS)[number]
-type Tables = Readonly<Record<Kind, ReadonlyMap<string, Readonly<Record<string, unknown>>>>>
+type RowTable = ReadonlyMap<string, Readonly<Record<string, unknown>>>
+type Tables = Readonly<Record<Kind, RowTable> & Partial<Record<EntityName, RowTable>>>
 
 const HOUR = 60 * 60 * 1000
 const DAY = 24 * HOUR
