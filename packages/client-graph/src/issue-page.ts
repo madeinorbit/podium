@@ -349,28 +349,6 @@ export function createIssuePageViews(pool: MobxPool) {
     if (disposed) return LOADING
     return roster(id, 'pageSessions').get()
   }
-  function closeFacts(
-    id: string,
-  ): Loaded<{ subject: IssueCloseScalarSubject; members: IssueCloseMemberCounts }> {
-    const known = omitGone(pool.row('issue', id, 'summary-fields'))
-    if (!known || known === LOADING) return known
-    const model = pool.issueObject(id) as PageIssue
-    try {
-      return {
-        subject: {
-          needsHuman: model.closeNeedsHuman,
-          asked: model.closeQuestion === undefined ? undefined : { question: model.closeQuestion },
-          git: model.closeGit,
-          parentBranch: model.parentBranch ?? 'main',
-          ...model.closeChildren,
-        },
-        members: model.closeMembers,
-      }
-    } catch (error) {
-      if (error === LOADING) return LOADING
-      throw error
-    }
-  }
   function roster(
     id: string,
     relation: 'pageSessions' | 'missionSessions' | 'bornSessions',
@@ -466,9 +444,16 @@ export function createIssuePageViews(pool: MobxPool) {
   function summary(id: string): Loaded<IssueViewModel> {
     return memo(`summary:${id}`, () => readSummary(id))
   }
+  const summaryIssues = createQueryResult<IssueViewModel>({
+    name: 'IssuePage@summaries',
+    ids: () => pool.queries.ids({ kind: 'pageIssues' }),
+    has: (id) => pool.queries.has({ kind: 'pageIssues' }, id),
+    read: readSummary,
+    subscribe: (changed) => pool.queries.onQuestionMembers({ kind: 'pageIssues' }, changed),
+  })
   function issues(): Loaded<IssueViewModel[]> {
     if (disposed) return LOADING
-    return pool.queries.project({ kind: 'pageIssues' }, 'IssuePage@summaries', readSummary)
+    return summaryIssues.get()
   }
   const detailLists = new Set<ReturnType<typeof createIssueDetailLists>>()
   const companions = companion((model: PageIssue) => {
@@ -481,8 +466,7 @@ export function createIssuePageViews(pool: MobxPool) {
   }
   function issue(id: string): Loaded<PageIssue> {
     if (disposed) return LOADING
-    const raw = omitGone(pool.row('issue', id))
-    return !raw || raw === LOADING ? raw : (pool.issueObject(id) as PageIssue)
+    return readPageIssue(pool, id)
   }
   /** Resolve identity before any detail section subscribes to its own fields. */
   function panelIssue(args: {
@@ -529,46 +513,49 @@ export function createIssuePageViews(pool: MobxPool) {
         ? undefined
         : root
   }
+  const explorerIssues = createQueryResult<IssueViewModel>({
+    name: 'IssuePage@explorerIssues',
+    ids: () => pool.queries.ids({ kind: 'pageIssues' }),
+    has: (id) => pool.queries.has({ kind: 'pageIssues' }, id),
+    read: (id) => {
+      const value = summary(id)
+      if (!value || value === LOADING) return value
+      const children = memo(
+        `explorerChildren:${id}`,
+        () => {
+          const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
+          let childDoneCount = 0
+          for (const childId of childIds) {
+            const child = omitGone(pool.row('issue', childId, 'summary')) as Loaded<{
+              stage?: string
+              closedReason?: string | null
+            }>
+            if (child && child !== LOADING && isFinished(child)) childDoneCount++
+          }
+          return {
+            childIds: childIds.map(asIssueId),
+            childCount: childIds.length,
+            childDoneCount,
+          }
+        },
+        true,
+      )
+      const memberSessionIds = memo(
+        `explorerMembers:${id}`,
+        () => [...pool.graph.many('issue', id, 'pageSessions')].sort(byId).map(asSessionId),
+        true,
+      )
+      return { ...value, ...children, memberSessionIds }
+    },
+    subscribe: (changed) => pool.queries.onQuestionMembers({ kind: 'pageIssues' }, changed),
+  })
   function explorer(): Loaded<{ issues: IssueViewModel[]; sessions: SessionView[] }> {
     return memo(
       'explorer',
       () => {
         // This retained catalog is explicit full-list demand. Maintain each
         // answer by address; updates never reconstruct or compare its world.
-        const world = pool.queries.project(
-          { kind: 'pageIssues' },
-          'IssuePage@explorerIssues',
-          (id) => {
-            const value = summary(id)
-            if (!value || value === LOADING) return value
-            const children = memo(
-              `explorerChildren:${id}`,
-              () => {
-                const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
-                let childDoneCount = 0
-                for (const childId of childIds) {
-                  const child = omitGone(pool.row('issue', childId, 'summary')) as Loaded<{
-                    stage?: string
-                    closedReason?: string | null
-                  }>
-                  if (child && child !== LOADING && isFinished(child)) childDoneCount++
-                }
-                return {
-                  childIds: childIds.map(asIssueId),
-                  childCount: childIds.length,
-                  childDoneCount,
-                }
-              },
-              true,
-            )
-            const memberSessionIds = memo(
-              `explorerMembers:${id}`,
-              () => [...pool.graph.many('issue', id, 'pageSessions')].sort(byId).map(asSessionId),
-              true,
-            )
-            return { ...value, ...children, memberSessionIds }
-          },
-        )
+        const world = explorerIssues.get()
         if (!world || world === LOADING) return world
         const seats = explorerSeats.get()
         return seats === LOADING ? LOADING : { issues: world, sessions: seats ?? [] }
@@ -587,12 +574,15 @@ export function createIssuePageViews(pool: MobxPool) {
     explorer,
     memberSessions,
     attachedSessions,
-    closeFacts,
+    closeFacts: (id: string) => readIssueCloseFacts(pool, id),
     dispose() {
       disposed = true
       cache.clear()
       identities.clear()
+      companions.clear()
       explorerSeats.dispose()
+      summaryIssues.dispose()
+      explorerIssues.dispose()
       for (const lists of detailLists) lists.dispose()
       detailLists.clear()
       for (const roster of rosters.values()) roster.dispose()
@@ -603,5 +593,35 @@ export function createIssuePageViews(pool: MobxPool) {
 
 export type IssuePageViews = ReturnType<typeof createIssuePageViews>
 export function issuePages(pool: MobxPool): IssuePageViews {
-  return pool.sources.view('issue-page', () => createIssuePageViews(pool))
+  return createIssuePageViews(pool)
+}
+
+export function readIssueCloseFacts(
+  pool: MobxPool,
+  id: string,
+): Loaded<{ subject: IssueCloseScalarSubject; members: IssueCloseMemberCounts }> {
+  const known = omitGone(pool.row('issue', id, 'summary-fields'))
+  if (!known || known === LOADING) return known
+  const model = pool.issueObject(id) as PageIssue
+  try {
+    return {
+      subject: {
+        needsHuman: model.closeNeedsHuman,
+        asked: model.closeQuestion === undefined ? undefined : { question: model.closeQuestion },
+        git: model.closeGit,
+        parentBranch: model.parentBranch ?? 'main',
+        ...model.closeChildren,
+      },
+      members: model.closeMembers,
+    }
+  } catch (error) {
+    if (error === LOADING) return LOADING
+    throw error
+  }
+}
+
+/** Shared identity lookup for controls that have no detail-view rules. */
+export function readPageIssue(pool: MobxPool, id: string): Loaded<PageIssue> {
+  const raw = omitGone(pool.row('issue', id))
+  return !raw || raw === LOADING ? raw : (pool.issueObject(id) as PageIssue)
 }

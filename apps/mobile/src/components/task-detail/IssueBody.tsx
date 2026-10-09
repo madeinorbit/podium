@@ -1,5 +1,4 @@
-import { issuePages } from '@podium/client-graph/issue-page'
-import { useMobilePool } from '../../client/mobile-pool'
+import { useIssueOpening } from '../../client/issue-opening'
 import { issueObserver as observer } from '../../client/issue-observer'
 import { isClosed } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
@@ -36,10 +35,10 @@ export const IssueTitle = observer(function IssueTitle({
   busy: boolean
   commands: IssueCommands
 }) {
-  const pool = useMobilePool()
+  const views = useIssueOpening()
   return (
     <InlineEditable
-      value={pool ? issuePages(pool).row(issue.id).title : issue.title}
+      value={views ? views.row(issue.id).title : issue.title}
       placeholder="Untitled task"
       ariaLabel="Task title"
       busy={busy}

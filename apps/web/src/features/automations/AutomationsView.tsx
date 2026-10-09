@@ -1,3 +1,4 @@
+import { AutomationOpening } from '@/app/automation-readers'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { AutomationRunWire, AutomationWire } from '@podium/model/browser'
 import { Plus } from 'lucide-react'
@@ -15,6 +16,14 @@ export type AutomationRun = AutomationRunWire
 
 /** Live, replica-backed automations and honest run history [spec:SP-17db]. */
 export function AutomationsView(): JSX.Element {
+  return (
+    <AutomationOpening>
+      <AutomationsViewBody />
+    </AutomationOpening>
+  )
+}
+
+function AutomationsViewBody(): JSX.Element {
   const trpc = useStoreHandle<Trpc>().access.trpc
   const { automations, pending } = useAutomationList()
   const [error, setError] = useState('')

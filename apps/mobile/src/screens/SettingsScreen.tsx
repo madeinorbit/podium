@@ -1,3 +1,4 @@
+import { SettingsOpening } from './settings-opening'
 import { connectedDeviceViews, visibleFleetOperations } from '@podium/client-core/values'
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
@@ -32,6 +33,14 @@ function openDesktop() {
 }
 
 export function SettingsScreen() {
+  return (
+    <SettingsOpening>
+      <SettingsScreenBody />
+    </SettingsOpening>
+  )
+}
+
+function SettingsScreenBody() {
   const router = useRouter()
   // The modal sheet reaches the physical bottom edge, so the last row still has
   // to clear the home indicator (the hook is the plain safe-area inset here).

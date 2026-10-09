@@ -2,8 +2,9 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { type PageIssue, type IssuePageViews, issuePages } from '@podium/client-graph/issue-page'
+import { type PageIssue, type IssuePageViews } from '@podium/client-graph/issue-page'
 import { createContext, useCallback, useContext } from 'react'
+import { useIssueViews } from './opening-context'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
 
 /** Nested controls reuse their page's addressed values. Other pool surfaces
@@ -22,17 +23,19 @@ export function useIssuePageContext() {
 
 const EMPTY_ISSUES: IssueViewModel[] = []
 const EMPTY_SESSIONS: SessionView[] = []
-const readSessions = (pool: MobxPool) => issuePages(pool).explorer()
 /** A closed selector owns no catalog derivation or row subscriptions. */
 export function useIssuePageCatalog(open: boolean): IssueViewModel[] {
+  const views = useIssueViews(open)
   const read = useCallback(
-    (pool: MobxPool) => (open ? issuePages(pool).issues() : EMPTY_ISSUES),
-    [open],
+    (pool: MobxPool) => (open ? views?.issues() : EMPTY_ISSUES),
+    [open, views],
   )
   const value = useWorklistPoolProjection(read, EMPTY_ISSUES)
   return value && typeof value !== 'symbol' ? value : EMPTY_ISSUES
 }
 function usePoolSessions(): SessionView[] {
+  const views = useIssueViews()
+  const readSessions = useCallback((_pool: MobxPool) => views?.explorer(), [views])
   const value = useWorklistPoolProjection(readSessions, undefined)
   return value && typeof value !== 'symbol' ? value.sessions : EMPTY_SESSIONS
 }

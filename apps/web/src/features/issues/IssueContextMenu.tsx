@@ -1,3 +1,4 @@
+import { useIssueViews } from './issue-page/opening-context'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
@@ -130,7 +131,10 @@ export function IssueContextMenu({
   primaryStart?: boolean
   poolInputs: IssueMenuPoolInputs
 }): JSX.Element | null {
-  const readOrigins = useCallback((pool: import('@podium/client-graph').MobxPool) => readIssueMenuOrigins(pool, issues), [issues])
+  const readOrigins = useCallback(
+    (pool: import('@podium/client-graph').MobxPool) => readIssueMenuOrigins(pool, issues),
+    [issues],
+  )
   const origins = useWorklistPoolProjection(readOrigins, undefined)
   const allIssues = origins ?? suppliedIssues
   const {
@@ -154,17 +158,29 @@ export function IssueContextMenu({
   // renderer, so the menu it was launched from stayed painted underneath it.
   const confirm = useConfirm()
   const [sub, setSub] = useState<{ kind: IssueMenuSubmenu; top: number } | null>(null)
-  const handoffId = poolInputs.handoff && 'session' in poolInputs.handoff ? poolInputs.handoff.session.sessionId : undefined
+  const handoffId =
+    poolInputs.handoff && 'session' in poolInputs.handoff
+      ? poolInputs.handoff.session.sessionId
+      : undefined
   const targetsOpen = handoffEnabled && sub?.kind === 'handoff'
-  const readTargets = useCallback((pool: MobxPool) =>
-    targetsOpen && handoffId ? readMissionHandoffTargets(missionView(pool), handoffId) : undefined,
-  [targetsOpen, handoffId])
+  const readTargets = useCallback(
+    (pool: MobxPool) =>
+      targetsOpen && handoffId
+        ? readMissionHandoffTargets(missionView(pool), handoffId)
+        : undefined,
+    [targetsOpen, handoffId],
+  )
   const targets = useWorklistPoolProjection(readTargets, undefined)
   // The close guard the menu mounts for itself when the host has no dialog of
   // its own. Non-null means the panel has handed over to the dialog.
   const [pendingClose, setPendingClose] = useState<IssueCloseReason | null>(null)
   const [closing, setClosing] = useState(false)
-  const readChoices = useCallback((pool: import('@podium/client-graph').MobxPool) => readIssueMenuChoices(pool, sub?.kind), [sub?.kind])
+  const choiceViews = useIssueViews(sub?.kind === 'labels' || sub?.kind === 'duplicate')
+  const readChoices = useCallback(
+    (pool: import('@podium/client-graph').MobxPool) =>
+      choiceViews ? readIssueMenuChoices(pool, sub?.kind, choiceViews) : undefined,
+    [sub?.kind, choiceViews],
+  )
   const choices = useWorklistPoolProjection(readChoices, undefined)
   const needsCloseGuard = useIssueCloseGuard()
 
@@ -211,9 +227,13 @@ export function IssueContextMenu({
   const ids = issues.map((issue) => issue.id)
   const handoff =
     handoffEnabled && issues.length === 1
-      ? issueHandoffAvailability(first, sessions,
-        reposToViews(targets && targets !== LOADING ? targets.repos : repos),
-        targets && targets !== LOADING ? targets.machines : machines, poolInputs.handoff)
+      ? issueHandoffAvailability(
+          first,
+          sessions,
+          reposToViews(targets && targets !== LOADING ? targets.repos : repos),
+          targets && targets !== LOADING ? targets.machines : machines,
+          poolInputs.handoff,
+        )
       : null
   const handoffSession = handoff && 'session' in handoff ? handoff.session : null
   const handoffCandidates =

@@ -7,7 +7,7 @@ import { parseSessionRef } from '@podium/protocol'
 import { reaction } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
 import { MobileInbox, screeningQueue } from './mobile-triage'
-import { issuePages } from './issue-page'
+import { readPageIssue } from './issue-page'
 import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -35,7 +35,7 @@ export function createMobileInboxViews(pool: MobxPool) {
   }
   const screening = new ScreeningQueue()
   function issue(id: string) {
-    return issuePages(pool).issue(id)
+    return readPageIssue(pool, id)
   }
   function chip(token: string, refKind: 'issue' | 'session', prefix: string) {
     const known = pool.queries.hasIssuePrefix(prefix, true)
@@ -86,7 +86,9 @@ export function createMobileInboxViews(pool: MobxPool) {
           ? `/session/${encodeURIComponent(row.sessionId)}`
           : null
     }
-    const direct = omitGone(pool.row('issue', target.issue.trim(), 'summary')) as Loaded<{ id: string }>
+    const direct = omitGone(pool.row('issue', target.issue.trim(), 'summary')) as Loaded<{
+      id: string
+    }>
     if (direct && direct !== LOADING) return `/issue/${encodeURIComponent(direct.id)}`
     // Bare aliases match the displayed fallback literally. Unlike PREFIX-N,
     // the legacy route does not parse a zero-padded bare sequence number.

@@ -1,7 +1,7 @@
 import { omitGone } from '@podium/client-graph/lookup'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
-import { issuePages } from '@podium/client-graph/issue-page'
+import { issuePages, type IssuePageViews } from '@podium/client-graph/issue-page'
 import { readAddressedIssueRef } from '@/lib/addressed-issue-ref'
 import type { IssueMenuSubmenu } from './issue-menu-config'
 
@@ -33,8 +33,12 @@ export function readIssueMenuOrigins(pool: MobxPool, issues: readonly IssueNavig
 }
 
 /** Catalog demand belongs to the visible choice list, never its trigger. */
-export function readIssueMenuChoices(pool: MobxPool, kind: IssueMenuSubmenu | undefined) {
+export function readIssueMenuChoices(
+  pool: MobxPool,
+  kind: IssueMenuSubmenu | undefined,
+  views?: IssuePageViews,
+) {
   if (kind !== 'labels' && kind !== 'duplicate') return undefined
-  const rows = issuePages(pool).issues()
+  const rows = (views ?? issuePages(pool)).issues()
   return rows && typeof rows !== 'symbol' ? rows : undefined
 }

@@ -8,10 +8,27 @@ import type { SettingsRows } from './settings-schema'
 import { LOADING } from './worklist/rollup'
 import { createAutomationTargets } from './automation-targets'
 
-export type TargetAvailability = 'available' | 'unauthorized' | 'unreachable' | 'incapable' | 'disabled' | 'degraded'
-export interface AutomationTarget { value: string; label: string; availability: TargetAvailability; opaque?: true }
+export type TargetAvailability =
+  | 'available'
+  | 'unauthorized'
+  | 'unreachable'
+  | 'incapable'
+  | 'disabled'
+  | 'degraded'
+export interface AutomationTarget {
+  value: string
+  label: string
+  availability: TargetAvailability
+  opaque?: true
+}
 export type TargetExclusions = Record<Exclude<TargetAvailability, 'available'>, number>
-export const EMPTY_EXCLUSIONS: TargetExclusions = { unauthorized: 0, unreachable: 0, incapable: 0, disabled: 0, degraded: 0 }
+export const EMPTY_EXCLUSIONS: TargetExclusions = {
+  unauthorized: 0,
+  unreachable: 0,
+  incapable: 0,
+  disabled: 0,
+  degraded: 0,
+}
 
 /** Value reads always use pool.row. Memos live only while observed. Catalog
  * relations cover resident definitions/runs, and cold sessions contribute only
@@ -48,11 +65,12 @@ export function createAutomationViews(pool: MobxPool) {
       const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
       const repos: SettingsRows['settingsRepository'][] = []
       let pending = catalog === LOADING ? 1 : 0
-      if (catalog && catalog !== LOADING) for (const id of catalog.repositories) {
-        const row = omitGone(pool.row('settingsRepository', id))
-        if (row === LOADING) pending++
-        else if (row) repos.push(row)
-      }
+      if (catalog && catalog !== LOADING)
+        for (const id of catalog.repositories) {
+          const row = omitGone(pool.row('settingsRepository', id))
+          if (row === LOADING) pending++
+          else if (row) repos.push(row)
+        }
       return { repos, pending }
     })
   }
@@ -64,10 +82,21 @@ export function createAutomationViews(pool: MobxPool) {
     const present = pool.queries.setupSessionPresent(id)
     return present ? omitGone(pool.model('session', id)) : undefined
   }
-  return { list, repositories, targets: targetViews.targets, target: targetViews.target,
-    targetMachine: targetViews.targetMachine, targetForPath: targetViews.targetForPath, run, session,
-    dispose: () => { cache.clear(); targetViews.dispose() } }
+  return {
+    list,
+    repositories,
+    targets: targetViews.targets,
+    target: targetViews.target,
+    targetMachine: targetViews.targetMachine,
+    targetForPath: targetViews.targetForPath,
+    run,
+    session,
+    dispose: () => {
+      cache.clear()
+      targetViews.dispose()
+    },
+  }
 }
 export function automationViews(pool: MobxPool) {
-  return pool.sources.view('automations', () => createAutomationViews(pool))
+  return createAutomationViews(pool)
 }

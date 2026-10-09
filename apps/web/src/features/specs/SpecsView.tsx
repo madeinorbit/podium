@@ -1,3 +1,4 @@
+import { AutomationOpening } from '@/app/automation-readers'
 import { machinePathBasename } from '@podium/model/browser'
 import '@blocknote/core/fonts/inter.css'
 import '@blocknote/mantine/style.css'
@@ -62,6 +63,14 @@ function useIsDark(): boolean {
 }
 
 export function SpecsView(): JSX.Element {
+  return (
+    <AutomationOpening>
+      <SpecsViewBody />
+    </AutomationOpening>
+  )
+}
+
+function SpecsViewBody(): JSX.Element {
   const trpc = useStoreHandle<Trpc>().access.trpc
   const { repos, pending: repositoryPending } = useSpecsRepositories()
   const confirm = useConfirm()
@@ -287,7 +296,11 @@ export function SpecsView(): JSX.Element {
   if (!activeRepo) {
     return (
       <div className="flex flex-1 items-center justify-center text-sm text-muted-foreground">
-        {repositoryPending ? <span role="status">Loading repositories…</span> : 'Add a repository to start a spec.'}
+        {repositoryPending ? (
+          <span role="status">Loading repositories…</span>
+        ) : (
+          'Add a repository to start a spec.'
+        )}
       </div>
     )
   }

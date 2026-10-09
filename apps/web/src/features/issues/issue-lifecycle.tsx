@@ -6,7 +6,7 @@ import {
   issueCloseConcerns,
   issueCloseConcernsFromCounts,
 } from '@podium/client-core/values'
-import { issuePages } from '@podium/client-graph/issue-page'
+import { readIssueCloseFacts } from '@podium/client-graph/issue-page'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { ISSUE_STATUS_LABELS, type IssueCloseReason } from '@podium/model/browser'
 import { AlertTriangle, GitBranch, GitCommit, MessageCircleQuestion, Users } from 'lucide-react'
@@ -88,18 +88,29 @@ export function useIssueCloseGuard(
   _suppliedSessions?: readonly SessionView[],
 ): (issue: IssueNavigationModel) => boolean {
   const pool = useWorklistPool()
-  return useCallback((issue) => {
-    const facts = pool ? issuePages(pool).closeFacts(issue.id) : LOADING
-    // Unknown or unsettled data keeps the close pending.
-    return !facts || facts === LOADING ||
-      blockingCloseConcerns(issueCloseConcernsFromCounts(facts.subject, facts.members)).length > 0
-  }, [pool])
+  return useCallback(
+    (issue) => {
+      const facts = pool ? readIssueCloseFacts(pool, issue.id) : LOADING
+      // Unknown or unsettled data keeps the close pending.
+      return (
+        !facts ||
+        facts === LOADING ||
+        blockingCloseConcerns(issueCloseConcernsFromCounts(facts.subject, facts.members)).length > 0
+      )
+    },
+    [pool],
+  )
 }
 
 function useCloseConcerns(id: string) {
-  const read = useCallback((pool: Parameters<typeof issuePages>[0]) => issuePages(pool).closeFacts(id), [id])
+  const read = useCallback(
+    (pool: Parameters<typeof readIssueCloseFacts>[0]) => readIssueCloseFacts(pool, id),
+    [id],
+  )
   const facts = useWorklistPoolProjection(read, LOADING)
-  return facts && facts !== LOADING ? issueCloseConcernsFromCounts(facts.subject, facts.members) : LOADING
+  return facts && facts !== LOADING
+    ? issueCloseConcernsFromCounts(facts.subject, facts.members)
+    : LOADING
 }
 
 /** What a batch close is about to do, issue by issue. `flagged` keeps the input
@@ -184,16 +195,20 @@ function OpenIssueCloseDialog({
             {/* The ending is named only when it is NOT the ordinary one:
                 "Close this issue?" already means done, and spelling that out
                 would make the common path read like a special case. */}
-            {pending ? 'Checking this issue…' : blockers.length > 0
-              ? 'This issue still needs attention'
-              : reason && reason !== 'done'
-                ? `Close this issue as ${ISSUE_STATUS_LABELS[reason].toLowerCase()}?`
-                : 'Close this issue?'}
+            {pending
+              ? 'Checking this issue…'
+              : blockers.length > 0
+                ? 'This issue still needs attention'
+                : reason && reason !== 'done'
+                  ? `Close this issue as ${ISSUE_STATUS_LABELS[reason].toLowerCase()}?`
+                  : 'Close this issue?'}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {pending ? 'Waiting for the issue’s current close concerns.' : blockers.length > 0
-              ? 'Review what remains. Closing is still available, but it should be an explicit decision.'
-              : 'No unresolved decisions, active work, open sub-tasks, or attributable delivery work were found.'}
+            {pending
+              ? 'Waiting for the issue’s current close concerns.'
+              : blockers.length > 0
+                ? 'Review what remains. Closing is still available, but it should be an explicit decision.'
+                : 'No unresolved decisions, active work, open sub-tasks, or attributable delivery work were found.'}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {concerns.length > 0 && (
@@ -284,18 +299,23 @@ function OpenIssueBulkCloseDialog({
   onOpenChange: (open: boolean) => void
   onConfirm: (reason: IssueCloseReason) => void
 }): JSX.Element | null {
-  const read = useCallback((pool: Parameters<typeof issuePages>[0]) => {
-    const summary: IssueBulkCloseSummary = { flagged: [], clear: 0 }
-    for (const issue of issues) {
-      const value = issuePages(pool).closeFacts(issue.id)
-      if (!value || value === LOADING) return LOADING
-      const concerns = blockingCloseConcerns(issueCloseConcernsFromCounts(value.subject, value.members))
-      const lead = concerns[0]
-      if (lead) summary.flagged.push({ issue, lead, concerns })
-      else summary.clear++
-    }
-    return summary
-  }, [issues])
+  const read = useCallback(
+    (pool: Parameters<typeof readIssueCloseFacts>[0]) => {
+      const summary: IssueBulkCloseSummary = { flagged: [], clear: 0 }
+      for (const issue of issues) {
+        const value = readIssueCloseFacts(pool, issue.id)
+        if (!value || value === LOADING) return LOADING
+        const concerns = blockingCloseConcerns(
+          issueCloseConcernsFromCounts(value.subject, value.members),
+        )
+        const lead = concerns[0]
+        if (lead) summary.flagged.push({ issue, lead, concerns })
+        else summary.clear++
+      }
+      return summary
+    },
+    [issues],
+  )
   const value = useWorklistPoolProjection(read, LOADING)
   const pending = value === LOADING
   const summary = pending ? { flagged: [], clear: 0 } : value
@@ -312,16 +332,20 @@ function OpenIssueBulkCloseDialog({
             {/* The headline counts what is WRONG when something is, because that
                 is the number the decision turns on — "3 of 12" is a different
                 press from "12 of 12". */}
-            {pending ? 'Checking selected tasks…' : summary.flagged.length > 0
-              ? `${summary.flagged.length} of ${count} tasks still need attention`
-              : ending
-                ? `Close ${count} tasks as ${ending}?`
-                : `Close ${count} tasks?`}
+            {pending
+              ? 'Checking selected tasks…'
+              : summary.flagged.length > 0
+                ? `${summary.flagged.length} of ${count} tasks still need attention`
+                : ending
+                  ? `Close ${count} tasks as ${ending}?`
+                  : `Close ${count} tasks?`}
           </AlertDialogTitle>
           <AlertDialogDescription>
-            {pending ? 'Waiting for the selected tasks’ current close concerns.' : summary.flagged.length > 0
-              ? 'Review what remains. Closing is still available, but it should be an explicit decision.'
-              : 'No unresolved decisions, active work, open sub-tasks, or attributable delivery work were found in the selection.'}
+            {pending
+              ? 'Waiting for the selected tasks’ current close concerns.'
+              : summary.flagged.length > 0
+                ? 'Review what remains. Closing is still available, but it should be an explicit decision.'
+                : 'No unresolved decisions, active work, open sub-tasks, or attributable delivery work were found in the selection.'}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {summary.flagged.length > 0 && (

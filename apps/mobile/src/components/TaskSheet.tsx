@@ -1,4 +1,5 @@
-import { issuePages, type PageIssue } from '@podium/client-graph/issue-page'
+import { IssueOpening, useIssueOpening } from '../client/issue-opening'
+import { readPageIssue, type PageIssue } from '@podium/client-graph/issue-page'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { useMobilePool } from '../client/mobile-pool'
 import { resolveEdgeFromPool } from '../client/use-issue-model'
@@ -102,7 +103,7 @@ export const TaskSheet = observer(function TaskSheet({
   const trpc = useTrpc()
   const attachedPool = useMobilePool()
   pool ??= attachedPool
-  const resolved = suppliedIssue && pool ? issuePages(pool).issue(suppliedIssue.id) : null
+  const resolved = suppliedIssue && pool ? readPageIssue(pool, suppliedIssue.id) : null
   const issue = typeof resolved === 'symbol' ? null : resolved
   const router = useRouter()
   const hex = issue ? (issueColorHex(issue.color) ?? FLOW_HEX) : FLOW_HEX
@@ -135,34 +136,36 @@ export const TaskSheet = observer(function TaskSheet({
 
   return (
     <>
-      <BottomSheet
-        visible={issue !== null}
-        onClose={onClose}
-        mode="detented"
-        accent={hex}
-        testID="task-sheet"
-        head={
-          issue ? (
-            <SheetHead pool={pool} issue={issue} hex={hex} onOpenSession={onOpenSession} />
-          ) : null
-        }
-        footer={issue ? <Composer placeholder="Comment on this task…" onSend={post} /> : null}
-        footerRule={false}
-      >
-        {issue ? (
-          <SheetBody
-            pool={pool}
-            issue={issue}
-            onOpenArtifact={openArtifact}
-            onOpenSession={onOpenSession}
-            onOpenIssue={(target) => {
-              if (onOpenIssue) return onOpenIssue(target)
-              onClose()
-              router.push(`/issue/${encodeURIComponent(target.id)}`)
-            }}
-          />
-        ) : null}
-      </BottomSheet>
+      <IssueOpening pool={pool} open={issue !== null}>
+        <BottomSheet
+          visible={issue !== null}
+          onClose={onClose}
+          mode="detented"
+          accent={hex}
+          testID="task-sheet"
+          head={
+            issue ? (
+              <SheetHead pool={pool} issue={issue} hex={hex} onOpenSession={onOpenSession} />
+            ) : null
+          }
+          footer={issue ? <Composer placeholder="Comment on this task…" onSend={post} /> : null}
+          footerRule={false}
+        >
+          {issue ? (
+            <SheetBody
+              pool={pool}
+              issue={issue}
+              onOpenArtifact={openArtifact}
+              onOpenSession={onOpenSession}
+              onOpenIssue={(target) => {
+                if (onOpenIssue) return onOpenIssue(target)
+                onClose()
+                router.push(`/issue/${encodeURIComponent(target.id)}`)
+              }}
+            />
+          ) : null}
+        </BottomSheet>
+      </IssueOpening>
       <ArtifactViewer
         artifact={viewer?.artifact ?? null}
         url={viewer?.url ?? null}
@@ -194,7 +197,8 @@ const SheetHead = observer(function SheetHead({
   const hasCloseBlockers = useIssueCloseGuard()
   const [stageOpen, setStageOpen] = useState(false)
   const [closeReason, setCloseReason] = useState<IssueCloseReason | null>(null)
-  const detail = pool ? issuePages(pool).row(issue.id) : undefined
+  const views = useIssueOpening()
+  const detail = views?.row(issue.id)
   const mine = detail?.inspectorSessions ?? []
   if (typeof mine === 'symbol') throw mine
   const asking = mine.filter((session) => session.asking)
@@ -336,7 +340,8 @@ const SheetBody = observer(function SheetBody({
 }) {
   const httpOrigin = useHttpOrigin()
   const profile = useOptionalServerProfile()
-  const detail = pool ? issuePages(pool).row(issue.id) : undefined
+  const views = useIssueOpening()
+  const detail = views?.row(issue.id)
   const children = detail?.children ?? []
   const mine = detail?.inspectorSessions ?? []
   if (typeof children === 'symbol' || typeof mine === 'symbol') throw LOADING

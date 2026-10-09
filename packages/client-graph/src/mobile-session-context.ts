@@ -6,14 +6,10 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { dedupeSessionsByResume } from '@podium/model'
 import { type MachineWire } from '@podium/model/browser'
 import { observable, runInAction } from 'mobx'
-import {
-  chatInteractions,
-  chatMentionIssues,
-  chatRecords,
-} from './chat-context'
+import { chatInteractions, chatMentionIssues, chatRecords } from './chat-context'
 import { CHAT_CONTEXT_ENTITIES } from './chat-context-schema'
 import { ChatContextSource } from './chat-context-source'
-import { issuePages } from './issue-page'
+import { readPageIssue } from './issue-page'
 import {
   MOBILE_SESSION_ENTITIES,
   MOBILE_SESSION_SOURCE_KEY,
@@ -31,7 +27,7 @@ import { LOADING, type Loaded } from './worklist/rollup'
 
 export function mobileSessionIssue(pool: MobxPool, id: string | undefined): Loaded<IssueViewModel> {
   if (id === undefined) return undefined
-  const row = issuePages(pool).issue(id)
+  const row = readPageIssue(pool, id)
   if (!row || row === LOADING || row.deletedAt) return row === LOADING ? LOADING : undefined
   return row
 }
@@ -63,8 +59,16 @@ export function createMobileSessionReader(pool: MobxPool) {
 
     issueAgentCount(id: string | undefined): Loaded<number> {
       if (id === undefined) return 0
-      const seats = issuePages(pool).attachedSessions(id)
-      return seats === LOADING ? LOADING : (seats?.filter((seat) => !seat.archived).length ?? 0)
+      // This service needs only the existing raw membership/count policy;
+      // it must not keep an issue-detail opening alive for its header.
+      let count = 0
+      for (const sid of pool.graph.many('issue', id, 'missionSessions')) {
+        if (pool.queries.collapsed(sid)) continue
+        const seat = omitGone(pool.row('session', sid)) as Loaded<SessionView>
+        if (seat === LOADING) return LOADING
+        if (seat && !seat.archived) count++
+      }
+      return count
     },
     nextSession: (id: string) => runInAction(() => pool.queries.nextTriageSession(id)),
     // Rule 1 (one shared model per record): the phone roster hands out the
@@ -74,7 +78,7 @@ export function createMobileSessionReader(pool: MobxPool) {
     sessions: () => pooledMobileSessions(pool),
     issues: () => chatMentionIssues(pool),
     machine: (id: string | undefined): MachineWire | undefined =>
-      id === undefined ? undefined : omitGone(pool.row('machine', id)) as MachineWire | undefined,
+      id === undefined ? undefined : (omitGone(pool.row('machine', id)) as MachineWire | undefined),
     /** Feed companion display name for the offline banner (POD-5661):
      * undefined without a companion, so the banner can fall back. */
     machineHome: (id: string | undefined): string | undefined =>

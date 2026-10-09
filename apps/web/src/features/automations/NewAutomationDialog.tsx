@@ -1,7 +1,13 @@
+import { AutomationOpening } from '@/app/automation-readers'
 import type { AutomationSessionMode, MachineId } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { memo, useState } from 'react'
-import { useAutomationTarget, useAutomationTargetForPath, useAutomationTargetMachine, useAutomationTargets } from '@/app/automation-readers'
+import {
+  useAutomationTarget,
+  useAutomationTargetForPath,
+  useAutomationTargetMachine,
+  useAutomationTargets,
+} from '@/app/automation-readers'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import {
@@ -93,7 +99,17 @@ function initialState(automation: Automation | null, defaultTarget: string): Aut
  * behind it yet, and a composer that silently discards its input is exactly what
  * POD-470 removed.
  */
-export function NewAutomationDialog({
+export function NewAutomationDialog(
+  props: Parameters<typeof NewAutomationDialogBody>[0],
+): JSX.Element {
+  return (
+    <AutomationOpening>
+      <NewAutomationDialogBody {...props} />
+    </AutomationOpening>
+  )
+}
+
+function NewAutomationDialogBody({
   trpc,
   automation,
   onClose,
@@ -107,18 +123,44 @@ export function NewAutomationDialog({
   const targets = useAutomationTargets(automation?.repoPath ?? null)
   // Mount the form only after batched catalogs/summaries settle, so its initial
   // target is the most recently used usable repository on the first render.
-  if (targets.pending) return (
-    <Dialog open onOpenChange={(open) => { if (!open) onClose() }}>
-      <DialogContent><DialogHeader><DialogTitle>{automation ? 'Edit automation' : 'New automation'}</DialogTitle></DialogHeader>
-        <p role="status">Loading automation targets…</p>
-      </DialogContent>
-    </Dialog>
+  if (targets.pending)
+    return (
+      <Dialog
+        open
+        onOpenChange={(open) => {
+          if (!open) onClose()
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{automation ? 'Edit automation' : 'New automation'}</DialogTitle>
+          </DialogHeader>
+          <p role="status">Loading automation targets…</p>
+        </DialogContent>
+      </Dialog>
+    )
+  return (
+    <AutomationForm
+      trpc={trpc}
+      automation={automation}
+      onClose={onClose}
+      onSaved={onSaved}
+      targets={targets}
+    />
   )
-  return <AutomationForm trpc={trpc} automation={automation} onClose={onClose} onSaved={onSaved} targets={targets} />
 }
 
-function AutomationForm({ trpc, automation, onClose, onSaved, targets }: {
-  trpc: Trpc; automation: Automation | null; onClose: () => void; onSaved: () => void
+function AutomationForm({
+  trpc,
+  automation,
+  onClose,
+  onSaved,
+  targets,
+}: {
+  trpc: Trpc
+  automation: Automation | null
+  onClose: () => void
+  onSaved: () => void
   targets: ReturnType<typeof useAutomationTargets>
 }): JSX.Element {
   const { ids, excluded } = targets
@@ -138,10 +180,7 @@ function AutomationForm({ trpc, automation, onClose, onSaved, targets }: {
     setState((prev) => ({ ...prev, ...next }))
 
   // One rights evaluation, the same predicate the automation cards use.
-  const right = automationRight(
-    editing ? 'edit' : 'create',
-    NEW_AUTOMATION_RIGHTS(ids.length > 0),
-  )
+  const right = automationRight(editing ? 'edit' : 'create', NEW_AUTOMATION_RIGHTS(ids.length > 0))
   const subform = automationSubform(state.kind)
   const canSave = canSaveAutomation(state, right) && !saving
   const blockedReason = !right.allowed
@@ -390,10 +429,17 @@ function AutomationField({
     <div className="flex flex-col gap-1.5">
       {field.label && <Label htmlFor={field.id}>{field.label}</Label>}
       {field.field === 'target' ? (
-        <Select value={state.target} onValueChange={target => onChange({ target: target ?? state.target })}>
-          <SelectTrigger id={field.id} className="w-full"><SelectValue>{targetLabel}</SelectValue></SelectTrigger>
+        <Select
+          value={state.target}
+          onValueChange={(target) => onChange({ target: target ?? state.target })}
+        >
+          <SelectTrigger id={field.id} className="w-full">
+            <SelectValue>{targetLabel}</SelectValue>
+          </SelectTrigger>
           <SelectContent>
-            {targetIds.map(id => <AutomationTargetOption key={id} id={id} />)}
+            {targetIds.map((id) => (
+              <AutomationTargetOption key={id} id={id} />
+            ))}
           </SelectContent>
         </Select>
       ) : field.control === 'select' ? (
@@ -434,9 +480,17 @@ function AutomationField({
   )
 }
 
-const AutomationTargetOption = memo(function AutomationTargetOption({ id }: { id: string }): JSX.Element | null {
+const AutomationTargetOption = memo(function AutomationTargetOption({
+  id,
+}: {
+  id: string
+}): JSX.Element | null {
   const choice = useAutomationTarget(id)
-  return choice ? <SelectItem value={choice.value} disabled={choice.opaque === true}>{choice.label}</SelectItem> : null
+  return choice ? (
+    <SelectItem value={choice.value} disabled={choice.opaque === true}>
+      {choice.label}
+    </SelectItem>
+  ) : null
 })
 
 function SelectField({

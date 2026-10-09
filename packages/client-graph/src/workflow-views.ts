@@ -1,7 +1,11 @@
 import './synced-models'
 import { omitGone } from './lookup'
-import { settingsView } from './settings-views'
-import { machineViewsFromWire, runSubjectReference, type RunSubjectReference } from '@podium/client-core/values'
+
+import {
+  machineViewsFromWire,
+  runSubjectReference,
+  type RunSubjectReference,
+} from '@podium/client-core/values'
 import type { WorkflowRunWire } from '@podium/protocol'
 import type { MobxPool } from './pool'
 import type { MachineModel } from './models'
@@ -22,12 +26,16 @@ export function workflowMachines(pool: MobxPool) {
   return { views: machineViewsFromWire(machines), pending }
 }
 
-export function workflowSubject(pool: MobxPool, run: WorkflowRunWire): RunSubjectReference<{ id: string }> | typeof LOADING {
+export function workflowSubject(
+  pool: MobxPool,
+  run: WorkflowRunWire,
+): RunSubjectReference<{ id: string }> | typeof LOADING {
   // The session summary applies the existing resume-twin rule and source-order
   // tie break. A raw keyed session read would expose a suppressed parked twin.
-  const present = run.subjectKind === 'session'
-    ? settingsView(pool).sessionPresent(run.subjectId)
-    : omitGone(pool.row(WORKFLOW_SCHEMA.issue.entity, run.subjectId, 'summary'))
+  const present =
+    run.subjectKind === 'session'
+      ? pool.queries.setupSessionPresent(run.subjectId)
+      : omitGone(pool.row(WORKFLOW_SCHEMA.issue.entity, run.subjectId, 'summary'))
   if (present === LOADING) return LOADING
-  return runSubjectReference(run, id => present ? { id } : undefined)
+  return runSubjectReference(run, (id) => (present ? { id } : undefined))
 }

@@ -1,4 +1,4 @@
-import { automationViews } from '@podium/client-graph/automation-views'
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -40,7 +40,7 @@ export class AutomationHistory extends RequestAnswer<readonly string[]> {
     const runs: AutomationRun[] = []
     if (!this.pool) return runs
     for (const id of this.answer ?? []) {
-      const run = automationViews(this.pool).run(id)
+      const run = omitGone(this.pool.row('automationRun', id))
       if (run && run !== LOADING) runs.push(run)
     }
     return runs
@@ -50,6 +50,6 @@ export class AutomationHistory extends RequestAnswer<readonly string[]> {
   @lazy get pending(): boolean {
     if (this.answer === undefined) return !this.error
     if (!this.pool) return true
-    return this.answer.some((id) => automationViews(this.pool!).run(id) === LOADING)
+    return this.answer.some((id) => omitGone(this.pool!.row('automationRun', id)) === LOADING)
   }
 }

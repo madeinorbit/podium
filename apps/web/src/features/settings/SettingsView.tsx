@@ -1,3 +1,4 @@
+import { SettingsOpening } from './opening-context'
 import type { SettingsWriteRefusal } from '@podium/commands/settings-write-plan'
 import type { ServerSecretKey } from '@podium/model/browser'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
@@ -265,7 +266,15 @@ function HibernationSettingsSection({
  * and renders through the SECTION_VIEWS lookup. The Telegram connect flow's
  * state (and its poll) stays here so it survives switching tabs.
  */
-export function SettingsView({ onClose }: { onClose: () => void }): JSX.Element {
+export function SettingsView(props: { onClose: () => void }): JSX.Element {
+  return (
+    <SettingsOpening>
+      <SettingsViewBody {...props} />
+    </SettingsOpening>
+  )
+}
+
+function SettingsViewBody({ onClose }: { onClose: () => void }): JSX.Element {
   const { trpc, setSettingsTab } = useSettingsClient()
   const settingsTab = useSettingsTab()
   const notificationsEnabled = useFeature('notifications')

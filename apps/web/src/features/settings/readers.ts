@@ -1,11 +1,12 @@
+import { createSettingsMachineReaders } from './settings-machine-readers'
+import { useOpeningView } from '@podium/client-graph/react'
+import { useSettingsOpening } from './opening-context'
 import { omitGone } from '@podium/client-graph/lookup'
-import { settingsView } from '@podium/client-graph/settings-views'
+import { createSettingsViews } from '@podium/client-graph/settings-views'
 import type { MachineModel, MobxPool } from '@podium/client-graph'
 import type { SettingsRows } from '@podium/client-graph/settings-schema'
 import type { GitRepositoryWire } from '@podium/model'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
-import { keyedComputed, lazy } from '@podium/mobx-helpers'
-import { compareShallow } from 'mobx'
 import { type Dispatch, type SetStateAction, useCallback, useMemo, useRef } from 'react'
 import type { Store } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
@@ -44,61 +45,22 @@ export function useSettingsCatalog(): Pick<Store, 'machines' | 'repos'> {
 const EMPTY_MACHINE_IDS: readonly string[] = []
 const EMPTY_MACHINES: MachineModel[] = []
 const EMPTY_TARGETS: Record<string, string> = {}
-class SettingsMachines {
-  constructor(private readonly pool: MobxPool) {}
-  @lazy({ equals: compareShallow }) get values(): MachineModel[] {
-    const catalog = omitGone(this.pool.row('settingsCatalog', 'catalog'))
-    if (!loaded(catalog)) return EMPTY_MACHINES
-    return catalog.machines.flatMap(id => {
-      const model = omitGone(this.pool.model('machine', id))
-      return loaded(model) ? [model] : []
-    })
-  }
-}
-function machineReaders(pool: MobxPool) {
-  return pool.sources.view('web.settings.machines', () => {
-    const models = new SettingsMachines(pool)
-    const ids = keyedComputed('settings.machineIds', (_key: null) => {
-      const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
-      return loaded(catalog) ? catalog.machines : EMPTY_MACHINE_IDS
-    })
-    const override = keyedComputed('settings.machineChannel', (id: string) => {
-      const row = omitGone(pool.model('machine', id))
-      return loaded(row) ? (row.updateChannelOverride ?? null) : null
-    })
-    const version = keyedComputed('settings.machineTarget', (id: string) => {
-      const row = omitGone(pool.model('machine', id))
-      return loaded(row) ? (row.targetVersion ?? null) : null
-    })
-    const targets = keyedComputed('settings.channelTargets', (channel: string | null) => {
-      const result: Record<string, string> = {}
-      for (const id of ids(null)) {
-        const selected = override(id) ?? channel
-        const target = version(id)
-        if (selected && target) result[selected] ??= target
-      }
-      return result
-    })
-    return {
-      models,
-      ids,
-      targets,
-      dispose() {
-        ids.clear()
-        override.clear()
-        version.clear()
-        targets.clear()
-      },
-    }
-  })
-}
-const readMachineIds = (pool: MobxPool) => machineReaders(pool).ids(null)
+
 export function useSettingsMachineIds(): readonly string[] {
-  return useWorklistPoolProjection(readMachineIds, EMPTY_MACHINE_IDS)
+  const view = useSettingsOpening()
+  const read = useCallback(
+    (_pool: MobxPool) => view?.machines.ids(null) ?? EMPTY_MACHINE_IDS,
+    [view],
+  )
+  return useWorklistPoolProjection(read, EMPTY_MACHINE_IDS)
 }
-const readMachines = (pool: MobxPool) => machineReaders(pool).models.values
 export function useSettingsMachines(): MachineModel[] {
-  return useWorklistPoolProjection(readMachines, EMPTY_MACHINES)
+  const view = useSettingsOpening()
+  const read = useCallback(
+    (_pool: MobxPool) => view?.machines.models.values ?? EMPTY_MACHINES,
+    [view],
+  )
+  return useWorklistPoolProjection(read, EMPTY_MACHINES)
 }
 export function useSettingsMachine(id: string | null): MachineModel | null {
   const read = useCallback(
@@ -112,7 +74,11 @@ export function useSettingsMachine(id: string | null): MachineModel | null {
   return useWorklistPoolProjection(read, null)
 }
 export function useSettingsMachineTargets(channel: string | null): Record<string, string> {
-  const read = useCallback((pool: MobxPool) => machineReaders(pool).targets(channel), [channel])
+  const view = useSettingsOpening()
+  const read = useCallback(
+    (_pool: MobxPool) => view?.machines.targets(channel) ?? EMPTY_TARGETS,
+    [view, channel],
+  )
   return useWorklistPoolProjection(read, EMPTY_TARGETS)
 }
 
@@ -126,7 +92,7 @@ export function useSettingsTab(): SettingsRows['settingsWindow']['settingsTab'] 
 
 export function useSettingsSessionPresent(id: string | null): boolean {
   const read = useCallback(
-    (pool: MobxPool) => id !== null && settingsView(pool).sessionPresent(id) === true,
+    (pool: MobxPool) => id !== null && pool.queries.setupSessionPresent(id) === true,
     [id],
   )
   return useWorklistPoolProjection(read, false)
@@ -139,7 +105,14 @@ export function useSettingsSetupSummary(repos: readonly GitRepositoryWire[]) {
     ],
     [repos],
   )
-  const readSetup = useCallback((pool: MobxPool) => settingsView(pool).setup(paths), [paths])
+  const pool = useWorklistPool()
+  const inherited = useSettingsOpening()
+  const own = useOpeningView(pool, createSettingsViews, !inherited)
+  const view = inherited?.settings ?? own
+  const readSetup = useCallback(
+    (_pool: MobxPool) => view?.setup(paths) ?? EMPTY_SETUP,
+    [view, paths],
+  )
   return useWorklistPoolProjection(readSetup, EMPTY_SETUP)
 }
 

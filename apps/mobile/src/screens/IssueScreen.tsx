@@ -1,5 +1,6 @@
+import { IssueOpening, useIssueOpening } from '../client/issue-opening'
 import { issueObserver as observer } from '../client/issue-observer'
-import { issuePages, type PageIssue } from '@podium/client-graph/issue-page'
+import { type PageIssue } from '@podium/client-graph/issue-page'
 import { issueActivity } from '@podium/client-graph/issue-activity'
 import { useMobilePool } from '../client/mobile-pool'
 import { resolveEdgeFromPool } from '../client/use-issue-model'
@@ -106,7 +107,15 @@ import { color, space } from '../theme/theme'
  * events puts the reply box thousands of pixels down the scroll, so replying
  * would mean first travelling past everything you were replying to.
  */
-export const IssueScreen = observer(function IssueScreen({
+export function IssueScreen(props: { dismiss?: boolean }) {
+  return (
+    <IssueOpening>
+      <IssueScreenBody {...props} />
+    </IssueOpening>
+  )
+}
+
+const IssueScreenBody = observer(function IssueScreenBody({
   dismiss = false,
 }: {
   dismiss?: boolean
@@ -210,7 +219,8 @@ const IssueContent = observer(function IssueContent({
   const hasCloseBlockers = useIssueCloseGuard()
   const { sendChat } = actions
   const pool = useMobilePool()
-  const detail = pool ? issuePages(pool).row(issue.id) : undefined
+  const views = useIssueOpening()
+  const detail = views?.row(issue.id)
 
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)

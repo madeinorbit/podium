@@ -1,6 +1,5 @@
 import { issueObserver as observer } from '../../client/issue-observer'
 import { issuePages, type PageIssue } from '@podium/client-graph/issue-page'
-import { useMobilePool } from '../../client/mobile-pool'
 import { isFinished } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -59,8 +58,8 @@ export const IssueSubIssues = observer(function IssueSubIssues({
 }) {
   const [adding, setAdding] = useState(false)
   const [title, setTitle] = useState('')
-  const pool = useMobilePool()
-  const rows = suppliedChildren ?? (pool ? issuePages(pool).row(issue.id).children : [])
+  const views = useIssueOpening()
+  const rows = suppliedChildren ?? (views ? views.row(issue.id).children : [])
   if (typeof rows === 'symbol') throw rows
   const subIssues = rows ?? []
   const legacyWorkers =

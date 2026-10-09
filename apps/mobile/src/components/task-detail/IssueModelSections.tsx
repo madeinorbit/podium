@@ -1,6 +1,6 @@
 import { issueObserver as observer } from '../../client/issue-observer'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { issuePages } from '@podium/client-graph/issue-page'
+import { useIssueOpening } from '../../client/issue-opening'
 import { useMobilePool } from '../../client/mobile-pool'
 import { resolveEdgeFromPool } from '../../client/use-issue-model'
 import { useIssueActivity } from '../../lib/use-issue-detail'
@@ -45,7 +45,8 @@ export const PhoneNow = observer(function PhoneNow({
   onOpenSession,
 }: Pick<ComponentProps<typeof IssueNow>, 'issue' | 'onOpenSession'>) {
   const pool = useMobilePool()
-  const sessions = pool ? issuePages(pool).row(issue.id).phoneSessions : []
+  const views = useIssueOpening()
+  const sessions = views ? views.row(issue.id).phoneSessions : []
   if (typeof sessions === 'symbol') throw sessions
   return (
     <IssueNow
@@ -60,13 +61,14 @@ export const PhoneProperties = observer(function PhoneProperties(
   props: Omit<ComponentProps<typeof IssueProperties>, 'sessions' | 'parent' | 'resolveEdge'>,
 ) {
   const pool = useMobilePool()
+  const views = useIssueOpening()
   if (!props.open)
     return (
       <Disclosure label="Details" open={false} onToggle={props.onToggle} testID="issue-details">
         {null}
       </Disclosure>
     )
-  const sessions = pool ? issuePages(pool).row(props.issue.id).phoneSessions : []
+  const sessions = views ? views.row(props.issue.id).phoneSessions : []
   if (typeof sessions === 'symbol') throw sessions
   const resolveEdge = (id: string | null | undefined) => resolveEdgeFromPool(pool, id)
   const parentEdge = resolveEdge(props.issue.parentId)

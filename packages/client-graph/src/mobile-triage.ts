@@ -119,14 +119,15 @@ export class MobileInbox {
   }
   @lazy get outboxSize() {
     return (
-      (omitGone(this.pool.row('window', 'window')) as { outboxSize: number } | undefined)?.outboxSize ?? 0
+      (omitGone(this.pool.row('window', 'window')) as { outboxSize: number } | undefined)
+        ?.outboxSize ?? 0
     )
   }
   session(id: string) {
     return this.pool.sessionObject(id)
   }
   issue(id: string) {
-    return issuePages(this.pool).issue(id)
+    return readPageIssue(this.pool, id)
   }
 }
 
@@ -190,7 +191,7 @@ export class ProposalScreening {
     return this.order[this.index + 1]
   }
   issue(id: string | undefined) {
-    return id ? issuePages(this.pool).issue(id) : undefined
+    return id ? readPageIssue(this.pool, id) : undefined
   }
   @lazy get current() {
     return this.issue(this.currentId)

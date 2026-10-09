@@ -1,7 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { pendingAskFromState, sessionCardModel } from '@podium/client-core/values'
-import { issuePages } from '@podium/client-graph/issue-page'
+import { readPageIssue } from '@podium/client-graph/issue-page'
 import { LOADING } from '@podium/client-graph/loading'
 import { useRouter } from 'expo-router'
 import { StyleSheet, Text, View } from 'react-native'
@@ -106,7 +106,7 @@ export const InboxSessionRow = issueObserver(function InboxSessionRow({
   const router = useRouter()
   if (!pool) return null
   const session = pool.sessionObject(id) as unknown as SessionView
-  const issue = session.issueId ? issuePages(pool).issue(session.issueId) : undefined
+  const issue = session.issueId ? readPageIssue(pool, session.issueId) : undefined
   if (issue === LOADING) throw LOADING
   if (needsYou) return <NeedsYouCard session={session} issue={issue} now={Date.now()} />
   return (
