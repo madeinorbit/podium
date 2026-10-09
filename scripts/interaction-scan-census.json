@@ -2592,30 +2592,6 @@
     {
       "file": "apps/web/src/app/MachinesPanel.tsx",
       "holder": "MachinesPanelView",
-      "rule": "consume:filter",
-      "tokens": "5609196e0b62006654c6035bd35406508f38cab865d5a32ab014cb7043873d15",
-      "gate": [
-        "&&:8a33d83f0dd1fdc8ed2f2652c8a8f74826f76e539dff044dc58cf957898c9e43"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "25d87df85be1b63cf15d1194180b8c9c8fa56849c44bdb7d45f217cf0a39e195",
-        "504bbb7c265df7dfde0c66bce9a25603e624c78ebbbb6d366a326776216b3507",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "bfa6210c24d90e0ff0464446d7a6436c31c06f9d23f3b92ed3796c78b3d719d3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MachinesPanelView",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/MachinesPanel.tsx",
-      "holder": "MachinesPanelView",
       "rule": "consume:map",
       "tokens": "938aca834ad20d6327eb85c8d9a47aac9a743d6204d7d7fb37da6fd9a85ef732",
       "gate": [
@@ -2634,53 +2610,6 @@
       "trigger": "Invocation of MachinesPanelView",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/MachinesPanel.tsx",
-      "holder": "MachinesPanelView",
-      "rule": "consume:map",
-      "tokens": "bab94be8b67d5c3d669dcde91234b9ca7bbc5534a4fca8631540b8d0d80d3c91",
-      "gate": [
-        "else:962523ab2b0d3ca4ee954fdf29404f2b12c6374deb3bfcde5a102709b32cc856",
-        "else:030d4f50357bf43d06226d9be1a5ad735165e8ccdec330316606c23b4d065ab7"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "25d87df85be1b63cf15d1194180b8c9c8fa56849c44bdb7d45f217cf0a39e195",
-        "504bbb7c265df7dfde0c66bce9a25603e624c78ebbbb6d366a326776216b3507",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "c3e267df4f63bdc38f1faab032002ce608838eb6ceda9e4f28964b5d3408ad96",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MachinesPanelView",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/MachinesPanel.tsx",
-      "holder": "MachinesPanelView/activeTransferMachine",
-      "rule": "consume:find",
-      "tokens": "d6bf1a326eaf3d0997121caece32285746d4ea889f825f54ff9bf1ff6cee03e1",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "25d87df85be1b63cf15d1194180b8c9c8fa56849c44bdb7d45f217cf0a39e195",
-        "504bbb7c265df7dfde0c66bce9a25603e624c78ebbbb6d366a326776216b3507",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "40c8914dd056d1bd8ce871a8619825a23f192d44b15b752754a948f387b37bfa",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MachinesPanelView/activeTransferMachine",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -2714,30 +2643,6 @@
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "25d87df85be1b63cf15d1194180b8c9c8fa56849c44bdb7d45f217cf0a39e195",
-        "504bbb7c265df7dfde0c66bce9a25603e624c78ebbbb6d366a326776216b3507",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "161fee2144f00b651cc7b696f67a99b643cca430785bae93e4d2feae0e5d99dd",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MachinesPanelView/alreadyPaired",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/MachinesPanel.tsx",
-      "holder": "MachinesPanelView/alreadyPaired",
-      "rule": "consume:some",
-      "tokens": "0a5e17a626c3b5e6e6ccaccadc613965152c53f89f8e7889fb253e257f3a4994",
-      "gate": [
-        "&&:937cf2d95f6d1ec408307925e103e22525fd33c6c6011b7958b2c6def05a25bf"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
       "fingerprint": "f44ed3e9043556dcd6aa11c60748ccb888654f3d0576ee56dbb9d43df35b2201",
@@ -2758,28 +2663,6 @@
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "25d87df85be1b63cf15d1194180b8c9c8fa56849c44bdb7d45f217cf0a39e195",
-        "504bbb7c265df7dfde0c66bce9a25603e624c78ebbbb6d366a326776216b3507",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "b324af36d0892536ab7b3af90ef762f30db2d964c67a853c2ea697f047c727f4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MachinesPanelView/eligibleTransferTargets",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/MachinesPanel.tsx",
-      "holder": "MachinesPanelView/eligibleTransferTargets",
-      "rule": "consume:filter",
-      "tokens": "c98accace03448d03921b0b5fbbe11e87795f3adcfc604a6e5a379bb80dff0e5",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
       "fingerprint": "e414161b1b16b23f38e30dbc7d9a7dbfe1f5558c7fae13f6f81264ec4581fa1e",
@@ -2789,28 +2672,6 @@
       "trigger": "Invocation of MachinesPanelView/eligibleTransferTargets",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/MachinesPanel.tsx",
-      "holder": "MachinesPanelView/eligibleTransferTargets",
-      "rule": "consume:map",
-      "tokens": "853f7ca7e2b0cf1c2266ac848c9a396ac3c2dfd0099ed8caf5ff71ce0236decd",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "25d87df85be1b63cf15d1194180b8c9c8fa56849c44bdb7d45f217cf0a39e195",
-        "504bbb7c265df7dfde0c66bce9a25603e624c78ebbbb6d366a326776216b3507",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "68f1a85c25319a8dcf178c69f49258b3409c0b866ae80561d4af4f59cec82a1a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MachinesPanelView/eligibleTransferTargets",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -2855,50 +2716,6 @@
     },
     {
       "file": "apps/web/src/app/MachinesPanel.tsx",
-      "holder": "MachinesPanelView/eligibleTransferTargets",
-      "rule": "materialize:Set",
-      "tokens": "05e1df133fdbdc501a00fc7725c21ecf28b2473e0c685450ebc738bf56bdb538",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "25d87df85be1b63cf15d1194180b8c9c8fa56849c44bdb7d45f217cf0a39e195",
-        "504bbb7c265df7dfde0c66bce9a25603e624c78ebbbb6d366a326776216b3507",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "4fda5a2a0d86eec068072f7a530ad2d57277f4d477337d3ebbc58ea79ef091b3",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MachinesPanelView/eligibleTransferTargets",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/MachinesPanel.tsx",
-      "holder": "MachinesPanelView/machines",
-      "rule": "reader-summary",
-      "tokens": "3a9cfa3533bf111ac850103bce890b1c70c26ec9ff10d1ce0cbeb2eb8e121a48",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "25d87df85be1b63cf15d1194180b8c9c8fa56849c44bdb7d45f217cf0a39e195",
-        "504bbb7c265df7dfde0c66bce9a25603e624c78ebbbb6d366a326776216b3507",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "7c264e4454acedefe56e4bfd48db920083f58b3607519e5025184833cc8f365d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MachinesPanelView/machines",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/MachinesPanel.tsx",
       "holder": "MachinesPanelView/machines",
       "rule": "reader-summary",
       "tokens": "745ae0279c990caede4c97b455d7fb5fdfef2d10e64e2622d0367bab55c6d0dc",
@@ -2939,28 +2756,6 @@
     },
     {
       "file": "apps/web/src/app/MachinesPanel.tsx",
-      "holder": "MachinesPanelView/sourceMachine",
-      "rule": "consume:find",
-      "tokens": "d58adb1656b483669ad0b40c2b121885adaa7a3123e0fcd5c9aa9e93ea696352",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "25d87df85be1b63cf15d1194180b8c9c8fa56849c44bdb7d45f217cf0a39e195",
-        "504bbb7c265df7dfde0c66bce9a25603e624c78ebbbb6d366a326776216b3507",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "7402c5b2c1825a36b7e4077e49caa0b336431a28d61b2b6a2abc3a492d4d061d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MachinesPanelView/sourceMachine",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/MachinesPanel.tsx",
       "holder": "MachinesPanelView/unsupportedTransferTargets",
       "rule": "consume:filter",
       "tokens": "7e69bcd461b69366fe47289a1d41e814f4f245b3e9a27e0442c98e033836f1cc",
@@ -2971,28 +2766,6 @@
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
       "fingerprint": "3d606b06923b7af237593b50993a510f413f39d8c7f34d79230f273b99081f5f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MachinesPanelView/unsupportedTransferTargets",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/MachinesPanel.tsx",
-      "holder": "MachinesPanelView/unsupportedTransferTargets",
-      "rule": "consume:filter",
-      "tokens": "7e69bcd461b69366fe47289a1d41e814f4f245b3e9a27e0442c98e033836f1cc",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "25d87df85be1b63cf15d1194180b8c9c8fa56849c44bdb7d45f217cf0a39e195",
-        "504bbb7c265df7dfde0c66bce9a25603e624c78ebbbb6d366a326776216b3507",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "efdb91c93bb58dee90c7343a8e8f785149fcb9d5c6cd939894126be66200de91",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3019,50 +2792,6 @@
       "trigger": "Invocation of MachinesPanelView/unsupportedTransferTargets",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/MachinesPanel.tsx",
-      "holder": "MachinesPanelView/unsupportedTransferTargets",
-      "rule": "consume:map",
-      "tokens": "5b83af1d15284625791cefce0ea5ad7d257bcbd82493ec793d6913dad3c73d4d",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "25d87df85be1b63cf15d1194180b8c9c8fa56849c44bdb7d45f217cf0a39e195",
-        "504bbb7c265df7dfde0c66bce9a25603e624c78ebbbb6d366a326776216b3507",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "76b06587b9dfcbbb98270c8bf7ff97de158e46ac0c44c04404ee3bac41c7a5fd",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MachinesPanelView/unsupportedTransferTargets",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/MachinesPanel.tsx",
-      "holder": "MachinesPanelView/unsupportedTransferTargets",
-      "rule": "materialize:Set",
-      "tokens": "f76c8e53c93b61c4aba21ee5399e2a2e7ad48fc3df8387e4fd5becb8cc6fea85",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "25d87df85be1b63cf15d1194180b8c9c8fa56849c44bdb7d45f217cf0a39e195",
-        "504bbb7c265df7dfde0c66bce9a25603e624c78ebbbb6d366a326776216b3507",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
-      ],
-      "fingerprint": "8d487ee0c2bc23259053491f43403821fc86efa696bbde122d41884d48b025a9",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of MachinesPanelView/unsupportedTransferTargets",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -16236,6 +15965,43 @@
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
       "reason": "Test-only reference implementations changed to match addressed APIs. Conservative fixture taint retained, not a product regression or fixed runtime path.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-settings-pool-fixture.ts",
+      "holder": "mock:callback/prepare/callback/view:callback/read/callback/machines",
+      "rule": "enumerate:keys",
+      "tokens": "40eaf1358e02732d76f88f7e31ce7fe4cb0f15149215b4b24211f1f1985c078b",
+      "gate": [],
+      "origin": [
+        "ea60d9b88d69d6d9022ed7946cf4693c8de97dc8322cfe2c2a6896a8477be16d"
+      ],
+      "fingerprint": "cfb04d821c9e09828d0ef287c8cde7da5561ab8342d2973c9e7b05271cd81eca",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5868",
+      "trigger": "The isolated settings test fixture supplies its catalogue during a focused machine-panel test.",
+      "bound": "Canonical machine IDs already present in the real fixture pool; no production screen uses this test mock.",
+      "reason": "Bridge unchanged plain fixture inputs onto the real model pool without copying record fields into a mock model.",
+      "guard": "MachinesPanel.test.tsx keeps all 46 assertions and fixture values unchanged; only fixture imports changed."
+    },
+    {
+      "file": "apps/web/src/test-support/mock-settings-pool-fixture.ts",
+      "holder": "mock:callback/prepare/callback/view:callback/read/callback/machines",
+      "rule": "spread",
+      "tokens": "f0793400b38e82a558b9378d25679684fa5e2003032a4b6f9dd925c4cff06539",
+      "gate": [],
+      "origin": [
+        "906516878b21a5b6e0cb4562290768c5da1c1ba0a2031103472947500b7ff60c",
+        "ea60d9b88d69d6d9022ed7946cf4693c8de97dc8322cfe2c2a6896a8477be16d"
+      ],
+      "fingerprint": "e5717bf85b4f697607c5f6240788e701a22ec573369eb21f065aad2a92359a5c",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5868",
+      "trigger": "The isolated settings test fixture supplies its catalogue during a focused machine-panel test.",
+      "bound": "Canonical machine IDs already present in the real fixture pool; no production screen uses this test mock.",
+      "reason": "Bridge unchanged plain fixture inputs onto the real model pool without copying record fields into a mock model.",
+      "guard": "MachinesPanel.test.tsx keeps all 46 assertions and fixture values unchanged; only fixture imports changed."
     },
     {
       "file": "apps/web/src/test-support/pool-fixture.ts",
