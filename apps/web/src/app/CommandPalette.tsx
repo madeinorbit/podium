@@ -6,7 +6,8 @@ import {
   isUnstartedSession,
   resolveDefaultAgent,
 } from '@podium/client-core/values'
-import { IssueModel, LOADING } from '@podium/client-graph'
+import { LOADING } from '@podium/client-graph'
+import { IssueModel } from '@podium/client-graph/models'
 import { commandIssueReference, commandIssueSearchRef } from '@podium/client-graph/command-launch-views'
 import { machinePathBasename } from '@podium/model'
 import type { AgentKind, IssueId, SessionId } from '@podium/model/browser'
