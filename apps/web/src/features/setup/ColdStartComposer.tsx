@@ -152,7 +152,8 @@ function withoutCreateReservation(draft: FirstTaskDraft): FirstTaskDraft {
 export function useFirstTaskRepositoryPicker(repos: GitRepositoryWire[], repositoryUsage: ReadonlyMap<string, number>) {
   // Stored on picker open: identities and recency stay still; metadata stays live.
   const [repoOrder, setRepoOrder] = useState<readonly string[] | null>(null)
-  const repoIdentity = (repo: RepoView) => repo.repoId ?? repo.originUrl ?? machinePathKey(repo.path)
+  const repoIdentity = (repo: RepoView) => repo.repoId ?? (repo.originUrl ||
+    JSON.stringify([repo.machines?.[0]?.machineId ?? '', machinePathKey(repo.path)]))
   const liveRepoChoices = useMemo(() => reposToViews(repos)
     .filter(view => checkoutForMachine(repos, view, undefined) !== undefined), [repos])
   const rankedRepoChoices = () => {

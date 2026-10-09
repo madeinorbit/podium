@@ -38,3 +38,14 @@ it('matches the old order on open, keeps identities still through usage and labe
   act(() => hook.result.current.onOpenChange(true))
   expect(hook.result.current.repoChoices).toEqual(oldOrder(repos, usage))
 })
+
+it('keeps distinct originless checkouts at the same path on different machines', () => {
+  let repos = [repo('/work/repo', { machineId: 'one' }), repo('/work/repo', { machineId: 'two' })]
+  const hook = renderHook(() => useFirstTaskRepositoryPicker(repos, new Map()))
+  act(() => hook.result.current.onOpenChange(true))
+  const machines = () => hook.result.current.repoChoices.map(repo => repo.machines?.[0]?.machineId)
+  expect(machines()).toEqual(['one', 'two'])
+  repos = [...repos].reverse()
+  hook.rerender()
+  expect(machines()).toEqual(['one', 'two'])
+})
