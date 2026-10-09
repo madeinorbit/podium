@@ -113,8 +113,9 @@ for (const [name, factory] of factories) {
           resolve()
         }, 0))
       }
-      const reachable = refs.filter((ref) => ref.deref() !== undefined).length
-      console.info('React opening reachability', JSON.stringify({ name, openings: 50, reachable }))
+      const retained = refs.flatMap((ref, index) => ref.deref() === undefined ? [] : [index])
+      const reachable = retained.length
+      console.info('React opening reachability', JSON.stringify({ name, openings: 50, created: refs.length, retained, reachable }))
       expect(reachable).toBe(0)
     } finally {
       pool.dispose()
