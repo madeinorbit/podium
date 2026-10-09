@@ -2,6 +2,8 @@ import { omitGone } from '@podium/client-graph/lookup'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { headerView } from '@podium/client-graph/header-views'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
+import { TranscriptLog } from '@podium/client-core/conversation'
+import type { SessionId } from '@podium/model/browser'
 // @vitest-environment happy-dom
 
 import { dedupeSessions } from '../../../../tests/worklist/diagnostics/reference-state'
@@ -61,6 +63,7 @@ const state = vi.hoisted(() => ({
   renameSession: vi.fn(),
 }))
 const owner = withKeyedInputs({ getSnapshot: () => state, subscribe: () => () => {} })
+const handoffLogs = new Map<SessionId, TranscriptLog>()
 vi.mock('./store', () => ({
   useRuntimeSelector: (read: (store: typeof state) => unknown) => read(state),
   useSessionDraft: () => '',
@@ -68,6 +71,27 @@ vi.mock('./store', () => ({
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   useStoreHandle: () => owner,
+  // This fixture's transcript endpoint returns an empty page. Keep a real
+  // retained log behind the conversation seam, as the handoff hook now reads
+  // that log rather than fetching the endpoint itself (POD-5652).
+  useConversation: (
+    sessionId: SessionId | undefined,
+    _factory: unknown,
+    options?: { enabled?: boolean },
+  ) => {
+    if (sessionId === undefined || options?.enabled === false) return undefined
+    let transcript = handoffLogs.get(sessionId)
+    if (!transcript) {
+      transcript = new TranscriptLog({
+        sessionId,
+        source: { read: async () => ({ items: [], hasMore: false }), subscribe: () => () => {} },
+        retainHistory: () => true,
+      })
+      handoffLogs.set(sessionId, transcript)
+      void transcript.start()
+    }
+    return { transcript }
+  },
 }))
 vi.mock('./store-worklist-pool', () => {
   const usePool = () => state.pool as MobxPool | null
@@ -153,6 +177,8 @@ beforeEach(() => {
 }, 60_000)
 afterEach(() => {
   cleanup()
+  for (const transcript of handoffLogs.values()) transcript.dispose()
+  handoffLogs.clear()
   pool.dispose()
   state.pool = null
   vi.useRealTimers()
@@ -508,4 +534,3 @@ describe('mission sections read their own fields', () => {
     expect([...header.keys()]).toEqual(['observerDeckTitle'])
   }, 120_000)
 })
-
