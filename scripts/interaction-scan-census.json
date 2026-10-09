@@ -1417,7 +1417,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of PoolWorkScreen/layout",
+      "trigger": "Invocation or observation of MobileSearchSections/native",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "Native descriptor identity comparison now follows section-key fields. It compares section descriptors, not row paint; section metadata still has no cardinality cap. Predecessor: 6c4f9ff2de74e7e29bc23bc516817d31531956c1737ea139a878c24eba3b4152."
@@ -1437,7 +1437,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of PoolWorkScreen/layout",
+      "trigger": "Invocation or observation of MobileSearchSections/native/next/map:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "Native SectionList descriptors moved from the retained model bundle to the UI boundary; the same section metadata is still materialized. Predecessor: 6c4f9ff2de74e7e29bc23bc516817d31531956c1737ea139a878c24eba3b4152."
@@ -1458,7 +1458,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of PoolWorkScreen/layout",
+      "trigger": "Invocation or observation of MobileSearchSections/native/next/map:callback/data",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The UI boundary converts a section ID list into native row keys. Pinned attention keys retain their previous needs-you prefix. This is the former model row-reference materialization, without a new cardinality cap. Predecessor: 6c4f9ff2de74e7e29bc23bc516817d31531956c1737ea139a878c24eba3b4152."
@@ -1478,7 +1478,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of PoolWorkScreen/layout",
+      "trigger": "Invocation or observation of MobileSearchSections/native/next/map:callback/native",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The native descriptor copies the former section bundle at the UI boundary. This removes retained model bundles, not unbounded section metadata work. Predecessor: 6c4f9ff2de74e7e29bc23bc516817d31531956c1737ea139a878c24eba3b4152."
@@ -1498,7 +1498,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of PoolWorkScreen/layout",
+      "trigger": "Invocation or observation of MobileSearchSections/native/next/map:callback/source",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "A native descriptor now reads canonical per-section fields instead of a section bundle. The underlying group ID lists are unchanged. Predecessor: 6c4f9ff2de74e7e29bc23bc516817d31531956c1737ea139a878c24eba3b4152."
@@ -1520,7 +1520,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of WorklistWorktree/mobile",
+      "trigger": "Invocation or observation of worklistRowStatus",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "Worktree status now reads canonical scalar counts for non-waiting phases. Waiting still passes the same worktree session roster to the existing formatter; that fallback retains its collection debt. Predecessor: 5ca34d0dc69dede1096c5caadec3cc664f9401262fd33d700ddc5d7edbe3e9e9."
@@ -1542,7 +1542,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of WorklistWorktree/mobile",
+      "trigger": "Invocation or observation of worklistRowStatus",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The waiting worktree status formatter keeps the same roster input and clock behavior. Non-waiting phases use memoized counts; this does not establish a hard cap for the waiting fallback. Predecessor: 5ca34d0dc69dede1096c5caadec3cc664f9401262fd33d700ddc5d7edbe3e9e9."
@@ -1847,7 +1847,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of WorkRow/WorkRow/paint",
+      "trigger": "Invocation or observation of WorkRow/WorkRow/statusLine",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The phone row reads its canonical status field instead of the forwarding paint bundle. Its waiting worktree formatter still receives the same roster. Predecessor: 77d2b38eb6c3536485bf177d999ce5570015a37b6168e75daad4bd64debd713f."
@@ -1865,7 +1865,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of PoolWorkScreen/layout",
+      "trigger": "Invocation or observation of PoolWorkScreen/PoolWorkScreen/layout",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The observed phone root reads section keys and counts directly instead of the layout bundle. Section descriptor preparation remains uncapped metadata work. Predecessor: 6c4f9ff2de74e7e29bc23bc516817d31531956c1737ea139a878c24eba3b4152."
@@ -13141,7 +13141,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of usePaneOwnership/read/useCallback:callback through the direct screen factory.",
+      "trigger": "Invocation or observation of usePaneOwnership/read/useCallback:callback",
       "bound": "No per-interaction bound established for this existing collection origin.",
       "guard": "scripts/check-interaction-scans.ts",
       "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 982e3f92402a7117b9b15ae12a5e994a4f7aef133276fd2fc42cbc8740dc29ad."
@@ -13777,7 +13777,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of PoolMotionRow/PoolMotionRow/row",
+      "trigger": "Invocation or observation of sidebarExitSnapshot/sessions",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The existing departure snapshot now materializes session IDs explicitly from the direct row instead of the port bundle. It runs when saving exit paint; no roster cardinality cap is claimed. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877."
@@ -14188,7 +14188,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of PoolRailTile/PoolRailTile/phases",
+      "trigger": "Invocation or observation of PoolRailTile/PoolRailTile/phases",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 06efa752c8fed8688b6adeff7c62a1f3df8dfa083988b0bb4d38c128c77d5d2b."
@@ -14741,7 +14741,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Sidebar membership snapshot changes for cached indexes, or section rendering for the unchanged outer bands.",
+      "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections",
       "bound": "Leaf DOM is capped by the viewport; the upstream membership metadata has no cardinality cap.",
       "guard": "Exact fingerprint and multiplicity; worklist-window tests prove DOM retention and selection/reveal behavior, not a bound on membership acquisition.",
       "reason": "Canonical issue row fields replace forwarded names in shortcut activation. The shortcut input is sliced to MAX_ROW_SHORTCUTS, but upstream section membership metadata remains uncapped, preserving the existing debt classification. Predecessor: 2eb9bd17ad5cb3f5ac1336ea7fd85069211e313d969f13b2d4dd7fa91d881612."
@@ -14762,7 +14762,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections",
+      "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "Desktop project-band rendering now uses canonical section fields. Viewport row mounting remains bounded; outer group metadata still has no cardinality cap. Predecessor: 74a629ec672ae8824310d0a26cded6e6321e3bab5c31cdaaa69db827a2cc7d98."
@@ -14780,7 +14780,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections",
+      "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 6dac1090cd97508e80da67c061e2b06771510e174441f12b5e26c88e254951ba."
@@ -14798,7 +14798,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
+      "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 0f901f062a7b64e29f2ce7a66b4bf0d9948872707598a073327feed388cc0844."
@@ -14816,7 +14816,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
+      "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 8eb17592f1304899c11a2decd4f0de4c65eebadb35abef120553dd4450c66efb."
@@ -14834,7 +14834,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
+      "trigger": "Invocation or observation of ObservedPoolWorkSections/ObservedPoolWorkSections/search/useMemo:callback/computed:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: cfa7a00ae2725b65930ffb0e1107a0f1385a56eabbf032c86fa030ae5e40d606."
@@ -14854,7 +14854,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of PoolMotionRow/PoolMotionRow/row",
+      "trigger": "Invocation or observation of PoolMotionRow/PoolMotionRow",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The motion row now selects the direct canonical IssueModel/WorklistIssue fields. It carries the former row reader origin; no broader collection repair is claimed. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877."
@@ -14874,7 +14874,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of PoolMotionRow/PoolMotionRow/row",
+      "trigger": "Invocation or observation of PoolMotionRow/PoolMotionRow/row",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877."
@@ -15067,7 +15067,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of UnifiedWorktreeRow",
+      "trigger": "Invocation or observation of UnifiedWorktreeRow/UnifiedWorktreeRow",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The desktop worktree observer renders the direct visible shared-session list rather than the port projection. Its rendered roster has no hard cardinality cap. Predecessor: 36f9b737f557c1c681578e60babccb9bf8f96844e91f3e1ae9b54db52fcb27e4."
@@ -15087,7 +15087,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of UnifiedWorktreeRow",
+      "trigger": "Invocation or observation of UnifiedWorktreeRow/UnifiedWorktreeRow/renderRow/callback/attachedIssueDisplayRef",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The existing attached-issue lookup is now traced through the direct worktree model. It searches only the represented-issue list but that list has no proven hard cap. Predecessor: 4ad3ccf145b93c929b0f58ca62140c15e420db522c0cce6e6db8a95334e01336."
@@ -15105,7 +15105,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of UnifiedWorktreeRow",
+      "trigger": "Invocation or observation of UnifiedWorktreeRow/UnifiedWorktreeRow/renderRow/callback/orphan",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The existing orphan-provenance formatter is now traced through the direct worktree model. Its represented-issue input remains uncapped. Predecessor: 4ad3ccf145b93c929b0f58ca62140c15e420db522c0cce6e6db8a95334e01336."
@@ -15127,7 +15127,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of UnifiedWorktreeRow",
+      "trigger": "Invocation or observation of UnifiedWorktreeRow/UnifiedWorktreeRow/stale",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The worktree observer reads the canonical stale session field. The legacy fallback remains available for other callers; no roster cap is established. Predecessor: a1076de9eb758e77a9a85074fd193760a132bf9707d66867a7fe66076b653c8f."
@@ -15149,7 +15149,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of UnifiedWorktreeRow",
+      "trigger": "Invocation or observation of UnifiedWorktreeRow/UnifiedWorktreeRow/stale",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The legacy partition fallback is unchanged for non-model worktree callers. Direct model callers use the incremental roster fields; the generic fallback retains its collection debt. Predecessor: 4ad3ccf145b93c929b0f58ca62140c15e420db522c0cce6e6db8a95334e01336."
@@ -15171,7 +15171,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of UnifiedWorktreeRow",
+      "trigger": "Invocation or observation of UnifiedWorktreeRow/UnifiedWorktreeRow/visible",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The legacy partition fallback is unchanged for non-model worktree callers. Direct model callers use the incremental roster fields; the generic fallback retains its collection debt. Predecessor: 4ad3ccf145b93c929b0f58ca62140c15e420db522c0cce6e6db8a95334e01336."
@@ -15193,7 +15193,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of UnifiedWorktreeRow",
+      "trigger": "Invocation or observation of UnifiedWorktreeRow/UnifiedWorktreeRow/visible",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The worktree observer reads the canonical visible session field instead of the forwarded projection. The roster has no hard cardinality cap. Predecessor: a1076de9eb758e77a9a85074fd193760a132bf9707d66867a7fe66076b653c8f."
@@ -25184,7 +25184,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of rowStatusLine/decision",
+      "trigger": "Invocation or observation of rowStatusLine/decision",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: d5bb15bc9e30095a562d301490d21f749a3eb5e83720e3d0847e9247e330da34."
@@ -25203,7 +25203,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of rowStatusLine/sessions",
+      "trigger": "Invocation or observation of rowStatusLine/sessions",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 5e1ef49fe320eb1f39d2790b073379a8f108460a4fa8870d6b59e52a9a295be1."
@@ -25226,7 +25226,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of rowStatusLine/urgent",
+      "trigger": "Invocation or observation of rowStatusLine/urgent",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 6ade59847e2f30fe69243a45014a36b1b8ec4140a8a99ddd900406fe04805f32."
@@ -25249,7 +25249,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of rowStatusLine/urgent",
+      "trigger": "Invocation or observation of rowStatusLine/urgent",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: fc4cb558e8c93b75ed1dd6ea178fc4409e8e052e41f716f3d44fd3a4eeb336c5."
@@ -25688,7 +25688,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of partitionStaleSessions/byRecency",
+      "trigger": "Invocation or observation of partitionStaleSessions/byRecency",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 428b08a0265a94225af44272f9b3a4b97bfed4413bdb4cd69f0b65f61b82f704."
@@ -25707,7 +25707,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of partitionStaleSessions/candidates",
+      "trigger": "Invocation or observation of partitionStaleSessions/candidates",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 9703946946443449e1cf3b10eb240da76d6868cf86cfb255ad3389cc775c3540."
@@ -25728,7 +25728,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of partitionStaleSessions/stale",
+      "trigger": "Invocation or observation of partitionStaleSessions/stale",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: e81856e50058e8b311d7fe116b9a7173ca63013c1b2ccc30060b1ebd90c87b6f."
@@ -25749,7 +25749,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of partitionStaleSessions/staleIds",
+      "trigger": "Invocation or observation of partitionStaleSessions/staleIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 2f6fec72114dde545bcf6298b9c7bf37f0120051c1fa39fb89d1ce436b4fe424."
@@ -25770,7 +25770,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of partitionStaleSessions/staleIds",
+      "trigger": "Invocation or observation of partitionStaleSessions/staleIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: ae9a9130041a15f0c4cb5043a1f7de0226b6d0912964f91a509048322c5b3fda."
@@ -25791,7 +25791,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of partitionStaleSessions/visible",
+      "trigger": "Invocation or observation of partitionStaleSessions/visible",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 87285b46846886482ca53b97873fb4ea01d9d88d6ee20df6b9319f38d39cf74f."
@@ -39196,7 +39196,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of createIdentityQuery/refresh/track:callback",
+      "trigger": "Parity fixture invocation of createIdentityQuery/refresh/track:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The deleted identity-query helper is preserved solely as a frozen test oracle. Production has no caller; the old scan stays recorded for parity evidence, not as a production repair. Predecessor: 68247f97036a0f55598b47b89880adb362fc28c147027d6dbe1ef6fb8a26ed35."
@@ -39214,7 +39214,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of createIdentityQuery/refresh/track:callback",
+      "trigger": "Parity fixture invocation of createIdentityQuery/refresh/track:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The deleted identity-query helper is preserved solely as a frozen test oracle. Production has no caller; the old scan stays recorded for parity evidence, not as a production repair. Predecessor: e49441cbd07995c1a5b69636cd88c094cdd0b9b7e06a7a1dd60dffb9df98c918."
@@ -40948,7 +40948,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of WorklistIssue/createMembershipQuery/ids/callback",
+      "trigger": "Parity fixture invocation of WorklistIssueBefore/createMembershipQuery/ids/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The old membership-query implementation is frozen solely for old-port/new-field parity tests. Its pre-existing collection origin remains recorded; production has no caller. Predecessor: 8e5d0ec9c9c708bc447c51e8c0ecb2163e6bb88ac4ad2715722559a6268c24c5."
@@ -40969,7 +40969,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of WorklistIssue/createMembershipQuery/ids/callback",
+      "trigger": "Parity fixture invocation of WorklistIssueBefore/createMembershipQuery/ids/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The old membership-query implementation is frozen solely for old-port/new-field parity tests. Its pre-existing collection origin remains recorded; production has no caller. Predecessor: c2a90328d332a1c804eaa50cce3a1dc5b89b2457385123de6de4187bcc870735."
@@ -40990,7 +40990,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of WorklistIssue/createMembershipQuery/ids/callback",
+      "trigger": "Parity fixture invocation of WorklistIssueBefore/createMembershipQuery/ids/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The old membership-query implementation is frozen solely for old-port/new-field parity tests. Its pre-existing collection origin remains recorded; production has no caller. Predecessor: f4671b593238949403afb088951006868035e953ca86b4b817c24bb8b9bc35c6."
@@ -41008,7 +41008,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of WorklistIssue/createMembershipQuery/ids/callback",
+      "trigger": "Invocation or observation of WorklistIssue/childIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The addressed child membership list moved from the companion membership query to a shallow-equal lazy ID field. The same per-issue relation remains uncapped; this is a lifetime/style migration. Predecessor: 8e5d0ec9c9c708bc447c51e8c0ecb2163e6bb88ac4ad2715722559a6268c24c5."
@@ -41026,7 +41026,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of WorklistIssue/createMembershipQuery/ids/callback",
+      "trigger": "Invocation or observation of WorklistIssue/laneMemberIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The addressed lane membership list moved from the companion membership query to a shallow-equal lazy ID field. The same per-issue relation remains uncapped; this is a lifetime/style migration. Predecessor: c2a90328d332a1c804eaa50cce3a1dc5b89b2457385123de6de4187bcc870735."
@@ -41044,7 +41044,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of WorklistIssue/createMembershipQuery/ids/callback",
+      "trigger": "Invocation or observation of WorklistIssue/spinOffIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The addressed spin-off membership list moved from the companion membership query to a shallow-equal lazy ID field. The same per-issue relation remains uncapped; this is a lifetime/style migration. Predecessor: f4671b593238949403afb088951006868035e953ca86b4b817c24bb8b9bc35c6."
@@ -41062,7 +41062,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of MobileSectionsView",
+      "trigger": "Parity fixture invocation of MobileSectionsBefore",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The old keyed mobile section implementation is frozen solely for old/new parity tests. Its pre-existing collection origin remains recorded; production has no caller. Predecessor: c7271bf01b1eeec826b1510f6dd3749db175172d16157fa6bda120412a903b3e."
@@ -41080,7 +41080,7 @@
       "count": 2,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of MobileSectionsView/keyedComputed:callback",
+      "trigger": "Parity fixture invocation of MobileSectionsBefore/keyedComputed:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The old keyed mobile section implementation is frozen solely for old/new parity tests. Its pre-existing collection origin remains recorded; production has no caller. Predecessor: 10eb3847a8bb5ed5c76012f82c10f851fb18cf7c39105c06dc8901691db43e3f."
@@ -41098,7 +41098,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of MobileSectionsView/keyedComputed:callback",
+      "trigger": "Parity fixture invocation of MobileSectionsBefore/keyedComputed:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The old keyed mobile section implementation is frozen solely for old/new parity tests. Its pre-existing collection origin remains recorded; production has no caller. Predecessor: 55f96659d076c5e6632b3f9c912be3273f92e73c5c28f98d6da31bbab7512310."
@@ -41116,7 +41116,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of MobileSectionsView/keyedComputed:callback",
+      "trigger": "Parity fixture invocation of MobileSectionsBefore/keyedComputed:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The old keyed mobile section implementation is frozen solely for old/new parity tests. Its pre-existing collection origin remains recorded; production has no caller. Predecessor: f3f6a7dde756ecfc35432c61075ebdef08e80990ccb51a352017624eb6836e8b."
@@ -41267,7 +41267,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of MobileSectionsView/keyedComputed:callback",
+      "trigger": "Invocation or observation of MobileSection/attentionIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The old keyed split loop became a shallow-equal attention-ID field on the section owner. It filters the same group root/worktree membership; no group cardinality cap is claimed. Predecessor: f3f6a7dde756ecfc35432c61075ebdef08e80990ccb51a352017624eb6836e8b."
@@ -41287,7 +41287,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of MobileSectionsView/keyedComputed:callback",
+      "trigger": "Invocation or observation of MobileSection/liveIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The old keyed split loop became a shallow-equal live-ID field on the section owner. It filters the same group root/worktree membership; no group cardinality cap is claimed. Predecessor: f3f6a7dde756ecfc35432c61075ebdef08e80990ccb51a352017624eb6836e8b."
@@ -41305,7 +41305,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of MobileSectionsView/keyedComputed:callback",
+      "trigger": "Invocation or observation of MobileSection/pending",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The old keyed split loop became a scalar pending count on the section owner. It reduces the same group root/worktree membership; no group cardinality cap is claimed. Predecessor: f3f6a7dde756ecfc35432c61075ebdef08e80990ccb51a352017624eb6836e8b."
@@ -41931,7 +41931,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of fleetOf/nativeCount",
+      "trigger": "Invocation or observation of fleetOf/nativeCount",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 3fc4ede9ce2899eb1f087f7038f867a24c1dc109c572309192ae0ef09eef1fb8."
@@ -41949,7 +41949,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of fleetOf/parkedCount",
+      "trigger": "Invocation or observation of fleetOf/parkedCount",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: a7192ca0c46af9e11015237e4b1485cb8bd9f7d78a77e364c7b04a152e155af6."
@@ -41967,7 +41967,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of fleetOf/present",
+      "trigger": "Invocation or observation of fleetOf/present",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 5e230b0f300180bdb197830a0222ce50a8e483de5314f42aba8a15f9bdadcd91."
@@ -41987,7 +41987,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of sidebarTiming/anchor",
+      "trigger": "Invocation or observation of sidebarTiming/anchor",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 67b7e46e2d51577c5b891456e1a0e2533feb2889a30ea6e23a02572617a4ed73."
@@ -42007,7 +42007,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of sidebarTiming/anchor",
+      "trigger": "Invocation or observation of sidebarTiming/anchor",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 68f78d614d8a55b80be2d38a0cb6544eac2e02711056abf9b51b431a5a93530a."
@@ -42027,7 +42027,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of sidebarTiming/anchor",
+      "trigger": "Invocation or observation of sidebarTiming/anchor",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: c5e46398214ee3f6fb3dc5749f7bab7c295db49356bcbaf4ecfe6812a726f458."
@@ -42047,7 +42047,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of sidebarTiming/anchor",
+      "trigger": "Invocation or observation of sidebarTiming/anchor",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: dd7d3603eedc601380137a057ebb31c7eaf545a970404f785510e42c8c117bfd."
@@ -42065,7 +42065,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of sidebarTiming/earliest/callback",
+      "trigger": "Invocation or observation of sidebarTiming/earliest/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: fe89ef487b73153bdba6d1eef5ba7372810752fe06aee246db9257d72048f5a0."
@@ -42085,7 +42085,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of sidebarTiming/sinceMs",
+      "trigger": "Invocation or observation of sidebarTiming/sinceMs",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: c050da4ed70c243ad8526294fd6bedf00c77bd4365f5bcee2333f26fbb2d1f05."
@@ -42106,7 +42106,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of sidebarTiming/totalMs",
+      "trigger": "Invocation or observation of sidebarTiming/totalMs",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 2f190fe7bbed253b648a76e8dedafe3d490ff00b5dd3c967424037ee96e9d35f."
@@ -42126,7 +42126,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of sidebarTiming/totals",
+      "trigger": "Invocation or observation of sidebarTiming/totals",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 0838275d6bd51e02acebc2a183e25df87e996ba27e6548cce0fa84cddd6985db."
@@ -42876,7 +42876,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of partitionStaleSessions/stale",
+      "trigger": "Invocation or observation of WorklistWorktree/stale",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "Stale roster selection now uses the incremental ordered session query and a shallow-equal field, preserving the old recency/retention policy. The filter still has no roster cardinality cap. Predecessor: e81856e50058e8b311d7fe116b9a7173ca63013c1b2ccc30060b1ebd90c87b6f."
@@ -42894,7 +42894,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of mobileWorktreeValues/timing",
+      "trigger": "Invocation or observation of WorklistWorktree/timing",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The existing pure worktree timing formatter moved behind a structurally equal owner field. It receives the same addressed roster; clock work remains POD-5863 and no roster cap is claimed. Predecessor: d9b8d01ffea114f5c4fa4dfafaef1d2cb67dfd297def388c07b88d9b3ef65387."
@@ -42912,7 +42912,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of partitionStaleSessions/visible",
+      "trigger": "Invocation or observation of WorklistWorktree/visible",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "Visible roster selection now uses the incremental ordered session query and a shallow-equal field, preserving the old stale partition. The filter still has no roster cardinality cap. Predecessor: 87285b46846886482ca53b97873fb4ea01d9d88d6ee20df6b9319f38d39cf74f."
@@ -42930,7 +42930,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of mobileWorktreeValues/fleet",
+      "trigger": "Invocation or observation of WorklistWorktree/visibleFleet",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The existing fleet formatter moved behind a structurally equal owner field. It receives the same visible roster; no roster cap is claimed. Predecessor: 5f4c24ae5328b1021a4145e21f035d0f3158d9396bff7d08c49252c5f89dc724."
@@ -42948,7 +42948,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of mobileWorktreeValues/phases",
+      "trigger": "Invocation or observation of WorklistWorktree/visiblePhase",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "Worktree phase is now derived in an owner field over the same roster, replacing forwarded phase composition. No roster cardinality cap is claimed. Predecessor: a83a255169e07758dfcb545046c2870d494320b5baf515c744c403f5643cd55e."
@@ -42968,7 +42968,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of mobileWorktreeValues/unread",
+      "trigger": "Invocation or observation of WorklistWorktree/visibleUnread",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The former mobile unread-roster question is now the canonical visibleUnread field. It uses the same visible roster with no hard cap. Predecessor: afbc8b44a1d2118ec107e8e4c3761b79112dd2184478c84e8d56304ba34a4e52."
@@ -42986,7 +42986,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of mobileWorktreeValues/working",
+      "trigger": "Invocation or observation of WorklistWorktree/visibleWorking",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The former mobile working-roster question is now the canonical visibleWorking field. It uses the same roster with no hard cap. Predecessor: f667f16bb0a94d13f0b7bed4e8a8be9b9d6f94ac33e1f25f07b171a00bb35525."
@@ -43004,7 +43004,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of mobileWorktreeValues/waitingCount",
+      "trigger": "Invocation or observation of WorklistWorktree/waitingCount",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "The former filter/length waiting count is now a scalar reduce on the same roster. Shared session flags prevent unrelated heartbeat invalidation; no roster cardinality cap is claimed. Predecessor: 77bef9b4af77b72d8dd0d832a05c1fecdc93a473f6f4261150eca32b2d83e7c0."
@@ -43022,7 +43022,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of mobileWorktreeValues/phases",
+      "trigger": "Invocation or observation of WorklistWorktree/workingCount",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "Working count is now a scalar owner field replacing formatter phase-list work over the same roster. Shared flags prevent unrelated heartbeat invalidation; no roster cardinality cap is claimed. Predecessor: a83a255169e07758dfcb545046c2870d494320b5baf515c744c403f5643cd55e."
@@ -43315,7 +43315,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback",
+      "trigger": "Invocation or observation of keyedComputed/read/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 151617b131f29a5708b923e5c7e2d111b723379d85c7c80cff97ee8449707177."
@@ -43335,7 +43335,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback/derive/callback",
+      "trigger": "Invocation or observation of keyedComputed/read/callback/derive/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: 663256b5e29d0c9c75d3c48566e5eafb5ba5f240e12e72b7ea3cb541f7f7db88."
@@ -43356,7 +43356,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of keyedComputed/read/callback/value/computed:callback",
+      "trigger": "Invocation or observation of keyedComputed/read/callback/value/computed:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
       "reason": "POD-5822 changes only the upstream collection origin after removing forwarding ports. Operation tokens are unchanged; the existing REQUIRED REPAIR classification and bounds remain. Predecessor: eb587774443f351dd0c48f103e14d5b04fab841ebd088cd46267b2679dd4d320."
@@ -43642,7 +43642,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "trigger": "Invocation or observation of mock:callback/useWorklistPoolProjection/pool",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored.",
       "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 3567d73357a9192d6f08d7b563f9ccbab2f60168606daccda93a6aaf4bdc14a4."
@@ -43663,7 +43663,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "trigger": "Invocation or observation of useFixturePool/useMemo:callback/pool/sidebar/selectionGone/callback",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored.",
       "reason": "The fixture selectionEvicted question was renamed selectionGone. Its existing fixture-only collection scan and classification are unchanged. Predecessor: 0834a9a594084dd1244c726acff2078d1c7cf4337c9eea303719322a3a24afd3."
@@ -43691,7 +43691,7 @@
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Fixture sidebar projection over normalized synthetic issues (POD-5566)",
+      "trigger": "Invocation or observation of useFixturePool/useMemo:callback/pool/sources/view/callback/worklist/sections/callback",
       "bound": "Test fixture collection; no production import caller. Exact taint remains monitored.",
       "guard": "apps/web/src/features/worklist/SidebarUnified.search.test.tsx; exact fingerprint remains monitored.",
       "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 62781a2dee21f49ca90ac9d7c3c1e4b64f98c42a5c9e6bb330dea0787adf6d03."
