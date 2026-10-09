@@ -454,7 +454,9 @@ export function createIssuePageViews(pool: MobxPool) {
   })
   function issues(): Loaded<IssueViewModel[]> {
     if (disposed) return LOADING
-    return summaryIssues.get()
+    return pool.queries.project(
+      { kind: 'pageIssues' }, 'IssuePage@summaries', readSummary, {}, summaryIssues,
+    )
   }
   const detailLists = new Set<ReturnType<typeof createIssueDetailLists>>()
   const companions = companion((model: PageIssue) => {

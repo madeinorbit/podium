@@ -1281,8 +1281,11 @@ export class ReaderQueries {
   project<T>(
     question: ReaderQuestion, name: string, read: (id: string) => Loaded<T>,
     options: Pick<QueryResultSpec<T>, 'order' | 'collapse'> = {},
+    owned?: ReturnType<typeof createQueryResult<T>>,
   ): Loaded<T[]> {
-    return this.projection(question, name, read, options).get()
+    // An opening can own the result while retaining this shared read boundary,
+    // including its instrumentation and full-rebuild negative controls.
+    return (owned ?? this.projection(question, name, read, options)).get()
   }
   /** A service's addressed relation answer, released with its last observer.
    * It holds no screen model and updates only the changed member's read. */
