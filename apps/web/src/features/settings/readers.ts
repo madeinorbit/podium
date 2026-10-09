@@ -81,9 +81,10 @@ const readMachineIds = (pool: MobxPool) => machineReaders(pool).ids(null)
 export function useSettingsMachineIds(): readonly string[] {
   return useWorklistPoolProjection(readMachineIds, EMPTY_MACHINE_IDS)
 }
-export function useSettingsMachine(id: string): Store['machines'][number] | null {
+export function useSettingsMachine(id: string | null): Store['machines'][number] | null {
   const read = useCallback(
     (pool: MobxPool) => {
+      if (id === null) return null
       const row = omitGone(pool.model('machine', id))
       return loaded(row) ? row : null
     },

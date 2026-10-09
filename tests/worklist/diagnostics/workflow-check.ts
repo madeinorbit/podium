@@ -38,7 +38,9 @@ export function poolWorkflowSnapshot(pool: MobxPool, inputs: WorkflowCheckInputs
   let pending = machinesPending
   const options = placementOptions(views)
   const sections: SidebarSnapshot['sections'] = [
-    { key: 'placement', fields: { ...options, offerable: options.offerable.map(machine => modelFields('machine', machine, Object.keys(MachineWire.shape))) }, pendingFields: machinesPending ? Object.keys(options) : [], rows: [] },
+    { key: 'placement', fields: Object.fromEntries(Object.entries(options).map(([key, machines]) => [key,
+      machines.map(machine => modelFields('machine', machine, Object.keys(MachineWire.shape))),
+    ])), pendingFields: machinesPending ? Object.keys(options) : [], rows: [] },
     { key: 'profiles', fields: {}, rows: inputs.profiles.map(profile => ({ id: profile.id, pending: machinesPending > 0, fields: { ...profilePlacement(profile, views) } })) },
     { key: 'subjects', fields: {}, rows: inputs.runs.map(run => {
       const subject = workflowSubject(pool, run)
