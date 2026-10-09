@@ -22,7 +22,7 @@ if (process.argv.includes('--build')) {
         : fixture === 'phone-lists'
           ? await (await import('../../mobile/vite.conversation-stream.config')).default()
           : await (await import('../../mobile/vite.conversation-stream.config')).default()
-    if (fixture === 'phone-lists') base.resolve!.alias = (base.resolve!.alias as any[]).map(alias => ({ ...alias, replacement: alias.replacement.endsWith('/inbox-platform.tsx') ? resolve('apps/mobile/test/conversation-stream-platform.tsx') : alias.replacement }))
+    if (fixture === 'phone-lists') base.resolve!.alias = (base.resolve!.alias as any[]).map(alias => ({ ...alias, replacement: alias.replacement.endsWith('/stub-bottom-sheet.tsx') ? resolve('apps/mobile/test/fast-scroll-sheet.tsx') : alias.replacement }))
     await build({ ...base, configFile: false, logLevel: 'warn',
       define: { ...base.define, __DEV__: 'false', 'process.env.NODE_ENV': '"production"' },
       plugins: [...(arm === 'before' ? [{ name: 'unchanged-product-windowing', enforce: 'pre' as const, load(id: string) { const path = ['apps/web/src/features/issues/use-bounded-virtual-list.ts', 'apps/web/src/app/flight-deck-window.tsx'].find(path => id.endsWith('/' + path)); return path ? execFileSync('git', ['show', 'ff68b5e727:' + path], { encoding: 'utf8' }) : null } }] : []), ...(base.plugins?.filter(plugin => !/meter|acceptance-state/.test((plugin as { name?: string })?.name ?? '')) ?? [])],
@@ -30,7 +30,7 @@ if (process.argv.includes('--build')) {
         rollupOptions: fixture === 'phone-lists' ? { input: resolve('apps/mobile/test/inbox.browser.html') } : base.build?.rollupOptions },
     })
   }
-  await writeFile(resolve(output, 'revision.txt'), execFileSync('git', ['rev-parse', 'HEAD']))
+  await writeFile(resolve(output, 'revision.txt'), JSON.stringify({ source: arm === 'before' ? 'ff68b5e727' : execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), fixture: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() }))
   process.exit(0)
 }
 
@@ -49,8 +49,8 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'],
     env: { ...process.env, LD_LIBRARY_PATH: resolve('.toolchain/lib') } })
   try {
-    const variants = fixture === 'lists' ? ['scroll', 'list', 'explorer', 'full', 'waterfall'] : fixture === 'phone-lists' ? ['inbox', 'work', 'tasks', 'sessions'] : ['chat']
-    for (const variant of variants.filter(name => !process.argv.includes('--variant') || name === process.argv[process.argv.indexOf('--variant') + 1])) {
+    const variants = fixture === 'lists' ? ['scroll', 'list', 'explorer', 'full', 'waterfall'] : fixture === 'phone-lists' ? ['inbox', 'work', 'tasks', 'sessions', 'target'] : ['chat']
+    for (const variant of variants.filter(name => !process.argv.includes('--variant') || process.argv[process.argv.indexOf('--variant') + 1]!.split(',').includes(name))) {
       const page = await browser.newPage({ viewport: fixture.startsWith('phone') ? { width: 390, height: 844 } : { width: 1600, height: 900 }, reducedMotion: 'reduce' })
       const errors: string[] = []
       page.on('pageerror', error => errors.push(error.message))
@@ -72,6 +72,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
         .map((el, i) => { el.dataset.scrollProof = String(i); return { index: i, class: el.className, testid: el.dataset.testid, height: el.clientHeight, range: el.scrollHeight - el.clientHeight, text: el.innerText.slice(0, 70) } }))
       console.log(fixture, variant, JSON.stringify({ candidates, errors }))
       for (const candidate of candidates) {
+        if (variant !== 'scroll' && candidate.testid === 'work-scroll') continue
         const selector = `[data-scroll-proof="${candidate.index}"]`
         const box = await page.locator(selector).boundingBox()
         if (!box || box.x < 0 || box.x + box.width > (fixture.startsWith('phone') ? 390 : 1600)) continue

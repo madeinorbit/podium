@@ -17,6 +17,7 @@ import { followPodiumLink } from '../src/lib/podium-link'
 import { WorkScreen } from '../src/screens/WorkScreen'
 import { IssuesScreen } from '../src/screens/IssuesScreen'
 import { SessionsScreen } from '../src/screens/SessionsScreen'
+import { IssueTargetSheet } from '../src/components/IssueTargetSheet'
 import { InboxScreen } from '../src/screens/InboxScreen'
 import { ProposalScreeningScreen } from '../src/screens/ProposalScreeningScreen'
 import { usePulseFeed } from '../src/screens/usePulseFeed'
@@ -78,10 +79,11 @@ function Surface() {
           Proposals
         </button>
       </nav>
-      {['work', 'tasks', 'sessions'].map(name => <button key={name} onClick={() => setScreen(name)}>{name}</button>)}
+      {['work', 'tasks', 'sessions', 'target'].map(name => <button key={name} onClick={() => setScreen(name)}>{name}</button>)}
       {screen === 'work' && <div className="surface"><WorkScreen /></div>}
       {screen === 'tasks' && <div className="surface"><IssuesScreen /></div>}
       {screen === 'sessions' && <div className="surface"><SessionsScreen /></div>}
+      {screen === 'target' && <IssueTargetSheet visible title="Choose task" ids={Array.from({ length: 600 }, (_, i) => `synthetic-${i}`)} query="" onQueryChange={() => {}} onEndReached={() => {}} onPick={() => {}} onClose={() => {}} />}
       <Profiler
         id="phone-readers"
         onRender={(_id, _phase, ms) => {
