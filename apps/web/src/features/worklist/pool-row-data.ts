@@ -92,17 +92,17 @@ export function poolWorktreeRow(
 /** Same status vocabulary as the current row, formatted from pool facts.
  * No legacy attention, rollup, membership or worklist selector runs here. */
 export function poolIssueStatus(value: SidebarRowValues): string {
-  return formatIssueStatus(value, value.statusFromChildren)
+  return formatIssueStatus(value)
 }
 
 export function worklistIssueStatus(value: WorklistIssue): string {
-  return formatIssueStatus(value, value.showsChildProgress)
+  return formatIssueStatus(value)
 }
 
 // One vocabulary for the live companion and its frozen departure paint.
-function formatIssueStatus(value: WorklistIssue | SidebarRowValues, showsChildProgress: boolean): string {
+function formatIssueStatus(value: WorklistIssue | SidebarRowValues): string {
   if (value.awaitingFirstPrompt) return 'awaiting first prompt'
-  if (showsChildProgress) {
+  if ('showsChildProgress' in value ? value.showsChildProgress : value.statusFromChildren) {
     const progressValue = value.progress
     if (progressValue === LOADING) return 'no active subtasks'
     const { total, done, run, review, stall, block, wait } = progressValue

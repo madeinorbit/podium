@@ -31,7 +31,7 @@ import type { VisibleInputs } from './worklist/visible'
 const EMPTY_DEPENDENTS: readonly { id: string; type: string }[] = Object.freeze([])
 
 // Direct work-row paint readers need scalar equality when an unrelated stored
-// field changes. Ordering, membership and other stored getters stay plain.
+// field changes. Other installed stored getters stay plain.
 const ISSUE_PAINT_FIELDS: ReadonlySet<string> = new Set([
   'title', 'color', 'audience', 'pinned', 'linearIdentifier', 'seq',
   'stage', 'closedReason', 'blocked', 'branch', 'gitState', 'parentBranch',
