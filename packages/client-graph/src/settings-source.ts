@@ -1,3 +1,4 @@
+import './synced-models'
 import type { MobxPool } from './pool'
 import { defineSource } from './source-registry'
 import type { ClientRuntime, KeyedListChange } from '@podium/client-core/engine'

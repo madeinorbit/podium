@@ -8,7 +8,7 @@ import { compareStructural, transaction } from 'mobx'
 import { missions } from './mission'
 import { navigationActivity } from './navigation-activity'
 import type { MobxPool } from './pool'
-import { createPoolProjection } from './runtime-pool'
+import { createPoolProjection } from './pool-projection'
 import type { SliceIssue } from './shared/slice-types'
 import { LOADING } from './worklist/rollup'
 

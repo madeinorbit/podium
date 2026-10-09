@@ -1,3 +1,4 @@
+import '@podium/client-graph/synced-models'
 import type { MobxPool } from '@podium/client-graph'
 import { act, render as renderReact } from '@testing-library/react'
 import { afterEach, vi } from 'vitest'

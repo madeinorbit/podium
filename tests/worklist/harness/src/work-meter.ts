@@ -1,3 +1,4 @@
+import '@podium/client-graph/synced-models'
 /**
  * POD-4746 — the work a change does, counted from OUTSIDE the arm.
  *

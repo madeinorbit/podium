@@ -1,3 +1,4 @@
+import './synced-models'
 import { defineSource } from './source-registry'
 import type { Replica } from '@podium/client-core/replica'
 import { compareStructural, observable, observableRef, runInAction } from 'mobx'

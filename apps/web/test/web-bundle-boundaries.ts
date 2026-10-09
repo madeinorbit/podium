@@ -39,6 +39,9 @@ const STARTUP_GRAPH_SOURCES = new Set([
   'src/models.ts', 'src/pool.ts', 'src/query-result.ts', 'src/reader-queries.ts',
   'src/relations.ts', 'src/residency.ts', 'src/source-registry.ts', 'src/tables.ts', 'src/views.ts',
   'src/runtime-pool.ts',
+  // Projection reads need no runtime attachment or optional record definitions.
+  // Keeping this leaf separate lets the host defer those until attachment.
+  'src/pool-projection.ts',
   'src/host/pool-host.ts', 'src/host/screens.ts',
   'src/header-entities.ts', 'src/header-schema.ts', 'src/header-session.ts', 'src/header-sessions.ts',
   'src/header-source.ts', 'src/header-views.ts',

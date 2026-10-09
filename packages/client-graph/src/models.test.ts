@@ -1,3 +1,4 @@
+import '@podium/client-graph/synced-models'
 import { omitGone, requireHere } from './lookup'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'

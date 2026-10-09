@@ -1,3 +1,4 @@
+import './synced-models'
 import { omitGone } from './lookup'
 import { settingsView } from './settings-views'
 import { machineViewsFromWire, runSubjectReference, type RunSubjectReference } from '@podium/client-core/values'

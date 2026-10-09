@@ -2,7 +2,7 @@ import { omitGone } from './lookup'
 import { asIssueId, type IssueId, type IssueStage } from '@podium/model/browser'
 import { parseAnyRef } from '@podium/protocol'
 import type { MobxPool } from './pool'
-import { createPoolProjection } from './runtime-pool'
+import { createPoolProjection } from './pool-projection'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export interface TerminalReferences {

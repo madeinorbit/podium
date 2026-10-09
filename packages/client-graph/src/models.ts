@@ -1,6 +1,8 @@
 import { type Lookup, omitGone, isGone } from './lookup'
 import { issuePendingDecision, type IssueNavigationModel } from '@podium/client-core/values'
-import type { AutomationRunWire, AutomationWire, IssueGitState, IssueProjection, MachineProjection, MachineWire } from '@podium/model'
+import type { IssueGitState, IssueProjection } from '@podium/model'
+import type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
+export type { AutomationModel, AutomationRunModel, MachineModel } from './synced-models'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -12,14 +14,14 @@ import { motionPhase as sessionMotion } from '@podium/client-core/values'
 /** One shared object per server record. Schema fields and relations are installed
  * once; derived entity facts use @lazy. Views own their per-record companions. */
 
-import { compareShallow, compareStructural } from 'mobx'
+import { compareShallow, compareStructural, observable, runInAction } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
 import type { Residence } from './pool'
 import type { SeatRelation } from './session-seats'
 import type { CollectionName, IsLazy, SingleName, SubsetName, TargetOf } from './shared/links'
 import type { RelationReader } from './shared/relation-reader'
 import { FEED_SPELLING } from './shared/repo-from-lane'
-import { type EntityName, SCHEMA, awaitingMergeOf } from './shared/schema'
+import { type EntityName, type ModelSchema, SCHEMA, awaitingMergeOf } from './shared/schema'
 import { computingDeadlineOf } from './shared/session-facts'
 import type { SliceIssue, SliceSession, SliceWorktree } from './shared/slice-types'
 import { type EditableStage, type EditPatch, EDITABLE_FIELDS, type TxId, type WritableKind } from './write/commands'
@@ -1005,27 +1007,6 @@ class RepoModel extends EntityModel {
   }
 }
 
-/** Stored identity, presence, execution and update fields are schema-installed. */
-export class MachineModel extends EntityModel {
-  declare readonly id: MachineWire['id']
-  constructor(id: string, host: ModelHost) { super('machine', id, host) }
-}
-export interface MachineModel extends Readonly<MachineWire>, Readonly<MachineProjection> {}
-
-/** Stored target, schedule and agent instruction fields are schema-installed. */
-export class AutomationModel extends EntityModel {
-  declare readonly id: AutomationWire['id']
-  constructor(id: string, host: ModelHost) { super('automation', id, host) }
-}
-export interface AutomationModel extends Readonly<AutomationWire> {}
-
-/** Stored occurrence and link fields are schema-installed. */
-export class AutomationRunModel extends EntityModel {
-  declare readonly id: AutomationRunWire['id']
-  constructor(id: string, host: ModelHost) { super('automationRun', id, host) }
-}
-export interface AutomationRunModel extends Readonly<AutomationRunWire> {}
-
 /**
  * The issue's editable fields as setters take them (`issue.stage = 'review'`).
  * `title` reads and edits the stored title; a worklist row derives its own label.
@@ -1068,24 +1049,52 @@ export type ModelOf = {
   repo: RepoModel & Readonly<RepoRow> & { readonly path?: string } & RelationGetters<'repo'>
 }
 
-/** The model class of each schema entity. */
-export const MODEL_CLASSES: {
-  readonly [E in EntityName]: (new (
-    id: string,
-    host: ModelHost,
-  ) => EntityModel) &
-    Pick<typeof EntityModel, 'answers'>
-} = {
-  machine: MachineModel,
-  automation: AutomationModel,
-  automationRun: AutomationRunModel,
-  issue: IssueModel,
-  session: SessionModel,
-  worktree: WorktreeModel,
-  repo: RepoModel,
-}
+/** The installed class registry. Deferred kinds join it before their first model
+ * is constructed; generic tables can already ingest all schema entities. */
+export type ModelClass = (new (id: string, host: ModelHost) => EntityModel) & Pick<typeof EntityModel, 'answers'>
+export const MODEL_CLASSES = {
+  issue: IssueModel, session: SessionModel, worktree: WorktreeModel, repo: RepoModel,
+} as Readonly<Record<EntityName, ModelClass>>
 
 for (const entity of Object.keys(MODEL_CLASSES) as EntityName[]) {
   installFields(MODEL_CLASSES[entity].prototype, entity, MODEL_CLASSES[entity].answers)
   installRelations(MODEL_CLASSES[entity].prototype, entity)
+}
+
+// Registration contains class metadata only, never rows or per-record objects.
+const deferredClasses = observable.map<EntityName, ModelClass | Error>(undefined, { deep: false })
+let deferredRequest: Promise<unknown> | undefined
+export function loadSyncedModels(): Promise<unknown> {
+  return deferredRequest ??= import('./synced-models').catch(cause => {
+    const error = cause instanceof Error ? cause : new Error(String(cause))
+    runInAction(() => {
+      for (const entity of Object.keys(SCHEMA) as EntityName[])
+        if (!MODEL_CLASSES[entity]) deferredClasses.set(entity, error)
+    })
+  })
+}
+
+/** A deferred model read subscribes to its kind until the import settles. No
+ * record ingestion happens here: it already happened on the source receipt. */
+export function modelClass(entity: EntityName): ModelClass | typeof LOADING {
+  const Model = MODEL_CLASSES[entity] ?? deferredClasses.get(entity)
+  if (Model instanceof Error) throw Model
+  if (Model) return Model
+  void loadSyncedModels()
+  return LOADING
+}
+
+/** Install complete schema fields using the same generic installer as the
+ * startup kinds, then wake pending model readers together. */
+export function registerModels(schema: Partial<ModelSchema>, models: Partial<Record<EntityName, ModelClass>>): void {
+  Object.assign(SCHEMA, schema)
+  const entries = Object.entries(models) as [EntityName, ModelClass][]
+  for (const [entity, Model] of entries) {
+    installFields(Model.prototype, entity, Model.answers)
+    installRelations(Model.prototype, entity)
+  }
+  Object.assign(MODEL_CLASSES, models)
+  runInAction(() => {
+    for (const [entity, Model] of entries) deferredClasses.set(entity, Model)
+  })
 }

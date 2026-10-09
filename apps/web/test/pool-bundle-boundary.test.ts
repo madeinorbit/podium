@@ -70,6 +70,7 @@ describe('client-graph in Vite startup chunks', () => {
   it('allows the pool constructor required by the always-pool first screen', async () => {
     const sources = await eagerSources('@podium/client-graph')
     expect(sources.some(source => source.endsWith('/client-graph/src/pool.ts'))).toBe(true)
+    expect(sources.some(source => source.endsWith('/client-graph/src/synced-models.ts'))).toBe(false)
     expect(eagerClientGraphSources(sources)).toEqual([])
   }, 30_000)
 

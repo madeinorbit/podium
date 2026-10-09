@@ -87,6 +87,7 @@ import { referenceViewIfPresent } from './issue-reference'
 import {
   type EntityModel,
   type IssueModel,
+  modelClass,
   MODEL_CLASSES,
   type ModelOf,
   type SessionModel,
@@ -701,7 +702,8 @@ export class MobxPool {
       const row = this.row(entity, id)
       if (row === LOADING || isGone(row)) return row
     }
-    return this.object(entity, id) as ModelOf[E]
+    const Model = modelClass(entity)
+    return Model === LOADING ? LOADING : this.object(entity, id, Model) as ModelOf[E]
   }
 
   /**
@@ -709,11 +711,11 @@ export class MobxPool {
    * row is in memory (the worklist holds cold issues too; their visibility
    * reads the cold row by id). Untracked: an identity memo.
    */
-  private object(entity: EntityName, id: string): EntityModel {
+  private object(entity: EntityName, id: string, Model = MODEL_CLASSES[entity]): EntityModel {
     const models = this.models[entity]
     let model = models.get(id)
     if (model === undefined) {
-      model = new MODEL_CLASSES[entity](id, this)
+      model = new Model(id, this)
       models.set(id, model)
     }
     return model

@@ -1,3 +1,4 @@
+import '@podium/client-graph/synced-models'
 /**
  * POD-4546 (L1a) — the runtime bridge from a field citation in `schema.ts` to
  * the real definition in `@podium/model`.
