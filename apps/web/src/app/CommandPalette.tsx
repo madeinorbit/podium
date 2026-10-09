@@ -6,7 +6,7 @@ import {
   isUnstartedSession,
   resolveDefaultAgent,
 } from '@podium/client-core/values'
-import { LOADING } from '@podium/client-graph'
+import { IssueModel, LOADING } from '@podium/client-graph'
 import { commandIssueReference, commandIssueSearchRef } from '@podium/client-graph/command-launch-views'
 import { machinePathBasename } from '@podium/model'
 import type { AgentKind, IssueId, SessionId } from '@podium/model/browser'
@@ -426,6 +426,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
         label: i.title,
         keywords: ['task', 'issue', commandIssueSearchRef(i), STAGE_LABELS[i.stage]],
         issueReference: commandIssueReference(i),
+        issue: i instanceof IssueModel ? i : undefined,
         run: () => {
           setOpenIssueId(i.id)
           setView('issues')
@@ -989,7 +990,7 @@ function PaletteEnterCap(): JSX.Element {
   )
 }
 
-function PaletteRow({
+const PaletteRow = observer(function PaletteRow({
   cmd,
   index,
   active,
@@ -1004,8 +1005,9 @@ function PaletteRow({
 }): JSX.Element {
   const value = useCommandSession(cmd.sessionId ?? null)
   const session = value && value !== LOADING ? value : undefined
-  const liveIssue = useCommandIssue(cmd.issueReference?.issueId ?? null)
-  const reference = liveIssue ? issueReferenceModel(liveIssue) : cmd.issueReference
+  const liveIssue = useCommandIssue(cmd.issue ? null : cmd.issueReference?.issueId ?? null)
+  const reference = cmd.issue && typeof cmd.issue.seq === 'number' ? commandIssueReference(cmd.issue)
+    : liveIssue ? issueReferenceModel(liveIssue) : cmd.issueReference
   const Icon = cmd.icon
   return (
     <button
@@ -1043,7 +1045,7 @@ function PaletteRow({
       <PaletteEnterCap />
     </button>
   )
-}
+})
 
 /** Ask the shell for a dock panel; `null` closes it. The panel state is
  *  AppShell-local, so this crosses by window event like the git stamp does. */

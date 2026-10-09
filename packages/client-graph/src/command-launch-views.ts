@@ -4,7 +4,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { canonicalIssueRef, issueReferenceModel, resolveDefaultAgent, type RepoView } from '@podium/client-core/values'
 import { lazy, keyedComputed } from '@podium/mobx-helpers'
-import { machinePathBasename, machinePathKey, machinePathsEqual, normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
+import { asIssueId, machinePathBasename, machinePathKey, machinePathsEqual, normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
 import {
   action, observable, observableRef, when, runInAction,
   compareStructural,
@@ -387,9 +387,9 @@ export function commandIssueSearchRef(issue: Pick<IssueViewModel, 'seq' | 'displ
     prefix: issue instanceof IssueModel ? issue.prefix : undefined })
 }
 
-export function commandIssueReference(issue: Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'stage' | 'displayRef'> &
-  Partial<Pick<IssueViewModel, 'archived' | 'deletedAt'>>) {
-  return issueReferenceModel({ id: issue.id, seq: issue.seq, title: issue.title, stage: issue.stage,
+export function commandIssueReference(issue: IssueModel | (Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'stage' | 'displayRef'> &
+  Partial<Pick<IssueViewModel, 'archived' | 'deletedAt'>>)) {
+  return issueReferenceModel({ id: asIssueId(issue.id), seq: issue.seq, title: issue.title, stage: issue.stage,
     displayRef: commandIssueSearchRef(issue), archived: issue.archived, deletedAt: issue.deletedAt })
 }
 
