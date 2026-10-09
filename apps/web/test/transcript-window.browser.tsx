@@ -1,6 +1,7 @@
 /** Production transcript fixture: real rows/scroll controller, synthetic history. */
 import { useMemo, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import type { ChatRow } from '@podium/client-core/values'
 import { asSessionId, type TranscriptItem } from '@podium/model/browser'
 import { buildChatRows, pairToolResults } from '../src/features/chat/chat'
 import { TranscriptFeed } from '../src/features/chat/TranscriptFeed'
@@ -9,6 +10,11 @@ import '../src/index.css'
 import '../src/styles.css'
 
 const TOTAL = 8058
+const markdownHtml = new Map<string, string>()
+const attribution = {} as never
+const noOp = () => {}
+const noOpAsync = async () => {}
+const isOperatorPromptRow = (row: ChatRow) => row.kind === 'block' && row.block.item.role === 'user'
 const corpus: TranscriptItem[] = Array.from({ length: TOTAL }, (_, index) => ({
   id: `message-${index}`, role: index % 4 === 0 ? 'user' : 'assistant', answer: index % 4 === 3,
   text: `Message ${index} — native-needle-${index}.\n\n**A measured transcript** with \`inline code\` and [a link](https://example.invalid/).\n\n- First point\n- Second point\n\nThe viewport retains the same line lengths and message spacing.`,
@@ -43,14 +49,14 @@ function Fixture() {
   return <main className="chat-theme" style={{ height: '100dvh', display: 'flex', flexDirection: 'column' }}>
     <TranscriptFeed setScrollerRef={scroll.setScrollerRef} setContentRef={scroll.setContentRef}
       onScroll={scroll.onScroll} onPointerUp={scroll.onPointerUp} compact={false} superagent={false}
-      phase="ready" rows={rows} blocks={blocks} markdownHtml={new Map()}
+      phase="ready" rows={rows} blocks={blocks} markdownHtml={markdownHtml}
       search={{ matches: [], activeMatch: undefined, activeRow: undefined, position: 0, total: 0, filtering: false }}
       moreAbove={count < TOTAL} loadingOlder={false} loadOlder={scroll.loadOlder}
       sessionId={asSessionId('window-proof')} cwd="/synthetic" session={undefined} httpOrigin="http://offline.invalid"
-      openFile={() => {}} onOpenImage={() => {}} onAnswerAsk={async () => {}}
+      openFile={noOp} onOpenImage={noOp} onAnswerAsk={noOpAsync}
       livePendingAskIndex={-1} pendingAskBlock={null} lastAnswerBlockIndex={-1}
-      collapseContext={false} stickyEnabled={true} isOperatorPromptRow={row => row.kind === 'block' && row.block.item.role === 'user'}
-      onRetractQueued={async () => {}} attribution={{} as never} />
+      collapseContext={false} stickyEnabled={true} isOperatorPromptRow={isOperatorPromptRow}
+      onRetractQueued={noOpAsync} attribution={attribution} />
   </main>
 }
 document.documentElement.classList.add('dark')
