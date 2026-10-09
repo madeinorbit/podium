@@ -111,6 +111,8 @@ export function hydrateAll(pool: MobxPool, questions: readonly StartupQuestion[]
   let loaded = 0
   for (let round = 0; round < rounds; round++) {
     ask(pool, questions)
+    collectGarbage()
+    memoryAt(`hydrate round ${round}`)
     const count = pool.hydrate()
     if (!count) return loaded
     loaded += count
@@ -126,5 +128,6 @@ export function collectGarbage(): void {
 /** Resident memory at a named stage, on stderr (the 3 GB worker cap). */
 export function memoryAt(stage: string): void {
   if (process.env['PODIUM_STARTUP_MEMORY'] !== '1') return
-  process.stderr.write(`[startup-states] ${stage}: rss ${Math.round(process.memoryUsage().rss / 1048576)} MiB\n`)
+  const { rss, heapUsed } = process.memoryUsage()
+  process.stderr.write(`[startup-states] ${stage}: rss ${Math.round(rss / 1048576)} MiB, heap ${Math.round(heapUsed / 1048576)} MiB\n`)
 }
