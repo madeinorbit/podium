@@ -9,6 +9,7 @@ import { autorun } from 'mobx'
 import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
 import { poolBackedScreens } from './pool-screens'
+import { NOW, waterfallFixture } from './waterfall-view.test.fixture'
 
 const state = vi.hoisted(() => ({ pool: null as unknown, now: 0 }))
 const owner = {
@@ -53,34 +54,7 @@ it('opens a cold production mission in Waterfall without throwing the loading se
       handle.pool.hydrate()
     }
     expect(screen.ready).toBe(true)
-    const scrollRef = { current: null as HTMLElement | null }
-    let ui!: ReturnType<typeof render>
-    ui = render(
-      <div
-        ref={(node) => {
-          scrollRef.current = node
-          if (node) Object.defineProperty(node, 'clientHeight', { value: 192, configurable: true })
-        }}
-      >
-        <FlightDeckWaterfall
-          screen={screen}
-          scrollRef={scrollRef}
-          display="compact"
-          focusedIssueId={null}
-          activeSessionId={null}
-          renameTarget={null}
-          isFolded={() => false}
-          onToggle={() => {}}
-          onSelectIssue={() => {}}
-          onSelectSession={() => {}}
-          onIssueMenu={() => {}}
-          onStatusPick={() => {}}
-          onRenameIssue={() => {}}
-          onRenameDone={() => {}}
-        />
-      </div>,
-    )
-    expect(ui.container.querySelector('[aria-busy="true"]')).not.toBeNull()
+    const ui = render(waterfall(screen))
     await waitFor(() => {
       handle.pool.hydrate()
       expect(ui.container.querySelector('.waterfall-issue-open')).not.toBeNull()
@@ -94,3 +68,65 @@ it('opens a cold production mission in Waterfall without throwing the loading se
     ctx.dispose()
   }
 }, 60_000)
+
+function waterfall(screen: MissionScreen, isFolded = () => false) {
+  const scrollRef = { current: null as HTMLElement | null }
+  return (
+    <div
+      ref={(node) => {
+        scrollRef.current = node
+        if (node) Object.defineProperty(node, 'clientHeight', { value: 192, configurable: true })
+      }}
+    >
+      <FlightDeckWaterfall
+        screen={screen}
+        scrollRef={scrollRef}
+        display="compact"
+        focusedIssueId={null}
+        activeSessionId={null}
+        renameTarget={null}
+        isFolded={isFolded}
+        onToggle={() => {}}
+        onSelectIssue={() => {}}
+        onSelectSession={() => {}}
+        onIssueMenu={() => {}}
+        onStatusPick={() => {}}
+        onRenameIssue={() => {}}
+        onRenameDone={() => {}}
+      />
+    </div>
+  )
+}
+
+it.each([
+  'spine',
+  'row',
+] as const)('shows loading and recovers when the %s reader settles', async (seam) => {
+  const f = await waterfallFixture(3)
+  state.pool = f.pool
+  state.now = NOW
+  const read =
+    seam === 'spine'
+      ? vi.spyOn(f.screen, 'rootRow', 'get').mockImplementation(() => {
+          throw LOADING
+        })
+      : null
+  const pending = () => {
+    throw LOADING
+  }
+  try {
+    const ui = render(waterfall(f.screen, seam === 'row' ? pending : undefined))
+    await waitFor(() =>
+      expect(ui.getAllByRole('status')[0]?.textContent).toContain('Loading timeline'),
+    )
+    expect(ui.container.querySelector('.waterfall-issue-open')).toBeNull()
+    read?.mockRestore()
+    ui.rerender(waterfall(f.screen))
+    await waitFor(() => expect(ui.container.querySelector('.waterfall-issue-open')).not.toBeNull())
+    expect(ui.queryByRole('status')).toBeNull()
+  } finally {
+    cleanup()
+    read?.mockRestore()
+    f.close()
+  }
+})
