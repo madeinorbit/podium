@@ -93,6 +93,11 @@ const POST_MIGRATION_PERSONAL_KEYS = [
   'roles.shipwright.harness',
 ] as const
 
+/** Lifted by the frozen SQL but since removed from the live shape. A stored row
+ * for one of these is harmless: `normalizeSettings` strips the unknown member
+ * when the per-user overlay is resolved. */
+const RETIRED_PERSONAL_KEYS = ['roles.coding.subagentStrategy'] as const
+
 /**
  * DISTINCT per key, NON-DEFAULT, and recognisable in a failure message.
  *
@@ -224,9 +229,10 @@ describe('the migration moves the keys the model classifies — no second list',
   it('the literals the SQL spells out ARE POD-418’s shipped classification', () => {
     // The frozen-history literals plus the explicitly post-migration keys are
     // pinned to the live classification HERE and nowhere else.
-    expect([...LIFTED_KEYS, ...POST_MIGRATION_PERSONAL_KEYS].sort()).toEqual(
-      [...settingsPathsInTier('personal-preference')].sort(),
-    )
+    const retired: readonly string[] = RETIRED_PERSONAL_KEYS
+    expect(
+      [...LIFTED_KEYS, ...POST_MIGRATION_PERSONAL_KEYS].filter((k) => !retired.includes(k)).sort(),
+    ).toEqual([...settingsPathsInTier('personal-preference')].sort())
     // Twenty-four, asserted, so a classification that collapsed to a handful
     // would not make this suite pass by checking almost nothing.
     expect(LIFTED_KEYS).toHaveLength(24)
@@ -375,9 +381,10 @@ describe('the CLEAR happens, and takes exactly the personal leaves', () => {
         cursor = (cursor as Record<string, unknown> | undefined)?.[segment]
       }
       expect(cursor, `${key} should be gone from the blob`).toBeUndefined()
-      expect(await prefs.get(firstAdminMemberId(), key), `${key} should be in user_preferences`).toEqual(
-        SEEDED[key],
-      )
+      expect(
+        await prefs.get(firstAdminMemberId(), key),
+        `${key} should be in user_preferences`,
+      ).toEqual(SEEDED[key])
     }
   })
 })

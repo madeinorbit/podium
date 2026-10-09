@@ -194,8 +194,12 @@ describe('normalizeSettings — idle-session target', () => {
     // POD-4429 (af800b39b): one minute parked an open dock shell sitting at
     // its prompt one minute after the last keystroke. The default is sixty.
     expect(normalizeSettings({}).hibernation.idleShellMinutes).toBe(60)
-    expect(normalizeSettings({ hibernation: { idleShellMinutes: 48 } }).hibernation.idleShellMinutes).toBe(48)
-    expect(normalizeSettings({ hibernation: { idleShellHours: 2 } }).hibernation.idleShellMinutes).toBe(120)
+    expect(
+      normalizeSettings({ hibernation: { idleShellMinutes: 48 } }).hibernation.idleShellMinutes,
+    ).toBe(48)
+    expect(
+      normalizeSettings({ hibernation: { idleShellHours: 2 } }).hibernation.idleShellMinutes,
+    ).toBe(120)
   })
 
   it('defaults the idle backstop to two days', () => {
@@ -240,8 +244,6 @@ describe('normalizeSettings — legacy → roles migration', () => {
       provider: 'codex',
       model: 'gpt-5.4-mini',
     })
-    // coding subagentStrategy back-filled (older blob predates it).
-    expect(s.roles.coding.subagentStrategy).toBe('builtin')
   })
 
   it('is idempotent — a blob already on `roles` is left as-is', () => {

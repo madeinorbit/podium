@@ -97,8 +97,6 @@ export type RoleBackend = z.infer<typeof RoleBackend>
 export const CodingRole = RoleBackend.extend({
   /** Model for the harness's own subagents ('auto' = no override). */
   subagentModel: z.string().default('auto'),
-  /** How subagents run: 'builtin' (harness's own) or 'podium' (coming soon). */
-  subagentStrategy: z.enum(['builtin', 'podium']).default('builtin'),
   /** Which panel a new session opens on. */
   startScreen: z.enum(['native', 'chat', 'auto']).default('native'),
   /** Seed spawned agent CLIs with per-session OFFICIAL theme flags so their

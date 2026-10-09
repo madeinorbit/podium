@@ -40,8 +40,9 @@ const classifiedPaths = () => SETTINGS_CLASSIFICATION.map((c) => c.path)
 
 describe('the blob walk, probed before it is believed', () => {
   it('finds a non-trivial number of leaves, nested ones included', () => {
-    // 42 + the shell-idle and backstop hibernation controls + transcripts.mirror.
-    expect(blobLeaves().length).toBe(56)
+    // 42 + the shell-idle and backstop hibernation controls + transcripts.mirror,
+    // minus the removed roles.coding.subagentStrategy.
+    expect(blobLeaves().length).toBe(55)
     expect(blobLeaves()).toContain('roles.coding.model')
     expect(blobLeaves()).toContain('roles.background.accountId')
     expect(blobLeaves()).toContain('roles.shipwright.accountId')
@@ -158,7 +159,6 @@ describe('the composed blob still parses exactly as before', () => {
           model: 'auto',
           effort: 'auto',
           subagentModel: 'auto',
-          subagentStrategy: 'builtin',
           startScreen: 'native',
           seedCliTheme: true,
         },
