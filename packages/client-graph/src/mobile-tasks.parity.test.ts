@@ -151,7 +151,8 @@ it('answers the old board’s sections, order, counts and proposals on seeded fo
   }
   // The fixtures reach real rows, not only empty boards.
   expect(compared).toBeGreaterThan(1000)
-})
+  // 720 option combinations: minutes on a loaded test box.
+}, 300_000)
 
 it('fails the same comparison when the new answer is wrong', async () => {
   const pool = await setup(forest(3))
