@@ -1,6 +1,6 @@
 # Per-owner attention totals
 
-Base: `integrate/4286-pilot` at `2c4e3bd21e`, after POD-5822 landed.
+Original measurement base: `integrate/4286-pilot` at `2c4e3bd21e`, after POD-5822 landed.
 
 ## Remaining callers at this base
 
@@ -67,4 +67,37 @@ change claims no constant-time sum or universal roster cardinality cap.
 Thirteen removed raw-helper call/consumer fingerprints disappear from the
 source scan. No unrelated classification changes.
 
-Final heavy gates and structural comparison remain pending on flatblock.
+Final heavy gates and structural comparison belong to the shared testing lane,
+POD-5895. This issue does not run them or land its candidate.
+
+## Shared-lane rejection repair
+
+Rebased the original five-commit range
+`2c4e3bd21efd0952c05afb34c9547172d22de85d..d2836162a3843bad2a7b298ce6a0c2983d59caef`
+onto `899243cf3148090bb355ccc52199d825a282eaf4`. `git range-diff` reports
+all five original commits unchanged. The additional code change sets
+`selectedIssueId: null` in the five parity fixtures and the work fixture,
+matching the required `SliceLocals` contract.
+
+Flatblock proof at `4d7ca37ee7ec4d2b46755cb53ee68a3510c38769`, Bun 1.4.2:
+
+- `bun scripts/check-interaction-scans.ts --json`: 2,209 fingerprints,
+  2,210 occurrences, zero ratchet errors.
+- `bun run typecheck -- --filter=@podium/client-graph --only --concurrency=1`:
+  one package attempted, one successful, cache miss, exit zero.
+- The foreground supervisor recorded nine process IDs and start times;
+  none remained after the typecheck, so no force-kill was needed.
+
+The four worktree entries rejected in the combined Batch 3 scan
+(`stale`, `visible`, `waitingCount`, `workingCount`) have the same
+fingerprints on the original candidate, pilot `899243cf31`, and this
+rebased candidate. All four still occur in the standalone scan. Their
+`REQUIRED REPAIR` classifications and other metadata are preserved;
+removing them here would introduce four new standalone ratchet errors.
+Batch 3 reports them absent without replacement worktree scans. The
+shared lane has been sent this evidence so it can retire the entries in
+the combined range that removes them. No cross-candidate source repair
+or classification change is included here.
+
+Logs: `flatblock:/tmp/podium-5651-repair-20261009/` (`scans.json`,
+`focused-typecheck.log`, `recorded-processes.jsonl`, `cleanup.json`).
