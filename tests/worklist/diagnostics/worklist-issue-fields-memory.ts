@@ -66,12 +66,16 @@ await settle()
 const watched = [...caches].filter(cache => cache.observers_?.size)
 const watchedFields = watched.length
 const watchedIssueFields = watched.filter(cache => cache.name_.startsWith('IssueModel.')).length
+const watchedIssueFieldsByName: Record<string, number> = {}
+for (const cache of watched) if (cache.name_.startsWith('IssueModel.')) {
+  watchedIssueFieldsByName[cache.name_] = (watchedIssueFieldsByName[cache.name_] ?? 0) + 1
+}
 prototype.computeValue_ = compute
 caches.clear()
 watched.length = 0
 const retained = heap()
 console.log(JSON.stringify({ mode, scale: 4, issues: corpus.sliceIssues.length,
-  sessions: corpus.sliceSessions.length, shown, watchedFields, watchedIssueFields,
+  sessions: corpus.sliceSessions.length, shown, watchedFields, watchedIssueFields, watchedIssueFieldsByName,
   heapBeforeWorklist: before, heapWithWorklist: retained, worklistHeap: retained - before }))
 stop()
 pool.dispose()

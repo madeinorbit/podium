@@ -31,6 +31,7 @@ import {
   useCallback,
   useEffect,
   useId,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -697,7 +698,11 @@ const PoolMotionRow = observer(function PoolMotionRow({
   const now = foldedClock.get().now
   // The existing exit snapshot retains the final paint after archive or eviction.
   const previous = useRef<SidebarRowValues | undefined>(undefined)
-  if (fresh !== undefined && fresh !== LOADING) previous.current = sidebarExitSnapshot(fresh)
+  // Retain the last committed paint. Snapshot-only stored fields must not
+  // become live dependencies of the row observer.
+  useLayoutEffect(() => {
+    if (fresh !== undefined && fresh !== LOADING) previous.current = sidebarExitSnapshot(fresh)
+  })
   const snapshot = fresh === undefined && item.phase === 'exiting' ? previous.current : undefined
   const draftOnly = fresh && fresh !== LOADING ? fresh.sessionOnlyDraft : snapshot?.draftAgentOnly
   const firstSessionId = fresh && fresh !== LOADING ? fresh.firstSessionId : snapshot?.firstSessionId

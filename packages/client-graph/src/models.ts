@@ -30,6 +30,13 @@ import type { VisibleInputs } from './worklist/visible'
 
 const EMPTY_DEPENDENTS: readonly { id: string; type: string }[] = Object.freeze([])
 
+// Direct work-row paint readers need scalar equality when an unrelated stored
+// field changes. Ordering, membership and other stored getters stay plain.
+const ISSUE_PAINT_FIELDS: ReadonlySet<string> = new Set([
+  'title', 'color', 'audience', 'pinned', 'linearIdentifier', 'seq',
+  'stage', 'closedReason', 'blocked', 'branch', 'gitState', 'parentBranch',
+])
+
 /** What a model reads from its pool. */
 export interface ModelHost {
   readonly issueSessionFact: IssueSessionFactReader
@@ -143,9 +150,8 @@ function installFields(
       if (field === spec.key) return this.id
       return this.storedField(property)
     }
-    // Worklist components read issue facts directly. Retain each watched
-    // answer on the shared model so unrelated fields keep its readers cold.
-    const get = answered ?? (entity === 'issue' ? lazy(stored, {
+    // Only direct paint readers need another scalar equality boundary.
+    const get = answered ?? (entity === 'issue' && ISSUE_PAINT_FIELDS.has(field) ? lazy(stored, {
       kind: 'getter', name: field, static: false, private: false,
       access: { has: target => field in target, get: target => stored.call(target) },
       addInitializer() {}, metadata: {},
