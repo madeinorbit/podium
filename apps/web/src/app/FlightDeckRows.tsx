@@ -1296,8 +1296,9 @@ export const SessionRow = observer(function SessionRow({
  *  case. The seat a task holds for the agent it does not have is NOT here any
  *  more: it is a chip on the strip itself (see `SeatChip`). */
 interface HungContext {
-  issue: IssueNavigationModel
-  sessions: SessionView[]
+  /** The task the crew hangs on: its crew list and the role fields it reads. */
+  model: MissionDeckIssueModel
+  mode: FlightDeckMode
   rootId: string | undefined
   inMission: ReadonlySet<string>
   nameOf: (sessionId: SessionId) => string | undefined
@@ -1315,18 +1316,16 @@ interface HungContext {
   onSelectSession: (session: SessionView, permanent: boolean) => void
   onSelectNative: (session: SessionView) => void
   window?: DeckWindow
-  model?: MissionDeckIssueModel
-  mode?: FlightDeckMode
 }
 
 export const HungRows = observer(function HungRows(ctx: HungContext): JSX.Element | null {
   const reduce = useReducedMotion()
-  const ids = ctx.model?.sessionIds(ctx.mode ?? 'full') ?? ctx.sessions.map(session => session.sessionId)
+  const ids = ctx.model.sessionIds(ctx.mode)
   if (ids.length === 0) return null
   return (
     <div className="relative" style={{ marginLeft: ctx.inset }}>
       {ids.map((sessionId, index) => {
-        const key = deckSessionKey(ctx.model?.key ?? ctx.issue.id, sessionId)
+        const key = deckSessionKey(ctx.model.key, sessionId)
         if (ctx.window?.enabled && !ctx.window.contains(key)) {
           return (
             <DeckRowPlaceholder
@@ -1336,13 +1335,13 @@ export const HungRows = observer(function HungRows(ctx: HungContext): JSX.Elemen
             />
           )
         }
-        const session = ctx.model ? ctx.model.view.session(sessionId) : ctx.sessions[index]
+        const session = ctx.model.view.session(sessionId)
         const pending = () => <div key={sessionId} style={{ height: 46 }}><GhostBar /></div>
         if (session === LOADING) return pending()
         if (!session) return null
-        const role = settled(() => sessionRole(ctx.issue, session, {
+        const role = settled(() => sessionRole(ctx.model.roleIssue, session, {
           rootId: ctx.rootId,
-          siblings: ctx.model?.sessions ?? ctx.sessions,
+          siblings: ctx.model.sessions,
           inMission: ctx.inMission,
         }))
         if (role === LOADING) return pending()
@@ -1350,7 +1349,6 @@ export const HungRows = observer(function HungRows(ctx: HungContext): JSX.Elemen
           <SessionRow
             key={session.sessionId}
             session={session}
-            issue={ctx.issue}
             model={ctx.model}
             role={role}
             label={roleLabel(role, ctx.nameOf)}
@@ -1449,6 +1447,72 @@ export function DeckFlatRows({
   )
 }
 
+/** A strip's title: the one thing a rename redraws. */
+export const RowTitle = observer(function RowTitle({ row }: { row: MissionDeckIssueModel }): JSX.Element {
+  return <>{row.title}</>
+})
+
+/** The fold chevron names the task it folds. */
+const FoldChevron = observer(function FoldChevron({
+  row,
+  collapsed,
+  onToggle,
+}: {
+  row: MissionDeckIssueModel
+  collapsed: boolean
+  onToggle: () => void
+}): JSX.Element {
+  return (
+    <button
+      data-pressable
+      type="button"
+      className="flex size-5 flex-none items-center justify-center text-text-dim hover:text-text-strong"
+      aria-label={collapsed ? `Expand ${row.title}` : `Collapse ${row.title}`}
+      aria-expanded={!collapsed}
+      onClick={onToggle}
+    >
+      {collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
+    </button>
+  )
+})
+
+const RowActionsButton = observer(function RowActionsButton({
+  row,
+  onMenu,
+}: {
+  row: MissionDeckIssueModel
+  onMenu: (event: ReactMouseEvent) => void
+}): JSX.Element {
+  return (
+    <Button
+      variant="ghost"
+      size="icon-sm"
+      className="size-5 text-text-dim"
+      aria-label={`Task actions for ${row.title}`}
+      title="Task actions"
+      onClick={(event) => {
+        event.stopPropagation()
+        onMenu(event)
+      }}
+    >
+      <Ellipsis size={12} aria-hidden="true" />
+    </Button>
+  )
+})
+
+/** The strip's status glyph reads the two status fields, nothing else. */
+export const RowStatusPicker = observer(function RowStatusPicker({
+  row,
+  size,
+  onPick,
+}: {
+  row: MissionDeckIssueModel
+  size?: number
+  onPick: (value: string) => void
+}): JSX.Element {
+  return <IssueStatusPicker issue={row.status} size={size} onPick={onPick} />
+})
+
 export const TaskRow = observer(
   function TaskRow({
     row,
@@ -1529,19 +1593,17 @@ export const TaskRow = observer(
       return <div className="relative pb-1.5" data-flight-issue={row.id} data-depth={row.depth}>
         <BranchGuides carries={carries} rails={rails} mid={row.stage === 'proposed' ? PROPOSED_MID : BAND_MID} />
         <DeckRowPlaceholder row={{ key: deckTaskKey(row.key), size: BAND_HEIGHT, get text() { return deckWindow.text(deckTaskKey(row.key)) } }} window={deckWindow} />
-        {!collapsed && issue !== LOADING && issue && <HungRows issue={issue} sessions={[]} model={row} mode={mode} rootId={rootId} inMission={inMission} nameOf={nameOf}
+        {!collapsed && issue !== LOADING && issue && <HungRows model={row} mode={mode} rootId={rootId} inMission={inMission} nameOf={nameOf}
           activeSessionId={activeSessionId} arrivals={arrivals} settle={settle} inset={bandLeft} rail={agentRail} tail={childFollows}
           onSelectSession={onSelectSession} onSelectNative={onSelectNative} window={deckWindow} />}
       </div>
     }
-    const raw = row.view.issue(row.id)
-    if (!raw || typeof raw === 'symbol') return <div className="relative pb-1.5" data-flight-issue={row.id}><GhostBar /></div>
-    const displayTitle = row.title
+    if (!row.drawable) return <div className="relative pb-1.5" data-flight-issue={row.id}><GhostBar /></div>
     const presentation = settled(() => row.presentation)
     if (presentation === LOADING) return <div className="relative pb-1.5" data-flight-issue={row.id}><GhostBar /></div>
     if (!presentation) throw new Error('Pool mission row has no presentation values')
     const state = presentation!.state
-    const sessions = deckSessions(row, mode)
+    const drawsSessions = row.drawsSessions(mode)
     /**
      * A ROW THAT IS ONLY THE PATH TO A MATCH (POD-1245).
      *
@@ -1567,7 +1629,7 @@ export const TaskRow = observer(
     // so it holds no seat for an agent and takes the shorter band. Only one with
     // sub-tasks reaches this component — the childless ones leave the tree
     // entirely for the Proposed tail below it.
-    const proposed = row.issue.stage === 'proposed'
+    const proposed = row.stage === 'proposed'
     const bandHeight = proposed ? PROPOSED_BAND : BAND_HEIGHT
     const mid = proposed ? PROPOSED_MID : BAND_MID
     const note = presentation!.note
@@ -1578,13 +1640,13 @@ export const TaskRow = observer(
     // chip: "2 running" is the thing the fold is hiding, and `3 tasks` is printed
     // two inches to the left of it.
     const folded = collapsed && payload
-    const unread = deckTaskUnread(row, collapsed, row.updatedBelow)
+    const unread = row.unread(collapsed)
     const liveWord =
       folded && row.descendantIds.length > 0 && row.workingAgentCount > 0
         ? `${row.workingAgentCount} running`
         : undefined
     return (
-      <div className="relative pb-1.5" data-flight-issue={row.issue.id} data-depth={row.depth}>
+      <div className="relative pb-1.5" data-flight-issue={row.id} data-depth={row.depth}>
         <BranchGuides carries={carries} rails={rails} mid={mid} />
         {/* THE TASK'S OWN DESCENT — one unbroken line from the strip down through
           its agents and on into its first child. It starts behind the (opaque)
@@ -1592,7 +1654,7 @@ export const TaskRow = observer(
           block and the row below it never breaks the branch. `HungRows` draws
           the same line at the same x for its elbows; this is what carries it
           across the padding they cannot reach. */}
-        {!collapsed && (sessions.length > 0 || childFollows) && (
+        {!collapsed && (drawsSessions || childFollows) && (
           <span
             aria-hidden
             className={cn('pointer-events-none absolute', agentRail.className)}
@@ -1668,20 +1730,11 @@ export const TaskRow = observer(
           onContextMenu={onMenu}
         >
           {payload ? (
-            <button
-              data-pressable
-              type="button"
-              className="flex size-5 flex-none items-center justify-center text-text-dim hover:text-text-strong"
-              aria-label={collapsed ? `Expand ${displayTitle}` : `Collapse ${displayTitle}`}
-              aria-expanded={!collapsed}
-              // The chevron is the ONE control that folds without navigating, and
-              // it acts immediately — the row's own click is deferred by the
-              // double-click window, so an operator folding a long spine has an
-              // affordance that never waits.
-              onClick={onToggle}
-            >
-              {collapsed ? <ChevronRight size={11} /> : <ChevronDown size={11} />}
-            </button>
+            // The chevron is the ONE control that folds without navigating, and
+            // it acts immediately — the row's own click is deferred by the
+            // double-click window, so an operator folding a long spine has an
+            // affordance that never waits.
+            <FoldChevron row={row} collapsed={collapsed} onToggle={onToggle} />
           ) : (
             <span className="size-5 flex-none" />
           )}
@@ -1728,7 +1781,7 @@ export const TaskRow = observer(
                 a stage. Only the wrapper around this button is POD-1077's — and
                 since POD-1271 the glyph is also the door onto changing it, which
                 is why the row's own click stops at its edge. */}
-                <IssueStatusPicker issue={row.issue} size={13} onPick={onStatusPick} />
+                <RowStatusPicker row={row} size={13} onPick={onStatusPick} />
                 {/* THE TITLE OUTRANKS EVERYTHING ELSE IN THE ROW: it has a floor and
               it is the only thing here that shrinks. Ref THEN title, in one
               truncating label — the ref is how the operator addresses the task
@@ -1742,9 +1795,9 @@ export const TaskRow = observer(
                   )}
                 >
                   <span className="shell-type-micro mr-1.5 font-mono font-normal text-text-faint">
-                    {issueDisplayRef(row.issue)}
+                    {row.displayRef}
                   </span>
-                  {displayTitle}
+                  <RowTitle row={row} />
                 </span>
                 {unread ? (
                   <>
@@ -1778,19 +1831,7 @@ export const TaskRow = observer(
             data-hover-reveal
             className="absolute top-0.5 right-1 hidden items-center rounded-md bg-chip group-hover/task:flex"
           >
-            <Button
-              variant="ghost"
-              size="icon-sm"
-              className="size-5 text-text-dim"
-              aria-label={`Task actions for ${displayTitle}`}
-              title="Task actions"
-              onClick={(event) => {
-                event.stopPropagation()
-                onMenu(event)
-              }}
-            >
-              <Ellipsis size={12} aria-hidden="true" />
-            </Button>
+            <RowActionsButton row={row} onMenu={onMenu} />
           </div>
         </div>
         {/* THE FOLD GROWS AND SHRINKS (round 3 §7c) — a grid-rows collapse that
@@ -1803,8 +1844,6 @@ export const TaskRow = observer(
           <div className="min-h-0 overflow-hidden">
             {(!collapsed || !deckWindow?.enabled) && (
               <HungRows
-                issue={row.issue}
-                sessions={[]}
                 model={row}
                 mode={mode}
                 rootId={rootId}
@@ -1861,12 +1900,10 @@ export const ProposalRow = observer(function ProposalRow({
   onStatusPick: (value: string) => void
 }): JSX.Element {
   const intent = useClickIntent()
-  const issue = row.view.issue(row.id)
-  if (!issue || typeof issue === 'symbol') return <GhostBar />
-  const author = issue.startedBySession ? row.view.session(issue.startedBySession) : undefined
-  const authorRef = author && typeof author !== 'symbol' ? author.displayRef?.trim() || null : null
+  if (!row.drawable) return <GhostBar />
+  const authorRef = row.authorRef
   return (
-    <div data-flight-issue={issue.id}>
+    <div data-flight-issue={row.id}>
       <button
         data-pressable
         type="button"
@@ -1890,12 +1927,12 @@ export const ProposalRow = observer(function ProposalRow({
           intent.commit(() => onSelect(true))
         }}
       >
-        <IssueStatusPicker issue={issue} onPick={onStatusPick} />
+        <RowStatusPicker row={row} onPick={onStatusPick} />
         <span className="shell-type-secondary min-w-0 flex-1 truncate text-muted-foreground">
           <span className="shell-type-micro mr-1.5 font-mono text-fuchsia-500">
-            {issueDisplayRef(issue)}
+            {row.displayRef}
           </span>
-          {issue.title}
+          <RowTitle row={row} />
         </span>
         {/* Never dropped: the author IS the proposal's secondary content, and a
             row with only a title tells the operator nothing to act on. It parks

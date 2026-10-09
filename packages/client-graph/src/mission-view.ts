@@ -4,6 +4,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { displayRefOf } from './views'
 import {
   deckIssueState,
+  deckSessions,
   deckSessionOrder,
   type FlightDeckFoldMap,
   type FlightDeckMode,
@@ -382,6 +383,27 @@ export class MissionDeckIssueModel implements FlightDeckRow {
   @lazy private get ownContentUnread() { return deckRowUnread(this, false) }
   @lazy private get foldedUnread() { return deckRowUnread(this, true) }
   unread(collapsed: boolean) { return collapsed ? this.canonical.foldedUnread : this.canonical.ownContentUnread }
+  /** The issue's rich row has settled, so its strip can draw. */
+  @lazy private get ownDrawable() { const issue = this.view.issue(this.id); return Boolean(issue) && issue !== LOADING }
+  get drawable() { return this.canonical.ownDrawable }
+  /** The reference of the session that filed this issue, when it can be named. */
+  @lazy private get ownAuthorRef(): string | null {
+    const issue = requireLoaded(this.view.issue(this.id))
+    const author = issue?.startedBySession ? this.view.session(issue.startedBySession) : undefined
+    return author && author !== LOADING ? author.displayRef?.trim() || null : null
+  }
+  get authorRef() { return this.canonical.ownAuthorRef }
+  /** What a crew member's role reads of its task. */
+  @lazy({ equals: compareShallow }) private get ownRoleIssue() { return { id: this.id, coordinatorSessionId: this.facts.coordinatorSessionId } }
+  get roleIssue() { return this.canonical.ownRoleIssue as unknown as IssueNavigationModel }
+  /** Whether the strip draws any crew in a view. */
+  @lazy private get drawsFull() { return deckSessions(this.canonical, 'full').length > 0 }
+  @lazy private get drawsWorking() { return deckSessions(this.canonical, 'working').length > 0 }
+  @lazy private get drawsAsking() { return deckSessions(this.canonical, 'needs-you').length > 0 }
+  drawsSessions(mode: FlightDeckMode) {
+    const row = this.canonical
+    return mode === 'full' ? row.drawsFull : mode === 'working' ? row.drawsWorking : row.drawsAsking
+  }
   @lazy({ equals: compareShallow }) private get ownDeckChildren() { return childrenOf(this) }
   get deckChildren() { return this.canonical.ownDeckChildren }
   @lazy({ equals: compareShallow }) private get ownDescendantIds() { return descendants(this) }
