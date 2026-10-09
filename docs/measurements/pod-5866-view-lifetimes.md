@@ -1,6 +1,6 @@
 # Per opening view lifetimes
 
-Issue detail, settings and automation surfaces now create their view models in the opening root and pass them through React context. Closing releases their query results, cached answers and companions. The pool continues to own shared record identity. This applies guide rule 9, with original measurements on `006a4ba7c9` and the full candidate reconciled onto landed shared-model pilot `84a31a9c67`.
+Issue detail, settings and automation surfaces now create their view models in the opening root and pass them through React context. Closing releases their query results, cached answers and companions. The pool continues to own shared record identity. This applies guide rule 9, with original measurements on `006a4ba7c9` and the full candidate reconciled onto landed shared-model pilot `84a31a9c67`, then rebased onto the reported green-rest pilot `24c2b0737f` (which includes `38cccb0b8f`). Receipts below remain bound to their named source; the newest validation is in the final section.
 
 ## Opening ownership
 
@@ -44,9 +44,9 @@ The React proof opens/closes each of six factory families fifty times: issue det
 
 ## Validation
 
-Existing focused checks are green for web issue detail, explorer navigation (27 unchanged checks), settings and its close guard, settings data, automation readers/dialog, phone settings, the artifact sheet, graph detail/settings, companion identity and the phone session service. The dialog test's only change is its import: its existing mocked-data assertions draw the body under the separately tested opening owner.
+Earlier focused checks are green for web issue detail, explorer navigation (27 unchanged checks), settings and its close guard, settings data, automation readers/dialog, phone settings, the artifact sheet, graph detail/settings, companion identity and the phone session service. The dialog test's only change is its import: its existing mocked-data assertions draw the body under the separately tested opening owner.
 
-The unchanged phone issue-screen test has a baseline snapshot failure: both `006a4ba7c9` and this candidate produce `073d4688535d26313cb7577e5ad685873d9dfc3398d304975622cf24805e564d`, while its saved snapshot expects `1ea4c91fd64e26c206a0d905960c76e261c037a6babd9a6898488a3ce8563f3a`. Its picker case passes on both, with 80 row reads and 40 derivations at both 1× and 4×. The snapshot remains unchanged and the evidence was mailed to POD-4286.
+The pre-model phone issue-screen test had a baseline snapshot failure: both `006a4ba7c9` and that candidate produced `073d4688535d26313cb7577e5ad685873d9dfc3398d304975622cf24805e564d`, while its saved snapshot expects `1ea4c91fd64e26c206a0d905960c76e261c037a6babd9a6898488a3ce8563f3a`. Its picker case passes on both, with 80 row reads and 40 derivations at both 1× and 4×. The snapshot remains unchanged and the evidence was mailed to POD-4286.
 
 The baseline structural census covers 55 readers, nine clicks/deltas and two scales: 1,711 counters, zero unexpected failures and five existing issue-owned failures. POD-5895 owns the final candidate census and landing after the coordinator moved heavy checks into its shared lane.
 
@@ -84,3 +84,22 @@ The baseline settings failure is the named automation-session assertion at `sett
 The React collection fixture initially retained one explorer object through live matcher arguments in an async close frame. Keeping those object assertions in a synchronous helper restores the zero-reachable result; all existing context, identity, StrictMode disposal and fifty-close assertions remain. Product cleanup is unchanged.
 
 The final light interaction scan reports **2,071 fingerprints, 2,072 occurrences, 1,911 carried REQUIRED REPAIR entries and zero ratchet errors**. Reconciliation preserves 2,001 exact pilot entries, transfers 66 prior candidate entries, and maps four shifted predecessors without changing any classification. Logs and exact SHA-bound receipts are at `flatblock:/tmp/p5866-model-reconciliation/`. Every completed run has zero live recorded worker PIDs; focused workers peaked at 419,600 KiB, and the source-only light scan at 1,314,084 KiB. A brief initial focused-run overlap with POD-5895's census window was reported to that lane; subsequent runs waited for a confirmed free window. No heavy validation or landing was performed here. Final changes after these receipts are this report and restoration of the landed bundle ceiling only.
+
+
+## Coordinator typing repair
+
+POD-4286 returned `659801c8f4` for the web program's missing `bun:jsc` declaration. All twenty-one patches replayed unchanged onto ludovico's requested `38cccb0b8f`; while the repair was running, POD-5895 reported the separately owned POD-5929 test-only landing at `24c2b0737f119ceb1324d87bda2678290ddb536a`. The complete replacement is rebased onto that actual ludovico ref, with every prior patch preserved. POD-5929 owns the settings fixture repair; this range does not modify it.
+
+The web package now declares only `releaseWeakRefs()` and `gcAndSweep()` locally, following `packages/runtime/src/bun-jsc.d.ts`. It does not add Bun's global type package. The requested web-only typecheck also exposed declaration errors from the settings opening's inferred return type; exporting the existing `SettingsMachines` class by name resolves those errors while retaining its private pool and lazy shared-model list. Opening ownership, the deferred explorer boundary, landed shell readers, bundle ceilings and the summary's `pool.queries.project` boundary remain intact.
+
+Fresh collection runs exposed test-held object roots despite synchronous matcher helpers. Rendering callbacks now stay synchronous, and each live-object comparison runs in its own timer task before closing. Awaited React flushing, all context/identity/disposal checks, fifty openings per family and the final zero-reachable assertion remain. Weak-only creation indexes make any future retention visible. StrictMode creates 100 models per family; all 100 are unreachable after fifty closes in each of the six families, with the shared pool alive.
+
+All final checks below ran sequentially in the foreground on flatblock with checkout-local Bun 1.4.2, on exact source `4cb22b3080b9fc5e760f51e6791764581578c457`:
+
+| Check | Result | Receipt label |
+| --- | --- | --- |
+| `bun run typecheck -- --filter=@podium/web --only` | 1 successful task of 1; 0 cached; no missing declarations or settings export errors | `named-settings-web-typecheck` |
+| `bun run test:file -- apps/web/src/app/opening-views.test.tsx` | 6 passed; every family has zero reachable models after fifty openings | `final-pilot-react` |
+| `bun scripts/check-interaction-scans.ts` | 2,071 fingerprints; 2,072 occurrences; 1,911 carried REQUIRED REPAIR entries; 0 ratchet errors | `final-pilot-light-scan` |
+
+Logs, PID identities and SHA-bound receipts remain at `flatblock:/tmp/p5866-model-reconciliation/`. The final compiler peaked at 3,049,224 KiB, the focused test at 351,156 KiB and the source-only scan at 1,332,140 KiB. The three receipts record 8, 7 and 1 process identities respectively, with zero live recorded PIDs; all preceding repair runs also exited with no live recorded PIDs. No PIDs were killed, no locks acquired, and no full typecheck, lean gate, build or structural census ran in this repair lane. Validation waited for POD-5895's census lease to be free. The only change after these final receipts is this evidence report; POD-5895 supplies heavy validation and landing for the replacement candidate.
