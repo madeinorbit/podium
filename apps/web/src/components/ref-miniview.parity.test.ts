@@ -20,10 +20,19 @@ const issue = (id: string, seq: number, patch: Row = {}): Row => ({
   id, seq, title: `Task ${seq}`, repoId: 'repo', repoPath: '/synthetic', stage: 'in_progress',
   createdAt: stamp(0), updatedAt: stamp(0), ...patch,
 })
-const seat = (sessionId: string, issueId: string | undefined, patch: Row = {}): Row => ({
-  sessionId, issueId, displayRef: `POD-1-${sessionId}`, cwd: '/synthetic', agentKind: 'codex',
-  status: 'live', title: sessionId, createdAt: stamp(0), lastActiveAt: stamp(1), ...patch,
-})
+/** A seat's birth ref is stored as fields; the display ref spells them. */
+function refFields(displayRef: string): Row {
+  const born = /^POD-(\d+)-([A-Z]+)$/.exec(displayRef), draft = /^POD-DRAFT-(\d+)$/.exec(displayRef)
+  return born ? { refRepoId: 'repo', refSeq: Number(born[1]), refLetter: born[2] }
+    : draft ? { refRepoId: 'repo', refDraft: Number(draft[1]) } : {}
+}
+const seat = (sessionId: string, issueId: string | undefined, patch: Row = {}): Row => {
+  const displayRef = (patch.displayRef as string | undefined) ?? `POD-1-${sessionId}`
+  return {
+    sessionId, issueId, displayRef, ...refFields(displayRef), cwd: '/synthetic', agentKind: 'codex',
+    status: 'live', title: sessionId, createdAt: stamp(0), lastActiveAt: stamp(1), ...patch,
+  }
+}
 
 function poolOf(issues: Row[], sessions: Row[]) {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp(0)) })
@@ -167,7 +176,8 @@ describe('reference card target parity (POD-5831)', () => {
     try {
       for (const ref of ['POD-1-A', 'POD-1-B', 'POD-DRAFT-3', 'POD-DRAFT-4']) {
         const card = readRefMiniview(pool, ref)
-        const session = card.sessions[0]!
+        const session = card.sessions[0]
+        if (!session) throw new Error(`${ref} did not resolve in the old reader`)
         const before = sessionWorkingIssueRef(session, card.issues)
         const resolved = readRefTarget(pool, ref).target
         if (resolved?.kind !== 'session') throw new Error(`${ref} did not resolve`)
