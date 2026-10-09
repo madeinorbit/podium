@@ -15,6 +15,8 @@ export interface ShippingIssueSummary {
 export interface ShippingPanelRow {
   order: ShipOrderProjection
   issue: ShippingIssueSummary | undefined
+  /** The issue summary is on its way (not known absent). */
+  issueLoading?: boolean
   queueRank: number | undefined
 }
 

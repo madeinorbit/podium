@@ -45,6 +45,8 @@ const STARTUP_GRAPH_SOURCES = new Set([
   'src/react/worklist-context.tsx',
   // header-entities (startup) owns the repository path relations (POD-5530).
   'src/header-repositories.ts',
+  // header-entities (startup) owns per-repository shipping membership (POD-5835).
+  'src/header-shipping-index.ts',
   'src/chat-context-schema.ts', 'src/command-launch-schema.ts', 'src/issue-board-schema.ts',
   'src/issue-page-schema.ts', 'src/mission-schema.ts', 'src/mission-view-schema.ts',
   'src/navigation-schema.ts', 'src/notice-schema.ts', 'src/preference-schema.ts',

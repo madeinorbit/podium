@@ -5,7 +5,8 @@ import type { ShipLaneProjection, ShipOrderProjection } from '@podium/model'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import { ShippingPanel, type ShippingPanelCommands } from './ShippingPanel'
+import { ArrayShippingPanel as ShippingPanel } from '../../../test/shipping-source'
+import type { ShippingPanelCommands } from './ShippingPanel'
 
 const issue = makeIssue({
   id: 'ship-issue',

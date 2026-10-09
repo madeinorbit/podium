@@ -3,6 +3,7 @@ import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { compareStructural, computed, observable, runInAction } from 'mobx'
 import { debugName } from './debug-name'
 import { createHeaderRepositoryRelations } from './header-repositories'
+import { createShippingIndex } from './header-shipping-index'
 import { RelationBuckets } from './relations'
 import {
   HEADER_RELATIONS,
@@ -40,6 +41,7 @@ export function createHeaderEntities() {
   const relations = new RelationBuckets({ trackedForward: true })
   const sessionIds = observable.map<string, true>(undefined, { deep: false })
   const shipping = observable.map<string, ShippingCounts>(undefined, { deep: false })
+  const shippingIndex = createShippingIndex()
   const idleCapUnmet = observable.box(0)
   const repositoryPathsRevision = observable.box(0)
   // Scalar source membership, including expired candidates. Window reads skip
@@ -164,6 +166,8 @@ export function createHeaderEntities() {
     members: (entity: string, id: string, relation: string) =>
       relations.many(`${entity}:${id}:${relation}`),
     shippingCounts: (repoId: string | null) => (repoId && shipping.get(repoId)) || EMPTY_SHIPPING,
+    shippingUnfinished: shippingIndex.unfinished,
+    recentShipped: shippingIndex.recentShipped,
     idleCapUnmetCount: () => idleCapUnmet.get(),
     repositoryPathsRevision: () => repositoryPathsRevision.get(),
     repositoryGroup: (path: string) => repositories.group(path),
@@ -231,6 +235,11 @@ export function createHeaderEntities() {
               adjustShipping(before, -1)
               adjustShipping(after, 1)
             }
+            shippingIndex.move(
+              record.id,
+              previous as HeaderRows['shipOrder'] | undefined,
+              record.value as HeaderRows['shipOrder'] | undefined,
+            )
           }
           if (record.kind === 'hostMetric') {
             const beforeMachine = (previous as HeaderRows['hostMetric'] | undefined)?.machineId
@@ -272,6 +281,7 @@ export function createHeaderEntities() {
       orders.clear()
       sessionIds.clear()
       shipping.clear()
+      shippingIndex.clear()
       idleCapUnmet.set(0)
       repositories.clear()
       offline.clear()

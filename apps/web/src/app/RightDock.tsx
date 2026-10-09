@@ -57,7 +57,7 @@ const MergeQueuePanel = lazy(() =>
 )
 const ShippingPanel = lazy(() =>
   throughRestarts(() => import('@/features/shipping/ShippingPanel')).then((module) => ({
-    default: module.ShippingPanel,
+    default: module.ShippingDockPanel,
   })),
 )
 const MessageLedgerView = lazy(() =>
@@ -113,10 +113,9 @@ export const RightDock = observer(function RightDock({
     gitIssue,
     mailIssueId,
     issues,
-    shipOrders,
-    shipLanes,
     coarseNow,
-  } = useShellDock(tab === 'merge-queue' || tab === 'shipping')
+    // Shipping reads its own windows (POD-5835); only the queue lists the catalog.
+  } = useShellDock(tab === 'merge-queue')
   const { setFocusedIssueId } = useOperatorFocus()
   const shippingCommands = useMemo<ShippingPanelCommands>(
     () => ({
@@ -237,9 +236,6 @@ export const RightDock = observer(function RightDock({
           )}
           {tab === 'shipping' && (
             <ShippingPanel
-              orders={shipOrders}
-              lanes={shipLanes}
-              issues={issues}
               repoId={mergeQueueScope?.repoId ?? null}
               now={coarseNow}
               commands={shippingCommands}

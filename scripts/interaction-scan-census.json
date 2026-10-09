@@ -4868,14 +4868,14 @@
       "file": "apps/web/src/app/RightDock.tsx",
       "holder": "RightDock/RightDock",
       "rule": "reader-summary",
-      "tokens": "72246d46e9401d555d24b66a4607a7f3a77f9e3016936103f6a29cde9974fa0d",
+      "tokens": "55b0f4437981b1e8b41fbb2275762540bcc1d1f8b1ae85dbabdfcac159b2569c",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "f3aea50e5306e95572d99d6242da4954e4921f4e96e118e5d88cdf31304d901c",
+      "fingerprint": "ba440581fa3c400f3d375bafc5a8d20b9ace2d2bd119312c0381cc3285fa7809",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -37922,18 +37922,18 @@
       "file": "packages/client-graph/src/header-entities.ts",
       "holder": "createHeaderEntities/apply/runInAction:callback",
       "rule": "loop:for-of",
-      "tokens": "c03eb49a04e484ad8db926ea6c16dbc0458f97eb755e50d429f8b8b089578269",
+      "tokens": "425f1ff6959ef1e06d6be73cad300ef138bb6449e9e1f78b128f3ad4d92d6a91",
       "gate": [],
       "origin": [
         "69071382a5594fda4d2bde35ce2c843ecb216f33aa7d8ab62c368713dd9cbd5d"
       ],
-      "fingerprint": "fb45a2223f5c6c529c223c3db632f6fc9facd17fe82fb4785a2e4d1c18db0582",
+      "fingerprint": "44bddb0c228feed3fc956037d3773cd7a99fdc9801997da5fc42464dd5e24127",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of createHeaderEntities/apply/runInAction:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "The existing apply loop consumes the same caller-supplied records. Its body now maintains shipping cardinalities, the idle-cap scalar and the repository-path change token; other unconstrained callers remain REQUIRED REPAIR and this entry does not license a full snapshot on an interaction. Offline eligibility and expiry scalars are maintained for named machine and metric deltas in this same existing loop; header-offline-machines.work.test.ts proves addressed visible demand and flat source work at 1x/4x.",
+      "reason": "The existing apply loop consumes the same caller-supplied records. Its body now maintains shipping cardinalities, per-repository shipping membership (unfinished ID sets and the newest-first shipped index, POD-5835), the idle-cap scalar and the repository-path change token; other unconstrained callers remain REQUIRED REPAIR and this entry does not license a full snapshot on an interaction. Offline eligibility and expiry scalars are maintained for named machine and metric deltas in this same existing loop; header-offline-machines.work.test.ts proves addressed visible demand and flat source work at 1x/4x.",
       "guard": "Exact fingerprint and multiplicity; header-source.test.ts proves changed-key production deltas and header-shipping-inputs.test.ts proves scalar shipping demand, but unconstrained record callers still require repair."
     },
     {
@@ -41264,90 +41264,89 @@
     },
     {
       "file": "packages/client-graph/src/superagent.ts",
-      "holder": "createSuperagentSource/Source/refresh/runInAction:callback",
-      "rule": "loop:for-of",
-      "tokens": "c8789b3277b28e2bc92c03b020f591f748895db397e05789bc896135ef81a0f1",
+      "holder": "createSuperagentSource/Source/collect/next",
+      "rule": "helper-consumer",
+      "tokens": "c2adece4237d616f9f1fc90e392c183f0ac0c369b77d01477fd19e8f4f8649a0",
       "gate": [
         "exit:then:61d1268ddd41bbce5d1f4301b80494f5fc9ac1cede4bfb16eae862bdc15d8530",
-        "exit:then:6ac08b44509e1e748f4107840320dad7e172410385f6ba14ef67e04b8ded0c75",
-        "then:1980753f57637be5843f3b5035caf3877458265a83e69e9e40ee862d436c410c"
+        "exit:then:6ac08b44509e1e748f4107840320dad7e172410385f6ba14ef67e04b8ded0c75"
       ],
       "origin": [
-        "c815e7e34792288126e8ed9188f94d825323d588710c485d389dbdfcd6c47c99"
+        "cca07ab0bba2b67e31074e953b996b05d4f3d09859c91122d8a6ad6a4fbd57f4",
+        "dabb838053394b1e44aa8ed08122ed217dede6ba08c75ef67278ebe81a81a047"
       ],
-      "fingerprint": "11ffe978747fa0393b4cd561f621c49deb184a136f7ca68f6288a60cb9909d4f",
+      "fingerprint": "32685a021c1b82cea9b1dcb4151ebcad722cff62bdc07b8a84455bdc76e70e8e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of createSuperagentSource/Source/schedule/queueMicrotask:callback/runInAction:callback",
+      "trigger": "Invocation of createSuperagentSource/Source/collect/next",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "The 40-event tail (POD-5835) chooses its window from keyed issue-event membership (replica ids, parsed event ids) and reads only the window's rows; at most 40 entries are ever ordered and older history is never sorted. The membership scan itself still runs once per initial demand, replacement or full-window refill, so this stays a ratchet entry, not a fix.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/superagent.ts",
-      "holder": "createSuperagentSource/Source/refresh/runInAction:callback/events",
+      "holder": "createSuperagentSource/Source/collect/next",
       "rule": "collection:rows",
       "tokens": "b8a5c6c8e69e401ab1a5179d7fda0642d499f3b3f5deca7bdac75534a9c2576e",
       "gate": [
         "exit:then:61d1268ddd41bbce5d1f4301b80494f5fc9ac1cede4bfb16eae862bdc15d8530",
         "exit:then:6ac08b44509e1e748f4107840320dad7e172410385f6ba14ef67e04b8ded0c75",
-        "then:1980753f57637be5843f3b5035caf3877458265a83e69e9e40ee862d436c410c"
+        "??:c09dcaee8108b30eb12670851c319e13a2d753c4465907e059d8b544fe06d9d7"
       ],
       "origin": [
-        "c815e7e34792288126e8ed9188f94d825323d588710c485d389dbdfcd6c47c99"
+        "cca07ab0bba2b67e31074e953b996b05d4f3d09859c91122d8a6ad6a4fbd57f4"
       ],
-      "fingerprint": "ac590582fb0e80e85973d0b2ef5628410cc3b4ab70b195f4e481bae6ce7bb284",
+      "fingerprint": "57d040aea4fd1cb96330aa59a07336a6bd8da6d7e3cba01e0ab143b34b628b1f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of createSuperagentSource/Source/schedule/queueMicrotask:callback/runInAction:callback/events",
+      "trigger": "Invocation of createSuperagentSource/Source/collect/next",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "collection:rows carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "The 40-event tail (POD-5835) chooses its window from keyed issue-event membership (replica ids, parsed event ids) and reads only the window's rows; at most 40 entries are ever ordered and older history is never sorted. The membership scan itself still runs once per initial demand, replacement or full-window refill, so this stays a ratchet entry, not a fix.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "packages/client-graph/src/superagent.ts",
-      "holder": "createSuperagentSource/Source/refresh/runInAction:callback/keep",
-      "rule": "materialize:Set",
-      "tokens": "09852fa507899b6e3fd792debcd016838946ceca906311da38a0d9ec194f6c6b",
-      "gate": [
-        "exit:then:61d1268ddd41bbce5d1f4301b80494f5fc9ac1cede4bfb16eae862bdc15d8530",
-        "exit:then:6ac08b44509e1e748f4107840320dad7e172410385f6ba14ef67e04b8ded0c75",
-        "then:1980753f57637be5843f3b5035caf3877458265a83e69e9e40ee862d436c410c"
-      ],
-      "origin": [
-        "c815e7e34792288126e8ed9188f94d825323d588710c485d389dbdfcd6c47c99"
-      ],
-      "fingerprint": "10af3d8e6b9fefadfc740aa13b6ab0ea6a53b57b812fcf60682e763f6340c063",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createSuperagentSource/Source/schedule/queueMicrotask:callback/runInAction:callback/keep",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/superagent.ts",
-      "holder": "createSuperagentSource/Source/refresh/runInAction:callback/keep",
+      "holder": "createSuperagentSource/Source/collect/next",
       "rule": "consume:map",
-      "tokens": "c1ddba8c2be7b9ed733a67614576d5e32d48bb9e7fd24781768c50bf0148cf98",
+      "tokens": "edd1ce9256fa02e8d2b23f5e4b8e5df071580ec273cc48af6c7ffd5c3eb5a15e",
       "gate": [
         "exit:then:61d1268ddd41bbce5d1f4301b80494f5fc9ac1cede4bfb16eae862bdc15d8530",
         "exit:then:6ac08b44509e1e748f4107840320dad7e172410385f6ba14ef67e04b8ded0c75",
-        "then:1980753f57637be5843f3b5035caf3877458265a83e69e9e40ee862d436c410c"
+        "??:c09dcaee8108b30eb12670851c319e13a2d753c4465907e059d8b544fe06d9d7"
       ],
       "origin": [
-        "c815e7e34792288126e8ed9188f94d825323d588710c485d389dbdfcd6c47c99"
+        "cca07ab0bba2b67e31074e953b996b05d4f3d09859c91122d8a6ad6a4fbd57f4"
       ],
-      "fingerprint": "bb198056d3f9c0dcd76083038aef9ac61c96feb63f7f9443a3f5a9db8a861aa1",
+      "fingerprint": "74c4fdea7e63c4ea3b67706107028bfea9757f5a4780a795cd07f637df9bf898",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of createSuperagentSource/Source/schedule/queueMicrotask:callback/runInAction:callback/keep",
+      "trigger": "Invocation of createSuperagentSource/Source/collect/next",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "The 40-event tail (POD-5835) chooses its window from keyed issue-event membership (replica ids, parsed event ids) and reads only the window's rows; at most 40 entries are ever ordered and older history is never sorted. The membership scan itself still runs once per initial demand, replacement or full-window refill, so this stays a ratchet entry, not a fix.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "packages/client-graph/src/superagent.ts",
+      "holder": "createSuperagentSource/Source/collect/next",
+      "rule": "dynamic-question",
+      "tokens": "c09dcaee8108b30eb12670851c319e13a2d753c4465907e059d8b544fe06d9d7",
+      "gate": [
+        "exit:then:61d1268ddd41bbce5d1f4301b80494f5fc9ac1cede4bfb16eae862bdc15d8530",
+        "exit:then:6ac08b44509e1e748f4107840320dad7e172410385f6ba14ef67e04b8ded0c75"
+      ],
+      "origin": [
+        "dabb838053394b1e44aa8ed08122ed217dede6ba08c75ef67278ebe81a81a047"
+      ],
+      "fingerprint": "771eee21b891acbc8d9651919ea6b2d7d17b53ba5af7bb3990edbe5444c1f159",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of createSuperagentSource/Source/collect/next",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "The 40-event tail (POD-5835) chooses its window from keyed issue-event membership (replica ids, parsed event ids) and reads only the window's rows; at most 40 entries are ever ordered and older history is never sorted. The membership scan itself still runs once per initial demand, replacement or full-window refill, so this stays a ratchet entry, not a fix.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

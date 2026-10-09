@@ -1,16 +1,19 @@
 import { observer } from '@podium/client-graph/react'
+import {
+  poolShippingSource,
+  type ShippingLane,
+  type ShippingSource,
+  ShippingView,
+} from '@podium/client-graph/shipping-view'
 import { ReceiptView } from './receipt-view'
 import {
   shippingActivityLabel,
   shippingElapsed,
-  shippingPanelModel,
   type ShippingPanelRow,
-  type ShippingWaitingLane,
 } from '@podium/client-core/values'
 import type {
   DeliveryReceipt,
   ShipHoldAction,
-  ShipLaneProjection,
   ShipOrderId,
   ShipOrderProjection,
   ShipOrderState,
@@ -19,7 +22,7 @@ import { ChevronLeft, Circle, CircleCheck, TriangleAlert } from 'lucide-react'
 import type { JSX, ReactNode, RefObject } from 'react'
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
-import type { IssueViewModel } from '@/app/store'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import { issueIdTitle, issueRefLabel } from '@/lib/issue-labels'
 
 export interface ShippingPanelCommands {
@@ -33,9 +36,7 @@ export interface ShippingPanelCommands {
 }
 
 interface ShippingPanelProps {
-  orders: readonly ShipOrderProjection[]
-  lanes?: readonly ShipLaneProjection[]
-  issues: readonly IssueViewModel[]
+  source: ShippingSource
   repoId: string | null
   now: number
   commands: ShippingPanelCommands
@@ -92,7 +93,7 @@ function IssueIdentity({ row }: { row: ShippingPanelRow }): JSX.Element {
     return (
       <span className="min-w-0">
         <span className="block truncate text-[11.5px] font-medium text-foreground/90">
-          Task unavailable
+          {row.issueLoading ? 'Loading task…' : 'Task unavailable'}
         </span>
         <span className="block truncate font-mono shell-type-micro text-text-dim">
           {row.order.targetBranch} → {row.order.destination}
@@ -610,29 +611,61 @@ function ShipmentDetail({
   )
 }
 
+/** One shown order: its card fields are read here, not by the panel. */
+const ShippingRowById = observer(function ShippingRowById({
+  view,
+  id,
+  now,
+  waiting = false,
+  setRef,
+  onOpen,
+}: {
+  view: ShippingView
+  id: string
+  now: number
+  waiting?: boolean
+  setRef: (id: string, node: HTMLButtonElement | null) => void
+  onOpen: (id: string) => void
+}): JSX.Element | null {
+  const row = view.row(id)
+  if (!row) return null
+  return (
+    <ShippingRow
+      row={row}
+      now={now}
+      waitingPosition={waiting ? row.queueRank : undefined}
+      setRef={(node) => setRef(id, node)}
+      onOpen={() => onOpen(id)}
+    />
+  )
+})
+
 function WaitingLane({
+  view,
   lane,
   now,
   rowRef,
   onOpen,
 }: {
-  lane: ShippingWaitingLane
+  view: ShippingView
+  lane: ShippingLane
   now: number
   rowRef: (id: string, node: HTMLButtonElement | null) => void
-  onOpen: (row: ShippingPanelRow) => void
+  onOpen: (id: string) => void
 }): JSX.Element {
-  const id = `shipping-waiting-${lane.rows[0]?.order.id ?? 'empty'}`
+  const id = `shipping-waiting-${lane.ids[0] ?? 'empty'}`
   return (
-    <Section id={id} label={`WAITING · ${lane.destination}`} count={lane.rows.length}>
+    <Section id={id} label={`WAITING · ${lane.destination}`} count={lane.ids.length}>
       <ol className="px-2.5 pb-2.5">
-        {lane.rows.map((row) => (
-          <li key={row.order.id}>
-            <ShippingRow
-              row={row}
+        {lane.ids.map((orderId) => (
+          <li key={orderId}>
+            <ShippingRowById
+              view={view}
+              id={orderId}
               now={now}
-              waitingPosition={row.queueRank}
-              setRef={(node) => rowRef(row.order.id, node)}
-              onOpen={() => onOpen(row)}
+              waiting
+              setRef={rowRef}
+              onOpen={onOpen}
             />
           </li>
         ))}
@@ -641,33 +674,66 @@ function WaitingLane({
   )
 }
 
-export function ShippingPanel({
-  orders,
-  lanes,
-  issues,
+const SelectedShipment = observer(function SelectedShipment({
+  view,
+  id,
+  now,
+  commands,
+  backRef,
+  onBack,
+}: {
+  view: ShippingView
+  id: string
+  now: number
+  commands: ShippingPanelCommands
+  backRef: RefObject<HTMLButtonElement | null>
+  onBack: () => void
+}): JSX.Element | null {
+  const row = view.row(id)
+  if (!row) return null
+  return <ShipmentDetail row={row} now={now} commands={commands} backRef={backRef} onBack={onBack} />
+})
+
+function OrderList({
+  view,
+  ids,
+  now,
+  rowRef,
+  onOpen,
+}: {
+  view: ShippingView
+  ids: readonly string[]
+  now: number
+  rowRef: (id: string, node: HTMLButtonElement | null) => void
+  onOpen: (id: string) => void
+}): JSX.Element {
+  return (
+    <ul className="px-2.5 pb-2.5">
+      {ids.map((id) => (
+        <li key={id}>
+          <ShippingRowById view={view} id={id} now={now} setRef={rowRef} onOpen={onOpen} />
+        </li>
+      ))}
+    </ul>
+  )
+}
+
+export const ShippingPanel = observer(function ShippingPanel({
+  source,
   repoId,
   now,
   commands,
 }: ShippingPanelProps): JSX.Element {
-  const model = useMemo(
-    () => shippingPanelModel(orders, issues, repoId, lanes),
-    [issues, orders, repoId, lanes],
-  )
-  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const view = useMemo(() => (repoId ? new ShippingView(source, repoId) : null), [source, repoId])
   const [returnFocusId, setReturnFocusId] = useState<string | null>(null)
   const backRef = useRef<HTMLButtonElement>(null)
   const rowRefs = useRef(new Map<string, HTMLButtonElement>())
-  const allRows = [
-    ...model.needsYou,
-    ...model.inProgress,
-    ...model.waiting.flatMap((lane) => lane.rows),
-    ...model.recentlyShipped,
-  ]
-  const selected = allRows.find((row) => row.order.id === selectedId)
+  const selectedId = view?.selectedId ?? null
+  const selected = view?.selected
 
   useEffect(() => {
-    if (selectedId && !selected) setSelectedId(null)
-  }, [selected, selectedId])
+    if (selectedId && !selected) view?.select(null)
+  }, [selected, selectedId, view])
   useEffect(() => {
     if (selected) backRef.current?.focus()
   }, [selected])
@@ -682,83 +748,67 @@ export function ShippingPanel({
     if (node) rowRefs.current.set(id, node)
     else rowRefs.current.delete(id)
   }
-  const open = (row: ShippingPanelRow): void => setSelectedId(row.order.id)
 
-  if (!repoId) {
+  if (!view) {
     return <div className="p-3 text-xs text-muted-foreground/70">No active repository.</div>
   }
+  const open = (id: string): void => view.select(id)
   if (selected) {
     return (
-      <ShipmentDetail
-        row={selected}
+      <SelectedShipment
+        view={view}
+        id={selected}
         now={now}
         commands={commands}
         backRef={backRef}
         onBack={() => {
-          setReturnFocusId(selected.order.id)
-          setSelectedId(null)
+          setReturnFocusId(selected)
+          view.select(null)
         }}
       />
     )
   }
 
+  const needsYou = view.needsYou,
+    inProgress = view.inProgress,
+    waiting = view.waiting,
+    recentlyShipped = view.recentlyShipped
   return (
     <div className="min-h-0 flex-1 overflow-y-auto scroll-none" aria-label="Shipping overview">
       <div className="px-3.5 py-3">
         <strong className="block text-[12px] font-semibold text-text-strong">
-          {model.decisionCount > 0 ? 'A shipment needs your decision' : 'Everything is handled'}
+          {view.decisionCount > 0 ? 'A shipment needs your decision' : 'Everything is handled'}
         </strong>
         <p className="mt-1 text-[10.5px] leading-[1.5] text-muted-foreground">
-          {model.decisionCount > 0
+          {view.decisionCount > 0
             ? 'Independent deliveries can keep moving.'
             : 'Podium will keep going and alert you only if it cannot finish safely.'}
         </p>
       </div>
 
-      {model.needsYou.length > 0 && (
-        <Section id="shipping-needs-you" label="NEEDS YOU" count={model.needsYou.length}>
-          <ul className="px-2.5 pb-2.5">
-            {model.needsYou.map((row) => (
-              <li key={row.order.id}>
-                <ShippingRow
-                  row={row}
-                  now={now}
-                  setRef={(node) => setRowRef(row.order.id, node)}
-                  onOpen={() => open(row)}
-                />
-              </li>
-            ))}
-          </ul>
+      {needsYou.length > 0 && (
+        <Section id="shipping-needs-you" label="NEEDS YOU" count={needsYou.length}>
+          <OrderList view={view} ids={needsYou} now={now} rowRef={setRowRef} onOpen={open} />
         </Section>
       )}
 
-      <Section id="shipping-in-progress" label="IN PROGRESS" count={model.inProgress.length}>
-        {model.inProgress.length === 0 ? (
+      <Section id="shipping-in-progress" label="IN PROGRESS" count={inProgress.length}>
+        {inProgress.length === 0 ? (
           <EmptyLine>Nothing is shipping right now.</EmptyLine>
         ) : (
-          <ul className="px-2.5 pb-2.5">
-            {model.inProgress.map((row) => (
-              <li key={row.order.id}>
-                <ShippingRow
-                  row={row}
-                  now={now}
-                  setRef={(node) => setRowRef(row.order.id, node)}
-                  onOpen={() => open(row)}
-                />
-              </li>
-            ))}
-          </ul>
+          <OrderList view={view} ids={inProgress} now={now} rowRef={setRowRef} onOpen={open} />
         )}
       </Section>
 
-      {model.waiting.length === 0 ? (
+      {waiting.length === 0 ? (
         <Section id="shipping-waiting" label="WAITING" count={0}>
           <EmptyLine>Nothing is waiting.</EmptyLine>
         </Section>
       ) : (
-        model.waiting.map((lane) => (
+        waiting.map((lane) => (
           <WaitingLane
             key={lane.destination}
+            view={view}
             lane={lane}
             now={now}
             rowRef={setRowRef}
@@ -770,23 +820,12 @@ export function ShippingPanel({
       <Section
         id="shipping-recently-shipped"
         label="RECENTLY SHIPPED"
-        count={model.recentlyShipped.length}
+        count={recentlyShipped.length}
       >
-        {model.recentlyShipped.length === 0 ? (
+        {recentlyShipped.length === 0 ? (
           <EmptyLine>No verified deliveries yet.</EmptyLine>
         ) : (
-          <ul className="px-2.5 pb-2.5">
-            {model.recentlyShipped.map((row) => (
-              <li key={row.order.id}>
-                <ShippingRow
-                  row={row}
-                  now={now}
-                  setRef={(node) => setRowRef(row.order.id, node)}
-                  onOpen={() => open(row)}
-                />
-              </li>
-            ))}
-          </ul>
+          <OrderList view={view} ids={recentlyShipped} now={now} rowRef={setRowRef} onOpen={open} />
         )}
       </Section>
       <p className="px-3.5 py-3 text-[10px] leading-[1.5] text-muted-foreground/60">
@@ -794,4 +833,11 @@ export function ShippingPanel({
       </p>
     </div>
   )
+})
+
+/** The dock's panel over the app's pool. */
+export function ShippingDockPanel(props: Omit<ShippingPanelProps, 'source'>): JSX.Element | null {
+  const pool = useWorklistPool()
+  const source = useMemo(() => (pool ? poolShippingSource(pool) : null), [pool])
+  return source ? <ShippingPanel {...props} source={source} /> : null
 }
