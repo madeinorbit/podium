@@ -19,7 +19,7 @@ p.add_argument('--test',action='store_true')
 p.add_argument('--structural',action='store_true')
 p.add_argument('command',nargs=argparse.REMAINDER)
 a=p.parse_args()
-assert Path.cwd().name=='podium-test-5862'
+assert Path.cwd().name in ('podium-test-5862','podium-test-5862-reported')
 command=a.command[1:] if a.command[:1]==['--'] else a.command
 assert command and command[0] in ('.toolchain/bun','bun')
 def info(pid):

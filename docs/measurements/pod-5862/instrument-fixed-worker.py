@@ -15,7 +15,7 @@ source=asset.read_text()
 assert source.rstrip().endswith('})();') and '__memoryOriginalMessage' not in source
 models=re.search(r'([\w$]+)\.get\([\w$]+\.ownerKey\)\?\.stopSearch\(\)',source).group(1)
 scope=list(re.finditer(r'([\w$]+)\.onmessage=',source))[-1].group(1)
-markdown=re.search(r'while\(([\w$]+)\.size>2048\)',source).group(1)
+markdown=re.search(r'([\w$]+)\.size>2048[;)]',source).group(1)
 hook='''
 const __memoryOriginalMessage=SCOPE.onmessage;
 SCOPE.onmessage=event=>{
