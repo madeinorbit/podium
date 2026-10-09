@@ -178,7 +178,7 @@ vi.mock('./store-worklist-pool', () => ({
         (state.sessions as SessionMeta[]).find((row) => row.sessionId === id),
     } as unknown as MobxPool),
 }))
-vi.mock('./mission-pane-data', () => ({
+vi.mock('./workspace-mission', () => ({
   useWorkspaceMission: () => {
     const selected = replicaIssues.find(
       (row) => row.id === state.selectedIssueId && !row.archived && !row.deletedAt,
@@ -188,10 +188,10 @@ vi.mock('./mission-pane-data', () => ({
         ? undefined
         : selected
     return {
-      missionRoot: issue,
-      missionIssues: issue ? [issue] : [],
+      rootId: issue?.id,
+      coordinatorIds: new Set(issue?.coordinatorSessionId ? [issue.coordinatorSessionId] : []),
       issue,
-      missionOnScreen: issue,
+      onScreen: Boolean(issue),
       hasAnyTask: replicaIssues.length > 0,
       loading: false,
     }

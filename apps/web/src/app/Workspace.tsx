@@ -5,7 +5,6 @@ import type { Pane, WorktreeView } from '@podium/client-core/values'
 import {
   allTabIds,
   emptyWorkspace,
-  isCoordinatorSession,
   reposToViews,
   resizeSplit,
   type SplitAxis,
@@ -47,7 +46,7 @@ import type { ContextMenuAnchor } from '@/lib/session-context-menu'
 import { cn } from '@/lib/utils'
 import { SessionNameEditor, sessionDisplayName, WorkerLabel } from '@/lib/WorkerLabel'
 import { useRuntimeActions, useRuntimeUiValue } from './keyed-runtime'
-import { useWorkspaceMission } from './mission-pane-data'
+import { useWorkspaceMission } from './workspace-mission'
 import { NewPanelMenu } from './NewPanelMenu'
 import { useOperatorFocus } from './operator-focus'
 import { PanelDeck } from './PanelDeck'
@@ -747,13 +746,13 @@ export function Workspace({
   // view" (the + menu's spawn target, the file-tab scope, the coordinator
   // badge) — it no longer decides tab MEMBERSHIP.
   const {
-    missionRoot,
-    missionIssues,
+    rootId: missionRootId,
+    coordinatorIds: missionCoordinatorIds,
     issue,
-    missionOnScreen,
+    onScreen: missionOnScreen,
     hasAnyTask,
     loading: missionLoading,
-  } = useWorkspaceMission(selectedIssueId, focusedIssueId, sessions)
+  } = useWorkspaceMission(selectedIssueId, focusedIssueId)
   const issueWorktree = issue?.worktreePath
     ? allWorktrees.find((w) => w.path === issue.worktreePath)
     : undefined
@@ -818,8 +817,7 @@ export function Workspace({
     deckTabs
       .filter(
         (t) =>
-          t.kind === 'session' &&
-          missionIssues.some((candidate) => isCoordinatorSession(candidate, t.session.sessionId)),
+          t.kind === 'session' && missionCoordinatorIds.has(t.session.sessionId),
       )
       .map((t) => t.id),
   )
@@ -982,7 +980,7 @@ export function Workspace({
     // to the root. A file tab is not a session identity and only moves focus
     // when it names an issue.
     if (t.kind === 'session') {
-      setFocusedIssueId(t.session.issueId ?? missionRoot?.id ?? null)
+      setFocusedIssueId(t.session.issueId ?? missionRootId ?? null)
     } else if (t.kind === 'file' && t.file.issueId) {
       setFocusedIssueId(t.file.issueId)
     }
