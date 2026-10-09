@@ -164,8 +164,17 @@ export function useFirstTaskRepositoryPicker(repos: GitRepositoryWire[], reposit
     return [...liveRepoChoices].sort((a, b) => usageFor(b) - usageFor(a) ||
       a.name.localeCompare(b.name, undefined, { sensitivity: 'base' }))
   }
-  const repoChoices = useMemo(() => repoOrder === null ? rankedRepoChoices() : repoOrder.flatMap(id =>
-    liveRepoChoices.find(repo => repoIdentity(repo) === id) ?? []), [repoOrder, liveRepoChoices, repositoryUsage])
+  const rankingUsage = repoOrder === null ? repositoryUsage : undefined
+  const repoChoices = useMemo(() => {
+    if (repoOrder === null) return rankedRepoChoices()
+    const positions = new Map(repoOrder.map((id, position) => [id, position]))
+    const choices = new Array<RepoView | undefined>(repoOrder.length)
+    for (const repo of liveRepoChoices) {
+      const position = positions.get(repoIdentity(repo))
+      if (position !== undefined) choices[position] = repo
+    }
+    return choices.filter((repo): repo is RepoView => repo !== undefined)
+  }, [repoOrder, liveRepoChoices, rankingUsage])
   const onOpenChange = (open: boolean) => setRepoOrder(open ? rankedRepoChoices().map(repoIdentity) : null)
   return { repoChoices, onOpenChange }
 }

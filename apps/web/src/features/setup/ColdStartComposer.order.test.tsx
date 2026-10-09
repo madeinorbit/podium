@@ -26,9 +26,11 @@ it('matches the old order on open, keeps identities still through usage and labe
   expect(hook.result.current.repoChoices).toEqual(oldOrder(repos, usage))
   const ids = () => hook.result.current.repoChoices.map(repo => repo.repoId)
   const opening = ids()
+  const openingChoices = hook.result.current.repoChoices
   usage = new Map([[machinePathKey('/work/alpha'), 50], [machinePathKey('/work/beta'), 20]])
   hook.rerender()
   expect(ids()).toEqual(opening)
+  expect(hook.result.current.repoChoices).toBe(openingChoices)
   expect(ids()).not.toEqual(oldOrder(repos, usage).map(repo => repo.repoId))
   repos = [repo('/work/alpha', { repoId: 'alpha', originUrl: 'https://example.com/team/renamed.git' }), repos[1]!]
   hook.rerender()
