@@ -784,7 +784,7 @@
     },
     {
       "file": "apps/mobile/src/components/MissionDeck.tsx",
-      "holder": "SpineRow/SpineRow",
+      "holder": "SpineRow/SpineRow/content/settled:callback",
       "rule": "consume:map",
       "tokens": "d28ae226a09dc5aca3549a385c06f654c3ae02d06f59e6f95be07c8f11d1e069",
       "gate": [],
@@ -792,7 +792,7 @@
         "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
         "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
       ],
-      "fingerprint": "005ec9889c3d26d0c2202e68a6cab9c14410430dd0366c960f0c517719e0aafe",
+      "fingerprint": "642ee681179c3bee7e62a6c42a4d4b5354f566388273284309d881cbd3b19042",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -803,7 +803,7 @@
     },
     {
       "file": "apps/mobile/src/components/MissionDeck.tsx",
-      "holder": "SpineRow/SpineRow/bands",
+      "holder": "SpineRow/SpineRow/content/settled:callback/bands",
       "rule": "reader-summary",
       "tokens": "effca03bbdc9e53c6c25c6486a49353c0ea29b6e13a5f67cb991c1757b2f1366",
       "gate": [
@@ -813,7 +813,7 @@
         "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
         "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
       ],
-      "fingerprint": "43068d08dc597a85e1f017f6b4d002be342577905a9783ffb4cf78452cce09db",
+      "fingerprint": "24aed65711fd89750fe92e4915edcd6b3fe97b0d7708506aea7018e644a95a81",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -824,7 +824,7 @@
     },
     {
       "file": "apps/mobile/src/components/MissionDeck.tsx",
-      "holder": "SpineRow/SpineRow/selected",
+      "holder": "SpineRow/SpineRow/content/settled:callback/selected",
       "rule": "consume:some",
       "tokens": "4b002016058b912717835813af6ce6d31971a0f25a3abb9b7f7ccac5d065a6e0",
       "gate": [],
@@ -832,7 +832,7 @@
         "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
         "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
       ],
-      "fingerprint": "79b29a0e85e3289f52fd8e2b3ca4dec28aa85650416b6db3a8bf55307e9bbe44",
+      "fingerprint": "27388e5cf27bd305fa1d9c9e8bd78d4e10deebb64f29a8fb78817b23d7c7183d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
