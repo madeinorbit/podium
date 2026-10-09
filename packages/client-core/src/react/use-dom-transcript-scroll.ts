@@ -451,6 +451,7 @@ export function useDomTranscriptScroll(
         // Called by effects as well as input handlers. Expand outside React's
         // commit, then let this same controller align the real row's geometry.
         requestAnimationFrame(() => {
+          if (scrollerRef.current !== scroller || !target.isConnected) return
           target.dispatchEvent(new Event('podium-transcript-reveal', { bubbles: true }))
           scrollToBlock(index, opts)
         })

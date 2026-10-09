@@ -287,7 +287,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
     data-block={!mounted ? index : undefined} data-row-key={!mounted ? rowKey : undefined}
     style={{ flexShrink: 0, display: 'flow-root', position: 'relative', height: mounted ? undefined : entry.current?.height, minWidth: 0 }}>
     {mounted && children}
-    {(!mounted || finding) && <div ref={proxy} aria-hidden="true"
+    {(!mounted || finding) && <div key="find-proxy" ref={proxy} aria-hidden="true"
       style={{ position: 'absolute', inset: 0, opacity: finding ? 0 : undefined, pointerEvents: 'none', whiteSpace: 'pre-wrap' }}>{entry.current?.text}</div>}
     {!mounted && <button type="button" className="sr-only" aria-label={entry.current?.text}
       onFocus={(event) => {
