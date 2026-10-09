@@ -34,6 +34,9 @@ beforeEach(() => {
   })
   vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(400)
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(600)
+  const style = getComputedStyle
+  vi.spyOn(globalThis, 'getComputedStyle').mockImplementation(node => node.hasAttribute('data-transcript-row')
+    ? { height: node.hasAttribute('data-transcript-placeholder') ? (node as HTMLElement).style.height : `${rowHeight}px` } as CSSStyleDeclaration : style(node))
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => { frames.push(callback); return frames.length })
   vi.stubGlobal('cancelAnimationFrame', () => {})
   vi.stubGlobal('ResizeObserver', class { observe() {} disconnect() {} unobserve() {} })
@@ -147,20 +150,6 @@ it('measures a changed offscreen paging seam after its real content mounts', () 
   paint()
   expect((host.querySelector('[data-transcript-row="row-600"]') as HTMLElement).style.height).toBe('120px')
   expect(host.querySelectorAll('[data-message]').length).toBeLessThan(40)
-})
-
-it('keeps native Find text through a scroll that precedes the matched selection', async () => {
-  const shell = host.querySelector('[data-transcript-row="row-600"]')!
-  const text = shell.querySelector('[data-transcript-find-proxy]')!.firstChild!
-  scroll(48_000)
-  expect(text.isConnected).toBe(true)
-  const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 7)
-  const selection = document.getSelection()!; selection.addRange(range)
-  const matched = selection.toString()
-  paint()
-  await act(async () => { await Promise.resolve() })
-  expect(selection.toString()).toBe(matched)
-  expect(selection.anchorNode?.parentElement?.closest('[data-message]')).not.toBeNull()
 })
 
 it('retains the resolved subpixel flow size rather than rounded deep-document rectangles', () => {

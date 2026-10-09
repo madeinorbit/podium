@@ -261,17 +261,12 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
   const proxy = useRef<HTMLDivElement | null>(null)
   const [mounted, setMounted] = useState(true)
   const [finding, setFinding] = useState(false)
-  const [keepProxy, setKeepProxy] = useState(false)
   const entry = useRef<Entry | null>(null)
   const wasMounted = useRef(true)
   const remounted = useRef(false)
   const previousGeometryKey = useRef(geometryKey)
   if (mounted && !wasMounted.current) remounted.current = true
   const publish = useCallback((show: boolean, found?: boolean) => {
-    // Native Find can scroll during its synchronous call, before it commits a
-    // selection or emits beforematch. Keep its exact text node through that
-    // first paint instead of replacing it as soon as the buffer arrives.
-    if (show && entry.current?.text) setKeepProxy(true)
     setMounted(show)
     if (found !== undefined) setFinding(found)
   }, [])
@@ -306,19 +301,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
     }
     node.addEventListener('beforematch', found)
     return () => node.removeEventListener('beforematch', found)
-  }, [mounted, finding, keepProxy])
-  useLayoutEffect(() => {
-    if (!mounted || !keepProxy || finding) return
-    const frame = requestAnimationFrame(() => {
-      const selection = document.getSelection()
-      if (selection?.anchorNode && !selection.isCollapsed && proxy.current?.contains(selection.anchorNode)) {
-        entry.current!.finding = true
-        setFinding(true)
-      }
-      setKeepProxy(false)
-    })
-    return () => cancelAnimationFrame(frame)
-  }, [mounted, keepProxy, finding])
+  }, [mounted, finding])
   useLayoutEffect(() => {
     if (!finding) return
     const finish = () => {
@@ -383,7 +366,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
     data-block={!mounted ? index : undefined} data-row-key={!mounted ? rowKey : undefined}
     style={{ flexShrink: 0, display: 'flow-root', position: 'relative', height: mounted ? undefined : entry.current?.height, minWidth: 0 }}>
     {mounted && (typeof children === 'function' ? children(remounted.current) : children)}
-    {(!mounted || finding || keepProxy) && <div key="find-proxy" ref={proxy} data-transcript-find-proxy="" aria-hidden="true"
+    {(!mounted || finding) && <div key="find-proxy" ref={proxy} data-transcript-find-proxy="" aria-hidden="true"
       style={{ position: 'absolute', inset: 0, opacity: finding ? 0 : undefined, pointerEvents: 'none', whiteSpace: 'pre-wrap' }}>{entry.current?.text}</div>}
     {!mounted && <button type="button" className="sr-only" aria-label={entry.current?.text}
       onFocus={(event) => {
