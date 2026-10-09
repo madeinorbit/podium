@@ -2022,24 +2022,6 @@
     },
     {
       "file": "apps/web/src/app/command-launch-data.ts",
-      "holder": "useCommandPaletteData",
-      "rule": "reader-summary",
-      "tokens": "704a3c3f3699d9014aa8ee5d204d42771991ee22d832b944440f3240c718e38e",
-      "gate": [],
-      "origin": [
-        "df38a55233f6ae65c2698a3cd2d652be1e4b4c7811b3c0f7c7d94926c6ad617f"
-      ],
-      "fingerprint": "45320a394ab166947ae0ea412471f1af797f02e464a7dbec769e07a2c844cf55",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "useCommandPaletteData",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Open-time answer and 1x/4x heartbeat tests cover the stored picker; retained classification is not a scan repair claim."
-    },
-    {
-      "file": "apps/web/src/app/command-launch-data.ts",
       "holder": "useCommandPaletteSnapshot",
       "rule": "reader-summary",
       "tokens": "cbcee23711ab9b15cadda8d3b58250fd0830a21f37d056bba4b3a617a31d3f43",
@@ -2057,15 +2039,33 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
     },
     {
-      "file": "apps/web/src/app/CommandPalette.tsx",
-      "holder": "PaletteDialog/snapshot",
+      "file": "apps/web/src/app/command-launch-data.ts",
+      "holder": "useCommandPaletteData",
       "rule": "reader-summary",
-      "tokens": "25d5ed0bbd23248e27255c5959c066120fa0e25389983b433b5ffcb0e4838992",
+      "tokens": "4e692fca7a823502e20f1336fc29e41300b8983cb043087903f89b1c1ff0498b",
       "gate": [],
       "origin": [
         "df38a55233f6ae65c2698a3cd2d652be1e4b4c7811b3c0f7c7d94926c6ad617f"
       ],
-      "fingerprint": "ae8b53b0a12e6e8bcbc1d483374b38f4a72064295e0259e5078bd914503766b7",
+      "fingerprint": "029293bdfb5d0e3c149af0319abae2f2fd036e132f89ac0726fbe1f54cfd19ed",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "useCommandPaletteData",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Open-time answer and 1x/4x heartbeat tests cover the stored picker; retained classification is not a scan repair claim."
+    },
+    {
+      "file": "apps/web/src/app/CommandPalette.tsx",
+      "holder": "PaletteDialog/snapshot",
+      "rule": "reader-summary",
+      "tokens": "91dab3b4103e21a2b0eff207942229f53e32b1f99e2735aa1162524f68aa7818",
+      "gate": [],
+      "origin": [
+        "df38a55233f6ae65c2698a3cd2d652be1e4b4c7811b3c0f7c7d94926c6ad617f"
+      ],
+      "fingerprint": "70a81c8114badbe4b267eee77c9502872a2efc4431ae69fb66b251bb5edefce6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2076,43 +2076,43 @@
     },
     {
       "file": "apps/web/src/app/CommandPalette.tsx",
-      "holder": "PaletteDialogBody",
+      "holder": "PaletteDialogBody/PaletteDialogBody",
       "rule": "reader-summary",
       "tokens": "e2fa84bfa197c6a2b105c7eaf435e6557d145b65bcca4e081a4bdee011827e90",
       "gate": [],
       "origin": [
         "dbce4e473e168ed4d8f9e275a435a09d154d09016f68d1248f96ca252d51d009"
       ],
-      "fingerprint": "df8872376edf60b19490d97963f6aadd5ba557e2de0b0154377a8b2a25558c77",
+      "fingerprint": "74881c1cf9decd82ae9f47d0e402d4902b5ecda3bafff5740f0d06d26a20a5a7",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of PaletteDialogBody",
+      "trigger": "PaletteDialogBody/PaletteDialogBody",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/app/CommandPalette.tsx",
-      "holder": "PaletteDialogBody/commands/useMemo:callback",
+      "holder": "PaletteDialogBody/PaletteDialogBody/commands/useMemo:callback",
       "rule": "loop:for-of",
-      "tokens": "91eaa900b4c0c76db642d133b22931ac41813264beaaee1411d113f8078e669e",
+      "tokens": "07e3f9a7748ad93b882766e66265be1b7fff3c26b860d6c3d09574807cb5a6f4",
       "gate": [],
       "origin": [
-        "59f1fa37a4930c89ffaca54bc9961efefb5b36e5f5f3256ec437f73b429f51ed"
+        "55e0d493e699e7ef0b647202b726c2d0dc7e3a54b000f8ffc1d7bd5e9e916816"
       ],
-      "fingerprint": "3ed9f88a32b35642267abcb9ed42e29d1bd380988f23ce97018d3185e066c37e",
+      "fingerprint": "5b43af2c133aa2c268df7d5b833c3a0e473d88a6062d10375941fb543f70fb58",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of PaletteDialogBody/commands/useMemo:callback",
+      "trigger": "PaletteDialogBody/PaletteDialogBody/commands/useMemo:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/app/CommandPalette.tsx",
-      "holder": "PaletteDialogBody/sessionAtPress",
+      "holder": "PaletteDialogBody/PaletteDialogBody/sessionAtPress",
       "rule": "reader-summary",
       "tokens": "0b90273dfe6985f6721d771bdddd3d20f29daf0e19a6b8b87de68f4aa07f8a7c",
       "gate": [],
@@ -2130,11 +2130,11 @@
         "bda9ac5a91cfdfb23ddc5c8e1826273d3d23dd591a7db487beaef2f3ea7aa2dd",
         "e7f73f85ce6d28270e176f3764656070d96a7e1c91d63e4b1e42289fd529a5f9"
       ],
-      "fingerprint": "c3c6d267d7ab6fce318cd59601518504372218fb3d3c15ff2becd119aaba936c",
+      "fingerprint": "f6498baa33a112bbb90f97155b18df1cb5b6b7cbeaae6ed6213f144065fcffeb",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "PaletteDialogBody/sessionAtPress",
+      "trigger": "PaletteDialogBody/PaletteDialogBody/sessionAtPress",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Open-time answer and 1x/4x heartbeat tests cover the stored picker; retained classification is not a scan repair claim."
@@ -16341,42 +16341,6 @@
       "bound": "The source is one addressed session and repository; destination machines and clone identities are projected only while their target list is shown.",
       "reason": "The new origins flow through the existing menu-entry projection and its displayed Handoff choices. Hidden history worktrees are not walked.",
       "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-command-launch.ts",
-      "holder": "mock:callback/useCommandPaletteSnapshot/callback",
-      "rule": "reader-summary",
-      "tokens": "d17803562cce1999309e18d2abfdb9b073318f4c8990078e03b42d70520c3251",
-      "gate": [],
-      "origin": [
-        "03aa19f3086e7e31bb603cd3614a08583d8cff9c6af179929355c447b4f81806"
-      ],
-      "fingerprint": "54821dc82e2af397457886b1357504a8e7a1d994d013ffa38e48b06cda1cc904",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of mock:callback/useCommandPaletteSnapshot/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
-    },
-    {
-      "file": "apps/web/src/test-support/mock-command-launch.ts",
-      "holder": "useCommandFixture",
-      "rule": "reader-summary",
-      "tokens": "bb2f3201a57474d9c1568cfc20946a4a2d61263d8daf1f1b0a53bb124ed7866a",
-      "gate": [],
-      "origin": [
-        "03aa19f3086e7e31bb603cd3614a08583d8cff9c6af179929355c447b4f81806"
-      ],
-      "fingerprint": "33b532f7dda8e2e2bf495f8cd51ffff83459a8e458eab3921614b997a4ded654",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useCommandFixture",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
     },
     {
       "file": "apps/web/src/test-support/mock-command-launch.ts",
@@ -36746,44 +36710,6 @@
     {
       "file": "packages/client-graph/src/command-launch-views.ts",
       "holder": "CommandPaletteView/open/take/callback",
-      "rule": "consume:map",
-      "tokens": "800cf82d0a7de0a0d3807b104a36e075a14a807c4cfd3583dae679ae771d389c",
-      "gate": [
-        "then:a8cab1d6ceb3ae9c88cbc337bdb5d9894c6ea997717af03bdfe1372c731e3b4e"
-      ],
-      "origin": [
-        "4a7e494046e71468cd6147b4dfaf1dca1dbe2f0e9753ff494c4338e56495ef97"
-      ],
-      "fingerprint": "06490f3afa671e97d8862b1e0452358926e499f531b9377dca591114639b3daf",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "CommandPaletteView/open/take/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
-    },
-    {
-      "file": "packages/client-graph/src/command-launch-views.ts",
-      "holder": "CommandPaletteView/open/take/callback",
-      "rule": "loop:for-of",
-      "tokens": "71c4c3e22824125180bf2d2c32975d847cdd1ee5dbf50fa241c6fd8fe69c21eb",
-      "gate": [],
-      "origin": [
-        "6cbf7a4bbbe381f53e7f6bc181d6425c5f898069b37dbc56e9c2502ebe6bce34"
-      ],
-      "fingerprint": "6e5bac26c6dafde9e385f3d300eb3a3a7db7ae4a5149e696224000f997136d0e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "CommandPaletteView/open/take/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Opening answer parity (including retained archived members) and 1x/4x heartbeat tests cover this picker; classification retained, not a scan repair claim."
-    },
-    {
-      "file": "packages/client-graph/src/command-launch-views.ts",
-      "holder": "CommandPaletteView/open/take/callback",
       "rule": "loop:for-of",
       "tokens": "da7326b49e142a2ab984769f7926cd7515ff95b2b3397880994190c0a4074363",
       "gate": [],
@@ -36818,24 +36744,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
-    },
-    {
-      "file": "packages/client-graph/src/command-launch-views.ts",
-      "holder": "CommandPaletteView/open/take/callback",
-      "rule": "materialize:Map",
-      "tokens": "44fa8312d562e993ea519bd0a3a073ca9b67648d3b834c599e88183c14d4c903",
-      "gate": [],
-      "origin": [
-        "4a7e494046e71468cd6147b4dfaf1dca1dbe2f0e9753ff494c4338e56495ef97"
-      ],
-      "fingerprint": "b1847dd44167dbcf2e4df6bc441158ddf6b9e860742ac5ed2f33c86a2a94c705",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "CommandPaletteView/open/take/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "packages/client-graph/src/command-launch-views.ts",
@@ -36976,24 +36884,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/command-launch-views.ts",
-      "holder": "createCommandLaunchViews/palette/computed:callback",
-      "rule": "reader-summary",
-      "tokens": "b39669a3cbf887bac307fd5a12ad41361553cce835e97db69eacba02e5bdea29",
-      "gate": [],
-      "origin": [
-        "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
-      ],
-      "fingerprint": "84dfb851cc86a645ec8ca17afca09607fe74bd8cf4e741eac112a543ee6f98ad",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "createCommandLaunchViews/palette/computed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
     },
     {
       "file": "packages/client-graph/src/command-launch-views.ts",
@@ -37322,14 +37212,32 @@
     },
     {
       "file": "packages/client-graph/src/command-launch-views.ts",
-      "holder": "createCommandLaunchViews/selected/callback",
+      "holder": "createCommandLaunchViews/palette/computed:callback",
       "rule": "reader-summary",
-      "tokens": "475431b980ab8720cb9652298aa534049f30c2c045ac79f64f20a567483cc685",
+      "tokens": "72f0a77ce66b3e019ad25e5d569d84f2d40bf7c08ac4e4875dea0e990abbaa32",
       "gate": [],
       "origin": [
         "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
       ],
-      "fingerprint": "06d2c75269bfec2941a6f156831d569517629570e91e50105977364ae7e7e681",
+      "fingerprint": "13f86710edec617e8ce36da783dd5dc82a2a1a8f4bf91ebdd5875d1d73c84d3b",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "createCommandLaunchViews/palette/computed:callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "createCommandLaunchViews/selected/callback",
+      "rule": "reader-summary",
+      "tokens": "89d879f8d5244ef7ab80efd3e510e2bd656232edc1778a75122bd0e2847df433",
+      "gate": [],
+      "origin": [
+        "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
+      ],
+      "fingerprint": "0c7f9c034332471ffc26af136ce93fbc1e5617be32783a427a1ed4b6994f41f3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -37337,6 +37245,98 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Opening-answer tests and selected 1x/4x heartbeat render tests cover this reader; classification retained, not a scan repair claim."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/open/take/callback",
+      "rule": "consume:flatMap",
+      "tokens": "ddb617f8908aa43da21e81f14bfe8ad85bcca62d3a18c24fe10339617ee62c8b",
+      "gate": [],
+      "origin": [
+        "6cbf7a4bbbe381f53e7f6bc181d6425c5f898069b37dbc56e9c2502ebe6bce34"
+      ],
+      "fingerprint": "042963b8c8f1c7f620122c144e5ac32675a19a1c6015636cd67789d7ccfa7dd2",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5833",
+      "trigger": "CommandPaletteView/open/take/callback",
+      "bound": "Opening catalog or repository choices; no cardinality cap is claimed.",
+      "reason": "This path retains declared catalog traversal. Moving it into the opening action does not establish an addressed or capped acquisition.",
+      "guard": "ColdStartComposer.order.test.tsx and CommandPalette.runtime.test.tsx prove frozen opening order, live visible labels and closed-view isolation; this entry makes no scan repair claim."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/open/take/callback",
+      "rule": "helper-consumer",
+      "tokens": "c6777f8e5fdcf36b44090d24b26c7b88b3d5d6528613f03d158f349089a974fb",
+      "gate": [],
+      "origin": [
+        "6cbf7a4bbbe381f53e7f6bc181d6425c5f898069b37dbc56e9c2502ebe6bce34"
+      ],
+      "fingerprint": "be07d9a557e78bfc2ce813b23e3f86816956a1ab589809a309e35aa65c3c0d1d",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5833",
+      "trigger": "CommandPaletteView/open/take/callback",
+      "bound": "Opening catalog or repository choices; no cardinality cap is claimed.",
+      "reason": "This path retains declared catalog traversal. Moving it into the opening action does not establish an addressed or capped acquisition.",
+      "guard": "ColdStartComposer.order.test.tsx and CommandPalette.runtime.test.tsx prove frozen opening order, live visible labels and closed-view isolation; this entry makes no scan repair claim."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/open/take/callback",
+      "rule": "reader-summary",
+      "tokens": "764403e3e5c9d263d9ae0539e4e18773394a8911cde9e70d1784c4d0c7918ff4",
+      "gate": [],
+      "origin": [
+        "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
+      ],
+      "fingerprint": "3dac84db0d470fc02321a76d16c0494415971991fdd8b18118ab8d27c6a9c92e",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5833",
+      "trigger": "CommandPaletteView/open/take/callback",
+      "bound": "Opening catalog or repository choices; no cardinality cap is claimed.",
+      "reason": "This path retains declared catalog traversal. Moving it into the opening action does not establish an addressed or capped acquisition.",
+      "guard": "ColdStartComposer.order.test.tsx and CommandPalette.runtime.test.tsx prove frozen opening order, live visible labels and closed-view isolation; this entry makes no scan repair claim."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/open/when:callback/value",
+      "rule": "reader-summary",
+      "tokens": "764403e3e5c9d263d9ae0539e4e18773394a8911cde9e70d1784c4d0c7918ff4",
+      "gate": [
+        "then:fd8e2d43e8652765f67088a3953e7e65f1df62d45d41d7f69197d107e565589c"
+      ],
+      "origin": [
+        "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
+      ],
+      "fingerprint": "aaeaf37219206497580b1ef7b703b0c6d3d53511b6cba57a8454b687f47fa88f",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5833",
+      "trigger": "CommandPaletteView/open/when:callback/value",
+      "bound": "Opening catalog or repository choices; no cardinality cap is claimed.",
+      "reason": "This path retains declared catalog traversal. Moving it into the opening action does not establish an addressed or capped acquisition.",
+      "guard": "ColdStartComposer.order.test.tsx and CommandPalette.runtime.test.tsx prove frozen opening order, live visible labels and closed-view isolation; this entry makes no scan repair claim."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "createCommandLaunchViews/opening/callback",
+      "rule": "reader-summary",
+      "tokens": "cf0737d97371a91cb381e35df2cedae05031569908b0a54592b79d21dafa5b74",
+      "gate": [],
+      "origin": [
+        "320cc3b3d5427c2668c827ab5d10b1f202cc798f31c44da46b5c36c04952d2b9"
+      ],
+      "fingerprint": "42f8cdfb6dadb0326cda7997979ce4bfdeeed0ed8bcfade46175fd1a7c3f3435",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5833",
+      "trigger": "createCommandLaunchViews/opening/callback",
+      "bound": "Opening catalog or repository choices; no cardinality cap is claimed.",
+      "reason": "This path retains declared catalog traversal. Moving it into the opening action does not establish an addressed or capped acquisition.",
+      "guard": "ColdStartComposer.order.test.tsx and CommandPalette.runtime.test.tsx prove frozen opening order, live visible labels and closed-view isolation; this entry makes no scan repair claim."
     },
     {
       "file": "packages/client-graph/src/enumerate.ts",
@@ -43949,6 +43949,25 @@
       "bound": "The same mounted buffered session slots as the existing role reader; the settled wrapper introduces no additional iteration.",
       "reason": "The scanner now follows the existing role reader through its loading-sentinel wrapper. Classification remains visible output.",
       "guard": "FlightDeck.pool.test.tsx cold i14941 case; flight-deck-window.test.tsx bounds; full speed:structural census."
+    },
+    {
+      "file": "apps/web/src/features/setup/ColdStartComposer.tsx",
+      "holder": "ColdStartComposer",
+      "rule": "reader-summary",
+      "tokens": "726200c693847642d8fb18923e909ba2b9c3d3da123c6012b04ead0f95482427",
+      "gate": [],
+      "origin": [
+        "38ee8e4568daab4926b21807b42ed2fa803a25ca97778f587de71b0d1d05834e",
+        "edccbaf426dca942750619e6960d69f0c560ebdaf7c2beb6a07ceb8fdc008aaf"
+      ],
+      "fingerprint": "51cf163e1aab6b86f454334a65bff099c10da7c4c1600b0f9a26cfc23d02a346",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5833",
+      "trigger": "ColdStartComposer",
+      "bound": "Opening catalog or repository choices; no cardinality cap is claimed.",
+      "reason": "This path retains declared catalog traversal. Moving it into the opening action does not establish an addressed or capped acquisition.",
+      "guard": "ColdStartComposer.order.test.tsx and CommandPalette.runtime.test.tsx prove frozen opening order, live visible labels and closed-view isolation; this entry makes no scan repair claim."
     }
   ]
 }
