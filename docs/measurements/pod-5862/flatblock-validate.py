@@ -49,7 +49,10 @@ def monitor():
             if value:
                 owned[pid]=value
                 peaks[pid]=max(peaks.get(pid,0),value['rss'])
-                try:todo.extend(int(v) for v in Path(f'/proc/{pid}/task/{pid}/children').read_text().split() if int(v) not in todo)
+                try:
+                    for children in Path(f'/proc/{pid}/task').glob('*/children'):
+                        try:todo.extend(int(v) for v in children.read_text().split() if int(v) not in todo)
+                        except OSError:pass
                 except OSError:pass
         memory=host()
         live=[]
