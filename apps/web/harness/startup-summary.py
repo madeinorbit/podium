@@ -48,6 +48,10 @@ def summarize(ledger):
             'loadStart': [run['loadStart'] for run in runs],
             'loadEnd': [run['loadEnd'] for run in runs],
             'population': [run['population'] for run in runs],
+            'productTreeSha256': sorted(set(run['productTreeSha256'] for run in runs)),
+            'startedAt': [run['startedAt'] for run in runs],
+            'endedAt': [run['endedAt'] for run in runs],
+            'leaseWindows': sorted(set(run['lease']['acquiredAt'] for run in runs)),
         }
     return {'cohort': data['cohort'], 'surface': data['surface'], 'schedule': data['schedule'], 'cells': cells}
 

@@ -63,8 +63,8 @@ the states this issue proves the check on: `fullPool` (control),
 `partialPool` (active rows only, no markers) and `lazyPool` (the production
 lazy pool on the whole feed, before and after `hydrateAll`).
 
-Results on `h1a1` (flatblock, 2026-10-09, candidate `fca58f638b` rebased onto
-pilot `a3177c8f17`; `no-wrong-number.test.ts` and
+Results on `h1a1` (flatblock, 2026-10-09, candidate `561a53b930` rebased onto
+pilot `2c4e3bd21e`; `no-wrong-number.test.ts` and
 `no-wrong-number.lazy.test.ts`), answers per group as equal / LOADING / wrong:
 
 | Candidate state | First screen | Counts | Search | Board archive | Closed children |
@@ -117,9 +117,13 @@ Generate each cell once on flatblock, under `meter:flatblock`:
 # Repeat for h10a1, h1a4, h10a4; compare independent same-seed output with cmp.
 ```
 
-Build normal production clients (`cd apps/web && bun run build`, then
-`cd apps/mobile && bun run build`) using the checkout-local toolchain on PATH.
+Build normal production clients (`bun run --cwd apps/web build`, then
+`bun run --cwd apps/mobile build`) using the checkout-local toolchain on PATH.
 No diagnostic transforms, production flags or ablations enter this baseline.
+Hold `heavy:flatblock` only during each build, one build at a time, after
+checking MemAvailable ≥ 6 GiB. The coordinator's shared testing lane owns
+the remaining full gates; the two client builds and timing are this issue's
+measurement exception.
 
 From the local **issue worktree**, run the lightweight SSH controller:
 
@@ -132,9 +136,16 @@ python3 apps/mobile/harness/startup-baseline.py \
 
 The controller holds `meter:flatblock` and `bench:flatblock`, renews both,
 and starts exactly one collector process tree at a time. It rotates and
-reverses the four cell orders between rounds. Each invocation captures one
+reverses the four cell orders across sample rounds, putting every cell in
+every position twice. Each invocation captures one
 cold navigation and its warm reload, closes its browser and isolated server,
 then gives the next cell its turn. Eight samples per cell, per surface.
+When yielding the host to shared gates, `--max-pairs=<n>` pauses after a
+complete pair and releases the leases; `--resume` continues the saved prefix
+of the same balanced schedule. A local
+`.artifacts/startup-baseline/<surface>-r<round>.pause` file also stops admission
+of the next pair. Remove that file before resuming. Saved pairs are never
+overwritten; the raw captures and summary record each separate lease window.
 The phone entry uses the same seeded full-bootstrap feed and Paint collector
 as web; its boundary is an unobscured issue row on `/mobile/work`, at Pixel 7
 viewport settings. It measures the production phone **web** client, not native
@@ -180,4 +191,6 @@ bun run test:file -- tests/worklist/harness/src/startup/no-wrong-number.lazy.tes
 
 Run those commands sequentially. The normal landing evidence is the lean gate,
 full typecheck, interaction scan check, normal web build, and structural census
-under `meter:flatblock`; the report below records what actually ran.
+under `meter:flatblock`. POD-5895 runs the shared full gates; submit the candidate
+to POD-4286 rather than starting a competing run. The report records what
+actually ran.

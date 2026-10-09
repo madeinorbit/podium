@@ -30,21 +30,41 @@ def main():
     parser.add_argument('--samples', default=8, type=int)
     parser.add_argument('--round', default=1, type=int)
     parser.add_argument('--meter-held', action='store_true', help='reuse the current session\'s caller-owned meter lease')
+    parser.add_argument('--resume', action='store_true', help='continue the saved schedule without replacing completed pairs')
+    parser.add_argument('--max-pairs', type=int, help='yield the leases after this many new pairs')
     args = parser.parse_args()
     cells = args.cells.split(',')
     if not re.fullmatch(r'podium-test-[a-z0-9-]+', args.checkout):
         raise ValueError('An issue-owned flatblock checkout is required')
     if args.samples < 1 or len(set(cells)) != len(cells) or any(not re.fullmatch(r'h(?:[1-9]|1[0-9]|20)a[124]', cell) for cell in cells):
         raise ValueError('Distinct corpus cells and at least one sample are required')
-    cohort = str(uuid.uuid4())
     root = Path('.artifacts/startup-baseline')
     root.mkdir(parents=True, exist_ok=True)
     ledger = root / f'{args.surface}-r{args.round}.json'
-    if ledger.exists():
-        raise ValueError('This baseline round already exists; use a fresh round')
+    pause = root / f'{args.surface}-r{args.round}.pause'
+    plan = [{'step': step, 'cell': cell,
+             'run': f'.artifacts/old-vs-new/timing-{cell}-{args.surface}-{cell}-r{args.round}-s{step}/run.json'}
+            for step in range(args.samples) for cell in sample_order(cells, step)]
+    if args.max_pairs is not None and args.max_pairs < 1:
+        raise ValueError('--max-pairs must be positive')
+    if args.resume:
+        data = json.loads(ledger.read_text())
+        if (data['status'] not in ['running', 'paused'] or data['surface'] != args.surface
+                or data['samplesPerCell'] != args.samples or list(data['outputs']) != cells
+                or data['schedule'] != plan[:len(data['schedule'])]):
+            raise ValueError('Resume must retain the original cells, surface and balanced schedule')
+        expected = {cell: [row['run'] for row in data['schedule'] if row['cell'] == cell] for cell in cells}
+        if data['outputs'] != expected:
+            raise ValueError('Saved outputs do not match the completed schedule')
+        cohort, outputs, schedule = data['cohort'], data['outputs'], data['schedule']
+    else:
+        if ledger.exists():
+            raise ValueError('This baseline round already exists; use --resume or a fresh round')
+        cohort, outputs, schedule = str(uuid.uuid4()), {cell: [] for cell in cells}, []
+    def save(status):
+        ledger.write_text(json.dumps({'cohort': cohort, 'surface': args.surface, 'outputs': outputs,
+                                     'schedule': schedule, 'samplesPerCell': args.samples, 'status': status}, indent=2) + '\n')
     held = []
-    outputs = {cell: [] for cell in cells}
-    schedule = []
     grants = {}
     try:
         if args.meter_held:
@@ -61,32 +81,37 @@ def main():
         payload = json.dumps({'name': 'bench:flatblock', 'host': 'ludovico', 'cohort': cohort,
                               'acquiredAt': datetime.datetime.now(datetime.timezone.utc).isoformat(),
                               'grant': grants['bench:flatblock'], 'also': ['meter:flatblock']})
-        for step in range(args.samples):
-            for name in ['meter:flatblock', 'bench:flatblock']:
-                subprocess.run(['podium', 'lock', 'renew', name, '--ttl', '45m'], check=True)
-            for cell in sample_order(cells, step):
-                relative = f'.artifacts/old-vs-new/timing-{cell}-{args.surface}-{cell}-r{args.round}-s{step}'
-                argv = ['.toolchain/bun', '--conditions=@podium/source', 'apps/web/harness/cold-start.mjs',
-                        '--external-lease', '--paired', '--no-profile', '--mode=timing', f'--arm={cell}',
-                        f'--surface={args.surface}', f'--cell={cell}', f'--round={args.round}',
-                        '--samples=1', '--port=19661', f'--out={relative}']
-                # Grant files precede collector startup. They never prime the app.
-                prepare = (f'mkdir -p {shlex.quote(relative)} && '
-                           f'cat > {shlex.quote(relative + "/lease.json")} && '
-                           f'touch {shlex.quote(relative + "/step-0.go")}')
-                prefix = f'cd "$HOME/{args.checkout}" && '
-                subprocess.run(['ssh', 'flatblock', prefix + prepare], input=payload, text=True, check=True)
-                command = prefix + shlex.join(['python3', 'apps/web/harness/flatblock-budget.py', '--census',
-                                              f'--log={relative}/collector.log', '--', *argv])
-                subprocess.run(['ssh', '-o', 'BatchMode=yes', 'flatblock', command], check=True)
-                outputs[cell].append(f'{relative}/run.json')
-                schedule.append({'step': step, 'cell': cell, 'run': f'{relative}/run.json'})
-                ledger.write_text(json.dumps({'cohort': cohort, 'surface': args.surface, 'outputs': outputs,
-                                               'schedule': schedule, 'samplesPerCell': args.samples, 'status': 'running'}, indent=2) + '\n')
-        data = json.loads(ledger.read_text())
-        data['status'] = 'complete'
-        ledger.write_text(json.dumps(data, indent=2) + '\n')
-        print(json.dumps(data), flush=True)
+        completed = len(schedule)
+        last_step = None
+        for row in plan[completed:]:
+            if pause.exists() or (args.max_pairs is not None and len(schedule) - completed >= args.max_pairs):
+                save('paused')
+                print(f'BASELINE_PAUSED {ledger}: {len(schedule)}/{len(plan)} pairs', flush=True)
+                return
+            step, cell = row['step'], row['cell']
+            if step != last_step:
+                last_step = step
+                for name in ['meter:flatblock', 'bench:flatblock']:
+                    subprocess.run(['podium', 'lock', 'renew', name, '--ttl', '45m'], check=True)
+            relative = str(Path(row['run']).parent)
+            argv = ['.toolchain/bun', '--conditions=@podium/source', 'apps/web/harness/cold-start.mjs',
+                    '--external-lease', '--paired', '--no-profile', '--mode=timing', f'--arm={cell}',
+                    f'--surface={args.surface}', f'--cell={cell}', f'--round={args.round}',
+                    '--samples=1', '--port=19661', f'--out={relative}']
+            # Grant files precede collector startup. They never prime the app.
+            prepare = (f'mkdir -p {shlex.quote(relative)} && '
+                       f'cat > {shlex.quote(relative + "/lease.json")} && '
+                       f'touch {shlex.quote(relative + "/step-0.go")}')
+            prefix = f'cd "$HOME/{args.checkout}" && '
+            subprocess.run(['ssh', 'flatblock', prefix + prepare], input=payload, text=True, check=True)
+            command = prefix + shlex.join(['python3', 'apps/web/harness/flatblock-budget.py', '--census',
+                                          f'--log={relative}/collector.log', '--', *argv])
+            subprocess.run(['ssh', '-o', 'BatchMode=yes', 'flatblock', command], check=True)
+            outputs[cell].append(row['run'])
+            schedule.append(row)
+            save('running')
+        save('complete')
+        print(ledger.read_text(), flush=True)
     finally:
         for name in reversed(held):
             subprocess.run(['podium', 'lock', 'release', name], check=True)

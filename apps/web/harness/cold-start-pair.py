@@ -31,6 +31,8 @@ parser.add_argument('--surface', default='web', choices=['web', 'phone'])
 parser.add_argument('--meter', action='store_true', help='also hold meter:flatblock (10x history)')
 parser.add_argument('--no-profile', action='store_true')
 parser.add_argument('--meter-held', action='store_true')
+parser.add_argument('--resume', action='store_true')
+parser.add_argument('--max-pairs', type=int)
 args = parser.parse_args()
 if args.samples < 1:
     raise ValueError('At least one paired sample is required')
@@ -47,10 +49,13 @@ if cells:
     command = [sys.executable, str(pathlib.Path(__file__).with_name('startup-baseline.py')),
                f'--checkout={args.checkout}', f'--cells={args.cells}',
                f'--surface={args.surface}', f'--samples={args.samples}', f'--round={args.round}',
-               *(['--meter-held'] if args.meter_held else [])]
+               *(['--meter-held'] if args.meter_held else []),
+               *(['--resume'] if args.resume else []),
+               *([f'--max-pairs={args.max_pairs}'] if args.max_pairs is not None else [])]
     raise SystemExit(subprocess.call(command))
-    arms = cells
 else:
+    if args.resume or args.max_pairs is not None:
+        raise ValueError('--resume and --max-pairs require baseline --cells')
     arms = ['old', *([args.baseline] if args.baseline else []), *([args.alternative] if args.alternative else []), args.candidate]
 checkouts = {arm: args.checkout if cells else f'podium-test-5513-{arm}' for arm in arms}
 leases = ['bench:flatblock', *(['meter:flatblock'] if args.meter else [])]
