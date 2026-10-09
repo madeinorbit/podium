@@ -18,7 +18,7 @@ import type {
   SessionId,
   IssueId,
 } from '@podium/model/browser'
-import type { AnyRef } from '@podium/protocol'
+import { type AnyRef, parseAnyRef } from '@podium/protocol'
 
 /**
  * The issue shape the resolver needs and the miniview card renders — COMPOSED
@@ -149,3 +149,22 @@ export function collectRefPrefixes(
   for (const rows of rowLists) for (const r of rows) if (r.prefix) out.add(r.prefix)
   return out
 }
+
+// ---------------------------------------------------------------------------
+// Session "working <issue>" context chip (#474 review, finding 9).
+// ---------------------------------------------------------------------------
+
+/**
+ * The session's current task ref when it differs from the task its birth
+ * `displayRef` names: a `POD-13-A` session re-homed onto POD-27 yields
+ * `'POD-27'`. Null without a current task ref, or when it is the birth task.
+ */
+export function workingIssueRef(birthRef: string | undefined, currentRef: string): string | null {
+  if (!currentRef) return null
+  const birth = birthRef ? parseAnyRef(birthRef) : null
+  if (birth && birth.kind === 'session' && birth.seq !== undefined) {
+    if (`${birth.prefix}-${birth.seq}` === currentRef) return null
+  }
+  return currentRef
+}
+

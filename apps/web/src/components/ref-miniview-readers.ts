@@ -1,6 +1,8 @@
 import type { MobxPool } from '@podium/client-graph'
+import { LOADING } from '@podium/client-graph/loading'
 import { parseAnyRef } from '@podium/protocol'
 import { readAddressedIssueRef } from '@/lib/addressed-issue-ref'
+import type { SessionId } from '@podium/model/browser'
 import type { RefIssueLike, RefSessionLike, ResolvedRef } from '@/lib/ref-miniview'
 
 export function readReferenceSession(pool: MobxPool, ref: string) {
@@ -38,4 +40,31 @@ export function readRefTarget(
     ...readAddressedIssueRef(pool, id, row as { seq: number; prefix?: string; displayRef?: string }),
   } as RefIssueLike
   return { target: { kind: 'issue', ref: parsed, issue }, loading: false }
+}
+
+/** The shared issue model's own reference label; empty while it is not loaded. */
+export function readIssueDisplayRef(pool: MobxPool, id: string): string {
+  return pool.issueObject(id).displayRef
+}
+
+/** Where "Go to session" lands: the shared issue answer names the covering
+ * task and its live seat. Labels are separate reads, so a seat's heartbeat
+ * never rebuilds this answer. */
+export function readSessionTarget(
+  pool: MobxPool,
+  issueId: string,
+): { viaId: string; sessionId: SessionId } | null {
+  const viaId = pool.issueObject(issueId).seatHolderId
+  const sessionId = viaId ? pool.issueObject(viaId).liveSeatId : null
+  return viaId && sessionId ? { viaId, sessionId: sessionId as SessionId } : null
+}
+
+/** The session's permanent birth ref; empty while its row is loading. */
+export function readSessionDisplayRef(pool: MobxPool, id: string): string {
+  try {
+    return pool.sessionObject(id).displayRef ?? ''
+  } catch (error) {
+    if (error === LOADING) return ''
+    throw error
+  }
 }

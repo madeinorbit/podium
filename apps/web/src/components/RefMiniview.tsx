@@ -2,7 +2,6 @@ import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { issueReferenceModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
-import { LOADING } from '@podium/client-graph/loading'
 import { machinePathBasename } from '@podium/model'
 import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'
 import { formatLong, parseAnyRef, truncateTitle } from '@podium/protocol'
@@ -45,10 +44,21 @@ import {
   setRefActivator,
   subscribeMiniview,
 } from '@/lib/ref-activation'
-import type { RefIssueLike, RefSessionLike, ResolvedRef } from '@/lib/ref-miniview'
+import {
+  type RefIssueLike,
+  type RefSessionLike,
+  type ResolvedRef,
+  workingIssueRef,
+} from '@/lib/ref-miniview'
 import { cn } from '@/lib/utils'
 import { IssueReference } from './IssueReference'
-import { readReferenceSession, readRefTarget } from './ref-miniview-readers'
+import {
+  readIssueDisplayRef,
+  readReferenceSession,
+  readRefTarget,
+  readSessionDisplayRef,
+  readSessionTarget,
+} from './ref-miniview-readers'
 
 /**
  * Root-mounted host for the single floating ref miniview (#474, area 7). Owns:
@@ -657,10 +667,11 @@ function IssueEscalations({
   onGoToSession?: (sessionId: SessionId) => void
 }): JSX.Element {
   const target = useSessionTarget(issue.id, onGoToSession !== undefined)
+  const sessionRef = useSessionDisplayRef(target?.sessionId)
+  const viaRef = useIssueDisplayRef(target?.viaId)
   // Only worth naming when it is NOT this task's own session; on its own task
   // the ref is noise the header already carries.
   const inherited = target && target.viaId !== issue.id ? target : null
-  const sessionRef = target?.sessionRef ?? ''
   return (
     <div className="flex items-center gap-1.5 border-t border-border/60 p-2.5">
       {target && onGoToSession && (
@@ -670,7 +681,7 @@ function IssueEscalations({
           className="inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           title={
             inherited
-              ? `Open ${sessionRef} — the session on ${inherited.viaRef || 'the parent task'}, which covers this subtask`
+              ? `Open ${sessionRef} — the session on ${viaRef || 'the parent task'}, which covers this subtask`
               : `Open ${sessionRef}`
           }
           onClick={() => onGoToSession(target.sessionId)}
@@ -816,7 +827,8 @@ function SessionSummary({ session }: { session: RefSessionLike }): JSX.Element {
   const label = session.name || session.title || 'Session'
   // When the session has since re-homed onto a different issue than its birth
   // ref names, say so — the birth displayRef stays primary (#474, finding 9).
-  const workingRef = workingIssueRef(session.displayRef, useIssueDisplayRef(session.issueId))
+  const currentRef = useIssueDisplayRef(session.issueId)
+  const workingRef = workingIssueRef(session.displayRef, currentRef)
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
@@ -837,39 +849,15 @@ function SessionSummary({ session }: { session: RefSessionLike }): JSX.Element {
 
 /** The shared issue model's own reference label; empty while it is not loaded. */
 function useIssueDisplayRef(id: string | undefined): string {
-  const read = useCallback((pool: MobxPool) => (id ? pool.issueObject(id).displayRef : ''), [id])
+  const read = useCallback((pool: MobxPool) => (id ? readIssueDisplayRef(pool, id) : ''), [id])
   return useWorklistPoolProjection(read, '')
 }
 
-/** The current task's ref, unless it is the task the session was born on. */
-function workingIssueRef(birthRef: string | undefined, currentRef: string): string | null {
-  if (!currentRef) return null
-  const birth = birthRef ? parseAnyRef(birthRef) : null
-  if (birth && birth.kind === 'session' && birth.seq !== undefined) {
-    if (`${birth.prefix}-${birth.seq}` === currentRef) return null
-  }
-  return currentRef
+function useSessionDisplayRef(id: string | undefined): string {
+  const read = useCallback((pool: MobxPool) => (id ? readSessionDisplayRef(pool, id) : ''), [id])
+  return useWorklistPoolProjection(read, '')
 }
 
-/** Where "Go to session" lands: the shared issue answer names the covering
- * task and its live seat; the card adds only their labels. */
-function readSessionTarget(pool: MobxPool, issueId: string) {
-  const viaId = pool.issueObject(issueId).seatHolderId
-  const sessionId = viaId ? pool.issueObject(viaId).liveSeatId : null
-  if (!viaId || !sessionId) return null
-  let sessionRef = ''
-  try {
-    sessionRef = pool.sessionObject(sessionId).displayRef ?? ''
-  } catch (error) {
-    if (error !== LOADING) throw error
-  }
-  return {
-    viaId,
-    viaRef: pool.issueObject(viaId).displayRef,
-    sessionId: sessionId as SessionId,
-    sessionRef,
-  }
-}
 function useSessionTarget(issueId: string, active: boolean) {
   const read = useCallback(
     (pool: MobxPool) => (active ? readSessionTarget(pool, issueId) : null),
