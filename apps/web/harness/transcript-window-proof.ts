@@ -83,13 +83,15 @@ try {
   await page.mouse.wheel(0, 1600)
   await page.waitForTimeout(100)
   if (process.argv.includes('--debug')) {
+    if (process.argv.includes('--geometry')) {
     const geometry = await page.evaluate(async () => {
       const before = [...document.querySelectorAll<HTMLElement>('[data-transcript-row]')].map(node => ({ key: node.dataset.transcriptRow, height: node.getBoundingClientRect().height, placeholder: node.hasAttribute('data-transcript-placeholder') }))
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }))
       const range = document.createRange(); range.selectNodeContents(document.querySelector('[data-feed-scroller]')!); document.getSelection()!.addRange(range)
       await new Promise(done => setTimeout(done, 100))
+      const shells = new Map([...document.querySelectorAll<HTMLElement>('[data-transcript-row]')].map(node => [node.dataset.transcriptRow, node]))
       return { height: document.querySelector<HTMLElement>('[data-feed-scroller]')!.scrollHeight, changes: before.flatMap(old => {
-        const node = document.querySelector<HTMLElement>(`[data-transcript-row="${old.key}"]`)!
+        const node = shells.get(old.key)!
         const height = node.getBoundingClientRect().height
         return Math.abs(old.height - height) > 0.01 ? [{ ...old, actual: height, text: node.innerText.slice(0, 100) }] : []
       }) }
@@ -97,6 +99,7 @@ try {
     await writeFile(resolve(directory, 'geometry-debug.json'), JSON.stringify(geometry, null, 2))
     await page.evaluate(() => { document.getSelection()!.removeAllRanges(); document.dispatchEvent(new Event('selectionchange')) })
     await page.waitForTimeout(100)
+    }
     await page.evaluate(() => {
       const events: any[] = []; (window as any).__findDebug = events
       const sample = (event: string) => { const s = document.getSelection(); const p = s?.anchorNode?.parentElement; events.push({ event, text: s?.toString(), anchor: p?.outerHTML.slice(0, 150), row: p?.closest<HTMLElement>('[data-transcript-row]')?.dataset.transcriptRow }) }
