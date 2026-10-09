@@ -1838,7 +1838,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
           const issue = row.view.rulesIssue(row.id)!, presentation = row.view.presentation(issue, row.sessions)
           const seat = issue.stage === 'proposed' ? null : seatFor(presentation.presence)
           const folded = row.folded(folds) && row.hasPayload
-          const meta = mode !== 'full' && !row.matched ? [] : [presentation.note?.label, presentation.note?.short,
+          const meta = !row.matched ? [] : [presentation.note?.label, presentation.note?.short,
             seat ? (seat.attention ? 'no agent' : 'seat open') : null,
             folded && row.collapsedSummary.tasks ? `${row.collapsedSummary.tasks} task${row.collapsedSummary.tasks === 1 ? '' : 's'}` : null,
             folded && row.descendantIds.length && row.workingAgentCount ? `${row.workingAgentCount} running` : presentation.state.label]

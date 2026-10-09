@@ -116,12 +116,12 @@ const continuation = (value: MissionScreen['continuation']) =>
           : null,
       }
     : null
-const flight = (row: FlightDeckRow, mode: FlightDeckMode) => ({
+const flight = (row: FlightDeckRow) => ({
   issue: fields(row.issue, MISSION_FIELDS),
   depth: row.depth,
   sessions: row.sessions.map(seat),
   descendantIds: row.descendantIds,
-  matched: mode === 'full' || row.matched,
+  matched: row.matched,
   actionableCount: row.actionableCount,
   liveAgentCount: row.liveAgentCount,
   workingAgentCount: row.workingAgentCount,
@@ -192,7 +192,6 @@ function snapshot(
   deck: PhoneDeck,
   selectSession: MobileScreenInput['selectSession'],
   requested?: string,
-  mode: FlightDeckMode = 'full',
 ): SidebarSnapshot {
   const automatic = selectSession(mission.missionSessions)
   const current =
@@ -257,7 +256,7 @@ function snapshot(
         rows: deck.rows.map((row) => ({
           id: row.issue.id,
           fields: {
-            ...flight(row, mode),
+            ...flight(row),
             ...deck.rowPresentation.get(row.issue.id),
             author: row.issue.startedBySession ? mission.author(row) : null,
           },
@@ -288,7 +287,7 @@ export function poolMobileScreensSnapshot(
   try {
     const opened = phoneMission(pool, input.selectedId, input.mode)
     if (tasks === LOADING || opened === LOADING) return LOADING
-    return snapshot(tasks, opened[0], opened[1], input.selectSession, input.requestedSessionId, input.mode)
+    return snapshot(tasks, opened[0], opened[1], input.selectSession, input.requestedSessionId)
   } catch (error) {
     if (error === LOADING) return LOADING
     throw error

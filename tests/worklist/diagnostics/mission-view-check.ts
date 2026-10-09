@@ -57,9 +57,9 @@ const noteFields = (note: ReturnType<typeof issueNote>) => note
 const continuationFields = (value: ReturnType<typeof issueContinuation>) => value ? { ...value, target: value.target?.id ?? null } : null
 const sessionFields = (session: SessionView) => ({ ...sessionComparable(session), model: session.model, effort: session.effort,
   spawnedBy: session.spawnedBy, resumable: session.resumable, refIssueId: session.refIssueId, refLetter: session.refLetter })
-const rowFields = (row: FlightDeckRow, mode: FlightDeckMode) => ({
+const rowFields = (row: FlightDeckRow) => ({
   issue: issueFields(row.issue), depth: row.depth, sessions: row.sessions.map(sessionFields),
-  descendantIds: row.descendantIds, matched: mode === 'full' || row.matched, actionableCount: row.actionableCount,
+  descendantIds: row.descendantIds, matched: row.matched, actionableCount: row.actionableCount,
   liveAgentCount: row.liveAgentCount, workingAgentCount: row.workingAgentCount, waitingAgentCount: row.waitingAgentCount,
   collapsedSummary: { ...row.collapsedSummary, crew: row.collapsedSummary.crew.map(sessionFields) },
 })
@@ -90,12 +90,12 @@ export function opening(pool: MobxPool, rootId: string): MissionScreen {
   return screen
 }
 
-function snapshot(values: PaneValues, archived: readonly SessionView[], handoff: MissionHandoffValues | typeof LOADING, mode: FlightDeckMode = 'full'): SidebarSnapshot {
+function snapshot(values: PaneValues, archived: readonly SessionView[], handoff: MissionHandoffValues | typeof LOADING): SidebarSnapshot {
   const rows: CheckSection[] = [
     { key: 'mission', fields: { root: values.root?.id ?? null, members: [...values.members].sort(),
       progress: values.progress, continuation: continuationFields(values.continuation), note: noteFields(values.note), presence: values.presence }, rows: [] },
     { key: 'rows', fields: {}, rows: values.rows.map(row => ({ id: row.issue.id, fields: {
-      ...rowFields(row, mode), title: values.titles.get(row.issue.id),
+      ...rowFields(row), title: values.titles.get(row.issue.id),
       state: values.rowPresentation.get(row.issue.id)?.state,
       note: noteFields(values.rowPresentation.get(row.issue.id)?.note ?? null),
       presence: values.rowPresentation.get(row.issue.id)?.presence,
@@ -129,7 +129,7 @@ export function legacyMissionViewSnapshot(issues: readonly IssueNavigationModel[
     presence: root ? presenceNote(root, rows[0]?.sessions ?? [], byId, sessions) : null,
     rowPresentation: new Map(rows.map(row => [row.issue.id, { state: deckIssueState(row.issue, row.sessions, byId),
       note: issueNote(row.issue, byId, row.sessions), presence: presenceNote(row.issue, row.sessions, byId) }])),
-  }, archived, root ? legacyHandoff(issues, sessions, root.id) : EMPTY_MISSION_HANDOFF, mode)
+  }, archived, root ? legacyHandoff(issues, sessions, root.id) : EMPTY_MISSION_HANDOFF)
 }
 
 /** The legacy handoff in the pane's contract: the seated crew, and the
@@ -163,7 +163,7 @@ export function poolMissionViewSnapshot(pool: MobxPool, selectedId: string | nul
   if (archived === LOADING) return LOADING
   const count = requireLoaded(deck.archivedCount)
   if (archived.length !== count) throw new Error(`Archived count ${count} disagrees with its list (${archived.length})`)
-  return snapshot(values, archived, reader.handoff(rootId), mode)
+  return snapshot(values, archived, reader.handoff(rootId))
   } catch (error) { if (error === LOADING) return LOADING; throw error }
 }
 

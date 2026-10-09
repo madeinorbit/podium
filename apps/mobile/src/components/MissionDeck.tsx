@@ -489,7 +489,7 @@ export const SpineRow = observer(function SpineRow({
   const content = settled(() => {
     const presentation = row.presentation
     const state = presentation.state
-    const context = mode !== 'full' && !row.matched
+    const context = !row.matched
     const note = context ? null : presentation.note
     const bands = folded ? [] : deckSessions(row, mode)
     // The seat is held for work that could be picked up — never under a proposal,

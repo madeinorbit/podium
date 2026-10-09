@@ -1639,7 +1639,7 @@ export const TaskRow = observer(
      * work in their own right; it matches AGENTS now, and a row on the path to a
      * working agent is scaffolding exactly as it is under `Needs you`.
      */
-    const context = mode !== 'full' && !row.matched
+    const context = !row.matched
     // A PROPOSAL IS A DIFFERENT KIND OF ROW (round 3 §7b): nobody has accepted it,
     // so it holds no seat for an agent and takes the shorter band. Only one with
     // sub-tasks reaches this component — the childless ones leave the tree
