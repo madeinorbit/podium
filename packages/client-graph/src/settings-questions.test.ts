@@ -6,6 +6,8 @@ import { createRepositoryUsageSelector, resolveDefaultAgent } from '@podium/clie
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { automationViews } from './automation-views'
+import { LOADING } from './loading'
+import { requireHere } from './lookup'
 import { MobxPool } from './pool'
 import { createPoolProjection } from './runtime-pool'
 import { createColdIndex } from './shared/cold-index'
@@ -20,14 +22,24 @@ const session = (id: string, patch: object = {}): RowRecord => ({ kind: 'session
   status: 'exited', stoppedAt: old, ...patch,
 } } as RowRecord)
 function fixture(rows: RowRecord[]) {
+  const values = new Map(rows.map(row => [`${row.kind}:${row.id}`, row.value]))
+  const load = vi.fn((entity: string, id: string) => values.get(`${entity}:${id}`))
   const source = createColdIndex(SCHEMA, { session: SETUP_SESSION_SUMMARY_FIELDS })
   source.apply({ type: 'replace', rows })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(recent) }, undefined, {
-    settings: true, cold: () => source, load: () => undefined, schedule: () => () => {},
+    settings: true, cold: () => source, load, schedule: () => () => {},
   })
   pool.apply({ type: 'replace', rows })
-  const publish = (event: RowSourceEvent) => { source.apply(event); pool.apply(event) }
-  return { pool, source, publish }
+  const publish = (event: RowSourceEvent) => {
+    if (event.type === 'replace') values.clear()
+    for (const row of event.rows) {
+      const key = `${row.kind}:${row.id}`
+      if (row.value === undefined) values.delete(key)
+      else values.set(key, row.value)
+    }
+    source.apply(event); pool.apply(event)
+  }
+  return { pool, source, load, publish }
 }
 
 it('keeps first setup demand, named presence, counts and heartbeat updates flat at 1x/4x', async () => {
@@ -59,7 +71,14 @@ it('keeps first setup demand, named presence, counts and heartbeat updates flat 
       })] }))
       expect(view.getSnapshot().setup.defaultAgent).toBe('claude-code')
       expect(paint).toHaveBeenCalledTimes(1)
-      const named = await measure('automation named session', () => expect(automationViews(f.pool).session('target')).toMatchObject({ sessionId: 'target' }))
+      const named = await measure('automation named session', () => {
+        // The named link now requests the full shared model, not a setup
+        // summary. Settle that addressed load before inspecting its value.
+        expect(automationViews(f.pool).session('target')).toBe(LOADING)
+        expect(f.pool.hydrate()).toBe(1)
+        expect(f.load).toHaveBeenCalledExactlyOnceWith('session', 'target')
+        expect(automationViews(f.pool).session('target')).toMatchObject({ sessionId: 'target' })
+      })
       const removed = await measure('setup target removed', () => f.publish({ type: 'update', rows: [{ kind: 'session', id: 'target', value: undefined }] }))
       expect(view.getSnapshot()).toMatchObject({ setup: { defaultAgent: 'grok' }, present: false, count: 1 + 128 * scale })
       expect(view.getSnapshot().setup.usage.get('/shown')).toBe(Date.parse('2025-01-01T00:00:00Z'))
@@ -75,6 +94,33 @@ it('keeps first setup demand, named presence, counts and heartbeat updates flat 
   console.info('settings addressed work1x4x', JSON.stringify({ first, second }))
   for (const action of Object.keys(first)) for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const)
     expect(second[action]?.[counter]).toBe(first[action]?.[counter])
+})
+
+it('settles a cold automation session to its shared model and follows updates and removal', () => {
+  const f = fixture([session('target')])
+  const view = createPoolProjection(f.pool, pool => automationViews(pool).session('target'))
+  const paint = vi.fn()
+  let stop = () => {}
+  try {
+    expect(view.getSnapshot()).toBe(LOADING)
+    stop = view.subscribe(paint)
+    expect(f.load).not.toHaveBeenCalled()
+    f.publish({ type: 'update', rows: [session('target', { title: 'Latest before hydration' })] })
+    expect(view.getSnapshot()).toBe(LOADING)
+    expect(f.pool.hydrate()).toBe(1)
+    expect(f.load).toHaveBeenCalledExactlyOnceWith('session', 'target')
+    const model = requireHere(f.pool.model('session', 'target'))
+    expect(view.getSnapshot()).toBe(model)
+    expect(model.title).toBe('Latest before hydration')
+    expect(paint).toHaveBeenCalled()
+    f.publish({ type: 'update', rows: [session('target', { title: 'Latest after hydration' })] })
+    expect(view.getSnapshot()).toBe(model)
+    expect(model.title).toBe('Latest after hydration')
+    f.publish({ type: 'update', rows: [{ kind: 'session', id: 'target', value: undefined }] })
+    expect(view.getSnapshot()).toBeUndefined()
+    expect(f.pool.hydrate()).toBe(0)
+    expect(f.load).toHaveBeenCalledTimes(1)
+  } finally { stop(); view.dispose(); f.pool.dispose() }
 })
 
 it('preserves source-order defaults, shell/headless usage, archived history and resume winners', () => {
