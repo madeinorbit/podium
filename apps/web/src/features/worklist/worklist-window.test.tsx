@@ -55,6 +55,19 @@ const mounted = (container: HTMLElement) =>
   )
 
 describe('worklist viewport', () => {
+  it('retains a buffered row when it becomes the first row after a spacer', () => {
+    const view = render(<Harness />)
+    flush()
+    const scroll = view.getByTestId('window-scroll')
+    scroll.scrollTop = 800
+    fireEvent.scroll(scroll)
+    flush()
+    const retained = view.getByText('row-19')
+    scroll.scrollTop = 1120
+    fireEvent.scroll(scroll)
+    flush()
+    expect(view.getByText('row-19')).toBe(retained)
+  })
   it.each([1, 4])('keeps ordered DOM bounded before and after deep scrolling at %sx', (scale) => {
     const rows = Array.from({ length: 674 * scale }, (_, index) => `row-${index}`)
     const view = render(<Harness rows={rows} />)

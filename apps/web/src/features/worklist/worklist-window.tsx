@@ -125,8 +125,9 @@ export function WorklistWindow<T>({
         const row = rows[item.index]!
         return (
           <Fragment key={item.key}>
-            {gap > 0 && <div aria-hidden="true" style={{ height: gap }} />}
+            {gap > 0 && <div key="spacer" aria-hidden="true" style={{ height: gap }} />}
             <div
+              key="row"
               ref={virtual.measureRef(item.key)}
               data-window-row={item.key}
               data-drag-key={dragScope ? dragId?.(row) : undefined}
