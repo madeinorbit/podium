@@ -400,7 +400,7 @@ export class WorklistIssueBefore implements HeldIssue, RowView {
   }
 
   get hidden(): HiddenIssue | undefined {
-    // untracked-read: issue-hidden-presence
+    // untracked-read: old-issue-hidden-presence
     const resident = untracked(() => this.host.row('issue', this.id, 'mark'))
     if (resident !== LOADING) {
       // Unknown ids must still follow a later cold publication through the reader.

@@ -16,6 +16,7 @@ export const UNTRACKED_READS: Readonly<Record<string, string>> = {
   'launch-session-seed': 'Probe session residency without borrowing dependencies; addressed rows and catalog membership track changes.',
   'launch-session-presence': 'Choose resident session detail without a table dependency; catalog membership and row summaries track changes.',
   'issue-hidden-presence': 'Probe residency without a duplicate dependency; resident facts or the cold summary track changes.',
+  'old-issue-hidden-presence': 'The frozen worklist parity oracle preserves the old residency probe; resident facts or the cold summary track changes.',
   'pool-seat-seed': 'Seed retained seat identities during residency maintenance; relation publications maintain them.',
   'seat-membership-maintenance': 'Read seat membership during verdict maintenance; publication queues refresh the maintained summary.',
   'seat-session-maintenance': 'Read an addressed session without loading or observing it; publication queues refresh seat verdicts.',
