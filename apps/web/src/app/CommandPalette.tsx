@@ -997,6 +997,7 @@ function PaletteRow({
     <button
       data-pressable
       id={`palette-item-${index}`}
+      data-command-id={cmd.id}
       type="button"
       role="option"
       aria-selected={active}

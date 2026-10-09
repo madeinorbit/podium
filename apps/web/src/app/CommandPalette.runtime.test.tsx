@@ -25,6 +25,31 @@ function Capture() {
 
 afterEach(cleanup)
 
+it('keeps queried result identities still while a visible task title changes', async () => {
+  const fixture = createSidebarFixture(12, Date.now(), false, 'palette-live-query')
+  const mounted = render(<StoreProvider principal={asClientPrincipal(asUserId('palette-live-query'))}
+    config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
+    createReplicaFn={() => fixture.replica} networkEnabled={false}
+    attachRuntime={runtime => attachWorklistPool(runtime, error => { throw error })}
+    onFatalError={error => { throw new Error(error) }}>
+    <ConfirmProvider><Capture /><CommandPalette /></ConfirmProvider>
+  </StoreProvider>)
+  try {
+    await act(async () => referenceState(runtime).setPaletteOpen(true))
+    fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'S' } })
+    const taskIds = () => screen.getAllByRole('option')
+      .map(option => option.getAttribute('data-command-id'))
+      .filter((id): id is string => id?.startsWith('task-issue:') === true)
+    const before = taskIds()
+    expect(before).toHaveLength(6)
+    await act(async () => fixture.patch('issueProjection', before[2]!.slice('task-issue:'.length), {
+      title: 'Updated visible result',
+    }))
+    expect(taskIds()).toEqual(before)
+    expect(screen.getAllByRole('option').some(option => option.textContent?.includes('Updated visible result'))).toBe(true)
+  } finally { mounted.unmount() }
+})
+
 it('settles palette renders and preserves hover when a row title changes', async () => {
   const fixture = createSidebarFixture(12, Date.now(), false, 'palette-runtime')
   let commits = 0
