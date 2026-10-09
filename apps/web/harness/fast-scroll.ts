@@ -7,6 +7,7 @@ import { extname, resolve } from 'node:path'
 import { chromium } from '@playwright/test'
 
 if (hostname() !== 'flatblock') throw new Error('Run the scroll proof on flatblock')
+console.log(`Fast-scroll foreground PID ${process.pid}`)
 const arm = process.argv[2]
 if (!['before', 'after'].includes(arm ?? '')) throw new Error('Choose before or after')
 const output = resolve('.artifacts/fast-scroll', arm!)
@@ -23,6 +24,7 @@ if (process.argv.includes('--build')) {
           ? await (await import('../../mobile/vite.conversation-stream.config')).default()
           : await (await import('../../mobile/vite.conversation-stream.config')).default()
     if (fixture === 'phone-lists') base.resolve!.alias = (base.resolve!.alias as any[]).map(alias => ({ ...alias, replacement: alias.replacement.endsWith('/stub-bottom-sheet.tsx') ? resolve('apps/mobile/test/fast-scroll-sheet.tsx') : alias.replacement }))
+    console.log(`Building ${arm} ${fixture}`)
     await build({ ...base, configFile: false, logLevel: 'warn',
       define: { ...base.define, __DEV__: 'false', 'process.env.NODE_ENV': '"production"' },
       plugins: [...(arm === 'before' ? [{ name: 'unchanged-product-windowing', enforce: 'pre' as const, load(id: string) { const path = ['apps/web/src/features/issues/use-bounded-virtual-list.ts', 'apps/web/src/app/flight-deck-window.tsx'].find(path => id.endsWith('/' + path)); return path ? execFileSync('git', ['show', 'ff68b5e727:' + path], { encoding: 'utf8' }) : null } }] : []), ...(base.plugins?.filter(plugin => !/meter|acceptance-state/.test((plugin as { name?: string })?.name ?? '')) ?? [])],
@@ -55,8 +57,9 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
       const errors: string[] = []
       page.on('pageerror', error => errors.push(error.message))
       const name = fixture === 'lists' ? 'sidebar-acceptance' : fixture === 'phone-lists' ? 'inbox' : 'conversation-stream'
+      console.log(`Opening ${arm} ${fixture} ${variant}`)
       await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}/test/${name}.browser.html?scale=4&surface=${variant === 'list' ? 'scroll' : variant === 'waterfall' ? 'full' : variant}&scrollScreen=${variant}&enableWaterfall=${variant === 'waterfall' ? 1 : 0}`)
-      await page.waitForFunction(() => (window as any).__acceptance?.ready() || (window as any).__conversationStream?.ready() || (window as any).__inbox?.readiness().attached, null, { timeout: 90_000 })
+      await page.waitForFunction(() => (window as any).__acceptance?.ready() || (window as any).__conversationStream?.ready() || (window as any).__inbox?.readiness().attached, null, { timeout: 90_000 }).catch(async error => { console.log(await page.evaluate(() => ({ errors: (window as any).__acceptance?.errors() ?? (window as any).__inbox?.stats(), body: document.body.innerText.slice(0, 1000) }))); throw error })
       await page.waitForTimeout(750)
       await page.evaluate(() => document.fonts.ready)
       if (variant === 'list') { await page.getByTitle('Display', { exact: true }).click(); await page.getByRole('menuitemradio', { name: 'List', exact: true }).click(); await page.keyboard.press('Escape'); await page.waitForTimeout(500) }
