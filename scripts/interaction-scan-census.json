@@ -6545,48 +6545,6 @@
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
     },
     {
-      "file": "apps/web/src/features/cost/useMissionCost.ts",
-      "holder": "useMissionCost/useMemo:callback/view",
-      "rule": "reader-summary",
-      "tokens": "c73d3dcd8ed2d4a5f331d7c2f8a6d9f2a1b2402b8b32d884dcd6b7c43137a950",
-      "gate": [
-        "else:d020d1de9d34be2823d37e1589b8fe643e6cd4faeb0021190d7fc7e62c0d062a"
-      ],
-      "origin": [
-        "1e74ce81ea4d426380a3afe1c486d9bf083886c866a25e3b1be08cf9baa75f5d",
-        "ee1abd17e94d7252481b3ced2db3c6eaa1bf2c0cd1169dbcad401e78cc2e8556"
-      ],
-      "fingerprint": "6f6bea564347c816991342211b1a9386dc3fc8fbc1aa906c4d7115b19eb55f6d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useMissionCost/useMemo:callback/view",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/cost/useTaskCost.ts",
-      "holder": "useTaskCost/view/useMemo:callback",
-      "rule": "reader-summary",
-      "tokens": "dec257b7e467a94badf68d11f9c3a973f1170caa8dc1acb31280c954be39c04f",
-      "gate": [
-        "then:ac119ab5ca0593ebb3f76821ab4fd2ce69503207851798c980d8c981365df821"
-      ],
-      "origin": [
-        "1e74ce81ea4d426380a3afe1c486d9bf083886c866a25e3b1be08cf9baa75f5d",
-        "ee1abd17e94d7252481b3ced2db3c6eaa1bf2c0cd1169dbcad401e78cc2e8556"
-      ],
-      "fingerprint": "62b502138c0e3102d182709254e4818affbe7f935e04e82c46011fb7b8c9aee0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useTaskCost/view/useMemo:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/web/src/features/files/table-file-search.ts",
       "holder": "TableFileSearch/callback",
       "rule": "consume:some",
@@ -10912,29 +10870,6 @@
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of IssuePageBody/needsCloseGuard",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/IssuePanelView.tsx",
-      "holder": "IssuePanelBody/IssuePanelBody",
-      "rule": "reader-summary",
-      "tokens": "4db746a28ff97a4fbde672c5fc0ddffe830dc6a8da25a8be4aecc4d3d79306c2",
-      "gate": [],
-      "origin": [
-        "1e74ce81ea4d426380a3afe1c486d9bf083886c866a25e3b1be08cf9baa75f5d",
-        "1fc425aa44655c503e5d3fcb3e80de7898f6767913ee80dec51f098743047765",
-        "8517c0bcac107d45497318e21c1d338c2d0c96477832cbf7740560f8240e832c",
-        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652",
-        "d92337cab057f20ebcdee3ec67d92b0fd7e9585f33e419b3ddae0ff45d6840b3",
-        "ee1abd17e94d7252481b3ced2db3c6eaa1bf2c0cd1169dbcad401e78cc2e8556"
-      ],
-      "fingerprint": "35e3861285dd5077f9ac55f175ce4f66a117fec43d32568207c9f10ec14dfae7",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of IssuePanelBody",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
@@ -25538,9 +25473,10 @@
       "tokens": "b078b9905b22f5c67b398df7ee89267e4e4497d169c0bf88f38ecfc075bd0379",
       "gate": [],
       "origin": [
+        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652",
         "ee1abd17e94d7252481b3ced2db3c6eaa1bf2c0cd1169dbcad401e78cc2e8556"
       ],
-      "fingerprint": "4f1a49c746fe5dd478963de28ed93c006d98e34bfca95af80c4c8e302f1bf58f",
+      "fingerprint": "2ad029d96ab85290a9b23fdcee79f133b04b9734d727a4b06ba4e2a9c58c4f24",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -25553,12 +25489,13 @@
       "file": "packages/client-core/src/values/cost.ts",
       "holder": "amountOf/models",
       "rule": "consume:sort",
-      "tokens": "4298e307843fec611a371a5f7a57e97280a2cc23f1d234db0018ef256bcde5b5",
+      "tokens": "a92b998fd5ee590e1dddb83eb432fa3724091cfd5c8c369dffc5be7a7b3da96d",
       "gate": [],
       "origin": [
+        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652",
         "ee1abd17e94d7252481b3ced2db3c6eaa1bf2c0cd1169dbcad401e78cc2e8556"
       ],
-      "fingerprint": "e15c26de5e7c5ade912f84f5572b715b5b44bb072b6df629427bb2b9c07a0cb5",
+      "fingerprint": "f6969874ce20ab1bafa66e7b3146bdedd12ca1938ec812938671fdf60037b972",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -25574,9 +25511,10 @@
       "tokens": "cea2e03ed5e4dc49352f163956d84493b6d72fcf608bd9376cdf5518316f38dc",
       "gate": [],
       "origin": [
+        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652",
         "ee1abd17e94d7252481b3ced2db3c6eaa1bf2c0cd1169dbcad401e78cc2e8556"
       ],
-      "fingerprint": "8438485ea21724dcbb5e03577bf3f024535452a70ac8fa65eb213d47a5761a5f",
+      "fingerprint": "3797d2818d29fbcc6dbb15da93593b4095b5f660da1e1150c89bb456f2172f74",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -25601,24 +25539,6 @@
       "trigger": "Invocation of foldSessionCosts",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "loop:for-of carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/cost.ts",
-      "holder": "modelTotalCostUsd",
-      "rule": "helper-consumer",
-      "tokens": "bf535ad4fec5028ee269ffbf985157ea8ac7ecc86de0e2810819d8e9210d999a",
-      "gate": [],
-      "origin": [
-        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652"
-      ],
-      "fingerprint": "9443d7ced54d41190e8e816bed0699343e882fd47665acf8e80570c90212c8dc",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of modelTotalCostUsd",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -25649,9 +25569,10 @@
       ],
       "origin": [
         "1e74ce81ea4d426380a3afe1c486d9bf083886c866a25e3b1be08cf9baa75f5d",
+        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652",
         "ee1abd17e94d7252481b3ced2db3c6eaa1bf2c0cd1169dbcad401e78cc2e8556"
       ],
-      "fingerprint": "cd7d4fbd94431333c03c6e62ceca0fe76e7d46b73912ceb2a1e44313deef48bb",
+      "fingerprint": "0472fbfd662648da686fe82f6eed01be7405b3fabc2d32a2631ab2b39eef28a9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -25688,9 +25609,10 @@
       ],
       "origin": [
         "1e74ce81ea4d426380a3afe1c486d9bf083886c866a25e3b1be08cf9baa75f5d",
+        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652",
         "ee1abd17e94d7252481b3ced2db3c6eaa1bf2c0cd1169dbcad401e78cc2e8556"
       ],
-      "fingerprint": "bd2d5c328952da2ce83b7cca06de50bb517d9295a623b8349b0725116fbd4bd8",
+      "fingerprint": "04e2b1463fa87231ee94b3105e82e156882bbc0d91f267bd07445686623ea7bd",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -33260,24 +33182,6 @@
       "trigger": "Invocation of subtreeUnread",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/usage.ts",
-      "holder": "bucketCostUsd/c",
-      "rule": "helper-consumer",
-      "tokens": "21d1c0fd216e89485576eb698c48e77e218b9cb3369d1837692a4caf233da396",
-      "gate": [],
-      "origin": [
-        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652"
-      ],
-      "fingerprint": "354225f879a44679157446aa7ccbd4fa406972ec7cdece5ebd0b80ae9ea0cd6d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of bucketCostUsd/c",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -43558,6 +43462,159 @@
       "bound": "Opening catalog or repository choices; no cardinality cap is claimed.",
       "reason": "This path retains declared catalog traversal. Moving it into the opening action does not establish an addressed or capped acquisition.",
       "guard": "ColdStartComposer.order.test.tsx and CommandPalette.runtime.test.tsx prove frozen opening order, live visible labels and closed-view isolation; this entry makes no scan repair claim."
+    },
+    {
+      "file": "apps/web/src/features/cost/task-cost-model.ts",
+      "holder": "TaskCostModel/refresh/runInAction:callback",
+      "rule": "reader-summary",
+      "tokens": "7efd7cad48bacbaedf5cd06928fb77ab8794f394c3a9fd80656cd43566909d5b",
+      "gate": [
+        "exit:then:918f35e1f6bfc3b47fe0e7c04e6a91d5c3d89ceb3fd0ede090536cdf4cd6d4b7",
+        "exit:then:c02983932c74814c3ca7920d6e25a008841648859d23d7413da10d010639e8d2"
+      ],
+      "origin": [
+        "1e74ce81ea4d426380a3afe1c486d9bf083886c866a25e3b1be08cf9baa75f5d",
+        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652",
+        "ee1abd17e94d7252481b3ced2db3c6eaa1bf2c0cd1169dbcad401e78cc2e8556"
+      ],
+      "fingerprint": "7f87ff9c8fce74e0804119a3def03ab7c8ecf710fa9bfb447eaef81bcbc7fdc9",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Price a requested task answer or a cost/usage sheet row.",
+      "bound": "Preserves the existing cost pricing collection path; no new catalogue bound is claimed.",
+      "reason": "The addressed comparison and shared pricing move shift reader-summary fingerprints. Broader cost and usage ownership is outside this issue.",
+      "guard": "Exact fingerprint and multiplicity remain enforced; cost-usage.work.test.tsx covers requested detail and session-free disclosure work at 1x/4x."
+    },
+    {
+      "file": "apps/web/src/features/cost/useMissionCost.ts",
+      "holder": "useMissionCost/chip/useMemo:callback",
+      "rule": "reader-summary",
+      "tokens": "3e56c69a43cf2cb7a63da43fc93e235645af3684a5a4201a6b99f0f4f8cb5411",
+      "gate": [
+        "else:d020d1de9d34be2823d37e1589b8fe643e6cd4faeb0021190d7fc7e62c0d062a"
+      ],
+      "origin": [
+        "1e74ce81ea4d426380a3afe1c486d9bf083886c866a25e3b1be08cf9baa75f5d",
+        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652",
+        "ee1abd17e94d7252481b3ced2db3c6eaa1bf2c0cd1169dbcad401e78cc2e8556"
+      ],
+      "fingerprint": "008e2a603a8621fce194b80ce9a953c1a9b045757abbaeb684983817740999a9",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Price a requested task answer or a cost/usage sheet row.",
+      "bound": "Preserves the existing cost pricing collection path; no new catalogue bound is claimed.",
+      "reason": "The addressed comparison and shared pricing move shift reader-summary fingerprints. Broader cost and usage ownership is outside this issue.",
+      "guard": "Exact fingerprint and multiplicity remain enforced; cost-usage.work.test.tsx covers requested detail and session-free disclosure work at 1x/4x."
+    },
+    {
+      "file": "packages/client-core/src/values/cost.ts",
+      "holder": "amountOf/models/map:callback/estCostUsd",
+      "rule": "reader-summary",
+      "tokens": "d3402b999a28c0b060c636b0b8c684b153b124aa00e7e533f1546b4d3222cd7e",
+      "gate": [],
+      "origin": [
+        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652"
+      ],
+      "fingerprint": "c8c1bfaafda38ccccfd38b8f7e3932b869e0756758fc3c72a25456d0c41e1cec",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Price a requested task answer or a cost/usage sheet row.",
+      "bound": "Preserves the existing cost pricing collection path; no new catalogue bound is claimed.",
+      "reason": "The addressed comparison and shared pricing move shift reader-summary fingerprints. Broader cost and usage ownership is outside this issue.",
+      "guard": "Exact fingerprint and multiplicity remain enforced; cost-usage.work.test.tsx covers requested detail and session-free disclosure work at 1x/4x."
+    },
+    {
+      "file": "packages/client-core/src/values/cost.ts",
+      "holder": "costCohort/usd/reduce:callback",
+      "rule": "reader-summary",
+      "tokens": "d3402b999a28c0b060c636b0b8c684b153b124aa00e7e533f1546b4d3222cd7e",
+      "gate": [],
+      "origin": [
+        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652"
+      ],
+      "fingerprint": "8612b99fc1e7e958bcd72f9f9c5e67ac01157bf2501a8a2d0d2af0925ea9ea06",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Price a requested task answer or a cost/usage sheet row.",
+      "bound": "Preserves the existing cost pricing collection path; no new catalogue bound is claimed.",
+      "reason": "The addressed comparison and shared pricing move shift reader-summary fingerprints. Broader cost and usage ownership is outside this issue.",
+      "guard": "Exact fingerprint and multiplicity remain enforced; cost-usage.work.test.tsx covers requested detail and session-free disclosure work at 1x/4x."
+    },
+    {
+      "file": "packages/client-core/src/values/cost.ts",
+      "holder": "sessionCostView/estCostUsd/reduce:callback",
+      "rule": "reader-summary",
+      "tokens": "d3402b999a28c0b060c636b0b8c684b153b124aa00e7e533f1546b4d3222cd7e",
+      "gate": [],
+      "origin": [
+        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652"
+      ],
+      "fingerprint": "5b50ec885f014580e04ee83a514fd50224e2c9eaa9a7c0f1241d29905441ae5e",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Price a requested task answer or a cost/usage sheet row.",
+      "bound": "Preserves the existing cost pricing collection path; no new catalogue bound is claimed.",
+      "reason": "The addressed comparison and shared pricing move shift reader-summary fingerprints. Broader cost and usage ownership is outside this issue.",
+      "guard": "Exact fingerprint and multiplicity remain enforced; cost-usage.work.test.tsx covers requested detail and session-free disclosure work at 1x/4x."
+    },
+    {
+      "file": "packages/client-core/src/values/cost.ts",
+      "holder": "taskCostRows/priced/map:callback/estCostUsd/reduce:callback",
+      "rule": "reader-summary",
+      "tokens": "d3402b999a28c0b060c636b0b8c684b153b124aa00e7e533f1546b4d3222cd7e",
+      "gate": [],
+      "origin": [
+        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652"
+      ],
+      "fingerprint": "3398891ead99591f08d61e76c9e1f6fbe0995ac477756b91f125ea9b017352d3",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Price a requested task answer or a cost/usage sheet row.",
+      "bound": "Preserves the existing cost pricing collection path; no new catalogue bound is claimed.",
+      "reason": "The addressed comparison and shared pricing move shift reader-summary fingerprints. Broader cost and usage ownership is outside this issue.",
+      "guard": "Exact fingerprint and multiplicity remain enforced; cost-usage.work.test.tsx covers requested detail and session-free disclosure work at 1x/4x."
+    },
+    {
+      "file": "packages/client-core/src/values/cost.ts",
+      "holder": "taskCostRows/priced/map:callback/rollupCostUsd/reduce:callback",
+      "rule": "reader-summary",
+      "tokens": "d3402b999a28c0b060c636b0b8c684b153b124aa00e7e533f1546b4d3222cd7e",
+      "gate": [],
+      "origin": [
+        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652"
+      ],
+      "fingerprint": "94ecaa905344d0842d55049ba054daa1041643b27cf73c58fe59ee4dceb3610c",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Price a requested task answer or a cost/usage sheet row.",
+      "bound": "Preserves the existing cost pricing collection path; no new catalogue bound is claimed.",
+      "reason": "The addressed comparison and shared pricing move shift reader-summary fingerprints. Broader cost and usage ownership is outside this issue.",
+      "guard": "Exact fingerprint and multiplicity remain enforced; cost-usage.work.test.tsx covers requested detail and session-free disclosure work at 1x/4x."
+    },
+    {
+      "file": "packages/client-core/src/values/cost.ts",
+      "holder": "taskCostRows/priced/map:callback/windowCostUsd/reduce:callback",
+      "rule": "reader-summary",
+      "tokens": "d3402b999a28c0b060c636b0b8c684b153b124aa00e7e533f1546b4d3222cd7e",
+      "gate": [],
+      "origin": [
+        "c398c53566d168764177ae7aa024cb47dbb9738463b587af0129f142a32a5652"
+      ],
+      "fingerprint": "c6879d3cdc155b5f820c63364a5f9f20a035c12b000791fc14f92f9e09c9bde4",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Price a requested task answer or a cost/usage sheet row.",
+      "bound": "Preserves the existing cost pricing collection path; no new catalogue bound is claimed.",
+      "reason": "The addressed comparison and shared pricing move shift reader-summary fingerprints. Broader cost and usage ownership is outside this issue.",
+      "guard": "Exact fingerprint and multiplicity remain enforced; cost-usage.work.test.tsx covers requested detail and session-free disclosure work at 1x/4x."
     }
   ]
 }
