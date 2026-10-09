@@ -20,7 +20,7 @@ if (process.argv.includes('--build')) {
       : fixture === 'chat'
         ? (await import('../vite.conversation-stream.config')).default
         : fixture === 'phone-lists'
-          ? await (await import('../../mobile/vite.inbox.config')).default()
+          ? await (await import('../../mobile/vite.conversation-stream.config')).default()
           : await (await import('../../mobile/vite.conversation-stream.config')).default()
     if (fixture === 'phone-lists') base.resolve!.alias = (base.resolve!.alias as any[]).map(alias => ({ ...alias, replacement: alias.replacement.endsWith('/inbox-platform.tsx') ? resolve('apps/mobile/test/conversation-stream-platform.tsx') : alias.replacement }))
     await build({ ...base, configFile: false, logLevel: 'warn',
@@ -49,22 +49,21 @@ for (const fixture of fixtures) {
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'],
     env: { ...process.env, LD_LIBRARY_PATH: resolve('.toolchain/lib') } })
   try {
-    const variants = fixture === 'lists' ? ['scroll', 'full'] : fixture === 'phone-lists' ? ['inbox', 'work', 'tasks', 'sessions'] : ['chat']
+    const variants = fixture === 'lists' ? ['scroll', 'list', 'full', 'waterfall'] : fixture === 'phone-lists' ? ['inbox', 'work', 'tasks', 'sessions'] : ['chat']
     for (const variant of variants) {
       const page = await browser.newPage({ viewport: fixture.startsWith('phone') ? { width: 390, height: 844 } : { width: 1600, height: 900 }, reducedMotion: 'reduce' })
       const errors: string[] = []
       page.on('pageerror', error => errors.push(error.message))
       const name = fixture === 'lists' ? 'sidebar-acceptance' : fixture === 'phone-lists' ? 'inbox' : 'conversation-stream'
-      await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}/test/${name}.browser.html?scale=4&surface=${variant}&scrollScreen=${variant}`)
-      await page.waitForTimeout(2500)
-      if (fixture === 'lists' && variant === 'full') {
-        await page.evaluate(() => {
-          const driver = (window as any).__acceptance
-          const shapes = driver.shape(driver.targets.missions)
-          const largest = shapes.sort((a: any, b: any) => b.rows - a.rows)[0]
-          if (largest) driver.show(largest.id)
-        })
+      await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}/test/${name}.browser.html?scale=4&surface=${variant === 'list' ? 'scroll' : variant === 'waterfall' ? 'full' : variant}&scrollScreen=${variant}`)
+      await page.waitForFunction(() => (window as any).__acceptance?.ready() || (window as any).__conversationStream?.ready() || (window as any).__inbox?.readiness().attached, null, { timeout: 90_000 })
+      await page.waitForTimeout(750)
+      if (variant === 'list') { await page.getByTitle('Display', { exact: true }).click(); await page.getByRole('menuitemradio', { name: 'List', exact: true }).click(); await page.waitForTimeout(500) }
+      if (fixture === 'lists' && ['full', 'waterfall'].includes(variant)) {
+        const id = await page.evaluate(() => (window as any).__acceptance.targets.missions[0])
+        await page.locator(`[data-issue-row="${id}"]`).first().click()
         await page.waitForTimeout(1000)
+        if (variant === 'waterfall') { await page.getByRole('button', { name: 'Waterfall', exact: true }).click(); await page.waitForTimeout(500) }
       }
       const candidates = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('*')]
         .filter(el => el.clientHeight > 100 && el.clientWidth > 100 && el.scrollHeight > el.clientHeight + 300 && ['auto', 'scroll'].includes(getComputedStyle(el).overflowY) && el.getBoundingClientRect().right > 0 && el.getBoundingClientRect().left < innerWidth)
