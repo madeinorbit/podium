@@ -4,7 +4,7 @@ import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachMobileScreens } from './mobile-screens'
 import { MissionScreen, missionRootId } from './mission-screen'
-import { settled } from './mission-view'
+import { MissionViewReader, settled } from './mission-view'
 import { MOBILE_SCREEN_SUMMARIES } from './mobile-screens-schema'
 import { missions } from './mission'
 import { MobxPool } from './pool'
@@ -257,6 +257,8 @@ it('an archived child keeps its full header when a current mission session belon
     issue('root'), headerIssue,
     issue('hidden-child', { parentId: 'root', archived: true, stage: 'done', startedBySession: 'starter', notes: 'Hidden notes' }),
   ], [current, starter])
+  const headerReads = vi.spyOn(MissionViewReader.prototype, 'readIssue')
+  disposals.push(() => headerReads.mockRestore())
   const shownHeader = () => {
     const data = reader.mission('root')
     return data === LOADING ? LOADING : data.header(data.missionSessions[0]?.issueId)
@@ -270,9 +272,9 @@ it('an archived child keeps its full header when a current mission session belon
   const header = data.header(data.missionSessions[0]?.issueId)
   expect(header).toMatchObject({ ...headerIssue, description: 'summary description', memberSessionIds: ['current'] })
   expect(load.mock.calls.filter(([kind, id]) => kind === 'issue' && id === 'header-child')).toEqual([['issue', 'header-child']])
-  // A hidden non-header member is never read for its rich fields: the phone
-  // keeps no issue dictionary of the mission.
-  expect(load.mock.calls.filter(([kind, id]) => kind === 'issue' && id === 'hidden-child')).toEqual([])
+  // As in the original fixture, shared visibility can load a hidden member's
+  // payload. The phone still prepares no rich header for that hidden member.
+  expect(headerReads.mock.calls.filter(([id]) => id === 'hidden-child')).toEqual([])
   expect(pool.hydrate()).toBe(0)
 })
 it('an explicitly opened archived mission counts accepted formal children without counting its root', async () => {
