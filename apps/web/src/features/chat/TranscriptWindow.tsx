@@ -19,6 +19,7 @@ interface Entry {
 interface TranscriptWindow {
   register: (key: string, entry: Entry) => () => void
   refresh: () => void
+  schedule: () => void
 }
 
 export function useTranscriptWindow(
@@ -30,6 +31,7 @@ export function useTranscriptWindow(
   const mounted = useRef(new Set<string>())
   const frame = useRef<number | null>(null)
   const selectingAll = useRef(false)
+  const armingSelectAll = useRef(false)
   const register = useCallback((key: string, entry: Entry) => {
     entries.current.set(key, entry)
     mounted.current.add(key)
@@ -61,7 +63,7 @@ export function useTranscriptWindow(
     const next = new Set(list.slice(first, last))
     const selection = scroll.ownerDocument.getSelection()
     const range = selection && !selection.isCollapsed && selection.rangeCount ? selection.getRangeAt(0) : null
-    if (!range) selectingAll.current = false
+    if (!range && !armingSelectAll.current) selectingAll.current = false
     if (selectingAll.current) for (const key of list) next.add(key)
     let previousPrompt: string | undefined
     let previousPromptTop = -Infinity
@@ -109,6 +111,13 @@ export function useTranscriptWindow(
       entry.publish(show)
     }
   }, [scrollRef])
+  const schedule = useCallback(() => {
+    if (frame.current !== null) return
+    frame.current = requestAnimationFrame(() => {
+      frame.current = null
+      flushSync(refresh)
+    })
+  }, [refresh])
   useLayoutEffect(() => {
     ordered.current = keys
     // New page rows are measured once before paint, then immediately reduced
@@ -122,18 +131,13 @@ export function useTranscriptWindow(
   useLayoutEffect(() => {
     const scroll = scrollRef.current
     if (!scroll) return
-    const update = () => {
-      if (frame.current !== null) return
-      frame.current = requestAnimationFrame(() => {
-        frame.current = null
-        flushSync(refresh)
-      })
-    }
+    const update = schedule
     const selectAll = (event: KeyboardEvent) => {
       if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== 'a' ||
           (event.target as Element | null)?.closest?.('input, textarea, [contenteditable="true"]')) return
       if (scroll.clientHeight <= 0) return
       selectingAll.current = true
+      armingSelectAll.current = true
       flushSync(() => {
         for (const [key, entry] of entries.current) {
           entry.mounted = true
@@ -141,6 +145,7 @@ export function useTranscriptWindow(
           entry.publish(true)
         }
       })
+      armingSelectAll.current = false
     }
     const reveal = (event: Event) => {
       const shell = (event.target as HTMLElement).closest<HTMLElement>('[data-transcript-row]')
@@ -196,8 +201,8 @@ export function useTranscriptWindow(
       if (frame.current !== null) cancelAnimationFrame(frame.current)
       frame.current = null
     }
-  }, [refresh, scrollRef])
-  return useMemo(() => ({ register, refresh }), [register, refresh])
+  }, [refresh, schedule, scrollRef])
+  return useMemo(() => ({ register, refresh, schedule }), [register, refresh, schedule])
 }
 
 /** A stable shell also lets the existing minimap and scroll controller address
@@ -219,7 +224,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
   useLayoutEffect(() => {
     if (!mounted || !entry.current) { wasMounted.current = mounted; return }
     entry.current.height = ref.current!.getBoundingClientRect().height
-    if (!wasMounted.current) windowing.refresh()
+    if (!wasMounted.current) windowing.schedule()
     wasMounted.current = mounted
   }, [mounted, children, windowing])
   useLayoutEffect(() => {
@@ -241,7 +246,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
     const finish = () => {
       entry.current!.finding = false
       setFinding(false)
-      requestAnimationFrame(windowing.refresh)
+      windowing.schedule()
     }
     const transfer = () => {
       const selection = document.getSelection()

@@ -25,6 +25,7 @@ const scroll = (value: number) => {
 }
 beforeEach(() => {
   top = 0; frames = []
+  vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) {
     const key = this.dataset.transcriptRow
     const index = key ? Number(key.slice(4)) : undefined
