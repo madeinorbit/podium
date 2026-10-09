@@ -167,6 +167,8 @@
         "$TURBO_DEFAULT$",
         "$TURBO_ROOT$/packages/client-graph/src/**",
         "$TURBO_ROOT$/packages/client-graph/package.json",
+        "$TURBO_ROOT$/tests/worklist/harness/src/mobx-enforce.ts",
+        "$TURBO_ROOT$/tests/worklist/harness/src/mobx-trap.ts",
         "$TURBO_ROOT$/tests/worklist/harness/src/work-meter.ts",
         "$TURBO_ROOT$/tests/worklist/legacy-values/**"
       ],
