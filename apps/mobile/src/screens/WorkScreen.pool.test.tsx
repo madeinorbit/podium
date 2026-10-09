@@ -224,7 +224,7 @@ vi.mock('../components/WorkIssueMenu', () => ({
       data-testid="menu"
       data-issue={target.issue.id}
       data-issues={1 + row.visibleDescendantIds.length}
-      data-sessions={row.visibleSessionIds.length}
+      data-sessions={state.pool!.graph.subsetSize('issue', target.issue.id, 'pageSessions', 'unarchived')}
       data-session-count={target.sessionCount}
     >
       <button type="button" aria-label="Close row menu" onClick={onClose} />
