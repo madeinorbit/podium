@@ -1696,7 +1696,7 @@ export function createTerminalRuntime(
         : []
       // This entry spends every unwrapped watch's first-entry order, including
       // when its native id supplies the proof for a different watch.
-      const ordered = creditOne(session, correlation, typed, after, queued)
+      const ordered = creditOne(session, correlation, item, typed, after, queued)
       const credited = linked.length === 1 ? linked[0] : ordered
       if (queued) {
         if (credited) credited.hold()
@@ -1759,17 +1759,17 @@ export function createTerminalRuntime(
     )
     if (after.length === 0) return
     const frameId = podiumFrameId(item.text)
-    const matches = correlation.textMatches
+    const matches = entryMatcher(correlation, item, item.text)
     const heldTwins = frameId || !matches
       ? []
-      : after.filter((waiter) => waiter.held && !waiter.frameId && matches(waiter.text, item.text))
+      : after.filter((waiter) => waiter.held && !waiter.frameId && matches(waiter.text))
     const dropped = frameId
       ? after.find((waiter) => waiter.frameId === frameId)
       : heldTwins.length > 0
         ? heldTwins.length === 1
           ? heldTwins[0]
           : undefined
-        : creditOne(session, correlation, item.text, after, false)
+        : creditOne(session, correlation, item, item.text, after, false)
     if (heldTwins.length > 1) {
       log.warn('drop not attributed: more than one held send has the same text', {
         sessionId: session.sessionId,
@@ -1833,10 +1833,27 @@ export function createTerminalRuntime(
     }
   }
 
-  /** The one waiter `typed` (a prompt entry, or a queue record) is, or none. */
+  /**
+   * Whether a send's text is this entry, by the program's measured matcher
+   * (attachments included where it has one, POD-5923); undefined where no
+   * tolerance was measured. `typed` is the entry's text as typed.
+   */
+  function entryMatcher(
+    correlation: TerminalEchoCorrelation,
+    item: TranscriptItem,
+    typed: string,
+  ): ((submitted: string) => boolean) | undefined {
+    const { entryMatches, textMatches } = correlation
+    if (entryMatches) return (submitted) => entryMatches(submitted, item)
+    return textMatches ? (submitted) => textMatches(submitted, typed) : undefined
+  }
+
+  /** The one waiter `item` (a prompt entry, or a queue record) is, or none.
+   *  `typed` is its text as typed. */
   function creditOne(
     session: DriverSession,
     correlation: TerminalEchoCorrelation,
+    item: TranscriptItem,
     typed: string,
     after: readonly AcceptWaiter[],
     queued: boolean,
@@ -1847,7 +1864,7 @@ export function createTerminalRuntime(
     // watch's order. Foreign/unknown entries still spend below.
     if (frameId)
       return after.find((waiter) => waiter.frameId === frameId && !(queued && waiter.held))
-    const matches = correlation.textMatches
+    const matches = entryMatcher(correlation, item, typed)
     if (!matches) return undefined
     const sessionId = session.sessionId
     const unchanged = (waiter: AcceptWaiter): boolean => {
@@ -1872,7 +1889,7 @@ export function createTerminalRuntime(
         else waiter.orderSpent = true
       }
     }
-    const [candidate] = deciding.filter((waiter) => matches(waiter.text, typed))
+    const [candidate] = deciding.filter((waiter) => matches(waiter.text))
     if (!candidate) {
       spend()
       // THE SELF-CHECK (spec §6.3): nothing else was written, yet the entry
@@ -1891,7 +1908,7 @@ export function createTerminalRuntime(
     }
     // NEVER GUESS: another open send with the same words could be this entry.
     const twin = [...session.echoWaiters].some(
-      (waiter) => waiter !== candidate && !waiter.frameId && matches(waiter.text, typed),
+      (waiter) => waiter !== candidate && !waiter.frameId && matches(waiter.text),
     )
     if (twin) {
       spend()

@@ -4876,6 +4876,88 @@ describe('the history entry a delivered send became', () => {
     world.runtime.dispose()
   })
 
+  /**
+   * THE LIVE SHAPE (POD-5923), text replaced: Claude 2.1.295 recorded a 6,055-
+   * character message with one PNG as `[Image #1]` + its paste envelope + an
+   * image block, two attachment records, then the path in an isMeta record of
+   * the same prompt. The text has a trailing space on a line. Never confirmed.
+   */
+  it("pairs a Claude send whose image path became an image and a separate record", async () => {
+    const world = makeWorld()
+    const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    const path = '/home/u/.podium/uploads/21169ceb/30a76081.png'
+    const body = [
+      'small fixes: ',
+      ...Array.from({ length: 80 }, (_, i) => `- synthetic line ${i} of a long operator message`),
+      'end of message',
+    ].join('\n')
+    world.hookOnSubmit(sessionId, { prompt: `[Image #1]${body}` })
+    const at = '2026-10-09T13:31:16.298Z'
+    const records = [
+      {
+        type: 'user',
+        uuid: 'prompt-record',
+        promptId: 'prompt-1',
+        timestamp: at,
+        imagePasteIds: [1],
+        promptSource: 'typed',
+        message: {
+          role: 'user',
+          content: [
+            {
+              type: 'text',
+              text: `[Image #1]\n\n<pasted_content id="b9d3">\n${body}\n</pasted_content id="b9d3">\n`,
+            },
+            { type: 'image', source: { type: 'base64', media_type: 'image/png', data: 'AAAA' } },
+          ],
+        },
+      },
+      { type: 'attachment', uuid: 'skills', timestamp: at, attachment: { type: 'skill_listing', content: '' } },
+      { type: 'attachment', uuid: 'tokens', timestamp: at, attachment: { type: 'total_tokens_reminder' } },
+      {
+        type: 'user',
+        uuid: 'image-source',
+        promptId: 'prompt-1',
+        isMeta: true,
+        turnCompanion: true,
+        timestamp: at,
+        message: { role: 'user', content: [{ type: 'text', text: `[Image: source: ${path}]` }] },
+      },
+    ]
+    const onHook = world.runtime.onHookPayload.bind(world.runtime)
+    world.runtime.onHookPayload = (id, payload) => {
+      onHook(id, payload)
+      world.host.setTimer(() => {
+        world.runtime.observe({
+          type: 'transcriptDelta',
+          sessionId: id,
+          items: records.flatMap((record) => claudeRecordToItems(record)).map((item) => ({
+            ...item,
+            cursor: `cursor-${item.id}`,
+          })),
+        })
+      }, 1_000)
+    }
+    const receipt = await session.send(
+      {
+        text: body,
+        attachments: [
+          { id: 'a', path, filename: '30a76081.png', mediaType: 'image/png', kind: 'image' },
+        ],
+      },
+      { origin: 'human', delivery: 'when-ready' },
+    )
+    expect(receipt).toMatchObject({
+      outcome: 'accepted',
+      provenBy: 'transcript-echo',
+      transcriptItem: { id: 'prompt-record' },
+      harnessRef: [{ kind: 'claude-prompt', id: 'prompt-1' }],
+    })
+    world.runtime.dispose()
+  })
+
   it('a record that does not match leaves the send unverified, naming nothing', async () => {
     const world = makeWorld()
     const session = await world.runtime.driverFor('claude-code', CLAUDE).create(SPEC)

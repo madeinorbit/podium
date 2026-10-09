@@ -1,0 +1,29 @@
+{
+  "label": "codex-0.162.0",
+  "program": "codex",
+  "version": "codex-cli 0.162.0",
+  "binary": "/tmp/pod5923-binaries/codex-0.162.0/bin/codex",
+  "sha256": "50ed828f357c655a3c82054d346cab8434f24901f14ec19b8267571bdd008b38",
+  "startedAt": "2026-10-09T14:31:19.355Z",
+  "scratch": "/dev/shm/pod5923-codex-0.162.0-qiS31N",
+  "port": 45923,
+  "env": {
+    "HOME": "/dev/shm/pod5923-codex-0.162.0-qiS31N/home",
+    "SHELL": "/bin/bash",
+    "TERM": "xterm-256color",
+    "COLORTERM": "truecolor",
+    "LANG": "C.UTF-8",
+    "XDG_CONFIG_HOME": "/dev/shm/pod5923-codex-0.162.0-qiS31N/home/.config",
+    "XDG_CACHE_HOME": "/dev/shm/pod5923-codex-0.162.0-qiS31N/home/.cache",
+    "XDG_DATA_HOME": "/dev/shm/pod5923-codex-0.162.0-qiS31N/home/.local/share",
+    "XDG_STATE_HOME": "/dev/shm/pod5923-codex-0.162.0-qiS31N/home/.local/state",
+    "CODEX_HOME": "/dev/shm/pod5923-codex-0.162.0-qiS31N/home/.codex",
+    "FAKE_KEY": "dummy-not-a-key"
+  },
+  "argv": [],
+  "attachments": {
+    "png1": "/dev/shm/pod5923-codex-0.162.0-qiS31N/home/.podium/uploads/d3a9aec9-a7cc-412d-b89a-5d1493b35faf/fabbd685-62f4-47d1-b612-07f9a4425ef2.png",
+    "png2": "/dev/shm/pod5923-codex-0.162.0-qiS31N/home/.podium/uploads/d3a9aec9-a7cc-412d-b89a-5d1493b35faf/cf36e221-709b-4767-afad-80ec779d00e0.png",
+    "txt1": "/dev/shm/pod5923-codex-0.162.0-qiS31N/home/.podium/uploads/d3a9aec9-a7cc-412d-b89a-5d1493b35faf/d7d41a5a-b667-4586-b954-f92be742d5a7.txt"
+  }
+}
