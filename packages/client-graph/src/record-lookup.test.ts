@@ -199,6 +199,58 @@ it('a failed load settles once, and a later publication makes the record availab
   } finally { stop(); f.pool.dispose() }
 })
 
+it('resident observes presence without subscribing to payload changes', () => {
+  const f = fixture()
+  const presence: boolean[] = [], answers: string[] = [], titles: unknown[] = []
+  const presenceStop = autorun(() => { presence.push(f.pool.tables.issue.has('hot')) })
+  const stop = autorun(() => { answers.push(f.pool.resident('issue', 'hot')) })
+  const fieldsStop = autorun(() => { titles.push(f.pool.issueObject('hot').title) })
+  try {
+    expect(answers).toEqual(['resident'])
+    const value = { ...f.rows.get('hot')!, title: 'renamed' }
+    f.rows.set('hot', value)
+    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'hot', value }] })
+    expect(titles).toEqual(['hot', 'renamed'])
+    expect(presence).toEqual([true])
+    expect(answers).toEqual(['resident'])
+    runInAction(() => {
+      f.rows.delete('hot'); f.exits.set('hot', 'removed')
+      f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'hot', value: undefined }] })
+    })
+    expect(presence).toEqual([true, false])
+    expect(answers).toEqual(['resident', 'absent'])
+    expect(f.schedule).not.toHaveBeenCalled()
+    expect(f.load).not.toHaveBeenCalled()
+    f.exits.delete('hot')
+    f.rows.set('hot', value)
+    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'hot', value }] })
+    expect(presence).toEqual([true, false, true])
+    expect(answers).toEqual(['resident', 'absent', 'resident'])
+  } finally { presenceStop(); stop(); fieldsStop(); f.pool.dispose() }
+})
+
+it('resident keeps loading and absence transitions live', () => {
+  const f = fixture()
+  const cold: string[] = [], missing: string[] = []
+  const coldStop = autorun(() => { cold.push(f.pool.resident('issue', 'cold')) })
+  const missingStop = autorun(() => { missing.push(f.pool.resident('issue', 'private')) })
+  try {
+    expect(cold).toEqual(['loading'])
+    expect(missing).toEqual(['loading'])
+    expect(f.pool.resident('issue', 'deleted')).toBe('absent')
+    expect(f.pool.hydrate()).toBe(1)
+    expect(cold).toEqual(['loading', 'resident'])
+    expect(missing).toEqual(['loading', 'absent'])
+    expect(f.pool.resident('issue', 'private')).toBe('absent')
+    expect(f.pool.hydrate()).toBe(0)
+    expect(f.load).toHaveBeenCalledTimes(2)
+    const value = issue('private')
+    f.rows.set('private', value)
+    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'private', value }] })
+    expect(missing).toEqual(['loading', 'absent', 'resident'])
+  } finally { coldStop(); missingStop(); f.pool.dispose() }
+})
+
 it('keeps the old Gone guard answers and property reads on the same fixtures', () => {
   // Keep the original eager guard as the equivalence control for its smaller
   // replacement. Tags alone must not turn ordinary values into terminal exits.

@@ -9,10 +9,48 @@ import { sidebarView, type SidebarSections } from './sidebar'
 import { expect, it, vi } from 'vitest'
 import { autorun, runInAction } from 'mobx'
 import { MobxPool } from '../pool'
-import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
+import { insideArm, insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
+import { worklistView } from './view-model'
+import { requireHere } from '../lookup'
 
 const NOW = Date.parse('2026-10-03T12:00:00Z')
 const LANE = '/synthetic/lane'
+
+it('keeps worktree pending heartbeat row reads flat at 1x/4x', async () => {
+  async function measured(scale: 1 | 4) {
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+    const sessions = Array.from({ length: 16 * scale }, (_, index) => ({
+      sessionId: `seat-${index}`, cwd: LANE, agentKind: 'codex',
+      status: 'live', archived: false, title: `Seat ${index}`,
+      createdAt: '2026-01-01T00:00:00Z',
+      lastActiveAt: index === 0 ? '2026-10-03T12:00:00Z' : '2026-10-03T11:59:00Z',
+    }))
+    pool.apply({ type: 'replace', rows: [
+      { kind: 'worktree', id: LANE, value: { path: LANE, repoPath: LANE, repoName: 'Lane' } as never },
+      ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
+    ] })
+    const tree = worklistView(pool).tree(requireHere(pool.model('worktree', LANE)))
+    const pending: number[] = []
+    const stop = autorun(() => { pending.push(tree.pending) })
+    try {
+      expect(tree.rosterIds).toHaveLength(sessions.length)
+      expect(pending).toEqual([0])
+      const heartbeat = await measureWork(async () => insideArm(() => pool.apply({
+        type: 'update', rows: [{ kind: 'session', id: sessions[0]!.sessionId,
+          value: { ...sessions[0]!, lastActiveAt: '2026-10-03T12:00:01Z' } }],
+      })), { pool })
+      expect(pending).toEqual([0])
+      expect(tree.pending).toBe(0)
+      expect(tree.rosterIds).toHaveLength(sessions.length)
+      expect(pool.sessionObject(sessions[0]!.sessionId).lastActiveAt).toBe('2026-10-03T12:00:01Z')
+      return heartbeat.work
+    } finally { stop(); pool.dispose() }
+  }
+  const one = await measured(1), four = await measured(4)
+  console.info('[worktree pending heartbeat]', JSON.stringify({ one, four }))
+  expect(four.rows).toBe(one.rows)
+  expect(four.derivations).toBeLessThanOrEqual(one.derivations)
+}, 120_000)
 
 function corpus(scale: number) {
   const issue = (id: string, extra: Record<string, unknown>) => ({
