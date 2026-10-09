@@ -42,7 +42,12 @@ export function instrumentProductWork(code: string, id: string): string | undefi
   } else if (file.endsWith('/packages/client-graph/src/issue-board-cards.ts')) {
     // A mounted card's one board-only rule (POD-5828). Its shared issue and
     // session fields are named per record by the lazy transform above.
-    const anchor = 'get stageCounts(): readonly StageCount[] {'
+    // Browser perf builds lower @lazy before this transform, removing the
+    // return type; unit probes instrument the original TypeScript instead.
+    const anchors = code.match(/get stageCounts\(\)(?:: readonly StageCount\[\])? \{/g) ?? []
+    if (anchors.length !== 1)
+      throw new Error(`Missing or ambiguous work measurement boundary ${file}: BoardCard.stageCounts`)
+    const anchor = anchors[0]!
     code = once(code, anchor, `${anchor}\n    __countIssueBoard('cards')`, file)
   } else if (file.endsWith('/packages/client-graph/src/issue-board-layout.ts')) {
     for (const anchor of ["const matching = keyedComputed('IssueBoard.matchingIds'", "const columnIds = keyedComputed('IssueBoard.columnIds'"])
