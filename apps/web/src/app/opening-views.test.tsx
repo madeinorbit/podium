@@ -58,6 +58,14 @@ async function exerciseOpenings(pool: MobxPool, factory: (typeof factories)[numb
       </Context.Provider>
     )
   }
+  // Read live objects in a synchronous frame. An async cycle can retain the
+  // matcher arguments across its close await in JSC's suspended frame.
+  function checkOpen() {
+    expect(shown).not.toBeNull()
+    expect(shown).not.toBe(previous?.deref())
+    previous = new WeakRef(shown!)
+    expect((shown as ReturnType<typeof create>).disposed).toBe(0)
+  }
   const host = document.createElement('div')
   const root = createRoot(host)
   try {
@@ -70,10 +78,7 @@ async function exerciseOpenings(pool: MobxPool, factory: (typeof factories)[numb
           </StrictMode>,
         ),
       )
-      expect(shown).not.toBeNull()
-      expect(shown).not.toBe(previous?.deref())
-      previous = new WeakRef(shown!)
-      expect((shown as ReturnType<typeof create>).disposed).toBe(0)
+      checkOpen()
       await act(async () =>
         root.render(
           <StrictMode>
