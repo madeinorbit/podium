@@ -128,6 +128,7 @@ export function WorklistWindow<T>({
             {gap > 0 && <div aria-hidden="true" style={{ height: gap }} />}
             <div
               ref={virtual.measureRef(item.key)}
+              style={{ contain: 'layout paint' }}
               data-window-row={item.key}
               data-drag-key={dragScope ? dragId?.(row) : undefined}
               aria-posinset={item.index + 1}
