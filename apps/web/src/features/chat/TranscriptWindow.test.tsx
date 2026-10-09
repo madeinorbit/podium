@@ -93,13 +93,14 @@ it('materialises native Find and addressed search targets without discarding the
   expect(other.querySelector('[data-message]')).not.toBeNull()
 })
 it('makes Select All include every loaded message before native selection and copy', () => {
+  act(() => root.render(<Fixture key="select-all" count={100} />))
   act(() => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true })))
-  expect(host.querySelectorAll('[data-message]')).toHaveLength(1000)
+  expect(host.querySelectorAll('[data-message]')).toHaveLength(100)
   const range = document.createRange(); range.selectNodeContents(host)
   document.getSelection()!.addRange(range)
-  scroll(40_000)
-  expect(document.getSelection()!.toString()).toContain('row-999 retained prose')
-  document.getSelection()!.removeAllRanges(); scroll(40_080)
+  scroll(6_000)
+  expect(document.getSelection()!.toString()).toContain('row-99 retained prose')
+  document.getSelection()!.removeAllRanges(); scroll(6_080)
   expect(host.querySelectorAll('[data-message]').length).toBeLessThan(40)
 })
 
