@@ -99,10 +99,15 @@ it('keeps declared subset lists stable and follows members moving in and out', (
   const pool = fixture(), lane = pool.model('worktree', '/synthetic')!
   const collection = lane.sessions, subset = collection.issueless
   let ids: Iterable<string> = [], ready: readonly EntityModel[] = [], paints = 0
-  const stop = autorun(() => { ids = pool.graph.subset('worktree', '/synthetic', 'sessions', 'issueless'); ready = subset.ready; paints++ })
+  const stop = autorun(() => {
+    ids = pool.graph.subset('worktree', '/synthetic', 'sessions', 'issueless')
+    ready = collection.issueless.ready
+    paints++
+  })
   const firstIds = ids, firstReady = ready
   try {
-    expect(collection.issueless).toBe(subset)
+    expect(subset.ready).toBe(firstReady)
+    expect(collection.issueless).toBe(collection.issueless)
     runInAction(() => pool.apply({ type: 'update', rows: [session('free', { issueId: undefined, title: 'renamed' }), issue('other', { title: 'unrelated' })] }))
     expect(ids).toBe(firstIds); expect(ready).toBe(firstReady); expect(paints).toBe(1)
     runInAction(() => pool.apply({ type: 'update', rows: [session('seat', { issueId: undefined })] }))
@@ -158,4 +163,15 @@ it('shares repeated imperative list reads within a synchronous run and refreshes
   runInAction(() => pool.apply({ type: 'update', rows: [issue('joined', { parentId: 'root' })] }))
   expect([...pool.graph.many('issue', 'root', 'children')]).toEqual(['child', 'joined'])
   pool.dispose()
+})
+
+it('keeps observed IDs when the index is replaced with unchanged membership', () => {
+  const pool = fixture()
+  let ids: Iterable<string> = [], paints = 0
+  const stop = autorun(() => { ids = pool.graph.many('issue', 'root', 'children'); paints++ })
+  const first = ids
+  try {
+    runInAction(() => pool.apply({ type: 'replace', rows: initial() }))
+    expect(ids).toBe(first); expect(paints).toBe(1)
+  } finally { stop(); pool.dispose() }
 })
