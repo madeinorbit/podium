@@ -2,6 +2,7 @@ import { omitGone } from './lookup'
 import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachMobileScreens } from './mobile-screens'
+import { MissionScreen, missionRootId } from './mission-screen'
 import { MOBILE_SCREEN_SUMMARIES } from './mobile-screens-schema'
 import { missions } from './mission'
 import { MobxPool } from './pool'
@@ -28,6 +29,46 @@ const disposals: (() => void)[] = []
 afterEach(() => {
   for (const dispose of disposals.splice(0)) dispose()
 })
+const NO_PROGRESS = { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
+/** The phone's mission routes read one opening per mission root. `mission`
+ * and `deck` answer what MissionScreen and MissionDeck draw from it. */
+function phone(pool: MobxPool) {
+  const screens = new Map<string, MissionScreen>()
+  const open = (id: string): MissionScreen | undefined | typeof LOADING => {
+    const rootId = missionRootId(pool, id, true)
+    if (rootId === LOADING || !rootId) return rootId
+    let screen = screens.get(rootId)
+    if (!screen) screens.set(rootId, (screen = new MissionScreen(pool, rootId)))
+    return screen.ready ? screen : LOADING
+  }
+  return {
+    open,
+    mission(id: string) {
+      const screen = open(id)
+      if (screen === LOADING) return LOADING
+      if (!screen) return { root: undefined, missionSessions: [], progress: NO_PROGRESS, header: () => undefined }
+      const root = screen.reader.issue(screen.rootId)
+      const rootValue = root === LOADING ? undefined : root
+      return {
+        root: rootValue,
+        missionSessions: screen.crew,
+        progress: screen.progress,
+        /** The header issue for a session: its member issue, else the root. */
+        header(issueId: string | undefined) {
+          const issue = issueId && screen.members.has(issueId) ? screen.reader.issue(issueId) : undefined
+          return issue && issue !== LOADING ? issue : rootValue
+        },
+      }
+    },
+    deck(id: string) {
+      const screen = open(id)
+      if (screen === LOADING) return LOADING
+      if (!screen) return { root: undefined, rows: [], presence: null }
+      const root = screen.reader.issue(screen.rootId)
+      return { root: root === LOADING ? undefined : root, rows: screen.rows, presence: screen.presence }
+    },
+  }
+}
 async function setup(
   rows: ReturnType<typeof issue>[],
   sessions: { sessionId: string; cwd: string; lastActiveAt: string }[] = [],
@@ -55,9 +96,9 @@ async function setup(
     scans.mockRestore()
     pool.dispose()
   })
-  const reader = omitGone(pool.row('mobileScreenReader', 'reader'))
-  if (!reader || reader === LOADING) throw new Error('screen reader missing')
-  return { pool, reader, load, scans }
+  const marker = omitGone(pool.row('mobileScreenReader', 'reader'))
+  if (!marker || marker === LOADING) throw new Error('screen reader missing')
+  return { pool, reader: phone(pool), load, scans }
 }
 it('reads archived mission crew display facts from declared summaries without loading their rows', async () => {
   const seat = {
@@ -91,11 +132,10 @@ it('reads archived mission crew display facts from declared summaries without lo
   expect(reader.mission('root')).toBe(LOADING)
   expect(pool.hydrate()).toBe(1)
   load.mockClear()
-  expect(reader.mission('root')).toMatchObject({
-    missionSessions: [],
-    sessions: [seat],
-  })
-  expect(reader.deck('root', 'full')).toMatchObject({ sessions: [seat] })
+  // The archived seat is counted from its declared summary; the phone's crew
+  // holds only seated senders, and no archived row is loaded to draw it.
+  expect(reader.mission('root')).toMatchObject({ missionSessions: [] })
+  expect(reader.open('root')).toMatchObject({ archivedCount: 1 })
   expect(pool.tables.session.has('seat')).toBe(false)
   expect(pool.hydrate()).toBe(0)
   expect(load).not.toHaveBeenCalled()
@@ -127,12 +167,15 @@ it('does not resurrect a collapsed resume twin as a mission author', async () =>
     ],
   )
   expect(pool.graph.isCollapsed('session', 'old')).toBe(true)
-  expect(reader.mission('root')).toMatchObject({ sessions: [] })
+  while (pool.hydrate()) {}
+  const screen = reader.open('root')
+  if (!screen || screen === LOADING) throw new Error('Mission is still loading')
+  expect(screen.proposalAuthor(screen.deck.model('root'))).toBeNull()
 })
 it('a known cold mission remains LOADING until one batched load supplies its row', async () => {
   const { pool, reader, load } = await setup([issue('cold', { archived: true, stage: 'done' })])
   expect(reader.mission('cold')).toBe(LOADING)
-  expect(reader.deck('cold', 'full')).toBe(LOADING)
+  expect(reader.deck('cold')).toBe(LOADING)
   expect(reader.mission('cold')).toBe(LOADING)
   expect(load).not.toHaveBeenCalled()
   expect(pool.hydrate()).toBe(1)
@@ -181,7 +224,7 @@ it('an archived root keeps its full header for the current session without loadi
   expect(data.missionSessions).toMatchObject([{ sessionId: 'current', issueId: 'cold' }])
   // MissionScreen chooses the current session's issue from this list before
   // falling back to root. Every header field must borrow the full root.
-  const header = data.issues.find(row => row.id === data.missionSessions[0]?.issueId) ?? data.root
+  const header = data.header(data.missionSessions[0]?.issueId)
   expect(header).toBe(data.root)
   expect(header).toMatchObject({ ...root, description: 'summary description' })
   expect(header).toMatchObject({ memberSessionIds: ['current'] })
@@ -216,15 +259,12 @@ it('an archived child keeps its full header when a current mission session belon
   if (data === LOADING) throw new Error('Child header mission is still loading')
   expect(data.root?.id).toBe('root')
   expect(data.missionSessions).toMatchObject([{ sessionId: 'current', issueId: 'header-child' }])
-  const header = data.issues.find(row => row.id === data.missionSessions[0]?.issueId) ?? data.root
+  const header = data.header(data.missionSessions[0]?.issueId)
   expect(header).toMatchObject({ ...headerIssue, description: 'summary description', memberSessionIds: ['current'] })
   expect(load.mock.calls.filter(([kind, id]) => kind === 'issue' && id === 'header-child')).toEqual([['issue', 'header-child']])
-  // A hidden non-header member keeps the board projection even when another
-  // mission question has loaded its row.
-  const hidden = data.issues.find(row => row.id === 'hidden-child')
-  expect(hidden?.id).toBe('hidden-child')
-  expect(hidden?.startedBySession).toBeUndefined()
-  expect(hidden?.notes).toBeUndefined()
+  // A hidden non-header member is never read for its rich fields: the phone
+  // keeps no issue dictionary of the mission.
+  expect(load.mock.calls.filter(([kind, id]) => kind === 'issue' && id === 'hidden-child')).toEqual([])
   expect(pool.hydrate()).toBe(0)
 })
 it('an explicitly opened archived mission counts accepted formal children without counting its root', async () => {
@@ -238,12 +278,12 @@ it('an explicitly opened archived mission counts accepted formal children withou
     root: { id: 'cold' },
     progress: { total: 1, done: 0, stall: 1 },
   })
-  expect(reader.deck('cold', 'full')).toMatchObject({ rows: [], presence: null })
+  expect(reader.deck('cold')).toMatchObject({ rows: [], presence: null })
 })
 it('an unknown mission is not found in the complete principal replica and never queues a load', async () => {
   const { pool, reader, load } = await setup([issue('root')])
   expect(reader.mission('absent')).toMatchObject({ root: undefined, missionSessions: [] })
-  expect(reader.deck('absent', 'full')).toMatchObject({ root: undefined, rows: [] })
+  expect(reader.deck('absent')).toMatchObject({ root: undefined, rows: [] })
   expect(pool.hydrate()).toBe(0)
   expect(load).not.toHaveBeenCalled()
 })
@@ -258,7 +298,6 @@ it('observes an addressed mission without subscribing to unrelated issue content
   disposals.push(stop)
   while (pool.hydrate()) {}
   const before = draws
-  const beforeWork = { ...reader.stats }
   runInAction(() =>
     pool.apply({
       type: 'update',
@@ -266,7 +305,6 @@ it('observes an addressed mission without subscribing to unrelated issue content
     }),
   )
   expect(draws).toBe(before)
-  expect(reader.stats).toEqual(beforeWork)
   expect(reader.mission('root')).toMatchObject({ root: { title: 'root' }, progress: { total: 1 } })
   runInAction(() => selected.set('unrelated'))
   expect(reader.mission('unrelated')).toMatchObject({ root: { title: 'new title' } })
@@ -307,7 +345,7 @@ it('keeps phone mission member visits flat on a seated heartbeat at 1x and 4x', 
     let activity: string | undefined
     const stop = autorun(() => {
       const data = reader.mission('root')
-      reader.deck('root', 'full')
+      reader.deck('root')
       if (data !== LOADING) activity = data.missionSessions.find(row => row.sessionId === 'seat')?.lastActiveAt
     })
     disposals.push(stop)
@@ -336,26 +374,25 @@ for (const scale of [1, 4] as const)
     ])
     let draws = 0
     const stop = autorun(() => {
-      reader.mission('root')
-      reader.deck('root', 'full')
+      const mission = reader.mission('root'), deck = reader.deck('root')
+      if (mission !== LOADING) void mission.missionSessions
+      if (deck !== LOADING) void deck.rows
       draws++
     })
     disposals.push(stop)
     while (pool.hydrate()) {}
-    const mission = reader.mission('root'), deck = reader.deck('root', 'full')
-    const before = draws, counters = { ...reader.stats }
+    const screen = reader.open('root')
+    if (!screen || screen === LOADING) throw new Error('Mission is still loading')
+    const crew = screen.crew, rows = screen.rows
+    const before = draws
     runInAction(() => pool.apply({ type: 'update', rows: [{
       kind: 'issue', id: 'unshown-0', value: issue('unshown-0', {
         description: { value: 'Unshown bookkeeping' },
       }),
     }] }))
     expect(draws).toBe(before)
-    expect(reader.stats).toEqual(counters)
-    expect(reader.mission('root')).toBe(mission)
-    expect(reader.deck('root', 'full')).toBe(deck)
-    console.info('[phone screen unshown]', { scale, publications: draws - before, counters: {
-      mission: reader.stats.mission - counters.mission,
-      deck: reader.stats.deck - counters.deck,
-    } })
+    expect(screen.crew).toBe(crew)
+    expect(screen.rows).toBe(rows)
+    console.info('[phone screen unshown]', { scale, publications: draws - before })
   })
 

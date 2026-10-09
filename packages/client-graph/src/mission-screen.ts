@@ -245,6 +245,12 @@ export class MissionScreen {
   }
   @lazy({ equals: compareShallow }) get rootSessionIds(): readonly string[] { return this.rootRow?.sessionIds(this.mode) ?? [] }
   sessionHeight(id: string): number { return this.seat(this.pool.sessionObject(id)).height }
+  /** The phone's proposal author: the filing session's reference, never a
+   * collapsed resume twin's. */
+  proposalAuthor(row: MissionDeckIssueModel): string | null {
+    const authorId = row.facts.startedBySession
+    return authorId && this.pool.graph.isCollapsed('session', authorId) ? null : row.authorRef
+  }
 
   // Header: the root's displayed fields, each its own answer
   @lazy get rootTitle(): string { return this.rootRow?.title ?? '' }

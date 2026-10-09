@@ -6,7 +6,8 @@ import { afterEach, expect, it, vi } from 'vitest'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from './pool'
-import { missionView, readMissionHandoff, readMissionView, readWorkspaceMission, settled } from './mission-view'
+import { MissionScreen, missionRootId } from './mission-screen'
+import { missionView, readMissionHandoff, settled } from './mission-view'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { SHELL_SUMMARIES } from './shell-schema'
 import { createPoolProjection } from './runtime-pool'
@@ -22,6 +23,20 @@ const issue = (id: string, patch: Record<string, unknown> = {}) => ({ id, seq: 1
 const session = (sessionId: string, issueId: string, patch: Record<string, unknown> = {}) => ({ sessionId, issueId, cwd: '/synthetic',
   title: 'Agent', name: 'Named agent', agentKind: 'codex', status: 'exited', archived: true, createdAt: stamp, lastActiveAt: stamp,
   readAt: stamp, unread: false, ...patch }) as unknown as SessionView
+const openings = new WeakMap<MobxPool, Map<string, MissionScreen>>()
+/** What the opened deck reads for a selection: one opening per mission root. */
+function pane(pool: MobxPool, selectedId: string) {
+  const rootId = missionRootId(pool, selectedId)
+  if (rootId === LOADING) return LOADING
+  if (!rootId) return { root: undefined, rows: [], archivedCount: 0, progress: { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 } }
+  let byRoot = openings.get(pool)
+  if (!byRoot) openings.set(pool, byRoot = new Map())
+  let screen = byRoot.get(rootId)
+  if (!screen) byRoot.set(rootId, screen = new MissionScreen(pool, rootId))
+  if (!screen.ready) return LOADING
+  const root = screen.reader.issue(rootId)
+  return { root: root === LOADING ? undefined : root, rows: screen.rows, archivedCount: screen.archivedCount, progress: screen.progress }
+}
 function tracked<T>(read: () => T): T { let value!: T; const stop = autorun(() => { value = read() }); stop(); return value }
 function open(rows: IssueNavigationModel[], seats: SessionView[], summaries: { issue: readonly string[]; session: readonly string[] } = MISSION_VIEW_SUMMARIES) {
   const input = new Map<string, object>([...rows.map(row => [`issue:${row.id}`, row] as const), ...seats.map(row => [`session:${row.sessionId}`, row] as const)])
@@ -34,8 +49,7 @@ function open(rows: IssueNavigationModel[], seats: SessionView[], summaries: { i
 }
 
 it.each([
-  ['workspace', (reader: ReturnType<typeof missionView>) => readWorkspaceMission(reader, 'root', 'root')],
-  ['mission pane', (reader: ReturnType<typeof missionView>) => readMissionView(reader, 'root')],
+  ['mission pane', (reader: ReturnType<typeof missionView>) => pane(reader.pool, 'root')],
   ['handoff', (reader: ReturnType<typeof missionView>) => readMissionHandoff(reader, 'root')],
 ] as const)('renders a cold %s history as loading and recovers after hydration', (_name, read) => {
   // The shell makes an archived session's display summary usable before its
@@ -60,11 +74,11 @@ it.each([
   } finally { stop(); projection.dispose() }
 })
 
-it('preserves real history errors at the workspace reader boundary', () => {
+it('preserves real history errors at the mission pane boundary', () => {
   const { pool, reader } = open([issue('root')], [session('old', 'root')])
   const failure = new Error('Broken history')
   vi.spyOn(pool.sessionObject('old'), 'moved', 'get').mockImplementation(() => { throw failure })
-  const projection = createPoolProjection(pool, () => readWorkspaceMission(reader, 'root', 'root'))
+  const projection = createPoolProjection(pool, () => pane(reader.pool, 'root'))
   try { expect(() => projection.getSnapshot()).toThrow(failure) }
   finally { projection.dispose() }
 })
@@ -78,11 +92,11 @@ it('uses archived-inclusive relations, small scalar summaries and one batched lo
   expect(summary).not.toHaveProperty('name'); expect(summary).not.toHaveProperty('title')
   expect(tracked(() => reader.issue('root'))).toBe(LOADING)
   expect(pool.hydrate()).toBe(1); load.mockClear()
-  expect(tracked(() => readMissionView(reader, 'root'))).toBe(LOADING)
-  expect(tracked(() => readMissionView(reader, 'root'))).toBe(LOADING)
+  expect(tracked(() => pane(pool, 'root'))).toBe(LOADING)
+  expect(tracked(() => pane(pool, 'root'))).toBe(LOADING)
   expect(load).not.toHaveBeenCalled()
   expect(pool.hydrate()).toBe(1); expect(load).toHaveBeenCalledTimes(1)
-  const values = tracked(() => readMissionView(reader, 'root'))
+  const values = tracked(() => pane(pool, 'root'))
   expect(values).not.toBe(LOADING)
   if (values === LOADING) throw new Error('Unsettled fixture')
   expect(values.archivedCount).toBe(1)
@@ -98,7 +112,7 @@ it('a missing declared cold summary cannot invent an empty roster', () => {
   expect(tracked(() => reader.issue('root'))).toBe(LOADING)
   expect(pool.hydrate()).toBe(1); load.mockClear()
   vi.spyOn(pool.residency!, 'summary').mockReturnValue(undefined)
-  expect(tracked(() => readMissionView(reader, 'root'))).toBe(LOADING)
+  expect(tracked(() => pane(pool, 'root'))).toBe(LOADING)
   expect(load).not.toHaveBeenCalled()
   expect(pool.hydrate()).toBe(1)
   expect(load).toHaveBeenCalledTimes(1)
@@ -113,7 +127,7 @@ it('counts a closed archive without observing prompt, activity or handoff histor
   expect(pool.hydrate()).toBe(1)
   const history = vi.spyOn(reader, 'readHistory')
   let count: number | typeof LOADING = LOADING
-  const stop = autorun(() => { count = reader.archiveCount(reader.deck('root')) })
+  const stop = autorun(() => { count = reader.deck('root').archivedCount })
   try {
     expect(count).toBe(LOADING)
     expect(pool.hydrate()).toBe(3)
@@ -211,12 +225,12 @@ it('reads only the selected mission attachment edges as unrelated sessions grow'
   const { pool, reader } = open([issue('root'), issue('other')], [session('own', 'root', { archived: false, status: 'live' }),
     ...Array.from({ length: 1000 }, (_, index) => session(`other-${index}`, 'other', { archived: false, status: 'live' }))])
   const read = vi.spyOn(pool, 'row')
-  const values = tracked(() => readMissionView(reader, 'root'))
+  const values = tracked(() => pane(pool, 'root'))
   expect(values).not.toBe(LOADING)
   expect(read.mock.calls.filter(([entity]) => entity === 'session').every(([, id]) => id === 'own')).toBe(true)
   expect(read.mock.calls.some(([, , absent]) => String(absent) === 'peek')).toBe(false)
   runInAction(() => pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'own', value: session('own', 'other', { archived: false, status: 'live' }) }] }))
-  const moved = tracked(() => readMissionView(reader, 'root'))
+  const moved = tracked(() => pane(pool, 'root'))
   if (moved === LOADING) throw new Error('Unsettled fixture')
   expect(moved.rows[0]?.sessions).toEqual([])
 })
@@ -233,7 +247,7 @@ it('counts every same-type dependency while preserving first-origin navigation',
   expect(tracked(() => reader.issue('second'))).toMatchObject({ dependents: [
     { id: 'source', type: 'discovered-from' }, { id: 'source', type: 'related' },
   ] })
-  const values = tracked(() => readMissionView(reader, 'second'))
+  const values = tracked(() => pane(pool, 'second'))
   expect(values).not.toBe(LOADING)
   if (values === LOADING) throw new Error('Unsettled fixture')
   expect(values.progress.total).toBe(0)
@@ -241,7 +255,7 @@ it('counts every same-type dependency while preserving first-origin navigation',
     value: issue('source', { stage: 'proposed', deps: deps.filter(dep => dep.id !== 'second') }) }] }))
   expect(tracked(() => pool.graph.size('issue', 'second', 'pageDependents'))).toBe(0)
   expect(tracked(() => reader.issue('second'))).toMatchObject({ dependents: [] })
-  const removed = tracked(() => readMissionView(reader, 'second'))
+  const removed = tracked(() => pane(pool, 'second'))
   if (removed === LOADING) throw new Error('Unsettled fixture')
   expect(removed.progress.total).toBe(1)
 })
@@ -270,7 +284,7 @@ it('updates ready and handoff at the deferral deadline without a row change', ()
   const { pool, reader } = open([issue('root', { stage: 'backlog', deferUntil: new Date(deadline).toISOString() })], [])
   const seen: { deferred: boolean; ready: boolean; next: readonly string[] }[] = []
   const stop = autorun(() => {
-    const values = readMissionView(reader, 'root'), handoff = readMissionHandoff(reader, 'root')
+    const values = pane(pool, 'root'), handoff = readMissionHandoff(reader, 'root')
     if (values === LOADING || handoff === LOADING || !values.root) throw new Error('Unsettled fixture')
     seen.push({ deferred: values.root.deferred, ready: values.root.ready, next: handoff.next.map(entry => entry.issueId) })
   })

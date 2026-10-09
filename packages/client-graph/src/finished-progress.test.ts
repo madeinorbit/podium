@@ -5,7 +5,7 @@ import { issueClosed, missionRollup, type IssueNavigationModel } from '@podium/c
 import { isFinished as modelFinished } from '@podium/model/browser'
 import { headerView } from './header-views'
 import { createIssueBoardSource } from './issue-board-source'
-import { missionView } from './mission-view'
+import { MissionScreen } from './mission-screen'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { MobxPool } from './pool'
 import { isClosed, isFinished } from './shared/predicates'
@@ -44,7 +44,7 @@ it('mission header, mission pane and sidebar agree on empty, absent and legacy r
     load: (_entity, id) => byId.get(id), summaries: MISSION_VIEW_SUMMARIES, schedule: () => () => {},
   })
   const header = headerView(pool)
-  const pane = missionView(pool)
+  const pane = new MissionScreen(pool, 'root')
   const board = createIssueBoardSource(pool)
   try {
     expect(isFinished).toBe(modelFinished)
@@ -52,7 +52,7 @@ it('mission header, mission pane and sidebar agree on empty, absent and legacy r
     expect(isClosed(rows[3]!)).toBe(true)
     pool.apply({ type: 'replace', rows: rows.map(value => ({ kind: 'issue' as const, id: value.id, value })) })
     expect(pool.tables.issue.has('cold-empty')).toBe(false)
-    const read = () => ({ header: header.folded(), pane: pane.values('root', 'full'), sidebar: sidebarView(pool).row('root') } as const)
+    const read = () => ({ header: header.folded(), pane: pane.ready ? { progress: pane.progress } : LOADING, sidebar: sidebarView(pool).row('root') } as const)
     const openIds = () => {
       const result = board.queryIds({ kind: 'board', filter: { status: 'open' } })
       if (!result || result === LOADING) throw new Error('Unsettled board filter')

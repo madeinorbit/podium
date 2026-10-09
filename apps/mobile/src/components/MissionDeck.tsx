@@ -391,7 +391,7 @@ export const MissionDeck = observer(function MissionDeck({
         {proposals.length > 0 ? (
           <DeckSection label="Proposed" count={proposals.length} tone={stageColor('proposed')}>
             {proposals.map((row) => (
-              <MissionProposal key={row.id} row={row} onPress={() => openTask(row)} />
+              <MissionProposal key={row.id} screen={screen} row={row} onPress={() => openTask(row)} />
             ))}
           </DeckSection>
         ) : null}
@@ -432,19 +432,19 @@ export const MissionDeck = observer(function MissionDeck({
  *  and ask it why. Unresolvable (a human create, or an agent long gone) means
  *  no author line rather than a raw session id. */
 const MissionProposal = observer(function MissionProposal({
+  screen,
   row,
   onPress,
 }: {
+  screen: MissionScreen
   row: MissionDeckIssueModel
   onPress: () => void
 }) {
-  const authorId = row.facts.startedBySession
-  const collapsed = authorId ? row.view.pool.graph.isCollapsed('session', authorId) : false
   return (
     <ProposalRow
       title={row.title}
       displayRef={row.displayRef}
-      author={collapsed ? null : row.authorRef}
+      author={screen.proposalAuthor(row)}
       selected={false}
       onPress={onPress}
     />
