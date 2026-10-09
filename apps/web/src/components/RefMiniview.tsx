@@ -2,6 +2,7 @@ import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { issueReferenceModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
+import { LOADING } from '@podium/client-graph/loading'
 import { machinePathBasename } from '@podium/model'
 import type { IssueComment, IssueId, SessionId } from '@podium/model/browser'
 import { formatLong, parseAnyRef, truncateTitle } from '@podium/protocol'
@@ -44,18 +45,10 @@ import {
   setRefActivator,
   subscribeMiniview,
 } from '@/lib/ref-activation'
-import {
-  type IssueSessionTarget,
-  type RefIssueLike,
-  type RefSessionLike,
-  type ResolvedRef,
-  resolveRef,
-  sessionForIssue,
-  sessionWorkingIssueRef,
-} from '@/lib/ref-miniview'
+import type { RefIssueLike, RefSessionLike, ResolvedRef } from '@/lib/ref-miniview'
 import { cn } from '@/lib/utils'
 import { IssueReference } from './IssueReference'
-import { readReferenceSession, readRefMiniview } from './ref-miniview-readers'
+import { readReferenceSession, readRefTarget } from './ref-miniview-readers'
 
 /**
  * Root-mounted host for the single floating ref miniview (#474, area 7). Owns:
@@ -131,37 +124,28 @@ function OpenPoolRefMiniview({
   state: NonNullable<ReturnType<typeof getMiniviewState>>
   pool: MobxPool | null
 }): JSX.Element {
-  const read = useCallback((pool: MobxPool) => readRefMiniview(pool, state.ref), [state.ref])
-  const data = useWorklistPoolProjection(read, {
-    issues: [] as RefIssueLike[],
-    sessions: [] as RefSessionLike[],
-    loading: true,
-  })
+  const read = useCallback((pool: MobxPool) => readRefTarget(pool, state.ref), [state.ref])
+  const data = useWorklistPoolProjection(read, EMPTY_TARGET)
   return (
     <RefMiniviewContents
-      issues={data.issues}
-      sessions={data.sessions}
-      resolveIssue={(token) => {
-        const parsed = parseAnyRef(token)
-        const issue = data.issues[0]
-        return token === state?.ref && issue && parsed?.kind === 'issue'
-          ? { kind: 'issue', ref: parsed, issue }
-          : resolvePoolIssue(pool, token)
-      }}
+      resolve={(token) =>
+        token === state.ref && data.target
+          ? data.target
+          : parseAnyRef(token)?.kind === 'issue'
+            ? resolvePoolIssue(pool, token)
+            : null
+      }
       loading={data.loading}
     />
   )
 }
+const EMPTY_TARGET: ReturnType<typeof readRefTarget> = { target: null, loading: true }
 
 function RefMiniviewContents({
-  issues,
-  sessions,
-  resolveIssue,
+  resolve,
   loading = false,
 }: {
-  issues: readonly RefIssueLike[]
-  sessions: readonly RefSessionLike[]
-  resolveIssue: (ref: string) => ResolvedRef | null
+  resolve: (ref: string) => ResolvedRef | null
   loading?: boolean
 }): JSX.Element | null {
   const machines = useChatReferenceMachines()
@@ -196,10 +180,7 @@ function RefMiniviewContents({
   const state = useSyncExternalStore(subscribeMiniview, getMiniviewState, getMiniviewState)
   if (!state) return null
 
-  const target =
-    parseAnyRef(state.ref)?.kind === 'issue'
-      ? resolveIssue(state.ref)
-      : resolveRef(state.ref, [], sessions)
+  const target = resolve(state.ref)
 
   return createPortal(
     <RefCard
@@ -208,8 +189,6 @@ function RefMiniviewContents({
       anchor={state.anchor}
       target={target}
       loading={loading}
-      issues={issues}
-      sessions={sessions}
       machines={machines}
       onClose={closeMiniview}
       onOpenFull={() => {
@@ -260,8 +239,6 @@ export function RefCard({
   refToken,
   anchor,
   target,
-  issues,
-  sessions = [],
   machines = [],
   onClose,
   onOpenFull,
@@ -275,9 +252,6 @@ export function RefCard({
   anchor?: { x: number; y: number }
   target: ResolvedRef | null
   loading?: boolean
-  issues: readonly RefIssueLike[]
-  /** Live sessions, for the "Go to session" action. Absent = no such action. */
-  sessions?: readonly RefSessionLike[]
   machines?: LaunchMachine[]
   onClose: () => void
   onOpenFull: () => void
@@ -430,7 +404,7 @@ export function RefCard({
               </div>
               <span className="flex flex-none items-center gap-1.5">{closeButton}</span>
             </div>
-            <IssueSummary issue={target.issue} issues={issues} />
+            <IssueSummary issue={target.issue} />
             {target.issue.description?.trim() && (
               <div
                 className="mt-2 overflow-hidden text-[12px] leading-[1.5] text-muted-foreground"
@@ -489,8 +463,6 @@ export function RefCard({
           )}
           <IssueEscalations
             issue={target.issue}
-            issues={issues}
-            sessions={sessions}
             onOpenFull={onOpenFull}
             onGoToSession={onGoToSession}
           />
@@ -526,7 +498,7 @@ export function RefCard({
                 {loading ? 'Loading reference…' : 'Reference not found.'}
               </p>
             ) : (
-              <SessionSummary session={target.session} issues={issues} />
+              <SessionSummary session={target.session} />
             )}
           </div>
         </>
@@ -677,24 +649,18 @@ function IssueActions({
  */
 function IssueEscalations({
   issue,
-  issues,
-  sessions,
   onOpenFull,
   onGoToSession,
 }: {
   issue: RefIssueLike
-  issues: readonly RefIssueLike[]
-  sessions: readonly RefSessionLike[]
   onOpenFull: () => void
   onGoToSession?: (sessionId: SessionId) => void
 }): JSX.Element {
-  const target: IssueSessionTarget | null = onGoToSession
-    ? sessionForIssue(issue, issues, sessions)
-    : null
+  const target = useSessionTarget(issue.id, onGoToSession !== undefined)
   // Only worth naming when it is NOT this task's own session; on its own task
   // the ref is noise the header already carries.
-  const inherited = target && target.via.id !== issue.id ? target : null
-  const sessionRef = target?.session.displayRef ?? ''
+  const inherited = target && target.viaId !== issue.id ? target : null
+  const sessionRef = target?.sessionRef ?? ''
   return (
     <div className="flex items-center gap-1.5 border-t border-border/60 p-2.5">
       {target && onGoToSession && (
@@ -704,10 +670,10 @@ function IssueEscalations({
           className="inline-flex h-8 min-w-0 flex-1 items-center justify-center gap-1.5 rounded-lg text-[12px] font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
           title={
             inherited
-              ? `Open ${sessionRef} — the session on ${inherited.via.displayRef ?? 'the parent task'}, which covers this subtask`
+              ? `Open ${sessionRef} — the session on ${inherited.viaRef || 'the parent task'}, which covers this subtask`
               : `Open ${sessionRef}`
           }
-          onClick={() => onGoToSession(target.session.sessionId)}
+          onClick={() => onGoToSession(target.sessionId)}
         >
           <MessagesSquare size={12} className="flex-none" aria-hidden="true" />
           <span className="truncate">{inherited ? 'Parent session' : 'Go to session'}</span>
@@ -736,17 +702,9 @@ function IssueEscalations({
  *  (identity + stage render above it, in the card head). "Ready" is intentionally
  *  absent: normal availability is silent, blockers appear only when actionable
  *  (plain dot, no icon). Every enrichment degrades to nothing when absent. */
-function IssueSummary({
-  issue,
-  issues,
-}: {
-  issue: RefIssueLike
-  issues: readonly RefIssueLike[]
-}): JSX.Element {
+function IssueSummary({ issue }: { issue: RefIssueLike }): JSX.Element {
   // Parent chip only when the parent is resolvable to a displayRef.
-  const parentRef = issue.parentId
-    ? issues.find((i) => i.id === issue.parentId)?.displayRef
-    : undefined
+  const parentRef = useIssueDisplayRef(issue.parentId)
   const meta: JSX.Element[] = []
   // Priority is deliberately absent — it rides the identity row above.
   if (issue.assignee)
@@ -854,17 +812,11 @@ function IssueDetailsStrip({
   )
 }
 
-function SessionSummary({
-  session,
-  issues,
-}: {
-  session: RefSessionLike
-  issues: readonly RefIssueLike[]
-}): JSX.Element {
+function SessionSummary({ session }: { session: RefSessionLike }): JSX.Element {
   const label = session.name || session.title || 'Session'
   // When the session has since re-homed onto a different issue than its birth
   // ref names, say so — the birth displayRef stays primary (#474, finding 9).
-  const workingRef = sessionWorkingIssueRef(session, issues)
+  const workingRef = workingIssueRef(session.displayRef, useIssueDisplayRef(session.issueId))
   return (
     <div className="flex flex-col gap-1.5">
       <div className="flex items-center gap-1.5 font-mono text-[11px] text-muted-foreground">
@@ -881,4 +833,47 @@ function SessionSummary({
       </div>
     </div>
   )
+}
+
+/** The shared issue model's own reference label; empty while it is not loaded. */
+function useIssueDisplayRef(id: string | undefined): string {
+  const read = useCallback((pool: MobxPool) => (id ? pool.issueObject(id).displayRef : ''), [id])
+  return useWorklistPoolProjection(read, '')
+}
+
+/** The current task's ref, unless it is the task the session was born on. */
+function workingIssueRef(birthRef: string | undefined, currentRef: string): string | null {
+  if (!currentRef) return null
+  const birth = birthRef ? parseAnyRef(birthRef) : null
+  if (birth && birth.kind === 'session' && birth.seq !== undefined) {
+    if (`${birth.prefix}-${birth.seq}` === currentRef) return null
+  }
+  return currentRef
+}
+
+/** Where "Go to session" lands: the shared issue answer names the covering
+ * task and its live seat; the card adds only their labels. */
+function readSessionTarget(pool: MobxPool, issueId: string) {
+  const viaId = pool.issueObject(issueId).seatHolderId
+  const sessionId = viaId ? pool.issueObject(viaId).liveSeatId : null
+  if (!viaId || !sessionId) return null
+  let sessionRef = ''
+  try {
+    sessionRef = pool.sessionObject(sessionId).displayRef ?? ''
+  } catch (error) {
+    if (error !== LOADING) throw error
+  }
+  return {
+    viaId,
+    viaRef: pool.issueObject(viaId).displayRef,
+    sessionId: sessionId as SessionId,
+    sessionRef,
+  }
+}
+function useSessionTarget(issueId: string, active: boolean) {
+  const read = useCallback(
+    (pool: MobxPool) => (active ? readSessionTarget(pool, issueId) : null),
+    [issueId, active],
+  )
+  return useWorklistPoolProjection(read, null)
 }

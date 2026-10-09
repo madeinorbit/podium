@@ -51,7 +51,7 @@ export interface ModelHost {
   sessionSummaryField(property: string): boolean
   issueSummaryField(property: string): boolean
   issueExitKind(id: string): ReferentExit | undefined
-  readonly queries: Pick<ReaderQueries, 'issueCloseCounts' | 'issueChildCounts' | 'collapsed'>
+  readonly queries: Pick<ReaderQueries, 'issueCloseCounts' | 'issueChildCounts' | 'collapsed' | 'orderKey'>
   /** Borrow the data layer's archive partition without copying its IDs. */
   sessionSeatIds(relation: SeatRelation, issueId: string, archived: boolean): readonly string[] | typeof LOADING
   /** The declared parent key, tracked without reading the source or target payload. */
@@ -496,6 +496,45 @@ export class IssueModel extends EntityModel {
     }
     if (pending) throw LOADING
     return false
+  }
+
+  // Session target: where "go to session" lands for this task.
+  /** This task's own live seat, in the dock roster's contract order: the
+   * coordinator when it is one of them, else the most recently active (ties
+   * keep the collapse order). A seat still loading is skipped until it lands. */
+  @lazy
+  get liveSeatId(): string | null {
+    const coordinator = this.storedField('coordinatorSessionId')
+    let best: { id: string; at: string } | null = null
+    for (const id of this.host.relations.subset('issue', this.id, 'pageSessions', 'unarchived')) {
+      if (this.host.queries.collapsed(id)) continue
+      const session = this.host.sessionObject(id)
+      let at: string
+      try {
+        if (session.status === 'exited') continue
+        if (id === coordinator) return id
+        at = session.lastActiveAt ?? ''
+      } catch (error) { if (error !== LOADING) throw error; continue }
+      const order = best ? at.localeCompare(best.at) : 1
+      if (order > 0 || (order === 0 && best &&
+        this.host.queries.orderKey(id).localeCompare(this.host.queries.orderKey(best.id)) < 0))
+        best = { id, at }
+    }
+    return best?.id ?? null
+  }
+
+  /** The nearest task up the raw parent chain, this one first, whose live seat
+   * covers it: a subtask is usually worked in its parent's session. The walk
+   * stops at an ancestor that is not loaded, and on a cyclic chain. */
+  @lazy
+  get seatHolderId(): string | null {
+    const seen = new Set<string>()
+    for (let id: string | null = this.id; id && !seen.has(id); id = this.host.relations.one('issue', id, 'treeParent')) {
+      seen.add(id)
+      if (this.host.resident('issue', id) !== 'resident') return null
+      if (this.host.issueObject(id).liveSeatId) return id
+    }
+    return null
   }
 
   // Links: raw page membership includes headless, history and resume twins.

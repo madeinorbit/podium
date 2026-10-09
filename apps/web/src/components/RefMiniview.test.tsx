@@ -300,7 +300,6 @@ function renderCard(root: Root, issue: RefIssueLike): void {
       <RefCard
         refToken={issue.displayRef ?? ''}
         target={issueTarget(issue)}
-        issues={issues}
         onClose={() => {}}
         onOpenFull={() => {}}
       />,
@@ -377,8 +376,7 @@ describe('RefCard issue summary (#517)', () => {
         <RefCard
           refToken="POD-517"
           target={issueTarget({ ...issue, updatedAt })}
-          issues={issues}
-          onClose={() => {}}
+            onClose={() => {}}
           onOpenFull={() => {}}
           loadComments={loadComments}
         />,
@@ -417,8 +415,7 @@ describe('RefCard issue summary (#517)', () => {
         <RefCard
           refToken="POD-517"
           target={issueTarget(issue)}
-          issues={issues}
-          onClose={() => {}}
+            onClose={() => {}}
           onOpenFull={() => {}}
           loadComments={loadComments}
         />,
@@ -460,8 +457,7 @@ describe('RefCard run now (POD-110)', () => {
         <RefCard
           refToken={issue.displayRef ?? ''}
           target={issueTarget(issue)}
-          issues={issues}
-          onClose={() => {}}
+            onClose={() => {}}
           onOpenFull={() => {}}
           onStart={onStart}
         />,
@@ -538,8 +534,7 @@ describe('RefCard proposal decisions', () => {
         <RefCard
           refToken="POD-517"
           target={issueTarget(proposal)}
-          issues={issues}
-          onClose={() => {}}
+            onClose={() => {}}
           onOpenFull={() => {}}
           onStart={onStart}
           onPromote={onPromote}
@@ -602,8 +597,7 @@ describe('RefCard proposal decisions', () => {
             stage: 'in_progress',
             worktreePath: '/r/.worktrees/issue-517',
           })}
-          issues={issues}
-          onClose={() => {}}
+            onClose={() => {}}
           onOpenFull={() => {}}
         />,
       )
@@ -639,8 +633,7 @@ describe('RefCard planned agent settings', () => {
         <RefCard
           refToken="POD-517"
           target={issueTarget(issue)}
-          issues={issues}
-          machines={hostStore.machines}
+            machines={hostStore.machines}
           onClose={onClose}
           onOpenFull={vi.fn()}
           onStart={onStart}
@@ -736,8 +729,7 @@ describe('RefCard outside-click dismissal', () => {
         <RefCard
           refToken={rich.displayRef ?? ''}
           target={issueTarget(rich)}
-          issues={issues}
-          onClose={onClose}
+            onClose={onClose}
           onOpenFull={() => {}}
         />,
       )
@@ -798,8 +790,7 @@ describe('RefCard is not draggable (POD-799)', () => {
           refToken={rich.displayRef ?? ''}
           anchor={{ x: 300, y: 200 }}
           target={target}
-          issues={issues}
-          onClose={() => {}}
+            onClose={() => {}}
           onOpenFull={() => {}}
         />,
       )
@@ -905,13 +896,12 @@ describe('RefCard escalations (POD-786)', () => {
     sessions: RefSessionLike[],
     handlers: { onOpenFull?: () => void; onGoToSession?: (id: string) => void } = {},
   ): void {
+    hostStore.sessions = sessions
     act(() => {
       root.render(
         <RefCard
           refToken={issue.displayRef ?? ''}
           target={issueTarget(issue)}
-          issues={issues}
-          sessions={sessions}
           onClose={() => {}}
           onOpenFull={handlers.onOpenFull ?? (() => {})}
           onGoToSession={handlers.onGoToSession ?? (() => {})}
