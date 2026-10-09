@@ -1,5 +1,6 @@
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import '@/test-support/mock-pool-fixture'
+import '@/test-support/mock-issue-controls'
 
 import type { SessionView } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
