@@ -15,9 +15,10 @@ const session = (id: string, patch: object = {}) => ({ kind: 'session' as const,
   value: { sessionId: id, issueId: 'root', cwd: '/synthetic', agentKind: 'codex',
     status: 'live', archived: false, lastActiveAt: stamp, ...patch } as never })
 const initial = () => [
-  { kind: 'worktree' as const, id: '/synthetic', value: { path: '/synthetic', repoPath: '/synthetic' } as never },
+  { kind: 'worktree' as const, id: '/synthetic', value: { path: '/synthetic', repoId: 'repo', repoPath: '/synthetic' } as never },
+  { kind: 'repo' as const, id: 'repo', value: { id: 'repo', path: '/synthetic', prefix: 'POD' } as never },
   issue('root'), issue('other'), issue('child', { parentId: 'root', deps: [{ id: 'root', type: 'blocks' }] }),
-  session('seat'), session('free', { issueId: null }),
+  session('seat'), session('free', { issueId: undefined }),
 ]
 function fixture() {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
@@ -102,9 +103,9 @@ it('keeps declared subset lists stable and follows members moving in and out', (
   const firstIds = ids, firstReady = ready
   try {
     expect(collection.issueless).toBe(subset)
-    runInAction(() => pool.apply({ type: 'update', rows: [session('free', { issueId: null, title: 'renamed' }), issue('other', { title: 'unrelated' })] }))
+    runInAction(() => pool.apply({ type: 'update', rows: [session('free', { issueId: undefined, title: 'renamed' }), issue('other', { title: 'unrelated' })] }))
     expect(ids).toBe(firstIds); expect(ready).toBe(firstReady); expect(paints).toBe(1)
-    runInAction(() => pool.apply({ type: 'update', rows: [session('seat', { issueId: null })] }))
+    runInAction(() => pool.apply({ type: 'update', rows: [session('seat', { issueId: undefined })] }))
     expect(ids).not.toBe(firstIds); expect(ready).not.toBe(firstReady)
     expect(ready.map(row => row.id)).toEqual(['free', 'seat'])
     const joined = ready

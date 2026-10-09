@@ -193,14 +193,15 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
     }
     // One collection class per relation, with a getter per declared subset.
     class Members extends ModelCollection {}
+    const members = (host: ModelHost, owner: string) => host.relations.many(entity, owner, name)
     for (const subset of spec.kind === 'hasMany' ? Object.keys(spec.subsets ?? {}) : []) {
+      const subsetMembers = (host: ModelHost, owner: string) => host.relations.subset(entity, owner, name, subset)
       Object.defineProperty(Members.prototype, subset, {
         configurable: false,
         enumerable: false,
         get: collectionGetter(subset, function (this: Members): ModelCollection {
-          return new ModelCollection(this.host, spec.to, this.owner, () =>
-            this.host.relations.subset(entity, this.owner, name, subset),
-          )
+          subsetMembers(this.host, this.owner)
+          return new ModelCollection(this.host, spec.to, this.owner, subsetMembers)
         }),
       })
     }
@@ -209,7 +210,8 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
       enumerable: false,
       get: collectionGetter(name, function (this: EntityModel): ModelCollection {
         const host = hostOf(this)
-        return new Members(host, spec.to, this.id, () => host.relations.many(entity, this.id, name))
+        members(host, this.id)
+        return new Members(host, spec.to, this.id, members)
       }),
     })
   }
@@ -218,7 +220,7 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
 /** Schema-installed collection handles use the same lifetime as @lazy
  * class fields. The handle reads live lists, rather than storing its first answer. */
 function collectionGetter<T extends object, V>(name: string, get: (this: T) => V): (this: T) => V {
-  return lazy(get, {
+  return lazy<V>({ equals: compareShallow })(get, {
     kind: 'getter', name, static: false, private: false,
     access: { has: target => name in target, get: target => get.call(target) },
     addInitializer() {}, metadata: {},
@@ -252,13 +254,13 @@ class ModelCollection implements LazyCollection<EntityModel> {
     private readonly to: EntityName,
     /** The id of the row the collection belongs to (its subsets read under it). */
     readonly owner: string,
-    private readonly members: () => Iterable<string>,
+    private readonly members: (host: ModelHost, owner: string) => Iterable<string>,
   ) {}
 
   @lazy({ equals: compareShallow })
   get ready(): readonly EntityModel[] {
     const ready: EntityModel[] = []
-    for (const id of this.members()) {
+    for (const id of this.members(this.host, this.owner)) {
       const found = objectOrLoading(this.host, this.to, id)
       if (found !== LOADING && found !== null) ready.push(found)
     }
@@ -268,7 +270,7 @@ class ModelCollection implements LazyCollection<EntityModel> {
   @lazy
   get loading(): number {
     let loading = 0
-    for (const id of this.members()) {
+    for (const id of this.members(this.host, this.owner)) {
       if (objectOrLoading(this.host, this.to, id) === LOADING) loading += 1
     }
     return loading
