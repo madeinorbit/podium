@@ -38843,6 +38843,42 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "packages/client-graph/src/mobile-tasks.ts",
+      "holder": "MobileTasksBoard/sections",
+      "rule": "consume:filter",
+      "tokens": "8ff46bac9b2ce69b1caae5e34d73cb89507a3a42f3c094aef847757c7ad04b15",
+      "gate": [],
+      "origin": [
+        "3c18e4c5d599f97e205a54aff9b485b2437d8fb15fed910124f8ea42ab7a14a9"
+      ],
+      "fingerprint": "745e8d5c4b0d51bd2dd736a02bc0fa662c4aedf13ce2f01a8378174afb0ca4e5",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5865",
+      "trigger": "Phone Tasks section membership changes.",
+      "bound": "At most six BoardLane companions, constructed once from the six literal MOBILE_TASK_STAGES. This filter/map selects nonempty stage headers; it does not enumerate issue records.",
+      "reason": "The collection name lanes triggers the scan census, but the collection is the fixed lifecycle vocabulary. Issue membership and each lane's rows are separate lazy fields.",
+      "guard": "packages/client-graph/src/mobile-screens-schema.ts: the six literal MOBILE_TASK_STAGES; mobile-tasks.parity.test.ts: section parity across 1,080 option combinations and stable hierarchy, lane roots, section arrays and rows."
+    },
+    {
+      "file": "packages/client-graph/src/mobile-tasks.ts",
+      "holder": "MobileTasksBoard/sections",
+      "rule": "consume:map",
+      "tokens": "e90ee3c6d2733f715a6602ccbd3c011eaa921857a7d65ae651d22f240f3252f4",
+      "gate": [],
+      "origin": [
+        "3c18e4c5d599f97e205a54aff9b485b2437d8fb15fed910124f8ea42ab7a14a9"
+      ],
+      "fingerprint": "e39b4eef78d82a385a114e9b36303a3a6570b48a43ee33c450f01a75cb0bc818",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5865",
+      "trigger": "Phone Tasks section membership changes.",
+      "bound": "At most six BoardLane companions, constructed once from the six literal MOBILE_TASK_STAGES. This filter/map selects nonempty stage headers; it does not enumerate issue records.",
+      "reason": "The collection name lanes triggers the scan census, but the collection is the fixed lifecycle vocabulary. Issue membership and each lane's rows are separate lazy fields.",
+      "guard": "packages/client-graph/src/mobile-screens-schema.ts: the six literal MOBILE_TASK_STAGES; mobile-tasks.parity.test.ts: section parity across 1,080 option combinations and stable hierarchy, lane roots, section arrays and rows."
+    },
+    {
       "file": "packages/client-graph/src/notice-views.ts",
       "holder": "noticeMessages",
       "rule": "loop:for-of",
