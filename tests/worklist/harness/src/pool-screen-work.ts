@@ -401,7 +401,8 @@ async function measureScreenCells(
     palettePicker.open()
     catalogPicker.open()
     phonePicker.open()
-    referencePicker.open()
+    // The chat mention menu, as just after typing '@': a bounded source window.
+    referencePicker.search('', 5)
     stops.push(() => palettePicker.close(), () => referencePicker.close())
     const panelOrigin = readLaunchOrigin(pool, '/repo-000')
     const panelPreferred = panelOrigin !== LOADING && panelOrigin.repo
@@ -694,7 +695,6 @@ async function measureScreenCells(
     }))
     add('chat.references', ['RichMarkdown', 'RefMiniview'], () => ({
       issueIds: referencePicker.issueIds,
-      sessionIds: referencePicker.sessionIds,
       machines: chat.machines(),
       repos: chat.repositoryKey(),
     }))
@@ -785,8 +785,6 @@ async function measureScreenCells(
     add('mobile-session', ['SessionScreen', 'TerminalScreen', 'SessionConversation'], () => ({
       session: mobileSession.session(SESSION),
       issue: mobileSession.issue(selected()),
-      sessionIds: referencePicker.sessionIds,
-      issueIds: referencePicker.issueIds,
       machines: mobileSession.machines(),
       pending: mobileSession.spawnPending(SESSION),
       prompt: mobileSession.spawnPrompt(SESSION),

@@ -1,7 +1,7 @@
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { CommandSessionRow, createCommandPalette, commandLaunchViews } from './command-launch-views'
-import { createReferencePicker, chatReferenceSessions, chatMentionMatches } from './chat-context'
+import { createReferencePicker, chatMentionMatches } from './chat-context'
 import { createLaunchCatalogPicker, launchOptionViews } from './launch-option-views'
 import { headerEntities } from './header-entities'
 import { MobxPool } from './pool'
@@ -10,7 +10,7 @@ import { LOADING } from './worklist/rollup'
 // The old answer is still available here: the existing live catalog readers.
 // Every comparison includes a deliberately wrong answer to prove sensitivity.
 for (const scale of [1, 4]) {
-  it(`stores reference identities on open/search and does zero catalog work for H at ${scale}x`, () => {
+  it(`stores mention identities on search and does zero catalog work for H at ${scale}x`, () => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
     const stamp = '2026-10-07T00:00:00Z'
     const sessions = Array.from({ length: 64 * scale }, (_, i) => ({ sessionId: `s${i}`, cwd: '/repo', agentKind: 'codex', status: 'live', lastActiveAt: stamp, title: `Session ${i}` }))
@@ -18,33 +18,24 @@ for (const scale of [1, 4]) {
       ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
       ...sessions.map((_, i) => ({ kind: 'issue' as const, id: `i${i}`, value: { id: `i${i}`, title: 'Task', repoPath: '/repo', seq: i, stage: 'in_progress', createdAt: stamp, updatedAt: stamp } })),
     ] })
-    const order = observable.box(sessions.map(s => s.sessionId))
-    pool.sources.register(['chatSessionOrder', 'chatIssueOrder'], { read: entity => ({ ids: entity === 'chatSessionOrder' ? order.get() : sessions.map((_, i) => `i${i}`) }), dispose() {} })
     const picker = createReferencePicker(pool)
-    picker.open()
-    expect(picker.sessionIds).toEqual(chatReferenceSessions(pool).sessions.map(s => s.sessionId))
-    const assertSameIds = (ids: string[]) => expect(ids).toEqual(picker.sessionIds)
-    expect(() => assertSameIds([...picker.sessionIds].reverse())).toThrow()
     picker.search('task')
-    expect(picker.issueIds).toEqual(chatMentionMatches(pool, 'task').issues.map(i => i.id))
+    const old = chatMentionMatches(pool, 'task').issues.map(i => i.id)
+    expect(picker.issueIds).toEqual(old)
     expect(picker.issueIds).not.toEqual([])
+    expect(() => expect([...picker.issueIds].reverse()).toEqual(old)).toThrow()
     let renders = 0
-    const stop = autorun(() => { picker.sessionIds; picker.issueIds; picker.sessions; picker.issues; renders++ })
+    const stop = autorun(() => { picker.issueIds; renders++ })
     const rows = vi.spyOn(pool, 'row'), ids = vi.spyOn(pool.queries, 'ids'), sort = vi.spyOn(Array.prototype, 'sort')
     try {
       const before = renders
       pool.apply({ type: 'update', rows: [{ kind: 'session', id: 's1', value: { ...sessions[1]!, lastActiveAt: '2026-10-07T01:00:00Z' } }] })
       expect(renders).toBe(before)
-      expect(rows.mock.calls.filter(([kind]) => String(kind) === 'chatSessionOrder' || String(kind) === 'chatIssueOrder')).toEqual([])
-      expect([...new Set(rows.mock.calls.filter(([kind]) => kind === 'session').map(([, id]) => id))]).toEqual(['s1'])
+      expect(rows.mock.calls.filter(([kind]) => kind === 'session' || kind === 'issue')).toEqual([])
       expect(ids).not.toHaveBeenCalled()
       expect(sort).not.toHaveBeenCalled()
-      pool.apply({ type: 'update', rows: [{ kind: 'session', id: 's1', value: { ...sessions[1]!, title: 'Renamed' } }] })
-      expect(picker.sessions.find(session => session.sessionId === 's1')?.title).toBe('Renamed')
-      runInAction(() => order.set(['s1', ...sessions.filter(s => s.sessionId !== 's1').map(s => s.sessionId)]))
-      expect(picker.sessionIds[0]).toBe('s0')
-      picker.open()
-      expect(picker.sessionIds[0]).toBe('s1')
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: picker.issueIds[0]!, value: { id: picker.issueIds[0]!, title: 'Task renamed', repoPath: '/repo', seq: Number(picker.issueIds[0]!.slice(1)), stage: 'in_progress', createdAt: stamp, updatedAt: stamp } }] })
+      expect(picker.issue(picker.issueIds[0]!)).toMatchObject({ title: 'Task renamed' })
     } finally { stop(); rows.mockRestore(); ids.mockRestore(); sort.mockRestore(); picker.close(); pool.dispose() }
   })
 }

@@ -7,7 +7,7 @@ import type { MobileSessionRows } from '@podium/client-graph/mobile-session-sche
 import type { MachineWire, MessageRecordWire, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
 import { reaction } from 'mobx'
-import { useCallback, useEffect, useLayoutEffect, useMemo } from 'react'
+import { useCallback, useLayoutEffect, useMemo } from 'react'
 import { demoEnabled } from './demoData'
 import { useMobilePoolProjection } from './mobile-pool'
 
@@ -101,29 +101,12 @@ export function useSessionContextReferenceIssue(ref: string | undefined) {
 }
 const sessionsRead = (reader: Reader) => reader.sessions().sessions
 const issuesRead = (reader: Reader) => reader.issues().issues
-/** No argument is the live Agents screen. An explicit active flag owns an
- * inspector's open catalog; its next open refreshes that catalog. */
-function useOpenCatalog<T>(active: boolean | undefined, take: (reader: Reader) => T, empty: T, kind: 'sessions' | 'issues') {
-  const reader = useRead<Reader | undefined>(useReaderIdentity, undefined)
-  const picker = useMemo(() => reader?.referencePicker(), [reader])
-  useEffect(() => { if (active === true) picker?.open(kind); return () => picker?.close() }, [picker, active, kind])
-  const read = useCallback((reader: Reader) => active === undefined ? take(reader)
-    : active && picker ? picker[kind] as T : empty, [active, take, picker, kind, empty])
-  return useRead(read, empty)
+/** The live Agents roster and issue list. */
+export function useSessionContextSessions() {
+  return useRead(sessionsRead, EMPTY_SESSIONS)
 }
-const useReaderIdentity = (reader: Reader) => reader
-export function useSessionContextSessions(active?: boolean) {
-  return useOpenCatalog(active, sessionsRead, EMPTY_SESSIONS, 'sessions')
-}
-export function useSessionContextIssues(active?: boolean) {
-  return useOpenCatalog(active, issuesRead, EMPTY_ISSUES, 'issues')
-}
-/** The phone inspector's new rows can use stable ids and addressed readers. */
-export function useSessionContextReferencePicker(active: boolean) {
-  const reader = useRead<Reader | undefined>(useReaderIdentity, undefined)
-  const picker = useMemo(() => reader?.referencePicker(), [reader])
-  useEffect(() => { if (active) picker?.open(); return () => picker?.close() }, [picker, active])
-  return picker
+export function useSessionContextIssues() {
+  return useRead(issuesRead, EMPTY_ISSUES)
 }
 
 export function useSessionContextMachine(id: string | undefined): MachineWire | undefined {

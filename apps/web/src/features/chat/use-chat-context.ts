@@ -11,7 +11,6 @@ import { issueMentions } from '@/lib/at-mention/mention-sources'
 
 const pending = (row: unknown): row is symbol => typeof row === 'symbol'
 const EMPTY_OPTIONS: AtOption[] = []
-const EMPTY_SESSIONS: SessionView[] = []
 const EMPTY_MACHINES: import('@podium/model/browser').MachineWire[] = []
 const EMPTY_THREADS: import('@podium/client-core/values').SuperThreadView[] = []
 const referenceReader = (pool: MobxPool) => {
@@ -113,29 +112,6 @@ export function useChatIssueSeq() {
   )
 }
 
-/** A reference menu owns candidate identities for its mount. Rows ask by id. */
-export function useChatReferenceSessionIds() {
-  const picker = useReferencePicker()
-  useEffect(() => { picker?.open('sessions'); return () => picker?.close() }, [picker])
-  const read = useCallback(() => picker?.sessionIds ?? EMPTY_IDS, [picker])
-  return useWorklistPoolProjection(read, EMPTY_IDS)
-}
-const EMPTY_IDS: string[] = []
-export function useChatReferenceSession(id: string) {
-  const read = useCallback((pool: MobxPool) => {
-    const row = pool.row('session', id, 'summary-fields')
-    return row && !pending(row) ? row as SessionView : undefined
-  }, [id])
-  return useWorklistPoolProjection(read, undefined)
-}
-/** Compatibility for consumers of the catalog answer: capture only on mount.
- * New picker rows use useChatReferenceSessionIds/useChatReferenceSession. */
-export function useChatReferenceSessions() {
-  const picker = useReferencePicker()
-  useEffect(() => { picker?.open('sessions'); return () => picker?.close() }, [picker])
-  const read = useCallback(() => picker?.sessions ?? EMPTY_SESSIONS, [picker])
-  return useWorklistPoolProjection(read, EMPTY_SESSIONS)
-}
 const machineRead = (pool: MobxPool) => {
   const reader = pool.row('chatContextReader', 'reader')
   return reader && !pending(reader) ? reader.machines() : EMPTY_MACHINES

@@ -25,7 +25,6 @@ import {
   useChatMachines,
   useChatMentions,
   useChatReferenceMachines,
-  useChatReferenceSessions,
   useChatRepositoryKey,
   useChatSession,
   useChatSessionExitKind,
@@ -125,7 +124,6 @@ const Surface = observer(function Surface() {
     window = useChatContextWindow(),
     seq = useChatIssueSeq()
   const threads = useChatThreads(),
-    sessions = useChatReferenceSessions(),
     refs = useChatReferenceMachines(),
     repos = useChatRepositoryKey()
   const artifact = useChatArtifactIssue({ sessionId: id, issueId: 'synthetic-0' as never })
@@ -156,7 +154,6 @@ const Surface = observer(function Surface() {
           attached: window.attachedSessionId,
           seq: seq('synthetic-0'),
           threads: threads.length,
-          sessions: sessions.map((row) => row.sessionId),
           refs: refs.length,
           repos,
           artifact: artifact?.id,

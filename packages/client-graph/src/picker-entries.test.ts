@@ -1,18 +1,12 @@
 import { describe, expect, it, vi } from 'vitest'
-import {
-  chatMentionIssues,
-  chatReferenceSessions,
-  createReferencePicker,
-  mentionIssueOrder,
-  referenceSessionOrder,
-} from './chat-context'
+import { chatMentionMatches, createReferencePicker } from './chat-context'
 import { issuePages } from './issue-page'
 import { menuIssues } from './issue-page-menu.before.test.fixture'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
-// POD-5831: pickers keep their opening order as identities and an entry reads
-// its own facts when shown. The old whole-catalog answers are the oracles.
+// POD-5831: a picker shows a bounded window of identities and an entry reads
+// its own facts when shown. The old whole-catalog answer is the menu oracle.
 const stamp = (minute: number) => `2026-10-09T00:${String(minute).padStart(2, '0')}:00Z`
 type Row = Record<string, unknown>
 const issue = (id: string, seq: number, patch: Row = {}): Row => ({
@@ -44,13 +38,6 @@ function catalog(parents: number, extra: { issues?: Row[]; sessions?: Row[] } = 
       ...sessions.map((value) => ({ kind: 'session' as const, id: value.sessionId as string, value })),
     ] as never,
   })
-  // The server's recency orders, newest first.
-  const sessionOrder = [...sessions].reverse().map((row) => row.sessionId as string)
-  const issueOrder = [...issues].reverse().map((row) => row.id as string)
-  pool.sources.register(['chatSessionOrder', 'chatIssueOrder'], {
-    read: (entity) => ({ ids: entity === 'chatSessionOrder' ? sessionOrder : issueOrder }),
-    dispose() {},
-  })
   return pool
 }
 
@@ -77,65 +64,21 @@ function spyReads(pool: MobxPool) {
   }
 }
 
-describe('reference picker opening order (POD-5831)', () => {
-  const extras = {
-    issues: [issue('gone', 900, { deletedAt: stamp(3) }), issue('kept', 901)],
-    sessions: [
-      // Parked resume twins fold to the more recent; an active group stays whole.
-      seat('twin-old', 'kept', { status: 'hibernated', resume: { kind: 'claude', value: 'p' }, lastActiveAt: stamp(1) }),
-      seat('twin-new', 'kept', { status: 'hibernated', resume: { kind: 'claude', value: 'p' }, lastActiveAt: stamp(5) }),
-      seat('pair-live', 'kept', { status: 'live', resume: { kind: 'claude', value: 'q' } }),
-      seat('pair-parked', 'kept', { status: 'hibernated', resume: { kind: 'claude', value: 'q' } }),
-      seat('loose', undefined),
-    ],
-  }
-  it('stores the same order as the old catalog answers, with no row reads', () => {
-    const pool = catalog(6, extras)
-    try {
-      const oldSessions = chatReferenceSessions(pool).sessions.map((row) => row.sessionId)
-      const oldIssues = chatMentionIssues(pool).issues.map((row) => row.id)
-      expect(oldSessions).toContain('twin-new')
-      expect(oldSessions).not.toContain('twin-old')
-      expect(oldIssues).not.toContain('gone')
-      const reads = spyReads(pool)
-      try {
-        const sessions = referenceSessionOrder(pool), issues = mentionIssueOrder(pool)
-        expect(sessions).toEqual({ ids: oldSessions, pending: 0 })
-        expect(issues).toEqual({ ids: oldIssues, pending: 0 })
-        expect(reads.rowIds('session')).toEqual(new Set())
-        expect(reads.rowIds('issue')).toEqual(new Set())
-        expect(reads.descendants()).toEqual(new Set())
-        expect(() => expect([...sessions.ids].reverse()).toEqual(oldSessions)).toThrow()
-        expect(() => expect([...issues.ids, 'gone']).toEqual(oldIssues)).toThrow()
-      } finally {
-        reads.restore()
-      }
-    } finally {
-      pool.dispose()
-    }
-  })
-
+describe('mention search (POD-5831)', () => {
   for (const scale of [1, 4])
-    it(`opens and searches without resolving other entries at ${scale}x`, () => {
-      const pool = catalog(16 * scale, extras)
+    it(`asks for a short list without resolving other entries at ${scale}x`, () => {
+      const pool = catalog(16 * scale)
       const picker = createReferencePicker(pool)
       const reads = spyReads(pool)
       try {
-        picker.open()
-        expect(picker.sessionIds.length).toBeGreaterThan(30 * scale)
-        expect(picker.pending).toBe(0)
-        expect(reads.rowIds('session')).toEqual(new Set())
-        expect(reads.rowIds('issue')).toEqual(new Set())
-        expect(reads.descendants()).toEqual(new Set())
-        // A shown entry reads its own row and stays still while open.
-        expect(picker.session('s0-a')).toMatchObject({ title: 's0-a' })
-        expect(reads.rowIds('session')).toEqual(new Set(['s0-a']))
-        // A short result list: only its own rows, and no entry's descendants.
         picker.search('task', 2)
         expect(picker.issueIds).toHaveLength(2)
+        expect(picker.issueIds).toEqual(chatMentionMatches(pool, 'task', 2).issues.map((row) => row.id))
         const shown = new Set(picker.issueIds)
-        expect(picker.issues.map((row) => row.id)).toEqual(picker.issueIds)
+        for (const id of picker.issueIds) expect(picker.issue(id)).toMatchObject({ id })
+        expect(reads.rowIds('issue').size).toBeGreaterThan(0)
         for (const id of reads.rowIds('issue')) expect(shown.has(id)).toBe(true)
+        expect(reads.rowIds('session')).toEqual(new Set())
         expect(reads.descendants()).toEqual(new Set())
       } finally {
         reads.restore()

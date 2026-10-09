@@ -103,23 +103,10 @@ vi.mock('@/app/store-worklist-pool', async () => {
   }
 })
 
-vi.mock('@/features/chat/use-chat-context', async () => {
-  const { useEffect } = await import('react')
-  return {
-    useChatReferenceSessions: () => {
-      hostStore.referenceReads()
-      useEffect(() => {
-        hostStore.activeReferenceReaders++
-        return () => {
-          hostStore.activeReferenceReaders--
-        }
-      }, [])
-      return hostStore.sessions
-    },
-    useChatReferenceMachines: () => hostStore.machines,
-    useChatRepositoryKey: () => '',
-  }
-})
+vi.mock('@/features/chat/use-chat-context', () => ({
+  useChatReferenceMachines: () => hostStore.machines,
+  useChatRepositoryKey: () => '',
+}))
 
 vi.mock('@/app/operator-focus', () => ({
   useOperatorFocus: () => ({

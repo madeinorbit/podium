@@ -122,7 +122,6 @@ import {
   useChatMachines,
   useChatMentions,
   useChatReferenceMachines,
-  useChatReferenceSessions,
   useChatRepositoryKey,
   useChatSession,
   useChatSessionExitKind,
@@ -362,7 +361,6 @@ function Inputs() {
     window = useChatContextWindow(),
     seq = useChatIssueSeq()
   const threads = useChatThreads(),
-    sessions = useChatReferenceSessions(),
     refs = useChatReferenceMachines(),
     repos = useChatRepositoryKey()
   const artifact = useChatArtifactIssue(f.fixture!.sessions[0]!),
@@ -379,7 +377,6 @@ function Inputs() {
         attached: window.attachedSessionId,
         seq: seq('chat-issue'),
         threads,
-        sessions: sessions.map((row) => row.sessionId),
         refs: refs.length,
         repos,
         artifact: artifact?.id,
