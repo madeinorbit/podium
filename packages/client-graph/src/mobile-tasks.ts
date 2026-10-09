@@ -252,7 +252,9 @@ export class MobileTasksBoard {
 
   /** The Show-done toggle. */
   @observable accessor showDone: boolean
-  /** Parents showing their children: a look, not a preference. */
+  /** Parents showing their children. Local to this view, as the desktop board
+   * holds it, not replicated ui-state: expanding an epic is a look, not a
+   * preference, and the desk and the phone look at different things. */
   @observableRef accessor expanded: readonly string[]
   /** The filter sheet's choices. */
   @observableRef accessor filter: BoardFilter
@@ -346,7 +348,7 @@ export class MobileTasksBoard {
     return requireRow(this.pool.row('issueBoardPosition', JSON.stringify([id, ordering])))
   }
 
-  private query$(options: BoardQuery): readonly string[] {
+  private boardQuery(options: BoardQuery): readonly string[] {
     const value = requireRow(this.pool.row('issueBoardQuery', JSON.stringify(options)))
     if (!value) throw LOADING
     return value.ids
@@ -365,7 +367,7 @@ export class MobileTasksBoard {
 
   /** The filter's matches that this board shows. */
   @lazy({ equals: compareShallow }) get matchedIds(): readonly string[] {
-    return this.query$({
+    return this.boardQuery({
       kind: 'board',
       filter: this.searchFilter,
       showAgentTasks: this.showAgentTasks,
@@ -440,7 +442,7 @@ export class MobileTasksBoard {
   @lazy get proposals(): number | typeof LOADING {
     try {
       let total = 0
-      for (const id of this.query$(PROPOSALS)) if (this.task(id).awaitsScreening) total++
+      for (const id of this.boardQuery(PROPOSALS)) if (this.task(id).awaitsScreening) total++
       return total
     } catch (error) {
       if (error === LOADING) return LOADING
