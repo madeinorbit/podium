@@ -541,7 +541,14 @@ export class IssueModel extends EntityModel {
     const read = parseMs(this.host.visibleInputs.issueRead(this.id))
     if (read === null) return true
     const updated = this.updatedMs, active = parseMs(this.lastActivityAt)
-    return (updated !== null && updated > read) || (active !== null && active > read)
+    if ((updated !== null && updated > read) || (active !== null && active > read)) return true
+    // Standalone row feeds can omit replica metadata. Borrow the maintained
+    // non-shell member activity, as the old raw unread answer did.
+    const inputs = this.host.visibleInputs
+    const memberActivity = inputs.seatSummary
+      ? inputs.seatList(this.id).length === 0 ? null : inputs.seatSummary(this.id).activity
+      : this.memberLatestActivity
+    return memberActivity !== null && memberActivity > read
   }
 
   @lazy
