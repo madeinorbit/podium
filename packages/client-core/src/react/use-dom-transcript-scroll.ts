@@ -443,7 +443,7 @@ export function useDomTranscriptScroll(
   )
 
   const scrollToBlock = useCallback(
-    (index: number, opts?: { instant?: boolean }) => {
+    (index: number, opts?: { instant?: boolean }): void => {
       const scroller = scrollerRef.current
       const target = scroller?.querySelector<HTMLElement>(`[data-block="${index}"]`)
       if (!scroller || !target) return

@@ -14,6 +14,7 @@ interface Entry {
   text: string
   publish: (mounted: boolean) => void
   finding: boolean
+  revealing: boolean
 }
 interface TranscriptWindow {
   register: (key: string, entry: Entry) => () => void
@@ -29,7 +30,6 @@ export function useTranscriptWindow(
   const mounted = useRef(new Set<string>())
   const frame = useRef<number | null>(null)
   const selectingAll = useRef(false)
-  const sticky = useRef<string | undefined>(undefined)
   const register = useCallback((key: string, entry: Entry) => {
     entries.current.set(key, entry)
     mounted.current.add(key)
@@ -81,23 +81,23 @@ export function useTranscriptWindow(
         previousPromptTop = top
       }
     }
-    sticky.current = previousPrompt
     if (previousPrompt && entries.current.has(previousPrompt)) next.add(previousPrompt)
-    // A range can span shells after Shift-click or Select All. Materialise its
-    // intervening messages before Copy reads the browser's native selection.
-    if (range && (selection?.anchorNode && scroll.contains(selection.anchorNode) || selection?.focusNode && scroll.contains(selection.focusNode))) {
-      const endpoint = (node: Node | null) => node?.parentElement?.closest<HTMLElement>('[data-transcript-row]')?.dataset.transcriptRow
-      const a = endpoint(selection!.anchorNode), b = endpoint(selection!.focusNode)
-      if (a && b && a !== b) {
-        const start = list.indexOf(a), end = list.indexOf(b)
-        for (let i = Math.min(start, end); i <= Math.max(start, end); i++) if (list[i]) next.add(list[i]!)
-      }
+    // A selection may span shells, including a Select All from the browser's
+    // menu. Materialise the complete selected interval before native Copy.
+    if (range?.intersectsNode(scroll)) {
+      const endpoint = (node: Node) => (node instanceof Element ? node : node.parentElement)
+        ?.closest<HTMLElement>('[data-transcript-row]')?.dataset.transcriptRow
+      const a = endpoint(range.startContainer), b = endpoint(range.endContainer)
+      const start = a ? list.indexOf(a) : 0
+      const end = b ? list.indexOf(b) : list.length - 1
+      for (let i = Math.max(0, start); i <= end; i++) if (list[i]) next.add(list[i]!)
     }
     for (const key of new Set([...mounted.current, ...next])) {
       const entry = entries.current.get(key)
       if (!entry) continue
       if (entry.mounted && entry.height <= 0) entry.height = entry.node.getBoundingClientRect().height
-      const show = next.has(key) || entry.finding || entry.height <= 0
+      if (next.has(key)) entry.revealing = false
+      const show = next.has(key) || entry.finding || entry.revealing || entry.height <= 0
       if (show === entry.mounted) continue
       if (!show) {
         entry.height = entry.node.getBoundingClientRect().height
@@ -148,6 +148,7 @@ export function useTranscriptWindow(
       if (!entry) return
       flushSync(() => {
         entry.mounted = true
+        entry.revealing = true
         mounted.current.add(shell!.dataset.transcriptRow!)
         entry.publish(true)
       })
@@ -157,9 +158,7 @@ export function useTranscriptWindow(
     // Width changes invalidate measured wrapping; remeasure all loaded rows
     // once at the new width instead of reusing heights from another layout.
     let width = scroll.clientWidth
-    const measureWidth = new ResizeObserver(() => {
-      if (scroll.clientWidth === width) return
-      width = scroll.clientWidth
+    const remeasure = () => {
       for (const [key, entry] of entries.current) {
         entry.height = 0
         entry.mounted = true
@@ -167,8 +166,16 @@ export function useTranscriptWindow(
         entry.publish(true)
       }
       update()
+    }
+    const measureWidth = new ResizeObserver(() => {
+      if (scroll.clientWidth === width) return
+      width = scroll.clientWidth
+      remeasure()
     })
     measureWidth.observe(scroll)
+    document.fonts?.addEventListener('loadingdone', remeasure)
+    const copy = () => flushSync(refresh)
+    document.addEventListener('copy', copy, true)
     scroll.addEventListener('scroll', update, { passive: true })
     scroll.addEventListener('podium-transcript-reveal', reveal)
     scroll.addEventListener('load', update, true)
@@ -178,6 +185,8 @@ export function useTranscriptWindow(
     return () => {
       resize.disconnect()
       measureWidth.disconnect()
+      document.fonts?.removeEventListener('loadingdone', remeasure)
+      document.removeEventListener('copy', copy, true)
       scroll.removeEventListener('scroll', update)
       scroll.removeEventListener('podium-transcript-reveal', reveal)
       scroll.removeEventListener('load', update, true)
@@ -203,7 +212,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
   const entry = useRef<Entry | null>(null)
   const wasMounted = useRef(true)
   useLayoutEffect(() => {
-    const value: Entry = { node: ref.current!, mounted: true, height: 0, text: '', publish: setMounted, finding: false }
+    const value: Entry = { node: ref.current!, mounted: true, height: 0, text: '', publish: setMounted, finding: false, revealing: false }
     entry.current = value
     return windowing.register(rowKey, value)
   }, [rowKey, windowing])
