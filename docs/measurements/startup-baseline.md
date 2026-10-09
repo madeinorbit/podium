@@ -101,7 +101,25 @@ under the 3 GB worker cap at 1x (lazy proof peak RSS about 2.5 GiB); a 10x run o
 
 ## First paint
 
-PENDING.
+The timing matrix is collecting. Eight unprofiled cold/warm pairs per cell
+are required before reporting a median.
+
+The measured source is `75ec571b04`, on product base `2c4e3bd21e`, preserved
+as `refs/measurements/5594-startup-baseline` in the local repository and
+flatblock's transfer repository. Later candidate rebases do not change this
+baseline. Normal production bundles: web `bundle+CkDtfcea`, phone
+`bundle+bb0d20a1d3a22fe327c832d601101ce7`; wire version 4, schema digest
+`366458d430049fd2`. Both outputs were built under the heavy lease; subsequent
+harness-only commits used the canonical build stamp after verifying unchanged
+product source.
+
+Host: flatblock, 8 logical CPUs, AMD EPYC Processor (with IBPB), Linux;
+Chromium `153.0.8010.12`. Web viewport: 1800 × 1000. Phone: Playwright's
+Pixel 7 preset on the production phone web Work tab. The capture controller
+runs locally over SSH; every app, browser, test and build runs on flatblock.
+Timing windows yield to the shared census and resume the saved schedule.
+The summary retains the individual samples, dates, source and product tree
+hashes, load readings and lease windows.
 
 ## How to rerun
 
