@@ -317,13 +317,15 @@ describe('row-source over the real facade (fake runtime)', () => {
         replica.onKernelEvent(upserted('issueProjection', 'i1'))
         runtime.publish()
         const arrived = handle.flush()
-        expect(arrived?.rows).toHaveLength(1)
         if (mode === 'pooled') {
-          expect((arrived?.rows[0]?.value as { title: string }).title).toBe('Local')
+          // The pending title masks the only changed client field.
+          expect(arrived).toBeNull()
+          expect(handle.source.row?.('issue', 'i1')).toMatchObject({ title: 'Local' })
         } else {
+          expect(arrived?.rows).toHaveLength(1)
           expect(arrived?.rows[0]?.value).toMatchObject(remote)
         }
-        expect(events).toHaveLength(mode === 'pooled' ? 2 : 1)
+        expect(events).toHaveLength(1)
       } finally {
         off()
         handle.dispose()
