@@ -147,12 +147,15 @@ try {
   await page.evaluate(() => { (window as any).__nativeFindEvents = 0; document.addEventListener('beforematch', () => (window as any).__nativeFindEvents++, true) })
   const windowId = execFileSync(`${nativeTools}/usr/bin/xdotool`, ['search', '--onlyvisible', '--class', 'chrom(e|ium)'], { env: nativeEnv, encoding: 'utf8' }).trim().split('\n')[0]!
   execFileSync(`${nativeTools}/usr/bin/xdotool`, ['windowfocus', '--sync', windowId], { env: nativeEnv })
-  nativeKey('ctrl+f')
+  const menuFind = process.argv.includes('--menu-find')
+  // Chrome's menu handles this accelerator outside the page's keydown path.
+  nativeKey(...(menuFind ? ['alt+f', 'ctrl+f'] : ['ctrl+f']))
   execFileSync(`${nativeTools}/usr/bin/xdotool`, ['type', '--clearmodifiers', '--delay', '0', 'native-needle-4000'], { env: nativeEnv })
   await page.waitForTimeout(300)
   const nativeFind = await page.evaluate(() => ({ selection: document.getSelection()?.toString(), beforematch: (window as any).__nativeFindEvents, stats: (window as any).__transcriptWindowProof.stats() }))
   console.log(JSON.stringify({ nativeFind }))
   await writeFile(resolve(directory, 'native-find.json'), JSON.stringify(nativeFind, null, 2))
+  if (arm === 'after' && menuFind && !nativeFind.beforematch) throw new Error('Menu Find did not exercise the hidden-row browser boundary')
   if (!nativeFind.stats.text.some((text: string) => text.includes('native-needle-4000'))) throw new Error('Native Find did not reveal its off-window match')
   if (arm === 'after' && nativeFind.stats.drawn !== nativeFind.stats.loaded) throw new Error('Native Find did not retain its original rich ranges')
   await page.screenshot({ path: resolve(directory, 'find.png') })
