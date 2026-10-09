@@ -189,3 +189,32 @@ it('keeps only the buffer drawn across repeated native Find jumps without duplic
   expect(text.isConnected).toBe(false)
   expect(host.querySelectorAll('[data-message]').length).toBeLessThan(40)
 })
+
+it('preserves native Find ranges for its session, then returns to the buffer around the committed selection', () => {
+  act(() => root.render(<Fixture key="native-find" count={100} />))
+  act(() => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', ctrlKey: true, bubbles: true })))
+  expect(host.querySelectorAll('[data-message]')).toHaveLength(100)
+  scroll(4_000)
+  expect(host.querySelectorAll('[data-message]')).toHaveLength(100)
+  const text = host.querySelector('[data-transcript-row="row-50"] p')!.firstChild!
+  const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, text.textContent!.length)
+  const selection = document.getSelection()!; selection.addRange(range)
+  const matched = selection.toString()
+  act(() => document.dispatchEvent(new Event('selectionchange')))
+  paint()
+  expect(host.querySelectorAll('[data-message]').length).toBeLessThan(40)
+  expect(selection.toString()).toBe(matched)
+})
+
+it('leaves app-handled Find in the buffer and releases an empty native Find on Escape', () => {
+  act(() => root.render(<Fixture key="empty-find" count={100} />))
+  const handled = new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true, cancelable: true })
+  handled.preventDefault()
+  act(() => document.body.dispatchEvent(handled))
+  expect(host.querySelectorAll('[data-message]').length).toBeLessThan(25)
+  act(() => document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'f', metaKey: true, bubbles: true })))
+  expect(host.querySelectorAll('[data-message]')).toHaveLength(100)
+  act(() => document.body.dispatchEvent(new KeyboardEvent('keyup', { key: 'Escape', bubbles: true })))
+  paint()
+  expect(host.querySelectorAll('[data-message]').length).toBeLessThan(25)
+})

@@ -260,7 +260,8 @@ export function useTranscriptWindow(
       update()
     }
     const findSelection = () => {
-      if (!document.getSelection()?.isCollapsed) finishNativeFind()
+      const selection = document.getSelection()
+      if (selection && !selection.isCollapsed) finishNativeFind()
     }
     const findKeyUp = (event: KeyboardEvent) => {
       if (event.key === 'Escape') finishNativeFind()

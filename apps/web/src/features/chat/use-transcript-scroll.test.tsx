@@ -116,6 +116,20 @@ function resize(): void {
   })
 }
 
+it('lets native Find leave the tail without restoring the old anchor or requesting history', () => {
+  renderHarness(<Harness moreAbove />)
+  expect(api.atBottom).toBe(true)
+  act(() => scroller().dispatchEvent(new Event('podium-transcript-find-start')))
+  expect(api.atBottom).toBe(false)
+  act(() => {
+    scroller().scrollTop = 0
+    scroller().dispatchEvent(new Event('scroll', { bubbles: true }))
+  })
+  resize()
+  expect(scroller().scrollTop).toBe(0)
+  expect(loadOlder).not.toHaveBeenCalled()
+})
+
 beforeEach(() => {
   ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
   viewport = 400
