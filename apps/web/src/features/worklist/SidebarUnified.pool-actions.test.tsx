@@ -931,10 +931,10 @@ describe('real pool row mutations and receipts', () => {
     await menu()
     fireEvent.click(await item('Mark as unread'))
     const unread = await request('issues.markUnread')
-    expect(value().unread).toBe(true)
+    expect(value().issue.unread).toBe(true)
     await parity()
     await refuse(unread)
-    expect(value().unread).toBe(false)
+    expect(value().issue.unread).toBe(false)
   })
 
   it('offers the same sidebar menu vocabulary and resolves live cascade counts and members on open', async () => {
@@ -976,15 +976,15 @@ describe('real pool row mutations and receipts', () => {
         deferUntil: new Date(NOW + 3600000).toISOString(),
       }),
     )
-    expect(value().unread).toBe(true)
+    expect(value().issue.unread).toBe(true)
     expect(actions.resolveMenuData(TARGET).single[0]?.unread).toBe(true)
     await menu()
     fireEvent.click(await item('Mark as read'))
     const read = await request('issues.markRead')
-    expect(value().unread).toBe(false)
+    expect(value().issue.unread).toBe(false)
     await parity()
     await refuse(read)
-    expect(value().unread).toBe(true)
+    expect(value().issue.unread).toBe(true)
     await menu()
     fireEvent.click(await item('Snooze / defer'))
     fireEvent.click(await item('Unsnooze'))

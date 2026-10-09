@@ -18,7 +18,7 @@ import { mobileWaitingCount, type MobileRowValues } from './mobile-row'
 import { childIdsPartOf, type HeldIssue, type HiddenIssue, hiddenPresenceOf, keptBelowPartOf,
   laneMemberIdsPartOf, memberIdsPartOf, nestCandidatePartOf, nestParentPartOf,
   flatPartOf, keepsPartOf, retainedSeatIdsPartOf, rosterIdsPartOf, openOwnPartOf, nestBelowPartOf, nestedPartOf,
-  laneRetainedSeatIdsPartOf, mergeIds, standingOf, type Standing, spinOffIdsPartOf, unreadPartOf } from './visible'
+  laneRetainedSeatIdsPartOf, mergeIds, standingOf, type Standing, spinOffIdsPartOf } from './visible'
 import type { IssueModel, ModelHost } from '../models'
 import type { Worklist } from './view-model'
 import { AttentionFields } from './attention'
@@ -477,11 +477,6 @@ export class WorklistIssue implements HeldIssue, RowView {
 
   @lazy get keptBelow(): boolean {
     return keptBelowPartOf(this.host.visibleInputs, this.id, this.childIds, this)
-  }
-
-  /** Unread activity in the kept subtree, including activity hidden by the current phase. */
-  @lazy get unread(): boolean {
-    return unreadPartOf(this.host.visibleInputs, this.id, this.standing, this.seatIds)
   }
 
   get repoTarget(): string | null {
@@ -1023,7 +1018,7 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy get visibleUnread(): boolean {
     if (this.visibleWorking) return false
     const readAt = this.issue.readAt, readMs = Date.parse(readAt ?? '')
-    return this.unread || Boolean(readAt && Number.isFinite(readMs) &&
+    return this.issue.unread || Boolean(readAt && Number.isFinite(readMs) &&
       ((Date.parse(this.visibleAttention.updatedAt ?? '') || 0) > readMs || (this.visibleSessionActivity ?? 0) > readMs) && this.visibleDescendantIds.length > 0)
   }
   @lazy get errorClass() { return this.ownFacts.finished ? null : (this.visibleAttention.sidebarFacts ?? NO_SIDEBAR_SESSIONS).errorClass }

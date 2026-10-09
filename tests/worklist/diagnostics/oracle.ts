@@ -50,7 +50,7 @@ export function sidebarComparable(value: SidebarRowValues | WorklistIssue): Reco
     internal: value.issue.audience === 'agent', awaitsTuck: value.canTuck, canBringBack: value.canBringBack,
     unsnoozed: value.returnedFromDefer, deferred: value.issue.deferred, draftAgentOnly: value.sessionOnlyDraft,
     firstSessionId: value.firstSessionId, continuation: value.continuation, fleet: value.visibleFleet,
-    issue: { ...pick(value.issue, ISSUE_CONTENT_FIELDS), unread: value.unread },
+    issue: { ...pick(value.issue, ISSUE_CONTENT_FIELDS), unread: value.issue.unread },
     sessions: value.sessions.map(sessionComparable), aggregateSessionIds: value.visibleSessionIds,
     awaitingFirstPrompt: value.awaitingFirstPrompt,
   }

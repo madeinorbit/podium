@@ -60,7 +60,7 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
   const [sheet, setSheet] = useState<MenuSheet>({ kind: 'menu' })
   const issue = target.issue
   const pool = useMobilePool()
-  const unread = pool?.worklistRow(issue.id)?.unread ?? issue.unread
+  const unread = pool ? pool.issueObject(issue.id).unread : issue.unread
   const closeIf = (kind: NonNullable<MenuSheet>['kind']) => () =>
     setSheet((current) => (current?.kind === kind ? null : current))
 
