@@ -290,34 +290,23 @@ export function createKeyedAnswer<T>(
     ? (a: Item<T>, b: Item<T>) =>
         compareValues(a.value, b.value) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
     : compare<T>
+  function neighbour(value: T, id: string, direction: number): T | undefined {
+    const wanted = { id, order: item(id)?.order ?? '', value }
+    let cursor = root, candidate: Item<T> | undefined
+    while (cursor) {
+      if (compareItems(wanted, cursor.item) * direction < 0) {
+        candidate = cursor.item
+        cursor = direction > 0 ? cursor.left : cursor.right
+      } else cursor = direction > 0 ? cursor.right : cursor.left
+    }
+    return candidate?.value
+  }
   return {
     has: (id: string) => item(id) !== undefined,
     get: (id: string) => item(id)?.value,
     first: () => at(root, 0),
-    after(value: T, id: string): T | undefined {
-      const wanted = { id, order: item(id)?.order ?? '', value }
-      let cursor = root,
-        candidate: Item<T> | undefined
-      while (cursor) {
-        if (compareItems(wanted, cursor.item) < 0) {
-          candidate = cursor.item
-          cursor = cursor.left
-        } else cursor = cursor.right
-      }
-      return candidate?.value
-    },
-    before(value: T, id: string): T | undefined {
-      const wanted = { id, order: item(id)?.order ?? '', value }
-      let cursor = root,
-        candidate: Item<T> | undefined
-      while (cursor) {
-        if (compareItems(wanted, cursor.item) > 0) {
-          candidate = cursor.item
-          cursor = cursor.right
-        } else cursor = cursor.left
-      }
-      return candidate?.value
-    },
+    after: (value, id) => neighbour(value, id, 1),
+    before: (value, id) => neighbour(value, id, -1),
     firstBounded(bound, side, after, id = '') {
       const pivot =
         after === undefined ? undefined : { id, order: item(id)?.order ?? '', value: after }
@@ -463,8 +452,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     return atom
   }
   const atom = makeAtom(spec.name)
-  const matches = (spec.matches ?? []).map((test, index) => ({
-    test,
+  const matches = (spec.matches ?? []).map((_test, index) => ({
     atom: makeAtom(`${spec.name}.match:${index}`),
     countAtom: makeAtom(`${spec.name}.count:${index}`),
     root: undefined as Node<T> | undefined,
@@ -482,29 +470,29 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     spec.partition!.compareOrder(a.order, b.order) || a.id.localeCompare(b.id)
   const partitionItem = (item: Item<T> | undefined) => item?.partitionOrder === undefined
     ? undefined : { ...item, order: item.partitionOrder }
-  function leading(tree: Node<T> | undefined, count: number): Item<T>[] {
-    const values: Item<T>[] = []
-    for (let index = 0; index < Math.min(count, size(tree)); index++) values.push(itemAt(tree, index)!)
-    return values
+  function retained(tree: Node<T> | undefined, count: number): Set<string> {
+    const ids = new Set<string>()
+    for (let index = 0; index < Math.min(count, size(tree)); index++) ids.add(itemAt(tree, index)!.id)
+    return ids
+  }
+  function hidden(item: Item<T> | undefined, tree: Node<T> | undefined, keep: Set<string>): boolean {
+    return item !== undefined && size(tree) > spec.partition!.minimumSize && item.partitionOrder !== undefined && !keep.has(item.id)
   }
   function updatePartition(before: Item<T> | undefined, after: Item<T> | undefined, previousRoot: Node<T> | undefined) {
     if (!spec.partition) return
-    const oldHead = leading(partitionRoot, spec.partition.keepFirst)
-    const oldKeep = new Set(oldHead.map(item => item.id))
+    const oldKeep = retained(partitionRoot, spec.partition.keepFirst)
     partitionRoot = replace(partitionRoot, partitionItem(before), partitionItem(after), partitionCompare)
-    const newHead = leading(partitionRoot, spec.partition.keepFirst)
-    const newKeep = new Set(newHead.map(item => item.id))
+    const newKeep = retained(partitionRoot, spec.partition.keepFirst)
     const affected = new Set([...oldKeep, ...newKeep])
     if (before) affected.add(before.id)
     if (after) affected.add(after.id)
     // Crossing the all-visible threshold can affect at most minimumSize+1 rows.
     if ((size(previousRoot) <= spec.partition.minimumSize) !== (size(root) <= spec.partition.minimumSize))
-      for (const item of [...leading(previousRoot, spec.partition.minimumSize + 1), ...leading(root, spec.partition.minimumSize + 1)]) affected.add(item.id)
+      for (const id of [...retained(previousRoot, spec.partition.minimumSize + 1), ...retained(root, spec.partition.minimumSize + 1)]) affected.add(id)
     for (const id of affected) {
       const oldItem = id === before?.id ? before : id === after?.id ? undefined : entries.get(id)?.item
       const newItem = id === after?.id ? after : id === before?.id ? undefined : entries.get(id)?.item
-      const wasHidden = oldItem !== undefined && size(previousRoot) > spec.partition.minimumSize && oldItem.partitionOrder !== undefined && !oldKeep.has(id)
-      const isHidden = newItem !== undefined && size(root) > spec.partition.minimumSize && newItem.partitionOrder !== undefined && !newKeep.has(id)
+      const wasHidden = hidden(oldItem, previousRoot, oldKeep), isHidden = hidden(newItem, root, newKeep)
       shownRoot = replace(shownRoot, oldItem && !wasHidden ? oldItem : undefined, newItem && !isHidden ? newItem : undefined, compareItems)
       hiddenRoot = replace(hiddenRoot, wasHidden ? oldItem : undefined, isHidden ? newItem : undefined, compareItems)
     }
@@ -636,13 +624,12 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       })
       if (!next || compareStructural(previous, next)) return
       previous = next
-      const { order, value } = next
+      const { value } = next
       const wasPending = entry.pending
-      if (entry.pending) pending--
       entry.pending = value === LOADING
-      if (entry.pending) pending++
+      pending += Number(entry.pending) - Number(wasPending)
       const oldItem = entry.item
-      entry.item = value === undefined || value === LOADING ? undefined : { id, order, value, matches: next.matches, totals: next.totals, partitionOrder: next.partitionOrder }
+      entry.item = value === undefined || value === LOADING ? undefined : { id, ...next, value }
       const updated = updateItem(oldItem, entry.item)
       if (wasPending !== entry.pending) witnessesChanged()
       if (updated || wasPending !== entry.pending) changed()
@@ -691,10 +678,9 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       for (const [index, total] of totals.entries()) total.value = items.reduce((sum, item) => sum + (item.totals?.[index] ?? 0), 0)
       if (spec.partition) {
         partitionRoot = build(items.filter(item => item.partitionOrder !== undefined).map(item => partitionItem(item)!), partitionCompare)
-        const keep = new Set(leading(partitionRoot, spec.partition.keepFirst).map(item => item.id))
-        const hidden = (item: Item<T>) => items.length > spec.partition!.minimumSize && item.partitionOrder !== undefined && !keep.has(item.id)
-        shownRoot = build(items.filter(item => !hidden(item)), compareItems)
-        hiddenRoot = build(items.filter(hidden), compareItems)
+        const keep = retained(partitionRoot, spec.partition.keepFirst)
+        shownRoot = build(items.filter(item => !hidden(item, root, keep)), compareItems)
+        hiddenRoot = build(items.filter(item => hidden(item, root, keep)), compareItems)
       }
     })
     stopMembership = spec.subscribe((id) => {
@@ -710,78 +696,47 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       }
     })
   }
+  /** Every answer shares the same demand lifetime; only its signal differs. */
+  function read<R>(signal: IAtom, answer: () => R, partial?: false): Loaded<R>
+  function read<R>(signal: IAtom, answer: () => R, partial: true): R
+  function read<R>(signal: IAtom, answer: () => R, partial = false): Loaded<R> {
+    start()
+    const tracked = signal.reportObserved()
+    const result = pending && !partial ? LOADING : answer()
+    if (!tracked && !observed.size) clear()
+    return result
+  }
+  function declared<R>(answers: readonly R[], index: number, kind: string): R {
+    start()
+    const answer = answers[index]
+    if (!answer) throw new Error(`Undeclared query ${kind}: ${index}`)
+    return answer
+  }
   return {
-    get(): Loaded<T[]> {
-      start()
-      const tracked = atom.reportObserved()
-      if (!pending && !cached) cached = snapshot(root)
-      const result = pending ? LOADING : cached!
-      if (!tracked && !observed.size) clear()
-      return result
-    },
+    get: () => read(atom, () => cached ??= snapshot(root)),
     /** Partial answers and an exact pending count, without enumerating rows. */
-    summary(): { rows: T[]; pending: number } {
-      start()
-      const tracked = atom.reportObserved()
-      cached ??= snapshot(root)
-      summary ??= { rows: cached, pending }
-      const result = summary
-      if (!tracked && !observed.size) clear()
-      return result
-    },
+    summary: () => read(atom, () => summary ??= { rows: cached ??= snapshot(root), pending }, true),
     firstMatch(index: number): Loaded<T> {
-      start()
-      const match = matches[index]
-      if (!match) throw new Error(`Undeclared query match: ${index}`)
-      const tracked = match.atom.reportObserved()
-      const result = pending ? LOADING : at(match.root, 0)
-      if (!tracked && !observed.size) clear()
-      return result
+      const match = declared(matches, index, 'match')
+      return read(match.atom, () => at(match.root, 0))
     },
     countMatch(index: number): Loaded<number> {
-      start()
-      const match = matches[index]
-      if (!match) throw new Error(`Undeclared query match: ${index}`)
-      const tracked = match.countAtom.reportObserved()
-      const result = pending ? LOADING : size(match.root)
-      if (!tracked && !observed.size) clear()
-      return result
+      const match = declared(matches, index, 'match')
+      return read(match.countAtom, () => size(match.root))
     },
     getMatch(index: number): Loaded<T[]> {
-      start()
-      const match = matches[index]
-      if (!match) throw new Error(`Undeclared query match: ${index}`)
-      const tracked = match.rowsAtom.reportObserved()
-      match.cached ??= snapshot(match.root)
-      const result = pending ? LOADING : match.cached
-      if (!tracked && !observed.size) clear()
-      return result
+      const match = declared(matches, index, 'match')
+      return read(match.rowsAtom, () => match.cached ??= snapshot(match.root))
     },
-    count(): Loaded<number> {
-      start()
-      const tracked = countAtom.reportObserved()
-      const result = pending ? LOADING : size(root)
-      if (!tracked && !observed.size) clear()
-      return result
-    },
+    count: () => read(countAtom, () => size(root)),
     total(index: number): Loaded<number> {
-      start()
-      const total = totals[index]
-      if (!total) throw new Error(`Undeclared query total: ${index}`)
-      const tracked = total.atom.reportObserved()
-      const result = pending ? LOADING : total.value
-      if (!tracked && !observed.size) clear()
-      return result
+      const total = declared(totals, index, 'total')
+      return read(total.atom, () => total.value)
     },
     partition(hidden: boolean): Loaded<T[]> {
       if (!spec.partition) throw new Error('Undeclared query partition')
-      start()
-      const tracked = (hidden ? hiddenAtom : shownAtom).reportObserved()
-      if (hidden) hiddenSnapshot ??= snapshot(hiddenRoot)
-      else shownSnapshot ??= snapshot(shownRoot)
-      const result = pending ? LOADING : hidden ? hiddenSnapshot! : shownSnapshot!
-      if (!tracked && !observed.size) clear()
-      return result
+      return read(hidden ? hiddenAtom : shownAtom, () => hidden
+        ? hiddenSnapshot ??= snapshot(hiddenRoot) : shownSnapshot ??= snapshot(shownRoot))
     },
     dispose: clear,
   }
