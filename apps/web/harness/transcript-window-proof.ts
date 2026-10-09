@@ -36,10 +36,14 @@ await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
 const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'], env: { ...process.env, LD_LIBRARY_PATH: resolve('.toolchain/lib') } })
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 }, reducedMotion: 'reduce' })
-  const errors: string[] = []; page.on('pageerror', error => errors.push(error.message))
+  const errors: string[] = []; page.on('pageerror', error => { errors.push(error.message); console.log('Page error:', error.message) })
+  page.on('console', message => { if (message.type() === 'error') console.log('Browser error:', message.text()) })
   await page.goto(`http://127.0.0.1:${(server.address() as any).port}/test/transcript-window.browser.html`)
+  console.log('Production fixture opened')
   await page.waitForFunction(() => (window as any).__transcriptWindowProof?.stats().drawn > 0)
+  console.log('Production rows ready')
   await page.evaluate(() => document.fonts.ready)
+  console.log('Fonts ready')
   await page.waitForTimeout(300)
   const cdp = await page.context().newCDPSession(page)
   const samples = []
@@ -53,6 +57,7 @@ try {
     const heap = await cdp.send('Runtime.getHeapUsage')
     const stats = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
     samples.push({ ...stats, heapUsed: heap.usedSize, heapTotal: heap.totalSize })
+    await writeFile(resolve(directory, 'samples.json'), JSON.stringify(samples, null, 2))
     console.log(JSON.stringify({ loaded: stats.loaded, elements: stats.elements, drawn: stats.drawn, heapUsed: heap.usedSize }))
   }
   const fastScroll = await page.evaluate(async () => {
