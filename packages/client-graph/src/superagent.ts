@@ -1,6 +1,6 @@
 import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
-import { sessionPaneView } from './session-pane'
+import { loadedPaneSession } from './session-pane'
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import type { ReadPositionValue } from '@podium/client-core'
 import type { SuperagentSliceValue, SuperThreadView } from '@podium/client-core/values'
@@ -375,6 +375,6 @@ export function superagentFocus(pool: MobxPool) {
     if (row && typeof row !== 'symbol') repos.push(row as GitRepositoryWire)
   }
   if (!local || typeof local === 'symbol') return { repos, selectedWorktree: null, paneA: null, sessions: [], loading: true }
-  const session = sessionPaneView(pool).session((local.paneA ?? undefined) as SessionId | undefined)
+  const session = loadedPaneSession(pool, (local.paneA ?? undefined) as SessionId | undefined)
   return { repos, selectedWorktree: local.selectedWorktree, paneA: local.paneA, sessions: session ? [session] : [], loading: false }
 }

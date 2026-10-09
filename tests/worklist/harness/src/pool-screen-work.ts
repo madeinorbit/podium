@@ -13,7 +13,7 @@ import { isComplexFlightDeckMission } from '../../../../apps/web/src/app/flight-
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { headerView } from '@podium/client-graph/header-views'
 import { launchOptionViews } from '@podium/client-graph/launch-option-views'
-import { sessionPaneView } from '@podium/client-graph/session-pane'
+import { sessionPaneView } from '@podium/client-graph/session-pane-view'
 import { settingsView } from '@podium/client-graph/settings-views'
 import { referenceView } from '@podium/client-graph/issue-reference'
 import { referenceState } from '../../diagnostics/reference-state'

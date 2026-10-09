@@ -1,13 +1,20 @@
 import { assertReactiveRead } from '@podium/mobx-helpers'
-import { sessionPaneView } from '@podium/client-graph/session-pane'
+import type { SessionPanes } from '@podium/client-graph/session-pane-view'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueModel, MobxPool, SessionModel } from '@podium/client-graph'
 import type { SessionPaneRows } from '@podium/client-graph/session-pane-schema'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import type { IssueId, IssueStage, MachineWire, SessionId } from '@podium/model/browser'
+import { asSessionId, type IssueId, type IssueStage, type MachineWire, type SessionId } from '@podium/model/browser'
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { issueColorHex } from '@/lib/issueColors'
+
+/** The lazy runtime installs the view before publishing the pool to hooks. */
+function sessionPanes(pool: MobxPool): SessionPanes {
+  const view = pool.sources.peekView<SessionPanes>('sessionPanes')
+  if (!view) throw new Error('Session panes require their pool screen')
+  return view
+}
 
 const EMPTY_MACHINES: MachineWire[] = []
 const EMPTY_WINDOW: SessionPaneRows['sessionPaneWindow'] = {
@@ -16,28 +23,28 @@ const EMPTY_WINDOW: SessionPaneRows['sessionPaneWindow'] = {
   reposLoaded: false,
 }
 export function usePaneSession(id: SessionId | undefined): SessionView | undefined {
-  const read = useCallback((pool: MobxPool) => sessionPaneView(pool).session(id), [id])
+  const read = useCallback((pool: MobxPool) => sessionPanes(pool).session(id), [id])
   return useWorklistPoolProjection(read, undefined)
 }
-const machinesRead = (pool: MobxPool) => sessionPaneView(pool).machines()
+const machinesRead = (pool: MobxPool) => sessionPanes(pool).machines()
 export function usePaneMachines(): MachineWire[] {
   return useWorklistPoolProjection(machinesRead, EMPTY_MACHINES)
 }
 function windowRead(pool: MobxPool) {
-  return sessionPaneView(pool).window()
+  return sessionPanes(pool).window()
 }
 export function usePoolPaneWindow() {
   return useWorklistPoolProjection(windowRead, EMPTY_WINDOW)
 }
 export function usePaneSpawnConfirmed(id: SessionId) {
-  const read = useCallback((pool: MobxPool) => sessionPaneView(pool).spawnConfirmed(id), [id])
+  const read = useCallback((pool: MobxPool) => sessionPanes(pool).spawnConfirmed(id), [id])
   return useWorklistPoolProjection(read, false)
 }
 export function usePanePanelModes() {
   return usePoolPaneWindow().panelMode
 }
 export interface DockPaneInputs {
-  mapped: string | undefined
+  mapped: SessionId | undefined
   session: SessionModel | undefined
   pendingPresent: boolean
   hasSessions: boolean
@@ -58,9 +65,10 @@ export function useDockPaneInputs(cwd: string, pending: string | null): DockPane
   if (import.meta.env.DEV) assertReactiveRead('useDockPaneInputs')
   const pool = useWorklistPool()
   if (!pool) return EMPTY_DOCK
-  const panes = sessionPaneView(pool),
+  const panes = sessionPanes(pool),
     controls = panes.window()
-  const mapped = controls.dockShells[cwd]
+  const mappedId = controls.dockShells[cwd]
+  const mapped = mappedId === undefined ? undefined : asSessionId(mappedId)
   const present = mapped ? panes.pane(pool.sessionObject(mapped)).present : undefined
   return {
     mapped,
@@ -72,17 +80,17 @@ export function useDockPaneInputs(cwd: string, pending: string | null): DockPane
   }
 }
 /** The terminal's birth grid, read inside the dock terminal's observer. */
-export function usePaneGeometry(id: SessionId): SessionView['geometry'] {
+export function usePaneGeometry(id: SessionId): SessionView['geometry'] | undefined {
   if (import.meta.env.DEV) assertReactiveRead('usePaneGeometry')
   const pool = useWorklistPool()
-  return pool ? sessionPaneView(pool).loaded(id)?.session.geometry : undefined
+  return pool ? sessionPanes(pool).loaded(id)?.session.geometry : undefined
 }
-const selectedIssueRead = (pool: MobxPool) => sessionPaneView(pool).selectedIssueId
+const selectedIssueRead = (pool: MobxPool) => sessionPanes(pool).selectedIssueId
 /** The selected issue: a selection fact, independent of the pane's session. */
 export function usePaneSelectedIssueId(): IssueId | null {
   return useWorklistPoolProjection(selectedIssueRead, null)
 }
-const issueHexRead = (pool: MobxPool) => sessionPaneView(pool).issueHex(issueColorHex)
+const issueHexRead = (pool: MobxPool) => sessionPanes(pool).issueHex(issueColorHex)
 /** The selected issue's inherited tint, independent of the pane's session. */
 export function usePaneIssueHex(): string | undefined {
   return useWorklistPoolProjection(issueHexRead, undefined)
@@ -91,7 +99,7 @@ export function usePaneIssueHex(): string | undefined {
 export function usePaneStampIssue(id: SessionId): IssueModel | undefined {
   if (import.meta.env.DEV) assertReactiveRead('usePaneStampIssue')
   const pool = useWorklistPool()
-  const stamp = pool ? sessionPaneView(pool).loaded(id)?.stampIssue : undefined
+  const stamp = pool ? sessionPanes(pool).loaded(id)?.stampIssue : undefined
   return stamp === LOADING ? undefined : stamp
 }
 

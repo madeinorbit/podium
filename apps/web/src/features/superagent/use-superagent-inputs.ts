@@ -1,4 +1,4 @@
-import { sessionPaneView } from '@podium/client-graph/session-pane'
+import { loadedPaneSession } from '@podium/client-graph/session-pane'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
@@ -43,7 +43,7 @@ export function useSuperagentThread(id: string) {
   return useWorklistPoolProjection(read, { thread: undefined, loading: true })
 }
 export function useSuperagentSession(id: SessionId | undefined): SessionView | undefined {
-  const read = useCallback((pool: MobxPool) => sessionPaneView(pool).session(id), [id])
+  const read = useCallback((pool: MobxPool) => loadedPaneSession(pool, id), [id])
   return useWorklistPoolProjection(read, undefined)
 }
 const focus = (pool: MobxPool) => superagentFocus(pool)

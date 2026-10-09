@@ -1,5 +1,6 @@
 import { observer } from '@podium/client-graph/react'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { shellViews } from '@podium/client-graph/shell-views'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { autorun, computed, configure, observable, runInAction } from 'mobx'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
@@ -44,7 +45,7 @@ it.each(live)('rejects %s outside an observer even while the pool is loading', (
 it.each(live)('keeps %s reactive inside an observer', (_name, useRead) => {
   const value = observable.box(1), derived = computed(() => ({ version: value.get() }))
   source.read = () => derived.get()
-  source.pool = { row: () => source.read() } as unknown as MobxPool
+  source.pool = { row: () => source.read(), sources: { peekView: () => shellViews(source.pool!) } } as unknown as MobxPool
   const Surface = observer(() => <output>{JSON.stringify(useRead())}</output>)
   render(<Surface />)
   expect(screen.getByRole('status').textContent).toContain('1')
@@ -64,7 +65,7 @@ it('permits imperative link/resolver reads without losing their reactive depende
   const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
   const value = observable.box(1), derived = computed(() => ({ version: value.get() }))
   source.read = () => derived.get()
-  source.pool = {} as MobxPool
+  source.pool = { sources: { peekView: () => shellViews(source.pool!) } } as unknown as MobxPool
   let links: ReturnType<typeof reads.useShellLinks> | undefined
   let resolve: ReturnType<typeof reads.useShellSessionResolver> | undefined
   function Callbacks() { links = reads.useShellLinks(); resolve = reads.useShellSessionResolver(); return null }

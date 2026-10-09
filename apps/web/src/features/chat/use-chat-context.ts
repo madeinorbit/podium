@@ -1,5 +1,4 @@
 import { omitGone } from '@podium/client-graph/lookup'
-import { sessionPaneView } from '@podium/client-graph/session-pane'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import type { ChatContextRows } from '@podium/client-graph/chat-context-schema'
@@ -24,7 +23,7 @@ function useReferencePicker(active = true) {
   return useMemo(() => reader?.referencePicker(), [reader])
 }
 export function useChatSession(id: SessionId | undefined) {
-  const read = useCallback((pool: MobxPool) => sessionPaneView(pool).session(id), [id])
+  const read = useCallback((pool: MobxPool) => loadedPaneSession(pool, id), [id])
   return useWorklistPoolProjection(read, undefined)
 }
 export function useChatSessionExitKind(id: SessionId | undefined) {
@@ -38,7 +37,7 @@ export function useChatSessionExitKind(id: SessionId | undefined) {
   )
   return useWorklistPoolProjection(read, undefined)
 }
-const chatMachinesRead = (pool: MobxPool) => sessionPaneView(pool).machines()
+const chatMachinesRead = (pool: MobxPool) => paneMachines(pool)
 export function useChatMachines() {
   return useWorklistPoolProjection(chatMachinesRead, EMPTY_MACHINES)
 }

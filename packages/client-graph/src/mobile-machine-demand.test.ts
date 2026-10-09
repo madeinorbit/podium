@@ -1,6 +1,6 @@
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
-import { sessionPaneView } from './session-pane'
+import { sessionPaneView } from './session-pane-view'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { createMobileSessionReader } from './mobile-session-context'

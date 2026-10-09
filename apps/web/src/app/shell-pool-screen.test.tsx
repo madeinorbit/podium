@@ -39,6 +39,7 @@ it('attaches the existing pool after mounting every reader without a legacy fall
     owner = useStoreHandle<Trpc>()
     const pool = useWorklistPool()
     states.push(Boolean(pool))
+    if (pool) expect(pool.sources.peekView('sessionPanes')).toBeDefined()
     const chrome = reads.useShellChrome(),
       dock = reads.useShellDockCatalogs(true),
       window = reads.useShellWindow()

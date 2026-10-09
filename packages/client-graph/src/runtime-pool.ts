@@ -1,5 +1,7 @@
 import { omitGone } from './lookup'
 import { worklistView } from './worklist/view-model'
+import { sessionPaneView } from './session-pane-view'
+import { shellViews } from './shell-views'
 import { attachPreferenceSource } from './preference-source'
 import type { SessionPhaseChange } from '@podium/client-core/sound'
 import { attachSettingsSource } from './settings-source'
@@ -285,6 +287,8 @@ export function attachRuntimeWriter(
 export function createRuntimeWorklistPool(
   runtime: WorklistRuntime,
   options: {
+    sessionPane?: boolean
+    shell?: boolean
     preferences?: boolean
     settings?: boolean
     header?: boolean
@@ -330,6 +334,10 @@ export function createRuntimeWorklistPool(
       runtime.attachWorklistSelection ? 'worklist' : 'locals',
     )
     stopSelection = runtime.attachWorklistSelection?.(worklistView(handle.pool))
+    // This module loads behind the host's graph import. Register the screen
+    // companions before it publishes the pool; eager hooks acquire only types.
+    if (options.sessionPane) sessionPaneView(handle.pool)
+    if (options.shell) shellViews(handle.pool)
     if (options.preferences || options.settings) {
       if (!runtime.ui) throw new Error('Preferences require the existing runtime UI owner')
       attachPreferenceSource(handle.pool, runtime.ui)

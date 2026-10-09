@@ -1,5 +1,5 @@
 import { omitGone } from '@podium/client-graph/lookup'
-import { sessionPaneView } from '@podium/client-graph/session-pane'
+import { loadedPaneSession } from '@podium/client-graph/session-pane'
 import {
   Conversation, type ConversationPendingTurn, type ConversationOptions, hubConnection, nativeSessionCanInterrupt,
 } from '@podium/client-core/conversation'
@@ -52,7 +52,7 @@ export class WebConversation extends Conversation {
     for (const view of this.views) view.changed(change)
   }
   get retainHistory(): boolean { return [...this.views].some(view => view.retainHistory) }
-  @lazy get session(): SessionView | undefined { return sessionPaneView(this.pool).session(this.sessionId) }
+  @lazy get session(): SessionView | undefined { return loadedPaneSession(this.pool, this.sessionId) }
   @lazy get thread() { return this.mount.superThread ? loaded(omitGone(this.pool.row('superThread', this.mount.superThread.threadId))) : undefined }
   @lazy get hasPending(): boolean { return this.sends.bubbles.length > 0 }
   @lazy get ready(): boolean {
@@ -68,7 +68,7 @@ export class WebConversation extends Conversation {
 export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPool, sessionId: SessionId, mount: ConversationMountOptions): WebConversation {
   const store = runtime.access
   const { hub, trpc, replica } = store
-  const readSession = () => sessionPaneView(pool).session(sessionId)
+  const readSession = () => loadedPaneSession(pool, sessionId)
   const readReader = () => loaded(omitGone(pool.row('chatContextReader', 'reader')))
   const recordValues = computed(() => readReader()?.records(sessionId).records ?? [], { equals: compareShallow })
   const heldValues = computed(() => loaded(omitGone(pool.row('chatHeld', sessionId)))?.sends ?? [], { equals: compareShallow })

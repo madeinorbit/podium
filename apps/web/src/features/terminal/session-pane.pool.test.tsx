@@ -27,6 +27,7 @@ import {
   SESSION_PANE_SUMMARIES,
 } from '@podium/client-graph/session-pane-schema'
 import { SessionPaneSource } from '@podium/client-graph/session-pane-source'
+import { sessionPaneView } from '@podium/client-graph/session-pane-view'
 import { asIssueId, asRepoId } from '@podium/model/browser'
 import type { RefLinkConfig } from '@podium/terminal-client'
 import type { MountedSession } from '@podium/terminal-client/session-mount'
@@ -233,6 +234,7 @@ beforeEach(() => {
     'machine',
     state.machines.map((row) => row.id),
   )
+  sessionPaneView(f.pool)
   f.pool.sources.register(
     SESSION_PANE_ENTITIES,
     new SessionPaneSource(withKeyedInputs({ getSnapshot: () => state, subscribe: () => () => {} })),

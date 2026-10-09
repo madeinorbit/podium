@@ -10,7 +10,8 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 
 import { allIssueViewModels } from './reference/issue-view-models'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { paneSession, paneWindow, paneMachines, paneIssueColor, sessionPaneView } from '@podium/client-graph/session-pane'
+import { paneSession, paneWindow, paneMachines, paneIssueColor } from '@podium/client-graph/session-pane'
+import { sessionPaneView } from '@podium/client-graph/session-pane-view'
 import { SESSION_PANE_SCHEMA } from '@podium/client-graph/session-pane-schema'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { compareSidebarSnapshots, type CheckRow } from './sidebar-check'
@@ -37,7 +38,7 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
   let pending = 0
   let acceptedOwnershipDifferences = 0
   const eligible = issues.filter(issue => !issue.archived && !issue.deletedAt)
-  const stampFields = (issue: { id: string; branch?: string | null; gitState?: IssueViewModel['gitState'] } | undefined) =>
+  const stampFields = (issue: { id: string; branch?: string | null; gitState?: IssueViewModel['gitState'] | null } | undefined) =>
     issue ? { id: issue.id, branch: issue.branch ?? null, gitState: issue.gitState, view: deriveGitStamp(issue.branch, issue.gitState) } : undefined
   const expected = ids.map((id, index): CheckRow => {
     const at = state.sessions[index]

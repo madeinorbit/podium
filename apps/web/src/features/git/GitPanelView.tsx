@@ -2,7 +2,7 @@ import { GitView } from '@podium/client-graph/git-view'
 import { relativeTime } from '@podium/client-core/focus'
 import { useStoreHandle } from '@podium/client-core/react'
 import { observer } from '@podium/client-graph/react'
-import type { IssueViewModel } from '@podium/client-core/replica'
+import type { IssueGitState } from '@podium/model/browser'
 import type { MachineId } from '@podium/model/browser'
 import { ChevronRight, GitBranch, Maximize2, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
@@ -85,7 +85,11 @@ function FileRow({
  * their own pair rather than the working-tree one pointed at a sha.
  */
 /** The checkout's issue, as the panel reads it: the shared issue's own fields. */
-export type GitPanelIssue = Pick<IssueViewModel, 'branch' | 'gitState' | 'displayRef'>
+export interface GitPanelIssue {
+  readonly branch?: string | null
+  readonly gitState?: IssueGitState | null
+  readonly displayRef?: string
+}
 
 export const GitPanelView = observer(function GitPanelView({
   cwd,

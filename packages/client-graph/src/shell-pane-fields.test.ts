@@ -11,7 +11,8 @@ import { sessionPaneFixture, SESSION_PANE_NOW } from '../../../tests/worklist/di
 import { measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import type { HeaderRows } from './header-schema'
 import { MobxPool } from './pool'
-import { paneIssueColor, paneSession, sessionPaneView } from './session-pane'
+import { paneIssueColor, paneSession } from './session-pane'
+import { sessionPaneView } from './session-pane-view'
 import { shellViews } from './shell-views'
 import { worklistView } from './worklist/view-model'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -318,7 +319,7 @@ it('keeps pane lifecycle, host and birth grid equal to the row and quiet on acti
     expect(facts()).toEqual(old(f.sessions[0]!))
     const grid = { cols: 100, rows: 30 }
     for (const status of ['starting', 'live', 'reconnecting', 'hibernated', 'exited'] as const) {
-      const row = { ...f.sessions[0]!, status, cwd: '/moved', issueId: null, geometry: grid }
+      const row: SessionView = { ...f.sessions[0]!, status, cwd: '/moved', issueId: undefined, geometry: grid }
       f.pool.apply({ type: 'update', rows: [{ kind: 'session', id, value: row }] as never })
       expect(facts()).toEqual(old(row))
       const before = runs

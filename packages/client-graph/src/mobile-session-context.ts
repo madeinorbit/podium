@@ -1,5 +1,4 @@
 import { omitGone } from './lookup'
-import { sessionPaneView } from './session-pane'
 import { mobileSessionChromeIssue } from './mobile-session-chrome'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -23,7 +22,7 @@ import {
 import type { MobxPool } from './pool'
 import { SESSION_EXIT_ENTITIES } from './session-exit-schema'
 import { createSessionExitSource, SESSION_EXIT_SOURCE_KEY } from './session-exit-source'
-import { paneHasSessions, paneSession } from './session-pane'
+import { paneHasSessions, paneSession, paneMachines, paneSpawnConfirmed } from './session-pane'
 import { SESSION_PANE_ENTITIES } from './session-pane-schema'
 import { SESSION_PANE_SOURCE_KEY, SessionPaneSource } from './session-pane-source'
 import { createFieldInputs } from './shared/field-inputs'
@@ -80,11 +79,11 @@ export function createMobileSessionReader(pool: MobxPool) {
      * undefined without a companion, so the banner can fall back. */
     machineHome: (id: string | undefined): string | undefined =>
       id === undefined ? undefined : pool.machineHomeName(id),
-    machines: () => sessionPaneView(pool).machines(),
+    machines: () => paneMachines(pool),
     spawnPending(id: string | undefined): Loaded<boolean> {
       if (id === undefined) return false
       const row = omitGone(pool.row('sessionPaneWindow', 'window'))
-      return !row || row === LOADING ? LOADING : !sessionPaneView(pool).spawnConfirmed(id)
+      return !row || row === LOADING ? LOADING : !paneSpawnConfirmed(pool, id)
     },
     spawnPrompt(id: string | undefined): Loaded<string> {
       if (id === undefined) return undefined

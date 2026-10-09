@@ -4,6 +4,7 @@ import { SHELL_SUMMARIES } from '@podium/client-graph/shell-schema'
 export const shellPoolScreen: PoolScreen = {
   id: 'shell',
   options: () => ({
+    shell: true,
     header: true,
     summaries: {
       issue: [...SHELL_SUMMARIES.issue, ...MISSION_VIEW_SUMMARIES.issue],
