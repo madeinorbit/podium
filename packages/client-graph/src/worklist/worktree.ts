@@ -1,4 +1,4 @@
-import { here } from '../lookup'
+import { here, omitGone } from '../lookup'
 import { lazy } from '@podium/mobx-helpers'
 import { compareShallow, compareStructural } from 'mobx'
 import { machinePathsEqual } from '@podium/model/browser'
@@ -92,12 +92,13 @@ export class WorklistWorktree {
     for (const id of this.rosterIds) latest = Math.max(latest, this.worklist.pool.sessionObject(id).activityMs ?? 0)
     return latest
   }
+  // Presence-only model lookups keep payload heartbeats out of this total.
   @lazy get pending(): number {
     let pending = 0
     for (const id of this.rosterIds) {
-      if (this.worklist.pool.resident('session', id) === 'loading') pending++
+      if (omitGone(this.worklist.pool.model('session', id)) === LOADING) pending++
       const owner = this.worklist.pool.sessionObject(id).issueLink
-      if (owner !== null && this.worklist.pool.knownIssue(owner) && this.worklist.pool.resident('issue', owner) === 'loading') pending++
+      if (owner !== null && this.worklist.pool.knownIssue(owner) && omitGone(this.worklist.pool.model('issue', owner)) === LOADING) pending++
     }
     return pending
   }
