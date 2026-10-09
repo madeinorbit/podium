@@ -2524,6 +2524,7 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
 /* Folded, the rail is rigid — it was a `0 0 58px` child of the row before this
    wrapper existed, and a rail that can be squeezed to 40px is not a rail. */
 .sidebar-shell[data-sidebar-shell="folded"] {
+  width: 58px;
   flex: none;
 }
 /* CLIP, DON'T SQUEEZE. While the width is being driven, the column inside must
@@ -2646,6 +2647,10 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
      not paint over it (#41, POD-1178). */
   z-index: 10;
   display: flex;
+  /* Flex basis alone leaves the shell sizing from the rail's labels. Keep the
+     settled rail and the fold ghost at the same explicit width. */
+  width: 58px;
+  min-width: 0;
   flex: 0 0 58px;
   min-height: 0;
   flex-direction: column;
