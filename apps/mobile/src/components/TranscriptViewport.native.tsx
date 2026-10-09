@@ -9,6 +9,7 @@ import {
 } from 'react'
 import { FlatList } from 'react-native'
 import { useNativeTranscriptScroll } from '../hooks/useNativeTranscriptScroll'
+import { listWindow } from './list-window'
 import type { TranscriptViewportHandle, TranscriptViewportProps } from './TranscriptViewport.types'
 
 export const TranscriptViewport = forwardRef(function NativeViewport<Item>(
@@ -50,6 +51,7 @@ export const TranscriptViewport = forwardRef(function NativeViewport<Item>(
   return (
     <FlatList
       {...props}
+      {...listWindow}
       ref={listRef}
       maintainVisibleContentPosition={{ minIndexForVisible: 0 }}
       onScroll={scroll.onScroll}

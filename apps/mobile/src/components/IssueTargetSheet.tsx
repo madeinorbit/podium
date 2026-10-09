@@ -10,6 +10,7 @@ import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useKeyboardHeight } from '../hooks/useKeyboardHeight'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
 import { BottomSheet } from './BottomSheet'
+import { listWindow } from './list-window'
 import { PressableScale } from './PressableScale'
 import { StageGlyph } from './StageGlyph'
 
@@ -81,9 +82,7 @@ export function IssueTargetSheet({
           style={styles.listFrame}
           data={ids}
           keyExtractor={(id) => id}
-          initialNumToRender={14}
-          maxToRenderPerBatch={12}
-          windowSize={7}
+          {...listWindow}
           onEndReached={onEndReached}
           onEndReachedThreshold={0.2}
           scrollEnabled={scrollEnabled}

@@ -1,4 +1,5 @@
 import { InboxSessionRow } from '../components/InboxSessionRow'
+import { listWindow } from '../components/list-window'
 
 import { useRouter } from 'expo-router'
 import { observer } from 'mobx-react-lite'
@@ -68,6 +69,7 @@ export const InboxScreen = observer(function InboxScreen() {
       <BootstrapCrossfade resolved={!booting} placeholder={<WorkSkeleton />}>
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <SectionList
+            {...listWindow}
             sections={sections}
             keyExtractor={(id) => id}
             stickySectionHeadersEnabled={false}

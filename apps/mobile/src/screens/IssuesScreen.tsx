@@ -27,6 +27,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { Stack, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Animated, SectionList, StyleSheet, Text, TextInput, View } from 'react-native'
+import { listWindow } from '../components/list-window'
 import { useBooting, useStoreActions } from '../client/hooks'
 import { useMobilePool } from '../client/mobile-pool'
 import { useIssueCloseGuard } from '../client/use-issue-close'
@@ -417,6 +418,7 @@ const StageSections = observer(function StageSections({
   return (
     <BootstrapCrossfade resolved={!pending} placeholder={<TasksSkeleton />}>
       <SectionList
+        {...listWindow}
         ref={listRef as never}
         sections={sections}
         keyExtractor={(row) => row.id}

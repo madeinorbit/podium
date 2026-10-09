@@ -1,4 +1,5 @@
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
+import { listWindow } from '../components/list-window'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { WorklistProvider, useWorklistModel } from '@podium/client-graph/react'
 import type { IssueNavigationModel } from '@podium/client-core/values'
@@ -315,6 +316,7 @@ function PoolWorkScreen() {
       <BootstrapCrossfade resolved={!loading} placeholder={<WorkSkeleton />}>
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <SectionList<MobileWorkRef, MobileWorkSection>
+            {...listWindow}
             ref={listRef as never}
             sections={displaySections}
             keyExtractor={mobileListKey}

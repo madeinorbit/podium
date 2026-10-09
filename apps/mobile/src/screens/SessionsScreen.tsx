@@ -1,6 +1,7 @@
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
 import { SectionList, StyleSheet, Text, View } from 'react-native'
+import { listWindow } from '../components/list-window'
 import { observer } from 'mobx-react-lite'
 import { useInboxData } from '../client/use-inbox-data'
 import { useIssueModel } from '../client/use-issue-model'
@@ -58,6 +59,7 @@ export const SessionsScreen = observer(function SessionsScreen() {
       <BootstrapCrossfade resolved={!booting} placeholder={<WorkSkeleton />}>
         <PullToRefreshBoundary connected={connected} refreshing={refreshing} onRefresh={onRefresh}>
           <SectionList
+            {...listWindow}
             sections={sections}
             keyExtractor={(id) => id}
             stickySectionHeadersEnabled={false}
