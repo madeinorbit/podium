@@ -1,4 +1,3 @@
-import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { referenceState } from './reference-state'
 /** Optional pane differential, using sidebar-check's positions-only report.
  * Legacy input is diagnostic-only; it never enters the switched read path. */
@@ -11,7 +10,7 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 
 import { allIssueViewModels } from './reference/issue-view-models'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { paneSession, paneWindow, paneMachines, paneStampIssue, paneIssueColor } from '@podium/client-graph/session-pane'
+import { paneSession, paneWindow, paneMachines, paneIssueColor, sessionPaneView } from '@podium/client-graph/session-pane'
 import { SESSION_PANE_SCHEMA } from '@podium/client-graph/session-pane-schema'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { compareSidebarSnapshots, type CheckRow } from './sidebar-check'
@@ -52,7 +51,7 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
   })
   const actual = ids.map((id): CheckRow => {
     const row = paneSession(pool, id)
-    const stamp = row === LOADING ? LOADING : paneStampIssue(pool, row)
+    const stamp = row === LOADING ? LOADING : sessionPaneView(pool).loaded(id)?.stampIssue
     const loading = row === LOADING || stamp === LOADING
     if (loading) pending++
     return { id, pending: loading, fields: loading ? {} : { ...paneComparable(row, state.coarseNow),
@@ -78,7 +77,7 @@ export function checkSessionPanes(pool: MobxPool, state: Pick<Store, 'sessions' 
     }
     return undefined
   }
-  const selectedIssueId = worklistView(pool).selectedId
+  const selectedIssueId = sessionPaneView(pool).selectedIssueId
   const issueHex = paneIssueColor(pool, selectedIssueId, hex)
   if (issueHex === LOADING) pending++
   const differenceFields: Record<string, number> = {}

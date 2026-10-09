@@ -1,6 +1,6 @@
 import { headerEntities } from './header-entities'
 import type { SessionView } from '@podium/client-core/session-values'
-import { asSessionId } from '@podium/model/browser'
+import { asSessionId, machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
 import { shellFixture } from '../../../tests/worklist/diagnostics/shell-fixture'
@@ -8,12 +8,40 @@ import { sessionPaneFixture, SESSION_PANE_NOW } from '../../../tests/worklist/di
 import { measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import type { HeaderRows } from './header-schema'
 import { MobxPool } from './pool'
-import { paneSession, paneStampIssue, sessionPaneView } from './session-pane'
+import { paneSession, sessionPaneView } from './session-pane'
 import { shellViews } from './shell-views'
 import { LOADING } from './worklist/rollup'
 
 // Parity (old answer vs new answer on the same fixtures) for the facts this
 // change moves off copied session/issue bundles, and the heartbeat proof.
+
+/** The removed pane reader, verbatim (POD-5878): it took the whole session row. */
+function paneStampIssue(pool: MobxPool, session: SessionView | undefined) {
+  const eligible = (id: string) => {
+    const summary = pool.row('issue', id, 'summary') as { archived?: boolean; deletedAt?: string | null } | undefined | typeof LOADING
+    if (summary === LOADING) return LOADING
+    return summary && !summary.archived && !summary.deletedAt ? summary : undefined
+  }
+  if (!session) return undefined
+  if (session.issueId) {
+    const attached = eligible(session.issueId)
+    if (attached === LOADING) return LOADING
+    if (attached) return pool.row('issue', session.issueId) as { id: string } | undefined | typeof LOADING
+  }
+  const paths = machinePathSeparator(session.cwd) === '\\' ? machinePathAncestors(session.cwd) : [session.cwd]
+  if (machinePathSeparator(session.cwd) === '/') for (let at = session.cwd.lastIndexOf('/'); at >= 0; at = session.cwd.lastIndexOf('/', at - 1)) {
+    paths.push(session.cwd.slice(0, at))
+    if (at === 0) break
+  }
+  for (const path of paths) {
+    for (const id of pool.relations.many('worktree', path, 'issues')) {
+      const candidate = eligible(id)
+      if (candidate === LOADING) return LOADING
+      if (candidate) return pool.row('issue', id) as { id: string } | undefined | typeof LOADING
+    }
+  }
+  return undefined
+}
 
 function issue(id: string, path: string | null, patch: Record<string, unknown> = {}) {
   return { id, seq: 1, title: id, stage: 'in_progress', repoPath: '/synthetic', deps: [],

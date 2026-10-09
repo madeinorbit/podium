@@ -10,7 +10,7 @@ import { expect, it, vi } from 'vitest'
 import { checkSessionPanes } from '../../../tests/worklist/diagnostics/session-pane-check'
 import { sessionPaneFixture, SESSION_PANE_NOW } from '../../../tests/worklist/diagnostics/session-pane-fixture'
 import { MobxPool } from './pool'
-import { paneSession, paneWindow, paneSpawnConfirmed, paneStampIssue, paneIssueColor } from './session-pane'
+import { paneSession, paneWindow, paneSpawnConfirmed, paneIssueColor, sessionPaneView } from './session-pane'
 import { SessionPaneSource } from './session-pane-source'
 import { SESSION_PANE_ENTITIES, SESSION_PANE_SUMMARIES } from './session-pane-schema'
 import { LOADING } from './worklist/rollup'
@@ -118,6 +118,11 @@ it('isolates addressed pane updates and releases the control source with its poo
   } finally { f.pool.dispose() }
 })
 
+/** The pane's stamp for this session row, through its shared session. */
+function paneStampIssue(pool: MobxPool, session: SessionView) {
+  pool.apply({ type: 'update', rows: [{ kind: 'session', id: session.sessionId, value: session as never }] })
+  return sessionPaneView(pool).loaded(session.sessionId)?.stampIssue
+}
 function issue(id: string, path: string | null, patch: Record<string, unknown> = {}) {
   return { id, seq: 1, title: id, stage: 'in_progress', repoPath: '/synthetic', deps: [],
     createdAt: '2026-10-01T00:00:00Z', updatedAt: '2026-10-01T00:00:00Z', archived: false, worktreePath: path, ...patch }

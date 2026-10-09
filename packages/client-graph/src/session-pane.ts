@@ -49,30 +49,6 @@ function eligibleIssue(pool: MobxPool, id: string): Loaded<PaneIssue> {
   if (summary === LOADING) return LOADING
   return summary && !summary.archived && !summary.deletedAt ? summary : undefined
 }
-/** Explicit attachment wins. Checkout candidates are reached through the
- * schema's existing inverse buckets, never a scan or a separate ownership map.
- * These are the same exact slash boundaries the old pane tested. */
-export function paneStampIssue(pool: MobxPool, session: SessionView | undefined): Loaded<PaneIssue> {
-  if (!session) return undefined
-  if (session.issueId) {
-    const attached = eligibleIssue(pool, session.issueId)
-    if (attached === LOADING) return LOADING
-    if (attached) return omitGone(pool.row('issue', session.issueId)) as Loaded<PaneIssue>
-  }
-  const paths = machinePathSeparator(session.cwd) === '\\' ? machinePathAncestors(session.cwd) : [session.cwd]
-  if (machinePathSeparator(session.cwd) === '/') for (let at = session.cwd.lastIndexOf('/'); at >= 0; at = session.cwd.lastIndexOf('/', at - 1)) {
-    paths.push(session.cwd.slice(0, at))
-    if (at === 0) break
-  }
-  for (const path of paths) {
-    for (const id of pool.relations.many('worktree', path, 'issues')) {
-      const candidate = eligibleIssue(pool, id)
-      if (candidate === LOADING) return LOADING
-      if (candidate) return omitGone(pool.row('issue', id)) as Loaded<PaneIssue>
-    }
-  }
-  return undefined
-}
 export function paneIssueColor(pool: MobxPool, id: string | null, hex: (color: string | null | undefined) => string | undefined): Loaded<string> {
   if (!id) return undefined
   const selected = eligibleIssue(pool, id)
