@@ -14841,7 +14841,7 @@
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
-      "holder": "PoolMotionRow/PoolMotionRow",
+      "holder": "PoolMotionRow/PoolMotionRow/useLayoutEffect:callback",
       "rule": "reader-summary",
       "tokens": "ce46d35d8ae7d53d2be233ddc3e7209b890de8c9e7a86eec5b8018deda4a0872",
       "gate": [
@@ -14850,14 +14850,14 @@
       "origin": [
         "5fb011b6d63de924d14891107da00c6a551ffac1d10bda80c70dedbf6de2783c"
       ],
-      "fingerprint": "b06929b8edf370ac4188132847ad3e4b6cc4349924b49e61da868bc6d5a00937",
+      "fingerprint": "c9ebb3932740788bfcb223f6818246e5187de8edc45786c02e0d30b2f1e600d0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation or observation of PoolMotionRow/PoolMotionRow",
+      "trigger": "Layout effect after a committed worklist issue row render.",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work.",
-      "reason": "The motion row now selects the direct canonical IssueModel/WorklistIssue fields. It carries the former row reader origin; no broader collection repair is claimed. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877."
+      "reason": "The motion row now selects the direct canonical IssueModel/WorklistIssue fields. It carries the former row reader origin; no broader collection repair is claimed. Predecessor: 77ee4d9cb3b1fce931a729ae412b8594f4c2f5c51abe59a555e04f1047008877. The same frozen departure capture now runs after commit; its collection cardinality is unchanged and remains repair debt. Previous capture fingerprint: b06929b8edf370ac4188132847ad3e4b6cc4349924b49e61da868bc6d5a00937."
     },
     {
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
