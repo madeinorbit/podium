@@ -269,11 +269,11 @@ async function makePage() {
       const candidates=[...document.querySelectorAll(surface==='web'?'aside [data-issue-row]':'[role="button"][aria-label]')]
       const target=candidates.find(x=>{
         const label=x.getAttribute('aria-label')??'', rect=x.getBoundingClientRect()
-        return (x.hasAttribute('data-issue-row') || /^(?:[A-Z]+-\d+|#\d+) /.test(label)) && rect.width>0 && rect.height>0 && rect.y>=0 && rect.bottom<=innerHeight
+        if(!(x.hasAttribute('data-issue-row') || /^(?:[A-Z]+-\d+|#\d+) /.test(label)) || rect.width<=0 || rect.height<=0 || rect.y<0 || rect.bottom>innerHeight || rect.right<=0 || rect.x>=innerWidth)return false
+        const centerX=Math.max(0,Math.min(innerWidth-1,rect.x+rect.width/2)), centerY=rect.y+rect.height/2
+        return x.contains(document.elementFromPoint(centerX,centerY))
       })
       if(!target)return
-      const rect=target.getBoundingClientRect(), x=Math.max(0,Math.min(innerWidth-1,rect.x+rect.width/2)), y=Math.max(0,Math.min(innerHeight-1,rect.y+rect.height/2))
-      if(!target.contains(document.elementFromPoint(x,y)))return
       window.__comparisonStartup=true;performance.mark('comparison:startup-dom');startupObserver.disconnect()
     }
     const startupObserver=new MutationObserver(observeStartup)
