@@ -16,7 +16,7 @@ commit and three-viewport buffer used by POD-5880.
 An addressed jump restores its surrounding buffer before moving the viewport,
 so its first paint contains more than the one addressed row.
 
-Native keyboard Find temporarily mounts all loaded rich rows. The browser needs
+Native Find temporarily mounts all loaded rich rows. The browser needs
 the original text ranges to preserve its match count, highlight and repeated
 jumps. Opening yields to the browser and to app shortcut handlers; an
 app-handled Ctrl/Cmd+F does not expand the transcript. Closing Find restores the
@@ -24,13 +24,15 @@ buffer and retains the committed selection. Select All similarly needs all rows
 until its selection clears. Changes to width, fonts or display mode temporarily
 remeasure loaded rows instead of estimating different wrapping.
 
-**Decision still pending:** first opening native Find from the browser menu
-bypasses the keyboard hook. The hidden-until-found fallback can lose a wrapped
-return jump in Chromium after its browser-owned range is replaced. This is a
-known limitation, not a passing Find result. The coordinator has the full-row
-session policy and this limitation for review; the candidate is not landed.
-The Mac shell has no native Find menu; its transcript search uses the shared
-block-jump controller. Native Mac behavior still needs the coordinator's check.
+Opening Find from the browser menu bypasses the keyboard hook. Its first
+hidden-until-found match retains the browser-owned proxy node, excludes that
+proxy from painting/search with `content-visibility: hidden`, and mounts the
+original rich rows before it. This preserves the original wrap boundary while
+the browser retries the match in rich content. The implementation follows the
+retry and wrap checks in [Blink's TextFinder](https://chromium.googlesource.com/chromium/src/+/refs/heads/main/third_party/blink/renderer/core/editing/finder/text_finder.cc);
+the behavior is verified with Chrome's actual Find-and-edit menu, not inferred
+from `window.find()`. The coordinator approved the temporary full-row exception.
+Native Mac behavior remains the coordinator's check.
 
 The production proof uses a fixed corpus of 8,058 synthetic messages, with
 paragraphs, lists, inline code, links, user prompts and assistant answers. Raw
@@ -47,36 +49,38 @@ native renderer allocations; it is not WKWebView physical footprint. There is
 no native Mac runner available to this lane. The coordinator owns any native
 check after landing, as recorded in the issue mail.
 
-The matched production captures on `534eeb6350`, based on pilot `8376e9744b`,
+The matched production captures on `8dfc2a61d6`, based on pilot `38cccb0b8f`,
 completed both arms without application errors or budget stops. At 8,058 messages,
-attached elements fall 84.81%, JS heap falls 50.35%, and renderer resident memory
-falls 37.51%. The buffered tail contains 16 rich rows; fast scrolling mounts at
+attached elements fall 84.81%, JS heap falls 50.13%, and renderer resident memory
+falls 36.51%. The buffered tail contains 16 rich rows; fast scrolling mounts at
 most 29. Transcript height is exactly equal in all six samples and ends at
 1,842,384px. Retained shells, text and loaded data still grow with history;
 this is a lower slope, not a claim of flat whole-process memory.
 
 | Loaded messages | Elements before / after | JS heap MiB before / after | Renderer RSS MiB before / after |
 | ---: | ---: | ---: | ---: |
-| 200 | 4,028 / 913 | 8.59 / 8.78 | 388.29 / 371.94 |
-| 1,000 | 20,030 / 3,313 | 15.88 / 12.11 | 444.91 / 402.32 |
-| 2,200 | 44,030 / 6,913 | 27.30 / 17.27 | 531.56 / 432.25 |
-| 4,200 | 84,034 / 12,913 | 46.32 / 25.50 | 669.95 / 476.18 |
-| 6,200 | 124,036 / 18,913 | 65.18 / 33.70 | 789.17 / 519.18 |
-| 8,058 | 161,194 / 24,481 | 83.12 / 41.27 | 899.08 / 561.86 |
+| 200 | 4,028 / 913 | 8.59 / 8.76 | 389.80 / 384.57 |
+| 1,000 | 20,030 / 3,313 | 15.88 / 12.13 | 446.02 / 411.28 |
+| 2,200 | 44,030 / 6,913 | 27.30 / 17.32 | 532.28 / 441.86 |
+| 4,200 | 84,034 / 12,913 | 46.32 / 25.57 | 671.46 / 483.64 |
+| 6,200 | 124,036 / 18,913 | 65.18 / 33.79 | 792.57 / 528.69 |
+| 8,058 | 161,194 / 24,481 | 83.12 / 41.46 | 903.16 / 573.38 |
 
 Both arms have 50 fast-scroll first-paint samples with zero empty viewports.
 The 400-row prepend retains message-3856, with -0.3125px drift before and
 0.6875px after; the shared block jump has exactly the same key and offset.
 Selected and natively copied text is identical across both arms. Native Find
 returns to message 4000 after visiting 6000, commits the same selected word on
-Escape, and leaves 28 rich rows mounted. Closing an empty Find also leaves 28.
+Escape, and leaves 28 rich rows mounted. The windowed arm records one
+`beforematch` from opening the real browser menu; its first match has the exact
+same key and scroll offset as the original arm. Closing an empty Find also leaves 28.
 Native Tab reaches the same first message link. The addressed-view screenshots
 show the same line lengths, spacing, controls and scrollbar position.
 
 [Original capture](before.json) and [windowed capture](after.json) contain the
 saved samples and interaction results. The normal memory curve is sampled before
 native Find expands the rows. The Find/scroll/copy run's peak single-process RSS
-was 1,934 MiB before and 1,398 MiB after, so the temporary full-row session is
+was 1,934 MiB before and 2,148 MiB after, so the temporary full-row session is
 visible in the resource evidence and is not represented as buffered memory.
 
 The proof drives real wheel input, native clipboard copy after a selection
@@ -84,14 +88,14 @@ leaves the viewport, and Chrome's actual Find bar on a private Xvfb display.
 `window.find()` does not exercise the same hidden-text reveal path in Blink;
 the collector uses native XTEST keyboard events instead. The final capture also
 records a 400-row prepend while reading, 50 fast-scroll first-paint samples,
-native 4000→6000→4000 Find, committed selection, an empty Find close, and Tab to
+browser-menu 4000→6000→4000 Find, committed selection, an empty keyboard Find close, and Tab to
 the first off-window message control. The screenshot includes Chrome's own
 1/1 match indicator and original native highlight.
 
 All validation runs on flatblock with checkout-local Bun 1.4.2, `node -> bun`,
 one focused file per run, and the resource guard. Completed focused files have
 15 window tests, 33 scroll tests and 13 feed-motion tests green (61 focused tests,
-not a suite result). The largest focused test process was 533 MiB, below the
+not a suite result). The largest focused test process was 581 MiB, below the
 3 GiB worker limit. The full typecheck, lean gate, final scan, normal web build, structural
 census and landing belong to POD-5895; none is claimed green for this candidate.
 
@@ -107,11 +111,11 @@ run and is cleaned up by the collector and resource guard.
 python3 apps/web/harness/flatblock-budget.py --log=.artifacts/build-before.log -- \
   .toolchain/bun apps/web/harness/transcript-window-proof.ts before --build
 python3 apps/web/harness/flatblock-budget.py --log=.artifacts/proof-before.log -- \
-  .toolchain/bun apps/web/harness/transcript-window-proof.ts before
+  .toolchain/bun apps/web/harness/transcript-window-proof.ts before --menu-find
 python3 apps/web/harness/flatblock-budget.py --log=.artifacts/build-after.log -- \
   .toolchain/bun apps/web/harness/transcript-window-proof.ts after --build
 python3 apps/web/harness/flatblock-budget.py --log=.artifacts/proof-after.log -- \
-  .toolchain/bun apps/web/harness/transcript-window-proof.ts after
+  .toolchain/bun apps/web/harness/transcript-window-proof.ts after --menu-find
 python3 docs/measurements/pod-5889/evidence.py \
   --before .artifacts/transcript-window/before/report.json \
   --after .artifacts/transcript-window/after/report.json \
@@ -122,4 +126,5 @@ python3 docs/measurements/pod-5889/evidence.py \
 
 The standalone HTML and screenshots are issue artifacts, not committed image
 files. `--anchor-only` isolates one prepend and `--debug` omits the 50 fast-scroll
-samples; neither is a complete production proof.
+samples; neither is a complete production proof. `--menu-probe` is a small,
+200-message native menu diagnostic, also outside the complete proof.

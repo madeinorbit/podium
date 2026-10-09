@@ -1,8 +1,9 @@
 {
   "arm": "after",
-  "baseline": "8376e9744be109420e51d837a13c8c31ec917ab3",
-  "revision": "534eeb6350a20dccefd5519f0586e0a726e1d543",
+  "baseline": "38cccb0b8fb980010ae36f216eef00f616d8461e",
+  "revision": "8dfc2a61d692b6c9a1b98fee883cf010af6185f9",
   "browser": "153.0.8010.12",
+  "menuFind": true,
   "samples": [
     {
       "loaded": 200,
@@ -20,9 +21,9 @@
         "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
       ],
       "following": true,
-      "heapUsed": 9204336,
-      "heapTotal": 10698752,
-      "rendererResidentBytes": 390004736
+      "heapUsed": 9183812,
+      "heapTotal": 11223040,
+      "rendererResidentBytes": 403247104
     },
     {
       "loaded": 1000,
@@ -40,9 +41,9 @@
         "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
       ],
       "following": false,
-      "heapUsed": 12698888,
-      "heapTotal": 14106624,
-      "rendererResidentBytes": 421859328
+      "heapUsed": 12719736,
+      "heapTotal": 14368768,
+      "rendererResidentBytes": 431255552
     },
     {
       "loaded": 2200,
@@ -60,9 +61,9 @@
         "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
       ],
       "following": false,
-      "heapUsed": 18113672,
-      "heapTotal": 19611648,
-      "rendererResidentBytes": 453246976
+      "heapUsed": 18161020,
+      "heapTotal": 19873792,
+      "rendererResidentBytes": 463327232
     },
     {
       "loaded": 4200,
@@ -80,9 +81,9 @@
         "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
       ],
       "following": false,
-      "heapUsed": 26737496,
-      "heapTotal": 27738112,
-      "rendererResidentBytes": 499314688
+      "heapUsed": 26808700,
+      "heapTotal": 28000256,
+      "rendererResidentBytes": 507133952
     },
     {
       "loaded": 6200,
@@ -100,9 +101,9 @@
         "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
       ],
       "following": false,
-      "heapUsed": 35341056,
-      "heapTotal": 37572608,
-      "rendererResidentBytes": 544399360
+      "heapUsed": 35427576,
+      "heapTotal": 37834752,
+      "rendererResidentBytes": 554369024
     },
     {
       "loaded": 8058,
@@ -120,9 +121,9 @@
         "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
       ],
       "following": false,
-      "heapUsed": 43276772,
-      "heapTotal": 45436928,
-      "rendererResidentBytes": 589148160
+      "heapUsed": 43470328,
+      "heapTotal": 45699072,
+      "rendererResidentBytes": 601235456
     }
   ],
   "pagingAnchor": {
@@ -417,8 +418,8 @@
   ],
   "jump": {
     "loaded": 8058,
-    "elements": 24714,
-    "drawn": 29,
+    "elements": 25078,
+    "drawn": 49,
     "top": 914236,
     "height": 1842384,
     "gap": 927248,
@@ -457,10 +458,10 @@
   },
   "nativeFind": {
     "selection": "",
-    "beforematch": 0,
+    "beforematch": 1,
     "stats": {
       "loaded": 8058,
-      "elements": 169252,
+      "elements": 169253,
       "drawn": 8058,
       "top": 914155,
       "height": 1842384,
@@ -481,7 +482,7 @@
     {
       "query": "native-needle-4000",
       "loaded": 8058,
-      "elements": 169252,
+      "elements": 169253,
       "drawn": 8058,
       "top": 914155,
       "height": 1842384,
@@ -500,7 +501,7 @@
     {
       "query": "native-needle-6000",
       "loaded": 8058,
-      "elements": 169252,
+      "elements": 169253,
       "drawn": 8058,
       "top": 1371430,
       "height": 1842384,
@@ -519,7 +520,7 @@
     {
       "query": "native-needle-4000",
       "loaded": 8058,
-      "elements": 169252,
+      "elements": 169253,
       "drawn": 8058,
       "top": 914155,
       "height": 1842384,

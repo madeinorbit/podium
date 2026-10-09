@@ -1,8 +1,9 @@
 {
   "arm": "before",
-  "baseline": "8376e9744be109420e51d837a13c8c31ec917ab3",
-  "revision": "534eeb6350a20dccefd5519f0586e0a726e1d543",
+  "baseline": "38cccb0b8fb980010ae36f216eef00f616d8461e",
+  "revision": "8dfc2a61d692b6c9a1b98fee883cf010af6185f9",
   "browser": "153.0.8010.12",
+  "menuFind": true,
   "samples": [
     {
       "loaded": 200,
@@ -20,9 +21,9 @@
         "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
       ],
       "following": true,
-      "heapUsed": 9007496,
+      "heapUsed": 9011888,
       "heapTotal": 9650176,
-      "rendererResidentBytes": 407154688
+      "rendererResidentBytes": 408735744
     },
     {
       "loaded": 1000,
@@ -40,9 +41,9 @@
         "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
       ],
       "following": false,
-      "heapUsed": 16653116,
-      "heapTotal": 17776640,
-      "rendererResidentBytes": 466522112
+      "heapUsed": 16654284,
+      "heapTotal": 17514496,
+      "rendererResidentBytes": 467685376
     },
     {
       "loaded": 2200,
@@ -60,9 +61,9 @@
         "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
       ],
       "following": false,
-      "heapUsed": 28626536,
+      "heapUsed": 28627688,
       "heapTotal": 30883840,
-      "rendererResidentBytes": 557379584
+      "rendererResidentBytes": 558133248
     },
     {
       "loaded": 4200,
@@ -80,9 +81,9 @@
         "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
       ],
       "following": false,
-      "heapUsed": 48571228,
+      "heapUsed": 48572380,
       "heapTotal": 51855360,
-      "rendererResidentBytes": 702492672
+      "rendererResidentBytes": 704077824
     },
     {
       "loaded": 6200,
@@ -100,9 +101,9 @@
         "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
       ],
       "following": false,
-      "heapUsed": 68346516,
-      "heapTotal": 72437760,
-      "rendererResidentBytes": 827506688
+      "heapUsed": 68345296,
+      "heapTotal": 72699904,
+      "rendererResidentBytes": 831070208
     },
     {
       "loaded": 8058,
@@ -120,9 +121,9 @@
         "ProcessMessage 8057 — native-needle-8057.\nA measured transcript with inline code and a link.\n\nFirst point\nSecond point\n\nThe viewport retains the same line lengths and message spacing.\n13:30"
       ],
       "following": false,
-      "heapUsed": 87160572,
-      "heapTotal": 92098560,
-      "rendererResidentBytes": 942755840
+      "heapUsed": 87161684,
+      "heapTotal": 91574272,
+      "rendererResidentBytes": 947032064
     }
   ],
   "pagingAnchor": {

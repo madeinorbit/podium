@@ -25,7 +25,7 @@ html = r'''<!doctype html><html lang="en"><meta charset="utf-8"><meta name="view
 <p><small>Resident memory is Linux renderer VmRSS, including its native allocations. It is not WKWebView physical footprint. Raw corpus data is allocated up front in both arms; retained shells and text still grow with loaded history.</small></p></section>
 <section><h2>Scroll, selection and Find</h2><table><tbody id="checks"></tbody></table>
 <p>Native Ctrl/Cmd+F temporarily mounts every loaded rich row so the browser owns the original ranges and match count. Closing Find restores the buffer and retains the committed selection. Select All likewise needs all rows until its selection clears. Application transcript search uses a buffered block jump.</p>
-<p><strong>Open limitation:</strong> first opening native Find from the browser menu bypasses the keyboard hook. The hidden-text fallback can lose a wrapped return jump in Chromium. Coordinator review is required; native Mac behavior has not been measured.</p></section>
+<p>Chrome's actual Find-and-edit menu also preserves the first hidden-row range and its wrapped return, with one native match and the original highlight. The full-row Find exception is coordinator-approved. Native Mac behavior has not been measured.</p></section>
 <section><h2>Same transcript view</h2><div class="controls"><button id="before" aria-pressed="false">Original</button><button id="after" aria-pressed="true">Windowed</button></div><img id="shot" alt="Transcript at the same addressed message"></section>
 <p><small id="source"></small></p></main><script>
 const data=__DATA__,images=__IMAGES__,$=id=>document.getElementById(id),fmt=n=>n.toLocaleString('en-US',{maximumFractionDigits:2});
