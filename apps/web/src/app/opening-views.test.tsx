@@ -58,8 +58,8 @@ async function exerciseOpenings(pool: MobxPool, factory: (typeof factories)[numb
       </Context.Provider>
     )
   }
-  // Read live objects in a synchronous frame. An async cycle can retain the
-  // matcher arguments across its close await in JSC's suspended frame.
+  // Keep matcher and render callbacks synchronous. JSC can retain their
+  // arguments in suspended async frames after the opening has closed.
   function checkOpen() {
     expect(shown).not.toBeNull()
     expect(shown).not.toBe(previous?.deref())
@@ -71,7 +71,7 @@ async function exerciseOpenings(pool: MobxPool, factory: (typeof factories)[numb
   try {
     async function cycle() {
       const closedBefore = disposals
-      await act(async () =>
+      await act(() =>
         root.render(
           <StrictMode>
             <Opening open />
@@ -79,7 +79,7 @@ async function exerciseOpenings(pool: MobxPool, factory: (typeof factories)[numb
         ),
       )
       checkOpen()
-      await act(async () =>
+      await act(() =>
         root.render(
           <StrictMode>
             <Opening open={false} />
@@ -95,7 +95,7 @@ async function exerciseOpenings(pool: MobxPool, factory: (typeof factories)[numb
     expect(registry).not.toHaveBeenCalled()
     return refs
   } finally {
-    await act(async () => root.unmount())
+    await act(() => root.unmount())
     registry.mockRestore()
   }
 }
