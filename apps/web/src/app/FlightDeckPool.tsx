@@ -17,6 +17,7 @@ import {
   useCallback,
   useEffect,
   useMemo,
+  useRef,
 } from 'react'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { useFeature } from '@/lib/use-feature'
@@ -97,18 +98,21 @@ const MissionOpening = observer(function MissionOpening({
   development: boolean
   modes: FlightDeckModes
 }): JSX.Element {
+  // The opening outlives renders: it reaches the store's writers when it
+  // writes, never by being rebuilt when the handle's access object changes.
   const handle = useStoreHandle<Trpc>()
-  const ui = handle.access.uiState as RoutedUiState | undefined
-  const trpc = handle.access.trpc
+  const handleRef = useRef(handle)
+  handleRef.current = handle
   const screen = useMemo(
     () =>
       new MissionScreen(pool, rootId, {
         development,
-        setPreference: (key, raw) => ui?.set(key, raw),
+        setPreference: (key, raw) =>
+          (handleRef.current.access.uiState as RoutedUiState | undefined)?.set(key, raw),
         sessionName: sessionDisplayName,
-        issueEvents: (input) => trpc.issues.events.query(input),
+        issueEvents: (input) => handleRef.current.access.trpc.issues.events.query(input),
       }),
-    [pool, rootId, development, ui, trpc],
+    [pool, rootId, development],
   )
   useEffect(() => {
     screen.open()

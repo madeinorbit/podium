@@ -9,7 +9,7 @@ import { MissionScreen, missionRootId } from '@podium/client-graph/mission-scree
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { SessionId } from '@podium/model'
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { mobilePaintNow } from '../lib/work-sections'
 import { demoEnabled } from './demoData'
 import { useMobilePool, useMobilePoolProjection } from './mobile-pool'
@@ -138,15 +138,17 @@ function poolBooting(pool: MobxPool): boolean {
 export function useMissionOpening(selectedId: string): { screen: MissionScreen | null; resolved: boolean } {
   const pool = useMobilePool()
   const uiState = useUiState()
+  const uiRef = useRef(uiState)
+  uiRef.current = uiState
   const readRoot = useCallback((pool: MobxPool) => missionRootId(pool, selectedId, true), [selectedId])
   const rootId = useMobilePoolProjection(readRoot, LOADING)
   const booting = useMobilePoolProjection(poolBooting, true)
   const screen = useMemo(
     () =>
       pool && typeof rootId === 'string'
-        ? new MissionScreen(pool, rootId, { setPreference: (key, raw) => uiState.set(key, raw) })
+        ? new MissionScreen(pool, rootId, { setPreference: (key, raw) => uiRef.current.set(key, raw) })
         : null,
-    [pool, rootId, uiState],
+    [pool, rootId],
   )
   useEffect(() => {
     if (!screen) return
