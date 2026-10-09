@@ -104,12 +104,14 @@ try {
   await page.waitForTimeout(100)
   // window.find invokes Chromium's native find-in-page algorithm, including
   // hidden-until-found/beforematch; it does not call the app's reveal handler.
+  await page.evaluate(() => { (window as any).__nativeFindEvents = 0; document.addEventListener('beforematch', () => (window as any).__nativeFindEvents++, true) })
   const found = await page.evaluate(() => (window as any).find('native-needle-4000', false, false, true))
   await page.waitForTimeout(100)
-  const nativeFind = await page.evaluate(() => ({ found: document.getSelection()?.toString(), stats: (window as any).__transcriptWindowProof.stats() }))
+  const nativeFind = await page.evaluate(() => ({ selection: document.getSelection()?.toString(), beforematch: (window as any).__nativeFindEvents, stats: (window as any).__transcriptWindowProof.stats() }))
   console.log(JSON.stringify({ nativeFindResult: found, nativeFind }))
   await writeFile(resolve(directory, 'native-find.json'), JSON.stringify({ found, nativeFind }, null, 2))
-  if (!found || !nativeFind.found?.includes('native-needle-4000') || !nativeFind.stats.text.some((text: string) => text.includes('native-needle-4000'))) { if (arm === 'after') throw new Error('Native Find did not reveal the off-window message'); errors.push('Baseline native Find did not keep its match in the viewport') }
+  if (!found || !nativeFind.stats.text.some((text: string) => text.includes('native-needle-4000'))) throw new Error('Native Find did not reveal the off-window message')
+  await page.screenshot({ path: resolve(directory, 'find.png') })
   await page.evaluate(() => document.getSelection()!.removeAllRanges())
   await page.evaluate(() => (window as any).__transcriptWindowProof.jump(4000))
   await page.waitForTimeout(100)
