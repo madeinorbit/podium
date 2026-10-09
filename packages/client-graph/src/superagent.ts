@@ -23,12 +23,13 @@ declare module './source-registry' { interface PoolSourceRows extends Superagent
 export const SUPERAGENT_ENTITIES = ['superThread', 'superThreadCatalog', 'superagentLocal',
   'superagentEvent', 'superagentEventTail', 'superagentReadPosition'] as const
 export const SUPERAGENT_SOURCE_KEY = 'superagent'
+export const SUPERAGENT_EVENT_TAIL = 40
 export const SUPERAGENT_SCHEMA = {
   superThread: { key: 'id', source: 'engine:superThreads (principal-scoped listThreads)', residency: 'resident-on-demand' },
   superThreadCatalog: { key: 'catalog', source: 'resident:superThread membership in RPC order' },
   superagentLocal: { key: 'local', source: 'engine:locals', fields: ['superThreadId', 'paneA', 'selectedWorktree', 'booting'] },
-  superagentEvent: { key: 'id', source: 'replica:issueEvents', residency: 'resident-on-demand' },
-  superagentEventTail: { key: 'tail', source: 'resident:issueEvents', order: 'eventId ascending', limit: 40 },
+  superagentEvent: { key: 'id', source: 'replica:issueEvents', residency: 'tail members only' },
+  superagentEventTail: { key: 'tail', source: 'replica:issueEvents ids (newest window)', order: 'eventId ascending', limit: SUPERAGENT_EVENT_TAIL },
   superagentReadPosition: { key: 'issueEvents', source: 'runtime:readPosition (principal-scoped)',
     visibilityContext: 'existing readPosition port: one get at the visibility edge to freeze presentation before pool attachment' },
   session: { source: 'pool:session', reader: 'sessionPanes.session', summary: ['sessionId', 'cwd', 'machineId'] },
@@ -67,6 +68,9 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
     private bootingDirty = true
     private booting = true
     private eventsDirty = true
+    /** The newest events, ascending. Only these rows are read and held; older
+     * retained history is never read or sorted. */
+    private window: TailEntry[] = []
     private readonly source = defineSource({
       readById: this.readById.bind(this),
       refresh: this.refresh.bind(this),
@@ -96,16 +100,15 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
           }
           if (this.booting || (replica.getCursor() === null && removed(batch.rows))) boot()
           runInAction(() => {
-            let events = false
+            let events = false, refill = false
             for (const address of batch.rows) {
               if (address.kind === 'issueEvents' && this.loaded.has('events')) {
-                const row = replica.row!('issueEvents', address.id)
-                if (row) this.set(`superagentEvent:${address.id}`, row)
-                else this.rows.delete(`superagentEvent:${address.id}`)
+                refill = this.event(address.id, replica.row!('issueEvents', address.id)) || refill
                 this.counts.addressedEvents++; events = true
               }
             }
-            if (events) this.tail()
+            if (refill) this.collect(false)
+            else if (events) this.tail()
           })
         })]
     }
@@ -180,9 +183,47 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
     }
 
     private tail() {
-      const events: IssueEventWire[] = []
-      for (const [key, value] of this.rows) if (key.startsWith('superagentEvent:')) events.push(value as IssueEventWire)
-      this.set('superagentEventTail:tail', { ids: events.sort((a, b) => a.eventId - b.eventId).slice(-40).map(row => row.id) })
+      this.set('superagentEventTail:tail', { ids: this.window.map(entry => entry.id) })
+    }
+
+    /** Choose the window from keyed membership, then read only its new rows. */
+    private collect(reread: boolean) {
+      const next = newestEvents(replica.ids?.('issueEvents') ?? replica.rows('issueEvents').map(row => row.id),
+        id => replica.row!('issueEvents', id)?.eventId)
+      const keep = new Set(next.map(entry => entry.id))
+      for (const key of [...this.rows.keys()]) {
+        if (key.startsWith('superagentEvent:') && (reread || !keep.has(key.slice(16)))) this.rows.delete(key)
+      }
+      this.window = []
+      for (const entry of next) {
+        if (this.rows.has(`superagentEvent:${entry.id}`)) { this.window.push(entry); continue }
+        const row = replica.row!('issueEvents', entry.id)
+        if (!row) continue
+        this.window.push({ id: row.id, eventId: row.eventId })
+        this.rows.set(`superagentEvent:${row.id}`, row)
+      }
+      this.tail()
+    }
+
+    /** One addressed event. True when a member left a full window, so an
+     * older retained event may now belong to it. */
+    private event(id: string, row: IssueEventWire | undefined): boolean {
+      const index = this.window.findIndex(entry => entry.id === id)
+      if (index >= 0) {
+        const full = this.window.length === SUPERAGENT_EVENT_TAIL
+        this.window.splice(index, 1)
+        if (!row) { this.rows.delete(`superagentEvent:${id}`); return full }
+      }
+      if (!row) return false
+      const entry = { id, eventId: row.eventId }
+      if (this.window.length === SUPERAGENT_EVENT_TAIL && compareTail(entry, this.window[0]!) < 0) {
+        this.rows.delete(`superagentEvent:${id}`)
+        return false
+      }
+      insertTail(this.window, entry)
+      this.set(`superagentEvent:${id}`, row)
+      if (this.window.length > SUPERAGENT_EVENT_TAIL) this.rows.delete(`superagentEvent:${this.window.shift()!.id}`)
+      return false
     }
 
     private schedule(): void {
@@ -218,10 +259,7 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
           this.loaded.add('threads')
         }
         if (this.demanded.has('events') && this.eventsDirty) {
-          const events = replica.rows('issueEvents'), keep = new Set(events.map(row => row.id))
-          for (const key of this.rows.keys()) if (key.startsWith('superagentEvent:') && !keep.has(key.slice(16))) this.rows.delete(key)
-          for (const row of events) this.set(`superagentEvent:${row.id}`, row)
-          this.tail(); this.eventsDirty = false; this.loaded.add('events'); this.counts.eventCollections++
+          this.collect(true); this.eventsDirty = false; this.loaded.add('events'); this.counts.eventCollections++
         }
         if (this.demanded.has('position')) {
           this.set('superagentReadPosition:issueEvents', owner.readPosition.get('issueEvents'))
@@ -239,10 +277,44 @@ export async function createSuperagentSource(owner: SuperagentOwner): Promise<Po
       for (const stop of this.stops) stop()
       this.addressedThreads.clear()
       this.demanded.clear()
-      queueMicrotask(() => runInAction(() => { this.rows.clear(); this.edges.clear(); this.loaded.clear() }))
+      queueMicrotask(() => runInAction(() => { this.rows.clear(); this.edges.clear(); this.loaded.clear(); this.window = [] }))
     }
   }
   return new Source()
+}
+
+interface TailEntry { readonly id: string; readonly eventId: number }
+const compareTail = (a: TailEntry, b: TailEntry): number =>
+  a.eventId - b.eventId || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
+function insertTail(window: TailEntry[], entry: TailEntry): void {
+  let low = 0, high = window.length
+  while (low < high) {
+    const middle = (low + high) >> 1
+    if (compareTail(window[middle]!, entry) < 0) low = middle + 1
+    else high = middle
+  }
+  window.splice(low, 0, entry)
+}
+/** A row ID starts with its durable event id (`issueEventRowId`), so the
+ * window is chosen from membership alone; only a malformed ID reads its row. */
+function eventIdOf(id: string, read: (id: string) => number | undefined): number | undefined {
+  const end = id.indexOf('\n'), head = end < 0 ? '' : id.slice(0, end)
+  return /^[1-9]\d*$/.test(head) ? Number(head) : read(id)
+}
+/** Bounded selection: at most SUPERAGENT_EVENT_TAIL entries are ever ordered. */
+export function newestEvents(ids: Iterable<string>, read: (id: string) => number | undefined): TailEntry[] {
+  const window: TailEntry[] = []
+  for (const id of ids) {
+    const eventId = eventIdOf(id, read)
+    if (eventId === undefined) continue
+    const entry = { id, eventId }
+    if (window.length === SUPERAGENT_EVENT_TAIL) {
+      if (compareTail(entry, window[0]!) < 0) continue
+      window.shift()
+    }
+    insertTail(window, entry)
+  }
+  return window
 }
 
 // Dependency-free readers: importing the OFF screen builds no graph or MobX.

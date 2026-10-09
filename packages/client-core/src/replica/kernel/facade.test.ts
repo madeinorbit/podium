@@ -77,6 +77,25 @@ it('counts keyed membership through eviction, readmission and replacement withou
   expect(replica.rowCount!('sessions')).toBe(0)
 })
 
+it('lists keyed membership through deltas and replacement without building the sorted row array', () => {
+  const { cache, replica } = build()
+  cache.put('session', 's2', session('s2'))
+  cache.put('session', 's1', session('s1'))
+  const rows = vi.spyOn(replica, 'rows')
+  expect(new Set(replica.ids!('sessions'))).toEqual(new Set(['s1', 's2']))
+  cache.drop('session', 's2')
+  replica.onKernelEvent({ type: 'removed', entity: 'session', entityId: 's2' })
+  cache.put('session', 's3', session('s3'))
+  replica.onKernelEvent({ type: 'upserted', record: cache.read('session', 's3')!, readmitted: false })
+  expect(new Set(replica.ids!('sessions'))).toEqual(new Set(['s1', 's3']))
+  expect(cache.readEntitiesCalls).toBe(1)
+  expect(rows).not.toHaveBeenCalled()
+  expect(replica.rows('sessions').map((row) => row.sessionId)).toEqual(['s1', 's3'])
+  cache.records = []
+  replica.onKernelEvent({ type: 'bootstrap-installed', cause: 'rescope', snapshotSeq: 2, entityCount: 0, bufferedFramesApplied: 0 })
+  expect([...replica.ids!('sessions')]).toEqual([])
+})
+
 describe('replica-wide issue reference index', () => {
   it('seeds every stored issue and resolves keyed identities without reads or scans', async () => {
     const { cache, replica } = build()

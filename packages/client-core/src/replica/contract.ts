@@ -224,6 +224,9 @@ export interface Replica {
    *  Returns a stable shared empty array while the collection is empty. Never throws. */
   /** Keyed cardinality, without materialising a kind's row array. */
   rowCount?(kind: ReplicaKind): number
+  /** Keyed membership, without materialising, sorting or reading a kind's rows.
+   *  Consume it synchronously; a later write may move it. */
+  ids?(kind: ReplicaKind): Iterable<string>
 
   rows<K extends ReplicaKind>(kind: K): ReplicaRows[K][]
   /** Optional addressed read. Never materialises collection arrays; live until

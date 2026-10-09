@@ -27,6 +27,7 @@ async function fixture() {
   const wakes = new Set<() => void>(), positions = new Set<() => void>(), batches = new Set<(b: ReplicaAddressedBatch) => void>()
   const rows = vi.fn((kind: string) => kind === 'issueEvents' ? state.issueEvents : kind === 'pendingInteractions' ? state.pendingInteractions : [])
   const replica = { rows, row: (kind: string, id: string) => rows(kind).find((r: { id: string }) => r.id === id), getCursor: () => 1,
+    ids: (kind: string) => (kind === 'issueEvents' ? state.issueEvents : []).map(row => row.id),
     subscribeAddressedBatch: (wake: (b: ReplicaAddressedBatch) => void) => { batches.add(wake); return () => batches.delete(wake) } }
   const owner = withKeyedInputs({ replica, subscribe: (wake: () => void) => { wakes.add(wake); return () => wakes.delete(wake) }, getSnapshot: () => state,
     readPosition: { get: () => cursor, subscribe: (wake: () => void) => { positions.add(wake); return () => positions.delete(wake) }, advance: vi.fn(), hydrate: async () => {}, replace: vi.fn() },
@@ -109,6 +110,43 @@ it('orders numeric event ids, caps the tail and updates only addressed event row
   expect(f.source.counts.eventCollections).toBe(scans + 1)
   many.shift(); f.batch('issueEvents', event(1).id)
   expect(f.pool.row('superagentEvent', event(1).id)).toBeUndefined()
+})
+it('keeps the legacy 40-event tail through addressed changes, reading only the window at 1x and 4x history', async () => {
+  const reads: number[] = [], seed = { value: 7 }
+  const shuffle = <T,>(values: T[]) => {
+    for (let index = values.length - 1; index > 0; index--) {
+      seed.value = (seed.value * 1103515245 + 12345) % 2147483648
+      const other = seed.value % (index + 1);
+      [values[index], values[other]] = [values[other]!, values[index]!]
+    }
+    return values
+  }
+  for (const size of [150, 600]) {
+    const f = await fixture(); await settle(f)
+    f.publish({ issueEvents: shuffle(Array.from({ length: size }, (_, index) => event(index + 1))) })
+    const row = vi.spyOn(f.owner.replica, 'row'), events = () => row.mock.calls.filter(([kind]) => kind === 'issueEvents').length
+    f.replace(); await settle(f)
+    expect(checkSuperagent(f.pool, f.state)).toMatchObject({ differences: 0, first: null })
+    reads.push(events())
+    const change = async (next: IssueEventWire[], id: string) => {
+      f.publish({ issueEvents: next }); f.batch('issueEvents', id); await settle(f)
+      expect(checkSuperagent(f.pool, f.state)).toMatchObject({ differences: 0, first: null })
+    }
+    const newest = event(size + 10), member = issueEventRowId(size - 5, 'synthetic')
+    await change([...f.state.issueEvents, newest], newest.id)
+    await change([...f.state.issueEvents], newest.id)
+    await change(f.state.issueEvents.filter(row => row.id !== member), member)
+    await change(f.state.issueEvents.filter(row => row.eventId !== 3), event(3).id)
+    await change([...f.state.issueEvents, event(size - 5)], member)
+    await change(f.state.issueEvents.map(row => row.id === newest.id ? { ...row, kind: 'issue.reopened' } : row), newest.id)
+    await change([...f.state.issueEvents, { ...event(2), subject: 'second' , id: issueEventRowId(2, 'second') }], issueEventRowId(2, 'second'))
+    expect(superagentFeed(f.pool).events).toHaveLength(40)
+    reads.push(events() - reads.at(-1)!)
+  }
+  // Initial demand reads 40 rows; addressed changes read their own row plus a refill of the window.
+  expect(reads[0]).toBe(40)
+  expect(reads[2]).toBe(reads[0])
+  expect(reads[3]).toBe(reads[1])
 })
 it('borrows the per-principal read-position port, including another device advancing it', async () => {
   const f = await fixture(); await settle(f)

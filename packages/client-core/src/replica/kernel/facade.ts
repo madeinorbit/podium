@@ -548,6 +548,13 @@ export function createKernelReplica(init: KernelReplicaInit): KernelBackedReplic
       return state.byId.size
     },
 
+    ids(kind): Iterable<string> {
+      if (!projected.has(kind)) buildMissingProjections()
+      const state = projected.get(kind)!
+      reconcile(kind, state)
+      return state.byId.keys()
+    },
+
     rows<K extends ReplicaKind>(kind: K): ReplicaRows[K][] {
       return project(kind)
     },
