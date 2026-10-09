@@ -214,7 +214,7 @@ export function buildActivityFeed(
  * with the comment thread. Event deduplication remembers IDs at ingress;
  * appending a page never visits, copies or sorts the retained event history.
  * Out-of-order timestamps use binary insertion; equal stamps keep comments
- * before events, then the server's event arrival order. */
+ * before events, then event IDs in log order, even when pages arrive backward. */
 export class IssueActivityHistory {
   readonly events: IssueEvent[] = []
   readonly items: ActivityItem[] = []
@@ -303,7 +303,9 @@ export class IssueActivityHistory {
         : other.ts > item.ts
           ? 1
           : other.kind === item.kind
-            ? 0
+            ? other.kind === 'event'
+              ? Number(other.id.slice(2)) - Number(item.id.slice(2))
+              : 0
             : other.kind === 'comment'
               ? -1
               : 1

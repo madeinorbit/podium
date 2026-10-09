@@ -261,6 +261,27 @@ it('pages back on request without gaps or duplicates and matches the legacy feed
   }
 })
 
+it('keeps legacy timestamp ties in log order across backward pages', async () => {
+  const pool = poolWith(),
+    api = server(logOf(130).map((row) => ({ ...row, ts: stamp })))
+  const comments = [{ author: 'me', body: 'tied comment', createdAt: stamp }]
+  api.setComments(comments)
+  const view = new IssueHistoryView(issueActivity(pool, 'root'), api.ports, RECENT_ACTIVITY_SIZE)
+  const close = view.open()
+  try {
+    await flush()
+    expect(api.calls).toHaveLength(1)
+    expect(view.activity.history.items.slice(-RECENT_ACTIVITY_SIZE).reverse()).toEqual(
+      legacyRecent(api.log, comments),
+    )
+    while (view.hasEarlier) await view.loadEarlier()
+    expect(view.activity.history.items).toEqual(legacyFeed(api.log, comments))
+  } finally {
+    close()
+    pool.dispose()
+  }
+})
+
 it('keeps unchanged comments and mail as the same objects on an addressed update', async () => {
   const pool = poolWith(),
     api = server(logOf(8))
