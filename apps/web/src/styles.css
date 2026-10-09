@@ -4099,7 +4099,7 @@ html[data-density="compact"] .brief-shelf {
 }
 /* The first mark sits at the top of the mounted window, where the air above it
    would only pad the scrollport. */
-.transcript-daymark:first-child {
+.feed-column > .transcript-daymark:first-child {
   margin-top: 2px;
 }
 

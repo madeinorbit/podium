@@ -18,7 +18,7 @@ import type { SessionId} from '@podium/model/browser'
 import { MESSAGE_ACCEPTED_LINE } from '@podium/model'
 import { ArrowUp, Image as ImageIcon, RotateCcw } from 'lucide-react'
 import type { JSX, RefCallback, UIEventHandler } from 'react'
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { observer, Observer } from 'mobx-react-lite'
 import type { ChatSurface } from './use-chat-layout'
 import { renderMarkdown, sanitizeRenderedMarkdown } from '@/lib/markdown'
@@ -29,6 +29,7 @@ import type { PendingItem } from './chat'
 import { MetaGlyph } from './MetaGlyph'
 import { ToolBatchView } from './ToolBatchView'
 import { TranscriptCold } from './TranscriptCold'
+import { TranscriptWindowRow, useTranscriptWindow } from './TranscriptWindow'
 import { TranscriptStandby } from './TranscriptStandby'
 import { TranscriptTail, trailingRunIsLive } from './TranscriptTail'
 import { transcriptComputeClient } from './transcript-compute-client'
@@ -374,6 +375,13 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
   // use-feed-arrivals. Identity is per row and index-free, so paging older
   // messages in above does not read as the whole feed arriving at once.
   const arriving = useFeedArrivals(useMemo(() => rows.map(({ row }) => rowIdentity(row)), [rows]))
+  const windowScroller = useRef<HTMLDivElement | null>(null)
+  const setWindowScroller = useCallback<RefCallback<HTMLDivElement>>((element) => {
+    windowScroller.current = element
+    return setScrollerRef(element)
+  }, [setScrollerRef])
+  const windowKeys = useMemo(() => rows.map(({ row }) => rowIdentity(row)), [rows])
+  const windowing = useTranscriptWindow(windowKeys, windowScroller)
   const searchMatches = useMemo(() => new Set(search.matches), [search.matches])
   // Recomputed with the rows rather than on a clock: "Today" only goes stale at
   // midnight, and by the time it does the next row to land refreshes it.
@@ -422,7 +430,7 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           ? 'px-3.5 pt-3 pb-4'
           : 'px-[max(32px,calc((100%-var(--chat-reading-measure)-var(--chat-rail-w,0px))/2))] pt-[26px] pb-[14px]',
       )}
-      ref={setScrollerRef}
+      ref={setWindowScroller}
       onScroll={onScroll}
       onPointerUp={onPointerUp}
     >
@@ -492,9 +500,11 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           </button>
         )}
         {rows.map(({ row, index }, pos) => (
-          <TranscriptRow key={rowIdentity(row)} props={props} template={row} index={index} pos={pos}
-            previous={rows[pos - 1]?.row} arrived={arriving.has(rowIdentity(row))}
-            dayMark={dayMarks.get(pos)} searchMatches={searchMatches} />
+          <TranscriptWindowRow key={rowIdentity(row)} window={windowing} rowKey={rowIdentity(row)} index={index}>
+            <TranscriptRow props={props} template={row} index={index} pos={pos}
+              previous={rows[pos - 1]?.row} arrived={arriving.has(rowIdentity(row))}
+              dayMark={dayMarks.get(pos)} searchMatches={searchMatches} />
+          </TranscriptWindowRow>
         ))}
         <Observer>{() => {
           const pending = props.chat?.view.pending ?? props.pending ?? []

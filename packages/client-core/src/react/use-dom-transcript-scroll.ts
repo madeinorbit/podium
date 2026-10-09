@@ -243,7 +243,7 @@ export function useDomTranscriptScroll(
     const observer = new ResizeObserver((entries) => {
       let rowsResized = false
       for (const entry of entries) {
-        if (!entry.target.hasAttribute('data-block')) continue
+        if (!entry.target.hasAttribute('data-block') && !entry.target.hasAttribute('data-transcript-row')) continue
         const previous = rowHeights.current.get(entry.target)
         if (previous !== entry.contentRect.height) rowsResized = true
         rowHeights.current.set(entry.target, entry.contentRect.height)
@@ -254,7 +254,7 @@ export function useDomTranscriptScroll(
     observer.observe(scroller)
     // Two rows can resize in opposite directions without changing the content
     // box. Observe row sizes too, so that net-zero reflow still conserves place.
-    for (const row of content.querySelectorAll<HTMLElement>('[data-block]')) observer.observe(row)
+    for (const row of content.querySelectorAll<HTMLElement>('[data-block], [data-transcript-row]')) observer.observe(row)
     return () => observer.disconnect()
   }, [sessionId, active, scroller, content, rowsToRender, reconcileLayout])
 
@@ -447,6 +447,15 @@ export function useDomTranscriptScroll(
       const scroller = scrollerRef.current
       const target = scroller?.querySelector<HTMLElement>(`[data-block="${index}"]`)
       if (!scroller || !target) return
+      if (target.hasAttribute('data-transcript-placeholder')) {
+        // Called by effects as well as input handlers. Expand outside React's
+        // commit, then let this same controller align the real row's geometry.
+        requestAnimationFrame(() => {
+          target.dispatchEvent(new Event('podium-transcript-reveal', { bubbles: true }))
+          scrollToBlock(index, opts)
+        })
+        return
+      }
       releaseFollow()
       userScrolling.current = false
       const viewport = scroller.getBoundingClientRect()
