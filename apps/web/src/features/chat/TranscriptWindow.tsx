@@ -74,7 +74,7 @@ export function useTranscriptWindow(
       // Preserve both selection endpoints and the entire selected interval,
       // focused controls, and user-opened tool/detail state across scrolling.
       if (range?.intersectsNode(node) || node.contains(scroll.ownerDocument.activeElement) ||
-          node.querySelector('[aria-expanded="true"], [data-open="true"], dialog[open]') ||
+          node.querySelector('[aria-expanded="true"], [data-open="true"], dialog[open], details[open]') ||
           [...node.querySelectorAll('img')].some(image => !image.complete)) next.add(key)
       const prompt = node.querySelector<HTMLElement>('[data-operator-prompt="true"][data-pinnable="true"]')
       const top = prompt?.getBoundingClientRect().bottom
@@ -208,7 +208,7 @@ export function useTranscriptWindow(
 /** A stable shell also lets the existing minimap and scroll controller address
  * off-window rows. Rich content is mounted only while needed by the reader. */
 export function TranscriptWindowRow({ window: windowing, rowKey, index, children }: {
-  window: TranscriptWindow; rowKey: string; index: number; children: ReactNode
+  window: TranscriptWindow; rowKey: string; index: number; children: ReactNode | ((remounted: boolean) => ReactNode)
 }): JSX.Element {
   const ref = useRef<HTMLDivElement | null>(null)
   const proxy = useRef<HTMLDivElement | null>(null)
@@ -216,6 +216,8 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
   const [finding, setFinding] = useState(false)
   const entry = useRef<Entry | null>(null)
   const wasMounted = useRef(true)
+  const remounted = useRef(false)
+  if (mounted && !wasMounted.current) remounted.current = true
   useLayoutEffect(() => {
     const value: Entry = { node: ref.current!, mounted: true, height: 0, text: '', publish: setMounted, finding: false, revealing: false }
     entry.current = value
@@ -291,7 +293,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
     data-transcript-placeholder={!mounted ? '' : undefined}
     data-block={!mounted ? index : undefined} data-row-key={!mounted ? rowKey : undefined}
     style={{ flexShrink: 0, display: 'flow-root', position: 'relative', height: mounted ? undefined : entry.current?.height, minWidth: 0 }}>
-    {mounted && children}
+    {mounted && (typeof children === 'function' ? children(remounted.current) : children)}
     {(!mounted || finding) && <div key="find-proxy" ref={proxy} aria-hidden="true"
       style={{ position: 'absolute', inset: 0, opacity: finding ? 0 : undefined, pointerEvents: 'none', whiteSpace: 'pre-wrap' }}>{entry.current?.text}</div>}
     {!mounted && <button type="button" className="sr-only" aria-label={entry.current?.text}

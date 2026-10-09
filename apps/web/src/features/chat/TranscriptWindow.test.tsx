@@ -13,7 +13,7 @@ function Fixture({ count = 1000 }: { count?: number }) {
   const windowing = useTranscriptWindow(keys, scroll)
   return <div ref={scroll} data-scroller>
     {keys.map((key, index) => <TranscriptWindowRow key={key} rowKey={key} index={index} window={windowing}>
-      <div data-message><p>{key} retained prose</p><button aria-expanded="false">Details</button></div>
+      {remounted => <div data-message data-arrived={!remounted ? '' : undefined}><p>{key} retained prose</p><button aria-expanded="false">Details</button></div>}
     </TranscriptWindowRow>)}
   </div>
 }
@@ -54,6 +54,7 @@ it('retains exact shells and only the viewport buffer of rich message DOM, even 
   expect(shell?.querySelector('[hidden="until-found"]')?.textContent).toContain('row-0 retained prose')
   scroll(0)
   expect(shell?.querySelector('[data-message]')).not.toBeNull()
+  expect(shell?.querySelector('[data-arrived]')).toBeNull()
 })
 it('preserves the complete multirow selection and copy text when it leaves the viewport', () => {
   const first = host.querySelector('[data-transcript-row="row-1"] p')!.firstChild!

@@ -501,9 +501,9 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
         )}
         {rows.map(({ row, index }, pos) => (
           <TranscriptWindowRow key={rowIdentity(row)} window={windowing} rowKey={rowIdentity(row)} index={index}>
-            <TranscriptRow props={props} template={row} index={index} pos={pos}
-              previous={rows[pos - 1]?.row} arrived={arriving.has(rowIdentity(row))}
-              dayMark={dayMarks.get(pos)} searchMatches={searchMatches} />
+            {(remounted) => <TranscriptRow props={props} template={row} index={index} pos={pos}
+              previous={rows[pos - 1]?.row} arrived={!remounted && arriving.has(rowIdentity(row))}
+              dayMark={dayMarks.get(pos)} searchMatches={searchMatches} />}
           </TranscriptWindowRow>
         ))}
         <Observer>{() => {

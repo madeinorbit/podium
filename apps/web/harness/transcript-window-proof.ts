@@ -19,7 +19,7 @@ if (process.argv.includes('--build')) {
   await build({ ...base, configFile: false, logLevel: 'warn',
     plugins: [...(arm === 'before' ? [{ name: 'original-transcript', enforce: 'pre' as const,
       load(id: string) { const path = paths.find(path => id.endsWith('/' + path)); return path ? execFileSync('git', ['show', `${baseline}:${path}`], { encoding: 'utf8' }) : null } }] : []),
-      ...base.plugins!.filter((plugin: any) => !/meter/.test(plugin?.name ?? ''))],
+      ...base.plugins!.filter((plugin: any) => !/meter|test-product-work-counters/.test(plugin?.name ?? ''))],
     build: { outDir: directory, emptyOutDir: true, minify: true,
       rollupOptions: { input: resolve('apps/web/test/transcript-window.browser.html') } } })
   process.exit(0)
@@ -53,6 +53,7 @@ try {
     const heap = await cdp.send('Runtime.getHeapUsage')
     const stats = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
     samples.push({ ...stats, heapUsed: heap.usedSize, heapTotal: heap.totalSize })
+    console.log(JSON.stringify({ loaded: stats.loaded, elements: stats.elements, drawn: stats.drawn, heapUsed: heap.usedSize }))
   }
   const fastScroll = await page.evaluate(async () => {
     const scroll = document.querySelector<HTMLElement>('[data-feed-scroller]')!
@@ -73,6 +74,6 @@ try {
   await page.screenshot({ path: resolve(directory, 'window.png') })
   const report = { arm, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), browser: browser.version(), samples, fastScroll, jump, errors }
   await writeFile(resolve(directory, 'report.json'), JSON.stringify(report, null, 2))
-  console.log(JSON.stringify(report))
+  console.log(JSON.stringify({ arm, samples: samples.map(({ loaded, elements, drawn, heapUsed }) => ({ loaded, elements, drawn, heapUsed })), blankFrames: fastScroll.filter(sample => sample.visible === 0).length, jump: { key: jump.key, offset: jump.offset }, errors }))
   if (errors.length || fastScroll.some(sample => sample.visible === 0)) throw new Error('Production scroll proof failed')
 } finally { await browser.close(); await new Promise<void>(done => server.close(() => done())) }
