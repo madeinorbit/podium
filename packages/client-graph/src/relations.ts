@@ -12,8 +12,8 @@ import { machinePathKey } from '@podium/model/browser'
  * phone's 11k rows were cold, each linked at attach), and kept plain twins
  * and summaries for the cold ones (POD-5417 finding 14). Now this reader
  * stores nothing per row: a read answers from the index, and observes one
- * atom for the slot it read, made on that first read inside a derivation and
- * dropped when no derivation observes it ("observable on first access",
+ * atom and a lazy ID-list field for the slot it read, made on first demand and
+ * dropped when no derivation observes them ("observable on first access",
  * applied to the relations themselves). A bucket therefore holds its hot and
  * cold members alike with no seeding step and no copy; a slot nobody reads
  * costs nothing.
@@ -29,7 +29,7 @@ import { machinePathKey } from '@podium/model/browser'
  *
  * THE READER. `one` = the forward slot + the target's presence (the caller's
  * tracked presence, or the `alsoRoots` union); `many` = the bucket's members,
- * unordered (M3 F1), tracked when iterated; `size` = the bucket's size;
+ * unordered (M3 F1), as a shallow-equal lazy list; `size` = the bucket's size;
  * `subset` = a declared subset's members. Derivations resolve every relation
  * through this reader and never themselves.
  */
@@ -95,7 +95,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   private readonly index: () => RelationQueries
   private readonly present: (entity: EntityName, id: string) => boolean
   private readonly onBucket: (collection: string, target: string, member: string, added: boolean) => void
-  /** One atom per slot a derivation has read, while observed. */
+  /** List holders and atoms belong to the same demand-scoped slot index. */
   private readonly lists = new Map<string, RelationList>()
   private readonly atoms = createDemandAtoms<string>(
     (key) => debugName(() => `pool.relation.${key}`) ?? 'Atom',
@@ -140,7 +140,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     return this.present(to, target) ? target : null
   }
 
-  many(from: EntityName, id: string, relation: string): Iterable<string> {
+  many(from: EntityName, id: string, relation: string): readonly string[] {
     const slot = this.slot(from, id, relation)
     return this.list(slot.key, slot.read)
   }
@@ -151,7 +151,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
     return slot.read().size
   }
 
-  subset(from: EntityName, id: string, relation: string, subset: string): Iterable<string> {
+  subset(from: EntityName, id: string, relation: string, subset: string): readonly string[] {
     id = machinePathKey(id)
     const key = `${from}.${relation}`
     if (!this.collections.has(key)) {
