@@ -47,9 +47,9 @@ code{background:#e8edf2;padding:2px 5px}small{display:block;color:#4e5b68;margin
 </style>
 <h1>POD-5862: memory evidence</h1>
 <p class="status"><b>The reported 17 GB growth is not reproduced. No causal fix has been made or landed.</b><br>
-These are diagnostic baselines. Native Safari with the operator's live records remains pending explicit authorization.</p>
+These are diagnostic baselines. The operator authorized live-data capture on the Mac; native WKWebView transcript-history capture is underway.</p>
 <p>The frontend is the archived <code>0.1.1-dev.283+de058fe</code> production build.
-Live-data captures ran only on ludovico against its live backend, whose wire schema matched the reported frontend.
+Earlier Chromium captures ran on ludovico against its live backend, whose wire schema matched the reported frontend. Those captures were stopped when the operator revoked local workloads.
 Chromium heap samples follow two forced collections. Native Safari uses macOS physical footprint, including compressed memory.
 Heap, resident memory and native footprint are different measurements.</p>
 <select id="run"></select> <select id="metric"></select>
@@ -65,7 +65,7 @@ The synthetic fixture uses the reported production MobX asset and generated text
 <p><b>Excluded evidence:</b> the first full heap snapshot never completed; early broad WebSocket freezes caused resyncs;
 repeated navigation captures eventually unmounted the workspace; Linux WPE virtual address space is not a macOS footprint measurement.
 None of those intervals is treated as a successful flat curve or a removal proof.</p>
-<p>Remaining work: reproduce the reported condition in Safari on the operator's live records, identify the growing owner,
+<p>Remaining work: reproduce sustained growth in native WKWebView on the operator's live records, identify the growing owner,
 freeze that owner without unmounting the app, fix it, and verify the same workload. Product validation and pilot landing have not run.</p>
 <script>
 const data=__DATA__,run=document.getElementById('run'),metric=document.getElementById('metric'),chart=document.getElementById('chart');
