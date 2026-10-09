@@ -105,6 +105,19 @@ function forest(seed: number): Row[] {
     issue('cycle-b', { parentId: 'cycle-a', seq: 8, stage: 'proposed' }),
     issue('cycle-kid', { parentId: 'cycle-a', seq: 9 }),
     issue('self', { parentId: 'self', seq: 6, stage: 'review' }),
+    // An ordinary cycle (no proposal in it) with a child: its first member heads it.
+    issue('loop-a', { parentId: 'loop-b', seq: 5 }),
+    issue('loop-b', { parentId: 'loop-a', seq: 4 }),
+    issue('loop-kid', { parentId: 'loop-b', seq: 3, stage: 'review' }),
+    // A proposal whose nearest proposal ancestor sits above a hidden draft: the
+    // draft cuts the shown tree, so the inner proposal is promoted.
+    issue('outer-proposal', { stage: 'proposed', seq: 60 }),
+    issue('hidden-draft', { parentId: 'outer-proposal', isDraftVessel: true, seq: 61 }),
+    issue('cut-proposal', { parentId: 'hidden-draft', stage: 'proposed', seq: 62 }),
+    // Agent work under a draft and under a parent nobody can see stays hidden.
+    issue('agent-under-draft', { parentId: 'hidden-draft', audience: 'agent', seq: 63 }),
+    issue('agent-orphan', { parentId: 'nowhere', audience: 'agent', seq: 64 }),
+    issue('agent-under-person', { parentId: 'outer-proposal', audience: 'agent', seq: 65 }),
   )
   return rows
 }
