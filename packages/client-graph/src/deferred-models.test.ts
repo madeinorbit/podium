@@ -1,7 +1,8 @@
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
 import { loadSyncedModels } from './models'
-import { LOADING, requireHere } from './lookup'
+import { requireHere } from './lookup'
+import { LOADING } from './loading'
 import { MobxPool } from './pool'
 import type { RowRecord } from './shared/source'
 
