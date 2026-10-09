@@ -34,8 +34,8 @@ import { machinePathKey } from '@podium/model/browser'
  * through this reader and never themselves.
  */
 
-import { createDemandAtoms } from '@podium/mobx-helpers'
-import { observable } from 'mobx'
+import { createDemandAtoms, lazy } from '@podium/mobx-helpers'
+import { compareShallow, observable } from 'mobx'
 import { debugName } from './debug-name'
 import { relationRef } from './shared/links'
 import type { RelationDelta, RelationQueries } from './shared/relation-index'
@@ -75,16 +75,18 @@ export interface PoolRelationsOptions {
 
 const NONE: ReadonlySet<string> = Object.freeze(new Set<string>())
 
-/** A slot's members, tracked when read: iterating one observes its atom. */
-class TrackedIds implements Iterable<string> {
+/** One demand-scoped list field for an indexed relation slot. Models and
+ * unloaded records both use IDs here; payload changes cannot change the list. */
+class RelationList {
   constructor(
     private readonly read: () => ReadonlySet<string>,
     private readonly observe: () => void,
   ) {}
 
-  [Symbol.iterator](): Iterator<string> {
+  @lazy({ equals: compareShallow })
+  get ids(): readonly string[] {
     this.observe()
-    return this.read()[Symbol.iterator]()
+    return [...this.read()]
   }
 }
 
@@ -94,7 +96,11 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   private readonly present: (entity: EntityName, id: string) => boolean
   private readonly onBucket: (collection: string, target: string, member: string, added: boolean) => void
   /** One atom per slot a derivation has read, while observed. */
-  private readonly atoms = createDemandAtoms<string>((key) => debugName(() => `pool.relation.${key}`) ?? 'Atom')
+  private readonly lists = new Map<string, RelationList>()
+  private readonly atoms = createDemandAtoms<string>(
+    (key) => debugName(() => `pool.relation.${key}`) ?? 'Atom',
+    { onUnobserved: (key) => this.lists.delete(key) },
+  )
   /** Collections by name, and which outgoing links are many-valued (`from.relation`). */
   private readonly collections = new Set<string>()
   private readonly singles = new Set<string>()
@@ -136,8 +142,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
 
   many(from: EntityName, id: string, relation: string): Iterable<string> {
     const slot = this.slot(from, id, relation)
-    this.observe(slot.key)
-    return new TrackedIds(slot.read, () => this.observe(slot.key))
+    return this.list(slot.key, slot.read)
   }
 
   size(from: EntityName, id: string, relation: string): number {
@@ -154,10 +159,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       throw new Error(`[pool] ${from}.${relation} is single-valued; read it with one()`)
     }
     const slot = `s:${key}.${subset}:${id}`
-    this.observe(slot)
-    const read = () => this.index().subset(from, id, relation, subset)
-    read()
-    return new TrackedIds(read, () => this.observe(slot))
+    return this.list(slot, () => this.index().subset(from, id, relation, subset))
   }
 
   /** A declared subset count borrows its maintained bucket, without a walk. */
@@ -233,6 +235,7 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   clear(): void {
     this.reset()
     this.atoms.clear()
+    this.lists.clear()
   }
 
   // ------------------------------------------------------------------ slots
@@ -246,6 +249,22 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
       throw new Error(`[pool] ${from}.${relation} is single-valued; read it with one()`)
     }
     return { key: `b:${key}:${id}`, read: () => this.index().members(from, id, relation) ?? NONE }
+  }
+
+  /** Slot holders are part of the data-layer index, retained only while
+   * their lazy field observes the slot (including a synchronous action read). */
+  private list(key: string, read: () => ReadonlySet<string>): readonly string[] {
+    let list = this.lists.get(key)
+    if (!list) {
+      list = new RelationList(read, () => this.observe(key))
+      this.lists.set(key, list)
+    }
+    try {
+      return list.ids
+    } catch (error) {
+      this.lists.delete(key)
+      throw error
+    }
   }
 
   private spec(from: EntityName, relation: string): void {

@@ -197,22 +197,32 @@ function installRelations(prototype: EntityModel, entity: EntityName): void {
       Object.defineProperty(Members.prototype, subset, {
         configurable: false,
         enumerable: false,
-        get(this: Members): ModelCollection {
+        get: collectionGetter(subset, function (this: Members): ModelCollection {
           return new ModelCollection(this.host, spec.to, this.owner, () =>
             this.host.relations.subset(entity, this.owner, name, subset),
           )
-        },
+        }),
       })
     }
     Object.defineProperty(prototype, name, {
       configurable: false,
       enumerable: false,
-      get(this: EntityModel): ModelCollection {
+      get: collectionGetter(name, function (this: EntityModel): ModelCollection {
         const host = hostOf(this)
         return new Members(host, spec.to, this.id, () => host.relations.many(entity, this.id, name))
-      },
+      }),
     })
   }
+}
+
+/** Schema-installed collection handles use the same lifetime as @lazy
+ * class fields. The handle reads live lists, rather than storing its first answer. */
+function collectionGetter<T extends object, V>(name: string, get: (this: T) => V): (this: T) => V {
+  return lazy(get, {
+    kind: 'getter', name, static: false, private: false,
+    access: { has: target => name in target, get: target => get.call(target) },
+    addInitializer() {}, metadata: {},
+  })
 }
 
 export function hostOf(model: EntityModel): ModelHost {
@@ -228,21 +238,15 @@ function objectOrLoading(
   return host.model(to, id) ?? (host.resident(to, id) === 'loading' ? LOADING : null)
 }
 
-/**
- * A lazy collection read (Rule L): the members in memory, as objects, and
- * how many are still loading, every cold one queued. `ready` is in bucket
- * order, which is unordered (M3 F1). It is a READ, not a live view: the
- * first of `ready` or `loading` reads the members, once, where it is asked;
- * a reader that holds a collection across runs re-reads the getter.
- */
+/** A live collection (Rule L). `ready` is the shallow-equal list of shared
+ * models in bucket order (unordered, M3 F1); `loading` counts cold members and
+ * queues their loads. Retaining the handle never retains a stale answer. */
 export interface LazyCollection<M> {
   readonly ready: readonly M[]
   readonly loading: number
 }
 
 class ModelCollection implements LazyCollection<EntityModel> {
-  private read: { readonly ready: readonly EntityModel[]; readonly loading: number } | null = null
-
   constructor(
     readonly host: ModelHost,
     private readonly to: EntityName,
@@ -251,25 +255,23 @@ class ModelCollection implements LazyCollection<EntityModel> {
     private readonly members: () => Iterable<string>,
   ) {}
 
+  @lazy({ equals: compareShallow })
   get ready(): readonly EntityModel[] {
-    return this.settle().ready
-  }
-
-  get loading(): number {
-    return this.settle().loading
-  }
-
-  private settle(): { readonly ready: readonly EntityModel[]; readonly loading: number } {
-    if (this.read !== null) return this.read
     const ready: EntityModel[] = []
-    let loading = 0
     for (const id of this.members()) {
       const found = objectOrLoading(this.host, this.to, id)
-      if (found === LOADING) loading += 1
-      else if (found !== null) ready.push(found)
+      if (found !== LOADING && found !== null) ready.push(found)
     }
-    this.read = { ready, loading }
-    return this.read
+    return ready
+  }
+
+  @lazy
+  get loading(): number {
+    let loading = 0
+    for (const id of this.members()) {
+      if (objectOrLoading(this.host, this.to, id) === LOADING) loading += 1
+    }
+    return loading
   }
 }
 
