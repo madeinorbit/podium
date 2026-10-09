@@ -4,7 +4,7 @@
   const p=window.__memoryWK,original=p.sample;
   p.sample=function(minute){
     const value=original(minute);
-    value.transcriptMobx=[...p.runtime.deref().conversationCache.entries.values()].map(({conversation:c})=>{
+    value.transcriptMobx=[...p.runtime?.deref()?.conversationCache.entries.values()??[]].map(({conversation:c})=>{
       const seen=new Set(),stats={atoms:0,observerEdges:0,dependencyEdges:0};
       function walk(v){
         if(!v||typeof v!=='object'||seen.has(v))return;seen.add(v);
