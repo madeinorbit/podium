@@ -12,8 +12,7 @@ export const REMOVED: Gone = Object.freeze({ kind: 'gone', reason: 'removed' })
 export const NOT_VISIBLE: Gone = Object.freeze({ kind: 'gone', reason: 'not-visible' })
 
 export function isGone(value: unknown): value is Gone {
-  return typeof value === 'object' && value !== null &&
-    (value as Gone).kind === 'gone' &&
+  return typeof value === 'object' && (value as Gone | null)?.kind === 'gone' &&
     ((value as Gone).reason === 'removed' || (value as Gone).reason === 'not-visible')
 }
 

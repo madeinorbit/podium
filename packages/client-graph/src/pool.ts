@@ -693,9 +693,10 @@ export class MobxPool {
   model<E extends EntityName>(entity: E, id: string): Lookup<ModelOf[E]> {
     // A resident identity observes presence; fields observe their own values.
     // Reading its payload here would wake every model join on any row update.
-    if (this.tables[entity].has(id)) return this.object(entity, id) as ModelOf[E]
-    const row = this.row(entity, id)
-    if (row === LOADING || isGone(row)) return row
+    if (!this.tables[entity].has(id)) {
+      const row = this.row(entity, id)
+      if (row === LOADING || isGone(row)) return row
+    }
     return this.object(entity, id) as ModelOf[E]
   }
 
