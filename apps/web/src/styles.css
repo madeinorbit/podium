@@ -10563,6 +10563,16 @@ button.waterfall-fold:hover {
   background: var(--muted);
   color: var(--text-strong);
 }
+/* The clock leaf changes only the open final stretch; retained segments keep
+   their coordinates and are scaled inside a growing live bar. */
+.waterfall-seg[data-live-tail] {
+  width: calc(100% - var(--waterfall-segment-start) * var(--waterfall-duration-ratio, 1)) !important;
+}
+.waterfall-offscreen[hidden],
+[data-waterfall-bar][hidden],
+.waterfall-now-line[hidden] {
+  display: none;
+}
 .waterfall-session-bar {
   position: absolute;
   z-index: 2;

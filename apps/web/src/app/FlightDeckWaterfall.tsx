@@ -7,8 +7,6 @@ import {
   FLIGHT_DECK_WATERFALL_TASK_WIDTH_KEY,
 } from '@podium/client-core/ui-state'
 import {
-  deckSessions,
-  type FlightDeckMode,
   type FlightDeckRow,
   isCoordinatorSession,
   nativeSubagentRows,
@@ -34,8 +32,16 @@ import type {
   MouseEvent as ReactMouseEvent,
   ReactNode,
   PointerEvent as ReactPointerEvent,
+  RefObject,
 } from 'react'
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, useLayoutEffect } from 'react'
+import { observer } from 'mobx-react-lite'
+import type { MissionScreen } from '@podium/client-graph/mission-screen'
+import type { SessionModel } from '@podium/client-graph/models'
+import type { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
+import { WaterfallLiveEdge } from './waterfall-live-edge'
+import { WaterfallView, type WaterfallRow, type WaterfallSession } from './waterfall-view'
+import { useBoundedVirtualList } from '@/features/issues/use-bounded-virtual-list'
 import { Tooltip, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { PoolSessionContextMenu } from '@/lib/PoolSessionContextMenu'
@@ -48,25 +54,21 @@ import type { FlightDeckDisplay } from './flight-deck-display'
 import {
   fitWaterfallViewport,
   foldWaterfallSegments,
-  followWaterfallViewport,
+  followWaterfallSessionViewport,
   formatWaterfallClock,
   formatWaterfallDuration,
   panWaterfallViewport,
   summarizeWaterfallSegments,
   WATERFALL_MIN_SPAN_MS,
-  type WaterfallActivitySample,
   type WaterfallSegment,
   type WaterfallSessionState,
-  type WaterfallTick,
   type WaterfallViewport,
   waterfallBarGeometry,
   waterfallLabelPlacement,
   waterfallPercent,
-  waterfallSegments,
   waterfallSessionEnd,
   waterfallSessionStart,
   waterfallSessionState,
-  waterfallTicks,
   waterfallTimelineStart,
   zoomWaterfallViewport,
 } from './flight-deck-waterfall'
@@ -174,13 +176,6 @@ export function defaultWaterfallTaskWidth(
   return clampWaterfallTaskWidth(desired, rootWidth || fallbackRootWidth)
 }
 
-interface WaterfallIssueRow {
-  row: FlightDeckRow
-  displayTitle: string
-  sessions: SessionView[]
-  root: boolean
-}
-
 interface WaterfallFuture {
   label: string
   detail?: string
@@ -188,7 +183,7 @@ interface WaterfallFuture {
 }
 
 /** Everything a lane needs to project time onto pixels, computed once. */
-interface WaterfallFrame {
+export interface WaterfallFrame {
   viewport: WaterfallViewport
   now: number
   trackPx: number
@@ -197,10 +192,8 @@ interface WaterfallFrame {
 }
 
 interface FlightDeckWaterfallProps {
-  rootRow: FlightDeckRow
-  rows: readonly FlightDeckRow[]
-  displayTitles: ReadonlyMap<string, string>
-  mode: FlightDeckMode
+  screen: MissionScreen
+  scrollRef: RefObject<HTMLElement | null>
   display: FlightDeckDisplay
   focusedIssueId: string | null
   activeSessionId: string | null
@@ -241,84 +234,7 @@ function sessionReason(row: FlightDeckRow, session: SessionView): string | null 
   return row.issue.asked?.question?.trim() || 'Waiting for operator'
 }
 
-/**
- * Per-crew phase history behind the segmented bars. Poll-based on purpose: the
- * store replicates no per-session history (see activity-history.ts server-side)
- * and a fetch keyed on the crew's phase fingerprint refreshes exactly when a
- * bar's shape could have changed. Absence — old servers, unreadable ids,
- * pruned history — degrades to the solid single-color bar.
- */
-export function useWaterfallActivity(
-  sessions: readonly SessionView[],
-): ReadonlyMap<string, WaterfallActivitySample[]> {
-  const trpc = useStoreHandle<Trpc>().access.trpc as {
-    sessions?: {
-      activityHistory?: {
-        query: (input: {
-          sessionIds: string[]
-        }) => Promise<{ sessions?: Record<string, Array<{ at: string; phase: string }>> }>
-      }
-    }
-  }
-  const idsKey = useMemo(
-    () => [...new Set(sessions.map((session) => session.sessionId))].sort().join('\n'),
-    [sessions],
-  )
-  const fingerprint = useMemo(
-    () =>
-      sessions
-        .map((session) => `${session.sessionId}:${session.agentState?.phase ?? session.status}`)
-        .sort()
-        .join('\n'),
-    [sessions],
-  )
-  const [samples, setSamples] = useState<ReadonlyMap<string, WaterfallActivitySample[]>>(
-    () => new Map(),
-  )
-  // The 60s poll usually returns exactly what it returned last time; replacing
-  // the Map identity anyway would re-render every bar for nothing. A cheap
-  // signature (id : count : last transition) catches the no-op case.
-  const signatureRef = useRef('')
-  const query = trpc.sessions?.activityHistory?.query
-  // biome-ignore lint/correctness/useExhaustiveDependencies(fingerprint): a phase flip anywhere in the crew must refetch even though the ids are unchanged.
-  useEffect(() => {
-    if (!query || idsKey.length === 0) return
-    let cancelled = false
-    const load = async (): Promise<void> => {
-      try {
-        const result = await query({ sessionIds: idsKey.split('\n') })
-        if (cancelled) return
-        const next = new Map<string, WaterfallActivitySample[]>()
-        for (const [sessionId, list] of Object.entries(result.sessions ?? {})) {
-          const parsed = list
-            .map((sample) => ({ at: Date.parse(sample.at), phase: sample.phase }))
-            .filter((sample) => Number.isFinite(sample.at))
-          if (parsed.length > 0) next.set(sessionId, parsed)
-        }
-        const signature = [...next.entries()]
-          .map(([id, list]) => `${id}:${list.length}:${list[list.length - 1]?.at ?? 0}`)
-          .sort()
-          .join('|')
-        if (signature === signatureRef.current) return
-        signatureRef.current = signature
-        setSamples(next)
-      } catch {
-        // History is an enhancement; the solid bar remains truthful without it.
-      }
-    }
-    void load()
-    const timer = setInterval(() => void load(), 60_000)
-    return () => {
-      cancelled = true
-      clearInterval(timer)
-    }
-  }, [query, idsKey, fingerprint])
-  return samples
-}
-
 const WaterfallAxis = memo(function WaterfallAxis({
-  frame,
-  ticks,
   following,
   hasCurrentWork,
   rowZoom,
@@ -330,8 +246,6 @@ const WaterfallAxis = memo(function WaterfallAxis({
   onFit,
   onFollow,
 }: {
-  frame: WaterfallFrame
-  ticks: readonly WaterfallTick[]
   following: boolean
   hasCurrentWork: boolean
   rowZoom: number
@@ -343,8 +257,6 @@ const WaterfallAxis = memo(function WaterfallAxis({
   onFit: () => void
   onFollow: () => void
 }): JSX.Element {
-  const nowVisible = frame.nowPct >= 0 && frame.nowPct <= 100
-  const nowAtEdge = (frame.nowPct / 100) * frame.trackPx > frame.trackPx - 26
   const rowDragRef = useRef<{ y: number; zoom: number; pointerId: number } | null>(null)
   const setSteppedRowZoom = (direction: number): void => {
     onRowZoomCommit(clampWaterfallRowZoom(rowZoom + direction * WATERFALL_ROW_ZOOM_STEP))
@@ -441,22 +353,7 @@ const WaterfallAxis = memo(function WaterfallAxis({
             <Maximize size={10} aria-hidden="true" />
           </button>
         </span>
-        <div className="waterfall-axis-labels" aria-hidden="true">
-          {ticks.map((tick) => (
-            <span key={tick.at} className="waterfall-axis-tick" style={{ left: `${tick.pct}%` }}>
-              {tick.label}
-            </span>
-          ))}
-          {nowVisible ? (
-            <span
-              className="waterfall-axis-now"
-              data-edge={nowAtEdge || undefined}
-              style={{ left: `${frame.nowPct}%` }}
-            >
-              now
-            </span>
-          ) : null}
-        </div>
+        <div className="waterfall-axis-labels" aria-hidden="true" />
         {!following ? (
           <button
             data-pressable
@@ -586,11 +483,11 @@ function WaterfallHoverCard({
   )
 }
 
-const WaterfallSessionBar = memo(function WaterfallSessionBar({
+const WaterfallSessionBar = observer(function WaterfallSessionBar({
   row,
   session,
   frame,
-  samples,
+  fact,
   selected,
   flashed,
   onOpen,
@@ -598,33 +495,42 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
   onLocalPick,
 }: {
   row: FlightDeckRow
-  session: SessionView
+  session: SessionModel
   frame: WaterfallFrame
-  samples: readonly WaterfallActivitySample[] | undefined
+  fact: WaterfallSession
   selected: boolean
   flashed: boolean
   onOpen: (permanent: boolean) => void
   onOpenNative: () => void
   onLocalPick: () => void
 }): JSX.Element {
+  const laneRef = useRef<HTMLDivElement | null>(null)
+  useLayoutEffect(() => {
+    const lane = laneRef.current
+    lane?.dispatchEvent(new CustomEvent('waterfall-geometry', { bubbles: true, detail: lane }))
+  })
   const intent = useClickIntent()
   const renameSession = useRuntimeSelector((store) => store.renameSession)
-  const startMs = waterfallSessionStart(session, frame.now)
-  const endMs = Math.max(startMs, waterfallSessionEnd(session, frame.now))
+  const startMs = fact.startMs
+  const endMs = fact.historyEndMs
+  const phase = fact.phase
+  const settled = fact.settled
+
   const state = (() => {
     const asking = sessionAsksOnIssue(row.issue, session)
     return asking ? 'attention' : waterfallSessionState(session)
   })()
   const live = state !== 'finished'
   const geometry = waterfallBarGeometry(startMs, endMs, frame.viewport)
+  useEffect(() => geometry.visible ? fact.demand() : undefined, [fact, geometry.visible])
+  useEffect(() => { if (geometry.visible) fact.load() }, [fact, phase, settled, geometry.visible])
   const segments = useMemo(() => {
-    if (!samples || samples.length === 0) return []
-    return foldWaterfallSegments(waterfallSegments(samples, startMs, endMs), frame.msPerPx)
-  }, [samples, startMs, endMs, frame.msPerPx])
+    return foldWaterfallSegments(fact.segments, frame.msPerPx)
+  }, [fact.segments, frame.msPerPx])
   const reason = sessionReason(row, session)
   const name = sessionDisplayName(session)
   const coordinator = isCoordinatorSession(row.issue, session.sessionId)
-  const workers = useMemo(() => nativeSubagentRows(session), [session])
+  const workers = nativeSubagentRows(session)
   const pointed = useSessionHovered(session.sessionId)
   const unread = sessionUnreadEmphasized(session)
   const [nativeOpen, setNativeOpen] = useState(false)
@@ -662,48 +568,35 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
     .filter(Boolean)
     .join(' · ')
 
-  if (!geometry.visible) {
-    // The bar lies entirely outside the zoomed frame: keep the lane and leave
-    // an edge marker that names and reveals it instead of silently dropping it.
-    const side = geometry.clippedStart && geometry.widthPct === 0 && geometry.leftPct === 0
-    return (
-      <div className="waterfall-session-lane" data-offscreen="true">
-        <button
-          data-pressable
-          type="button"
-          className="waterfall-offscreen"
-          data-side={side ? 'start' : 'end'}
-          data-flight-session={session.sessionId}
-          title={`${name} · outside the current zoom`}
-          aria-label={`${name} is outside the visible time range`}
-          onClick={() => {
-            onLocalPick()
-            onOpen(false)
-          }}
-        >
-          {side ? (
-            <ChevronLeft size={10} aria-hidden="true" />
-          ) : (
-            <ChevronRight size={10} aria-hidden="true" />
-          )}
-        </button>
-      </div>
-    )
-  }
-
   const geometryStyle = {
     '--waterfall-left': `${geometry.leftPct}%`,
     '--waterfall-width': `${geometry.widthPct}%`,
+    '--waterfall-base-start': waterfallPercent(frame.viewport, startMs),
+    '--waterfall-base-end': waterfallPercent(frame.viewport, endMs),
   } as CSSProperties
 
   return (
     <div
+      ref={laneRef}
       className="waterfall-session-lane"
+      data-offscreen={!geometry.visible || undefined}
       data-pointed={pointed || undefined}
       data-unread={unread || undefined}
       data-has-native={workers.length > 0 || undefined}
+      data-waterfall-live={live || undefined}
+      data-waterfall-start={startMs}
+      data-waterfall-end={endMs}
       style={geometryStyle}
     >
+      <button data-pressable type="button" className="waterfall-offscreen"
+        hidden={geometry.visible} data-side={geometry.leftPct === 0 ? 'start' : 'end'}
+        data-flight-session={geometry.visible ? undefined : session.id}
+        title={`${name} · outside the current zoom`}
+        aria-label={`${name} is outside the visible time range`}
+        onClick={() => { onLocalPick(); onOpen(false) }}>
+        {geometry.leftPct === 0 ? <ChevronLeft size={10} aria-hidden="true" /> : <ChevronRight size={10} aria-hidden="true" />}
+      </button>
+      <div data-waterfall-bar hidden={!geometry.visible}>
       {editing ? (
         <div className="waterfall-session-editor">
           <SessionNameEditor
@@ -767,7 +660,12 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
                       key={span.key}
                       className="waterfall-seg"
                       data-kind={span.kind}
-                      style={{ left: `${span.leftPct}%`, width: `${span.widthPct}%` }}
+                      data-live-tail={live && span.key === segments.at(-1)?.start && segments.at(-1)?.end === endMs || undefined}
+                      style={{
+                        left: `calc(${span.leftPct}% * var(--waterfall-duration-ratio, 1))`,
+                        width: `calc(${span.widthPct}% * var(--waterfall-duration-ratio, 1))`,
+                        '--waterfall-segment-start': `${span.leftPct}%`,
+                      } as CSSProperties}
                     />
                   ))}
                 </span>
@@ -837,6 +735,7 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
           ) : null}
         </>
       )}
+      </div>
       {nativeOpen && workers.length > 0 ? (
         <div id={nativeListId} className="waterfall-native-list" data-testid="flight-native-agents">
           {workers.map((worker) => {
@@ -877,38 +776,34 @@ const WaterfallSessionBar = memo(function WaterfallSessionBar({
   )
 })
 
-const WaterfallHistorySummary = memo(function WaterfallHistorySummary({
-  sessions,
+const WaterfallHistorySummary = observer(function WaterfallHistorySummary({
+  row,
   frame,
   expanded,
   onToggle,
 }: {
-  sessions: readonly SessionView[]
+  row: WaterfallRow
   frame: WaterfallFrame
   expanded: boolean
   onToggle: () => void
 }): JSX.Element {
-  const bounds = useMemo(() => {
-    let startedAt = frame.now
-    let endedAt = frame.viewport.start
-    for (const session of sessions) {
-      startedAt = Math.min(startedAt, waterfallSessionStart(session, frame.now))
-      endedAt = Math.max(endedAt, waterfallSessionEnd(session, frame.now))
-    }
-    return { startedAt, endedAt }
-  }, [frame.now, frame.viewport.start, sessions])
+  const bounds = row.historyBounds
   const geometry = waterfallBarGeometry(bounds.startedAt, bounds.endedAt, frame.viewport)
-  const count = sessions.length
+  const count = row.finishedIds.length
   const label = `${count} completed session${count === 1 ? '' : 's'} · ${formatWaterfallDuration(
     Math.max(0, bounds.endedAt - bounds.startedAt),
   )} span`
   return (
     <div
       className="waterfall-session-lane waterfall-history-lane"
+      data-waterfall-start={bounds.startedAt}
+      data-waterfall-end={bounds.endedAt}
       style={
         {
           '--waterfall-left': `${geometry.leftPct}%`,
           '--waterfall-width': `${Math.max(geometry.widthPct, 2)}%`,
+          '--waterfall-base-start': waterfallPercent(frame.viewport, bounds.startedAt),
+          '--waterfall-base-end': waterfallPercent(frame.viewport, bounds.endedAt),
         } as CSSProperties
       }
     >
@@ -936,10 +831,9 @@ const WaterfallHistorySummary = memo(function WaterfallHistorySummary({
   )
 })
 
-const WaterfallIssue = memo(function WaterfallIssue({
+const WaterfallIssue = observer(function WaterfallIssue({
   item,
   frame,
-  activity,
   focused,
   activeSessionId,
   flashSessionId,
@@ -955,9 +849,8 @@ const WaterfallIssue = memo(function WaterfallIssue({
   onRenameDone,
   onLocalPick,
 }: {
-  item: WaterfallIssueRow
+  item: WaterfallRow
   frame: WaterfallFrame
-  activity: ReadonlyMap<string, WaterfallActivitySample[]>
   focused: boolean
   activeSessionId: string | null
   flashSessionId: string | null
@@ -974,43 +867,19 @@ const WaterfallIssue = memo(function WaterfallIssue({
   onLocalPick: (sessionId: string) => void
 }): JSX.Element {
   const intent = useClickIntent()
-  const [historyOpen, setHistoryOpen] = useState(false)
+  const historyOpen = item.historyOpen
+  const root = item.row.id === item.view.screen.rootId
   const future = issueFuture(item.row)
-  const foldable = !item.root && (item.row.descendantIds.length > 0 || item.row.sessions.length > 0)
-  const indent = item.root ? 0 : Math.max(0, item.row.depth - 1)
-  const issueRef = issueDisplayRef(item.row.issue)
-  const coordinator = item.sessions.find((session) =>
-    isCoordinatorSession(item.row.issue, session.sessionId),
-  )
-  const sessionCount = item.sessions.length
-  const issueTitle =
-    item.root && item.row.descendantIds.length > 0 ? 'Mission coordination' : item.displayTitle
-  const issueMeta = [
-    issueRef,
-    sessionCount > 0 ? `${sessionCount} session${sessionCount === 1 ? '' : 's'}` : null,
-    coordinator ? sessionDisplayName(coordinator) : null,
-  ]
-    .filter(Boolean)
-    .join(' · ')
-  const foldedHistory = useMemo(
-    () =>
-      item.sessions.filter(
-        (session) =>
-          waterfallSessionState(session) === 'finished' &&
-          !isCoordinatorSession(item.row.issue, session.sessionId) &&
-          session.sessionId !== activeSessionId,
-      ),
-    [activeSessionId, item.row.issue, item.sessions],
-  )
-  const historyCollapsed = foldedHistory.length > 3
-  const foldedIds = useMemo(
-    () => new Set(foldedHistory.map((session) => session.sessionId)),
-    [foldedHistory],
-  )
-  const visibleSessions =
-    historyCollapsed && !historyOpen
-      ? item.sessions.filter((session) => !foldedIds.has(session.sessionId))
-      : item.sessions
+  const foldable = !root && item.row.hasPayload
+  const indent = root ? 0 : Math.max(0, item.row.depth - 1)
+  const issueRef = item.row.displayRef
+  const coordinator = item.coordinatorId ? item.view.screen.pool.sessionObject(item.coordinatorId) : undefined
+  const sessionCount = item.sessionIds.length
+  const issueTitle = root && item.row.descendantIds.length > 0 ? 'Mission coordination' : item.row.title
+  const issueMeta = [issueRef, sessionCount > 0 ? `${sessionCount} session${sessionCount === 1 ? '' : 's'}` : null,
+    coordinator ? sessionDisplayName(coordinator) : null].filter(Boolean).join(' · ')
+  const historyCollapsed = item.historyCollapsed
+  const visibleSessions = item.drawnSessionIds.map(id => item.view.screen.pool.sessionObject(id))
   const attention =
     future?.state === 'attention' ||
     item.sessions.some((session) => sessionAsksOnIssue(item.row.issue, session))
@@ -1039,7 +908,7 @@ const WaterfallIssue = memo(function WaterfallIssue({
             data-pressable
             type="button"
             className="waterfall-fold"
-            aria-label={folded ? `Expand ${item.displayTitle}` : `Collapse ${item.displayTitle}`}
+            aria-label={folded ? `Expand ${item.row.title}` : `Collapse ${item.row.title}`}
             aria-expanded={!folded}
             onClick={onToggle}
           >
@@ -1066,7 +935,7 @@ const WaterfallIssue = memo(function WaterfallIssue({
             type="button"
             className="waterfall-issue-open"
             aria-current={focused ? 'true' : undefined}
-            title={`${issueRef} · ${item.displayTitle}`}
+            title={`${issueRef} · ${item.row.title}`}
             onClick={() =>
               intent.press(
                 () => onSelectIssue(false),
@@ -1095,10 +964,10 @@ const WaterfallIssue = memo(function WaterfallIssue({
           <>
             {historyCollapsed ? (
               <WaterfallHistorySummary
-                sessions={foldedHistory}
+                row={item}
                 frame={frame}
                 expanded={historyOpen}
-                onToggle={() => setHistoryOpen((open) => !open)}
+                onToggle={() => item.toggleHistory()}
               />
             ) : null}
             {visibleSessions.map((session) => (
@@ -1107,7 +976,7 @@ const WaterfallIssue = memo(function WaterfallIssue({
                 row={item.row}
                 session={session}
                 frame={frame}
-                samples={activity.get(session.sessionId)}
+                fact={item.view.seat(session)}
                 selected={session.sessionId === activeSessionId}
                 flashed={session.sessionId === flashSessionId}
                 onOpen={(permanent) => onSelectSession(session, permanent)}
@@ -1137,11 +1006,9 @@ const WaterfallIssue = memo(function WaterfallIssue({
   )
 })
 
-export function FlightDeckWaterfall({
-  rootRow,
-  rows,
-  displayTitles,
-  mode,
+export const FlightDeckWaterfall = observer(function FlightDeckWaterfall({
+  screen,
+  scrollRef,
   display,
   focusedIssueId,
   activeSessionId,
@@ -1155,32 +1022,18 @@ export function FlightDeckWaterfall({
   onRenameIssue,
   onRenameDone,
 }: FlightDeckWaterfallProps): JSX.Element {
-  const now = useRuntimeSelector((store) => store.coarseNow)
-  const projected = useMemo<WaterfallIssueRow[]>(
-    () => [
-      {
-        row: rootRow,
-        displayTitle: displayTitles.get(rootRow.issue.id) ?? rootRow.issue.title,
-        sessions: deckSessions(rootRow, mode),
-        root: true,
-      },
-      ...rows.map((row) => ({
-        row,
-        displayTitle: displayTitles.get(row.issue.id) ?? row.issue.title,
-        sessions: deckSessions(row, mode),
-        root: false,
-      })),
-    ],
-    [displayTitles, mode, rootRow, rows],
-  )
-  const sessions = useMemo(() => projected.flatMap((item) => item.sessions), [projected])
-  const activity = useWaterfallActivity(sessions)
-  const timelineStart = useMemo(() => waterfallTimelineStart(sessions), [sessions])
-  const hasFuture = useMemo(
-    () => projected.some((item) => item.sessions.length === 0 && issueFuture(item.row) !== null),
-    [projected],
-  )
-
+  const query = useStoreHandle<Trpc>().access.trpc.sessions?.activityHistory?.query
+  const view = useMemo(() => new WaterfallView(screen, query), [screen, query])
+  useEffect(() => () => view.close(), [view])
+  useLayoutEffect(() => view.focus(activeSessionId), [view, activeSessionId])
+  const now = view.openedNow ?? 0
+  const rowsRef = useRef<HTMLDivElement | null>(null)
+  const virtual = useBoundedVirtualList({ keys: view.rowIds, scrollRef, containerRef: rowsRef,
+    estimateSize: 48, overscan: 0, viewportBuffer: 0, initialItems: 8,
+    revealKey: activeSessionId ? view.followed?.issueLink ?? focusedIssueId : focusedIssueId, pinnedKeys: [], })
+  const projected = virtual.items.map(item => view.row(view.rows[item.index]!))
+  useLayoutEffect(() => { if (view.openedNow !== null) view.seed(projected.map(item => item.row)) }, [view, view.openedNow, virtual.items])
+  const hasFuture = projected.some(item => item.sessionIds.length === 0 && issueFuture(item.row) !== null)
   const [manual, setManual] = useState<WaterfallViewport | null>(null)
   const [flashSessionId, setFlashSessionId] = useState<string | null>(null)
   const [savedRowZoom, setSavedRowZoom] = usePersistedUiState<number | null>(
@@ -1190,21 +1043,7 @@ export function FlightDeckWaterfall({
   )
   const [rowZoomPreview, setRowZoomPreview] = useState<number | null>(null)
   const [availableHeight, setAvailableHeight] = useState(0)
-  const initialLaneCounts = useMemo(
-    () =>
-      projected.map((item) => {
-        const collapsedFinished = item.sessions.filter(
-          (session) =>
-            waterfallSessionState(session) === 'finished' &&
-            !isCoordinatorSession(item.row.issue, session.sessionId) &&
-            session.sessionId !== activeSessionId,
-        ).length
-        return collapsedFinished > 3
-          ? Math.max(1, item.sessions.length - collapsedFinished + 1)
-          : Math.max(1, item.sessions.length)
-      }),
-    [activeSessionId, projected],
-  )
+  const initialLaneCounts = projected.map(item => item.laneCount)
   const automaticRowZoom = useMemo(
     () => defaultWaterfallRowZoom(availableHeight, initialLaneCounts),
     [availableHeight, initialLaneCounts],
@@ -1236,7 +1075,7 @@ export function FlightDeckWaterfall({
   const automaticTaskWidth = useMemo(
     () =>
       defaultWaterfallTaskWidth(
-        projected.map((item) => item.displayTitle),
+        projected.map((item) => item.row.title),
         rootPx,
         display === 'expanded',
       ),
@@ -1247,8 +1086,8 @@ export function FlightDeckWaterfall({
     rootPx,
   )
   const autoViewport = useMemo(
-    () => followWaterfallViewport(sessions, now, trackPx, { future: hasFuture }),
-    [hasFuture, now, sessions, trackPx],
+    () => followWaterfallSessionViewport(view.followed, now, trackPx, { future: hasFuture }),
+    [hasFuture, now, view.followed, view.followed?.createdAt, view.followed?.stoppedAt, view.followed?.lastActiveAt, view.followed?.settled, trackPx],
   )
   const viewport = manual ?? autoViewport
   useEffect(() => {
@@ -1418,11 +1257,11 @@ export function FlightDeckWaterfall({
   }, [])
   const fitAll = useCallback((): void => {
     setManual(
-      fitWaterfallViewport(timelineStart, frameRef.current.now, {
+      fitWaterfallViewport(waterfallTimelineStart(view.rows.flatMap(row => view.row(row).sessions)), frameRef.current.now, {
         future: hasFuture,
       }),
     )
-  }, [hasFuture, timelineStart])
+  }, [hasFuture, view])
 
   const onKeyDown = useCallback(
     (event: React.KeyboardEvent<HTMLDivElement>): void => {
@@ -1520,8 +1359,6 @@ export function FlightDeckWaterfall({
   const onLocalPick = useCallback((sessionId: string): void => {
     localPickRef.current = sessionId
   }, [])
-  const sessionsRef = useRef(sessions)
-  sessionsRef.current = sessions
   const manualRef = useRef(manual)
   manualRef.current = manual
   useEffect(() => {
@@ -1530,7 +1367,7 @@ export function FlightDeckWaterfall({
       localPickRef.current = null
       return
     }
-    const session = sessionsRef.current.find((item) => item.sessionId === activeSessionId)
+    const session = view.followed
     if (!session) return
     const current = manualRef.current
     if (current) {
@@ -1563,7 +1400,7 @@ export function FlightDeckWaterfall({
       clearTimeout(timer)
       clearTimeout(flashTimer)
     }
-  }, [activeSessionId])
+  }, [activeSessionId, view])
 
   useEffect(() => {
     if (!focusedIssueId) return
@@ -1573,22 +1410,8 @@ export function FlightDeckWaterfall({
     row?.scrollIntoView({ block: 'nearest', behavior: 'smooth' })
   }, [focusedIssueId])
 
-  const nowInFrame = frame.nowPct >= 0 && frame.nowPct <= 100
-  // Ticks live at the root so the axis labels and the gridlines running down
-  // the rows come from the same array — a ruler whose lines drift from its
-  // labels is worse than no lines at all.
-  const ticks = useMemo(() => {
-    // Half a label of clearance at either edge; centred labels clip otherwise.
-    const edgePct = 1_500 / Math.max(1, frame.trackPx)
-    const all = waterfallTicks(frame.viewport, frame.trackPx).filter(
-      (tick) => tick.pct > edgePct && tick.pct < 100 - edgePct,
-    )
-    if (!nowInFrame) return all
-    // The NOW chip outranks any wall-clock label it would sit on.
-    return all.filter((tick) => (Math.abs(tick.pct - frame.nowPct) / 100) * frame.trackPx > 26)
-  }, [frame.nowPct, frame.trackPx, frame.viewport, nowInFrame])
   const rowMetrics = waterfallRowMetrics(rowZoom)
-  const hasCurrentWork = sessions.some((session) => !sessionSettled(session))
+  const hasCurrentWork = Boolean(view.followed && !view.followed.settled)
   const taskWidthMax = clampWaterfallTaskWidth(WATERFALL_TASK_WIDTH_MAX, rootPx)
   return (
     <TooltipProvider delay={140}>
@@ -1617,9 +1440,8 @@ export function FlightDeckWaterfall({
         onPointerCancel={onTrackPointerUp}
         onDoubleClick={onTrackDoubleClick}
       >
+        <WaterfallLiveEdge view={view} rootRef={rootRef} frameRef={frameRef} frame={frame} following={manual === null} future={hasFuture} window={virtual.items} />
         <WaterfallAxis
-          frame={frame}
-          ticks={ticks}
           following={manual === null}
           hasCurrentWork={hasCurrentWork}
           rowZoom={rowZoom}
@@ -1652,20 +1474,21 @@ export function FlightDeckWaterfall({
           onKeyDown={onTaskWidthKeyDown}
         />
         <div className="waterfall-gridlines" aria-hidden="true">
-          <div className="waterfall-gridlines-track">
-            {ticks.map((tick) => (
-              <span key={tick.at} style={{ left: `${tick.pct}%` }} />
-            ))}
-          </div>
+          <div className="waterfall-gridlines-track" />
         </div>
-        {nowInFrame ? <div className="waterfall-now-line" aria-hidden="true" /> : null}
-        <div className="waterfall-rows" data-testid="flight-deck-rows">
-          {projected.map((item) => (
-            <WaterfallIssue
+        <div className="waterfall-now-line" aria-hidden="true" />
+        <div ref={rowsRef} className="waterfall-rows" data-testid="flight-deck-rows">
+          {virtual.items.map((virtualItem, index) => {
+            const item = projected[index]!
+            const previous = virtual.items[index - 1]
+            const gap = virtualItem.start - (previous ? previous.start + previous.size : 0)
+            return <div key={virtualItem.key}>
+              {gap > 0 ? <div aria-hidden="true" style={{ height: gap }} /> : null}
+              <div ref={virtual.measureRef(virtualItem.key)}>
+            {view.openedNow !== null ? <WaterfallIssue
               key={item.row.issue.id}
               item={item}
               frame={frame}
-              activity={activity}
               focused={focusedIssueId === item.row.issue.id}
               activeSessionId={activeSessionId}
               flashSessionId={flashSessionId}
@@ -1682,14 +1505,17 @@ export function FlightDeckWaterfall({
               onIssueMenu={(anchor) => onIssueMenu(item.row.issue.id, anchor)}
               onStatusPick={(value) => onStatusPick(item.row.issue.id, value)}
               onRenameIssue={(title) =>
-                onRenameIssue(item.row.issue.id, title, renameTarget?.seed ?? item.displayTitle)
+                onRenameIssue(item.row.issue.id, title, renameTarget?.seed ?? item.row.title)
               }
               onRenameDone={onRenameDone}
               onLocalPick={onLocalPick}
-            />
-          ))}
+            /> : null}
+              </div>
+            </div>
+          })}
+          <div aria-hidden="true" style={{ height: Math.max(0, virtual.totalSize - (virtual.items.at(-1)?.start ?? 0) - (virtual.items.at(-1)?.size ?? 0)) }} />
         </div>
       </div>
     </TooltipProvider>
   )
-}
+})

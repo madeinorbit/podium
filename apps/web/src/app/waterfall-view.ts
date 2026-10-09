@@ -2,7 +2,7 @@ import { isCoordinatorSession } from '@podium/client-core/values'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
 import type { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
 import { requireLoaded } from '@podium/client-graph/mission-view'
-import { omitGone } from '@podium/client-graph/lookup'
+import { here, omitGone } from '@podium/client-graph/lookup'
 import type { SessionModel } from '@podium/client-graph/models'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { action, compareShallow, observable, observableRef, runInAction } from 'mobx'
@@ -29,9 +29,10 @@ export class WaterfallSession {
   @lazy get startMs(): number { return waterfallSessionStart(this.session, this.view.openedNow ?? 0) }
   /** Stored-on-open fallback. Retained geometry never observes a clock. */
   @lazy get endMs(): number { return Math.max(this.startMs, waterfallSessionEnd(this.session, this.view.openedNow ?? 0)) }
+  @lazy get historyEndMs(): number { return Math.max(this.endMs, this.samples.at(-1)?.at ?? this.endMs) }
   @lazy get phase(): string { return this.session.phase }
   @lazy get settled(): boolean { return this.session.settled }
-  @lazy get segments() { return waterfallSegments(this.samples, this.startMs, this.endMs) }
+  @lazy get segments() { return waterfallSegments(this.samples, this.startMs, this.historyEndMs) }
 
   @action demand(): () => void {
     this.demands++
@@ -92,6 +93,16 @@ export class WaterfallRow {
   @lazy get coordinatorId(): string | undefined {
     return this.sessionIds.find(id => isCoordinatorSession(this.row.roleIssue, id))
   }
+  @lazy get historyBounds(): { startedAt: number; endedAt: number } {
+    let startedAt = this.view.openedNow ?? 0
+    let endedAt = -Infinity
+    for (const id of this.finishedIds) {
+      const fact = this.view.seat(this.view.screen.pool.sessionObject(id))
+      startedAt = Math.min(startedAt, fact.startMs)
+      endedAt = Math.max(endedAt, fact.endMs)
+    }
+    return { startedAt, endedAt: Math.max(startedAt, endedAt) }
+  }
   @action toggleHistory(): void { this.historyOpen = !this.historyOpen }
 }
 
@@ -110,7 +121,7 @@ export class WaterfallView {
   }
   @lazy({ equals: compareShallow }) get rowIds(): readonly string[] { return this.rows.map(row => row.key) }
   @lazy get followed(): SessionModel | undefined {
-    return this.followedSessionId ? requireLoaded(omitGone(this.screen.pool.model('session', this.followedSessionId))) : undefined
+    return this.followedSessionId ? here(this.screen.pool.model('session', this.followedSessionId)) : undefined
   }
   @action open(now: number): void { if (this.openedNow === null) this.openedNow = now }
   @action focus(id: string | null): void {

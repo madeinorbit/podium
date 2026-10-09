@@ -1485,20 +1485,10 @@ const HandoffDeck = observer(function HandoffDeck({
   )
 })
 
-/** The waterfall draws the visible rows with their displayed titles. */
-const WaterfallDeck = observer(function WaterfallDeck({
-  screen,
-  ...props
-}: Omit<ComponentProps<typeof FlightDeckWaterfall>, 'rootRow' | 'rows' | 'displayTitles' | 'mode'> & {
-  screen: MissionScreen
-}): JSX.Element | null {
-  const rootRow = screen.rootRow
-  const rows = screen.visibleRows as MissionDeckIssueModel[]
-  const displayTitles = new Map(screen.rows.map((row) => [row.id, row.title]))
-  return rootRow ? (
-    <FlightDeckWaterfall {...props} rootRow={rootRow} rows={rows} displayTitles={displayTitles} mode={screen.mode} />
-  ) : null
-})
+/** The waterfall owns its viewport; the mission supplies shared row identities. */
+function WaterfallDeck(props: ComponentProps<typeof FlightDeckWaterfall>): JSX.Element {
+  return <FlightDeckWaterfall {...props} />
+}
 
 /** The opened mission's archive: a count, and the list while it is open. */
 const DeckArchive = observer(function DeckArchive({
@@ -2448,6 +2438,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
         {view === 'waterfall' ? (
           <WaterfallDeck
             screen={screen}
+            scrollRef={scrollRef}
             display={display}
             focusedIssueId={focused ?? null}
             activeSessionId={activeSessionId}

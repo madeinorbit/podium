@@ -21,7 +21,7 @@ import { resetPolledQueryCache } from '@/lib/use-polled-query'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { MobxPool } from '@podium/client-graph/pool'
 import { FlightDeckHandoff } from './FlightDeckHandoff'
-import { useWaterfallActivity } from './FlightDeckWaterfall'
+import { useWaterfallActivity } from './waterfall-activity'
 import { MissionCostChip } from './MissionCostChip'
 import type { ReferenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 type Store = ReferenceState<import('@/app/trpc').Trpc>
