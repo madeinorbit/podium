@@ -7,7 +7,7 @@ import {
   resolveDefaultAgent,
 } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
-import { commandIssueSearchRef } from '@podium/client-graph/command-launch-views'
+import { commandIssueReference, commandIssueSearchRef } from '@podium/client-graph/command-launch-views'
 import { machinePathBasename } from '@podium/model'
 import type { AgentKind, IssueId, SessionId } from '@podium/model/browser'
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'
@@ -425,8 +425,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
         group,
         label: i.title,
         keywords: ['task', 'issue', commandIssueSearchRef(i), STAGE_LABELS[i.stage]],
-        issueReference: issueReferenceModel({ id: i.id, seq: i.seq, title: i.title, stage: i.stage,
-          displayRef: commandIssueSearchRef(i) }),
+        issueReference: commandIssueReference(i),
         run: () => {
           setOpenIssueId(i.id)
           setView('issues')
@@ -746,7 +745,8 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     issueMenuData,
   ])
 
-  const indexed = (command: PaletteCandidate) => ['recent', 'task', 'agent', 'place'].includes(command.group)
+  const indexed = (command: PaletteCandidate) => command.group === 'recent' || command.group === 'task' ||
+    command.group === 'agent' || command.group === 'place'
   // Stored for this query of the opening: metadata updates reach the small
   // addressed rows without re-ranking the catalog under the user.
   // biome-ignore lint/correctness/useExhaustiveDependencies: contextual actions do not invalidate catalog order

@@ -2,7 +2,7 @@ import type { SpawnTarget } from '@podium/client-core'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { canonicalIssueRef, resolveDefaultAgent, type RepoView } from '@podium/client-core/values'
+import { canonicalIssueRef, issueReferenceModel, resolveDefaultAgent, type RepoView } from '@podium/client-core/values'
 import { lazy, keyedComputed } from '@podium/mobx-helpers'
 import { machinePathBasename, machinePathKey, machinePathsEqual, normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
 import {
@@ -385,6 +385,12 @@ export function commandIssueSearchRef(issue: Pick<IssueViewModel, 'seq' | 'displ
   return canonicalIssueRef({ seq: issue.seq,
     displayRef: typeof displayRef === 'string' ? displayRef : undefined,
     prefix: issue instanceof IssueModel ? issue.prefix : undefined })
+}
+
+export function commandIssueReference(issue: Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'stage' | 'displayRef'> &
+  Partial<Pick<IssueViewModel, 'archived' | 'deletedAt'>>) {
+  return issueReferenceModel({ id: issue.id, seq: issue.seq, title: issue.title, stage: issue.stage,
+    displayRef: commandIssueSearchRef(issue), archived: issue.archived, deletedAt: issue.deletedAt })
 }
 
 /** A palette mount owns its ordering. Catalog demand lives only in open(). */
