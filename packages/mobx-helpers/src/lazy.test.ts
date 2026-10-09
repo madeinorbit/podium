@@ -213,6 +213,41 @@ describe('lazy', () => {
     }
   })
 
+  it('keeps and releases an owned helper with no changing factory inputs under strict flags', async () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {})
+    configure({ enforceActions: 'always', computedRequiresReaction: true, observableRequiresReaction: true, reactionRequiresObservable: true })
+    class View {
+      runs = 0
+      @lazy get helper() { this.runs++; return { owner: this } }
+    }
+    const view = new View()
+    let stop = () => {}
+    try {
+      runInAction(() => expect(view.helper).toBe(view.helper))
+      expect(view.runs).toBe(1)
+      await settle()
+      expect(lazyKeptCount(view)).toBe(0)
+      let first: View['helper'] | undefined
+      stop = autorun(() => { first = view.helper; expect(view.helper).toBe(first) })
+      expect(view.runs).toBe(2)
+      expect(lazyKeptCount(view)).toBe(1)
+      stop()
+      expect(lazyKeptCount(view)).toBe(0)
+      runInAction(() => {
+        expect(view.helper).not.toBe(first)
+        expect(view.helper.owner).toBe(view)
+      })
+      expect(view.runs).toBe(3)
+      await settle()
+      expect(lazyKeptCount(view)).toBe(0)
+      expect(warn).not.toHaveBeenCalled()
+    } finally {
+      stop()
+      warn.mockRestore()
+      configure({ enforceActions: 'never', computedRequiresReaction: false, observableRequiresReaction: false, reactionRequiresObservable: false })
+    }
+  })
+
   it('computes once inside a reaction and keeps one slot', () => {
     const order = new Order(observable.box(3))
     const other = observable.box(0)
