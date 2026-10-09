@@ -18,10 +18,13 @@ it.each([1, 4] as const)('settles a cold production mission at %sx before its fi
   try {
     const batches: number[] = []
     for (let turn = 0; turn < 8; turn++) {
+      // Device preferences publish in microtasks independently of row hydration.
+      // Keep the row-batch ceiling while allowing the opening's owner to settle.
+      await Promise.resolve()
       const loaded = handle.pool.hydrate()
       batches.push(loaded)
       pane = projection.getSnapshot()
-      if (!loaded) break
+      if (!loaded && pane !== LOADING) break
     }
     expect(pane, `cold loader batches: ${batches.join(', ')}`).not.toBe(LOADING)
     console.info('[mission cold batches]', JSON.stringify({ scale, batches }))
