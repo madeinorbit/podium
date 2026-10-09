@@ -35,7 +35,7 @@ const server = createServer(async (req, res) => {
 await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
 const nativeTools = resolve('.toolchain/native-find')
 const nativeEnv = { ...process.env, DISPLAY: '', PROOT_NO_SECCOMP: '1', LD_LIBRARY_PATH: `${nativeTools}/usr/lib/x86_64-linux-gnu:${resolve('.toolchain/lib')}` }
-const displayServer = spawn(`${nativeTools}/usr/bin/proot`, ['-b', `${nativeTools}/usr/bin/xkbcomp:/usr/bin/xkbcomp`, `${nativeTools}/usr/bin/Xvfb`, '-displayfd', '1', '-screen', '0', '1920x1080x24', '-nolisten', 'tcp', '-ac', '-xkbdir', `${nativeTools}/usr/share/X11/xkb`], { env: nativeEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+const displayServer = spawn(`${nativeTools}/usr/bin/proot`, ['--kill-on-exit', '-b', `${nativeTools}/usr/bin/xkbcomp:/usr/bin/xkbcomp`, `${nativeTools}/usr/bin/Xvfb`, '-displayfd', '1', '-screen', '0', '1920x1080x24', '-nolisten', 'tcp', '-ac', '-xkbdir', `${nativeTools}/usr/share/X11/xkb`], { env: nativeEnv, stdio: ['ignore', 'pipe', 'pipe'] })
 displayServer.stderr.on('data', data => process.stderr.write(data))
 const display = await new Promise<string>((done, reject) => {
   displayServer.stdout.once('data', data => done(`:${String(data).trim()}`))
@@ -43,7 +43,10 @@ const display = await new Promise<string>((done, reject) => {
   displayServer.once('error', reject)
 })
 nativeEnv.DISPLAY = display
-const browser = await chromium.launch({ headless: false, executablePath: resolve(process.env.HOME!, '.cache/ms-playwright/chromium-1243/chrome-linux64/chrome'), args: ['--no-sandbox'], env: nativeEnv }).catch(error => { displayServer.kill(); throw error })
+const displayPid = Number((await readFile(`/proc/${displayServer.pid}/task/${displayServer.pid}/children`, 'utf8')).trim().split(' ')[0])
+if (!(await readFile(`/proc/${displayPid}/cmdline`, 'utf8')).includes(`${nativeTools}/usr/bin/Xvfb`)) throw new Error('Unidentified private display process')
+const stopDisplay = () => process.kill(displayPid, 'SIGTERM')
+const browser = await chromium.launch({ headless: false, executablePath: resolve(process.env.HOME!, '.cache/ms-playwright/chromium-1243/chrome-linux64/chrome'), args: ['--no-sandbox'], env: nativeEnv }).catch(error => { stopDisplay(); throw error })
 const nativeKey = (id: string, ...keys: string[]) => execFileSync(`${nativeTools}/usr/bin/xdotool`, ['key', '--window', id, '--clearmodifiers', ...keys], { env: nativeEnv })
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 }, reducedMotion: 'reduce' })
@@ -57,6 +60,7 @@ try {
   console.log('Fonts ready')
   await page.waitForTimeout(300)
   const cdp = await page.context().newCDPSession(page)
+  const browserCdp = await browser.newBrowserCDPSession()
   const samples = []
   for (const target of [200, 1000, 2200, 4200, 6200, 8058]) {
     while (await page.evaluate(() => (window as any).__transcriptWindowProof.stats().loaded) < target) {
@@ -67,7 +71,13 @@ try {
     await cdp.send('HeapProfiler.collectGarbage')
     const heap = await cdp.send('Runtime.getHeapUsage')
     const stats = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
-    samples.push({ ...stats, heapUsed: heap.usedSize, heapTotal: heap.totalSize })
+    const { processInfo } = await browserCdp.send('SystemInfo.getProcessInfo')
+    const resident = await Promise.all(processInfo.filter(process => process.type === 'renderer').map(async process => {
+      const status = await readFile(`/proc/${process.id}/status`, 'utf8')
+      return Number(status.match(/^VmRSS:\s+(\d+)/m)![1]) * 1024
+    }))
+    const rendererResidentBytes = resident.reduce((sum, value) => sum + value, 0)
+    samples.push({ ...stats, heapUsed: heap.usedSize, heapTotal: heap.totalSize, rendererResidentBytes })
     await writeFile(resolve(directory, 'samples.json'), JSON.stringify(samples, null, 2))
     console.log(JSON.stringify({ loaded: stats.loaded, elements: stats.elements, drawn: stats.drawn, heapUsed: heap.usedSize }))
   }
@@ -138,4 +148,4 @@ try {
   await writeFile(resolve(directory, 'report.json'), JSON.stringify(report, null, 2))
   console.log(JSON.stringify({ arm, samples: samples.map(({ loaded, elements, drawn, heapUsed }) => ({ loaded, elements, drawn, heapUsed })), blankFrames: fastScroll.filter(sample => sample.visible === 0).length, jump: { key: jump.key, offset: jump.offset }, errors }))
   if (errors.length || fastScroll.some(sample => sample.visible === 0)) throw new Error('Production scroll proof failed')
-} finally { await browser.close(); displayServer.kill(); await new Promise<void>(done => server.close(() => done())) }
+} finally { await browser.close(); stopDisplay(); await new Promise<void>(done => server.close(() => done())) }
