@@ -1,4 +1,4 @@
-import { omitGone } from './lookup'
+import { requireHere } from './lookup'
 import { attachMissionTestPreferences } from './mission-screen.test.fixture'
 import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -101,8 +101,7 @@ async function setup(
     scans.mockRestore()
     pool.dispose()
   })
-  const marker = omitGone(pool.row('mobileScreenReader', 'reader'))
-  if (!marker || marker === LOADING) throw new Error('screen reader missing')
+  requireHere(pool.row('mobileScreenReader', 'reader'))
   return { pool, reader: phone(pool), load, scans }
 }
 it('reads archived mission crew display facts from declared summaries without loading their rows', async () => {

@@ -17,6 +17,7 @@ import { companion, lazy } from '@podium/mobx-helpers'
 import { isFinished } from '@podium/model/browser'
 import { action, compareShallow, compareStructural, observable, runInAction } from 'mobx'
 import { headerView } from './header-views'
+import { omitGone } from './lookup'
 import { type MissionDeckIssueModel, MissionViewReader, missionView, requireLoaded, settled } from './mission-view'
 import type { IssueModel, SessionModel } from './models'
 import type { MobxPool } from './pool'
@@ -128,7 +129,7 @@ export class MissionScreen {
 
   // Preferences: stored once, in the pool's preference rows
   private preference(key: string): string | null {
-    const row = requireLoaded(this.pool.row('preference', key))
+    const row = requireLoaded(omitGone(this.pool.row('preference', key)))
     return typeof row === 'object' && row !== null ? row.value : null
   }
   @lazy get preferredView(): MissionScreenView { return readMissionScreenView(this.preference(FLIGHT_DECK_MODE_KEY)) }
@@ -289,7 +290,7 @@ export class MissionScreen {
       const id = stack.pop()!
       if (seen.has(id)) continue
       seen.add(id)
-      const child = requireLoaded(this.pool.row('issueBoardRow', id) as Loaded<IssueNavigationModel>)
+      const child = requireLoaded(omitGone(this.pool.row('issueBoardRow', id))) as IssueNavigationModel | undefined
       if (!child || !this.reader.facts(child.id).visible) continue
       if (child.stage !== 'proposed' && !issueAbandoned(child)) return progress
       stack.push(...this.pool.graph.many('issue', id, 'children'))
@@ -403,6 +404,6 @@ export function missionRootId(pool: MobxPool, selectedId: string | null, structu
   }
   // A known cold row spends the shared load window. An unknown ID is outside
   // today's complete principal replica (POD-4286's contract).
-  if (selectedId && pool.row('issue', selectedId) === LOADING) return LOADING
+  if (selectedId && omitGone(pool.row('issue', selectedId)) === LOADING) return LOADING
   return undefined
 }

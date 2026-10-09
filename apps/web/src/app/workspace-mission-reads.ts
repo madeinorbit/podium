@@ -1,5 +1,6 @@
 /** The workspace's mission answers, as ids and scalars (no React). */
 import type { MobxPool } from '@podium/client-graph'
+import { here, omitGone } from '@podium/client-graph/lookup'
 import { missions } from '@podium/client-graph/mission'
 import { missionView, settled } from '@podium/client-graph/mission-view'
 import { settingsHasFirstTask } from '@podium/client-graph/settings-views'
@@ -10,7 +11,7 @@ type Loaded<T> = T | typeof LOADING
 /** The mission the selection belongs to, when the selected issue is visible. */
 export function rootOf(pool: MobxPool, selectedId: string | null): Loaded<string | undefined> {
   if (!selectedId) return undefined
-  const row = pool.row('issue', selectedId)
+  const row = omitGone(pool.row('issue', selectedId))
   if (row === LOADING) return LOADING
   if (!row) return undefined
   const visible = settled(() => pool.issueObject(selectedId).visible)
@@ -19,7 +20,7 @@ export function rootOf(pool: MobxPool, selectedId: string | null): Loaded<string
   const rootId = missionView(pool).rootFor(selectedId)
   if (rootId === LOADING) return LOADING
   if (!rootId) return undefined
-  const root = pool.row('issue', rootId)
+  const root = omitGone(pool.row('issue', rootId))
   return root === LOADING ? LOADING : root ? rootId : undefined
 }
 
@@ -31,7 +32,7 @@ export function issueOf(pool: MobxPool, selectedId: string | null, focusedId: st
   const members = missions(pool).members(rootId)
   if (members === LOADING) return LOADING
   if (!members.has(focusedId)) return rootId
-  const focused = pool.row('issue', focusedId)
+  const focused = omitGone(pool.row('issue', focusedId))
   return focused === LOADING ? LOADING : focused ? focusedId : rootId
 }
 
@@ -45,7 +46,10 @@ export function coordinatorsOf(pool: MobxPool, selectedId: string | null): Loade
   const ids = new Set<string>()
   let pending = false
   for (const id of members) {
-    const coordinator = settled(() => pool.issueObject(id).coordinatorSessionId)
+    const issue = omitGone(pool.model('issue', id))
+    if (issue === LOADING) { pending = true; continue }
+    if (!issue) continue
+    const coordinator = settled(() => issue.coordinatorSessionId)
     if (coordinator === LOADING) pending = true
     else if (typeof coordinator === 'string') ids.add(coordinator)
   }
@@ -55,7 +59,9 @@ export function coordinatorsOf(pool: MobxPool, selectedId: string | null): Loade
 /** One stored field of the workspace's issue. */
 export function fieldOf(pool: MobxPool, id: string | undefined, field: 'worktreePath' | 'repoPath'): string | null {
   if (!id) return null
-  const value = settled(() => pool.issueObject(id)[field])
+  const issue = here(pool.model('issue', id))
+  if (!issue) return null
+  const value = settled(() => issue[field])
   return typeof value === 'string' ? value : null
 }
 
