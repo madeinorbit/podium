@@ -31,7 +31,8 @@ for (const scale of [1, 4]) {
       const before = renders
       pool.apply({ type: 'update', rows: [{ kind: 'session', id: 's1', value: { ...sessions[1]!, lastActiveAt: '2026-10-07T01:00:00Z' } }] })
       expect(renders).toBe(before)
-      expect(rows.mock.calls.filter(([kind]) => kind === 'session' || kind === 'issue')).toEqual([])
+      // Only the changed session itself, read by the pool's own update; no entry.
+      expect(rows.mock.calls.filter(([kind, id]) => kind === 'issue' || (kind === 'session' && id !== 's1'))).toEqual([])
       expect(ids).not.toHaveBeenCalled()
       expect(sort).not.toHaveBeenCalled()
       pool.apply({ type: 'update', rows: [{ kind: 'issue', id: picker.issueIds[0]!, value: { id: picker.issueIds[0]!, title: 'Task renamed', repoPath: '/repo', seq: Number(picker.issueIds[0]!.slice(1)), stage: 'in_progress', createdAt: stamp, updatedAt: stamp } }] })
