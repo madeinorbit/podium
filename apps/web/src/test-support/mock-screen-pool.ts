@@ -683,7 +683,7 @@ function useFixturePool(): MobxPool {
         view: (name: string, _factory: unknown): unknown => {
           const fixture = pool as unknown as Record<string, unknown>
           if (name === 'issue-activity')
-            return records().sources.view(name, _factory as () => unknown)
+            return records().sources.view(name, _factory as () => object)
           if (name === 'issue-page') return issuePages(records())
           if (name === 'issueBoardCards') return boardCards(records())
           if (name === 'sidebar') return fixture.sidebar
