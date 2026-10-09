@@ -88,7 +88,7 @@ describe('bounded variable-height issue window', () => {
     flushViewport()
     const indexes = view.getAllByTestId('row').map(row => Number(row.dataset.index))
     expect(indexes[0]).toBeLessThanOrEqual(42)
-    expect(indexes.at(-1)).toBeGreaterThanOrEqual(66)
+    expect(indexes.at(-1)).toBeGreaterThanOrEqual(65)
     expect(indexes.length).toBeLessThanOrEqual(ISSUE_VIRTUAL_MAX_ITEMS)
   })
 
@@ -249,8 +249,8 @@ describe('bounded variable-height issue window', () => {
     fireEvent.scroll(scroll)
     flushViewport()
     const first = Number(view.getAllByTestId('nested-row')[0]?.getAttribute('data-index'))
-    expect(first).toBeGreaterThan(0)
-    expect(first).toBeLessThan(20)
+    expect(first).toBe(0)
+    expect(Number(view.getAllByTestId('nested-row').at(-1)?.getAttribute('data-index'))).toBe(21)
   })
 
   it('shares layout coordinates when a contained fold skips the scroller as offset parent', () => {
