@@ -94,7 +94,7 @@ function nativeSections(pinned: Row[], groups: Group[]) {
       facts.has(id)
         ? {
             issue: { finished: false },
-            mobileWaitingCount: Number(facts.get(id)!.waiting),
+            sectionAsking: facts.get(id)!.waiting,
             aggregate: {
               pending: 0,
               // Waiting is an addressed fact the product reads off

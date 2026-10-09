@@ -7,7 +7,7 @@ import { sidebarRosterView } from './sidebar-roster'
  * It is never read from worklistSlice, a selector, or browser storage here.
  */
 
-import { compareStructural } from 'mobx'
+import { compareShallow, compareStructural } from 'mobx'
 import { keyedViews } from '../cached'
 import { hostOf, type IssueModel, type ModelHost } from '../models'
 import type { MobxPool } from '../pool'
@@ -174,7 +174,7 @@ export class SidebarIndex {
   )
   // These projections assemble new arrays and records from the same lane facts.
   private readonly specViews = keyedViews<BandSpecs>('pool.sidebar', 'bandSpecs', compareStructural)
-  private readonly bandViews = keyedViews<SidebarBand>('pool.sidebar', 'band', compareStructural)
+  private readonly bandViews = keyedViews<SidebarBand>('pool.sidebar', 'band', compareShallow)
   private readonly groupViews = keyedViews<GroupFacts>('pool.sidebar', 'group', compareStructural)
   private readonly rosterViews = keyedViews<RosterFacts>('pool.sidebar', 'rosterFacts', compareStructural)
   private get pool() { return this.view.pool }
@@ -261,7 +261,7 @@ export class SidebarIndex {
   private groupFacts(key: string): GroupFacts {
     return this.groupViews(key, () => {
       const group = worklistGroups(this.pool).group(key)
-      const { rowIds, snoozedIds, closedIds } = group.sidebarRows
+      const rowIds = group.sidebarRowIds, snoozedIds = group.sidebarSnoozedIds, closedIds = group.sidebarClosedIds
       const firstOpen = rowIds[0]
       return {
         shown: rowIds.length > 0 || snoozedIds.length > 0 || closedIds.length > 0,
@@ -376,17 +376,17 @@ export class SidebarIndex {
     const foldKey = `podium:sidebar:project-fold:${band}`
     const snoozedFoldKey = `podium:sidebar:snoozed-fold:${band}`
     const closedFoldKey = `podium:sidebar:closed-fold:${band}`
-    const rows = spec.group ? worklistGroups(this.pool).group(band).sidebarRows : undefined
+    const rows = spec.group ? worklistGroups(this.pool).group(band) : undefined
     const worktreeIds = sidebarRosterView(this.pool).band(band).ids
     return {
       key: band,
       label: spec.label,
       aliases: spec.aliases,
       repoPath: spec.repoPath,
-      rowIds: rows?.rowIds ?? NO_IDS,
+      rowIds: rows?.sidebarRowIds ?? NO_IDS,
       worktreeIds,
-      snoozedIds: rows?.snoozedIds ?? NO_IDS,
-      closedIds: rows?.closedIds ?? NO_IDS,
+      snoozedIds: rows?.sidebarSnoozedIds ?? NO_IDS,
+      closedIds: rows?.sidebarClosedIds ?? NO_IDS,
       foldKey,
       snoozedFoldKey,
       closedFoldKey,
@@ -440,7 +440,7 @@ function sameSections(a: SidebarSections, b: SidebarSections): boolean {
   return (
     a.pinnedCollapsed === b.pinnedCollapsed &&
     a.pinnedFoldKey === b.pinnedFoldKey &&
-    compareStructural(a.pinnedIds, b.pinnedIds) &&
+    a.pinnedIds === b.pinnedIds &&
     a.bands.length === b.bands.length &&
     a.bands.every((band, at) => band === b.bands[at])
   )

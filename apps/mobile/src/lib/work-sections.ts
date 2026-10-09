@@ -1,3 +1,5 @@
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
+import { mapQueryResult } from '@podium/client-graph/query-result'
 import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import type { WorklistWorktree } from '@podium/client-graph/worklist/worktree'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
@@ -181,12 +183,9 @@ export class MobileSearchSections {
       const pinnedIds = source.kind === 'attention'
         ? mobileWorkView(pool).mobileSections().pinned.openIds : EMPTY_SECTION_IDS
       if (old && old.pinnedIds === pinnedIds && sameSectionFields(old.source, source)) return old.native
-      const pinned = new Set(pinnedIds)
-      const listKey = (id: string) => pinned.has(id) ? `needs-you:${id}` : id
-      const data = old && old.native.data.length === source.data.length && old.native.data.every((ref, index) => ref.id === source.data[index] && ref.listKey === listKey(ref.id))
-        ? old.native.data : source.data.map(id => ({ id,
+      const data = mapQueryResult(source.data, id => ({ id,
         kind: pool.tables.worktree.has(id) ? 'worktree' as const : 'issue' as const,
-        listKey: listKey(id) }))
+        listKey: source.kind === 'attention' && worklistGroups(pool).placementOf(id)?.pinned ? `needs-you:${id}` : id }))
       const native: MobileWorkSection = { ...source, data }
       this.sources.set(source.key, { source, native, pinnedIds })
       return native

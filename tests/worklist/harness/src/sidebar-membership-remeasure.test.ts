@@ -1,5 +1,9 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { MobxPool } from '@podium/client-graph/pool'
+import { GroupNodeBefore } from '@podium/client-graph/worklist/groups-membership-before.test-helper'
+import { worklistGroups } from '@podium/client-graph/worklist/groups'
+import { MobileSectionsBefore } from '@podium/client-graph/worklist/mobile-before.test-helper'
+import { worktreeBefore } from '@podium/client-graph/worklist/heartbeat-before.test-helper'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { searchMobileSections, MobileSearchSections, MobileNativeSections } from '../../../../apps/mobile/src/lib/work-sections'
 import { autorun, runInAction } from 'mobx'
@@ -24,7 +28,7 @@ const session = (id: string, owner: string | null, path: string, patch = {}) => 
 })
 type Action = 'click' | 'fold' | 'reorder' | 'membership' | 'heartbeat' | 'roster-heartbeat'
 
-async function capture(domain: 'members' | 'groups', scale: number) {
+async function capture(domain: 'members' | 'groups', scale: number, proveParity = false) {
   const groups = domain === 'groups' ? 4 * scale : 4
   const members = domain === 'members' ? 16 * scale : 16
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
@@ -70,7 +74,27 @@ async function capture(domain: 'members' | 'groups', scale: number) {
       void tree.sessions; void tree.visible; void tree.stale
     })),
   ]
+  const parity = () => {
+    const band = view.sections().bands.find(band => band.key === 'repo-0')!
+    const oldGroup = new GroupNodeBefore('repo-0', worklistGroups(pool) as never)
+    const old = oldGroup.sidebarRows
+    for (const key of ['rowIds', 'snoozedIds', 'closedIds'] as const)
+      expect.soft(process.env.POD5631_MUTATE === '1' ? ['wrong'] : [...band[key]], key).toEqual([...old[key]])
+    const oldPhone = new MobileSectionsBefore(pool, {}).value.get()
+    const sections = view.mobileSections()
+    expect.soft(sections.sectionKeys).toEqual(oldPhone.sections.map(section => section.key))
+    for (const section of oldPhone.orderingSections) {
+      const row = sections.section(section.key)
+      expect.soft(process.env.POD5631_MUTATE === '1' ? ['wrong'] : [...row.allIds], `phone ${section.key}`)
+        .toEqual(section.data.map(ref => ref.id))
+    }
+    const oldTree = worktreeBefore(pool, '/loose')!
+    for (const field of ['sessions', 'visible', 'stale'] as const)
+      expect.soft(process.env.POD5631_MUTATE === '1' ? ['wrong'] : tree[field].map(row => row.id), field)
+        .toEqual(oldTree[field].map(row => row.sessionId))
+  }
   try {
+    if (proveParity) parity()
     expect(desktopIds).toContain('group-0-issue-1')
     expect(phoneIds).toContain('group-0-issue-1')
     expect(tree.sessions.length).toBe(looseCount)
@@ -108,6 +132,7 @@ async function capture(domain: 'members' | 'groups', scale: number) {
       }
       if (action === 'heartbeat') expect(pool.sessionObject('unrelated').lastActivity).toBe('2026-10-09T12:01:00Z')
       if (action === 'roster-heartbeat') expect(tree.sessions[0]!.id).toBe(`loose-${looseCount - 1}`)
+      if (proveParity) parity()
     }
     return { domain, scale, groups, members, looseCount, visiblePrefix: 5, cells }
   } finally { for (const stop of stops) stop(); pool.dispose() }
@@ -123,6 +148,10 @@ it('re-measures remaining membership work at a fixed shown prefix', async () => 
   // Growth is reported, not accepted as a new baseline or hidden as an allowance.
 }, 120_000)
 
+it('matches frozen membership and order before and after every action', async () => {
+  for (const domain of ['members', 'groups'] as const) for (const scale of [1, 4]) await capture(domain, scale, true)
+}, 120_000)
+
 for (const [action, mechanism] of [
   ['reorder', 'GroupNode.sidebarRows'],
   ['reorder', 'MobileSection.allIds'],
@@ -135,8 +164,14 @@ for (const [action, mechanism] of [
     const first = await capture('members', 1), fourth = await capture('members', 4)
     const count = (report: Awaited<ReturnType<typeof capture>>) => {
       const cell = report.cells.find(cell => cell.action === action)!
-      return Object.entries(cell.work.elementsBy).reduce((total, [name, value]) =>
-        total + (name === mechanism || name.endsWith(`/${mechanism}`) ? value : 0), 0)
+      return Object.entries(cell.work.elementsBy).reduce((total, [name, value]) => {
+        // Include replacement query/subset work, so removing a getter's name
+        // cannot make its former walk disappear from this counter.
+        const replacement = mechanism.startsWith('GroupNode.') ? /GroupNode\.sidebar|pool\.groups\.root/.test(name)
+          : mechanism.startsWith('MobileSection.') ? /MobileSection\.|worklist\.phone|membership.phone-native/.test(name)
+          : /worklist\.worktree@\/loose|WorklistWorktree@\/loose/.test(name)
+        return total + (replacement || name === mechanism || name.endsWith(`/${mechanism}`) ? value : 0)
+      }, 0)
     }
     console.info(`[membership counter] ${mechanism}: ${count(first)}→${count(fourth)}`)
     expect(count(fourth), mechanism).toBeLessThanOrEqual(count(first))

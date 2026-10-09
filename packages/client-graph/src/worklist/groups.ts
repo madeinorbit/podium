@@ -1,4 +1,5 @@
 import { here } from '../lookup'
+import { spliceQueryResult } from '../query-result'
 import { sidebarRosterView } from './sidebar-roster'
 import { lazy } from '@podium/mobx-helpers'
 import { MobileSection } from './mobile'
@@ -43,7 +44,7 @@ import { worklistView } from './view-model'
  * A READER READS MEMBERS, NOT FILINGS. A lane is the order; anything else
  * about a member (the head's label, the latched row's rank) is read from the
  * member's own cached values, tracked, never from what was filed. A reader
- * gets a copy of a lane, cached until that lane moves, never the live list.
+ * gets a persistent snapshot from the lane; publication edits only tree paths.
  *
  * THE SNAPSHOT'S LAYOUT HAS NO SELECTION (spec §7: the oracle projects the
  * unselected baseline). The UI's lanes add the R-GROUP 5 latch
@@ -279,57 +280,43 @@ export class GroupNode {
   /** The real sidebar groups root rows, including folded roots, before nesting.
    * Use the existing rank lane and cached placement; retain no new cold-id index. */
   @lazy({ equals: compareStructural }) get sidebarMetadata(): { readonly label: string; readonly repoPath: string; readonly headBand: RowRank['band'] | undefined } {
-    const head = this.groups.members.lane(this.key).find(id => this.groups.isRoot(id))
+    const head = this.groups.rootMembers.lane(this.key)[0]
     const placement = head === undefined ? undefined : this.groups.placementOf(head)
     const headBand = head === undefined ? undefined : this.groups.rankOf(head)?.band
     return { label: placement?.label ?? '', repoPath: placement?.repoPath ?? this.key, headBand }
   }
 
-  /** Root rows only, cached per band rather than per issue or list render. */
-  @lazy({ equals: compareStructural }) get sidebarRows(): { readonly rowIds: readonly string[]; readonly snoozedIds: readonly string[]; readonly closedIds: readonly string[] } {
-    const rowIds = this.groups.rootOpen.lane(this.key).slice()
-    const snoozedIds = this.groups.rootSnoozed.lane(this.key).slice()
-    const closedIds = this.groups.rootClosed.lane(this.key).slice()
-    const latched = this.latchedHere()
-    if (latched !== null && this.groups.isRoot(latched)) {
-      const rank = this.groups.rankOf(latched)
-      if (rank !== undefined) {
-        const lane = rank.band === 2 ? snoozedIds : rowIds
-        lane.splice(rankInsertionPoint(lane, rank, id => this.groups.rankOf(id)), 0, latched)
-        const at = closedIds.indexOf(latched)
-        if (at >= 0) closedIds.splice(at, 1)
-      }
+  /** These are the data layer's persistent lane answers. A latch edits one
+   * slot; no group membership is copied or structurally compared. */
+  @lazy get sidebarRowIds(): readonly string[] { return this.withLatch(this.groups.rootOpen.lane(this.key), true, false) }
+  @lazy get sidebarSnoozedIds(): readonly string[] { return this.withLatch(this.groups.rootSnoozed.lane(this.key), true, true) }
+  @lazy get sidebarClosedIds(): readonly string[] { return this.withoutLatch(this.groups.rootClosed.lane(this.key), true) }
+  get baseRowIds(): readonly string[] { return this.groups.open.lane(this.key) }
+  get baseClosedIds(): readonly string[] { return this.groups.closed.lane(this.key) }
+  @lazy get rowIds(): readonly string[] { return this.withLatch(this.baseRowIds, false) }
+  @lazy get closedIds(): readonly string[] { return this.withoutLatch(this.baseClosedIds, false) }
+
+  private withLatch(lane: readonly string[], root: boolean, snoozed?: boolean): readonly string[] {
+    const id = this.latchedHere()
+    if (id === null || (root && !this.groups.isRoot(id))) return lane
+    const rank = this.groups.rankOf(id)
+    if (!rank || (snoozed !== undefined && (rank.band === 2) !== snoozed)) return lane
+    return spliceQueryResult(lane, rankInsertionPoint(lane, rank, id => this.groups.rankOf(id)), 0, id)
+  }
+  private withoutLatch(lane: readonly string[], root: boolean): readonly string[] {
+    const id = this.latchedHere()
+    if (id === null || (root && !this.groups.isRoot(id))) return lane
+    const rank = this.groups.rankOf(id), placement = this.groups.placementOf(id)
+    if (!rank || !placement) return lane
+    const wanted = { foldMs: placement.foldMs, rank }
+    let lo = 0, hi = lane.length
+    while (lo < hi) {
+      const mid = (lo + hi) >>> 1, member = lane[mid]!
+      const memberRank = this.groups.rankOf(member)!, memberPlacement = this.groups.placementOf(member)!
+      if (compareFold({ foldMs: memberPlacement.foldMs, rank: memberRank }, wanted) < 0) lo = mid + 1
+      else hi = mid
     }
-    return { rowIds, snoozedIds, closedIds }
-  }
-
-  /** The open lane in rank order, no selection (the snapshot's lane): a copy of the maintained list. */
-  @lazy({ equals: compareShallow }) get baseRowIds(): readonly string[] {
-    return this.groups.open.lane(this.key).slice()
-  }
-
-  /** The closed fold, newest first, no selection: a copy of the maintained list. */
-  @lazy({ equals: compareShallow }) get baseClosedIds(): readonly string[] {
-    return this.groups.closed.lane(this.key).slice()
-  }
-
-  /** The open lane plus a latched selected row at its rank. */
-  @lazy({ equals: compareShallow }) get rowIds(): readonly string[] {
-    const lane = this.baseRowIds
-    const latched = this.latchedHere()
-    if (latched === null) return lane
-    const rank = this.groups.rankOf(latched)
-    if (rank === undefined) return lane
-    const open = [...lane]
-    open.splice(rankInsertionPoint(lane, rank, (id) => this.groups.rankOf(id)), 0, latched)
-    return open
-  }
-
-  /** The closed fold less a latched selected row. */
-  @lazy({ equals: compareShallow }) get closedIds(): readonly string[] {
-    const lane = this.baseClosedIds
-    const latched = this.latchedHere()
-    return latched === null ? lane : lane.filter((id) => id !== latched)
+    return lane[lo] === id ? spliceQueryResult(lane, lo, 1) : lane
   }
 
   /** The latched row when it is filed in this group's fold, else null. */
@@ -365,6 +352,7 @@ export class WorklistGroups {
   readonly open = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.open', this.demand)
   /** Each group's closed fold, newest first. */
   readonly closed = new SortedLanes<string, FoldSort>(compareFold, 'pool.groups.closed', this.demand)
+  readonly rootMembers = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.rootMembers', this.demand)
   readonly rootPinned = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.rootPinned', this.demand)
   readonly rootOpen = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.rootOpen', this.demand)
   readonly rootSnoozed = new SortedLanes<string, RowRank>(compareRank, 'pool.groups.rootSnoozed', this.demand)
@@ -394,6 +382,7 @@ export class WorklistGroups {
       placement === undefined || rank === undefined ? undefined : { foldMs: placement.foldMs, rank },
     )
     const root = filing !== undefined && filing.root !== false
+    this.rootMembers.file(id, root ? group : undefined, rank)
     this.rootPinned.file(id, root && placement?.pinned ? PINNED : undefined, rank)
     this.rootOpen.file(id, root && placement?.closed === false && rank?.band !== 2 ? group : undefined, rank)
     this.rootSnoozed.file(id, root && placement?.closed === false && rank?.band === 2 ? group : undefined, rank)
@@ -402,13 +391,9 @@ export class WorklistGroups {
   }
 
   /** The pinned ids in rank order (the PINNED section): a copy of the maintained list. */
-  @lazy({ equals: compareShallow }) get pinnedIds(): readonly string[] {
-    return this.pinned.lane(PINNED).slice()
-  }
+  get pinnedIds(): readonly string[] { return this.pinned.lane(PINNED) }
 
-  @lazy({ equals: compareShallow }) get pinnedRootIds(): readonly string[] {
-    return this.rootPinned.lane(PINNED).slice()
-  }
+  get pinnedRootIds(): readonly string[] { return this.rootPinned.lane(PINNED) }
 
   isRoot(id: string): boolean {
     const node = this.host.node(id)
@@ -490,6 +475,7 @@ export class WorklistGroups {
     this.members.clear()
     this.open.clear()
     this.closed.clear()
+    this.rootMembers.clear()
     this.rootPinned.clear()
     this.rootOpen.clear()
     this.rootSnoozed.clear()

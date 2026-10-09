@@ -1040,6 +1040,8 @@ export class WorklistIssue implements HeldIssue, RowView {
   @lazy get canTuck() { return this.readLifecycle().awaitsTuck }
   @lazy get canBringBack() { return this.readLifecycle().canBringBack }
 
+  /** Phone section membership uses retained attention, including folded descendants. */
+  @lazy get sectionAsking() { return mobileWaitingCount(this.aggregate, this.issue.finished === true) > 0 }
   @lazy get waitingCount() { return mobileWaitingCount(this.visibleAttention, this.finished === true) }
   @lazy get quietDraft() {
     const first = this.sessions[0]

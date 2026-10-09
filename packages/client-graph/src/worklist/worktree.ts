@@ -10,15 +10,15 @@ import { sidebarRosterOf, type SidebarState } from './sidebar'
 import { LOADING } from './rollup'
 import { sidebarTimingFromFacts, combineSidebarSessionField, NO_SIDEBAR_SESSIONS, type SidebarSessionFacts } from './sidebar-row'
 
+const EMPTY_SESSIONS: readonly SessionModel[] = Object.freeze([])
+
 /** A roster keeps shared sessions, with demand-scoped data queries owning
  * ordering. A heartbeat updates one ordering key; it never sorts the roster. */
 export class WorklistWorktree {
   private readonly orderedSessions: ReturnType<WorklistWorktree['sessionQuery']>
-  private readonly oldestSessions: ReturnType<WorklistWorktree['sessionQuery']>
   constructor(readonly worktree: ModelOf['worktree'], readonly worklist: Worklist) {
     // Query contents and subscriptions live only while a reader watches get().
-    this.orderedSessions = this.sessionQuery(false)
-    this.oldestSessions = this.sessionQuery(true)
+    this.orderedSessions = this.sessionQuery()
   }
   get id() { return this.worktree.id }
   @lazy({ equals: compareShallow }) get representedIssues(): readonly IssueModel[] {
@@ -40,11 +40,11 @@ export class WorklistWorktree {
   }
   get roster() { return { ids: this.rosterIds, pending: 0 } }
 
-  private sessionQuery(stale: boolean) {
+  private sessionQuery() {
     const pool = this.worklist.pool
     const index = sidebarRosterView(pool)
     return createQueryResult<SessionModel>({
-      name: `worklist.worktree@${this.id}.${stale ? 'stale' : 'sessions'}`,
+      name: `worklist.worktree@${this.id}.sessions`,
       ids: () => index.residentCandidates(this.id),
       has: id => index.hasResidentCandidate(this.id, id),
       read: id => {
@@ -53,34 +53,28 @@ export class WorklistWorktree {
         if (state === 'absent') return undefined
         const session = pool.sessionObject(id)
         if (session.status === 'exited' || !this.worklist.session(session).rosterCandidate) return undefined
-        return !stale || this.worklist.session(session).stale ? session : undefined
+        return session
       },
-      order: id => {
-        const session = pool.sessionObject(id)
-        return stale ? JSON.stringify([session.lastActivity, this.worklist.session(session).sortKey]) : this.worklist.session(session).sortKey
+      order: id => this.worklist.session(pool.sessionObject(id)).sortKey,
+      compareOrder: compareSessionKeys,
+      matches: [session => this.worklist.session(session).phase === 'waiting', session => session.executing],
+      partition: {
+        order: session => this.worklist.session(session).stale ? JSON.stringify([session.lastActivity, this.worklist.session(session).sortKey]) : undefined,
+        compareOrder: (a, b) => {
+          const left = JSON.parse(a) as [string, string], right = JSON.parse(b) as [string, string]
+          return right[0].localeCompare(left[0]) || compareSessionKeys(left[1], right[1])
+        },
+        keepFirst: 3, minimumSize: 5,
       },
-      compareOrder: stale ? (a, b) => {
-        const left = JSON.parse(a) as [string, string], right = JSON.parse(b) as [string, string]
-        return right[0].localeCompare(left[0]) || compareSessionKeys(left[1], right[1])
-      } : compareSessionKeys,
       subscribe: changed => index.subscribeCandidates(this.id, changed),
     })
   }
-  @lazy({ equals: compareShallow }) get sessions(): readonly SessionModel[] {
-    const sessions = this.orderedSessions.get()
-    return sessions === LOADING || sessions === undefined ? [] : sessions
-  }
-  @lazy({ equals: compareShallow }) private get staleCandidates(): readonly SessionModel[] {
-    const sessions = this.oldestSessions.get()
-    return sessions === LOADING || sessions === undefined ? [] : sessions
-  }
-  @lazy({ equals: compareShallow }) get stale(): readonly SessionModel[] {
-    if (this.sessions.length <= 5 || this.staleCandidates.length <= 3) return []
-    const stale = new Set(this.staleCandidates.slice(3))
-    return this.sessions.filter(session => stale.has(session))
-  }
-  @lazy({ equals: compareShallow }) get visible(): readonly SessionModel[] {
-    return this.sessions.filter(session => !this.stale.includes(session))
+  /** Forward the query's persistent answers; order changes edit their paths. */
+  get sessions(): readonly SessionModel[] { return this.sessionRows(this.orderedSessions.get()) }
+  get stale(): readonly SessionModel[] { return this.sessionRows(this.orderedSessions.partition(true)) }
+  get visible(): readonly SessionModel[] { return this.sessionRows(this.orderedSessions.partition(false)) }
+  private sessionRows(rows: readonly SessionModel[] | typeof LOADING | undefined): readonly SessionModel[] {
+    return rows === LOADING || rows === undefined ? EMPTY_SESSIONS : rows
   }
   @lazy({ equals: compareShallow }) get issues(): readonly IssueModel[] {
     const issues = new Set<IssueModel>()
@@ -107,6 +101,7 @@ export class WorklistWorktree {
     }
     return pending
   }
+  @lazy get sectionAsking() { return this.ready === 'ready' && this.waitingCount > 0 }
   active(state: SidebarState): boolean {
     return state.selectedWorktree != null && machinePathsEqual(state.selectedWorktree, this.id) && this.worklist.selectedId === null
   }
@@ -125,9 +120,10 @@ export class WorklistWorktree {
     return working ? 'working' : done ? 'done' : 'queued'
   }
   @lazy get visibleWorking() { return this.sessions.some(session => session.executing) }
-  @lazy get sessionCount() { return this.sessions.length }
-  @lazy get workingCount() { return this.sessions.reduce((count, session) => count + Number(session.executing), 0) }
-  @lazy get waitingCount() { return this.sessions.reduce((count, session) => count + Number(this.worklist.session(session).phase === 'waiting'), 0) }
+  @lazy get sessionCount() { return this.number(this.orderedSessions.count()) }
+  @lazy get workingCount() { return this.number(this.orderedSessions.countMatch(1)) }
+  @lazy get waitingCount() { return this.number(this.orderedSessions.countMatch(0)) }
+  private number(value: number | typeof LOADING | undefined): number { return value === LOADING || value === undefined ? 0 : value }
   @lazy get visibleUnread() { return !this.visibleWorking && this.sessions.some(session => session.unread) }
   @lazy({ equals: compareStructural }) get visibleFleet() {
     let fleet = NO_SIDEBAR_SESSIONS.fleet

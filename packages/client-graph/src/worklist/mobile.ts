@@ -1,4 +1,7 @@
-import { omitGone } from '../lookup'
+import { here, omitGone } from '../lookup'
+import { createQueryResult, concatQueryResults } from '../query-result'
+import { compareRank, type RowRank } from '../shared/row-view'
+import { sidebarRosterView } from './sidebar-roster'
 import { worklistGroups } from './groups'
 import { lazy } from '@podium/mobx-helpers'
 /** Phone bands over the existing resident root/roster indexes. No legacy
@@ -47,32 +50,63 @@ const EMPTY_IDS: readonly string[] = Object.freeze([])
 
 /** Per-group lazy fields belong to the existing group row, never a keyed cache. */
 export class MobileSection {
-  constructor(readonly pool: MobxPool, readonly key: string, readonly root: MobileSectionsView) {}
+  private readonly members: ReturnType<typeof createQueryResult<string>> | undefined
+  constructor(readonly pool: MobxPool, readonly key: string, readonly root: MobileSectionsView) {
+    if (key !== 'needs-you') this.members = this.memberQuery()
+  }
+  private memberQuery() {
+    const groups = worklistGroups(this.pool), index = sidebarRosterView(this.pool)
+    const lane = this.kind === 'pinned' ? groups.rootPinned : groups.rootOpen
+    const key = this.kind === 'pinned' ? 'pinned' : this.key
+    const worktree = (id: string) => this.pool.tables.worktree.has(id)
+    return createQueryResult<string>({
+      name: `worklist.phone@${this.key}.members`,
+      ids: function* () { yield* lane.lane(key); if (key !== 'pinned') yield* index.groupCandidates(key) },
+      has: id => lane.hasIn(key, id) || (key !== 'pinned' && index.hasGroupCandidate(key, id)),
+      read: id => {
+        if (!worktree(id)) return lane.hasIn(key, id) ? id : undefined
+        const tree = this.pool.model('worktree', id)
+        return tree && worklistView(this.pool).tree(tree).hasCandidates ? id : undefined
+      },
+      order: id => worktree(id) ? JSON.stringify([1, id]) : JSON.stringify([0, groups.rankOf(id)]),
+      compareOrder: (a, b) => {
+        const left = JSON.parse(a) as [number, RowRank | string], right = JSON.parse(b) as [number, RowRank | string]
+        return left[0] - right[0] || (left[0] === 0 ? compareRank(left[1] as RowRank, right[1] as RowRank)
+          : (left[1] as string).localeCompare(right[1] as string))
+      },
+      matches: [id => this.root.sectionAsking(id, worktree(id)), id => !this.root.sectionAsking(id, worktree(id))],
+      totals: [id => this.root.waiting(id, worktree(id)).pending],
+      subscribe: changed => {
+        const stop = lane.subscribe(key, changed)
+        const stopTrees = key === 'pinned' ? undefined : index.subscribeGroupCandidates(key, changed)
+        return () => { stop(); stopTrees?.() }
+      },
+    })
+  }
+  private query() { this.pool.worklist.need(); return this.members! }
+  private ids(rows: readonly string[] | typeof LOADING | undefined): readonly string[] {
+    return rows === LOADING || rows === undefined ? EMPTY_IDS : rows
+  }
   get label() { return this.key === 'pinned' ? 'Pinned' : this.key === 'needs-you' ? 'Needs you' : this.projectLabel }
   @lazy private get projectLabel() { return sidebarView(this.pool).band(this.root.state, this.key)?.label ?? '' }
   get kind(): MobileWorkSection['kind'] { return this.key === 'pinned' ? 'pinned' : this.key === 'needs-you' ? 'attention' : 'project' }
-  // The immutable kind guards constant empty lists before creating a derivation.
-  get worktreeIds() { return this.kind === 'project' ? this.projectWorktreeIds : EMPTY_IDS }
-  @lazy({ equals: compareShallow }) private get projectWorktreeIds() {
-    return sidebarView(this.pool).band(this.root.state, this.key)?.worktreeIds ?? EMPTY_IDS
+  // Forward declared data answers. The immutable kind guards empty lists.
+  get worktreeIds() { return this.kind === 'project' ? sidebarRosterView(this.pool).groupIds(this.key) : EMPTY_IDS }
+  get openIds() { return this.kind === 'pinned' ? worklistGroups(this.pool).pinnedRootIds
+    : this.kind === 'project' ? worklistGroups(this.pool).rootOpen.lane(this.key) : EMPTY_IDS }
+  get snoozedIds() { return this.kind === 'project' ? worklistGroups(this.pool).rootSnoozed.lane(this.key) : EMPTY_IDS }
+  get closedIds() { return this.kind === 'project' ? worklistGroups(this.pool).rootClosed.lane(this.key) : EMPTY_IDS }
+  get allIds(): readonly string[] { return this.kind === 'attention' ? this.root.attentionIds : this.ids(this.query().get()) }
+  get attentionIds(): readonly string[] { return this.kind === 'attention' ? this.root.attentionIds : this.ids(this.query().getMatch(0)) }
+  get liveIds(): readonly string[] { return this.kind === 'project' ? this.ids(this.query().getMatch(1)) : this.allIds }
+  @lazy get pending(): number {
+    if (this.kind === 'attention') return 0
+    const value = this.query().total(0)
+    return value === LOADING || value === undefined ? 0 : value
   }
-  get openIds() { return this.kind === 'pinned' ? this.pinnedOpenIds
-    : this.kind === 'project' ? this.projectOpenIds : EMPTY_IDS }
-  @lazy({ equals: compareShallow }) private get pinnedOpenIds() { return worklistGroups(this.pool).pinnedRootIds }
-  @lazy({ equals: compareShallow }) private get projectOpenIds() { return worklistGroups(this.pool).rootOpen.lane(this.key).slice() }
-  get snoozedIds() { return this.kind === 'project' ? this.projectSnoozedIds : EMPTY_IDS }
-  @lazy({ equals: compareShallow }) private get projectSnoozedIds() { return worklistGroups(this.pool).rootSnoozed.lane(this.key).slice() }
-  get closedIds() { return this.kind === 'project' ? this.projectClosedIds : EMPTY_IDS }
-  @lazy({ equals: compareShallow }) private get projectClosedIds() { return worklistGroups(this.pool).rootClosed.lane(this.key).slice() }
-  @lazy({ equals: compareShallow }) get allIds(): readonly string[] {
-    return this.kind === 'attention' ? this.root.attentionIds : [...this.openIds, ...this.worktreeIds]
-  }
-  @lazy({ equals: compareShallow }) get attentionIds() { return this.allIds.filter(id => this.root.waiting(id, this.worktreeIds.includes(id)).asking) }
-  @lazy({ equals: compareShallow }) get liveIds() { return this.kind === 'project' ? this.allIds.filter(id => !this.attentionIds.includes(id)) : this.allIds }
-  @lazy get pending() { return this.allIds.reduce((total, id) => total + this.root.waiting(id, this.worktreeIds.includes(id)).pending, 0) }
   get foldKey() { return `podium:sidebar:work-group-fold:${this.key}` }
   @lazy get collapsed() { return !this.root.state.searching && this.root.state.collapsed?.[this.foldKey] === true }
-  @lazy({ equals: compareShallow }) get data() { return this.collapsed ? EMPTY_IDS : this.liveIds }
+  get data() { return this.collapsed ? EMPTY_IDS : this.liveIds }
   @lazy get total() { return this.liveIds.length }
 }
 
@@ -88,8 +122,14 @@ export class MobileSectionsView implements MobileWorkSections {
   @lazy({ equals: compareShallow }) get projectKeys() { return sidebarView(this.pool).bandKeys(this.state) }
   project(key: string): MobileSection { return worklistGroups(this.pool).group(key).workSection }
   section(key: string): MobileSection { return key === 'pinned' ? this.pinned : key === 'needs-you' ? this.attention : this.project(key) }
-  @lazy({ equals: compareShallow }) get attentionIds() {
-    return [...this.pinned.attentionIds, ...this.projectKeys.flatMap(key => this.project(key).attentionIds)]
+  @lazy get attentionIds() {
+    return concatQueryResults([this.pinned.attentionIds, ...this.projectKeys.map(key => this.project(key).attentionIds)])
+  }
+  sectionAsking(id: string, worktree: boolean): boolean {
+    const view = worklistView(this.pool)
+    if (!worktree) return view.knownRow(id)?.sectionAsking ?? false
+    const tree = this.pool.model('worktree', id)
+    return tree !== undefined && view.tree(tree).sectionAsking
   }
   waiting(id: string, worktree: boolean): { asking: boolean; pending: number } {
     if (!worktree) {

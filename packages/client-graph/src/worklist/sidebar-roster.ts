@@ -60,24 +60,21 @@ export class SidebarRosterIndex {
         ids: () => this.paths.lane(key),
         has: path => this.paths.has(path) && this.worktrees.get(path)?.group === key,
         read: path => { const tree = here(this.pool.model('worktree', path)); return tree && worklistView(this.pool).tree(tree).hasCandidates ? path : undefined },
-        subscribe: changed => {
-          let listeners = this.groupListeners.get(key)
-          if (!listeners) {
-            listeners = new Set()
-            this.groupListeners.set(key, listeners)
-          }
-          listeners.add(changed)
-          return () => {
-            listeners.delete(changed)
-            if (!listeners.size) this.groupListeners.delete(key)
-          }
-        },
+        subscribe: changed => this.subscribeGroupCandidates(key, changed),
         released: () => this.groupResults.delete(key),
       })
       this.groupResults.set(key, result)
     }
     const ids = result.get()
     return ids === LOADING || ids === undefined ? EMPTY : ids
+  }
+  groupCandidates(key: string): Iterable<string> { return this.paths.lane(key) }
+  hasGroupCandidate(key: string, path: string): boolean { return this.paths.hasIn(key, path) }
+  subscribeGroupCandidates(key: string, changed: (path: string | undefined) => void): () => void {
+    let listeners = this.groupListeners.get(key)
+    if (!listeners) { listeners = new Set(); this.groupListeners.set(key, listeners) }
+    listeners.add(changed)
+    return () => { listeners.delete(changed); if (!listeners.size) this.groupListeners.delete(key) }
   }
   private readonly expiries = new Map<string, number>()
   private readonly due = new Map<number, Set<string>>()
