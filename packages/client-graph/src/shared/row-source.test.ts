@@ -1,4 +1,4 @@
-import { omitGone } from '../lookup'
+import { here, omitGone } from '../lookup'
 import { createRequire } from 'node:module'
 import { EMPTY_PENDING } from '../../../../tests/worklist/shared/src/row-source'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
@@ -328,7 +328,7 @@ it('recovery includes pending optimism, removals, and rollback', () => {
     f.tables.get('sessions')!.delete('removed')
     expect(f.source.repaint([{ kind: 'session', id: 'a' }])?.type).toBe('replace')
     expect(omitGone(handle.pool.row('session', 'a'))).toMatchObject({ title: 'optimistic' })
-    expect(omitGone(handle.pool.row('session', 'removed'))).toBeUndefined()
+    expect(here(handle.pool.row('session', 'removed'))).toBeUndefined()
     overlays.clear()
     f.source.repaint([{ kind: 'session', id: 'a' }])
     expect(omitGone(handle.pool.row('session', 'a'))).toMatchObject({ title: 'server' })

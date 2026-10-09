@@ -1,3 +1,4 @@
+import { type Lookup, omitGone } from './lookup'
 import type { MobxPool } from './pool'
 import { keyedComputed } from '@podium/mobx-helpers'
 import {
@@ -26,7 +27,7 @@ export function issueRefKey(token: string): string {
 /** Only the existing pool supplies rows and relations. No viewmodel list,
  * replica, old-record read or mutation owner is accepted by this seam. */
 export interface IssueReferenceHost {
-  row(entity: 'issue' | 'repo', id: string, mode?: 'summary-fields' | 'load'): Loaded<object>
+  row(entity: 'issue' | 'repo', id: string, mode?: 'summary-fields' | 'load'): Lookup<object>
   readonly queries: { issueReferenceId(token: string): string | undefined }
   readonly relations: Pick<RelationReader, 'one'>
 }
@@ -71,7 +72,7 @@ export class IssueReferences implements IssueReferenceReader {
     if (this.requests.size === 0) return
     // Normalized projections carry repoId and seq, not a derived prefix.
     // Use the same resident repo join as source(), without warming this issue.
-    const repo = row.repoId ? this.host.row('repo', row.repoId) : undefined
+    const repo = row.repoId ? omitGone(this.host.row('repo', row.repoId)) : undefined
     if (repo === LOADING) return
     const prefix = (repo as { prefix?: string | null } | undefined)?.prefix ?? row.prefix
     const ref = row.repoId
@@ -93,17 +94,17 @@ export class IssueReferences implements IssueReferenceReader {
   }
 
   private source(id: string): Loaded<IssueReferenceSource> {
-    const summary = this.host.row('issue', id, 'summary-fields')
+    const summary = omitGone(this.host.row('issue', id, 'summary-fields'))
     // A pool may declare only stage/residency fields for cold issues. A
     // reference needs identity and label fields too; load this named row
     // through the existing window when its declared summary is incomplete.
     const row = summary === LOADING || (summary && !['id', 'seq', 'title', 'stage'].every(field => Object.hasOwn(summary, field)))
-      ? this.host.row('issue', id, 'load') : summary
+      ? omitGone(this.host.row('issue', id, 'load')) : summary
     if (row === LOADING) return LOADING
     if (row === undefined) return undefined
     const issue = row as IssueReferenceSource
     const repoId = this.host.relations.one('issue', id, 'repo')
-    const repo = repoId === null ? undefined : this.host.row('repo', repoId)
+    const repo = repoId === null ? undefined : omitGone(this.host.row('repo', repoId))
     if (repo === LOADING) return LOADING
     const prefix = (repo as { prefix?: string | null } | undefined)?.prefix ?? issue.prefix
     return {

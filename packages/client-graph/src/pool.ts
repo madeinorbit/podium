@@ -554,7 +554,11 @@ export class MobxPool {
     observe(this.tables.session, (change) => {
       this.seatVerdicts.queueSession(change.name)
     })
-    runInAction(() => { this.select(locals.selectedIssueId); worklistView(this).setFolded(locals.selectedIssueWasFolded === true) })
+    // Restoring saved selection must not derive placement before rows attach.
+    runInAction(() => {
+      worklistView(this).selectedId = locals.selectedIssueId
+      worklistView(this).setFolded(locals.selectedIssueWasFolded === true)
+    })
     residency?.onDue(() => this.hydrate())
     if (lazy?.worklist !== 'demand') this.worklist.retain()
   }
@@ -624,9 +628,8 @@ export class MobxPool {
           core === 'session'
             ? (residency.summary(core, id) ?? residency.read(core, id))
             : residency.read(core, id)
-      if (server === undefined) return residency.lookup(core, id)
+      if (server === undefined) return absent === 'peek' ? NOT_VISIBLE : residency.lookup(core, id)
     }
-    if ('deletedAt' in server && server.deletedAt) return REMOVED
     if ((core === 'session' || core === 'issue') && (core === 'session' ? 'machineId' in server || 'refRepoId' in server || 'handoffTargetMachineId' in server : 'repoId' in server)
     ) {
       let view = this.joinedRows.get(server)

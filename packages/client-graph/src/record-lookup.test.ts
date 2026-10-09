@@ -57,13 +57,13 @@ it('compares the old and new answers on resident, cold, removed and inaccessible
   } finally { f.pool.dispose() }
 })
 
-it('a deleted cold record never starts a load, including a retained server tombstone', () => {
+it('a server-deleted cold record never starts another load', () => {
   const f = fixture()
   try {
-    const value = { ...issue('tombstone', true), deletedAt: '2026-10-09T00:00:00Z' }
-    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: value.id, value }] })
-    expect(f.pool.row('issue', value.id)).toEqual({ kind: 'gone', reason: 'removed' })
-    expect(f.pool.model('issue', value.id)).toEqual({ kind: 'gone', reason: 'removed' })
+    f.exits.set('cold', 'removed')
+    f.rows.delete('cold')
+    expect(f.pool.row('issue', 'cold')).toEqual({ kind: 'gone', reason: 'removed' })
+    expect(f.pool.model('issue', 'cold')).toEqual({ kind: 'gone', reason: 'removed' })
     expect(f.pool.row('issue', 'deleted', 'summary')).toEqual({ kind: 'gone', reason: 'removed' })
     expect(f.pool.hydrate()).toBe(0)
     expect(f.schedule).not.toHaveBeenCalled()

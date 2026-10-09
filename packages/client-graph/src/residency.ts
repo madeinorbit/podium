@@ -313,8 +313,7 @@ export class Residency {
   }
 
   removed(entity: EntityName, id: string): boolean {
-    return this.exitKind?.(entity, id) === 'removed' ||
-      (entity === 'issue' && Boolean(this.index().heldFields(entity, id, ['deletedAt'])?.['deletedAt']))
+    return this.exitKind?.(entity, id) === 'removed'
   }
 
   /** TRACKED: whether `id` is cold, so hidden from the list unless loaded. */

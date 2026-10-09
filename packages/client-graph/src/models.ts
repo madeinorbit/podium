@@ -67,7 +67,7 @@ export interface ModelHost {
   edit<K extends WritableKind>(entity: K, id: string, patch: EditPatch<K>): TxId
   /** The pool's relation reader: what the relation getters follow. */
   readonly relations: RelationReader
-  /** The object of a row in memory, built on first request; undefined when not in memory. */
+  /** The addressed model: here, loading, or gone. */
   model<E extends EntityName>(entity: E, id: string): Lookup<ModelOf[E]>
   /** Where a row stands; a cold one answers `loading` and is queued (first access). */
   resident(entity: EntityName, id: string): Residence

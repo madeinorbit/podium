@@ -1,3 +1,4 @@
+import { omitGone } from '../lookup'
 import { parseMs } from '../views'
 import { compareStructural, untracked } from 'mobx'
 import { lazy, companion } from '@podium/mobx-helpers'
@@ -52,7 +53,7 @@ export class WorklistIssueBefore implements HeldIssue, RowView {
 
   /** Shared fields read the resident slot; cold sidebar rules keep their own summary input. */
   private residentIssue(): SliceIssue | undefined {
-    const row = this.host.row('issue', this.id, 'mark')
+    const row = omitGone(this.host.row('issue', this.id, 'mark'))
     return row === LOADING ? this.host.visibleInputs.issueRow(this.id) : row as SliceIssue | undefined
   }
 
@@ -401,13 +402,13 @@ export class WorklistIssueBefore implements HeldIssue, RowView {
 
   get hidden(): HiddenIssue | undefined {
     // untracked-read: old-issue-hidden-presence
-    const resident = untracked(() => this.host.row('issue', this.id, 'mark'))
+    const resident = untracked(() => omitGone(this.host.row('issue', this.id, 'mark')))
     if (resident !== LOADING) {
       // Unknown ids must still follow a later cold publication through the reader.
-      if (resident === undefined) void this.host.row('issue', this.id, 'summary')
+      if (resident === undefined) void omitGone(this.host.row('issue', this.id, 'summary'))
       return undefined
     }
-    const summary = this.host.row('issue', this.id, 'summary')
+    const summary = omitGone(this.host.row('issue', this.id, 'summary'))
     return summary === LOADING ? {} : summary as HiddenIssue | undefined
   }
 
@@ -1108,7 +1109,7 @@ export class WorklistIssueBefore implements HeldIssue, RowView {
   @lazy get rowSessions(): readonly SliceSession[] {
     const sessions: SliceSession[] = []
     for (const id of this.ownAttention.sessionIds ?? []) {
-      const session = this.host.row('session', id)
+      const session = omitGone(this.host.row('session', id))
       if (session !== undefined && session !== LOADING) sessions.push(session as SliceSession)
     }
     return sessions
