@@ -144,10 +144,12 @@ describe('W4 guard: every agent send is one durable row (C5, POD-4795)', () => {
         position: rows.length,
       })
     }
+    // Only an interrupt names its mode here; the queue's admission picks every
+    // other row's by who is typing (`queuedDeliveryFor`, POD-5855).
     expect(rows.map((row) => [row.text, row.delivery])).toEqual([
-      ['now', 'when-ready'],
-      ['queue', 'when-ready'],
-      ['wake', 'when-ready'],
+      ['now', undefined],
+      ['queue', undefined],
+      ['wake', undefined],
       ['interrupt', 'interrupt'],
     ])
     expect(legacy).toEqual([])

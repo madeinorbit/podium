@@ -10,7 +10,7 @@
  * lease is held elsewhere") and the failed-adoption reap kills the survivor:
  * the transcript goes read-only.
  *
- * The PTY path already short-circuits this: `recoverTerminalHost` reuses the
+ * The PTY path already short-circuits this: `recoverTerminalProcess` reuses the
  * already-held bridge and re-emits `bind` without a new host attach. The
  * server-family arm (`adoptServerDriverSession`) had no such short-circuit —
  * it always re-adopted. These tests pin the fix: a `reattach` for a session

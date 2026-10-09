@@ -4,7 +4,7 @@ import { request } from 'node:http'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { fileURLToPath } from 'node:url'
-import { installTerminalInstrumentation, pageHistory, startHookIngest } from '@podium/harness/driver/host'
+import { boundaryHookResponse, installTerminalInstrumentation, pageHistory, startHookIngest } from '@podium/harness/driver/host'
 
 /**
  * THE RECEIPTS, PINNED (POD-1761 W3).
@@ -39,8 +39,6 @@ import {
 } from '@podium/harness'
 import {
   type ActingPrincipal,
-  type BoundaryContextEvent,
-  type BoundaryContextOperation,
   closesPasteEnvelope,
   ESC,
   LATE_PROOF_WAIT_MS,
@@ -55,7 +53,6 @@ import { type AgentKind, type AgentRuntimeState, asSessionId, type ResumeRef, ty
 import type { AgentObservation } from '@podium/protocol'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import { hookEventName, hookString } from '../../../adapters/shared/hook-fields.js'
 import {
   harnessInterrupt,
   harnessNeedsSubmitVerification,
@@ -102,6 +99,7 @@ function testProfileFor(agentKind: AgentKind): TerminalHarnessProfile | undefine
     exitLosesUnrecorded: terminal.exitLosesUnrecorded === true,
     lifecycleFromState: terminal.lifecycleFromState === true,
     needsSubmitVerification: harnessNeedsSubmitVerification(agentKind),
+    queuesBusyInput: terminal.queuesBusyInput === true,
     usesRawFirstTurn: harnessUsesRawFirstTurn(agentKind),
     archivable: declaredValue(manifest.handoffTranscript) !== undefined,
     reportsContextPercent: manifest.capabilities.observationProvider !== 'none',
@@ -148,9 +146,9 @@ function fakeTransport(onWrite?: (dataBase64: string) => void): TerminalTranspor
 }
 
 /**
- * Local mirrors of the daemon's `mail-injector.ts` / `prime-injector.ts`
- * (POD-4785): harness-neutral mail policy and the prime wire codec, copied
- * verbatim so this test does not reach back into apps/daemon.
+ * Local mirror of the daemon's `mail-injector.ts` (POD-4785): harness-neutral
+ * mail policy, copied verbatim so this test does not reach back into
+ * apps/daemon. The prime wire codec is the harness's own `boundaryHookResponse`.
  */
 export const MAIL_BLOCK_COOLDOWN_MS = 60_000
 
@@ -273,38 +271,6 @@ export function composeMailContext(...sources: MailContextSource[]): MailContext
   }
 }
 
-export async function primeHookResponse(
-  respond: BoundaryContextOperation,
-  payload: unknown,
-  signal?: AbortSignal,
-): Promise<string | null> {
-  const name = hookEventName(payload)
-  if (name === 'SessionStart' && hookString(payload, 'source', 'source') === 'compact') {
-    await respond({ event: 'before-compaction' })
-    const context = await respond({ event: 'start', ...(signal ? { signal } : {}) })
-    return context === null
-      ? null
-      : JSON.stringify({
-          hookSpecificOutput: { hookEventName: name, additionalContext: context },
-        })
-  }
-  const event: BoundaryContextEvent | undefined =
-    name === 'SessionStart'
-      ? 'start'
-      : name === 'UserPromptSubmit'
-        ? 'prompt'
-        : name === 'PreCompact'
-          ? 'before-compaction'
-          : undefined
-  if (!event) return null
-  const context = await respond({ event, ...(signal ? { signal } : {}) })
-  return context === null
-    ? null
-    : JSON.stringify({
-        hookSpecificOutput: { hookEventName: name, additionalContext: context },
-      })
-}
-
 /** The bracketed-paste envelope, parsed without a regex: the escape bytes are
  *  literal control characters, which a `RegExp` literal cannot carry legibly. */
 const PASTE_START = '\u001b[200~'
@@ -398,22 +364,11 @@ interface World {
   bind(sessionId: SessionId): void
   ready(sessionId: SessionId): void
   /**
-   * Say the CLI comes up DURING the launch, before `create()` resolves.
-   *
-   * That is what the real daemon does — `host.launch` is `launchSpawn`, which
-   * announces the bind before its promise settles — and it is the window
-   * POD-2107 is about: the driver registers the session after the await, so a
-   * bind arriving here names a session the driver has not recorded yet.
+   * Say the CLI is up by the time the host announces it: the bind goes out with
+   * the announcement, which the driver makes once its handle is registered —
+   * the real daemon's order (POD-5814), and why the POD-2107 window is gone.
    */
-  bindDuringLaunch(): void
-  /**
-   * Say the launch REGISTERS the session itself, the way the real one does.
-   *
-   * `host.launch` is `launchSpawn`, and `launchSpawn` calls
-   * `bindRuntimeContract` — so a flagged session is already behind the contract
-   * before `create()` gets its turn to register it.
-   */
-  registerDuringLaunch(): void
+  bindOnAnnounce(): void
   setPhase(sessionId: SessionId, phase: AgentRuntimeState['phase']): void
   killHost(sessionId: SessionId): void
   now(): number
@@ -464,8 +419,7 @@ function makeWorld(
   const frameListeners: Array<(frame: DaemonMessage) => void> = []
   const pendingPaste = new Map<SessionId, string>()
   let runtime!: TerminalRuntime
-  let bindOnLaunch = false
-  let registerOnLaunch = false
+  let bindOnAnnounce = false
   const slots = createMemoryDriverSlots()
 
   const bindFrame = (sessionId: SessionId): void => {
@@ -581,44 +535,32 @@ function makeWorld(
     trackedState: (sessionId) => phases.get(sessionId),
     draftSyncing: () => false,
     setDraftTarget: () => false,
-    processAlive: async (sessionId) => alive.get(sessionId) === true,
-    recover: async (msg, ready) => {
-      if (!alive.get(msg.sessionId)) throw new Error('session not found')
-      ready(ensureTransport(msg.sessionId))
-      runtime?.observe({
-        type: 'bind',
-        sessionId: msg.sessionId,
-        cmd: 'fixture',
-        cwd: msg.cwd,
-        agentKind: msg.agentKind,
-      })
+    observationLease: () => undefined,
+    // The attach is the proof the process lives: no survivor, no recovery.
+    recover: async ({ sessionId, workdir, agentKind }) => {
+      if (!alive.get(sessionId)) throw new Error('session not found')
+      return {
+        terminal: ensureTransport(sessionId),
+        announce: () =>
+          runtime?.observe({ type: 'bind', sessionId, cmd: 'fixture', cwd: workdir, agentKind }),
+      }
     },
     stopSession: async ({ sessionId }) => {
       alive.set(sessionId, false)
       return true
     },
-    launch: async (msg) => {
-      alive.set(msg.sessionId, true)
-      phases.set(msg.sessionId, {
+    launch: async ({ sessionId }) => {
+      alive.set(sessionId, true)
+      phases.set(sessionId, {
         phase: 'idle',
         since: new Date(clock).toISOString(),
         nativeSubagentCount: 0,
       })
-      // IN THE ORDER `launchSpawn` USES: it puts the session behind the contract
-      // and then announces the bind, and both happen BEFORE the promise settles
-      // — so both reach the driver while `create()` is still awaiting.
-      if (registerOnLaunch) {
-        runtime.register(
-          {
-            sessionId: msg.sessionId,
-            agentKind: msg.agentKind,
-            cwd: msg.cwd,
-            resume: msg.resume ?? null,
-          },
-          msg.agentKind === 'claude-code' ? CLAUDE : GROK,
-        )
+      return {
+        announce: () => {
+          if (bindOnAnnounce) bindFrame(sessionId)
+        },
       }
-      if (bindOnLaunch) bindFrame(msg.sessionId)
     },
     readHistory: async (session, range) =>
       pageHistory(
@@ -651,7 +593,6 @@ function makeWorld(
   // Every bound handle gets the session's live surface, the way the daemon
   // wires a fresh Terminal at bind: `register`/`createWithId`/`recoverWithId`
   // all bind through `slots.set`, so one hook here covers every path,
-  // including the `registerOnLaunch` branch above.
   const slotsSet = slots.set.bind(slots)
   slots.set = (sessionId, handle) => {
     slotsSet(sessionId, handle)
@@ -713,11 +654,8 @@ function makeWorld(
       bindFrame(sessionId)
       clock += 6000
     },
-    bindDuringLaunch: () => {
-      bindOnLaunch = true
-    },
-    registerDuringLaunch: () => {
-      registerOnLaunch = true
+    bindOnAnnounce: () => {
+      bindOnAnnounce = true
     },
     observe: (sessionId, partial) => {
       const observation: AgentObservation = {
@@ -828,7 +766,7 @@ describe('instrumented terminal creation', () => {
     finish(wiring)
     const handle = await pending
     expect(world.host.installInstrumentation).toHaveBeenCalledWith(handle.binding.sessionId, SPEC)
-    expect(launch.mock.calls[0]?.[1]).toEqual(wiring)
+    expect(launch.mock.calls[0]?.[0].instrumentation).toEqual(wiring)
     world.runtime.dispose()
   })
 
@@ -908,10 +846,10 @@ describe('instrumented terminal creation', () => {
       for (let i = 0; i < 2; i++) await driver.create({ ...SPEC, harness: 'codex' })
       expect(launch).toHaveBeenCalledTimes(2)
       for (const call of launch.mock.calls) {
-        expect(call[1]?.env).toEqual(
+        expect(call[0].instrumentation.env).toEqual(
           expect.objectContaining({ PODIUM_CODEX_HOOK_URL: SPEC.instrumentation.endpointUrl }),
         )
-        expect(call[1]?.degradedReason).toContain(reason)
+        expect(call[0].instrumentation.degradedReason).toContain(reason)
       }
       const diagnostics = world.frames.filter((frame) => frame.type === 'machineDiagnostic')
       expect(diagnostics).toHaveLength(1)
@@ -933,10 +871,10 @@ describe('instrumented terminal creation', () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     await driver.resume({ kind: 'claude-session', value: 'native-session' }, SPEC)
     const sessionId = 'server-session' as SessionId
-    const launch = vi.fn(async () => {})
-    await world.runtime.createWithId(sessionId, SPEC, CLAUDE, launch)
+    const launch = vi.spyOn(world.host, 'launch')
+    await world.runtime.createWithId(sessionId, SPEC, CLAUDE)
     expect(install).toHaveBeenLastCalledWith(sessionId, SPEC)
-    expect(launch).toHaveBeenCalledWith({ args: [] })
+    expect(launch).toHaveBeenLastCalledWith({ sessionId, spec: SPEC, instrumentation: { args: [] } })
     expect(install).toHaveBeenCalledTimes(2)
     world.runtime.dispose()
   })
@@ -1399,7 +1337,9 @@ describe('send receipts', () => {
   })
 
   it('reports a steer downgrade through deliveredAs', async () => {
-    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    // A TUI that does not queue mid-turn input (POD-5855: the shape of every
+    // harness whose manifest does not declare `queuesBusyInput`).
+    const driver = world.runtime.driverFor('claude-code', { ...CLAUDE, queuesBusyInput: false })
     const session = await driver.create(SPEC)
     world.ready(session.binding.sessionId)
     const receipt = await session.send({ text: 'and this' }, { origin: 'mail', delivery: 'steer' })
@@ -1408,6 +1348,17 @@ describe('send receipts', () => {
     // A TUI cannot append into an open turn. The caller learns it did not steer.
     expect(receipt.deliveredAs).toBe('queue')
     expect(receipt.position).toBe(1)
+  })
+
+  it('types a steer into an idle TUI that queues mid-turn input as an ordinary turn (POD-5855)', async () => {
+    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const session = await driver.create(SPEC)
+    world.ready(session.binding.sessionId)
+    const receipt = session.send({ text: 'and this' }, { origin: 'mail', delivery: 'steer' })
+    await Promise.resolve()
+    world.echo(session.binding.sessionId, 'and this')
+    // No turn to steer: a new one, and the receipt says so.
+    expect(await receipt).toMatchObject({ outcome: 'accepted', deliveredAs: 'when-ready' })
   })
 
   it('refuses a send while a native prompt is open, and typing nothing is the point', async () => {
@@ -2543,7 +2494,7 @@ describe('the queue drain', () => {
 
   it('does not report an abandonment when the queue drained (POD-2107)', async () => {
     const world = makeWorld()
-    world.bindDuringLaunch()
+    world.bindOnAnnounce()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
 
@@ -2575,15 +2526,15 @@ describe('the queue drain', () => {
     expect(world.written[0]).toBe('queued')
   })
 
-  it('delivers when the CLI bound BEFORE create() resolved (POD-2107)', async () => {
+  it('delivers when the CLI bound at its announcement (POD-2107)', async () => {
     const world = makeWorld()
-    // The bind lands inside `launch`, one await ahead of registration — exactly
-    // where the real daemon puts it. The driver used to drop that frame, because
-    // no session was recorded under the id yet; `live` then stayed false for the
-    // life of the session and the ready-poll drain abandoned every queued turn at
-    // its 25s deadline WITHOUT typing and WITHOUT an event, while the sender held
-    // a receipt that said `queued`.
-    world.bindDuringLaunch()
+    // The bind is the host's announcement, made after registration. Before
+    // POD-5814 it landed inside `launch`, one await AHEAD of registration, and
+    // the driver dropped it: `live` then stayed false for the life of the
+    // session and the ready-poll drain abandoned every queued turn at its 25s
+    // deadline WITHOUT typing and WITHOUT an event, while the sender held a
+    // receipt that said `queued`.
+    world.bindOnAnnounce()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
 
@@ -2601,14 +2552,12 @@ describe('the queue drain', () => {
 
   it('does not report a fresh session as adopted (POD-2107)', async () => {
     const world = makeWorld()
-    // The full production ordering: the launch registers the session and then
-    // announces the bind, both before `create()` resolves. `create()` then
-    // registered a SECOND time over its own launch's record, which is the rebind
-    // branch — the binding version and observer generation jumped and an
-    // `adopted` process event went out, telling a consumer the binding changed
-    // under it before the session's first turn.
-    world.registerDuringLaunch()
-    world.bindDuringLaunch()
+    // The production ordering: launch, register once, announce. Before POD-5814
+    // the daemon's launch registered the session itself and `create()`
+    // registered a SECOND time over that record — the rebind branch: the
+    // binding version and observer generation jumped and an `adopted` process
+    // event went out before the session's first turn.
+    world.bindOnAnnounce()
     const driver = world.runtime.driverFor('grok', GROK)
     const session = await driver.create(SPEC)
 
@@ -2630,7 +2579,7 @@ describe('the queue drain', () => {
 
   it('holds a bind for the session it named, never for the next one (POD-2107)', async () => {
     const world = makeWorld()
-    world.bindDuringLaunch()
+    world.bindOnAnnounce()
     const driver = world.runtime.driverFor('grok', GROK)
     const first = await driver.create(SPEC)
     const second = await driver.create(SPEC)
@@ -2650,6 +2599,102 @@ describe('the queue drain', () => {
     const delivered = world.written.filter((text) => text !== '\r')
     expect(delivered).toContain('one')
     expect(delivered).toContain('two')
+  })
+})
+
+describe("a person's chat into a busy TUI (POD-5855)", () => {
+  // OpenCode stores a prompt submitted mid-turn at once and takes it in at the
+  // running turn's next step (POD-4864): its manifest declares
+  // `queuesBusyInput`, so a steer row is typed into the running turn while a
+  // when-ready row keeps waiting for the boundary. The control arm is the same
+  // world with the declaration removed: the steer waits like any row.
+  async function busyWorld(profile: TerminalHarnessProfile) {
+    const world = makeWorld()
+    const driver = world.runtime.driverFor('opencode', profile)
+    const session = await driver.create({ ...SPEC, harness: 'opencode' })
+    const sessionId = session.binding.sessionId
+    world.ready(sessionId)
+    // ECHO-ON-WRITE, as in the POD-4700 world below and for the same reason.
+    const pendingEchoes = new Set(['first turn', 'from the person', 'mail for the boundary'])
+    const real = world.transportFor(sessionId)
+    world.setTerminal(sessionId, new Proxy(real, {
+      get(target, prop) {
+        if (prop === 'writeBase64') {
+          return (dataBase64: string) => {
+            const pasted = pastedText(Buffer.from(dataBase64, 'base64').toString('utf8'))
+            if (pasted !== undefined && pendingEchoes.has(pasted)) {
+              pendingEchoes.delete(pasted)
+              world.echo(sessionId, pasted)
+            }
+            return target.writeBase64(dataBase64)
+          }
+        }
+        return Reflect.get(target, prop, target)
+      },
+    }))
+    const outcomes = (): string[] =>
+      world.frames.flatMap((frame) =>
+        frame.type === 'runtimeEvent' && frame.event.t === 'delivery'
+          ? [`${frame.event.rowId} ${frame.event.outcome}`]
+          : [],
+      )
+    const pastes = (): string[] =>
+      world.written.map(pastedText).filter((text): text is string => text !== undefined)
+    const settle = async (done: () => boolean): Promise<void> => {
+      for (let i = 0; i < 40 && !done(); i++) {
+        await Promise.resolve()
+        await new Promise((resolve) => setTimeout(resolve, 25))
+      }
+    }
+    await session.send(
+      { text: 'first turn', rowId: 'row-first' },
+      { origin: 'controller', delivery: 'when-ready' },
+    )
+    await settle(() => outcomes().includes('row-first delivered'))
+    world.setPhase(sessionId, 'working')
+    world.observe(sessionId, {})
+    expect((await session.state()).phase).toBe('working')
+    const idle = (): void => {
+      world.setPhase(sessionId, 'idle')
+      world.observe(sessionId, {
+        priorPhase: 'working',
+        nextPhase: 'idle',
+        state: { phase: 'idle', since: new Date(world.now()).toISOString(), nativeSubagentCount: 0 },
+      })
+    }
+    return { world, session, outcomes, pastes, settle, idle }
+  }
+
+  it.each([
+    [true, ['first turn', 'from the person'], ['first turn', 'from the person', 'mail for the boundary']],
+    [false, ['first turn'], ['first turn', 'from the person', 'mail for the boundary']],
+  ] as const)('queuesBusyInput %s: typed during the turn %j, after it %j', async (queues, during, after) => {
+    const w = await busyWorld({ ...OPENCODE, queuesBusyInput: queues })
+    // The mail came first and waits for the boundary; the person's words do
+    // not wait behind it.
+    await w.session.send(
+      { text: 'mail for the boundary', rowId: 'row-mail' },
+      { origin: 'mail', delivery: 'when-ready' },
+    )
+    await w.session.send(
+      { text: 'from the person', rowId: 'row-chat' },
+      { origin: 'controller', delivery: 'steer' },
+    )
+    await w.settle(() => w.outcomes().includes('row-chat delivered'))
+    await new Promise((resolve) => setTimeout(resolve, 450))
+    expect(w.pastes()).toEqual(during)
+    expect(w.outcomes().includes('row-chat delivered')).toBe(queues)
+    expect(w.outcomes().includes('row-mail delivered')).toBe(false)
+
+    w.idle()
+    await w.settle(() => w.outcomes().includes('row-mail delivered'))
+    await w.settle(() => w.outcomes().includes('row-chat delivered'))
+    expect(w.pastes()).toEqual(after)
+    expect(w.outcomes().filter((outcome) => outcome.endsWith('delivered')).sort()).toEqual(
+      ['row-chat delivered', 'row-first delivered', 'row-mail delivered'],
+    )
+    expect(w.world.abandoned).toEqual([])
+    w.world.runtime.dispose()
   })
 })
 
@@ -3109,11 +3154,12 @@ describe('adopt', () => {
     world.runtime.control.restartSupervisor()
     let composed = false
     const recover = world.host.recover
-    world.host.recover = async (msg, ready) => {
-      expect(world.runtime.handleFor(msg.sessionId)).toBeUndefined()
-      expect(msg.durableLabel).toBe(binding.process.key)
-      await recover(msg, ready)
+    world.host.recover = async (input) => {
+      expect(world.runtime.handleFor(input.sessionId)).toBeUndefined()
+      expect(input.sessionId).toBe(binding.process.key)
+      const recovered = await recover(input)
       composed = true
+      return recovered
     }
     const adopted = await driver.adopt(binding)
     expect(composed).toBe(true)
@@ -3131,15 +3177,9 @@ describe('adopt', () => {
     const driver = world.runtime.driverFor('claude-code', CLAUDE)
     const session = await driver.create(SPEC)
     const binding = session.binding
-    // The identity fence lives in the host's recover now (POD-4785): the driver
-    // hands the binding's key through as `durableLabel` and the host refuses a
-    // foreign one, the way the daemon's `recoverTerminalHost` compares against
-    // the entry's label. The stub enforces it so the refusal still precedes
-    // any composition.
-    world.host.recover = async (msg) => {
-      if (msg.durableLabel !== binding.process.key) {
-        throw new TerminalRecoveryRefusal('terminal recovery process identity mismatch')
-      }
+    // A terminal binding's process key is its session; the driver refuses any
+    // other key before the host composes anything.
+    world.host.recover = async () => {
       throw new Error('must not compose')
     }
     for (const key of [binding.process.key.slice(0, -1), `${binding.process.key}-other`]) {
@@ -3155,31 +3195,23 @@ describe('adopt', () => {
     const session = await driver.create(SPEC)
     const sessionId = session.binding.sessionId
     const recover = world.host.recover
-    world.host.recover = async (msg, ready) => {
+    world.host.recover = async (input) => {
       world.observe(sessionId, { observerGeneration: 9, bindingVersion: 7, turnEpoch: 12 })
-      await recover(msg, ready)
+      return recover(input)
     }
-    const msg = {
-      type: 'reattach' as const,
-      sessionId,
-      agentKind: 'claude-code' as const,
-      durableLabel: session.binding.process.key,
-      cwd: SPEC.workdir,
-      lastKnownGeometry: { cols: 120, rows: 40 },
-      observationGeneration: 9,
-      observationBindingVersion: 7,
-      observationCheckpoint: { retained: 'opaque host checkpoint' },
-    }
-    const recovered = await world.runtime.recoverWithId(msg, CLAUDE)
+    // The server's reattach order carries the lease; the host reports it.
+    let lease = { observerGeneration: 9, bindingVersion: 7 }
+    world.host.observationLease = () => lease
+    const recovered = await driver.adopt(session.binding)
     const snapshot = await recovered.snapshot()
     expect(snapshot.observerGeneration).toBe(9)
     expect(snapshot.binding.bindingVersion).toBe(7)
     expect(snapshot.turnEpoch).toBe(12)
-    await expect(
-      world.runtime.recoverWithId({ ...msg, observationGeneration: 8 }, CLAUDE),
-    ).rejects.toThrow('fence is stale')
+    lease = { observerGeneration: 8, bindingVersion: 7 }
+    await expect(driver.adopt(session.binding)).rejects.toThrow('fence is stale')
     // Repeated delivery of the same authoritative lease does not invent a fence.
-    const repeated = await world.runtime.recoverWithId(msg, CLAUDE)
+    lease = { observerGeneration: 9, bindingVersion: 7 }
+    const repeated = await driver.adopt(session.binding)
     expect((await repeated.snapshot()).observerGeneration).toBe(9)
     expect(repeated.binding.bindingVersion).toBe(7)
   })
@@ -3234,9 +3266,11 @@ describe('adopt', () => {
     const binding = session.binding
     world.killHost(binding.process.key as SessionId)
     world.runtime.control.restartSupervisor()
-    // EXACT identity, checked against the world. Adopting the wrong process is
-    // worse than not adopting: it produces a session reporting someone else's work.
-    await expect(driver.adopt(binding)).rejects.toThrow(/no surviving process/)
+    // EXACT identity, checked against the world: the host's attach is the
+    // proof the process lives (POD-5841). Adopting the wrong process is worse
+    // than not adopting: it produces a session reporting someone else's work.
+    await expect(driver.adopt(binding)).rejects.toThrow(/session not found/)
+    expect(world.runtime.handleFor(binding.sessionId)).toBeUndefined()
   })
 })
 
@@ -4208,10 +4242,13 @@ describe('interactions', () => {
 describe('capabilities', () => {
   it('declares the terminal weaknesses and claims no others', async () => {
     const world = makeWorld()
-    const driver = world.runtime.driverFor('claude-code', CLAUDE)
+    const driver = world.runtime.driverFor('claude-code', { ...CLAUDE, queuesBusyInput: false })
     const caps = driver.capabilities()
     expect(caps.send.mayReturnUnverified).toBe(true)
     expect(caps.send.native).not.toContain('steer')
+    // Steer is the manifest's per-harness claim (POD-5855): Claude's TUI takes
+    // a prompt entered mid-turn into its own queue.
+    expect(world.runtime.driverFor('claude-code', CLAUDE).capabilities().send.native).toContain('steer')
     expect(caps.interrupt.fenceOnProviderConfirmation).toBe(true)
     expect(caps.placement).toBe('dedicated')
     // `no-attach` is the EMBEDDED family's exemption. A terminal session's engine
@@ -4415,7 +4452,7 @@ describe('driver-owned prime boundary', () => {
         const sessionId = handle.binding.sessionId
         const event = (name: string) => harness === 'grok'
           ? { hookEventName: name } : { hook_event_name: name }
-        const respond = (name: string) => primeHookResponse(handle.boundaryContext!, event(name))
+        const respond = (name: string) => boundaryHookResponse(handle.boundaryContext!, event(name))
         expect(JSON.parse((await respond('SessionStart'))!)).toEqual({
           hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: `prime:${sessionId}` },
         })
@@ -4464,7 +4501,7 @@ describe('driver-owned prime boundary', () => {
       // driver's mail responder behind it.
       boundaryContext: async (sid, payload, signal) => {
         const operation = world.runtime.boundaryContextFor(sid)
-        return operation ? primeHookResponse(operation, payload, signal) : null
+        return operation ? boundaryHookResponse(operation, payload, signal) : null
       },
       respondTo: world.runtime.respondToHook,
     })
@@ -4527,9 +4564,11 @@ describe('driver-owned prime boundary', () => {
     const world = makeWorld({ primeSource: async () => ({ ok: true, result: 'early' }) })
     const sessionId = 'early-prime' as SessionId
     try {
-      const handle = await world.runtime.createWithId(sessionId, SPEC, CLAUDE, async () => {
+      vi.spyOn(world.host, 'launch').mockImplementationOnce(async () => {
         expect(await world.runtime.boundaryContextFor(sessionId)?.({ event: 'start' })).toBe('early')
+        return { announce: () => {} }
       })
+      const handle = await world.runtime.createWithId(sessionId, SPEC, CLAUDE)
       expect(await handle.boundaryContext!({ event: 'start' })).toBeNull()
     } finally {
       world.runtime.dispose()
@@ -4544,11 +4583,11 @@ describe('driver-owned prime boundary', () => {
     const world = makeWorld({ primeSource: source })
     const sessionId = 'reused-prime' as SessionId
     try {
-      const old = await world.runtime.createWithId(sessionId, SPEC, CLAUDE, async () => {})
+      const old = await world.runtime.createWithId(sessionId, SPEC, CLAUDE)
       const callback = world.runtime.boundaryContextFor(sessionId)!
       const pending = callback({ event: 'start' })
       world.runtime.clear(sessionId)
-      const replacement = await world.runtime.createWithId(sessionId, SPEC, CLAUDE, async () => {})
+      const replacement = await world.runtime.createWithId(sessionId, SPEC, CLAUDE)
       expect(await old.boundaryContext!({ event: 'start' })).toBeNull()
       expect(await callback({ event: 'start' })).toBeNull()
       expect(source).toHaveBeenCalledTimes(1)
@@ -4620,11 +4659,13 @@ describe('native identity publication', () => {
     const sessionId = 'early-native' as SessionId
     const receipt = { id: 'receipt', ownerId: 'owner' as import('@podium/model').UserId,
       attemptId: 'attempt', observerGeneration: 1 }
-    const handle = await world.runtime.createWithId(sessionId, SPEC, CLAUDE, async () => {
+    vi.spyOn(world.host, 'launch').mockImplementationOnce(async () => {
       world.runtime.observe({ type: 'sessionResumeRef', sessionId,
         resume: { kind: 'claude-session', value: 'early' }, confidence: 'exact',
         ackRequested: true, receipt, observerGeneration: 1, bindingVersion: 1 })
+      return { announce: () => {} }
     })
+    const handle = await world.runtime.createWithId(sessionId, SPEC, CLAUDE)
     expect(handle.binding.resume?.value).toBe('early')
     expect(world.frames.find((frame) => frame.type === 'runtimeEvent' && frame.event.t === 'binding'))
       .toMatchObject({ event: { t: 'binding', receipt, ackRequested: true } })
@@ -6386,7 +6427,6 @@ describe('terminal receipts from the history (POD-4905)', () => {
 it.each(['/tmp/session.jsonl', 'C:\\tmp\\session.jsonl'])('machine paths: terminal export from %s uses a portable filename', async path => {
   const world = makeWorld()
   world.host.archiveTranscript = async () => ({ path, relativeDir: 'sessions' })
-  world.registerDuringLaunch()
   const session = await world.runtime.driverFor('claude-code', CLAUDE).resume({ kind: 'claude-session', value: 'native-session' }, SPEC)
   const archive = await session.export()
   expect(archive.files[0]?.path).toBe('sessions/session.jsonl')

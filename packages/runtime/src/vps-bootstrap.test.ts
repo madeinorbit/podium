@@ -25,7 +25,8 @@ describe('fresh VPS bootstrap command', () => {
 
   it('keeps stable onboarding on the stable release train', () => {
     const command = buildVpsBootstrapCommand('stable')
-    expect(command).toContain('/releases/latest/download/install.sh')
+    expect(command).toContain('curl -fsSL "https://podium.do/install.sh"')
+    expect(command).not.toContain('github.com')
     expect(command).toContain('--channel stable')
     expect(command).not.toContain('/releases/download/edge/install.sh')
     expect(command).not.toContain('--channel edge')
@@ -36,9 +37,7 @@ describe('fresh VPS bootstrap command', () => {
       const command = buildVpsBootstrapCommand(channel)
       expect(command).toContain(`--channel ${channel}`)
       expect(command).toContain(
-        channel === 'edge'
-          ? '/releases/download/edge/install.sh'
-          : '/releases/latest/download/install.sh',
+        channel === 'edge' ? '/releases/download/edge/install.sh' : 'https://podium.do/install.sh',
       )
     }
   })

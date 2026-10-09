@@ -14,7 +14,8 @@ import type { SendOptions, TurnInput, TurnReceipt } from './turns.js'
  * finishes, a compaction completes, the human answers the question. The
  * message is durable on the server; the user sees it pending and can retract
  * it. Only the daemon decides when to type, so the queue waits for the turn
- * boundary however long that takes. Every other phase (`unknown`: no signal
+ * boundary however long that takes — except for a steer row into a program
+ * that queues mid-turn input itself (POD-5855). Every other phase (`unknown`: no signal
  * at all; `errored`: the turn stopped and a continue is a new send; `ended`)
  * and a composer that never reports ready get the short
  * {@link STUCK_CEILING_MS}, so a row that cannot land is reported as
@@ -53,20 +54,25 @@ export interface DeliveryJournal {
 /** Disposable daemon delivery state. Admission belongs to the server; when to
  *  type, and in which order, belongs here [POD-4661].
  *
- *  ONE QUEUE, TWO DELIVERY MODES (POD-4795). Every durable row waits here under
- *  its row id; a row sent as `interrupt` differs only in WHERE it waits and in
- *  what the drain does before typing it: it goes ahead of every row still
- *  waiting (after earlier interrupts), and when it reaches the head of a
- *  running turn the drain asks the driver to cut that turn, then types it at
- *  the boundary like any other row. The server never sends an interrupt
- *  around the queue, so dedupe by id, retraction and restart recovery are the
- *  same for both modes. */
+ *  ONE QUEUE, THREE DELIVERY MODES (POD-4795, POD-5855). Every durable row
+ *  waits here under its row id; a row sent as `interrupt` or `steer` differs
+ *  only in WHERE it waits and in what the drain does before typing it. An
+ *  interrupt goes ahead of every row still waiting (after earlier interrupts),
+ *  and when it reaches the head of a running turn the drain asks the driver to
+ *  cut that turn, then types it at the boundary like any other row. A steer
+ *  goes ahead of the rows waiting for the boundary (after interrupts and
+ *  earlier steers), and when it reaches the head of a running turn it is
+ *  handed to the driver at once if `steersBusyTurn` says the program takes
+ *  input mid-turn into its own queue; otherwise it waits for the boundary like
+ *  any row. The server never sends either around the queue, so dedupe by id,
+ *  retraction and restart recovery are the same for every mode. */
 export function withDeliveryQueue(
   handle: AgentSessionHandle,
   emit: (event: RuntimeEventBody) => void,
   ready: () => boolean = () => true,
   alive: () => boolean = () => true,
   journal?: DeliveryJournal,
+  steersBusyTurn: () => boolean = () => false,
 ): AgentSessionHandle {
   type Row = {
     input: TurnInput
@@ -77,6 +83,9 @@ export function withDeliveryQueue(
     stuckSince?: number
     /** Sent as `interrupt`: waits ahead of plain rows and cuts a running turn. */
     interrupt: boolean
+    /** Sent as `steer`: waits ahead of plain rows and is typed into a running
+     *  turn where the driver steers one. */
+    steer: boolean
     /** The cut was asked for once; the row now waits for the boundary. */
     interruptRequested?: boolean
     /** Set the moment the driver is asked to type the row, cleared only by a
@@ -279,18 +288,20 @@ export function withDeliveryQueue(
     emit(event)
   }
   /**
-   * An interrupt row waits ahead of every plain row, behind earlier
-   * interrupts. A plain row the driver is already typing keeps its own
-   * attempt — the drain holds it until it settles — so the interrupt cuts the
-   * turn that row opens.
+   * An interrupt row waits ahead of every other row, behind earlier
+   * interrupts; a steer row ahead of every plain row, behind interrupts and
+   * earlier steers, so a busy turn's plain rows never hold it back. A row the
+   * driver is already typing keeps its own attempt — the drain holds it until
+   * it settles — so the interrupt cuts the turn that row opens.
    */
   function admit(id: string, row: Row): void {
-    if (!row.interrupt) {
+    if (!row.interrupt && !row.steer) {
       rows.set(id, row)
       return
     }
     const entries = [...rows]
-    const at = entries.findIndex(([, waiting]) => !waiting.interrupt)
+    const at = entries.findIndex(([, waiting]) =>
+      row.interrupt ? !waiting.interrupt : !waiting.interrupt && !waiting.steer)
     entries.splice(at < 0 ? entries.length : at, 0, [id, row])
     rows.clear()
     for (const [key, value] of entries) rows.set(key, value)
@@ -346,6 +357,14 @@ export function withDeliveryQueue(
           const state = await handle.state()
           if (row.abort.signal.aborted) continue
           const accepting = state.phase === 'idle' && ready()
+          // A STEER INTO A RUNNING TURN (POD-5855): the program takes input
+          // mid-turn into its own queue and fits it in itself — at its next
+          // step, or as the next turn — so holding the row for the boundary
+          // would only make the person wait. A compaction or an open question
+          // still waits, and so does every program the driver does not vouch
+          // for.
+          const steering = row.steer && !accepting && state.phase === 'working' && ready() &&
+            steersBusyTurn()
           if (accepting || ENDS_ON_ITS_OWN.has(state.phase)) delete row.stuckSince
           if (row.interrupt && !row.interruptRequested && ENDS_ON_ITS_OWN.has(state.phase)) {
             // CUT THE RUNNING TURN, ONCE, then wait for its boundary below
@@ -357,7 +376,7 @@ export function withDeliveryQueue(
             await handle.interrupt().catch(() => undefined)
             continue
           }
-          if (!accepting) {
+          if (!accepting && !steering) {
             if (ENDS_ON_ITS_OWN.has(state.phase)) {
               // A live turn ends on its own: wait for the boundary with no
               // deadline, however long the agent stays busy. The row is
@@ -381,7 +400,7 @@ export function withDeliveryQueue(
             { ...row.input, rowId: undefined },
             {
               ...row.options,
-              delivery: 'when-ready',
+              delivery: steering ? 'steer' : 'when-ready',
               deliveryAttempt: true,
               signal: row.abort.signal,
               onTypingStarted: () => journal?.start(id),
@@ -568,8 +587,8 @@ export function withDeliveryQueue(
       if (receipt.outcome === 'accepted') known = receipt.harnessRef
       return receipt
     }
-    // Durable delivery drains as when-ready, or cuts in as an interrupt.
-    // Never erase a boundary request.
+    // Durable delivery drains as when-ready, cuts in as an interrupt, or is
+    // handed to a running turn as a steer. Never erase a boundary request.
     if (options.delivery === 'at-boundary') {
       return { outcome: 'refused', refusal: { reason: 'unsupported', detail: 'boundary delivery does not support durable rows' } }
     }
@@ -594,6 +613,7 @@ export function withDeliveryQueue(
         options,
         abort: new AbortController(),
         interrupt: options.delivery === 'interrupt',
+        steer: options.delivery === 'steer',
       })
       void drain()
     }

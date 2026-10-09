@@ -52,7 +52,7 @@ import {
 } from './runtime.js'
 import type { CodexEngineFacts } from './engine-facts.js'
 import { reportQueueAbandonment } from '../queue-report.js'
-import type { ServerSessionFramePorts } from '../server-family.js'
+import type { ServerFamilyLaunch, ServerSessionFramePorts } from '../server-family.js'
 import type { SessionDriverSlots } from '../session-slots.js'
 import type { ServerFamilyJournalEntry } from '../server-family.js'
 
@@ -75,32 +75,11 @@ export interface CodexSessionDeps extends ServerSessionFramePorts {
   engine: CodexRuntimeHost
 }
 
-export interface CodexSessionLaunch {
-  sessionId: SessionId
-  cwd: string
-  model?: string
-  effort?: string
-  env?: Readonly<Record<string, string>>
-  initialPrompt?: string
-  /**
-   * Podium's MCP configuration for this session, as Claude-shaped JSON.
-   *
-   * OPTIONAL AND CURRENTLY NEVER SET, which is a declared gap rather than dead
-   * code. The mount itself is implemented and tested end to end — the host turns
-   * this into `-c mcp_servers.…` overrides via the manifest's own verified
-   * `codexMcpArgs` — but the interactive `spawn` frame carries no MCP config
-   * field, because interactive sessions have always mounted MCP through the
-   * CLI's own config file. The field is here so that adding the wire field is a
-   * one-line change at the caller rather than a re-plumbing, and the reason it
-   * is unset is recorded at that caller in `control/session.ts`.
-   */
-  mcpConfig?: string
-}
 
 export interface DaemonCodexRuntime extends CodexRuntime {
   /** Start a session on this driver and put it behind the contract. Resolves
    *  when the child is up, the handshake is done and the thread exists. */
-  launch(input: CodexSessionLaunch): Promise<void>
+  launch(input: ServerFamilyLaunch): Promise<void>
   /** Every session this runtime currently holds. */
   has(sessionId: SessionId): boolean
   /**
@@ -296,37 +275,8 @@ export function createCodexSessionRuntime(deps: CodexSessionDeps): DaemonCodexRu
        * event gate refuses, with the rest of that turn, once any earlier event
        * has set a checkpoint.
        */
-      const { initialPrompt, ...launch } = input
-      const handle = await runtime.createWithId(launch.sessionId, {
-        harness: deps.facts.harnessKind,
-        selection: {
-          // THE HARNESS WHERE SUBSCRIPTION AUTH WORKS HEADLESS, which is the
-          // whole payoff of this driver: `~/.codex/auth.json` serves the
-          // app-server exactly as it serves `codex exec`.
-          auth: 'subscription',
-          platform: process.platform,
-          available: ['codex-app-server'],
-          preference: 'codex-app-server',
-        },
-        workdir: input.cwd,
-        model: {
-          ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
-          ...(input.effort && input.effort !== 'auto' ? { effort: input.effort } : {}),
-        },
-        instructions: {
-          supported: false,
-          reason:
-            'codex takes developer instructions as a thread-start config override, which this driver does not yet set',
-        },
-        mcpServers: input.mcpConfig
-          ? { supported: true, value: { transport: 'inline', config: input.mcpConfig } }
-          : {
-              supported: false,
-              reason:
-                'the interactive spawn frame carries no MCP config; this session mounts whatever ~/.codex/config.toml declares',
-            },
-        ...(input.env ? { env: input.env } : {}),
-      })
+      const { initialPrompt, ...spec } = input.spec
+      const handle = await runtime.createWithId(input.sessionId, spec)
       pump(input.sessionId)
       reportResumeRef(input.sessionId, handle)
       /**
@@ -345,7 +295,7 @@ export function createCodexSessionRuntime(deps: CodexSessionDeps): DaemonCodexRu
       deps.emitBind({
           sessionId: input.sessionId,
           cmd: `codex app-server (${handle.binding.driver})`,
-          cwd: input.cwd,
+          cwd: spec.workdir,
           agentKind: deps.facts.harnessKind,
           /**
            * THE BIND FACT, AND FOR THIS FAMILY IT IS NOT OPTIONAL (POD-2023's

@@ -5,13 +5,12 @@ import { createServer } from 'node:http'
 import { tmpdir } from 'node:os'
 import { delimiter, join } from 'node:path'
 import { promisify } from 'node:util'
-import { createBoundaryContext } from '@podium/harness/driver/host'
+import { boundaryHookResponse, createBoundaryContext } from '@podium/harness/driver/host'
 import { AGENT_VERSION_PROBE_TIMEOUT_MS } from '@podium/harness'
 import { asSessionId } from '@podium/model'
 import { afterAll, describe, expect, it } from 'vitest'
 import { startHookIngest } from '@podium/harness/driver/host'
 import { ensurePodiumGrokHooks, PODIUM_GROK_HOOK_COMMAND } from '@podium/harness/adapters/grok/instrumentation'
-import { primeHookResponse } from './prime-injector'
 
 // POD-518 [spec:SP-0be7]: every mkdtemp in this file is tracked and removed when the file's
 // tests finish, so a suite run leaves nothing behind in tmp.
@@ -243,7 +242,7 @@ describe('Podium Grok hook command', () => {
       port: 0,
       onPayload: () => {},
       boundaryContext: (_sessionId, payload, signal) =>
-        primeHookResponse(context.respond, payload, signal),
+        boundaryHookResponse(context.respond, payload, signal),
     })
     try {
       const child = spawn('sh', ['-c', PODIUM_GROK_HOOK_COMMAND], {

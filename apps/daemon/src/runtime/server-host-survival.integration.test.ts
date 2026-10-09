@@ -59,7 +59,7 @@ import {
 import { stageRuntimeAttachment } from './attachment-staging'
 import { manifestFor } from '@podium/harness'
 import {
-  composeEngineEnv,
+  engineEnvBuilder,
   dialEngineSocket,
   engineSocketRoot,
 } from './host'
@@ -526,7 +526,7 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         supervision: sessionEngines,
         stageAttachment: stageRuntimeAttachment,
         resources: noResources,
-        buildEnv: composeEngineEnv,
+        buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
         checkVersion: () => codexAppServerVersionProbe(),
         dialSocket: sessionEngines.dialerFor(dialEngineSocket),
@@ -576,7 +576,7 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         supervision: sessionEngines,
         stageAttachment: stageRuntimeAttachment,
         resources: noResources,
-        buildEnv: composeEngineEnv,
+        buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
         checkVersion: ({ executable }) =>
           opencodeVersionProbeForExecutable(executable).then((v) =>
@@ -595,7 +595,7 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         engines: sessionEngines.ownerFor<GrokAcpJournalEntry>(grokFacts.journalNamespace),
         supervision: sessionEngines,
         resources: noResources,
-        buildEnv: composeEngineEnv,
+        buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
         checkVersion: () => grokAcpVersionProbe(),
       })
@@ -611,7 +611,7 @@ describe('a real daemon restart re-adopts headless engines (POD-4433)', () => {
         facts: claudeFacts,
         engines: sessionEngines.ownerFor<ClaudeEngineJournalEntry>(claudeFacts.journalNamespace),
         supervision: sessionEngines,
-        buildEnv: composeEngineEnv,
+        buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
       })
       const claudeRuntime = createClaudeSdkSessionRuntime({ driverSlots: driverSlotsOver(testSessions()),

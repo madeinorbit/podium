@@ -12,11 +12,29 @@ import type { ResumeRef, SessionId, TranscriptItem } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
 import { pageHistory } from '../../history.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
+import { createMemoryDriverSlots, serverFamilyLaunch } from '../../testing/index.js'
+
+/** A Claude launch from the facts a test names; `resume` rides beside the spec. */
+function launchOf({
+  resume,
+  ...facts
+}: Omit<Parameters<typeof serverFamilyLaunch>[0], 'harness' | 'driverId'> & {
+  resume?: ResumeRef
+}): ClaudeSdkSessionLaunch {
+  return {
+    ...serverFamilyLaunch({ harness: 'claude-code', driverId: 'claude-sdk', ...facts }),
+    ...(resume ? { resume } : {}),
+  }
+}
+
 import type { EngineAttachment } from '../engine-supervision.js'
 import { type ClaudeEngineHost, createClaudeEngineHost } from './engine-host.js'
 import type { ClaudeSdkTurnHandle } from './runtime.js'
-import { type ClaudeSdkSessionDeps, createClaudeSdkSessionRuntime } from './session.js'
+import {
+  type ClaudeSdkSessionDeps,
+  type ClaudeSdkSessionLaunch,
+  createClaudeSdkSessionRuntime,
+} from './session.js'
 
 const SESSION_ID = 'claude-adapter-session' as SessionId
 const RESUME: ResumeRef = { kind: 'claude-session', value: 'claude-native-thread' }
@@ -152,13 +170,15 @@ describe('Claude SDK daemon host adapter', () => {
     })
 
     const runtime = sessionWorld(sent, reads, engine)
-    const handle = await runtime.launch({
-      sessionId: SESSION_ID,
-      cwd: '/project',
-      resume: RESUME,
-      model: 'claude-opus-5',
-      effort: 'max',
-    })
+    const handle = await runtime.launch(
+      launchOf({
+        sessionId: SESSION_ID,
+        cwd: '/project',
+        resume: RESUME,
+        model: 'claude-opus-5',
+        effort: 'max',
+      }),
+    )
 
     expect(handle.binding).toMatchObject({
       sessionId: SESSION_ID,
@@ -221,7 +241,9 @@ describe('Claude SDK daemon host adapter', () => {
     )
 
     const runtime = sessionWorld(sent, [], engine)
-    const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project', resume: RESUME })
+    const handle = await runtime.launch(
+      launchOf({ sessionId: SESSION_ID, cwd: '/project', resume: RESUME }),
+    )
     await handle.send({ id: 'active', text: 'active' }, { origin: 'human', delivery: 'when-ready' })
     await handle.send(
       { id: 'queued-one', text: 'queued one' },
@@ -261,7 +283,7 @@ describe('Claude SDK daemon host adapter', () => {
     )
 
     const runtime = sessionWorld(sent, [], engine)
-    const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project' })
+    const handle = await runtime.launch(launchOf({ sessionId: SESSION_ID, cwd: '/project' }))
     await handle.send({ id: 'prompt', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
 
     await vi.waitFor(() => {
@@ -332,7 +354,7 @@ describe('Claude SDK daemon host adapter', () => {
     )
 
     const runtime = sessionWorld(sent, [], engine)
-    const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project' })
+    const handle = await runtime.launch(launchOf({ sessionId: SESSION_ID, cwd: '/project' }))
     await handle.send({ id: 'prompt', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
 
     await vi.waitFor(() => {
@@ -382,11 +404,13 @@ describe('Claude SDK daemon host adapter', () => {
     })
 
     const runtime = sessionWorld([], [], engine)
-    const handle = await runtime.launch({
-      sessionId: SESSION_ID,
-      cwd: '/project',
-      env: { HOME: '/home/operator', PODIUM_SESSION_ID: SESSION_ID },
-    })
+    const handle = await runtime.launch(
+      launchOf({
+        sessionId: SESSION_ID,
+        cwd: '/project',
+        env: { HOME: '/home/operator', PODIUM_SESSION_ID: SESSION_ID },
+      }),
+    )
     await handle.send({ id: 'first', text: 'hello' }, { origin: 'human', delivery: 'when-ready' })
 
     expect(turnInputs).toHaveLength(1)
@@ -401,7 +425,7 @@ describe('Claude SDK daemon host adapter', () => {
   it('ends the engine when the session stops, and detaches it on dispose', async () => {
     const engine = fakeEngine()
     const runtime = sessionWorld([], [], engine)
-    const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project' })
+    const handle = await runtime.launch(launchOf({ sessionId: SESSION_ID, cwd: '/project' }))
     await handle.stop()
     expect(engine.stopEngine).toHaveBeenCalledWith(SESSION_ID, true)
     runtime.dispose()
@@ -411,7 +435,9 @@ describe('Claude SDK daemon host adapter', () => {
   it('hibernates the engine without retiring the journal', async () => {
     const engine = fakeEngine()
     const runtime = sessionWorld([], [], engine)
-    const handle = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project', resume: RESUME })
+    const handle = await runtime.launch(
+      launchOf({ sessionId: SESSION_ID, cwd: '/project', resume: RESUME }),
+    )
     await expect(handle.hibernate()).resolves.toEqual({ ok: true })
     expect(engine.stopEngine).toHaveBeenCalledWith(SESSION_ID, false)
     runtime.dispose()
@@ -465,7 +491,7 @@ describe('Claude SDK daemon host adapter', () => {
         }),
       }
       const runtime = sessionWorld(sent, [], engine)
-      const launched = await runtime.launch({ sessionId: SESSION_ID, cwd: '/project' })
+      const launched = await runtime.launch(launchOf({ sessionId: SESSION_ID, cwd: '/project' }))
       // The handle's binding carries the ENGINE's identity — what the generic
       // server reap measures — not an in-memory placeholder.
       expect(launched.binding.process).toEqual({
@@ -631,11 +657,13 @@ describe('Claude SDK daemon host adapter', () => {
     })
 
     const runtime = sessionWorld(sent, [], engine)
-    await runtime.launch({
-      sessionId: SESSION_ID,
-      cwd: '/project',
-      initialPrompt: 'What is 7 times 8? Answer with MANGO.',
-    })
+    await runtime.launch(
+      launchOf({
+        sessionId: SESSION_ID,
+        cwd: '/project',
+        initialPrompt: 'What is 7 times 8? Answer with MANGO.',
+      }),
+    )
 
     // The prompt reaches the engine's stdin as a stream-json user line.
     await vi.waitFor(

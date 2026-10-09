@@ -1,10 +1,9 @@
 import { seedRuntimeHistory } from '../runtime/history-seed'
-import { reportHarnessProbe } from '../harness-version-reporting'
 import { randomUUID } from 'node:crypto'
 import { dispatchInputBytes } from './legacy-terminal-input'
 import { chmodSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { dirname, join } from 'node:path'
-import type { RefusalReason, SessionSpec } from '@podium/harness/driver/host'
+import type { AcceptedDriverId, RefusalReason, SessionSpec } from '@podium/harness/driver/host'
 import {
   attachKindsForDriver,
   configureFieldsForDriver,
@@ -66,19 +65,19 @@ import {
   runtimeDriverIntentForSpawn,
   selectionAuthForLogin,
   spawnNamedServerDriver,
-  terminalInstrumentationSectionsFor,
   terminalProfileFor,
   unhonouredSpawnDriver,
 } from '../runtime/registry'
 import { TerminalRecoveryRefusal } from '@podium/harness/driver/host'
 import { beginServerDriverReap } from '../runtime/server-reap'
-import {
-  type InstalledTerminalInstrumentation,
-  installTerminalInstrumentation,
-  prepareTerminalInstrumentation,
-  reportInstrumentationDegradation,
+import type {
+  TerminalLaunch,
+  TerminalLaunched,
+  TerminalRecover,
+  TerminalRecovered,
 } from '@podium/harness/driver/host'
 import type { ReattachControl, SpawnControl } from '../session-observers'
+import type { DaemonSession } from '../session/daemon-session.js'
 import { removeSessionUploads } from '../session-uploads'
 import { type BindFacts, bindFrame, reportSize } from './applied-geometry'
 import type { ControlHandlers, DaemonContext } from './context'
@@ -407,6 +406,29 @@ export function sessionRelayEnv(
   }
 }
 
+/**
+ * THE PODIUM HALF OF EVERY SESSION PROCESS'S ENV, whatever drives it: the relay
+ * pair its `podium` CLI speaks as this session through, and the browser-open
+ * shim. The terminal launch, every engine family's child and every headless
+ * turn compose this one function; no driver composes it itself.
+ */
+export function sessionProcessEnv(
+  ctx: Pick<DaemonContext, 'agentRelayEndpointFor' | 'instanceId' | 'instanceUuid' | 'settingsDir'>,
+  sessionId: SessionId,
+  agentKind: AgentKind,
+): Record<string, string> {
+  return {
+    ...sessionRelayEnv(
+      sessionId,
+      ctx.agentRelayEndpointFor(sessionId),
+      ctx.instanceId,
+      agentKind,
+      ctx.instanceUuid,
+    ),
+    ...browserOpenEnv(ctx.settingsDir),
+  }
+}
+
 export function materializeLaunchFiles(files: LaunchFile[] | undefined): void {
   for (const file of files ?? []) {
     mkdirSync(dirname(file.path), { recursive: true })
@@ -602,7 +624,6 @@ export function wireBridge(
         ctx.composerEngine.detach(sessionId)
         ctx.outputScheduler.remove(sessionId)
         ctx.sessionCwdTracker.clear(sessionId)
-        ctx.primeInjector.reset(sessionId)
         // The agent's gone (as far as this bridge knows) — stop its observers and
         // its (now frozen) transcript tail.
         ctx.observers.clearSession(sessionId)
@@ -634,25 +655,52 @@ export function wireBridge(
   return terminal
 }
 
+/** The size a session the contract created directly is born at: no spawn
+ *  frame named one, and the first viewer's resize corrects it. */
+const NOMINAL_TERMINAL_GEOMETRY = { cols: 120, rows: 40 } as const
+
 /**
- * Start the process for a spawn instruction.
+ * THE TERMINAL HOST'S LAUNCH (POD-5814): start one session's harness in a
+ * durable PTY FROM THE CONTRACT'S OWN SPEC.
  *
- * EXPORTED for the Agent Runtime contract's `create()`/`resume()` (POD-1761 W3),
- * which must go THROUGH this path rather than around it — the launch-file
- * materialization, the instrumentation env and the observer wiring below are
- * exactly what makes a contract-driven session byte-identical to a
- * server-spawned one. `handleSpawn` stays private because its binding transition
- * is server-authored: a driver on the machine has no principal to author one
- * with, so it takes the launch and leaves the binding to the frame that carries
- * an authenticated one.
+ * The terminal family calls this through its `launch` port for every session
+ * it creates — a server spawn and a direct `driver.create()` alike — and shells
+ * and login panes reach it through {@link launchPlainTerminal}. The harness
+ * argv comes from the adapter, fed the spec's instructions, model, first
+ * prompt and env; the process env is the one {@link sessionProcessEnv}.
+ *
+ * What is the host's, not the driver's, is read off the session's spawn order
+ * (see `DaemonSession.order`): the birth size, the observation lease the
+ * server issued, draft sync. They come back to the driver as `TerminalLaunched`
+ * — the lease it must envelope its events with and the live terminal — with
+ * the announcement (the bind) left for the driver to make once it holds its
+ * handle.
  */
-export async function launchSpawn(
+export async function launchTerminalProcess(
   ctx: DaemonContext,
-  msg: SpawnControl,
-  runtimeSelection: { requestedDriverId?: string } = {},
-  installedInstrumentation?: InstalledTerminalInstrumentation,
-  propagateFailure = false,
-): Promise<void> {
+  input: TerminalLaunch & { loginHarness?: SpawnControl['loginHarness'] },
+): Promise<TerminalLaunched> {
+  const { sessionId, spec, instrumentation, resume, loginHarness } = input
+  const agentKind = spec.harness as AgentKind
+  const order = ctx.sessions.get(sessionId)?.order
+  const ordered: SpawnControl = (order?.frame.type === 'spawn' ? order.frame : undefined) ?? {
+    type: 'spawn',
+    sessionId,
+    agentKind,
+    cwd: spec.workdir,
+    geometry: { ...NOMINAL_TERMINAL_GEOMETRY },
+  }
+  const { resume: _orderResume, ...orderFrame } = ordered
+  // The observers read the server's lease off the spawn frame; what this launch
+  // runs (the conversation, the directory) is the spec's, and wins.
+  const observedSpawn: SpawnControl = {
+    ...orderFrame,
+    sessionId,
+    agentKind,
+    cwd: spec.workdir,
+    ...(resume ? { resume } : {}),
+  }
+  const label = spec.durableLabel ?? ctx.durableLabelFor(sessionId)
   try {
     // NO SPAWN WITHOUT A DURABLE HOST (POD-4617). First, before the cwd pin,
     // the launch files or the instrumentation: a daemon with no podium-host
@@ -661,14 +709,14 @@ export async function launchSpawn(
     const durable = durableProcessFor(ctx)
     if (!durable) throw new Error(noDurableBackendRefusal())
     // Born pinned (POD-665): the server picked this cwd, so the session's workspace
-    // is known before the agent has run a single hook. Every server-side spawn funnels
-    // through here, so this one call covers issue start, add-session, `agent spawn`,
-    // the UI button and automations alike. Not awaited — the pin only has to beat the
-    // agent's FIRST hook (a git rev-parse against an agent boot), and delaying the PTY
-    // for it would be the wrong trade.
-    void ctx.sessionCwdTracker.setLaunchCwd(msg.sessionId, msg.cwd)
+    // is known before the agent has run a single hook. Every spawn funnels through
+    // here, so this one call covers issue start, add-session, `agent spawn`, the UI
+    // button and automations alike. Not awaited — the pin only has to beat the
+    // agent's FIRST hook (a git rev-parse against an agent boot), and delaying the
+    // PTY for it would be the wrong trade.
+    void ctx.sessionCwdTracker.setLaunchCwd(sessionId, spec.workdir)
     const spawnStartedAt = Date.now()
-    const runtimeDir = instructionRuntimeDir(ctx, msg.sessionId)
+    const runtimeDir = instructionRuntimeDir(ctx, sessionId)
     // Harnesses that let the caller name a NEW conversation get their native id
     // minted here rather than discovered from disk afterwards. Grok creates no
     // session directory at all until its first turn, so an unused session would
@@ -676,31 +724,33 @@ export async function launchSpawn(
     // derived from the session id): the CLI rejects an id that already exists, so
     // a re-spawn of the same row must not reuse one. [POD-386]
     const newSessionId =
-      !msg.resume && harnessCapabilitiesFor(msg.agentKind)?.newSessionIdFlag
-        ? randomUUID()
-        : undefined
+      !resume && harnessCapabilitiesFor(agentKind)?.newSessionIdFlag ? randomUUID() : undefined
     // MANAGEMENT OWNERSHIP (POD-4305 F12): the native login argv resolves before
     // any agent handle can exist — static manifest declaration only, bound to the
     // generation's verified executable below. Never a shell manifest/driver
     // (POD-4278 owns that exemption); unknown/unsupported harnesses throw here.
-    const loginCommand = msg.loginHarness
-      ? managementLoginCommandFor(msg.loginHarness)
-      : undefined
-    if (msg.loginHarness && !loginCommand) {
-      throw new Error(`${msg.loginHarness} does not declare a native login command`)
+    const loginCommand = loginHarness ? managementLoginCommandFor(loginHarness) : undefined
+    if (loginHarness && !loginCommand) {
+      throw new Error(`${loginHarness} does not declare a native login command`)
     }
+    const instructions = spec.instructions.supported
+      ? spec.instructions.value.instructions
+      : undefined
+    const subagentModel = spec.model.subagentModel?.supported
+      ? spec.model.subagentModel.value
+      : undefined
     const launchOptions = {
-      cwd: msg.cwd,
+      cwd: spec.workdir,
       ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
-      podiumSessionId: msg.sessionId,
-      ...(msg.resume ? { resume: msg.resume } : {}),
+      podiumSessionId: sessionId,
+      ...(resume ? { resume } : {}),
       ...(newSessionId ? { newSessionId } : {}),
-      ...(msg.model ? { model: msg.model } : {}),
-      ...(msg.effort ? { effort: msg.effort } : {}),
-      ...(msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
-      ...(msg.instructions ? { instructions: msg.instructions } : {}),
+      ...(spec.model.model ? { model: spec.model.model } : {}),
+      ...(spec.model.effort ? { effort: spec.model.effort } : {}),
+      ...(spec.initialPrompt ? { initialPrompt: spec.initialPrompt } : {}),
+      ...(instructions?.length ? { instructions: [...instructions] } : {}),
       runtimeDir,
-      ...(msg.env ? { env: msg.env } : {}),
+      ...(spec.env ? { env: spec.env } : {}),
     }
     // loginCommand is intentionally a static argv declaration: the production
     // branch below binds it to the current generation's verified executable and
@@ -710,14 +760,14 @@ export async function launchSpawn(
     // supplies the binder for this path.
     const cmd = loginCommand
       ? ctx.harnessRuntime
-        ? bindHarnessLaunch(await ctx.harnessRuntime.current(), msg.loginHarness!, {
+        ? bindHarnessLaunch(await ctx.harnessRuntime.current(), loginHarness!, {
             args: [...loginCommand.args],
-            cwd: msg.cwd,
+            cwd: spec.workdir,
           })
-        : { cmd: loginCommand.cmd, args: [...loginCommand.args], cwd: msg.cwd }
+        : { cmd: loginCommand.cmd, args: [...loginCommand.args], cwd: spec.workdir }
       : ctx.harnessRuntime
-        ? await ctx.harnessRuntime.launch(msg.agentKind, launchOptions)
-        : ctx.launch(msg.agentKind, launchOptions)
+        ? await ctx.harnessRuntime.launch(agentKind, launchOptions)
+        : ctx.launch(agentKind, launchOptions)
     materializeLaunchFiles(cmd.files)
     // SQLite-backed harnesses create their store parent lazily. Create the
     // Podium-owned directory before the PTY starts so two fresh sessions
@@ -726,239 +776,273 @@ export async function launchSpawn(
     // second sqlite harness inherits the guard. The env key itself is the
     // sqlite harness's launch contract (its adapter sets it); only sqlite
     // harnesses set one.
-    if (
-      !msg.loginHarness &&
-      harnessTranscriptStorage(msg.agentKind) === 'sqlite' &&
-      cmd.env?.OPENCODE_DB
-    ) {
+    if (!loginHarness && harnessTranscriptStorage(agentKind) === 'sqlite' && cmd.env?.OPENCODE_DB) {
       mkdirSync(dirname(cmd.env.OPENCODE_DB), { recursive: true })
     }
-    const label = msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId)
-    const provider = agentStateProviderFor(msg.agentKind)
+    const session = await durable.spawn({
+      // DEMAND THE WRITER LEASE (POD-4434). A spawn that adopts a live master
+      // while another writer holds it is the update-overlap symptom: two
+      // daemons, one host, and a session that looks live and swallows input.
+      requireLease: true,
+      label,
+      cmd: cmd.cmd,
+      args: instrumentedLaunchArgs(cmd.args, instrumentation.args),
+      cwd: cmd.cwd,
+      cols: orderFrame.geometry.cols,
+      rows: orderFrame.geometry.rows,
+      env: spawnEnv({
+        // Server-resolved managed credential / environment (SP-6454, #216).
+        sessionEnv: spec.env,
+        harnessEnv: cmd.env,
+        podiumEnv: {
+          // The relay pair and browser shim every session process gets. The
+          // agent-IDENTITY half rides along only for harness kinds — a shell is
+          // the operator [POD-1375].
+          ...sessionProcessEnv(ctx, sessionId, agentKind),
+          ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
+          ...harnessInstanceEnv(loginHarness ?? agentKind, ctx.homeDir),
+          // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
+          ...(subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: subagentModel } : {}),
+          // Globally-installed hooks are env-gated per session by their adapter.
+          // Commands exit immediately when absent, so non-Podium runs are untouched.
+          ...instrumentation.env,
+          // Terminal-protocol compatibility for this harness (see above).
+          ...harnessCompatEnv(agentKind),
+        },
+      }),
+      // The session's account is the one its HOME is logged into — which is only
+      // true if this harness's own credential vars cannot reach it by inheritance
+      // from the daemon (POD-2296). `env` above cannot express that: unsetting a
+      // credential is a delete, not an empty string.
+      //
+      // `loginHarness` FIRST, and it is not a nicety: a native login pane is filed
+      // as agentKind 'shell' (it runs `<cli> login`, not the agent), and 'shell' is
+      // exactly the kind this rule exempts. Read the other way round, the one pane
+      // whose whole purpose is to establish an account would be the one pane that
+      // let an inherited key outrank it — `claude login` under a stray
+      // ANTHROPIC_API_KEY greets you with "Detected a custom API key in your
+      // environment" instead.
+      stripEnv: harnessChildStripEnv(loginHarness ?? agentKind, spec.env),
+    })
+    driverTiming.headedCliStage(sessionId, agentKind, 'native_cli_process_started', {
+      adopted: session.adopted,
+    })
+    const terminal = wireBridge(ctx, sessionId, session, agentKind, label)
+    // The size the program is at: the host's WELCOME (the Terminal already
+    // stated it through the size event), or — on a backend that cannot read
+    // its size back — the size it was born at.
+    const geometry = terminal.size() ?? orderFrame.geometry
+    // Stand up the agent-state tracker, harness observer, resume transcript tail
+    // and seeded phase. The frame tap buffers the bounded gap between bridge
+    // wiring and this setup so screen-derived state still sees the first screen.
+    ctx.observers.initSessionObservers(observedSpawn, session, agentStateProviderFor(agentKind), {
+      seedOnFrame: true,
+      startedAtMs: spawnStartedAt,
+      ...(newSessionId ? { newSessionId } : {}),
+    })
+    // The size event above ran before these observers existed: tell them now.
+    ctx.observers.onResize?.(sessionId, geometry.cols, geometry.rows)
+    // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
+    // session. attach() is a no-op for harnesses without a driver. Reads the
+    // session's one TerminalScreen model (P2c) instead of a second emulator.
+    if (orderFrame.draftSync) {
+      ctx.composerEngine.attach(
+        sessionId,
+        agentKind,
+        geometry.cols,
+        geometry.rows,
+        terminalScreenFor(ctx, sessionId).model,
+      )
+    }
+    // An adopted spawn started nothing: the durable master for this label was still
+    // running and we reattached to it (POD-1945 — a Resume used to die on
+    // "address already in use" instead). Report it as the attach it is, so the row
+    // does not claim a fresh launch that never happened.
+    if (session.adopted) {
+      log.info('spawn adopted the live durable session for this label', { sessionId, label })
+    }
+    const boundCmd = session.adopted ? durable.primary.attachCommand(label) : cmd.cmd
+    return {
+      terminal: adaptTerminal(terminal),
+      ...(orderFrame.observationGeneration !== undefined
+        ? { observerGeneration: orderFrame.observationGeneration }
+        : {}),
+      ...(orderFrame.observationBindingVersion !== undefined
+        ? { bindingVersion: orderFrame.observationBindingVersion }
+        : {}),
+      announce: () => {
+        // NEVER ACKNOWLEDGE A DRIVERLESS AGENT: an agent's bind goes out only
+        // when the terminal handle it names is registered. A shell or login
+        // pane has none to name.
+        if (!loginHarness && agentKind !== 'shell') {
+          const handle = handleFor(ctx, sessionId)
+          const expected = spec.selection.preference
+          if (
+            !handle ||
+            handle.binding.sessionId !== sessionId ||
+            handle.binding.harness !== agentKind ||
+            handle.binding.family !== 'terminal' ||
+            handle.binding.driver !== expected
+          ) {
+            throw new Error(
+              `terminal driver '${expected ?? 'none'}' did not establish a handle; retry this session`,
+            )
+          }
+        }
+        const driverId = runtimeDriverIdFor(ctx, sessionId)
+        // THE ONE BUILDER (POD-3290). It reads this daemon's applied-size record and
+        // is the only thing in the tree that may write `geometry` into a bind, so
+        // the grid a spawn announces is the grid `wireBridge` recorded a moment ago
+        // — the pty's birth size, or the held resize it dispatched instead.
+        sendBind(ctx, {
+          sessionId,
+          cmd: boundCmd,
+          cwd: cmd.cwd,
+          agentKind,
+          ...(ctx.composerEngine.has(sessionId) ? { draftSyncEngine: true } : {}),
+          // The driver handle actually exists for this session (POD-1761 W4,
+          // unconditional since POD-4426). The server records `driverId` on the
+          // row and keys its senders on its presence — see BindMessage.
+          ...(driverId
+            ? {
+                driverId,
+                configureFields: [...configureFieldsForDriver(driverId)],
+                attachKinds: [...attachKindsForDriver(driverId)],
+              }
+            : {}),
+          ...(order?.requestedDriverId ? { requestedDriverId: order.requestedDriverId } : {}),
+        })
+        const handle = handleFor(ctx, sessionId)
+        if (handle) driverTiming.sessionReady(handle.binding)
+      },
+    }
+  } catch (err) {
+    reapFailedLaunch(ctx, sessionId, label, err)
+    throw err
+  }
+}
+
+/**
+ * A launch that failed may already have a process: reap it through the shared
+ * reaper and drop its launch files. A refused writer lease belongs to
+ * another/newer owner: nothing was acquired, so there is nothing to reap — and
+ * the log names the session, because a silent spawnError is the old symptom
+ * wearing a new frame. Idempotent: the launch and its caller may both call it.
+ */
+function reapFailedLaunch(
+  ctx: DaemonContext,
+  sessionId: SessionId,
+  durableLabel: string,
+  err: unknown,
+): void {
+  if (err instanceof WriterLeaseRefusedError) {
+    log.warn('spawn refused: another writer holds the host lease', {
+      sessionId,
+      label: err.label,
+      writers: err.writers,
+      readers: err.readers,
+    })
+  } else if (ctx.sessions.get(sessionId)?.attached) {
+    void stopSessionProcess(ctx, { sessionId, durableLabel })
+  }
+  removeSessionInstructions(ctx, sessionId)
+}
+
+/** Report a spawn that did not come up, on the frame the UI already renders. */
+function reportSpawnFailure(ctx: DaemonContext, sessionId: SessionId, err: unknown): void {
+  const message = err instanceof Error ? err.message : String(err)
+  ctx.send({ type: 'spawnError', sessionId, message })
+  driverTiming.sessionFailed(sessionId, message)
+}
+
+/**
+ * A SHELL OR A LOGIN PANE: the permanent plain-terminal exemption, by structure
+ * not by switch (POD-4426, POD-4278). There is no agent here for a driver to be
+ * honest about — no turns, no harness session — so nothing creates a driver
+ * session; the pane shares the same launch, durable host, bridge, observers,
+ * screen and reaper as every terminal session, and announces itself.
+ */
+async function launchPlainTerminal(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
+  const spec: SessionSpec = {
+    ...sessionSpecForSpawn(msg, { auth: 'unknown', role: 'interactive' }),
+    ...(msg.durableLabel ? { durableLabel: msg.durableLabel } : {}),
+  }
+  try {
+    const launched = await launchTerminalProcess(ctx, {
+      sessionId: msg.sessionId,
+      spec,
+      // Neither a shell nor a login pane carries per-session hook wiring.
+      instrumentation: { args: [] },
+      ...(msg.resume ? { resume: msg.resume } : {}),
+      ...(msg.loginHarness ? { loginHarness: msg.loginHarness } : {}),
+    })
+    launched.announce()
+  } catch (err) {
+    reportSpawnFailure(ctx, msg.sessionId, err)
+  }
+}
+
+/**
+ * AN AGENT ON ITS TERMINAL DRIVER, through the contract like every other
+ * session (POD-5814): the spawn frame becomes a SessionSpec, and the machine
+ * runtime creates — or resumes — the session on the harness's terminal driver
+ * under the server's id. The driver installs its hook wiring, has the host
+ * launch from the spec, registers, and the host announces it.
+ */
+async function launchAgentTerminal(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
+  try {
+    // SHELL RULE, STATED POSITIVELY (POD-4426): a NON-shell kind with no
+    // manifest is not a shell: it is a harness this build does not know, and
+    // opening a session nothing can drive would be a silent failure, so it
+    // refuses loudly with the kind named.
     const profile = terminalProfileFor(msg.agentKind)
-    // SHELL RULE, STATED POSITIVELY (POD-4426): shells and login panes have no
-    // driver by structure — a shell has no turns for a driver to be honest
-    // about. A NON-shell kind with no manifest is not a shell: it is a harness
-    // this build does not know, and opening a session nothing can drive would
-    // be a silent failure, so it refuses loudly with the kind named.
-    const isPlainTerminal = msg.agentKind === 'shell' || !!msg.loginHarness
-    if (!isPlainTerminal && !profile) {
+    if (!profile) {
       throw new Error(
         `no manifest for harness '${msg.agentKind}': this build declares no runtime for it`,
       )
     }
-    // Driver selection and handle admission are independent: omission still means
-    // headed, but every profile-bearing agent must have a runtime to bind it.
-    if (profile && !isPlainTerminal && !ctx.agentRuntime) {
-      throw new Error('agent runtime is unavailable; retry after the daemon recovers')
+    // An explicit driver id must name this terminal driver, rather than be
+    // silently ignored.
+    if (
+      typeof msg.requestedDriverId === 'string' &&
+      canonicalDriverId(msg.requestedDriverId) !== profile.driverId
+    ) {
+      throw new Error(
+        `runtime driver '${msg.requestedDriverId}' cannot bind as '${profile.driverId}'; retry with an available driver`,
+      )
     }
+    const runtime = ctx.agentRuntime
+    if (!runtime) throw new Error('agent runtime is unavailable; retry after the daemon recovers')
+    const base = sessionSpecForSpawn(msg, {
+      driverId: profile.driverId,
+      auth: 'unknown',
+      role: 'interactive',
+    })
     const spec: SessionSpec = {
-      harness: msg.agentKind,
-      selection: {
-        auth: 'unknown',
-        platform: process.platform,
-        available: profile ? [profile.driverId] : [],
+      ...base,
+      model: {
+        ...base.model,
+        ...(msg.subagentModel ? { subagentModel: { supported: true, value: msg.subagentModel } } : {}),
       },
-      workdir: msg.cwd,
-      model: {},
-      instructions: { supported: false, reason: 'launch command carries instructions' },
-      mcpServers: { supported: false, reason: 'terminal harness owns its native config' },
-      instrumentation:
-        profile?.instrumentationRequired && !msg.loginHarness
-          ? {
+      ...(msg.durableLabel ? { durableLabel: msg.durableLabel } : {}),
+      ...(profile.instrumentationRequired
+        ? {
+            instrumentation: {
               endpointUrl: ctx.hookEndpointFor(msg.sessionId),
               seedTheme: msg.seedCliTheme ?? true,
               ...(ctx.hookSocketPath ? { socketPath: ctx.hookSocketPath } : {}),
-            }
-          : undefined,
-      env: { ...msg.env, ...cmd.env },
+            },
+          }
+        : {}),
     }
-    const launch = async (instrumentation: InstalledTerminalInstrumentation) => {
-      const spawnOpts = {
-        // DEMAND THE WRITER LEASE (POD-4434). A spawn that adopts a live master
-        // while another writer holds it is the update-overlap symptom: two
-        // daemons, one host, and a session that looks live and swallows input.
-        requireLease: true,
-        label,
-        cmd: cmd.cmd,
-        args: instrumentedLaunchArgs(cmd.args, instrumentation.args),
-        cwd: cmd.cwd,
-        cols: msg.geometry.cols,
-        rows: msg.geometry.rows,
-        env: spawnEnv({
-          // Server-resolved managed credential / environment (SP-6454, #216).
-          sessionEnv: msg.env,
-          harnessEnv: cmd.env,
-          podiumEnv: {
-            // Bind the loopback session relay + session id into every session's env so its
-            // `podium` CLI can reach the daemon for this exact session. The agent-IDENTITY
-            // half rides along only for harness kinds — a shell is the operator [POD-1375].
-            ...sessionRelayEnv(
-              msg.sessionId,
-              ctx.agentRelayEndpointFor(msg.sessionId),
-              ctx.instanceId,
-              msg.agentKind,
-              ctx.instanceUuid,
-            ),
-            ...browserOpenEnv(ctx.settingsDir),
-            ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
-            ...harnessInstanceEnv(msg.loginHarness ?? msg.agentKind, ctx.homeDir),
-            // Subagent model rides as env — Claude Code reads it; harmless elsewhere.
-            ...(msg.subagentModel ? { CLAUDE_CODE_SUBAGENT_MODEL: msg.subagentModel } : {}),
-            // Globally-installed hooks are env-gated per session by their adapter.
-            // Commands exit immediately when absent, so non-Podium runs are untouched.
-            ...instrumentation.env,
-            // Terminal-protocol compatibility for this harness (see above).
-            ...harnessCompatEnv(msg.agentKind),
-          },
-        }),
-        // The session's account is the one its HOME is logged into — which is only
-        // true if this harness's own credential vars cannot reach it by inheritance
-        // from the daemon (POD-2296). `env` above cannot express that: unsetting a
-        // credential is a delete, not an empty string.
-        //
-        // `loginHarness` FIRST, and it is not a nicety: a native login pane is filed
-        // as agentKind 'shell' (it runs `<cli> login`, not the agent), and 'shell' is
-        // exactly the kind this rule exempts. Read the other way round, the one pane
-        // whose whole purpose is to establish an account would be the one pane that
-        // let an inherited key outrank it — `claude login` under a stray
-        // ANTHROPIC_API_KEY greets you with "Detected a custom API key in your
-        // environment" instead.
-        stripEnv: harnessChildStripEnv(msg.loginHarness ?? msg.agentKind, msg.env),
-      }
-      const session = await durable.spawn(spawnOpts)
-      driverTiming.headedCliStage(msg.sessionId, msg.agentKind, 'native_cli_process_started', {
-        adopted: session.adopted,
-      })
-      const terminal = wireBridge(ctx, msg.sessionId, session, msg.agentKind, label)
-      // The size the program is at: the host's WELCOME (the Terminal already
-      // stated it through the size event), or — on a backend that cannot read
-      // its size back — the size it was born at.
-      const geometry = terminal.size() ?? msg.geometry
-      // Stand up the agent-state tracker, harness observer, resume transcript tail
-      // and seeded phase. The frame tap buffers the bounded gap between bridge
-      // wiring and this setup so screen-derived state still sees the first screen.
-      ctx.observers.initSessionObservers(msg, session, provider, {
-        seedOnFrame: true,
-        startedAtMs: spawnStartedAt,
-        ...(newSessionId ? { newSessionId } : {}),
-      })
-      // The size event above ran before these observers existed: tell them now.
-      ctx.observers.onResize?.(msg.sessionId, geometry.cols, geometry.rows)
-      await bindDriver(ctx, msg, false, profile)
-      const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
-      // Draft Sync v2 (POD-859): begin composer sync for a flagged, composer-capable
-      // session. attach() is a no-op for harnesses without a driver. Reads the
-      // session's one TerminalScreen model (P2c) instead of a second emulator.
-      if (msg.draftSync) {
-        ctx.composerEngine.attach(
-          msg.sessionId,
-          msg.agentKind,
-          geometry.cols,
-          geometry.rows,
-          terminalScreenFor(ctx, msg.sessionId).model,
-        )
-      }
-      // An adopted spawn started nothing: the durable master for this label was still
-      // running and we reattached to it (POD-1945 — a Resume used to die on
-      // "address already in use" instead). Report it as the attach it is, so the row
-      // does not claim a fresh launch that never happened.
-      if (session.adopted) {
-        log.info('spawn adopted the live durable session for this label', {
-          sessionId: msg.sessionId,
-          label,
-        })
-      }
-      // THE ONE BUILDER (POD-3290). It reads this daemon's applied-size record and
-      // is the only thing in the tree that may write `geometry` into a bind, so
-      // the grid a spawn announces is the grid `wireBridge` recorded a moment ago
-      // — the pty's birth size, or the held resize it dispatched instead.
-      sendBind(ctx, {
-        sessionId: msg.sessionId,
-        cmd: session.adopted ? (durable as DurableProcess).primary.attachCommand(label) : cmd.cmd,
-        cwd: cmd.cwd,
-        agentKind: msg.agentKind,
-        ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
-        // The driver handle actually exists for this session (POD-1761 W4,
-        // unconditional since POD-4426). The server records `driverId` on the
-        // row and keys its senders on its presence — see BindMessage.
-        ...(driverId
-          ? {
-              driverId,
-              configureFields: [...configureFieldsForDriver(driverId)],
-              attachKinds: [...attachKindsForDriver(driverId)],
-            }
-          : {}),
-        ...(runtimeSelection.requestedDriverId
-          ? { requestedDriverId: runtimeSelection.requestedDriverId }
-          : {}),
-      })
-      const handle = handleFor(ctx, msg.sessionId)
-      if (handle) driverTiming.sessionReady(handle.binding)
-    }
-    // Permanent plain-terminal exemption, by structure not by switch (POD-4426).
-    // Shells and login commands have no agent runtime session to create: the
-    // shell rule above already split them from unknown harnesses, which refused
-    // before reaching here. This is a driver-creation decision, not a subtree
-    // deletion boundary. Both paths share launch, durable host, bridge,
-    // observers, screen, draft engine, transcript source and reaper; terminal
-    // driver handles still need that machinery. The contract arm is the
-    // survivor: `createTerminal` prepares instrumentation exactly as the legacy
-    // branch did (profile.instrumentationRequired → required/none) and the
-    // launch closure binds the driver before the bind frame goes out.
-    if (installedInstrumentation) {
-      await launch(installedInstrumentation)
-    } else if (profile && !isPlainTerminal) {
-      const runtime = ctx.agentRuntime
-      if (!runtime) {
-        throw new Error('agent runtime is unavailable; retry after the daemon recovers')
-      }
-      await runtime.createTerminal(msg.sessionId, spec, profile, launch, msg.resume)
-      requireTerminalHandle(ctx, msg, profile)
-    } else {
-      // Permanent plain terminals still need instrumentation and shared PTY plumbing.
-      const instrumentation = await prepareTerminalInstrumentation(
-        {
-          instrumentation:
-            !msg.loginHarness && profile?.instrumentationRequired ? 'required' : 'none',
-        },
-        spec,
-        () =>
-          installTerminalInstrumentation({
-            sessionId: msg.sessionId,
-            harness: spec.harness,
-            spec,
-            sections: terminalInstrumentationSectionsFor(spec.harness),
-            settingsDir: ctx.settingsDir,
-            ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
-            reportVersionProbe: (harness, output) => reportHarnessProbe(harness, output),
-          }),
-      )
-      reportInstrumentationDegradation(ctx, spec.harness, instrumentation, ctx.send)
-      await launch(instrumentation)
-    }
+    if (msg.resume) await runtime.resume(msg.resume, spec, msg.sessionId)
+    else await runtime.create(spec, msg.sessionId)
+    requireTerminalHandle(ctx, msg, profile)
   } catch (err) {
     // A process may already exist when handle construction fails. Use the shared
     // reaper before reporting failure; never acknowledge a driverless agent.
-    // A refused writer lease belongs to another/newer owner: nothing was
-    // acquired, so there is nothing to reap — and the log names the session,
-    // because a silent spawnError is the old symptom wearing a new frame.
-    if (err instanceof WriterLeaseRefusedError) {
-      log.warn('spawn refused: another writer holds the host lease', {
-        sessionId: msg.sessionId,
-        label: err.label,
-        writers: err.writers,
-        readers: err.readers,
-      })
-    } else if (ctx.sessions.get(msg.sessionId)?.attached) stopSessionProcess(ctx, msg)
-    removeSessionInstructions(ctx, msg.sessionId)
-    ctx.send({
-      type: 'spawnError',
-      sessionId: msg.sessionId,
-      message: err instanceof Error ? err.message : String(err),
-    })
-    driverTiming.sessionFailed(msg.sessionId, err instanceof Error ? err.message : String(err))
-    if (propagateFailure) throw err
+    reapFailedLaunch(ctx, msg.sessionId, msg.durableLabel ?? ctx.durableLabelFor(msg.sessionId), err)
+    reportSpawnFailure(ctx, msg.sessionId, err)
   }
 }
 export const MISSING_SESSION_BINDING_MESSAGE =
@@ -984,65 +1068,6 @@ function requireTerminalHandle(
   // replaced (reattach, steal) without a new bind carrying it, so push the
   // current one.
   ctx.agentRuntime?.setTerminal?.(msg.sessionId, adaptTerminal(ctx.sessions.get(msg.sessionId)?.terminal))
-}
-
-/** Bind before publishing success, including historical rows with no driver ID.
- *
- * UNCONDITIONAL SINCE POD-4426: every profile-bearing spawn and every
- * profile-bearing reattach binds a driver — there is no flag to consult and no
- * legacy path left to fall back to, so a build failure here throws and the
- * caller reports it (spawnError on spawn, reattachFailed on reattach) rather
- * than logging a warning and continuing driverless.
- *
- * The shell rule is positive: shells and login panes return with no driver. A
- * non-shell kind with no profile refuses loudly — an unknown harness must never
- * open a session nothing can drive.
- */
-async function bindDriver(
-  ctx: DaemonContext,
-  msg: SpawnControl | ReattachControl,
-  rebind: boolean,
-  profile: ReturnType<typeof terminalProfileFor>,
-): Promise<void> {
-  if (msg.agentKind === 'shell' || ('loginHarness' in msg && msg.loginHarness)) return
-  if (!profile) {
-    throw new Error(
-      `no manifest for harness '${msg.agentKind}': this build declares no runtime for it`,
-    )
-  }
-  // Reconnect can carry an old or unavailable explicit ID. It must obey the
-  // same canonical terminal identity as launch, rather than silently ignoring it.
-  if (
-    typeof msg.requestedDriverId === 'string' &&
-    canonicalDriverId(msg.requestedDriverId) !== profile.driverId
-  ) {
-    throw new Error(`runtime driver '${msg.requestedDriverId}' cannot bind as '${profile.driverId}'; retry with an available driver`)
-  }
-  if (!ctx.agentRuntime) {
-    throw new Error('agent runtime is unavailable; retry after the daemon recovers')
-  }
-  // HAND THE TERMINAL AT BIND (POD-4785): the entry holds one Terminal by
-  // structure (wireBridge ran before this), so the registration carries the
-  // live surface instead of the driver looking it up per write.
-  const bindTerminal = ctx.sessions.get(msg.sessionId)?.terminal
-  await ctx.agentRuntime.bindTerminal(
-    {
-      sessionId: msg.sessionId,
-      agentKind: msg.agentKind,
-      cwd: msg.cwd,
-      resume: msg.resume ?? null,
-      ...(msg.observationGeneration !== undefined
-        ? { observerGeneration: msg.observationGeneration }
-        : {}),
-      ...(msg.observationBindingVersion !== undefined
-        ? { bindingVersion: msg.observationBindingVersion }
-        : {}),
-      rebind,
-      ...(bindTerminal ? { terminal: adaptTerminal(bindTerminal) } : {}),
-    },
-    profile,
-  )
-  requireTerminalHandle(ctx, msg, profile)
 }
 
 async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
@@ -1115,7 +1140,7 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
   /**
    * THE FORK BETWEEN A PTY SESSION AND A SERVER SESSION (POD-1761 W5).
    *
-   * It is HERE and not inside `launchSpawn`, and the placement is the point: a
+   * It is HERE and not inside the terminal launch, and the placement is the point: a
    * server-family session has no PTY to launch, no durable master to reclaim and
    * no bridge to wire, so routing it through the PTY spawn path and then undoing
    * the parts that do not apply would be worse than a branch. The binding
@@ -1128,9 +1153,116 @@ async function handleSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void>
    * Claude's stream engine is selected only by an explicit per-spawn request;
    * ordinary Claude spawns stay on the terminal path.
    */
+  await launchSpawn(ctx, msg)
+}
+
+/**
+ * CARRY OUT AN AUTHORIZED SPAWN (the binding transition already ran): a shell
+ * or login pane launches as a plain terminal; an agent goes to the driver the
+ * harness policy selects — an engine family, or its terminal driver — through
+ * the machine runtime's `create`/`resume`, from the SessionSpec the frame
+ * becomes.
+ */
+export async function launchSpawn(ctx: DaemonContext, msg: SpawnControl): Promise<void> {
+  if (msg.agentKind === 'shell' || msg.loginHarness) {
+    await withOrder(ctx, { frame: msg }, () => launchPlainTerminal(ctx, msg))
+    return
+  }
   const runtimeLaunch = await launchServerDriverSession(ctx, msg)
   if (runtimeLaunch.handled) return
-  await launchSpawn(ctx, msg, runtimeLaunch)
+  await launchTerminalSpawn(ctx, msg, runtimeLaunch.requestedDriverId)
+}
+
+/** An agent spawn the harness policy left on its terminal driver, under its
+ *  order. `requestedDriverId` names a server driver the spawn asked for and
+ *  did not get, for the bind to report. */
+export async function launchTerminalSpawn(
+  ctx: DaemonContext,
+  msg: SpawnControl,
+  requestedDriverId?: string,
+): Promise<void> {
+  await withOrder(
+    ctx,
+    { frame: msg, ...(requestedDriverId ? { requestedDriverId } : {}) },
+    () => launchAgentTerminal(ctx, msg),
+  )
+}
+
+/**
+ * Carry out a terminal spawn or reattach under its order: the host keeps the
+ * frame for its own facts (see `DaemonSession.order`) while the driver launches
+ * from the spec, or adopts from the binding, and the order ends with it. An entry the spawn
+ * never put a process or driver on goes with it.
+ */
+async function withOrder(
+  ctx: DaemonContext,
+  order: NonNullable<DaemonSession['order']>,
+  spawn: () => Promise<unknown>,
+): Promise<void> {
+  const sessionId = order.frame.sessionId
+  const fresh = !ctx.sessions.has(sessionId)
+  const entry = ctx.sessions.ensure(sessionId)
+  entry.order = order
+  try {
+    await spawn()
+  } finally {
+    if (entry.order === order) entry.order = undefined
+    if (fresh && !entry.terminal && !entry.driver && ctx.sessions.get(sessionId) === entry) {
+      ctx.sessions.delete(sessionId)
+    }
+  }
+}
+
+/**
+ * THE ONE SESSION SPEC A SPAWN FRAME BECOMES. Every field the server put on the
+ * frame for the session reaches the driver here, whole; the driver maps each to
+ * its harness's native channel. Nothing downstream rebuilds a spec from a
+ * narrower launch shape.
+ *
+ * `auto` is the harness's own default, which is what an absent model means:
+ * dropping it here keeps every family from re-deciding it.
+ *
+ * NO MCP CONFIG IS FORWARDED, a declared gap rather than an oversight
+ * (POD-1761 W6): the spawn frame has never carried one, because interactive
+ * sessions mount MCP through the CLI's own config file, and passing an empty
+ * one would make a driver report a tool mount it did not make.
+ */
+export function sessionSpecForSpawn(
+  msg: SpawnControl,
+  selection: {
+    /** Absent for a plain terminal, which no driver runs. */
+    driverId?: AcceptedDriverId
+    auth: SessionSpec['selection']['auth']
+    role: 'executor' | 'interactive'
+  },
+): SessionSpec {
+  const executor = selection.role === 'executor'
+  return {
+    harness: msg.agentKind,
+    selection: {
+      auth: selection.auth,
+      platform: process.platform,
+      available: selection.driverId ? [selection.driverId] : [],
+      ...(selection.driverId ? { preference: selection.driverId } : {}),
+      role: selection.role,
+    },
+    workdir: msg.cwd,
+    model: {
+      ...(msg.model && msg.model !== 'auto' ? { model: msg.model } : {}),
+      ...(msg.effort && msg.effort !== 'auto' ? { effort: msg.effort } : {}),
+    },
+    instructions: msg.instructions?.length
+      ? { supported: true, value: { instructions: msg.instructions, reprimeOnCompaction: false } }
+      : { supported: false, reason: 'the server prepared no instructions for this session' },
+    mcpServers: {
+      supported: false,
+      reason: 'interactive sessions mount MCP through the harness native config file',
+    },
+    ...(msg.env ? { env: msg.env } : {}),
+    // An executor takes its first prompt as a turn, not at creation — the
+    // headless driver refuses `initialPrompt`.
+    ...(!executor && msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
+  }
 }
 
 /**
@@ -1219,7 +1351,7 @@ async function adoptServerDriverSession(
    * engine host refuses loudly ("writer lease is held elsewhere") and the
    * failed-adoption reap below kills the survivor the blip never touched.
    *
-   * The PTY path already short-circuits this (`recoverTerminalHost` reuses the
+   * The PTY path already short-circuits this (`recoverTerminalProcess` reuses the
    * already-held bridge and re-emits `bind`); the server arm never did. A live
    * server handle IS the session, so re-bind it in place: no new host attach,
    * no journal read, nothing killed, nothing read-only.
@@ -2031,51 +2163,13 @@ export async function launchServerDriverSession(
   }
   try {
     const isHeadless = resolution.driverId === 'headless'
-    const spec: SessionSpec = {
-      harness: msg.agentKind,
-      selection: {
-        auth: selectionAuth,
-        platform: process.platform,
-        available: [resolution.driverId],
-        preference: resolution.driverId,
-        // Headless sessions are executor-owned, never interactive: their first
-        // prompt arrives as a turn, not at creation.
-        role: isHeadless ? 'executor' : 'interactive',
-      },
-      workdir: msg.cwd,
-      model: {
-        ...(msg.model ? { model: msg.model } : {}),
-        ...(msg.effort ? { effort: msg.effort } : {}),
-      },
-      instructions: {
-        supported: false,
-        reason: 'interactive server instructions are not carried by the spawn frame adapter',
-      },
-      /**
-       * NO MCP CONFIG IS FORWARDED, AND THAT IS A DECLARED GAP RATHER THAN AN
-       * OVERSIGHT (POD-1761 W6).
-       *
-       * The codex driver and its host implement the mount end to end —
-       * `codexAppServerConfigArgs` builds the `-c mcp_servers.…` overrides
-       * through the manifest's own verified `codexMcpArgs`, and
-       * `SessionSpec.mcpServers` carries the declaration to it. What does not
-       * exist is a SOURCE: `mcpConfig` is a headless/harness-exec field, and the
-       * interactive `spawn` frame has never carried one, because interactive
-       * sessions mount MCP through the CLI's own config file. Inventing a field
-       * here would be a wire change beyond this item; passing an empty one would
-       * make the driver report a tool mount it did not make. So an app-server
-       * session mounts whatever `~/.codex/config.toml` already declares, and the
-       * spawn-frame field is POD-1761's to schedule.
-       */
-      mcpServers: {
-        supported: false,
-        reason: 'interactive sessions mount MCP through the harness native config file',
-      },
-      ...(msg.env ? { env: msg.env } : {}),
-      // Headless sessions take their first prompt as a turn, not at creation —
-      // the headless driver refuses `initialPrompt`.
-      ...(!isHeadless && msg.initialPrompt ? { initialPrompt: msg.initialPrompt } : {}),
-    }
+    const spec = sessionSpecForSpawn(msg, {
+      driverId: resolution.driverId,
+      auth: selectionAuth,
+      // Headless sessions are executor-owned, never interactive: their first
+      // prompt arrives as a turn, not at creation.
+      role: isHeadless ? 'executor' : 'interactive',
+    })
     // A resume ref goes to the driver only where its source can continue a
     // conversation from the ref alone (headless, the Claude stream engine);
     // the vendor servers resume from their journal above.
@@ -2235,22 +2329,100 @@ async function handleReattach(ctx: DaemonContext, msg: ReattachControl): Promise
   }
   // Plain terminals retain their host recovery route. Old harness rows need a
   // driver too: absence of a persisted request is not a plain-terminal marker.
-  if (profile) {
-    if (!ctx.agentRuntime) throw new Error('terminal recovery runtime unavailable')
-    await ctx.agentRuntime.recoverTerminal(msg, profile)
+  if (!profile) {
+    await withOrder(ctx, { frame: msg }, async () => {
+      const recovered = await recoverTerminalProcess(ctx, {
+        sessionId: msg.sessionId,
+        agentKind: msg.agentKind,
+        workdir: msg.cwd,
+        ...(msg.resume ? { resume: msg.resume } : {}),
+        lease: {
+          ...(msg.observationGeneration !== undefined
+            ? { observerGeneration: msg.observationGeneration }
+            : {}),
+          ...(msg.observationBindingVersion !== undefined
+            ? { bindingVersion: msg.observationBindingVersion }
+            : {}),
+        },
+      })
+      recovered?.announce()
+    })
     return
   }
-  await recoverTerminalHost(ctx, msg)
+  // An explicit driver id must name this terminal driver, rather than be
+  // silently ignored.
+  if (
+    typeof msg.requestedDriverId === 'string' &&
+    canonicalDriverId(msg.requestedDriverId) !== profile.driverId
+  ) {
+    throw new TerminalRecoveryRefusal(
+      `runtime driver '${msg.requestedDriverId}' cannot recover as '${profile.driverId}'`,
+    )
+  }
+  const runtime = ctx.agentRuntime
+  if (!runtime) throw new Error('terminal recovery runtime unavailable')
+  // AN AGENT ADOPTS THROUGH THE CONTRACT (POD-5841), as every engine does from
+  // its journal: the frame names the binding — the session and its terminal
+  // driver — and the host keeps the frame for its own facts (the durable
+  // label, the lease, the size) while the driver re-attaches and re-registers.
+  await withOrder(ctx, { frame: msg }, () =>
+    runtime.adopt({
+      sessionId: msg.sessionId,
+      driver: profile.driverId,
+      family: 'terminal',
+      harness: msg.agentKind,
+      workdir: msg.cwd,
+      resume: msg.resume ?? null,
+      process: { key: msg.sessionId },
+      bindingVersion: Math.max(0, (msg.observationBindingVersion ?? 1) - 1),
+    }),
+  )
 }
 
-/** Shared host machinery. Agent recovery enters through TerminalRuntime; plain
- * terminals call it directly. ready installs the handle after composition and
- * before publishing bind, so failed attachment never creates a phantom handle. */
-export async function recoverTerminalHost(
+/** The size hint a recovery with no server order gives the screen parser;
+ *  host recovery never applies it to the PTY. */
+const NOMINAL_RECOVERY_GEOMETRY = { cols: 80, rows: 24 } as const
+
+/**
+ * THE TERMINAL HOST'S RECOVERY (POD-5841): re-attach one surviving session,
+ * through the terminal family's `recover` port for an agent and directly for a
+ * shell or login pane. The attach is the proof the process lives. It hands
+ * back the live terminal and the announcement — the bind, plus the state and
+ * transcript re-seed a restarted server needs — for the caller to make once
+ * the session's handle (if it has a driver) is registered again. `undefined`
+ * when a concurrent recovery of the same session already did the work.
+ */
+export async function recoverTerminalProcess(
   ctx: DaemonContext,
-  msg: ReattachControl,
-  ready?: () => void,
-): Promise<void> {
+  input: TerminalRecover,
+): Promise<TerminalRecovered | undefined> {
+  const order = ctx.sessions.get(input.sessionId)?.order
+  // The host's facts come from the server's order; what is re-attached — the
+  // identity, the conversation and the lease the driver registers under — is
+  // the binding's, and wins.
+  const ordered: Partial<ReattachControl> =
+    order?.frame.type === 'reattach' ? order.frame : { lastKnownGeometry: { ...NOMINAL_RECOVERY_GEOMETRY } }
+  const msg = {
+    ...ordered,
+    type: 'reattach',
+    sessionId: input.sessionId,
+    // The label is the host's to resolve: the order's, else the one this entry
+    // already holds, else the instance's own for the session.
+    durableLabel:
+      ordered.durableLabel ??
+      ctx.sessions.get(input.sessionId)?.label ??
+      ctx.durableLabelFor(input.sessionId),
+    agentKind: input.agentKind,
+    cwd: input.workdir,
+    ...(input.resume ? { resume: input.resume } : {}),
+    ...(input.lease.observerGeneration !== undefined
+      ? { observationGeneration: input.lease.observerGeneration }
+      : {}),
+    ...(input.lease.bindingVersion !== undefined
+      ? { observationBindingVersion: input.lease.bindingVersion }
+      : {}),
+  } as ReattachControl
+  const profile = terminalProfileFor(msg.agentKind)
   const heldLabel = ctx.sessions.get(msg.sessionId)?.label
   if (heldLabel !== undefined && heldLabel !== msg.durableLabel) {
     throw new TerminalRecoveryRefusal('terminal recovery process identity mismatch')
@@ -2286,70 +2458,72 @@ export async function recoverTerminalHost(
         terminalScreenFor(ctx, msg.sessionId).model,
       )
     }
-    ready?.()
-    const recoveryProfile = terminalProfileFor(msg.agentKind)
-    if (recoveryProfile) requireTerminalHandle(ctx, msg, recoveryProfile)
-    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
-    sendBind(ctx, {
-      sessionId: msg.sessionId,
-      cmd,
-      cwd: msg.cwd,
-      agentKind: msg.agentKind,
-      // THE CONNECTION'S SIZE (POD-4723): the bridge was never lost, so the
-      // host's last statement is still the truth, and this bind is the full
-      // statement the server re-drives a lost ask from. Never
-      // `msg.lastKnownGeometry`: that is the server's own belief handed back.
-      ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
-      // The driver handle actually exists for this session (POD-1761 W4,
-      // unconditional since POD-4426). The server records `driverId` on the
-      // row and keys its senders on its presence — see BindMessage.
-      ...(driverId
-        ? {
-            driverId,
-            configureFields: [...configureFieldsForDriver(driverId)],
-            attachKinds: [...attachKindsForDriver(driverId)],
+    return {
+      terminal: adaptTerminal(existing),
+      announce: () => {
+        if (profile) requireTerminalHandle(ctx, msg, profile)
+        const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
+        sendBind(ctx, {
+          sessionId: msg.sessionId,
+          cmd,
+          cwd: msg.cwd,
+          agentKind: msg.agentKind,
+          // THE CONNECTION'S SIZE (POD-4723): the bridge was never lost, so the
+          // host's last statement is still the truth, and this bind is the full
+          // statement the server re-drives a lost ask from. Never
+          // `msg.lastKnownGeometry`: that is the server's own belief handed back.
+          ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+          // The driver handle actually exists for this session (POD-1761 W4,
+          // unconditional since POD-4426). The server records `driverId` on the
+          // row and keys its senders on its presence — see BindMessage.
+          ...(driverId
+            ? {
+                driverId,
+                configureFields: [...configureFieldsForDriver(driverId)],
+                attachKinds: [...attachKindsForDriver(driverId)],
+              }
+            : {}),
+          ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
+        })
+        // NO REDRAW (POD-4723, design rev 3). This used to nudge the program on every
+        // link-B reattach — two RESIZEs and a full repaint per session, fanned out to
+        // every viewer — and the nudge is what put ptys back at a stale size. The
+        // bind above requests the host picture for the server cache. Older servers
+        // keep their redraw path, which repaints from the snapshot or ring.
+        // Re-push agent state for the same reason we re-seed the transcript below: a
+        // freshly restarted SERVER (the daemon survived) starts with NO agentState for
+        // this session, and an idle survivor fires no hook to re-establish it — so it
+        // would fall through the home board's `live → working` fallback and read as
+        // WORKING. We still hold the live tracker, so resend its current phase. Skip
+        // 'unknown' (nothing to assert) — a cold tracker is re-seeded by the fresh-bridge
+        // branch below, not here.
+        if (!hasAuthoritativeObservationLease && state && state.phase !== 'unknown') {
+          ctx.send({ type: 'agentState', sessionId: msg.sessionId, state })
+        }
+        // Re-seed the transcript even though we already hold the bridge: a freshly
+        // restarted SERVER (the daemon survived) has an empty per-session buffer, and
+        // this already-held branch otherwise does no transcript work, so chat would
+        // stay blank. The live tail (if any) only re-emits on its NEXT file change, so
+        // read the newest window now and push it as a reset delta. Best-effort; a read
+        // failure just leaves the buffer to refill from live deltas.
+        void ctx.tailSeedGate(async () => {
+          try {
+            // [spec:SP-c29e] A server reconnect can resend 100+ reattaches at once.
+            // Keep bind/state above immediate, but pace the allocation-heavy
+            // transcript read/parse/reset-send through the existing seed gate.
+            await seedRuntimeHistory(ctx, msg.sessionId)
+          } catch (err) {
+            log.warn('reattach re-seed failed', { err, sessionId: msg.sessionId })
           }
-        : {}),
-      ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
-    })
-    // NO REDRAW (POD-4723, design rev 3). This used to nudge the program on every
-    // link-B reattach — two RESIZEs and a full repaint per session, fanned out to
-    // every viewer — and the nudge is what put ptys back at a stale size. The
-    // bind above requests the host picture for the server cache. Older servers
-    // keep their redraw path, which repaints from the snapshot or ring.
-    // Re-push agent state for the same reason we re-seed the transcript below: a
-    // freshly restarted SERVER (the daemon survived) starts with NO agentState for
-    // this session, and an idle survivor fires no hook to re-establish it — so it
-    // would fall through the home board's `live → working` fallback and read as
-    // WORKING. We still hold the live tracker, so resend its current phase. Skip
-    // 'unknown' (nothing to assert) — a cold tracker is re-seeded by the fresh-bridge
-    // branch below, not here.
-    if (!hasAuthoritativeObservationLease && state && state.phase !== 'unknown') {
-      ctx.send({ type: 'agentState', sessionId: msg.sessionId, state })
+        }, ctx.outputScheduler.priorityOf(msg.sessionId))
+      },
     }
-    // Re-seed the transcript even though we already hold the bridge: a freshly
-    // restarted SERVER (the daemon survived) has an empty per-session buffer, and
-    // this already-held branch otherwise does no transcript work, so chat would
-    // stay blank. The live tail (if any) only re-emits on its NEXT file change, so
-    // read the newest window now and push it as a reset delta. Best-effort; a read
-    // failure just leaves the buffer to refill from live deltas.
-    void ctx.tailSeedGate(async () => {
-      try {
-        // [spec:SP-c29e] A server reconnect can resend 100+ reattaches at once.
-        // Keep bind/state above immediate, but pace the allocation-heavy
-        // transcript read/parse/reset-send through the existing seed gate.
-        await seedRuntimeHistory(ctx, msg.sessionId)
-      } catch (err) {
-        log.warn('reattach re-seed failed', { err, sessionId: msg.sessionId })
-      }
-    }, ctx.outputScheduler.priorityOf(msg.sessionId))
-    return
   }
-  await ctx.reattachGate(async () => {
+  return await ctx.reattachGate(async () => {
     // Raced with another reattach for this id: skip a second host attach and
     // bind. Not the one-Terminal rule — the entry's slot keeps that, parking a
     // predecessor, for a spawn that lands while this reattach awaits the host.
-    if (ctx.sessions.get(msg.sessionId)?.attached) return
+    if (ctx.sessions.get(msg.sessionId)?.attached) return undefined
     // Re-pin a survivor (POD-665). Pins live in daemon memory, so a daemon restart
     // would otherwise leave every reattached session unpinned and free to be dragged
     // out of its worktree by the next `cd`. `msg.cwd` is the row's persisted cwd —
@@ -2426,31 +2600,34 @@ export async function recoverTerminalHost(
     // Only an old server needs a ring repaint. A picture-capable link gets
     // the reset requested after bind; a C host on that link gets live bytes
     // only (SPEC v4 H6).
-    if (ready && !picturesAccepted(ctx)) await terminal.replay(HOST_REPLAY_TAIL_BYTES)
-    ready?.()
-    const recoveryProfile = terminalProfileFor(msg.agentKind)
-    if (recoveryProfile) requireTerminalHandle(ctx, msg, recoveryProfile)
-    const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
-    sendBind(ctx, {
-      sessionId: msg.sessionId,
-      cmd: found.cmd,
-      cwd: msg.cwd,
-      agentKind: msg.agentKind,
-      // THE CONNECTION'S SIZE (POD-4723): the host's WELCOME, so a daemon
-      // restart binds the size the program really has.
-      ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
-      // The driver handle actually exists for this session (POD-1761 W4,
-      // unconditional since POD-4426). The server records `driverId` on the
-      // row and keys its senders on its presence — see BindMessage.
-      ...(driverId
-        ? {
-            driverId,
-            configureFields: [...configureFieldsForDriver(driverId)],
-            attachKinds: [...attachKindsForDriver(driverId)],
-          }
-        : {}),
-      ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
-    })
+    if (profile && !picturesAccepted(ctx)) await terminal.replay(HOST_REPLAY_TAIL_BYTES)
+    return {
+      terminal: adaptTerminal(terminal),
+      announce: () => {
+        if (profile) requireTerminalHandle(ctx, msg, profile)
+        const driverId = runtimeDriverIdFor(ctx, msg.sessionId)
+        sendBind(ctx, {
+          sessionId: msg.sessionId,
+          cmd: found.cmd,
+          cwd: msg.cwd,
+          agentKind: msg.agentKind,
+          // THE CONNECTION'S SIZE (POD-4723): the host's WELCOME, so a daemon
+          // restart binds the size the program really has.
+          ...(ctx.composerEngine.has(msg.sessionId) ? { draftSyncEngine: true } : {}),
+          // The driver handle actually exists for this session (POD-1761 W4,
+          // unconditional since POD-4426). The server records `driverId` on the
+          // row and keys its senders on its presence — see BindMessage.
+          ...(driverId
+            ? {
+                driverId,
+                configureFields: [...configureFieldsForDriver(driverId)],
+                attachKinds: [...attachKindsForDriver(driverId)],
+              }
+            : {}),
+          ...(msg.requestedDriverId ? { requestedDriverId: msg.requestedDriverId } : {}),
+        })
+      },
+    }
   })
 }
 

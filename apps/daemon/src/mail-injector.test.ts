@@ -1,4 +1,4 @@
-import { respondToMailBoundary } from './runtime/mail-boundary'
+import { respondToMailBoundary } from '@podium/harness/driver/host'
 import { asSessionId } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import {

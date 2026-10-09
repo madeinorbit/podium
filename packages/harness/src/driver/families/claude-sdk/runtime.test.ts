@@ -148,6 +148,18 @@ describe('Claude SDK durable failure state', () => {
     runtime.dispose()
   })
 
+  it('fails a turn past its deadline as a retryable timeout', async () => {
+    const { host } = hostWith(() => new Error('turn timed out'))
+    const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())
+    const handle = await runtime.createWithId(SESSION, spec())
+    await handle.send({ id: 't1', text: 'ping' }, { origin: 'human', delivery: 'when-ready' })
+    const failed = (await eventsThroughFailed(runtime)).find(
+      (event) => event.t === 'turn' && event.ev.ev === 'failed',
+    )
+    expect(failed).toMatchObject({ ev: { reason: 'timeout', disposition: 'retryable' } })
+    runtime.dispose()
+  })
+
   it('publishes the classified error before closing the turn and the prompt once read from disk', async () => {
     const { host } = hostWith(() => new Error('not logged in — run /login'))
     const runtime = createClaudeSdkRuntime(host, createMemoryDriverSlots())

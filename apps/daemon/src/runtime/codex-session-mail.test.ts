@@ -15,8 +15,9 @@ import { startFakeAppServer } from '../../../../packages/harness/src/driver/fami
 import { codexEngineFacts } from '@podium/harness/driver/host'
 import { manifestFor } from '@podium/harness'
 import { createCodexSessionRuntime } from '@podium/harness/driver/host'
+import { serverFamilyLaunch } from '@podium/harness/driver/testing'
 import { composeMailContext, createAckReminderInjector, createMailInjector } from '../mail-injector'
-import { createMailContinuation } from './mail-boundary'
+import { createMailContinuation } from '@podium/harness/driver/host'
 import { driverTiming } from './driver-timing'
 import { driverSlotsOver } from '../session/driver-slots.js'
 import { testSessions } from '../session/testing.js'
@@ -172,7 +173,7 @@ describe('issue mail without terminal callbacks', () => {
     })
     try {
       const sessionId = 'boundary-mail' as SessionId
-      await runtime.launch({ sessionId, cwd: '/work' })
+      await runtime.launch(serverFamilyLaunch({ sessionId, cwd: '/work' }))
       const handle = runtime.handleFor(sessionId)!
       await handle.send({ text: 'work' }, { origin: 'human', delivery: 'when-ready' })
       expect(polls).toBe(0)

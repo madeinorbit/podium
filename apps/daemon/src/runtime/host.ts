@@ -24,10 +24,7 @@ import type {
   CodexRawSocket,
   OpencodeEngineClientTerminals,
 } from '@podium/harness/driver/host'
-import {
-  durableProcessFor,
-  scopeUnitName,
-} from '@podium/process/durable'
+import { scopeUnitName } from '@podium/process/durable'
 import { instanceRuntimeSocketRoot } from '@podium/runtime/unix-socket'
 import { resolveInstanceId } from '@podium/runtime/instance'
 import WebSocket from 'ws'
@@ -36,7 +33,7 @@ import { serverChildEnv } from '../control/session-env'
 import type { ClientTerminalKind, OpencodeClientTerminals } from './opencode-attach'
 import type { AcceptedDriverId } from '@podium/harness'
 import type { DaemonContext } from '../control/context'
-import { launchSpawn, recoverTerminalHost, stopSessionProcess } from '../control/session'
+import { launchTerminalProcess, recoverTerminalProcess, stopSessionProcess } from '../control/session'
 import { sourceForRead } from '../control/transcripts'
 import { transcriptForExport } from '../handoff-package'
 import { stageRuntimeAttachment } from './attachment-staging'
@@ -45,7 +42,6 @@ import type { TerminalHostPorts } from '@podium/harness/driver/host'
 import { installTerminalInstrumentation } from '@podium/harness/driver/host'
 import { terminalInstrumentationSectionsFor } from './registry'
 import { driverTiming } from './driver-timing'
-import { adaptTerminal } from './terminal-transport.js'
 
 /**
  * Adapt one daemon context into the driver's host port.
@@ -78,14 +74,21 @@ export function daemonRuntimeHost(
     },
     draftSyncing: (sessionId) => ctx.composerEngine.has(sessionId),
     setDraftTarget: (sessionId, text) => ctx.composerEngine.setTarget(sessionId, text),
-    processAlive: async (sessionId) => {
-      const label = ctx.sessions.get(sessionId)?.label ?? ctx.durableLabelFor(sessionId)
-      return (await durableProcessFor(ctx)?.has(label)) ?? false
+    // The lease rides the server's spawn or reattach order; a session the
+    // contract drives directly has none.
+    observationLease: (sessionId) => {
+      const frame = ctx.sessions.get(sessionId)?.order?.frame
+      if (!frame) return undefined
+      return {
+        ...(frame.observationGeneration !== undefined
+          ? { observerGeneration: frame.observationGeneration }
+          : {}),
+        ...(frame.observationBindingVersion !== undefined
+          ? { bindingVersion: frame.observationBindingVersion }
+          : {}),
+      }
     },
-    recover: (msg, ready) =>
-      recoverTerminalHost(ctx, msg, () =>
-        ready(adaptTerminal(ctx.sessions.get(msg.sessionId)?.terminal)),
-      ),
+    recover: (input) => recoverTerminalProcess(ctx, input),
     stopSession: ({ sessionId }) => {
       const label = ctx.sessions.get(sessionId)?.label ?? ctx.durableLabelFor(sessionId)
       return stopSessionProcess(ctx, { sessionId, durableLabel: label })
@@ -100,7 +103,7 @@ export function daemonRuntimeHost(
         ...(ctx.homeDir ? { homeDir: ctx.homeDir } : {}),
         reportVersionProbe: (harness, output) => reportHarnessProbe(harness, output),
       }),
-    launch: (msg, instrumentation) => launchSpawn(ctx, msg, {}, instrumentation, true),
+    launch: (input) => launchTerminalProcess(ctx, input),
     readHistory: async (session, range) => {
       const segmentId = `history:${session.sessionId}:${session.resume?.value ?? ''}`
       if (range.from && (range.from.segmentId !== segmentId || !range.from.pathHint)) {
@@ -244,31 +247,46 @@ export function dialEngineSocket(path: string): Promise<CodexRawSocket> {
 }
 
 /**
- * Compose an engine child's environment. The same stored-login precedence
- * merge every other child gets (instance overlay, managed credentials,
- * inherited overrides stripped) — owned here so no family re-derives it.
- * The harness identity arrives as a value the families read off their own
- * adapter sections; no literal here.
+ * The Podium-owned half of a session child's env — the relay pair its `podium`
+ * CLI speaks through and the browser-open shim. The daemon's `sessionProcessEnv`
+ * (control/session.ts) is the one implementation; tests pass a stand-in.
  */
-export function composeEngineEnv(input: {
-  sessionId: SessionId
-  agentKind: AgentKind
-  homeDir?: string
-  sessionEnv?: Readonly<Record<string, string>>
-  harnessEnv?: Readonly<Record<string, string>>
-  instanceUuid?: string
-}): Record<string, string> {
-  const env = serverChildEnv({
-    ...(input.instanceUuid ? { instanceUuid: input.instanceUuid } : {}),
-    sessionId: input.sessionId,
-    agentKind: input.agentKind,
-    ...(input.homeDir ? { homeDir: input.homeDir } : {}),
-    ...(input.sessionEnv ? { sessionEnv: input.sessionEnv } : {}),
-    ...(input.harnessEnv ? { harnessEnv: input.harnessEnv } : {}),
-  })
-  const out: Record<string, string> = {}
-  for (const [key, value] of Object.entries(env)) if (value !== undefined) out[key] = value
-  return out
+export type SessionProcessEnv = (
+  sessionId: SessionId,
+  agentKind: AgentKind,
+) => Readonly<Record<string, string>>
+
+/**
+ * The engine families' `buildEnv`: an engine child's whole environment. The
+ * same stored-login precedence merge every other child gets (instance overlay,
+ * managed credentials, inherited overrides stripped) PLUS the session's
+ * Podium env — owned here so no family re-derives either, and built from a
+ * {@link SessionProcessEnv} so no wiring can hand a family a builder that
+ * leaves the relay out. The harness identity arrives as a value the families
+ * read off their own adapter sections; no literal here.
+ */
+export function engineEnvBuilder(podium: SessionProcessEnv) {
+  return (input: {
+    sessionId: SessionId
+    agentKind: AgentKind
+    homeDir?: string
+    sessionEnv?: Readonly<Record<string, string>>
+    harnessEnv?: Readonly<Record<string, string>>
+    instanceUuid?: string
+  }): Record<string, string> => {
+    const env = serverChildEnv({
+      ...(input.instanceUuid ? { instanceUuid: input.instanceUuid } : {}),
+      sessionId: input.sessionId,
+      agentKind: input.agentKind,
+      podiumEnv: podium(input.sessionId, input.agentKind),
+      ...(input.homeDir ? { homeDir: input.homeDir } : {}),
+      ...(input.sessionEnv ? { sessionEnv: input.sessionEnv } : {}),
+      ...(input.harnessEnv ? { harnessEnv: input.harnessEnv } : {}),
+    })
+    const out: Record<string, string> = {}
+    for (const [key, value] of Object.entries(env)) if (value !== undefined) out[key] = value
+    return out
+  }
 }
 
 /**

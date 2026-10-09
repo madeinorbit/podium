@@ -1,12 +1,12 @@
 import type { AgentSessionHandle, RuntimeEvent } from '@podium/harness/driver/host'
-import { asSessionId } from '@podium/model'
-import { describe, expect, it, vi } from 'vitest'
-import { composeMailContext, createAckReminderInjector, createMailInjector } from '../mail-injector'
 import {
   createMailContinuation,
   MAIL_BOUNDARY_OPTIONS,
   respondToMailBoundary,
-} from './mail-boundary'
+} from '@podium/harness/driver/host'
+import { asSessionId } from '@podium/model'
+import { describe, expect, it, vi } from 'vitest'
+import { composeMailContext, createAckReminderInjector, createMailInjector } from '../mail-injector'
 
 const id = asSessionId('mail-boundary')
 function event(

@@ -46,9 +46,11 @@ import type { RuntimeDurableQueuePort } from './runtime-gateway'
  * HOW A MIGRATED CALLER NAMES ITS INTENT.
  *
  * The vocabulary the callers already reason in. For an agent it maps onto the
- * durable row's delivery mode HERE, once: `interrupt` cuts the running turn,
- * everything else waits for the boundary (POD-4795). The four verbs still
- * differ for a shell, whose raw transport has no queue of its own to order.
+ * durable row's delivery mode HERE, once: `interrupt` cuts the running turn;
+ * anything else names no mode, and the queue's admission picks it by who is
+ * typing (`queuedDeliveryFor`: a person's chat steers, every other sender waits
+ * for the boundary — POD-4795, POD-5855). The four verbs still differ for a
+ * shell, whose raw transport has no queue of its own to order.
  */
 export type ReceiptSendVia = 'now' | 'queue' | 'interrupt' | 'wake'
 
@@ -229,7 +231,7 @@ export class ReceiptSender {
       text: input.text,
       origin: input.inputOrigin ?? 'controller',
       principal: input.principal ?? this.ports.systemPrincipal(),
-      delivery: via === 'interrupt' ? 'interrupt' : 'when-ready',
+      ...(via === 'interrupt' ? { delivery: 'interrupt' as const } : {}),
       ...(input.attachments?.length ? { attachments: input.attachments } : {}),
       // EVERYTHING THE LEGACY VERB CARRIED, CARRIED. A queued turn that lost its
       // `mutationId` makes every steward/automation retry a duplicate rather

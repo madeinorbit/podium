@@ -90,6 +90,7 @@ function testProfileFor(harness: AgentKind): TerminalHarnessProfile | undefined 
     exitLosesUnrecorded: terminal.exitLosesUnrecorded === true,
     lifecycleFromState: terminal.lifecycleFromState === true,
     needsSubmitVerification: harnessNeedsSubmitVerification(harness),
+    queuesBusyInput: terminal.queuesBusyInput === true,
     usesRawFirstTurn: harnessUsesRawFirstTurn(harness),
     archivable: declaredValue(manifest.handoffTranscript) !== undefined,
     reportsContextPercent: manifest.capabilities.observationProvider !== 'none',
@@ -381,24 +382,23 @@ function makeWorld(options: WorldOptions): {
     trackedState: (sessionId) => phases.get(sessionId),
     draftSyncing: () => false,
     setDraftTarget: () => false,
-    processAlive: async (sessionId) => alive.get(sessionId) === true,
-    recover: async (msg, ready) => {
-      if (!alive.get(msg.sessionId)) throw new Error('session not found')
-      ready(bridgeOf.get(msg.sessionId))
-      runtime?.observe({
-        type: 'bind',
-        sessionId: msg.sessionId,
-        cmd: 'fixture',
-        cwd: msg.cwd,
-        agentKind: msg.agentKind,
-      })
+    observationLease: () => undefined,
+    // The attach is the proof the process lives: no survivor, no recovery.
+    recover: async ({ sessionId, workdir, agentKind }) => {
+      if (!alive.get(sessionId)) throw new Error('session not found')
+      return {
+        terminal: bridgeOf.get(sessionId),
+        announce: () =>
+          runtime?.observe({ type: 'bind', sessionId, cmd: 'fixture', cwd: workdir, agentKind }),
+      }
     },
     stopSession: async ({ sessionId }) => {
       alive.set(sessionId, false)
       bridgeOf.delete(sessionId)
       return true
     },
-    launch: async (msg) => {
+    launch: async ({ sessionId, spec, resume }) => {
+      const msg = { sessionId, cwd: spec.workdir, agentKind: spec.harness as AgentKind, resume }
       alive.set(msg.sessionId, true)
       // A RESUMED launch is handed the conversation it is reopening; a fresh one
       // will mint its own when the first turn is written. Either way the ref the
@@ -410,36 +410,6 @@ function makeWorld(options: WorldOptions): {
       )
       phases.set(msg.sessionId, { phase: 'idle', since: iso(), nativeSubagentCount: 0 })
       turnEpochs.set(msg.sessionId, 0)
-      // THE CLI CAME UP. A real daemon says so with a `bind` frame — the same one
-      // `Session.markLive` flips the server's status on — and the queue drain
-      // waits for it, because typing into a session that is still painting is the
-      // POD-549 no-op. A fixture that skipped it would leave every session
-      // permanently `starting` and quietly disable the drain it means to test.
-      //
-      // AND IT ARRIVES ON A MACROTASK, WHICH IS NOT A DETAIL (POD-2085). The
-      // driver registers the session AFTER `launch()` resolves, and it drops any
-      // frame naming a session it has not registered yet. A `queueMicrotask`
-      // here therefore delivered the bind BEFORE registration, every time: the
-      // frame was discarded, `live` stayed false, and the ready-poll drain
-      // abandoned every queued turn at its deadline without typing — the exact
-      // silent loss this fixture's own comment says it exists to prevent. It went
-      // unnoticed because no property looked at what a queued turn DOES until
-      // POD-2085 added one. A real bind crosses a socket long after the spawn
-      // call returns; one macrotask is the smallest honest way to say so.
-      setTimeout(() => {
-        runtime?.observe({
-          type: 'bind',
-          sessionId: msg.sessionId,
-          cmd: 'fixture',
-          cwd: msg.cwd,
-          agentKind: msg.agentKind,
-          geometry: { cols: 120, rows: 40 },
-        })
-        // The store this launch was pointed at already exists on disk, so the
-        // harness reports it as soon as it is up rather than at a first turn it
-        // is not going to be the author of.
-        if (msg.resume) postResumeRef(msg.sessionId)
-      })
       const write = (dataBase64: string, role?: TerminalWriteRole) => {
           if (role !== 'message') {
             foreignCounts.set(msg.sessionId, (foreignCounts.get(msg.sessionId) ?? 0) + 1)
@@ -472,12 +442,46 @@ function makeWorld(options: WorldOptions): {
           // A CLI that is NOT going to accept this turn simply records nothing —
           // which is exactly what an unprovable send looks like from outside.
           if (suppressEcho.delete(msg.sessionId)) return
-          turnEpochs.set(msg.sessionId, (turnEpochs.get(msg.sessionId) ?? 0) + 1)
+          // A PROMPT SUBMITTED INTO A RUNNING TURN JOINS IT (POD-5855): the CLI
+          // records it and opens no turn of its own. One submitted to an idle
+          // CLI opens a turn, as a real CLI does — so the corpus's steer
+          // properties find the turn their first send opened.
+          const running = phases.get(msg.sessionId)?.phase === 'working'
+          if (!running) turnEpochs.set(msg.sessionId, (turnEpochs.get(msg.sessionId) ?? 0) + 1)
           echoUserTurn(msg.sessionId, pasted)
+          if (!running && !profile.lifecycleFromState) {
+            runtime?.observe({
+              type: 'agentObservation',
+              observation: observation(msg.sessionId, 'turn_opened', 'working'),
+            } as DaemonMessage)
+            phases.set(msg.sessionId, { phase: 'working', since: iso(), nativeSubagentCount: 0 })
+          }
       }
       // The fake surface the host hands at bind (POD-4785): the write logic
       // above is verbatim the old `attachment.write`, now as `writeBase64`.
       bridgeOf.set(msg.sessionId, { live: true, writeBase64: write })
+      return {
+        // THE CLI CAME UP, and the host says so with the `bind` frame its
+        // announcement sends — the same one `Session.markLive` flips the
+        // server's status on — and the queue drain waits for it, because typing
+        // into a session that is still painting is the POD-549 no-op. The driver
+        // announces only once it has registered the session (POD-5814), so the
+        // frame names a session it already holds: the POD-2085 drop cannot occur.
+        announce: () => {
+          runtime?.observe({
+            type: 'bind',
+            sessionId: msg.sessionId,
+            cmd: 'fixture',
+            cwd: msg.cwd,
+            agentKind: msg.agentKind,
+            geometry: { cols: 120, rows: 40 },
+          })
+          // The store this launch was pointed at already exists on disk, so the
+          // harness reports it as soon as it is up rather than at a first turn
+          // it is not going to be the author of.
+          if (msg.resume) postResumeRef(msg.sessionId)
+        },
+      }
     },
     readHistory: async (session, range) => pageHistory(transcriptFor(session.sessionId), session.sessionId, range),
     archiveTranscript: async ({ resumeValue }) => {

@@ -444,6 +444,31 @@ describe('the stream client', () => {
     }
   })
 
+  it('lets a turn without a deadline run as long as it takes', async () => {
+    vi.useFakeTimers()
+    try {
+      const fake = fakeTransport()
+      const client = createClaudeStreamClient(fake.transport, {})
+      const turn = client.turn('hello', {
+        onPartialText: () => {},
+        onPermission: () => {},
+        onToolCall: () => {},
+        onToolResult: () => {},
+        emit: () => {},
+      })
+      completeTurn(fake, 'sess-long')
+      await vi.advanceTimersByTimeAsync(3_600_000)
+      const interrupts = fake.writes
+        .map((line) => JSON.parse(line))
+        .filter((msg) => msg.type === 'control_request' && msg.request?.subtype === 'interrupt')
+      expect(interrupts).toEqual([])
+      fake.emitLine(frame({ type: 'result', subtype: 'success', result: 'all of it' }))
+      await expect(turn.done).resolves.toMatchObject({ output: 'all of it' })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('reports a result error with the harness session id attached', async () => {
     const fake = fakeTransport()
     const client = createClaudeStreamClient(fake.transport, {})
@@ -488,6 +513,76 @@ describe('the stream client', () => {
     expect(answers.get('e1').response.response).toEqual({ action: 'decline' })
     expect(answers.get('h1').response.subtype).toBe('error')
     expect(answers.has('d1')).toBe(false)
+    client.close()
+  })
+
+  it('registers the boundary hooks only for a session with a boundary context', () => {
+    expect(initializePayload({ boundaryHooks: true })).toEqual({
+      subtype: 'initialize',
+      hooks: {
+        SessionStart: [{ matcher: null, hookCallbackIds: ['podium_boundary_SessionStart'] }],
+        UserPromptSubmit: [{ matcher: null, hookCallbackIds: ['podium_boundary_UserPromptSubmit'] }],
+        PreCompact: [{ matcher: null, hookCallbackIds: ['podium_boundary_PreCompact'] }],
+      },
+    })
+    const fake = fakeTransport()
+    const client = createClaudeStreamClient(fake.transport, { boundaryContext: async () => null })
+    const init = JSON.parse(fake.writes[0]!)
+    expect(Object.keys(init.request.hooks)).toEqual(['SessionStart', 'UserPromptSubmit', 'PreCompact'])
+    client.close()
+  })
+
+  it('answers boundary hooks in band with the hidden context, once, and rearms on compaction', async () => {
+    const fake = fakeTransport()
+    const respond = vi.fn(async ({ event }: { event: string }) =>
+      event === 'before-compaction' ? null : `prime for ${event}`,
+    )
+    const client = createClaudeStreamClient(fake.transport, { boundaryContext: respond })
+    answerInitialize(fake)
+    fake.writes.length = 0
+    const hook = (id: string, callbackId: string, input: Record<string, unknown>) =>
+      fake.emitLine(
+        frame({
+          type: 'control_request',
+          request_id: id,
+          request: { subtype: 'hook_callback', callback_id: callbackId, input },
+        }),
+      )
+    const answer = async (id: string) =>
+      vi.waitFor(() => {
+        const msg = fake.writes.map((line) => JSON.parse(line)).find(
+          (m) => m.type === 'control_response' && m.response.request_id === id,
+        )
+        expect(msg).toBeDefined()
+        return msg.response
+      })
+
+    hook('p1', 'podium_boundary_UserPromptSubmit', { hook_event_name: 'UserPromptSubmit' })
+    expect(await answer('p1')).toEqual({
+      subtype: 'success',
+      request_id: 'p1',
+      response: {
+        hookSpecificOutput: { hookEventName: 'UserPromptSubmit', additionalContext: 'prime for prompt' },
+      },
+    })
+
+    hook('c1', 'podium_boundary_PreCompact', { hook_event_name: 'PreCompact' })
+    expect((await answer('c1')).response).toEqual({})
+    hook('s1', 'podium_boundary_SessionStart', { hook_event_name: 'SessionStart', source: 'compact' })
+    expect((await answer('s1')).response).toEqual({
+      hookSpecificOutput: { hookEventName: 'SessionStart', additionalContext: 'prime for start' },
+    })
+    // The compact start re-arms before it primes; the codec asks the operation,
+    // the operation (not the wire) decides once-ness.
+    expect(respond.mock.calls.map(([request]) => request.event)).toEqual([
+      'prompt',
+      'before-compaction',
+      'before-compaction',
+      'start',
+    ])
+
+    hook('x1', 'hook_7', { hook_event_name: 'Stop' })
+    expect((await answer('x1')).subtype).toBe('error')
     client.close()
   })
 

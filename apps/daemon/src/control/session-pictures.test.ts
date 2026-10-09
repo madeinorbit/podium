@@ -107,7 +107,6 @@ function world(opts: { accepted: boolean }) {
       detach: () => {},
     },
     sessionCwdTracker: { clear: () => {} },
-    primeInjector: { reset: () => {} },
   } as unknown as DaemonContext
   return { ctx, sent, order, scheduled, observed, composed }
 }

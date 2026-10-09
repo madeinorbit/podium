@@ -16,7 +16,7 @@ import type { SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { manifestFor } from '../../../registry.js'
-import { createMemoryDriverSlots } from '../../testing/index.js'
+import { createMemoryDriverSlots, serverFamilyLaunch } from '../../testing/index.js'
 import { grokEngineFacts } from './engine-facts.js'
 import { createGrokSessionRuntime, type DaemonGrokRuntime } from './session.js'
 import type { GrokAcpRuntimeHost } from './runtime.js'
@@ -72,10 +72,19 @@ describe('grok-acp launch with an initial prompt', () => {
     })
     runtimes.push(runtime)
 
-    await runtime.launch({ sessionId: SESSION_ID, cwd: '/work', initialPrompt: PROMPT })
+    await runtime.launch(
+      serverFamilyLaunch({
+        sessionId: SESSION_ID,
+        cwd: '/work',
+        initialPrompt: PROMPT,
+        instructions: [{ source: 'podium:issues', content: 'Run `podium issue prime`.' }],
+      }),
+    )
 
     const server = servers.get(SESSION_ID)!
     expect(server).toBeDefined()
+    // The spec's instructions reach Grok as session rules (POD-5814).
+    expect(server.sessionNews[0]).toMatchObject({ _meta: { rules: 'Run `podium issue prime`.' } })
     await vi.waitFor(() => expect(server.promptCount).toBe(1))
 
     const turnStarted = await vi.waitFor(() => {

@@ -51,7 +51,7 @@ import {
 } from './runtime.js'
 import type { OpencodeEngineFlavor } from './engine-facts.js'
 import { reportQueueAbandonment } from '../queue-report.js'
-import type { ServerSessionFramePorts } from '../server-family.js'
+import type { ServerFamilyLaunch, ServerSessionFramePorts } from '../server-family.js'
 import type { SessionDriverSlots } from '../session-slots.js'
 import type { ServerFamilyJournalEntry } from '../server-family.js'
 import { createLogger } from '@podium/logger'
@@ -72,19 +72,11 @@ export interface OpencodeSessionDeps extends ServerSessionFramePorts {
   engine: OpencodeRuntimeHost
 }
 
-export interface OpencodeSessionLaunch {
-  sessionId: SessionId
-  cwd: string
-  model?: string
-  effort?: string
-  env?: Readonly<Record<string, string>>
-  initialPrompt?: string
-}
 
 export interface DaemonOpencodeRuntime extends OpencodeRuntime {
   /** Start a session on this driver and put it behind the contract. Resolves
    *  when the server is up and the opencode session exists. */
-  launch(input: OpencodeSessionLaunch): Promise<void>
+  launch(input: ServerFamilyLaunch): Promise<void>
   /**
    * Re-bind a session whose SERVER survived this daemon, from the journal alone.
    *
@@ -324,27 +316,8 @@ export function createOpencodeSessionRuntime(deps: OpencodeSessionDeps): DaemonO
        * relabelled as bootstrap — which the server's event gate refuses, with
        * the rest of that turn, once any earlier event has set a checkpoint.
        */
-      const { initialPrompt, ...launch } = input
-      const handle = await runtime.createWithId(launch.sessionId, {
-        harness: deps.flavor.harnessKind,
-        selection: {
-          auth: 'api-key',
-          platform: process.platform,
-          available: [deps.flavor.driverId],
-          preference: deps.flavor.driverId,
-        },
-        workdir: input.cwd,
-        model: {
-          ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
-          ...(input.effort && input.effort !== 'auto' ? { effort: input.effort } : {}),
-        },
-        instructions: {
-          supported: false,
-          reason: 'opencode takes its instructions from OPENCODE_CONFIG_CONTENT at spawn',
-        },
-        mcpServers: { supported: false, reason: 'opencode MCP config rides its own config file' },
-        ...(input.env ? { env: input.env } : {}),
-      })
+      const { initialPrompt, ...spec } = input.spec
+      const handle = await runtime.createWithId(input.sessionId, spec)
       pump(input.sessionId)
       /**
        * `bind` IS WHAT MARKS THE SESSION LIVE, and it is sent with the truth
@@ -363,7 +336,7 @@ export function createOpencodeSessionRuntime(deps: OpencodeSessionDeps): DaemonO
       deps.emitBind({
           sessionId: input.sessionId,
           cmd: `opencode serve (${handle.binding.driver})`,
-          cwd: input.cwd,
+          cwd: spec.workdir,
           agentKind: deps.flavor.harnessKind,
           /**
            * THE BIND FACT, AND FOR THIS FAMILY IT IS NOT OPTIONAL (POD-2023).

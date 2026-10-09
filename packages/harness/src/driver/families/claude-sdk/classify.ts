@@ -5,6 +5,7 @@ export type ClaudeSdkFailureClass =
   | 'rate_limit'
   | 'authentication'
   | 'host_death'
+  | 'timeout'
   | 'provider-error'
 
 export interface ClaudeSdkFailure {
@@ -83,6 +84,10 @@ export function classifyClaudeSdkFailure(detail: string): ClaudeSdkFailure {
     )
   ) {
     return { errorClass: 'host_death', retryable: true }
+  }
+  // The caller's own deadline ran out: a budget verdict, not a provider fault.
+  if (/^turn timed out$/.test(text)) {
+    return { errorClass: 'timeout', retryable: true }
   }
   return { errorClass: 'provider-error', retryable: false }
 }

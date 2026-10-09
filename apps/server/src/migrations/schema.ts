@@ -1071,7 +1071,8 @@ export const queuedMessages = sqliteTable(
     sourceMessageId: text('source_message_id'),
     // HOW THE DAEMON TYPES THE ROW (POD-4795): 'when-ready' waits for the turn
     // boundary; 'interrupt' goes ahead of waiting rows and cuts the running
-    // turn. A mode of the one queue, not a second path around it.
+    // turn; 'steer' (POD-5855) is handed to a running turn where the agent
+    // queues mid-turn input. A mode of the one queue, not a second path around it.
     delivery: text().default('when-ready').notNull(),
     // Staged file refs the row carries to the daemon, as JSON; null = none.
     attachmentsJson: text('attachments_json'),

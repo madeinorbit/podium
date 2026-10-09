@@ -11,7 +11,7 @@ describe('buildJoinCommand', () => {
       name: 'vps',
     })
     expect(line).toContain(
-      'https://github.com/madeinorbit/podium/releases/latest/download/install.sh --channel stable --agents codex,claude-code,grok --managed --join ',
+      'https://podium.do/install.sh --channel stable --agents codex,claude-code,grok --managed --join ',
     )
     expect(line).toContain('apt-get install -y --no-install-recommends ca-certificates curl')
     expect(line).toContain('apk add --no-cache ca-certificates curl')

@@ -1443,6 +1443,16 @@ export interface TerminalRuntimeSpec {
    * proves nothing, and such a prompt ends `unknown`.
    */
   exitLosesUnrecorded?: true
+  /**
+   * A PROMPT ENTERED DURING A RUNNING TURN GOES INTO THE PROGRAM'S OWN QUEUE
+   * (POD-5855), *run* on this program (docs/measurements/pod-4834-receipt-proof
+   * grid §2): Enter on the busy TUI does not cut the turn, and the program takes
+   * the prompt in itself, at its next step or as the next turn, one entry per
+   * prompt in submit order. Declared, a person's chat is typed at once instead
+   * of waiting for the turn to end (`steer`). Absent: never measured, so it
+   * waits for the boundary.
+   */
+  queuesBusyInput?: true
 }
 
 /**

@@ -14,6 +14,7 @@ import { claudeEngineProcessKey, type ClaudeEngineFacts } from './engine-facts.j
 import { reportQueueAbandonment } from '../queue-report.js'
 import type {
   ServerFamilyJournalEntry,
+  ServerFamilyLaunch,
   ServerFamilyRuntime,
   ServerSessionFramePorts,
 } from '../server-family.js'
@@ -37,13 +38,7 @@ const log = createLogger('harness:claude-sdk-session')
 export const claudeSdkHarnessKind = 'claude-code' as const
 const publishedClaudeBindings = new WeakSet<AgentSessionHandle>()
 
-export interface ClaudeSdkSessionLaunch {
-  sessionId: SessionId
-  cwd: string
-  model?: string
-  effort?: string
-  env?: Readonly<Record<string, string>>
-  initialPrompt?: string
+export interface ClaudeSdkSessionLaunch extends ServerFamilyLaunch {
   resume?: ResumeRef
 }
 
@@ -99,10 +94,7 @@ export async function ensureClaudeBindingPublished(
  */
 export interface DaemonClaudeSdkRuntime extends ClaudeSdkRuntime, ServerFamilyRuntime {
   launch(input: ClaudeSdkSessionLaunch): Promise<AgentSessionHandle>
-  launchResumed(
-    input: Omit<ClaudeSdkSessionLaunch, 'resume'>,
-    resume: ResumeRef,
-  ): Promise<AgentSessionHandle>
+  launchResumed(input: ServerFamilyLaunch, resume: ResumeRef): Promise<AgentSessionHandle>
   /** Every session this runtime currently holds. */
   has(sessionId: SessionId): boolean
   /**
@@ -279,7 +271,8 @@ export function createClaudeSdkSessionRuntime(
     deps.send({ type: 'sessionResumeRef', sessionId, resume, confidence: 'exact' })
   }
 
-  function launchSpec(input: {
+  /** The spec a journal adopt runs under: only what the journal recorded. */
+  function journalSpec(input: {
     cwd: string
     model?: string
     effort?: string
@@ -377,7 +370,7 @@ export function createClaudeSdkSessionRuntime(
         sessionId,
         { kind: 'claude-session', value: entry.claudeSessionId },
         {
-          ...launchSpec({
+          ...journalSpec({
             cwd: entry.workdir,
             ...(entry.model ? { model: entry.model } : {}),
             ...(entry.effort ? { effort: entry.effort } : {}),
@@ -415,10 +408,10 @@ export function createClaudeSdkSessionRuntime(
       // was read, so the turn start went out relabelled as bootstrap — behind
       // the checkpoint `session_started` had already set, which the server's
       // event gate refuses along with the rest of that turn.
-      const { initialPrompt, ...launch } = input
-      const handle = launch.resume
-        ? await contractRuntime.resumeWithId(launch.sessionId, launch.resume, launchSpec(launch))
-        : await contractRuntime.createWithId(launch.sessionId, launchSpec(launch))
+      const { initialPrompt, ...spec } = input.spec
+      const handle = input.resume
+        ? await contractRuntime.resumeWithId(input.sessionId, input.resume, spec)
+        : await contractRuntime.createWithId(input.sessionId, spec)
       pump(input.sessionId)
       deps.sessionReady(handle.binding)
       // THE BIND IS BARE (POD-3290). A stream engine has no terminal of any
@@ -429,12 +422,12 @@ export function createClaudeSdkSessionRuntime(
         deps,
         {
           sessionId: input.sessionId,
-          cwd: input.cwd,
+          cwd: spec.workdir,
           agentKind: claudeSdkHarnessKind,
         },
         handle,
       )
-      if (initialPrompt && !launch.resume) {
+      if (initialPrompt && !input.resume) {
         await handle.send({ text: initialPrompt }, { origin: 'system', delivery: 'when-ready' })
       }
       return handle

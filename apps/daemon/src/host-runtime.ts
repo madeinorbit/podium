@@ -101,11 +101,9 @@ import type { DaemonContext, DurableBackend } from './control/context'
 import { reportInventory, startInventoryRefresh } from './control/inventory'
 import {
   forwardPicture,
-  launchSpawn,
   onSessionSize,
-  recoverTerminalHost,
   sendBind,
-  sessionRelayEnv,
+  sessionProcessEnv,
   stopSessionProcess,
 } from './control/session'
 import { headlessTurnEnv, spawnEnv } from './control/session-env'
@@ -141,20 +139,19 @@ import { attributeMemory, snapshotProcesses } from './memory-breakdown'
 import { OutputScheduler } from './output-scheduler'
 import { readPendingGrant, writePendingGrant } from './pending-grant'
 import { type PortableStateControl, PortableStateFence } from './portable-state-fence'
-import { createPrimeInjector, primeHookResponse } from './prime-injector'
 import { makeQuotaFetcher } from '@podium/harness/inventory'
 import { createReattachGates } from './reattach-gates'
 import { stageRuntimeAttachment } from './runtime/attachment-staging'
 import { driverTiming } from './runtime/driver-timing'
-import { createMailContinuation } from './runtime/mail-boundary'
+import { createMailContinuation } from '@podium/harness/driver/host'
 import type { DaemonClaudeSdkRuntime } from '@podium/harness/driver/host'
 import type { DaemonCodexRuntime } from '@podium/harness/driver/host'
 import type { DaemonGrokRuntime } from '@podium/harness/driver/host'
 import {
-  composeEngineEnv,
   daemonRuntimeHost,
   dialEngineSocket,
   engineClientTerminals,
+  engineEnvBuilder,
   engineSocketRoot,
 } from './runtime/host'
 import type { ClientTerminalKind } from './runtime/opencode-attach'
@@ -171,7 +168,11 @@ import { createSessionClientScope } from './session/clients.js'
 import type { DaemonOpencodeRuntime } from '@podium/harness/driver/host'
 import { createScopeMonitor } from './runtime/scope-monitor'
 import { beginServerDriverReap, type ServerReapIo } from './runtime/server-reap'
-import { createTerminalRuntime, type TerminalRuntime } from '@podium/harness/driver/host'
+import {
+  boundaryHookResponse,
+  createTerminalRuntime,
+  type TerminalRuntime,
+} from '@podium/harness/driver/host'
 import { SessionBinding } from './session-binding'
 import { createSessionObservers } from './session-observers'
 import { sessionModelSize, terminalScreenFor, trackSessionOutput } from './session-screens'
@@ -689,7 +690,6 @@ export async function createDaemonHostRuntime(args: {
       proc: 'prime',
       input: {},
     })
-  const primeInjector = createPrimeInjector(primeSource)
   const mailInjector = createMailInjector((sessionId) =>
     agentRelayHub.relay({
       sessionId,
@@ -708,18 +708,16 @@ export async function createDaemonHostRuntime(args: {
   )
   const mailContext = composeMailContext(mailInjector, ackReminder)
   const respondTo = composeResponders(
-    (sessionId, payload, signal) => terminalRuntime?.boundaryContextFor(sessionId)
-      ? Promise.resolve(null)
-      : primeInjector.respondTo(sessionId, payload, signal),
     async (sessionId, payload, signal) => terminalRuntime?.respondToHook(sessionId, payload, signal) ?? null,
   )
   const ingest = await startHookIngest({
     port: opts.hooks?.port ?? resolveHookPort(config),
     ...(instance.hookSocketPath ? { socketPath: instance.hookSocketPath } : {}),
-    // Driver context is a transport boundary, independent of optional legacy responders.
+    // The driver's boundary context, answered over a terminal session's HTTP
+    // hooks with the same codec the stream engine answers in band (POD-5814).
     boundaryContext: async (sessionId, payload, signal) => {
       const operation = terminalRuntime?.boundaryContextFor(sessionId)
-      return operation ? primeHookResponse(operation, payload, signal) : null
+      return operation ? boundaryHookResponse(operation, payload, signal) : null
     },
     respondTo,
     beforeAck: async (sessionId, payload) => {
@@ -1031,7 +1029,6 @@ export async function createDaemonHostRuntime(args: {
     outputScheduler,
     observers,
     sessionCwdTracker,
-    primeInjector,
     reattachGate: gates.reattachGate,
     tailSeedGate: gates.tailSeedGate,
     hookSocketPath: instance.hookSocketPath,
@@ -1197,6 +1194,11 @@ export async function createDaemonHostRuntime(args: {
    * (For POD-4506: this edit touches nothing near the
    * native-client maps at ~1003-1005; their construction is unchanged.)
    */
+  // Every engine family's child env, built over the one session process env
+  // so each engine's `podium` CLI speaks as its own session (POD-5814).
+  const buildEngineEnv = engineEnvBuilder((sessionId, agentKind) =>
+    sessionProcessEnv(ctx, sessionId, agentKind),
+  )
   const sessionEngines = createSessionEngineScope(engineDurable, {
     sessions: ctx.sessions,
     socketRoot: engineSocketRoot,
@@ -1241,7 +1243,7 @@ export async function createDaemonHostRuntime(args: {
     facts: claudeFacts,
     engines: sessionEngines.ownerFor<ClaudeEngineJournalEntry>(claudeFacts.journalNamespace),
     supervision: sessionEngines,
-    buildEnv: composeEngineEnv,
+    buildEnv: buildEngineEnv,
     gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
     // The instance agent home the transcript reader already resolves against
     // (control/transcripts.ts sourceForRead), so the engine child writes its
@@ -1251,6 +1253,9 @@ export async function createDaemonHostRuntime(args: {
       ? { executablePath: resolvedHarnessPath(generationInventory, claudeSdkHarnessKind) }
       : {}),
     instanceUuid: instance.instanceUuid,
+    // The issue prime, from the same source the terminal family primes from,
+    // delivered in band at the engine's own boundaries (POD-5814).
+    boundaryContextSource: primeSource,
   })
   claudeRuntime = createClaudeSdkSessionRuntime({
     send,
@@ -1280,7 +1285,7 @@ export async function createDaemonHostRuntime(args: {
     supervision: sessionEngines,
     resources: (subject) => scopeMonitor.resources(subject),
     stageAttachment,
-    buildEnv: composeEngineEnv,
+    buildEnv: buildEngineEnv,
     gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
     checkVersion: ({ executable }) =>
       opencodeVersionProbeForExecutable(executable).then((verdict) =>
@@ -1320,7 +1325,7 @@ export async function createDaemonHostRuntime(args: {
     // opencode host refuses a Native attach with its per-machine wording.
     ...(clientTerminals ? { clientTerminals: engineClientTerminals(clientTerminals) } : {}),
     stageAttachment,
-    buildEnv: composeEngineEnv,
+    buildEnv: buildEngineEnv,
     gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
     checkVersion: ({ executable }) =>
       opencode2VersionProbeForExecutable(executable).then((verdict) =>
@@ -1354,7 +1359,7 @@ export async function createDaemonHostRuntime(args: {
     supervision: sessionEngines,
     resources: (subject) => scopeMonitor.resources(subject),
     stageAttachment,
-    buildEnv: composeEngineEnv,
+    buildEnv: buildEngineEnv,
     gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
     checkVersion: () => codexAppServerVersionProbe(),
     dialSocket: sessionEngines.dialerFor(dialEngineSocket),
@@ -1402,7 +1407,7 @@ export async function createDaemonHostRuntime(args: {
     engines: sessionEngines.ownerFor<GrokAcpJournalEntry>(grokFacts.journalNamespace),
     supervision: sessionEngines,
     resources: (subject) => scopeMonitor.resources(subject),
-    buildEnv: composeEngineEnv,
+    buildEnv: buildEngineEnv,
     gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
     checkVersion: () => grokAcpVersionProbe(),
     // Omitted outright on a backend=none daemon (POD-3917): same rule as the
@@ -1477,13 +1482,7 @@ export async function createDaemonHostRuntime(args: {
       spawnEnv({
         sessionEnv: snapshot.commandEnvironment.env,
         podiumEnv: {
-          ...sessionRelayEnv(
-            sessionId,
-            ctx.agentRelayEndpointFor(sessionId),
-            ctx.instanceId,
-            agent,
-            ctx.instanceUuid,
-          ),
+          ...sessionProcessEnv(ctx, sessionId, agent),
           ...(ctx.homeDir ? { HOME: ctx.homeDir } : {}),
           ...(toolPolicyNone && ctx.accountHome
             ? {

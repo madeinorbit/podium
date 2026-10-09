@@ -58,6 +58,13 @@ describe('Claude SDK provider failure classification', () => {
     })
   })
 
+  it('classifies a spent turn deadline as a retryable timeout, not a provider error', () => {
+    expect(classifyClaudeSdkFailure('turn timed out')).toEqual({
+      errorClass: 'timeout',
+      retryable: true,
+    })
+  })
+
   it('keeps monthly-spend and auth text from SDKResultError.errors, redacted', () => {
     const spend = formatClaudeSdkResultFailure({
       subtype: 'error_during_execution',

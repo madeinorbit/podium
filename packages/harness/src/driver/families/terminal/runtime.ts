@@ -3,7 +3,6 @@ import {
   type BoundaryContextOperation,
   type BoundaryContextRequest,
   createBoundaryContext,
-  type InstalledTerminalInstrumentation,
   prepareTerminalInstrumentation,
   reportInstrumentationDegradation,
   withDeliveryQueue,
@@ -12,8 +11,8 @@ import type { SessionDriverSlots } from '../session-slots.js'
 import type {
   TerminalDriverReport,
   TerminalHostPorts,
-  TerminalReattachControl,
-  TerminalSpawnControl,
+  TerminalObservationLease,
+  TerminalRecover,
   TerminalTransport,
 } from './host-ports.js'
 import { respondToMailBoundary } from './mail-boundary.js'
@@ -87,7 +86,7 @@ import type {
   TerminalEchoCorrelation,
   TranscriptTimestampFidelity,
 } from '../../../index.js'
-import { canonicalDriverId, podiumFrameId } from '../../../index.js'
+import { podiumFrameId } from '../../../index.js'
 import { harnessCapabilitiesFor, isCommandWrapperText, isGenericClaudeTitle, isTransientTitle, stripSpinnerFrame } from '../../../metadata.js'
 import { decodeCursor } from '../../../store/cursor-codec.js'
 import type {
@@ -172,7 +171,7 @@ export const EVENT_LOG_LIMIT = 512
 /**
  * How many frames one not-yet-registered session may hold (POD-2107).
  *
- * The window is one `await` wide — a launch or a `processAlive` probe — so a
+ * The window is one `await` wide — a launch or a recovery — so a
  * healthy one holds a handful of frames at most. The cap is a backstop against a
  * create that never resolves turning a per-session buffer into a leak, and it is
  * generous rather than tight because the frames it protects are the session's
@@ -409,6 +408,9 @@ export interface TerminalHarnessProfile {
   lifecycleFromState?: boolean
   /** Whether this harness's CLI needs the submit-verify CR nudges. */
   needsSubmitVerification: boolean
+  /** A prompt entered during a running turn goes into the program's own
+   *  queue (POD-5855): see `TerminalRuntimeSpec.queuesBusyInput`. */
+  queuesBusyInput?: boolean
   /** Grok's fresh TUI ignores bracketed paste until its first native turn. */
   usesRawFirstTurn: boolean
   archivable: boolean
@@ -492,7 +494,6 @@ export interface TerminalRuntime {
   /** Undefined means this session has no driver-owned context channel. */
   boundaryContextFor(sessionId: SessionId): BoundaryContextOperation | undefined
 
-  recoverWithId(msg: TerminalReattachControl, profile: TerminalHarnessProfile): Promise<AgentSessionHandle>
   observeDraft(sessionId: SessionId, text: string): void
   /** Put a session behind the contract. Idempotent for the same binding version:
    *  a reconnect re-sends reattach, and re-registering must rebind rather than
@@ -532,12 +533,12 @@ export interface TerminalRuntime {
    */
   reportOomKill(sessionId: SessionId, scopeUnit?: string): void
 
-  /** Creation with a server-assigned identity and the existing launch frame. */
+  /** Creation under a server-assigned identity, from the contract's spec: the
+   *  same path `driver.create()`/`resume()` take with an id they minted. */
   createWithId(
     sessionId: SessionId,
     spec: SessionSpec,
     profile: TerminalHarnessProfile,
-    launch: (instrumentation: InstalledTerminalInstrumentation) => Promise<void>,
     resume?: ResumeRef,
   ): Promise<AgentSessionHandle>
 
@@ -632,7 +633,7 @@ export function createTerminalRuntime(
    * close the same window, but it puts a session record in the map for a process
    * that may never exist: `create()` would leave a phantom behind when
    * `host.launch` throws, and `adopt()` MUST NOT hold a record when
-   * `processAlive` says no — refusing is its whole contract, and a phantom
+   * `host.recover` finds no survivor — refusing is its whole contract, and a phantom
    * would then answer `not_running` to everything until something called
    * `clear()`. Buffering keeps registration exactly where it is and only changes
    * what happens to frames that arrive early: they are replayed, in arrival
@@ -2310,9 +2311,8 @@ export function createTerminalRuntime(
       resume: session.resume,
       process: {
         // SESSION-SCOPED, and opaque to the contract: the driver never resolves
-        // labels, scope units or pids itself — the daemon resolves the entry's
-        // durable label per session, and identity beyond this key lives in
-        // host.recover's fence.
+        // labels, scope units or pids itself — the host resolves the entry's
+        // durable label per session, and `adopt()` refuses any other key.
         key: session.sessionId,
       },
       bindingVersion: session.bindingVersion,
@@ -2526,9 +2526,30 @@ export function createTerminalRuntime(
           return enqueue()
         }
 
-        // DEGRADATION IS REPORTED, NEVER SILENT. A TUI cannot append into an open
-        // turn, so `steer` becomes `queue` and `deliveredAs` says so.
-        const requested: TurnDelivery = options.delivery
+        const trackedPhase = host.trackedState(session.sessionId)?.phase
+        // See BUSY IS NOT IDLE below for why the open turn is checked too.
+        const turnOpen = profile?.lifecycleFromState === true || session.epochOpen
+        // A STEER IS TYPED INTO A RUNNING TURN WHERE THE PROGRAM QUEUES IT
+        // (POD-5855). Enter on a busy TUI that declares `queuesBusyInput` does
+        // not cut the turn: the program holds the prompt and takes it in at
+        // its next step, or runs it as the next turn. Into an idle session a
+        // steer is an ordinary new turn, typed as `when-ready` below, as the
+        // Codex driver does. A compaction is not a running turn here: what a
+        // TUI does with input then was never measured, so it waits.
+        const steerNow = options.delivery === 'steer' && profile?.queuesBusyInput === true
+        if (steerNow && trackedPhase === 'working' && turnOpen) {
+          return session.injection.deliver(text, {
+            origin: options.origin,
+            delivery: 'steer',
+            signal: options.signal,
+            ...(input.id !== undefined ? { turnId: input.id } : {}),
+            ...followUps(options),
+          })
+        }
+        // DEGRADATION IS REPORTED, NEVER SILENT. A TUI that does not queue
+        // mid-turn input cannot append into an open turn, so `steer` becomes
+        // `queue` and `deliveredAs` says so.
+        const requested: TurnDelivery = steerNow ? 'when-ready' : options.delivery
         if (requested === 'steer' || requested === 'queue') return enqueue()
         // SEND OUTCOME DECISION (POD-4387): `when-ready` on an idle session is
         // `accepted`, never `queued`. POD-4291's durable-custody change gated
@@ -2573,8 +2594,8 @@ export function createTerminalRuntime(
         // pins it).
         if (
           requested === 'when-ready' &&
-          ['working', 'compacting'].includes(host.trackedState(session.sessionId)?.phase ?? '') &&
-          (profile?.lifecycleFromState === true || session.epochOpen)
+          ['working', 'compacting'].includes(trackedPhase ?? '') &&
+          turnOpen
         ) {
           return { outcome: 'refused', refusal: refuse('busy') }
         }
@@ -2876,6 +2897,7 @@ export function createTerminalRuntime(
       deliveryReady,
       () => !session.disposed,
       slots.deliveryJournal?.(session.sessionId),
+      () => profile?.queuesBusyInput === true,
     )
   }
 
@@ -2907,35 +2929,6 @@ export function createTerminalRuntime(
    * taken them live, so a `bind` followed by an `agentExit` still means the
    * session came up and then died rather than the reverse.
    */
-  /**
-   * Register a freshly minted session, unless the host's own launch already did.
-   *
-   * THE DAEMON'S LAUNCH PATH REGISTERS (POD-2107). `host.launch` is
-   * `launchSpawn`, which puts a flagged session behind the contract itself
-   * before it announces the bind — so by the time `create()` resolves there is
-   * already a record, and calling `register()` again reaches `openSession`'s
-   * REBIND branch: the binding version and observer generation jump and an
-   * `adopted` process event goes out, for a session that was born one await ago
-   * and has been adopted by nobody. A consumer reading that stream is told the
-   * binding changed under it before the first turn.
-   *
-   * Only `create()` and `resume()` use this, and only because they MINTED the
-   * id: a record under an id nothing else has seen yet can only be the one this
-   * call's own launch made. `adopt()` deliberately does not — its whole purpose
-   * is to rebind an existing conversation, and the version bump is the point.
-   */
-  function registerOrReuse(
-    registration: TerminalSessionRegistration,
-    profile: TerminalHarnessProfile,
-  ): AgentSessionHandle {
-    const already = slots.get(registration.sessionId)
-    if (already) {
-      replayHeldFrames(registration.sessionId)
-      return already
-    }
-    return register(registration, profile)
-  }
-
   function replayHeldFrames(sessionId: SessionId): void {
     const held = pendingFrames.get(sessionId)
     if (!held) return
@@ -3003,11 +2996,16 @@ export function createTerminalRuntime(
     },
   }
 
+  /**
+   * ONE CREATION PATH (POD-5814), whoever minted the id: install the session's
+   * hook wiring, have the host launch the harness from the spec, put the
+   * session behind the contract under the lease the host reports, then let the
+   * host announce it. The handle exists before the bind names it.
+   */
   async function createWithId(
     sessionId: SessionId,
     spec: SessionSpec,
     profile: TerminalHarnessProfile,
-    launch: (instrumentation: InstalledTerminalInstrumentation) => Promise<void>,
     resume?: ResumeRef,
   ): Promise<AgentSessionHandle> {
     contexts.get(sessionId)?.reset()
@@ -3024,16 +3022,26 @@ export function createTerminalRuntime(
         reportInstrumentationDegradation(host, spec.harness, instrumentation, (message) =>
           host.send(message as TerminalDriverReport),
         )
-        await launch(instrumentation)
-        return registerOrReuse(
+        const launched = await host.launch({
+          sessionId,
+          spec,
+          instrumentation,
+          ...(resume ? { resume } : {}),
+        })
+        const lease = host.observationLease(sessionId)
+        const handle = register(
           {
             sessionId,
             agentKind: spec.harness as AgentKind,
             cwd: spec.workdir,
             resume: resume ?? null,
+            ...leaseFields(lease),
+            ...(launched.terminal ? { terminal: launched.terminal } : {}),
           },
           profile,
         )
+        launched.announce()
+        return handle
       })
     } catch (error) {
       if (!slots.get(sessionId)) {
@@ -3047,78 +3055,70 @@ export function createTerminalRuntime(
 
   const recoveries = new Map<SessionId, Promise<AgentSessionHandle>>()
 
+  /**
+   * RE-ATTACH A SURVIVOR (POD-5841), the one recovery path whoever asked: the
+   * daemon's reattach (through `runtime.adopt`) and a direct `adopt()` alike.
+   * The lease is the host's when it carries the server's order, else the
+   * driver's own next one; a stale lease is refused before the host touches
+   * anything. The host re-attaches, the driver re-registers, the host
+   * announces.
+   */
   function recoverWithId(
-    msg: TerminalReattachControl,
+    target: Omit<TerminalRecover, 'lease'>,
     profile: TerminalHarnessProfile,
-    verifyDurable = false,
+    fallbackLease: TerminalObservationLease,
   ): Promise<AgentSessionHandle> {
+    const { sessionId } = target
     // Serialize one session's leases. The host's fan-out gate only bounds work
     // across sessions; it cannot fence a late, older recovery of the same id.
-    const previous = recoveries.get(msg.sessionId)
+    const previous = recoveries.get(sessionId)
     const recovery = (async () => {
       await previous?.catch(() => undefined)
-      if (
-        typeof msg.requestedDriverId === 'string' &&
-        canonicalDriverId(msg.requestedDriverId) !== profile.driverId
-      ) {
-        throw new TerminalRecoveryRefusal(
-          `runtime driver '${msg.requestedDriverId}' cannot recover as '${profile.driverId}'`,
-        )
-      }
-      const current = sessions.get(msg.sessionId)
+      const lease = host.observationLease(sessionId) ?? fallbackLease
+      const current = sessions.get(sessionId)
       if (
         current &&
-        (current.agentKind !== msg.agentKind ||
+        (current.agentKind !== target.agentKind ||
           current.driverId !== profile.driverId ||
-          (msg.observationGeneration !== undefined &&
-            msg.observationGeneration < current.observerGeneration) ||
-          (msg.observationBindingVersion !== undefined &&
-            msg.observationBindingVersion < current.bindingVersion))
+          (lease.observerGeneration !== undefined &&
+            lease.observerGeneration < current.observerGeneration) ||
+          (lease.bindingVersion !== undefined && lease.bindingVersion < current.bindingVersion))
       )
         throw new TerminalRecoveryRefusal(
           'terminal recovery identity or observation fence is stale',
         )
-      return claiming(msg.sessionId, async () => {
-        if (verifyDurable && !(await host.processAlive(msg.sessionId))) {
-          throw new Error(`terminal driver: no surviving process for ${msg.sessionId}`)
-        }
-        let handle: AgentSessionHandle | undefined
-        await host.recover(msg, (terminal) => {
-          handle = register(
-            {
-              sessionId: msg.sessionId,
-              agentKind: msg.agentKind,
-              cwd: msg.cwd,
-              resume: msg.resume ?? null,
-              terminal,
-              ...(msg.observationGeneration !== undefined
-                ? { observerGeneration: msg.observationGeneration }
-                : {}),
-              ...(msg.observationBindingVersion !== undefined
-                ? { bindingVersion: msg.observationBindingVersion }
-                : {}),
-              rebind: true,
-            },
-            profile,
+      return claiming(sessionId, async () => {
+        const recovered = await host.recover({ ...target, lease })
+        if (!recovered) throw new Error('terminal recovery did not compose a live host')
+        const handle = register(
+          {
+            sessionId,
+            agentKind: target.agentKind,
+            cwd: target.workdir,
+            resume: target.resume ?? null,
+            ...(recovered.terminal ? { terminal: recovered.terminal } : {}),
+            ...leaseFields(lease),
+            rebind: true,
+          },
+          profile,
+        )
+        if (!current) {
+          const session = sessions.get(sessionId)!
+          emit(
+            session,
+            { t: 'process', ev: { ev: 'adopted', bindingVersion: session.bindingVersion } },
+            observedAt(),
+            'live',
           )
-          if (!current) {
-            const session = sessions.get(msg.sessionId)!
-            emit(
-              session,
-              { t: 'process', ev: { ev: 'adopted', bindingVersion: session.bindingVersion } },
-              observedAt(),
-              'live',
-            )
-          }
-        })
-        if (!handle) throw new Error('terminal recovery did not compose a live host')
+        }
+        recovered.announce()
         return handle
       })
     })()
-    recoveries.set(msg.sessionId, recovery)
+    recoveries.set(sessionId, recovery)
     void recovery
       .finally(() => {
-        if (recoveries.get(msg.sessionId) === recovery) recoveries.delete(msg.sessionId)
+        if (recoveries.get(sessionId) === recovery) recoveries.delete(sessionId)
       })
       .catch(() => undefined)
     return recovery
@@ -3127,7 +3127,6 @@ export function createTerminalRuntime(
   return {
     boundaryContextFor,
     createWithId,
-    recoverWithId,
     register,
     handleFor: (sessionId) => slots.get(sessionId),
     bindings: () => slots.handles().map((handle) => handle.binding),
@@ -3169,53 +3168,39 @@ export function createTerminalRuntime(
         capabilities: () => capabilitiesFor(profile),
 
         async create(spec: SessionSpec): Promise<AgentSessionHandle> {
-          const sessionId = asSessionId(randomUUID())
-          return createWithId(sessionId, spec, profile, (instrumentation) =>
-            host.launch(spawnControlFor(sessionId, harness, spec), instrumentation),
-          )
+          return createWithId(asSessionId(randomUUID()), spec, profile)
         },
 
         async resume(ref: ResumeRef, spec: SessionSpec): Promise<AgentSessionHandle> {
-          const sessionId = asSessionId(randomUUID())
-          return createWithId(
-            sessionId,
-            spec,
-            profile,
-            (instrumentation) =>
-              host.launch(
-                { ...spawnControlFor(sessionId, harness, spec), resume: ref },
-                instrumentation,
-              ),
-            ref,
-          )
+          return createWithId(asSessionId(randomUUID()), spec, profile, ref)
         },
 
         async adopt(bound: RuntimeSessionBinding): Promise<AgentSessionHandle> {
-          // Process identity beyond family/driver/harness lives in
-          // host.recover's fence: the daemon resolves the entry's durable
-          // label per session, so the driver never compares keys itself.
+          // A terminal binding's process identity is its session (see
+          // `binding()`): the host resolves the durable label per session, so a
+          // key naming anything else is another incarnation, refused here.
           if (
             bound.family !== 'terminal' ||
             bound.driver !== profile.driverId ||
-            bound.harness !== harness
+            bound.harness !== harness ||
+            bound.process.key !== bound.sessionId
           ) {
             throw new TerminalRecoveryRefusal('terminal recovery process identity mismatch')
           }
           return recoverWithId(
             {
-              type: 'reattach',
               sessionId: bound.sessionId,
-              durableLabel: bound.process.key,
               agentKind: harness,
-              cwd: bound.workdir,
+              workdir: bound.workdir,
               ...(bound.resume ? { resume: bound.resume } : {}),
-              // Screen parser hint only; host recovery never applies this to PTY.
-              lastKnownGeometry: { cols: 80, rows: 24 },
-              observationBindingVersion: bound.bindingVersion + 1,
-              observationGeneration: bound.bindingVersion + 1,
             },
             profile,
-            true,
+            // A direct adopt with no server order re-establishes the binding
+            // under the next lease.
+            {
+              observerGeneration: bound.bindingVersion + 1,
+              bindingVersion: bound.bindingVersion + 1,
+            },
           )
         },
       }
@@ -3226,6 +3211,17 @@ export function createTerminalRuntime(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** A lease's fields as registration fields, absent ones left out. */
+function leaseFields(lease: TerminalObservationLease | undefined): {
+  observerGeneration?: number
+  bindingVersion?: number
+} {
+  return {
+    ...(lease?.observerGeneration !== undefined ? { observerGeneration: lease.observerGeneration } : {}),
+    ...(lease?.bindingVersion !== undefined ? { bindingVersion: lease.bindingVersion } : {}),
+  }
+}
 
 const capabilityCache = new WeakMap<TerminalHarnessProfile, DriverCapabilities>()
 
@@ -3331,6 +3327,7 @@ function capabilitiesFor(profile: TerminalHarnessProfile | undefined): DriverCap
     draftReadable: true,
     reportsContextPercent: resolved.reportsContextPercent,
     archivable: resolved.archivable,
+    queuesBusyInput: resolved.queuesBusyInput === true,
   })
   capabilityCache.set(resolved, built)
   return built
@@ -3634,31 +3631,3 @@ function questionScriptFor(
   return { ok: true, script: { keys, at } }
 }
 
-/**
- * A `TerminalSpawnControl` for a contract-initiated session.
- *
- * NOTE WHAT IS ABSENT: `binding`. A spawn frame's binding instruction is
- * SERVER-authored — it carries the authenticated principal and the machine-access
- * verdict — and the driver is on the machine side of that line. So `create()`
- * goes through the daemon's LAUNCH path (which is what actually starts a process)
- * rather than through `handleSpawn` (which performs the binding transition first).
- * A server-initiated spawn still takes the full path; this one is for the direct
- * driving the conformance corpus and the e2e lane do.
- */
-function spawnControlFor(
-  sessionId: SessionId,
-  agentKind: AgentKind,
-  spec: SessionSpec,
-): TerminalSpawnControl {
-  return {
-    type: 'spawn',
-    sessionId,
-    agentKind,
-    cwd: spec.workdir,
-    geometry: { cols: 120, rows: 40 },
-    ...(spec.model.model ? { model: spec.model.model } : {}),
-    ...(spec.model.effort ? { effort: spec.model.effort } : {}),
-    ...(spec.initialPrompt ? { initialPrompt: spec.initialPrompt } : {}),
-    ...(spec.env ? { env: { ...spec.env } } : {}),
-  } as TerminalSpawnControl
-}

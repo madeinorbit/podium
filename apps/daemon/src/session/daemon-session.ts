@@ -34,7 +34,7 @@ import type {
 } from '@podium/harness/driver/host'
 import { createLogger } from '@podium/logger'
 import type { SessionId } from '@podium/model'
-import type { DaemonMessage, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
+import type { ControlMessage, DaemonMessage, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { TerminalScreen } from '@podium/process/screen'
 import { ForeignWriteCounter } from '../terminal/foreign-writes.js'
 import type { Terminal } from '../terminal/terminal.js'
@@ -207,6 +207,21 @@ export class DaemonSession {
    * ownership fact the keyed map used to carry.
    */
   driver: AgentSessionHandle | undefined = undefined
+
+  /**
+   * THE ORDER THIS DAEMON IS CARRYING OUT (POD-5814, POD-5841): the server's
+   * spawn or reattach frame, held from its arrival until the session is
+   * announced. The driver launches from the SessionSpec a spawn became, or
+   * adopts from the binding a reattach names, and never sees this; the HOST
+   * reads its own facts here — the PTY's size, the observation lease, draft
+   * sync, a degraded driver request — so none of them has to ride the contract.
+   */
+  order:
+    | {
+        frame: Extract<ControlMessage, { type: 'spawn' | 'reattach' }>
+        requestedDriverId?: string
+      }
+    | undefined = undefined
 
   /**
    * THE SESSION'S ENGINE BINDING (spec §4.8, layers §1b): the address the

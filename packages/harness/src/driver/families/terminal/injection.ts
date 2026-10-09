@@ -380,9 +380,10 @@ export interface DeliverOptions {
   initialPrompt?: boolean
   signal?: AbortSignal
   origin: InputOrigin
-  /** `when-ready` and `interrupt` reach here; `queue` is the queue below and
-   *  `steer` has already been downgraded to it by the caller. */
-  delivery: Extract<TurnDelivery, 'when-ready' | 'interrupt'>
+  /** `when-ready` and `interrupt` reach here, and `steer` into a running turn
+   *  of a program that queues mid-turn input (POD-5855); `queue` is the queue
+   *  below, and any other `steer` has already been downgraded to it. */
+  delivery: Extract<TurnDelivery, 'when-ready' | 'interrupt' | 'steer'>
   /** Set by the interrupt path: the manifest key already went out, so the `needs_user`
    *  refusal below does not apply (the key is what clears the prompt). */
   afterEsc?: boolean
@@ -478,6 +479,12 @@ export function createTerminalInjection(
     localTurnEpoch = Math.max(observed, localTurnEpoch + 1)
     return localTurnEpoch
   }
+  /** A steer names the turn it was typed into rather than opening one: the
+   *  same epoch, never advanced (the Codex driver's rule). */
+  const currentTurnEpoch = (): number => {
+    localTurnEpoch = Math.max(ports.observedTurnEpoch(), localTurnEpoch)
+    return localTurnEpoch
+  }
 
   type InputSubmission = {
     body: string
@@ -514,6 +521,11 @@ export function createTerminalInjection(
    * when that ends (+6–10 s measured), so every tick that reads the agent
    * `working` or `compacting` moves the deadline out again, up to the
    * 30-minute ceiling a running turn is believed to have.
+   *
+   * A STEER NEVER GETS A BLIND ENTER (POD-5855). It was typed into a running
+   * turn on purpose, and an Enter on a busy TUI's empty box is not a no-op
+   * everywhere: Grok's queue line reads "Enter to send now", which cancels
+   * the running turn. Only the input-box evidence below may resubmit it.
    */
   async function awaitProof(
     echoWatch: AcceptWatch | undefined,
@@ -521,6 +533,7 @@ export function createTerminalInjection(
     initialPrompt = false,
     submitted?: () => void,
     inputSubmission?: InputSubmission,
+    steering = false,
   ): Promise<Proven | null> {
     if (!echoWatch) return null
     let recorded: AcceptSeen | undefined
@@ -547,7 +560,7 @@ export function createTerminalInjection(
       return held ? { kind: 'held' } : null
     }
     let retriesLeft = ports.needsSubmitVerification() ? SUBMIT_MAX_RETRIES : 0
-    let nudging = true
+    let nudging = !steering
     let recoveredInput = false
     const windowMs = initialPrompt ? 30_000 : VERIFICATION_WINDOW_MS
     let deadline = ports.now() + windowMs
@@ -685,7 +698,10 @@ export function createTerminalInjection(
       }, SUBMIT_CR_DELAY_MS)
 
       const verificationStartedAt = ports.now()
-      const proof = await awaitProof(echoWatch, options.signal, options.initialPrompt, submitted, inputSubmission)
+      const steering = options.delivery === 'steer'
+      const proof = await awaitProof(
+        echoWatch, options.signal, options.initialPrompt, submitted, inputSubmission, steering,
+      )
       const unverified = (): TurnReceipt => ({
         outcome: 'unverified',
         deliveredAs: options.delivery,
@@ -712,7 +728,7 @@ export function createTerminalInjection(
       }
       return {
         outcome: 'accepted',
-        turnEpoch: nextTurnEpoch(),
+        turnEpoch: steering ? currentTurnEpoch() : nextTurnEpoch(),
         deliveredAs: options.delivery,
         provenBy: 'transcript-echo',
         ...(proof.kind === 'recorded' && proof.transcriptItem

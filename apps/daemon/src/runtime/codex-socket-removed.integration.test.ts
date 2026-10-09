@@ -45,7 +45,7 @@ import { asSessionId } from '@podium/model'
 import { createDurableProcess } from '@podium/process/durable'
 import { afterAll, beforeAll, describe, expect, it } from 'vitest'
 import { stageRuntimeAttachment } from './attachment-staging'
-import { composeEngineEnv, dialEngineSocket, engineSocketRoot } from './host'
+import { engineEnvBuilder, dialEngineSocket, engineSocketRoot } from './host'
 import { SERVER_GRACEFUL_EXIT_MS } from './server-teardown-budget'
 import { createSessionEngineScope, engineSocketFile } from '../session/engines.js'
 import { SessionRegistry } from '../session/registry.js'
@@ -234,7 +234,7 @@ describe('a live codex engine whose listener file was removed (POD-4611)', () =>
         supervision: sessionEngines,
         stageAttachment: stageRuntimeAttachment,
         resources: () => undefined,
-        buildEnv: composeEngineEnv,
+        buildEnv: engineEnvBuilder(() => ({})),
         gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
         checkVersion: async () => ({ drivable: true as const }),
         dialSocket: sessionEngines.dialerFor(dialEngineSocket),

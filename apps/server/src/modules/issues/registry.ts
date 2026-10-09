@@ -8,7 +8,14 @@ import {
   type IssueContractName,
 } from '@podium/commands'
 import type { SessionId } from '@podium/model'
-import { actorAgent, actorSystem, actorUser, asAgentIdentityId, asIssueId } from '@podium/model'
+import {
+  actorAgent,
+  actorSystem,
+  actorUser,
+  asAgentIdentityId,
+  asIssueId,
+  isAgentComputing,
+} from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
 import { attributionOf } from '../../command-principal'
@@ -113,6 +120,41 @@ async function assertNotProposedForAgent(
       message: `only an operator may ${verb} a proposed issue`,
     })
   }
+}
+
+/**
+ * An agent's close is refused while a session on the issue is still working
+ * [POD-5762]. Closing stops every session on the issue at once, so a close sent
+ * mid-turn (an agent closing its own issue before it has finished) cuts that
+ * turn off. The operator's close is not gated: the human decides.
+ */
+async function assertNoWorkingSessionsForAgentClose(
+  ctx: IssueCommandCtx,
+  id: string,
+  confirmInterrupt: boolean | undefined,
+): Promise<void> {
+  if (ctx.caller.capability.scope.kind === 'all' || confirmInterrupt) return
+  const issue = await ctx.reports.get(id)
+  if (!issue) return
+  const working = (
+    await ctx.deps.listSessionsForIssue(issue.worktreePath ?? null, issue.id)
+  ).filter((session) => isAgentComputing(session))
+  if (working.length === 0) return
+  const self = ctx.caller.capability.actorSessionId
+  const ownIncluded = working.some((session) => session.sessionId === self)
+  const names = working
+    .map((session) =>
+      session.sessionId === self ? 'your own session' : `"${session.name ?? session.title}"`,
+    )
+    .join(', ')
+  throw new IssueRefusal(
+    `close refused: ${working.length === 1 ? 'a session' : `${working.length} sessions`} on ` +
+      `${await ctx.reports.niceRef(issue)} ${working.length === 1 ? 'is' : 'are'} still working ` +
+      `(${names}). Closing stops every session on the issue at once, so that work is cut off ` +
+      `mid-turn${ownIncluded ? ' — yours included, before this turn finishes' : ''}. ` +
+      'Close your own issue only when the user has told you to; otherwise move it to `review` ' +
+      'and post an offer with a Close action. To close anyway, re-run with `--confirm-interrupt`.',
+  )
 }
 
 export type IssueCommandKind = 'query' | 'mutation'
@@ -688,6 +730,9 @@ const defs = {
           p.closedReason !== undefined ||
           p.parentId !== undefined
         if (movesLifecycle) await assertNotProposedForAgent(ctx, input.id, 'promote')
+        if (p.stage === 'done' || p.closedReason !== undefined) {
+          await assertNoWorkingSessionsForAgentClose(ctx, input.id, input.confirmInterrupt)
+        }
         return await ctx.crud.update(input.id, input.patch, {
           actorSessionId: ctx.caller.capability.actorSessionId,
         })
@@ -1212,6 +1257,7 @@ const defs = {
     target: targetId,
     handler: async (ctx, input) => {
       await assertNotProposedForAgent(ctx, input.id, 'close')
+      await assertNoWorkingSessionsForAgentClose(ctx, input.id, input.confirmInterrupt)
       return await ctx.withMutation(
         input.mutationId,
         async () =>

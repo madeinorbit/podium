@@ -129,3 +129,18 @@ export interface RoleProfile {
    *  deadline. */
   escalateAfterMs?: number
 }
+
+/**
+ * The spec's instructions as the one text a harness channel carries, or
+ * `undefined` when the session has none. Every family that maps the channel
+ * onto its harness — an appended system prompt, a developer-instructions
+ * override, a per-prompt system field, session rules — joins them this way.
+ */
+export function instructionsText(spec: Pick<SessionSpec, 'instructions'>): string | undefined {
+  if (!spec.instructions.supported) return undefined
+  const text = spec.instructions.value.instructions
+    .map((entry) => entry.content)
+    .join('\n\n')
+    .trim()
+  return text || undefined
+}

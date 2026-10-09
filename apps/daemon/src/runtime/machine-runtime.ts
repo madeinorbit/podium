@@ -36,7 +36,6 @@ import { type DriverResolution, resolveRuntimeDriver, terminalProfileFor } from 
 import type {
   TerminalHarnessProfile,
   TerminalRuntime,
-  TerminalSessionRegistration,
   TerminalTransport,
 } from '@podium/harness/driver/host'
 import { createRuntimeWatchLifecycle } from './watch'
@@ -85,18 +84,12 @@ export type DaemonDriverResolution =
   | { ok: true; driverId: DriverId; capabilities: DriverCapabilities }
 
 export interface DaemonMachineRuntime extends MachineAgentRuntime {
-  createTerminal: TerminalRuntime['createWithId']
-  recoverTerminal: TerminalRuntime['recoverWithId']
   /** The live driver's declaration for one session, read off its BINDING — see
    *  `capabilitiesFor` below for why the binding and not a family guess. The
    *  configure handler reports `configure.effective` from it (POD-3081). */
   capabilitiesFor(sessionId: SessionId): DriverCapabilities | undefined
   observe(message: DaemonMessage): boolean
   onHookPayload(sessionId: SessionId, payload: unknown): void
-  bindTerminal(
-    registration: TerminalSessionRegistration,
-    profile: TerminalHarnessProfile,
-  ): Promise<AgentSessionHandle>
   /** Refresh the driver's handed Terminal after the entry's surface is replaced
    *  (reattach, steal). The entry holds one Terminal by structure; this pushes
    *  the current one so the driver never looks it up per write. */
@@ -175,10 +168,14 @@ export function createDaemonMachineRuntime(input: {
     return found
   }
 
-  const terminalCreations = new Map<
-    SessionId,
-    { registration: TerminalSessionRegistration; profile: TerminalHarnessProfile }
-  >()
+
+  const terminalProfileOrRefuse = (harness: string): TerminalHarnessProfile => {
+    const profile = terminalProfileFor(harness as AgentKind)
+    if (!profile) {
+      throw new Error(`no manifest for harness '${harness}': this build declares no runtime for it`)
+    }
+    return profile
+  }
 
   const terminalSource: AgentRuntimeDriverSource = {
     driverFor(harness, driver) {
@@ -188,12 +185,14 @@ export function createDaemonMachineRuntime(input: {
     },
     handleFor: (sessionId) => input.terminal.handleFor(sessionId),
     bindings: () => input.terminal.bindings(),
-    createWithId(sessionId) {
-      const pending = terminalCreations.get(sessionId)
-      if (!pending) {
-        throw new Error(`terminal session '${sessionId}' has no pending creation`)
-      }
-      return Promise.resolve(input.terminal.register(pending.registration, pending.profile))
+    // ONE CREATION PATH (POD-5814): a server-minted id launches through the
+    // family exactly as `driver.create()` does — from the spec, never from a
+    // process this host started first and a handle bound after it.
+    createWithId(sessionId, spec) {
+      return input.terminal.createWithId(sessionId, spec, terminalProfileOrRefuse(spec.harness))
+    },
+    resumeWithId(sessionId, ref, spec) {
+      return input.terminal.createWithId(sessionId, spec, terminalProfileOrRefuse(spec.harness), ref)
     },
     adopt(binding) {
       const profile = terminalProfileFor(binding.harness as AgentKind)
@@ -203,15 +202,6 @@ export function createDaemonMachineRuntime(input: {
       return input.terminal.driverFor(binding.harness as AgentKind, profile).adopt(binding)
     },
   }
-
-  const serverLaunchFor = (sessionId: SessionId, spec: SessionSpec) => ({
-    sessionId,
-    cwd: spec.workdir,
-    ...(spec.model.model ? { model: spec.model.model } : {}),
-    ...(spec.model.effort ? { effort: spec.model.effort } : {}),
-    ...(spec.env ? { env: spec.env } : {}),
-    ...(spec.initialPrompt ? { initialPrompt: spec.initialPrompt } : {}),
-  })
 
   const serverSource = (server: ServerFamilyRuntime): AgentRuntimeDriverSource => ({
     driverFor(harness: string, driver: DriverId): RuntimeDriver | undefined {
@@ -226,7 +216,7 @@ export function createDaemonMachineRuntime(input: {
       if (existing.length > 0) {
         throw new Error(`session '${sessionId}' already has a persisted server journal`)
       }
-      await server.launch(serverLaunchFor(sessionId, spec))
+      await server.launch({ sessionId, spec })
       const handle = server.handleFor(sessionId)
       if (!handle) throw new Error(`server runtime did not index session '${sessionId}'`)
       return handle
@@ -244,7 +234,7 @@ export function createDaemonMachineRuntime(input: {
             if (journalled(sessionId).length > 0) {
               throw new Error(`session '${sessionId}' already has a persisted server journal`)
             }
-            await server.launchResumed?.(serverLaunchFor(sessionId, spec), ref)
+            await server.launchResumed?.({ sessionId, spec }, ref)
             const handle = server.handleFor(sessionId)
             if (!handle) throw new Error(`server runtime did not index session '${sessionId}'`)
             return handle
@@ -340,8 +330,6 @@ export function createDaemonMachineRuntime(input: {
 
   return {
     ...runtime,
-    createTerminal: (...args) => input.terminal.createWithId(...args),
-    recoverTerminal: (...args) => input.terminal.recoverWithId(...args),
     capabilitiesFor,
     observe(message) {
       const ownsReceipt = message.type === 'sessionResumeRef' && input.terminal.has(message.sessionId)
@@ -350,32 +338,6 @@ export function createDaemonMachineRuntime(input: {
     },
     onHookPayload(sessionId, payload) {
       input.terminal.onHookPayload(sessionId, payload)
-    },
-    async bindTerminal(registration, profile) {
-      terminalCreations.set(registration.sessionId, { registration, profile })
-      try {
-        if (!registration.rebind) {
-          const spec: SessionSpec = {
-            harness: registration.agentKind,
-            selection: {
-              auth: 'unknown',
-              platform: process.platform,
-              available: [profile.driverId],
-              preference: profile.driverId,
-              role: 'interactive',
-            },
-            workdir: registration.cwd,
-            model: {},
-            instructions: { supported: false, reason: 'terminal process is already launched' },
-            mcpServers: { supported: false, reason: 'terminal harness owns its native config' },
-          }
-          return await runtime.create(spec, registration.sessionId)
-        }
-
-        throw new Error('terminal rebind requires recoverTerminal host composition')
-      } finally {
-        terminalCreations.delete(registration.sessionId)
-      }
     },
     clearTerminal(sessionId) {
       // The handle is going, and the release function this daemon holds belongs

@@ -88,6 +88,10 @@ describe('the capability declaration', () => {
     // No native steer: a TUI has no way to append into an open turn, so the
     // receipt reports the downgrade instead of the driver pretending.
     expect([...caps.send.native]).toEqual(['when-ready', 'queue', 'interrupt'])
+    // Unless its manifest says the TUI queues a prompt entered mid-turn
+    // (POD-5855): then typing it now IS the steer.
+    const queues = terminalCapabilities({ ...PROFILE, sendProof: [...PROFILE.sendProof], queuesBusyInput: true })
+    expect([...queues.send.native]).toEqual(['when-ready', 'queue', 'interrupt', 'steer'])
     // No token deltas: a PTY produces bytes, and a `fine` watch built out of
     // frame boundaries would be a fabricated stream.
     expect([...caps.observation.watchLevels]).toEqual(['coarse'])

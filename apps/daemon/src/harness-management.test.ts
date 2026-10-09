@@ -421,8 +421,8 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
       const { testHarnessSnapshot } = await import('./test-support/harness-snapshot.js')
       const snapshot = testHarnessSnapshot({ 'claude-code': '/generation/claude' }, 7)
       const sent: DaemonMessage[] = []
-      const createTerminal = vi.fn()
-      const bindTerminal = vi.fn()
+      const create = vi.fn()
+      const resume = vi.fn()
       const ctx = {
         send: (m: DaemonMessage) => sent.push(m),
         instanceId: 'default',
@@ -438,8 +438,8 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
           isCurrent: (s: unknown) => s === snapshot,
         },
         agentRuntime: {
-          createTerminal,
-          bindTerminal,
+          create,
+          resume,
           handleFor: () => undefined,
           has: () => false,
           clearTerminal: () => {},
@@ -452,7 +452,6 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
         observers: { initSessionObservers: () => {}, clearSession: () => {}, trackedState: () => undefined },
         tailSeedGate: () => {},
         sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
-        primeInjector: { reset: () => {} },
         hookEndpointFor: (id: string) => `http://127.0.0.1:1/hook/${id}`,
         agentRelayEndpointFor: (id: string) => `http://127.0.0.1:1/relay/${id}`,
       } as unknown as Parameters<typeof launchSpawn>[0]
@@ -469,8 +468,8 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
       expect(spawned[0]!.cmd).toBe('/generation/claude')
       expect(spawned[0]!.args).toEqual(expect.arrayContaining(['auth', 'login']))
       // Login never creates or binds a terminal handle.
-      expect(createTerminal).not.toHaveBeenCalled()
-      expect(bindTerminal).not.toHaveBeenCalled()
+      expect(create).not.toHaveBeenCalled()
+      expect(resume).not.toHaveBeenCalled()
       expect(sent.some((m) => m.type === 'bind')).toBe(true)
       expect(sent.some((m) => m.type === 'spawnError')).toBe(false)
     })
@@ -493,7 +492,6 @@ describe('harness management ownership boundary (POD-4305 F11/F12)', () => {
         observers: { initSessionObservers: () => {}, clearSession: () => {}, trackedState: () => undefined },
         tailSeedGate: () => {},
         sessionCwdTracker: { setLaunchCwd: async () => {}, clear: () => {} },
-        primeInjector: { reset: () => {} },
         hookEndpointFor: () => '',
         agentRelayEndpointFor: () => '',
       } as unknown as Parameters<typeof launchSpawn>[0]

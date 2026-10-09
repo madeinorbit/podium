@@ -29,7 +29,7 @@ import type { DaemonMessage } from '@podium/protocol/daemon'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { attachTestTerminal, testSessions } from '../session/testing.js'
 import type { DaemonContext } from './context'
-import { recoverTerminalHost, sessionHandlers, stealTerminalWriter } from './session'
+import { recoverTerminalProcess, sessionHandlers, stealTerminalWriter } from './session'
 
 const holder = vi.hoisted(() => ({ durable: undefined as unknown }))
 
@@ -96,7 +96,6 @@ function world(): World {
     },
     sessionCwdTracker: { clear: () => {}, setLaunchCwd: async () => {} },
     sessionBinding: { transition: async () => ({ status: 'unchanged' }) },
-    primeInjector: { reset: () => {} },
     reattachGate: (fn: () => Promise<void>) => fn(),
     tailSeedGate: () => {},
     send: (msg: DaemonMessage) => sent.push(msg),
@@ -148,9 +147,15 @@ describe('a fresh tail attach (SPEC v4 B3)', () => {
     const replay = vi.fn(async () => {})
     const attachment = { ...fakeAttachment(), connection: { lastSeq: 41n }, replay }
     adapter.attach.mockResolvedValueOnce({ attachment, cmd: 'host attach' })
-    const ready = vi.fn()
-    await recoverTerminalHost(ctx, reattachMessage(), ready)
-    expect(ready).toHaveBeenCalledOnce()
+    // A driven session: only an agent's recovery repaints the ring for an old
+    // server; a shell's never did.
+    const recovered = await recoverTerminalProcess(ctx, {
+      sessionId: SESSION,
+      agentKind: 'claude-code',
+      workdir: '/w',
+      lease: {},
+    })
+    expect(recovered?.terminal).toBeDefined()
     expect(replay).toHaveBeenCalledTimes(accepted ? 0 : 1)
     expect(adapter.attach.mock.calls[0]?.[0]).not.toHaveProperty('lastSeq')
     expect(ctx.sessions.get(SESSION)).not.toHaveProperty('seqReader')

@@ -74,7 +74,6 @@ it('rebuilds the screen from a durable survivor, and a link-B reattach never sig
         clearSession: () => {},
       },
       sessionCwdTracker: { clear: () => {}, setLaunchCwd: () => {} },
-      primeInjector: { reset: () => {} },
       reattachGate: (fn: () => Promise<void>) => fn(),
       tailSeedGate: () => {},
       send: (msg: DaemonMessage) => sent.push(msg),
@@ -99,7 +98,29 @@ it('rebuilds the screen from a durable survivor, and a link-B reattach never sig
       observationGeneration: 2,
       observationBindingVersion: 2,
     }
-    const recovered = await runtime.recoverWithId(msg, terminalProfileFor('claude-code')!)
+    // The daemon's reattach: the frame is the host's order, the binding names
+    // the session, and the driver adopts it (POD-5841).
+    const profile = terminalProfileFor('claude-code')!
+    const binding = {
+      sessionId,
+      driver: profile.driverId,
+      family: 'terminal' as const,
+      harness: 'claude-code',
+      workdir: root,
+      resume: null,
+      process: { key: sessionId },
+      bindingVersion: 1,
+    }
+    const adopt = async (frame: typeof msg) => {
+      const entry = ctx!.sessions.ensure(sessionId)
+      entry.order = { frame }
+      try {
+        return await runtime.driverFor('claude-code', profile).adopt(binding)
+      } finally {
+        entry.order = undefined
+      }
+    }
+    const recovered = await adopt(msg)
     // POD-4785 (c9283ef14): bindings are keyed by sessionId now — the driver
     // never resolves durable labels itself, the daemon does per session. The
     // durable label still travels on the reattach message (msg.durableLabel).
@@ -109,10 +130,7 @@ it('rebuilds the screen from a durable survivor, and a link-B reattach never sig
       .toContain(painted)
     const bridge = ctx.sessions.get(sessionId)?.terminal
     const before = redrawFrames
-    await runtime.recoverWithId(
-      { ...msg, observationGeneration: 3, observationBindingVersion: 3 },
-      terminalProfileFor('claude-code')!,
-    )
+    await adopt({ ...msg, observationGeneration: 3, observationBindingVersion: 3 })
     expect(ctx.sessions.get(sessionId)?.terminal).toBe(bridge)
     // The fixture repaints on every SIGWINCH: the deleted reattach nudge made it
     // draw again here. Nothing may reach the program on a link-B reattach.

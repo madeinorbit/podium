@@ -1,16 +1,6 @@
-export type VpsReleaseChannel = 'stable' | 'edge' | 'dev'
+import { type InstallerChannel, installerUrl } from './installer'
 
-const RELEASE_BASE = 'https://github.com/madeinorbit/podium/releases'
-
-/**
- * A rolling channel (`edge`, `dev`) publishes onto a standing tag named after itself, so its
- * installer URL is constant across builds; only stable moves, and `releases/latest` tracks it.
- */
-function installerUrl(channel: VpsReleaseChannel): string {
-  return channel === 'stable'
-    ? `${RELEASE_BASE}/latest/download/install.sh`
-    : `${RELEASE_BASE}/download/${channel}/install.sh`
-}
+export type VpsReleaseChannel = InstallerChannel
 
 /**
  * One command for a NEW Podium authority on a VPS — not a machine join and not a server transfer.

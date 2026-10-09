@@ -17,6 +17,7 @@ import type { GrokEngineFacts } from './engine-facts.js'
 import { reportQueueAbandonment } from '../queue-report.js'
 import type {
   ServerFamilyJournalEntry,
+  ServerFamilyLaunch,
   ServerSessionFramePorts,
 } from '../server-family.js'
 import type { SessionDriverSlots } from '../session-slots.js'
@@ -28,17 +29,9 @@ import { GrokAcpRpcError } from './protocol.js'
 
 const log = createLogger('harness:grok-session')
 
-export interface GrokSessionLaunch {
-  sessionId: SessionId
-  cwd: string
-  model?: string
-  effort?: string
-  env?: Readonly<Record<string, string>>
-  initialPrompt?: string
-}
 
 export interface DaemonGrokRuntime extends GrokAcpRuntime {
-  launch(input: GrokSessionLaunch): Promise<void>
+  launch(input: ServerFamilyLaunch): Promise<void>
   adoptFromJournal(sessionId: SessionId): Promise<AgentSessionHandle | undefined>
   /** Uniform server-family shape: the supervisor composes families without
    *  naming them. */
@@ -206,32 +199,8 @@ export function createGrokSessionRuntime(deps: GrokSessionDeps): DaemonGrokRunti
       // so the turn start went out relabelled as bootstrap — which the server's
       // event gate refuses, with the rest of that turn, once any earlier event
       // has set a checkpoint.
-      const { initialPrompt, ...launch } = input
-      const handle = await runtime.createWithId(launch.sessionId, {
-        harness: deps.facts.harnessKind,
-        selection: {
-          auth: 'subscription',
-          platform: process.platform,
-          available: [GROK_ACP_DRIVER_ID],
-          preference: GROK_ACP_DRIVER_ID,
-        },
-        workdir: input.cwd,
-        model: {
-          ...(input.model && input.model !== 'auto' ? { model: input.model } : {}),
-          ...(input.effort && input.effort !== 'auto' ? { effort: input.effort } : {}),
-        },
-        // ACP's session/new surface has no instruction or MCP declaration in
-        // the probed Grok build. User config remains authoritative.
-        instructions: {
-          supported: false,
-          reason: 'Grok ACP exposes no session-scoped instruction field',
-        },
-        mcpServers: {
-          supported: false,
-          reason: 'Grok ACP session/new accepts an empty mcpServers list only',
-        },
-        ...(input.env ? { env: input.env } : {}),
-      })
+      const { initialPrompt, ...spec } = input.spec
+      const handle = await runtime.createWithId(input.sessionId, spec)
       pump(input.sessionId)
       reportResumeRef(input.sessionId, handle)
       deps.sessionReady(handle.binding)
@@ -241,7 +210,7 @@ export function createGrokSessionRuntime(deps: GrokSessionDeps): DaemonGrokRunti
       deps.emitBind({
         sessionId: input.sessionId,
         cmd: `grok agent stdio (${handle.binding.driver})`,
-        cwd: input.cwd,
+        cwd: spec.workdir,
         agentKind: deps.facts.harnessKind,
         driverId: handle.binding.driver,
         // POD-3087: what this driver's configure() can change. Grok's answer is

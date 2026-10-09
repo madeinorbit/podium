@@ -58,7 +58,7 @@ import type {
   PermissionAnswer,
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import type { SessionSpec } from '../../session-spec.js'
+import { instructionsText, type SessionSpec } from '../../session-spec.js'
 import type { AnswerOptions, Refusal, SendOptions, TurnInput, TurnReceipt } from '../../turns.js'
 import { stampRuntimeEvent } from '../terminal/envelope.js'
 import type { SessionDriverSlots } from '../session-slots.js'
@@ -2359,6 +2359,19 @@ export function createGrokAcpRuntime(
     }
   }
 
+  /**
+   * THE SESSION'S INSTRUCTIONS AS GROK RULES (POD-5814). ACP has no instruction
+   * field, but Grok reads `_meta.rules` on `session/new` into the system prompt.
+   * RUN, not read (grok 1.0.46 against a fake model server): the rules land in
+   * the session request's system message, while `grok --rules` on `agent stdio`
+   * and `_meta.systemPrompt`/`_meta.instructions` reach nothing. `session/load`
+   * sends the same field, so a reloaded session asks for its rules too.
+   */
+  function sessionRules(spec: SessionSpec): { _meta?: { rules: string } } {
+    const rules = instructionsText(spec)
+    return rules ? { _meta: { rules } } : {}
+  }
+
   async function createWithId(
     sessionId: SessionId,
     spec: SessionSpec,
@@ -2373,6 +2386,7 @@ export function createGrokAcpRuntime(
       await connection.client.call(GROK_ACP_METHODS.sessionNew, {
         cwd: spec.workdir,
         mcpServers: [],
+        ...sessionRules(spec),
       }),
     )
     const handle = attachSession({
@@ -2421,6 +2435,7 @@ export function createGrokAcpRuntime(
         sessionId: input.grokSessionId,
         cwd: input.spec.workdir,
         mcpServers: [],
+        ...sessionRules(input.spec),
       })
       await session.ingestChain
       await setInteractivePermissionMode(session)

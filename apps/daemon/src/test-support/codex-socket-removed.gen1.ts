@@ -19,7 +19,7 @@ import {
 import type { SessionId } from '@podium/model'
 import { createDurableProcess } from '@podium/process/durable'
 import { stageRuntimeAttachment } from '../runtime/attachment-staging.js'
-import { composeEngineEnv, dialEngineSocket, engineSocketRoot } from '../runtime/host.js'
+import { dialEngineSocket, engineEnvBuilder, engineSocketRoot } from '../runtime/host.js'
 import { SERVER_GRACEFUL_EXIT_MS } from '../runtime/server-teardown-budget.js'
 import { createSessionEngineScope } from '../session/engines.js'
 import { SessionRegistry } from '../session/registry.js'
@@ -37,7 +37,7 @@ const host = createCodexEngineHost({
   supervision: sessionEngines,
   stageAttachment: stageRuntimeAttachment,
   resources: () => undefined,
-  buildEnv: composeEngineEnv,
+  buildEnv: engineEnvBuilder(() => ({})),
   gracefulExitMs: SERVER_GRACEFUL_EXIT_MS,
   checkVersion: async () => ({ drivable: true as const }),
   dialSocket: sessionEngines.dialerFor(dialEngineSocket),

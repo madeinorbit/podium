@@ -82,7 +82,6 @@ describe('the attach CLIENT exiting is NOT the AGENT exiting', () => {
       outputScheduler: { enqueue: () => {}, remove: () => {}, flushNow: () => {} },
       observers: { clearSession: () => {} },
       sessionCwdTracker: { clear: () => {} },
-      primeInjector: { reset: () => {} },
       send: (msg: DaemonMessage) => void sent.push(msg),
     } as unknown as DaemonContext
     const client = attachment()

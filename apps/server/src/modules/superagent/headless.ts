@@ -441,6 +441,9 @@ export class HeadlessService {
     }
     const model = input.model && input.model !== 'auto' ? input.model : undefined
     const effort = input.effort && input.effort !== 'auto' ? input.effort : undefined
+    // The daemon enforces the budget this call waits on: a one-shot turn
+    // always carries it, since an absent deadline means none at all.
+    const budgetMs = input.timeoutMs ?? 600_000
     const requestDigest = createHash('sha256')
       .update(
         canonicalHeadlessContractFacts({
@@ -455,14 +458,13 @@ export class HeadlessService {
           ...(input.sessionUuid !== undefined ? { sessionUuid: input.sessionUuid } : {}),
           ...(input.contextPrompt !== undefined ? { contextPrompt: input.contextPrompt } : {}),
           ...(input.systemPrompt !== undefined ? { systemPrompt: input.systemPrompt } : {}),
-          ...(input.timeoutMs !== undefined ? { timeoutMs: input.timeoutMs } : {}),
+          timeoutMs: budgetMs,
           turnId: input.turnId,
           sessionId: input.sessionId,
           accountId,
         }),
       )
       .digest('hex')
-    const budgetMs = input.timeoutMs ?? 600_000
     const waitMs = budgetMs + 10_000
     const relay = this.deps.relay()
     const store = this.deps.store()
@@ -522,7 +524,7 @@ export class HeadlessService {
           requestDigest,
           ...(input.contextPrompt ? { contextPrompt: input.contextPrompt } : {}),
           ...(input.systemPrompt ? { systemPrompt: input.systemPrompt } : {}),
-          ...(input.timeoutMs ? { timeoutMs: input.timeoutMs } : {}),
+          timeoutMs: budgetMs,
           ...(model ? { model } : {}),
           ...(effort ? { effort } : {}),
         })

@@ -63,6 +63,8 @@ export interface FakeGrokAcpServer {
   promptCount: number
   /** Every `session/prompt` request's params, in order. */
   prompts: Record<string, unknown>[]
+  /** Every `session/new` request's params, in order. */
+  sessionNews: Record<string, unknown>[]
   /** The prompt Grok is running, by its `promptId`. */
   runningPromptId: string | undefined
   /** `session/cancel` notifications received. */
@@ -231,6 +233,7 @@ export function startFakeGrokAcpServer(
               })
               return
             case 'session/new':
+              server.sessionNews.push(frame.params ?? {})
               response(frame.id, { sessionId })
               return
             case 'session/load': {
@@ -379,6 +382,7 @@ export function startFakeGrokAcpServer(
     sessionId,
     promptCount: 0,
     prompts: [],
+    sessionNews: [],
     runningPromptId: undefined,
     cancels: 0,
     answers: new Map(),

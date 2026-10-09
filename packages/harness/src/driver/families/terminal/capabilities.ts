@@ -52,6 +52,9 @@ export interface TerminalCapabilityInput {
    * degrades against a stated gap instead of an exception.
    */
   archivable: boolean
+  /** From the manifest's `runtime.terminal.queuesBusyInput` (POD-5855): Enter
+   *  during a running turn hands the prompt to the program's own queue. */
+  queuesBusyInput?: boolean
 }
 
 /**
@@ -68,10 +71,15 @@ export function terminalCapabilities(input: TerminalCapabilityInput): DriverCapa
     // ---- CORE ----
     send: {
       readiness: { kind: 'terminal-composer', composer: input.composerReadiness },
-      // `steer` is ABSENT, and its absence is the point: a TUI has no way to
-      // append into an open turn, so the driver degrades to `queue` and the
-      // receipt's `deliveredAs` says so. Never a silent substitution.
-      native: ['when-ready', 'queue', 'interrupt'],
+      // `steer` is PER HARNESS (POD-5855). A TUI measured to take a prompt
+      // entered mid-turn into its own queue — taken in at its next step, or
+      // run as the next turn — steers by typing it now. Anywhere else a TUI
+      // has no way to append into an open turn, so the driver degrades to
+      // `queue` and the receipt's `deliveredAs` says so. Never a silent
+      // substitution.
+      native: input.queuesBusyInput
+        ? ['when-ready', 'queue', 'interrupt', 'steer']
+        : ['when-ready', 'queue', 'interrupt'],
       proof: input.sendProof,
       // TERMINAL ONLY. The permitted-failures table is what makes this checkable
       // in BOTH directions — a server driver setting it is refused by the corpus.

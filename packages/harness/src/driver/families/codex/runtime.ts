@@ -103,7 +103,7 @@ import type {
   PendingInteraction,
 } from '../../interactions.js'
 import type { OnQueueAbandoned } from '../../queue-abandonment.js'
-import type { ModelPolicy, SessionSpec } from '../../session-spec.js'
+import { instructionsText, type ModelPolicy, type SessionSpec } from '../../session-spec.js'
 import type {
   AnswerOptions,
   AttachmentStager,
@@ -227,6 +227,12 @@ export interface CodexRuntimeHost {
      * a second place that knows how Codex mounts an MCP server.
      */
     mcpServers?: { transport: 'path'; path: string } | { transport: 'inline'; config: string }
+    /**
+     * The session's instructions (POD-5814), as Codex's developer instructions:
+     * the same `-c developer_instructions=` override the terminal adapter
+     * passes, built by the host beside the rest of this child's argv.
+     */
+    instructions?: string
   }): Promise<CodexServerEndpoint>
 
   stageAttachment: AttachmentStager
@@ -1587,6 +1593,12 @@ export function createCodexRuntime(
     return spec.mcpServers.supported ? { mcpServers: spec.mcpServers.value } : {}
   }
 
+  /** The session's instructions for the host to hand Codex, or nothing. */
+  function instructionsOf(spec: SessionSpec): { instructions?: string } {
+    const instructions = instructionsText(spec)
+    return instructions ? { instructions } : {}
+  }
+
   /**
    * THE ONE CALL TO THE HOST'S PORT, AND THE ONE GUARD AROUND IT
    * (POD-2297 review, 2).
@@ -2728,6 +2740,7 @@ export function createCodexRuntime(
       workdir: spec.workdir,
       ...(spec.env ? { env: spec.env } : {}),
       ...mcpOf(spec),
+      ...instructionsOf(spec),
     })
     const connection = await connect(endpoint, sessionId)
     /**
@@ -2784,6 +2797,7 @@ export function createCodexRuntime(
         workdir: input.spec.workdir,
         ...(input.spec.env ? { env: input.spec.env } : {}),
         ...mcpOf(input.spec),
+        ...instructionsOf(input.spec),
       }))
     let connection: CodexConnection | undefined
     try {

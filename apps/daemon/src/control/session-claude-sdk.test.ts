@@ -1,4 +1,4 @@
-import type { AgentSessionHandle } from '@podium/harness/driver/host'
+import type { AgentSessionHandle, SessionSpec } from '@podium/harness/driver/host'
 import { asSessionId, type ResumeRef, type SessionId } from '@podium/model'
 import type { DaemonMessage } from '@podium/protocol/daemon'
 import { describe, expect, it, vi } from 'vitest'
@@ -262,6 +262,47 @@ describe('Claude stream engine spawn selection', () => {
     ).resolves.toEqual({ handled: true })
     expect(create).toHaveBeenCalledTimes(1)
     expect(resume).not.toHaveBeenCalled()
+  })
+
+  it('hands the spawn frame instructions to the engine on the session spec', async () => {
+    const create = vi.fn(async () => handle(SESSION_ID, RESUME))
+    const ctx = {
+      send: vi.fn(),
+      harnessLoginState: () => 'in',
+      agentRuntime: {
+        resolveDriver: vi.fn(() => ({
+          ok: true,
+          driverId: 'claude-sdk',
+          capabilities: { placement: 'dedicated' },
+        })),
+        serverHandleFor: vi.fn(() => undefined),
+        adoptJournalled: vi.fn(async () => ({ found: false })),
+        resumesAtLaunch: vi.fn(() => true),
+        create,
+        resume: vi.fn(),
+        handleFor: vi.fn(() => undefined),
+      },
+    } as unknown as DaemonContext
+    const instructions = [{ source: 'podium:issues', content: 'Run `podium issue prime`.' }]
+    const message = {
+      type: 'spawn',
+      sessionId: SESSION_ID,
+      agentKind: 'claude-code',
+      cwd: '/project',
+      geometry: { cols: 80, rows: 24 },
+      requestedDriverId: 'claude-sdk',
+      model: 'auto',
+      instructions,
+    } as never
+
+    await launchServerDriverSession(ctx, message, async () => ({ drivable: true }))
+    const [spec] = create.mock.calls[0] as unknown as [SessionSpec]
+    expect(spec.instructions).toEqual({
+      supported: true,
+      value: { instructions, reprimeOnCompaction: false },
+    })
+    // `auto` is the harness default, which an absent model already means.
+    expect(spec.model).toEqual({})
   })
 
   it('keeps an ordinary Claude spawn on the PTY path', async () => {

@@ -13,6 +13,10 @@ import {
 } from './VpsFirstActivation'
 import { vpsIntroState } from './vps-activation'
 
+// The rendered onboarding command ends with the installer's `--vps` handoff
+// (buildVpsBootstrapCommand); `setup --vps` stopped appearing in it at 1046374133.
+const VPS_COMMAND = /--channel \w+ --agents \S+ --vps$/
+
 const uiValues = new Map<string, string>()
 const uiListeners = new Set<() => void>()
 const uiSet = vi.fn((key: string, value: string | null) => {
@@ -141,7 +145,7 @@ describe('fresh VPS activation', () => {
     expect(
       screen.getByText(/Nothing on this computer is exposed, paired, or transferred/),
     ).toBeTruthy()
-    expect((await screen.findByText(/setup --vps/)).textContent).not.toContain('--join')
+    expect((await screen.findByText(VPS_COMMAND)).textContent).not.toContain('--join')
     fireEvent.change(screen.getByLabelText('New VPS Podium URL'), {
       target: { value: 'https://vps.example.com' },
     })
@@ -269,10 +273,10 @@ describe('the VPS command waits for the channel', () => {
 
     expect(screen.getByText(/Reading which release train/)).toBeTruthy()
     expect(screen.queryByRole('button', { name: /Copy/ })).toBeNull()
-    expect(screen.queryByText(/setup --vps/)).toBeNull()
+    expect(screen.queryByText(VPS_COMMAND)).toBeNull()
 
     channel.resolve({ channel: 'edge' })
-    await waitFor(() => expect(screen.getByText(/setup --vps/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(VPS_COMMAND)).toBeTruthy())
     expect(screen.getByRole('button', { name: 'Copy' })).toBeTruthy()
   })
 
@@ -284,8 +288,8 @@ describe('the VPS command waits for the channel', () => {
       ),
     )
 
-    const command = await screen.findByText(/setup --vps/)
-    expect(command.textContent).toContain('/releases/latest/download/install.sh')
+    const command = await screen.findByText(VPS_COMMAND)
+    expect(command.textContent).toContain('https://podium.do/install.sh')
     expect(command.textContent).toContain('--channel stable')
     expect(command.textContent).not.toContain('/releases/download/edge/install.sh')
     expect(command.textContent).not.toContain('--channel edge')
@@ -299,7 +303,7 @@ describe('the VPS command waits for the channel', () => {
       ),
     )
 
-    const command = await screen.findByText(/setup --vps/)
+    const command = await screen.findByText(VPS_COMMAND)
     expect(command.textContent).toContain('/releases/download/edge/install.sh')
     expect(command.textContent).toContain('--channel edge')
   })
@@ -317,11 +321,11 @@ describe('the VPS command waits for the channel', () => {
     )
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
-    expect(screen.queryByText(/setup --vps/)).toBeNull()
+    expect(screen.queryByText(VPS_COMMAND)).toBeNull()
     expect(screen.queryByRole('button', { name: /Copy/ })).toBeNull()
 
     fireEvent.click(screen.getByRole('button', { name: /Try again/ }))
-    await waitFor(() => expect(screen.getByText(/setup --vps/)).toBeTruthy())
+    await waitFor(() => expect(screen.getByText(VPS_COMMAND)).toBeTruthy())
     expect(query).toHaveBeenCalledTimes(2)
   })
 
@@ -334,6 +338,6 @@ describe('the VPS command waits for the channel', () => {
     )
 
     await waitFor(() => expect(screen.getByRole('alert')).toBeTruthy())
-    expect(screen.queryByText(/setup --vps/)).toBeNull()
+    expect(screen.queryByText(VPS_COMMAND)).toBeNull()
   })
 })

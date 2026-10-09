@@ -267,11 +267,17 @@ export class SessionRuntimeGateway {
      */
     principal?: InboxPrincipalReference
   }): Promise<TurnReceipt> {
-    if (input.delivery === 'queue' || input.delivery === 'steer') {
+    // A TURN THAT IS NOT A ROW YET becomes one here. A row the durable queue
+    // is forwarding already is one (it carries its `rowId`), whatever its mode:
+    // it goes to its machine, or a `steer` row would be queued again as a new
+    // row and forwarded back here without end (POD-5855).
+    if (input.rowId === undefined && (input.delivery === 'queue' || input.delivery === 'steer')) {
       const queued = await this.ports.queue.enqueue({
         sessionId: input.sessionId,
         text: input.text,
         origin: input.origin,
+        // The mode the caller named, never one inferred from who is typing.
+        delivery: input.delivery === 'steer' ? 'steer' : 'when-ready',
         ...(input.attachments?.length ? { attachments: input.attachments } : {}),
         // NEVER A LOCAL DEFAULT. When a caller did not name itself the
         // composition root's own system principal is used — declared there,

@@ -205,12 +205,13 @@ describe('adopt rebinding delivers mail (POD-4794 defect 1)', () => {
         trackedState: (sessionId) => phases.get(sessionId),
         draftSyncing: () => false,
         setDraftTarget: () => false,
-        processAlive: async () => true,
-        recover: async (msg, ready) => {
-          ready(ensureTransport(msg.sessionId))
-        },
+        observationLease: () => undefined,
+        recover: async ({ sessionId }) => ({
+          terminal: ensureTransport(sessionId),
+          announce: () => {},
+        }),
         stopSession: async () => true,
-        launch: async () => {},
+        launch: async () => ({ announce: () => {} }),
         readHistory: async () => ({ items: [], hasMore: false }),
         archiveTranscript: async () => ({ path: '/tmp/s.jsonl' }),
         readArchiveBytes: async () => new TextEncoder().encode('{}'),

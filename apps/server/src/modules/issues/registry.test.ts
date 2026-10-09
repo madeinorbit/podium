@@ -1170,3 +1170,107 @@ describe('issue mail read state is per reading session [POD-1379]', () => {
     }
   })
 })
+
+describe('agent close while a session on the issue works [POD-5762]', () => {
+  const registries: SessionRegistry[] = []
+  afterAll(async () => {
+    for (const registry of registries.splice(0)) await registry.dispose()
+  })
+
+  const self = asSessionId('closing-agent')
+
+  const harness = async (phase: 'working' | 'idle') => {
+    const registry = await reportingRegistry()
+    registries.push(registry)
+    const dispatcher = new IssueCommandDispatcher({
+      issues: registry.issues,
+      shipping: {} as never,
+      arbitration: { run: (_input, operation) => operation() },
+      attachSession: () => {
+        throw new Error('not used')
+      },
+      deleteIssue: () => undefined,
+      restoreIssue: () => undefined,
+      mutations: registry.modules.mutations,
+      sessionById: async () => undefined,
+      listSessionsForIssue: async () => [
+        {
+          sessionId: self,
+          title: 'Closing agent',
+          status: 'live',
+          archived: false,
+          agentState: { phase },
+        } as never,
+      ],
+      repoPaths: () => ['/r'],
+      inferRepoFromPath: () => undefined,
+    })
+    const issue = await registry.issues.crud.create({ repoPath: '/r', title: 'Own', startNow: false })
+    return { registry, dispatcher, issue }
+  }
+
+  const agentCaller = (rootId: string) => {
+    const capability = {
+      role: 'worker' as const,
+      scope: { kind: 'subtree' as const, rootId: asIssueId(rootId) },
+      actorSessionId: self,
+      onBehalfOf: firstAdminMemberId(),
+    }
+    return {
+      capability,
+      principal: {
+        kind: 'agent' as const,
+        agentSessionId: self,
+        onBehalfOf: firstAdminMemberId(),
+        capability,
+        chain: [],
+      },
+    }
+  }
+
+  const closed = async (registry: SessionRegistry, id: string) =>
+    (await registry.issues.reports.get(id))?.stage === 'done'
+
+  it('refuses close and update-to-done, naming the session and the flag', async () => {
+    const { registry, dispatcher, issue } = await harness('working')
+
+    await expect(
+      dispatcher.dispatch(agentCaller(issue.id), 'issues', 'close', { id: issue.id }),
+    ).rejects.toThrow(/still working \(your own session\).*--confirm-interrupt/s)
+    await expect(
+      dispatcher.dispatch(agentCaller(issue.id), 'issues', 'update', {
+        id: issue.id,
+        patch: { stage: 'done' },
+      }),
+    ).rejects.toThrow(/--confirm-interrupt/)
+    expect(await closed(registry, issue.id)).toBe(false)
+  })
+
+  it('closes with --confirm-interrupt', async () => {
+    const { registry, dispatcher, issue } = await harness('working')
+
+    await dispatcher.dispatch(agentCaller(issue.id), 'issues', 'close', {
+      id: issue.id,
+      confirmInterrupt: true,
+    })
+    expect(await closed(registry, issue.id)).toBe(true)
+  })
+
+  it('closes without the flag once no session is working', async () => {
+    const { registry, dispatcher, issue } = await harness('idle')
+
+    await dispatcher.dispatch(agentCaller(issue.id), 'issues', 'close', { id: issue.id })
+    expect(await closed(registry, issue.id)).toBe(true)
+  })
+
+  it('does not gate the operator', async () => {
+    const { registry, dispatcher, issue } = await harness('working')
+    const operator = {
+      capability: OPERATOR,
+      principal: { kind: 'user' as const, user: firstAdminMemberId(), capability: OPERATOR },
+    }
+
+    await dispatcher.dispatch(operator, 'issues', 'close', { id: issue.id })
+    expect(await closed(registry, issue.id)).toBe(true)
+  })
+})
