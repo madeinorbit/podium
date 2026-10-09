@@ -2,6 +2,7 @@
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph/pool'
+import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { useMemo, useSyncExternalStore } from 'react'
@@ -39,6 +40,7 @@ async function mount(onExpand = vi.fn(), options: { stages?: string[]; crew?: st
   })) as unknown as SessionView[]
   const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: Date.parse(stamp) }, undefined,
     { load: () => undefined, worklist: 'demand' })
+  attachMissionTestPreferences(pool)
   pool.apply({ type: 'replace', rows: [
     ...issues.map(value => ({ kind: 'issue' as const, id: value.id, value })),
     ...sessions.map(value => ({ kind: 'session' as const, id: value.sessionId, value })),
