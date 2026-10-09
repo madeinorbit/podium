@@ -19,6 +19,7 @@ import { MobxPool } from '@podium/client-graph/pool'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { settled } from '@podium/client-graph/mission-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { autorun } from 'mobx'
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import {
   FENCE_SCENARIOS,
@@ -125,16 +126,19 @@ it('phone mission batches cold spin-offs and their dependency targets together',
     load, summaries: MOBILE_SCREEN_SUMMARIES, schedule: () => () => {},
   })
   attachMissionTestPreferences(pool)
+  const screen = new MissionScreen(pool, 'root')
+  let stop = () => {}
   try {
     pool.apply({ type: 'replace', rows: rows.map(value => ({ kind: 'issue' as const, id: value.id, value })) })
     // The phone's opening draws where the work went: every cold spin-off and
     // the dependency each one waits on. A cold sibling must not prevent the
     // remaining siblings from requesting their rows.
-    const screen = new MissionScreen(pool, 'root')
-    const read = () => tracked(() => settled(() => screen.ready
-      ? [...screen.otherDepartures.map(departure => departure.issue.id), ...screen.otherDepartures.flatMap(departure =>
+    const read = () => settled(() => screen.ready
+      ? [screen.rootId, ...screen.otherDepartures.map(departure => departure.issue.id), ...screen.otherDepartures.flatMap(departure =>
         departure.issue.deps.filter(dep => dep.type === 'blocks').map(dep => dep.id))]
-      : LOADING))
+      : LOADING)
+    // Keep the opening mounted while hydration publishes the next load wave.
+    stop = autorun(() => { read() })
     expect(read()).toBe(LOADING)
     expect(load).not.toHaveBeenCalled()
     let batches = 0
@@ -142,12 +146,14 @@ it('phone mission batches cold spin-offs and their dependency targets together',
     const addressed = read()
     expect(addressed).not.toBe(LOADING)
     if (addressed === LOADING) throw new Error('Phone mission is still loading')
-    expect(new Set(addressed)).toEqual(new Set(rows.slice(1, -1).map(row => row.id)))
+    expect(new Set(addressed)).toEqual(new Set(rows.slice(0, -1).map(row => row.id)))
     expect(batches).toBeLessThanOrEqual(2)
     expect(load).toHaveBeenCalledTimes(width * 2)
     expect(pool.hydrate()).toBe(0)
     expect(pool.tables.issue.has('unrelated-history')).toBe(false)
   } finally {
+    stop()
+    screen.close()
     pool.dispose()
   }
 })
