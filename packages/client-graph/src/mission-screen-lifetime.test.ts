@@ -1,3 +1,4 @@
+import { attachMissionTestPreferences } from './mission-screen.test.fixture'
 import { lazyKeptCount } from '@podium/mobx-helpers'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
@@ -11,6 +12,7 @@ const turns = async () => { for (let turn = 0; turn < 10; turn++) await new Prom
 
 function missionPool() {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  attachMissionTestPreferences(pool)
   const issue = (id: string, seq: number, parentId: string | null, stage = 'in_progress') => ({
     kind: 'issue' as const, id, value: { id, seq, title: id, stage, audience: 'human', parentId,
       deps: [], repoPath: '/synthetic', createdAt: stamp, updatedAt: stamp, readAt: stamp },

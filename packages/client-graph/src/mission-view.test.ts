@@ -1,4 +1,5 @@
 import { omitGone } from './lookup'
+import { attachMissionTestPreferences } from './mission-screen.test.fixture'
 import { autorun, runInAction } from 'mobx'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -42,6 +43,7 @@ function open(rows: IssueNavigationModel[], seats: SessionView[], summaries: { i
   const input = new Map<string, object>([...rows.map(row => [`issue:${row.id}`, row] as const), ...seats.map(row => [`session:${row.sessionId}`, row] as const)])
   const load = vi.fn((entity: string, id: string) => input.get(`${entity}:${id}`))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, { load, summaries, schedule: () => () => {} })
+  attachMissionTestPreferences(pool)
   pools.push(pool)
   pool.apply({ type: 'replace', rows: [...rows.map(value => ({ kind: 'issue' as const, id: value.id, value })),
     ...seats.map(value => ({ kind: 'session' as const, id: value.sessionId, value }))] })
