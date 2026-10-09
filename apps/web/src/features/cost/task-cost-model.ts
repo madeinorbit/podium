@@ -1,3 +1,4 @@
+import { lazy } from '@podium/mobx-helpers'
 import { taskCostView, type TaskCostView } from '@podium/client-core/values'
 import type { TaskCostComparisonWire } from '@podium/model/browser'
 import { actionBound, observable, observableRef, runInAction } from 'mobx'
@@ -20,9 +21,11 @@ export class TaskCostModel {
 
   constructor(
     private readonly read: ReadTaskComparison,
-    readonly issueId: string,
+    readonly issueId: string | null,
     private readonly includeSessions = true,
   ) {}
+
+  @lazy get failed(): boolean { return this.error !== null }
 
   @actionBound open(): void {
     this.opened = true
@@ -42,7 +45,7 @@ export class TaskCostModel {
   }
 
   @actionBound async refresh(): Promise<void> {
-    if (!this.opened || !this.visible) return
+    if (!this.opened || !this.visible || this.issueId === null) return
     const generation = ++this.generation
     this.loading = true
     this.error = null

@@ -653,7 +653,7 @@ function existsOnDisk(path: string): boolean {
 describe('addressed task comparison', () => {
   it('matches the old task and corpus answers without reading full corpus rows', async () => {
     const root = await issue()
-    const child = await issue({ parentId: root.id, stage: 'done', archived: true })
+    const child = await issue({ parentId: root.id, stage: 'closed', archived: true })
     const deleted = await issue({ deletedAt: '2026-08-23T00:00:00Z' })
     const small = await issue()
     for (const [task, messages] of [[child, 25], [deleted, 400], [small, 20]] as const) {

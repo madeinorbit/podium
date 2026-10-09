@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 import { Popover } from '@base-ui/react/popover'
 import { useStoreHandle } from '@podium/client-core/react'
 import {
@@ -91,7 +92,7 @@ import type { Trpc } from './trpc'
  * three objects, so its unfilled slot IS the placeholder dash — and the header
  * changing shape once, early in a mission's life, is the cheaper of the two.
  */
-export function MissionCostChip({
+export const MissionCostChip = observer(function MissionCostChip({
   issueId,
   onOpenInExplorer,
 }: {
@@ -137,7 +138,7 @@ export function MissionCostChip({
       </Popover.Portal>
     </Popover.Root>
   )
-}
+})
 
 /**
  * THE ANSWER IN PLACE (POD-1604 §03).

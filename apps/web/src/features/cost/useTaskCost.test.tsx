@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
 import { asIssueId, type TaskCostComparisonWire } from '@podium/model/browser'
-import { act, cleanup, renderHook } from '@testing-library/react'
+import { act, cleanup, render, renderHook } from '@testing-library/react'
+import { observer } from 'mobx-react-lite'
 import { afterEach, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
 import { useTaskCost } from './useTaskCost'
@@ -58,16 +59,20 @@ it('does not load without an addressed task and replaces the owner on navigation
 
 it('owns the mission comparison only while the popover is open', async () => {
   const ctx = setup()
-  const hook = renderHook(({ open }) => useMissionCost(ctx.trpc, 'one', open),
-    { initialProps: { open: false } })
+  let current: ReturnType<typeof useMissionCost> | undefined
+  const Probe = observer(({ open }: { open: boolean }) => {
+    current = useMissionCost(ctx.trpc, 'one', open)
+    return null
+  })
+  const hook = render(<Probe open={false} />)
   await settled()
   expect(ctx.comparison).not.toHaveBeenCalled()
-  hook.rerender({ open: true }); await settled()
-  expect(hook.result.current.view?.rateVsMedian).toBe(2)
+  hook.rerender(<Probe open />); await settled()
+  expect(current?.view?.rateVsMedian).toBe(2)
   expect(ctx.comparison).toHaveBeenCalledExactlyOnceWith({ issueId: 'one', includeSessions: false })
-  hook.rerender({ open: false })
-  expect(hook.result.current.view?.rateVsMedian).toBeNull()
-  hook.rerender({ open: true }); await settled()
+  hook.rerender(<Probe open={false} />)
+  expect(current?.view?.rateVsMedian).toBeNull()
+  hook.rerender(<Probe open />); await settled()
   expect(ctx.comparison).toHaveBeenCalledTimes(2)
   expect(ctx.tasks).not.toHaveBeenCalled()
 })
