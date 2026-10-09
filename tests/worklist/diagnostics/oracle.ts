@@ -136,7 +136,7 @@ export function worktreeDiff(pool: MobxPool, derivation: LegacyDerivation, state
     if ((value.worktree.branch ?? null) !== (row.worktree.branch ?? null)) differences.push(`${row.worktree.path}.branch`)
     if (value.worktree.repoName !== row.worktree.repoName) differences.push(`${row.worktree.path}.repoName`)
     const active = worklistView(pool).selectedId === null && state.selectedWorktree === row.worktree.path
-    if (value.active !== active) differences.push(`${row.worktree.path}.active`)
+    if (value.active(state) !== active) differences.push(`${row.worktree.path}.active`)
     for (const session of row.worktree.sessions) {
       if (!session.issueId) continue
       const actual = value.issues.find(issue => issue.id === session.issueId)

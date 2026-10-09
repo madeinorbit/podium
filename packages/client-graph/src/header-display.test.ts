@@ -9,6 +9,7 @@ import { HeaderSessions } from './header-sessions'
 import { headerView } from './header-views'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
+import { worklistView } from './worklist/view-model'
 
 const NOW = Date.parse('2026-10-08T12:00:00Z')
 const stamp = (at = NOW) => new Date(at).toISOString()
@@ -48,7 +49,7 @@ const displayedSession = (value: Pick<SessionView, 'sessionId' | 'title' | 'name
 // Frozen display oracle from header-views/header-session before this change.
 // Keep it independent of the new companion's membership and selection rules.
 function oldSelected(pool: MobxPool) {
-  const id = pool.selection.keys().next().value
+  const id = worklistView(pool).selectedId
   if (!id) return undefined
   const value = pool.row('issue', id) as ReturnType<typeof issue> & { deletedAt?: string | null } | typeof LOADING | undefined
   if (value === LOADING) return LOADING

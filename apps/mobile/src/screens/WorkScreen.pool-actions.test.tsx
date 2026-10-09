@@ -468,16 +468,16 @@ describe('mobile pool work-list actions', () => {
             agentState: { phase: 'working', since: iso(-60_000) },
           })
       })
-      const before = value().emphasizeUnread
+      const before = value().unread
       expect(before).toBe(unread)
       if (unread) expect(value().emphasizeUnread).toBe(false)
       await openMenu()
       await choose(unread ? 'Mark as read' : 'Mark as unread')
       const write = await request(unread ? 'issues.markRead' : 'issues.markUnread')
-      expect(value().emphasizeUnread).toBe(!unread)
+      expect(value().unread).toBe(!unread)
       await parity()
       await settle(write)
-      expect(value().emphasizeUnread).toBe(unread)
+      expect(value().unread).toBe(unread)
     })
 
   it('tucks a completed row immediately, rolls back, and holds accepted tuck until echo', async () => {
