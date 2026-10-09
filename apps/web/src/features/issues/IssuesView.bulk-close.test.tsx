@@ -44,6 +44,7 @@ vi.mock('./IssuesFilters', async (importOriginal) => {
 
 const working: SessionMeta = {
   sessionId: asSessionId('agent'),
+  issueId: 'a',
   agentKind: 'claude-code',
   title: 'POD-1126-A',
   cwd: '/r/wt',

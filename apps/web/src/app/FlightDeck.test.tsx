@@ -130,7 +130,10 @@ const drafts = new DraftStore({
 })
 afterAll(() => drafts.dispose())
 let conversations: ConversationCache | undefined
-afterEach(() => { conversations?.dispose(); conversations = undefined })
+afterEach(() => {
+  conversations?.dispose()
+  conversations = undefined
+})
 const owner = withKeyedInputs({
   ownConversations: (options: ConversationCacheOptions) =>
     conversations ??= new ConversationCache(options),
