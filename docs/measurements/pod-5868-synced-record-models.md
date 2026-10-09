@@ -7,11 +7,15 @@ generic tables. No entity adds storage or changes table publication granularity.
 
 ## Scope and base
 
-POD-4286 authorized this range on POD-5867's fixed, unlanded tip
+POD-4286 initially authorized this range on POD-5867's fixed, unlanded tip
 `0b36eebe33840d05249fafd66fbb48997b1dfce1`. It superseded the earlier instruction
-to wait for landing. Pilot remains `5cefac00403c52651b8148485609548323964953`
-at this handoff. Rebase the range onto a replacement prerequisite tip, then onto
-the pilot after that prerequisite lands.
+to wait for landing. The initial proof used pilot
+`5cefac00403c52651b8148485609548323964953`. History has since landed ff-only at
+actual pilot `d12bee410318123f0e7ad26b2d3551a1f381deb0`; the complete 15-commit
+model range was rebased without conflicts onto POD-5867's actual replacement
+`1a32e0d834350e7937024ac2ee55413396fbe3c1`. This report update follows that
+complete rebase and changes no runtime or fixture code. Reconcile again if the
+prerequisite gains its remaining proof before the shared freeze.
 
 The coordinator narrowed this issue to synced records. Workflow record models,
 spec metadata, request ingestion and request-record retention remain deferred
@@ -142,22 +146,35 @@ report at `/tmp/podium-focused-tests-ny2qRx/results.json` on flatblock.
 
 ## Scan evidence and remaining gates
 
-The light interaction scan reports **0 ratchet errors**, 2,214 fingerprints and
-2,215 occurrences. Compared with the exact prerequisite baseline, 110 moved
+The fresh post-rebase light interaction scan reports **0 ratchet errors**, 2,210
+fingerprints and 2,211 occurrences. Compared with the actual prerequisite
+`1a32e0d834` baseline, 110 moved
 fingerprints retain their classification, owner, trigger, bound, reason and
 guard; twelve obsolete shell-reader entries disappear. Seven new sites are
 explicit ingestion work and two sites are bounded test-fixture catalogue work.
-The 2,068 remaining `REQUIRED REPAIR` entries are existing debts, not claimed
+The 2,063 remaining `REQUIRED REPAIR` entries are existing debts, not claimed
 repairs. This source scan does not substitute for the structural census.
 
 POD-5895 owns the shared lean gate, full typecheck, normal web build, structural
 census under `meter:flatblock`, and landing, as assigned by POD-4286. Those gates,
-structural flat-or-better proof, prerequisite rebase and ff-only pilot landing
-remain pending. This issue stays in progress until their receipts arrive.
+structural flat-or-better proof and ff-only pilot landing remain pending. The
+actual history-based prerequisite rebase is verified below; its remaining
+proof may advance its tip before the shared freeze. This issue stays in
+progress until the required receipts arrive.
 
-POD-5895 reported a conflict-free compatibility preview on its history candidate,
-and POD-5867 inspected the preview's census context. That preview has no gates
-or landing receipt and does not replace this issue's authorized base. During
-the final rebase, preserve the landed history's `appendEvents` 50-row bound
-and all of its classification metadata; the old prerequisite base still has
-the earlier 200-row context.
+The initial compatibility preview was not used as a landed base. After the
+actual history landing and POD-5867's replacement receipt, the full original
+15-commit range `0b36eebe33..eed25fb6a6` was replayed onto `1a32e0d834`, yielding
+`5e3e958bdf` before this report update. Range-diff reports fourteen equal
+patches. The remaining census patch differs only in its context: the landed
+history's 50-row bound replaces the older 200-row bound, and Unicode guard
+rendering is semantically identical. The warning-free fixture repair is among
+the equal patches.
+
+An assertion over the actual landed history, prerequisite and rebased model
+tip confirms that the `appendEvents` bound is 50 rows and its classification,
+owner, trigger, reason, guard and occurrence count are identical. Ancestry
+`d12bee4103 -> 1a32e0d834 -> 5e3e958bdf` is verified. This is source
+reconciliation, not a shared-gate or landing receipt. No focused tests, census
+or lease work ran during POD-5911's trace window; POD-5895 retains the final
+shared gates after that window.
