@@ -66,7 +66,7 @@ export class TranscriptSearchIndex {
     if (!normalized) return []
     // A snapshot search has no lifetime in which to retain an index. Watched
     // searches keep their incremental buckets until the last reader leaves.
-    if (!this.searchDemand.reportObserved())
+    if (!this.searchDemand.reportObserved() && !this.indexed)
       return [...this.texts].filter(([,text]) => text.includes(normalized))
         .map(([id]) => id).sort((a,b) => this.positionOf(a)-this.positionOf(b))
     if (!this.indexed) this.buildPostings()
