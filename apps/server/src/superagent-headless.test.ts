@@ -1123,10 +1123,12 @@ describe('sendTurn (headless harness turns)', () => {
     expect(
       (await h.sa.listThreads(firstAdminMemberId())).find((thread) => thread.id === 'global')?.turnRunning,
     ).toBe(true)
+    // The API ack reserves the thread, but this fake daemon has not reported
+    // any activity yet. Only the driver's causal state stream owns the phase.
     await expect(
       h.registry.modules.readToolkit.status(ack.podiumSessionId, 'operator'),
     ).resolves.toMatchObject({
-      phase: 'working',
+      phase: 'idle',
     })
     h.resolveTurn(req, { harnessSessionId: 'h1' })
     await h.settle()

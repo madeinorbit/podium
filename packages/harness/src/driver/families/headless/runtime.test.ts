@@ -337,31 +337,18 @@ async function createHandle(
   return { handle, sessionId: handle.binding.sessionId }
 }
 
-async function takeEvents(handle: AgentSessionHandle, count: number): Promise<RuntimeEvent[]> {
+async function takeEvents(handle: AgentSessionHandle): Promise<RuntimeEvent[]> {
   const out: RuntimeEvent[] = []
+  const end = (await handle.snapshot()).cursor.components.seq
   const iterator = handle.events('bootstrap')[Symbol.asyncIterator]()
   try {
-    for (let i = 0; i < count; i += 1) {
-      // The stream only ends on disposal; a per-item timeout turns "no more
-      // events yet" into the end of this read instead of a hung test.
-      const next = await Promise.race([
-        iterator.next(),
-        new Promise<null>((resolve) => setTimeout(() => resolve(null), 250)),
-      ])
-      if (next === null || next.done === true) break
+    while (out.at(-1)?.cursor.components.seq !== end) {
+      const next = await iterator.next()
+      if (next.done) break
       out.push(next.value)
     }
   } finally {
-    // Fire-and-forget, never awaited: a timed-out read leaves a pending next()
-    // whose waker only the driver can fire, and return() queues behind it — so
-    // awaiting the close deadlocks until the next event (the same reason
-    // `procedures.ts` closes subscriptions without awaiting).
-    try {
-      const closing = iterator.return?.()
-      if (closing !== undefined) void closing.catch(() => undefined)
-    } catch {
-      // Best-effort.
-    }
+    await iterator.return?.()
   }
   return out
 }
@@ -613,7 +600,7 @@ describe('headless dispatch', () => {
       runners.turns[0]?.emit({ kind: 'status', status: 'running', harnessSessionId: 'harness-1' })
       runners.turns[0]?.resolve({ harnessSessionId: 'harness-1', output: 'done' })
       await flush()
-      const events = await takeEvents(handle, 4)
+      const events = await takeEvents(handle)
       expect(events.map((event) => (event.t === 'turn' ? event.ev.ev : event.t))).toContain(
         'completed',
       )
@@ -636,7 +623,7 @@ describe('headless dispatch', () => {
       runners.turns[0]?.emit({ kind: 'partial-text', text: 'half done', itemHint: 'm-1' })
       runners.turns[0]?.resolve({ harnessSessionId: 'harness-1', output: 'half done' })
       await flush()
-      const events = await takeEvents(handle, 6)
+      const events = await takeEvents(handle)
       const partials: string[] = []
       for (const event of events) {
         if (event.t === 'item' && event.item.kind === 'partial') {
@@ -909,7 +896,7 @@ describe('headless turn endings', () => {
       expect(runners.turns[0]?.interrupted).toBe(true)
       runners.turns[0]?.reject(new Error('turn interrupted'))
       await flush()
-      const events = await takeEvents(handle, 4)
+      const events = await takeEvents(handle)
       expect(events.at(-1)).toMatchObject({
         t: 'turn',
         ev: { ev: 'completed', turnEpoch: 1, verdict: 'interrupted' },
@@ -929,7 +916,7 @@ describe('headless turn endings', () => {
       // reporting its own interruption), and only the message arm may claim it.
       runners.turns[0]?.reject(new Error('turn interrupted'))
       await flush()
-      const events = await takeEvents(handle, 4)
+      const events = await takeEvents(handle)
       expect(events.at(-1)).toMatchObject({
         t: 'turn',
         ev: { ev: 'completed', turnEpoch: 1, verdict: 'interrupted' },
@@ -949,7 +936,7 @@ describe('headless turn endings', () => {
       })
       runners.turns[0]?.reject(new Error('turn timed out'))
       await flush()
-      const slow = await takeEvents(handle, 4)
+      const slow = await takeEvents(handle)
       expect(slow.at(-1)).toMatchObject({
         t: 'turn',
         ev: { ev: 'failed', reason: 'timeout', disposition: 'retryable' },
@@ -960,7 +947,7 @@ describe('headless turn endings', () => {
       })
       runners.turns[1]?.reject(new Error('provider exploded'))
       await flush()
-      const bad = await takeEvents(handle, 8)
+      const bad = await takeEvents(handle)
       expect(bad.at(-1)).toMatchObject({
         t: 'turn',
         ev: { ev: 'failed', reason: 'provider-error', disposition: 'fatal' },
@@ -1006,7 +993,7 @@ describe('headless turn endings', () => {
       runners.turns[0]?.reject(new Error('signal: killed'))
       runners.turns[1]?.resolve({ harnessSessionId: 'h-2', output: 'second' })
       await flush()
-      const events = await takeEvents(handle, 8)
+      const events = await takeEvents(handle)
       const terminals = events.filter((event) => event.t === 'turn' && event.ev.ev !== 'started')
       expect(terminals).toMatchObject([
         { ev: { ev: 'completed', turnEpoch: 1, verdict: 'interrupted' } },
@@ -1029,7 +1016,7 @@ describe('headless turn endings', () => {
           delivery: 'when-ready',
         }),
       ).toMatchObject({ outcome: 'refused', refusal: { reason: 'not_running' } })
-      const events = await takeEvents(handle, 4)
+      const events = await takeEvents(handle)
       expect(events.at(-1)).toMatchObject({ t: 'process', ev: { ev: 'exited' } })
     } finally {
       runtime.dispose()
@@ -1117,7 +1104,7 @@ describe('headless history and rebind', () => {
       expect(handle.binding.bindingVersion).toBe(4)
       expect(handle.binding.resume).toMatchObject({ value: 'h-adopt' })
       expect(host.binds).toMatchObject([{ sessionId, resumeValue: 'h-adopt' }])
-      const events = await takeEvents(handle, 3)
+      const events = await takeEvents(handle)
       expect(events.at(-1)).toMatchObject({
         t: 'process',
         ev: { ev: 'adopted', bindingVersion: 4 },
@@ -1306,7 +1293,7 @@ describe('headless structured permissions', () => {
       runners.turns[0]?.reject(new Error('turn interrupted'))
       await flush()
       expect(await handle.interactions()).toEqual([])
-      const events = await takeEvents(handle, 8)
+      const events = await takeEvents(handle)
       expect(
         events.some((event) => event.t === 'interaction' && event.ev.ev === 'expired'),
       ).toBe(true)
