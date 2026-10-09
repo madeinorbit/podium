@@ -3,7 +3,6 @@ import { worklistView } from './worklist/view-model'
 import type { SessionView } from '@podium/client-core/session-values'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { asIssueId, type IssueId, type MachineWire, machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
-import { compareStructural } from 'mobx'
 import { headerIds } from './enumerate'
 import type { IssueModel, SessionModel } from './models'
 import type { MobxPool } from './pool'
@@ -103,12 +102,6 @@ export class PaneSession {
       }
     }
     return undefined
-  }
-  /** The terminal's birth grid. Not declared on the shared session yet, so it
-   * is read from the loaded row; equal grids keep the pane's terminal still. */
-  @lazy({ equals: compareStructural }) get geometry(): SessionView['geometry'] {
-    const row = this.pool.row('session', this.session.id)
-    return row === LOADING ? undefined : (row as SessionView | undefined)?.geometry
   }
 
   private loadedIssue(id: string): Loaded<IssueModel> {

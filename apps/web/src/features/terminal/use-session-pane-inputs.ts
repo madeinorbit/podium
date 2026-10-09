@@ -75,7 +75,7 @@ export function useDockPaneInputs(cwd: string, pending: string | null): DockPane
 export function usePaneGeometry(id: SessionId): SessionView['geometry'] {
   if (import.meta.env.DEV) assertReactiveRead('usePaneGeometry')
   const pool = useWorklistPool()
-  return pool ? sessionPaneView(pool).loaded(id)?.geometry : undefined
+  return pool ? sessionPaneView(pool).loaded(id)?.session.geometry : undefined
 }
 const selectedIssueRead = (pool: MobxPool) => sessionPaneView(pool).selectedIssueId
 /** The selected issue: a selection fact, independent of the pane's session. */

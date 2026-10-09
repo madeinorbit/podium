@@ -210,7 +210,7 @@ export class ShellDock {
   @lazy get mailIssueId(): Loaded<string> {
     const session = this.activeSession
     if (session === LOADING) return LOADING
-    if (session?.issueId) return session.issueId
+    if (session?.issueId != null) return session.issueId
     const containing = this.containing
     return containing === LOADING ? LOADING : containing?.id
   }

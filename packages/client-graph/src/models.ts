@@ -772,7 +772,7 @@ export class IssueModel extends EntityModel {
 
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel {
-  static override readonly answers = new Set(['archived', 'unread', 'cwd', 'issueId', 'machineId', 'status'])
+  static override readonly answers = new Set(['archived', 'unread', 'cwd', 'issueId', 'machineId', 'status', 'geometry'])
 
   constructor(id: string, host: ModelHost) {
     super('session', id, host)
@@ -785,6 +785,9 @@ export class SessionModel extends EntityModel {
   @lazy get issueId(): SessionView['issueId'] { return this.storedField('issueId') as SessionView['issueId'] }
   @lazy get machineId(): SessionView['machineId'] { return this.storedField('machineId') as SessionView['machineId'] }
   @lazy get status(): SessionView['status'] { return this.storedField('status') as SessionView['status'] }
+  @lazy({ equals: compareStructural }) get geometry(): SessionView['geometry'] {
+    return this.storedField('geometry') as SessionView['geometry']
+  }
 
   // Stored fields: declared summaries can answer a field without promoting it.
   @lazy private get residentRow(): StoredRow | typeof LOADING | undefined {

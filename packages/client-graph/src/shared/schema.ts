@@ -721,6 +721,10 @@ const DECLARED = defineSchema({
       sessionId: { type: 'id', source: meta() },
       issueId: { type: 'id', optional: true, nullable: true, source: meta(), note: 'Foreign key of the `issue` relation.' },
       cwd: { type: 'string', source: meta(), note: "The path the `worktree` prefix relation places. There is no `session.worktreePath`." },
+      geometry: { type: 'object', source: meta(), note: 'The terminal birth grid (SessionMeta.geometry, Geometry).', parts: {
+        cols: { type: 'number', source: { schema: 'Geometry' }, why: 'Terminal column count.' },
+        rows: { type: 'number', source: { schema: 'Geometry' }, why: 'Terminal row count.' },
+      } },
       agentKind: { type: 'string', optional: true, nullable: true, source: meta() },
       harnessHandoff: { type: 'boolean', optional: true, source: meta(), note: 'Manifest capability used by the task menu handoff relation.' },
       headless: { type: 'boolean', optional: true, source: meta(), note: 'Structural membership filter on both session relations.' },
