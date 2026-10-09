@@ -48,7 +48,7 @@ import type {
 } from '@podium/client-graph/mission-view'
 import { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { requireLoaded, settled } from '@podium/client-graph/mission-view'
+import { settled } from '@podium/client-graph/mission-view'
 import { observer } from '@podium/client-graph/react'
 import { asIssueId } from '@podium/model'
 import type { IssueId, MachineId, SessionId } from '@podium/model/browser'

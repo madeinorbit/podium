@@ -37,6 +37,7 @@ function Harness({
   onFollowChange,
   aliases,
   lookupAnchorRow,
+  renderStart = 0,
 }: {
   keys?: string[]
   moreAbove?: boolean
@@ -46,6 +47,7 @@ function Harness({
   onFollowChange?: (following: boolean) => void
   aliases?: Record<string, string[]>
   lookupAnchorRow?: (key: string) => number | undefined
+  renderStart?: number
 }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   api = useTranscriptScroll({
@@ -53,7 +55,7 @@ function Harness({
     scrollerRef,
     active,
     blockCount: keys.length,
-    renderStart: 0,
+    renderStart,
     stickyEnabled: false,
     moreAbove,
     loadingOlder,
@@ -411,11 +413,20 @@ describe('transcript scrolling', () => {
     expect(scroller().scrollTop).toBe(840)
   })
 
-  it('requests older rows within a viewport of the mounted history edge', () => {
+  it('requests older rows within two viewports of the mounted history edge', () => {
     renderHarness(<Harness moreAbove />)
-    scrollTo(viewport - 20)
+    scrollTo(viewport * 2 - 20)
     expect(loadOlder).toHaveBeenCalledTimes(1)
     expect(api.atBottom).toBe(false)
+  })
+
+  it('preserves the reading anchor in the history-window commit before resize delivery', () => {
+    renderHarness(<Harness moreAbove renderStart={1000} />)
+    scrollTo(80)
+    tail += 250
+    act(() => root.render(<Harness keys={['older-a', 'older-b', ...held]} renderStart={998} />))
+    expect(scroller().scrollTop).toBe(280)
+    expect(top('row-0')).toBe(-80)
   })
 
   it('keeps its anchor through loading-only commits until the actual older rows mount', () => {
