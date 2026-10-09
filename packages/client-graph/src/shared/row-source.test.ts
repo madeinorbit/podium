@@ -437,7 +437,7 @@ it.each([1, 4])('records heartbeat owner-history work and watched fields at %sx'
   const issue = handle.pool.issueObject('one'), work = handle.pool.worklistRow('one')!
   const watcher = new Reaction('probe:issue-activity', () => {})
   watcher.track(() => { void issue.title; void issue.stage; void issue.memberLatestActivity;
-    void work.unread; void work.openOwn; void work.tip; void work.rollup })
+    void work.issue.unread; void work.openOwn; void work.tip; void work.rollup })
   const names = new Set<string>()
   const visit = (tree: ReturnType<typeof getDependencyTree>) => {
     if (/^(IssueModel|WorklistIssue)[@.]/.test(tree.name)) names.add(tree.name)

@@ -82,7 +82,7 @@ function answers(pool: MobxPool) {
       retained: issue.retained,
       liveRoster: issue.liveRoster,
       openOwn: issue.openOwn,
-      unread: issue.unread,
+      unread: issue.issue.unread,
     }
     const plain = directVisibility(
       { ...pool.visibleInputs, seatSummary: undefined },

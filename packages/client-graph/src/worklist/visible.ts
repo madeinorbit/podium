@@ -136,7 +136,7 @@ export interface VisibleInputs {
   /** A session's row, hot or cold; undefined when unknown. */
   sessionRow(id: string): SliceSession | undefined
   /** Another known issue's parts (its object in the live pool); undefined when unknown. */
-  issue(id: string): IssueVisibility | undefined
+  issue(id: string): Omit<IssueVisibility, 'unread'> | undefined
   /** A session's parts (its object in the live pool). */
   session(id: string): SessionVisibility
   /**
@@ -1343,7 +1343,7 @@ export function sortByRank(
 // ------------------------------------------------------------ the collection
 
 /** One known issue as the worklist reads it: its parts, and where its row goes. */
-export interface HeldIssue extends IssueVisibility {
+export interface HeldIssue extends Omit<IssueVisibility, 'unread'> {
   readonly id: string
   readonly placement: Placement | undefined
 }
