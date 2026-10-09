@@ -4,6 +4,8 @@ import type { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
 import { requireLoaded } from '@podium/client-graph/mission-view'
 import { here, omitGone } from '@podium/client-graph/lookup'
 import type { SessionModel } from '@podium/client-graph/models'
+import type { SessionView } from '@podium/client-core/session-values'
+import { asSessionId } from '@podium/model/browser'
 import { companion, lazy } from '@podium/mobx-helpers'
 import { action, compareShallow, observable, observableRef, runInAction } from 'mobx'
 import {
@@ -16,6 +18,10 @@ import {
 export type ActivityQuery = (input: { sessionIds: string[] }) => Promise<{
   sessions?: Record<string, Array<{ at: string; phase: string }>>
 }>
+
+/** A loaded shared seat, under the legacy display helpers' record contract.
+ * This narrows the same model identity; it never projects or copies a record. */
+export type WaterfallSessionModel = SessionModel & SessionView
 
 /** A request answer belongs to this opening, alongside the shared session. */
 export class WaterfallSession {
@@ -112,10 +118,10 @@ export class WaterfallRow {
   @lazy({ equals: compareShallow }) get sessionIds(): readonly string[] {
     return this.row.sessionIds(this.view.screen.mode)
   }
-  @lazy({ equals: compareShallow }) get sessions(): readonly SessionModel[] {
+  @lazy({ equals: compareShallow }) get sessions(): readonly WaterfallSessionModel[] {
     return this.sessionIds.flatMap((id) => {
       const session = requireLoaded(omitGone(this.view.screen.pool.model('session', id)))
-      return session ? [session] : []
+      return session ? [session as WaterfallSessionModel] : []
     })
   }
   @lazy({ equals: compareShallow }) get finishedIds(): readonly string[] {
@@ -123,7 +129,7 @@ export class WaterfallRow {
       .filter(
         (session) =>
           session.settled &&
-          !isCoordinatorSession(this.row.roleIssue, session.id) &&
+          !isCoordinatorSession(this.row.roleIssue, session.sessionId) &&
           session.id !== this.view.activeSessionId,
       )
       .map((session) => session.id)
@@ -140,7 +146,7 @@ export class WaterfallRow {
     return Math.max(1, this.drawnSessionIds.length + Number(this.historyCollapsed))
   }
   @lazy get coordinatorId(): string | undefined {
-    return this.sessionIds.find((id) => isCoordinatorSession(this.row.roleIssue, id))
+    return this.sessionIds.find((id) => isCoordinatorSession(this.row.roleIssue, asSessionId(id)))
   }
   @lazy get historyBounds(): { startedAt: number; endedAt: number } {
     let startedAt = this.view.openedNow ?? 0
@@ -177,9 +183,11 @@ export class WaterfallView {
   @lazy({ equals: compareShallow }) get rowIds(): readonly string[] {
     return this.rows.map((row) => row.key)
   }
-  @lazy get followed(): SessionModel | undefined {
+  @lazy get followed(): WaterfallSessionModel | undefined {
     return this.followedSessionId
-      ? here(this.screen.pool.model('session', this.followedSessionId))
+      ? (here(this.screen.pool.model('session', this.followedSessionId)) as
+          | WaterfallSessionModel
+          | undefined)
       : undefined
   }
   @action resume(): void {

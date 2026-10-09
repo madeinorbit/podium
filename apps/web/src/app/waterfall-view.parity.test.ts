@@ -8,6 +8,7 @@ import {
   followWaterfallSessionViewport,
 } from './flight-deck-waterfall'
 import { WaterfallView } from './waterfall-view'
+import type { WaterfallSessionModel } from './waterfall-view'
 
 import { NOW, waterfallFixture } from './waterfall-view.test.fixture'
 
@@ -110,7 +111,7 @@ it('follows one session with the old singleton geometry across width and time ch
   try {
     for (const id of ['s-0-0', 's-0-4'])
       for (const now of [NOW, NOW + 60000, NOW + 3600000]) {
-        const session = f.pool.sessionObject(id)
+        const session = f.pool.sessionObject(id) as WaterfallSessionModel
         for (const width of [60, 240, 480, 1000])
           for (const future of [true, false])
             expect(followWaterfallSessionViewport(session, now, width, { future })).toEqual(

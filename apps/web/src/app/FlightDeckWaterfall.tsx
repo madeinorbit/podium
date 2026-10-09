@@ -44,10 +44,14 @@ import {
 } from 'react'
 import { observer } from 'mobx-react-lite'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
-import type { SessionModel } from '@podium/client-graph/models'
 import type { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
 import { WaterfallLiveEdge } from './waterfall-live-edge'
-import { WaterfallView, type WaterfallRow, type WaterfallSession } from './waterfall-view'
+import {
+  WaterfallView,
+  type WaterfallRow,
+  type WaterfallSession,
+  type WaterfallSessionModel,
+} from './waterfall-view'
 import { useBoundedVirtualList } from '@/features/issues/use-bounded-virtual-list'
 import { Tooltip, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
@@ -501,7 +505,7 @@ const WaterfallSessionBar = observer(function WaterfallSessionBar({
   onLocalPick,
 }: {
   row: MissionDeckIssueModel
-  session: SessionModel
+  session: WaterfallSessionModel
   frame: WaterfallFrame
   fact: WaterfallSession
   selected: boolean
@@ -913,7 +917,7 @@ const WaterfallIssue = observer(function WaterfallIssue({
   const indent = root ? 0 : Math.max(0, item.row.depth - 1)
   const issueRef = item.row.displayRef
   const coordinator = item.coordinatorId
-    ? item.view.screen.pool.sessionObject(item.coordinatorId)
+    ? item.sessions.find((session) => session.id === item.coordinatorId)
     : undefined
   const sessionCount = item.sessionIds.length
   const issueTitle =
@@ -926,7 +930,8 @@ const WaterfallIssue = observer(function WaterfallIssue({
     .filter(Boolean)
     .join(' · ')
   const historyCollapsed = item.historyCollapsed
-  const visibleSessions = item.drawnSessionIds.map((id) => item.view.screen.pool.sessionObject(id))
+  const drawn = new Set(item.drawnSessionIds)
+  const visibleSessions = item.sessions.filter((session) => drawn.has(session.id))
   const attention =
     future?.state === 'attention' ||
     item.sessions.some((session) => sessionAsksOnIssue(item.row.issue, session))

@@ -1,4 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import type { SessionModel } from '@podium/client-graph/models'
 import { motionPhase, sessionNeedsHuman, sessionSettled } from '@podium/client-core/values'
 
 /**
@@ -79,17 +80,22 @@ export function waterfallSessionState(session: SessionView): WaterfallSessionSta
   return motionPhase(session) === 'working' ? 'working' : 'live'
 }
 
-export function waterfallSessionStart(session: SessionView, fallback: number): number {
+export function waterfallSessionStart(
+  session: Pick<SessionView, 'createdAt' | 'lastActiveAt'>,
+  fallback: number,
+): number {
   return time(session.createdAt) ?? time(session.lastActiveAt) ?? fallback
 }
 
-export function waterfallSessionEnd(session: SessionView, now: number): number {
-  if (!sessionSettled(session)) return now
+export function waterfallSessionEnd(session: SessionView | SessionModel, now: number): number {
+  if (!('settled' in session ? session.settled : sessionSettled(session))) return now
   return time(session.stoppedAt) ?? time(session.lastActiveAt) ?? time(session.createdAt) ?? now
 }
 
 /** Earliest known start across the crew — null when nothing has a timestamp. */
-export function waterfallTimelineStart(sessions: readonly SessionView[]): number | null {
+export function waterfallTimelineStart(
+  sessions: readonly Pick<SessionView, 'createdAt' | 'lastActiveAt'>[],
+): number | null {
   let earliest: number | null = null
   for (const session of sessions) {
     const candidate = time(session.createdAt) ?? time(session.lastActiveAt)

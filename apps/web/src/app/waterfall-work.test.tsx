@@ -275,7 +275,7 @@ describe('elements waterfall viewport', () => {
       console.info(
         `[waterfall work] ${one.name}: rows ${one.rows} → ${four.rows}; derivations ${one.derivations} → ${four.derivations}; elements ${one.elements} → ${four.elements}`,
       )
-      expect(four.rows).toBeLessThanOrEqual(one.rows)
+      expect(four.rows).toBeLessThanOrEqual(one.rows ?? 0)
       expect(four.derivations).toBeLessThanOrEqual(one.derivations)
       expect(four.elements).toBeLessThanOrEqual(one.elements)
     }
