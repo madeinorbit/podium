@@ -2,7 +2,7 @@
 
 The coordinator authorized Step 2 for the six retained walks proved by [the Step 1 report](pod-5631-membership-remeasure.md). Those walks are removed. Membership/order parity and the focused source/native counters pass; the required heavy gates and landing are assigned to POD-5895. This report does not claim a final census or a landing.
 
-Current production candidate: `2975ac45e5435f689634205aa4431b803ac0ecf5`, rebased cleanly onto pilot `5dc9d5e29401a41f4b11c187388f446d8935f69c`. The original implementation/proof range branched from `2c4e3bd21efd0952c05afb34c9547172d22de85d`.
+Current source candidate: `a368171319`, the complete membership range rebased onto landed lookup pilot `006a4ba7c9c885ab5b196cac5961b8b8abc84d6f`. The normal-build result below is historical, from `2975ac45e5435f689634205aa4431b803ac0ecf5` on pilot `5dc9d5e29401a41f4b11c187388f446d8935f69c`. The original implementation/proof range branched from `2c4e3bd21efd0952c05afb34c9547172d22de85d`.
 
 ## Change
 
@@ -79,6 +79,35 @@ The eager output is **1,382 bytes smaller** than the isolated rejected membershi
 The normal flatblock light source scan also passed: **2,212 fingerprints**, **2,213 occurrences**, **2,075 REQUIRED REPAIR entries**, **0 ratchet errors**. The final reconciliation changes only three exact dependency token/fingerprint pairs in the query bootstrap, native mapping consumer and existing issue-identities helper consumer; every classification, owner, bound, guard and other metadata is preserved. The issue-identities source was not edited. Scan identities supplied by the flatblock run were checked before updating the census.
 
 The complete rebased candidate and exact focused query, lane, state, sidebar and phone test paths were sent to POD-4286 and POD-5895. Fresh parity/counters, full types, lean admission and the final canonical census/stack build remain with the shared testing lane. The successful build here does not establish those results or a landing.
+
+## Landed lookup reconciliation
+
+The complete 21-commit range at `6bc10046e09e9d93b4d23d93225b795274b449fb` (previous candidate `ff24f8d2400b9aecd10e68dd8f0897058b8c91e6`) was rebased from `5cefac00403c52651b8148485609548323964953` onto the landed POD-5867 pilot `006a4ba7c9c885ab5b196cac5961b8b8abc84d6f`. All 21 original commits are present. Range-diff changes only the necessary lookup-policy reconciliation in three replayed patches; every other patch is identical.
+
+The conflicts in `groups.ts`, `mobile.ts` and `sidebar-roster.ts` retain the pilot's `here`/`omitGone` policies while preserving incremental subscriptions and direct query answers. New phone worktree readers and the frozen group oracle use `here`; the resident worktree fixture uses `requireHere`. A new regression verifies that phone membership omits loading/gone worktrees, counts a pending issue once, and stops counting after the inaccessible load settles.
+
+Fresh focused proof on `fb3be9cdf4` exposed a payload subscription introduced by the landed `pool.resident()` implementation. The existing membership file failed three unchanged bounds: roster-heartbeat row reads **25→73**, aggregate elements **100→148**, and worktree replacement counters **34→82**. Attribution names `WorklistWorktree.pending`, whose session-presence loop was rerun on the changed payload.
+
+The scoped repair at `a368171319` uses `omitGone(pool.model(...))` for pending session and owner checks, preserving loading/gone behavior and borrowing POD-5867's resident presence-only fast path. No pool implementation, fixture, allowance or counter bound changed. The same focused file then passes all 11 cases: roster-heartbeat row reads **9→9**, elements **85→85**, and both worktree replacement counters **18→18**. Phone replacement counters remain **46→46**, group member-array visits **0→0**, and the unrelated heartbeat runs no section/order-query bodies. Membership/order, cold/folded guards and the new lookup regression pass.
+
+Eight focused files pass **148 unique cases**, each in its own foreground `bun run test:file -- <path>` run on flatblock, using Bun 1.4.2 and the local `node -> bun` link:
+
+| File | Cases | Peak recorded process RSS |
+| --- | ---: | ---: |
+| `packages/client-graph/src/query-result.test.ts` | 21 | 415 MiB |
+| `packages/client-graph/src/worklist/sorted-lanes.test.ts` | 3 | 308 MiB |
+| `packages/client-graph/src/worklist/state-parity.test.tsx` | 75 | 481 MiB |
+| `tests/worklist/harness/src/sidebar-bands.test.ts` | 1 | 382 MiB |
+| `tests/worklist/harness/src/sidebar-membership-remeasure.test.ts` | 11 | 421 MiB |
+| `apps/mobile/src/lib/work-sections.test.ts` | 13 | 454 MiB |
+| `apps/web/src/features/worklist/SidebarUnified.pool.test.tsx` | 15 | 544 MiB |
+| `apps/web/src/features/worklist/worklist-window.test.tsx` | 9 | 408 MiB |
+
+Query, lane and band proof ran at `fb3be9cdf4`; those implementations did not change in the pending-read repair. All other final receipts ran at `a368171319`, including the affected state-parity rerun. Every recorded wrapper exited, with no memory stop or remaining recorded descendants. These are focused results, not a full-suite or canonical-census result. Exact runner JSON locations and process receipts are in the attached focused-proof artifact.
+
+The final light source scan on repaired source `a368171319` is green: **2,208 fingerprints, 2,209 occurrences, 2,070 REQUIRED REPAIR entries and zero ratchet errors**. No additional census edits were needed after the rebase or presence-read repair; all carried classifications remain intact.
+
+The permitted source-only estimate transforms the changed modules in a prior production eager closure, comparing the exact `006a4ba7c9` source to `a368171319`. It estimates **+3,533 bytes**: query-result +2,155, phone membership +717, groups +247, sorted lanes +192, roster +160, issue +75, sidebar +41 and worktree −54. This exceeds the coordinator's initial **11-byte** headroom signal. It is not a production build, emitted bundle size or budget result. POD-4286 explicitly directed this lane to hand off after focused proof rather than block on the estimate; POD-5895's real build determines exact bytes, and the startup-budget question is already with the operator. No ceiling, startup allowance or lazy-loading registry was changed here. The estimate and focused receipts are attached to the issue. Full typecheck, lean admission, production build, canonical census and landing remain exclusively assigned to POD-5895. No heavy check or landing was performed in this reconciliation lane.
 
 ## Scope
 
