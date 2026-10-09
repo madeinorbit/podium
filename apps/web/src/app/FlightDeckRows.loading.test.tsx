@@ -20,8 +20,8 @@ const common = {
 it('cold HungRows shows loading then its real crew', async () => {
   const f = coldMissionRowFixture()
   try {
-    expect(settled(() => f.row.sessionIds('full'))).toBe(LOADING)
-    const ui = render(<HungRows {...common} model={f.row} inset={24} rail={rail} tail={false} />)
+    expect(settled(() => f.row.sessionIds('needs-you'))).toBe(LOADING)
+    const ui = render(<HungRows {...common} mode="needs-you" model={f.row} inset={24} rail={rail} tail={false} />)
     expect(ui.getByRole('status', { name: 'Loading agents' })).toBeDefined()
     expect(ui.container.querySelector('[data-flight-session]')).toBeNull()
     await act(async () => { f.pool.hydrate() })
@@ -36,18 +36,18 @@ it('cold HungRows shows loading then its real crew', async () => {
 
 it('a cold offscreen TaskRow gains real searchable data without reading hidden payload', async () => {
   const f = coldMissionRowFixture()
-  const payload = vi.spyOn(f.row, 'hasPayload', 'get')
+  const payload = vi.spyOn(f.row, 'hasPayload', 'get').mockImplementation(() => { throw LOADING })
   const window: DeckWindow = {
     enabled: true, contains: () => false, size: () => BAND_HEIGHT,
     text: () => f.row.title, measure: () => () => {}, reveal: vi.fn(), beginFind: vi.fn(),
   }
   try {
-    expect(settled(() => f.row.stage)).toBe(LOADING)
     const ui = render(<TaskRow {...common} row={f.row} renameSeed={null} carries={[]}
       selected={false} collapsed folds={new Map()} rails={[]} agentRail={rail}
       childFollows={false} window={window} onToggle={() => {}} onSelectIssue={() => {}}
       onMenu={() => {}} onStatusPick={() => {}} onRenameIssue={() => {}} onRenameDone={() => {}} />)
-    expect(ui.getByRole('status', { name: 'Loading task' })).toBeDefined()
+    expect(ui.container.querySelector('[data-deck-placeholder]')).not.toBeNull()
+    expect(ui.queryByRole('button')).toBeNull()
     await act(async () => { f.pool.hydrate() })
     await waitFor(() => expect(ui.getByRole('button', { name: 'Loaded cold task' })).toBeDefined())
     expect(ui.queryByRole('status')).toBeNull()

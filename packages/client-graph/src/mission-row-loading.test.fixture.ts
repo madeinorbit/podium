@@ -9,14 +9,14 @@ export function coldMissionRowFixture() {
   const at = new Date(now).toISOString()
   const issue = {
     id: 'cold-task', seq: 2, title: 'Loaded cold task', stage: 'in_progress',
-    audience: 'human', parentId: 'root', deps: [], repoPath: '/synthetic',
+    audience: 'human', parentId: 'root', deps: [], repoPath: '/synthetic', needsHuman: true,
     createdAt: at, updatedAt: at, coordinatorSessionId: 'cold-agent-0',
   }
   const seats = [0, 1].map(index => ({
     sessionId: `cold-agent-${index}`, issueId: issue.id, cwd: '/synthetic',
     title: `Loaded cold agent ${index}`, agentKind: 'codex', status: 'exited',
     archived: false, createdAt: at, lastActiveAt: at, stoppedAt: at,
-    agentState: { phase: 'ended', since: at },
+    agentState: { phase: 'needs_user', since: at },
   }))
   const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: now }, undefined, {
     load: (entity, id) => entity === 'issue' && id === issue.id ? issue : undefined,
