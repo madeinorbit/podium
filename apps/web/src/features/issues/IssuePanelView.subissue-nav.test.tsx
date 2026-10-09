@@ -88,6 +88,7 @@ vi.mock('@/app/store', () => {
         issues: {
           comments: { query: vi.fn(async () => []) },
           events: { query: vi.fn(async () => []) },
+          mail: { query: vi.fn(async () => []) },
         },
       },
       httpOrigin: '',
