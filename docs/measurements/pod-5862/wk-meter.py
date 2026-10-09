@@ -32,7 +32,7 @@ ctypes.CDLL('/usr/lib/libSystem.B.dylib').mach_timebase_info(ctypes.byref(timeba
 page_pid = None
 
 def processes(owner, candidates=False):
-    lines = subprocess.check_output(['ps','-axww','-o','pid=,rss=,command='], text=True).splitlines()
+    lines = subprocess.check_output(['ps','-axww','-o','pid=,rss=,comm='], text=True).splitlines()
     result = []
     for line in lines:
         pid, rss, command = line.strip().split(None,2)

@@ -38,8 +38,17 @@ window.__memoryWK.sample=function(minute){
     const issue=[...pool.tables.issue].find(([,row])=>row.seq===5862)?.[0];
     const seat=[...pool.tables.session].find(([,row])=>row.issueId===issue&&!row.exitedAt&&!row.archived)?.[0];
     const el=document.querySelector('[data-issue-row]'),key=el&&Object.keys(el).find(k=>k.startsWith('__reactFiber$'));
+    p.selection={issue:!!issue,seat:!!seat,issueRows:document.querySelectorAll('[data-issue-row]').length};
     for(let f=el?.[key];f;f=f.return)if(issue&&seat&&typeof f.memoizedProps?.onSelectPanelForIssue==='function'){
       f.memoizedProps.onSelectPanelForIssue({id:issue},seat);p.selected=true;action='select-session';break;
+    }
+    if(!p.selected&&issue&&seat&&runtime?.access?.openSessionTab){
+      runtime.access.batchGesture(()=>{
+        runtime.access.setSelectedIssueId(issue);
+        runtime.access.openSessionTab(seat,{permanent:true});
+        runtime.access.setView('workspace');
+      });
+      p.selected=true;action='open-session-workspace';
     }
   }else if(minute>=2&&minute<=14){
     const buttons=[...document.querySelectorAll('.transcript-pager:not(:disabled)')].filter(b=>b.getBoundingClientRect().height>0);
@@ -56,5 +65,5 @@ window.__memoryWK.sample=function(minute){
   return {minute,at:new Date().toISOString(),action,selected:p.selected,errors:p.errors,elements:document.querySelectorAll('*').length,
     workScroll:!!document.querySelector('[data-testid=work-scroll]'),canvas:document.querySelectorAll('canvas').length,
     animations:document.getAnimations().length,owners,cacheEntries:cache?.entries.size,warmEntries:cache?.warm.size,visibility:document.visibilityState,
-    health:p.health,storage:p.storage,jsHeapBytes:performance.memory?.usedJSHeapSize??null,listenerAdds:p.listenerAdds,listenerRemoves:p.listenerRemoves,passwordInputs:document.querySelectorAll('input[type=password]').length};
+    selection:p.selection,health:p.health,storage:p.storage,jsHeapBytes:performance.memory?.usedJSHeapSize??null,listenerAdds:p.listenerAdds,listenerRemoves:p.listenerRemoves,passwordInputs:document.querySelectorAll('input[type=password]').length};
 };

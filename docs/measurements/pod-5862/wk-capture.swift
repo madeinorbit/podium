@@ -51,6 +51,16 @@ final class Capture: NSObject, NSApplicationDelegate, WKNavigationDelegate {
     func sample() {
         if busy { return }
         busy = true
+        let control = root.appendingPathComponent("control.js")
+        if let source = try? String(contentsOf: control, encoding: .utf8) {
+            try? FileManager.default.removeItem(at: control)
+            web.evaluateJavaScript(source) { _, error in
+                print("{\"event\":\"control\",\"ok\":\(error == nil)}"); fflush(stdout)
+                self.busy = false
+                self.sample()
+            }
+            return
+        }
         if !attributed {
             attributed = true
             print("{\"event\":\"attribution-start\"}"); fflush(stdout)
