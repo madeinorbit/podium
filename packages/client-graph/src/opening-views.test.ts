@@ -1,5 +1,5 @@
-import { autorun } from 'mobx'
-import { expect, it } from 'vitest'
+import { autorun, runInAction } from 'mobx'
+import { expect, it, vi } from 'vitest'
 import { createIssuePageViews } from './issue-page'
 import { createSettingsViews } from './settings-views'
 import { createAutomationViews } from './automation-views'
@@ -11,7 +11,8 @@ import {
 } from './opening-views.before.test.fixture'
 import { MobxPool } from './pool'
 import type { RowRecord } from './shared/source'
-import { LOADING } from './loading'
+import type { ReaderQuestion } from './shared/reader-questions'
+import { LOADING, type Loaded } from './loading'
 
 const stamp = '2026-10-01T00:00:00Z'
 function fixture() {
@@ -92,6 +93,57 @@ it('keeps the old and opening-owned answers identical on the same fixtures', () 
     nextIssue.dispose()
     nextSettings.clear()
     nextAutomations.dispose()
+    pool.dispose()
+  }
+})
+
+it.each(['scan', 'wrong'] as const)('executes the %s plant during the measured row update', (plant) => {
+  const pool = fixture(),
+    view = createIssuePageViews(pool)
+  let measuring = false,
+    measuredRows = 0
+  const rebuild = <T>(
+    question: ReaderQuestion,
+    _name: string,
+    read: (id: string) => Loaded<T>,
+  ): Loaded<T[]> => {
+    const values: T[] = []
+    let pending = false
+    for (const id of pool.queries.ids(question).sort()) {
+      if (measuring) measuredRows++
+      // Use the production reader, including its direct tracked row demand.
+      const value = read(id)
+      if (value === LOADING) pending = true
+      else if (value !== undefined)
+        values.push(
+          plant === 'wrong' ? ({ ...(value as object), title: 'Planted mistake' } as T) : value,
+        )
+    }
+    return pending ? LOADING : values
+  }
+  const project = vi.spyOn(pool.queries, 'project').mockImplementation(rebuild)
+  let answer: ReturnType<typeof view.issues>
+  const stop = autorun(() => { answer = view.issues() })
+  try {
+    const row = pool.row('issue', 'issue-0')
+    if (!row || typeof row === 'symbol') throw new Error('Fixture issue is missing')
+    measuring = true
+    runInAction(() =>
+      pool.apply({
+        type: 'update',
+        rows: [{ kind: 'issue', id: 'issue-0', value: { ...row, description: 'Measured body edit' } }],
+      }),
+    )
+    measuring = false
+    expect(measuredRows).toBe(50)
+    expect(answer!).not.toBe(LOADING)
+    if (answer && answer !== LOADING)
+      expect(answer[0]?.title).toBe(plant === 'wrong' ? 'Planted mistake' : 'Task 0')
+    console.info('Executed summary plant', JSON.stringify({ plant, measuredRows }))
+  } finally {
+    stop()
+    project.mockRestore()
+    view.dispose()
     pool.dispose()
   }
 })
