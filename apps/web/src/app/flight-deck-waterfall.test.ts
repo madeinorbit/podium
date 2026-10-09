@@ -5,7 +5,6 @@ import { describe, expect, it } from 'vitest'
 import {
   fitWaterfallViewport,
   foldWaterfallSegments,
-  followWaterfallViewport,
   formatWaterfallDuration,
   panWaterfallViewport,
   summarizeWaterfallSegments,
@@ -22,6 +21,7 @@ import {
   waterfallTimelineStart,
   zoomWaterfallViewport,
 } from './flight-deck-waterfall'
+import { followWaterfallViewport } from './flight-deck-waterfall.legacy.test.fixture'
 
 const NOW = Date.parse('2026-08-31T12:00:00.000Z')
 

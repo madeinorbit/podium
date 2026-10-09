@@ -119,56 +119,6 @@ export function fitWaterfallViewport(
   }
 }
 
-/**
- * The useful default is a detail view, not an archive fit. Live sessions end
- * at Now, so their right edges share a stable anchor while older completed
- * work is allowed to leave the frame. Once the crew has stopped, the same
- * calculation parks on the latest completed work instead of showing an empty
- * gap between that work and today's clock.
- */
-export function followWaterfallViewport(
-  sessions: readonly SessionView[],
-  now: number,
-  trackPx: number,
-  options: { future?: boolean } = {},
-): WaterfallViewport {
-  // Taken as the empty check AND as the narrowing one: `focus[0] ?? sessions[0]`
-  // below is safe only because the list is non-empty here, and indexed access
-  // has no way to know that from a length test.
-  const first = sessions[0]
-  if (first === undefined) return fitWaterfallViewport(null, now, options)
-
-  const active = sessions.filter((session) => !sessionSettled(session))
-  const byMostRecent = [...sessions].sort(
-    (left, right) =>
-      waterfallSessionEnd(right, now) - waterfallSessionEnd(left, now) ||
-      waterfallSessionStart(right, now) - waterfallSessionStart(left, now),
-  )
-  const focus = active.length > 0 ? active : byMostRecent.slice(0, 3)
-  const focusEnd = active.length > 0 ? now : waterfallSessionEnd(focus[0] ?? first, now)
-  const durations = focus
-    .map((session) =>
-      Math.max(
-        WATERFALL_MIN_SPAN_MS,
-        waterfallSessionEnd(session, now) - waterfallSessionStart(session, now),
-      ),
-    )
-    .sort((left, right) => left - right)
-  const typicalDuration =
-    durations[Math.floor((durations.length - 1) / 2)] ?? WATERFALL_MIN_WINDOW_MS
-  const detailSpan = typicalDuration * Math.max(2, Math.max(1, trackPx) / FOLLOW_BAR_TARGET_PX)
-  const newestStart = Math.max(...focus.map((session) => waterfallSessionStart(session, focusEnd)))
-  const contentSpan = Math.min(
-    WATERFALL_MAX_WINDOW_MS,
-    Math.max(WATERFALL_MIN_WINDOW_MS, focusEnd - newestStart, detailSpan),
-  )
-  const headroom = options.future ? FUTURE_HEADROOM : FUTURE_HEADROOM_BARE
-  return {
-    start: focusEnd - contentSpan * (1 + FIT_LEAD),
-    end: focusEnd + contentSpan * headroom,
-  }
-}
-
 /** Follow one addressed session. Width and clock changes never select or sort
  * the crew; the opening/user action owns the followed ID. */
 export function followWaterfallSessionViewport(
