@@ -1284,6 +1284,28 @@ export class ReaderQueries {
   ): Loaded<T[]> {
     return this.projection(question, name, read, options).get()
   }
+  /** A service's addressed relation answer, released with its last observer.
+   * It holds no screen model and updates only the changed member's read. */
+  relatedRows<T>(
+    entity: 'issue' | 'session', owner: string, relation: string,
+    name: string, read: (id: string) => Loaded<T>,
+    options: Pick<QueryResultSpec<T>, 'order' | 'collapse'> = {},
+  ): Loaded<T[]> {
+    const key = `relation:${name}:${entity}.${relation}:${owner}`
+    let result = this.results.get(key)
+    if (!result) {
+      result = createQueryResult<T>({
+        name, ...options,
+        ids: () => this.pool.graph.many(entity, owner, relation),
+        has: (id) => this.hasMember(entity, owner, relation, id),
+        read,
+        subscribe: (changed) => this.onMembers(entity, owner, relation, changed),
+        released: () => this.results.delete(key),
+      }) as ReturnType<typeof createQueryResult<unknown>>
+      this.results.set(key, result)
+    }
+    return result.get() as Loaded<T[]>
+  }
   summarize<T>(
     question: ReaderQuestion, name: string, read: (id: string) => Loaded<T>,
     options: Pick<QueryResultSpec<T>, 'order' | 'collapse'> = {},
