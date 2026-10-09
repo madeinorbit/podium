@@ -50,12 +50,19 @@ export class MobileSection {
   get label() { return this.key === 'pinned' ? 'Pinned' : this.key === 'needs-you' ? 'Needs you' : this.projectLabel }
   @lazy private get projectLabel() { return sidebarView(this.pool).band(this.root.state, this.key)?.label ?? '' }
   get kind(): MobileWorkSection['kind'] { return this.key === 'pinned' ? 'pinned' : this.key === 'needs-you' ? 'attention' : 'project' }
-  @lazy({ equals: compareShallow }) get worktreeIds() { return this.kind === 'project'
-    ? sidebarView(this.pool).band(this.root.state, this.key)?.worktreeIds ?? EMPTY_IDS : EMPTY_IDS }
-  @lazy({ equals: compareShallow }) get openIds() { return this.kind === 'pinned' ? worklistGroups(this.pool).pinnedRootIds
-    : this.kind === 'project' ? worklistGroups(this.pool).rootOpen.lane(this.key).slice() : EMPTY_IDS }
-  @lazy({ equals: compareShallow }) get snoozedIds() { return this.kind === 'project' ? worklistGroups(this.pool).rootSnoozed.lane(this.key).slice() : EMPTY_IDS }
-  @lazy({ equals: compareShallow }) get closedIds() { return this.kind === 'project' ? worklistGroups(this.pool).rootClosed.lane(this.key).slice() : EMPTY_IDS }
+  // The immutable kind guards constant empty lists before creating a derivation.
+  get worktreeIds() { return this.kind === 'project' ? this.projectWorktreeIds : EMPTY_IDS }
+  @lazy({ equals: compareShallow }) private get projectWorktreeIds() {
+    return sidebarView(this.pool).band(this.root.state, this.key)?.worktreeIds ?? EMPTY_IDS
+  }
+  get openIds() { return this.kind === 'pinned' ? this.pinnedOpenIds
+    : this.kind === 'project' ? this.projectOpenIds : EMPTY_IDS }
+  @lazy({ equals: compareShallow }) private get pinnedOpenIds() { return worklistGroups(this.pool).pinnedRootIds }
+  @lazy({ equals: compareShallow }) private get projectOpenIds() { return worklistGroups(this.pool).rootOpen.lane(this.key).slice() }
+  get snoozedIds() { return this.kind === 'project' ? this.projectSnoozedIds : EMPTY_IDS }
+  @lazy({ equals: compareShallow }) private get projectSnoozedIds() { return worklistGroups(this.pool).rootSnoozed.lane(this.key).slice() }
+  get closedIds() { return this.kind === 'project' ? this.projectClosedIds : EMPTY_IDS }
+  @lazy({ equals: compareShallow }) private get projectClosedIds() { return worklistGroups(this.pool).rootClosed.lane(this.key).slice() }
   @lazy({ equals: compareShallow }) get allIds(): readonly string[] {
     return this.kind === 'attention' ? this.root.attentionIds : [...this.openIds, ...this.worktreeIds]
   }
