@@ -10,7 +10,7 @@ if (hostname() !== 'flatblock') throw new Error('Run on flatblock only')
 const arm = process.argv[2]
 if (arm !== 'before' && arm !== 'after') throw new Error('Choose before or after')
 const directory = resolve('.artifacts/transcript-window', arm)
-const baseline = '036a78dd913ae7e700d642ce6fac975c680435f5'
+const baseline = '8f5ae42e45587ed9dd83e5a05abff6e67200a91d'
 await mkdir(directory, { recursive: true })
 if (process.argv.includes('--build')) {
   const { build } = await import('../node_modules/vite/dist/node/index.js')
@@ -180,7 +180,14 @@ try {
   await page.evaluate(() => (window as any).__transcriptWindowProof.jump(4000))
   await page.waitForTimeout(100)
   await page.screenshot({ path: resolve(directory, 'window.png') })
-  const report = { arm, baseline, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), browser: browser.version(), samples, pagingAnchor, fastScroll, jump, wheel, selectionCopy: { selected, copied }, nativeFind, nativeFindRoundTrip, nativeReveal, emptyFindClose, errors }
+  await page.evaluate(() => { document.body.tabIndex = -1; document.body.focus() })
+  await page.keyboard.press('Tab')
+  const keyboardFocus = await page.evaluate(() => {
+    const element = document.activeElement as HTMLElement
+    return { tag: element.tagName, text: element.textContent, row: element.closest('[data-row-key]')?.getAttribute('data-row-key') }
+  })
+  if (keyboardFocus.row !== 'message-0') throw new Error('Native Tab did not restore the first off-window message control')
+  const report = { arm, baseline, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), browser: browser.version(), samples, pagingAnchor, fastScroll, jump, wheel, selectionCopy: { selected, copied }, nativeFind, nativeFindRoundTrip, nativeReveal, emptyFindClose, keyboardFocus, errors }
   await writeFile(resolve(directory, 'report.json'), JSON.stringify(report, null, 2))
   console.log(JSON.stringify({ arm, samples: samples.map(({ loaded, elements, drawn, heapUsed }) => ({ loaded, elements, drawn, heapUsed })), blankFrames: fastScroll.filter(sample => sample.visible === 0).length, jump: { key: jump.key, offset: jump.offset }, errors }))
   if (errors.length || fastScroll.some(sample => sample.visible === 0)) throw new Error('Production scroll proof failed')
