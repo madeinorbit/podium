@@ -39,7 +39,7 @@ import {
 } from '@/features/machines/server-move'
 import { sourceUnavailableProse } from '@/features/settings/sections/updates-view'
 import { useSettingsClient } from '@/features/settings/stable-access'
-import { useSettingsMachine } from '@/features/settings/readers'
+import { useSettingsMachine, useSettingsMachines } from '@/features/settings/readers'
 import { NetworkStep } from '@/features/setup/network-step'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { errorMessage } from '@/features/updates/operations-client'
@@ -49,7 +49,6 @@ import { nativeDesktopBridge } from '@/lib/nativeDesktop'
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { useServerAppVersion } from '@/lib/version-skew'
-import { useShellMachines } from './shell-data'
 
 export function ServerMoveProgress({
   operation,
@@ -159,8 +158,7 @@ function MachinesPanelView({
   showOwnershipTransfer?: boolean
 } = {}): JSX.Element {
   const { trpc, setSettingsTab } = useSettingsClient()
-  const useRead = useShellMachines
-  const machines = useRead()
+  const machines = useSettingsMachines()
   const [now, setNow] = useState(() => Date.now())
   const [addOpen, setAddOpen] = useState(false)
   const [recommendServer, setRecommendServer] = useState(false)

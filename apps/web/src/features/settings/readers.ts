@@ -1,10 +1,11 @@
 import { omitGone } from '@podium/client-graph/lookup'
 import { settingsView } from '@podium/client-graph/settings-views'
-import type { MobxPool } from '@podium/client-graph'
+import type { MachineModel, MobxPool } from '@podium/client-graph'
 import type { SettingsRows } from '@podium/client-graph/settings-schema'
 import type { GitRepositoryWire } from '@podium/model'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
-import { keyedComputed } from '@podium/mobx-helpers'
+import { keyedComputed, lazy } from '@podium/mobx-helpers'
+import { compareShallow } from 'mobx'
 import { type Dispatch, type SetStateAction, useCallback, useMemo, useRef } from 'react'
 import type { Store } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
@@ -41,9 +42,22 @@ export function useSettingsCatalog(): Pick<Store, 'machines' | 'repos'> {
 }
 
 const EMPTY_MACHINE_IDS: readonly string[] = []
+const EMPTY_MACHINES: MachineModel[] = []
 const EMPTY_TARGETS: Record<string, string> = {}
+class SettingsMachines {
+  constructor(private readonly pool: MobxPool) {}
+  @lazy({ equals: compareShallow }) get values(): MachineModel[] {
+    const catalog = omitGone(this.pool.row('settingsCatalog', 'catalog'))
+    if (!loaded(catalog)) return EMPTY_MACHINES
+    return catalog.machines.flatMap(id => {
+      const model = omitGone(this.pool.model('machine', id))
+      return loaded(model) ? [model] : []
+    })
+  }
+}
 function machineReaders(pool: MobxPool) {
   return pool.sources.view('web.settings.machines', () => {
+    const models = new SettingsMachines(pool)
     const ids = keyedComputed('settings.machineIds', (_key: null) => {
       const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
       return loaded(catalog) ? catalog.machines : EMPTY_MACHINE_IDS
@@ -66,6 +80,7 @@ function machineReaders(pool: MobxPool) {
       return result
     })
     return {
+      models,
       ids,
       targets,
       dispose() {
@@ -81,7 +96,11 @@ const readMachineIds = (pool: MobxPool) => machineReaders(pool).ids(null)
 export function useSettingsMachineIds(): readonly string[] {
   return useWorklistPoolProjection(readMachineIds, EMPTY_MACHINE_IDS)
 }
-export function useSettingsMachine(id: string | null): Store['machines'][number] | null {
+const readMachines = (pool: MobxPool) => machineReaders(pool).models.values
+export function useSettingsMachines(): MachineModel[] {
+  return useWorklistPoolProjection(readMachines, EMPTY_MACHINES)
+}
+export function useSettingsMachine(id: string | null): MachineModel | null {
   const read = useCallback(
     (pool: MobxPool) => {
       if (id === null) return null
