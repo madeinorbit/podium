@@ -11,6 +11,8 @@ import { type SessionView, sessionViews } from '@podium/client-core/session-valu
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { missionIndexStats, sessionOwnershipStats } from '@podium/client-core/values'
 import { missionView } from '@podium/client-graph/mission-view'
+import { MissionScreen } from '@podium/client-graph/mission-screen'
+import { spy } from 'mobx'
 import { MobxPool } from '@podium/client-graph/pool'
 import { screenOptions } from '@podium/client-graph/host'
 import { createPoolProjection, createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
@@ -300,17 +302,17 @@ describe('rendered mission pane parity', () => {
     )
     if (!root) throw new Error('Missing mission fixture')
     state.selectedIssueId = root.id
-    const reader = missionView(pool)
+    const opened = vi.spyOn(MissionScreen.prototype, 'open')
     const current = mount('full')
     await settled()
-    expect(reader.stats.values).toBe(1)
+    expect(opened).toHaveBeenCalledTimes(1)
     const before = renderedOutput(current.container)
     const selected = sessions.find((session) => session.issueId === root.id)
     if (!selected) throw new Error('Missing mission session fixture')
     state.paneA = selected.sessionId
     current.rerender(deck())
     await settled()
-    expect(reader.stats.values).toBe(1)
+    expect(opened).toHaveBeenCalledTimes(1)
     expect(current.container.querySelectorAll('[data-flight-issue]').length).toBeGreaterThan(1)
     expect(renderedOutput(current.container).map(({ class: _class, ...node }) => node)).toEqual(
       before.map(({ class: _class, ...node }) => node),
@@ -333,10 +335,10 @@ describe('rendered mission pane parity', () => {
     )
     if (!child?.parentId) throw new Error('Missing mission child fixture')
     state.selectedIssueId = child.parentId
-    const reader = missionView(pool)
+    const opened = vi.spyOn(MissionScreen.prototype, 'open')
     const current = mount('full')
     await settled()
-    expect(reader.stats.values).toBe(1)
+    expect(opened).toHaveBeenCalledTimes(1)
     const rows = () =>
       [...current.container.querySelectorAll('[data-flight-issue]')].map((node) =>
         node.getAttribute('data-flight-issue'),
@@ -349,8 +351,8 @@ describe('rendered mission pane parity', () => {
     state.selectedIssueId = mountedChild!
     current.rerender(deck())
     await settled()
-    // Review finding 2: the pane is cached per mission root, not per selection.
-    expect(reader.stats.values).toBe(1)
+    // Review finding 2: one opening per mission root, not per selection.
+    expect(opened).toHaveBeenCalledTimes(1)
     expect(rows()).toEqual(before)
   }, 120_000)
 
@@ -453,3 +455,57 @@ describe('rendered mission pane parity', () => {
     expect(sessionOwnershipStats()).toEqual(ownership)
   }, 120_000)
 })
+
+describe('mission sections read their own fields', () => {
+  /** Observer reactions by component, while `change` runs. */
+  async function reactionsDuring(change: () => void) {
+    const counts = new Map<string, number>()
+    const stop = spy((event) => {
+      if (event.type === 'reaction' && event.name.startsWith('observer'))
+        counts.set(event.name, (counts.get(event.name) ?? 0) + 1)
+    })
+    try {
+      await act(async () => change())
+      await settled()
+    } finally {
+      stop()
+    }
+    return counts
+  }
+  const LABEL_PARTS = new Set(['observerRowTitle', 'observerFoldChevron', 'observerRowActionsButton'])
+
+  it('a title-only change redraws only that task\'s label, and the root\'s only the header title', async () => {
+    const root = issues.find(
+      (issue) =>
+        !issue.archived &&
+        !issue.deletedAt &&
+        !issue.parentId &&
+        issue.childCount >= 2 &&
+        issue.childCount < 12,
+    )
+    if (!root) throw new Error('Missing mission fixture')
+    state.selectedIssueId = root.id
+    const current = mount('full')
+    await settled()
+    const drawn = [...current.container.querySelectorAll('[data-flight-issue]')]
+      .map((node) => node.getAttribute('data-flight-issue'))
+      .filter((id): id is string => Boolean(id) && id !== root.id)
+    const childId = drawn[0]
+    if (!childId) throw new Error('Missing drawn task fixture')
+    const child = issues.find((issue) => issue.id === childId)!
+    const strips = current.container.querySelectorAll('[data-flight-issue]').length
+    const renamed = await reactionsDuring(() =>
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: child.id, value: { ...child, title: 'Renamed task only' } }] }),
+    )
+    expect(current.container.querySelector(`[data-flight-issue="${child.id}"]`)?.textContent).toContain('Renamed task only')
+    expect(current.container.querySelectorAll('[data-flight-issue]').length).toBe(strips)
+    expect(renamed.get('observerRowTitle')).toBe(1)
+    expect([...renamed.keys()].filter((name) => !LABEL_PARTS.has(name))).toEqual([])
+    const header = await reactionsDuring(() =>
+      pool.apply({ type: 'update', rows: [{ kind: 'issue', id: root.id, value: { ...root, title: 'Renamed mission only' } }] }),
+    )
+    expect(current.container.querySelector('.deck-header')?.textContent).toContain('Renamed mission only')
+    expect([...header.keys()]).toEqual(['observerDeckTitle'])
+  }, 120_000)
+})
+
