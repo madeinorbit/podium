@@ -61,3 +61,26 @@ The shared build on the subsequent explorer follow-up found an eager `issue-boar
 The complete sixteen-commit range is rebased onto ludovico's `84a31a9c6777a72c0c33b995e32c20f2a64ba97e`. Web and phone settings own their machine readers per opening and resolve the landed `MachineModel`; web settings keeps its shallow lazy model list inside that opening. Automation lists, addressed automation reads, run histories and session reads preserve the landed shared models. Workflow subjects use the existing scalar presence question without creating a settings opening. The landed shell's `session-pane.ts` and `session-pane-view.ts` remain intact; the old stateless adapter removed by the shell landing is not restored.
 
 The opening-owned summary result still passes through `pool.queries.project`, using direct tracked summary row reads, and the deferred explorer companion factory stays behind the explorer screen. Historical heavy receipts above apply only to their named source SHA; POD-5895 supplies heavy validation and landing for this reconciled candidate.
+
+The reconciled models pilot restores the pilot's unchanged 2,150,000-byte raw ceiling. The historical temporary lift above belongs to the pre-model candidate and does not carry forward; the shared lane measures the final build against the landed budgets.
+
+Focused validation on flatblock's checkout-local Bun 1.4.2 is bound to runtime candidate `b34072b1a5c7214347c4b3b7d68fb53700e82ad1`; graph proofs ran at `605d16fbb1a5cbbaa0061d3571718935cf6b9e25`, whose only later runtime-source change is the React test-frame fix. Across ten selected files there are 50 passing checks and one unchanged baseline failure:
+
+| Focused file | Result |
+| --- | --- |
+| Graph `opening-views.test.ts` | 5 passed; both summary plants walk 50 rows during the measured update; 200 models and 100 companions collected |
+| Graph `issue-page.test.ts` | 5 passed |
+| Graph `settings-questions.test.ts` | 2 passed, 1 failed identically on exact pilot `84a31a9c67` and the candidate |
+| Web `opening-views.test.tsx` | 6 passed; every family has zero reachable opening models after fifty closes |
+| Web `automation-readers.test.tsx` | 6 passed |
+| Web workflow `readers.test.tsx` | 6 passed |
+| Web `SettingsView.close-guard.test.tsx` | 6 passed |
+| Web `explorer-nav.test.ts` | 8 passed |
+| Web `NewAutomationDialog.test.tsx` | 2 passed |
+| Phone `SettingsScreen.pool.test.tsx` | 4 passed |
+
+The baseline settings failure is the named automation-session assertion at `settings-questions.test.ts:46:83`: `LOADING` is returned where the fixture expects `{ sessionId: 'target' }`. The exact landed pilot reproduces it unchanged (2 pass / 1 fail); its assertions and the landed model reader are preserved. The evidence was mailed to POD-4286.
+
+The React collection fixture initially retained one explorer object through live matcher arguments in an async close frame. Keeping those object assertions in a synchronous helper restores the zero-reachable result; all existing context, identity, StrictMode disposal and fifty-close assertions remain. Product cleanup is unchanged.
+
+The final light interaction scan reports **2,071 fingerprints, 2,072 occurrences, 1,911 carried REQUIRED REPAIR entries and zero ratchet errors**. Reconciliation preserves 2,001 exact pilot entries, transfers 66 prior candidate entries, and maps four shifted predecessors without changing any classification. Logs and exact SHA-bound receipts are at `flatblock:/tmp/p5866-model-reconciliation/`. Every completed run has zero live recorded worker PIDs; focused workers peaked at 419,600 KiB, and the source-only light scan at 1,314,084 KiB. A brief initial focused-run overlap with POD-5895's census window was reported to that lane; subsequent runs waited for a confirmed free window. No heavy validation or landing was performed here. Final changes after these receipts are this report and restoration of the landed bundle ceiling only.
