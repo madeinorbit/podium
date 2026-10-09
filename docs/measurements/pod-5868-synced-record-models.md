@@ -7,15 +7,13 @@ generic tables. No entity adds storage or changes table publication granularity.
 
 ## Scope and base
 
-POD-4286 initially authorized this range on POD-5867's fixed, unlanded tip
-`0b36eebe33840d05249fafd66fbb48997b1dfce1`. It superseded the earlier instruction
-to wait for landing. The initial proof used pilot
-`5cefac00403c52651b8148485609548323964953`. History has since landed ff-only at
-actual pilot `d12bee410318123f0e7ad26b2d3551a1f381deb0`; the complete 15-commit
-model range was rebased without conflicts onto POD-5867's actual replacement
-`1a32e0d834350e7937024ac2ee55413396fbe3c1`. This report update follows that
-complete rebase and changes no runtime or fixture code. Reconcile again if the
-prerequisite gains its remaining proof before the shared freeze.
+The complete range is now based on the actual landed POD-5867 prerequisite
+`006a4ba7c9c885ab5b196cac5961b8b8abc84d6f`. POD-5895 landed that exact SHA
+ff-only above history's `d12bee410318123f0e7ad26b2d3551a1f381deb0`; the issue
+tip stayed in pilot ancestry. The original authorization to build on the
+unlanded lifecycle branch has therefore been reconciled with actual history.
+The previous focused migration proof used the older lifecycle base; fresh
+repair-specific receipts are recorded below. This model range remains unlanded.
 
 The coordinator narrowed this issue to synced records. Workflow record models,
 spec metadata, request ingestion and request-record retention remain deferred
@@ -81,13 +79,95 @@ loading and later field changes. Inspection of the prior production import graph
 confirmed runtime attachment was already deferred, so no projection extraction
 or unrelated startup refactor remains in the candidate.
 
-The light scan remains at 2,210 fingerprints, 2,211 occurrences and zero ratchet
-errors after these repairs. Their focused runtime receipts and the replacement
-shared typecheck/build/census are pending. The 190-case table below records the
-previous focused migration proof, not validation of the deferred-loading repair.
-POD-4286 withdrew its temporary typecheck/build exceptions: those commands
-remain exclusively in POD-5895's lane. No remote validation ran during the
-POD-5911 trace window.
+The new loading fixture initially imported `LOADING` from `lookup.ts`, which
+does not export that symbol. Its first run failed and emitted observer warnings;
+repair `54e8aeccb9` uses the canonical `loading.ts` leaf. The unchanged fixture
+then passed with no warnings, together with all 61 schema checks and the source
+test. The existing 13 model cases and six synced-record parity cases also passed
+on the repaired lifecycle base. No warnings were suppressed.
+
+The 190-case table below records the previous focused migration proof. The
+latest repair receipts are separate so an older pass cannot be mistaken for
+validation of deferred loading. POD-4286 withdrew its temporary typecheck/build
+exceptions: those commands remain exclusively in POD-5895's lane. No remote
+validation ran during the POD-5911 trace window.
+
+### Fresh focused receipts on the landed prerequisite
+
+The final runtime source is `54e8aeccb9`, on actual landed base `006a4ba7c9`.
+All twelve files in the earlier 190-case migration table passed again. The
+following repair-specific selections add fourteen passing cases:
+
+| Focused file/selection | Passed | Filtered |
+| --- | ---: | ---: |
+| `packages/client-graph/src/deferred-models.test.ts` | 1 | 0 |
+| `tests/worklist/harness/src/active-work-coverage.test.ts` | 2 | 0 |
+| `tests/worklist/harness/src/active-work-parity.test.ts` | 3 | 0 |
+| `tests/worklist/harness/src/reads-probe.test.tsx` | 3 | 0 |
+| `tests/worklist/harness/review/m3-shape-probes.test.tsx`, bucket-sized work | 2 | 6 |
+| `apps/web/test/pool-bundle-boundary.test.ts` | 3 | 0 |
+
+Together these are **204 unique passing cases in 18 focused files**, not a suite
+result. The first model run's nineteen unaffected passing cases are retained;
+its failed new loading fixture was fixed and rerun separately as described
+above. All later selections exited green, sequentially in the pinned flatblock
+checkout. The meter was checked free before each run; no memory stop occurred.
+
+The complete-field wrong-answer control was rerun on this repaired source:
+`PODIUM_RECORD_NEGATIVE_CONTROL=1` makes the unchanged fixture assertion fail
+at `machine.name` (`Wrong answer` versus `Workstation`), with one expected RED
+and five filtered cases. The ordinary six-case file is GREEN. Its prior run
+outcome and placement controls remain recorded below.
+
+There are no new React or MobX warnings. The mobile invocation still prints
+Bun's unsupported `moduleSuffixes` option warning from the unchanged mobile
+`tsconfig.json`; that configuration and the Bun pin have no diff against the
+landed prerequisite. It is separate from the repaired observer/render warnings.
+
+Selected runner receipts on flatblock:
+
+- schema/source/deferred loading: `/tmp/podium-focused-tests-Si5A4s/results.json`
+- machine panel: `/tmp/podium-focused-tests-nxjDc1/results.json`
+- compiler fixture helpers: `/tmp/podium-focused-tests-q9ghJt/results.json`
+- targeted shape helper: `/tmp/podium-focused-tests-OLceWM/results.json`
+- phone settings: `/tmp/podium-focused-tests-72lcLz/results.json`
+- emitted-source boundary: `/tmp/podium-focused-tests-SxrvyB/results.json`
+- planted wrong answer: `/tmp/podium-focused-tests-tuhHhM/results.json`
+- light scan: `/tmp/pod5868-light-scan-repair.log` — 2,210 fingerprints,
+  2,211 occurrences, 2,063 carried repair debts, **0 ratchet errors**.
+
+### Startup estimate and operator hold
+
+The landed prerequisite's normal production build contains 2,149,989 eager raw
+bytes, leaving 11 bytes under the unchanged 2,150,000-byte ceiling. An isolated
+esbuild source transform of changed modules in that build's eager import closure
+estimates the model range at **+1,558 bytes**:
+
+| Eager source | Minified source delta (bytes) |
+| --- | ---: |
+| `models.ts` | +577 |
+| `pool.ts` | +507 |
+| `shared/schema.ts` | +426 |
+| `source-registry.ts` | +65 |
+| `header-entities.ts` | +36 |
+| `shell-views.ts` | +9 |
+| `tables.ts` | -29 |
+| `enumerate.ts` | -22 |
+| `workflow-schema.ts` | -11 |
+| `header-schema.ts`, `index.ts` | 0 |
+| **Total** | **+1,558** |
+
+This transforms individual TypeScript modules without bundling. It is an
+estimate, not a replacement production build or a budget pass. The large new
+field declarations and model bodies are deferred; the estimate covers generic
+class registration, identity/residency declarations and receipt-time composition.
+
+POD-4286 rejected compacting existing metadata and confirmed that generic
+deferred-entity admission is held under POD-5910. The uncommitted compaction was
+discarded completely. The candidate therefore keeps the readable, correct eager
+stub and explicitly **needs about +1.6 KB startup budget**, pending the operator's
+decision. No ceiling, allowance, source citation or storage/publication contract
+was changed to hide that cost. POD-5895 holds the shared gates until that decision.
 
 ## Focused proof
 
@@ -198,24 +278,19 @@ repairs. This source scan does not substitute for the structural census.
 
 POD-5895 owns the shared lean gate, full typecheck, normal web build, structural
 census under `meter:flatblock`, and landing, as assigned by POD-4286. Those gates,
-structural flat-or-better proof and ff-only pilot landing remain pending. The
-actual history-based prerequisite rebase is verified below; its remaining
-proof may advance its tip before the shared freeze. This issue stays in
-progress until the required receipts arrive.
+structural flat-or-better proof and ff-only pilot landing remain pending for
+this model range. The prerequisite's green shared receipts and actual landing
+do not validate this candidate. This issue stays in progress until the required
+receipts arrive; its shared lane is held for the operator's budget decision.
 
-The initial compatibility preview was not used as a landed base. After the
-actual history landing and POD-5867's replacement receipt, the full original
-15-commit range `0b36eebe33..eed25fb6a6` was replayed onto `1a32e0d834`, yielding
-`5e3e958bdf` before this report update. Range-diff reports fourteen equal
-patches. The remaining census patch differs only in its context: the landed
-history's 50-row bound replaces the older 200-row bound, and Unicode guard
-rendering is semantically identical. The warning-free fixture repair is among
-the equal patches.
-
-An assertion over the actual landed history, prerequisite and rebased model
-tip confirms that the `appendEvents` bound is 50 rows and its classification,
-owner, trigger, reason, guard and occurrence count are identical. Ancestry
-`d12bee4103 -> 1a32e0d834 -> 5e3e958bdf` is verified. This is source
-reconciliation, not a shared-gate or landing receipt. No focused tests, census
-or lease work ran during POD-5911's trace window; POD-5895 retains the final
-shared gates after that window.
+The initial compatibility preview was never used as a landed base. Complete
+source reconciliation preserves history's `appendEvents` bound at **50 rows**
+and its classification, owner, trigger, reason, guard and occurrence count.
+Replaying the later complete range onto actual prerequisite `006a4ba7c9` kept
+nineteen patches equal; the one pool conflict was the identical prerequisite
+resident-presence consolidation. Resolution keeps that presence check before
+payload reads, retains both terminal reasons, and adds the deferred-class check.
+The reconciled pool body is byte-identical to the prepared body before rebase.
+Ancestry `d12bee4103 -> 006a4ba7c9 -> 54e8aeccb9` is verified. This is source
+reconciliation, not a shared-gate or landing receipt. No validation ran during
+POD-5911's priority trace window.
