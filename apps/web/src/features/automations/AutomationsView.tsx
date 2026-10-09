@@ -16,7 +16,7 @@ export type AutomationRun = AutomationRunWire
 /** Live, replica-backed automations and honest run history [spec:SP-17db]. */
 export function AutomationsView(): JSX.Element {
   const trpc = useStoreHandle<Trpc>().access.trpc
-  const { automations, automationRuns, runGroups, pending } = useAutomationList()
+  const { automations, pending } = useAutomationList()
   const [error, setError] = useState('')
   const [dialogAutomation, setDialogAutomation] = useState<Automation | null | undefined>()
 
@@ -42,8 +42,6 @@ export function AutomationsView(): JSX.Element {
           <ScheduledSection
             trpc={trpc}
             automations={automations}
-            automationRuns={automationRuns}
-            runGroups={runGroups}
             loading={pending > 0}
             error={error}
             onEdit={setDialogAutomation}

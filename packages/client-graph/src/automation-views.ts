@@ -24,11 +24,12 @@ function createAutomationViews(pool: MobxPool) {
     { equals: compareStructural },
   )
   const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
+  /** Membership only. Run payloads are read when a card's history shows
+   * them (`run`), from the window that history asked the server for. */
   function list() {
     return memo('list', () => {
       const catalog = pool.row('automationCatalog', 'catalog')
-      const automations: AutomationRows['automation'][] = [], runs: AutomationRows['automationRun'][] = []
-      const runGroups: Record<string, AutomationRows['automationRun'][]> = {}
+      const automations: AutomationRows['automation'][] = []
       let pending = catalog === LOADING ? 1 : 0
       if (catalog && catalog !== LOADING) {
         for (const id of catalog.automations) {
@@ -36,19 +37,9 @@ function createAutomationViews(pool: MobxPool) {
           if (row === LOADING) { pending++; continue }
           if (!row || Reflect.get(row, 'system') === true) continue
           automations.push(row)
-          runGroups[id] = pool.sources.related('automation', id, 'runs').flatMap(runId => {
-            const run = pool.row('automationRun', runId)
-            if (run === LOADING) { pending++; return [] }
-            return run ? [run] : []
-          }).sort((a, b) => b.firedAt.localeCompare(a.firedAt))
-        }
-        for (const id of catalog.runs) {
-          const row = pool.row('automationRun', id)
-          if (row === LOADING) pending++
-          else if (row) runs.push(row)
         }
       }
-      return { automations, automationRuns: runs, runGroups, pending }
+      return { automations, pending }
     })
   }
   function repositories() {
@@ -64,12 +55,15 @@ function createAutomationViews(pool: MobxPool) {
       return { repos, pending }
     })
   }
+  function run(id: string) {
+    return pool.row('automationRun', id)
+  }
   function session(id: string | undefined) {
     if (!id) return undefined
     return pool.queries.setupSessionPresent(id) ? pool.row('setupSession', id) : undefined
   }
   return { list, repositories, targets: targetViews.targets, target: targetViews.target,
-    targetMachine: targetViews.targetMachine, targetForPath: targetViews.targetForPath, session,
+    targetMachine: targetViews.targetMachine, targetForPath: targetViews.targetForPath, run, session,
     dispose: () => { cache.clear(); targetViews.dispose() } }
 }
 export function automationViews(pool: MobxPool) {

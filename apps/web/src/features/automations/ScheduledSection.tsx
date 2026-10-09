@@ -1,4 +1,5 @@
 import { useStoreHandle } from '@podium/client-core/react'
+import { observer } from '@podium/client-graph/react'
 import type { AutomationId } from '@podium/model'
 import { machinePathBasename } from '@podium/model'
 import {
@@ -14,8 +15,9 @@ import {
   Trash2,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAutomationRunSession } from '@/app/automation-readers'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import type { Trpc } from '@/app/trpc'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
@@ -24,6 +26,7 @@ import { issueAgentLabel } from '@/lib/issue-agents'
 import { cn } from '@/lib/utils'
 import type { Automation, AutomationRun } from './AutomationsView'
 import { automationClassOf, automationRight } from './automation-form'
+import { AutomationHistory } from './automation-history'
 import { cronSummary, formatTime } from './cron-format'
 
 /**
@@ -77,14 +80,13 @@ const OUTCOME_LABELS: Record<AutomationRun['outcome'], string> = {
  * The Scheduled surface (#470) [spec:SP-17db] — real cron automations: the list is
  * the server's, create/toggle/delete persist, and expanding a card shows the actual
  * `automation_runs` rows (including the fires that deliberately did nothing), with
- * the spawned session linked. The prototype's SEED_AUTOMATIONS/MOCK_RUNS are gone —
+ * the spawned session linked. A collapsed card reads no runs; an expanded one asks
+ * for its newest window (POD-5835). The prototype's SEED_AUTOMATIONS/MOCK_RUNS are gone —
  * the fake "Pruned 3 worktrees" history read as real telemetry, which it never was.
  */
 export function ScheduledSection({
   trpc,
   automations,
-  automationRuns,
-  runGroups,
   loading = false,
   error,
   onEdit,
@@ -92,8 +94,6 @@ export function ScheduledSection({
 }: {
   trpc: Trpc
   automations: Automation[]
-  automationRuns: AutomationRun[]
-  runGroups?: Record<string, AutomationRun[]>
   loading?: boolean
   error: string
   onEdit: (automation: Automation) => void
@@ -137,9 +137,6 @@ export function ScheduledSection({
             <AutomationCard
               key={a.id}
               automation={a}
-              runs={runGroups?.[a.id] ?? automationRuns
-                .filter((run) => run.automationId === a.id)
-                .sort((left, right) => right.firedAt.localeCompare(left.firedAt))}
               busy={busyId === a.id}
               onEdit={() => onEdit(a)}
               onToggle={(enabled) =>
@@ -166,14 +163,12 @@ export function ScheduledSection({
 
 function AutomationCard({
   automation: a,
-  runs,
   busy,
   onEdit,
   onToggle,
   onRemove,
 }: {
   automation: Automation
-  runs: AutomationRun[]
   busy: boolean
   onEdit: () => void
   onToggle: (enabled: boolean) => void
@@ -181,7 +176,6 @@ function AutomationCard({
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
   const rights = cardRights(a)
-  const lastRun = runs[0]
   const completedOneOff = a.scheduleKind === 'once' && a.lastRunAt !== null
   const scheduleSummary =
     a.scheduleKind === 'once' ? `One time at ${formatTime(a.runAt)}` : cronSummary(a.cron)
@@ -277,28 +271,69 @@ function AutomationCard({
           <Trash2 size={14} aria-hidden="true" />
         </button>
       </div>
-      {expanded && (
-        <div className="border-border border-t px-3 py-2">
-          <div className="mb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
-            Recent runs
-          </div>
-          {runs.length === 0 ? (
-            <div className="py-1 text-[12px] text-muted-foreground/70">No runs yet</div>
-          ) : (
-            <ul className="flex flex-col">
-              {runs.map((r) => (
-                <RunRow key={r.id} run={r} />
-              ))}
-            </ul>
-          )}
-          {lastRun?.detail && (
-            <p className="mt-1 truncate text-[11px] text-muted-foreground/70">{lastRun.detail}</p>
-          )}
-        </div>
-      )}
+      {expanded && <RunHistory automation={a} />}
     </div>
   )
 }
+
+/** The open history section: it owns its request, dropped when it collapses. */
+const RunHistory = observer(function RunHistory({
+  automation,
+}: {
+  automation: Automation
+}): JSX.Element {
+  const trpc = useStoreHandle<Trpc>().access.trpc
+  const pool = useWorklistPool()
+  const history = useMemo(
+    () => new AutomationHistory(automation.id, (input) => trpc.automations.runs.query(input), pool),
+    [automation.id, trpc, pool],
+  )
+  useEffect(() => () => history.close(), [history])
+  // A fire moves lastRunAt: ask again so the new run enters the window.
+  useEffect(() => {
+    void history.refresh()
+  }, [history, automation.lastRunAt])
+  const runs = history.runs
+  const lastRun = runs[0]
+  return (
+    <div className="border-border border-t px-3 py-2">
+      <div className="mb-1 font-medium text-[11px] text-muted-foreground uppercase tracking-wide">
+        Recent runs
+      </div>
+      {history.error ? (
+        <div className="flex items-center gap-2 py-1 text-[12px] text-red-500">
+          <span role="alert" className="min-w-0 flex-1 truncate">
+            {history.error}
+          </span>
+          <Button
+            type="button"
+            size="sm"
+            variant="ghost"
+            className="h-6 flex-none px-2 text-[11px]"
+            onClick={() => void history.refresh()}
+          >
+            Try again
+          </Button>
+        </div>
+      ) : history.pending && runs.length === 0 ? (
+        <div role="status" className="py-1 text-[12px] text-muted-foreground/70">
+          Loading runs…
+        </div>
+      ) : runs.length === 0 ? (
+        <div className="py-1 text-[12px] text-muted-foreground/70">No runs yet</div>
+      ) : (
+        <ul className="flex flex-col">
+          {runs.map((r) => (
+            <RunRow key={r.id} run={r} />
+          ))}
+        </ul>
+      )}
+      {lastRun?.detail && (
+        <p className="mt-1 truncate text-[11px] text-muted-foreground/70">{lastRun.detail}</p>
+      )}
+    </div>
+  )
+})
 
 /** One run: what happened, when, and — for a spawn — the session it produced. */
 function RunRow({ run }: { run: AutomationRun }): JSX.Element {

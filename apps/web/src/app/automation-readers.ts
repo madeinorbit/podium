@@ -3,7 +3,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { useCallback } from 'react'
 import { useWorklistPoolProjection } from './store-worklist-pool'
 
-const EMPTY_LIST = { automations: [], automationRuns: [], runGroups: {}, pending: 1 }
+const EMPTY_LIST = { automations: [], pending: 1 }
 const EMPTY_TARGETS = { ids: [], excluded: EMPTY_EXCLUSIONS, pending: 1 }
 const EMPTY_REPOS = { repos: [], pending: 1 }
 const poolList = (pool: Parameters<typeof automationViews>[0]) => automationViews(pool).list()
