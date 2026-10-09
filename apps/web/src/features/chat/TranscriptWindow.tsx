@@ -9,7 +9,12 @@ import { flushSync } from 'react-dom'
 const BUFFER = 3
 // Client rects lose subpixel precision at million-pixel document coordinates.
 // The shell has no padding/border, so its resolved CSS height is its flow size.
-const measuredHeight = (node: HTMLElement) => Number.parseFloat(getComputedStyle(node).height) || node.getBoundingClientRect().height
+const measuredHeight = (node: HTMLElement) => {
+  const resolved = Number.parseFloat(getComputedStyle(node).height)
+  // CSSOM rounds its decimal string. Recover the layout-unit fraction before
+  // writing it back, or thousands of spacers accumulate a 1/64px truncation.
+  return resolved ? Math.round(resolved * 64) / 64 : node.getBoundingClientRect().height
+}
 interface Entry {
   node: HTMLDivElement
   mounted: boolean

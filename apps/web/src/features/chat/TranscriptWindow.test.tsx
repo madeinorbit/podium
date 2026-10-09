@@ -7,12 +7,12 @@ import { TranscriptWindowRow, useTranscriptWindow } from './TranscriptWindow'
 let host: HTMLDivElement, root: Root, top = 0
 let frames: FrameRequestCallback[], rowHeight = 80
 const rect = (y: number, height: number) => ({ top: y, bottom: y + height, height, width: 600, left: 0, right: 600, x: 0, y, toJSON() {} })
-function Fixture({ count = 1000, operator = false, mode = '' }: { count?: number; operator?: boolean; mode?: string }) {
+function Fixture({ count = 1000, operator = false, mode = '', boundary = '' }: { count?: number; operator?: boolean; mode?: string; boundary?: string }) {
   const scroll = useRef<HTMLDivElement | null>(null)
   const keys = useMemo(() => Array.from({ length: count }, (_, index) => `row-${index}`), [count])
   const windowing = useTranscriptWindow(keys, scroll, mode)
   return <div ref={scroll} data-scroller>
-    {keys.map((key, index) => <TranscriptWindowRow key={key} rowKey={key} index={index} window={windowing}>
+    {keys.map((key, index) => <TranscriptWindowRow key={key} rowKey={key} index={index} window={windowing} geometryKey={index === 600 ? boundary : undefined}>
       {remounted => <div data-message data-operator-prompt={operator && index === 0 ? 'true' : undefined} data-arrived={!remounted ? '' : undefined}><p>{key} retained prose</p><button aria-expanded="false">Details</button></div>}
     </TranscriptWindowRow>)}
   </div>
@@ -29,7 +29,8 @@ beforeEach(() => {
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) {
     const key = this.dataset.transcriptRow
     const index = key ? Number(key.slice(4)) : undefined
-    return rect(index === undefined ? 0 : index * rowHeight - top, index === undefined ? 400 : rowHeight) as DOMRect
+    const height = this.hasAttribute('data-transcript-placeholder') ? Number.parseFloat(this.style.height) : rowHeight
+    return rect(index === undefined ? 0 : index * rowHeight - top, index === undefined ? 400 : height) as DOMRect
   })
   vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(400)
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(600)
@@ -137,4 +138,36 @@ it('remeasures changed display geometry once and returns to the buffer', () => {
   paint()
   expect((host.querySelector('[data-transcript-row="row-0"]') as HTMLElement).style.height).toBe('120px')
   expect(host.querySelectorAll('[data-message]').length).toBeLessThan(40)
+})
+
+it('measures a changed offscreen paging seam after its real content mounts', () => {
+  scroll(40_000)
+  rowHeight = 120
+  act(() => root.render(<Fixture count={1001} boundary="new day/turn" />))
+  paint()
+  expect((host.querySelector('[data-transcript-row="row-600"]') as HTMLElement).style.height).toBe('120px')
+  expect(host.querySelectorAll('[data-message]').length).toBeLessThan(40)
+})
+
+it('keeps native Find text through a scroll that precedes the matched selection', async () => {
+  const shell = host.querySelector('[data-transcript-row="row-600"]')!
+  const text = shell.querySelector('[data-transcript-find-proxy]')!.firstChild!
+  scroll(48_000)
+  expect(text.isConnected).toBe(true)
+  const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 7)
+  const selection = document.getSelection()!; selection.addRange(range)
+  const matched = selection.toString()
+  paint()
+  await act(async () => { await Promise.resolve() })
+  expect(selection.toString()).toBe(matched)
+  expect(selection.anchorNode?.parentElement?.closest('[data-message]')).not.toBeNull()
+})
+
+it('retains the resolved subpixel flow size rather than rounded deep-document rectangles', () => {
+  const style = getComputedStyle
+  vi.spyOn(globalThis, 'getComputedStyle').mockImplementation(node => node.hasAttribute('data-transcript-row')
+    ? { height: '80.328' } as CSSStyleDeclaration : style(node))
+  act(() => root.render(<Fixture mode="subpixel" />))
+  paint()
+  expect((host.querySelector('[data-transcript-row="row-600"]') as HTMLElement).style.height).toBe('80.328125px')
 })
