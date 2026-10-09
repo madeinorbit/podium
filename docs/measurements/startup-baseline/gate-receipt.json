@@ -1,0 +1,239 @@
+{
+  "branch": "gate/5895-20261009-02-green",
+  "pilot_base": "f337607628ec030852620f5272c0c03203141b4b",
+  "candidates": [
+    {
+      "issue": "5836",
+      "sha": "d342cbefca",
+      "original_sha": "d342cbefca2d29a4829ad0c80b9e0718ed10f7dd",
+      "base": "2c4e3bd21efd0952c05afb34c9547172d22de85d",
+      "status": "stacked",
+      "rebased_sha": "94d59a95a995edc73ddb23c95edbe1a30d465b53"
+    },
+    {
+      "issue": "5864",
+      "sha": "63d5eeb70088bf4f77f151f6a292e833245ad0ce",
+      "original_sha": "63d5eeb70088bf4f77f151f6a292e833245ad0ce",
+      "base": "2c4e3bd21efd0952c05afb34c9547172d22de85d",
+      "status": "stacked",
+      "rebased_sha": "0bf4c1e570290d336f84228f8570fdaaa6e4e4d8"
+    },
+    {
+      "issue": "5594",
+      "sha": "22fa58d60e",
+      "original_sha": "22fa58d60e83cc7cf3089981e9c1a4349ff8b0b8",
+      "base": "2c4e3bd21efd0952c05afb34c9547172d22de85d",
+      "status": "stacked",
+      "rebased_sha": "899243cf3148090bb355ccc52199d825a282eaf4"
+    }
+  ],
+  "tip": "899243cf3148090bb355ccc52199d825a282eaf4",
+  "landing": {
+    "old_tip": "f337607628ec030852620f5272c0c03203141b4b",
+    "new_tip": "899243cf3148090bb355ccc52199d825a282eaf4",
+    "mode": "ff-only with ancestry and old-tip CAS",
+    "landed": true
+  },
+  "gates": {
+    "sha": "899243cf3148090bb355ccc52199d825a282eaf4",
+    "runner_pid": 2238226,
+    "checks": [
+      {
+        "name": "lean",
+        "command": [
+          "bun",
+          "scripts/test-lean.ts"
+        ],
+        "started": 1791534842.6044495,
+        "status": "finished",
+        "pid": 2238229,
+        "exit_code": 0,
+        "ended": 1791534867.9619634
+      },
+      {
+        "name": "typecheck",
+        "command": [
+          "bun",
+          "run",
+          "typecheck"
+        ],
+        "started": 1791534867.9624286,
+        "status": "finished",
+        "pid": 2240118,
+        "exit_code": 0,
+        "ended": 1791534974.775479
+      },
+      {
+        "name": "scans",
+        "command": [
+          "bun",
+          "scripts/check-interaction-scans.ts"
+        ],
+        "started": 1791534974.8429625,
+        "status": "finished",
+        "pid": 2247584,
+        "exit_code": 0,
+        "ended": 1791534982.706834
+      },
+      {
+        "name": "web-build",
+        "command": [
+          "bun",
+          "run",
+          "build"
+        ],
+        "started": 1791534982.7072582,
+        "status": "finished",
+        "pid": 2247974,
+        "exit_code": 0,
+        "ended": 1791535013.7967865
+      },
+      {
+        "name": "render",
+        "command": [
+          "bun",
+          "--conditions=@podium/source",
+          "/tmp/podium-5895-render-smoke-v3.ts"
+        ],
+        "started": 1791535013.7972279,
+        "status": "finished",
+        "pid": 2249759,
+        "exit_code": 0,
+        "ended": 1791535064.8664563
+      }
+    ],
+    "finished": 1791535064.8669727
+  },
+  "structural": {
+    "name": "structural",
+    "sha": "899243cf3148090bb355ccc52199d825a282eaf4",
+    "runner_pid": 2255505,
+    "command": [
+      "bun",
+      "run",
+      "speed:structural"
+    ],
+    "started": 1791535113.5818532,
+    "recorded": {
+      "2255507": "362743667",
+      "2255590": "362743709",
+      "2255508": "362743667",
+      "2255509": "362743668",
+      "2255772": "362743804",
+      "2255870": "362744064",
+      "2256138": "362744611",
+      "2258431": "362749032"
+    },
+    "start_memory": {
+      "MemAvailable": 13321364,
+      "SwapFree": 20196768
+    },
+    "pid": 2255507,
+    "max_owned_rss_kb": 4943864,
+    "min_mem_available_kb": 7894724,
+    "memory": {
+      "MemAvailable": 12964480,
+      "SwapFree": 20197000
+    },
+    "exit_code": 0,
+    "ended": 1791535208.5461204
+  },
+  "reused_green_checks": {
+    "source_tip": "6c419ad6a3bfbbc6044ae76c67b85b431c5bac23",
+    "checks": [
+      "span-effects",
+      "mobx-private",
+      "untracked-reads",
+      "clock-reads"
+    ],
+    "reason": "Passed on full batch superset; redmission candidate removed, no changes to other ranges"
+  },
+  "excluded_candidates": [
+    {
+      "issue": "5836",
+      "sha": "d342cbefca",
+      "original_sha": "d342cbefca2d29a4829ad0c80b9e0718ed10f7dd",
+      "base": "2c4e3bd21efd0952c05afb34c9547172d22de85d",
+      "status": "stacked",
+      "rebased_sha": "50d701ede12f5d7939d1fc29e3d4d6a2b0bff66f"
+    },
+    {
+      "issue": "5867",
+      "sha": "dc98f88378ccbd1497c1b07fb873cffd7dd04723",
+      "original_sha": "dc98f88378ccbd1497c1b07fb873cffd7dd04723",
+      "base": "2c4e3bd21efd0952c05afb34c9547172d22de85d",
+      "status": "conflict",
+      "files": [
+        "packages/client-graph/src/mobile-tasks.ts"
+      ],
+      "error": "Auto-merging apps/mobile/src/screens/IssuesScreen.tsx\nAuto-merging packages/client-graph/src/mobile-tasks.ts\nCONFLICT (content): Merge conflict in packages/client-graph/src/mobile-tasks.ts\nAuto-merging tests/worklist/diagnostics/legacy-mobile-tasks.ts\nRebasing (1/9)\nRebasing (2/9)\nerror: could not apply 9320116fc4... WIP: Make record lookups explicit and migrate caller policies\nhint: Resolve all conflicts manually, mark them as resolved with\nhint: \"git add/rm <conflicted_files>\", then run \"git rebase --continue\".\nhint: You can instead skip this commit: run \"git rebase --skip\".\nhint: To abort and get back to the state before \"git rebase\", run \"git rebase --abort\".\nRecorded preimage for 'packages/client-graph/src/mobile-tasks.ts'\nCould not apply 9320116fc4... WIP: Make record lookups explicit and migrate caller policies\n"
+    },
+    {
+      "issue": "5864",
+      "sha": "63d5eeb70088bf4f77f151f6a292e833245ad0ce",
+      "original_sha": "63d5eeb70088bf4f77f151f6a292e833245ad0ce",
+      "base": "2c4e3bd21efd0952c05afb34c9547172d22de85d",
+      "status": "stacked",
+      "rebased_sha": "3429a54661c1eccf454f46bd3ec714a136dcb845"
+    },
+    {
+      "issue": "5827",
+      "sha": "c3580c0f28",
+      "base": "5be26f4d61aee31561c4cd7e8d242f2ea864a8d7",
+      "original_sha": "c3580c0f28f1c85c2816719e1b29ceeb5da739d7",
+      "status": "stacked",
+      "rebased_sha": "f021c722da672b0b4b8718d354af7c710fc8dd71"
+    },
+    {
+      "issue": "5878",
+      "sha": "a2742e11914f6b47f7aec08806d62bdf12889542",
+      "original_sha": "a2742e11914f6b47f7aec08806d62bdf12889542",
+      "base": "2c4e3bd21efd0952c05afb34c9547172d22de85d",
+      "status": "conflict",
+      "files": [
+        "scripts/interaction-scan-census.json"
+      ],
+      "error": "Auto-merging scripts/interaction-scan-census.json\nCONFLICT (content): Merge conflict in scripts/interaction-scan-census.json\nRebasing (1/13)\nRebasing (2/13)\nRebasing (3/13)\nRebasing (4/13)\nRebasing (5/13)\nRebasing (6/13)\nRebasing (7/13)\nRebasing (8/13)\nRebasing (9/13)\nRebasing (10/13)\nRebasing (11/13)\nRebasing (12/13)\nerror: could not apply 27df980c98... Shell pane scan fingerprints\nhint: Resolve all conflicts manually, mark them as resolved with\nhint: \"git add/rm <conflicted_files>\", then run \"git rebase --continue\".\nhint: You can instead skip this commit: run \"git rebase --skip\".\nhint: To abort and get back to the state before \"git rebase\", run \"git rebase --abort\".\nRecorded preimage for 'scripts/interaction-scan-census.json'\nCould not apply 27df980c98... Shell pane scan fingerprints\n"
+    },
+    {
+      "issue": "5594",
+      "sha": "22fa58d60e",
+      "original_sha": "22fa58d60e83cc7cf3089981e9c1a4349ff8b0b8",
+      "base": "2c4e3bd21efd0952c05afb34c9547172d22de85d",
+      "status": "stacked",
+      "rebased_sha": "6c419ad6a3bfbbc6044ae76c67b85b431c5bac23"
+    }
+  ],
+  "render_receipt": {
+    "fixture": "ordinary minified production React and product components; synthetic private data; external requests blocked",
+    "fixtureAdapters": [
+      "existing inbox platform adapter plus scratch Expo route/header and profile-context exports",
+      "erase Expo declaration-only global.ts leaf; retain actual SDK web runtime",
+      "fixture-only browser control selecting an archived issue absent from pool memory"
+    ],
+    "omittedMeasurementPlugins": [
+      "acceptance-state-boundaries"
+    ],
+    "screens": [
+      {
+        "screen": "sidebar, mission pane, workspace and issue dock",
+        "selected": "i214",
+        "errors": []
+      },
+      {
+        "screen": "issue panel, cold archived row",
+        "id": "i9",
+        "title": "unflake replica 1135",
+        "residentBeforeOpen": false,
+        "errors": []
+      },
+      {
+        "screen": "phone Work tab",
+        "resolved": true,
+        "failures": 0,
+        "text": "Work\n0 NEED YOU \u00b7 0 PINNED \u00b7 593 TASKS\nRefresh list\n\u2193\nPull to refresh\nOffline. Showing saved data for undefined.\nSettings\nPROJECT\n593\nSynthetic task 599\nSYN-1599\n3\nin progress\nSynthetic task 598\nSYN-1598\n3\nin progress\nSynthetic task 597\nSYN"
+      }
+    ],
+    "pageErrors": []
+  }
+}

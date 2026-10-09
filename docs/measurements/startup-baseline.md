@@ -101,7 +101,56 @@ under the 3 GB worker cap at 1x (lazy proof peak RSS about 2.5 GiB); a 10x run o
 
 ## First paint
 
-PENDING.
+Web and phone admission is complete: eight unprofiled cold/warm pairs per
+cell on each surface, 64 admitted pairs in total. Values below are seconds,
+median (minimum–maximum).
+
+| Surface | Cell | Cold Paint | Warm Paint |
+| --- | --- | ---: | ---: |
+| Web | `h1a1` | 4.69 (3.89–6.61) | 3.74 (2.90–4.73) |
+| Web | `h10a1` | 14.44 (12.95–17.30) | 10.47 (9.20–12.61) |
+| Web | `h1a4` | 9.36 (8.68–10.92) | 7.27 (6.39–7.85) |
+| Web | `h10a4` | 19.62 (17.31–22.51) | 16.13 (13.67–17.50) |
+| Phone web | `h1a1` | 4.40 (3.86–5.01) | 3.56 (2.82–4.84) |
+| Phone web | `h10a1` | 13.87 (12.73–19.43) | 11.42 (10.28–12.26) |
+| Phone web | `h1a4` | 9.06 (8.44–10.32) | 7.78 (6.77–8.39) |
+| Phone web | `h10a4` | 19.54 (17.15–21.95) | 15.52 (13.67–17.73) |
+
+The same active work under ten times the history raises observed web cold
+median from 4.69 to 14.44 seconds. Individual samples and provenance are in
+[web-summary.json](startup-baseline/web-summary.json); the accepted paths and
+exclusions are in [web-ledger.json](startup-baseline/web-ledger.json).
+Phone samples and provenance are in
+[phone-summary.json](startup-baseline/phone-summary.json), with all 32 pairs
+admitted from [phone-ledger.json](startup-baseline/phone-ledger.json).
+
+The measured source is `75ec571b04`, on product base `2c4e3bd21e`, preserved
+as `refs/measurements/5594-startup-baseline` in the local repository and
+flatblock's transfer repository. Later candidate rebases do not change this
+baseline. Normal production bundles: web `bundle+CkDtfcea`, phone
+`bundle+bb0d20a1d3a22fe327c832d601101ce7`; wire version 4, schema digest
+`366458d430049fd2`. Both outputs were built under the heavy lease; subsequent
+harness-only commits used the canonical build stamp after verifying unchanged
+product source.
+
+Host: flatblock, 8 logical CPUs, AMD EPYC Processor (with IBPB), Linux;
+Chromium `153.0.8010.12`. Web viewport: 1800 × 1000. Phone: Playwright's
+Pixel 7 preset on the production phone web Work tab. The capture controller
+runs locally over SSH; every app, browser, test and build runs on flatblock.
+Timing windows yield to the shared census and resume the saved schedule.
+The summary retains the individual samples, dates, source and product tree
+hashes, load readings and lease windows.
+
+Web round 3's sample block 5 was excluded after `h10a4` logged an abnormal
+WebSocket close (1006) and reconnect during its warm navigation. Its cold
+24.02 seconds and warm 44.52 seconds are excluded from the table. All four
+cells in that block were repeated in the same order, under the same logical
+cohort, as round 4. Each cell still occupies every position twice. Original
+bytes remain in their capture directories with `EXCLUDED.json`; the ledger
+records the reason and each replacement. This is 36 completed web cohort
+pairs, 32 admitted pairs and four explicitly excluded pairs. Two preliminary
+captures also stopped before completing a pair while correcting the visible-row
+observer; neither contributes a sample. No latency-only trimming.
 
 ## How to rerun
 
@@ -129,10 +178,13 @@ From the local **issue worktree**, run the lightweight SSH controller:
 
 ```sh
 python3 apps/web/harness/cold-start-pair.py --cells=h1a1,h10a1,h1a4,h10a4 \
-  --checkout=podium-test-5594 --surface=web --samples=8 --round=1 --meter --no-profile
+  --checkout=podium-test-5594 --surface=web --samples=8 --round=5 --meter --no-profile
 python3 apps/mobile/harness/startup-baseline.py \
-  --checkout=podium-test-5594 --samples=8 --round=1
+  --checkout=podium-test-5594 --samples=8 --round=5
 ```
+
+Choose an unused round number; rounds 1–4 already contain this baseline's
+capture history in the measurement checkout.
 
 The controller holds `meter:flatblock` and `bench:flatblock`, renews both,
 and starts exactly one collector process tree at a time. It rotates and
@@ -164,9 +216,9 @@ path in the flatblock checkout, then summarize there:
 
 ```sh
 python3 apps/web/harness/startup-summary.py \
-  --ledger=.artifacts/startup-baseline/web-r1.json \
+  --ledger=.artifacts/startup-baseline/web-r5.json \
   --out=.artifacts/startup-baseline/web-summary.json
-# Repeat for phone-r1.json and phone-summary.json.
+# Repeat for phone-r5.json and phone-summary.json.
 ```
 
 The summary reuses `cold-start-guard.py`'s provenance, full-population and
@@ -198,3 +250,35 @@ full typecheck, interaction scan check, normal web build, and structural census
 under `meter:flatblock`. POD-5895 runs the shared full gates; submit the candidate
 to POD-4286 rather than starting a competing run. The report records what
 actually ran.
+
+## Verification
+
+The startup code range through `22fa58d60e` landed in POD-5895's green shared
+batch at `899243cf31`. Its [gate receipt](startup-baseline/gate-receipt.json)
+records the checked tip, commands, exit codes, resource observations and
+fast-forward landing. The full original receipt is also issue artifact
+`.artifacts/5895/batch2/gate-summary.json` on POD-5895.
+
+| Check | Result |
+| --- | --- |
+| Two-axis fixture and original guard files | 17 fixture tests + 6 guard tests passed |
+| Full and unmarked partial startup states | 5 tests passed; all 147 questions answered; 104 wrong answers exposed in partial control |
+| Lazy startup state, before/after hydration | 1 test passed; 112 exact + 35 LOADING before; all 147 exact afterward |
+| Lean gate and full typecheck, shared batch | Lean gate green; both commands exited 0 |
+| Interaction scans, shared batch | Green; 0 ratchet errors |
+| Normal web build and production renders, shared batch | Green; render receipt reports no page errors |
+| Structural census, shared batch under meter | 30 passed, 7 filtered skips; exit 0 |
+| Final focused guard file | 7 tests passed on flatblock at `85f7ca1307`, including strict phone warning admission |
+
+Span-effects, MobX-private, untracked-reads and clock-read checks passed on
+the batch's full superset and were reused after dropping the rejected mission
+range. The final lean, full typecheck, interaction scan, web build, renders and
+structural census ran on the landed green stack. This records focused and
+lean evidence; no full-suite sweep was run for this issue.
+
+Earlier local-lane lean attempts produced no gate result: checkout admission
+found stale generated declaration directories, then two attempts stopped at
+the resource floor during generation/typecheck. Those logs remain in the
+flatblock checkout; the shared green result supersedes them. The final timing
+and report work changes no product code, so the coordinator explicitly waived
+another heavy run.
