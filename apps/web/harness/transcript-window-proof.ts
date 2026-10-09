@@ -82,6 +82,29 @@ try {
   await page.mouse.move(feedBox.x + feedBox.width / 2, feedBox.y + feedBox.height / 2)
   await page.mouse.wheel(0, 1600)
   await page.waitForTimeout(100)
+  if (process.argv.includes('--debug')) {
+    const geometry = await page.evaluate(async () => {
+      const before = [...document.querySelectorAll<HTMLElement>('[data-transcript-row]')].map(node => ({ key: node.dataset.transcriptRow, height: node.getBoundingClientRect().height, placeholder: node.hasAttribute('data-transcript-placeholder') }))
+      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }))
+      await new Promise(done => setTimeout(done, 100))
+      return { height: document.querySelector<HTMLElement>('[data-feed-scroller]')!.scrollHeight, changes: before.flatMap(old => {
+        const node = document.querySelector<HTMLElement>(`[data-transcript-row="${old.key}"]`)!
+        const height = node.getBoundingClientRect().height
+        return Math.abs(old.height - height) > 0.01 ? [{ ...old, actual: height, text: node.innerText.slice(0, 100) }] : []
+      }) }
+    })
+    await writeFile(resolve(directory, 'geometry-debug.json'), JSON.stringify(geometry, null, 2))
+    await page.evaluate(() => { document.getSelection()!.removeAllRanges(); document.dispatchEvent(new Event('selectionchange')) })
+    await page.waitForTimeout(100)
+    await page.evaluate(() => {
+      const events: any[] = []; (window as any).__findDebug = events
+      const sample = (event: string) => { const s = document.getSelection(); const p = s?.anchorNode?.parentElement; events.push({ event, text: s?.toString(), anchor: p?.outerHTML.slice(0, 150), row: p?.closest<HTMLElement>('[data-transcript-row]')?.dataset.transcriptRow }) }
+      document.addEventListener('selectionchange', () => sample('selectionchange'))
+      document.querySelector('[data-feed-scroller]')!.addEventListener('scroll', () => sample('scroll'))
+      new MutationObserver(() => sample('mutation')).observe(document.querySelector('[data-feed-scroller]')!, { childList: true, subtree: true })
+      ;(window as any).__findDebugSample = sample
+    })
+  }
   const wheel = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
   const selected = await page.evaluate(() => {
     const el = document.querySelector('[data-feed-scroller]')!
@@ -106,7 +129,9 @@ try {
   // hidden-until-found/beforematch; it does not call the app's reveal handler.
   await page.evaluate(() => { (window as any).__nativeFindEvents = 0; document.addEventListener('beforematch', () => (window as any).__nativeFindEvents++, true) })
   const found = await page.evaluate(() => (window as any).find('native-needle-4000', false, false, true))
+  if (process.argv.includes('--debug')) await page.evaluate(() => (window as any).__findDebugSample('returned'))
   await page.waitForTimeout(100)
+  if (process.argv.includes('--debug')) await writeFile(resolve(directory, 'find-debug.json'), JSON.stringify(await page.evaluate(() => (window as any).__findDebug), null, 2))
   const nativeFind = await page.evaluate(() => ({ selection: document.getSelection()?.toString(), beforematch: (window as any).__nativeFindEvents, stats: (window as any).__transcriptWindowProof.stats() }))
   console.log(JSON.stringify({ nativeFindResult: found, nativeFind }))
   await writeFile(resolve(directory, 'native-find.json'), JSON.stringify({ found, nativeFind }, null, 2))
