@@ -130,7 +130,7 @@ export class IssueActivityStore {
       // An older server ignored `order` and read from the log's start: keep
       // its answer and finish the way it can, ascending to the end.
       this.ascendingOnly = true
-      this.history.appendEvents(page)
+      if (this.history.appendEvents(page)) this.publish()
       return this.drainForward(ports, epoch, true)
     }
     const added = this.history.appendEvents(page)

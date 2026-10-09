@@ -425,3 +425,28 @@ it('falls back to the ascending drain against a server that ignores the order', 
     pool.dispose()
   }
 })
+
+it('publishes a short initial ascending page to mounted Recent readers', async () => {
+  const pool = poolWith(),
+    api = server(logOf(8))
+  const ports: IssueActivityPorts = {
+    ...api.ports,
+    events: async ({ order: _order, before: _before, ...input }) => api.ports.events(input),
+  }
+  const view = new IssueHistoryView(issueActivity(pool, 'root'), ports, RECENT_ACTIVITY_SIZE)
+  let shown: unknown
+  const stop = autorun(() => {
+    void view.activity.revision
+    shown = view.activity.history.items.slice(-RECENT_ACTIVITY_SIZE).reverse()
+  })
+  const close = view.open()
+  try {
+    await flush()
+    expect(shown).toEqual(legacyRecent(api.log, []))
+    expect(view.loading).toBe(false)
+  } finally {
+    close()
+    stop()
+    pool.dispose()
+  }
+})
