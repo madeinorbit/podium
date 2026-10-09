@@ -10,7 +10,7 @@
  *   That is the failure POD-5595's markers must turn into LOADING;
  * - the lazy pool before its cold rows load, and after.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'vitest'
+import { beforeAll, describe, expect, it } from 'vitest'
 import { writeResult } from '../results'
 import {
   ask,
@@ -34,7 +34,6 @@ beforeAll(async () => {
   control = ask(pool, questions)
   pool.dispose()
 }, 600_000)
-afterAll(() => feed?.dispose())
 
 describe('the check itself', () => {
   it('accepts equal and LOADING, flags anything else, refuses an unsettled control', () => {

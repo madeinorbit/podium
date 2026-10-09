@@ -2,8 +2,9 @@
  * POD-5594 — startup states for the "no wrong number" check
  * (`no-wrong-number.ts`), over the two-axis corpus (`buildCorpusCell`).
  *
- * `openStartupFeed(cell)` runs the real engine on the corpus and opens the
- * pooled row feed the app's pool reads. From it:
+ * `openStartupFeed(cell)` runs the real engine on the corpus, reads the pooled
+ * row feed the app's pool reads once, and drops the engine (memory: the check
+ * then holds only the rows). The feed's `source` serves those rows. From it:
  * - `fullPool`: the full bootstrap, every row resident (the CONTROL);
  * - `partialPool`: only the active rows (what the client's cold rule keeps
  *   resident), with nothing saying history is missing: today's pool on a
@@ -30,26 +31,30 @@ import { buildCorpusCell, type CorpusCell } from '../fixture'
 import { ask, type StartupQuestion } from './no-wrong-number'
 
 export interface StartupFeed {
+  /** The rows as a static feed: what a lazy pool reads its cold rows from. */
   readonly source: RowSource
   /** Every row the feed carries, as one bootstrap would install them. */
   readonly rows: readonly RowRecord[]
   readonly locals: SliceLocals
   /** The client's own cold rule over the feed (`tableColdRule`): history. */
   readonly cold: (kind: RowRecord['kind'], id: string) => boolean
-  dispose(): void
 }
 
 export async function openStartupFeed(cell: CorpusCell, seed = 4443): Promise<StartupFeed> {
   const ctx = await startEngineOnCorpus(buildCorpusCell(cell, seed))
+  let rows: RowRecord[], companions: RowRecord[], locals: SliceLocals
   const handle = createRowSource(ctx.engine, ctx.replica, { mode: 'pooled' })
-  const source = handle.source
-  const rows = [
-    ...source.snapshot('session'),
-    ...source.snapshot('issue'),
-    ...source.snapshot('worktree'),
-    ...(source.companions?.() ?? []),
-  ].filter((row) => row.value !== undefined)
-  const locals: SliceLocals = { selectedIssueId: null, coarseNow: referenceState(ctx.engine).coarseNow }
+  try {
+    const live = handle.source
+    companions = (live.companions?.() ?? []).filter((row) => row.value !== undefined)
+    rows = [...live.snapshot('session'), ...live.snapshot('issue'), ...live.snapshot('worktree')]
+      .filter((row) => row.value !== undefined)
+      .concat(companions)
+    locals = { selectedIssueId: null, coarseNow: referenceState(ctx.engine).coarseNow }
+  } finally {
+    handle.dispose()
+    ctx.dispose()
+  }
   const tables = new Map<string, Map<string, unknown>>()
   for (const row of rows) {
     let table = tables.get(row.kind)
@@ -59,16 +64,19 @@ export async function openStartupFeed(cell: CorpusCell, seed = 4443): Promise<St
   const rule = tableColdRule(SCHEMA, (entity) => tables.get(entity), locals.coarseNow)
   const cold = (kind: RowRecord['kind'], id: string) =>
     (kind === 'issue' || kind === 'session') && rule(kind as EntityName, id)
-  return {
-    source,
-    rows,
-    locals,
-    cold,
-    dispose() {
-      handle.dispose()
-      ctx.dispose()
-    },
+  const ownRows = new Map<RowRecord['kind'], RowRecord[]>()
+  for (const row of rows.slice(0, rows.length - companions.length)) {
+    let list = ownRows.get(row.kind)
+    if (!list) ownRows.set(row.kind, (list = []))
+    list.push(row)
   }
+  const source: RowSource = {
+    snapshot: (kind) => [...(ownRows.get(kind) ?? [])],
+    companions: () => companions,
+    subscribe: () => () => {},
+    row: (kind, id) => tables.get(kind)?.get(id) as RowRecord['value'],
+  }
+  return { source, rows, locals, cold }
 }
 
 /** The control: one full bootstrap, every row resident. */
