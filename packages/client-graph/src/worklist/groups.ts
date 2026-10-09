@@ -217,18 +217,13 @@ function compareFold(a: FoldSort, b: FoldSort): number {
   return b.foldMs - a.foldMs || compareRank(a.rank, b.rank)
 }
 
-/** The first index in `lane` (rank order) whose member ranks after `rank`. */
-function rankInsertionPoint(
-  lane: readonly string[],
-  rank: RowRank,
-  rankOfId: (id: string) => RowRank | undefined,
-): number {
+/** Binary search visits only the lane positions needed for one latch edit. */
+function insertionPoint(lane: readonly string[], before: (id: string) => boolean): number {
   let lo = 0
   let hi = lane.length
   while (lo < hi) {
     const mid = (lo + hi) >>> 1
-    const at = rankOfId(lane[mid] as string)
-    if (at !== undefined && compareRank(at, rank) < 0) lo = mid + 1
+    if (before(lane[mid]!)) lo = mid + 1
     else hi = mid
   }
   return lo
@@ -297,32 +292,33 @@ export class GroupNode {
   @lazy get closedIds(): readonly string[] { return this.withoutLatch(this.baseClosedIds, false) }
 
   private withLatch(lane: readonly string[], root: boolean, snoozed?: boolean): readonly string[] {
-    const id = this.latchedHere()
-    if (id === null || (root && !this.groups.isRoot(id))) return lane
+    const id = this.latchedHere(root)
+    if (id === null) return lane
     const rank = this.groups.rankOf(id)
     if (!rank || (snoozed !== undefined && (rank.band === 2) !== snoozed)) return lane
-    return spliceQueryResult(lane, rankInsertionPoint(lane, rank, id => this.groups.rankOf(id)), 0, id)
+    const at = insertionPoint(lane, member => {
+      const memberRank = this.groups.rankOf(member)
+      return memberRank !== undefined && compareRank(memberRank, rank) < 0
+    })
+    return spliceQueryResult(lane, at, 0, id)
   }
   private withoutLatch(lane: readonly string[], root: boolean): readonly string[] {
-    const id = this.latchedHere()
-    if (id === null || (root && !this.groups.isRoot(id))) return lane
+    const id = this.latchedHere(root)
+    if (id === null) return lane
     const rank = this.groups.rankOf(id), placement = this.groups.placementOf(id)
     if (!rank || !placement) return lane
     const wanted = { foldMs: placement.foldMs, rank }
-    let lo = 0, hi = lane.length
-    while (lo < hi) {
-      const mid = (lo + hi) >>> 1, member = lane[mid]!
+    const at = insertionPoint(lane, member => {
       const memberRank = this.groups.rankOf(member)!, memberPlacement = this.groups.placementOf(member)!
-      if (compareFold({ foldMs: memberPlacement.foldMs, rank: memberRank }, wanted) < 0) lo = mid + 1
-      else hi = mid
-    }
-    return lane[lo] === id ? spliceQueryResult(lane, lo, 1) : lane
+      return compareFold({ foldMs: memberPlacement.foldMs, rank: memberRank }, wanted) < 0
+    })
+    return lane[at] === id ? spliceQueryResult(lane, at, 1) : lane
   }
 
   /** The latched row when it is filed in this group's fold, else null. */
-  private latchedHere(): string | null {
+  private latchedHere(root: boolean): string | null {
     const latched = this.groups.latchedOpenId
-    if (latched === null) return null
+    if (latched === null || (root && !this.groups.isRoot(latched))) return null
     return this.groups.placementOf(latched)?.repoKey === this.key ? latched : null
   }
 }

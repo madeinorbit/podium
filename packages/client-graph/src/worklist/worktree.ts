@@ -2,15 +2,13 @@ import { here } from '../lookup'
 import { lazy } from '@podium/mobx-helpers'
 import { compareShallow, compareStructural } from 'mobx'
 import { machinePathsEqual } from '@podium/model/browser'
-import { createQueryResult } from '../query-result'
+import { createQueryResult, queryRows } from '../query-result'
 import type { IssueModel, ModelOf, SessionModel } from '../models'
 import type { Worklist } from './view-model'
 import { sidebarRosterView } from './sidebar-roster'
 import { sidebarRosterOf, type SidebarState } from './sidebar'
 import { LOADING } from './rollup'
 import { sidebarTimingFromFacts, combineSidebarSessionField, NO_SIDEBAR_SESSIONS, type SidebarSessionFacts } from './sidebar-row'
-
-const EMPTY_SESSIONS: readonly SessionModel[] = Object.freeze([])
 
 /** A roster keeps shared sessions, with demand-scoped data queries owning
  * ordering. A heartbeat updates one ordering key; it never sorts the roster. */
@@ -70,12 +68,9 @@ export class WorklistWorktree {
     })
   }
   /** Forward the query's persistent answers; order changes edit their paths. */
-  get sessions(): readonly SessionModel[] { return this.sessionRows(this.orderedSessions.get()) }
-  get stale(): readonly SessionModel[] { return this.sessionRows(this.orderedSessions.partition(true)) }
-  get visible(): readonly SessionModel[] { return this.sessionRows(this.orderedSessions.partition(false)) }
-  private sessionRows(rows: readonly SessionModel[] | typeof LOADING | undefined): readonly SessionModel[] {
-    return rows === LOADING || rows === undefined ? EMPTY_SESSIONS : rows
-  }
+  get sessions(): readonly SessionModel[] { return queryRows(this.orderedSessions.get()) }
+  get stale(): readonly SessionModel[] { return queryRows(this.orderedSessions.partition(true)) }
+  get visible(): readonly SessionModel[] { return queryRows(this.orderedSessions.partition(false)) }
   @lazy({ equals: compareShallow }) get issues(): readonly IssueModel[] {
     const issues = new Set<IssueModel>()
     for (const id of this.rosterIds) {

@@ -1,6 +1,6 @@
 import { here, omitGone } from '../lookup'
-import { createQueryResult, concatQueryResults } from '../query-result'
-import { compareRank, type RowRank } from '../shared/row-view'
+import { createQueryResult, concatQueryResults, queryRows, EMPTY_QUERY_ROWS } from '../query-result'
+import { compareRank } from '../shared/row-view'
 import { sidebarRosterView } from './sidebar-roster'
 import { worklistGroups } from './groups'
 import { lazy } from '@podium/mobx-helpers'
@@ -11,7 +11,6 @@ import type { MobxPool } from '../pool'
 import { worklistView } from './view-model'
 import { LOADING } from './rollup'
 import { sidebarView, type SidebarState } from './sidebar'
-import { mobileWaitingCount } from './mobile-row'
 
 export interface MobileWorkState extends SidebarState {
   /** Search overrides folds; text matching stays in the native UI. */
@@ -46,7 +45,7 @@ export interface MobileWorkSections {
 export function mobileWorkView(pool: MobxPool) { return worklistView(pool) }
 
 
-const EMPTY_IDS: readonly string[] = Object.freeze([])
+const EMPTY_IDS = EMPTY_QUERY_ROWS
 
 /** Per-group lazy fields belong to the existing group row, never a keyed cache. */
 export class MobileSection {
@@ -68,14 +67,11 @@ export class MobileSection {
         const tree = this.pool.model('worktree', id)
         return tree && worklistView(this.pool).tree(tree).hasCandidates ? id : undefined
       },
-      order: id => worktree(id) ? JSON.stringify([1, id]) : JSON.stringify([0, groups().rankOf(id)]),
-      compareOrder: (a, b) => {
-        const left = JSON.parse(a) as [number, RowRank | string], right = JSON.parse(b) as [number, RowRank | string]
-        return left[0] - right[0] || (left[0] === 0 ? compareRank(left[1] as RowRank, right[1] as RowRank)
-          : (left[1] as string).localeCompare(right[1] as string))
-      },
+      order: id => worktree(id) ? `1${id}` : `0${JSON.stringify(groups().rankOf(id))}`,
+      compareOrder: (a, b) => a[0]!.localeCompare(b[0]!) || (a[0] === '0'
+        ? compareRank(JSON.parse(a.slice(1)), JSON.parse(b.slice(1))) : a.slice(1).localeCompare(b.slice(1))),
       matches: [id => this.root.sectionAsking(id, worktree(id)), id => !this.root.sectionAsking(id, worktree(id))],
-      totals: [id => this.root.waiting(id, worktree(id)).pending],
+      totals: [id => this.root.pendingFor(id, worktree(id))],
       subscribe: changed => {
         const stop = lane().subscribe(key, changed)
         const stopTrees = key === 'pinned' ? undefined : index().subscribeGroupCandidates(key, changed)
@@ -84,9 +80,6 @@ export class MobileSection {
     })
   }
   private query() { this.pool.worklist.need(); return this.members! }
-  private ids(rows: readonly string[] | typeof LOADING | undefined): readonly string[] {
-    return rows === LOADING || rows === undefined ? EMPTY_IDS : rows
-  }
   get label() { return this.key === 'pinned' ? 'Pinned' : this.key === 'needs-you' ? 'Needs you' : this.projectLabel }
   @lazy private get projectLabel() { return sidebarView(this.pool).band(this.root.state, this.key)?.label ?? '' }
   get kind(): MobileWorkSection['kind'] { return this.key === 'pinned' ? 'pinned' : this.key === 'needs-you' ? 'attention' : 'project' }
@@ -96,9 +89,9 @@ export class MobileSection {
     : this.kind === 'project' ? worklistGroups(this.pool).rootOpen.lane(this.key) : EMPTY_IDS }
   get snoozedIds() { return this.kind === 'project' ? worklistGroups(this.pool).rootSnoozed.lane(this.key) : EMPTY_IDS }
   get closedIds() { return this.kind === 'project' ? worklistGroups(this.pool).rootClosed.lane(this.key) : EMPTY_IDS }
-  get allIds(): readonly string[] { return this.kind === 'attention' ? this.root.attentionIds : this.ids(this.query().get()) }
-  get attentionIds(): readonly string[] { return this.kind === 'attention' ? this.root.attentionIds : this.ids(this.query().getMatch(0)) }
-  get liveIds(): readonly string[] { return this.kind === 'project' ? this.ids(this.query().getMatch(1)) : this.allIds }
+  get allIds(): readonly string[] { return this.kind === 'attention' ? this.root.attentionIds : queryRows(this.query().get()) }
+  get attentionIds(): readonly string[] { return this.kind === 'attention' ? this.root.attentionIds : queryRows(this.query().getMatch(0)) }
+  get liveIds(): readonly string[] { return this.kind === 'project' ? queryRows(this.query().getMatch(1)) : this.allIds }
   @lazy get pending(): number {
     if (this.kind === 'attention') return 0
     const value = this.query().total(0)
@@ -131,34 +124,25 @@ export class MobileSectionsView implements MobileWorkSections {
     const tree = this.pool.model('worktree', id)
     return tree !== undefined && view.tree(tree).sectionAsking
   }
-  waiting(id: string, worktree: boolean): { asking: boolean; pending: number } {
+  pendingFor(id: string, worktree: boolean): number {
     if (!worktree) {
       const issue = worklistView(this.pool).knownRow(id)
-      if (issue === undefined) return { asking: false, pending: omitGone(this.pool.row('issue', id)) === LOADING ? 1 : 0 }
-      return { asking: mobileWaitingCount(issue.aggregate, issue.issue.finished === true) > 0, pending: issue.aggregate.pending }
+      return issue === undefined ? Number(omitGone(this.pool.row('issue', id)) === LOADING) : issue.aggregate.pending
     }
-    const value = worklistView(this.pool).mobileRow({ id, kind: 'worktree' })
-    return { asking: value !== undefined && value !== LOADING && value.waitingCount > 0, pending: value === LOADING ? 1 : 0 }
+    return Number(worklistView(this.pool).mobileRow({ id, kind: 'worktree' }) === LOADING)
   }
-  @lazy({ equals: compareShallow }) get sectionKeys() {
+  private keys(ordering: boolean) {
     const sections: string[] = []
     if (this.pinned.total) sections.push('pinned')
-    if (this.attention.total) sections.push('needs-you')
+    if (!ordering && this.attention.total) sections.push('needs-you')
     for (const key of this.projectKeys) {
       const row = this.project(key)
-      if (row.total + row.snoozedIds.length + row.closedIds.length > 0) sections.push(key)
+      if ((ordering ? row.allIds.length : row.total) + row.snoozedIds.length + row.closedIds.length > 0) sections.push(key)
     }
     return sections
   }
-  @lazy({ equals: compareShallow }) get orderingSectionKeys() {
-    const sections: string[] = []
-    if (this.pinned.total) sections.push('pinned')
-    for (const key of this.projectKeys) {
-      const row = this.project(key)
-      if (row.allIds.length + row.snoozedIds.length + row.closedIds.length > 0) sections.push(key)
-    }
-    return sections
-  }
+  @lazy({ equals: compareShallow }) get sectionKeys() { return this.keys(false) }
+  @lazy({ equals: compareShallow }) get orderingSectionKeys() { return this.keys(true) }
   @lazy get issueCount() { return this.pinned.openIds.length + this.projectKeys.reduce((total, key) => total + this.project(key).openIds.length, 0) }
   @lazy get pinnedCount() { return this.pinned.openIds.length }
   @lazy get attentionCount() { return this.attentionIds.length }

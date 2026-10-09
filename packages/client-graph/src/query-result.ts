@@ -1,6 +1,12 @@
 import { compareStructural, createAtom, type IAtom, Reaction, untracked } from 'mobx'
 import { LOADING, type Loaded } from './worklist/rollup'
 
+export const EMPTY_QUERY_ROWS: readonly never[] = Object.freeze([])
+/** Lists expose no rows until the declared question is ready. */
+export function queryRows<T>(rows: Loaded<readonly T[]>): readonly T[] {
+  return rows === LOADING || rows === undefined ? EMPTY_QUERY_ROWS : rows
+}
+
 interface Item<T> {
   id: string
   order: string
@@ -23,6 +29,10 @@ const height = <T>(node?: Node<T>) => node?.height ?? 0
 const size = <T>(node?: Node<T>) => node?.size ?? 0
 const compare = <T>(a: Item<T>, b: Item<T>) =>
   a.order < b.order ? -1 : a.order > b.order ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0
+function valueComparator<T>(compareValues?: (a: T, b: T) => number) {
+  return compareValues ? (a: Item<T>, b: Item<T>) =>
+    compareValues(a.value, b.value) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0) : compare<T>
+}
 function node<T>(item: Item<T>, left?: Node<T>, right?: Node<T>): Node<T> {
   return {
     item,
@@ -286,10 +296,7 @@ export function createKeyedAnswer<T>(
     }
     return undefined
   }
-  const compareItems = compareValues
-    ? (a: Item<T>, b: Item<T>) =>
-        compareValues(a.value, b.value) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-    : compare<T>
+  const compareItems = valueComparator(compareValues)
   function neighbour(value: T, id: string, direction: number): T | undefined {
     const wanted = { id, order: item(id)?.order ?? '', value }
     let cursor = root, candidate: Item<T> | undefined
@@ -351,12 +358,8 @@ export function createKeyedAnswerBuilder<T>(
   function finish(): KeyedAnswer<T> {
     if (pending) {
       const items = [...pending.values()]
-      const compareItems = compareValues
-        ? (a: Item<T>, b: Item<T>) =>
-            compareValues(a.value, b.value) || (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-        : compare<T>
       complete = createKeyedAnswer(compareValues, point, {
-        root: build(items, compareItems),
+        root: build(items, valueComparator(compareValues)),
         keys: build(items.map((value) => ({ id: value.id, order: value.id, value }))),
       })
       pending = undefined
@@ -452,20 +455,20 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     return atom
   }
   const atom = makeAtom(spec.name)
-  const matches = (spec.matches ?? []).map((_test, index) => ({
-    atom: makeAtom(`${spec.name}.match:${index}`),
-    countAtom: makeAtom(`${spec.name}.count:${index}`),
-    root: undefined as Node<T> | undefined,
-    rowsAtom: makeAtom(`${spec.name}.matches:${index}`),
-    cached: undefined as T[] | undefined,
-  }))
+  const makeAnswer = (rows: string, first = rows, count = rows) => ({
+    root: undefined as Node<T> | undefined, cached: undefined as T[] | undefined,
+    atom: makeAtom(first), countAtom: makeAtom(count), rowsAtom: makeAtom(rows),
+  })
+  const matches = (spec.matches ?? []).map((_test, index) => makeAnswer(
+    `${spec.name}.matches:${index}`, `${spec.name}.match:${index}`, `${spec.name}.count:${index}`,
+  ))
+  const partitions = spec.partition ? ['visible', 'hidden'].map(name => makeAnswer(`${spec.name}.${name}`)) : []
+  const answers = [...matches, ...partitions]
   const totals = (spec.totals ?? []).map((_read, index) => ({
     value: 0, atom: makeAtom(`${spec.name}.total:${index}`),
   }))
   const countAtom = makeAtom(`${spec.name}.size`)
-  let partitionRoot: Node<T> | undefined, shownRoot: Node<T> | undefined, hiddenRoot: Node<T> | undefined
-  const shownAtom = makeAtom(`${spec.name}.visible`), hiddenAtom = makeAtom(`${spec.name}.hidden`)
-  let shownSnapshot: T[] | undefined, hiddenSnapshot: T[] | undefined
+  let partitionRoot: Node<T> | undefined
   const partitionCompare = (a: Item<T>, b: Item<T>) =>
     spec.partition!.compareOrder(a.order, b.order) || a.id.localeCompare(b.id)
   const partitionItem = (item: Item<T> | undefined) => item?.partitionOrder === undefined
@@ -477,6 +480,15 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
   }
   function hidden(item: Item<T> | undefined, tree: Node<T> | undefined, keep: Set<string>): boolean {
     return item !== undefined && size(tree) > spec.partition!.minimumSize && item.partitionOrder !== undefined && !keep.has(item.id)
+  }
+  function updateAnswer(answer: ReturnType<typeof makeAnswer>, before: Item<T> | undefined, after: Item<T> | undefined) {
+    if (before === after) return
+    const first = at(answer.root, 0), count = size(answer.root)
+    answer.root = replace(answer.root, before, after, compareItems)
+    answer.cached = undefined
+    answer.rowsAtom.reportChanged()
+    if (at(answer.root, 0) !== first) answer.atom.reportChanged()
+    if (size(answer.root) !== count) answer.countAtom.reportChanged()
   }
   function updatePartition(before: Item<T> | undefined, after: Item<T> | undefined, previousRoot: Node<T> | undefined) {
     if (!spec.partition) return
@@ -493,11 +505,9 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       const oldItem = id === before?.id ? before : id === after?.id ? undefined : entries.get(id)?.item
       const newItem = id === after?.id ? after : id === before?.id ? undefined : entries.get(id)?.item
       const wasHidden = hidden(oldItem, previousRoot, oldKeep), isHidden = hidden(newItem, root, newKeep)
-      shownRoot = replace(shownRoot, oldItem && !wasHidden ? oldItem : undefined, newItem && !isHidden ? newItem : undefined, compareItems)
-      hiddenRoot = replace(hiddenRoot, wasHidden ? oldItem : undefined, isHidden ? newItem : undefined, compareItems)
+      for (const [index, answer] of partitions.entries()) updateAnswer(answer,
+        Number(wasHidden) === index ? oldItem : undefined, Number(isHidden) === index ? newItem : undefined)
     }
-    shownSnapshot = hiddenSnapshot = undefined
-    shownAtom.reportChanged(); hiddenAtom.reportChanged()
   }
   function replaceItem(before: Item<T> | undefined, after: Item<T> | undefined) {
     if (seeding) return
@@ -511,27 +521,15 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       const delta = (after?.totals?.[index] ?? 0) - (before?.totals?.[index] ?? 0)
       if (delta) { total.value += delta; total.atom.reportChanged() }
     }
-    for (const [index, match] of matches.entries()) {
-      const previous = at(match.root, 0)
-      const beforeSize = size(match.root)
-      match.root = replace(
-        match.root,
-        before?.matches?.[index] ? before : undefined,
-        after?.matches?.[index] ? after : undefined,
-        compareItems,
-      )
-      if (before?.matches?.[index] || after?.matches?.[index]) {
-        match.cached = undefined
-        match.rowsAtom.reportChanged()
-      }
-      if (at(match.root, 0) !== previous) match.atom.reportChanged()
-      if (size(match.root) !== beforeSize) match.countAtom.reportChanged()
-    }
+    for (const [index, match] of matches.entries()) updateAnswer(match,
+      before?.matches?.[index] ? before : undefined, after?.matches?.[index] ? after : undefined)
   }
-  function changed() {
+  function changed(witnesses = false) {
     cached = undefined
     summary = undefined
-    atom.reportChanged()
+    // A pending transition affects every demanded answer, including counts.
+    if (witnesses) for (const signal of [...observed]) signal.reportChanged()
+    else atom.reportChanged()
   }
   function reconcile(key: string): boolean {
     const group = groups.get(key)!
@@ -584,14 +582,6 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       updated = reconcile(afterKey) || updated
     return updated
   }
-  function witnessesChanged() {
-    countAtom.reportChanged()
-    shownAtom.reportChanged(); hiddenAtom.reportChanged()
-    for (const total of totals) total.atom.reportChanged()
-    for (const match of matches) {
-      match.atom.reportChanged(); match.countAtom.reportChanged(); match.rowsAtom.reportChanged()
-    }
-  }
   function drop(id: string) {
     const entry = entries.get(id)
     if (!entry) return
@@ -599,8 +589,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     entries.delete(id)
     if (entry.pending) pending--
     const updated = updateItem(entry.item, undefined)
-    if (entry.pending) witnessesChanged()
-    if (updated || entry.pending) changed()
+    if (updated || entry.pending) changed(entry.pending)
   }
   function sync(id: string) {
     if (!spec.has(id)) {
@@ -631,8 +620,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       const oldItem = entry.item
       entry.item = value === undefined || value === LOADING ? undefined : { id, ...next, value }
       const updated = updateItem(oldItem, entry.item)
-      if (wasPending !== entry.pending) witnessesChanged()
-      if (updated || wasPending !== entry.pending) changed()
+      if (updated || wasPending !== entry.pending) changed(wasPending !== entry.pending)
     }
     entry.stop = () => row.dispose()
     // reaction() schedules its initial run until the outer derivation ends.
@@ -649,10 +637,9 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     cached = undefined
     summary = undefined
     pending = 0
-    for (const match of matches) { match.root = undefined; match.cached = undefined }
+    for (const match of answers) { match.root = undefined; match.cached = undefined }
     for (const total of totals) total.value = 0
-    partitionRoot = shownRoot = hiddenRoot = undefined
-    shownSnapshot = hiddenSnapshot = undefined
+    partitionRoot = undefined
     started = false
     if (release) spec.released?.()
   }
@@ -679,8 +666,8 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       if (spec.partition) {
         partitionRoot = build(items.filter(item => item.partitionOrder !== undefined).map(item => partitionItem(item)!), partitionCompare)
         const keep = retained(partitionRoot, spec.partition.keepFirst)
-        shownRoot = build(items.filter(item => !hidden(item, root, keep)), compareItems)
-        hiddenRoot = build(items.filter(item => hidden(item, root, keep)), compareItems)
+        for (const [index, answer] of partitions.entries())
+          answer.root = build(items.filter(item => Number(hidden(item, root, keep)) === index), compareItems)
       }
     })
     stopMembership = spec.subscribe((id) => {
@@ -691,8 +678,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
         start()
         // An empty replacement has no row refresh to invalidate witnesses.
         // It can also resolve a formerly pending question to empty.
-        witnessesChanged()
-        changed()
+        changed(true)
       }
     })
   }
@@ -712,6 +698,9 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     if (!answer) throw new Error(`Undeclared query ${kind}: ${index}`)
     return answer
   }
+  function rows(answer: ReturnType<typeof makeAnswer>): Loaded<T[]> {
+    return read(answer.rowsAtom, () => answer.cached ??= snapshot(answer.root))
+  }
   return {
     get: () => read(atom, () => cached ??= snapshot(root)),
     /** Partial answers and an exact pending count, without enumerating rows. */
@@ -725,8 +714,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
       return read(match.countAtom, () => size(match.root))
     },
     getMatch(index: number): Loaded<T[]> {
-      const match = declared(matches, index, 'match')
-      return read(match.rowsAtom, () => match.cached ??= snapshot(match.root))
+      return rows(declared(matches, index, 'match'))
     },
     count: () => read(countAtom, () => size(root)),
     total(index: number): Loaded<number> {
@@ -735,8 +723,7 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
     },
     partition(hidden: boolean): Loaded<T[]> {
       if (!spec.partition) throw new Error('Undeclared query partition')
-      return read(hidden ? hiddenAtom : shownAtom, () => hidden
-        ? hiddenSnapshot ??= snapshot(hiddenRoot) : shownSnapshot ??= snapshot(shownRoot))
+      return rows(partitions[Number(hidden)]!)
     },
     dispose: clear,
   }
@@ -746,10 +733,12 @@ export function createQueryResult<T>(spec: QueryResultSpec<T>) {
 /** Native list boundaries can map or concatenate persistent answers without
  * visiting members until the caller asks for those output positions. */
 export function mapQueryResult<T, U>(source: readonly T[], map: (value: T) => U): U[] {
-  function* mapped(start: number): Generator<U> {
-    for (let index = start; index < source.length; index++) yield map(source[index]!)
-  }
-  return arraySnapshot(source.length, mapped)
+  return indexedSnapshot(source.length, index => map(source[index]!))
+}
+function indexedSnapshot<T>(length: number, read: (index: number) => T): T[] {
+  return arraySnapshot(length, function* (start) {
+    for (let index = start; index < length; index++) yield read(index)
+  })
 }
 export function concatQueryResults<T>(sources: readonly (readonly T[])[]): T[] {
   const length = sources.reduce((total, source) => total + source.length, 0)
@@ -766,12 +755,7 @@ export function concatQueryResults<T>(sources: readonly (readonly T[])[]): T[] {
 /** Apply a bounded edit to a data answer without copying its unchanged slots. */
 export function spliceQueryResult<T>(source: readonly T[], start: number, removeCount: number, ...inserted: T[]): T[] {
   const length = source.length - removeCount + inserted.length
-  function* edited(index: number): Generator<T> {
-    for (; index < length; index++) {
-      if (index < start) yield source[index]!
-      else if (index < start + inserted.length) yield inserted[index - start]!
-      else yield source[index - inserted.length + removeCount]!
-    }
-  }
-  return arraySnapshot(length, edited)
+  return indexedSnapshot(length, index => index < start ? source[index]!
+    : index < start + inserted.length ? inserted[index - start]!
+    : source[index - inserted.length + removeCount]!)
 }
