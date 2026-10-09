@@ -56,6 +56,7 @@ export class ReviewReturnAnswer {
   /** The issue version the count answers, and the request that may store it. */
   version: string | null = null
   request = 0
+  generation = -1
 }
 
 const REVIEW_HISTORY_LIMIT = 200
@@ -99,6 +100,7 @@ export class MissionScreen {
   @observable accessor searchOpen = false
   @observable accessor archivedOpen = false
   private closed = false
+  private generation = 0
   private active = 0
   private readonly waiting: (() => Promise<void>)[] = []
   private readonly search = companion((row: MissionDeckIssueModel) => new MissionRowSearch(row, this))
@@ -119,6 +121,7 @@ export class MissionScreen {
   open(): void { this.closed = false }
   close(): void {
     this.closed = true
+    this.generation++
     this.waiting.length = 0
     this.reader.dispose()
   }
@@ -342,19 +345,22 @@ export class MissionScreen {
     const row = settled(() => ({ version: issue.updatedAt as string, repoPath: (issue.repoPath as string | null | undefined) ?? null }))
     if (row === LOADING) return
     const answer = this.reviewReturn(issue)
-    if (answer.version === row.version) return
+    const generation = this.generation
+    if (answer.version === row.version && answer.generation === generation) return
     answer.version = row.version
+    answer.generation = generation
     const request = ++answer.request
     answer.loading = true
+    answer.count = undefined
     answer.error = null
     const settle = (result: { count: number } | { error: string }) => runInAction(() => {
-      if (this.closed || answer.request !== request) return
+      if (this.closed || this.generation !== generation || answer.request !== request) return
       answer.loading = false
       if ('count' in result) answer.count = result.count
       else answer.error = result.error
     })
     this.waiting.push(async () => {
-      if (this.closed || answer.request !== request) return
+      if (this.closed || this.generation !== generation || answer.request !== request) return
       try {
         const events = await load({ since: 0, repoPath: row.repoPath, subject: issueId, limit: REVIEW_HISTORY_LIMIT })
         settle({ count: reviewReturnCount(events) })

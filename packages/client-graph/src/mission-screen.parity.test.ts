@@ -20,7 +20,7 @@ import { expectPoolOutput } from '../../../tests/worklist/harness/src/oracle/poo
 import { headerView } from './header-views'
 import { attachMobileScreens } from './mobile-screens'
 import { MissionScreen, missionRootId } from './mission-screen'
-import { requireLoaded } from './mission-view'
+import { requireLoaded, settled } from './mission-view'
 import { MobxPool } from './pool'
 import { attachPreferenceSource } from './preference-source'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
@@ -196,7 +196,7 @@ for (const { label, scale, cold } of cases) it(`opens corpus missions with the b
         screen.open()
         let current: { next: ReturnType<typeof newDeck> | typeof LOADING } | undefined
         const stop = autorun(() => {
-          current = { next: screen.ready && screen.view === view ? newDeck(screen) : LOADING }
+          current = { next: settled(() => screen.ready && screen.view === view ? newDeck(screen) : LOADING) }
         })
         try {
           await settle(pool)
@@ -305,14 +305,14 @@ it('opens phone missions with the phone bundle\'s answers: crew, header issue, p
         const screen = typeof rootId === 'string' ? new MissionScreen(pool, rootId, { setPreference: (key, raw) => ui.set(key, raw) }) : undefined
         screen?.open()
         const stop = autorun(() => {
-          const next = !screen ? { root: undefined, crew: [], header: [], progress: { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }, deck: null }
+          const next = settled(() => !screen ? { root: undefined, crew: [], header: [], progress: { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }, deck: null }
             : !screen.ready ? LOADING : {
               root: screen.rootId,
               crew: screen.crew.map(s => s.sessionId),
               header: screen.crew.map(s => (s.issueId && screen.members.has(s.issueId) ? s.issueId : screen.rootId)),
               progress: screen.progress,
               deck: newPhoneDeck(screen),
-            }
+            })
           current = { next }
         })
         try {

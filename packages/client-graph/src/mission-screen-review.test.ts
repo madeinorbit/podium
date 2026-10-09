@@ -106,3 +106,26 @@ it('keeps answers per opening: a new opening asks again instead of reading a mod
     expect(load).toHaveBeenCalledTimes(2)
   } finally { p.dispose() }
 })
+
+
+it('fences a response across close and reopen, and requests the unchanged version again', async () => {
+  const p = pool()
+  const old = deferred<readonly MissionIssueEvent[]>(), next = deferred<readonly MissionIssueEvent[]>()
+  const load = vi.fn().mockReturnValueOnce(old.promise).mockReturnValueOnce(next.promise)
+  const screen = new MissionScreen(p, 'root', { issueEvents: load })
+  try {
+    screen.open()
+    screen.requestReviewReturns('a')
+    screen.close()
+    screen.open()
+    old.resolve([returned('review', 'planning'), returned('review', 'planning')])
+    await flush()
+    expect(screen.reviewReturn(p.issueObject('a')).count).toBeUndefined()
+    screen.requestReviewReturns('a')
+    expect(load).toHaveBeenCalledTimes(2)
+    next.resolve([returned('review', 'planning')])
+    await flush()
+    expect(screen.reviewReturn(p.issueObject('a')).count).toBe(1)
+    expect(screen.reviewReturn(p.issueObject('a')).loading).toBe(false)
+  } finally { screen.close(); p.dispose() }
+})
