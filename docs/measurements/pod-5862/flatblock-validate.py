@@ -73,5 +73,7 @@ def monitor():
 t=threading.Thread(target=monitor,daemon=True);t.start()
 code=child.wait()
 done.set();t.join()
+result={'owned':list(owned.values()),'peakRss':peaks,'host':host(),'violation':violation,'validationExit':code}
+a.out.write_text(json.dumps(result))
 print(json.dumps({'validationExit':code,'maximumProcessRss':max(peaks.values(),default=0),'budgetStop':violation}),flush=True)
 raise SystemExit(2 if violation else code)
