@@ -1,3 +1,4 @@
+import { requireHere } from './lookup'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { lazyKeptCount } from '@podium/mobx-helpers'
@@ -41,7 +42,7 @@ it('matches every old collection and subset reader on the same changing fixtures
   }
   function parity() {
     for (const row of rows.values()) {
-      const from: EntityName = row.kind, model = pool.model(from, row.id)!
+      const from: EntityName = row.kind, model = requireHere(pool.model(from, row.id))
       for (const [name, spec] of Object.entries(SCHEMA[from].relations)) {
         if (!(spec.kind === 'hasMany' || (spec.kind === 'edge' && (spec.direction === 'in' || spec.many)))) continue
         const before = () => manyBefore(index, from, row.id, name)
@@ -72,7 +73,7 @@ it('matches every old collection and subset reader on the same changing fixtures
 })
 
 it('keeps ID and model lists across payload changes and replaces them on joins and leaves', () => {
-  const pool = fixture(), root = pool.model('issue', 'root')!
+  const pool = fixture(), root = requireHere(pool.model('issue', 'root'))
   const held = root.children, heldSessions = root.sessions
   let ids: Iterable<string> = [], models: readonly EntityModel[] = [], title = '', paints = 0
   const stop = autorun(() => { ids = pool.graph.many('issue', 'root', 'children'); models = held.ready; paints++ })
@@ -96,7 +97,7 @@ it('keeps ID and model lists across payload changes and replaces them on joins a
 })
 
 it('keeps declared subset lists stable and follows members moving in and out', () => {
-  const pool = fixture(), lane = pool.model('worktree', '/synthetic')!
+  const pool = fixture(), lane = requireHere(pool.model('worktree', '/synthetic'))
   const collection = lane.sessions, subset = collection.issueless
   let ids: Iterable<string> = [], ready: readonly EntityModel[] = [], paints = 0
   const stop = autorun(() => {
@@ -127,7 +128,7 @@ it('a retained collection leaves loading after hydration and follows deletion an
     load: () => cold.value, schedule: () => () => {}, summaries: { issue: ['parentId', 'stage', 'closedAt', 'updatedAt'] },
   })
   pool.apply({ type: 'replace', rows: [issue('root'), cold] })
-  const root = pool.model('issue', 'root')!, held = root.children
+  const root = requireHere(pool.model('issue', 'root')), held = root.children
   let answer: readonly EntityModel[] = [], loading = -1
   const stop = autorun(() => { answer = held.ready; loading = held.loading })
   try {
@@ -144,7 +145,7 @@ it('a retained collection leaves loading after hydration and follows deletion an
 })
 
 it('releases list demand and reopens with current membership', async () => {
-  const pool = fixture(), root = pool.model('issue', 'root')!, held = root.children
+  const pool = fixture(), root = requireHere(pool.model('issue', 'root')), held = root.children
   const stop = autorun(() => { void held.ready; void pool.graph.many('issue', 'root', 'children') })
   await Promise.resolve()
   expect(lazyKeptCount(held)).toBeGreaterThan(0)

@@ -19,6 +19,7 @@
  * own states: build the candidate however that issue builds it, then
  * `checkNoWrongNumber(ask(control, qs), ask(candidate, qs))`.
  */
+import { omitGone } from '@podium/client-graph/lookup'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { BOARD_EXPLORER_TABS } from '@podium/client-graph/issue-board-schema'
 import { chatMentionMatches } from '@podium/client-graph/chat-context'
@@ -173,8 +174,8 @@ export function startupQuestions(targets: StartupTargets): StartupQuestion[] {
   for (const id of targets.parents) {
     add('closed-children', `child-counts:${id}`, (pool) => pool.queries.issueChildCounts(id))
     add('closed-children', `model:${id}`, (pool) => {
-      const model = pool.issue(id)
-      if (model === undefined) return pool.resident('issue', id) === 'loading' ? LOADING : undefined
+      const model = omitGone(pool.issue(id))
+      if (model === LOADING || model === undefined) return model
       return { childCount: model.childCount, childDoneCount: model.childDoneCount }
     })
     add('closed-children', `mission:${id}`, (pool) => {

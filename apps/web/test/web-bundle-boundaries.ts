@@ -31,6 +31,10 @@ export function eagerJsFiles(roots: readonly string[], manifest: BuildManifest):
  * palette-open scalar read used by its lazy component boundary. */
 const STARTUP_GRAPH_SOURCES = new Set([
   'src/loading.ts',
+  // The startup pool and its first-screen callers share the three-answer
+  // lookup contract (POD-5867). This leaf only imports loading.ts and owns
+  // scalar sentinels/narrowing policies, with no optional screen dependency.
+  'src/lookup.ts',
   'src/cached.ts', 'src/clock.ts', 'src/create.ts', 'src/debug-name.ts', 'src/enumerate.ts',
   'src/models.ts', 'src/pool.ts', 'src/query-result.ts', 'src/reader-queries.ts',
   'src/relations.ts', 'src/residency.ts', 'src/source-registry.ts', 'src/tables.ts', 'src/views.ts',

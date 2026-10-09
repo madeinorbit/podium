@@ -1,4 +1,5 @@
 // Frozen pre-POD-5864 readers: answer parity, never imported by production.
+import { omitGone } from './lookup'
 import type { EntityModel, LazyCollection, ModelHost } from './models'
 import type { RelationQueries } from './shared/relation-index'
 import { SCHEMA, type EntityName } from './shared/schema'
@@ -35,7 +36,7 @@ export class ModelCollectionBefore implements LazyCollection<EntityModel> {
     const ready: EntityModel[] = []
     let loading = 0
     for (const id of this.members()) {
-      const found = this.host.model(this.to, id) ?? (this.host.resident(this.to, id) === 'loading' ? LOADING : null)
+      const found = omitGone(this.host.model(this.to, id)) ?? null
       if (found === LOADING) loading += 1
       else if (found !== null) ready.push(found)
     }
