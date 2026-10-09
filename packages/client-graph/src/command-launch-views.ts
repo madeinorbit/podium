@@ -7,6 +7,7 @@ import { lazy, keyedComputed } from '@podium/mobx-helpers'
 import { asIssueId, machinePathBasename, machinePathKey, machinePathsEqual, normalizeOriginUrl, repoNameFromOrigin } from '@podium/model/browser'
 import {
   action, observable, observableRef, when, runInAction,
+  compareShallow,
   compareStructural,
   computed,
   untracked,
@@ -466,7 +467,7 @@ export class CommandPaletteView {
     const issue = position === undefined ? undefined : this.snapshot.issues[position]
     return views.selected({ ...this.snapshot, issues: issue ? [issue] : [] }, this.memberIds)
   }
-  @lazy get memberIds(): string[] {
+  @lazy({ equals: compareShallow }) get memberIds(): string[] {
     const id = this.contextIssueId
     if (!id) return []
     let start = this.memberPositions.get(id)
