@@ -1,0 +1,162 @@
+/** Production-only fast-scroll proof. Synthetic fixtures never contact an operator instance. */
+import { execFileSync } from 'node:child_process'
+import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { createServer } from 'node:http'
+import { hostname } from 'node:os'
+import { extname, resolve } from 'node:path'
+import { chromium } from '@playwright/test'
+
+if (hostname() !== 'flatblock') throw new Error('Run the scroll proof on flatblock')
+const arm = process.argv[2]
+if (!['before', 'after'].includes(arm ?? '')) throw new Error('Choose before or after')
+const output = resolve('.artifacts/fast-scroll', arm!)
+await mkdir(output, { recursive: true })
+const fixtures = ['lists', 'chat', 'phone-lists', 'phone-chat'] as const
+if (process.argv.includes('--build')) {
+  const { build } = await import('../node_modules/vite/dist/node/index.js')
+  for (const fixture of fixtures) {
+    const base = fixture === 'lists'
+      ? (await import('./sidebar-acceptance.vite')).default
+      : fixture === 'chat'
+        ? (await import('../vite.conversation-stream.config')).default
+        : fixture === 'phone-lists'
+          ? await (await import('../../mobile/vite.inbox.config')).default()
+          : await (await import('../../mobile/vite.conversation-stream.config')).default()
+    await build({ ...base, configFile: false, logLevel: 'warn',
+      define: { ...base.define, __DEV__: 'false', 'process.env.NODE_ENV': '"production"' },
+      plugins: base.plugins?.filter(plugin => !/meter|acceptance-state/.test((plugin as { name?: string })?.name ?? '')),
+      build: { ...base.build, outDir: resolve(output, fixture), emptyOutDir: true, minify: true, sourcemap: false,
+        rollupOptions: fixture === 'phone-lists' ? { input: resolve('apps/mobile/test/inbox.browser.html') } : base.build?.rollupOptions },
+    })
+  }
+  await writeFile(resolve(output, 'revision.txt'), execFileSync('git', ['rev-parse', 'HEAD']))
+  process.exit(0)
+}
+
+const reports: unknown[] = []
+for (const fixture of fixtures) {
+  const directory = resolve(output, fixture)
+  const server = createServer(async (req, res) => {
+    try {
+      const file = resolve(directory, '.' + new URL(req.url!, 'http://fixture.invalid').pathname)
+      if (!file.startsWith(directory + '/')) throw new Error('Invalid path')
+      res.setHeader('content-type', ({ '.html': 'text/html', '.js': 'text/javascript', '.css': 'text/css', '.woff2': 'font/woff2' } as Record<string, string>)[extname(file)] ?? 'application/octet-stream')
+      res.end(await readFile(file))
+    } catch { res.writeHead(404); res.end() }
+  })
+  await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
+  const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'],
+    env: { ...process.env, LD_LIBRARY_PATH: resolve('.toolchain/lib') } })
+  try {
+    const variants = fixture === 'lists' ? ['scroll', 'full'] : fixture === 'phone-lists' ? ['inbox', 'work', 'tasks', 'sessions'] : ['chat']
+    for (const variant of variants) {
+      const page = await browser.newPage({ viewport: fixture.startsWith('phone') ? { width: 390, height: 844 } : { width: 1600, height: 900 }, reducedMotion: 'reduce' })
+      const errors: string[] = []
+      page.on('pageerror', error => errors.push(error.message))
+      const name = fixture === 'lists' ? 'sidebar-acceptance' : fixture === 'phone-lists' ? 'inbox' : 'conversation-stream'
+      await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}/test/${name}.browser.html?scale=4&surface=${variant}&scrollScreen=${variant}`)
+      await page.waitForTimeout(2500)
+      if (fixture === 'lists' && variant === 'full') {
+        await page.evaluate(() => {
+          const driver = (window as any).__acceptance
+          const shapes = driver.shape(driver.targets.missions)
+          const largest = shapes.sort((a: any, b: any) => b.rows - a.rows)[0]
+          if (largest) driver.show(largest.id)
+        })
+        await page.waitForTimeout(1000)
+      }
+      const candidates = await page.evaluate(() => [...document.querySelectorAll<HTMLElement>('*')]
+        .filter(el => el.clientHeight > 100 && el.clientWidth > 100 && el.scrollHeight > el.clientHeight + 300 && ['auto', 'scroll'].includes(getComputedStyle(el).overflowY) && el.getBoundingClientRect().right > 0 && el.getBoundingClientRect().left < innerWidth)
+        .map((el, i) => { el.dataset.scrollProof = String(i); return { index: i, class: el.className, testid: el.dataset.testid, height: el.clientHeight, range: el.scrollHeight - el.clientHeight, text: el.innerText.slice(0, 70) } }))
+      console.log(fixture, variant, JSON.stringify({ candidates, errors }))
+      for (const candidate of candidates) {
+        const selector = `[data-scroll-proof="${candidate.index}"]`
+        const box = await page.locator(selector).boundingBox()
+        if (!box || box.x < 0 || box.x + box.width > (fixture.startsWith('phone') ? 390 : 1600)) continue
+        const tag = `${fixture}-${variant}-${candidate.index}`
+        await page.locator(selector).evaluate(el => { el.scrollTop = 0 })
+        await page.waitForTimeout(250)
+        await page.screenshot({ path: resolve(output, `${tag}-settled.png`) })
+        const cdp = await page.context().newCDPSession(page)
+        const frames: { data: string; timestamp: number }[] = []
+        cdp.on('Page.screencastFrame', event => {
+          frames.push({ data: event.data, timestamp: event.metadata.timestamp! })
+          void cdp.send('Page.screencastFrameAck', { sessionId: event.sessionId })
+        })
+        await cdp.send('Page.startScreencast', { format: 'jpeg', quality: 85, everyNthFrame: 1 })
+        const sample = await page.evaluate(({ selector }) => {
+          const scroll = document.querySelector<HTMLElement>(selector)!
+          const rows = '[data-window-row], [data-virtual-issue-key], [data-deck-measure], [data-row-key], [data-testid="work-list-row"]'
+          const state = { samples: [] as { time: number; top: number; blankPx: number; area: number; mounted: number }[], active: true }
+          ;(window as any).__scrollProof = state
+          const tick = () => {
+            if (!state.active) return
+            const box = scroll.getBoundingClientRect()
+            const nodes = [...scroll.querySelectorAll<HTMLElement>(rows)]
+            const regions = [...scroll.querySelectorAll<HTMLElement>('[data-testid="worklist-window"], ul[style], [data-window-container]')]
+            const spans = (regions.length ? regions : [scroll]).map(el => el.getBoundingClientRect()).filter(r => r.bottom > box.top && r.top < box.bottom)
+            let blankPx = 0, area = 0
+            for (const region of spans) {
+              const top = Math.max(box.top, region.top), bottom = Math.min(box.bottom, region.bottom)
+              const intervals = nodes.map(n => n.getBoundingClientRect()).filter(r => r.bottom > top && r.top < bottom).sort((a, b) => a.top - b.top)
+              if (!nodes.length) continue // Native RN Web lists are fully mounted; raster proof below.
+              let edge = top
+              for (const row of intervals) { if (row.top - edge > 20) blankPx += Math.min(row.top, bottom) - edge; edge = Math.max(edge, row.bottom) }
+              if (bottom - edge > 20) blankPx += bottom - edge
+              area += bottom - top
+            }
+            state.samples.push({ time: Date.now(), top: scroll.scrollTop, blankPx, area, mounted: nodes.length })
+            requestAnimationFrame(tick)
+          }
+          requestAnimationFrame(tick)
+          return true
+        }, { selector })
+        void sample
+        const start = Date.now()
+        for (let step = 0; step < 40; step++) {
+          await cdp.send('Input.dispatchMouseEvent', { type: 'mouseWheel', x: box.x + box.width / 2, y: box.y + box.height / 2, deltaX: 0, deltaY: step < 20 ? 600 : -600 })
+          await page.waitForTimeout(Math.max(0, start + (step + 1) * 20 - Date.now()))
+        }
+        await page.waitForTimeout(150)
+        const samples = await page.evaluate(() => { const state = (window as any).__scrollProof; state.active = false; return state.samples as { time: number; top: number; blankPx: number; area: number; mounted: number }[] })
+        await cdp.send('Page.stopScreencast')
+        await cdp.detach()
+        // Decode compositor frames after capture, outside the measured scroll.
+        const raster = await page.evaluate(async ({ frames, box }) => {
+          const results: { blankPx: number; maxGap: number; timestamp: number }[] = []
+          for (const frame of frames) {
+            const img = new Image(); img.src = 'data:image/jpeg;base64,' + frame.data; await img.decode()
+            const canvas = document.createElement('canvas'); canvas.width = img.width; canvas.height = img.height
+            const ctx = canvas.getContext('2d')!; ctx.drawImage(img, 0, 0)
+            const x = Math.max(0, Math.ceil(box.x + 22)), y = Math.max(0, Math.ceil(box.y + 6))
+            const width = Math.min(img.width - x, Math.floor(box.width - 44)), height = Math.min(img.height - y, Math.floor(box.height - 12))
+            const data = ctx.getImageData(x, y, width, height).data
+            let gap = 0, maxGap = 0, blankPx = 0
+            for (let row = 0; row < height; row++) {
+              let lo = 255, hi = 0
+              for (let col = 0; col < width; col++) { const at = (row * width + col) * 4; const v = (data[at]! + data[at + 1]! + data[at + 2]!) / 3; lo = Math.min(lo, v); hi = Math.max(hi, v) }
+              if (hi - lo < 35) gap++
+              else { maxGap = Math.max(maxGap, gap); if (gap > 120) blankPx += gap; gap = 0 }
+            }
+            maxGap = Math.max(maxGap, gap); if (gap > 120) blankPx += gap
+            results.push({ blankPx, maxGap, timestamp: frame.timestamp })
+          }
+          return results
+        }, { frames, box })
+        const worst = raster.reduce((a, b) => a.blankPx >= b.blankPx ? a : b, raster[0] ?? { blankPx: 0, timestamp: 0 })
+        const frame = frames.find(f => f.timestamp === worst.timestamp)
+        if (frame) await writeFile(resolve(output, `${tag}-worst.jpg`), Buffer.from(frame.data, 'base64'))
+        const report = { fixture, variant, candidate, samples: samples.length, blankFrames: samples.filter(s => s.blankPx > 20).length,
+          maxBlankPx: Math.max(0, ...samples.map(s => s.blankPx)), maxBlankPercent: Math.max(0, ...samples.map(s => s.area ? s.blankPx / s.area * 100 : 0)),
+          mountedPeak: Math.max(0, ...samples.map(s => s.mounted)), compositorFrames: frames.length,
+          rasterBlankFrames: raster.filter(r => r.blankPx > 0).length, rasterMaxBlankPx: worst.blankPx,
+          samplesRaw: samples, raster, errors }
+        reports.push(report)
+        console.log(tag, JSON.stringify({ ...report, samplesRaw: undefined, raster: undefined }))
+        await writeFile(resolve(output, `${tag}.json`), JSON.stringify(report, null, 2))
+      }
+      await page.close()
+    }
+  } finally { await browser.close(); await new Promise<void>(done => server.close(() => done())) }
+}
+await writeFile(resolve(output, 'report.json'), JSON.stringify(reports, null, 2))
