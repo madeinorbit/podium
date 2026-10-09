@@ -1,5 +1,5 @@
 import { parseSyncRecord, validateFeedFrame, CLIENT_WIRE_VERSION, type SyncComplete, type SyncMeta, type SyncRecordLenient } from '@podium/protocol'
-import { SyncCancelledError, SyncCorruptContentError, SyncFormatError, SyncStreamFailed } from './errors'
+import { SyncCancelledError, SyncCorruptContentError, SyncFormatError, SyncNetworkError, SyncStreamFailed } from './errors'
 
 /** The consumer vocabulary retains unknown entity kinds, as the feed parser does. */
 export async function* readSyncStream(lines: AsyncIterable<string>): AsyncGenerator<SyncRecordLenient> {
@@ -39,6 +39,15 @@ export async function* readSyncStream(lines: AsyncIterable<string>): AsyncGenera
     if (record.type === 'syncError') {
       if (record.transferId !== meta.transferId) fail('transfer-mismatch')
       if (record.reason === 'cancelled') throw new SyncCancelledError()
+      // A failed transfer does not make the wire format unreadable. Preserve
+      // retryability so the shared assembly can resume on the next live trigger.
+      switch (record.reason) {
+        case 'compressor-failed':
+        case 'read-failed':
+        case 'deadline':
+        case 'server-shutdown':
+          throw new SyncNetworkError(record.reason)
+      }
       throw new SyncStreamFailed(record.reason)
     }
     if (record.type === 'syncComplete') {
@@ -70,7 +79,7 @@ export async function* readSyncStream(lines: AsyncIterable<string>): AsyncGenera
     rows += record.changes.length
     yield record
   }
-  if (!complete) throw new SyncStreamFailed('missing-complete')
+  if (!complete) throw new SyncNetworkError('missing-complete')
   // Completion is withheld until EOF, so even legacy bootstrap callers which
   // stop on last=true cannot silently accept trailing records or corrupt bytes.
   yield complete

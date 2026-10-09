@@ -92,7 +92,6 @@ describe('readSyncStream', () => {
     await expect(collect(readSyncStream(lines([{ type: 'future' }, meta, chunk, complete])))).rejects.toMatchObject({ reason: 'meta-required' })
   })
   it.each([
-    ['missing-complete', [meta, chunk]],
     ['record-after-complete', [meta, chunk, complete, { type: 'future' }]],
     ['complete-seq-mismatch', [meta, chunk, { ...complete, seq: 9 }]],
     ['transfer-mismatch', [meta, chunk, { ...complete, transferId: 'other' }]],
@@ -102,11 +101,26 @@ describe('readSyncStream', () => {
     ['identity-mismatch', [meta, { ...chunk, epoch: 'other' }]],
     ['non-chaining', [deltaMeta, { ...delta, fromSeq: 4 }]],
     ['final-bootstrap-required', [meta, { ...chunk, last: false }, complete]],
-  ])('fails %s', async (reason, values) => {
-    await expect(collect(readSyncStream(lines(values)))).rejects.toMatchObject({ reason })
+  ])('keeps protocol violation %s fatal', async (reason, values) => {
+    const error = collect(readSyncStream(lines(values)))
+    await expect(error).rejects.toBeInstanceOf(SyncCorruptContentError)
+    await expect(error).rejects.toMatchObject({ reason })
   })
-  it('preserves server failure reasons', async () => {
-    await expect(collect(readSyncStream(lines([meta, { type: 'syncError', transferId: 't', reason: 'deadline' }])))).rejects.toMatchObject({ reason: 'deadline' })
+  it.each(['compressor-failed', 'read-failed', 'deadline', 'server-shutdown'])('keeps %s retryable without certifying completion', async (reason) => {
+    const error = collect(readSyncStream(lines([meta, { type: 'syncError', transferId: 't', reason }])))
+    await expect(error).rejects.toBeInstanceOf(SyncNetworkError)
+    await expect(error).rejects.toMatchObject({ reason })
+  })
+  it('keeps an incomplete transfer retryable', async () => {
+    const error = collect(readSyncStream(lines([meta, chunk])))
+    await expect(error).rejects.toBeInstanceOf(SyncNetworkError)
+    await expect(error).rejects.toMatchObject({ reason: 'missing-complete' })
+  })
+  it.each(['row-too-large', 'authorization-changed'])('keeps %s outside network recovery', async (reason) => {
+    const error = collect(readSyncStream(lines([meta, { type: 'syncError', transferId: 't', reason }])))
+    await expect(error).rejects.toBeInstanceOf(SyncStreamFailed)
+    await expect(error).rejects.not.toBeInstanceOf(SyncNetworkError)
+    await expect(error).rejects.toMatchObject({ reason })
   })
   it('distinguishes incompatible format versions', async () => {
     await expect(collect(readSyncStream(lines([{ ...meta, formatVersion: 2 }])))).rejects.toBeInstanceOf(SyncFormatError)
