@@ -10,11 +10,11 @@ if (hostname() !== 'flatblock') throw new Error('Run on flatblock only')
 const arm = process.argv[2]
 if (arm !== 'before' && arm !== 'after') throw new Error('Choose before or after')
 const directory = resolve('.artifacts/transcript-window', arm)
+const baseline = '036a78dd913ae7e700d642ce6fac975c680435f5'
 await mkdir(directory, { recursive: true })
 if (process.argv.includes('--build')) {
   const { build } = await import('../node_modules/vite/dist/node/index.js')
   const base = (await import('../vite.sidebar-pool-perf.config')).default
-  const baseline = '36aeb3b8f4'
   const paths = ['apps/web/src/features/chat/TranscriptFeed.tsx', 'packages/client-core/src/react/use-dom-transcript-scroll.ts', 'apps/web/src/styles.css']
   await build({ ...base, configFile: false, logLevel: 'warn',
     plugins: [...(arm === 'before' ? [{ name: 'original-transcript', enforce: 'pre' as const,
@@ -64,7 +64,19 @@ try {
   const cdp = await page.context().newCDPSession(page)
   const browserCdp = await browser.newBrowserCDPSession()
   const samples = []
+  let pagingAnchor
   for (const target of [200, 1000, 2200, 4200, 6200, 8058]) {
+    if (target === 8058) {
+      await page.evaluate(() => (window as any).__transcriptWindowProof.jump(2000))
+      await page.waitForTimeout(100)
+      const before = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
+      await page.evaluate(() => (window as any).__transcriptWindowProof.page())
+      await page.waitForTimeout(100)
+      const after = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
+      pagingAnchor = { before, after }
+      if (before.key !== after.key || Math.abs(before.offset - after.offset) > 1) throw new Error('Paging changed the reading anchor')
+      await page.evaluate(() => (window as any).__transcriptWindowProof.bottom())
+    }
     while (await page.evaluate(() => (window as any).__transcriptWindowProof.stats().loaded) < target) {
       await page.evaluate(() => (window as any).__transcriptWindowProof.page())
       await page.waitForTimeout(50)
@@ -158,10 +170,17 @@ try {
   if (nativeReveal.selection !== 'native-needle-4000') throw new Error('Native Find lost its range when the bar closed')
   if (arm === 'after' && nativeReveal.drawn >= 64) throw new Error('Native Find did not return to the viewport buffer')
   await page.evaluate(() => document.getSelection()!.removeAllRanges())
+  // Closing an empty Find must also release the temporary full-row session.
+  nativeKey('ctrl+f', 'ctrl+a', 'BackSpace')
+  await page.waitForTimeout(100)
+  nativeKey('Escape')
+  await page.waitForTimeout(100)
+  const emptyFindClose = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
+  if (arm === 'after' && emptyFindClose.drawn >= 64) throw new Error('Empty native Find did not return to the viewport buffer')
   await page.evaluate(() => (window as any).__transcriptWindowProof.jump(4000))
   await page.waitForTimeout(100)
   await page.screenshot({ path: resolve(directory, 'window.png') })
-  const report = { arm, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), browser: browser.version(), samples, fastScroll, jump, wheel, selectionCopy: { selected, copied }, nativeFind, nativeFindRoundTrip, nativeReveal, errors }
+  const report = { arm, baseline, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), browser: browser.version(), samples, pagingAnchor, fastScroll, jump, wheel, selectionCopy: { selected, copied }, nativeFind, nativeFindRoundTrip, nativeReveal, emptyFindClose, errors }
   await writeFile(resolve(directory, 'report.json'), JSON.stringify(report, null, 2))
   console.log(JSON.stringify({ arm, samples: samples.map(({ loaded, elements, drawn, heapUsed }) => ({ loaded, elements, drawn, heapUsed })), blankFrames: fastScroll.filter(sample => sample.visible === 0).length, jump: { key: jump.key, offset: jump.offset }, errors }))
   if (errors.length || fastScroll.some(sample => sample.visible === 0)) throw new Error('Production scroll proof failed')
