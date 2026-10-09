@@ -1,0 +1,1466 @@
+{
+  "pilot": "a3177c8f1718ad4ec9de051397c2790df3de57db",
+  "probeCommit": "7621ae651c",
+  "canonical": {
+    "checksPassed": 30,
+    "checksSkipped": 7,
+    "readers": 55,
+    "verdicts": 1638,
+    "unexpectedFailures": [],
+    "expectedFailures": [
+      {
+        "action": "pane-switch",
+        "kind": "rows",
+        "reader": "consumer:superagent",
+        "at1x": 492,
+        "at4x": 1896,
+        "neighbourhood1x": 6,
+        "neighbourhood4x": 6,
+        "passed": false,
+        "issue": "POD-5422"
+      },
+      {
+        "action": "pane-switch",
+        "kind": "elements",
+        "reader": "consumer:superagent",
+        "at1x": 485,
+        "at4x": 1889,
+        "neighbourhood1x": 6,
+        "neighbourhood4x": 6,
+        "passed": false,
+        "issue": "POD-5422"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "rows",
+        "reader": "consumer:superagent",
+        "at1x": 492,
+        "at4x": 1896,
+        "neighbourhood1x": 7,
+        "neighbourhood4x": 7,
+        "passed": false,
+        "issue": "POD-5422"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:navigation.navigate-by-ref",
+        "at1x": 91906,
+        "at4x": 365136,
+        "neighbourhood1x": 7,
+        "neighbourhood4x": 7,
+        "passed": false,
+        "issue": "POD-5421"
+      },
+      {
+        "action": "navigate-by-ref",
+        "kind": "elements",
+        "reader": "consumer:superagent",
+        "at1x": 486,
+        "at4x": 1890,
+        "neighbourhood1x": 7,
+        "neighbourhood4x": 7,
+        "passed": false,
+        "issue": "POD-5422"
+      }
+    ],
+    "selectedReaders": [
+      {
+        "reader": "sidebar.sections",
+        "action": "select",
+        "counts": {
+          "rows": {
+            "at1x": 0,
+            "at4x": 0
+          },
+          "derivations": {
+            "at1x": 1,
+            "at4x": 1
+          },
+          "elements": {
+            "at1x": 0,
+            "at4x": 0
+          }
+        }
+      },
+      {
+        "reader": "sidebar.sections",
+        "action": "heartbeat",
+        "counts": {
+          "rows": {
+            "at1x": 0,
+            "at4x": 0
+          },
+          "derivations": {
+            "at1x": 0,
+            "at4x": 0
+          },
+          "elements": {
+            "at1x": 0,
+            "at4x": 0
+          }
+        }
+      },
+      {
+        "reader": "sidebar.sections",
+        "action": "lane-change",
+        "counts": {
+          "rows": {
+            "at1x": 0,
+            "at4x": 0
+          },
+          "derivations": {
+            "at1x": 1,
+            "at4x": 1
+          },
+          "elements": {
+            "at1x": 0,
+            "at4x": 0
+          }
+        }
+      },
+      {
+        "reader": "mobile-work.sections",
+        "action": "select",
+        "counts": {
+          "rows": {
+            "at1x": 0,
+            "at4x": 0
+          },
+          "derivations": {
+            "at1x": 0,
+            "at4x": 0
+          },
+          "elements": {
+            "at1x": 0,
+            "at4x": 0
+          }
+        }
+      },
+      {
+        "reader": "mobile-work.sections",
+        "action": "heartbeat",
+        "counts": {
+          "rows": {
+            "at1x": 0,
+            "at4x": 0
+          },
+          "derivations": {
+            "at1x": 1,
+            "at4x": 1
+          },
+          "elements": {
+            "at1x": 0,
+            "at4x": 0
+          }
+        }
+      },
+      {
+        "reader": "mobile-work.sections",
+        "action": "lane-change",
+        "counts": {
+          "rows": {
+            "at1x": 0,
+            "at4x": 0
+          },
+          "derivations": {
+            "at1x": 2,
+            "at4x": 2
+          },
+          "elements": {
+            "at1x": 1,
+            "at4x": 1
+          }
+        }
+      },
+      {
+        "reader": "sidebar.worktree",
+        "action": "select",
+        "counts": {
+          "rows": {
+            "at1x": 0,
+            "at4x": 0
+          },
+          "derivations": {
+            "at1x": 0,
+            "at4x": 0
+          },
+          "elements": {
+            "at1x": 0,
+            "at4x": 0
+          }
+        }
+      },
+      {
+        "reader": "sidebar.worktree",
+        "action": "heartbeat",
+        "counts": {
+          "rows": {
+            "at1x": 0,
+            "at4x": 0
+          },
+          "derivations": {
+            "at1x": 0,
+            "at4x": 0
+          },
+          "elements": {
+            "at1x": 0,
+            "at4x": 0
+          }
+        }
+      },
+      {
+        "reader": "sidebar.worktree",
+        "action": "lane-change",
+        "counts": {
+          "rows": {
+            "at1x": 0,
+            "at4x": 0
+          },
+          "derivations": {
+            "at1x": 0,
+            "at4x": 0
+          },
+          "elements": {
+            "at1x": 0,
+            "at4x": 0
+          }
+        }
+      }
+    ]
+  },
+  "targeted": [
+    {
+      "domain": "members",
+      "scale": 1,
+      "groups": 4,
+      "members": 16,
+      "looseCount": 16,
+      "visiblePrefix": 5,
+      "cells": [
+        {
+          "action": "click",
+          "work": {
+            "derivations": 1,
+            "derivationsBy": {
+              "WorklistGroups.latchedOpenId": 1
+            },
+            "rows": 0,
+            "rowsBy": {},
+            "elements": 51,
+            "elementsBy": {
+              "(arm code)": 51
+            },
+            "visits": 99
+          }
+        },
+        {
+          "action": "fold",
+          "work": {
+            "derivations": 1,
+            "derivationsBy": {
+              "consumer:membership.phone-fold": 1
+            },
+            "rows": 0,
+            "rowsBy": {},
+            "elements": 6,
+            "elementsBy": {
+              "consumer:membership.phone-fold": 6,
+              "(arm code)": 1
+            },
+            "visits": 7
+          }
+        },
+        {
+          "action": "reorder",
+          "work": {
+            "derivations": 39,
+            "derivationsBy": {
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.rank": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "pool.file.group-#-issue-#": 1,
+              "GroupNode.headRank": 1,
+              "GroupNode.sidebarRows": 1,
+              "pool.sidebar.group": 1,
+              "GroupNode.sidebarMetadata": 1,
+              "pool.sidebar.band": 1,
+              "pool.sidebar.sections": 1,
+              "Autorun@#": 2,
+              "consumer:membership.desktop-source": 1,
+              "MobileSection.projectOpenIds": 1,
+              "MobileSection.allIds": 1,
+              "MobileSection.projectWorktreeIds": 1,
+              "MobileSection.attentionIds": 1,
+              "IssueModel@group-#-issue-#.ownFactDecision": 1,
+              "MobileSection.liveIds": 1,
+              "MobileSection.total": 1,
+              "consumer:membership.phone-native": 1,
+              "consumer:membership.phone-native/MobileSection.projectLabel": 1,
+              "consumer:membership.phone-native/MobileSection.data": 1
+            },
+            "rows": 23,
+            "rowsBy": {
+              "(arm code)": 1,
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "WorklistIssue@group-#-issue-#.rank": 2,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "IssueModel@group-#-issue-#.ownFactDecision": 1,
+              "MobileSection.attentionIds": 1
+            },
+            "elements": 222,
+            "elementsBy": {
+              "(arm code)": 104,
+              "WorklistIssue@group-#-issue-#.sessionless": 0,
+              "WorklistIssue@group-#-issue-#.startedBy": 0,
+              "WorklistIssue@group-#-issue-#.placement": 2,
+              "pool.file.group-#-issue-#": 27,
+              "GroupNode.sidebarRows": 16,
+              "Autorun@#": 74,
+              "GroupNode.sidebarMetadata": 1,
+              "pool.sidebar.group": 3,
+              "pool.sidebar.sections": 4,
+              "consumer:membership.desktop-source": 6,
+              "MobileSection.projectOpenIds": 14,
+              "MobileSection.allIds": 15,
+              "MobileSection.attentionIds": 15,
+              "MobileSection.liveIds": 15,
+              "consumer:membership.phone-native": 37
+            },
+            "visits": 746
+          }
+        },
+        {
+          "action": "membership",
+          "work": {
+            "derivations": 40,
+            "derivationsBy": {
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.rank": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "pool.file.group-#-issue-#": 1,
+              "GroupNode.headRank": 1,
+              "GroupNode.sidebarRows": 1,
+              "pool.sidebar.group": 1,
+              "GroupNode.sidebarMetadata": 1,
+              "MobileSection.projectOpenIds": 1,
+              "MobileSection.allIds": 1,
+              "pool.sidebar.band": 1,
+              "MobileSection.projectWorktreeIds": 1,
+              "MobileSection.attentionIds": 1,
+              "MobileSection.liveIds": 1,
+              "MobileSection.total": 1,
+              "MobileSectionsView.sectionKeys": 1,
+              "MobileSection.projectSnoozedIds": 1,
+              "Autorun@#": 2,
+              "consumer:membership.phone-native": 1,
+              "consumer:membership.phone-native/MobileSection.projectLabel": 1,
+              "consumer:membership.phone-native/MobileSection.data": 1,
+              "pool.sidebar.sections": 1,
+              "consumer:membership.desktop-source": 1
+            },
+            "rows": 22,
+            "rowsBy": {
+              "(arm code)": 1,
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "WorklistIssue@group-#-issue-#.rank": 2,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "MobileSection.attentionIds": 1
+            },
+            "elements": 189,
+            "elementsBy": {
+              "(arm code)": 63,
+              "WorklistIssue@group-#-issue-#.sessionless": 0,
+              "WorklistIssue@group-#-issue-#.startedBy": 0,
+              "WorklistIssue@group-#-issue-#.placement": 2,
+              "pool.file.group-#-issue-#": 62,
+              "WorklistIssue@group-#-issue-#.rank": 1,
+              "GroupNode.sidebarRows": 16,
+              "Autorun@#": 36,
+              "GroupNode.sidebarMetadata": 1,
+              "pool.sidebar.group": 3,
+              "MobileSection.projectOpenIds": 13,
+              "MobileSection.allIds": 32,
+              "MobileSection.attentionIds": 14,
+              "MobileSection.liveIds": 14,
+              "MobileSectionsView.sectionKeys": 6,
+              "MobileSection.projectSnoozedIds": 2,
+              "consumer:membership.phone-native": 34,
+              "pool.sidebar.sections": 4,
+              "consumer:membership.desktop-source": 6
+            },
+            "visits": 713
+          }
+        },
+        {
+          "action": "heartbeat",
+          "work": {
+            "derivations": 7,
+            "derivationsBy": {
+              "WorklistIssue@group-#-issue-#.retainedSeatIds": 1,
+              "IssueModel@group-#-issue-#.lastActivityAt": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "WorklistIssue@group-#-issue-#.rosterIds": 1,
+              "SessionModel@unrelated.exists": 1,
+              "SessionModel@unrelated.residentRow": 1,
+              "SessionModel@unrelated.motion": 1
+            },
+            "rows": 6,
+            "rowsBy": {
+              "(arm code)": 3,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "SessionModel@unrelated.exists": 1,
+              "SessionModel@unrelated.residentRow": 1
+            },
+            "elements": 116,
+            "elementsBy": {
+              "(arm code)": 116,
+              "pool.file.group-#-issue-#": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 0,
+              "Autorun@#": 1
+            },
+            "visits": 289
+          }
+        },
+        {
+          "action": "roster-heartbeat",
+          "work": {
+            "derivations": 20,
+            "derivationsBy": {
+              "WorklistSession@loose-#.hasRetention": 1,
+              "WorklistSession@loose-#.retentionShell": 1,
+              "WorklistSession@loose-#.retentionIssueId": 1,
+              "WorklistSession@loose-#.retentionFinish": 1,
+              "SessionModel@loose-#.residentRow": 1,
+              "WorklistSession@loose-#.phase": 1,
+              "SessionModel@loose-#.executing": 1,
+              "SessionModel@loose-#.exists": 1,
+              "worklist.worktree@/loose.sessions.row:loose-#": 1,
+              "WorklistSession@loose-#.sortKey": 1,
+              "WorklistSession@loose-#.sortWorking": 1,
+              "SessionModel@loose-#.lastActivity": 1,
+              "worklist.worktree@/loose.stale.row:loose-#": 1,
+              "WorklistWorktree@/loose.sessions": 1,
+              "WorklistWorktree@/loose.waitingCount": 1,
+              "Autorun@#": 1,
+              "consumer:membership.worktree-source": 1,
+              "consumer:membership.worktree-source/WorklistWorktree@/loose.visible": 1,
+              "consumer:membership.worktree-source/WorklistWorktree@/loose.stale": 1,
+              "SessionModel@unrelated.lastActivity": 1
+            },
+            "rows": 8,
+            "rowsBy": {
+              "(arm code)": 2,
+              "WorklistSession@loose-#.hasRetention": 1,
+              "WorklistSession@loose-#.retentionShell": 1,
+              "WorklistSession@loose-#.retentionIssueId": 1,
+              "WorklistSession@loose-#.retentionFinish": 1,
+              "SessionModel@loose-#.residentRow": 1,
+              "SessionModel@loose-#.exists": 1
+            },
+            "elements": 98,
+            "elementsBy": {
+              "(arm code)": 78,
+              "Autorun@#": 6,
+              "WorklistSession@loose-#.sortKey": 2,
+              "worklist.worktree@/loose.sessions.row:loose-#": 16,
+              "worklist.worktree@/loose.stale.row:loose-#": 2,
+              "WorklistWorktree@/loose.waitingCount": 16,
+              "consumer:membership.worktree-source/WorklistWorktree@/loose.visible": 16,
+              "consumer:membership.worktree-source": 1
+            },
+            "visits": 272
+          }
+        }
+      ]
+    },
+    {
+      "domain": "members",
+      "scale": 4,
+      "groups": 4,
+      "members": 64,
+      "looseCount": 64,
+      "visiblePrefix": 5,
+      "cells": [
+        {
+          "action": "click",
+          "work": {
+            "derivations": 1,
+            "derivationsBy": {
+              "WorklistGroups.latchedOpenId": 1
+            },
+            "rows": 0,
+            "rowsBy": {},
+            "elements": 51,
+            "elementsBy": {
+              "(arm code)": 51
+            },
+            "visits": 99
+          }
+        },
+        {
+          "action": "fold",
+          "work": {
+            "derivations": 1,
+            "derivationsBy": {
+              "consumer:membership.phone-fold": 1
+            },
+            "rows": 0,
+            "rowsBy": {},
+            "elements": 6,
+            "elementsBy": {
+              "consumer:membership.phone-fold": 6,
+              "(arm code)": 1
+            },
+            "visits": 7
+          }
+        },
+        {
+          "action": "reorder",
+          "work": {
+            "derivations": 39,
+            "derivationsBy": {
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.rank": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "pool.file.group-#-issue-#": 1,
+              "GroupNode.headRank": 1,
+              "GroupNode.sidebarRows": 1,
+              "pool.sidebar.group": 1,
+              "GroupNode.sidebarMetadata": 1,
+              "pool.sidebar.band": 1,
+              "pool.sidebar.sections": 1,
+              "Autorun@#": 2,
+              "consumer:membership.desktop-source": 1,
+              "MobileSection.projectOpenIds": 1,
+              "MobileSection.allIds": 1,
+              "MobileSection.projectWorktreeIds": 1,
+              "MobileSection.attentionIds": 1,
+              "IssueModel@group-#-issue-#.ownFactDecision": 1,
+              "MobileSection.liveIds": 1,
+              "MobileSection.total": 1,
+              "consumer:membership.phone-native": 1,
+              "consumer:membership.phone-native/MobileSection.projectLabel": 1,
+              "consumer:membership.phone-native/MobileSection.data": 1
+            },
+            "rows": 23,
+            "rowsBy": {
+              "(arm code)": 1,
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "WorklistIssue@group-#-issue-#.rank": 2,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "IssueModel@group-#-issue-#.ownFactDecision": 1,
+              "MobileSection.attentionIds": 1
+            },
+            "elements": 414,
+            "elementsBy": {
+              "(arm code)": 104,
+              "WorklistIssue@group-#-issue-#.sessionless": 0,
+              "WorklistIssue@group-#-issue-#.startedBy": 0,
+              "WorklistIssue@group-#-issue-#.placement": 2,
+              "pool.file.group-#-issue-#": 27,
+              "GroupNode.sidebarRows": 64,
+              "Autorun@#": 218,
+              "GroupNode.sidebarMetadata": 1,
+              "pool.sidebar.group": 3,
+              "pool.sidebar.sections": 4,
+              "consumer:membership.desktop-source": 6,
+              "MobileSection.projectOpenIds": 62,
+              "MobileSection.allIds": 63,
+              "MobileSection.attentionIds": 63,
+              "MobileSection.liveIds": 63,
+              "consumer:membership.phone-native": 85
+            },
+            "visits": 1226
+          }
+        },
+        {
+          "action": "membership",
+          "work": {
+            "derivations": 40,
+            "derivationsBy": {
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.rank": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "pool.file.group-#-issue-#": 1,
+              "GroupNode.headRank": 1,
+              "GroupNode.sidebarRows": 1,
+              "pool.sidebar.group": 1,
+              "GroupNode.sidebarMetadata": 1,
+              "MobileSection.projectOpenIds": 1,
+              "MobileSection.allIds": 1,
+              "pool.sidebar.band": 1,
+              "MobileSection.projectWorktreeIds": 1,
+              "MobileSection.attentionIds": 1,
+              "MobileSection.liveIds": 1,
+              "MobileSection.total": 1,
+              "MobileSectionsView.sectionKeys": 1,
+              "MobileSection.projectSnoozedIds": 1,
+              "Autorun@#": 2,
+              "consumer:membership.phone-native": 1,
+              "consumer:membership.phone-native/MobileSection.projectLabel": 1,
+              "consumer:membership.phone-native/MobileSection.data": 1,
+              "pool.sidebar.sections": 1,
+              "consumer:membership.desktop-source": 1
+            },
+            "rows": 22,
+            "rowsBy": {
+              "(arm code)": 1,
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "WorklistIssue@group-#-issue-#.rank": 2,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "MobileSection.attentionIds": 1
+            },
+            "elements": 237,
+            "elementsBy": {
+              "(arm code)": 63,
+              "WorklistIssue@group-#-issue-#.sessionless": 0,
+              "WorklistIssue@group-#-issue-#.startedBy": 0,
+              "WorklistIssue@group-#-issue-#.placement": 2,
+              "pool.file.group-#-issue-#": 62,
+              "WorklistIssue@group-#-issue-#.rank": 1,
+              "GroupNode.sidebarRows": 64,
+              "Autorun@#": 36,
+              "GroupNode.sidebarMetadata": 1,
+              "pool.sidebar.group": 3,
+              "MobileSection.projectOpenIds": 61,
+              "MobileSection.allIds": 80,
+              "MobileSection.attentionIds": 62,
+              "MobileSection.liveIds": 62,
+              "MobileSectionsView.sectionKeys": 6,
+              "MobileSection.projectSnoozedIds": 2,
+              "consumer:membership.phone-native": 82,
+              "pool.sidebar.sections": 4,
+              "consumer:membership.desktop-source": 6
+            },
+            "visits": 1049
+          }
+        },
+        {
+          "action": "heartbeat",
+          "work": {
+            "derivations": 7,
+            "derivationsBy": {
+              "WorklistIssue@group-#-issue-#.retainedSeatIds": 1,
+              "IssueModel@group-#-issue-#.lastActivityAt": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "WorklistIssue@group-#-issue-#.rosterIds": 1,
+              "SessionModel@unrelated.exists": 1,
+              "SessionModel@unrelated.residentRow": 1,
+              "SessionModel@unrelated.motion": 1
+            },
+            "rows": 6,
+            "rowsBy": {
+              "(arm code)": 3,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "SessionModel@unrelated.exists": 1,
+              "SessionModel@unrelated.residentRow": 1
+            },
+            "elements": 116,
+            "elementsBy": {
+              "(arm code)": 116,
+              "pool.file.group-#-issue-#": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 0,
+              "Autorun@#": 1
+            },
+            "visits": 289
+          }
+        },
+        {
+          "action": "roster-heartbeat",
+          "work": {
+            "derivations": 20,
+            "derivationsBy": {
+              "WorklistSession@loose-#.hasRetention": 1,
+              "WorklistSession@loose-#.retentionShell": 1,
+              "WorklistSession@loose-#.retentionIssueId": 1,
+              "WorklistSession@loose-#.retentionFinish": 1,
+              "SessionModel@loose-#.residentRow": 1,
+              "WorklistSession@loose-#.phase": 1,
+              "SessionModel@loose-#.executing": 1,
+              "SessionModel@loose-#.exists": 1,
+              "worklist.worktree@/loose.sessions.row:loose-#": 1,
+              "WorklistSession@loose-#.sortKey": 1,
+              "WorklistSession@loose-#.sortWorking": 1,
+              "SessionModel@loose-#.lastActivity": 1,
+              "worklist.worktree@/loose.stale.row:loose-#": 1,
+              "WorklistWorktree@/loose.sessions": 1,
+              "WorklistWorktree@/loose.waitingCount": 1,
+              "Autorun@#": 1,
+              "consumer:membership.worktree-source": 1,
+              "consumer:membership.worktree-source/WorklistWorktree@/loose.visible": 1,
+              "consumer:membership.worktree-source/WorklistWorktree@/loose.stale": 1,
+              "SessionModel@unrelated.lastActivity": 1
+            },
+            "rows": 8,
+            "rowsBy": {
+              "(arm code)": 2,
+              "WorklistSession@loose-#.hasRetention": 1,
+              "WorklistSession@loose-#.retentionShell": 1,
+              "WorklistSession@loose-#.retentionIssueId": 1,
+              "WorklistSession@loose-#.retentionFinish": 1,
+              "SessionModel@loose-#.residentRow": 1,
+              "SessionModel@loose-#.exists": 1
+            },
+            "elements": 146,
+            "elementsBy": {
+              "(arm code)": 78,
+              "Autorun@#": 6,
+              "WorklistSession@loose-#.sortKey": 2,
+              "worklist.worktree@/loose.sessions.row:loose-#": 16,
+              "worklist.worktree@/loose.stale.row:loose-#": 2,
+              "WorklistWorktree@/loose.waitingCount": 64,
+              "consumer:membership.worktree-source/WorklistWorktree@/loose.visible": 64,
+              "consumer:membership.worktree-source": 1
+            },
+            "visits": 368
+          }
+        }
+      ]
+    },
+    {
+      "domain": "groups",
+      "scale": 1,
+      "groups": 4,
+      "members": 16,
+      "looseCount": 16,
+      "visiblePrefix": 5,
+      "cells": [
+        {
+          "action": "click",
+          "work": {
+            "derivations": 1,
+            "derivationsBy": {
+              "WorklistGroups.latchedOpenId": 1
+            },
+            "rows": 0,
+            "rowsBy": {},
+            "elements": 51,
+            "elementsBy": {
+              "(arm code)": 51
+            },
+            "visits": 99
+          }
+        },
+        {
+          "action": "fold",
+          "work": {
+            "derivations": 1,
+            "derivationsBy": {
+              "consumer:membership.phone-fold": 1
+            },
+            "rows": 0,
+            "rowsBy": {},
+            "elements": 6,
+            "elementsBy": {
+              "consumer:membership.phone-fold": 6,
+              "(arm code)": 1
+            },
+            "visits": 7
+          }
+        },
+        {
+          "action": "reorder",
+          "work": {
+            "derivations": 39,
+            "derivationsBy": {
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.rank": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "pool.file.group-#-issue-#": 1,
+              "GroupNode.headRank": 1,
+              "GroupNode.sidebarRows": 1,
+              "pool.sidebar.group": 1,
+              "GroupNode.sidebarMetadata": 1,
+              "pool.sidebar.band": 1,
+              "pool.sidebar.sections": 1,
+              "Autorun@#": 2,
+              "consumer:membership.desktop-source": 1,
+              "MobileSection.projectOpenIds": 1,
+              "MobileSection.allIds": 1,
+              "MobileSection.projectWorktreeIds": 1,
+              "MobileSection.attentionIds": 1,
+              "IssueModel@group-#-issue-#.ownFactDecision": 1,
+              "MobileSection.liveIds": 1,
+              "MobileSection.total": 1,
+              "consumer:membership.phone-native": 1,
+              "consumer:membership.phone-native/MobileSection.projectLabel": 1,
+              "consumer:membership.phone-native/MobileSection.data": 1
+            },
+            "rows": 23,
+            "rowsBy": {
+              "(arm code)": 1,
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "WorklistIssue@group-#-issue-#.rank": 2,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "IssueModel@group-#-issue-#.ownFactDecision": 1,
+              "MobileSection.attentionIds": 1
+            },
+            "elements": 222,
+            "elementsBy": {
+              "(arm code)": 104,
+              "WorklistIssue@group-#-issue-#.sessionless": 0,
+              "WorklistIssue@group-#-issue-#.startedBy": 0,
+              "WorklistIssue@group-#-issue-#.placement": 2,
+              "pool.file.group-#-issue-#": 27,
+              "GroupNode.sidebarRows": 16,
+              "Autorun@#": 74,
+              "GroupNode.sidebarMetadata": 1,
+              "pool.sidebar.group": 3,
+              "pool.sidebar.sections": 4,
+              "consumer:membership.desktop-source": 6,
+              "MobileSection.projectOpenIds": 14,
+              "MobileSection.allIds": 15,
+              "MobileSection.attentionIds": 15,
+              "MobileSection.liveIds": 15,
+              "consumer:membership.phone-native": 37
+            },
+            "visits": 746
+          }
+        },
+        {
+          "action": "membership",
+          "work": {
+            "derivations": 40,
+            "derivationsBy": {
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.rank": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "pool.file.group-#-issue-#": 1,
+              "GroupNode.headRank": 1,
+              "GroupNode.sidebarRows": 1,
+              "pool.sidebar.group": 1,
+              "GroupNode.sidebarMetadata": 1,
+              "MobileSection.projectOpenIds": 1,
+              "MobileSection.allIds": 1,
+              "pool.sidebar.band": 1,
+              "MobileSection.projectWorktreeIds": 1,
+              "MobileSection.attentionIds": 1,
+              "MobileSection.liveIds": 1,
+              "MobileSection.total": 1,
+              "MobileSectionsView.sectionKeys": 1,
+              "MobileSection.projectSnoozedIds": 1,
+              "Autorun@#": 2,
+              "consumer:membership.phone-native": 1,
+              "consumer:membership.phone-native/MobileSection.projectLabel": 1,
+              "consumer:membership.phone-native/MobileSection.data": 1,
+              "pool.sidebar.sections": 1,
+              "consumer:membership.desktop-source": 1
+            },
+            "rows": 22,
+            "rowsBy": {
+              "(arm code)": 1,
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "WorklistIssue@group-#-issue-#.rank": 2,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "MobileSection.attentionIds": 1
+            },
+            "elements": 189,
+            "elementsBy": {
+              "(arm code)": 63,
+              "WorklistIssue@group-#-issue-#.sessionless": 0,
+              "WorklistIssue@group-#-issue-#.startedBy": 0,
+              "WorklistIssue@group-#-issue-#.placement": 2,
+              "pool.file.group-#-issue-#": 62,
+              "WorklistIssue@group-#-issue-#.rank": 1,
+              "GroupNode.sidebarRows": 16,
+              "Autorun@#": 36,
+              "GroupNode.sidebarMetadata": 1,
+              "pool.sidebar.group": 3,
+              "MobileSection.projectOpenIds": 13,
+              "MobileSection.allIds": 32,
+              "MobileSection.attentionIds": 14,
+              "MobileSection.liveIds": 14,
+              "MobileSectionsView.sectionKeys": 6,
+              "MobileSection.projectSnoozedIds": 2,
+              "consumer:membership.phone-native": 34,
+              "pool.sidebar.sections": 4,
+              "consumer:membership.desktop-source": 6
+            },
+            "visits": 713
+          }
+        },
+        {
+          "action": "heartbeat",
+          "work": {
+            "derivations": 7,
+            "derivationsBy": {
+              "WorklistIssue@group-#-issue-#.retainedSeatIds": 1,
+              "IssueModel@group-#-issue-#.lastActivityAt": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "WorklistIssue@group-#-issue-#.rosterIds": 1,
+              "SessionModel@unrelated.exists": 1,
+              "SessionModel@unrelated.residentRow": 1,
+              "SessionModel@unrelated.motion": 1
+            },
+            "rows": 6,
+            "rowsBy": {
+              "(arm code)": 3,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "SessionModel@unrelated.exists": 1,
+              "SessionModel@unrelated.residentRow": 1
+            },
+            "elements": 116,
+            "elementsBy": {
+              "(arm code)": 116,
+              "pool.file.group-#-issue-#": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 0,
+              "Autorun@#": 1
+            },
+            "visits": 289
+          }
+        },
+        {
+          "action": "roster-heartbeat",
+          "work": {
+            "derivations": 20,
+            "derivationsBy": {
+              "WorklistSession@loose-#.hasRetention": 1,
+              "WorklistSession@loose-#.retentionShell": 1,
+              "WorklistSession@loose-#.retentionIssueId": 1,
+              "WorklistSession@loose-#.retentionFinish": 1,
+              "SessionModel@loose-#.residentRow": 1,
+              "WorklistSession@loose-#.phase": 1,
+              "SessionModel@loose-#.executing": 1,
+              "SessionModel@loose-#.exists": 1,
+              "worklist.worktree@/loose.sessions.row:loose-#": 1,
+              "WorklistSession@loose-#.sortKey": 1,
+              "WorklistSession@loose-#.sortWorking": 1,
+              "SessionModel@loose-#.lastActivity": 1,
+              "worklist.worktree@/loose.stale.row:loose-#": 1,
+              "WorklistWorktree@/loose.sessions": 1,
+              "WorklistWorktree@/loose.waitingCount": 1,
+              "Autorun@#": 1,
+              "consumer:membership.worktree-source": 1,
+              "consumer:membership.worktree-source/WorklistWorktree@/loose.visible": 1,
+              "consumer:membership.worktree-source/WorklistWorktree@/loose.stale": 1,
+              "SessionModel@unrelated.lastActivity": 1
+            },
+            "rows": 8,
+            "rowsBy": {
+              "(arm code)": 2,
+              "WorklistSession@loose-#.hasRetention": 1,
+              "WorklistSession@loose-#.retentionShell": 1,
+              "WorklistSession@loose-#.retentionIssueId": 1,
+              "WorklistSession@loose-#.retentionFinish": 1,
+              "SessionModel@loose-#.residentRow": 1,
+              "SessionModel@loose-#.exists": 1
+            },
+            "elements": 98,
+            "elementsBy": {
+              "(arm code)": 78,
+              "Autorun@#": 6,
+              "WorklistSession@loose-#.sortKey": 2,
+              "worklist.worktree@/loose.sessions.row:loose-#": 16,
+              "worklist.worktree@/loose.stale.row:loose-#": 2,
+              "WorklistWorktree@/loose.waitingCount": 16,
+              "consumer:membership.worktree-source/WorklistWorktree@/loose.visible": 16,
+              "consumer:membership.worktree-source": 1
+            },
+            "visits": 272
+          }
+        }
+      ]
+    },
+    {
+      "domain": "groups",
+      "scale": 4,
+      "groups": 16,
+      "members": 16,
+      "looseCount": 16,
+      "visiblePrefix": 5,
+      "cells": [
+        {
+          "action": "click",
+          "work": {
+            "derivations": 1,
+            "derivationsBy": {
+              "WorklistGroups.latchedOpenId": 1
+            },
+            "rows": 0,
+            "rowsBy": {},
+            "elements": 171,
+            "elementsBy": {
+              "(arm code)": 171
+            },
+            "visits": 363
+          }
+        },
+        {
+          "action": "fold",
+          "work": {
+            "derivations": 1,
+            "derivationsBy": {
+              "consumer:membership.phone-fold": 1
+            },
+            "rows": 0,
+            "rowsBy": {},
+            "elements": 18,
+            "elementsBy": {
+              "consumer:membership.phone-fold": 18,
+              "(arm code)": 1
+            },
+            "visits": 19
+          }
+        },
+        {
+          "action": "reorder",
+          "work": {
+            "derivations": 39,
+            "derivationsBy": {
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.rank": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "pool.file.group-#-issue-#": 1,
+              "GroupNode.headRank": 1,
+              "GroupNode.sidebarRows": 1,
+              "pool.sidebar.group": 1,
+              "GroupNode.sidebarMetadata": 1,
+              "pool.sidebar.band": 1,
+              "pool.sidebar.sections": 1,
+              "Autorun@#": 2,
+              "consumer:membership.desktop-source": 1,
+              "MobileSection.projectOpenIds": 1,
+              "MobileSection.allIds": 1,
+              "MobileSection.projectWorktreeIds": 1,
+              "MobileSection.attentionIds": 1,
+              "IssueModel@group-#-issue-#.ownFactDecision": 1,
+              "MobileSection.liveIds": 1,
+              "MobileSection.total": 1,
+              "consumer:membership.phone-native": 1,
+              "consumer:membership.phone-native/MobileSection.projectLabel": 1,
+              "consumer:membership.phone-native/MobileSection.data": 1
+            },
+            "rows": 23,
+            "rowsBy": {
+              "(arm code)": 1,
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "WorklistIssue@group-#-issue-#.rank": 2,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "IssueModel@group-#-issue-#.ownFactDecision": 1,
+              "MobileSection.attentionIds": 1
+            },
+            "elements": 534,
+            "elementsBy": {
+              "(arm code)": 224,
+              "WorklistIssue@group-#-issue-#.sessionless": 0,
+              "WorklistIssue@group-#-issue-#.startedBy": 0,
+              "WorklistIssue@group-#-issue-#.placement": 2,
+              "pool.file.group-#-issue-#": 27,
+              "GroupNode.sidebarRows": 16,
+              "Autorun@#": 242,
+              "GroupNode.sidebarMetadata": 1,
+              "pool.sidebar.group": 3,
+              "pool.sidebar.sections": 16,
+              "consumer:membership.desktop-source": 6,
+              "MobileSection.projectOpenIds": 14,
+              "MobileSection.allIds": 15,
+              "MobileSection.attentionIds": 15,
+              "MobileSection.liveIds": 15,
+              "consumer:membership.phone-native": 61
+            },
+            "visits": 1226
+          }
+        },
+        {
+          "action": "membership",
+          "work": {
+            "derivations": 40,
+            "derivationsBy": {
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.rank": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "pool.file.group-#-issue-#": 1,
+              "GroupNode.headRank": 1,
+              "GroupNode.sidebarRows": 1,
+              "pool.sidebar.group": 1,
+              "GroupNode.sidebarMetadata": 1,
+              "MobileSection.projectOpenIds": 1,
+              "MobileSection.allIds": 1,
+              "pool.sidebar.band": 1,
+              "MobileSection.projectWorktreeIds": 1,
+              "MobileSection.attentionIds": 1,
+              "MobileSection.liveIds": 1,
+              "MobileSection.total": 1,
+              "MobileSectionsView.sectionKeys": 1,
+              "MobileSection.projectSnoozedIds": 1,
+              "Autorun@#": 2,
+              "consumer:membership.phone-native": 1,
+              "consumer:membership.phone-native/MobileSection.projectLabel": 1,
+              "consumer:membership.phone-native/MobileSection.data": 1,
+              "pool.sidebar.sections": 1,
+              "consumer:membership.desktop-source": 1
+            },
+            "rows": 22,
+            "rowsBy": {
+              "(arm code)": 1,
+              "WorklistIssue@group-#-issue-#.hasStanding": 1,
+              "IssueModel@group-#-issue-#.excluded": 1,
+              "IssueModel@group-#-issue-#.awaitingMerge": 1,
+              "WorklistIssue@group-#-issue-#.sessionless": 1,
+              "IssueModel@group-#-issue-#.finished": 1,
+              "IssueModel@group-#-issue-#.parentRef": 1,
+              "IssueModel@group-#-issue-#.finishedMs": 1,
+              "IssueModel@group-#-issue-#.updatedMs": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "IssueModel@group-#-issue-#.audience": 1,
+              "WorklistIssue@group-#-issue-#.placement": 1,
+              "IssueModel@group-#-issue-#.pinned": 1,
+              "WorklistIssue@group-#-issue-#.repoKey": 1,
+              "WorklistIssue@group-#-issue-#.settledClosed": 1,
+              "WorklistIssue@group-#-issue-#.settledDismissed": 1,
+              "WorklistIssue@group-#-issue-#.foldAt": 1,
+              "WorklistIssue@group-#-issue-#.band": 1,
+              "WorklistIssue@group-#-issue-#.rank": 2,
+              "IssueModel@group-#-issue-#.seq": 1,
+              "MobileSection.attentionIds": 1
+            },
+            "elements": 309,
+            "elementsBy": {
+              "(arm code)": 63,
+              "WorklistIssue@group-#-issue-#.sessionless": 0,
+              "WorklistIssue@group-#-issue-#.startedBy": 0,
+              "WorklistIssue@group-#-issue-#.placement": 2,
+              "pool.file.group-#-issue-#": 158,
+              "WorklistIssue@group-#-issue-#.rank": 1,
+              "GroupNode.sidebarRows": 16,
+              "Autorun@#": 36,
+              "GroupNode.sidebarMetadata": 1,
+              "pool.sidebar.group": 3,
+              "MobileSection.projectOpenIds": 13,
+              "MobileSection.allIds": 32,
+              "MobileSection.attentionIds": 14,
+              "MobileSection.liveIds": 14,
+              "MobileSectionsView.sectionKeys": 18,
+              "MobileSection.projectSnoozedIds": 2,
+              "consumer:membership.phone-native": 58,
+              "pool.sidebar.sections": 16,
+              "consumer:membership.desktop-source": 6
+            },
+            "visits": 989
+          }
+        },
+        {
+          "action": "heartbeat",
+          "work": {
+            "derivations": 7,
+            "derivationsBy": {
+              "WorklistIssue@group-#-issue-#.retainedSeatIds": 1,
+              "IssueModel@group-#-issue-#.lastActivityAt": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "WorklistIssue@group-#-issue-#.rosterIds": 1,
+              "SessionModel@unrelated.exists": 1,
+              "SessionModel@unrelated.residentRow": 1,
+              "SessionModel@unrelated.motion": 1
+            },
+            "rows": 6,
+            "rowsBy": {
+              "(arm code)": 3,
+              "WorklistIssue@group-#-issue-#.startedBy": 1,
+              "SessionModel@unrelated.exists": 1,
+              "SessionModel@unrelated.residentRow": 1
+            },
+            "elements": 212,
+            "elementsBy": {
+              "(arm code)": 212,
+              "pool.file.group-#-issue-#": 1,
+              "WorklistIssue@group-#-issue-#.startedBy": 0,
+              "Autorun@#": 1
+            },
+            "visits": 505
+          }
+        },
+        {
+          "action": "roster-heartbeat",
+          "work": {
+            "derivations": 20,
+            "derivationsBy": {
+              "WorklistSession@loose-#.hasRetention": 1,
+              "WorklistSession@loose-#.retentionShell": 1,
+              "WorklistSession@loose-#.retentionIssueId": 1,
+              "WorklistSession@loose-#.retentionFinish": 1,
+              "SessionModel@loose-#.residentRow": 1,
+              "WorklistSession@loose-#.phase": 1,
+              "SessionModel@loose-#.executing": 1,
+              "SessionModel@loose-#.exists": 1,
+              "worklist.worktree@/loose.sessions.row:loose-#": 1,
+              "WorklistSession@loose-#.sortKey": 1,
+              "WorklistSession@loose-#.sortWorking": 1,
+              "SessionModel@loose-#.lastActivity": 1,
+              "worklist.worktree@/loose.stale.row:loose-#": 1,
+              "WorklistWorktree@/loose.sessions": 1,
+              "WorklistWorktree@/loose.waitingCount": 1,
+              "Autorun@#": 1,
+              "consumer:membership.worktree-source": 1,
+              "consumer:membership.worktree-source/WorklistWorktree@/loose.visible": 1,
+              "consumer:membership.worktree-source/WorklistWorktree@/loose.stale": 1,
+              "SessionModel@unrelated.lastActivity": 1
+            },
+            "rows": 8,
+            "rowsBy": {
+              "(arm code)": 2,
+              "WorklistSession@loose-#.hasRetention": 1,
+              "WorklistSession@loose-#.retentionShell": 1,
+              "WorklistSession@loose-#.retentionIssueId": 1,
+              "WorklistSession@loose-#.retentionFinish": 1,
+              "SessionModel@loose-#.residentRow": 1,
+              "SessionModel@loose-#.exists": 1
+            },
+            "elements": 98,
+            "elementsBy": {
+              "(arm code)": 78,
+              "Autorun@#": 6,
+              "WorklistSession@loose-#.sortKey": 2,
+              "worklist.worktree@/loose.sessions.row:loose-#": 16,
+              "worklist.worktree@/loose.stale.row:loose-#": 2,
+              "WorklistWorktree@/loose.waitingCount": 16,
+              "consumer:membership.worktree-source/WorklistWorktree@/loose.visible": 16,
+              "consumer:membership.worktree-source": 1
+            },
+            "visits": 272
+          }
+        }
+      ]
+    }
+  ]
+}
