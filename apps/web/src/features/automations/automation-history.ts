@@ -18,7 +18,7 @@ export type AutomationRunsQuery = (input: {
 
 /** One open "Recent runs" section: on request, the server's newest run window
  * for this automation, newest first. The answer keeps IDs only; each run's
- * fields come from today's run source until runs get shared models (POD-5868). */
+ * fields come from the shared automationRun models already fed by sync. */
 export class AutomationHistory extends RequestAnswer<readonly string[]> {
   constructor(
     readonly automationId: AutomationId,

@@ -4,8 +4,8 @@ import type { ConnectionHealth } from '@podium/client-core/socket-transport'
 import type { HostMetricsWire, MachineQuotaWire, MachineWire } from '@podium/model/browser'
 import type { ShipOrderProjection } from '@podium/model/shipping-projection'
 
-/** Pool-only extension. The prototype's frozen EntityName and SCHEMA stay four
- * entities. Samples are separate rows, so sampling cannot invalidate machines,
+/** Header source declarations. Machine storage is the shared schema table.
+ * Samples are separate rows, so sampling cannot invalidate machines,
  * sessions, quota, or window state. All extension relations are declared here. */
 export interface HeaderRows {
   machine: MachineWire

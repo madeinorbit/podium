@@ -1,4 +1,5 @@
 import { automationViews, EMPTY_EXCLUSIONS } from '@podium/client-graph/automation-views'
+import { omitGone } from '@podium/client-graph/lookup'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { useCallback } from 'react'
 import { useWorklistPoolProjection } from './store-worklist-pool'
@@ -11,6 +12,14 @@ const poolRepos = (pool: Parameters<typeof automationViews>[0]) =>
   automationViews(pool).repositories()
 export function useAutomationList() {
   return useWorklistPoolProjection(poolList, EMPTY_LIST)
+}
+export function useAutomation(id: string | null | undefined) {
+  const read = useCallback((pool: Parameters<typeof automationViews>[0]) => {
+    if (id == null) return undefined
+    const model = omitGone(pool.model('automation', id))
+    return model === LOADING ? undefined : model
+  }, [id])
+  return useWorklistPoolProjection(read, undefined)
 }
 export function useAutomationTargets(currentPath: string | null) {
   const read = useCallback(

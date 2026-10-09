@@ -1,22 +1,26 @@
 import { defineSource } from './source-registry'
 import type { Replica } from '@podium/client-core/replica'
 import { compareStructural, observable, runInAction } from 'mobx'
+import { observableRef } from '@podium/mobx-helpers'
 import { AUTOMATION_RELATIONS, type AutomationEntity, type AutomationRows } from './automation-schema'
 import { RelationBuckets } from './relations'
+import { MobxPool } from './pool'
+import { omitGone } from './lookup'
+import type { RowRecord } from './shared/source'
 import { LOADING, type Loaded } from './worklist/rollup'
 
-/** Borrow the existing replica rows at a batched demand boundary. Addressed
- * updates maintain resident relations from schema metadata, in one action.
- * There is no snapshot selector, feed, outbox, RPC or mutation owner here. */
+/** The source retains membership IDs and links. All record facts live in the
+ * owning pool's generic tables; standalone source callers get their own pool. */
 export class AutomationSource {
-  private readonly rows = observable.map<string, object>(undefined, { deep: false })
+  private readonly ids = { automation: new Set<string>(), automationRun: new Set<string>() }
   private readonly relations = new RelationBuckets({ trackedForward: true, sorted: true })
-  private readonly loaded = observable.box(false)
+  @observable accessor loaded = false
+  @observableRef accessor catalogRow: AutomationRows['automationCatalog'] | undefined = undefined
   private demanded = false
+  private pool: MobxPool | undefined
+  private ownsPool = false
   private readonly source = defineSource({
-    readById: this.readById.bind(this),
-    refresh: this.refresh.bind(this),
-    release: this.release.bind(this),
+    readById: this.readById.bind(this), refresh: this.refresh.bind(this), release: this.release.bind(this),
   })
   private get disposed(): boolean { return this.source.disposed }
   private readonly off: () => void
@@ -27,86 +31,98 @@ export class AutomationSource {
     this.off = replica.subscribeAddressedBatch(batch => {
       if (!this.demanded || this.disposed) return
       runInAction(() => {
-        if (batch.type === 'replace' || !this.loaded.get()) { this.schedule(); return }
-        let changed = false
+        if (batch.type === 'replace' || !this.loaded) { this.source.schedule(); return }
+        const records: RowRecord[] = []
         for (const address of batch.rows) {
           if (address.kind !== 'automations' && address.kind !== 'automationRuns') continue
-          const entity = address.kind === 'automations' ? 'automation' : 'automationRun'
-          this.change(entity, address.id, replica.row!(address.kind, address.id))
+          const kind = address.kind === 'automations' ? 'automation' : 'automationRun'
+          records.push({ kind, id: address.id, value: replica.row!(address.kind, address.id) as RowRecord['value'] })
           this.counts.addressedRows++
-          changed = true
         }
-        if (changed) this.catalog()
+        if (records.length) { this.install(records); this.catalog() }
       })
     })
   }
 
-  read(entity: AutomationEntity, id: string): Loaded<AutomationRows[AutomationEntity]> {
-    return this.source.read(entity, id) as Loaded<AutomationRows[AutomationEntity]>
+  /** PoolSources binds before publishing a source. A standalone pool, if
+   * already demanded, is released when its records join the application pool. */
+  attach(pool: MobxPool): void {
+    if (this.pool === pool) return
+    const previous = this.pool
+    if (previous) {
+      const records: RowRecord[] = []
+      for (const kind of ['automation', 'automationRun'] as const) for (const id of this.ids[kind])
+        records.push({ kind, id, value: omitGone(previous.row(kind, id)) as RowRecord['value'] })
+      pool.apply({ type: 'update', rows: records })
+      if (this.ownsPool) previous.dispose()
+    }
+    this.pool = pool
+    this.ownsPool = false
   }
 
+  private backing(): MobxPool {
+    if (!this.pool) {
+      this.pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+      this.ownsPool = true
+    }
+    return this.pool
+  }
+
+  read(entity: AutomationEntity, id: string): Loaded<AutomationRows[AutomationEntity]> {
+    return this.source.read(entity, id)
+  }
   private readById(entity: AutomationEntity, id: string): Loaded<AutomationRows[AutomationEntity]> {
     this.demanded = true
-    if (!this.loaded.get()) { this.schedule(); return LOADING }
-    return this.rows.get(`${entity}:${id}`) as AutomationRows[AutomationEntity] | undefined
+    if (!this.loaded) { this.source.schedule(); return LOADING }
+    if (entity === 'automationCatalog') return id === 'catalog' ? this.catalogRow : undefined
+    return omitGone(this.backing().row(entity, id))
   }
-
   relation(entity: string, id: string, name: string): string | undefined {
     return this.relations.one(`${entity}:${id}:${name}`)
   }
   related(entity: string, id: string, name: string): readonly string[] {
     return this.relations.many(`${entity}:${id}:${name}`)
   }
-
-  private change(entity: 'automation' | 'automationRun', id: string, next: object | undefined): void {
-    const address = `${entity}:${id}`
-    if (compareStructural(this.rows.get(address), next)) return
-    if (next) this.rows.set(address, next)
-    else this.rows.delete(address)
-    for (const relation of AUTOMATION_RELATIONS) {
-      if (relation.from !== entity) continue
-      const value = next && Reflect.get(next, relation.key)
-      const targets = typeof value === 'string' && value ? [value] : []
-      this.relations.move(`${address}:${relation.name}`, id, targets,
-        target => `${relation.to}:${target}:${relation.inverse}`)
+  private install(records: readonly RowRecord[]): void {
+    this.backing().apply({ type: 'update', rows: [...records] })
+    for (const record of records) {
+      if (record.kind !== 'automation' && record.kind !== 'automationRun') continue
+      if (record.value) this.ids[record.kind].add(record.id)
+      else this.ids[record.kind].delete(record.id)
+      for (const relation of AUTOMATION_RELATIONS) {
+        if (relation.from !== record.kind) continue
+        const value = record.value && Reflect.get(record.value, relation.key)
+        this.relations.move(`${record.kind}:${record.id}:${relation.name}`, record.id,
+          typeof value === 'string' && value ? [value] : [], target => `${relation.to}:${target}:${relation.inverse}`)
+      }
     }
   }
-
   private catalog(): void {
-    const ids = (kind: string) => [...this.rows.keys()].filter(key => key.startsWith(`${kind}:`)).map(key => key.slice(kind.length + 1)).sort()
-    const value = { automations: ids('automation'), runs: ids('automationRun') }
-    if (!compareStructural(this.rows.get('automationCatalog:catalog'), value)) this.rows.set('automationCatalog:catalog', value)
+    const value = { automations: [...this.ids.automation].sort(), runs: [...this.ids.automationRun].sort() }
+    if (!compareStructural(this.catalogRow, value)) this.catalogRow = value
   }
-
-  private schedule(): void {
-    this.source.schedule()
-  }
-
   private refresh(): void {
     const definitions = this.replica.rows('automations'), runs = this.replica.rows('automationRuns')
     runInAction(() => {
-      const keep = new Set([...definitions.map(row => `automation:${row.id}`), ...runs.map(row => `automationRun:${row.id}`)])
-      for (const key of this.rows.keys()) {
-        if (key === 'automationCatalog:catalog' || keep.has(key)) continue
-        const split = key.indexOf(':')
-        this.change(key.slice(0, split) as 'automation' | 'automationRun', key.slice(split + 1), undefined)
+      const records: RowRecord[] = []
+      for (const [kind, rows] of [['automation', definitions], ['automationRun', runs]] as const) {
+        const keep = new Set(rows.map(row => row.id))
+        for (const id of this.ids[kind]) if (!keep.has(id)) records.push({ kind, id, value: undefined })
+        for (const row of rows) records.push({ kind, id: row.id, value: row as RowRecord['value'] })
       }
-      for (const row of definitions) this.change('automation', row.id, row)
-      for (const row of runs) this.change('automationRun', row.id, row)
+      this.install(records)
       this.catalog()
-      this.loaded.set(true)
+      this.loaded = true
       this.counts.batches++
     })
   }
-
-  dispose(): void {
-    this.source.dispose()
-  }
-
+  dispose(): void { this.source.dispose() }
   private release(): void {
     this.off()
+    if (this.ownsPool) this.pool?.dispose()
     queueMicrotask(() => runInAction(() => {
-      this.rows.clear(); this.relations.clear(); this.loaded.set(false)
+      this.ids.automation.clear(); this.ids.automationRun.clear()
+      this.relations.clear(); this.catalogRow = undefined; this.loaded = false
     }))
   }
 }

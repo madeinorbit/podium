@@ -23,6 +23,10 @@ import {
 } from '@podium/client-graph/shared/schema'
 import {
   AgentRuntimeState,
+  MachineProjection,
+  MachineWire,
+  AutomationWire,
+  AutomationRunWire,
   GitRepositoryWire,
   Geometry,
   GitWorktreeWire,
@@ -50,6 +54,10 @@ export interface ShapeCarrier {
  * typecheck, so the citation vocabulary cannot drift from the model.
  */
 export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
+  MachineProjection,
+  MachineWire,
+  AutomationWire,
+  AutomationRunWire,
   IssueUserStateWire,
   IssueGitStateProjection,
   IssueDerived,

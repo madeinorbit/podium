@@ -1,7 +1,7 @@
 import { omitGone } from './lookup'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { compareStructural } from 'mobx'
-import type { AutomationRows } from './automation-schema'
+import type { AutomationModel } from './models'
 import { debugName } from './debug-name'
 import type { MobxPool } from './pool'
 import type { SettingsRows } from './settings-schema'
@@ -30,13 +30,13 @@ function createAutomationViews(pool: MobxPool) {
   function list() {
     return memo('list', () => {
       const catalog = omitGone(pool.row('automationCatalog', 'catalog'))
-      const automations: AutomationRows['automation'][] = []
+      const automations: AutomationModel[] = []
       let pending = catalog === LOADING ? 1 : 0
       if (catalog && catalog !== LOADING) {
         for (const id of catalog.automations) {
-          const row = omitGone(pool.row('automation', id))
+          const row = omitGone(pool.model('automation', id))
           if (row === LOADING) { pending++; continue }
-          if (!row || Reflect.get(row, 'system') === true) continue
+          if (!row || Reflect.get(omitGone(row.row) ?? {}, 'system') === true) continue
           automations.push(row)
         }
       }
@@ -57,11 +57,11 @@ function createAutomationViews(pool: MobxPool) {
     })
   }
   function run(id: string) {
-    return omitGone(pool.row('automationRun', id))
+    return omitGone(pool.model('automationRun', id))
   }
   function session(id: string | undefined) {
     if (!id) return undefined
-    return pool.queries.setupSessionPresent(id) ? omitGone(pool.row('setupSession', id)) : undefined
+    return pool.queries.setupSessionPresent(id) ? omitGone(pool.model('session', id)) : undefined
   }
   return { list, repositories, targets: targetViews.targets, target: targetViews.target,
     targetMachine: targetViews.targetMachine, targetForPath: targetViews.targetForPath, run, session,

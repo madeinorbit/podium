@@ -143,6 +143,8 @@ const SLICE_KINDS: ReadonlySet<ReplicaKind> = new Set([
   'sessions',
   'sessionUserStates',
   'machines',
+  'automations',
+  'automationRuns',
   'issueUserStates',
   'issueGitStates',
   'issueProjections',
@@ -663,8 +665,9 @@ export function createRowSource(
     return { ...raw, repoPath: raw.repoPath ?? roots?.[0]?.path ?? '' }
   }
 
-  function companions(kind: 'repo' | 'machine'): RowRecord[] {
-    return replica.rows(kind === 'repo' ? 'repos' : 'machines').flatMap(raw => {
+  function companions(kind: 'repo' | 'machine' | 'automation' | 'automationRun'): RowRecord[] {
+    const replicaKind = { repo: 'repos', machine: 'machines', automation: 'automations', automationRun: 'automationRuns' } as const
+    return replica.rows(replicaKind[kind]).flatMap(raw => {
       const id = idOf(raw)
       if (!id) return []
       stats.rowsVisited += 1
@@ -821,6 +824,12 @@ export function createRowSource(
         byKey.set(`machine:${address.id}`, { kind: 'machine', id: address.id, value: authority('machines', address.id) })
         continue
       }
+      if (address.kind === 'automations' || address.kind === 'automationRuns') {
+        const kind = address.kind === 'automations' ? 'automation' : 'automationRun'
+        stats.rowsVisited += 1
+        byKey.set(`${kind}:${address.id}`, { kind, id: address.id, value: authority(address.kind, address.id) })
+        continue
+      }
       if (address.kind === 'issueUserStates') {
         const owner = installUserKey(address.id)
         addressed.set(`issue:${owner}`, { kind: 'issue', id: owner })
@@ -936,7 +945,7 @@ export function createRowSource(
     stats.enumerations += 1
     const initial = !seededKinds.has(kind)
     seededKinds.add(kind)
-    const rows = kind === 'repo' || kind === 'machine' ? companions(kind)
+    const rows = kind === 'repo' || kind === 'machine' || kind === 'automation' || kind === 'automationRun' ? companions(kind)
       : kind === 'worktree' ? allLanes() : enumerate(kind, readPending())
     return rows.map(record => {
       const key = `${record.kind}:${record.id}`
@@ -992,7 +1001,7 @@ export function createRowSource(
       const index = createColdIndex(SCHEMA, coldHeld)
       index.apply({
         type: 'replace',
-        rows: [...snapshot('session'), ...snapshot('issue'), ...snapshot('worktree'), ...snapshot('repo'), ...snapshot('machine')],
+        rows: [...snapshot('session'), ...snapshot('issue'), ...snapshot('worktree'), ...snapshot('repo'), ...snapshot('machine'), ...snapshot('automation'), ...snapshot('automationRun')],
       })
       coldIndex = index
     }
@@ -1003,7 +1012,7 @@ export function createRowSource(
     diagnostics,
     issueSessionFact: issueSessionFacts.read,
     snapshot,
-    companions: () => [...snapshot('repo'), ...snapshot('machine')],
+    companions: () => [...snapshot('repo'), ...snapshot('machine'), ...snapshot('automation'), ...snapshot('automationRun')],
     row,
     exitKind(kind, id) {
       const entity = kind === 'issue' ? 'issueProjection' : kind

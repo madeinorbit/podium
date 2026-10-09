@@ -5,7 +5,7 @@ import { SETUP_SESSION_SUMMARY_FIELDS } from './settings-schema'
  * existing deduplicated session summary. No replicated workflow rows, new
  * source, or maintained relationship index is needed for these keyed reads. */
 export const WORKFLOW_SCHEMA = {
-  machines: { catalog: 'settingsCatalog', entity: 'settingsMachine', source: 'engine:machines' },
+  machines: { catalog: 'settingsCatalog', entity: 'machine', source: 'pool:machine' },
   issue: { entity: 'issue', fields: ['id'], residency: 'declared-summary' },
   session: { entity: 'session', fields: SETUP_SESSION_SUMMARY_FIELDS, residency: 'declared-summary' },
   relations: {},

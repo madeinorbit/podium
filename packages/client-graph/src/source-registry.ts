@@ -1,6 +1,7 @@
 import type { SettingsRows } from './settings-schema'
 import { observable, runInAction } from 'mobx'
 import type { EntityName } from './shared/schema'
+import type { MobxPool } from './pool'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 /** Screen modules extend this interface with their declared row types. The
@@ -18,6 +19,8 @@ export function mergePoolSummaries(...declarations: readonly PoolSummaryFields[]
   return fields
 }
 export interface PoolSource<E extends SourceEntity> {
+  /** Record sources use the owning pool's generic tables, never a private mirror. */
+  attach?(pool: MobxPool): void
   read(entity: E, id: string): Loaded<PoolSourceRows[E]>
   related?(entity: string, id: string, name: string): readonly string[]
   dispose(): void
@@ -63,6 +66,7 @@ export function defineSource<Args extends [unknown?, unknown?], Row>(definition:
 /** One registry per existing pool; it owns read-side sources, never mutations.
  * Registration is atomic and a source is disposed once even with many kinds. */
 export class PoolSources {
+  constructor(private readonly pool?: MobxPool) {}
   private readonly byEntity = observable.map<SourceEntity, PoolSource<SourceEntity>>(undefined, { deep: false })
   private readonly views = new Map<string, object>()
   private readonly owners = new Map<SourceEntity, string>()
@@ -110,6 +114,7 @@ export class PoolSources {
       throw new Error('Pool source registration conflicts with its owner')
     }
     runInAction(() => {
+      if (this.pool) source.attach?.(this.pool)
       for (const entity of entities) this.byEntity.set(entity, source as PoolSource<SourceEntity>)
     })
   }

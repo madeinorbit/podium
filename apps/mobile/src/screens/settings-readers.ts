@@ -50,7 +50,7 @@ function machineReaders(pool: MobxPool) {
       ids(null).slice(0, 12),
     )
     const flags = keyedComputed('phone.settings.machineFlags', (id: string) => {
-      const row = omitGone(pool.row('settingsMachine', id))
+      const row = omitGone(pool.model('machine', id))
       if (!loaded(row)) return -1
       const view = visibleFleetOperations({ machines: [row], hosts: [] }).machines[0]!
       return (UPDATE_STATES.indexOf(view.updateState) << 1) | Number(view.online)
@@ -91,7 +91,7 @@ function machineReaders(pool: MobxPool) {
     const status = keyedComputed(
       'phone.settings.machineStatus',
       (id: string): SettingsMachineStatus | null => {
-        const row = omitGone(pool.row('settingsMachine', id))
+        const row = omitGone(pool.model('machine', id))
         if (!loaded(row)) return null
         const view = visibleFleetOperations({ machines: [row], hosts: [] }).machines[0]!
         const { name, online, statusLabel, updateChannel, updateLabel } = view

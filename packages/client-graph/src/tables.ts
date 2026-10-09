@@ -233,7 +233,6 @@ export function drop(target: IngestTarget, entity: EntityName, id: string, out: 
 
 /** Apply one feed record. */
 export function ingestRecord(target: IngestTarget, record: RowRecord, out: IngestOut): void {
-  if (record.kind === 'machine') return
   const value = record.value as StoredRow | undefined
   if (record.kind === 'repo') {
     if (value) {

@@ -25,6 +25,7 @@ type Entry = {
  * named row and window demand never installs the other discovery payloads.
  * Observed rows follow their keys, and release their channel on unmount. */
 export class SettingsSource {
+  private stopMachines: (() => void) | undefined
   private readonly rows = new Map<string, Entry>()
   private readonly atoms = createDemandAtoms<string>((key) => `settingsSource.${key}`, {
     onObserved: (key) => {
@@ -51,7 +52,19 @@ export class SettingsSource {
   })
   private get disposed(): boolean { return this.source.disposed }
 
-  constructor(private readonly owner: SettingsOwner) {}
+  constructor(private readonly owner: SettingsOwner, private readonly followMachines = true) {}
+
+  /** A settings-only host has no header attachment to supply live machine
+   * detail. Feed it through the same applying path and generic table. */
+  attach(pool: MobxPool): void {
+    if (!this.followMachines || this.stopMachines) return
+    const install = (change?: KeyedListChange) => {
+      const ids = change === undefined ? this.owner.listIds('machines') : [...change.ids]
+      pool.ingestLiveMachines(ids.map(id => ({ id, value: this.owner.listRow('machines', id) })))
+    }
+    install()
+    this.stopMachines = this.owner.onList('machines', install)
+  }
 
   read(entity: SettingsEntity, id: string): Reading {
     return this.source.read(entity, id) as Reading
@@ -168,6 +181,8 @@ export class SettingsSource {
   }
 
   private release(): void {
+    this.stopMachines?.()
+    this.stopMachines = undefined
     const entries = [...this.rows.values()]
     const atoms = [...this.atoms.values()]
     for (const entry of entries) {
@@ -187,6 +202,6 @@ export class SettingsSource {
 }
 
 /** Settings owns its source declaration and factory; the pool only registers it. */
-export function attachSettingsSource(pool: MobxPool, owner: SettingsOwner): void {
-  pool.sources.register(Object.keys(SETTINGS_SCHEMA).filter(isSettingsEntity), new SettingsSource(owner))
+export function attachSettingsSource(pool: MobxPool, owner: SettingsOwner, followMachines = true): void {
+  pool.sources.register(Object.keys(SETTINGS_SCHEMA).filter(isSettingsEntity), new SettingsSource(owner, followMachines))
 }

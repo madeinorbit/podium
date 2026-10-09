@@ -353,7 +353,7 @@ export function createRuntimeWorklistPool(
       }
       // The shared row-source seam exposes only its repo inputs. The provider
       // runtime also owns the catalog/window fields checked above.
-      attachSettingsSource(handle.pool, runtime as WorklistRuntime & SettingsOwner)
+      attachSettingsSource(handle.pool, runtime as WorklistRuntime & SettingsOwner, !options.header)
     }
     if (options.header)
       stopHeader = attachHeaderSource(

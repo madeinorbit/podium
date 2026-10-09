@@ -1,4 +1,5 @@
 import type { MobxPool } from './pool'
+import type { PoolTables } from './tables'
 import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
 import { compareStructural, computed, observable, runInAction } from 'mobx'
 import { debugName } from './debug-name'
@@ -24,14 +25,14 @@ interface OfflineMachine {
 
 /** Storage and metadata-driven edges owned by MobxPool, never a second runtime
  * or feed. Product reads call pool.row; get is the pool reader's storage seam. */
-export function createHeaderEntities() {
+export function createHeaderEntities(shared?: Pick<PoolTables, 'machine'>) {
   // Approved applying-action indexes (POD-5542): these reverse lookups and
   // scalar totals avoid rebuilding all rows for each header question.
   const repositories = createHeaderRepositoryRelations()
   const tables = Object.fromEntries(
     Object.keys(HEADER_SCHEMA).map((entity) => [
       entity,
-      observable.map<string, object>(undefined, {
+      entity === 'machine' && shared ? shared.machine : observable.map<string, object>(undefined, {
         deep: false,
         name: debugName(() => `pool.${entity}`),
       }),
@@ -299,7 +300,7 @@ export function createHeaderEntities() {
 /** The screen registry owns creation and teardown of this view. */
 export function headerEntities(pool: MobxPool): ReturnType<typeof createHeaderEntities> & { dispose(): void } {
   return pool.sources.view('header.entities', () => {
-    const view = createHeaderEntities()
+    const view = createHeaderEntities(pool.tables)
     return Object.assign(view, { dispose: () => view.clear() })
   })
 }

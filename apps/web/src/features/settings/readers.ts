@@ -26,7 +26,7 @@ function readCatalog(pool: MobxPool): Pick<Store, 'machines' | 'repos'> {
   if (!loaded(catalog)) return EMPTY_CATALOG
   return {
     machines: catalog.machines.flatMap((id) => {
-      const row = omitGone(pool.row('settingsMachine', id))
+      const row = omitGone(pool.model('machine', id))
       return loaded(row) ? [row] : []
     }),
     repos: catalog.repositories.flatMap((id) => {
@@ -49,11 +49,11 @@ function machineReaders(pool: MobxPool) {
       return loaded(catalog) ? catalog.machines : EMPTY_MACHINE_IDS
     })
     const override = keyedComputed('settings.machineChannel', (id: string) => {
-      const row = omitGone(pool.row('settingsMachine', id))
+      const row = omitGone(pool.model('machine', id))
       return loaded(row) ? (row.updateChannelOverride ?? null) : null
     })
     const version = keyedComputed('settings.machineTarget', (id: string) => {
-      const row = omitGone(pool.row('settingsMachine', id))
+      const row = omitGone(pool.model('machine', id))
       return loaded(row) ? (row.targetVersion ?? null) : null
     })
     const targets = keyedComputed('settings.channelTargets', (channel: string | null) => {
@@ -84,7 +84,7 @@ export function useSettingsMachineIds(): readonly string[] {
 export function useSettingsMachine(id: string): Store['machines'][number] | null {
   const read = useCallback(
     (pool: MobxPool) => {
-      const row = omitGone(pool.row('settingsMachine', id))
+      const row = omitGone(pool.model('machine', id))
       return loaded(row) ? row : null
     },
     [id],

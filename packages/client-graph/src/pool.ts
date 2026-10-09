@@ -92,6 +92,7 @@ import {
   type SessionModel,
 } from './models'
 import type { PreferenceRow } from './preference-schema'
+import type { AutomationRunWire, AutomationWire, MachineProjection, MachineWire } from '@podium/model'
 import { preferenceSource } from './preference-source'
 import { ReaderQueries } from './reader-queries'
 import { type Lookup, here, omitGone, isGone, NOT_VISIBLE, REMOVED } from './lookup'
@@ -228,6 +229,9 @@ export type AbsentRead = 'load' | 'mark' | 'peek' | 'summary' | 'summary-fields'
 export type Residence = 'resident' | 'loading' | 'absent'
 
 export interface PoolRows {
+  machine: Readonly<MachineWire & MachineProjection> & Readonly<Record<string, unknown>>
+  automation: Readonly<AutomationWire> & Readonly<Record<string, unknown>>
+  automationRun: Readonly<AutomationRunWire> & Readonly<Record<string, unknown>>
   issue: SliceIssue & Readonly<Record<string, unknown>>
   session: SliceSession & Readonly<Record<string, unknown>>
   worktree: SliceWorktree & Readonly<Record<string, unknown>>
@@ -247,7 +251,7 @@ export class MobxPool {
   private readonly sessionFactsIndex: IssueSessionFactsIndex | undefined
   /** Each summarised issue's explicit seats, judged per seat change (POD-5423). */
   private readonly seatVerdicts: SeatVerdicts
-  readonly sources = new PoolSources()
+  readonly sources = new PoolSources(this)
   /** The index's `positionVersion` the settings rows last saw. */
   private positionsSeen = -1
   /** Only demanded positions are retained; the cold index owns the values. */
@@ -596,7 +600,7 @@ export class MobxPool {
     absent: AbsentRead = 'load',
   ): Lookup<object> {
     if (entity === 'setupSession') return readSetupSession(this, id) ?? NOT_VISIBLE
-    if (isHeaderEntity(entity)) return headerEntities(this).get(entity, id) ?? NOT_VISIBLE
+    if (isHeaderEntity(entity) && entity !== 'machine') return headerEntities(this).get(entity, id) ?? NOT_VISIBLE
     if (!Object.hasOwn(this.tables, entity)) return this.sources.read(entity as SourceEntity, id) ?? NOT_VISIBLE
     const core = entity as EntityName
     if (core === 'repo') {
@@ -830,7 +834,10 @@ export class MobxPool {
       if (!companion) return record
       return { ...record, value: { ...companion, ...(record.value as Record<string, unknown>) } }
     })
-    headerEntities(this).apply(merged as never)
+    runInAction(() => {
+      headerEntities(this).apply(merged as never)
+      for (const record of records) if (record.value === undefined) this.release('machine', record.id)
+    })
   }
 
   /**
@@ -1012,6 +1019,12 @@ export class MobxPool {
         }
       })
       if (mergedMachineRows.length) headerEntities(this).apply(mergedMachineRows as never)
+      // Header indexes and the models share the generic machine table. Reseed
+      // and update must retain the merged row the applying path just installed.
+      const mergedById = new Map(mergedMachineRows.map(record => [record.id, record]))
+      const tableRows = machineRows.length
+        ? event.rows.map(record => record.kind === 'machine' ? mergedById.get(record.id)! : record)
+        : event.rows
       this.queries.beginPublication(event)
       this.ownIndex?.apply(event)
       const index = this.coldIndex()
@@ -1021,7 +1034,7 @@ export class MobxPool {
       this.indexSeen = index
       if (event.type === 'replace') {
         referenceViewIfPresent(this)?.resetUnresolved()
-        reseed(this.target, event.rows, out, this.ownIndex === undefined)
+        reseed(this.target, tableRows, out, this.ownIndex === undefined)
         this.graph.reset()
         this.reseatAll()
         this.seatVerdicts.reset()
@@ -1037,7 +1050,7 @@ export class MobxPool {
         // POD-4753: a row this update carries is installed from it; any
         // other row it warms is asked for (the load window).
         this.residency?.publication(event.rows)
-        for (const record of event.rows) ingestRecord(this.target, record, out)
+        for (const record of tableRows) ingestRecord(this.target, record, out)
         const delta = index.changes(event)
         // POD-4745: a row the rule no longer keeps cold is warmed, once every
         // row of the update is in.
@@ -1075,6 +1088,7 @@ export class MobxPool {
       sidebarRosterView(this).flush()
       this.seatVerdicts.flush()
       this.queries.publish(event)
+      for (const record of machineRows) if (record.value === undefined) this.release('machine', record.id)
       if (phases.length || event.type === 'replace') this.sessionPhaseChanges.set(phases)
     })
     for (const [entity, id] of out.removed) this.release(entity, id)

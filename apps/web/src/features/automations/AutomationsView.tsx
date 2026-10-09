@@ -3,7 +3,7 @@ import type { AutomationRunWire, AutomationWire } from '@podium/model/browser'
 import { Plus } from 'lucide-react'
 import type { JSX } from 'react'
 import { useState } from 'react'
-import { useAutomationList } from '@/app/automation-readers'
+import { useAutomation, useAutomationList } from '@/app/automation-readers'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { NewAutomationDialog } from './NewAutomationDialog'
@@ -18,7 +18,8 @@ export function AutomationsView(): JSX.Element {
   const trpc = useStoreHandle<Trpc>().access.trpc
   const { automations, pending } = useAutomationList()
   const [error, setError] = useState('')
-  const [dialogAutomation, setDialogAutomation] = useState<Automation | null | undefined>()
+  const [dialogAutomationId, setDialogAutomationId] = useState<string | null | undefined>()
+  const dialogAutomation = useAutomation(dialogAutomationId)
 
   return (
     <section className="flex min-w-0 flex-1 flex-col overflow-hidden" aria-label="Automations">
@@ -29,7 +30,7 @@ export function AutomationsView(): JSX.Element {
             Notification triggers and recurring agent tasks for your repos.
           </p>
         </div>
-        <Button type="button" size="sm" onClick={() => setDialogAutomation(null)}>
+        <Button type="button" size="sm" onClick={() => setDialogAutomationId(null)}>
           <Plus size={14} aria-hidden="true" /> New automation
         </Button>
       </div>
@@ -44,18 +45,18 @@ export function AutomationsView(): JSX.Element {
             automations={automations}
             loading={pending > 0}
             error={error}
-            onEdit={setDialogAutomation}
+            onEdit={(automation) => setDialogAutomationId(automation.id)}
             onError={setError}
           />
         </div>
       </div>
 
-      {dialogAutomation !== undefined && (
+      {(dialogAutomationId === null || dialogAutomation) && (
         <NewAutomationDialog
           trpc={trpc}
-          automation={dialogAutomation}
-          onClose={() => setDialogAutomation(undefined)}
-          onSaved={() => setDialogAutomation(undefined)}
+          automation={dialogAutomation ?? null}
+          onClose={() => setDialogAutomationId(undefined)}
+          onSaved={() => setDialogAutomationId(undefined)}
         />
       )}
     </section>

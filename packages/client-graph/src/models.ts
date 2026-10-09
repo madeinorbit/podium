@@ -1,6 +1,6 @@
 import { type Lookup, omitGone, isGone } from './lookup'
 import { issuePendingDecision, type IssueNavigationModel } from '@podium/client-core/values'
-import type { IssueGitState, IssueProjection } from '@podium/model'
+import type { AutomationRunWire, AutomationWire, IssueGitState, IssueProjection, MachineProjection, MachineWire } from '@podium/model'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -1005,6 +1005,27 @@ class RepoModel extends EntityModel {
   }
 }
 
+/** Stored identity, presence, execution and update fields are schema-installed. */
+export class MachineModel extends EntityModel {
+  declare readonly id: MachineWire['id']
+  constructor(id: string, host: ModelHost) { super('machine', id, host) }
+}
+export interface MachineModel extends Readonly<MachineWire>, Readonly<MachineProjection> {}
+
+/** Stored target, schedule and agent instruction fields are schema-installed. */
+export class AutomationModel extends EntityModel {
+  declare readonly id: AutomationWire['id']
+  constructor(id: string, host: ModelHost) { super('automation', id, host) }
+}
+export interface AutomationModel extends Readonly<AutomationWire> {}
+
+/** Stored occurrence and link fields are schema-installed. */
+export class AutomationRunModel extends EntityModel {
+  declare readonly id: AutomationRunWire['id']
+  constructor(id: string, host: ModelHost) { super('automationRun', id, host) }
+}
+export interface AutomationRunModel extends Readonly<AutomationRunWire> {}
+
 /**
  * The issue's editable fields as setters take them (`issue.stage = 'review'`).
  * `title` reads and edits the stored title; a worklist row derives its own label.
@@ -1033,6 +1054,9 @@ export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority'>>,
 }
 
 export type ModelOf = {
+  machine: MachineModel
+  automation: AutomationModel
+  automationRun: AutomationRunModel
   issue: IssueModel &
     Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'notes'>> &
     IssueEdits &
@@ -1052,6 +1076,9 @@ export const MODEL_CLASSES: {
   ) => EntityModel) &
     Pick<typeof EntityModel, 'answers'>
 } = {
+  machine: MachineModel,
+  automation: AutomationModel,
+  automationRun: AutomationRunModel,
   issue: IssueModel,
   session: SessionModel,
   worktree: WorktreeModel,

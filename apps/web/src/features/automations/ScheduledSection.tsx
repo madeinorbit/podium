@@ -161,7 +161,7 @@ export function ScheduledSection({
   )
 }
 
-function AutomationCard({
+const AutomationCard = observer(function AutomationCard({
   automation: a,
   busy,
   onEdit,
@@ -274,7 +274,7 @@ function AutomationCard({
       {expanded && <RunHistory automation={a} />}
     </div>
   )
-}
+})
 
 /** The open history section: it owns its request, dropped when it collapses. */
 const RunHistory = observer(function RunHistory({
@@ -336,7 +336,7 @@ const RunHistory = observer(function RunHistory({
 })
 
 /** One run: what happened, when, and — for a spawn — the session it produced. */
-function RunRow({ run }: { run: AutomationRun }): JSX.Element {
+const RunRow = observer(function RunRow({ run }: { run: AutomationRun }): JSX.Element {
   const navigateToSession = useStoreHandle<Trpc>().access.navigateToSession
   // Only a session that still exists can be opened — a deleted one leaves the run
   // row intact (the history is the truth about what happened, not about what lives).
@@ -364,7 +364,7 @@ function RunRow({ run }: { run: AutomationRun }): JSX.Element {
       )}
     </li>
   )
-}
+})
 
 function RunOutcomeIcon({ outcome }: { outcome: AutomationRun['outcome'] }): JSX.Element {
   if (outcome === 'spawned')

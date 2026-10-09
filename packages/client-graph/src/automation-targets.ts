@@ -57,12 +57,12 @@ export function createAutomationTargets(pool: MobxPool) {
   const scoped = () => memo('targetsScoped', () => {
     const rows = catalog()
     return !!rows && rows !== LOADING && rows.machines.some(id => {
-      const row = omitGone(pool.row('settingsMachine', id))
+      const row = omitGone(pool.model('machine', id))
       return !!row && row !== LOADING && row.use !== undefined
     })
   })
   const machineState = (id: string) => memo(`targetMachineState:${id}`, (): TargetAvailability | typeof LOADING => {
-    const machine = omitGone(pool.row('settingsMachine', id))
+    const machine = omitGone(pool.model('machine', id))
     if (machine === LOADING) return LOADING
     if (!machine || scoped() && machine.use !== 'granted') return 'unauthorized'
     if (structuralRejection(machine) === 'no-daemon') return 'incapable'
@@ -164,7 +164,7 @@ export function createAutomationTargets(pool: MobxPool) {
       }
       const rows = catalog()
       if (rows && rows !== LOADING) for (const id of rows.machines)
-        if (omitGone(pool.row('settingsMachine', id)) === LOADING) pending++
+        if (omitGone(pool.model('machine', id)) === LOADING) pending++
       const global = fixedQuery(null).get()
       const saved = currentPath === null ? undefined : fixedQuery(currentPath).get()
       const ids = choices === LOADING || global === LOADING || saved === LOADING ? EMPTY_IDS
