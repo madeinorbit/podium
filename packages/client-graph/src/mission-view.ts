@@ -392,7 +392,8 @@ export class MissionDeckIssueModel implements FlightDeckRow {
     const row = this.canonical
     return mode === 'full' ? row.crewIds : mode === 'working' ? row.workingSessionIds : row.askingSessionIds
   }
-  @lazy get depth() { return this.path ? this.path.length - 1 : this.deck.depth(this.id) }
+  // A placement's path is immutable; canonical depth reads tracked topology.
+  get depth() { return this.path ? this.path.length - 1 : this.deck.depth(this.id) }
   @lazy get matched() { return this.matches(this.deck.mode) }
   @lazy get matchesWorking() { return matchedWorking(this) }
   @lazy get matchesNeedsYou() { return matchedNeedsYou(this) }
