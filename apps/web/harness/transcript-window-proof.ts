@@ -1,6 +1,6 @@
 /** Matched production builds and attached-DOM/heap/scroll evidence, flatblock only. */
 import { chromium } from '@playwright/test'
-import { execFileSync } from 'node:child_process'
+import { execFileSync, spawn } from 'node:child_process'
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { createServer } from 'node:http'
 import { hostname } from 'node:os'
@@ -33,7 +33,18 @@ const server = createServer(async (req, res) => {
   } catch { res.writeHead(404); res.end() }
 })
 await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
-const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'], env: { ...process.env, LD_LIBRARY_PATH: resolve('.toolchain/lib') } })
+const nativeTools = resolve('.toolchain/native-find')
+const nativeEnv = { ...process.env, LD_LIBRARY_PATH: `${nativeTools}/usr/lib/x86_64-linux-gnu:${resolve('.toolchain/lib')}` }
+const displayServer = spawn(`${nativeTools}/usr/bin/Xvfb`, ['-displayfd', '1', '-screen', '0', '1920x1080x24', '-nolisten', 'tcp', '-ac', '-xkbdir', `${nativeTools}/usr/share/X11/xkb`], { env: nativeEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+displayServer.stderr.on('data', data => process.stderr.write(data))
+const display = await new Promise<string>((done, reject) => {
+  displayServer.stdout.once('data', data => done(`:${String(data).trim()}`))
+  displayServer.once('exit', code => reject(new Error(`Xvfb exited ${code}`)))
+  displayServer.once('error', reject)
+})
+nativeEnv.DISPLAY = display
+const browser = await chromium.launch({ headless: false, executablePath: resolve(process.env.HOME!, '.cache/ms-playwright/chromium-1243/chrome-linux64/chrome'), args: ['--no-sandbox'], env: nativeEnv }).catch(error => { displayServer.kill(); throw error })
+const nativeKey = (id: string, ...keys: string[]) => execFileSync(`${nativeTools}/usr/bin/xdotool`, ['key', '--window', id, '--clearmodifiers', ...keys], { env: nativeEnv })
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 }, reducedMotion: 'reduce' })
   const errors: string[] = []; page.on('pageerror', error => { errors.push(error.message); console.log('Page error:', error.message) })
@@ -82,33 +93,6 @@ try {
   await page.mouse.move(feedBox.x + feedBox.width / 2, feedBox.y + feedBox.height / 2)
   await page.mouse.wheel(0, 1600)
   await page.waitForTimeout(100)
-  if (process.argv.includes('--debug')) {
-    if (process.argv.includes('--geometry')) {
-    const geometry = await page.evaluate(async () => {
-      const before = [...document.querySelectorAll<HTMLElement>('[data-transcript-row]')].map(node => ({ key: node.dataset.transcriptRow, height: node.getBoundingClientRect().height, placeholder: node.hasAttribute('data-transcript-placeholder') }))
-      document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }))
-      const range = document.createRange(); range.selectNodeContents(document.querySelector('[data-feed-scroller]')!); document.getSelection()!.addRange(range)
-      await new Promise(done => setTimeout(done, 100))
-      const shells = new Map([...document.querySelectorAll<HTMLElement>('[data-transcript-row]')].map(node => [node.dataset.transcriptRow, node]))
-      return { height: document.querySelector<HTMLElement>('[data-feed-scroller]')!.scrollHeight, changes: before.flatMap(old => {
-        const node = shells.get(old.key)!
-        const height = node.getBoundingClientRect().height
-        return Math.abs(old.height - height) > 0.01 ? [{ ...old, actual: height, text: node.innerText.slice(0, 100) }] : []
-      }) }
-    })
-    await writeFile(resolve(directory, 'geometry-debug.json'), JSON.stringify(geometry, null, 2))
-    await page.evaluate(() => { document.getSelection()!.removeAllRanges(); document.dispatchEvent(new Event('selectionchange')) })
-    await page.waitForTimeout(100)
-    }
-    await page.evaluate(() => {
-      const events: any[] = []; (window as any).__findDebug = events
-      const sample = (event: string) => { const s = document.getSelection(); const p = s?.anchorNode?.parentElement; events.push({ event, text: s?.toString(), anchor: p?.outerHTML.slice(0, 150), row: p?.closest<HTMLElement>('[data-transcript-row]')?.dataset.transcriptRow }) }
-      document.addEventListener('selectionchange', () => sample('selectionchange'))
-      document.querySelector('[data-feed-scroller]')!.addEventListener('scroll', () => sample('scroll'))
-      new MutationObserver(() => sample('mutation')).observe(document.querySelector('[data-feed-scroller]')!, { childList: true, subtree: true })
-      ;(window as any).__findDebugSample = sample
-    })
-  }
   const wheel = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
   const selected = await page.evaluate(() => {
     const el = document.querySelector('[data-feed-scroller]')!
@@ -129,24 +113,23 @@ try {
   if (!selected || copied !== selected) throw new Error('Selection/copy changed when its rows left the viewport')
   await page.evaluate(() => document.getSelection()!.removeAllRanges())
   await page.waitForTimeout(100)
-  // window.find invokes Chromium's native find-in-page algorithm, including
-  // hidden-until-found/beforematch; it does not call the app's reveal handler.
+  // Drive the browser's real Find bar. window.find omits beforematch in Blink.
   await page.evaluate(() => { (window as any).__nativeFindEvents = 0; document.addEventListener('beforematch', () => (window as any).__nativeFindEvents++, true) })
-  const found = await page.evaluate(() => (window as any).find('native-needle-4000', false, false, true))
-  if (process.argv.includes('--debug')) await page.evaluate(() => (window as any).__findDebugSample('returned'))
-  await page.waitForTimeout(100)
-  if (process.argv.includes('--debug')) await writeFile(resolve(directory, 'find-debug.json'), JSON.stringify(await page.evaluate(() => (window as any).__findDebug), null, 2))
+  const windowId = execFileSync(`${nativeTools}/usr/bin/xdotool`, ['search', '--onlyvisible', '--class', 'chrom(e|ium)'], { env: nativeEnv, encoding: 'utf8' }).trim().split('\n')[0]!
+  execFileSync(`${nativeTools}/usr/bin/xdotool`, ['windowfocus', '--sync', windowId], { env: nativeEnv })
+  nativeKey(windowId, 'ctrl+f')
+  execFileSync(`${nativeTools}/usr/bin/xdotool`, ['type', '--window', windowId, '--clearmodifiers', '--delay', '0', 'native-needle-4000'], { env: nativeEnv })
+  await page.waitForTimeout(300)
   const nativeFind = await page.evaluate(() => ({ selection: document.getSelection()?.toString(), beforematch: (window as any).__nativeFindEvents, stats: (window as any).__transcriptWindowProof.stats() }))
-  console.log(JSON.stringify({ nativeFindResult: found, nativeFind }))
-  await writeFile(resolve(directory, 'native-find.json'), JSON.stringify({ found, nativeFind }, null, 2))
-  if (!found || nativeFind.selection !== 'native-needle-4000') throw new Error('Native Find lost its matched range')
-  // Chromium window.find commits a range without guaranteeing a scroll in
-  // the unwindowed baseline. Exercise the browser's reveal of that range too.
-  await page.evaluate(() => document.getSelection()?.anchorNode?.parentElement?.scrollIntoView({ block: 'center' }))
-  await page.waitForTimeout(100)
-  const nativeReveal = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
-  if (!nativeReveal.text.some((text: string) => text.includes('native-needle-4000'))) throw new Error('Native Find range reveal failed')
+  console.log(JSON.stringify({ nativeFind }))
+  await writeFile(resolve(directory, 'native-find.json'), JSON.stringify(nativeFind, null, 2))
+  if (!nativeFind.stats.text.some((text: string) => text.includes('native-needle-4000'))) throw new Error('Native Find did not reveal its off-window match')
+  if (arm === 'after' && !nativeFind.beforematch) throw new Error('Native Find did not exercise beforematch')
   await page.screenshot({ path: resolve(directory, 'find.png') })
+  nativeKey(windowId, 'Escape')
+  await page.waitForTimeout(100)
+  const nativeReveal = await page.evaluate(() => ({ ...((window as any).__transcriptWindowProof.stats()), selection: document.getSelection()?.toString() }))
+  if (nativeReveal.selection !== 'native-needle-4000') throw new Error('Native Find lost its range when the bar closed')
   await page.evaluate(() => document.getSelection()!.removeAllRanges())
   await page.evaluate(() => (window as any).__transcriptWindowProof.jump(4000))
   await page.waitForTimeout(100)
@@ -155,4 +138,4 @@ try {
   await writeFile(resolve(directory, 'report.json'), JSON.stringify(report, null, 2))
   console.log(JSON.stringify({ arm, samples: samples.map(({ loaded, elements, drawn, heapUsed }) => ({ loaded, elements, drawn, heapUsed })), blankFrames: fastScroll.filter(sample => sample.visible === 0).length, jump: { key: jump.key, offset: jump.offset }, errors }))
   if (errors.length || fastScroll.some(sample => sample.visible === 0)) throw new Error('Production scroll proof failed')
-} finally { await browser.close(); await new Promise<void>(done => server.close(() => done())) }
+} finally { await browser.close(); displayServer.kill(); await new Promise<void>(done => server.close(() => done())) }
