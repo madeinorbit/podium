@@ -81,16 +81,19 @@ const FINISHED = makeIssue({
 // than the mock below.
 vi.mock('@/lib/use-model-catalog', () => ({ useModelCatalog: () => ({}) }))
 
+// A provider retains one API object; history view dependencies do too.
+const trpc = {
+  issues: {
+    comments: { query: vi.fn(async () => []) },
+    events: { query: vi.fn(async () => []) },
+    mail: { query: vi.fn(async () => []) },
+  },
+}
+
 vi.mock('@/app/store', () => {
   const state = () =>
     ({
-      trpc: {
-        issues: {
-          comments: { query: vi.fn(async () => []) },
-          events: { query: vi.fn(async () => []) },
-          mail: { query: vi.fn(async () => []) },
-        },
-      },
+      trpc,
       httpOrigin: '',
       openFileInWorktree: vi.fn(),
       uiState: { get: () => null, set: vi.fn() },
