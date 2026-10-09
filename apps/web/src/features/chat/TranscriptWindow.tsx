@@ -15,6 +15,7 @@ interface Entry {
   publish: (mounted: boolean) => void
   finding: boolean
   revealing: boolean
+  operator: boolean
 }
 interface TranscriptWindow {
   register: (key: string, entry: Entry) => () => void
@@ -25,10 +26,13 @@ interface TranscriptWindow {
 export function useTranscriptWindow(
   keys: readonly string[],
   scrollRef: RefObject<HTMLDivElement | null>,
+  layoutKey = '',
 ): TranscriptWindow {
   const entries = useRef(new Map<string, Entry>())
   const ordered = useRef<readonly string[]>(keys)
   const mounted = useRef(new Set<string>())
+  const operators = useRef<readonly string[]>([])
+  const previousLayoutKey = useRef(layoutKey)
   const frame = useRef<number | null>(null)
   const selectingAll = useRef(false)
   const armingSelectAll = useRef(false)
@@ -65,8 +69,17 @@ export function useTranscriptWindow(
     const range = selection && !selection.isCollapsed && selection.rangeCount ? selection.getRangeAt(0) : null
     if (!range && !armingSelectAll.current) selectingAll.current = false
     if (selectingAll.current) for (const key of list) next.add(key)
-    let previousPrompt: string | undefined
-    let previousPromptTop = -Infinity
+    // The shelf needs the preceding prompt even across a scrollbar jump into
+    // a long turn. Prompt shells are ordered and measured like every other row.
+    let low = 0, high = operators.current.length
+    while (low < high) {
+      const mid = (low + high) >>> 1
+      const node = entries.current.get(operators.current[mid]!)?.node
+      if (node && node.getBoundingClientRect().bottom < viewport.top + 6) low = mid + 1
+      else high = mid
+    }
+    const prompt = operators.current[low - 1]
+    if (prompt) next.add(prompt)
     for (const key of mounted.current) {
       const entry = entries.current.get(key)
       if (!entry) continue
@@ -76,14 +89,7 @@ export function useTranscriptWindow(
       if (range?.intersectsNode(node) || node.contains(scroll.ownerDocument.activeElement) ||
           node.querySelector('[aria-expanded="true"], [data-open="true"], dialog[open], details[open]') ||
           [...node.querySelectorAll('img')].some(image => !image.complete)) next.add(key)
-      const prompt = node.querySelector<HTMLElement>('[data-operator-prompt="true"][data-pinnable="true"]')
-      const top = prompt?.getBoundingClientRect().bottom
-      if (top !== undefined && top < viewport.top + 6 && top > previousPromptTop) {
-        previousPrompt = key
-        previousPromptTop = top
-      }
     }
-    if (previousPrompt && entries.current.has(previousPrompt)) next.add(previousPrompt)
     // A selection may span shells, including a Select All from the browser's
     // menu. Materialise the complete selected interval before native Copy.
     if (range?.intersectsNode(scroll)) {
@@ -120,6 +126,18 @@ export function useTranscriptWindow(
   }, [refresh])
   useLayoutEffect(() => {
     ordered.current = keys
+    operators.current = keys.filter(key => entries.current.get(key)?.operator)
+    if (previousLayoutKey.current !== layoutKey) {
+      previousLayoutKey.current = layoutKey
+      for (const [key, entry] of entries.current) {
+        entry.height = 0
+        entry.mounted = true
+        mounted.current.add(key)
+        entry.publish(true)
+      }
+      schedule()
+      return
+    }
     // New page rows are measured once before paint, then immediately reduced
     // to the viewport buffer. Existing shell/row identities survive prepends.
     for (const key of mounted.current) {
@@ -127,7 +145,7 @@ export function useTranscriptWindow(
       if (entry) entry.height = entry.node.getBoundingClientRect().height
     }
     refresh()
-  }, [keys, refresh])
+  }, [keys, refresh, layoutKey, schedule])
   useLayoutEffect(() => {
     const scroll = scrollRef.current
     if (!scroll) return
@@ -219,7 +237,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
   const remounted = useRef(false)
   if (mounted && !wasMounted.current) remounted.current = true
   useLayoutEffect(() => {
-    const value: Entry = { node: ref.current!, mounted: true, height: 0, text: '', publish: setMounted, finding: false, revealing: false }
+    const value: Entry = { node: ref.current!, mounted: true, height: 0, text: '', publish: setMounted, finding: false, revealing: false, operator: Boolean(ref.current!.querySelector('[data-operator-prompt="true"]')) }
     entry.current = value
     return windowing.register(rowKey, value)
   }, [rowKey, windowing])

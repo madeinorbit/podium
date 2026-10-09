@@ -381,7 +381,7 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
     return setScrollerRef(element)
   }, [setScrollerRef])
   const windowKeys = useMemo(() => rows.map(({ row }) => rowIdentity(row)), [rows])
-  const windowing = useTranscriptWindow(windowKeys, windowScroller)
+  const windowing = useTranscriptWindow(windowKeys, windowScroller, `${compact}:${expandRuns}:${collapseContext}:${stickyEnabled}`)
   const searchMatches = useMemo(() => new Set(search.matches), [search.matches])
   // Recomputed with the rows rather than on a clock: "Today" only goes stale at
   // midnight, and by the time it does the next row to land refreshes it.
