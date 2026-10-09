@@ -726,7 +726,7 @@
       "file": "apps/mobile/src/components/MissionDeck.tsx",
       "holder": "MissionDeck/MissionDeck",
       "rule": "consume:map",
-      "tokens": "af2abfe7b708196c1d24c98a1a1b963a8649242577fb55b833ec7151fbc46407",
+      "tokens": "f4de69201c1589166e9166f564d96cea741968354ae9ae639cd9d687a27def33",
       "gate": [
         "then:bb16e8893e1f6d243ea256f4f6e367f3730d365e4e71bc793141c2b766373761"
       ],
@@ -734,13 +734,13 @@
         "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
         "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
       ],
-      "fingerprint": "0a9034d37fb2f6e7cb4de42b38d69081fdd3dfd64e8ad4b547999132f9e9a82b",
+      "fingerprint": "7cda97a1d5054bc2a33cb6647a5a12f2da64580ccf9f4f7852570223f970bbb9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of MissionDeck/MissionDeck",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -766,7 +766,7 @@
     },
     {
       "file": "apps/mobile/src/components/MissionDeck.tsx",
-      "holder": "SpineRow",
+      "holder": "SpineRow/SpineRow",
       "rule": "consume:map",
       "tokens": "d28ae226a09dc5aca3549a385c06f654c3ae02d06f59e6f95be07c8f11d1e069",
       "gate": [],
@@ -774,18 +774,18 @@
         "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
         "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
       ],
-      "fingerprint": "9cb70099651a020de50ff8d70437912a0ccae5e783ee8f866da0e7d4c04b970b",
+      "fingerprint": "005ec9889c3d26d0c2202e68a6cab9c14410430dd0366c960f0c517719e0aafe",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of SpineRow",
+      "trigger": "Invocation of SpineRow/SpineRow",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/mobile/src/components/MissionDeck.tsx",
-      "holder": "SpineRow/bands",
+      "holder": "SpineRow/SpineRow/bands",
       "rule": "reader-summary",
       "tokens": "effca03bbdc9e53c6c25c6486a49353c0ea29b6e13a5f67cb991c1757b2f1366",
       "gate": [
@@ -795,18 +795,18 @@
         "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
         "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
       ],
-      "fingerprint": "7ff7b3e0fc54ca87aa6c9184f8d6e47319fac61aeed393f1da0902e92344e145",
+      "fingerprint": "43068d08dc597a85e1f017f6b4d002be342577905a9783ffb4cf78452cce09db",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of SpineRow/bands",
+      "trigger": "Invocation of SpineRow/SpineRow/bands",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/mobile/src/components/MissionDeck.tsx",
-      "holder": "SpineRow/selected",
+      "holder": "SpineRow/SpineRow/selected",
       "rule": "consume:some",
       "tokens": "4b002016058b912717835813af6ce6d31971a0f25a3abb9b7f7ccac5d065a6e0",
       "gate": [],
@@ -814,13 +814,13 @@
         "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
         "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
       ],
-      "fingerprint": "8e9d797131dc5d342ba2f066465ddab2a5247b6c370ab6504bdca003c7d9231f",
+      "fingerprint": "79b29a0e85e3289f52fd8e2b3ca4dec28aa85650416b6db3a8bf55307e9bbe44",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of SpineRow/selected",
+      "trigger": "Invocation of SpineRow/SpineRow/selected",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -2867,19 +2867,17 @@
       "holder": "FlightDeckContent/FlightDeckContent/addMissionAgent/callback",
       "rule": "helper-consumer",
       "tokens": "87367a788a816db00866aa307f1c4d91e7889e0a12b7417650b955bc123858ad",
-      "gate": [
-        "exit:then:0082e008c53345145bd2dde94872c8ed4ef99d535aa3a866c0ee64bcf0269f34"
-      ],
+      "gate": [],
       "origin": [
-        "d4481356193825eafd441154731229aeec2d65912e924cdc0ba01f74e392069f"
+        "98eadb64a1faa7ed23512a0d3e8d36cdbe56179ad8f9b305c6a465315dfba89f"
       ],
-      "fingerprint": "7dd2327d3bba2fd48abe288ac20b37508405efeddb82c9c986cbf7269353a292",
+      "fingerprint": "78ec31585a1cf0440711746904b71ba280d50da6cb472297ec8eeb8653922b17",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of FlightDeckContent/addMissionAgent/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -2887,40 +2885,18 @@
       "holder": "FlightDeckContent/FlightDeckContent/addMissionAgent/callback",
       "rule": "reader-summary",
       "tokens": "f890114edcd150d1625515b394af5387712441357460f5e2504c4a9cc126cda8",
-      "gate": [
-        "exit:then:0082e008c53345145bd2dde94872c8ed4ef99d535aa3a866c0ee64bcf0269f34"
-      ],
+      "gate": [],
       "origin": [
-        "d4481356193825eafd441154731229aeec2d65912e924cdc0ba01f74e392069f"
+        "98eadb64a1faa7ed23512a0d3e8d36cdbe56179ad8f9b305c6a465315dfba89f"
       ],
-      "fingerprint": "9004634db0021369202a9d162eaa045e2cdbbace2cb6125d90c512e9eb51a3a8",
+      "fingerprint": "666ceddb67c392b6297305d8f787f6ad8995a8a7f7f56affdaa2a96cc83987d5",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of FlightDeckContent/addMissionAgent/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeck.tsx",
-      "holder": "FlightDeckContent/FlightDeckContent/issues",
-      "rule": "zero-arg:issues",
-      "tokens": "fc105dd4e5bd47b76eec5ed2d11199c01f752189d243402d725f046c3275829d",
-      "gate": [
-        "then:227647da6703356f39f48b1c0923c38e86c3b7514c23ac2e76c0d3441b92df23"
-      ],
-      "origin": [
-        "4c3e6508993cc15f8e1a16c1cafaef08ab71d78c98e3a503ec7ad0f32712404e"
-      ],
-      "fingerprint": "e8918cfb75e294a3af289effba8f97680b9eb170d52e73bf7e7d364553440a1a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5575",
-      "trigger": "Observed FlightDeckContent/FlightDeckContent/issues",
-      "bound": "The explicit waterfall/handoff issue collection; no fixed cardinality cap is claimed.",
-      "reason": "Whole-list presentation remains explicit and separate from the bounded spine row path.",
-      "guard": "Exact fingerprint/multiplicity retained; FlightDeck.pool.test.tsx covers waterfall/handoff render parity."
     },
     {
       "file": "apps/web/src/app/FlightDeck.tsx",
@@ -3055,68 +3031,6 @@
       "guard": "apps/web/src/app/flight-deck-window.test.tsx and FlightDeck.pool.test.tsx (render parity)."
     },
     {
-      "file": "apps/web/src/app/FlightDeckHandoff.tsx",
-      "holder": "FlightDeckHandoff/returns",
-      "rule": "reader-summary",
-      "tokens": "bb057db8df472fa3230f9fd40fe4f619657f670f4e37ea0f002ad824f5a784dc",
-      "gate": [],
-      "origin": [
-        "997a565cc912513e42f4bc0cd3039a7a6cc60bf0fe1d8329f76ffdc2c73c38b7"
-      ],
-      "fingerprint": "8091b237c18b939dafc02c15c42fc40a49c9146fc4489485cd45e5d2ccad8dbb",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of FlightDeckHandoff/returns",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeckHandoff.tsx",
-      "holder": "useReviewReturns/useEffect:callback/worker/callback/count",
-      "rule": "helper-consumer",
-      "tokens": "14f1ea291130f125e1c97b78334e352f3cebab08b085089e7410b6950d23a730",
-      "gate": [
-        "exit:then:d482a8700d79a19a9d6fdca801f248a15c67580d5b6b777f7a7bb63f275b9dbe",
-        "loop:16ebdc8ea70aae6d45cd5c3b4ea1922fa62b6d758917eb8448113f0954601f2c",
-        "exit:then:f4756c0bf34c8698bca3afa864457a5271cd9b7f452affc1a8c9f60579a6c064"
-      ],
-      "origin": [
-        "997a565cc912513e42f4bc0cd3039a7a6cc60bf0fe1d8329f76ffdc2c73c38b7"
-      ],
-      "fingerprint": "81be25b76934dd3990fe9b205c0a6bdac3a988e38ebc6fb9992f7a6c08ad5f48",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useReviewReturns/useEffect:callback/worker/callback/count",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeckHandoff.tsx",
-      "holder": "useReviewReturns/useEffect:callback/worker/callback/issue",
-      "rule": "consume:find",
-      "tokens": "9b8b4a55a1d771e1fc7e4d52c1862882fdaef42d7e8d9392489420b1c1921403",
-      "gate": [
-        "exit:then:d482a8700d79a19a9d6fdca801f248a15c67580d5b6b777f7a7bb63f275b9dbe",
-        "loop:16ebdc8ea70aae6d45cd5c3b4ea1922fa62b6d758917eb8448113f0954601f2c",
-        "exit:then:f4756c0bf34c8698bca3afa864457a5271cd9b7f452affc1a8c9f60579a6c064"
-      ],
-      "origin": [
-        "0d521495b8168455516d333a5a91d683114af332e7bc38174a64aba4451a24d5"
-      ],
-      "fingerprint": "6bfc4fa9fe6273b13607ae9f08a3f0c705cf3ed681ccf8db05322269b7885fd1",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of useReviewReturns/useEffect:callback/worker/callback/issue",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:find carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "apps/web/src/app/FlightDeckPool.tsx",
       "holder": "PoolIssueContextMenu/ids",
       "rule": "consume:map",
@@ -3173,69 +3087,6 @@
     },
     {
       "file": "apps/web/src/app/FlightDeckRows.tsx",
-      "holder": "HungRows/HungRows",
-      "rule": "consume:map",
-      "tokens": "a9eac80c7d20d83a6283bcbe947f036151dc5b47a1d2d4620558788504513ece",
-      "gate": [
-        "exit:then:d482a8700d79a19a9d6fdca801f248a15c67580d5b6b777f7a7bb63f275b9dbe"
-      ],
-      "origin": [
-        "151a842bb26b09746f4be6e73abc3813fbe645814a2d3a2008e048202699b7ae"
-      ],
-      "fingerprint": "cd16daa4ef587a2065569d2c5c752a35312992ff7620026856c915683e575ccc",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-5575",
-      "trigger": "Observed HungRows/HungRows",
-      "bound": "One task roster of IDs; session presentation is read only after its virtual-list slot is in the viewport.",
-      "reason": "The observer reads mounted session rows by identity and emits searchable placeholders for the other slots.",
-      "guard": "apps/web/src/app/FlightDeck.pool.test.tsx and flight-deck-window.test.tsx; fixed visible-row mission work guard."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeckRows.tsx",
-      "holder": "HungRows/HungRows/ids",
-      "rule": "consume:map",
-      "tokens": "4e2032bfb4f587c6b59a1a603d2fd5cc48d6cf6cf03a974e8278f776fb49d313",
-      "gate": [
-        "??:e8dc133ae30cec6f7c23164aaf498271d30ed4129b98f4470fce9f3a239e9721"
-      ],
-      "origin": [
-        "151a842bb26b09746f4be6e73abc3813fbe645814a2d3a2008e048202699b7ae"
-      ],
-      "fingerprint": "1321b17c9c5c49e45f9f2189a0cb84a995d693b8ab0ee3d97562e6e76a49a361",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-5575",
-      "trigger": "Observed HungRows/HungRows/ids",
-      "bound": "One task roster of IDs; session presentation is read only after its virtual-list slot is in the viewport.",
-      "reason": "The observer reads mounted session rows by identity and emits searchable placeholders for the other slots.",
-      "guard": "apps/web/src/app/FlightDeck.pool.test.tsx and flight-deck-window.test.tsx; fixed visible-row mission work guard."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeckRows.tsx",
-      "holder": "HungRows/HungRows/map:callback/role",
-      "rule": "reader-summary",
-      "tokens": "1ccf38d59f87892e731fd3fbd5b7e0fe94cfb726484295493073d45f0e560b86",
-      "gate": [
-        "exit:then:d482a8700d79a19a9d6fdca801f248a15c67580d5b6b777f7a7bb63f275b9dbe",
-        "exit:then:a5e443e2919ebc57abe4ee22a25d1c61c6e3b01c7c1297f036811cc1773ef9d2",
-        "exit:then:af3f31ac09a111fcacab6ad6ce9fe2461daabbc6fb51e85e09983be873c5cd97",
-        "exit:then:2210a5b9bb5219549a0847f7700437d104ebfdfbb193bce630058ad0ecf9d9e6"
-      ],
-      "origin": [
-        "eaad457e36ec0a38d86f3e30506efe8b585c04441090a4278dedd9fa6735ac8e"
-      ],
-      "fingerprint": "10cd76cb8592b659e40aeccf40fde3a3449fc9411c14234734aee8d941e68200",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-5575",
-      "trigger": "Observed HungRows/HungRows/map:callback/role",
-      "bound": "One task roster of IDs; session presentation is read only after its virtual-list slot is in the viewport.",
-      "reason": "The observer reads mounted session rows by identity and emits searchable placeholders for the other slots.",
-      "guard": "apps/web/src/app/FlightDeck.pool.test.tsx and flight-deck-window.test.tsx; fixed visible-row mission work guard."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeckRows.tsx",
       "holder": "matchesQuery",
       "rule": "consume:some",
       "tokens": "4209e596de2c8b29057123a31ca0b90311391f395ae9525a87fdda26f34db1a0",
@@ -3252,30 +3103,6 @@
       "trigger": "Invocation of matchesQuery",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:some carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeckRows.tsx",
-      "holder": "TaskRow/TaskRow/sessions",
-      "rule": "reader-summary",
-      "tokens": "effca03bbdc9e53c6c25c6486a49353c0ea29b6e13a5f67cb991c1757b2f1366",
-      "gate": [
-        "exit:then:e7a98bd368f0a95bf68d75eab7e4e53bc0db7816c49d4c1472af6c51f82a0600",
-        "exit:then:49ace851f8fabd9e07880a495f4050b1a3e6a8e92351cf74f5d89733c9feeb64",
-        "exit:then:15e2d5e6e51966fcae1ed71c10637cf41a1d4e2d693093d5a601a3f200e5bd36",
-        "exit:then:d6ab277f58c82f67979929d9ef2cf366a33764b06f8bb966c3712304a968c30c"
-      ],
-      "origin": [
-        "b8cdc3d00c4706f8792c0027be18cfc111aecd6b3c1c1bef71648ffa7ce6b092",
-        "bcad65414540153c7722e20fdbcc0043462d6e149f0c74dd988f2f638f7defb3"
-      ],
-      "fingerprint": "edb403af8786e7c688d7b4a3420aaed0a297a58bd1d45168f216b573d2d0e096",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of TaskRow/TaskRow/sessions",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -4649,8 +4476,8 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/app/mission-pane-reader.ts",
-      "holder": "deckCatalog/view:callback/repoViews/cachedKey:callback",
+      "file": "packages/client-graph/src/mission-screen.ts",
+      "holder": "MissionScreen/repoViews",
       "rule": "helper-consumer",
       "tokens": "ac179c32f9ea112be8756e062ea03b2a68304010ea548f54629b0114999b1fc5",
       "gate": [],
@@ -4658,51 +4485,51 @@
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "95fc3b97f4bf43b1867046dcbb8510c91571ce824c5018fd286128b20ea6b0ea",
+      "fingerprint": "5590f7f54e4ca95bcbfe8ed01b61266175f1be0f99d88ae0b044ca664d012fbe",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of deckCatalog/view:callback/repoViews/cachedKey:callback",
+      "trigger": "Invocation of MissionScreen/repoViews",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/app/mission-pane-reader.ts",
-      "holder": "deckCatalog/view:callback/repoViews/cachedKey:callback/scans",
+      "file": "packages/client-graph/src/mission-screen.ts",
+      "holder": "MissionScreen/repoViews/scans",
       "rule": "reader-summary",
-      "tokens": "dd9d288ad7525d6dec251904228d50c6d37061a6812429cb0a1e16be95f41eb9",
+      "tokens": "8c3d35da722389e5aa5373e6deca9809d413e6dcaf2b738eb0f6cb9c1e6b0179",
       "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "81c2f13e011e20c85176760fb492bb69cdf31aa9818c550ab44cd7e788474aa9",
+      "fingerprint": "9e075606c5e617655b974f1d8129f870237b808cedfe285a77d33c8ca3dbda22",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of deckCatalog/view:callback/repoViews/cachedKey:callback/scans",
+      "trigger": "Invocation of MissionScreen/repoViews/scans",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "dynamic-question carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "dynamic-question carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/app/mission-pane-reader.ts",
-      "holder": "deckCatalog/view:callback/repoViews/cachedKey:callback/scans",
+      "file": "packages/client-graph/src/mission-screen.ts",
+      "holder": "MissionScreen/repoViews/scans",
       "rule": "consume:flatMap",
-      "tokens": "47a99291d47f815232c4e02681933b6aacb7b0454349a65b332e38314d543876",
+      "tokens": "ef491bcef617861b779fafe79e7f0b56efd116c0fe14fa56d372ee33bab5e850",
       "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "86457e25fb523438e26936926c243992d3f007a95b53b3ce3e2d2010754c4e09",
+      "fingerprint": "591047ae9335403ee66d14a2aec454a2050df51c31046790e097c21bd103d3dd",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of deckCatalog/view:callback/repoViews/cachedKey:callback/scans",
+      "trigger": "Invocation of MissionScreen/repoViews/scans",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:flatMap carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -5662,24 +5489,6 @@
     {
       "file": "apps/web/src/app/Workspace.tsx",
       "holder": "Workspace",
-      "rule": "helper-consumer",
-      "tokens": "63f4eaa524fe3d1e027002adc85391f1aef3fcaa399b7ddaead51a3c3dbc7ac2",
-      "gate": [],
-      "origin": [
-        "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
-      ],
-      "fingerprint": "e702a8d744cbf4c6b57edf8096b2cf478b9ac208ede80699c28877e00becd71b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of Workspace",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/app/Workspace.tsx",
-      "holder": "Workspace",
       "rule": "reader-summary",
       "tokens": "6ab6c1bec93b8c29b66ccbce9ed9982a78b4e6f15ccae45eef418d4900eb263e",
       "gate": [],
@@ -5735,54 +5544,54 @@
       "file": "apps/web/src/app/Workspace.tsx",
       "holder": "Workspace/coordinatorIds",
       "rule": "consume:filter",
-      "tokens": "ac03fe7aee7400155ee7e0217c08ad405fdea7de94aef212494036017d0deb00",
+      "tokens": "1b15b2329524c12f058132a527d568e26d184b46b5506fb1104c47c703f2ee96",
       "gate": [],
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "877b9f552183854353ef22196f0da39d7a87ff4b9ae64a549ef21547804466fa",
+      "fingerprint": "602fe65ce09318719d47251b7dd833d6bbf7a9534b8fd1f36cb54dd63671b556",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Workspace/coordinatorIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:filter carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/app/Workspace.tsx",
       "holder": "Workspace/coordinatorIds",
       "rule": "materialize:Set",
-      "tokens": "91bdbc45cda2d631907a7bb42664575a3e87d543e9fda1a8e9a7ef24e53fc548",
+      "tokens": "1b75aeb1f52fcf7d7ffc69a642e8cbe9d15ef1497a1e26804a51fb34cdbc7df2",
       "gate": [],
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "a4a9b6e15e5cdeb8d8190f8f3b8c24855706c333a1685664f801ce51ad9d9e7b",
+      "fingerprint": "04073b03671097db86e6bf79f367520349b2bcb9aac5a991d6a971dc875a3812",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Workspace/coordinatorIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "materialize:Set carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
       "file": "apps/web/src/app/Workspace.tsx",
       "holder": "Workspace/coordinatorIds",
       "rule": "consume:map",
-      "tokens": "fe7dde0d981ae017da777e42c65c116111ee1ab7b330af870366a075b29c7382",
+      "tokens": "f26499ec826241e42c2e022652b46b001fc1f903a13577e49680ef1430e52e5b",
       "gate": [],
       "origin": [
         "55b5dd66415715360f9a6a47e15be4f5c82c7034671e0b278bddc9218bc76d2e"
       ],
-      "fingerprint": "fcd5a7a404850d3f647e049af90a474a1b164ea0222a591353a9e336a6e3a16e",
+      "fingerprint": "fd48902af6a5e19042cdbac2b4292d436aa961304538b01326180629261cc66e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of Workspace/coordinatorIds",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5827 moves the existing read to the opening or model field; its collection classification is unchanged.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -38442,175 +38251,6 @@
       "guard": "mission-menu.test.ts proves no destination reads or publications before opening and releases them after closing at 1x/4x; real SessionContextMenu and IssueContextMenu tests preserve targets and blocker text."
     },
     {
-      "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/deck/memo:callback",
-      "rule": "helper-consumer",
-      "tokens": "8e3e1690761c24cef798890b92fd3dfe264c784be62a80cb68fa93f9297133a6",
-      "gate": [],
-      "origin": [
-        "b56fa2ef50dfbc2d9cb6ba603d2de0feaacc095d6a4f3e00cf037b8a979d4532"
-      ],
-      "fingerprint": "38b3afa6342434bd4d9eed3b9bbd084f3fa4971c20238e8cd575a85df0ee4b45",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileScreenReader/deck",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/deck/memo:callback/computed:callback",
-      "rule": "reader-summary",
-      "tokens": "453d24010fc00d521975b14bebc1bfaa60971a6998192e5d597cfdb06cea8c4c",
-      "gate": [],
-      "origin": [
-        "b56fa2ef50dfbc2d9cb6ba603d2de0feaacc095d6a4f3e00cf037b8a979d4532"
-      ],
-      "fingerprint": "d46bd35ec97f614125d94a554b998c10a295164d8d849a330f40dbcbb65f29ee",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileScreenReader/deck",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/deck/memo:callback/computed:callback/settled:callback",
-      "rule": "reader-summary",
-      "tokens": "62603e74d7bf912c8681bb4d2a3ea5d977e694406257d00039d927ca6f5df709",
-      "gate": [],
-      "origin": [
-        "b56fa2ef50dfbc2d9cb6ba603d2de0feaacc095d6a4f3e00cf037b8a979d4532"
-      ],
-      "fingerprint": "8cb3610aca1a663f96f4d16f3d320b20b932087a2007cd5a71c2c3e15324214f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileScreenReader/deck",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/readDeck/sessions",
-      "rule": "spread",
-      "tokens": "ef182cc001dd304d3876fd808d105a8b26833da5e5149a7f7debe8bac43d3c56",
-      "gate": [
-        "exit:then:30a965be0e1318eb617555b56883a99feefa6b447511563d2e17712cedb4c6bb",
-        "then:c18ca37286e5cccce4864f1ea31233c9983fc98708cf4d2b880a7415ea0b87b1"
-      ],
-      "origin": [
-        "b56fa2ef50dfbc2d9cb6ba603d2de0feaacc095d6a4f3e00cf037b8a979d4532"
-      ],
-      "fingerprint": "4c25fee2dc4793eaa24d2f4273f97fd53c30b7ea6f265c163c539b104435b738",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileScreenReader/deck/memo:callback/sessions",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/readMission/memo:callback",
-      "rule": "helper-consumer",
-      "tokens": "f248e32a1fe66175f40e1ba7eb402527ad97212b8f18a9fda7460c3e2f2e559f",
-      "gate": [],
-      "origin": [
-        "32700e974fcc30e89afcbdc6d2b9bbe43168a7f26e312e35f8456dcf66ee5166",
-        "6b0a5cffced2f8a1d1acf9aceb1476356dd41bd2a57dcab9b438900c4d9eb63c"
-      ],
-      "fingerprint": "8e76dfe4687f96dcb7d805e89b33eb6c784cb0b18eefab88588f0f7488c860eb",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileScreenReader/readMission",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/readMission/memo:callback/computed:callback",
-      "rule": "reader-summary",
-      "tokens": "20bb6b131771feebffe3e784ab3de63950c073c19c78d929b597a5eacb917563",
-      "gate": [],
-      "origin": [
-        "32700e974fcc30e89afcbdc6d2b9bbe43168a7f26e312e35f8456dcf66ee5166",
-        "6b0a5cffced2f8a1d1acf9aceb1476356dd41bd2a57dcab9b438900c4d9eb63c"
-      ],
-      "fingerprint": "973208572858472a26f8aaf8467eb07499fa3c6323c6e94f0b9465f1758aa90c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileScreenReader/readMission",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "createMobileScreenReader/readMission/memo:callback/computed:callback/settled:callback",
-      "rule": "reader-summary",
-      "tokens": "819ad0ed90f28994735f6196f1bc2cdf07d5af36e604c10a282d0aceba71a425",
-      "gate": [],
-      "origin": [
-        "32700e974fcc30e89afcbdc6d2b9bbe43168a7f26e312e35f8456dcf66ee5166",
-        "6b0a5cffced2f8a1d1acf9aceb1476356dd41bd2a57dcab9b438900c4d9eb63c"
-      ],
-      "fingerprint": "ca53119237be197afa33029991816f562f5bc8fcda8f284875ccf45db3755b75",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileScreenReader/readMission",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "settled",
-      "rule": "reader-summary",
-      "tokens": "6d2d07a80cdbaacfd88384053a1b3edb39822d87f19b33f2a6dea440db0bf45b",
-      "gate": [],
-      "origin": [
-        "32700e974fcc30e89afcbdc6d2b9bbe43168a7f26e312e35f8456dcf66ee5166",
-        "6b0a5cffced2f8a1d1acf9aceb1476356dd41bd2a57dcab9b438900c4d9eb63c"
-      ],
-      "fingerprint": "7671ae242095dc772c28843ee3a53af71df6aa5481e9236abee3e97cfd0544a4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileScreenReader/cache/keyedComputed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/mobile-screens.ts",
-      "holder": "settled",
-      "rule": "reader-summary",
-      "tokens": "6d2d07a80cdbaacfd88384053a1b3edb39822d87f19b33f2a6dea440db0bf45b",
-      "gate": [],
-      "origin": [
-        "b56fa2ef50dfbc2d9cb6ba603d2de0feaacc095d6a4f3e00cf037b8a979d4532"
-      ],
-      "fingerprint": "be844b09921566fbd1442e9e63e20c06971d13dc595471471f9ef4e308bd4cc4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createMobileScreenReader/cache/keyedComputed:callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
       "file": "packages/client-graph/src/mobile-session-context.ts",
       "holder": "createMobileSessionReader/machines/callback",
       "rule": "reader-summary",
@@ -43167,47 +42807,6 @@
       "bound": "The existing shellIssues catalogue supplies the IDs; it has no proven named-demand or cardinality cap.",
       "reason": "Candidate filtering and ordering moved into the view model without changing the upstream catalogue. Its existing acquisition debt remains owned by POD-5530.",
       "guard": "Exact fingerprint and multiplicity. Paired legacy fixtures preserve membership and order; this entry does not claim the upstream catalogue has been bounded."
-    },
-    {
-      "file": "apps/web/src/app/FlightDeckRows.tsx",
-      "holder": "HungRows/HungRows/map:callback/role/settled:callback",
-      "rule": "reader-summary",
-      "tokens": "5ffd331d6264ff45e6cc0dcf960d734983603759b79ecea4c144f9c64e49e4d0",
-      "gate": [
-        "exit:then:d482a8700d79a19a9d6fdca801f248a15c67580d5b6b777f7a7bb63f275b9dbe",
-        "exit:then:a5e443e2919ebc57abe4ee22a25d1c61c6e3b01c7c1297f036811cc1773ef9d2",
-        "exit:then:af3f31ac09a111fcacab6ad6ce9fe2461daabbc6fb51e85e09983be873c5cd97",
-        "exit:then:2210a5b9bb5219549a0847f7700437d104ebfdfbb193bce630058ad0ecf9d9e6"
-      ],
-      "origin": [
-        "eaad457e36ec0a38d86f3e30506efe8b585c04441090a4278dedd9fa6735ac8e"
-      ],
-      "fingerprint": "edec67f09c233410d34968bec2d2c7523e1b6a3d74296a36584191207841846d",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-5880",
-      "trigger": "Cold buffered HungRows session-role callback.",
-      "bound": "The same mounted buffered session slots as the existing role reader; the settled wrapper introduces no additional iteration.",
-      "reason": "The scanner now follows the existing role reader through its loading-sentinel wrapper. Classification remains visible output.",
-      "guard": "FlightDeck.pool.test.tsx cold i14941 case; flight-deck-window.test.tsx bounds; full speed:structural census."
-    },
-    {
-      "file": "packages/client-graph/src/mission-view.ts",
-      "holder": "settled",
-      "rule": "reader-summary",
-      "tokens": "6d2d07a80cdbaacfd88384053a1b3edb39822d87f19b33f2a6dea440db0bf45b",
-      "gate": [],
-      "origin": [
-        "eaad457e36ec0a38d86f3e30506efe8b585c04441090a4278dedd9fa6735ac8e"
-      ],
-      "fingerprint": "a23992c3fadd94c4b348375a88d82700de1b7fd44eaf2f9847e287de34853865",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-5880",
-      "trigger": "Cold buffered HungRows session-role callback.",
-      "bound": "The same mounted buffered session slots as the existing role reader; the settled wrapper introduces no additional iteration.",
-      "reason": "The scanner now follows the existing role reader through its loading-sentinel wrapper. Classification remains visible output.",
-      "guard": "FlightDeck.pool.test.tsx cold i14941 case; flight-deck-window.test.tsx bounds; full speed:structural census."
     },
     {
       "file": "apps/web/src/features/setup/ColdStartComposer.tsx",
