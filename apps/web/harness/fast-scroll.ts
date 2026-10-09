@@ -22,6 +22,7 @@ if (process.argv.includes('--build')) {
         : fixture === 'phone-lists'
           ? await (await import('../../mobile/vite.inbox.config')).default()
           : await (await import('../../mobile/vite.conversation-stream.config')).default()
+    if (fixture === 'phone-lists') base.resolve!.alias = (base.resolve!.alias as any[]).map(alias => ({ ...alias, replacement: alias.replacement.endsWith('/inbox-platform.tsx') ? resolve('apps/mobile/test/conversation-stream-platform.tsx') : alias.replacement }))
     await build({ ...base, configFile: false, logLevel: 'warn',
       define: { ...base.define, __DEV__: 'false', 'process.env.NODE_ENV': '"production"' },
       plugins: base.plugins?.filter(plugin => !/meter|acceptance-state/.test((plugin as { name?: string })?.name ?? '')),
