@@ -83,7 +83,7 @@ import {
   WorkFilterFootnote,
   WorkSearchField,
 } from './work-search'
-import { WorklistMotion, WorklistScroll } from './worklist-motion'
+import { WorklistMotion } from './worklist-motion'
 import { WorklistWindow } from './worklist-window'
 
 type Slot = {
@@ -196,14 +196,14 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
           </div>
         }
       />
-      <WorklistScroll
+      <div
         ref={scrollRef}
         data-testid="work-scroll"
         style={{ overflowAnchor: 'none' }}
         className="scroll-none flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto pb-2.5"
       >
         <PoolWorkSections query={input.deferredQuery} scrollRef={scrollRef} />
-      </WorklistScroll>
+      </div>
       <MobilePromoCard />
     </WorklistProvider>
   )

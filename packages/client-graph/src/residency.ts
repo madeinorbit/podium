@@ -36,7 +36,7 @@
  * `LOADING` until the window's one action installs it.
  * 1. First access. A derivation that reaches a cold row through a lazy
  *    relation (`loading`) gets `true` and queues the row; the first request
- *    arms a 50 ms window, and every row requested inside it is read by id
+ *    arms a one-frame (16 ms) window, and every row requested inside it is read by id
  *    through the feed (`RowSource.row`, the kernel's `replica.row`) and
  *    installed in ONE action when it closes.
  * 2. The rule no longer holds it. Once a publication's rows are in
@@ -85,7 +85,8 @@ export type LoadRow = (entity: LoadableEntity, id: string) => object | undefined
 export type Schedule = (run: () => void, ms: number) => () => void
 
 /** The batch window: requests within it load in one action. */
-export const LOAD_WINDOW_MS = 50
+// Batch cold rows without holding a newly buffered row empty for three frames.
+export const LOAD_WINDOW_MS = 16
 
 /** Whether the feed can read rows of `entity` by id. */
 function loadable(entity: EntityName): entity is LoadableEntity {

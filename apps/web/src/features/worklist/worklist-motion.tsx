@@ -1,16 +1,8 @@
-import { type HTMLMotionProps, LayoutGroup, LazyMotion, MotionConfig } from 'motion/react'
-import * as m from 'motion/react-m'
-import type { JSX, ReactNode, Ref } from 'react'
+import { LayoutGroup, LazyMotion, MotionConfig } from 'motion/react'
+import type { JSX, ReactNode } from 'react'
 
 const loadWorklistMotionFeatures = () =>
   import('./worklist-motion-features').then((module) => module.default)
-
-/** Projection must subtract this scroll offset when virtual rows enter/leave.
- * Otherwise mounting a buffered row can translate the whole group as though
- * the reader's scroll were a layout change. */
-export function WorklistScroll(props: HTMLMotionProps<'div'> & { ref?: Ref<HTMLDivElement> }): JSX.Element {
-  return <LazyMotion features={loadWorklistMotionFeatures} strict><m.div {...props} layoutScroll /></LazyMotion>
-}
 
 /**
  * One lazy feature boundary for every animated worklist row and fold. `strict`
