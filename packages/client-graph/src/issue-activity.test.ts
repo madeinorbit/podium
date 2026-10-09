@@ -62,6 +62,20 @@ it('matches the legacy feed after pages, duplicates, hidden kinds and timestamp 
   expect(history.appendEvents([rows[0]!])).toBe(1)
 })
 
+it('preserves identical comment occurrences and unchanged item identities', () => {
+  const history = new IssueActivityHistory()
+  const comment = { author: 'me', body: 'same', createdAt: stamp }
+  const comments = [comment, { ...comment }, { ...comment, body: 'distinct' }]
+  history.replaceComments(comments)
+  expect(history.items).toEqual(buildActivityFeed(comments, []))
+  const items = [...history.items]
+  expect(history.replaceComments(comments.map((row) => ({ ...row })))).toBe(false)
+  history.items.forEach((item, index) => expect(item).toBe(items[index]))
+  history.replaceComments(comments.slice(1))
+  expect(history.items).toEqual(buildActivityFeed(comments.slice(1), []))
+  expect(history.items.at(-1)).toBe(items.at(-1))
+})
+
 it('appends only the new event rows at 1x/4x and rejects retained-history ID rebuilding', async () => {
   async function capture(scale: 1 | 4, planted = false) {
     const history = new IssueActivityHistory()

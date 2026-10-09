@@ -219,7 +219,6 @@ export class IssueActivityHistory {
   readonly events: IssueEvent[] = []
   readonly items: ActivityItem[] = []
   private readonly seen = new Set<number>()
-  private readonly commentIds = new Set<string>()
   private cursor = 0
   private lowest = 0
   private shown = 0
@@ -257,18 +256,28 @@ export class IssueActivityHistory {
    * its item (same object, same place); only gone and new ones move. Returns
    * whether anything changed. */
   replaceComments(comments: readonly ActivityComment[]): boolean {
-    const next = new Set(comments.map(commentId))
+    const remaining = new Map<string, number>()
+    for (const comment of comments) {
+      const id = commentId(comment)
+      remaining.set(id, (remaining.get(id) ?? 0) + 1)
+    }
     let changed = false
     for (let index = this.items.length - 1; index >= 0; index--) {
       const item = this.items[index]
-      if (item?.kind !== 'comment' || next.has(item.id)) continue
+      if (item?.kind !== 'comment') continue
+      const count = remaining.get(item.id) ?? 0
+      if (count > 0) {
+        remaining.set(item.id, count - 1)
+        continue
+      }
       this.items.splice(index, 1)
-      this.commentIds.delete(item.id)
       changed = true
     }
     for (const comment of comments) {
-      if (this.commentIds.has(commentId(comment))) continue
+      const id = commentId(comment), count = remaining.get(id) ?? 0
+      if (count === 0) continue
       this.appendComment(comment)
+      remaining.set(id, count - 1)
       changed = true
     }
     return changed
@@ -276,7 +285,6 @@ export class IssueActivityHistory {
 
   appendComment(comment: ActivityComment): void {
     const id = commentId(comment)
-    this.commentIds.add(id)
     this.insert({
       kind: 'comment',
       id,
@@ -290,7 +298,6 @@ export class IssueActivityHistory {
     this.events.length = 0
     this.items.length = 0
     this.seen.clear()
-    this.commentIds.clear()
     this.cursor = 0
     this.lowest = 0
     this.shown = 0
