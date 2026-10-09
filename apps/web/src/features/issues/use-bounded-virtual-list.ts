@@ -101,7 +101,11 @@ function localScrollTop(
 function containerOffset(scroll: HTMLElement, container: HTMLElement): number {
   const top = (element: HTMLElement): number => {
     let result = 0
-    for (let node: HTMLElement | null = element; node; node = node.offsetParent as HTMLElement | null) {
+    for (
+      let node: HTMLElement | null = element;
+      node;
+      node = node.offsetParent as HTMLElement | null
+    ) {
       result += node.offsetTop + (node.offsetParent?.clientTop ?? 0)
     }
     return result
@@ -196,9 +200,11 @@ export function useBoundedVirtualList({
       // The browser is about to paint the new scroll offset. A deferred React
       // commit can expose the spacer for a frame even though the rows are ready.
       // Still coalesce events to one publication per animation frame.
-      flushSync(() => setViewport((current) =>
-        current.top === top && current.height === height ? current : { top, height },
-      ))
+      flushSync(() =>
+        setViewport((current) =>
+          current.top === top && current.height === height ? current : { top, height },
+        ),
+      )
     })
   }, [scrollRef, containerRef])
 
@@ -322,7 +328,8 @@ export function useBoundedVirtualList({
         const anchorKey = prior.keys[anchorIndex]
         const currentIndex = anchorKey ? (previous.indexes.get(anchorKey) ?? -1) : -1
         if (currentIndex >= 0) {
-          const delta = offsetAt(previous, currentIndex) - offsetAt(prior, anchorIndex) + top - currentTop
+          const delta =
+            offsetAt(previous, currentIndex) - offsetAt(prior, anchorIndex) + top - currentTop
           if (delta !== 0) scroll.scrollTop += delta
         }
       }
@@ -348,9 +355,7 @@ export function useBoundedVirtualList({
     if (index < 0 || !scroll) return
     const container = containerRef?.current
     const containerStart =
-      !container || container === scroll
-        ? 0
-        : containerOffset(scroll, container)
+      !container || container === scroll ? 0 : containerOffset(scroll, container)
     const start = containerStart + offsetAt(layout, index)
     const end = start + sizeAt(layout, index)
     const viewStart = scroll.scrollTop
@@ -367,13 +372,19 @@ export function useBoundedVirtualList({
     if (viewport.height <= 0) {
       start = Math.max(0, itemAt(layout, Math.max(0, viewport.top)) - overscan)
       end = Math.min(keys.length, start + Math.min(initialItems, maxItems))
-    } else if (viewport.top - buffer < layout.totalSize && viewport.top + viewport.height + buffer > 0) {
+    } else if (
+      viewport.top - buffer < layout.totalSize &&
+      viewport.top + viewport.height + buffer > 0
+    ) {
       const first = itemAt(layout, Math.max(0, viewport.top))
       const last = itemAt(layout, Math.max(0, viewport.top + viewport.height))
       // One viewport in each direction covers wheel bursts independently of
       // row height. Neighbouring grouped sections enter this buffer too.
       start = itemAt(layout, Math.max(0, viewport.top - buffer))
-      end = Math.min(keys.length, itemAt(layout, Math.max(0, viewport.top + viewport.height + buffer)) + 1)
+      end = Math.min(
+        keys.length,
+        itemAt(layout, Math.max(0, viewport.top + viewport.height + buffer)) + 1,
+      )
       if (end - start > maxItems) {
         // Spend the limit on visible rows first, then split the spare capacity
         // between the buffers. Truncating from the overscanned start can omit

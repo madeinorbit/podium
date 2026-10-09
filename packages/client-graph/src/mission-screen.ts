@@ -185,8 +185,16 @@ export class MissionScreen {
       return !reads.includes(LOADING)
     }) === true
   }
+  /** The row spine needs its shape and folds, independently of header totals.
+   * Waterfall geometry must not subscribe to whole-mission activity rollups. */
+  @lazy get rowsReady(): boolean {
+    return settled(() => {
+      const reads = [this.deck.topology, this.reader.issue(this.rootId), settled(() => this.deck.rowIds()), this.folds]
+      return !reads.includes(LOADING)
+    }) === true
+  }
   @lazy({ equals: compareShallow }) get rows(): readonly MissionDeckIssueModel[] {
-    return this.ready ? this.deck.rows() : []
+    return this.rowsReady ? this.deck.rows() : []
   }
   /** The mission's own row: the header, which the spine does not print again. */
   @lazy get rootRow(): MissionDeckIssueModel | undefined { return this.rows[0] }
@@ -208,7 +216,7 @@ export class MissionScreen {
     return this.rows.filter((row) => !ids.has(row.id))
   }
   @lazy({ equals: compareShallow }) private get unfoldedIds(): readonly string[] {
-    return this.ready ? requireLoaded(this.deck.rowIds(this.mode, this.folds)) : []
+    return this.rowsReady ? requireLoaded(this.deck.rowIds(this.mode, this.folds)) : []
   }
   @lazy({ equals: compareShallow }) private get unfolded(): readonly MissionDeckIssueModel[] {
     const ids = new Set(this.unfoldedIds)

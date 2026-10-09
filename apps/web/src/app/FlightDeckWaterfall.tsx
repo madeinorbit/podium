@@ -11,11 +11,9 @@ import {
   isCoordinatorSession,
   nativeSubagentRows,
   sessionAsksOnIssue,
-  sessionSettled,
   sessionUnreadEmphasized,
 } from '@podium/client-core/values'
 import type { IssueId } from '@podium/model/browser'
-import { issueDisplayRef } from '@podium/protocol'
 import {
   ChevronDown,
   ChevronLeft,
@@ -34,7 +32,16 @@ import type {
   PointerEvent as ReactPointerEvent,
   RefObject,
 } from 'react'
-import { memo, useCallback, useEffect, useId, useMemo, useRef, useState, useLayoutEffect } from 'react'
+import {
+  memo,
+  useCallback,
+  useEffect,
+  useId,
+  useMemo,
+  useRef,
+  useState,
+  useLayoutEffect,
+} from 'react'
 import { observer } from 'mobx-react-lite'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
 import type { SessionModel } from '@podium/client-graph/models'
@@ -68,7 +75,6 @@ import {
   waterfallPercent,
   waterfallSessionEnd,
   waterfallSessionStart,
-  waterfallSessionState,
   waterfallTimelineStart,
   zoomWaterfallViewport,
 } from './flight-deck-waterfall'
@@ -494,7 +500,7 @@ const WaterfallSessionBar = observer(function WaterfallSessionBar({
   onOpenNative,
   onLocalPick,
 }: {
-  row: FlightDeckRow
+  row: MissionDeckIssueModel
   session: SessionModel
   frame: WaterfallFrame
   fact: WaterfallSession
@@ -518,12 +524,26 @@ const WaterfallSessionBar = observer(function WaterfallSessionBar({
 
   const state = (() => {
     const asking = sessionAsksOnIssue(row.issue, session)
-    return asking ? 'attention' : waterfallSessionState(session)
+    return asking
+      ? 'attention'
+      : session.settled
+        ? 'finished'
+        : session.workingMotion
+          ? 'working'
+          : 'live'
   })()
   const live = state !== 'finished'
   const geometry = waterfallBarGeometry(startMs, endMs, frame.viewport)
-  useEffect(() => geometry.visible ? fact.demand() : undefined, [fact, geometry.visible])
-  useEffect(() => { if (geometry.visible) fact.load() }, [fact, phase, settled, geometry.visible])
+  // The clock leaf may have shifted the live viewport since this row last
+  // rendered. Its mounted pixels are the authority for horizontal demand.
+  useEffect(() => {
+    const content = laneRef.current?.querySelector<HTMLElement>('[data-waterfall-bar]')
+    return content && !content.hidden ? fact.demand() : undefined
+  }, [fact, frame, geometry.visible])
+  useEffect(() => {
+    const content = laneRef.current?.querySelector<HTMLElement>('[data-waterfall-bar]')
+    if (content && !content.hidden) fact.load()
+  }, [fact, phase, settled, frame, geometry.visible])
   const segments = useMemo(() => {
     return foldWaterfallSegments(fact.segments, frame.msPerPx)
   }, [fact.segments, frame.msPerPx])
@@ -588,153 +608,172 @@ const WaterfallSessionBar = observer(function WaterfallSessionBar({
       data-waterfall-end={endMs}
       style={geometryStyle}
     >
-      <button data-pressable type="button" className="waterfall-offscreen"
-        hidden={geometry.visible} data-side={geometry.leftPct === 0 ? 'start' : 'end'}
+      <button
+        data-pressable
+        type="button"
+        className="waterfall-offscreen"
+        hidden={geometry.visible}
+        data-side={geometry.leftPct === 0 ? 'start' : 'end'}
         data-flight-session={geometry.visible ? undefined : session.id}
         title={`${name} · outside the current zoom`}
         aria-label={`${name} is outside the visible time range`}
-        onClick={() => { onLocalPick(); onOpen(false) }}>
-        {geometry.leftPct === 0 ? <ChevronLeft size={10} aria-hidden="true" /> : <ChevronRight size={10} aria-hidden="true" />}
+        onClick={() => {
+          onLocalPick()
+          onOpen(false)
+        }}
+      >
+        {geometry.leftPct === 0 ? (
+          <ChevronLeft size={10} aria-hidden="true" />
+        ) : (
+          <ChevronRight size={10} aria-hidden="true" />
+        )}
       </button>
       <div data-waterfall-bar hidden={!geometry.visible}>
-      {editing ? (
-        <div className="waterfall-session-editor">
-          <SessionNameEditor
-            value={name}
-            onCommit={(next) => {
-              void renameSession(session.sessionId, next)
-              setEditing(false)
-            }}
-            onCancel={() => setEditing(false)}
-          />
-        </div>
-      ) : (
-        <>
-          <Tooltip>
-            <TooltipTrigger
-              render={
+        {editing ? (
+          <div className="waterfall-session-editor">
+            <SessionNameEditor
+              value={name}
+              onCommit={(next) => {
+                void renameSession(session.sessionId, next)
+                setEditing(false)
+              }}
+              onCancel={() => setEditing(false)}
+            />
+          </div>
+        ) : (
+          <>
+            <Tooltip>
+              <TooltipTrigger
+                render={
+                  <button
+                    data-pressable
+                    type="button"
+                    className="waterfall-session-bar"
+                    data-flight-session={session.sessionId}
+                    data-state={state}
+                    data-selected={selected || undefined}
+                    data-flash={flashed || undefined}
+                    data-clipped-start={geometry.clippedStart || undefined}
+                    data-pointed={pointed || undefined}
+                    data-unread={unread || undefined}
+                    data-coordinator={coordinator || undefined}
+                    data-segmented={segments.length > 0 || undefined}
+                    data-live={live || undefined}
+                    aria-label={label}
+                    aria-pressed={selected}
+                    onPointerEnter={() => setHoveredSession(session.sessionId)}
+                    onPointerLeave={() => clearHoveredSession(session.sessionId)}
+                    onClick={() => {
+                      onLocalPick()
+                      intent.press(
+                        () => onOpen(false),
+                        () => onOpen(true),
+                      )
+                    }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+                        event.preventDefault()
+                        openMenuFromKeyboard(event.currentTarget)
+                        return
+                      }
+                      if (event.key !== 'Enter') return
+                      event.preventDefault()
+                      onLocalPick()
+                      intent.commit(() => onOpen(true))
+                    }}
+                    onContextMenu={openMenu}
+                  />
+                }
+              >
+                {segments.length > 0 ? (
+                  <span className="waterfall-seg-layer" aria-hidden="true">
+                    {segmentSpans(segments, startMs, endMs).map((span) => (
+                      <span
+                        key={span.key}
+                        className="waterfall-seg"
+                        data-kind={span.kind}
+                        data-live-tail={
+                          (live &&
+                            span.key === segments.at(-1)?.start &&
+                            segments.at(-1)?.end === endMs) ||
+                          undefined
+                        }
+                        style={
+                          {
+                            left: `calc(${span.leftPct}% * var(--waterfall-duration-ratio, 1))`,
+                            width: `calc(${span.widthPct}% * var(--waterfall-duration-ratio, 1))`,
+                            '--waterfall-segment-start': `${span.leftPct}%`,
+                          } as CSSProperties
+                        }
+                      />
+                    ))}
+                  </span>
+                ) : null}
+                {placement === 'inside' ? (
+                  <span className="waterfall-bar-content">
+                    <KindIcon kind={session.agentKind} compact dimmed={state === 'finished'} />
+                    <span className="waterfall-session-name">{name}</span>
+                    {showDuration ? (
+                      <span className="waterfall-session-time font-mono tabular-nums">
+                        {formatWaterfallDuration(endMs - startMs)}
+                      </span>
+                    ) : null}
+                  </span>
+                ) : null}
+                {/* The unread mark survives every label ladder rung: a bar too
+                  narrow for its name still owes the operator this one bit. */}
+                {unread ? (
+                  <>
+                    <span className="waterfall-unread-dot" aria-hidden="true" />
+                    <span className="sr-only">unread</span>
+                  </>
+                ) : null}
+              </TooltipTrigger>
+              <WaterfallHoverPopup>
+                <WaterfallHoverCard
+                  session={session}
+                  state={state}
+                  startMs={startMs}
+                  endMs={endMs}
+                  live={live}
+                  segments={segments}
+                  reason={reason}
+                  workers={workers.length}
+                  coordinator={coordinator}
+                  unread={unread}
+                />
+              </WaterfallHoverPopup>
+            </Tooltip>
+            {placement === 'after' || placement === 'before' ? (
+              <span
+                className="waterfall-bar-tag"
+                data-side={placement}
+                data-state={state}
+                aria-hidden="true"
+              >
+                {name}
+                <span className="waterfall-bar-tag-time font-mono tabular-nums">
+                  {formatWaterfallDuration(endMs - startMs)}
+                </span>
+              </span>
+            ) : null}
+            {workers.length > 0 ? (
+              <div className="waterfall-session-tools">
                 <button
                   data-pressable
                   type="button"
-                  className="waterfall-session-bar"
-                  data-flight-session={session.sessionId}
-                  data-state={state}
-                  data-selected={selected || undefined}
-                  data-flash={flashed || undefined}
-                  data-clipped-start={geometry.clippedStart || undefined}
-                  data-pointed={pointed || undefined}
-                  data-unread={unread || undefined}
-                  data-coordinator={coordinator || undefined}
-                  data-segmented={segments.length > 0 || undefined}
-                  data-live={live || undefined}
-                  aria-label={label}
-                  aria-pressed={selected}
-                  onPointerEnter={() => setHoveredSession(session.sessionId)}
-                  onPointerLeave={() => clearHoveredSession(session.sessionId)}
-                  onClick={() => {
-                    onLocalPick()
-                    intent.press(
-                      () => onOpen(false),
-                      () => onOpen(true),
-                    )
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
-                      event.preventDefault()
-                      openMenuFromKeyboard(event.currentTarget)
-                      return
-                    }
-                    if (event.key !== 'Enter') return
-                    event.preventDefault()
-                    onLocalPick()
-                    intent.commit(() => onOpen(true))
-                  }}
-                  onContextMenu={openMenu}
-                />
-              }
-            >
-              {segments.length > 0 ? (
-                <span className="waterfall-seg-layer" aria-hidden="true">
-                  {segmentSpans(segments, startMs, endMs).map((span) => (
-                    <span
-                      key={span.key}
-                      className="waterfall-seg"
-                      data-kind={span.kind}
-                      data-live-tail={live && span.key === segments.at(-1)?.start && segments.at(-1)?.end === endMs || undefined}
-                      style={{
-                        left: `calc(${span.leftPct}% * var(--waterfall-duration-ratio, 1))`,
-                        width: `calc(${span.widthPct}% * var(--waterfall-duration-ratio, 1))`,
-                        '--waterfall-segment-start': `${span.leftPct}%`,
-                      } as CSSProperties}
-                    />
-                  ))}
-                </span>
-              ) : null}
-              {placement === 'inside' ? (
-                <span className="waterfall-bar-content">
-                  <KindIcon kind={session.agentKind} compact dimmed={state === 'finished'} />
-                  <span className="waterfall-session-name">{name}</span>
-                  {showDuration ? (
-                    <span className="waterfall-session-time font-mono tabular-nums">
-                      {formatWaterfallDuration(endMs - startMs)}
-                    </span>
-                  ) : null}
-                </span>
-              ) : null}
-              {/* The unread mark survives every label ladder rung: a bar too
-                  narrow for its name still owes the operator this one bit. */}
-              {unread ? (
-                <>
-                  <span className="waterfall-unread-dot" aria-hidden="true" />
-                  <span className="sr-only">unread</span>
-                </>
-              ) : null}
-            </TooltipTrigger>
-            <WaterfallHoverPopup>
-              <WaterfallHoverCard
-                session={session}
-                state={state}
-                startMs={startMs}
-                endMs={endMs}
-                live={live}
-                segments={segments}
-                reason={reason}
-                workers={workers.length}
-                coordinator={coordinator}
-                unread={unread}
-              />
-            </WaterfallHoverPopup>
-          </Tooltip>
-          {placement === 'after' || placement === 'before' ? (
-            <span
-              className="waterfall-bar-tag"
-              data-side={placement}
-              data-state={state}
-              aria-hidden="true"
-            >
-              {name}
-              <span className="waterfall-bar-tag-time font-mono tabular-nums">
-                {formatWaterfallDuration(endMs - startMs)}
-              </span>
-            </span>
-          ) : null}
-          {workers.length > 0 ? (
-            <div className="waterfall-session-tools">
-              <button
-                data-pressable
-                type="button"
-                className="waterfall-native-toggle"
-                aria-label={`${nativeOpen ? 'Hide' : 'Show'} ${workers.length} native worker${workers.length === 1 ? '' : 's'} for ${name}`}
-                aria-expanded={nativeOpen}
-                aria-controls={nativeListId}
-                onClick={() => setNativeOpen((open) => !open)}
-              >
-                +{workers.length}
-              </button>
-            </div>
-          ) : null}
-        </>
-      )}
+                  className="waterfall-native-toggle"
+                  aria-label={`${nativeOpen ? 'Hide' : 'Show'} ${workers.length} native worker${workers.length === 1 ? '' : 's'} for ${name}`}
+                  aria-expanded={nativeOpen}
+                  aria-controls={nativeListId}
+                  onClick={() => setNativeOpen((open) => !open)}
+                >
+                  +{workers.length}
+                </button>
+              </div>
+            ) : null}
+          </>
+        )}
       </div>
       {nativeOpen && workers.length > 0 ? (
         <div id={nativeListId} className="waterfall-native-list" data-testid="flight-native-agents">
@@ -873,13 +912,21 @@ const WaterfallIssue = observer(function WaterfallIssue({
   const foldable = !root && item.row.hasPayload
   const indent = root ? 0 : Math.max(0, item.row.depth - 1)
   const issueRef = item.row.displayRef
-  const coordinator = item.coordinatorId ? item.view.screen.pool.sessionObject(item.coordinatorId) : undefined
+  const coordinator = item.coordinatorId
+    ? item.view.screen.pool.sessionObject(item.coordinatorId)
+    : undefined
   const sessionCount = item.sessionIds.length
-  const issueTitle = root && item.row.descendantIds.length > 0 ? 'Mission coordination' : item.row.title
-  const issueMeta = [issueRef, sessionCount > 0 ? `${sessionCount} session${sessionCount === 1 ? '' : 's'}` : null,
-    coordinator ? sessionDisplayName(coordinator) : null].filter(Boolean).join(' · ')
+  const issueTitle =
+    root && item.row.descendantIds.length > 0 ? 'Mission coordination' : item.row.title
+  const issueMeta = [
+    issueRef,
+    sessionCount > 0 ? `${sessionCount} session${sessionCount === 1 ? '' : 's'}` : null,
+    coordinator ? sessionDisplayName(coordinator) : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
   const historyCollapsed = item.historyCollapsed
-  const visibleSessions = item.drawnSessionIds.map(id => item.view.screen.pool.sessionObject(id))
+  const visibleSessions = item.drawnSessionIds.map((id) => item.view.screen.pool.sessionObject(id))
   const attention =
     future?.state === 'attention' ||
     item.sessions.some((session) => sessionAsksOnIssue(item.row.issue, session))
@@ -1024,16 +1071,31 @@ export const FlightDeckWaterfall = observer(function FlightDeckWaterfall({
 }: FlightDeckWaterfallProps): JSX.Element {
   const query = useStoreHandle<Trpc>().access.trpc.sessions?.activityHistory?.query
   const view = useMemo(() => new WaterfallView(screen, query), [screen, query])
-  useEffect(() => { view.resume(); return () => view.close() }, [view])
+  useLayoutEffect(() => {
+    view.resume()
+    return () => view.close()
+  }, [view])
   useLayoutEffect(() => view.focus(activeSessionId), [view, activeSessionId])
   const now = view.openedNow ?? 0
   const rowsRef = useRef<HTMLDivElement | null>(null)
-  const virtual = useBoundedVirtualList({ keys: view.rowIds, scrollRef, containerRef: rowsRef,
-    estimateSize: 48, overscan: 0, viewportBuffer: 0, initialItems: scrollRef.current?.clientHeight === 0 ? 8 : 0,
-    revealKey: activeSessionId ? view.followed?.issueLink ?? focusedIssueId : focusedIssueId, pinnedKeys: [], })
-  const projected = virtual.items.map(item => view.row(view.rows[item.index]!))
-  useLayoutEffect(() => { if (view.openedNow !== null) view.seed(projected.map(item => item.row)) }, [view, view.openedNow, virtual.items])
-  const hasFuture = projected.some(item => item.sessionIds.length === 0 && issueFuture(item.row) !== null)
+  const virtual = useBoundedVirtualList({
+    keys: view.rowIds,
+    scrollRef,
+    containerRef: rowsRef,
+    estimateSize: 48,
+    overscan: 0,
+    viewportBuffer: 0,
+    initialItems: scrollRef.current?.clientHeight === 0 ? 8 : 0,
+    revealKey: activeSessionId ? (view.followed?.issueLink ?? focusedIssueId) : focusedIssueId,
+    pinnedKeys: [],
+  })
+  const projected = virtual.items.map((item) => view.row(view.rows[item.index]!))
+  useLayoutEffect(() => {
+    if (view.openedNow !== null) view.seed(projected.map((item) => item.row))
+  }, [view, view.openedNow, virtual.items])
+  const hasFuture = projected.some(
+    (item) => item.sessionIds.length === 0 && issueFuture(item.row) !== null,
+  )
   const [manual, setManual] = useState<WaterfallViewport | null>(null)
   const [flashSessionId, setFlashSessionId] = useState<string | null>(null)
   const [savedRowZoom, setSavedRowZoom] = usePersistedUiState<number | null>(
@@ -1043,7 +1105,7 @@ export const FlightDeckWaterfall = observer(function FlightDeckWaterfall({
   )
   const [rowZoomPreview, setRowZoomPreview] = useState<number | null>(null)
   const [availableHeight, setAvailableHeight] = useState(0)
-  const initialLaneCounts = projected.map(item => item.laneCount)
+  const initialLaneCounts = projected.map((item) => item.laneCount)
   const automaticRowZoom = useMemo(
     () => defaultWaterfallRowZoom(availableHeight, initialLaneCounts),
     [availableHeight, initialLaneCounts],
@@ -1087,7 +1149,16 @@ export const FlightDeckWaterfall = observer(function FlightDeckWaterfall({
   )
   const autoViewport = useMemo(
     () => followWaterfallSessionViewport(view.followed, now, trackPx, { future: hasFuture }),
-    [hasFuture, now, view.followed, view.followed?.createdAt, view.followed?.stoppedAt, view.followed?.lastActiveAt, view.followed?.settled, trackPx],
+    [
+      hasFuture,
+      now,
+      view.followed,
+      view.followed?.createdAt,
+      view.followed?.stoppedAt,
+      view.followed?.lastActiveAt,
+      view.followed?.settled,
+      trackPx,
+    ],
   )
   const viewport = manual ?? autoViewport
   useEffect(() => {
@@ -1257,9 +1328,13 @@ export const FlightDeckWaterfall = observer(function FlightDeckWaterfall({
   }, [])
   const fitAll = useCallback((): void => {
     setManual(
-      fitWaterfallViewport(waterfallTimelineStart(view.rows.flatMap(row => view.row(row).sessions)), frameRef.current.now, {
-        future: hasFuture,
-      }),
+      fitWaterfallViewport(
+        waterfallTimelineStart(view.rows.flatMap((row) => view.row(row).sessions)),
+        frameRef.current.now,
+        {
+          future: hasFuture,
+        },
+      ),
     )
   }, [hasFuture, view])
 
@@ -1440,7 +1515,15 @@ export const FlightDeckWaterfall = observer(function FlightDeckWaterfall({
         onPointerCancel={onTrackPointerUp}
         onDoubleClick={onTrackDoubleClick}
       >
-        <WaterfallLiveEdge view={view} rootRef={rootRef} frameRef={frameRef} frame={frame} following={manual === null} future={hasFuture} window={virtual.items} />
+        <WaterfallLiveEdge
+          view={view}
+          rootRef={rootRef}
+          frameRef={frameRef}
+          frame={frame}
+          following={manual === null}
+          future={hasFuture}
+          window={virtual.items}
+        />
         <WaterfallAxis
           following={manual === null}
           hasCurrentWork={hasCurrentWork}
@@ -1482,38 +1565,59 @@ export const FlightDeckWaterfall = observer(function FlightDeckWaterfall({
             const item = projected[index]!
             const previous = virtual.items[index - 1]
             const gap = virtualItem.start - (previous ? previous.start + previous.size : 0)
-            return <div key={virtualItem.key}>
-              {gap > 0 ? <div aria-hidden="true" style={{ height: gap }} /> : null}
-              <div ref={virtual.measureRef(virtualItem.key)}>
-            {view.openedNow !== null ? <WaterfallIssue
-              key={item.row.issue.id}
-              item={item}
-              frame={frame}
-              focused={focusedIssueId === item.row.issue.id}
-              activeSessionId={activeSessionId}
-              flashSessionId={flashSessionId}
-              renameSeed={renameTarget?.id === item.row.issue.id ? renameTarget.seed : null}
-              folded={isFolded(item.row)}
-              onToggle={() => onToggle(item.row)}
-              onSelectIssue={(permanent) => onSelectIssue(item.row, permanent)}
-              onSelectSession={(session, permanent) =>
-                onSelectSession(item.row.issue.id, session, { permanent })
-              }
-              onSelectNative={(session) =>
-                onSelectSession(item.row.issue.id, session, { permanent: false, native: true })
-              }
-              onIssueMenu={(anchor) => onIssueMenu(item.row.issue.id, anchor)}
-              onStatusPick={(value) => onStatusPick(item.row.issue.id, value)}
-              onRenameIssue={(title) =>
-                onRenameIssue(item.row.issue.id, title, renameTarget?.seed ?? item.row.title)
-              }
-              onRenameDone={onRenameDone}
-              onLocalPick={onLocalPick}
-            /> : null}
+            return (
+              <div key={virtualItem.key}>
+                {gap > 0 ? <div aria-hidden="true" style={{ height: gap }} /> : null}
+                <div ref={virtual.measureRef(virtualItem.key)}>
+                  {view.openedNow !== null ? (
+                    <WaterfallIssue
+                      key={item.row.issue.id}
+                      item={item}
+                      frame={frame}
+                      focused={focusedIssueId === item.row.issue.id}
+                      activeSessionId={activeSessionId}
+                      flashSessionId={flashSessionId}
+                      renameSeed={renameTarget?.id === item.row.issue.id ? renameTarget.seed : null}
+                      folded={isFolded(item.row)}
+                      onToggle={() => onToggle(item.row)}
+                      onSelectIssue={(permanent) => onSelectIssue(item.row, permanent)}
+                      onSelectSession={(session, permanent) =>
+                        onSelectSession(item.row.issue.id, session, { permanent })
+                      }
+                      onSelectNative={(session) =>
+                        onSelectSession(item.row.issue.id, session, {
+                          permanent: false,
+                          native: true,
+                        })
+                      }
+                      onIssueMenu={(anchor) => onIssueMenu(item.row.issue.id, anchor)}
+                      onStatusPick={(value) => onStatusPick(item.row.issue.id, value)}
+                      onRenameIssue={(title) =>
+                        onRenameIssue(
+                          item.row.issue.id,
+                          title,
+                          renameTarget?.seed ?? item.row.title,
+                        )
+                      }
+                      onRenameDone={onRenameDone}
+                      onLocalPick={onLocalPick}
+                    />
+                  ) : null}
+                </div>
               </div>
-            </div>
+            )
           })}
-          <div aria-hidden="true" style={{ height: Math.max(0, virtual.totalSize - (virtual.items.at(-1)?.start ?? 0) - (virtual.items.at(-1)?.size ?? 0)) }} />
+          <div
+            aria-hidden="true"
+            style={{
+              height: Math.max(
+                0,
+                virtual.totalSize -
+                  (virtual.items.at(-1)?.start ?? 0) -
+                  (virtual.items.at(-1)?.size ?? 0),
+              ),
+            }}
+          />
         </div>
       </div>
     </TooltipProvider>

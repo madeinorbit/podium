@@ -1,7 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { motionPhase, sessionNeedsHuman, sessionSettled } from '@podium/client-core/values'
 
-
 /**
  * WATERFALL GEOMETRY v2 (POD-1854).
  *
@@ -173,18 +172,27 @@ export function followWaterfallViewport(
 /** Follow one addressed session. Width and clock changes never select or sort
  * the crew; the opening/user action owns the followed ID. */
 export function followWaterfallSessionViewport(
-  session: SessionView | undefined, now: number, trackPx: number,
+  session: SessionView | undefined,
+  now: number,
+  trackPx: number,
   options: { future?: boolean } = {},
 ): WaterfallViewport {
   if (!session) return fitWaterfallViewport(null, now, options)
   const end = waterfallSessionEnd(session, now)
   const start = waterfallSessionStart(session, end)
   const duration = Math.max(WATERFALL_MIN_SPAN_MS, end - start)
-  const contentSpan = Math.min(WATERFALL_MAX_WINDOW_MS,
-    Math.max(WATERFALL_MIN_WINDOW_MS, end - start,
-      duration * Math.max(2, Math.max(1, trackPx) / FOLLOW_BAR_TARGET_PX)))
-  return { start: end - contentSpan * (1 + FIT_LEAD),
-    end: end + contentSpan * (options.future ? FUTURE_HEADROOM : FUTURE_HEADROOM_BARE) }
+  const contentSpan = Math.min(
+    WATERFALL_MAX_WINDOW_MS,
+    Math.max(
+      WATERFALL_MIN_WINDOW_MS,
+      end - start,
+      duration * Math.max(2, Math.max(1, trackPx) / FOLLOW_BAR_TARGET_PX),
+    ),
+  )
+  return {
+    start: end - contentSpan * (1 + FIT_LEAD),
+    end: end + contentSpan * (options.future ? FUTURE_HEADROOM : FUTURE_HEADROOM_BARE),
+  }
 }
 
 function clampViewport(viewport: WaterfallViewport, now: number): WaterfallViewport {
