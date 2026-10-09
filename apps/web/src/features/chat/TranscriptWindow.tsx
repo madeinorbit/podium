@@ -7,6 +7,9 @@ import { flushSync } from 'react-dom'
  * are never estimated or evicted: paging must not change the scrollbar's scale.
  * The inert text in a shell preserves native Find without retaining rich DOM. */
 const BUFFER = 3
+// Client rects lose subpixel precision at million-pixel document coordinates.
+// The shell has no padding/border, so its resolved CSS height is its flow size.
+const measuredHeight = (node: HTMLElement) => Number.parseFloat(getComputedStyle(node).height) || node.getBoundingClientRect().height
 interface Entry {
   node: HTMLDivElement
   mounted: boolean
@@ -115,12 +118,12 @@ export function useTranscriptWindow(
     for (const key of new Set([...mounted.current, ...next])) {
       const entry = entries.current.get(key)
       if (!entry) continue
-      if (entry.mounted && entry.height <= 0) entry.height = entry.node.getBoundingClientRect().height
+      if (entry.mounted && entry.height <= 0 && !entry.node.hasAttribute('data-transcript-placeholder')) entry.height = measuredHeight(entry.node)
       if (next.has(key)) entry.revealing = false
       const show = next.has(key) || entry.finding || entry.revealing || entry.height <= 0
       if (show === entry.mounted) continue
       if (!show) {
-        entry.height = entry.node.getBoundingClientRect().height
+        entry.height = measuredHeight(entry.node)
         entry.text = entry.node.innerText ?? entry.node.textContent ?? ''
       }
       entry.mounted = show
@@ -163,7 +166,7 @@ export function useTranscriptWindow(
     // to the viewport buffer. Existing shell/row identities survive prepends.
     for (const key of mounted.current) {
       const entry = entries.current.get(key)
-      if (entry) entry.height = entry.node.getBoundingClientRect().height
+      if (entry && !entry.node.hasAttribute('data-transcript-placeholder')) entry.height = measuredHeight(entry.node)
     }
     refresh()
   }, [keys, refresh, layoutKey, schedule])
@@ -253,12 +256,17 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
   const proxy = useRef<HTMLDivElement | null>(null)
   const [mounted, setMounted] = useState(true)
   const [finding, setFinding] = useState(false)
+  const [keepProxy, setKeepProxy] = useState(false)
   const entry = useRef<Entry | null>(null)
   const wasMounted = useRef(true)
   const remounted = useRef(false)
   const previousGeometryKey = useRef(geometryKey)
   if (mounted && !wasMounted.current) remounted.current = true
   const publish = useCallback((show: boolean, found?: boolean) => {
+    // Native Find can scroll during its synchronous call, before it commits a
+    // selection or emits beforematch. Keep its exact text node through that
+    // first paint instead of replacing it as soon as the buffer arrives.
+    if (show && entry.current?.text) setKeepProxy(true)
     setMounted(show)
     if (found !== undefined) setFinding(found)
   }, [])
@@ -276,7 +284,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
   }, [geometryKey, rowKey, windowing])
   useLayoutEffect(() => {
     if (!mounted || !entry.current) { wasMounted.current = mounted; return }
-    entry.current.height = ref.current!.getBoundingClientRect().height
+    entry.current.height = measuredHeight(ref.current!)
     if (!wasMounted.current) windowing.schedule()
     wasMounted.current = mounted
   }, [mounted, children, windowing])
@@ -293,7 +301,19 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
     }
     node.addEventListener('beforematch', found)
     return () => node.removeEventListener('beforematch', found)
-  }, [mounted, finding])
+  }, [mounted, finding, keepProxy])
+  useLayoutEffect(() => {
+    if (!mounted || !keepProxy || finding) return
+    const frame = requestAnimationFrame(() => {
+      const selection = document.getSelection()
+      if (selection?.anchorNode && !selection.isCollapsed && proxy.current?.contains(selection.anchorNode)) {
+        entry.current!.finding = true
+        setFinding(true)
+      }
+      setKeepProxy(false)
+    })
+    return () => cancelAnimationFrame(frame)
+  }, [mounted, keepProxy, finding])
   useLayoutEffect(() => {
     if (!finding) return
     const finish = () => {
@@ -347,7 +367,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
     data-block={!mounted ? index : undefined} data-row-key={!mounted ? rowKey : undefined}
     style={{ flexShrink: 0, display: 'flow-root', position: 'relative', height: mounted ? undefined : entry.current?.height, minWidth: 0 }}>
     {mounted && (typeof children === 'function' ? children(remounted.current) : children)}
-    {(!mounted || finding) && <div key="find-proxy" ref={proxy} data-transcript-find-proxy="" aria-hidden="true"
+    {(!mounted || finding || keepProxy) && <div key="find-proxy" ref={proxy} data-transcript-find-proxy="" aria-hidden="true"
       style={{ position: 'absolute', inset: 0, opacity: finding ? 0 : undefined, pointerEvents: 'none', whiteSpace: 'pre-wrap' }}>{entry.current?.text}</div>}
     {!mounted && <button type="button" className="sr-only" aria-label={entry.current?.text}
       onFocus={(event) => {

@@ -60,7 +60,7 @@ try {
     await writeFile(resolve(directory, 'samples.json'), JSON.stringify(samples, null, 2))
     console.log(JSON.stringify({ loaded: stats.loaded, elements: stats.elements, drawn: stats.drawn, heapUsed: heap.usedSize }))
   }
-  const fastScroll = await page.evaluate(async () => {
+  const fastScroll = process.argv.includes('--debug') ? [] : await page.evaluate(async () => {
     const scroll = document.querySelector<HTMLElement>('[data-feed-scroller]')!
     const samples = []
     for (let step = 1; step <= 50; step++) {
@@ -86,6 +86,7 @@ try {
     const geometry = await page.evaluate(async () => {
       const before = [...document.querySelectorAll<HTMLElement>('[data-transcript-row]')].map(node => ({ key: node.dataset.transcriptRow, height: node.getBoundingClientRect().height, placeholder: node.hasAttribute('data-transcript-placeholder') }))
       document.body.dispatchEvent(new KeyboardEvent('keydown', { key: 'a', ctrlKey: true, bubbles: true }))
+      const range = document.createRange(); range.selectNodeContents(document.querySelector('[data-feed-scroller]')!); document.getSelection()!.addRange(range)
       await new Promise(done => setTimeout(done, 100))
       return { height: document.querySelector<HTMLElement>('[data-feed-scroller]')!.scrollHeight, changes: before.flatMap(old => {
         const node = document.querySelector<HTMLElement>(`[data-transcript-row="${old.key}"]`)!
