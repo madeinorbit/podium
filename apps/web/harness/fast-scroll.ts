@@ -82,6 +82,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
         const box = await page.locator(selector).boundingBox()
         if (!box || box.x < 0 || box.x + box.width > (fixture.startsWith('phone') ? 390 : 1600)) continue
         const tag = `${fixture}-${variant}-${candidate.index}`
+        if (process.argv.includes('--paint-buffer')) await page.addStyleTag({ content: `${selector} [data-window-row], ${selector} > div > div { contain: layout paint; will-change: transform; }` })
         await page.locator(selector).evaluate(el => { el.scrollTop = 0 })
         await page.waitForTimeout(250)
         await page.screenshot({ path: resolve(output, `${tag}-settled.png`) })
@@ -95,7 +96,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
         const sample = await page.evaluate(({ selector }) => {
           const scroll = document.querySelector<HTMLElement>(selector)!
           const rows = '[data-window-row], [data-virtual-issue-key], [data-deck-measure], [data-row-key], [data-testid="work-list-row"]'
-          const state = { samples: [] as { time: number; top: number; blankPx: number; area: number; mounted: number }[], active: true }
+          const state = { samples: [] as { time: number; top: number; blankPx: number; area: number; mounted: number; textBlankPx: number }[], active: true }
           ;(window as any).__scrollProof = state
           const tick = () => {
             if (!state.active) return
@@ -113,7 +114,11 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
               if (bottom - edge > 20) blankPx += bottom - edge
               area += bottom - top
             }
-            state.samples.push({ time: Date.now(), top: scroll.scrollTop, blankPx, area, mounted: nodes.length })
+            const textRects = [...scroll.querySelectorAll<HTMLElement>('*')].filter(el => [...el.childNodes].some(n => n.nodeType === Node.TEXT_NODE && n.textContent?.trim())).map(el => el.getBoundingClientRect()).filter(r => r.width > 0 && r.bottom > box.top && r.top < box.bottom).sort((a,b) => a.top-b.top)
+            let textEdge = box.top, textBlankPx = 0
+            for (const r of textRects) { if (r.top - textEdge > 120) textBlankPx += r.top - textEdge; textEdge = Math.max(textEdge, r.bottom) }
+            if (box.bottom - textEdge > 120) textBlankPx += box.bottom - textEdge
+            state.samples.push({ textBlankPx, time: Date.now(), top: scroll.scrollTop, blankPx, area, mounted: nodes.length })
             requestAnimationFrame(tick)
           }
           requestAnimationFrame(tick)
@@ -157,7 +162,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
         if (frame) await writeFile(resolve(output, `${tag}-worst.jpg`), Buffer.from(frame.data, 'base64'))
         const report = { fixture, variant, candidate, samples: samples.length, blankFrames: samples.filter(s => s.blankPx > 20).length,
           maxBlankPx: Math.max(0, ...samples.map(s => s.blankPx)), maxBlankPercent: Math.max(0, ...samples.map(s => s.area ? s.blankPx / s.area * 100 : 0)),
-          mountedPeak: Math.max(0, ...samples.map(s => s.mounted)), compositorFrames: frames.length,
+          mountedPeak: Math.max(0, ...samples.map(s => s.mounted)), compositorFrames: frames.length, textBlankFrames: samples.filter((s: any) => s.textBlankPx > 0).length,
           rasterBlankFrames: raster.filter(r => r.blankPx > 0).length, rasterMaxBlankPx: worst.blankPx,
           samplesRaw: samples, raster, errors }
         reports.push(report)
