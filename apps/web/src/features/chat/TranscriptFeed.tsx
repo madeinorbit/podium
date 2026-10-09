@@ -374,13 +374,13 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
   // Which rows LANDED, as opposed to which rows merely rendered — see
   // use-feed-arrivals. Identity is per row and index-free, so paging older
   // messages in above does not read as the whole feed arriving at once.
-  const arriving = useFeedArrivals(useMemo(() => rows.map(({ row }) => rowIdentity(row)), [rows]))
+  const windowKeys = useMemo(() => rows.map(({ row }) => rowIdentity(row)), [rows])
+  const arriving = useFeedArrivals(windowKeys)
   const windowScroller = useRef<HTMLDivElement | null>(null)
   const setWindowScroller = useCallback<RefCallback<HTMLDivElement>>((element) => {
     windowScroller.current = element
     return setScrollerRef(element)
   }, [setScrollerRef])
-  const windowKeys = useMemo(() => rows.map(({ row }) => rowIdentity(row)), [rows])
   const windowing = useTranscriptWindow(windowKeys, windowScroller, `${compact}:${expandRuns}:${collapseContext}:${stickyEnabled}`)
   const searchMatches = useMemo(() => new Set(search.matches), [search.matches])
   // Recomputed with the rows rather than on a clock: "Today" only goes stale at
