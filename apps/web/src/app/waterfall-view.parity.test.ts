@@ -1,44 +1,11 @@
-import { MissionScreen } from '@podium/client-graph/mission-screen'
-import { MobxPool } from '@podium/client-graph/pool'
-import { attachMissionTestPreferences } from '@podium/client-graph/mission-screen.test.fixture'
 import { deckSessions, isCoordinatorSession } from '@podium/client-core/values'
-import { autorun, runInAction } from 'mobx'
+import { runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import * as old from './flight-deck-waterfall.legacy.fixture'
-import { waterfallBarGeometry, foldWaterfallSegments } from './flight-deck-waterfall'
+import * as old from './flight-deck-waterfall.legacy.test.fixture'
+import { waterfallBarGeometry, foldWaterfallSegments, followWaterfallSessionViewport } from './flight-deck-waterfall'
 import { WaterfallView } from './waterfall-view'
 
-export const NOW = Date.parse('2026-10-07T12:00:00Z')
-export async function waterfallFixture(count = 12) {
-  const pool = new MobxPool({ selectedIssueId: 'root', coarseNow: NOW })
-  attachMissionTestPreferences(pool)
-  const rows = []
-  for (let i = 0; i < count; i++) {
-    const id = i === 0 ? 'root' : `row-${i}`
-    rows.push({ kind: 'issue' as const, id, value: {
-      id, seq: i + 1, title: `Task ${id}`, stage: 'in_progress', audience: 'human',
-      parentId: i === 0 ? null : 'root', sortKey: String(i).padStart(5, '0'),
-      deps: [], repoPath: '/synthetic', createdAt: new Date(NOW - 3600000).toISOString(),
-      updatedAt: new Date(NOW).toISOString(), coordinatorSessionId: `s-${i}-0`,
-    } })
-    for (let seat = 0; seat < 7; seat++) rows.push({ kind: 'session' as const, id: `s-${i}-${seat}`, value: {
-      sessionId: `s-${i}-${seat}`, issueId: id, cwd: '/synthetic', agentKind: 'codex',
-      title: `Agent ${seat}`, status: seat < 2 ? 'running' : 'exited', archived: false,
-      createdAt: new Date(NOW - (60 + seat) * 60000).toISOString(),
-      lastActiveAt: new Date(NOW - (seat < 2 ? 0 : 10) * 60000).toISOString(),
-      stoppedAt: seat < 2 ? null : new Date(NOW - 10 * 60000).toISOString(),
-      agentState: { phase: seat < 2 ? 'working' : 'ended', since: new Date(NOW - 60000).toISOString() },
-    } })
-  }
-  pool.apply({ type: 'replace', rows })
-  const screen = new MissionScreen(pool, 'root', { development: true })
-  screen.open()
-  const view = new WaterfallView(screen)
-  view.open(NOW)
-  const stop = autorun(() => void screen.ready)
-  for (let turn = 0; turn < 6; turn++) await new Promise<void>(resolve => setTimeout(resolve, 0))
-  return { pool, screen, view, close: () => { stop(); view.close(); screen.close(); pool.dispose() } }
-}
+import { NOW, waterfallFixture } from './waterfall-view.test.fixture'
 
 it('matches the old visible-row lane metrics, geometry and segments on the same fixtures', async () => {
   const f = await waterfallFixture()
@@ -103,4 +70,16 @@ it('requests no offscreen activity and keeps retained history through pan and mi
     expect(retained.samples).toBe(samples)
     expect(query).toHaveBeenCalledTimes(before + 1)
   } finally { releases.forEach(release => release()); view.close(); f.close() }
+})
+
+it('follows one session with the old singleton geometry across width and time changes', async () => {
+  const f = await waterfallFixture()
+  try {
+    for (const id of ['s-0-0', 's-0-4']) for (const now of [NOW, NOW + 60000, NOW + 3600000]) {
+      const session = f.pool.sessionObject(id)
+      for (const width of [60, 240, 480, 1000]) for (const future of [true, false])
+        expect(followWaterfallSessionViewport(session, now, width, { future })).toEqual(
+          old.followWaterfallViewport([session], now, width, { future }))
+    }
+  } finally { f.close() }
 })

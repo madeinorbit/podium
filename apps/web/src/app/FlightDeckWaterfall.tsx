@@ -1029,7 +1029,7 @@ export const FlightDeckWaterfall = observer(function FlightDeckWaterfall({
   const now = view.openedNow ?? 0
   const rowsRef = useRef<HTMLDivElement | null>(null)
   const virtual = useBoundedVirtualList({ keys: view.rowIds, scrollRef, containerRef: rowsRef,
-    estimateSize: 48, overscan: 0, viewportBuffer: 0, initialItems: 8,
+    estimateSize: 48, overscan: 0, viewportBuffer: 0, initialItems: scrollRef.current?.clientHeight === 0 ? 8 : 0,
     revealKey: activeSessionId ? view.followed?.issueLink ?? focusedIssueId : focusedIssueId, pinnedKeys: [], })
   const projected = virtual.items.map(item => view.row(view.rows[item.index]!))
   useLayoutEffect(() => { if (view.openedNow !== null) view.seed(projected.map(item => item.row)) }, [view, view.openedNow, virtual.items])

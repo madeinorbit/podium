@@ -2438,7 +2438,7 @@ export const FlightDeckContent = observer(function FlightDeckContent({
         {view === 'waterfall' ? (
           <WaterfallDeck
             screen={screen}
-            scrollRef={scrollRef}
+            scrollRef={deckScrollerRef}
             display={display}
             focusedIssueId={focused ?? null}
             activeSessionId={activeSessionId}
