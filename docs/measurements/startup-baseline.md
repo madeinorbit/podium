@@ -173,6 +173,10 @@ The summary reuses `cold-start-guard.py`'s provenance, full-population and
 browser-error checks, requires eight unprofiled cold/warm pairs, and reports
 median and min–max spread. It does not certify the existing 2.5-second startup
 budget. Raw traces remain next to each remote ledger.
+The raw browser messages are retained. Admission recognizes the fixture's
+blocked-service-worker messages and the phone web build's exact React Native
+native-animation warning (its documented JS fallback). Changed warnings and
+application errors still reject the capture.
 
 `flatblock-budget.py` wraps each capture in foreground, admitting it only at
 MemAvailable ≥ 6 GiB and SwapFree ≥ 2 GiB. The memory-heavy corpus uses the

@@ -87,4 +87,13 @@ describe('cold startup admission', () => {
     expect(compare(run(2_500), run(2_400, { errors: ['warning: 12:00:10.000'+warning] })).status).toBe(0)
     expect(compare(run(2_500), run(2_400, { errors: ['warning: Service Worker registration blocked by Playwright'] })).status).toBe(0)
   })
+
+  it('retains only the exact native-animation fallback warning on the phone web surface', () => {
+    const phone = { surface: 'phone', startupBoundary: 'phone-issue-row' }
+    const warning = 'warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md'
+    expect(compare(run(2_500, phone), run(2_400, { ...phone, errors: [warning] })).status).toBe(0)
+    expect(compare(run(2_500), run(2_400, { errors: [warning] })).status).not.toBe(0)
+    expect(compare(run(2_500, phone), run(2_400, { ...phone, errors: [warning+' changed'] })).status).not.toBe(0)
+    expect(compare(run(2_500, phone), run(2_400, { ...phone, errors: ['TypeError: cannot build pool'] })).status).not.toBe(0)
+  })
 })

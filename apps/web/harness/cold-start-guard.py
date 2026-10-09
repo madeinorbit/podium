@@ -12,10 +12,20 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 
-def fixture_noise(message):
+PHONE_WEB_ANIMATION_WARNING = (
+    'warning: Animated: `useNativeDriver` is not supported because the native animated module is missing. '
+    'Falling back to JS-based animation. To resolve this, add `RCTAnimation` module to this app, '
+    'or remove `useNativeDriver`. Make sure to run `bundle exec pod install` first. '
+    'Read more about autolinking: https://github.com/react-native-community/cli/blob/master/docs/autolinking.md'
+)
+
+
+def fixture_noise(message, surface='web'):
     # Both fixtures deliberately block service workers. The PWA wrapper logs
     # the resulting registration rejection; it is retained in the raw ledger.
-    return message == 'warning: Service Worker registration blocked by Playwright' or (
+    # The phone web build has no native animation module. React Native emits
+    # this exact warning and uses its normal JS fallback; keep it in evidence.
+    return (surface == 'phone' and message == PHONE_WEB_ANIMATION_WARNING) or message == 'warning: Service Worker registration blocked by Playwright' or (
         message.startswith('error: ')
         and 'ERROR web:sw service worker registration failed available=true' in message
         and "Cannot read properties of undefined (reading 'waiting')" in message
@@ -58,7 +68,7 @@ def cold_samples(paths):
                         if row['action'] == 'app-cold-start' and not row.get('profiled')]
         unexpected = []
         for message in run.get('errors', []):
-            if fixture_noise(message):
+            if fixture_noise(message, run['surface']):
                 continue
             # Navigation aborts the preceding document's pending boot RPCs.
             # A warning outside every cold measurement is not cold evidence.
