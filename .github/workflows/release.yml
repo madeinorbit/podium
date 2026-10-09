@@ -54,14 +54,14 @@ jobs:
     env:
       TURBO_CACHE_DIR: /tmp/podium-cache/podium/turbo
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       # zig links the Rust binaries (cargo-zigbuild).
       # rcodesign re-signs Darwin Mach-Os with
       # Bun's JIT entitlements — it does not add the signature (Bun already did).
       # All tool versions come from mise.toml — the one pin site dev machines share.
       # That includes pigz, the parallel compressor for the release tarballs (optional at
       # build time; scripts/parallel-gzip.ts falls back to gzip if it is missing).
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
       # The Rust host owns a newer Rust pin than podium-tunnel. Install from its
       # crate configuration; rust-host-cross selects that channel explicitly.
       - name: Install Rust host toolchain
@@ -74,11 +74,11 @@ jobs:
       # back inside the checkout: locally the defaults are durable per-repository paths
       # outside it (POD-3162), which buy nothing on an ephemeral runner and cannot be named
       # by an actions/cache `path`.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: dist-bun/rust-host-cache
           key: rust-host-cross-${{ hashFiles('mise.toml', 'scripts/rust-host-cross.ts', 'packages/pty/vendor/podium-host/**') }}
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: ~/.bun/install/cache
           key: headless-cross-${{ hashFiles('bun.lock') }}
@@ -88,7 +88,7 @@ jobs:
       # as the ci.yml typecheck lane, with its own task suffix so the two never evict
       # each other, and the same fall-back ladder: this SHA, then any build entry on
       # this ref, then any entry for this lockfile.
-      - uses: actions/cache@v4
+      - uses: actions/cache@v6
         with:
           path: /tmp/podium-cache/podium/turbo
           key: turbo-${{ runner.os }}-bun-${{ hashFiles('mise.toml') }}-${{ hashFiles('bun.lock') }}-${{ github.ref_name }}-build-${{ github.sha }}
@@ -143,7 +143,7 @@ jobs:
           bash scripts/prove-headless-assertions-can-fail.sh \
             dist-bun/release/podium-headless-darwin-arm64.tar.gz \
             dist-bun/release/podium-headless-linux-x64.tar.gz
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v7
         with:
           name: headless-cross
           path: dist-bun/release/*
@@ -153,15 +153,15 @@ jobs:
     needs: [headless]
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
         with:
           install_args: bun
       # The stable bridge proof runs the privileged real-release lane against the
       # prepared bytes. It skips the target build, but still packages the lane's
       # isolated coordinator and therefore needs the checkout-local release
       # toolchain. Edge never executes these setup steps or the proof.
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
         if: env.PODIUM_RELEASE_CHANNEL == 'stable'
       - uses: dtolnay/rust-toolchain@stable
         if: env.PODIUM_RELEASE_CHANNEL == 'stable'
@@ -183,7 +183,7 @@ jobs:
         run: >-
           cargo build --release --locked
           --manifest-path scripts/stable-candidate-minisign/Cargo.toml
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           name: headless-cross
           path: dist-bun/release
@@ -229,7 +229,7 @@ jobs:
             bash scripts/docker-update-e2e.sh
       - name: Preserve stable bridge proof evidence
         if: always() && env.PODIUM_RELEASE_CHANNEL == 'stable'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: stable-bridge-proof
           path: ${{ runner.temp }}/stable-bridge-evidence
@@ -253,13 +253,13 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
-      - uses: actions/checkout@v4
-      - uses: jdx/mise-action@v2
+      - uses: actions/checkout@v7
+      - uses: jdx/mise-action@v4
         with:
           install_args: bun
       # The published smoke opens the Darwin bundles it cannot execute, so it needs the
       # Mach-O signature reader for the published Darwin binaries.
-      - uses: jdx/mise-action@v2
+      - uses: jdx/mise-action@v4
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: Verify the published assets and signature
         env:
