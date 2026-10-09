@@ -2233,24 +2233,6 @@
       "guard": "Open-time answer and 1x/4x heartbeat tests cover the stored picker; retained classification is not a scan repair claim."
     },
     {
-      "file": "apps/web/src/app/flight-deck-waterfall.ts",
-      "holder": "waterfallTimelineStart",
-      "rule": "loop:for-of",
-      "tokens": "a780bde457122eac157385c8a53bd7aaac6edf9960a555e95e3ad90d63bbd799",
-      "gate": [],
-      "origin": [
-        "a03e55c8f859bcf80e210a3959972be675001efe6fef6bae0965ed6dd0c8673f"
-      ],
-      "fingerprint": "af30b494f5c0bf0c5d4a1b9e35b2a9c2ac402165319eaa6a04d85d498af0ecf3",
-      "count": 1,
-      "classification": "bounded local work",
-      "owner": "POD-5633",
-      "trigger": "Fit All click only",
-      "bound": "The operator-requested mission domain, once per click",
-      "reason": "The expensive all-history question is on request; pan, zoom, clock and activity never call it.",
-      "guard": "waterfall-work.test.tsx and waterfall-view.parity.test.ts"
-    },
-    {
       "file": "apps/web/src/app/FlightDeck.tsx",
       "holder": "continuationPresenceLine",
       "rule": "helper-consumer",
@@ -41690,42 +41672,6 @@
     },
     {
       "file": "apps/web/src/app/waterfall-view.ts",
-      "holder": "WaterfallRow/finishedIds",
-      "rule": "consume:map",
-      "tokens": "b2b1c5ff0e014dc8072926992c769a2d6db357e67dad2389c44b74b51851845d",
-      "gate": [],
-      "origin": [
-        "7085f6450fbb08f4c391c07e41695fb4c6a23918577ffb26d63a4c845b9b64aa"
-      ],
-      "fingerprint": "6e98dbf6a41816700cdd7f5339674e75f89baf08ea849afbd718a77a84dacfc7",
-      "count": 1,
-      "classification": "visible output",
-      "trigger": "Mounted visible row session membership/settled state",
-      "bound": "One visible row\u2019s declared session IDs",
-      "reason": "Lazy row facts with shallow-equal ID lists are consumed only for virtual items. Offscreen rows have no geometry or activity readers.",
-      "guard": "waterfall-view.parity.test.ts and waterfall-work.test.tsx: same-fixture row metrics and visible-only demand",
-      "owner": "POD-5633"
-    },
-    {
-      "file": "apps/web/src/app/waterfall-view.ts",
-      "holder": "WaterfallRow/finishedIds",
-      "rule": "consume:filter",
-      "tokens": "9c6ee4032b76a162294a6d1a693dad2451db9d58c3c55391dc1ecf9a9aa009f7",
-      "gate": [],
-      "origin": [
-        "7085f6450fbb08f4c391c07e41695fb4c6a23918577ffb26d63a4c845b9b64aa"
-      ],
-      "fingerprint": "94cc5b29e5476143c18cbb3d2e186d59e6d59497a80eea3e816a602416d91083",
-      "count": 1,
-      "classification": "visible output",
-      "trigger": "Mounted visible row session membership/settled state",
-      "bound": "One visible row\u2019s declared session IDs",
-      "reason": "Lazy row facts with shallow-equal ID lists are consumed only for virtual items. Offscreen rows have no geometry or activity readers.",
-      "guard": "waterfall-view.parity.test.ts and waterfall-work.test.tsx: same-fixture row metrics and visible-only demand",
-      "owner": "POD-5633"
-    },
-    {
-      "file": "apps/web/src/app/waterfall-view.ts",
       "holder": "WaterfallSession/load/then:callback/runInAction:callback",
       "rule": "consume:filter",
       "tokens": "e13754e948d4327a294992e4b082fdd6e9c4c20309d225854904ddd79d730cad",
@@ -41807,6 +41753,118 @@
       "reason": "Seeding stops after one followed ID is selected. Clock and width changes read that session alone.",
       "guard": "waterfall-work.test.tsx: minute observer isolation and 1x/4x interaction census",
       "owner": "POD-5633"
+    },
+    {
+      "file": "apps/web/src/app/flight-deck-waterfall.ts",
+      "holder": "waterfallTimelineStart",
+      "rule": "loop:for-of",
+      "tokens": "a780bde457122eac157385c8a53bd7aaac6edf9960a555e95e3ad90d63bbd799",
+      "gate": [],
+      "origin": [
+        "1e6bf408a64d8688f20e579cd373b1bf810c942c0d50ef344c633fd9c788f98b"
+      ],
+      "fingerprint": "0c1062ccb0559f10178eed564bf69e6947b4529b96b6ea466ddefa16ef60141c",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5633",
+      "trigger": "One addressed session geometry read",
+      "bound": "One loaded shared session or legacy fixture session",
+      "reason": "Shared seats supply their existing settled fact; only their timestamps are read. This pure scalar helper enumerates no crew.",
+      "guard": "waterfall-view.parity.test.ts: same-fixture geometry and singleton follow parity"
+    },
+    {
+      "file": "apps/web/src/app/FlightDeckWaterfall.tsx",
+      "holder": "WaterfallIssue/WaterfallIssue",
+      "rule": "consume:map",
+      "tokens": "6eb2a2a62d74655d1cefbf1f03afde3993a8395d449c7730cdf273a0be7eec50",
+      "gate": [
+        "then:1b5c7ee7b3c81956cd9c1ff251161dc044a7c886e0f04e2485ee475cbd5188c3"
+      ],
+      "origin": [
+        "b77e64be04854c284e19d055687db8d437802d3ebfe86bb36bd68d08240264b3"
+      ],
+      "fingerprint": "0e6d9996fbc890c1aef622de863b019bcb2d05d2007a147ff554d7682a7b8063",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5633",
+      "trigger": "Mounted visible row render",
+      "bound": "One virtual row and its declared session IDs",
+      "reason": "The drawn session list narrows the same shared model identities to shallow-equal visible IDs; it never copies crew records or scans the full mission.",
+      "guard": "waterfall-work.test.tsx: visible-only activity and flat pan/zoom/activity; waterfall-view.parity.test.ts: legacy row metrics and geometry parity"
+    },
+    {
+      "file": "apps/web/src/app/FlightDeckWaterfall.tsx",
+      "holder": "WaterfallIssue/WaterfallIssue/coordinator",
+      "rule": "consume:find",
+      "tokens": "629493ca1b40c5bd4e235310e4dcd51ddfb5cf3ef185e647dde341d1459c03c6",
+      "gate": [
+        "then:37ff8b38ba1fae837c74108df2242e4d119de67914c48d3eb1fc18d5a4413a50"
+      ],
+      "origin": [
+        "10296d3a72e5afdacb070887b67fcaae56179051b59264008e2dc6b559445040"
+      ],
+      "fingerprint": "d59d38fa2a16ae959eb731458fa00dbaff8a8bb3ccd3d1ce6d05a317c0106d2c",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5633",
+      "trigger": "Mounted visible row render",
+      "bound": "One virtual row and its declared session IDs",
+      "reason": "The drawn session list narrows the same shared model identities to shallow-equal visible IDs; it never copies crew records or scans the full mission.",
+      "guard": "waterfall-work.test.tsx: visible-only activity and flat pan/zoom/activity; waterfall-view.parity.test.ts: legacy row metrics and geometry parity"
+    },
+    {
+      "file": "apps/web/src/app/FlightDeckWaterfall.tsx",
+      "holder": "WaterfallIssue/WaterfallIssue/visibleSessions",
+      "rule": "consume:filter",
+      "tokens": "678606dd127d8120daed4fabf1e539f7e3551161ad4ecb76bad4f5e6a03542c1",
+      "gate": [],
+      "origin": [
+        "b77e64be04854c284e19d055687db8d437802d3ebfe86bb36bd68d08240264b3"
+      ],
+      "fingerprint": "424321fb6fb86abc238633896bfc5b7b4be54ff68cdcd740260989dd49566ac8",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5633",
+      "trigger": "Mounted visible row render",
+      "bound": "One virtual row and its declared session IDs",
+      "reason": "The drawn session list narrows the same shared model identities to shallow-equal visible IDs; it never copies crew records or scans the full mission.",
+      "guard": "waterfall-work.test.tsx: visible-only activity and flat pan/zoom/activity; waterfall-view.parity.test.ts: legacy row metrics and geometry parity"
+    },
+    {
+      "file": "apps/web/src/app/waterfall-view.ts",
+      "holder": "WaterfallRow/finishedIds",
+      "rule": "consume:filter",
+      "tokens": "d352dae47cb05344639727118f451c267d4486429aa6bb1d1e190a48ac386955",
+      "gate": [],
+      "origin": [
+        "7085f6450fbb08f4c391c07e41695fb4c6a23918577ffb26d63a4c845b9b64aa"
+      ],
+      "fingerprint": "1f4b3596190e0a5aca88a874348df6d5ee190c49a004ed065326eaaa1a54b492",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5633",
+      "trigger": "Mounted visible row render",
+      "bound": "One virtual row and its declared session IDs",
+      "reason": "The drawn session list narrows the same shared model identities to shallow-equal visible IDs; it never copies crew records or scans the full mission.",
+      "guard": "waterfall-work.test.tsx: visible-only activity and flat pan/zoom/activity; waterfall-view.parity.test.ts: legacy row metrics and geometry parity"
+    },
+    {
+      "file": "apps/web/src/app/waterfall-view.ts",
+      "holder": "WaterfallRow/finishedIds",
+      "rule": "consume:map",
+      "tokens": "163dd16e472b43ad3753fd706192d81c32d4f5470233bbbfe19be24e86602086",
+      "gate": [],
+      "origin": [
+        "7085f6450fbb08f4c391c07e41695fb4c6a23918577ffb26d63a4c845b9b64aa"
+      ],
+      "fingerprint": "db6a1257e5e2ad868f7ab55a561938d41ace5da6a2818623681fa5951cee5f92",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5633",
+      "trigger": "Mounted visible row render",
+      "bound": "One virtual row and its declared session IDs",
+      "reason": "The drawn session list narrows the same shared model identities to shallow-equal visible IDs; it never copies crew records or scans the full mission.",
+      "guard": "waterfall-work.test.tsx: visible-only activity and flat pan/zoom/activity; waterfall-view.parity.test.ts: legacy row metrics and geometry parity"
     }
   ]
 }
