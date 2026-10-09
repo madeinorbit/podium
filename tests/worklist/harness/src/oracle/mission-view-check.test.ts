@@ -11,12 +11,7 @@ import {
 } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
 import { createWorklistPool } from '@podium/client-graph/create'
-import { poolMissionViewSnapshot } from '../../../diagnostics/mission-view-check'
-import {
-  missionView,
-  readMissionView,
-  readWorkspaceMission,
-} from '@podium/client-graph/mission-view'
+import { opening, poolMissionViewSnapshot, poolWorkspaceMission } from '../../../diagnostics/mission-view-check'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
@@ -60,7 +55,7 @@ function settle(pool: MobxPool, ids: readonly string[]) {
     for (const id of ids)
       tracked(() => {
         poolMissionViewSnapshot(pool, id)
-        readWorkspaceMission(missionView(pool), id, null)
+        poolWorkspaceMission(pool, id, null)
       })
     const loaded = pool.hydrate()
     if (loaded === 0) return
@@ -92,7 +87,7 @@ function compare(
         : reaction(
             () => {
               poolMissionViewSnapshot(pool, id)
-              return readWorkspaceMission(missionView(pool), id, null)
+              return poolWorkspaceMission(pool, id, null)
             },
             () => {},
             { fireImmediately: true },
@@ -100,7 +95,7 @@ function compare(
     try {
       if (id !== null) settle(pool, [id])
       const focused = issues.find((issue) => issue.parentId === id)?.id ?? null
-      const workspace = tracked(() => readWorkspaceMission(missionView(pool), id, focused))
+      const workspace = tracked(() => poolWorkspaceMission(pool, id, focused))
       expect(workspace).not.toBe(LOADING)
       if (workspace !== LOADING) {
         const selected = issues.find(
@@ -206,14 +201,15 @@ describe('mission pane value differential', () => {
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source, {
       summaries: MISSION_VIEW_SUMMARIES,
     })
-    const reader = missionView(handle.pool)
     const ids = roots(referenceState(ctx.engine)),
       selected = ids[0]!
     settle(handle.pool, [selected])
+    // The opened deck's own reader: its keyed reads are this opening's.
+    const reader = opening(handle.pool, selected).reader
     const row = vi.spyOn(handle.pool, 'row')
     const legacyMission = missionIndexStats(),
       legacyOwnership = sessionOwnershipStats()
-    const stop = autorun(() => readMissionView(reader, selected))
+    const stop = autorun(() => poolMissionViewSnapshot(handle.pool, selected))
     const paneReads = row.mock.calls.slice()
     try {
       const before = { ...reader.stats }

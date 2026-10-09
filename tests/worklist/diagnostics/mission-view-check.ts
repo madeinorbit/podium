@@ -14,7 +14,10 @@ import {
   selectedMissionRoot, selectLatestPromptSession, type FlightDeckMode, type FlightDeckRow, type IssueNavigationModel,
 } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { EMPTY_MISSION_HANDOFF, missionView, readMissionView, readMissionHandoff, readWorkspaceMission, type MissionViewValues, type MissionHandoffValues } from '@podium/client-graph/mission-view'
+import { EMPTY_MISSION_HANDOFF, requireLoaded, settled, type MissionHandoffValues } from '@podium/client-graph/mission-view'
+import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
+import { missions } from '@podium/client-graph/mission'
+import { coordinatorsOf, hasAnyTaskOf, issueOf, rootOf } from '../../../apps/web/src/app/workspace-mission-reads'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { ISSUE_CONTENT_FIELDS, sessionComparable } from './oracle'
 import { compareSidebarSnapshots, type CheckSection, type SidebarCheckResult, type SidebarSnapshot, type SidebarDifference } from './sidebar-check'
@@ -61,7 +64,33 @@ const rowFields = (row: FlightDeckRow) => ({
   collapsedSummary: { ...row.collapsedSummary, crew: row.collapsedSummary.crew.map(sessionFields) },
 })
 
-function snapshot(values: Omit<MissionViewValues, 'archivedCount'>, archived: readonly SessionView[], handoff: MissionHandoffValues | typeof LOADING): SidebarSnapshot {
+/** What the mission deck draws, as the comparator reads it. */
+interface PaneValues {
+  root: IssueNavigationModel | undefined
+  rows: readonly FlightDeckRow[]
+  members: ReadonlySet<string>
+  titles: ReadonlyMap<string, string>
+  progress: ReturnType<typeof missionProgress>
+  departures: ReturnType<typeof missionDepartures>
+  continuation: ReturnType<typeof issueContinuation>
+  note: ReturnType<typeof issueNote>
+  presence: ReturnType<typeof presenceNote>
+  rowPresentation: ReadonlyMap<string, { state: ReturnType<typeof deckIssueState>; note: ReturnType<typeof issueNote>; presence: ReturnType<typeof presenceNote> }>
+}
+const NO_PANE: PaneValues = { root: undefined, rows: [], members: new Set(), titles: new Map(),
+  progress: { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }, departures: [],
+  continuation: null, note: null, presence: null, rowPresentation: new Map() }
+const openings = new WeakMap<MobxPool, Map<string, MissionScreen>>()
+/** One opening per mission root, as the deck's root component creates it. */
+export function opening(pool: MobxPool, rootId: string): MissionScreen {
+  let byRoot = openings.get(pool)
+  if (!byRoot) openings.set(pool, (byRoot = new Map()))
+  let screen = byRoot.get(rootId)
+  if (!screen) byRoot.set(rootId, (screen = new MissionScreen(pool, rootId)))
+  return screen
+}
+
+function snapshot(values: PaneValues, archived: readonly SessionView[], handoff: MissionHandoffValues | typeof LOADING): SidebarSnapshot {
   const rows: CheckSection[] = [
     { key: 'mission', fields: { root: values.root?.id ?? null, members: [...values.members].sort(),
       progress: values.progress, continuation: continuationFields(values.continuation), note: noteFields(values.note), presence: values.presence }, rows: [] },
@@ -90,7 +119,7 @@ export function legacyMissionViewSnapshot(issues: readonly IssueNavigationModel[
   for (const row of rows) for (const session of archivedSessionsForIssue(row.issue, sessions as SessionView[], worktreePaths)) {
     if (!seen.has(session.sessionId)) { seen.add(session.sessionId); archived.push(session) }
   }
-  return snapshot({ root, rows, issueIds: issues.map(issue => issue.id), sessions,
+  return snapshot({ root, rows,
     members: root ? missionIssueIds(issues, root.id, sessions) : new Set(),
     titles: new Map(rows.map(row => [row.issue.id, issueDisplayTitle(row.issue, sessions, worktreePaths)])),
     progress: missionProgress(issues, sessions, root?.id),
@@ -113,14 +142,28 @@ function legacyHandoff(issues: readonly IssueNavigationModel[], sessions: readon
 
 export function poolMissionViewSnapshot(pool: MobxPool, selectedId: string | null, mode: FlightDeckMode = 'full'): SidebarSnapshot | typeof LOADING {
   try {
-  const reader = missionView(pool), values = readMissionView(reader, selectedId, mode)
-  if (values === LOADING) return LOADING
-  // The deck reads its count from the pane and the list only while shown;
+  const rootId = missionRootId(pool, selectedId)
+  if (rootId === LOADING) return LOADING
+  if (!rootId) return snapshot(NO_PANE, [], EMPTY_MISSION_HANDOFF)
+  // The opening's reader answers each view's deck; read what the deck draws.
+  const reader = opening(pool, rootId).reader, deck = reader.deck(rootId, mode)
+  const settledReads = [deck.topology, deck.progress, deck.archivedCount, deck.headerReady, reader.issue(rootId), settled(() => deck.rowIds())]
+  if (settledReads.includes(LOADING)) return LOADING
+  const rows = deck.rows()
+  const values: PaneValues = {
+    root: requireLoaded(reader.issue(rootId)), rows, members: requireLoaded(deck.members),
+    titles: new Map(rows.map(row => [row.id, deck.model(row.id).title])),
+    progress: requireLoaded(deck.progress), departures: deck.departures, continuation: deck.continuation,
+    note: deck.note, presence: deck.presence,
+    rowPresentation: new Map(rows.map(row => [row.id, deck.model(row.id).presentation])),
+  }
+  // The deck reads its count from the opening and the list only while shown;
   // compare the list the expanded section draws, and that the count agrees.
-  const archived = values.root ? reader.archive(values.root.id, mode) : []
+  const archived = reader.archive(rootId, mode)
   if (archived === LOADING) return LOADING
-  if (archived.length !== values.archivedCount) throw new Error(`Archived count ${values.archivedCount} disagrees with its list (${archived.length})`)
-  return snapshot(values, archived, values.root ? readMissionHandoff(reader, values.root.id) : EMPTY_MISSION_HANDOFF)
+  const count = requireLoaded(deck.archivedCount)
+  if (archived.length !== count) throw new Error(`Archived count ${count} disagrees with its list (${archived.length})`)
+  return snapshot(values, archived, reader.handoff(rootId))
   } catch (error) { if (error === LOADING) return LOADING; throw error }
 }
 
@@ -139,9 +182,23 @@ export function checkMissionViewFromStore(pool: MobxPool, store: Store<PodiumCli
   return checkMissionView(pool, models, store.sessions, selectedId, mode, worktreePaths)
 }
 
+/** What the workspace reads for a selection, as ids: the root, its members,
+ * the issue in view, whether a mission is on screen, whether any task exists. */
+export function poolWorkspaceMission(pool: MobxPool, selectedId: string | null, focusedId: string | null) {
+  const root = rootOf(pool, selectedId), issue = issueOf(pool, selectedId, focusedId)
+  const onScreen = missionRootId(pool, selectedId), hasAnyTask = hasAnyTaskOf(pool), coordinators = coordinatorsOf(pool, selectedId)
+  const members = typeof root === 'string' ? missions(pool).members(root) : new Set<string>()
+  if (root === LOADING || issue === LOADING || onScreen === LOADING || hasAnyTask === LOADING || coordinators === LOADING || members === LOADING) return LOADING
+  return {
+    missionRoot: root ? { id: root } : undefined, missionIds: members,
+    missionIssues: [...members].sort().map(id => ({ id })), issue: issue ? { id: issue } : undefined,
+    missionOnScreen: onScreen ? { id: onScreen } : undefined, hasAnyTask: hasAnyTask === true,
+  }
+}
+
 /** Enclosing workspace selection, including a focused task within the mission. */
 export function checkWorkspaceMission(pool: MobxPool, issues: readonly IssueNavigationModel[], sessions: readonly SessionView[], selectedId: string | null, focusedId: string | null): SidebarCheckResult {
-  const actual = readWorkspaceMission(missionView(pool), selectedId, focusedId)
+  const actual = poolWorkspaceMission(pool, selectedId, focusedId)
   if (actual === LOADING) return { differences: 0, first: null, pending: 1, sections: 0, rows: 0 }
   const selected = issues.find(issue => issue.id === selectedId && !issue.archived && !issue.deletedAt)
   const root = selected ? selectedMissionRoot(issues, sessions, selectedId ? asIssueId(selectedId) : null) : undefined
@@ -150,8 +207,8 @@ export function checkWorkspaceMission(pool: MobxPool, issues: readonly IssueNavi
   const rawRoot = issues.find(issue => issue.id === rawRootId)
   const ids = rawRoot ? missionIssueIds(issues, rawRoot.id, sessions) : new Set<string>()
   const focused = focusedId && ids.has(focusedId) ? issues.find(issue => issue.id === focusedId) : undefined
-  const fields = (missionRoot: IssueNavigationModel | undefined, memberIds: ReadonlySet<string>, memberIssues: readonly IssueNavigationModel[], issue: IssueNavigationModel | undefined,
-    missionOnScreen: IssueNavigationModel | undefined, hasAnyTask: boolean): SidebarSnapshot => ({ pending: 0, sections: [{ key: 'workspace', rows: [], fields: {
+  const fields = (missionRoot: { id: string } | undefined, memberIds: ReadonlySet<string>, memberIssues: readonly { id: string }[], issue: { id: string } | undefined,
+    missionOnScreen: { id: string } | undefined, hasAnyTask: boolean): SidebarSnapshot => ({ pending: 0, sections: [{ key: 'workspace', rows: [], fields: {
       missionRoot: missionRoot?.id, missionIds: [...memberIds].sort(), missionIssues: memberIssues.map(issue => issue.id),
       issue: issue?.id, missionOnScreen: missionOnScreen?.id, hasAnyTask,
     } }] })

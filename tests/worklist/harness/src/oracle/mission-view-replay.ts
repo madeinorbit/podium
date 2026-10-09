@@ -11,8 +11,7 @@ import { missionProgress, missionRootFor, type IssueNavigationModel } from '@pod
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool } from '@podium/client-graph/pool'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
-import { checkMissionView, checkWorkspaceMission, poolMissionViewSnapshot } from '../../../diagnostics/mission-view-check'
-import { missionView, readWorkspaceMission } from '@podium/client-graph/mission-view'
+import { checkMissionView, checkWorkspaceMission, poolMissionViewSnapshot, poolWorkspaceMission } from '../../../diagnostics/mission-view-check'
 import type { SidebarCheckResult } from '../../../diagnostics/sidebar-check'
 import { reaction, runInAction } from 'mobx'
 
@@ -78,11 +77,11 @@ async function main() {
     for (const id of roots) {
       step = 'load'
       const stop = reaction(() => {
-        poolMissionViewSnapshot(pool, id); return readWorkspaceMission(missionView(pool), id, null)
+        poolMissionViewSnapshot(pool, id); return poolWorkspaceMission(pool, id, null)
       }, () => {}, { fireImmediately: true })
       try {
       for (let round = 0; round < 64; round++) {
-        runInAction(() => { poolMissionViewSnapshot(pool, id); readWorkspaceMission(missionView(pool), id, null) })
+        runInAction(() => { poolMissionViewSnapshot(pool, id); poolWorkspaceMission(pool, id, null) })
         if (pool.hydrate() === 0) break
       }
       step = 'compare'
