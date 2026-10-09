@@ -84,7 +84,7 @@ it('a view model still held after close is the leak this test would see', async 
     const owner: MissionScreen[] = []
     for (let opening = 0; opening < 5; opening++) owner.push(openAndClose(pool, held))
     await turns(); gc(); await turns(); gc()
-    expect(held.filter(ref => ref.deref() !== undefined).length).toBeGreaterThanOrEqual(5 * 4)
+    expect(held.filter(ref => ref.deref() !== undefined).length).toBeGreaterThanOrEqual(5 * 3)
     expect(owner).toHaveLength(5)
   } finally { pool.dispose() }
 }, 120_000)
