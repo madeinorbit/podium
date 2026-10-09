@@ -39,11 +39,12 @@ try {
   await page.waitForTimeout(100)
   await page.getByTestId('work-search-input').fill('synthetic task 1')
   await expect(page.getByTestId('work-search-count')).toHaveText(/^11\//)
-  await expect(page.getByText('Synthetic task 10', { exact: true })).toBeVisible()
+  await expect(page.getByText('Synthetic task 10', { exact: true })).toBeInViewport()
   await expect(page.locator('[data-window-row] .shell-work-row-title')).toHaveText(
     Array.from({ length: 11 }, () => /^Synthetic task 1/),
   )
   await expect(page.getByTestId('project-group-label')).toHaveAttribute('aria-expanded', 'true')
+  await expect(page.getByTestId('project-group')).toHaveCSS('transform', 'none')
   const paint = await page.evaluate(() => ({
     groups: [...document.querySelectorAll('[data-testid="project-group"]')].map(node => ({ text: node.textContent, rect: node.getBoundingClientRect().toJSON(), style: node.getAttribute('style') })),
     windows: [...document.querySelectorAll('[data-testid="worklist-window"]')].map(node => ({ text: node.textContent, rect: node.getBoundingClientRect().toJSON(), count: node.getAttribute('data-window-count'), mounted: node.querySelectorAll('[data-window-row]').length })),
