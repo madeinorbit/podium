@@ -860,46 +860,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/mobile/src/components/task-detail/IssueModelSections.tsx",
-      "holder": "PhoneMail/PhoneMail/activity",
-      "rule": "reader-summary",
-      "tokens": "3b5c26f29d9c4ea63a299f08ef89c1e2f3a597ce25021ee6d4a744d96b4f6148",
-      "gate": [],
-      "origin": [
-        "24c8f83d1ab8a2237db66755f6e7fecba00709108adf51419659f4dd9decd1de",
-        "354c5a4ccf71bc231f7d1ef8a81e2c987026279ae3c917ad958f411bccd90ec1",
-        "8230477b2909287f1754cf91a163a86ec3c4117deef129e9ca7b23787c97ba63"
-      ],
-      "fingerprint": "05e944c9a62a37c8210133ba1c4a678952354a6babba71b0fb8ed5aa8b0c5837",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5618",
-      "trigger": "Invocation of PhoneMail/PhoneMail/activity",
-      "bound": "No cardinality cap established by this source-only reader-summary census.",
-      "reason": "The conservative scanner propagates collection taint through the moved helper; preserve repair classification independently of focused detail evidence.",
-      "guard": "Exact fingerprint and multiplicity only; this census entry does not itself prove bounded work."
-    },
-    {
-      "file": "apps/mobile/src/components/task-detail/IssueModelSections.tsx",
-      "holder": "PhoneTimeline/PhoneTimeline/activity",
-      "rule": "reader-summary",
-      "tokens": "3b5c26f29d9c4ea63a299f08ef89c1e2f3a597ce25021ee6d4a744d96b4f6148",
-      "gate": [],
-      "origin": [
-        "24c8f83d1ab8a2237db66755f6e7fecba00709108adf51419659f4dd9decd1de",
-        "354c5a4ccf71bc231f7d1ef8a81e2c987026279ae3c917ad958f411bccd90ec1",
-        "8230477b2909287f1754cf91a163a86ec3c4117deef129e9ca7b23787c97ba63"
-      ],
-      "fingerprint": "c754f21f85086b104cdad3b00050d53fb27babfc115f48726d8731d956983471",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5618",
-      "trigger": "Invocation of PhoneTimeline/PhoneTimeline/activity",
-      "bound": "No cardinality cap established by this source-only reader-summary census.",
-      "reason": "The conservative scanner propagates collection taint through the moved helper; preserve repair classification independently of focused detail evidence.",
-      "guard": "Exact fingerprint and multiplicity only; this census entry does not itself prove bounded work."
-    },
-    {
       "file": "apps/mobile/src/components/TaskSheet.tsx",
       "holder": "SheetHead/SheetHead/hasCloseBlockers",
       "rule": "reader-summary",
@@ -1292,14 +1252,16 @@
     },
     {
       "file": "apps/mobile/src/lib/use-issue-detail.ts",
-      "holder": "useIssueActivity/useEffect:callback/comments/callback",
+      "holder": "useIssueActivity/view/useMemo:callback/comments/callback",
       "rule": "reader-summary",
       "tokens": "8cf53e6e8a81489292156704b7f6cdf956d3c164ba4810b1ddf85eff447942da",
-      "gate": [],
+      "gate": [
+        "then:986f690ce3c4f8741f4341d67936aa814b16cd92511eb5fce83f5e04a025a80b"
+      ],
       "origin": [
         "354c5a4ccf71bc231f7d1ef8a81e2c987026279ae3c917ad958f411bccd90ec1"
       ],
-      "fingerprint": "0e970709970223b72f097059cf72186ad5a38c84634e2ebe67928b6f46d5c820",
+      "fingerprint": "f499e114f73323bf27bcaf1fc1378658bd68077ba96d757cbda46e39c94d4fde",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -1310,14 +1272,16 @@
     },
     {
       "file": "apps/mobile/src/lib/use-issue-detail.ts",
-      "holder": "useIssueActivity/useEffect:callback/events/callback",
+      "holder": "useIssueActivity/view/useMemo:callback/events/callback",
       "rule": "reader-summary",
       "tokens": "72b8f4c4b4e2a220f4286ca2680ccc3eee2bfbce48e28624ae28a99c9ce0bb79",
-      "gate": [],
+      "gate": [
+        "then:986f690ce3c4f8741f4341d67936aa814b16cd92511eb5fce83f5e04a025a80b"
+      ],
       "origin": [
         "24c8f83d1ab8a2237db66755f6e7fecba00709108adf51419659f4dd9decd1de"
       ],
-      "fingerprint": "a03de0e92bad3fd615772d68d921794873d0fece49aebe0545496515dc3c3363",
+      "fingerprint": "72f02b18f7cac20ca0d1c553be767325e3cb5d548c1626106cda3fff7cf0c167",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -1328,14 +1292,16 @@
     },
     {
       "file": "apps/mobile/src/lib/use-issue-detail.ts",
-      "holder": "useIssueActivity/useEffect:callback/mail/callback",
+      "holder": "useIssueActivity/view/useMemo:callback/mail/callback",
       "rule": "reader-summary",
       "tokens": "dbf18e322954535eef2c6f61e50654c3c633a1e6375c65f1db40b210b4ae6de7",
-      "gate": [],
+      "gate": [
+        "then:986f690ce3c4f8741f4341d67936aa814b16cd92511eb5fce83f5e04a025a80b"
+      ],
       "origin": [
         "8230477b2909287f1754cf91a163a86ec3c4117deef129e9ca7b23787c97ba63"
       ],
-      "fingerprint": "b13c64072313e41f63ddae27b86af4a3fa731213d4622a02eba6b61f604e13e6",
+      "fingerprint": "641735d831874541e251da6a79fc178046e1b9dc5a1be0a160cba7157f621a5a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -7261,6 +7227,60 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "packages/client-graph/src/issue-activity.ts",
+      "holder": "mergeMail/byId",
+      "rule": "consume:map",
+      "tokens": "2d902a53e028fc1ade8b383c9a55b160399958c4ecc71cf2948ae406f7e1a2f2",
+      "gate": [],
+      "origin": [
+        "821b48221ba800d3c1707a9138a5672db0d30300e9c207d96cba7a522b16a648"
+      ],
+      "fingerprint": "6a8accdfbc2da559e1973a76e2e352fef91279d0bb5801073001a3e6a4abd418",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5832",
+      "trigger": "A comments/mail refresh receives the addressed open issue's mailbox.",
+      "bound": "Only the incoming and previous mailbox rows of this one retained issue; no repository-wide mailbox or pool catalogue is visited.",
+      "reason": "Request ingress reconciles rows by ID and fields, retaining unchanged objects and the unchanged list. The mailbox is released when the last history view closes.",
+      "guard": "packages/client-graph/src/issue-activity.test.ts verifies unchanged mail identity on addressed updates and release after the last view; the mail-not-reused fault control fails those assertions."
+    },
+    {
+      "file": "packages/client-graph/src/issue-activity.ts",
+      "holder": "mergeMail/byId",
+      "rule": "materialize:Map",
+      "tokens": "fdc80e173576814457e5d6b7c8a6c9a2da33cd61b5f72354f0253e6a30350ef1",
+      "gate": [],
+      "origin": [
+        "821b48221ba800d3c1707a9138a5672db0d30300e9c207d96cba7a522b16a648"
+      ],
+      "fingerprint": "980a7e9bd1320581e8e4299a0426be69681a3d06eca1413ad804c5ae8dffe84b",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5832",
+      "trigger": "A comments/mail refresh receives the addressed open issue's mailbox.",
+      "bound": "Only the incoming and previous mailbox rows of this one retained issue; no repository-wide mailbox or pool catalogue is visited.",
+      "reason": "Request ingress reconciles rows by ID and fields, retaining unchanged objects and the unchanged list. The mailbox is released when the last history view closes.",
+      "guard": "packages/client-graph/src/issue-activity.test.ts verifies unchanged mail identity on addressed updates and release after the last view; the mail-not-reused fault control fails those assertions."
+    },
+    {
+      "file": "packages/client-graph/src/issue-activity.ts",
+      "holder": "mergeMail/next",
+      "rule": "consume:map",
+      "tokens": "27f02db61da5d35b9821a204558b650d13dffc6a53a3f4f3a643a2cb494171d6",
+      "gate": [],
+      "origin": [
+        "1e45c83955d652b95566a95b28a0aa1066467dced300ccc989a8d59713df45e0"
+      ],
+      "fingerprint": "9ad899509644f5bfebecfb325436a0c9146bf38ee8113b5b990a55013bcc4e09",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5832",
+      "trigger": "A comments/mail refresh receives the addressed open issue's mailbox.",
+      "bound": "Only the incoming and previous mailbox rows of this one retained issue; no repository-wide mailbox or pool catalogue is visited.",
+      "reason": "Request ingress reconciles rows by ID and fields, retaining unchanged objects and the unchanged list. The mailbox is released when the last history view closes.",
+      "guard": "packages/client-graph/src/issue-activity.test.ts verifies unchanged mail identity on addressed updates and release after the last view; the mail-not-reused fault control fails those assertions."
+    },
+    {
       "file": "packages/client-graph/src/issue-board-cards.ts",
       "holder": "ExplorerRow/state",
       "rule": "helper-consumer",
@@ -9804,94 +9824,60 @@
     },
     {
       "file": "apps/web/src/features/issues/issue-page/IssueHistory.tsx",
-      "holder": "PageMail/PageMail/history",
-      "rule": "reader-summary",
-      "tokens": "9f6be267fc7f85b6799ba764dd435a82bb02b8834de8f5d5e69fcc0163a80ab3",
-      "gate": [],
-      "origin": [
-        "08b3f0f3c0e6cf4bc7bca369d2b628109903c50f6f213eb800e2643b0a7bc3e0",
-        "5c443f8012e4c8228c32c047ada651f0a1a4079e50ed979f63283e03fb67b755",
-        "5cd5a34f4cc0db8bdfeaa955b73e9cf004bf4b8bc4495e73c38d5b60c8a50f63"
-      ],
-      "fingerprint": "eb6b4227d456ab4bc2d5991aea1527697cf04e64b63e3936b60b3ea4db5c1052",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5618",
-      "trigger": "Invocation of PageMail/PageMail/history",
-      "bound": "No cardinality cap established by this source-only reader-summary census.",
-      "reason": "The conservative scanner propagates collection taint through the moved helper; preserve repair classification independently of focused detail evidence.",
-      "guard": "Exact fingerprint and multiplicity only; this census entry does not itself prove bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-page/IssueHistory.tsx",
-      "holder": "PageTimeline/PageTimeline/history",
-      "rule": "reader-summary",
-      "tokens": "9f6be267fc7f85b6799ba764dd435a82bb02b8834de8f5d5e69fcc0163a80ab3",
-      "gate": [],
-      "origin": [
-        "08b3f0f3c0e6cf4bc7bca369d2b628109903c50f6f213eb800e2643b0a7bc3e0",
-        "5c443f8012e4c8228c32c047ada651f0a1a4079e50ed979f63283e03fb67b755",
-        "5cd5a34f4cc0db8bdfeaa955b73e9cf004bf4b8bc4495e73c38d5b60c8a50f63"
-      ],
-      "fingerprint": "0997252f8c149bf4900d00f6399a37f8773954c94b96379dc54458ea09a33df4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5618",
-      "trigger": "Invocation of PageTimeline/PageTimeline/history",
-      "bound": "No cardinality cap established by this source-only reader-summary census.",
-      "reason": "The conservative scanner propagates collection taint through the moved helper; preserve repair classification independently of focused detail evidence.",
-      "guard": "Exact fingerprint and multiplicity only; this census entry does not itself prove bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/issue-page/IssueHistory.tsx",
-      "holder": "useIssueHistory/useEffect:callback/comments/callback",
+      "holder": "useIssueHistory/view/useMemo:callback/comments/callback",
       "rule": "reader-summary",
       "tokens": "44b1426debe6abf73b837fb8d4352f13c772a726c4a0cd7974d38de6d1aebc08",
-      "gate": [],
+      "gate": [
+        "then:986f690ce3c4f8741f4341d67936aa814b16cd92511eb5fce83f5e04a025a80b"
+      ],
       "origin": [
         "08b3f0f3c0e6cf4bc7bca369d2b628109903c50f6f213eb800e2643b0a7bc3e0"
       ],
-      "fingerprint": "17b771ba7bf6c5ec7fe875d6690a0c00454b0959787a39848b8de640cf0d38a3",
+      "fingerprint": "091d121f7ad8a061f1d129bcdfb1d4200978d98d3f979f0bcc871fa90f249844",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5618",
-      "trigger": "Invocation of useIssueHistory/useEffect:callback/comments/callback",
+      "trigger": "Invocation of useIssueHistory/view/useMemo:callback/comments/callback",
       "bound": "No cardinality cap established by this source-only reader-summary census.",
       "reason": "The conservative scanner propagates collection taint through the moved helper; preserve repair classification independently of focused detail evidence.",
       "guard": "Exact fingerprint and multiplicity only; this census entry does not itself prove bounded work."
     },
     {
       "file": "apps/web/src/features/issues/issue-page/IssueHistory.tsx",
-      "holder": "useIssueHistory/useEffect:callback/events/callback",
+      "holder": "useIssueHistory/view/useMemo:callback/events/callback",
       "rule": "reader-summary",
-      "tokens": "7de6093cce0af0d9422aabbac10b256b82b85853b628dd752591e72a64bd7c48",
-      "gate": [],
+      "tokens": "8258ebd038122058a6670e298eaf00905cbb12223cc761f19c9cfe1bf917cb24",
+      "gate": [
+        "then:986f690ce3c4f8741f4341d67936aa814b16cd92511eb5fce83f5e04a025a80b"
+      ],
       "origin": [
         "5c443f8012e4c8228c32c047ada651f0a1a4079e50ed979f63283e03fb67b755"
       ],
-      "fingerprint": "99fb103241cd61b3fd44654c8640fdfeeb17fb6c2495f8f6e3c68e424a054841",
+      "fingerprint": "cd33f98469733d6f9812a57f8d761c667a240c061ca7db3253e085e74ff2c545",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5618",
-      "trigger": "Invocation of useIssueHistory/useEffect:callback/events/callback",
+      "trigger": "Invocation of useIssueHistory/view/useMemo:callback/events/callback",
       "bound": "No cardinality cap established by this source-only reader-summary census.",
       "reason": "The conservative scanner propagates collection taint through the moved helper; preserve repair classification independently of focused detail evidence.",
       "guard": "Exact fingerprint and multiplicity only; this census entry does not itself prove bounded work."
     },
     {
       "file": "apps/web/src/features/issues/issue-page/IssueHistory.tsx",
-      "holder": "useIssueHistory/useEffect:callback/mail/callback",
+      "holder": "useIssueHistory/view/useMemo:callback/mail/callback",
       "rule": "reader-summary",
       "tokens": "47d11ebe60e815d978d01449babb21197624bd0547ebf312449a4e16145d86e2",
-      "gate": [],
+      "gate": [
+        "then:986f690ce3c4f8741f4341d67936aa814b16cd92511eb5fce83f5e04a025a80b"
+      ],
       "origin": [
         "5cd5a34f4cc0db8bdfeaa955b73e9cf004bf4b8bc4495e73c38d5b60c8a50f63"
       ],
-      "fingerprint": "aa8f7cd8ca6db908f03f583efc7fb7a2b968434b4af5baab04a527d857fb4cc4",
+      "fingerprint": "8b997a6704bb743e38b14c69467e2751025b82d70f7bae03ccebaa8433ff268f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5618",
-      "trigger": "Invocation of useIssueHistory/useEffect:callback/mail/callback",
+      "trigger": "Invocation of useIssueHistory/view/useMemo:callback/mail/callback",
       "bound": "No cardinality cap established by this source-only reader-summary census.",
       "reason": "The conservative scanner propagates collection taint through the moved helper; preserve repair classification independently of focused detail evidence.",
       "guard": "Exact fingerprint and multiplicity only; this census entry does not itself prove bounded work."
@@ -10891,68 +10877,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/IssuePanelView.tsx",
-      "holder": "RecentActivity/RecentActivity",
-      "rule": "consume:map",
-      "tokens": "548be6ee4355b5e7e42a7f8509527dfa174c56f9082d4327e8e5112f61ef8a03",
-      "gate": [
-        "else:791f1346c13a5b4cc3a8c88b75cab637641c615d2345bfcaab121c6e418752db"
-      ],
-      "origin": [
-        "08b3f0f3c0e6cf4bc7bca369d2b628109903c50f6f213eb800e2643b0a7bc3e0",
-        "5c443f8012e4c8228c32c047ada651f0a1a4079e50ed979f63283e03fb67b755",
-        "5cd5a34f4cc0db8bdfeaa955b73e9cf004bf4b8bc4495e73c38d5b60c8a50f63"
-      ],
-      "fingerprint": "4ba93c87060bc6d7e38b4bfbeb7234432b896202fc3f37f52c4cb3df7a7d438b",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-5618",
-      "trigger": "The dock Recent activity section renders.",
-      "bound": "At most the last five items from the shared issue history.",
-      "reason": "The bounded slice and render map do not refetch or scan retained history.",
-      "guard": "apps/web/src/features/issues/IssuePage.pool-parity.test.tsx and packages/client-graph/src/issue-activity.test.ts preserve dock output and shared-history ownership."
-    },
-    {
-      "file": "apps/web/src/features/issues/IssuePanelView.tsx",
-      "holder": "RecentActivity/RecentActivity/activity",
-      "rule": "reader-summary",
-      "tokens": "9f6be267fc7f85b6799ba764dd435a82bb02b8834de8f5d5e69fcc0163a80ab3",
-      "gate": [],
-      "origin": [
-        "08b3f0f3c0e6cf4bc7bca369d2b628109903c50f6f213eb800e2643b0a7bc3e0",
-        "5c443f8012e4c8228c32c047ada651f0a1a4079e50ed979f63283e03fb67b755",
-        "5cd5a34f4cc0db8bdfeaa955b73e9cf004bf4b8bc4495e73c38d5b60c8a50f63"
-      ],
-      "fingerprint": "c30003a6c3de0e06b7f7d9a4e76ee09857cdc495d592c885f9ec6c813857a14e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5618",
-      "trigger": "Invocation of RecentActivity/RecentActivity/activity",
-      "bound": "No cardinality cap established by this source-only reader-summary census.",
-      "reason": "The conservative scanner propagates collection taint through the moved helper; preserve repair classification independently of focused detail evidence.",
-      "guard": "Exact fingerprint and multiplicity only; this census entry does not itself prove bounded work."
-    },
-    {
-      "file": "apps/web/src/features/issues/IssuePanelView.tsx",
-      "holder": "RecentActivity/RecentActivity/shown",
-      "rule": "consume:slice",
-      "tokens": "70aa6ed649393023d07e73407dc1ba69c386eec696bc000217f25d6a5da450e9",
-      "gate": [],
-      "origin": [
-        "08b3f0f3c0e6cf4bc7bca369d2b628109903c50f6f213eb800e2643b0a7bc3e0",
-        "5c443f8012e4c8228c32c047ada651f0a1a4079e50ed979f63283e03fb67b755",
-        "5cd5a34f4cc0db8bdfeaa955b73e9cf004bf4b8bc4495e73c38d5b60c8a50f63"
-      ],
-      "fingerprint": "5da8ff35647e0f00821d03c50e66eeeca343bc6d3a2f43d6561759fc2e4f8204",
-      "count": 1,
-      "classification": "visible output",
-      "owner": "POD-5618",
-      "trigger": "The dock Recent activity section renders.",
-      "bound": "At most the last five items from the shared issue history.",
-      "reason": "The bounded slice and render map do not refetch or scan retained history.",
-      "guard": "apps/web/src/features/issues/IssuePage.pool-parity.test.tsx and packages/client-graph/src/issue-activity.test.ts preserve dock output and shared-history ownership."
     },
     {
       "file": "apps/web/src/features/issues/issues-display.ts",
@@ -27096,17 +27020,17 @@
       "file": "packages/client-core/src/values/issue-activity.ts",
       "holder": "IssueActivityHistory/appendEvents",
       "rule": "loop:for-of",
-      "tokens": "64a9d4fc45bc8e171c2df70df05228780ab41bfcbaa84bb1089f7925ac469d5e",
+      "tokens": "00790f689ec1c079449510e524227fe7f58e3fe3185889bd22a85f825d01236d",
       "gate": [],
       "origin": [
         "f812520ce4a887e1a11173f742d445794e8ea590c5d1ad7400c98f44ca3e3a0c"
       ],
-      "fingerprint": "83f103fff2a8e8cd9a129cee89ea66fb5083c9c0b462ef50b6500c5765627cd5",
+      "fingerprint": "bbffb84e3472a264e2b2b2d0ab64269296d2b40079c58c22a159637c85632bb0",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5618",
       "trigger": "A newly fetched issue event page is appended.",
-      "bound": "One supplied page (the shared request owner asks for at most 200 rows per RPC); retained history is never enumerated for ID deduplication.",
+      "bound": "One supplied page (the shared request owner asks for at most 50 rows per RPC); retained history is never enumerated for ID deduplication.",
       "reason": "The history owns its ID index and formats only new rows, with stable event/feed arrays and cursor advancement.",
       "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1\u21921 for 128/512 retained events; a planted retained-ID map/Set fails."
     },
