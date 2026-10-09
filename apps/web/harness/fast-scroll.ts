@@ -25,7 +25,7 @@ if (process.argv.includes('--build')) {
     if (fixture === 'phone-lists') base.resolve!.alias = (base.resolve!.alias as any[]).map(alias => ({ ...alias, replacement: alias.replacement.endsWith('/inbox-platform.tsx') ? resolve('apps/mobile/test/conversation-stream-platform.tsx') : alias.replacement }))
     await build({ ...base, configFile: false, logLevel: 'warn',
       define: { ...base.define, __DEV__: 'false', 'process.env.NODE_ENV': '"production"' },
-      plugins: base.plugins?.filter(plugin => !/meter|acceptance-state/.test((plugin as { name?: string })?.name ?? '')),
+      plugins: [...(arm === 'before' ? [{ name: 'unchanged-product-windowing', enforce: 'pre' as const, load(id: string) { const path = ['apps/web/src/features/issues/use-bounded-virtual-list.ts', 'apps/web/src/app/flight-deck-window.tsx'].find(path => id.endsWith('/' + path)); return path ? execFileSync('git', ['show', 'ff68b5e727:' + path], { encoding: 'utf8' }) : null } }] : []), ...(base.plugins?.filter(plugin => !/meter|acceptance-state/.test((plugin as { name?: string })?.name ?? '')) ?? [])],
       build: { ...base.build, outDir: resolve(output, fixture), emptyOutDir: true, minify: true, sourcemap: false,
         rollupOptions: fixture === 'phone-lists' ? { input: resolve('apps/mobile/test/inbox.browser.html') } : base.build?.rollupOptions },
     })
@@ -58,7 +58,8 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
       await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}/test/${name}.browser.html?scale=4&surface=${variant === 'list' ? 'scroll' : variant === 'waterfall' ? 'full' : variant}&scrollScreen=${variant}`)
       await page.waitForFunction(() => (window as any).__acceptance?.ready() || (window as any).__conversationStream?.ready() || (window as any).__inbox?.readiness().attached, null, { timeout: 90_000 })
       await page.waitForTimeout(750)
-      if (variant === 'list') { await page.getByTitle('Display', { exact: true }).click(); await page.getByRole('menuitemradio', { name: 'List', exact: true }).click(); await page.waitForTimeout(500) }
+      await page.evaluate(() => document.fonts.ready)
+      if (variant === 'list') { await page.getByTitle('Display', { exact: true }).click(); await page.getByRole('menuitemradio', { name: 'List', exact: true }).click(); await page.keyboard.press('Escape'); await page.waitForTimeout(500) }
       if (fixture === 'lists' && ['full', 'waterfall'].includes(variant)) {
         const id = await page.evaluate(() => (window as any).__acceptance.targets.missions[0])
         await page.evaluate(id => (window as any).__acceptance.select(id), id)
@@ -121,6 +122,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
         const samples = await page.evaluate(() => { const state = (window as any).__scrollProof; state.active = false; return state.samples as { time: number; top: number; blankPx: number; area: number; mounted: number }[] })
         await cdp.send('Page.stopScreencast')
         await cdp.detach()
+        if (Math.max(...samples.map(s => s.top)) - Math.min(...samples.map(s => s.top)) < 300 || frames.length < 10) throw new Error(`${tag}: wheel did not reach the list; no scroll result`)
         // Decode compositor frames after capture, outside the measured scroll.
         const raster = await page.evaluate(async ({ frames, box }) => {
           const results: { blankPx: number; maxGap: number; timestamp: number }[] = []
