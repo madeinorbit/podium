@@ -4,8 +4,7 @@ import { createCommandPalette } from './command-launch-views'
 import { MobxPool } from './pool'
 
 it('preserves the opening member order for every addressed issue, then renews it on reopen', () => {
-  class Selection { @observable accessor id: string | null = null }
-  const selected = new Selection()
+  const selected = observable.map<string, string | null>([['id', null]])
   const stamp = '2026-10-09T12:00:00Z'
   const ids = ['z', 'a', 'A', 'aa', 'Å', 'empty']
   const issues = ids.map((id, seq) => ({ id, seq, title: id, stage: 'backlog',
@@ -27,14 +26,14 @@ it('preserves the opening member order for every addressed issue, then renews it
     read: (entity, id) => entity === 'commandCatalog'
       ? { issues: ids, sessions: sessions.map(session => session.sessionId), repositories: [], repos: [], worktrees: [], machines: [] }
       : entity === 'commandIssue' ? pool.row('issue', id) as never
-      : { paletteOpen: true, pins: { repos: [], worktrees: [] }, selectedIssueId: selected.id,
+      : { paletteOpen: true, pins: { repos: [], worktrees: [] }, selectedIssueId: selected.get('id') ?? null,
           openIssueId: null, selectedWorktree: null, paneA: null, recentFiles: [], sidebarSettings: {} } as never,
     dispose() {},
   })
   const picker = createCommandPalette(pool)
   const parity = () => runInAction(() => {
     for (const id of [null, 'missing', ...ids]) {
-      selected.id = id
+      selected.set('id', id)
       expect(picker.memberIds, String(id)).toEqual(oldMembers(id))
     }
   })
