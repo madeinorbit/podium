@@ -1,40 +1,28 @@
+import type { MissionScreen } from '@podium/client-graph/mission-screen'
 import type { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { SessionModel } from '@podium/client-graph/models'
 import { observer } from 'mobx-react-lite'
-import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
-import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {
   continuationPresenceLine,
   deckSessions,
   deckViewEmptyLine,
-  type FlightDeckFoldMap,
-  type FlightDeckFoldState,
   type FlightDeckMode,
-  type FlightDeckRow,
-  flightDeckRowHasPayload,
-  flightDeckRowIsFolded,
   formatClock,
   type IssueContinuation,
   type IssueNavigationModel,
-  issueAbandoned,
   type MotionPhase,
-  readFlightDeckFolds,
   sessionRole,
   sessionTitle,
   treeGuides,
-  writeFlightDeckFolds,
 } from '@podium/client-core/values'
-import type { MissionRowPresentation } from '@podium/client-graph/mission-view'
 import type { IssueId, SessionId } from '@podium/model'
 import { issueDisplayRef } from '@podium/protocol'
 import { memo, useCallback, useEffect, useMemo } from 'react'
 import { ScrollView, StyleSheet, Text, View } from 'react-native'
-import { useMissionDeckData } from '../client/hooks'
-import { usePersistedUiState } from '../hooks/usePersistedUiState'
-import { applyFolds, deckContentHeight } from '../lib/deck-rows'
+import { deckContentHeight } from '../lib/deck-rows'
 import { stageColor } from '../theme/stage'
 import { color, font, mono, radius, sans, space } from '../theme/theme'
 import { Icon } from './Icon'
@@ -90,19 +78,8 @@ const MODES: Array<{ id: FlightDeckMode; label: string }> = [
   { id: 'needs-you', label: 'Needs you' },
 ]
 
-/** Whether a task has anything to fold at all. A payload-less strip draws no
- *  chevron, so "collapse all" must not claim to have folded it either. */
-const hasPayload = flightDeckRowHasPayload
-
-/** `active` is `working`'s old id (POD-1452), still read so an operator who had
- *  chosen that view does not silently land back on `Full`. */
-const readMode = (raw: string | null): FlightDeckMode =>
-  raw === 'active' ? 'working' : raw === 'working' || raw === 'needs-you' ? raw : 'full'
-const writeMode = (mode: FlightDeckMode): string | null => (mode === 'full' ? null : mode)
-
 export const MissionDeck = observer(function MissionDeck({
-  root,
-  sessions,
+  screen,
   accent,
   currentSessionId,
   onOpenSession,
@@ -114,8 +91,8 @@ export const MissionDeck = observer(function MissionDeck({
   onOpenDeparture,
   onContentHeight,
 }: {
-  root: IssueViewModel
-  sessions: readonly SessionView[]
+  /** The opened mission: its rows, folds, mode and the root's answers. */
+  screen: MissionScreen
   /** The mission's own accent — what the lead rail and every tick are drawn in. */
   accent: string
   /** The session the conversation underneath is showing — the deck marks it so
@@ -132,51 +109,34 @@ export const MissionDeck = observer(function MissionDeck({
    *  change — the mission screen sizes and animates the panel from it. */
   onContentHeight: (height: number) => void
 }) {
-  const [mode, setMode] = usePersistedUiState<FlightDeckMode>(
-    FLIGHT_DECK_MODE_KEY,
-    readMode,
-    writeMode,
-  )
-  const [folds, setFolds] = usePersistedUiState<FlightDeckFoldMap>(
-    FLIGHT_DECK_FOLDS_KEY,
-    readFlightDeckFolds,
-    writeFlightDeckFolds,
-  )
-
-  const presentation = useMissionDeckData(root.id, mode)
-  const rows = presentation.rows
-  const shown = useMemo(() => applyFolds(rows, folds), [rows, folds])
+  const mode = screen.mode
+  const folds = screen.folds
+  const rootId = screen.rootId as IssueId
+  const rows = screen.rows
+  // The root is NOT a strip — the mission bar above is its row, so it is dropped
+  // from the spine and its agents hang directly off the head. The view model
+  // drops it, applies the folds and sinks the proposals.
+  const spineRows = screen.visibleRows
+  const rootRow = screen.rootRow
   /**
    * PROPOSALS SINK. A childless proposal leaves the sibling order and collects
    * in a tail at the bottom of the spine: work being offered to the operator is
    * not part of the mission's SHAPE, and interleaving it with the shape is what
    * made a proposal read as a task somebody had started. One with sub-tasks
-   * stays in the tree, because by then it is holding structure up.
+   * stays in the tree, because by then it is holding structure up. A childless
+   * proposed ROOT is the phone's one extra: the bar names it, the tail lists it.
    */
-  const proposalIds = useMemo(
-    () =>
-      new Set(
-        rows
-          .filter((r) => r.issue.stage === 'proposed' && r.descendantIds.length === 0)
-          .map((r) => r.issue.id),
-      ),
-    [rows],
-  )
   const proposals = useMemo(
-    () => rows.filter((r) => proposalIds.has(r.issue.id)),
-    [rows, proposalIds],
-  )
-  // The root is NOT a strip — the mission bar above is its row, so it is dropped
-  // from the spine and its agents hang directly off the head.
-  const spineRows = useMemo(
-    () => shown.filter((r) => r.issue.id !== root.id && !proposalIds.has(r.issue.id)),
-    [shown, root.id, proposalIds],
+    () =>
+      rootRow && rootRow.stage === 'proposed' && rootRow.descendantIds.length === 0
+        ? [rootRow, ...screen.proposedRows]
+        : screen.proposedRows,
+    [rootRow, screen.proposedRows],
   )
   // Computed over the rows that ACTUALLY render: a fold or a filter changes which
   // strip is the last child of its branch, and a rail that outlives its last
   // child is the tell that the tree was drawn from data rather than from layout.
-  const guides = useMemo(() => treeGuides(spineRows), [spineRows])
-  const rootRow = useMemo(() => rows.find((r) => r.issue.id === root.id), [rows, root.id])
+  const guides = useMemo(() => treeGuides(spineRows as MissionDeckIssueModel[]), [spineRows])
 
   /**
    * THE TASKS THAT HAVE A LEAD — the set the coloured rails are drawn from.
@@ -186,15 +146,15 @@ export const MissionDeck = observer(function MissionDeck({
    * lead went home would be the deck asserting somebody is driving when nobody
    * is, which is the one thing this device must never do.
    */
-  const ledIssueIds = new Set(rows.filter(row => (row as MissionDeckIssueModel).hasLead).map(row => row.issue.id))
+  const ledIssueIds = new Set(rows.filter(row => row.hasLead).map(row => row.id))
   const leadTone = useCallback(
     (issueId: IssueId | undefined): RailTone =>
       issueId === undefined || !ledIssueIds.has(issueId)
         ? null
-        : issueId === root.id
+        : issueId === rootId
           ? 'mission'
           : 'task',
-    [ledIssueIds, root.id],
+    [ledIssueIds, rootId],
   )
   /**
    * WHICH TASK OWNS THE RAIL AT EACH LEVEL of each rendered row.
@@ -209,45 +169,24 @@ export const MissionDeck = observer(function MissionDeck({
    * OWN descent, which is the line its agents hang on.
    */
   const rails = useMemo(() => {
-    const trail: (IssueId | undefined)[] = [root.id]
+    const trail: (IssueId | undefined)[] = [rootId]
     return spineRows.map((row) => {
       trail.length = row.depth
-      trail[row.depth] = row.issue.id
+      trail[row.depth] = row.id as IssueId
       const tones: RailTone[] = []
       for (let level = 1; level <= row.depth + 1; level += 1) tones.push(leadTone(trail[level - 1]))
       return tones
     })
-  }, [spineRows, root.id, leadTone])
+  }, [spineRows, rootId, leadTone])
 
   /** A session's name, for the roles that are named by another session (a spawn
    *  edge) rather than by the issue. */
   const nameOf = useCallback(
     (sessionId: SessionId) => {
-      const found = sessions.find((s) => s.sessionId === sessionId)
-      return found ? sessionTitle(found) : undefined
+      const found = screen.reader.session(sessionId)
+      return found && found !== LOADING ? sessionTitle(found) : undefined
     },
-    [sessions],
-  )
-  /** A proposal names the session that filed it, because the ref is how you go
-   *  and ask it why. Unresolvable (a human create, or an agent long gone) means
-   *  no author line rather than a raw session id. */
-  const authorOf = useCallback(
-    (issue: IssueNavigationModel): string | null => {
-      const id = issue.startedBySession
-      if (!id) return null
-      const author = sessions.find((s) => s.sessionId === id)
-      return author?.displayRef?.trim() || null
-    },
-    [sessions],
-  )
-
-  const toggleFold = useCallback(
-    (row: FlightDeckRow) => {
-      const next = new Map(folds)
-      next.set(row.issue.id, flightDeckRowIsFolded(row, folds) ? 'open' : 'closed')
-      setFolds(next)
-    },
-    [folds, setFolds],
+    [screen],
   )
 
   // THE HEADER'S AGENTS OBEY THE VIEW BAR (POD-1356), which they did not: the
@@ -262,27 +201,14 @@ export const MissionDeck = observer(function MissionDeck({
   // wrote down when it took the roster's own disclosure away and said the view
   // bar is what removes an agent from the deck.
   const rootSessions = rootRow ? deckSessions(rootRow, mode) : []
-  const foldable = useMemo(
-    () =>
-      rows.filter(
-        (row) => row.issue.id !== root.id && !proposalIds.has(row.issue.id) && hasPayload(row),
-      ),
-    [proposalIds, root.id, rows],
-  )
-  const allFolded =
-    foldable.length > 0 && foldable.every((row) => flightDeckRowIsFolded(row, folds))
-  const rootEmptyNote = presentation.presence
+  const foldable = screen.foldable
+  const allFolded = screen.allFolded
+  const rootEmptyNote = screen.presence
   const rootRetired = rootEmptyNote?.kind === 'done'
-  const rootContinuation = presentation.continuation
-  const allDepartures = presentation.departures
-  const continuationTargetId = rootContinuation?.target?.id
-  const departures = useMemo(
-    () => allDepartures.filter((departure) => departure.issue.id !== continuationTargetId),
-    [allDepartures, continuationTargetId],
-  )
-  const continuationState =
-    allDepartures.find((departure) => departure.issue.id === continuationTargetId)?.state ?? null
-  const rootFinished = isFinished(root)
+  const rootContinuation = screen.continuation
+  const departures = screen.otherDepartures
+  const continuationState = screen.continuationState
+  const rootFinished = screen.rootFinished
 
   // WHAT THE DECK IS ABOUT TO RENDER, COUNTED — the same predicates the JSX
   // below uses, so the height the panel animates to and the rows that appear
@@ -294,7 +220,7 @@ export const MissionDeck = observer(function MissionDeck({
     bands:
       rootSessions.length +
       spineRows.reduce(
-        (n, row) => n + (flightDeckRowIsFolded(row, folds) ? 0 : deckSessions(row, mode).length),
+        (n, row) => n + (row.folded(folds) ? 0 : deckSessions(row, mode).length),
         0,
       ),
     proposals: proposals.length,
@@ -307,6 +233,10 @@ export const MissionDeck = observer(function MissionDeck({
   useEffect(() => {
     onContentHeight(contentHeight)
   }, [contentHeight, onContentHeight])
+  const openTask = (row: MissionDeckIssueModel) => {
+    const issue = screen.reader.issue(row.id)
+    if (issue && issue !== LOADING) onOpenTask(issue)
+  }
 
   return (
     <View style={styles.panel}>
@@ -317,7 +247,7 @@ export const MissionDeck = observer(function MissionDeck({
             return (
               <PressableScale
                 key={m.id}
-                onPress={() => setMode(m.id)}
+                onPress={() => screen.setView(m.id)}
                 scaleTo={0.99}
                 accessibilityRole="button"
                 // `aria-pressed`, not `aria-selected`, and beside `accessibilityState` rather
@@ -339,16 +269,7 @@ export const MissionDeck = observer(function MissionDeck({
           })}
         </View>
         <PressableScale
-          onPress={() =>
-            setFolds(
-              new Map(
-                foldable.map((row): [string, FlightDeckFoldState] => [
-                  row.issue.id,
-                  allFolded ? 'open' : 'closed',
-                ]),
-              ),
-            )
-          }
+          onPress={() => screen.foldAll()}
           accessibilityRole="button"
           accessibilityLabel={allFolded ? 'Expand every branch' : 'Fold every branch'}
           disabled={foldable.length === 0}
@@ -388,7 +309,7 @@ export const MissionDeck = observer(function MissionDeck({
           <View
             style={[
               styles.topRailLine,
-              { left: ROOT_RAIL, ...toRailStyle(railFor(leadTone(root.id), accent)) },
+              { left: ROOT_RAIL, ...toRailStyle(railFor(leadTone(rootId), accent)) },
             ]}
           />
         </View>
@@ -415,7 +336,7 @@ export const MissionDeck = observer(function MissionDeck({
                 session={session}
                 depth={0}
                 carries={[]}
-                rails={[leadTone(root.id)]}
+                rails={[leadTone(rootId)]}
                 accent={accent}
                 nameOf={nameOf}
                 // The root's rail carries on into the spine below it, so the
@@ -429,11 +350,11 @@ export const MissionDeck = observer(function MissionDeck({
 
         {spineRows.length === 0 && rootSessions.length === 0 && proposals.length === 0 ? (
           rootContinuation ? null : rootRetired ? (
-            <RetiredSignpost abandoned={issueAbandoned(root)} onTuck={onTuckRoot} />
+            <RetiredSignpost abandoned={screen.rootAbandoned} onTuck={onTuckRoot} />
           ) : (
             <EmptyState
               title={
-                deckViewEmptyLine(mode, rootRow?.waitingAgentCount ?? 0) ??
+                deckViewEmptyLine(mode, screen.waitingCount) ??
                 rootEmptyNote?.text ??
                 'No sessions or sub-tasks are attached.'
               }
@@ -443,7 +364,7 @@ export const MissionDeck = observer(function MissionDeck({
 
         {spineRows.map((row, index) => (
           <SpineRow
-            key={row.issue.id}
+            key={row.id}
             row={row}
             carries={guides[index] ?? []}
             rails={rails[index] ?? []}
@@ -451,13 +372,18 @@ export const MissionDeck = observer(function MissionDeck({
             stops={!(guides[index + 1] ?? [])[row.depth - 1]}
             childFollows={(spineRows[index + 1]?.depth ?? 0) > row.depth}
             mode={mode}
-            poolPresentation={{ value: presentation.rowPresentation.get(row.issue.id)! }}
             nameOf={nameOf}
-            folded={flightDeckRowIsFolded(row, folds)}
+            folded={row.folded(folds)}
             currentSessionId={currentSessionId}
-            onToggleFold={() => toggleFold(row)}
-            onOpenTask={onOpenTask}
-            onOpenTaskMenu={onOpenTaskMenu}
+            onToggleFold={() => screen.toggleFold(row)}
+            onOpenTask={() => openTask(row)}
+            onOpenTaskMenu={
+              onOpenTaskMenu &&
+              (() => {
+                const issue = screen.reader.issue(row.id)
+                if (issue && issue !== LOADING) onOpenTaskMenu(issue)
+              })
+            }
             onOpenSession={onOpenSession}
           />
         ))}
@@ -465,14 +391,7 @@ export const MissionDeck = observer(function MissionDeck({
         {proposals.length > 0 ? (
           <DeckSection label="Proposed" count={proposals.length} tone={stageColor('proposed')}>
             {proposals.map((row) => (
-              <ProposalRow
-                key={row.issue.id}
-                title={row.issue.title}
-                displayRef={issueDisplayRef(row.issue)}
-                author={authorOf(row.issue)}
-                selected={false}
-                onPress={() => onOpenTask(row.issue)}
-              />
+              <MissionProposal key={row.id} row={row} onPress={() => openTask(row)} />
             ))}
           </DeckSection>
         ) : null}
@@ -509,7 +428,30 @@ export const MissionDeck = observer(function MissionDeck({
   )
 })
 
-function SpineRow({
+/** A proposal names the session that filed it, because the ref is how you go
+ *  and ask it why. Unresolvable (a human create, or an agent long gone) means
+ *  no author line rather than a raw session id. */
+const MissionProposal = observer(function MissionProposal({
+  row,
+  onPress,
+}: {
+  row: MissionDeckIssueModel
+  onPress: () => void
+}) {
+  const authorId = row.facts.startedBySession
+  const collapsed = authorId ? row.view.pool.graph.isCollapsed('session', authorId) : false
+  return (
+    <ProposalRow
+      title={row.title}
+      displayRef={row.displayRef}
+      author={collapsed ? null : row.authorRef}
+      selected={false}
+      onPress={onPress}
+    />
+  )
+})
+
+const SpineRow = observer(function SpineRow({
   row,
   carries,
   rails,
@@ -517,7 +459,6 @@ function SpineRow({
   stops,
   childFollows,
   mode,
-  poolPresentation,
   nameOf,
   folded,
   currentSessionId,
@@ -526,7 +467,7 @@ function SpineRow({
   onOpenTaskMenu,
   onOpenSession,
 }: {
-  row: FlightDeckRow
+  row: MissionDeckIssueModel
   carries: readonly boolean[]
   rails: readonly RailTone[]
   accent: string
@@ -536,23 +477,23 @@ function SpineRow({
    *  block and the next row instead of stopping at the last agent's elbow. */
   childFollows: boolean
   mode: FlightDeckMode
-  poolPresentation: { value: MissionRowPresentation }
   nameOf: (sessionId: SessionId) => string | undefined
   folded: boolean
   currentSessionId: SessionId | undefined
   onToggleFold: () => void
-  onOpenTask: (i: IssueNavigationModel) => void
-  onOpenTaskMenu?: (i: IssueNavigationModel) => void
+  onOpenTask: () => void
+  onOpenTaskMenu?: () => void
   onOpenSession: (s: SessionView) => void
 }) {
-  const state = poolPresentation.value.state
+  const presentation = row.presentation
+  const state = presentation.state
   const context = mode !== 'full' && !row.matched
-  const note = context ? null : poolPresentation.value.note
+  const note = context ? null : presentation.note
   const bands = folded ? [] : deckSessions(row, mode)
   // The seat is held for work that could be picked up — never under a proposal,
   // and never to restate a dependency the strip has already named above it.
   const seat =
-    context || row.issue.stage === 'proposed' ? null : seatFor(poolPresentation.value.presence)
+    context || row.stage === 'proposed' ? null : seatFor(presentation.presence)
   // A FOLDED BRANCH REPORTS LIVE STATE, not the count already in its payload:
   // "2 running" is the thing the fold is hiding, and `3 tasks` is printed on the
   // same line beside it.
@@ -576,9 +517,9 @@ function SpineRow({
         // ends at this elbow when no sibling follows — the agents and children
         // below hang one step further in, on a different line.
         stops={stops}
-        title={row.issue.title}
-        displayRef={issueDisplayRef(row.issue)}
-        stage={row.issue.stage}
+        title={row.title}
+        displayRef={row.displayRef}
+        stage={row.stage}
         state={state}
         note={note}
         seat={seat}
@@ -587,9 +528,9 @@ function SpineRow({
         liveWord={liveWord}
         selected={selected}
         context={context}
-        foldable={hasPayload(row)}
-        onPress={() => onOpenTask(row.issue)}
-        onLongPress={context ? undefined : () => onOpenTaskMenu?.(row.issue)}
+        foldable={row.hasPayload}
+        onPress={onOpenTask}
+        onLongPress={context ? undefined : onOpenTaskMenu}
         onToggleFold={onToggleFold}
       />
       {bands.map((session, i) => (
@@ -609,7 +550,7 @@ function SpineRow({
       ))}
     </View>
   )
-}
+})
 
 const Band = observer(function Band({
   row,
@@ -623,7 +564,7 @@ const Band = observer(function Band({
   current,
   onPress,
 }: {
-  row: FlightDeckRow
+  row: MissionDeckIssueModel
   session: SessionView
   depth: number
   carries: readonly boolean[]
@@ -637,10 +578,10 @@ const Band = observer(function Band({
   const phase = (session as SessionModel).motion
   // Asked ON THIS TASK: a closed one never asks, however long its offer has been
   // standing (POD-1072).
-  const asking = (row as MissionDeckIssueModel).asks(session)
+  const asking = row.asks(session)
   const working = (session as SessionModel).workingMotion
-  const role = sessionRole(row.issue, session, {
-    rootId: row.depth === 0 ? row.issue.id : null,
+  const role = sessionRole(row.roleIssue, session, {
+    rootId: row.depth === 0 ? row.id : null,
     siblings: row.sessions,
     inMission: new Set(row.sessions.map((s) => s.sessionId)),
   })

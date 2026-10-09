@@ -5,18 +5,14 @@ import type { Store } from '@podium/client-core/engine'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SocketHub } from '@podium/client-core/socket-transport'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
-import type { FlightDeckMode } from '@podium/client-core/values'
-import type { MissionViewValues } from '@podium/client-graph/mission-view'
-import {
-  EMPTY_MOBILE_MISSION,
-  type MobileMissionData,
-} from '@podium/client-graph/mobile-screens-schema'
+import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { SessionId } from '@podium/model'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { mobilePaintNow } from '../lib/work-sections'
 import { demoEnabled } from './demoData'
-import { useMobilePoolProjection } from './mobile-pool'
+import { useMobilePool, useMobilePoolProjection } from './mobile-pool'
 import type { MobileTrpc, TranscriptPage } from './trpc'
 
 export {
@@ -132,54 +128,32 @@ function poolBooting(pool: MobxPool): boolean {
   return !reader || typeof reader === 'symbol' || reader.booting()
 }
 
-type MissionRead = MobileMissionData & { resolved: boolean }
-const EMPTY_MISSION_READ: MissionRead = { ...EMPTY_MOBILE_MISSION, resolved: false }
-export function useMissionScreenData(id: string): MissionRead {
-  const read = useCallback(
-    (pool: MobxPool): MissionRead => {
-      const reader = omitGone(pool.row('mobileScreenReader', 'reader'))
-      if (!reader || typeof reader === 'symbol') return EMPTY_MISSION_READ
-      const data = reader.mission(id)
-      return typeof data === 'symbol'
-        ? EMPTY_MISSION_READ
-        : {
-            ...data,
-            resolved: data.root !== undefined || !poolBooting(pool),
-          }
-    },
-    [id],
+/**
+ * One opening of the mission a phone route shows. The route's root component
+ * owns it: the view model is created for the mission root the selection opens
+ * (archived roots included) and closed, with its companions, on unmount.
+ * `resolved` keeps the old contract: a root has settled, or the pool is past
+ * its boot and the mission is simply not there.
+ */
+export function useMissionOpening(selectedId: string): { screen: MissionScreen | null; resolved: boolean } {
+  const pool = useMobilePool()
+  const uiState = useUiState()
+  const readRoot = useCallback((pool: MobxPool) => missionRootId(pool, selectedId, true), [selectedId])
+  const rootId = useMobilePoolProjection(readRoot, LOADING)
+  const booting = useMobilePoolProjection(poolBooting, true)
+  const screen = useMemo(
+    () =>
+      pool && typeof rootId === 'string'
+        ? new MissionScreen(pool, rootId, { setPreference: (key, raw) => uiState.set(key, raw) })
+        : null,
+    [pool, rootId, uiState],
   )
-  return useMobilePoolProjection(read, EMPTY_MISSION_READ)
-}
-
-const EMPTY_DECK: MissionViewValues = {
-  root: undefined,
-  rows: [],
-  members: new Set(),
-  issueIds: [],
-  sessions: [],
-  archivedCount: 0,
-  titles: new Map(),
-  progress: EMPTY_MOBILE_MISSION.progress,
-  departures: [],
-  continuation: null,
-  note: null,
-  presence: null,
-  rowPresentation: new Map(),
-}
-/** The details deck's mode is local UI state; the addressed pool reader owns
- * its rows, state words, notes, continuation and departures. */
-export function useMissionDeckData(id: string, mode: FlightDeckMode): MissionViewValues {
-  const read = useCallback(
-    (pool: MobxPool) => {
-      const reader = omitGone(pool.row('mobileScreenReader', 'reader'))
-      if (!reader || typeof reader === 'symbol') return EMPTY_DECK
-      const data = reader.deck(id, mode)
-      return typeof data === 'symbol' ? EMPTY_DECK : data
-    },
-    [id, mode],
-  )
-  return useMobilePoolProjection(read, EMPTY_DECK)
+  useEffect(() => {
+    if (!screen) return
+    screen.open()
+    return () => screen.close()
+  }, [screen])
+  return { screen, resolved: Boolean(screen?.ready) || !booting }
 }
 
 /** One page of a session transcript, newest-first, as both transcript readers

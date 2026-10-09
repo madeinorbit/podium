@@ -234,6 +234,15 @@ export class MissionScreen {
   @lazy({ equals: compareStructural }) get members(): ReadonlySet<string> { return requireLoaded(this.deck.members) }
   @lazy({ equals: compareShallow }) get crewIds(): readonly string[] { return this.rows.flatMap((row) => row.crewIds) }
   @lazy({ equals: compareStructural }) get inMission(): ReadonlySet<string> { return new Set(this.crewIds) }
+  /** Every seated sender across the mission's members, in session order:
+   * the crew the phone's mission screen picks its conversation from. */
+  @lazy({ equals: compareShallow }) get crew(): readonly SessionModel[] {
+    const seats = new Map<string, SessionModel>()
+    for (const member of this.members) {
+      for (const seat of requireLoaded(this.reader.present(member))) seats.set(seat.sessionId, this.pool.sessionObject(seat.sessionId))
+    }
+    return [...seats.values()].sort(this.reader.sessionOrder)
+  }
   @lazy({ equals: compareShallow }) get rootSessionIds(): readonly string[] { return this.rootRow?.sessionIds(this.mode) ?? [] }
   sessionHeight(id: string): number { return this.seat(this.pool.sessionObject(id)).height }
 

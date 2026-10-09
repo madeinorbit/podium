@@ -50,8 +50,9 @@ export const WorkIssueMenu = observer(function WorkIssueMenu({
   onClose,
 }: {
   target: WorkIssueMenuTarget
-  issues: readonly IssueViewModel[]
-  sessions: readonly SessionView[]
+  /** Unread: the menu reads its issue's facts from the shared issue. */
+  issues?: readonly IssueViewModel[]
+  sessions?: readonly SessionView[]
   onClose: () => void
 }) {
   // Actions retain their owner; displayed facts follow the shared issue.

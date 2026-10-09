@@ -5,6 +5,8 @@ import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core
 import {
   deckSessions,
   type FlightDeckFoldMap,
+  flightDeckRowHasPayload,
+  flightDeckRowIsFolded,
   type FlightDeckMode,
   issueOwnContentUnread,
   machineViewsFromWire,
@@ -21,6 +23,7 @@ import { allIssueViewModels } from '../../../tests/worklist/diagnostics/referenc
 import { buildCorpus } from '../../../tests/worklist/harness/src/fixture/corpus'
 import { seedCacheFromCorpus } from '../../../tests/worklist/shared/src/scenarios'
 import { headerView } from './header-views'
+import { attachMobileScreens } from './mobile-screens'
 import { MissionScreen, type MissionScreenView, missionRootId } from './mission-screen'
 import { type MissionDeckIssueModel, type MissionViewValues, missionView, readMissionView, requireLoaded } from './mission-view'
 import { MobxPool } from './pool'
@@ -329,3 +332,116 @@ it('answers the agent hosts the pane catalog answered', async () => {
   } finally { pool.dispose() }
 }, 120_000)
 
+
+/** The phone deck's own list rules over the bundle, verbatim from MissionDeck. */
+function oldPhoneDeck(values: MissionViewValues, mode: FlightDeckMode, folds: FlightDeckFoldMap) {
+  const rows = values.rows
+  const shown: typeof rows = []
+  let hideBelow: number | null = null
+  for (const row of rows) {
+    if (hideBelow !== null && row.depth > hideBelow) continue
+    hideBelow = null
+    shown.push(row)
+    if (flightDeckRowIsFolded(row, folds)) hideBelow = row.depth
+  }
+  const rootId = values.root!.id
+  const proposalIds = new Set(rows.filter(r => r.issue.stage === 'proposed' && r.descendantIds.length === 0).map(r => r.issue.id))
+  const spine = shown.filter(r => r.issue.id !== rootId && !proposalIds.has(r.issue.id))
+  const rootRow = rows.find(r => r.issue.id === rootId)
+  const foldable = rows.filter(row => row.issue.id !== rootId && !proposalIds.has(row.issue.id) && flightDeckRowHasPayload(row))
+  const target = values.continuation?.target?.id
+  return {
+    spine: spine.map(row => [row.issue.id, row.depth, row.issue.title, issueDisplayRef(row.issue), row.issue.stage, values.rowPresentation.get(row.issue.id), flightDeckRowIsFolded(row, folds), deckSessions(row, mode).map(s => s.sessionId)]),
+    proposals: rows.filter(r => proposalIds.has(r.issue.id)).map(row => [row.issue.id, row.issue.title, issueDisplayRef(row.issue)]),
+    foldable: foldable.map(row => row.issue.id),
+    allFolded: foldable.length > 0 && foldable.every(row => flightDeckRowIsFolded(row, folds)),
+    rootSessions: rootRow ? deckSessions(rootRow, mode).map(s => s.sessionId) : [],
+    led: rows.filter(row => (row as MissionDeckIssueModel).hasLead).map(row => row.issue.id),
+    presence: values.presence,
+    continuation: values.continuation,
+    departures: values.departures.filter(d => d.issue.id !== target),
+    continuationState: values.departures.find(d => d.issue.id === target)?.state ?? null,
+    waiting: rootRow?.waitingAgentCount ?? 0,
+  }
+}
+
+/** The same answers through the opening's view model, with the phone's root-proposal rule. */
+function newPhoneDeck(screen: MissionScreen) {
+  const rootRow = screen.rootRow
+  const rootProposal = rootRow && rootRow.stage === 'proposed' && rootRow.descendantIds.length === 0 ? [rootRow] : []
+  const proposals = [...rootProposal, ...screen.proposedRows]
+  return {
+    spine: screen.visibleRows.map(row => [row.id, row.depth, row.title, row.displayRef, row.stage, row.presentation, row.folded(screen.folds), deckSessions(row, screen.mode).map(s => s.sessionId)]),
+    proposals: proposals.map(row => [row.id, row.title, row.displayRef]),
+    foldable: screen.foldable.map(row => row.id),
+    allFolded: screen.allFolded,
+    rootSessions: rootRow ? deckSessions(rootRow, screen.mode).map(s => s.sessionId) : [],
+    led: screen.rows.filter(row => row.hasLead).map(row => row.id),
+    presence: screen.presence,
+    continuation: screen.continuation,
+    departures: screen.otherDepartures,
+    continuationState: screen.continuationState,
+    waiting: screen.waitingCount,
+  }
+}
+
+it('opens phone missions with the phone bundle\'s answers: crew, header issue, progress, deck lists', async () => {
+  const { pool, ui, issues, sessions } = corpusPool(1)
+  await attachMobileScreens(pool)
+  try {
+    const reader = pool.row('mobileScreenReader', 'reader')
+    if (!reader || typeof reader === 'symbol') throw new Error('Phone reader did not attach')
+    // The phone also opens archived roots and children by id.
+    const ids = [...interestingRoots(issues, sessions, 1),
+      ...issues.filter(issue => issue.archived && !issue.deletedAt).slice(0, 4).map(issue => issue.id),
+      ...issues.filter(issue => issue.parentId && !issue.archived).slice(0, 4).map(issue => issue.id)]
+    let compared = 0
+    for (const id of ids) {
+      for (const mode of ['full', 'working', 'needs-you'] as const) {
+        ui.set(FLIGHT_DECK_MODE_KEY, mode === 'full' ? null : mode)
+        ui.set(FLIGHT_DECK_FOLDS_KEY, null)
+        let rootId: unknown
+        const stopRoot = autorun(() => { rootId = missionRootId(pool, id, true) })
+        await settle(pool); stopRoot()
+        let current: { old: unknown; next: unknown } | undefined
+        const screen = typeof rootId === 'string' ? new MissionScreen(pool, rootId, { setPreference: (key, raw) => ui.set(key, raw) }) : undefined
+        screen?.open()
+        const stop = autorun(() => {
+          const mission = reader.mission(id), deck = reader.deck(id, mode)
+          const old = mission === LOADING || deck === LOADING ? LOADING : {
+            root: mission.root?.id,
+            crew: mission.missionSessions.map(s => s.sessionId),
+            header: mission.missionSessions.map(s => mission.issues.find(issue => issue.id === s.issueId)?.id ?? mission.root?.id),
+            progress: mission.progress,
+            deck: deck.root ? oldPhoneDeck(deck, mode, screen?.folds ?? new Map()) : null,
+          }
+          const next = !screen ? { root: undefined, crew: [], header: [], progress: { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }, deck: null }
+            : !screen.ready ? LOADING : {
+              root: screen.rootId,
+              crew: screen.crew.map(s => s.sessionId),
+              header: screen.crew.map(s => (s.issueId && screen.members.has(s.issueId) ? s.issueId : screen.rootId)),
+              progress: screen.progress,
+              deck: newPhoneDeck(screen),
+            }
+          current = { old, next }
+        })
+        try {
+          await settle(pool)
+          expect(current?.old, `${id} ${mode} old settles`).not.toBe(LOADING)
+          expect(current?.next, `${id} ${mode}`).toEqual(current?.old)
+          if (screen) {
+            const foldable = screen.foldable.map(row => row.id)
+            for (const folds of [new Map(foldable.map(fid => [fid, 'closed' as const])),
+              new Map(foldable.map((fid, index) => [fid, index % 2 ? 'open' as const : 'closed' as const]))]) {
+              ui.set(FLIGHT_DECK_FOLDS_KEY, writeFlightDeckFolds(folds))
+              await settle(pool)
+              expect(current?.next, `${id} ${mode} folds`).toEqual(current?.old)
+            }
+          }
+          compared++
+        } finally { stop(); screen?.close() }
+      }
+    }
+    expect(compared).toBeGreaterThan(30)
+  } finally { pool.dispose() }
+}, 600_000)

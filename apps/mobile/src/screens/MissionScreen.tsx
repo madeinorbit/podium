@@ -11,8 +11,9 @@ import { issueDisplayRef } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { StyleSheet, Text, View } from 'react-native'
-import { useMissionScreenData, useStoreActions } from '../client/hooks'
+import { useMissionOpening, useStoreActions } from '../client/hooks'
 import type { MobileTrpc } from '../client/trpc'
 import { ActionSheet, type SheetAction } from '../components/ActionSheet'
 import { HarnessChip } from '../components/AgentMark'
@@ -50,6 +51,9 @@ import { color, font, mono, monoLabel, space } from '../theme/theme'
  * dismissal, focus containment, and keyboard behavior.
  */
 
+const NO_SESSIONS: readonly SessionView[] = []
+const NO_PROGRESS: MissionProgress = { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
+
 export const MissionScreen = observer(function MissionScreen() {
   const pool = useMobilePool()
   const params = useLocalSearchParams<{
@@ -64,8 +68,12 @@ export const MissionScreen = observer(function MissionScreen() {
   // The mission is the whole subtree above and below the selected task, exactly
   // as the desktop resolves it — open a child from a notification and you land
   // on the same deck the sidebar would have given you.
-  const { root, issues, sessions, missionSessions, progress, resolved } =
-    useMissionScreenData(selectedId)
+  const { screen, resolved } = useMissionOpening(selectedId)
+  const ready = screen?.ready === true
+  const rootValue = ready ? screen.reader.issue(screen.rootId) : undefined
+  const root = rootValue && rootValue !== LOADING ? rootValue : undefined
+  const missionSessions = ready ? (screen.crew as unknown as readonly SessionView[]) : NO_SESSIONS
+  const progress = ready ? screen.progress : NO_PROGRESS
 
   const requestedSessionId = Array.isArray(params.sessionId)
     ? params.sessionId[0]
@@ -91,10 +99,13 @@ export const MissionScreen = observer(function MissionScreen() {
   useEffect(() => {
     if (requestedSessionId) setPinnedSessionId(requestedSessionId as SessionId)
   }, [requestedSessionId])
-  const currentIssue = useMemo(
-    () => issues.find((i) => i.id === current?.issueId) ?? root,
-    [current?.issueId, issues, root],
-  )
+  // The header names the task the shown session works on, when it is one of
+  // this mission's members; otherwise the mission itself.
+  const currentValue =
+    ready && current?.issueId && screen.members.has(current.issueId)
+      ? screen.reader.issue(current.issueId)
+      : undefined
+  const currentIssue = currentValue && currentValue !== LOADING ? currentValue : root
   const headerIssue = currentIssue ?? root
 
   const attention = missionSessions.filter((s) => (s as SessionModel).asking).length

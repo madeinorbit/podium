@@ -1,9 +1,11 @@
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { observer } from 'mobx-react-lite'
 import { asIssueId } from '@podium/model'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useState } from 'react'
-import { useMissionScreenData, useStoreActions } from '../client/hooks'
+import { useMissionOpening, useStoreActions } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { ConfiguredIssueLaunchSheet } from '../components/ConfiguredIssueLaunchSheet'
 import { DetailSkeleton } from '../components/LaunchPlaceholders'
@@ -15,7 +17,7 @@ import { FLOW_HEX, issueColorHex } from '../theme/issueColors'
 
 const ignoreContentHeight = (_height: number): void => undefined
 
-export function MissionDetailsScreen() {
+export const MissionDetailsScreen = observer(function MissionDetailsScreen() {
   const params = useLocalSearchParams<{
     missionId: string | string[]
     sessionId?: string | string[]
@@ -23,7 +25,10 @@ export function MissionDetailsScreen() {
   const rawId = Array.isArray(params.missionId) ? params.missionId[0] : params.missionId
   const rawSession = Array.isArray(params.sessionId) ? params.sessionId[0] : params.sessionId
   const missionId = asIssueId(decodeURIComponent(rawId ?? ''))
-  const { root, issues, sessions, missionSessions, resolved } = useMissionScreenData(missionId)
+  const { screen, resolved } = useMissionOpening(missionId)
+  const ready = screen?.ready === true
+  const rootValue = ready ? screen.reader.issue(screen.rootId) : undefined
+  const root = rootValue && rootValue !== LOADING ? rootValue : undefined
   const store = useStoreActions()
   const router = useRouter()
   const [menuIssue, setMenuIssue] = useState<IssueNavigationModel | null>(null)
@@ -33,19 +38,18 @@ export function MissionDetailsScreen() {
     [menuIssueId],
   )
   const sessionCount = useMobilePoolProjection(readSessionCount, 0)
-  const [launchIssue, setLaunchIssue] = useState<(typeof issues)[number] | null>(null)
+  const [launchIssue, setLaunchIssue] = useState<IssueNavigationModel | null>(null)
 
   return (
     <Screen title="Mission details" onBack={() => router.back()} backAs="text" backLabel="Done">
       {!resolved ? (
         <DetailSkeleton />
-      ) : root ? (
+      ) : root && screen ? (
         <MissionDeck
-          root={root}
-          sessions={sessions}
+          screen={screen}
           accent={issueColorHex(root.color) ?? FLOW_HEX}
           currentSessionId={
-            missionSessions.find((session) => session.sessionId === rawSession)?.sessionId
+            screen.crew.find((session) => session.sessionId === rawSession)?.sessionId
           }
           onOpenSession={(session) =>
             router.dismissTo(
@@ -75,12 +79,10 @@ export function MissionDetailsScreen() {
       {menuIssue ? (
         <WorkIssueMenu
           target={{ issue: menuIssue, lane: 'live', sessionCount }}
-          issues={issues}
-          sessions={sessions}
           onClose={() => setMenuIssue(null)}
         />
       ) : null}
       <ConfiguredIssueLaunchSheet issue={launchIssue} onClose={() => setLaunchIssue(null)} />
     </Screen>
   )
-}
+})
