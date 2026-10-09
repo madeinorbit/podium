@@ -56,16 +56,20 @@ vi.mock('@podium/client-graph/residency', async (original) => {
     Residency: class extends real.Residency {
       constructor(options: ConstructorParameters<typeof real.Residency>[0]) {
         const windows = state.loadWindows
-        super(windows === null ? options : {
-          ...options,
-          schedule(run) {
-            windows.push(run)
-            return () => {
-              const index = windows.indexOf(run)
-              if (index !== -1) windows.splice(index, 1)
-            }
-          },
-        })
+        super(
+          windows === null
+            ? options
+            : {
+                ...options,
+                schedule(run) {
+                  windows.push(run)
+                  return () => {
+                    const index = windows.indexOf(run)
+                    if (index !== -1) windows.splice(index, 1)
+                  }
+                },
+              },
+        )
       }
     },
   }
@@ -541,7 +545,7 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
     if (parity) {
       const ids = ['tasks', 'mission', 'details']
       const text = ids.map((id) => screen.getByTestId(id).textContent)
-      // Exact outputs frozen after the accepted OFF/ON comparison passed.
+      // Exact settled outputs include the intended initial list window.
       for (const [index, id] of ids.entries()) {
         expect(
           createHash('sha256')
@@ -718,10 +722,13 @@ it('a cold conversation renders its declared joined machine name before and afte
   await act(async () => {
     for (const run of state.loadWindows!.splice(0)) run()
   })
-  await waitFor(() => {
-    expect(state.pool!.tables.session.has(id)).toBe(true)
-    expectMachineName()
-  }, { timeout: 5_000 })
+  await waitFor(
+    () => {
+      expect(state.pool!.tables.session.has(id)).toBe(true)
+      expectMachineName()
+    },
+    { timeout: 5_000 },
+  )
   expect(chatContextReadStats(state.pool!)).toEqual({
     mentionBuilds: 0,
     mentionIssueReads: 0,
