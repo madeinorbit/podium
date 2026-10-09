@@ -400,16 +400,16 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
         keywords: [machinePathBasename(s.cwd), s.agentKind, 'agent', 'session'],
       }),
       build: () => ({
-      id: `${group}-session:${s.sessionId}`,
-      group,
-      label: sessionDisplayName(s),
-      keywords: [machinePathBasename(s.cwd), s.agentKind, 'agent', 'session'],
-      hint: machinePathBasename(s.cwd),
-      sessionId: s.sessionId,
-      run: () => {
-        const current = sessionAtPress(s.sessionId)
-        if (current && current !== LOADING) openSession(current.sessionId, current.cwd)
-      },
+        id: `${group}-session:${s.sessionId}`,
+        group,
+        label: sessionDisplayName(s),
+        keywords: [machinePathBasename(s.cwd), s.agentKind, 'agent', 'session'],
+        hint: machinePathBasename(s.cwd),
+        sessionId: s.sessionId,
+        run: () => {
+          const current = sessionAtPress(s.sessionId)
+          if (current && current !== LOADING) openSession(current.sessionId, current.cwd)
+        },
       }),
     })
     const issueCommand = (i: PaletteIssue, group: 'recent' | 'task'): PaletteCandidate => ({
@@ -419,15 +419,15 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
       search: () => ({ label: i.title,
         keywords: ['task', 'issue', i.displayRef || `#${i.seq}`, STAGE_LABELS[i.stage]] }),
       build: () => ({
-      id: `${group}-issue:${i.id}`,
-      group,
-      label: i.title,
-      keywords: ['task', 'issue', i.displayRef ?? `#${i.seq}`, STAGE_LABELS[i.stage]],
-      issueReference: issueReferenceModel(i),
-      run: () => {
-        setOpenIssueId(i.id)
-        setView('issues')
-      },
+        id: `${group}-issue:${i.id}`,
+        group,
+        label: i.title,
+        keywords: ['task', 'issue', i.displayRef ?? `#${i.seq}`, STAGE_LABELS[i.stage]],
+        issueReference: issueReferenceModel(i),
+        run: () => {
+          setOpenIssueId(i.id)
+          setView('issues')
+        },
       }),
     })
 
@@ -453,7 +453,9 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
       out.push(issueCommand(i, 'task'))
     }
     for (const i of serverIssueHits) {
-      if (!localIds.has(i.id)) out.push(issueCommand(i, 'task'))
+      const local = localIds.has(i.id) ? issues.find(issue => issue.id === i.id) : undefined
+      const candidate = issueCommand(i, 'task')
+      out.push({ ...candidate, eligible: () => !local || Boolean(local.archived || local.deletedAt || local.isDraftVessel) })
     }
 
     // ── Agents ────────────────────────────────────────────────────────────
@@ -742,7 +744,8 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   ])
 
   const groups = filterCommandCandidates(query, commands)
-  const flat = useMemo(() => flattenGroups(groups), [groups])
+  const flat = flattenGroups(groups)
+  const resultOrder = flat.map(command => command.id).join('\0')
   // The free-text fallback ("spawn an agent with what I typed") is a QUERY row:
   // with nothing typed it would only restate the Actions group's own "New …
   // agent in <worktree>", which is the same spawn with an empty first prompt.
@@ -752,7 +755,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   // Re-highlight the top result whenever the result set changes.
   useEffect(() => {
     setHighlight(defaultHighlight(flat.length))
-  }, [flat])
+  }, [query, resultOrder, flat.length])
 
   // Keep the highlighted row visible as the roving selection moves.
   useEffect(() => {
