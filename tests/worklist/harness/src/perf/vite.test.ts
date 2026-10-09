@@ -33,7 +33,6 @@ it('exposes lazy computed owners only in measurement builds and refuses a missin
   expect(() => instrumentProductWork(planted, file)).toThrow(/work measurement boundary/)
 })
 
-
 it.each(['source', 'lowered'] as const)('counts the card getter once and refuses an ambiguous seam in %s code', async (form) => {
   const file = fileURLToPath(new URL('packages/client-graph/src/issue-board-cards.ts', root))
   const source = readFileSync(file, 'utf8')
@@ -47,5 +46,8 @@ it.each(['source', 'lowered'] as const)('counts the card getter once and refuses
   expect(() => instrumentProductWork(code.replace('get stageCounts()', 'get renamedStageCounts()'), file))
     .toThrow(/work measurement boundary/)
   expect(() => instrumentProductWork(code + '\n' + code, file))
+    .toThrow(/ambiguous work measurement boundary/)
+  const lowered = (await lowerDecorators(source, file)).code
+  expect(() => instrumentProductWork(source + '\n' + lowered, file))
     .toThrow(/ambiguous work measurement boundary/)
 })
