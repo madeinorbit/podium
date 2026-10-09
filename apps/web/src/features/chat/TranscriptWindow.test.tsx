@@ -110,3 +110,15 @@ it('unmounts automatically unfolded runs while preserving deliberate user-opened
   expect(host.querySelector('[data-transcript-row="row-4"] [data-message]')).toBeNull()
   expect(host.querySelector('[data-transcript-row="row-6"] [data-message]')).not.toBeNull()
 })
+
+it('transfers a native Find range committed in inert text to the restored message', async () => {
+  const shell = host.querySelector('[data-transcript-row="row-600"]')!
+  const text = shell.querySelector('[data-transcript-find-proxy]')!.firstChild!
+  const range = document.createRange(); range.setStart(text, 0); range.setEnd(text, 7)
+  const selection = document.getSelection()!; selection.addRange(range)
+  const matched = selection.toString()
+  scroll(48_000)
+  await act(async () => { await Promise.resolve() })
+  expect(selection.toString()).toBe(matched)
+  expect(selection.anchorNode?.parentElement?.closest('[data-message]')).not.toBeNull()
+})

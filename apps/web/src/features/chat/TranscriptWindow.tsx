@@ -12,7 +12,7 @@ interface Entry {
   mounted: boolean
   height: number
   text: string
-  publish: (mounted: boolean) => void
+  publish: (mounted: boolean, finding?: boolean) => void
   finding: boolean
   revealing: boolean
   operator: boolean
@@ -67,6 +67,17 @@ export function useTranscriptWindow(
     const next = new Set(list.slice(first, last))
     const selection = scroll.ownerDocument.getSelection()
     const range = selection && !selection.isCollapsed && selection.rangeCount ? selection.getRangeAt(0) : null
+    // Some native Find paths scroll before beforematch. Capture a committed
+    // range in the inert text before replacing that exact browser-owned node.
+    const proxy = selection?.anchorNode?.parentElement?.closest<HTMLElement>('[data-transcript-find-proxy]')
+    const foundKey = proxy?.parentElement?.dataset.transcriptRow
+    const found = foundKey ? entries.current.get(foundKey) : undefined
+    if (range && found && !found.mounted) {
+      found.finding = true
+      found.mounted = true
+      mounted.current.add(foundKey!)
+      found.publish(true, true)
+    }
     if (!range && !armingSelectAll.current) selectingAll.current = false
     if (selectingAll.current) for (const key of list) next.add(key)
     // The shelf needs the preceding prompt even across a scrollbar jump into
@@ -236,11 +247,15 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
   const wasMounted = useRef(true)
   const remounted = useRef(false)
   if (mounted && !wasMounted.current) remounted.current = true
+  const publish = useCallback((show: boolean, found?: boolean) => {
+    setMounted(show)
+    if (found !== undefined) setFinding(found)
+  }, [])
   useLayoutEffect(() => {
-    const value: Entry = { node: ref.current!, mounted: true, height: 0, text: '', publish: setMounted, finding: false, revealing: false, operator: Boolean(ref.current!.querySelector('[data-operator-prompt="true"]')) }
+    const value: Entry = { node: ref.current!, mounted: true, height: 0, text: '', publish, finding: false, revealing: false, operator: Boolean(ref.current!.querySelector('[data-operator-prompt="true"]')) }
     entry.current = value
     return windowing.register(rowKey, value)
-  }, [rowKey, windowing])
+  }, [rowKey, windowing, publish])
   useLayoutEffect(() => {
     if (!mounted || !entry.current) { wasMounted.current = mounted; return }
     entry.current.height = ref.current!.getBoundingClientRect().height
@@ -270,6 +285,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
     }
     const transfer = () => {
       const selection = document.getSelection()
+      if (!ref.current || !proxy.current) return
       if (!selection?.anchorNode || !proxy.current?.contains(selection.anchorNode) || selection.isCollapsed) return
       const text = selection.toString()
       const body = ref.current!
@@ -298,6 +314,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
       selection.addRange(range)
       finish()
     }
+    queueMicrotask(transfer)
     document.addEventListener('selectionchange', transfer)
     document.addEventListener('pointerdown', finish, true)
     document.addEventListener('keydown', finish, true)
@@ -312,7 +329,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, children
     data-block={!mounted ? index : undefined} data-row-key={!mounted ? rowKey : undefined}
     style={{ flexShrink: 0, display: 'flow-root', position: 'relative', height: mounted ? undefined : entry.current?.height, minWidth: 0 }}>
     {mounted && (typeof children === 'function' ? children(remounted.current) : children)}
-    {(!mounted || finding) && <div key="find-proxy" ref={proxy} aria-hidden="true"
+    {(!mounted || finding) && <div key="find-proxy" ref={proxy} data-transcript-find-proxy="" aria-hidden="true"
       style={{ position: 'absolute', inset: 0, opacity: finding ? 0 : undefined, pointerEvents: 'none', whiteSpace: 'pre-wrap' }}>{entry.current?.text}</div>}
     {!mounted && <button type="button" className="sr-only" aria-label={entry.current?.text}
       onFocus={(event) => {
