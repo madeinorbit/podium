@@ -75,7 +75,7 @@ const answers: Record<string, unknown> = {
     sessionDefaults: { agent: 'codex' },
     roles: { coding: { startScreen: 'chat' } },
   },
-  'features.state.query': { devMode: true, channel: 'edge', flags: [] },
+  'features.state.query': { devMode: true, channel: 'edge', flags: params.get('enableWaterfall') === '1' ? [{ id: 'podium-development', enabled: true }] : [] },
   'pins.list.query': corpus.pins,
   'sessions.models.query': [],
   'issues.cost.query': null,

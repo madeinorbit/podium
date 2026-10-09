@@ -55,7 +55,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
       const errors: string[] = []
       page.on('pageerror', error => errors.push(error.message))
       const name = fixture === 'lists' ? 'sidebar-acceptance' : fixture === 'phone-lists' ? 'inbox' : 'conversation-stream'
-      await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}/test/${name}.browser.html?scale=4&surface=${variant === 'list' ? 'scroll' : variant === 'waterfall' ? 'full' : variant}&scrollScreen=${variant}`)
+      await page.goto(`http://127.0.0.1:${(server.address() as { port: number }).port}/test/${name}.browser.html?scale=4&surface=${variant === 'list' ? 'scroll' : variant === 'waterfall' ? 'full' : variant}&scrollScreen=${variant}&enableWaterfall=${variant === 'waterfall' ? 1 : 0}`)
       await page.waitForFunction(() => (window as any).__acceptance?.ready() || (window as any).__conversationStream?.ready() || (window as any).__inbox?.readiness().attached, null, { timeout: 90_000 })
       await page.waitForTimeout(750)
       await page.evaluate(() => document.fonts.ready)
