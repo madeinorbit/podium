@@ -130,6 +130,18 @@ describe('phone lazy chunk recovery', () => {
     expect(document.body.textContent).toBe('')
   })
 
+  it.each([new Error('Loader failed outside transport'), undefined])(
+    'preserves non-transport rejections, including an empty rejection reason', async (failure) => {
+      const load = vi.fn().mockRejectedValue(failure)
+      const { asyncRequire, expo } = loader(load)
+      await expect(asyncRequire(42, paths)).rejects.toBe(failure)
+      await vi.advanceTimersByTimeAsync(7000)
+      expect(load).toHaveBeenCalledTimes(1)
+      expect(expo).not.toHaveBeenCalled()
+      expect(document.body.textContent).toBe('')
+    },
+  )
+
   it('delegates imports without a split path and leaves native exports intact', async () => {
     const load = vi.fn().mockResolvedValue(undefined)
     const { asyncRequire, expo } = loader(load)

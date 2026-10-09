@@ -24,6 +24,8 @@ function showRecovery() {
   if (failed.length === 0) {
     surface?.remove()
     surface = undefined
+    status = undefined
+    retryButton = undefined
     if (listening) window.removeEventListener('online', retryAll)
     listening = false
     return
@@ -80,10 +82,10 @@ function loadBundleWithRecovery(bundle, load) {
     attempt = 0
     run()
   }
-  function finish(error) {
+  function finish(succeeded, error) {
     pending.delete(bundle)
     showRecovery()
-    if (error === undefined) resolve()
+    if (succeeded) resolve()
     else reject(error)
   }
   function run() {
@@ -93,11 +95,11 @@ function loadBundleWithRecovery(bundle, load) {
     attempt++
     if (job.failed) showRecovery()
     Promise.resolve().then(() => load(bundle)).then(
-      () => finish(),
+      () => finish(true),
       (error) => {
         job.running = false
         if (error?.name !== 'AsyncRequireError' || error.type !== 'error') {
-          finish(error)
+          finish(false, error)
           return
         }
         job.failed = true
