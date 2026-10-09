@@ -606,7 +606,13 @@ if (checkBudget) {
   // the operator's rule for this epic is to lift, not hunt, until POD-5240 runs.
   // 2026-10-03 later (POD-5390 report at b9da04b899): raw 1,998,646, gzip
   // 637,231, Brotli 548,745, source 7,947,099 after the day's screen landings.
-  atMost('eager raw bytes', report.eager.raw, 2_150_000)
+  // 2026-10-09 (POD-5866, per-opening ownership): on flatblock the unchanged
+  // 006a4ba7c9 base is 2,149,989 raw bytes; 3092947f70 is 2,150,680 (+691),
+  // gzip 687,951, Brotli 592,466. Opening-owned query results and explicit
+  // companion disposal add small code to the already-eager graph. Following
+  // the pilot's temporary lift policy above, raw gets 4,320 bytes of headroom;
+  // compressed ceilings stay unchanged. POD-5240 still owns the pool paydown.
+  atMost('eager raw bytes', report.eager.raw, 2_155_000)
   atMost('eager gzip bytes', report.eager.gzip, 690_000)
   atMost('eager Brotli bytes', report.eager.brotli, 595_000)
   // 7_400_000 → 7_450_000 (2026-08-14) → 7_500_000 (2026-08-15) → 7_650_000

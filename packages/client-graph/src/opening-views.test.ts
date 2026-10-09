@@ -107,7 +107,10 @@ it('collects opening models and companions after fifty closes while their pool s
       issue.issues()
       issue.explorer()
       settings.setup()
+      settings.sessions()
       automation.list()
+      automation.repositories()
+      automation.targets(null)
     })
     for (const [kind, value] of [
       ['issue', issue],
