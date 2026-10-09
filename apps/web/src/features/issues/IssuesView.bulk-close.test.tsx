@@ -78,6 +78,7 @@ vi.mock('@/app/store', () => {
     setIssueLabels: vi.fn(async () => {}),
     deleteIssue: vi.fn(async () => {}),
     closeIssue,
+    issues,
     sessions: [working],
     // Display options are replicated; a client without the collection falls back
     // to the defaults, which is the board layout this test selects cards on.

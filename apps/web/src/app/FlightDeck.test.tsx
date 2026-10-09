@@ -1,7 +1,7 @@
 import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
-import { DraftStore } from '@podium/client-core/conversation'
+import { ConversationCache, type ConversationCacheOptions, DraftStore } from '@podium/client-core/conversation'
 import { dedupeSessions } from '../../../../tests/worklist/diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
 import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
@@ -129,7 +129,11 @@ const drafts = new DraftStore({
   hub: { on: () => () => {}, sendDraftEdit: () => false, connectionHealth: () => ({ status: 'ok' }) } as never,
 })
 afterAll(() => drafts.dispose())
+let conversations: ConversationCache | undefined
+afterEach(() => { conversations?.dispose(); conversations = undefined })
 const owner = withKeyedInputs({
+  ownConversations: (options: ConversationCacheOptions) =>
+    conversations ??= new ConversationCache(options),
   drafts,
   getSnapshot: () =>
     fixtureStoreSnapshot(
@@ -142,6 +146,12 @@ const owner = withKeyedInputs({
     ),
   subscribe: () => () => {},
 })
+// The owned conversation hook imports its provider directly. Both access
+// paths must borrow the same fixture principal.
+vi.mock('../../../../packages/client-core/src/react/provider', async (original) => ({
+  ...(await original<typeof import('../../../../packages/client-core/src/react/provider')>()),
+  useStoreHandle: () => owner,
+}))
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   useStoreHandle: () => owner,
@@ -186,6 +196,7 @@ vi.mock('./store', () => ({
       // projection never does.
       machines: harness.machines,
       replica: harness.replica,
+      hub: { subscribeTranscript: () => () => {} },
       trpc: harness.trpc,
     }),
   useSessionDraft: () => '',

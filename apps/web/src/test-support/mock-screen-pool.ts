@@ -1,3 +1,7 @@
+import { issuePages } from '@podium/client-graph/issue-page'
+import { boardCards } from '@podium/client-graph/issue-board-cards'
+import { ISSUE_BOARD_ENTITIES } from '@podium/client-graph/issue-board-schema'
+import { syncPoolFixture } from './pool-fixture'
 import { omitGone } from '@podium/client-graph/lookup'
 import { allIssueViewModels } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
 import type { IssueViewModel } from '../../../../tests/worklist/diagnostics/reference/issue-view-models'
@@ -47,6 +51,7 @@ afterEach(() => {
 })
 
 type Inputs = Partial<Store> & {
+  openIssueId?: string | null
   issues?: Store['issueProjections']
   chatSendsFor?: Store['chatSendsFor']
   /** The gesture context the suite declares for its selection (R-GROUP 5):
@@ -63,6 +68,7 @@ const useFixtureIssues = () => selectFixture(state => state.replica && state.iss
   ? allIssueViewModels(state.replica, state.issueProjections, state.issueUserStates ?? [])
   : poolFixtureIssues(state), isDeepStrictEqual)
 const selectInputs = (state: Store): Inputs => ({
+  openIssueId: (state as Inputs).openIssueId,
   sessions: state.sessions,
   machines: state.machines,
   repos: state.repos,
@@ -428,6 +434,11 @@ function useFixturePool(): MobxPool {
   const version = useSyncExternalStore(subscribe, () => versionRef.current)
   return useMemo(() => {
     const current = () => live.current.state
+    // Board and detail readers use the real pool over these same synthetic
+    // records, including shared models, relations and source-owned rows.
+    const records = () => syncPoolFixture({
+      ...current(), issues: live.current.issues,
+    } as never, true)
     const sessions = () => current().sessions ?? []
     const machines = () => current().machines ?? []
     // Warm conversations keep their first pool. Publish message replacements
@@ -443,6 +454,7 @@ function useFixturePool(): MobxPool {
     const seen = seenSelected
     const pool = {
       notSaved: () => false,
+      issueObject: (id: string) => records().issueObject(id),
       // These provider-free fixtures already hand out their record objects.
       // Real-pool observation tests cover shared model identity and field demand.
       model: (entity: Parameters<MobxPool['row']>[0], id: string) => omitGone(pool.row(entity, id)),
@@ -516,6 +528,10 @@ function useFixturePool(): MobxPool {
         }
       },
       row(entity: string, id: string): unknown {
+        if (entity === 'issueBoardWindow')
+          return { openIssueId: current().openIssueId ?? null }
+        if ((ISSUE_BOARD_ENTITIES as readonly string[]).includes(entity))
+          return records().row(entity as (typeof ISSUE_BOARD_ENTITIES)[number], id)
         switch (entity) {
           case 'session':
             return sessions().find((row) => row.sessionId === id)
@@ -666,6 +682,8 @@ function useFixturePool(): MobxPool {
         },
         view: (name: string, _factory: unknown): unknown => {
           const fixture = pool as unknown as Record<string, unknown>
+          if (name === 'issue-page') return issuePages(records())
+          if (name === 'issueBoardCards') return boardCards(records())
           if (name === 'sidebar') return fixture.sidebar
           if (name === 'header.entities') return fixture.header
           if (name === 'header.views') return fixture.headerViews
