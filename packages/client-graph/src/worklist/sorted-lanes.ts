@@ -87,6 +87,6 @@ export class SortedLanes<K, S> {
   }
   clear(): void {
     this.lanes.clear(); this.filed.clear()
-    for (const listeners of this.listeners.values()) for (const changed of listeners) changed(undefined)
+    for (const listeners of [...this.listeners.values()]) for (const changed of [...listeners]) changed(undefined)
   }
 }
