@@ -8,6 +8,7 @@ import {
   type ShippingWaitingLane,
 } from '@podium/client-core/values'
 import type {
+  DeliveryReceipt,
   ShipHoldAction,
   ShipLaneProjection,
   ShipOrderId,

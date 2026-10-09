@@ -30,7 +30,7 @@ export interface GitViewPorts {
   gitLog?(input: GitArgs): Promise<GitResult>
   gitCommitFiles?(input: GitArgs & { sha: string }): Promise<GitResult>
   gitDiffFile(input: GitArgs & { path: string }): Promise<GitResult>
-  readFileScoped(scope: GitArgs & { kind: 'worktree' }, path: string): Promise<FileReadResult>
+  readFileScoped(scope: GitArgs & { kind: 'worktree' }, path: string): Promise<unknown>
 }
 export type ReviewDiff = { parsed?: ParsedDiff; note?: string }
 export interface CommitAnswer {
@@ -143,7 +143,8 @@ export class GitView {
         return { note: 'Open this folder on desktop to review its contents.' }
       const read = (path: string) =>
         this.ports.readFileScoped({ kind: 'worktree', ...this.args }, path)
-      const fromRead = (result: FileReadResult, source = ''): ReviewDiff => {
+      const fromRead = (wire: unknown, source = ''): ReviewDiff => {
+        const result = wire as FileReadResult
         if (result.ok && result.content !== undefined)
           return {
             parsed: parseDiff([source, untrackedDiff(result.content)].filter(Boolean).join('\n')),

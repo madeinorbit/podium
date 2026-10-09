@@ -1,5 +1,5 @@
 import { issuePendingDecision, type IssueNavigationModel } from '@podium/client-core/values'
-import type { IssueProjection } from '@podium/model/browser'
+import type { IssueProjection } from '@podium/model'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'

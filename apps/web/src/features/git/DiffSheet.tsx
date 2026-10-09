@@ -12,6 +12,8 @@ import { usePersistedUiState } from '@/lib/use-persisted-ui-state'
 import { type DiffRow, splitPath } from './diff-model'
 import { entryBadge, entryStatus, entryTone, type StatusEntry } from './git-panel'
 
+const BINARY_FILE = 'A binary file — there are no text lines to diff.'
+
 /**
  * THE DIFF SHEET — reading the working tree at reading size.
  *

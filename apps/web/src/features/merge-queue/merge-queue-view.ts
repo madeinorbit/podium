@@ -23,7 +23,7 @@ export class MergeQueueView extends RequestAnswer<readonly LockWire[]> {
   constructor(
     readonly pool: MobxPool,
     readonly scope: MergeQueueRepoScope,
-    private readonly trpc: Pick<Trpc, 'lock'>,
+    private readonly trpc: { lock: Pick<Trpc['lock'], 'status'> },
   ) {
     super()
   }
