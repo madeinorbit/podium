@@ -9,11 +9,10 @@ import {
   taskStateWord,
 } from '@podium/client-core/values'
 import { autorun, reaction } from 'mobx'
-import type { MissionViewValues } from '@podium/client-graph/mission-view'
-import type {
-  MobileMissionData,
-  MobileTasksOptions,
-} from '@podium/client-graph/mobile-screens-schema'
+import type { IssueViewModel } from '@podium/client-core/replica'
+import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
+import { type MissionRowPresentation, requireLoaded, settled } from '@podium/client-graph/mission-view'
+import type { MobileTasksOptions } from '@podium/client-graph/mobile-screens-schema'
 import { EMPTY_MOBILE_TASKS, readMobileTaskSnapshot, type MobileTasksData } from './mobile-task-snapshot'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -107,7 +106,7 @@ const seat = (session: SessionView) => ({
     'machineId',
   ]),
 })
-const continuation = (value: MissionViewValues['continuation']) =>
+const continuation = (value: MissionScreen['continuation']) =>
   value
     ? {
         ...value,
@@ -128,17 +127,74 @@ const flight = (row: FlightDeckRow) => ({
   waitingAgentCount: row.waitingAgentCount,
   collapsedSummary: { ...row.collapsedSummary, crew: row.collapsedSummary.crew.map(seat) },
 })
+/** What the phone's mission routes read from one opening. */
+interface PhoneMission {
+  root: IssueViewModel | undefined
+  missionSessions: SessionView[]
+  progress: MissionScreen['progress']
+  header(issueId: string | undefined): IssueViewModel | undefined
+  author(row: FlightDeckRow): string | null
+}
+interface PhoneDeck {
+  root: IssueViewModel | undefined
+  progress: MissionScreen['progress']
+  continuation: MissionScreen['continuation']
+  presence: MissionScreen['presence']
+  rows: readonly FlightDeckRow[]
+  rowPresentation: ReadonlyMap<string, MissionRowPresentation>
+  departures: MissionScreen['departures']
+}
+const NO_PROGRESS = { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
+const NO_MISSION: PhoneMission = { root: undefined, missionSessions: [], progress: NO_PROGRESS, header: () => undefined, author: () => null }
+const NO_DECK: PhoneDeck = { root: undefined, progress: NO_PROGRESS, continuation: null, presence: null, rows: [], rowPresentation: new Map(), departures: [] }
+const openings = new WeakMap<MobxPool, Map<string, MissionScreen>>()
+/** One opening per mission root, as the phone route's root component creates it. */
+function opening(pool: MobxPool, rootId: string): MissionScreen {
+  let byRoot = openings.get(pool)
+  if (!byRoot) openings.set(pool, (byRoot = new Map()))
+  let screen = byRoot.get(rootId)
+  if (!screen) byRoot.set(rootId, (screen = new MissionScreen(pool, rootId)))
+  return screen
+}
+function phoneMission(pool: MobxPool, selectedId: string | null, mode: FlightDeckMode): [PhoneMission, PhoneDeck] | typeof LOADING {
+  const rootId = missionRootId(pool, selectedId, true)
+  if (rootId === LOADING) return LOADING
+  if (!rootId) return [NO_MISSION, NO_DECK]
+  const screen = opening(pool, rootId), reader = screen.reader, deck = reader.deck(rootId, mode)
+  if (!screen.ready || [deck.topology, deck.progress, deck.archivedCount, deck.headerReady, settled(() => deck.rowIds())].includes(LOADING)) return LOADING
+  const root = requireLoaded(reader.issue(rootId)) as IssueViewModel | undefined
+  const rows = deck.rows()
+  return [{
+    root,
+    missionSessions: screen.crew as unknown as SessionView[],
+    progress: screen.progress,
+    header(issueId) {
+      const issue = issueId && screen.members.has(issueId) ? reader.issue(issueId) : undefined
+      return issue && issue !== LOADING ? (issue as IssueViewModel) : root
+    },
+    author: (row) => screen.proposalAuthor(deck.model(row.issue.id)),
+  }, {
+    root,
+    progress: screen.progress,
+    continuation: deck.continuation,
+    presence: rows.some((row) => row.id === rootId) ? deck.presence : null,
+    rows,
+    rowPresentation: new Map(rows.map((row) => [row.id, deck.model(row.id).presentation])),
+    departures: deck.departures,
+  }]
+}
+
 function snapshot(
   tasks: MobileTasksData,
-  mission: MobileMissionData,
-  deck: MissionViewValues,
+  mission: PhoneMission,
+  deck: PhoneDeck,
   selectSession: MobileScreenInput['selectSession'],
   requested?: string,
 ): SidebarSnapshot {
   const automatic = selectSession(mission.missionSessions)
   const current =
     mission.missionSessions.find((session) => session.sessionId === requested) ?? automatic
-  const header = mission.issues.find((issue) => issue.id === current?.issueId) ?? mission.root
+  const header = mission.header(current?.issueId)
   return {
     pending: 0,
     sections: [
@@ -200,11 +256,7 @@ function snapshot(
           fields: {
             ...flight(row),
             ...deck.rowPresentation.get(row.issue.id),
-            author: row.issue.startedBySession
-              ? (mission.sessions.find(
-                  (session) => session.sessionId === row.issue.startedBySession,
-                )?.displayRef ?? null)
-              : null,
+            author: row.issue.startedBySession ? mission.author(row) : null,
           },
         })),
       },
@@ -229,9 +281,13 @@ export function poolMobileScreensSnapshot(
 ): SidebarSnapshot | typeof LOADING {
   const reader = omitGone(pool.row('mobileScreenReader', 'reader'))
   if (!reader || reader === LOADING) return LOADING
-  const tasks = input.tasks ? readMobileTaskSnapshot(pool, input.tasks) : EMPTY_MOBILE_TASKS,
-    mission = reader.mission(input.selectedId),
-    deck = reader.deck(input.selectedId, input.mode)
-  if (tasks === LOADING || mission === LOADING || deck === LOADING) return LOADING
-  return snapshot(tasks, mission, deck, input.selectSession, input.requestedSessionId)
+  const tasks = input.tasks ? readMobileTaskSnapshot(pool, input.tasks) : EMPTY_MOBILE_TASKS
+  try {
+    const opened = phoneMission(pool, input.selectedId, input.mode)
+    if (tasks === LOADING || opened === LOADING) return LOADING
+    return snapshot(tasks, opened[0], opened[1], input.selectSession, input.requestedSessionId)
+  } catch (error) {
+    if (error === LOADING) return LOADING
+    throw error
+  }
 }
