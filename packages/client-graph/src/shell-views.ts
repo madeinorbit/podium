@@ -17,18 +17,6 @@ import type { MobxPool } from './pool'
 import { SHELL_SUMMARIES, type ShellIssue, type ShellRows } from './shell-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
-export interface ShellDockData {
-  active: ActiveWorktree | null
-  scope: { repoId: RepoId | null; repoPath: string } | null
-  gitIssue: IssueViewModel | undefined
-  mailIssueId: SessionView['issueId']
-  issues: IssueViewModel[]
-  shipOrders: import('@podium/model').ShipOrderProjection[]
-  shipLanes: import('@podium/model').ShipLaneProjection[]
-  coarseNow: number
-  shipping: { unfinishedCount: number; decisionCount: number }
-}
-
 /** Shell rules over the shared record; no copied issue summary or history list. */
 export class ShellIssueChrome {
   constructor(readonly issue: IssueModel, private readonly pool: MobxPool) {}
@@ -388,91 +376,16 @@ function createShellViews(pool: MobxPool) {
   const shellChrome = new ShellChrome(pool, sessionCount)
   const shellDock = new ShellDock(pool, files)
   function chrome() { return shellChrome.value }
-  function dock(includeCatalog = false): Loaded<ShellDockData> {
-    return memo(includeCatalog ? 'dockCatalog' : 'dock', () => {
-      // Only the queue/shipping panels display catalogues. Context and rail
-      // badges must never acquire them while resolving the active pane.
-      if (includeCatalog) {
-        const context = dock(),
-          tasks = issues(),
-          shipOrders = orders(),
-          shipLanes = lanes()
-        return !context || context === LOADING || tasks === LOADING || shipLanes === LOADING
-          ? LOADING
-          : { ...context, issues: tasks ?? [], shipOrders, shipLanes: shipLanes ?? [] }
-      }
-      const state = window(),
-        fileTabs = files()
-      if (!state || state === LOADING || fileTabs === LOADING) return LOADING
-      let active: ActiveWorktree | null = null
-      const selectedFile = fileTabs?.find((file) => file.id === state.paneA)
-      let activeSession = state.paneA && !selectedFile ? session(state.paneA) : undefined
-      if (activeSession === LOADING) return LOADING
-      const selected = activeSession
-      if (selected)
-        active = { cwd: selected.cwd, machineId: selected.machineId, sessionId: selected.sessionId }
-      else {
-        const tab = selectedFile
-        if (tab?.worktreePath)
-          active = {
-            cwd: tab.worktreePath,
-            machineId: tab.scope.kind === 'worktree' ? tab.scope.machineId : undefined,
-            ...(tab.issueId ? { issueId: tab.issueId } : {}),
-          }
-      }
-      if (!active) {
-        let latest: SessionView | undefined
-        const excluded: string[] = []
-        for (;;) {
-          const id = pool.queries.indexed({ kind: 'headerRecentSession', excluded })[0]
-          if (!id) break
-          const candidate = session(id)
-          if (candidate === LOADING) return LOADING
-          if (candidate && !candidate.archived) {
-            latest = candidate
-            break
-          }
-          excluded.push(id)
-        }
-        if (latest)
-          active = { cwd: latest.cwd, machineId: latest.machineId, sessionId: latest.sessionId }
-        activeSession = latest
-      }
-      const containingId = active ? pool.queries.containingIssueId(active.cwd) : undefined
-      const containing = containingId
-        ? (issue(containingId) as Loaded<IssueViewModel>)
-        : undefined
-      if (containing === LOADING) return LOADING
-      const attachedId = active?.issueId ?? activeSession?.issueId
-      const attached = attachedId ? (issue(attachedId) as Loaded<IssueViewModel>) : containing
-      if (attached === LOADING) return LOADING
-      const discovered = active ? headerEntities(pool).shippingScope(active.cwd, active.machineId) : undefined
-      let scope: ShellDockData['scope'] = discovered
-        ? { repoId: discovered.repoId as RepoId | null, repoPath: discovered.repoPath }
-        : null
-      if (active && !scope && attached)
-        scope = { repoId: attached.repoId ?? null, repoPath: attached.repoPath }
-      const explicitGitIssue = active?.issueId
-        ? (issue(active.issueId) as Loaded<IssueViewModel>)
-        : undefined
-      if (explicitGitIssue === LOADING) return LOADING
-      return {
-        active,
-        scope,
-        gitIssue: explicitGitIssue ?? containing,
-        mailIssueId: activeSession?.issueId ?? containing?.id,
-        issues: [],
-        shipOrders: [],
-        shipLanes: [],
-        coarseNow: state.coarseNow,
-        shipping: headerEntities(pool).shippingCounts(scope?.repoId ?? null),
-      }
-    })
-  }
-  function shipping() {
-    return memo('shipping', () => {
-      const value = dock()
-      return value && value !== LOADING ? value.shipping : LOADING
+  /** Only the queue/shipping panels display catalogues; dock routing never
+   * acquires them. Their copied issue lists stay with those panels' data. */
+  function catalogs() {
+    return memo('dockCatalog', () => {
+      const tasks = issues(),
+        shipOrders = orders(),
+        shipLanes = lanes()
+      return tasks === LOADING || shipLanes === LOADING
+        ? LOADING
+        : { issues: tasks ?? [], shipOrders, shipLanes: shipLanes ?? [] }
     })
   }
   function windowSnapshot() {
@@ -495,9 +408,8 @@ function createShellViews(pool: MobxPool) {
     machines,
     repositories,
     chrome,
-    dock,
-    dockView: shellDock,
-    shipping,
+    dock: shellDock,
+    catalogs,
     close,
   }
 }

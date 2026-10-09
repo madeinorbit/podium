@@ -178,6 +178,18 @@ export function legacyShellSnapshot(
     ],
   }
 }
+/** Test-only composition of the dock's separate fields in the shape the old
+ * dock bundle returned, so the legacy comparisons keep their assertions.
+ * `LOADING` while any field loads, as the bundle was. */
+export function dockSnapshot(views: ReturnType<typeof shellViews>, includeCatalog = false) {
+  const dock = views.dock
+  const active = dock.active, scope = dock.scope, gitIssue = dock.gitIssue,
+    mailIssueId = dock.mailIssueId, shipping = dock.shipping
+  const catalogs = includeCatalog ? views.catalogs() : { issues: [], shipOrders: [], shipLanes: [] }
+  if (active === LOADING || scope === LOADING || gitIssue === LOADING || mailIssueId === LOADING ||
+    shipping === LOADING || catalogs === LOADING) return LOADING
+  return { active, scope, gitIssue, mailIssueId, shipping, ...catalogs }
+}
 export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
   const views = shellViews(pool),
     state = views.window(),
@@ -185,8 +197,8 @@ export function poolShellSnapshot(pool: MobxPool): SidebarSnapshot {
     files = views.files(),
     close = views.close(),
     chrome = views.chrome(),
-    dock = views.dock(true),
-    shipping = views.shipping(),
+    dock = dockSnapshot(views, true),
+    shipping = dock === LOADING ? LOADING : dock.shipping,
     sessions = views.sessions(),
     issues = views.issues(),
     lanes = views.lanes()

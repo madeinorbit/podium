@@ -1,5 +1,6 @@
 import { asIssueId } from '@podium/model/browser'
 import { observer } from '@podium/client-graph/react'
+import { LOADING, type Loaded } from '@podium/client-graph/worklist/rollup'
 import {
   FolderTree,
   GitBranch,
@@ -11,7 +12,7 @@ import {
   SquareTerminal,
   X,
 } from 'lucide-react'
-import type { JSX } from 'react'
+import type { ComponentProps, JSX } from 'react'
 import { lazy, Suspense, useMemo, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { WaitingForServer } from '@/components/WaitingForServer'
@@ -20,7 +21,7 @@ import type { ShippingPanelCommands } from '@/features/shipping/ShippingPanel'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { DockHeaderSlotProvider } from './DockHeaderSlot'
 import { useOperatorFocus } from './operator-focus'
-import { useShellActions, useShellDock } from './shell-data'
+import { useShellActions, useShellDock, useShellDockCatalogs, useShellWindow } from './shell-data'
 import type { RightPanelTab } from './shell-state'
 
 const WorktreeFileTree = lazy(() =>
@@ -71,6 +72,19 @@ const SuperagentView = lazy(() =>
   })),
 )
 
+/** A routing field still loading shows as absent, exactly as the panel's empty state. */
+function shown<T>(value: Loaded<T> | undefined): T | undefined {
+  return value === LOADING ? undefined : value
+}
+
+/** The shipping panel with the shell's coarse clock, read only while it is open. */
+const ShippingDockPanel = observer(function ShippingDockPanel(
+  props: Omit<ComponentProps<typeof ShippingPanel>, 'now'>,
+): JSX.Element {
+  const now = useShellWindow()?.coarseNow ?? 0
+  return <ShippingPanel {...props} now={now} />
+})
+
 function DockPanelFallback(): JSX.Element {
   return <WaitingForServer className="flex min-h-0 flex-1" />
 }
@@ -107,15 +121,11 @@ export const RightDock = observer(function RightDock({
   onClose: () => void
 }): JSX.Element {
   const { trpc, setSelectedIssueId } = useShellActions()
-  const {
-    active,
-    scope: mergeQueueScope,
-    gitIssue,
-    mailIssueId,
-    issues,
-    coarseNow,
-    // Shipping reads its own windows (POD-5835); only the queue lists the catalog.
-  } = useShellDock(tab === 'merge-queue')
+  // The dock's routing fields, each read where a panel shows it.
+  const dock = useShellDock()
+  const active = shown(dock?.active) ?? null
+  // Shipping owns its request windows; only the queue reads the catalog.
+  const { issues } = useShellDockCatalogs(tab === 'merge-queue')
   const { setFocusedIssueId } = useOperatorFocus()
   const shippingCommands = useMemo<ShippingPanelCommands>(
     () => ({
@@ -189,7 +199,7 @@ export const RightDock = observer(function RightDock({
                 key={active.cwd}
                 cwd={active.cwd}
                 machineId={active.machineId}
-                issue={gitIssue}
+                issue={shown(dock?.gitIssue)}
               />
             ) : (
               <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
@@ -199,7 +209,7 @@ export const RightDock = observer(function RightDock({
               <MessageLedgerView
                 key={active.sessionId ?? active.cwd}
                 sessionId={active.sessionId}
-                issueId={mailIssueId}
+                issueId={shown(dock?.mailIssueId)}
               />
             ) : (
               <div className="p-3 text-xs text-muted-foreground/70">No active session.</div>
@@ -223,7 +233,7 @@ export const RightDock = observer(function RightDock({
           {tab === 'merge-queue' && (
             <MergeQueuePanel
               issues={issues}
-              scope={mergeQueueScope}
+              scope={shown(dock?.scope) ?? null}
               // A queue entry can be any issue in the repo, including one outside
               // the mission on screen — so this moves the MISSION, not just the
               // focus inside it. Focusing alone would be discarded by
@@ -235,9 +245,8 @@ export const RightDock = observer(function RightDock({
             />
           )}
           {tab === 'shipping' && (
-            <ShippingPanel
-              repoId={mergeQueueScope?.repoId ?? null}
-              now={coarseNow}
+            <ShippingDockPanel
+              repoId={shown(dock?.scope)?.repoId ?? null}
               commands={shippingCommands}
             />
           )}

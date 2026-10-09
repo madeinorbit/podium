@@ -9,7 +9,8 @@ const source = vi.hoisted(() => ({ pool: null as MobxPool | null, read: () => un
 vi.mock('./store-worklist-pool', () => ({ useWorklistPool: () => source.pool }))
 vi.mock('@podium/client-graph/shell-views', () => ({ shellViews: () => {
   const read = () => source.read()
-  return { dock: read, shipping: read, approvals: read, sessions: read, close: read,
+  const dock = { get active() { return read() }, get shipping() { return read() } }
+  return { dock, catalogs: read, approvals: read, sessions: read, close: read,
     machines: read, chrome: read, linkedSession: read, linkedIssue: read, issue: read, session: read }
 } }))
 
@@ -28,6 +29,7 @@ afterEach(() => {
 
 const live = [
   ['useShellDock', reads.useShellDock], ['useShellShipping', reads.useShellShipping],
+  ['useShellDockCatalogs', () => reads.useShellDockCatalogs(true)],
   ['useShellWindow', reads.useShellWindow], ['useShellApprovals', reads.useShellApprovals],
   ['useShellSessions', reads.useShellSessions], ['useShellClose', reads.useShellClose],
   ['useShellMachines', reads.useShellMachines], ['useShellChrome', reads.useShellChrome],

@@ -8,6 +8,7 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import type { SidebarSnapshot } from '../../../tests/worklist/diagnostics/sidebar-check'
 import { observer } from '@podium/client-graph/react'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { asIssueId, asSessionId, asUserId } from '@podium/model/browser'
 import { Profiler, useEffect } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -151,8 +152,12 @@ const ChromeControls = observer(function ChromeControls() {
     </>
   )
 })
+function dockFields(dock: ReturnType<typeof useShellDock>) {
+  const shown = <T,>(value: T | typeof LOADING | undefined) => (value === LOADING ? undefined : value)
+  return { active: shown(dock?.active), gitIssue: shown(dock?.gitIssue), mailIssueId: shown(dock?.mailIssueId) }
+}
 const DockContext = observer(function DockContext() {
-  const dock = useShellDock(),
+  const dock = dockFields(useShellDock()),
     close = useShellClose()
   return (
     <>

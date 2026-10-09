@@ -1,4 +1,5 @@
 import { omitGone } from '@podium/client-graph/lookup'
+import { observer } from '@podium/client-graph/react'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { DraftStore } from '@podium/client-core/conversation'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
@@ -155,10 +156,12 @@ import { DockShellPanel } from './DockShellPanel'
 import {
   useDockPaneInputs,
   usePaneMachines,
-  usePaneOwnership,
+  usePaneIssueHex,
   usePanePanelModes,
+  usePaneSelectedIssueId,
   usePaneSession,
   usePaneSpawnConfirmed,
+  usePaneStampIssue,
 } from './use-session-pane-inputs'
 
 let paneTransactions: ReturnType<typeof createPoolTransactions>
@@ -438,14 +441,15 @@ it('never accesses legacy session, machine or window collections on the pool inp
       return Reflect.get(target, key)
     },
   })
-  function Inputs() {
+  const Inputs = observer(function Inputs() {
     const id = sessions[0]!.sessionId
     const row = usePaneSession(id),
       machines = usePaneMachines(),
       modes = usePanePanelModes()
     const confirmed = usePaneSpawnConfirmed(id),
       dock = useDockPaneInputs('/synthetic/w19', null)
-    const ownership = usePaneOwnership(row)
+    const ownership = { selectedIssueId: usePaneSelectedIssueId(), stampIssue: usePaneStampIssue(id),
+      issueHex: usePaneIssueHex() }
     expect(ownership).toMatchObject({
       selectedIssueId: null,
       stampIssue: undefined,
@@ -456,7 +460,7 @@ it('never accesses legacy session, machine or window collections on the pool inp
         {row?.title} {machines.length} {modes[id]} {String(confirmed)} {dock.session?.sessionId}
       </div>
     )
-  }
+  })
   expect(render(<Inputs />).container.textContent).toBe('Synthetic pane 0 2 chat true pane-19')
 })
 

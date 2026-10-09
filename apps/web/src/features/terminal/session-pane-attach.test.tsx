@@ -1,4 +1,5 @@
 // @vitest-environment happy-dom
+import { observer } from '@podium/client-graph/react'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
@@ -24,8 +25,8 @@ import { DockShellPanel } from './DockShellPanel'
 import {
   useDockPaneInputs,
   usePaneMachines,
-  usePaneOwnership,
   usePanePanelModes,
+  usePaneSelectedIssueId,
   usePaneSession,
   usePaneSpawnConfirmed,
 } from './use-session-pane-inputs'
@@ -115,7 +116,7 @@ function binding(next: ClientRuntime): () => void {
   return attachWorklistPool(next, (error) => errors.push(error))
 }
 
-function Inputs() {
+const Inputs = observer(function Inputs() {
   const pool = useWorklistPool()
   pools.push(pool)
   const row = usePaneSession(live.sessionId)
@@ -123,7 +124,7 @@ function Inputs() {
   const modes = usePanePanelModes()
   const confirmed = usePaneSpawnConfirmed(live.sessionId)
   const dock = useDockPaneInputs(shell.cwd, null)
-  const ownership = usePaneOwnership(row)
+  const ownership = { selectedIssueId: usePaneSelectedIssueId() }
   const chatSession = useChatSession(offline.sessionId)
   const chatMachine = usePoolMachine(chatSession?.machineId)
   const chat = { session: chatSession, presenceOfflineMachineName: chatMachine && isMachineOfflineForLiveTerminal(chatMachine) ? chatMachine.name : null }
@@ -139,7 +140,7 @@ function Inputs() {
       </output>
     </>
   )
-}
+})
 
 beforeEach(() => {
   localStorage.clear()

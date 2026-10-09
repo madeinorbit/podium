@@ -2,7 +2,7 @@ import { omitGone } from '@podium/client-graph/lookup'
 import { allowImperativeRead, assertReactiveRead } from '@podium/mobx-helpers'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { IssueViewModel } from '@podium/client-core/replica'
-import { type ShellDockData, shellViews } from '@podium/client-graph/shell-views'
+import { type ShellDock, shellViews } from '@podium/client-graph/shell-views'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { useMemo } from 'react'
 import type { Store } from './store'
@@ -39,29 +39,31 @@ export function useShellActions(): Pick<Store, (typeof ACTIONS)[number]> {
     >
   }, [owner])
 }
-const EMPTY_DOCK: ShellDockData = {
-  active: null,
-  scope: null,
-  gitIssue: undefined,
-  mailIssueId: undefined,
-  issues: [],
-  shipOrders: [],
-  shipLanes: [],
-  coarseNow: 0,
-  shipping: { unfinishedCount: 0, decisionCount: 0 },
-}
-/** Queue/shipping panels opt into their catalogues; other panels read context only. */
-export function useShellDock(includeCatalog = false): ShellDockData {
+/** The right dock's routing view: an observer reads each field where it is
+ * shown (`dock.active`, `dock.gitIssue`, `dock.mailIssueId`, `dock.scope`). */
+export function useShellDock(): ShellDock | null {
   if (import.meta.env.DEV) assertReactiveRead('useShellDock')
-  const pool = useWorklistPool(),
-    value = pool ? shellViews(pool).dock(includeCatalog) : LOADING
-  return value && value !== LOADING ? value : EMPTY_DOCK
+  const pool = useWorklistPool()
+  return pool ? shellViews(pool).dock : null
 }
+const EMPTY_CATALOGS = { issues: [], shipOrders: [], shipLanes: [] } as {
+  issues: IssueViewModel[]
+  shipOrders: import('@podium/model').ShipOrderProjection[]
+  shipLanes: import('@podium/model').ShipLaneProjection[]
+}
+/** Queue/shipping panels opt into their catalogues; other panels never read them. */
+export function useShellDockCatalogs(enabled: boolean): typeof EMPTY_CATALOGS {
+  if (import.meta.env.DEV) assertReactiveRead('useShellDockCatalogs')
+  const pool = useWorklistPool(),
+    value = pool && enabled ? shellViews(pool).catalogs() : LOADING
+  return value && value !== LOADING ? value : EMPTY_CATALOGS
+}
+const EMPTY_SHIPPING = { unfinishedCount: 0, decisionCount: 0 }
 export function useShellShipping() {
   if (import.meta.env.DEV) assertReactiveRead('useShellShipping')
   const pool = useWorklistPool(),
-    value = pool ? shellViews(pool).shipping() : LOADING
-  return value && value !== LOADING ? value : EMPTY_DOCK.shipping
+    value = pool ? shellViews(pool).dock.shipping : LOADING
+  return value && value !== LOADING ? value : EMPTY_SHIPPING
 }
 
 export function useShellWindow() {

@@ -499,7 +499,13 @@ async function measureScreenCells(
         missionExpanded: isComplexFlightDeckMission(missionRoot),
         color: effectiveIssueColorHex(colorIssue, colorById) }
     })
-    add('shell.dock', ['AppShell'], () => shell.dock())
+    // RightDock reads each routing field where a panel shows it.
+    add('shell.dock', ['AppShell'], () => ({
+      active: shell.dock.active,
+      scope: shell.dock.scope,
+      gitIssue: shell.dock.gitIssue,
+      mailIssueId: shell.dock.mailIssueId,
+    }))
     // These actions do not deliver URLs or open a browser target. The real
     // always-mounted hosts retain no catalog/row demand in that state. Their
     // addressed activation and pending-target guards run against the apps.
@@ -512,7 +518,7 @@ async function measureScreenCells(
       approvals: shell.approvals(),
       files: shell.files(),
       lanes: shell.lanes(),
-      shipping: shell.shipping(),
+      shipping: shell.dock.shipping,
     }))
     launchOptionViews(pool)
     add('launcher.launch', ['NewIssueDialog'], () =>
@@ -730,17 +736,22 @@ async function measureScreenCells(
       recovery: noticeRecovery(pool),
       continuity: noticeContinuity(pool),
     }))
-    add('session-pane', ['AgentPanel', 'DockTerminal'], () => ({
-      session: sessionPaneView(pool).session(SESSION),
-      machines: sessionPaneView(pool).machines(),
-      window: sessionPaneView(pool).window(),
-      dock: sessionPaneView(pool).dock('/synthetic', null),
-      confirmed: sessionPaneView(pool).spawnConfirmed(SESSION),
-      ownership: sessionPaneView(pool).ownership(
-        sessionPaneView(pool).session(SESSION),
-        (color) => color ?? undefined,
-      ),
-    }))
+    add('session-pane', ['AgentPanel', 'DockTerminal'], () => {
+      const panes = sessionPaneView(pool),
+        mapped = panes.window().dockShells['/synthetic']
+      return {
+        session: panes.session(SESSION),
+        machines: panes.machines(),
+        window: panes.window(),
+        dock: { mapped, present: !!panes.loaded(mapped), hasSessions: panes.hasSessions() },
+        confirmed: panes.spawnConfirmed(SESSION),
+        ownership: {
+          selectedIssueId: panes.selectedIssueId,
+          stamp: panes.loaded(SESSION)?.stampIssue,
+          issueHex: panes.issueHex((color) => color ?? undefined),
+        },
+      }
+    })
     add('settings', ['SettingsView', 'SettingsScreen', 'NewIssueScreen', 'WorkflowForm'], () => ({
       setup: settingsView(pool).setup(['/synthetic']),
       count: settingsView(pool).sessionCount(),

@@ -40,7 +40,7 @@ it('attaches the existing pool after mounting every reader without a legacy fall
     const pool = useWorklistPool()
     states.push(Boolean(pool))
     const chrome = reads.useShellChrome(),
-      dock = reads.useShellDock(true),
+      dock = reads.useShellDockCatalogs(true),
       window = reads.useShellWindow()
     const approvals = reads.useShellApprovals(),
       sessions = reads.useShellSessions(),

@@ -7,6 +7,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   checkShell,
   compareShellSnapshots,
+  dockSnapshot,
   legacyShellSnapshot,
   poolShellSnapshot,
 } from '../../../tests/worklist/diagnostics/shell-check'
@@ -36,13 +37,13 @@ describe('shell pool', () => {
       try {
         for (let batch = 0; batch < 8; batch++) {
           views.chrome()
-          views.dock()
+          dockSnapshot(views)
           if (!f.pool.hydrate()) break
         }
         row.mockClear()
         questions.mockClear()
         const outputs: unknown[] = []
-        stop = autorun(() => outputs.push([views.chrome(), views.dock()]))
+        stop = autorun(() => outputs.push([views.chrome(), dockSnapshot(views)]))
         f.change({ selectedIssueId: f.issues[0]!.id, paneA: f.sessions[1]!.sessionId })
         f.change({ selectedIssueId: f.issues[1]!.id, paneA: f.sessions[0]!.sessionId })
         demand.push(
@@ -52,7 +53,7 @@ describe('shell pool', () => {
           false,
         )
         expect(views.chrome()).toHaveProperty('sessionCount', count)
-        const context = views.dock()
+        const context = dockSnapshot(views)
         expect(context && context !== LOADING ? context.issues : null).toEqual([])
         expect(context && context !== LOADING ? context.active?.sessionId : null).toBe(
           f.sessions[0]!.sessionId,
@@ -73,7 +74,7 @@ describe('shell pool', () => {
         expect(
           row.mock.calls.filter(([kind]) => kind === 'issue' || kind === 'session'),
         ).toHaveLength(0)
-        const catalogue = views.dock(true)
+        const catalogue = dockSnapshot(views, true)
         expect(catalogue && catalogue !== LOADING ? catalogue.issues : []).toHaveLength(count)
       } finally {
         stop()
@@ -91,7 +92,7 @@ describe('shell pool', () => {
     try {
       f.change({ paneA: null })
       const read = vi.spyOn(f.pool, 'row')
-      const value = shellViews(f.pool).dock()
+      const value = dockSnapshot(shellViews(f.pool))
       expect(value && value !== LOADING ? value.active?.sessionId : null).toBe(
         f.sessions[0]!.sessionId,
       )
@@ -140,7 +141,7 @@ describe('shell pool', () => {
     try {
       settled(f)
       f.change({ paneA: asSessionId(f.fileTabs[0]!.id), view: 'settings' })
-      const value = shellViews(f.pool).dock()
+      const value = dockSnapshot(shellViews(f.pool))
       expect(value && value !== LOADING ? value.active : null).toMatchObject({
         cwd: f.fileTabs[0]!.worktreePath,
         issueId: f.issues[1]!.id,
@@ -162,13 +163,13 @@ describe('shell pool', () => {
     try {
       settled(f)
       f.change({ paneA: null })
-      const tied = shellViews(f.pool).dock()
+      const tied = dockSnapshot(shellViews(f.pool))
       expect(tied && tied !== LOADING ? tied.active?.sessionId : null).toBe(
         f.sessions[0]!.sessionId,
       )
       f.change({ repos: [] })
       expect(settled(f).differences).toBe(0)
-      const lag = shellViews(f.pool).dock()
+      const lag = dockSnapshot(shellViews(f.pool))
       expect(lag && lag !== LOADING ? lag.scope : null).toEqual({
         repoId: 'shell-repo',
         repoPath: '/synthetic/project',
@@ -286,7 +287,7 @@ describe('shell pool', () => {
       stop = autorun(read)
     const chrome = vi.fn(() => shellViews(f.pool).chrome()),
       stopChrome = autorun(chrome)
-    const shipping = vi.fn(() => shellViews(f.pool).shipping()),
+    const shipping = vi.fn(() => shellViews(f.pool).dock.shipping),
       stopShipping = autorun(shipping)
     try {
       const previous = chrome.mock.results[0]!.value
@@ -300,7 +301,7 @@ describe('shell pool', () => {
       expect(chrome).toHaveBeenCalledTimes(1)
       expect(shellViews(f.pool).chrome()).toBe(previous)
       expect(shipping).toHaveBeenCalledTimes(1)
-      expect(shellViews(f.pool).shipping()).toBe(previousShipping)
+      expect(shellViews(f.pool).dock.shipping).toBe(previousShipping)
       f.change({ paletteOpen: false })
       expect(read).toHaveBeenCalledTimes(1)
       expect(chrome).toHaveBeenCalledTimes(2)

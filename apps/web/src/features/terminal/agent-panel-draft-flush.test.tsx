@@ -81,7 +81,9 @@ vi.mock('./use-session-pane-inputs', () => ({
   usePaneMachines: () => [],
   usePanePanelModes: () => storePanelMode,
   usePaneSpawnConfirmed: () => true,
-  usePaneOwnership: () => ({ selectedIssueId: null, stampIssue: undefined, issueHex: undefined }),
+  usePaneSelectedIssueId: () => null,
+  usePaneIssueHex: () => undefined,
+  usePaneStampIssue: () => undefined,
   usePaneReferenceStages: () => ({ beginPaint: () => {}, endPaint: () => {}, resolveStage: () => null, subscribe: () => () => {} }),
 }))
 
