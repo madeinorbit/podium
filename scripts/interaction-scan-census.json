@@ -37339,6 +37339,138 @@
       "guard": "ColdStartComposer.order.test.tsx and CommandPalette.runtime.test.tsx prove frozen opening order, live visible labels and closed-view isolation; this entry makes no scan repair claim."
     },
     {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/open/take/callback",
+      "rule": "consume:sort",
+      "tokens": "f899ff059bb30338a454594199f35fe0fce8e5e1b5b3c802f8dcf975f3e2c365",
+      "gate": [],
+      "origin": [
+        "6cbf7a4bbbe381f53e7f6bc181d6425c5f898069b37dbc56e9c2502ebe6bce34"
+      ],
+      "fingerprint": "28d8da5e25f4eead0d07f8974e66f5228f74aa1a5f4a11bf7bfc43656340ef06",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5833",
+      "trigger": "CommandPaletteView/open/take/callback",
+      "bound": "Stored on open: captured issue/session catalog; no catalog cardinality cap is claimed.",
+      "reason": "Builds primitive ID-to-offset indexes or groups the frozen member IDs on open. The catalog acquisition remains uncapped; this records that remaining work, not a scan repair.",
+      "guard": "palette-members.test.ts proves old-filter answer parity, frozen membership and fresh reopen. CommandPalette.runtime.test.tsx checks fifty closing cycles clear the primitive indexes; speed:structural compares addressed selection work at 1x/4x."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/open/take/callback",
+      "rule": "consume:map",
+      "tokens": "d6c0370ce5687a6d93f5ebcd6b5f303967ee1fa6ee73340059b4e616e4f73f49",
+      "gate": [
+        "then:a8cab1d6ceb3ae9c88cbc337bdb5d9894c6ea997717af03bdfe1372c731e3b4e"
+      ],
+      "origin": [
+        "4a7e494046e71468cd6147b4dfaf1dca1dbe2f0e9753ff494c4338e56495ef97"
+      ],
+      "fingerprint": "9721a82f4b96f2a7411a1e7dcc0cf149c603d017ef49ffa0b6f0267e9e0095ae",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5833",
+      "trigger": "CommandPaletteView/open/take/callback",
+      "bound": "Stored on open: captured issue/session catalog; no catalog cardinality cap is claimed.",
+      "reason": "Builds primitive ID-to-offset indexes or groups the frozen member IDs on open. The catalog acquisition remains uncapped; this records that remaining work, not a scan repair.",
+      "guard": "palette-members.test.ts proves old-filter answer parity, frozen membership and fresh reopen. CommandPalette.runtime.test.tsx checks fifty closing cycles clear the primitive indexes; speed:structural compares addressed selection work at 1x/4x."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/open/take/callback",
+      "rule": "materialize:Map",
+      "tokens": "7222c23c9477be8834088cd4b01d5dc6a233ee2645582e604d87957ac45b8206",
+      "gate": [],
+      "origin": [
+        "4a7e494046e71468cd6147b4dfaf1dca1dbe2f0e9753ff494c4338e56495ef97"
+      ],
+      "fingerprint": "ca344e41ddd3feff973737305499130e094909b24591d5b0be14914046278f48",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5833",
+      "trigger": "CommandPaletteView/open/take/callback",
+      "bound": "Stored on open: captured issue/session catalog; no catalog cardinality cap is claimed.",
+      "reason": "Builds primitive ID-to-offset indexes or groups the frozen member IDs on open. The catalog acquisition remains uncapped; this records that remaining work, not a scan repair.",
+      "guard": "palette-members.test.ts proves old-filter answer parity, frozen membership and fresh reopen. CommandPalette.runtime.test.tsx checks fifty closing cycles clear the primitive indexes; speed:structural compares addressed selection work at 1x/4x."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/selection",
+      "rule": "reader-summary",
+      "tokens": "740adaefed32bb86353ccf2933781122a3362d28fa1331513ebb4efe14f1a8e9",
+      "gate": [
+        "exit:then:6bd938455bbed8b579c0375d2f5d47bb144ec2f131d9b528e878e345d7a69aa2"
+      ],
+      "origin": [
+        "e425177e5a40d130152286da7d88410e92561736c82d06c8344437bca0045355"
+      ],
+      "fingerprint": "792200ae03c2f5b39d4fbd2defd0d0dab315c4306e036f255d8ce751aefddab9",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5833",
+      "trigger": "CommandPaletteView/selection",
+      "bound": "Palette selection passes zero or one captured shared issue model plus that issue range; its opening snapshot originates from the uncapped catalog.",
+      "reason": "The selected lookup uses primitive offsets and overrides the issue list before projection. Transitive catalog acquisition remains recorded as REQUIRED REPAIR; this is not a claim that opening acquisition is capped.",
+      "guard": "palette-members.test.ts and CommandPalette.runtime.test.tsx cover selected member parity and closing cleanup. The full structural census checks select/navigation counts; original catalog-origin classifications are retained."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "CommandPaletteView/selection",
+      "rule": "helper-consumer",
+      "tokens": "310aab8eca1cac2883c69cb8b99b2a224f09102b7fea6f6e85227a95547ad6e0",
+      "gate": [
+        "exit:then:6bd938455bbed8b579c0375d2f5d47bb144ec2f131d9b528e878e345d7a69aa2"
+      ],
+      "origin": [
+        "e425177e5a40d130152286da7d88410e92561736c82d06c8344437bca0045355"
+      ],
+      "fingerprint": "8b054eea53b384cde603e7c6121442fb85c6b28cf408d8ba820d199ab0d07074",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5833",
+      "trigger": "CommandPaletteView/selection",
+      "bound": "Palette selection passes zero or one captured shared issue model plus that issue range; its opening snapshot originates from the uncapped catalog.",
+      "reason": "The selected lookup uses primitive offsets and overrides the issue list before projection. Transitive catalog acquisition remains recorded as REQUIRED REPAIR; this is not a claim that opening acquisition is capped.",
+      "guard": "palette-members.test.ts and CommandPalette.runtime.test.tsx cover selected member parity and closing cleanup. The full structural census checks select/navigation counts; original catalog-origin classifications are retained."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "createCommandLaunchViews/selected/callback",
+      "rule": "reader-summary",
+      "tokens": "89d879f8d5244ef7ab80efd3e510e2bd656232edc1778a75122bd0e2847df433",
+      "gate": [],
+      "origin": [
+        "e425177e5a40d130152286da7d88410e92561736c82d06c8344437bca0045355"
+      ],
+      "fingerprint": "7aa56d9abdcc8e2652fe681281f47a1cb9c2b123b85d48d5fe71bc477c906746",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5833",
+      "trigger": "createCommandLaunchViews/selected/callback",
+      "bound": "Palette selection passes zero or one captured shared issue model plus that issue range; its opening snapshot originates from the uncapped catalog.",
+      "reason": "The selected lookup uses primitive offsets and overrides the issue list before projection. Transitive catalog acquisition remains recorded as REQUIRED REPAIR; this is not a claim that opening acquisition is capped.",
+      "guard": "palette-members.test.ts and CommandPalette.runtime.test.tsx cover selected member parity and closing cleanup. The full structural census checks select/navigation counts; original catalog-origin classifications are retained."
+    },
+    {
+      "file": "packages/client-graph/src/command-launch-views.ts",
+      "holder": "createCommandLaunchViews/selected/callback",
+      "rule": "helper-consumer",
+      "tokens": "6df756ce2647205dcb4c253ee571b7127f75021b0212a5abeb6e30af41fd96a6",
+      "gate": [],
+      "origin": [
+        "e425177e5a40d130152286da7d88410e92561736c82d06c8344437bca0045355"
+      ],
+      "fingerprint": "c812330afdb86a2898ea2a4d9728e869be19912bf4df97de092e48b29528ce20",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5833",
+      "trigger": "createCommandLaunchViews/selected/callback",
+      "bound": "Palette selection passes zero or one captured shared issue model plus that issue range; its opening snapshot originates from the uncapped catalog.",
+      "reason": "The selected lookup uses primitive offsets and overrides the issue list before projection. Transitive catalog acquisition remains recorded as REQUIRED REPAIR; this is not a claim that opening acquisition is capped.",
+      "guard": "palette-members.test.ts and CommandPalette.runtime.test.tsx cover selected member parity and closing cleanup. The full structural census checks select/navigation counts; original catalog-origin classifications are retained."
+    },
+    {
       "file": "packages/client-graph/src/enumerate.ts",
       "holder": "allResidentSessions",
       "rule": "enumerate:keys",
