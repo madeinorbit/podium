@@ -91,7 +91,7 @@ export function useNativeTranscriptScroll({
         if (top < previous) setFollowing(false)
         else if (top > previous && measureAtTail(top, layoutMeasurement.height, contentSize.height))
           setFollowing(true)
-        if (top < previous && top < Math.max(120, layoutMeasurement.height) && moreAbove && !loadingOlder) onLoadOlder?.()
+        if (top < previous && top < Math.max(120, layoutMeasurement.height * 2) && moreAbove && !loadingOlder) onLoadOlder?.()
       }
     },
     [loadingOlder, moreAbove, onLoadOlder, setFollowing],

@@ -39,6 +39,7 @@ interface BoundedVirtualListOptions {
   estimateSize: number
   gap?: number
   overscan?: number
+  overscanViewports?: number
   maxItems?: number
   initialItems?: number
   /** Kept mounted across the one render needed to scroll keyboard focus/drag. */
@@ -120,6 +121,7 @@ export function useBoundedVirtualList({
   estimateSize,
   gap = 0,
   overscan = DEFAULT_OVERSCAN,
+  overscanViewports = 1,
   maxItems = ISSUE_VIRTUAL_MAX_ITEMS,
   initialItems = DEFAULT_INITIAL_ITEMS,
   pinnedKeys = [],
@@ -360,7 +362,7 @@ export function useBoundedVirtualList({
 
   let start = 0
   let end = 0
-  const buffer = Math.max(viewport.height, overscan * (estimateSize + gap))
+  const buffer = Math.max(viewport.height * overscanViewports, overscan * (estimateSize + gap))
   if (keys.length > 0) {
     if (viewport.height <= 0) {
       start = Math.max(0, itemAt(layout, Math.max(0, viewport.top)) - overscan)

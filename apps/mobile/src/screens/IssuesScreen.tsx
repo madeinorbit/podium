@@ -429,6 +429,7 @@ const StageSections = observer(function StageSections({
         contentContainerStyle={[styles.listContent, { paddingBottom: bottomInset + space.lg }]}
         {...refreshAccessibilityProps}
         {...minimizeOnScroll}
+        scrollEventThrottle={listWindow.scrollEventThrottle}
         ListHeaderComponent={
           <>
             <StorageNoticeAlert />

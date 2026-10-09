@@ -334,6 +334,7 @@ function PoolWorkScreen() {
             }
             {...refreshAccessibilityProps}
             {...minimizeOnScroll}
+            scrollEventThrottle={listWindow.scrollEventThrottle}
             stickySectionHeadersEnabled
             renderSectionHeader={({ section }) => (
               <GroupHeader

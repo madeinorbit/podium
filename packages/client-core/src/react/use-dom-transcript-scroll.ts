@@ -275,9 +275,9 @@ export function useDomTranscriptScroll(
       !layoutChanged &&
       userScrolling.current &&
       top < previous &&
-      // Start revealing history a viewport before its mounted edge. A fast
+      // Start revealing history two viewports before its mounted edge. A fast
       // wheel/touch burst can cross the old 120px threshold in one frame.
-      top < Math.max(HISTORY_EDGE, element.clientHeight)
+      top < Math.max(HISTORY_EDGE, element.clientHeight * 2)
     )
       loadOlderAnchored()
   }, [
