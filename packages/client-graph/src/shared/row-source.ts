@@ -4,7 +4,7 @@ import { machinePathKey, machinePathsEqual } from '@podium/model'
 import { machinePathBasename } from '@podium/model/browser'
 import { type ColdIndex, type ColdQueries, createColdIndex, type HeldSummaries } from './cold-index'
 import { SCHEMA } from './schema'
-import { comparer, runInAction } from 'mobx'
+import { compareStructural, runInAction } from 'mobx'
 import { IssueSessionFactsIndex } from './issue-session-facts'
 /** Addressed replica rows, optionally painted by PoolTransactions.
  * The feed folds the supplied per-row transaction lists over kernel truth. There is no runtime record snapshot or whole-list optimism fold.
@@ -698,7 +698,7 @@ export function createRowSource(
   function retain(key: string, value: RowRecord['value']): RowRecord['value'] {
     if (!published.has(key)) return value
     const previous = published.get(key)
-    return previous !== undefined && value !== undefined && comparer.structural(previous, value)
+    return previous !== undefined && value !== undefined && compareStructural(previous, value)
       ? previous
       : value
   }
