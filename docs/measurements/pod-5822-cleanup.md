@@ -10,6 +10,8 @@ Selection and its fold latch are Worklist observable accessors. A row derives `s
 
 Worklist-created membership lists are shallow-equal lazy model/ID fields. Mobile section fields are lazy parts owned by the Worklist and group nodes; native SectionList descriptors are formed at the UI boundary. Worktree roster ordering uses incremental ordered data queries over shared sessions, with shallow-equal visible/stale lists. Folded header counts read narrow shared session flags; navigation activity reads scalar session timestamps. Clock behavior remains POD-5863.
 
+The cached `factRow` is replaced by an ephemeral record read inside each scalar model getter. `loadedIssue` and `loadedOrigin` retain shared models or the same LOADING/absent answers. Their only production readers are readiness and the origin's id/seq/title; the data layer's `rollupInputs.loadedIssue` protocol is unchanged. Schema-installed issue fields use the existing lazy decorator so a sort-only edit does not redraw an unchanged title/color reader; other entity getters are unchanged.
+
 ## Before/after proof
 
 The old implementation is preserved only in test oracles (`issue-before.test-helper.ts`, `lists-before.test-helper.ts`, `query-identity-before.test-helper.ts`, `mobile-before.test-helper.ts`, `heartbeat-before.test-helper.ts`). Production imports none of them. The initial port parity proof ran before deleting adapters, including a deliberately wrong candidate; the expanded proof compares each moved/renamed answer with its frozen predecessor on the same fixtures.
@@ -17,6 +19,10 @@ The old implementation is preserved only in test oracles (`issue-before.test-hel
 `field-parity.test.ts` covers working, waiting, folded parents, merge decisions, quiet drafts, timed defer, next-message defer and spin-off origins, plus unknown, LOADING and selected evicted records. `state-parity.test.tsx` exercises a real row click (render counts old row 2, new row 2, unrelated row 1), compares old/new mobile sections and roster partitions, and proves an unrelated heartbeat invokes zero roster sorts and zero folded-header count reads. The changed issue’s navigation activity still advances.
 
 Expanded proof: 1,473 checks green. With `POD5822_MUTATE=1`, 1,469 checks fail and the four independent boundary checks pass. The original pre-deletion proof was 373 green; its wrong-answer control failed 371 checks.
+
+Before removing retained raw records, the expanded field and record-fact proof passed 1,530 checks (1,488 field answers and 42 scalar facts). Its wrong-answer control failed 1,527 checks; the three independent boundary checks stayed green. Before wrapping schema-installed issue fields, all 406 stored-field comparisons passed; their wrong-answer control failed all 406. The same fixtures include open, closed, actual private-branch merge, archived, deleted, cold and missing records.
+
+`worklist-issue-fields-memory.ts` holds the same desktop/phone paint questions over the existing 4x corpus and reports watched computeds and post-GC heap. The comparison around the issue getter change is pending; a heap increase above about 5% requires coordinator review before landing. `worklist-production-smoke.ts` will verify one sidebar row and its issue page from the normal production build in an isolated harness.
 
 ## Shared answers and remaining helpers
 
@@ -33,3 +39,5 @@ Design confirmed three separate unread questions: `unread` is unread activity in
 All validation runs use the checkout-local pinned Bun on flatblock (`~/podium-test-5822/.toolchain/bun`, with `node` linked to it), focused files, foreground execution and one worker. Ordinary vitest processes are limited to about 3 GiB RSS. The structural census uses the coordinator’s explicit 9.5 GiB exception under `meter:flatblock`, with the MemAvailable/swap stop thresholds.
 
 Final focused consumer tests, full cached typecheck, lean gate, zero-error interaction scan, normal web build and locked structural census: pending.
+
+Completed focused runs include shared models/attention/eviction (17 checks), roster/query/mission (41 checks), runtime projections/pane (29 checks), and the desktop sidebar (15 checks). The desktop action file is currently 41/42 green; its remaining folded-tuck case is being isolated. These counts are focused-file evidence, not a full suite result. Two earlier harness workers were stopped at the ordinary 3 GiB limit; those runs are not reported as green.
