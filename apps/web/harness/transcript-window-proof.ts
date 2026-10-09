@@ -63,6 +63,16 @@ try {
   await page.evaluate(() => document.fonts.ready)
   console.log('Fonts ready')
   await page.waitForTimeout(300)
+  if (process.argv.includes('--menu-probe')) {
+    const id = execFileSync(`${nativeTools}/usr/bin/xdotool`, ['search', '--onlyvisible', '--class', 'chrom(e|ium)'], { env: nativeEnv, encoding: 'utf8' }).trim().split('\n')[0]!
+    execFileSync(`${nativeTools}/usr/bin/xdotool`, ['windowfocus', '--sync', id], { env: nativeEnv })
+    for (const key of ['alt+f', 'f', 'Right', 'Return']) {
+      nativeKey(key)
+      await page.waitForTimeout(200)
+      execFileSync('python3', ['apps/web/harness/xvfb-screen.py', resolve(framebuffer, 'Xvfb_screen0'), resolve(directory, `menu-${key}.png`)])
+    }
+    return
+  }
   const cdp = await page.context().newCDPSession(page)
   const browserCdp = await browser.newBrowserCDPSession()
   const samples = []
