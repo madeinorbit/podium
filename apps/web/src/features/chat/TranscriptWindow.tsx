@@ -341,7 +341,18 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
         parts.push(part)
         content += part.data
       }
-      const start = content.toLocaleLowerCase().indexOf(text.toLocaleLowerCase())
+      const source = selection.getRangeAt(0)
+      const prefix = source.cloneRange()
+      prefix.selectNodeContents(proxy.current)
+      prefix.setEnd(source.startContainer, source.startOffset)
+      const needle = text.toLocaleLowerCase()
+      const occurrence = prefix.toString().toLocaleLowerCase().split(needle).length - 1
+      const haystack = content.toLocaleLowerCase()
+      let start = -needle.length
+      for (let match = 0; match <= occurrence; match++) {
+        start = haystack.indexOf(needle, start + needle.length)
+        if (start < 0) return
+      }
       if (start < 0) return
       const range = document.createRange()
       let offset = 0

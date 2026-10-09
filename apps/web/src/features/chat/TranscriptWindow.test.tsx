@@ -7,13 +7,13 @@ import { TranscriptWindowRow, useTranscriptWindow } from './TranscriptWindow'
 let host: HTMLDivElement, root: Root, top = 0
 let frames: FrameRequestCallback[], rowHeight = 80
 const rect = (y: number, height: number) => ({ top: y, bottom: y + height, height, width: 600, left: 0, right: 600, x: 0, y, toJSON() {} })
-function Fixture({ count = 1000, operator = false, mode = '', boundary = '' }: { count?: number; operator?: boolean; mode?: string; boundary?: string }) {
+function Fixture({ count = 1000, operator = false, mode = '', boundary = '', prose = 'retained prose' }: { count?: number; operator?: boolean; mode?: string; boundary?: string; prose?: string }) {
   const scroll = useRef<HTMLDivElement | null>(null)
   const keys = useMemo(() => Array.from({ length: count }, (_, index) => `row-${index}`), [count])
   const windowing = useTranscriptWindow(keys, scroll, mode)
   return <div ref={scroll} data-scroller>
     {keys.map((key, index) => <TranscriptWindowRow key={key} rowKey={key} index={index} window={windowing} geometryKey={index === 600 ? boundary : undefined}>
-      {remounted => <div data-message data-operator-prompt={operator && index === 0 ? 'true' : undefined} data-arrived={!remounted ? '' : undefined}><p>{key} retained prose</p><button aria-expanded="false">Details</button></div>}
+      {remounted => <div data-message data-operator-prompt={operator && index === 0 ? 'true' : undefined} data-arrived={!remounted ? '' : undefined}><p>{key} {prose}</p><button aria-expanded="false">Details</button></div>}
     </TranscriptWindowRow>)}
   </div>
 }
@@ -170,4 +170,17 @@ it('retains the resolved subpixel flow size rather than rounded deep-document re
   act(() => root.render(<Fixture mode="subpixel" />))
   paint()
   expect((host.querySelector('[data-transcript-row="row-600"]') as HTMLElement).style.height).toBe('80.328125px')
+})
+
+it('preserves the matched occurrence when native Find repeats a word in one message', async () => {
+  act(() => root.render(<Fixture key="repeated" prose="retained prose retained prose" />))
+  const shell = host.querySelector('[data-transcript-row="row-600"]')!
+  const text = shell.querySelector('[data-transcript-find-proxy]')!.firstChild!
+  const start = text.textContent!.lastIndexOf('retained')
+  const range = document.createRange(); range.setStart(text, start); range.setEnd(text, start + 8)
+  const selection = document.getSelection()!; selection.addRange(range)
+  scroll(48_000)
+  await act(async () => { await Promise.resolve() })
+  expect(selection.toString()).toBe('retained')
+  expect(selection.anchorOffset).toBe(15)
 })
