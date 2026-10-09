@@ -5,15 +5,15 @@ import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import { TranscriptWindowRow, useTranscriptWindow } from './TranscriptWindow'
 
 let host: HTMLDivElement, root: Root, top = 0
-let frames: FrameRequestCallback[]
+let frames: FrameRequestCallback[], rowHeight = 80
 const rect = (y: number, height: number) => ({ top: y, bottom: y + height, height, width: 600, left: 0, right: 600, x: 0, y, toJSON() {} })
-function Fixture({ count = 1000 }: { count?: number }) {
+function Fixture({ count = 1000, operator = false, mode = '' }: { count?: number; operator?: boolean; mode?: string }) {
   const scroll = useRef<HTMLDivElement | null>(null)
   const keys = useMemo(() => Array.from({ length: count }, (_, index) => `row-${index}`), [count])
-  const windowing = useTranscriptWindow(keys, scroll)
+  const windowing = useTranscriptWindow(keys, scroll, mode)
   return <div ref={scroll} data-scroller>
     {keys.map((key, index) => <TranscriptWindowRow key={key} rowKey={key} index={index} window={windowing}>
-      {remounted => <div data-message data-arrived={!remounted ? '' : undefined}><p>{key} retained prose</p><button aria-expanded="false">Details</button></div>}
+      {remounted => <div data-message data-operator-prompt={operator && index === 0 ? 'true' : undefined} data-arrived={!remounted ? '' : undefined}><p>{key} retained prose</p><button aria-expanded="false">Details</button></div>}
     </TranscriptWindowRow>)}
   </div>
 }
@@ -24,12 +24,12 @@ const scroll = (value: number) => {
   paint()
 }
 beforeEach(() => {
-  top = 0; frames = []
+  top = 0; frames = []; rowHeight = 80
   vi.stubGlobal('IS_REACT_ACT_ENVIRONMENT', true)
   vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) {
     const key = this.dataset.transcriptRow
     const index = key ? Number(key.slice(4)) : undefined
-    return rect(index === undefined ? 0 : index * 80 - top, index === undefined ? 400 : 80) as DOMRect
+    return rect(index === undefined ? 0 : index * rowHeight - top, index === undefined ? 400 : rowHeight) as DOMRect
   })
   vi.spyOn(HTMLElement.prototype, 'clientHeight', 'get').mockReturnValue(400)
   vi.spyOn(HTMLElement.prototype, 'clientWidth', 'get').mockReturnValue(600)
@@ -121,4 +121,20 @@ it('transfers a native Find range committed in inert text to the restored messag
   await act(async () => { await Promise.resolve() })
   expect(selection.toString()).toBe(matched)
   expect(selection.anchorNode?.parentElement?.closest('[data-message]')).not.toBeNull()
+})
+
+it('keeps the preceding prompt mounted after a jump deep into one long turn', () => {
+  act(() => root.render(<Fixture key="operator" operator />))
+  scroll(72_000)
+  expect(host.querySelector('[data-transcript-row="row-0"] [data-message]')).not.toBeNull()
+  expect(host.querySelector('[data-transcript-row="row-900"] [data-message]')).not.toBeNull()
+  expect(host.querySelectorAll('[data-message]').length).toBeLessThan(40)
+})
+it('remeasures changed display geometry once and returns to the buffer', () => {
+  scroll(40_000)
+  rowHeight = 120
+  act(() => root.render(<Fixture mode="expanded" />))
+  paint()
+  expect((host.querySelector('[data-transcript-row="row-0"]') as HTMLElement).style.height).toBe('120px')
+  expect(host.querySelectorAll('[data-message]').length).toBeLessThan(40)
 })
