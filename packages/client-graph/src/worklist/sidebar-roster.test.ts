@@ -50,6 +50,8 @@ it('keeps worktree pending heartbeat row reads flat at 1x/4x', async () => {
   console.info('[worktree pending heartbeat]', JSON.stringify({ one, four }))
   expect(four.rows).toBe(one.rows)
   expect(four.derivations).toBeLessThanOrEqual(one.derivations)
+  expect(four.elements).toBeLessThanOrEqual(one.elements)
+  expect(four.visits).toBeLessThanOrEqual(one.visits)
 }, 120_000)
 
 function corpus(scale: number) {

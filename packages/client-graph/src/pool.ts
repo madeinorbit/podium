@@ -870,6 +870,8 @@ export class MobxPool {
    * an empty row.
    */
   resident(entity: EntityName, id: string): Residence {
+    // Availability observes presence; payload changes belong to field readers.
+    if (this.tables[entity].has(id)) return 'resident'
     const answer = this.row(entity, id)
     return answer === LOADING ? 'loading' : isGone(answer) ? 'absent' : 'resident'
   }
