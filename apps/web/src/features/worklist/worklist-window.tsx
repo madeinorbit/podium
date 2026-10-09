@@ -1,5 +1,4 @@
 import {
-  Fragment,
   type JSX,
   type KeyboardEvent,
   type RefObject,
@@ -9,6 +8,7 @@ import {
   useRef,
   useState,
 } from 'react'
+import { LayoutGroup } from 'motion/react'
 import { useBoundedVirtualList } from '@/features/issues/use-bounded-virtual-list'
 
 const focusable = 'button:not([disabled]), input:not([disabled]), [tabindex="0"], a[href]'
@@ -124,7 +124,10 @@ export function WorklistWindow<T>({
         end = item.start + item.size
         const row = rows[item.index]!
         return (
-          <Fragment key={item.key}>
+          // Window retirement preserves layout with a spacer. It must not
+          // notify sibling Motion rows as though the issue itself was removed.
+          // Real order changes still update each row's layoutDependency.
+          <LayoutGroup key={item.key} inherit={false}>
             {gap > 0 && <div key="spacer" aria-hidden="true" style={{ height: gap }} />}
             <div
               key="row"
@@ -136,7 +139,7 @@ export function WorklistWindow<T>({
             >
               {renderRow(row)}
             </div>
-          </Fragment>
+          </LayoutGroup>
         )
       })}
       {virtual.totalSize > end && (
