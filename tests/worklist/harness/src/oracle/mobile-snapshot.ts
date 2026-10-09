@@ -10,7 +10,7 @@ import type { MobileRowValues } from '@podium/client-graph/worklist/mobile-row'
 import type { MobileWorkRef, MobileWorkState } from '@podium/client-graph/worklist/mobile'
 import type { CheckRow, SidebarSnapshot } from '../../../diagnostics/sidebar-check'
 import { sidebarComparable, sessionComparable } from '../../../diagnostics/oracle'
-import { mobileRowPaint, MobileSearchSections, type MobileWorkSection } from '../../../../../apps/mobile/src/lib/work-sections'
+import { mobileRowPaint, MobileSearchSections, MobileFoldSections, type MobileWorkSection } from '../../../../../apps/mobile/src/lib/work-sections'
 
 function comparable(value: MobileRowValues): Record<string, unknown> {
   return { ...value, sidebar: value.sidebar ? sidebarComparable(value.sidebar) : null,
@@ -29,12 +29,25 @@ function poolRow(pool: MobxPool, ref: MobileWorkRef): CheckRow {
 }
 
 export function poolMobileSnapshot(pool: MobxPool, state: MobileWorkState = {}): SidebarSnapshot {
-  worklistView(pool).setLayout(state)
   const answer = mobileWorkView(pool).mobileSections()
+  // A diagnostic can compare several layouts while a live reader holds the
+  // default one. Reading a snapshot must not replace that reader's layout.
+  const source = (key: string, ordering: boolean) => {
+    const section = answer.section(key)
+    return {
+      key, label: section.label, kind: section.kind,
+      total: ordering ? section.allIds.length : section.total,
+      data: ordering ? section.allIds : section.liveIds,
+      snoozedIds: section.snoozedIds, closedIds: section.closedIds,
+      foldKey: section.foldKey, collapsed: false,
+    }
+  }
+  const sections = new MobileSearchSections().update(pool, answer.sectionKeys.map(key => source(key, false)), '')
+  const collapsed = new Set(sections.filter(section => state.collapsed?.[section.foldKey] === true).map(section => section.key))
   const split = { issueCount: answer.issueCount, pinnedCount: answer.pinnedCount,
     attentionCount: answer.attentionCount, pending: answer.pending,
-    sections: new MobileSearchSections().update(pool, answer.sectionKeys, ''),
-    orderingSections: new MobileSearchSections(true).update(pool, answer.orderingSectionKeys, '') }
+    sections: new MobileFoldSections().update(sections, collapsed, state.searching === true),
+    orderingSections: new MobileSearchSections(true).update(pool, answer.orderingSectionKeys.map(key => source(key, true)), '') }
   let pending = split.pending
   const cache = new Map<string, CheckRow>()
   const row = (ref: MobileWorkRef): CheckRow => {

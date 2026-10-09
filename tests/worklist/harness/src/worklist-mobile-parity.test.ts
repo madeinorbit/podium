@@ -10,7 +10,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { MOBILE_ROW_FIELDS } from '@podium/client-graph/worklist/mobile-row'
 import { tracked } from './adapters/mobx-pool'
 import { openFenceFeeds, FENCE_SCENARIOS } from './fence-scenarios'
-import { poolMobileSnapshot } from './oracle/mobile-snapshot'
+import { mobileComparable, poolMobileSnapshot } from './oracle/mobile-snapshot'
 import { installMobxWarnTrap } from './mobx-trap'
 import { settled, startScenarioEngine } from '../../shared/src/scenarios'
 import baseline from './worklist-mobile-before.json'
@@ -90,7 +90,7 @@ describe('shared worklist phone parity', () => {
       const first = tracked(() => mobileWorkView(handle.pool).mobileSections().orderingSectionKeys.flatMap(key => mobileWorkView(handle.pool).mobileSections().section(key).allIds)[0]!)
       const value = tracked(() => mobileWorkView(handle.pool).mobileRow({ id: first, kind: handle.pool.tables.worktree.has(first) ? 'worktree' : 'issue' }))
       expect(value).not.toBe(LOADING)
-      expect(value !== LOADING && value?.ready).toBe('ready')
+      expect(Object.keys(tracked(() => mobileComparable(value as Exclude<typeof value, typeof LOADING | undefined>))).sort()).toEqual([...MOBILE_ROW_FIELDS].sort())
     }
     try {
       await check('corpus')
