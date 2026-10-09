@@ -204,8 +204,12 @@ export function filterCommandCandidates(query: string, candidates: PaletteCandid
     groups.push({ group, commands: mine.slice(0, cap).map(s => s.candidate.build()),
       total: mine.length, top: best.score })
   }
-  if (!resting) groups.sort((a, b) => b.top - a.top || GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group))
-  return groups
+  return orderCommandGroups(query, groups)
+}
+
+export function orderCommandGroups(query: string, groups: PaletteGroup[]): PaletteGroup[] {
+  return groups.sort((a, b) => (isResting(query) ? 0 : b.top - a.top) ||
+    GROUP_ORDER.indexOf(a.group) - GROUP_ORDER.indexOf(b.group))
 }
 
 export function filterCommands(query: string, commands: PaletteCommand[]): PaletteGroup[] {

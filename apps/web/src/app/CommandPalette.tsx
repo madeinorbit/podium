@@ -78,6 +78,7 @@ import {
   flattenGroups,
   GROUP_CAP,
   isResting,
+  orderCommandGroups,
   moveHighlight,
   type PaletteCommand,
   type PaletteGroup,
@@ -745,8 +746,17 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     issueMenuData,
   ])
 
-  const groups = filterCommandCandidates(query, commands)
-  const flat = flattenGroups(groups)
+  const indexed = (command: PaletteCandidate) => ['recent', 'task', 'agent', 'place'].includes(command.group)
+  // Stored for this query of the opening: metadata updates reach the small
+  // addressed rows without re-ranking the catalog under the user.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: contextual actions do not invalidate catalog order
+  const indexedGroups = useMemo(() => filterCommandCandidates(query, commands.filter(indexed)),
+    [query, recent, sessions, issues, serverIssueHits, repoViews])
+  const contextGroups = useMemo(() => filterCommandCandidates(query, commands.filter(command => !indexed(command))),
+    [query, commands])
+  const groups = useMemo(() => orderCommandGroups(query, [...indexedGroups, ...contextGroups]),
+    [query, indexedGroups, contextGroups])
+  const flat = useMemo(() => flattenGroups(groups), [groups])
   const resultOrder = flat.map(command => command.id).join('\0')
   // The free-text fallback ("spawn an agent with what I typed") is a QUERY row:
   // with nothing typed it would only restate the Actions group's own "New …
@@ -807,8 +817,10 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     }
   }
 
-  const taskSubject = issueMenuData ? issueReferenceModel(issueMenuData.first).ref : undefined
-  const agentSubject = focused ? sessionDisplayName(focused) : undefined
+  const taskSubject = groups.some(group => group.group === 'on-task') && issueMenuData
+    ? issueReferenceModel(issueMenuData.first).ref : undefined
+  const agentSubject = groups.some(group => group.group === 'on-agent') && focused
+    ? sessionDisplayName(focused) : undefined
   const groupHeading = (group: PaletteGroup): string => {
     if (group.group === 'on-task' && taskSubject) return `Task · ${taskSubject}`
     if (group.group === 'on-agent' && agentSubject) return `Agent · ${agentSubject}`

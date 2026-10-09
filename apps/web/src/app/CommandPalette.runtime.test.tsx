@@ -28,7 +28,7 @@ function Capture() {
 
 afterEach(cleanup)
 
-it('keeps queried result identities still while a visible task title changes', async () => {
+it.each([false, true])('keeps queried result identities still while a visible task title changes (selected: %s)', async (selected) => {
   const fixture = createSidebarFixture(12, Date.now(), false, 'palette-live-query')
   const mounted = render(<StoreProvider principal={asClientPrincipal(asUserId('palette-live-query'))}
     config={{ httpOrigin: 'http://offline.invalid', wsClientUrl: 'ws://offline.invalid' }} api={fixture.api}
@@ -38,7 +38,10 @@ it('keeps queried result identities still while a visible task title changes', a
     <ConfirmProvider><Capture /><CommandPalette /></ConfirmProvider>
   </StoreProvider>)
   try {
-    await act(async () => referenceState(runtime).setPaletteOpen(true))
+    await act(async () => {
+      if (selected) referenceState(runtime).setSelectedIssueId(asIssueId('synthetic-10'))
+      referenceState(runtime).setPaletteOpen(true)
+    })
     fireEvent.change(await screen.findByRole('combobox'), { target: { value: 'S' } })
     const taskIds = () => screen.getAllByRole('option')
       .map(option => option.getAttribute('data-command-id'))
