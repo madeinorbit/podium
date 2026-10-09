@@ -3,7 +3,7 @@ import { createPoolProjection, createRuntimeWorklistPool } from '@podium/client-
 import { LOADING } from '@podium/client-graph'
 import { expect, it } from 'vitest'
 import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
-import { readMissionPane } from './mission-pane-reader'
+import { missionPaneReader } from '../../../../tests/worklist/harness/src/mission-pane'
 import { poolBackedScreens } from './pool-screens'
 
 it.each([1, 4] as const)('settles a cold production mission at %sx before its first visible pane', async (scale) => {
@@ -11,7 +11,8 @@ it.each([1, 4] as const)('settles a cold production mission at %sx before its fi
   const handle = createRuntimeWorklistPool(ctx.engine, screenOptions(poolBackedScreens, ctx.engine))
   const input = { selectedIssueId: scale === 1 ? 'i1766' : 'i13916', paneA: 's0', paneB: null, split: false,
     mode: 'full' as const, handoff: false }
-  const projection = createPoolProjection(handle.pool, () => readMissionPane(handle.pool, input))
+  const reader = missionPaneReader(handle.pool)
+  const projection = createPoolProjection(handle.pool, () => reader.read(input))
   const stop = projection.subscribe(() => {})
   let pane = projection.getSnapshot()
   try {
@@ -26,9 +27,10 @@ it.each([1, 4] as const)('settles a cold production mission at %sx before its fi
     console.info('[mission cold batches]', JSON.stringify({ scale, batches }))
     expect(batches.filter(Boolean).length, `cold loader batches: ${batches.join(', ')}`).toBeLessThanOrEqual(4)
     if (pane === LOADING) throw new Error('Cold mission did not settle')
-    expect(pane.mission.root?.id).toBe(input.selectedIssueId)
-    expect(pane.mission.rows.length).toBeGreaterThan(0)
+    expect(pane.root).toBe(input.selectedIssueId)
+    expect('bands' in pane && pane.bands.length).toBeGreaterThan(0)
   } finally {
+    reader.dispose()
     stop()
     projection.dispose()
     handle.dispose()

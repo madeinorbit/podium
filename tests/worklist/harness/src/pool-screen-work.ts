@@ -108,7 +108,7 @@ import {
   readOpen,
   readPalette,
 } from '../../../../apps/web/src/app/command-launch-readers'
-import { readMissionPane } from '../../../../apps/web/src/app/mission-pane-reader'
+import { missionPaneReader } from './mission-pane'
 import { createPoolNavigationProvider } from '../../../../apps/web/src/app/pool-navigation-provider'
 import {
   type FixtureScale,
@@ -536,8 +536,10 @@ async function measureScreenCells(
       open: readOpen(pool),
       files: readFiles(pool),
     }))
+    const missionPane = missionPaneReader(pool)
+    stops.push(() => missionPane.dispose())
     add('mission.pane', ['PoolFlightDeck', 'MissionDeck'], () =>
-      readMissionPane(pool, {
+      missionPane.read({
         ...window.get(),
         mode: 'full',
         handoff: scene !== 'background-terminal',
@@ -984,8 +986,8 @@ async function measureScreenCells(
       await drain(pool)
       assertObservedParity(readers, values)
       proveAction(action)
-      const pane = values.get('mission.pane') as ReturnType<typeof readMissionPane> | undefined
-      if (values.has('mission.pane') && (pane === LOADING || pane?.mission.root?.id !== ROOT))
+      const pane = values.get('mission.pane') as ReturnType<ReturnType<typeof missionPaneReader>['read']> | undefined
+      if (values.has('mission.pane') && (pane === LOADING || pane?.root !== ROOT))
         throw new Error('Mission output lost its root')
       const row = omitGone(pool.row('issue', ROOT))
       if (!row || row === LOADING || Reflect.get(row, 'title') !== ROOT)

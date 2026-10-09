@@ -5,7 +5,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import { missionView } from '@podium/client-graph/mission-view'
 import { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
-import { readMissionPane } from '../../../apps/web/src/app/mission-pane-reader'
+import { missionPaneReader } from '../harness/src/mission-pane'
 
 const stamp = '2026-10-01T12:00:00Z'
 const VISIBLE = 24
@@ -27,64 +27,61 @@ function fixture(scale: number) {
   ] })
   return { pool, sessions }
 }
-function click(pool: MobxPool, selectedIssueId: string) {
-  const value = readMissionPane(pool, { selectedIssueId, paneA: null, paneB: null, split: false, mode: 'full', handoff: false })
-  if (value !== LOADING && value.mission.deck) {
-    const deck = value.mission.deck, ids = deck.rowIds()
-    if (ids === LOADING) return LOADING
-    // The actual spine consumes rich values only for mounted task bands.
-    for (const id of ids.slice(0, VISIBLE)) {
-      const row = deck.model(id)
-      void row.issue; void row.title; void row.presentation; void row.sessions; void row.rollup
-    }
-  }
-  return value
+/** The mounted spine reads rich fields only for the mounted task bands. */
+function click(pane: ReturnType<typeof missionPaneReader>, selectedIssueId: string) {
+  return pane.read({ selectedIssueId, paneA: null, paneB: null, split: false, mode: 'full', handoff: false })
 }
 
 it('records first click and revisit once at 1x and 4x', () => {
   for (const scale of [1, 4]) {
     const { pool } = fixture(scale)
+    const pane = missionPaneReader(pool, VISIBLE)
     const read = vi.spyOn(pool, 'row')
     const start = performance.now()
     let value: ReturnType<typeof click> = LOADING
-    let stop = autorun(() => { value = click(pool, 'root') })
+    let stop = autorun(() => { value = click(pane, 'root') })
     const firstMs = performance.now() - start
     const summaries = (kind: string) => read.mock.calls.filter(([entity, , absent]) => entity === kind && absent === 'summary').length
     const first = { issue: summaries('issue'), session: summaries('session') }
     stop()
     read.mockClear()
     const revisit = performance.now()
-    stop = autorun(() => { value = click(pool, 'child-0001') })
+    stop = autorun(() => { value = click(pane, 'child-0001') })
     const revisitMs = performance.now() - revisit
     try {
       expect(value).not.toBe(LOADING)
       console.info('[mission click]', JSON.stringify({ scale, visible: VISIBLE, firstMs, revisitMs, first, revisit: { issue: summaries('issue'), session: summaries('session') } }))
-    } finally { stop(); read.mockRestore(); pool.dispose() }
+    } finally { stop(); read.mockRestore(); pane.dispose(); pool.dispose() }
   }
 })
 
 it('bounds click summary reads by the visible rows at 1x and 4x', () => {
   for (const scale of [1, 4]) {
     const { pool } = fixture(scale)
+    const pane = missionPaneReader(pool, VISIBLE)
     const read = vi.spyOn(pool, 'row')
-    const stop = autorun(() => click(pool, 'root'))
+    const stop = autorun(() => click(pane, 'root'))
     try {
       for (const kind of ['issue', 'session'])
         expect(read.mock.calls.filter(([entity, , absent]) => entity === kind && absent === 'summary').length, `${kind} summaries at ${scale}x`).toBeLessThanOrEqual(VISIBLE * 4)
-    } finally { stop(); read.mockRestore(); pool.dispose() }
+    } finally { stop(); read.mockRestore(); pane.dispose(); pool.dispose() }
   }
 })
 
 it('a heartbeat leaves mission shape and unchanged counts observed without rederiving the pane', () => {
   const { pool, sessions } = fixture(4)
-  const reader = missionView(pool)
-  const stop = autorun(() => click(pool, 'root'))
-  const before = reader.stats.values
+  const pane = missionPaneReader(pool, VISIBLE)
+  const stop = autorun(() => click(pane, 'root'))
+  const screen = pane.screen('root')!
+  const before = { rows: screen.rows, visible: screen.visibleRows, crew: screen.crewIds }
   try {
     runInAction(() => pool.apply({ type: 'update', rows: [{ kind: 'session', id: sessions[1]!.sessionId,
       value: { ...sessions[1]!, lastActiveAt: '2026-10-01T12:00:01Z' } }] }))
-    expect(reader.stats.values - before).toBe(0)
-  } finally { stop(); pool.dispose() }
+    expect({ rows: screen.rows, visible: screen.visibleRows, crew: screen.crewIds }).toEqual(before)
+    expect(screen.rows).toBe(before.rows)
+    expect(screen.visibleRows).toBe(before.visible)
+    expect(screen.crewIds).toBe(before.crew)
+  } finally { stop(); pane.dispose(); pool.dispose() }
 })
 
 
