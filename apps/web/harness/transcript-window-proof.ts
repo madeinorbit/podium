@@ -10,7 +10,7 @@ if (hostname() !== 'flatblock') throw new Error('Run on flatblock only')
 const arm = process.argv[2]
 if (arm !== 'before' && arm !== 'after') throw new Error('Choose before or after')
 const directory = resolve('.artifacts/transcript-window', arm)
-const baseline = '8f5ae42e45587ed9dd83e5a05abff6e67200a91d'
+const baseline = '8376e9744be109420e51d837a13c8c31ec917ab3'
 await mkdir(directory, { recursive: true })
 if (process.argv.includes('--build')) {
   const { build } = await import('../node_modules/vite/dist/node/index.js')
