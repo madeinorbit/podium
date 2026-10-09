@@ -36,7 +36,6 @@ import { headerView } from './header-views'
 import { missions } from './mission'
 import type { MobxPool } from './pool'
 import type { SeatRelation } from './session-seats'
-import { settingsHasFirstTask } from './settings-views'
 import { createRowOverlay } from './shared/overlay-row'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -56,33 +55,6 @@ export interface MissionRowPresentation {
   note: IssueNote | null
   presence: PresenceNote | null
 }
-export interface MissionViewValues {
-  root: IssueNavigationModel | undefined
-  rows: FlightDeckRow[]
-  members: ReadonlySet<string>
-  issueIds: readonly string[]
-  deck?: MissionDeckModel
-  /** The mission's seated (non-archived) senders, in session order. */
-  sessions: readonly SessionView[]
-  /** How many archived sessions the drawn rows hold; the list itself is
-   * read only while shown ({@link MissionViewReader.archive}). */
-  archivedCount: number
-  titles: ReadonlyMap<string, string>
-  progress: MissionProgress
-  departures: MissionDeparture[]
-  continuation: IssueContinuation | null
-  note: IssueNote | null
-  presence: PresenceNote | null
-  rowPresentation: ReadonlyMap<string, MissionRowPresentation>
-}
-
-const NO_PROGRESS: MissionProgress = Object.freeze({ total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 })
-export const EMPTY_MISSION_VIEW: MissionViewValues = Object.freeze({
-  root: undefined, rows: [], members: new Set<string>(), issueIds: [],
-  sessions: [], archivedCount: 0, titles: new Map<string, string>(), progress: NO_PROGRESS,
-  departures: [], continuation: null, note: null, presence: null, rowPresentation: new Map<string, MissionRowPresentation>(),
-})
-
 /** An issue's archived mission senders, cached apart from its seats: a
  * seated heartbeat never re-reads history (review finding 2). */
 export interface MissionHistory {
@@ -536,16 +508,6 @@ export class MissionDeckModel {
   readonly card = companion((issue: IssueModel) => new MissionDeckIssueModel(issue, this))
   constructor(readonly entity: IssueModel, readonly view: MissionViewReader, readonly mode: FlightDeckMode) {}
   get id() { return this.entity.id }
-  /** Phone mission rosters include history; web reads the seated list and only
-   * mounts history on request. Both lists contain the shared session objects. */
-  @lazy get allSessions(): readonly SessionView[] {
-    const crew = new Map<string, SessionView>()
-    for (const id of requireLoaded(this.rowIds())) {
-      for (const session of requireLoaded(this.view.attached(id))) crew.set(session.sessionId, session)
-    }
-    return [...crew.values()].sort(this.view.sessionOrder)
-  }
-  @lazy get values() { this.view.stats.values++; return this.view.deckValues(this) }
   @lazy get archivedCount() { return this.view.readArchiveCount(this) }
   @lazy get members() { return missions(this.view.pool).members(this.id) }
   @lazy get topology() { return topology(this) }
@@ -657,7 +619,7 @@ export class MissionViewReader {
   private fullDeck = companion((issue: IssueModel) => new MissionDeckModel(issue, this, 'full'))
   private workingDeck = companion((issue: IssueModel) => new MissionDeckModel(issue, this, 'working'))
   private askingDeck = companion((issue: IssueModel) => new MissionDeckModel(issue, this, 'needs-you'))
-  readonly stats: { values: number; issueReads: number; sessionReads: number; attachmentEdges: number; onRollup?: (id: string) => void } = { values: 0, issueReads: 0, sessionReads: 0, attachmentEdges: 0 }
+  readonly stats: { issueReads: number; sessionReads: number; attachmentEdges: number; onRollup?: (id: string) => void } = { issueReads: 0, sessionReads: 0, attachmentEdges: 0 }
   facts(id: string): MissionIssue { return this.pool.issueObject(id) as MissionIssue }
   deck(id: string, mode: FlightDeckMode = 'full') {
     const issue = this.facts(id)
@@ -665,25 +627,6 @@ export class MissionViewReader {
   }
   node(id: string) { return this.card(this.facts(id)) }
   constructor(readonly pool: MobxPool) {}
-  /** The pane is cached per mission ROOT and mode. The selection only picks
-   * the root through {@link selectedRoot} (cached reads; a screen may override
-   * which roots it shows), so another row of the same mission reuses the
-   * derived pane instead of rebuilding it (review finding 2). */
-  values(id: string | null, mode: FlightDeckMode): MissionViewValues | typeof LOADING {
-    if (!id) return EMPTY_MISSION_VIEW
-    // The root goes through selectedRoot so a screen's override (the phone
-    // opens archived roots and waits on known cold rows) still applies.
-    const root = this.selectedRoot(id)
-    if (root === undefined) return EMPTY_MISSION_VIEW
-    const rootId = root === LOADING ? this.rootFor(id) : root.id
-    if (typeof rootId !== 'string') return LOADING
-    const deck = this.deck(rootId, mode)
-    // These independent questions are needed by the same pane. Observe each
-    // before propagating LOADING, so their requests share the 50 ms window.
-    const shape = deck.topology, numbers = deck.progress, archived = this.archiveCount(deck), ready = deck.headerReady
-    if (root === LOADING || shape === LOADING || numbers === LOADING || archived === LOADING || ready === LOADING) return LOADING
-    return deck.values
-  }
   handoff(id: string): MissionHandoffValues | typeof LOADING { return this.node(id).handoff }
   issue(id: string): Loaded<IssueNavigationModel> { return this.node(id).issue }
   /** An open menu shows authored issue fields, unread and cascade counts;
@@ -1037,7 +980,6 @@ export class MissionViewReader {
     }
     return !pending
   }
-  archiveCount(deck: MissionDeckModel): number | typeof LOADING { return deck.archivedCount }
   readArchiveCount(deck: MissionDeckModel): number | typeof LOADING {
     return settled(() => {
       let count = 0, pending = false
@@ -1048,59 +990,6 @@ export class MissionViewReader {
       }
       return pending ? LOADING : count
     })
-  }
-  addressedIds(deck: MissionDeckModel): string[] {
-    const ids = new Set(requireLoaded(deck.topology).scope)
-    const stack = [...ids]
-    let pending = false
-    while (stack.length) {
-      const id = stack.pop()!
-      for (const child of this.pool.graph.many('issue', id, 'spinOffs')) {
-        if (ids.has(child)) continue
-        const visible = settled(() => this.facts(child).visible)
-        if (visible === LOADING) pending = true
-        else if (visible) { ids.add(child); stack.push(child) }
-      }
-    }
-    for (const id of [...ids]) {
-      for (const target of this.pool.graph.many('issue', id, 'pageDependencies')) ids.add(target)
-      const issue = this.catalogIssue(id)
-      if (issue === LOADING) { pending = true; continue }
-      for (const target of [issue?.supersededBy, issue?.duplicateOf, issue?.stage === 'proposed' ? issue.parentId : null]) if (target) ids.add(target)
-    }
-    const present: string[] = []
-    // These are independent inputs for one phone crew. Keep visiting the
-    // cohort so cold siblings and references share the same load window.
-    for (const id of ids) {
-      const issue = this.catalogIssue(id)
-      if (issue === LOADING) pending = true
-      else if (issue) present.push(id)
-    }
-    if (pending) throw LOADING
-    return present
-  }
-  deckValues(deck: MissionDeckModel): MissionViewValues {
-    const view = this
-    return {
-      deck,
-      get root() { return requireLoaded(view.issue(deck.id)) },
-      get members() { return requireLoaded(deck.members) },
-      get rows() { return deck.rows() },
-      get issueIds() { return view.addressedIds(deck) },
-      get sessions() {
-        const sessions = new Map<string, SessionView>()
-        for (const id of view.addressedIds(deck)) for (const session of requireLoaded(view.present(id))) sessions.set(session.sessionId, session)
-        return [...sessions.values()].sort(view.sessionOrder)
-      },
-      get archivedCount() { return requireLoaded(view.archiveCount(deck)) },
-      get titles() { return new Map(requireLoaded(deck.rowIds()).map(id => [id, deck.model(id).title])) },
-      get rowPresentation() { return new Map(requireLoaded(deck.rowIds()).map(id => [id, deck.model(id).presentation])) },
-      get progress() { return requireLoaded(deck.progress) },
-      get continuation() { return deck.continuation },
-      get note() { return deck.note },
-      get presence() { return deck.presence },
-      get departures() { return deck.departures },
-    }
   }
   departures(deck: MissionDeckModel): MissionDeparture[] {
     const members = requireLoaded(deck.members), found: MissionDeparture[] = [], seen = new Set<string>()
@@ -1304,9 +1193,6 @@ export function missionView(pool: MobxPool): MissionViewReader {
   return pool.sources.view('missionView', () => new MissionViewReader(pool))
 }
 
-export function readMissionView(view: MissionViewReader, selectedId: string | null, mode: FlightDeckMode = 'full'): MissionViewValues | typeof LOADING {
-  return view.values(selectedId, mode)
-}
 function deriveMissionArchive(view: MissionViewReader, rowIds: readonly string[] | typeof LOADING): SessionView[] | typeof LOADING {
   if (rowIds === LOADING) return LOADING
   const seen = new Set<string>(), archived: SessionView[] = []
@@ -1510,33 +1396,6 @@ export interface MissionHandoffValues {
 export const EMPTY_MISSION_HANDOFF: MissionHandoffValues = Object.freeze({
   crew: [], retired: Object.freeze({ count: 0, latestPrompt: null }), current: [], next: [],
 })
-
-export function readWorkspaceMission(view: MissionViewReader, selectedId: string | null, focusedId: string | null) {
-  const selected = selectedId ? view.issue(selectedId) : undefined
-  if (selected === LOADING) return LOADING
-  const rootId = selected && view.facts(selected.id).visible ? view.rootFor(selected.id) : undefined
-  if (rootId === LOADING) return LOADING
-  const missionRoot = rootId ? view.issue(rootId) : undefined
-  if (missionRoot === LOADING) return LOADING
-  const missionIds = missionRoot ? missions(view.pool).members(missionRoot.id) : new Set<string>()
-  if (missionIds === LOADING) return LOADING
-  const missionIssues: IssueNavigationModel[] = []
-  let pending = false
-  for (const id of [...missionIds].sort()) {
-    const issue = view.issue(id)
-    if (issue === LOADING) pending = true
-    else if (issue) missionIssues.push(issue)
-    if (!view.settled(id)) pending = true
-  }
-  if (pending) return LOADING
-  const focused = focusedId && missionIds.has(focusedId) ? view.issue(focusedId) : undefined
-  if (focused === LOADING) return LOADING
-  const missionOnScreen = view.selectedRoot(selectedId)
-  if (missionOnScreen === LOADING) return LOADING
-  const hasAnyTask = settingsHasFirstTask(view.pool)
-  if (hasAnyTask === LOADING) return LOADING
-  return { missionRoot, missionIds, missionIssues, issue: focused ?? missionRoot, missionOnScreen, hasAnyTask: Boolean(hasAnyTask), loading: false as boolean }
-}
 
 export type MissionMenuHandoff = { blocker: 'no-agent-session' | 'multiple-sessions' } | { session: SessionView }
 export interface MissionActionInputs {

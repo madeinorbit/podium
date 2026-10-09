@@ -1,10 +1,4 @@
-import type { IssueViewModel } from '@podium/client-core/replica'
-import type { SessionView } from '@podium/client-core/session-values'
-import type {
-  BoardFilter,
-  IssuesOrdering,
-  MissionProgress,
-} from '@podium/client-core/values'
+import type { BoardFilter, IssuesOrdering } from '@podium/client-core/values'
 import type { IssueBoardStage } from '@podium/model/browser'
 import { ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
 import { MISSION_SUMMARIES } from './mission-schema'
@@ -18,20 +12,6 @@ export interface MobileTasksOptions {
   filter: BoardFilter
   ordering: IssuesOrdering
   showAgentTasks: boolean
-}
-export interface MobileMissionData {
-  root: IssueViewModel | undefined
-  issues: IssueViewModel[]
-  sessions: SessionView[]
-  missionSessions: SessionView[]
-  progress: MissionProgress
-}
-export const EMPTY_MOBILE_MISSION: MobileMissionData = {
-  root: undefined,
-  issues: [],
-  sessions: [],
-  missionSessions: [],
-  progress: { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 },
 }
 export interface MobileScreenRows {
   mobileScreenReader: ReturnType<typeof import('./mobile-screens').createMobileScreenReader>
