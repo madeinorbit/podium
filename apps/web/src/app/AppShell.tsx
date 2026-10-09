@@ -65,7 +65,6 @@ import { CommandPaletteBoundary } from './CommandPaletteBoundary'
 import { DesktopMenuHost } from './DesktopMenuHost'
 import { DensityProvider } from './density'
 import { ErrorBoundary } from './ErrorBoundary'
-import { FoldedFlightDeckBar } from './FoldedFlightDeckBar'
 import {
   FLIGHT_DECK_COMPACT_WIDTH,
   FLIGHT_DECK_EXPANDED_WIDTH,
@@ -133,6 +132,11 @@ const UsageView = lazy(() =>
 // state changes no subscriptions or retained component state.
 const FlightDeck = lazy(() =>
   throughRestarts(() => import('./FlightDeck')).then((module) => ({ default: module.FlightDeck })),
+)
+const FoldedFlightDeckBar = lazy(() =>
+  throughRestarts(() => import('./FoldedFlightDeckBar')).then((module) => ({
+    default: module.FoldedFlightDeckBar,
+  })),
 )
 const OnboardingWizard = lazy(() =>
   throughRestarts(() => import('@/features/setup/OnboardingWizard')).then((module) => ({
@@ -991,7 +995,9 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
                 style={{ width: flightDeckWidth ?? (flightDeckCollapsed ? 44 : undefined) }}
               >
                 {flightDeckCollapsed ? (
-                  <FoldedFlightDeckBar onExpand={expandFlightDeck} />
+                  <Suspense fallback={null}>
+                    <FoldedFlightDeckBar onExpand={expandFlightDeck} />
+                  </Suspense>
                 ) : (
                   <ResizableColumn
                     key={flightDeckDisplay}
