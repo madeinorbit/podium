@@ -66,7 +66,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
       await page.evaluate(() => document.fonts.ready)
       if (variant === 'list') { await page.getByTitle('Display', { exact: true }).click(); await page.getByRole('menuitemradio', { name: 'List', exact: true }).click(); await page.keyboard.press('Escape'); await page.waitForTimeout(500) }
       if (fixture === 'lists' && ['full', 'waterfall'].includes(variant)) {
-        const id = 'i14942'
+        const id = 'i14941'
         await page.evaluate(id => (window as any).__acceptance.select(id), id)
         await page.waitForTimeout(1000)
         if (variant === 'waterfall') { await page.getByRole('button', { name: 'Waterfall', exact: true }).click(); await page.waitForTimeout(500) }
@@ -118,7 +118,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
             let textEdge = box.top, textBlankPx = 0
             for (const r of textRects) { if (r.top - textEdge > 120) textBlankPx += r.top - textEdge; textEdge = Math.max(textEdge, r.bottom) }
             if (diagnose && box.bottom - textEdge > 120) textBlankPx += box.bottom - textEdge
-            state.samples.push({ textBlankPx, time: Date.now(), top: scroll.scrollTop, blankPx, area, mounted: nodes.length })
+            state.samples.push({ ...(diagnose ? { rows: nodes.filter(n => n.getBoundingClientRect().bottom > box.top && n.getBoundingClientRect().top < box.bottom).slice(0,3).map(n => ({ key:n.dataset.windowRow, text:n.innerText.slice(0,50), top:n.getBoundingClientRect().top, parents: [n,...[...n.querySelectorAll<HTMLElement>('*')].slice(0,3)].map(el => ({tag:el.tagName,opacity:getComputedStyle(el).opacity,transform:getComputedStyle(el).transform, h:el.getBoundingClientRect().height})) })) } : {}), textBlankPx, time: Date.now(), top: scroll.scrollTop, blankPx, area, mounted: nodes.length })
             requestAnimationFrame(tick)
           }
           requestAnimationFrame(tick)
