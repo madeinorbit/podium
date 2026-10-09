@@ -78,7 +78,16 @@ async function exerciseOpenings(pool: MobxPool, factory: (typeof factories)[numb
           </StrictMode>,
         ),
       )
-      checkOpen()
+      // Use a separate task: even a synchronous helper can leave its matcher
+      // arguments in the suspended async caller's native frame in JSC.
+      await new Promise<void>((resolve, reject) => setTimeout(() => {
+        try {
+          checkOpen()
+          resolve()
+        } catch (error) {
+          reject(error)
+        }
+      }, 0))
       await act(() =>
         root.render(
           <StrictMode>
