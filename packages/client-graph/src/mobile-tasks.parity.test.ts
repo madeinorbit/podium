@@ -167,7 +167,7 @@ it('answers the old board’s sections, order, counts and proposals on seeded fo
   }
   // The fixtures reach real rows, not only empty boards.
   expect(compared).toBeGreaterThan(1000)
-  // 720 option combinations: minutes on a loaded test box.
+  // 1,080 option combinations: minutes on a loaded test box.
 }, 300_000)
 
 it('fails the same comparison when the new answer is wrong', async () => {
@@ -245,6 +245,9 @@ it('keeps every list identical, and redraws no section, when a change leaves mem
   }
   const first = read(),
     counted = new Map(runs)
+  const lists = () => [board.matchedIds, board.retainedIds, board.promotedIds, board.rootIds]
+  const membership = lists()
+  const laneRoots = board.lanes.map((lane) => lane.rootIds)
   expect(first.map((section) => section.stage)).toEqual(['in_progress', 'review', 'backlog', 'proposed'])
   expect(board.proposals).toBe(1)
 
@@ -253,6 +256,8 @@ it('keeps every list identical, and redraws no section, when a change leaves mem
   update(pool, issue('review-1', { seq: 4, stage: 'review', priority: 1, description: 'more' }))
   update(pool, issue('backlog', { seq: 7, stage: 'backlog', priority: 0 }))
   expect(read()).toBe(first)
+  lists().forEach((ids, i) => expect(ids).toBe(membership[i]))
+  board.lanes.forEach((lane, i) => expect(lane.rootIds).toBe(laneRoots[i]))
   first.forEach((section, i) => expect(read()[i]!.rows).toBe(section.rows))
   expect(runs).toEqual(counted)
   expect(banner).toBe(1)
