@@ -1,4 +1,5 @@
-// Diagnostic removal: only main-thread n-gram postings. Keep history/feed/DOM.
+// Diagnostic removal: main-thread search index, including normalized text copies.
+// Keep raw history/feed/DOM.
 {
   const p=window.__memoryWK,cache=p.runtime.deref().conversationCache;
   p.searchFrozenMain=true;

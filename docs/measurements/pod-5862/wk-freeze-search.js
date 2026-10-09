@@ -1,4 +1,5 @@
-// Main AND worker postings only. Keep raw transcripts, rendering and live intake.
+// Remove both search indexes (including normalized text copies), then suppress
+// n-gram creation. Raw transcripts, rendering and live intake stay intact.
 {
   const p=window.__memoryWK,workers=new Set();
   p.searchFrozen=true;
