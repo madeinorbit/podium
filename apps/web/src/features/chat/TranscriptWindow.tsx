@@ -7,13 +7,24 @@ import { flushSync } from 'react-dom'
  * are never estimated or evicted: paging must not change the scrollbar's scale.
  * The inert text in a shell preserves native Find without retaining rich DOM. */
 const BUFFER = 3
+const layoutUnits = new WeakMap<Document, number>()
 // Client rects lose subpixel precision at million-pixel document coordinates.
 // The shell has no padding/border, so its resolved CSS height is its flow size.
 const measuredHeight = (node: HTMLElement) => {
   const resolved = Number.parseFloat(getComputedStyle(node).height)
+  let unit = layoutUnits.get(node.ownerDocument)
+  if (!unit) {
+    const probe = node.ownerDocument.createElement('div')
+    probe.style.cssText = 'position:fixed;top:0;left:0;height:0.02px;width:0;padding:0;border:0;visibility:hidden'
+    node.ownerDocument.body.append(probe)
+    const measured = probe.getBoundingClientRect().height
+    probe.remove()
+    unit = measured > 0 && measured <= 0.02 ? measured : 1 / 64
+    layoutUnits.set(node.ownerDocument, unit)
+  }
   // CSSOM rounds its decimal string. Recover the layout-unit fraction before
   // writing it back, or thousands of spacers accumulate a 1/64px truncation.
-  return resolved ? Math.round(resolved * 64) / 64 : node.getBoundingClientRect().height
+  return resolved ? Math.round(resolved / unit) * unit : node.getBoundingClientRect().height
 }
 interface Entry {
   node: HTMLDivElement
