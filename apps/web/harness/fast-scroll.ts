@@ -27,7 +27,7 @@ if (process.argv.includes('--build')) {
     console.log(`Building ${arm} ${fixture}`)
     await build({ ...base, configFile: false, logLevel: 'warn',
       define: { ...base.define, __DEV__: 'false', 'process.env.NODE_ENV': '"production"' },
-      plugins: [...(arm === 'before' ? [{ name: 'unchanged-product-windowing', enforce: 'pre' as const, load(id: string) { const path = ['apps/web/src/features/issues/use-bounded-virtual-list.ts', 'apps/web/src/app/flight-deck-window.tsx', 'packages/client-core/src/react/use-dom-transcript-scroll.ts', 'apps/mobile/src/components/IssueTargetSheet.tsx', 'apps/mobile/src/components/TranscriptViewport.native.tsx', ...['WorkScreen', 'IssuesScreen', 'InboxScreen', 'SessionsScreen'].map(name => `apps/mobile/src/screens/${name}.tsx`)].find(path => id.endsWith('/' + path)); return path ? execFileSync('git', ['show', 'ff68b5e727:' + path], { encoding: 'utf8' }) : null } }] : []), ...(base.plugins?.filter(plugin => !/meter|acceptance-state/.test((plugin as { name?: string })?.name ?? '')) ?? [])],
+      plugins: [...(arm === 'before' ? [{ name: 'unchanged-product-windowing', enforce: 'pre' as const, load(id: string) { const path = ['apps/web/src/features/worklist/pool-sidebar.tsx', 'apps/web/src/features/worklist/worklist-motion.tsx', 'apps/mobile/src/hooks/useNativeTranscriptScroll.ts', 'apps/web/src/features/issues/use-bounded-virtual-list.ts', 'apps/web/src/app/flight-deck-window.tsx', 'packages/client-core/src/react/use-dom-transcript-scroll.ts', 'apps/mobile/src/components/IssueTargetSheet.tsx', 'apps/mobile/src/components/TranscriptViewport.native.tsx', ...['WorkScreen', 'IssuesScreen', 'InboxScreen', 'SessionsScreen'].map(name => `apps/mobile/src/screens/${name}.tsx`)].find(path => id.endsWith('/' + path)); return path ? execFileSync('git', ['show', 'ff68b5e727:' + path], { encoding: 'utf8' }) : null } }] : []), ...(base.plugins?.filter(plugin => !/meter|acceptance-state/.test((plugin as { name?: string })?.name ?? '')) ?? [])],
       build: { ...base.build, outDir: resolve(output, fixture), emptyOutDir: true, minify: true, sourcemap: false,
         rolldownOptions: fixture === 'phone-lists' ? { ...base.build?.rolldownOptions, input: resolve('apps/mobile/test/inbox.browser.html') } : base.build?.rolldownOptions,
         rollupOptions: fixture === 'phone-lists' ? { input: resolve('apps/mobile/test/inbox.browser.html') } : base.build?.rollupOptions },
@@ -49,8 +49,9 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
     } catch { res.writeHead(404); res.end() }
   })
   await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
-  const browser = await chromium.launch({ channel: 'chromium', headless: true, args: ['--no-sandbox'],
+  const browser = await chromium.launch({ executablePath: process.env.PODIUM_SCROLL_CHROME, channel: process.env.PODIUM_SCROLL_CHROME ? undefined : 'chromium', headless: true, args: ['--no-sandbox'],
     env: { ...process.env, LD_LIBRARY_PATH: resolve('.toolchain/lib') } })
+  console.log(`Production Chromium ${browser.version()}`)
   try {
     const variants = fixture === 'lists' ? ['scroll', 'list', 'explorer', 'full', 'waterfall-css'] : fixture === 'phone-lists' ? ['inbox', 'work', 'tasks', 'sessions', 'target'] : ['chat']
     for (const variant of variants.filter(name => !process.argv.includes('--variant') || process.argv[process.argv.indexOf('--variant') + 1]!.split(',').includes(name))) {
