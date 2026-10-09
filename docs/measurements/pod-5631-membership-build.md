@@ -2,7 +2,7 @@
 
 The coordinator authorized Step 2 for the six retained walks proved by [the Step 1 report](pod-5631-membership-remeasure.md). Those walks are removed. Membership/order parity and the focused source/native counters pass; the required heavy gates and landing are assigned to POD-5895. This report does not claim a final census or a landing.
 
-Production candidate before this evidence commit: `0d886470deee0a2b9f9ff94ef8648a84c3ff7020`, rebased cleanly onto pilot `2c4e3bd21efd0952c05afb34c9547172d22de85d`.
+Current production candidate: `2975ac45e5435f689634205aa4431b803ac0ecf5`, rebased cleanly onto pilot `5dc9d5e29401a41f4b11c187388f446d8935f69c`. The original implementation/proof range branched from `2c4e3bd21efd0952c05afb34c9547172d22de85d`.
 
 ## Change
 
@@ -17,7 +17,7 @@ No view-owned identity map or filing reaction was added. The existing data index
 
 Before replacing production code, the frozen group algorithm and existing phone/worktree oracles passed on the same fixtures. Deliberately wrong answers failed the oracle. All six original retained-walk counters failed on the old implementation: group rows 16→64, phone lists 15→63, worktree visible/waiting counts 16→64.
 
-The final proof covers order/membership before and after click, native fold, issue reorder, snooze membership change, unrelated heartbeat and a roster-tail heartbeat that moves the session first. It also compares folded and cold/LOADING answers without mounting or loading those row bodies. The final wrong-answer run failed both parity cases. Existing waiting/working/queued/stale worktree and phone fold/selection tests pass unchanged.
+The pre-budget-repair proof covers order/membership before and after click, native fold, issue reorder, snooze membership change, unrelated heartbeat and a roster-tail heartbeat that moves the session first. It also compares folded and cold/LOADING answers without mounting or loading those row bodies. The final wrong-answer run failed both parity cases. Existing waiting/working/queued/stale worktree and phone fold/selection tests pass unchanged. POD-5895 has the exact files to repeat these proofs after the startup-budget repair below; the following counts remain the historical capture until that run completes.
 
 The shown prefix remains five rows. Four bands remain fixed while their issue/roster membership grows 16→64. Every action has identical rows, derivations, distinct elements and visits at both sizes:
 
@@ -51,13 +51,34 @@ All validation ran in the foreground on flatblock using the checkout-local depen
 
 Validation found a constructor-registration cycle and a lane-reset subscriber loop. Both were fixed. A reset now iterates a snapshot because queries unsubscribe/re-subscribe during notification; a bounded unit regression catches a second visit without hanging. Four ordinary worker attempts crossed the monitor threshold (3,169,296 / 3,151,708 / 3,183,740 / 3,198,440 KiB); a stalled diagnostic was stopped earlier at 1,729,692 KiB. The SIGTERM-only monitor did not ensure exit, and the coordinator had to kill orphan workers. None of those stopped attempts is a passing result.
 
-A lean gate attempt was interrupted during API declaration generation at 3,364,984 KiB, before a complete typecheck or lean result. Following the coordinator's updated shared-lane instruction, this session stopped its own checks, canceled the census queue and released a lease granted during cancellation. Remaining recorded gate PIDs were checked; no further run was started. POD-5895 owns the lean gate, full typecheck, scan ratchet, normal web build, census and final pilot validation/landing.
+A lean gate attempt was interrupted during API declaration generation at 3,364,984 KiB, before a complete typecheck or lean result. Following the coordinator's updated shared-lane instruction, this session stopped its own checks, canceled the census queue and released a lease granted during cancellation. Remaining recorded gate PIDs were checked; no further run was started. POD-5895 owns the lean gate, full typecheck, census and final pilot validation/landing. The coordinator subsequently allowed light source scans in this lane and one normal web build specifically for the startup-budget repair.
 
 The shared batch's full typecheck rejected candidate `1384a343f91a06cf89848a032890a7b9f55e355b`: the lane atom passed `debugName()`'s optional result where MobX requires a string. The follow-up repair uses the existing generic `'Atom'` fallback when debug names are disabled. This changes no membership or order logic; shared-lane validation of the repaired candidate remains pending.
 
 The shared scan at `99acf386b7` reported ten stale fingerprints for removed operations and five new/changed fingerprints in the native mapping, query bootstrap and phone answer getters. After POD-4286 authorized light source scans in this lane, the flatblock scan supplied the five exact records. The census retires only the ten absent operations and adds all replacements with their existing `REQUIRED REPAIR` classification; every unaffected entry retains its content and order. The normal source scan then passed with **0 ratchet errors** (2,207 fingerprints, 2,208 occurrences, 2,072 required-repair entries). Checksums confirm that the scanner and all four affected source files in that flatblock copy match this branch. The shared lane still owns validation on the final stacked tip.
 
-The same shared stack's web build exceeded its eager raw limit by 1,160 bytes (2,151,160 against 2,150,000). Attribution is pending isolation; this report does not claim a green build.
+## Startup-budget repair
+
+POD-5895 isolated the rejected membership range onto pilot `899243cf3148090bb355ccc52199d825a282eaf4`: eager raw **2,151,327 bytes**, exceeding the unchanged **2,150,000-byte** limit by **1,327 bytes**. The separate owner-work range built green, so this blocker belonged to the membership range.
+
+The repair shares demand bookkeeping, ordered-neighbour lookup, captured subset/partition updates, bounded retention-prefix lookup and sparse latch insertion search. Phone pending totals now read only pending state; asking comes from the existing per-record fact. Phone issue/worktree order remains issue-rank first, then worktrees in locale order. Direct declared-question getters, historical snapshots, independent count signals and closed/folded body guards remain in place. No extra lazy-loading registry, view cache, new dependency or budget allowance was added.
+
+On candidate `2975ac45e5435f689634205aa4431b803ac0ecf5`, the coordinator-authorized **single normal web build** ran in the dedicated flatblock checkout under `heavy:flatblock` and passed:
+
+| Metric | Result |
+| --- | ---: |
+| Eager raw | **2,149,945 bytes** |
+| Eager raw limit | 2,150,000 bytes |
+| Remaining raw headroom | 55 bytes |
+| Eager gzip / Brotli | 687,914 / 592,347 bytes |
+| Build elapsed / exit | 34.71 seconds / 0 |
+| Maximum command RSS | 1,414,416 KiB |
+
+The eager output is **1,382 bytes smaller** than the isolated rejected membership build. The heavy lease was released immediately afterward. Exact log: `flatblock:/tmp/podium-5631-budget-build/build.log`.
+
+The normal flatblock light source scan also passed: **2,212 fingerprints**, **2,213 occurrences**, **2,075 REQUIRED REPAIR entries**, **0 ratchet errors**. The final reconciliation changes only three exact dependency token/fingerprint pairs in the query bootstrap, native mapping consumer and existing issue-identities helper consumer; every classification, owner, bound, guard and other metadata is preserved. The issue-identities source was not edited. Scan identities supplied by the flatblock run were checked before updating the census.
+
+The complete rebased candidate and exact focused query, lane, state, sidebar and phone test paths were sent to POD-4286 and POD-5895. Fresh parity/counters, full types, lean admission and the final canonical census/stack build remain with the shared testing lane. The successful build here does not establish those results or a landing.
 
 ## Scope
 
