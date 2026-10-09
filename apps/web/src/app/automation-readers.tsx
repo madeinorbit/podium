@@ -30,11 +30,14 @@ export function useAutomationList() {
   return useWorklistPoolProjection(read, EMPTY_LIST)
 }
 export function useAutomation(id: string | null | undefined) {
-  const read = useCallback((pool: MobxPool) => {
-    if (id == null) return undefined
-    const model = omitGone(pool.model('automation', id))
-    return model === LOADING ? undefined : model
-  }, [id])
+  const read = useCallback(
+    (pool: MobxPool) => {
+      if (id == null) return undefined
+      const model = omitGone(pool.model('automation', id))
+      return model === LOADING ? undefined : model
+    },
+    [id],
+  )
   return useWorklistPoolProjection(read, undefined)
 }
 export function useAutomationTargets(currentPath: string | null) {

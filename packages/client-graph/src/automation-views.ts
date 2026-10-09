@@ -30,7 +30,7 @@ export const EMPTY_EXCLUSIONS: TargetExclusions = {
   degraded: 0,
 }
 
-/** Value reads always use pool.row. Memos live only while observed. Catalog
+/** Records use the pool's shared models and catalog rows. Memos live only while observed. Catalog
  * relations cover resident definitions/runs, and cold sessions contribute only
  * the existing declared summary. This layer owns no runtime or mutations. */
 export function createAutomationViews(pool: MobxPool) {

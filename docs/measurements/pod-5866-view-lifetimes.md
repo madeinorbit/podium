@@ -1,6 +1,6 @@
 # Per opening view lifetimes
 
-Issue detail, settings and automation surfaces now create their view models in the opening root and pass them through React context. Closing releases their query results, cached answers and companions. The pool continues to own shared record identity. This applies guide rule 9, with original measurements on `006a4ba7c9` and the full candidate rebased onto landed pilot `52556201c0`.
+Issue detail, settings and automation surfaces now create their view models in the opening root and pass them through React context. Closing releases their query results, cached answers and companions. The pool continues to own shared record identity. This applies guide rule 9, with original measurements on `006a4ba7c9` and the full candidate reconciled onto landed shared-model pilot `84a31a9c67`.
 
 ## Opening ownership
 
@@ -13,7 +13,7 @@ Issue detail, settings and automation surfaces now create their view models in t
 | Web settings and setup summary | `SettingsOpening`; the first-task root owns its setup summary | `settings.views`, `web.settings.machines` |
 | Phone settings | `SettingsOpening` and its machine readers | `settings.views`, `phone.settings.machines` |
 | Automations, new/edit dialog and specs repository choices | Each root has its own `AutomationOpening` | `automations` |
-| Session read ports | Stateless record/window reads, with no retained view object | `sessionPanes` |
+| Session panes | Landed `SessionPanes` and `PaneSession` remain with the always-on shell; their scalar read ports retain no extra view | No additional registry owner |
 
 Detail catalogs and explorer results also belong to their opening. Concurrent openings no longer share a query callback that can retain the first opening. Scalar identity and close-concern controls use shared record readers without creating a detail model. The phone session service keeps its addressed roster in the data layer's existing query-result registry; its last observer releases it, and changing one member reads only that member.
 
@@ -55,3 +55,9 @@ The coordinator-authorized ownership candidate `4cc8705f72` has a flatblock lean
 The normal web build at that candidate succeeds. Its eager graph is 2,150,680 raw bytes, 687,951 gzip and 592,466 Brotli; the unchanged pilot base is 2,149,989 raw bytes. The +691 raw bytes cross the old ceiling by 680. Following the pilot's documented temporary lift policy pending POD-5240, the raw ceiling becomes 2,155,000 with 4,320 bytes of headroom. Compressed ceilings remain unchanged.
 
 The shared build on the subsequent explorer follow-up found an eager `issue-board-cards` dependency through `issue-page`. The repair removes that runtime import and creates the explorer companion owner inside the deferred screen, with no boundary exception. The corrected range is rebased onto pilot `52556201c0`: the unchanged explorer suite passes 27 checks, and the light scan reports 2,202 fingerprints, 2,203 occurrences and zero ratchet errors. Its single obsolete ownership-provenance entry is removed; every remaining classification is preserved. POD-5895 supplies the final candidate gate, census and landing receipt.
+
+## Shared-model pilot reconciliation
+
+The complete sixteen-commit range is rebased onto ludovico's `84a31a9c6777a72c0c33b995e32c20f2a64ba97e`. Web and phone settings own their machine readers per opening and resolve the landed `MachineModel`; web settings keeps its shallow lazy model list inside that opening. Automation lists, addressed automation reads, run histories and session reads preserve the landed shared models. Workflow subjects use the existing scalar presence question without creating a settings opening. The landed shell's `session-pane.ts` and `session-pane-view.ts` remain intact; the old stateless adapter removed by the shell landing is not restored.
+
+The opening-owned summary result still passes through `pool.queries.project`, using direct tracked summary row reads, and the deferred explorer companion factory stays behind the explorer screen. Historical heavy receipts above apply only to their named source SHA; POD-5895 supplies heavy validation and landing for this reconciled candidate.

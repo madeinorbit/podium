@@ -44,7 +44,6 @@ export function useSettingsCatalog(): Pick<Store, 'machines' | 'repos'> {
 const EMPTY_MACHINE_IDS: readonly string[] = []
 const EMPTY_MACHINES: MachineModel[] = []
 const EMPTY_TARGETS: Record<string, string> = {}
-
 export function useSettingsMachineIds(): readonly string[] {
   const view = useSettingsOpening()
   const read = useCallback(

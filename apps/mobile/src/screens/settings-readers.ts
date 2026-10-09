@@ -37,7 +37,6 @@ const loaded = <T extends object>(row: T | symbol | undefined): row is T =>
 /** These lazy computeds belong to Settings. No host capacity is shown here;
  * only the twelve displayed machine identities and the fleet's scalar labels
  * leave this reader. Unrelated diagnostic changes do not rebuild the fleet. */
-
 export function readSettingsData(
   pool: MobxPool,
   machines = createSettingsMachineReaders(pool),
