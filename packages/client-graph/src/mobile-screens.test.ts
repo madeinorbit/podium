@@ -290,12 +290,17 @@ it('an explicitly opened archived mission counts accepted formal children withou
   })
   expect(reader.deck('cold')).toMatchObject({ rows: [], presence: null })
 })
-it('an unknown mission is not found in the complete principal replica and never queues a load', async () => {
+it('an unknown mission stays loading until one failed lookup settles it as not visible', async () => {
   const { pool, reader, load } = await setup([issue('root')])
+  expect(reader.mission('absent')).toBe(LOADING)
+  expect(reader.deck('absent')).toBe(LOADING)
+  expect(load).not.toHaveBeenCalled()
+  expect(pool.hydrate()).toBe(1)
   expect(reader.mission('absent')).toMatchObject({ root: undefined, missionSessions: [] })
   expect(reader.deck('absent')).toMatchObject({ root: undefined, rows: [] })
   expect(pool.hydrate()).toBe(0)
-  expect(load).not.toHaveBeenCalled()
+  expect(load).toHaveBeenCalledTimes(1)
+  expect(load).toHaveBeenCalledWith('issue', 'absent')
 })
 it('observes an addressed mission without subscribing to unrelated issue content', async () => {
   const { pool, reader } = await setup([issue('root'), issue('unrelated')])

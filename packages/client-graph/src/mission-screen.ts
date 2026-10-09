@@ -402,8 +402,8 @@ export function missionRootId(pool: MobxPool, selectedId: string | null, structu
     const root = reader.issue(rootId)
     return root === LOADING ? LOADING : root?.id
   }
-  // A known cold row spends the shared load window. An unknown ID is outside
-  // today's complete principal replica (POD-4286's contract).
+  // Cold and unknown selections spend the shared load window; gone selections
+  // are omitted after the lookup settles and never restart that load.
   if (selectedId && omitGone(pool.row('issue', selectedId)) === LOADING) return LOADING
   return undefined
 }
