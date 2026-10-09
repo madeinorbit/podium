@@ -177,3 +177,21 @@ it('keeps observed IDs when the index is replaced with unchanged membership', ()
     expect(ids).toBe(first); expect(paints).toBe(1)
   } finally { stop(); pool.dispose() }
 })
+
+it('an empty ID list stays stable, wakes on its first join, and becomes empty again', () => {
+  const pool = fixture()
+  let ids: Iterable<string> = [], reads = 0
+  const stop = autorun(() => { ids = pool.graph.many('issue', 'other', 'children'); reads++ })
+  const empty = ids
+  try {
+    expect([...ids]).toEqual([])
+    runInAction(() => pool.apply({ type: 'update', rows: [issue('other', { title: 'renamed' })] }))
+    expect(ids).toBe(empty); expect(reads).toBe(1)
+    runInAction(() => pool.apply({ type: 'update', rows: [issue('joined', { parentId: 'other' })] }))
+    expect(ids).not.toBe(empty); expect([...ids]).toEqual(['joined'])
+    const joined = ids
+    runInAction(() => pool.apply({ type: 'update', rows: [issue('joined', { parentId: 'root' })] }))
+    expect(ids).not.toBe(joined); expect([...ids]).toEqual([])
+    expect(reads).toBe(3)
+  } finally { stop(); pool.dispose() }
+})
