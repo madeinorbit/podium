@@ -2,8 +2,9 @@ import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId, asRepoId, asSessionId } from '@podium/model'
 import { act, cleanup, fireEvent, screen } from '@testing-library/react'
+import type { ComponentProps } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { useSessions } from '../client/hooks'
+import { useMissionOpening, useSessions } from '../client/hooks'
 import { renderWithMobileStore } from '../client/test-support'
 
 afterEach(cleanup)
@@ -30,6 +31,16 @@ vi.mock('react-native-svg', () => ({
 }))
 
 const { MissionDeck } = await import('./MissionDeck')
+const { observer } = await import('mobx-react-lite')
+
+/** The details route's root: one opening of the mission, the deck under it. */
+const Opened = observer(function Opened({
+  rootId,
+  ...props
+}: Omit<ComponentProps<typeof MissionDeck>, 'screen'> & { rootId: string }) {
+  const { screen } = useMissionOpening(rootId)
+  return screen?.ready ? <MissionDeck {...props} screen={screen} /> : null
+})
 
 const issue = (partial: Partial<IssueViewModel> = {}): IssueViewModel =>
   ({
@@ -68,9 +79,8 @@ const asking = issue({
 
 async function mount(onContentHeight: (height: number) => void = () => {}) {
   return renderWithMobileStore(
-    <MissionDeck
-      root={root}
-      sessions={[]}
+    <Opened
+      rootId={root.id}
       accent="#8b5cf6"
       currentSessionId={undefined}
       onOpenSession={() => {}}
@@ -150,9 +160,8 @@ describe('MissionDeck view bar', () => {
 
     const mountSolo = async (session: SessionView = idle) =>
       renderWithMobileStore(
-        <MissionDeck
-          root={solo}
-          sessions={[session]}
+        <Opened
+          rootId={solo.id}
           accent="#8b5cf6"
           currentSessionId={undefined}
           onOpenSession={() => {}}
@@ -227,9 +236,8 @@ describe('MissionDeck session homes', () => {
   function LiveDeck() {
     const sessions = useSessions()
     return (
-      <MissionDeck
-        root={root}
-        sessions={sessions}
+      <Opened
+        rootId={root.id}
         accent="#8b5cf6"
         currentSessionId={undefined}
         onOpenSession={() => {}}
