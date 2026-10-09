@@ -1913,14 +1913,13 @@
       "file": "apps/mobile/src/screens/SuperagentScreen.tsx",
       "holder": "SuperagentScreen/SuperagentScreen",
       "rule": "reader-summary",
-      "tokens": "ce6fa133ba4bf716701b9ca68feb4a8ab266028ced99e1bd6594c40316dab112",
+      "tokens": "b3d129cdd2cd738b0d7d06d8756731220b18afbd2a2a809d22944372ae3e6ea9",
       "gate": [],
       "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "68e3937b5ddc0e3225b88b6d2c8452c91e69bf5f15e60db36fd51bd6fccaaa54",
         "d7d1283b420779e4456f3da32f99f6ffa2bd5ae35362572cca620bd871c3821d"
       ],
-      "fingerprint": "dd2c0dd364028cad534c043c8cb3dafb140b8c313fee355b944b381e395d3e5b",
+      "fingerprint": "33e3b0dec3ad1af3b2763a3faa27d4fd262bc35b65e4e3f197fbab0feb1a0ad9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2050,14 +2049,14 @@
       "file": "apps/web/src/app/AppShell.tsx",
       "holder": "AppBodyView",
       "rule": "reader-summary",
-      "tokens": "1832d1b30f47904c4a6ba170f1bc90957e49848d2adf80b1d7b530300293b401",
+      "tokens": "5d071b481de52dfc745399956eeea496e7dc8d440743abf64f34e4e2b7381caa",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "d9717480eb2a41ea7db0f0531f7130ecab4b10fa5359396ccacf654ff7ce504d",
+      "fingerprint": "66f69d470316944b5971513a436906cd7fbd3a77774f807ac389963c0860bae3",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2070,14 +2069,14 @@
       "file": "apps/web/src/app/ApprovalDialog.tsx",
       "holder": "ApprovalDialog/ApprovalDialog/approvals",
       "rule": "reader-summary",
-      "tokens": "ff01c87d1d56536e1489dac13d52398682179013126e704b1d417d30a1f1ea9f",
+      "tokens": "3d451082a293c8b5b4a370b4b5208d52db189f5dc40486832e0daa6a73b99653",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "0aa4738a2d3c6358d58da0178beab05dee847e0f68cb268d852e40ec624b90ff",
+      "fingerprint": "2977cd45614f11245506e3dc1dd1112a3d9514140af2609e9936f6799c61e02d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2112,14 +2111,14 @@
       "file": "apps/web/src/app/BrowserOpenOverlay.tsx",
       "holder": "BrowserOpenOverlay/BrowserOpenOverlay/resolveSession",
       "rule": "reader-summary",
-      "tokens": "35c0d6132963ff5a9a5fdb7ce603f7d9e579523931462f663eccbf08d87b3c9c",
+      "tokens": "47574ac9747f26a2cf7257b238ed8293fa8d89011083e063147f04cd4ffc9d27",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "5b87d2fbfe848c334e651bdfc2a79574e01286e7a8f3c9de80ef5fa22c32eac4",
+      "fingerprint": "72a948ecf3c5363f624280adc48e25fad1ff20821b288162d305628b1d415077",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2579,11 +2578,9 @@
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "2dafdbb197784a06cf8bde44ec0334e4f5f038eb8f86e3c4fe5de7b2e88e2871",
+      "fingerprint": "7712499c64a7297cf1791ef83c67bc5bb3b3252e991a5993c7b5492838f1d8d8",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2604,11 +2601,9 @@
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "db87025fe37f0b31de838aa6a2f3e78ebf629aa02d38330af16ad74b208ea276",
+      "fingerprint": "46afbf71d3a18ecd3792f928087ccb76a310433d8d610f4d4dab13b97402bb46",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2626,11 +2621,9 @@
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "511d8d805a57573f1a07e2e04ce7f35f79687dd896fd62f6fee78e84d3ea3c7d",
+      "fingerprint": "d425526ff3f4904636d930949b71543f9023e98d2bc0077650e4c9507c285300",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2650,11 +2643,9 @@
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "8b995095afbd96952250c2381e1daa9b2b6f6ba83955414a160eea4e56d9681f",
+      "fingerprint": "f44ed3e9043556dcd6aa11c60748ccb888654f3d0576ee56dbb9d43df35b2201",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2672,11 +2663,9 @@
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "2bce929346fe90e6f5421eab55b32ebac1b9424313676495aeb91bd4ceff0adc",
+      "fingerprint": "e414161b1b16b23f38e30dbc7d9a7dbfe1f5558c7fae13f6f81264ec4581fa1e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2694,11 +2683,9 @@
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "07cb7a4001e44684c794891676a237e44f19e17ffe1e6e3d7d1300f38d3176a0",
+      "fingerprint": "c790131d9c0539815cc89dfbb4b0f5ff8eed250a10d21ee33876abd49b94ce39",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2716,11 +2703,9 @@
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "71db5fa86ee76b9a82c17ff4816fe926162f3ed40d9513127ec5785fa48c4f1b",
+      "fingerprint": "4141c38bcaec96f66d59b21396e37240a539c64c3e8f69837e8861c37805a315",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2733,16 +2718,14 @@
       "file": "apps/web/src/app/MachinesPanel.tsx",
       "holder": "MachinesPanelView/machines",
       "rule": "reader-summary",
-      "tokens": "3a9cfa3533bf111ac850103bce890b1c70c26ec9ff10d1ce0cbeb2eb8e121a48",
+      "tokens": "745ae0279c990caede4c97b455d7fb5fdfef2d10e64e2622d0367bab55c6d0dc",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "e117d50ca9bee6adf6ee86edfa4aedc39e457114012074d21d7bfbc7ab341969",
+      "fingerprint": "7ceecf521573a52fcd8140166042f336e16bc61915a5f40421d7d146fed9abe0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2760,11 +2743,9 @@
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "c408243ed6aba4e3c3b7769005724a91286bffed9b29f1b10e7eac667264e575",
+      "fingerprint": "6cac194f957b2fc6b4d85192dbe4167c6a2232ea11d625ab52ff65dec512297f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2782,11 +2763,9 @@
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "835ba998255dc035af8f816018c0c58927a41643b8dca3da69492ab8f61d32c5",
+      "fingerprint": "3d606b06923b7af237593b50993a510f413f39d8c7f34d79230f273b99081f5f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2804,11 +2783,9 @@
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "4efa277cc991ccdef44648e318152b21357cf240ce2704bfb25446389520f1ec",
+      "fingerprint": "56e1dadbf356b7729d15c242249e12d5a58cd375451c2efa27332813bba3268a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2826,11 +2803,9 @@
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
-        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "e0186e97b39117196968d5207cd288bf581350775f1b7f140d5c8b5896ab0511",
+      "fingerprint": "9a3ef0eb70091479e522cb5a85b0c973238d793f50f2ef4cf7f8eb53b279327f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2861,14 +2836,144 @@
       "file": "apps/web/src/app/RightDock.tsx",
       "holder": "RightDock/RightDock",
       "rule": "reader-summary",
-      "tokens": "55b0f4437981b1e8b41fbb2275762540bcc1d1f8b1ae85dbabdfcac159b2569c",
+      "tokens": "8424c211c60fb3f2de20e5cd38fb90dc948847e4b62da01b9823169644334cef",
+      "gate": [
+        "&&:a2110de800e7614d1abd37a593016d54c76fd9207cb67cf0d2f09564e334c024",
+        "then:d8d199f2125fa8200a7ae006f91a36b119f0163c7a173faa57ccf06f23292517"
+      ],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
+      ],
+      "fingerprint": "277726d24a2e15834d5cf1e04a7db6049328aab680897155c48626b31e9574ae",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of RightDock/RightDock",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/app/RightDock.tsx",
+      "holder": "RightDock/RightDock",
+      "rule": "reader-summary",
+      "tokens": "19730cb13ceabc42ea9f24e9855cd16904aaed5edb43688a6d2feaf22acb717a",
+      "gate": [
+        "&&:a93f9c163bbc3f9f4ea0ac87de10530e6cf4fa02bc0d102c715e08e1171ed65f"
+      ],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
+      ],
+      "fingerprint": "33e2c6c84306c4c8c65afa16deeff01899a275a08a86edeb766e815da1f82df0",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of RightDock/RightDock",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/app/RightDock.tsx",
+      "holder": "RightDock/RightDock",
+      "rule": "reader-summary",
+      "tokens": "19730cb13ceabc42ea9f24e9855cd16904aaed5edb43688a6d2feaf22acb717a",
+      "gate": [
+        "&&:5b3af34ee829f842e53bce7785a326288196f6fa3b6bc95425bf646010d276c1"
+      ],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
+      ],
+      "fingerprint": "3d42156f687f0c184f21547386987246a2d92fc714ca99a0759a3a2d5b2c9c72",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of RightDock/RightDock",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/app/RightDock.tsx",
+      "holder": "RightDock/RightDock",
+      "rule": "reader-summary",
+      "tokens": "44c5df8e38a497522f3a58bbc3b8cd1dec7349af2304b74213d069f34d9bd319",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "ba440581fa3c400f3d375bafc5a8d20b9ace2d2bd119312c0381cc3285fa7809",
+      "fingerprint": "5a179c5a03924c39cfe48b1b090957591ee2c8be5807d607e52f70422d267db0",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of RightDock/RightDock",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/app/RightDock.tsx",
+      "holder": "RightDock/RightDock",
+      "rule": "reader-summary",
+      "tokens": "1f51fd8074dfa9a661dc6b396abc4946fd46d8ff6f366ba924d8203abb482e79",
+      "gate": [
+        "&&:ba6b0e165034905beae689a6d11c19b9ac36b7f6b63bb2cc8f70160c5a3a158e",
+        "then:d8d199f2125fa8200a7ae006f91a36b119f0163c7a173faa57ccf06f23292517"
+      ],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
+      ],
+      "fingerprint": "897cca35a139297aa828c0d7feb6d4b5598e5a89401ba83649e3e854d1db3c46",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of RightDock/RightDock",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/app/RightDock.tsx",
+      "holder": "RightDock/RightDock/active",
+      "rule": "reader-summary",
+      "tokens": "9ec681881ca15a07d73306e1056125263fc5c1c0d0df60bff7cd4bce3d43c9d1",
+      "gate": [],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
+      ],
+      "fingerprint": "fce74af0bd0398b9842e50846451368822d18cd9e321c6d0f497bc9f4e63ef23",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "The shell or pane reader is observed or called.",
+      "bound": "No collection bound is established by this model migration.",
+      "reason": "The shell/pane API split exposes existing collection provenance; moving scalar readers does not repair this collection debt.",
+      "guard": "Retain REQUIRED REPAIR until the collection is bounded or replaced by an addressed answer."
+    },
+    {
+      "file": "apps/web/src/app/RightDock.tsx",
+      "holder": "RightDock/RightDock/dock",
+      "rule": "reader-summary",
+      "tokens": "6201c8040dd30a5b97d8c561e193f12f1a2d575332bc2a8a5449a9dc65b2689f",
+      "gate": [],
+      "origin": [
+        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
+        "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
+        "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
+      ],
+      "fingerprint": "d6e0ba2dfc7cb7602bce8f8e51c3c0d7465f9e8ec6e2c84a09fa1a9a0e07e765",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -2881,14 +2986,14 @@
       "file": "apps/web/src/app/RightRail.tsx",
       "holder": "RightRail/RightRail/shipping",
       "rule": "reader-summary",
-      "tokens": "e5d10c9c30382758fe1777d6510258eb6387acabd338a2d690207bc0e6304b22",
+      "tokens": "80ef9e79fe8a4c93dca021e62cbda7b3fe5a49356cd7f3d02c2d812d3b88b564",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "d39a70b7db59cba23c4345582c508160d4d1e01401b43b82985a81ab7ff96a7f",
+      "fingerprint": "b1aecf23ad18a170be1ca3fe93fc1e64c37c47754308bbd2e41da1095c66ff04",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -3796,37 +3901,36 @@
     },
     {
       "file": "apps/web/src/app/shell-data.ts",
-      "holder": "useShellMachines",
-      "rule": "reader-summary",
-      "tokens": "e3e6d7a2a9c17a2d5b30d60b644ba11daf7226cd67baac914ac4dbe2b9176439",
+      "holder": "useShellSessions/value",
+      "rule": "zero-arg:sessions",
+      "tokens": "d8a9defee1d62ef25833b859577e49a523889956bbd94a15cc3d06947b9c9718",
       "gate": [
         "then:986f690ce3c4f8741f4341d67936aa814b16cd92511eb5fce83f5e04a025a80b"
       ],
       "origin": [
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+        "edae39b5d2a201ba6d209c36c3b4ba5f91e5c51f116fc8a22d2c44c789895479"
       ],
-      "fingerprint": "8939ff04d178c4aed6a6d00c4b93e552ea617e7384a0768bd95cc06f317d095f",
+      "fingerprint": "3a0f89461da80c0d79f8ebf5f5bfc7a06078aab8992a7223f5ddf7c14553f0b1",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of useShellMachines",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "trigger": "The shell or pane reader is observed or called.",
+      "bound": "No collection bound is established by this model migration.",
+      "reason": "The shell/pane API split exposes existing collection provenance; moving scalar readers does not repair this collection debt.",
+      "guard": "Retain REQUIRED REPAIR until the collection is bounded or replaced by an addressed answer."
     },
     {
       "file": "apps/web/src/app/use-desktop-close-tab.ts",
       "holder": "useDesktopCloseTab/data",
       "rule": "reader-summary",
-      "tokens": "07a3264e1a6ddc84f3425fffd19da93ba7ec21498848dcebc8473ff047aeaba0",
+      "tokens": "e27eb1b6902c2395a347bf206e2e89be1bba21f76db94dc764f0c3e9332eae69",
       "gate": [],
       "origin": [
         "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1",
         "5ac8c2052ffe18ceeedb0d32f307b6092b6a667bf768249b43c2dc76112824b6"
       ],
-      "fingerprint": "9ad94987b6e053ae0a9ff2cc996dd6c97fd4125074b714d7e9c543c125dc9470",
+      "fingerprint": "876a62fac4c4c23bb7fa59685a6bcb807150dcc391da07e79f1999ff5270f862",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4712,11 +4816,10 @@
       "gate": [],
       "origin": [
         "0689b34612af89e8446374a999cef867beded29c7d269dd75d66b8c2a62acdda",
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
         "130cdf8f9d4ed8f09fb3c14cb532c8aea0c8413756acd071787bec2d945f1ce2",
         "8bd1f9bfc0645ceea6f133dacd0f9c5342ced07a34d42d1cf4eb61dc7bdf239d"
       ],
-      "fingerprint": "60c03ae4d11b9ccca3bd0169ce7a157998fcce33e75a293fdc49b79e4a1f5368",
+      "fingerprint": "19d2f544ef62ed90bb4cf8fc6ac38d7dbaae72e22d2958a569ca426bd3419966",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4896,13 +4999,13 @@
       "file": "apps/web/src/features/chat/use-chat-context.ts",
       "holder": "chatMachinesRead/callback",
       "rule": "reader-summary",
-      "tokens": "410fa1dd28eb8d8c41966e170cabe18c86448bdeb4e18844ad24ecf9748349cc",
+      "tokens": "986c8bc6e171ee14d8c43c3272ef14e9c999c9b317eccef3505b7ea5eed07470",
       "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "b454d2ea43435fd7a1098644c4ef8101265e8a258f2ca7bc830f16f6688af633",
+      "fingerprint": "3a61051c89511dba18c612ec78c111793e5bbc22dbdf58cd5aa59df8038c1675",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4996,12 +5099,12 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "useConversation/conversation/useOwnedConversation:callback",
       "rule": "reader-summary",
-      "tokens": "c0e13099c4b7b92a256dab3e86c0b255116cd762aa0e0b02fa543d6c74b87038",
+      "tokens": "8ebbfd5d50c7f309f654a122d2705704c74c91c5d4f39ab5442df676ddd17a95",
       "gate": [],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "a5efae7d00a4c8a018cc569a1322d2a6c63b40bbc0bbcb7d2a1d9499d0ea3d36",
+      "fingerprint": "48a9b55dbddae694781dbd202e421e16447bf4a924c3ac6b557c47b2d6def59d",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -10328,24 +10431,6 @@
       "guard": "scripts/check-interaction-scans.ts"
     },
     {
-      "file": "apps/web/src/features/superagent/SuperagentView.tsx",
-      "holder": "SuperagentView/focusSession",
-      "rule": "reader-summary",
-      "tokens": "64296353a455ba3dab5ef6455090be42e591c0470b02c5c20bc629039d983414",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "a2f273f123ab286abfa21cfe41ee1d8fa635a94f76ef46c70d6bd3f79d912f0c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of SuperagentView/focusSession through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
       "file": "apps/web/src/features/superagent/concierge.ts",
       "holder": "resolveConciergeRepo",
       "rule": "loop:for-of",
@@ -10403,818 +10488,6 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel",
-      "rule": "helper-consumer",
-      "tokens": "4786505f6d355321bfd5d4c99c15a54ead52813302b782aa6a17e674da5ab029",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "13c66cb119537a7ac49843bc806bc75f6ab6ad9c772c117df10250c4a1a0e38d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel",
-      "rule": "helper-consumer",
-      "tokens": "4598b7c6b709c6d9bede07290be1d4e7fd374cb409c67fb9cfe506846bafb263",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "432ad353f4c993a2f00f7f1675d35f2c1e07fdfcdbfaebb40ce4d971cf7d21ef",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel",
-      "rule": "reader-summary",
-      "tokens": "f470586930aefcd9811af90240f1a1da9a735c53cf669c069d3e6a8209389946",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "5473eee104b03518aafc02d9339ec92d649c3cb23ac2041f34fc765af08c468e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel",
-      "rule": "reader-summary",
-      "tokens": "1d9e8e6fa15f1e920ec53ecbfb8efa0316bed4303f2faaaebc2b60595f76160e",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "c9c7a5856daf0830795566f3aaa5583a87322b2792f8bc667660a6131d3595a6",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel",
-      "rule": "spread",
-      "tokens": "ad3d16d82c149b6daf20d8979343c0c01b5c826c3ce33517766cbc9bd1520328",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "2a5e385b1b7861c1910eef1f243bd2f4049ec450f0885ba09236afa9504a283b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/machines",
-      "rule": "reader-summary",
-      "tokens": "8872a35fe50132f6062f5dbe593b6ed5dd2cb98be5aca8e3e9e59634dbb12745",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
-      ],
-      "fingerprint": "611395972b89bb1a85e4f4d4888ed102f6312339656836685562a42d55f92ce0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/machines through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/openLoginTerminal/useCallback:callback/result",
-      "rule": "spread",
-      "tokens": "2ab6d9eec281d406e432142a502abb393299b7989bf9139a17c77c9f57105a6f",
-      "gate": [
-        "exit:then:d0352fb7013fafaf3b68c30cbb575f358461d7905c337cea2e7b0aef5d2ffd8a"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "b9bcb868ebb94bc6ace1ed5b2b3c61f275531cb479e1db1c1f97cef2f9ec20ad",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/openLoginTerminal/useCallback:callback/result through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/overlay",
-      "rule": "reader-summary",
-      "tokens": "bfbe7deb1a879c72a8cda1d4c19b88057f2f26c306a5a905db12bdf92eac0233",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "41e1c0bfe84dfa4448748843a487007c4d18c27151373fd6ceae800eac32478c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/overlay through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/overlay/ageMs",
-      "rule": "reader-summary",
-      "tokens": "c75d417d3bba0f938c6fd1e6dbd147f9dc784bdc0ce561ec3cc9e10b9cfc12c4",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "1a5d78650f432dc8158f174907c90e39cda332e5fb6e24cdbbaeffb33c70928b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/overlay/ageMs through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "helper-consumer",
-      "tokens": "c303ccbedb3abe1a3957aff577dfb57864d6b986fcb61e02436391ac099e5b2b",
-      "gate": [
-        "else:361f74e6135107a1a5fd7b54f661d74543a6e3f12f4fedc1ef3cc565744f72b8",
-        "else:b16d673d1a197004418aa7ca8bbde2ab04f6ff06b0c2b76e4d22bb941e254538",
-        "else:733b38027e941de288da3ad4849ce32578a30d11f8d9a12293a02fccbc5c1ade",
-        "else:ee11bf559bae10f0f4b516d56929ab64ca40642257ce8a6835375a1870946353",
-        "&&:1c161f6c1a8d76e700c65c247d3bcf2fe9de299e21535b5858613264defec30e",
-        "&&:8ebdf04bdef2b24744cf735c6701ced20113f629a5a01f793e74ddc1b664e40b",
-        "else:6cd8a5760d1ff5bf24470e76dd03ae348486f01645ee2c72b6fb7414df84b080",
-        "then:3782dbcf964191cb93b2a2a896e327a8d29c2204ea289e89d5f7f68d6b8e7d58",
-        "then:d970f3167c2d27ffad682aa6d24e713d77fb0b00d19b740064e23d3a9bf47003"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "0608fa9c2ad11b0573cdda77e36865f549112b504ea1df1f119dcca138ba1f60",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "helper-consumer",
-      "tokens": "c303ccbedb3abe1a3957aff577dfb57864d6b986fcb61e02436391ac099e5b2b",
-      "gate": [
-        "else:361f74e6135107a1a5fd7b54f661d74543a6e3f12f4fedc1ef3cc565744f72b8",
-        "else:b16d673d1a197004418aa7ca8bbde2ab04f6ff06b0c2b76e4d22bb941e254538",
-        "else:733b38027e941de288da3ad4849ce32578a30d11f8d9a12293a02fccbc5c1ade",
-        "else:ee11bf559bae10f0f4b516d56929ab64ca40642257ce8a6835375a1870946353",
-        "&&:1c161f6c1a8d76e700c65c247d3bcf2fe9de299e21535b5858613264defec30e",
-        "&&:8ebdf04bdef2b24744cf735c6701ced20113f629a5a01f793e74ddc1b664e40b",
-        "else:6cd8a5760d1ff5bf24470e76dd03ae348486f01645ee2c72b6fb7414df84b080",
-        "else:3782dbcf964191cb93b2a2a896e327a8d29c2204ea289e89d5f7f68d6b8e7d58",
-        "then:d970f3167c2d27ffad682aa6d24e713d77fb0b00d19b740064e23d3a9bf47003"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "477cd2f1be883065650c59d580ed480b29708dcf3920f1a5c5205696f72d008b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "helper-consumer",
-      "tokens": "c303ccbedb3abe1a3957aff577dfb57864d6b986fcb61e02436391ac099e5b2b",
-      "gate": [
-        "then:361f74e6135107a1a5fd7b54f661d74543a6e3f12f4fedc1ef3cc565744f72b8",
-        "then:d970f3167c2d27ffad682aa6d24e713d77fb0b00d19b740064e23d3a9bf47003"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "57af0f6cdca6eabd3f35369c6b9b1d4c81d2d89a2ac0d8dfea4953bf8be1844e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "helper-consumer",
-      "tokens": "ba3a96041e39342bd9396306ed18bf80cec4b855ea6309dcfb4be2aa30ebda45",
-      "gate": [
-        "&&:3da7f47dc1905b99baa43e796932a81f282b1911bb2a2a749f74f7efab494b88",
-        "&&:e7499d64eeed940fd47d6cfffd81202c7c0d7f512c030bdf536f331ea0cd69c6"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "953dd0e7920e270584843ee25e8ec6621e2f71b602c2733b15a9d3e84eae13d5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "helper-consumer",
-      "tokens": "c303ccbedb3abe1a3957aff577dfb57864d6b986fcb61e02436391ac099e5b2b",
-      "gate": [
-        "else:361f74e6135107a1a5fd7b54f661d74543a6e3f12f4fedc1ef3cc565744f72b8",
-        "else:b16d673d1a197004418aa7ca8bbde2ab04f6ff06b0c2b76e4d22bb941e254538",
-        "else:733b38027e941de288da3ad4849ce32578a30d11f8d9a12293a02fccbc5c1ade",
-        "else:ee11bf559bae10f0f4b516d56929ab64ca40642257ce8a6835375a1870946353",
-        "&&:4cf87dacc47a129159330dfe46bf99bbd8fdc2cd8033a278ce728763f5e4598b",
-        "else:a2b096782566ea4affdf08176754dcba3408e5fb629ac3e55a6462272edc6344",
-        "then:d970f3167c2d27ffad682aa6d24e713d77fb0b00d19b740064e23d3a9bf47003"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "b6e73649e61e26446654896e01da6676e7fc3f46c4593e958d79aca4e9c1a7b0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "helper-consumer",
-      "tokens": "c303ccbedb3abe1a3957aff577dfb57864d6b986fcb61e02436391ac099e5b2b",
-      "gate": [
-        "&&:a2b096782566ea4affdf08176754dcba3408e5fb629ac3e55a6462272edc6344"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "bba7e767c6c898af768621088170b1941ac83c28ca6cf4ab9715b8198e9c3170",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "helper-consumer",
-      "tokens": "ba3a96041e39342bd9396306ed18bf80cec4b855ea6309dcfb4be2aa30ebda45",
-      "gate": [
-        "&&:3da7f47dc1905b99baa43e796932a81f282b1911bb2a2a749f74f7efab494b88",
-        "&&:d970f3167c2d27ffad682aa6d24e713d77fb0b00d19b740064e23d3a9bf47003"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "cd570d017b0c7fd2cfb65462c06ba2c14095727d2d6bee9300b56e764962d573",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "helper-consumer",
-      "tokens": "c303ccbedb3abe1a3957aff577dfb57864d6b986fcb61e02436391ac099e5b2b",
-      "gate": [
-        "else:361f74e6135107a1a5fd7b54f661d74543a6e3f12f4fedc1ef3cc565744f72b8",
-        "else:b16d673d1a197004418aa7ca8bbde2ab04f6ff06b0c2b76e4d22bb941e254538",
-        "else:733b38027e941de288da3ad4849ce32578a30d11f8d9a12293a02fccbc5c1ade",
-        "else:ee11bf559bae10f0f4b516d56929ab64ca40642257ce8a6835375a1870946353",
-        "&&:4cf87dacc47a129159330dfe46bf99bbd8fdc2cd8033a278ce728763f5e4598b",
-        "then:a2b096782566ea4affdf08176754dcba3408e5fb629ac3e55a6462272edc6344"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "e654ec24c43df898445b3e95fecd35459e36fc299ef1a7a434fb09cb9d69d9f5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "reader-summary",
-      "tokens": "c527dab74136657ff5feaa32dc7ad80eef2f09ab6114b7d9d02b05969fd6043d",
-      "gate": [
-        "then:361f74e6135107a1a5fd7b54f661d74543a6e3f12f4fedc1ef3cc565744f72b8",
-        "then:d970f3167c2d27ffad682aa6d24e713d77fb0b00d19b740064e23d3a9bf47003"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "0334da5f3c34802ccea6b11b876f4f6218c94937068eb6348150f227722f0b8a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "reader-summary",
-      "tokens": "c527dab74136657ff5feaa32dc7ad80eef2f09ab6114b7d9d02b05969fd6043d",
-      "gate": [
-        "else:361f74e6135107a1a5fd7b54f661d74543a6e3f12f4fedc1ef3cc565744f72b8",
-        "else:b16d673d1a197004418aa7ca8bbde2ab04f6ff06b0c2b76e4d22bb941e254538",
-        "else:733b38027e941de288da3ad4849ce32578a30d11f8d9a12293a02fccbc5c1ade",
-        "else:ee11bf559bae10f0f4b516d56929ab64ca40642257ce8a6835375a1870946353",
-        "&&:4cf87dacc47a129159330dfe46bf99bbd8fdc2cd8033a278ce728763f5e4598b",
-        "else:a2b096782566ea4affdf08176754dcba3408e5fb629ac3e55a6462272edc6344",
-        "then:d970f3167c2d27ffad682aa6d24e713d77fb0b00d19b740064e23d3a9bf47003"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "54037a21ab6afb22a2860d37fd6e98d2259778ccc80383b8c4c38f52853d41f4",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "reader-summary",
-      "tokens": "c527dab74136657ff5feaa32dc7ad80eef2f09ab6114b7d9d02b05969fd6043d",
-      "gate": [
-        "else:361f74e6135107a1a5fd7b54f661d74543a6e3f12f4fedc1ef3cc565744f72b8",
-        "else:b16d673d1a197004418aa7ca8bbde2ab04f6ff06b0c2b76e4d22bb941e254538",
-        "else:733b38027e941de288da3ad4849ce32578a30d11f8d9a12293a02fccbc5c1ade",
-        "else:ee11bf559bae10f0f4b516d56929ab64ca40642257ce8a6835375a1870946353",
-        "&&:4cf87dacc47a129159330dfe46bf99bbd8fdc2cd8033a278ce728763f5e4598b",
-        "then:a2b096782566ea4affdf08176754dcba3408e5fb629ac3e55a6462272edc6344"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "58028a3b2f3d891eb5008c5b301d384d099e75c867b1b5d7720f1e8fdbf3c2ab",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "reader-summary",
-      "tokens": "64477ef5905cb65185f3a9384a9dcdf66428120dbaf69248dc24804aa77eaab0",
-      "gate": [
-        "&&:3da7f47dc1905b99baa43e796932a81f282b1911bb2a2a749f74f7efab494b88",
-        "&&:d970f3167c2d27ffad682aa6d24e713d77fb0b00d19b740064e23d3a9bf47003"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "5b8cc6a7381885a99bfeda230f3742afd2def95cc1f3029f0b0d87674f3b7105",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "reader-summary",
-      "tokens": "c527dab74136657ff5feaa32dc7ad80eef2f09ab6114b7d9d02b05969fd6043d",
-      "gate": [
-        "&&:a2b096782566ea4affdf08176754dcba3408e5fb629ac3e55a6462272edc6344"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "82ab9cab556b7c179b0229fcbee50099fc1b22703a406dd594aa30594fb63320",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "reader-summary",
-      "tokens": "c527dab74136657ff5feaa32dc7ad80eef2f09ab6114b7d9d02b05969fd6043d",
-      "gate": [
-        "else:361f74e6135107a1a5fd7b54f661d74543a6e3f12f4fedc1ef3cc565744f72b8",
-        "else:b16d673d1a197004418aa7ca8bbde2ab04f6ff06b0c2b76e4d22bb941e254538",
-        "else:733b38027e941de288da3ad4849ce32578a30d11f8d9a12293a02fccbc5c1ade",
-        "else:ee11bf559bae10f0f4b516d56929ab64ca40642257ce8a6835375a1870946353",
-        "&&:1c161f6c1a8d76e700c65c247d3bcf2fe9de299e21535b5858613264defec30e",
-        "&&:8ebdf04bdef2b24744cf735c6701ced20113f629a5a01f793e74ddc1b664e40b",
-        "else:6cd8a5760d1ff5bf24470e76dd03ae348486f01645ee2c72b6fb7414df84b080",
-        "then:3782dbcf964191cb93b2a2a896e327a8d29c2204ea289e89d5f7f68d6b8e7d58",
-        "then:d970f3167c2d27ffad682aa6d24e713d77fb0b00d19b740064e23d3a9bf47003"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "843fd1cd426c57c4dc2d7119b423a7895feaca1f140ea7fe0c4aba8c5c27b94a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "reader-summary",
-      "tokens": "8a335a91df5bbed803ec507cd015190ffdf4b98e48ae54a40933ae8d42068b2c",
-      "gate": [
-        "&&:3da7f47dc1905b99baa43e796932a81f282b1911bb2a2a749f74f7efab494b88",
-        "&&:e5e7823bb5ac0479df0b23f059bcb83f96052d66977cee1be28a1c6b0dc8905b"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "959f0a3906f3a451ba07a066e7f96529e332037359af20bfb37181000f01fbcd",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "reader-summary",
-      "tokens": "64477ef5905cb65185f3a9384a9dcdf66428120dbaf69248dc24804aa77eaab0",
-      "gate": [
-        "&&:3da7f47dc1905b99baa43e796932a81f282b1911bb2a2a749f74f7efab494b88",
-        "&&:e7499d64eeed940fd47d6cfffd81202c7c0d7f512c030bdf536f331ea0cd69c6"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "d63836e4635a739160c0d28c2b658edce3d1177bc4b3e89c857c5815aa63c1f7",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "reader-summary",
-      "tokens": "615e643cfe58194af28a22c31f986d812906f24152d16a709dbd8f35ee3cf70c",
-      "gate": [
-        "else:361f74e6135107a1a5fd7b54f661d74543a6e3f12f4fedc1ef3cc565744f72b8",
-        "else:b16d673d1a197004418aa7ca8bbde2ab04f6ff06b0c2b76e4d22bb941e254538",
-        "else:733b38027e941de288da3ad4849ce32578a30d11f8d9a12293a02fccbc5c1ade",
-        "then:ee11bf559bae10f0f4b516d56929ab64ca40642257ce8a6835375a1870946353",
-        "then:1948b107958617b8f72a59227643229fd2513be4b55bfce6693589b65035e887"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "d64545354c1fd95d3da39ff99ec6f972e602012e8b1dedfe2bd95969030394ae",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "reader-summary",
-      "tokens": "c527dab74136657ff5feaa32dc7ad80eef2f09ab6114b7d9d02b05969fd6043d",
-      "gate": [
-        "else:361f74e6135107a1a5fd7b54f661d74543a6e3f12f4fedc1ef3cc565744f72b8",
-        "else:b16d673d1a197004418aa7ca8bbde2ab04f6ff06b0c2b76e4d22bb941e254538",
-        "else:733b38027e941de288da3ad4849ce32578a30d11f8d9a12293a02fccbc5c1ade",
-        "else:ee11bf559bae10f0f4b516d56929ab64ca40642257ce8a6835375a1870946353",
-        "&&:1c161f6c1a8d76e700c65c247d3bcf2fe9de299e21535b5858613264defec30e",
-        "&&:8ebdf04bdef2b24744cf735c6701ced20113f629a5a01f793e74ddc1b664e40b",
-        "else:6cd8a5760d1ff5bf24470e76dd03ae348486f01645ee2c72b6fb7414df84b080",
-        "else:3782dbcf964191cb93b2a2a896e327a8d29c2204ea289e89d5f7f68d6b8e7d58",
-        "then:d970f3167c2d27ffad682aa6d24e713d77fb0b00d19b740064e23d3a9bf47003"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "d96cdfd83e35643f2652e2622c26f173f70a1d641b73b7596a20a967524117d0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/panel",
-      "rule": "reader-summary",
-      "tokens": "615e643cfe58194af28a22c31f986d812906f24152d16a709dbd8f35ee3cf70c",
-      "gate": [
-        "else:361f74e6135107a1a5fd7b54f661d74543a6e3f12f4fedc1ef3cc565744f72b8",
-        "else:b16d673d1a197004418aa7ca8bbde2ab04f6ff06b0c2b76e4d22bb941e254538",
-        "then:733b38027e941de288da3ad4849ce32578a30d11f8d9a12293a02fccbc5c1ade",
-        "then:1948b107958617b8f72a59227643229fd2513be4b55bfce6693589b65035e887"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "e653ea5b85ab2ad3109a94acd58787687e3abd033bcee37c89704350360c3dd6",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/panel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/pendingLoginSession",
-      "rule": "reader-summary",
-      "tokens": "9e99a4cce3f1391de9c284b826f1a2031b70d0164657b3775c169cc621087557",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "c51cdef46fda8b75d751ddabe07d0ad73498660ea15ffd8e8d18e66ffdede79c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/pendingLoginSession through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/pickModeWithTrace/callback",
-      "rule": "helper-consumer",
-      "tokens": "0eea2afd06845a8c365744546320a56bc4ad299b0e415c2d9f5112ea8c050129",
-      "gate": [
-        "then:a5f51af58f7dd6f0f3fbdff804c1283f8e2f802177acbf5d429a5938688eee48"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "5f331903ee881071f5304010caf99b5ecfe9e674ba6111e301641da248c96752",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/pickModeWithTrace/callback through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/resumeCmd",
-      "rule": "reader-summary",
-      "tokens": "7fc90e7f9a35d30460c746ac0de5eebce49d228d934ee23d9a18a3c7672891ae",
-      "gate": [
-        "then:d970f3167c2d27ffad682aa6d24e713d77fb0b00d19b740064e23d3a9bf47003"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "8b74479550b75c6c6e281aebc359b2675b88012af2ac502103d90c2436f32898",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/resumeCmd through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/session",
-      "rule": "reader-summary",
-      "tokens": "87c3525fa369adde8d846228f265700193333b22bea821e06e9e8f40b7b11f11",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "00ac75d7f62b3fd633f0476148b33c2864cf0fdfec3d5e2b2f3bfbc1e9d0b69a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/session through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/useEffect:callback",
-      "rule": "helper-consumer",
-      "tokens": "696f95777edebc0514bff2f5fdf040b556166f25346699b9109d381df8bb4aef",
-      "gate": [
-        "then:4f72f9f0f04fc440865cafa4c52e89935558f65088d3c416ab7a8e6d4fc518eb"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "c380cd91c345e843336fd3d499ab7fc8c08b86c14eb9b2bc7098296cf1fc7fb0",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/useEffect:callback through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/AgentPanel.tsx",
-      "holder": "AgentPanel/useLayoutEffect:callback",
-      "rule": "helper-consumer",
-      "tokens": "0eea2afd06845a8c365744546320a56bc4ad299b0e415c2d9f5112ea8c050129",
-      "gate": [
-        "exit:then:a58894a3dc4b278415d28bf3dfa6aa393adc4c19479b90ac80b9c742be1b3dfb",
-        "then:6ebcdc5df09e877ed0840d45d45dacf4675a4f7872d8d55a92cc14ecc18228f3"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "185d33d7b594b0a8874d23023154dde22083ce95a4a7d14ecbb55536a2d254cb",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of AgentPanel/useLayoutEffect:callback through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/DockShellPanel.tsx",
-      "holder": "DockShellPanel",
-      "rule": "reader-summary",
-      "tokens": "509c8bfb6b378d388b6af8215ab4f9ae7549bd6b186018917d7b02f257a8a44a",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "fac0b0637bd3997447ab0093e4ac92dc494b0df99b575ee78a933d148f42eadd",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of DockShellPanel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/DockShellPanel.tsx",
-      "holder": "DockShellPanel/machineLabel",
-      "rule": "helper-consumer",
-      "tokens": "d6b114520dc144b8fd3b4de6a44f69b92fb9227f5348d18d46eadb6226a2088a",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
-      ],
-      "fingerprint": "25787e7a874efec57569cd2d6cf4c64dcb8f4d34334b4ba4b102b16242a74e7a",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of DockShellPanel/machineLabel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/DockShellPanel.tsx",
-      "holder": "DockShellPanel/machines",
-      "rule": "reader-summary",
-      "tokens": "8872a35fe50132f6062f5dbe593b6ed5dd2cb98be5aca8e3e9e59634dbb12745",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
-      ],
-      "fingerprint": "1dfdf684480300d64fb6360974e50519daf37bf28274705d76884c9deee64213",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of DockShellPanel/machines through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/DockShellPanel.tsx",
-      "holder": "resolveShellMachineLabel",
-      "rule": "consume:find",
-      "tokens": "41d60b663da317c4916eecce89f116dc63aee1b10593b04a4c5bde57b97fd46d",
-      "gate": [
-        "exit:then:f4756c0bf34c8698bca3afa864457a5271cd9b7f452affc1a8c9f60579a6c064",
-        "exit:then:23e78ba258c2e9a436dca47bfee69b53594d2c86cc66afa1ef1938d94b50c3ae"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
-      ],
-      "fingerprint": "359c34286d83d1de667e99f465a5f80bdd5e8ccc0a5aad81e61dcc077776ad6f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of resolveShellMachineLabel through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
     },
     {
       "file": "apps/web/src/features/terminal/dock-shell-lifecycle.tsx",
@@ -11290,27 +10563,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/features/terminal/panel-surface.ts",
-      "holder": "panelChatCapable",
-      "rule": "reader-summary",
-      "tokens": "d90829edceff72c215e1412b3c33bad7003dcb4ee1694b213eba47c53f90657e",
-      "gate": [
-        "exit:then:a5e443e2919ebc57abe4ee22a25d1c61c6e3b01c7c1297f036811cc1773ef9d2",
-        "??:3c9486a0a96ee15d785c8ad7f3146ec3625206fa11f92840a470d9b309878e39"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "b06766048ea37fbe27eee87dcff40334db4c4e2233bea6e68131b22e49e43e4b",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of panelChatCapable through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
       "file": "apps/web/src/features/terminal/test-support/presence-mock.ts",
       "holder": "paneOwner/getSnapshot/callback",
       "rule": "reader-summary",
@@ -11327,211 +10579,6 @@
       "bound": "No proven named-demand or cardinality cap for this captured collection path.",
       "reason": "reader-summary is exposed by closure/alias tracing. A caller bound or addressed replacement is still required; fixture/diagnostic surfaces also stay monitored.",
       "guard": "Exact fingerprint and multiplicity only. The alias/closure correction detects this residual; it does not fix it."
-    },
-    {
-      "file": "apps/web/src/features/terminal/use-panel-surface.ts",
-      "holder": "usePanelSurface/chatCapable",
-      "rule": "reader-summary",
-      "tokens": "925ae7f7f3233288b5ed6a3285b4f70ff89cd1bc9f9d18b1ea6378bf58ed3e38",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "45ef27bc14bd79d1a6115652a80b62ca76487e7d3635e0986a854e62d88ed01c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of usePanelSurface/chatCapable through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/use-panel-surface.ts",
-      "holder": "usePanelSurface/gates",
-      "rule": "reader-summary",
-      "tokens": "a865d144f7caee8ce7d38a32ab0dc2dab524a76c56b7bc92df4d3725d7b59fde",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "6a8277deeaeb75b4d5ad83ac088f7fa25d467e0dcd39158c3c213fb3a664d94e",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of usePanelSurface/gates through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/use-panel-surface.ts",
-      "holder": "usePanelSurface/machines",
-      "rule": "reader-summary",
-      "tokens": "8872a35fe50132f6062f5dbe593b6ed5dd2cb98be5aca8e3e9e59634dbb12745",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
-      ],
-      "fingerprint": "14d4396c2c914b5331378f995e409cc8613a163fd12a9a8276a937e591403c1f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of usePanelSurface/machines through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/use-panel-surface.ts",
-      "holder": "usePanelSurface/mode",
-      "rule": "reader-summary",
-      "tokens": "993ea3595a179dba818dfcd3d3a51a91e67881b521116bf413026bb7e5dc88c9",
-      "gate": [
-        "else:e1c31eb19d757f67f5cd1a75af15b99f6134aeb40f6ee16c124449ad7e797d0d"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "e6d2832b3e5703ad0465017c9faa72858fb9b5d45b8533ab4419d90dec065ae5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of usePanelSurface/mode through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/use-panel-surface.ts",
-      "holder": "usePanelSurface/offlineMachine",
-      "rule": "helper-consumer",
-      "tokens": "e6a76e0574d1e5833461f1510d5e8f9c18d83f3598b189279b13f3353730c5c3",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef",
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
-      ],
-      "fingerprint": "7685b37ca4c83af29ed405b4efd5877972b763624d861e87e77e9c01f81637d9",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of usePanelSurface/offlineMachine through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/use-panel-surface.ts",
-      "holder": "usePanelSurface/offlineMachine",
-      "rule": "reader-summary",
-      "tokens": "f108aa7d0c6b58d1eac9f9f5d137ea01689fcb8af2a79227b8f9d110c6def4ed",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "60edb301ec82c0318e842598a499118b0ff49835d9f82c80b9af9536a260a72c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of usePanelSurface/offlineMachine through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/use-panel-surface.ts",
-      "holder": "usePanelSurface/panelMode",
-      "rule": "reader-summary",
-      "tokens": "060f84f4fb214ddffa154c84cb5a3bb965851c18bd8c3b31ad61e7cd16a1f10e",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "c53bb06b24caf8f9568b0ceacead38744dd8c3d9459dc17348c4f47cd5f1d6cc",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of usePanelSurface/panelMode through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/use-panel-surface.ts",
-      "holder": "usePanelSurface/surface",
-      "rule": "reader-summary",
-      "tokens": "e7505f2a7fe1d57d8a6f5af8e39cccea206f159ca7be6d0214349c7587b2130c",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "c2fdd65d7aab1066bc4b835cf494bc350d271906a6f3d15f01a39c33ddc8f36d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of usePanelSurface/surface through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/use-session-pane-inputs.ts",
-      "holder": "machinesRead/callback",
-      "rule": "reader-summary",
-      "tokens": "410fa1dd28eb8d8c41966e170cabe18c86448bdeb4e18844ad24ecf9748349cc",
-      "gate": [],
-      "origin": [
-        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
-        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
-      ],
-      "fingerprint": "63ccd00ab2c1a2c5eb6f8079a933a429e578b5c6df4c0b866ad1acf4fdeba16d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of machinesRead/callback through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "apps/web/src/features/terminal/use-session-pane-inputs.ts",
-      "holder": "usePaneOwnership/read/useCallback:callback",
-      "rule": "helper-consumer",
-      "tokens": "214bb4754c258a6691356f46ab40c9ac0940a51bf39647d6eb59db9643d86b95",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "fb789e124983abfc15478ccddd79e65dff0e2b1a5eb3ae6331245f3b3ba4a681",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation or observation of usePaneOwnership/read/useCallback:callback",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "guard": "scripts/check-interaction-scans.ts",
-      "reason": "POD-5822 updates this existing reader to canonical direct fields. Its collection and caller bounds are unchanged; the existing REQUIRED REPAIR classification remains. Predecessor: 982e3f92402a7117b9b15ae12a5e994a4f7aef133276fd2fc42cbc8740dc29ad."
-    },
-    {
-      "file": "apps/web/src/features/terminal/use-session-pane-inputs.ts",
-      "holder": "usePanePanelModes",
-      "rule": "reader-summary",
-      "tokens": "b92b7720422e9775e5427851334fbc0f217daa040341375f6adff2e0fd81fe80",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "8b75eb9e041623f2f540f776ccbc7022e0b6999870e9ce68104a1c3fb0f2d302",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of usePanePanelModes through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
     },
     {
       "file": "apps/web/src/features/terminal/use-warm-set.ts",
@@ -31247,46 +30294,6 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/values/session-status.ts",
-      "holder": "panelLabel",
-      "rule": "helper-consumer",
-      "tokens": "133016c3d1ad08dff3265b5f55d7bee93ba0d26ae0a176eec9b707502eed5f8f",
-      "gate": [
-        "exit:then:d0fe0eb5016b4fa7bdd738b0f712daa1f3ade2b0c58b72a3d35f475208a26c14"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "c9e88a1109b998649556da223c9188b4cb76e9101bfb897cf6e466011ed48647",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of panelLabel",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/session-status.ts",
-      "holder": "resumeCommand/id",
-      "rule": "reader-summary",
-      "tokens": "28bd505b0eee9bc180d45e61fdfed76a32d831a18cccc819402ee26ad59ede24",
-      "gate": [
-        "exit:then:ebe1557536441609e87f92178d55bad403bfb99b51f9f42dd7c81342dd07681b"
-      ],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "3318ea347de70ecafea868f8e072718ff39eb1e2a2f90411d4b94c6bdf515189",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of resumeCommand/id through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
       "file": "packages/client-core/src/values/session-urgency.ts",
       "holder": "elevateCoordinatorSession/i",
       "rule": "consume:findIndex",
@@ -37558,13 +36565,13 @@
       "file": "packages/client-graph/src/mobile-session-context.ts",
       "holder": "createMobileSessionReader/machines/callback",
       "rule": "reader-summary",
-      "tokens": "410fa1dd28eb8d8c41966e170cabe18c86448bdeb4e18844ad24ecf9748349cc",
+      "tokens": "986c8bc6e171ee14d8c43c3272ef14e9c999c9b317eccef3505b7ea5eed07470",
       "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "77e9d097c9f1256d370bcc53d983d1afebeb79f1e1e25be002328707419315b8",
+      "fingerprint": "0c3816b21fe70e70dd1818396f543b9b83be257d1a741c7ebedd0d7f2e0c88c2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -38387,16 +37394,16 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-graph/src/session-pane.ts",
-      "holder": "createSessionPaneReader/machines/callback",
+      "file": "packages/client-graph/src/session-pane-view.ts",
+      "holder": "SessionPanes/machines",
       "rule": "reader-summary",
-      "tokens": "ababdb100e4750a6fb36ec6db2c6d44f7f0814d5d3397eaca998b164acf5142a",
+      "tokens": "c1678324117f873d6ee4e188ee2dd8566fc09705f7a2e154716ac77894276908",
       "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "d2c2c474ae79a7a42b5c69355ed872c06cd8d7bce2f6e9ef48a7d1f962cfabae",
+      "fingerprint": "f0f6d9d298035fc41ce182977def2ba196a88d77277f34e6989922f6c6b26a5b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -38407,33 +37414,15 @@
     },
     {
       "file": "packages/client-graph/src/session-pane.ts",
-      "holder": "createSessionPaneReader/ownership/stamp",
-      "rule": "helper-consumer",
-      "tokens": "d4932767cd190a15467c7795a4bac4c50a61e55fd593e7b78f4be1ee3210e729",
-      "gate": [],
-      "origin": [
-        "0cd694394a0bf314ba32a749dccee1a7977e3edd1c11b0e120d9e90bce515bef"
-      ],
-      "fingerprint": "cab7db69f9b607baa604ab649f633451b7b44d859d8d7544b469dc886790b76c",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of createSessionPaneReader/ownership/stamp through the direct screen factory.",
-      "bound": "No per-interaction bound established for this existing collection origin.",
-      "reason": "Removing the core getter exposes the existing collection origin and its downstream work to static analysis; this API migration does not repair collection debt.",
-      "guard": "scripts/check-interaction-scans.ts"
-    },
-    {
-      "file": "packages/client-graph/src/session-pane.ts",
       "holder": "paneMachines",
       "rule": "consume:flatMap",
-      "tokens": "9a3b8051f3997deef00a5c431d1b1e45d18b153876f515ea9356cfefdad98b89",
+      "tokens": "8c8e37b4dc4b32d75ea9aec1502ba5a5b51d6c8d4ddf243e95aa8119e05cfeeb",
       "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "f11cbbe8a589b4dab38be9a727880ae3d59f88c76d8d23f9114a473be1701145",
+      "fingerprint": "855a6f9b633bc9e22f5d8de1e4e9155ffbda273bf7b24c5ef80bc78d177a164e",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -39205,17 +38194,34 @@
     },
     {
       "file": "packages/client-graph/src/shell-views.ts",
-      "holder": "createShellViews/dock/memo:callback/shipOrders",
+      "holder": "createShellViews/catalogs",
       "rule": "reader-summary",
-      "tokens": "f0c2306836cd2cf420b0997e3390a01c3bbeca528fae90da13e7ffe3eb78121f",
-      "gate": [
-        "then:9fdcd73d34025ecdbb50054bd5dcae0639fce1693e21186477f818d75986d232"
-      ],
+      "tokens": "f8be696e44396dbf5d6ea010194d55044a2328cdb6c355fb227002948e726958",
+      "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "dce1a042b130f9b60efbd4f609a31beb320683b7c75ebf821244ebb7c8d840bd",
+      "fingerprint": "38e4aa77bb08e59870d4024bdf64ccdb177ab3504678274594c0aa695755b64e",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "The shell or pane reader is observed or called.",
+      "bound": "No collection bound is established by this model migration.",
+      "reason": "The shell/pane API split exposes existing collection provenance; moving scalar readers does not repair this collection debt.",
+      "guard": "Retain REQUIRED REPAIR until the collection is bounded or replaced by an addressed answer."
+    },
+    {
+      "file": "packages/client-graph/src/shell-views.ts",
+      "holder": "createShellViews/catalogs/memo:callback/shipOrders",
+      "rule": "reader-summary",
+      "tokens": "c6d08dc93af857e7919cabe5520327048356db62651fecfda38739aa6cc94460",
+      "gate": [],
+      "origin": [
+        "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
+        "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
+      ],
+      "fingerprint": "5261cd754999a4896371af34f215d434d46ad65b1ea3938c3689d151354212f6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -39246,12 +38252,12 @@
       "file": "packages/client-graph/src/shell-views.ts",
       "holder": "createShellViews/issues/memo:callback",
       "rule": "loop:for-of",
-      "tokens": "fccd2d180cb579df2115dc9ad3baed5a05b7c50f2a718ec43a4e71d9d496d4f3",
+      "tokens": "bd03b3b22d44cefd07deaa3750d3bc2f505004f8c49e8a85f786f8e34db2f365",
       "gate": [],
       "origin": [
         "1a74ec459850b1f319987a72ab57e72d8b1fe2530eb80d9e54f7390e033b37f1"
       ],
-      "fingerprint": "ce54cd88d0351cbe2a36e1d70296684a6a5aa1975321e7a1b37a453bb4df2b7a",
+      "fingerprint": "477fde86d95d1e8a29b15ba82cc2d1ec5a044993a21f97ef83b4631c83db67b9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -39302,13 +38308,13 @@
       "file": "packages/client-graph/src/shell-views.ts",
       "holder": "createShellViews/machines",
       "rule": "reader-summary",
-      "tokens": "239f193728c548ca356aae92838b5497f01bb3e5a503028ebe6dff7f26a1ca5e",
+      "tokens": "10d505734ff7c4ccff000b110146cea31d3f3991a10bfc684c266c245734b46f",
       "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "ab55d229f7e7453f638c2810ff614e04f84d7be9d9fe068386d2b463565eb6b5",
+      "fingerprint": "ad3461456f163577d8c34ee388e673bc5c892aeb1f8495395e7bb86907876e51",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -39321,13 +38327,13 @@
       "file": "packages/client-graph/src/shell-views.ts",
       "holder": "createShellViews/machines/memo:callback",
       "rule": "consume:flatMap",
-      "tokens": "bc764e22c7ebfff7ea3d06f47a88e5aa837595665355eeaec5119e378b0b9792",
+      "tokens": "61b83687961b3d614a919b5a73590039c7932c664963220d5a6085a2aa5639ce",
       "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "0cb03a0356f072baf59808ebd861b5a68f2e262daa00b450552706944331c273",
+      "fingerprint": "f8da45bd06483df25f043cd1c9b7a62f579f2e6d9a5047562f8c5366def97195",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -39378,13 +38384,13 @@
       "file": "packages/client-graph/src/shell-views.ts",
       "holder": "createShellViews/orders",
       "rule": "reader-summary",
-      "tokens": "d848944e9fc9d2d4218285f179c64427259fc4bf9d3c2cae9b5e28decf2fa9ec",
+      "tokens": "c6ccdf85197fdb769519c56cdda96ece6ba221d255e9349cb9c737de1c548559",
       "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "b654feda1716ef695ea56297d113b62e198baed64e8b10a88e4999aa89b28f66",
+      "fingerprint": "a6c8fd19081913755bc87dfdf6f0331cf73d933dea24140f5100694cfea7f38b",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -39397,13 +38403,13 @@
       "file": "packages/client-graph/src/shell-views.ts",
       "holder": "createShellViews/orders/memo:callback",
       "rule": "consume:flatMap",
-      "tokens": "e9ca77f41139cccb3fe93ec8f6623628588b0cd9104eb6e84768d653722514f1",
+      "tokens": "37e574fe2dcee2427f4b8d4bad82601a12fa5a72437bf49e8e2070d64f3d746c",
       "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "1c9b9a6a8ec1083781e399e4babec9a0f6a119492a6131cda1541c5ef798b499",
+      "fingerprint": "4440c0dc15810106548edee544771caf2cef6fc0a9cb0277d9352b2da139b659",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -39435,13 +38441,13 @@
       "file": "packages/client-graph/src/shell-views.ts",
       "holder": "createShellViews/repositories",
       "rule": "reader-summary",
-      "tokens": "8ec00ef62a9d221b9ef320f2c00fb10f02825774b00064986c69e4d028634b6f",
+      "tokens": "186885d896116ec6beea152818581fd387259aa0956feb930f491186c2b2ce37",
       "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "5112b25a09527b4c4f5e01aaa2a99f4d0759d92f841b14422fc26079a1b03341",
+      "fingerprint": "45029111183f717320963550b872bccdd5b4cb22624039dd6ddee9ffe325cd79",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -39454,13 +38460,13 @@
       "file": "packages/client-graph/src/shell-views.ts",
       "holder": "createShellViews/repositories/memo:callback",
       "rule": "consume:flatMap",
-      "tokens": "0de44f0aa763e921e8299f0fcfde889ef17f482876018f6db9ab293f46d57cc1",
+      "tokens": "e762d3d93df3c9d5c24bb194124f7d83f02c35aebc1863960380c3f74369a662",
       "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "a4267bc7592eed74c8417d489c832e631eea99474535118bb6a60ea11e983641",
+      "fingerprint": "fe21e3784da2584746625f0c41e557907c7995fd19e7513ed961d1a845522e08",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",

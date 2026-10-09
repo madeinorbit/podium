@@ -14,7 +14,7 @@ import type { HeaderRows } from './header-schema'
 import { MobxPool } from './pool'
 import { paneIssueColor, paneSession } from './session-pane'
 import { sessionPaneView } from './session-pane-view'
-import { shellViews } from './shell-views'
+import { ShellDockSession, shellViews } from './shell-views'
 import { worklistView } from './worklist/view-model'
 import { LOADING, type Loaded } from './worklist/rollup'
 
@@ -376,12 +376,13 @@ it('omits gone pane sessions and attachments while preserving a pending stamp an
     expect(pane.present).toBe(true)
     expect(pane.stampIssue).toBe(LOADING)
     expect(panes.pane(pool.sessionObject('private-session')).present).toBe(LOADING)
-    const dock = shellViews(pool).dock
-    expect(dock.gitIssue).toBe(LOADING)
+    const dock = new ShellDockSession(pool.sessionObject('private-session'), pool)
+    expect(dock.known).toBe(LOADING)
+    expect(new ShellDockSession(removed.session, pool).known).toBeUndefined()
     expect(pool.hydrate()).toBe(2)
     expect(pane.stampIssue).toBeUndefined()
     expect(panes.loaded('private-session')).toBeUndefined()
-    expect(dock.gitIssue).toBeUndefined()
+    expect(dock.known).toBeUndefined()
     expect(pool.hydrate()).toBe(0)
     expect(load).toHaveBeenCalledTimes(2)
     expect(load.mock.calls.flat()).not.toContain('removed-session')
