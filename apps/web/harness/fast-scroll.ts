@@ -52,7 +52,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'],
     env: { ...process.env, LD_LIBRARY_PATH: resolve('.toolchain/lib') } })
   try {
-    const variants = fixture === 'lists' ? ['scroll', 'list', 'explorer', 'full', 'waterfall'] : fixture === 'phone-lists' ? ['inbox', 'work', 'tasks', 'sessions', 'target'] : ['chat']
+    const variants = fixture === 'lists' ? ['scroll', 'list', 'explorer', 'full', 'waterfall-css'] : fixture === 'phone-lists' ? ['inbox', 'work', 'tasks', 'sessions', 'target'] : ['chat']
     for (const variant of variants.filter(name => !process.argv.includes('--variant') || process.argv[process.argv.indexOf('--variant') + 1]!.split(',').includes(name))) {
       const page = await browser.newPage({ viewport: fixture.startsWith('phone') ? { width: 390, height: 844 } : { width: 1600, height: 900 }, reducedMotion: 'reduce' })
       const errors: string[] = []

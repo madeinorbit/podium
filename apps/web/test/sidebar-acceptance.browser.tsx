@@ -213,6 +213,18 @@ function Fixture() {
               <SidebarUnified />
             </aside>
             {scrollSurface && <div className="flex min-h-0 flex-1 flex-col"><ToolbarSlotProvider><ToolbarSlotTarget /><IssuesView /></ToolbarSlotProvider></div>}
+            {params.get('surface') === 'waterfall-css' && <div
+              data-testid="waterfall-css-scroller"
+              className="engraved-column overflow-y-auto"
+              style={{ width: 330, height: '100vh' }}
+            >
+              {/* The experimental whole view cannot mount on this fixture.
+                  Exercise its shipped CSS containment with a long row corpus. */}
+              {corpus.issues.slice(0, 600).map(issue => <div key={issue.id}
+                className="waterfall-issue-row"
+                style={{ display: 'grid', gridTemplateColumns: '180px 1fr', '--waterfall-lane-height': '32px', '--waterfall-row-padding': '8px' } as import('react').CSSProperties}
+              ><div className="waterfall-issue-cell"><span>{issue.title}</span></div><div>Working</div></div>)}
+            </div>}
             {(scrollSurface || params.get('surface') === 'explorer') && <aside className="flex min-h-0 w-[316px] flex-none"><IssueExplorerList /></aside>}
             {pageSurface && <IssuePageProbe ids={pageTargets} />}
             {full && (
