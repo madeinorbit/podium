@@ -2,7 +2,7 @@ import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
 import { LOADING } from './loading'
-import { here, isGone, omitGone, type Lookup } from './lookup'
+import { here, isGone, omitGone, type Gone, type Lookup } from './lookup'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { PoolRowSlot } from './react/row'
@@ -197,4 +197,39 @@ it('a failed load settles once, and a later publication makes the record availab
     f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'private', value }] })
     expect(answers.at(-1)).toBe(value)
   } finally { stop(); f.pool.dispose() }
+})
+
+it('keeps the old Gone guard answers and property reads on the same fixtures', () => {
+  // Keep the original eager guard as the equivalence control for its smaller
+  // replacement. Tags alone must not turn ordinary values into terminal exits.
+  const oldIsGone = (value: unknown): value is Gone =>
+    typeof value === 'object' && value !== null &&
+    (value as Gone).kind === 'gone' &&
+    ((value as Gone).reason === 'removed' || (value as Gone).reason === 'not-visible')
+  const values: unknown[] = [
+    null, undefined, LOADING, false, 0, 'gone', {}, issue('resident'),
+    { kind: 'gone', reason: 'removed' },
+    { kind: 'gone', reason: 'not-visible' },
+    { kind: 'gone', reason: 'evicted' },
+    { kind: 'gone' }, { kind: 'issue', reason: 'removed' },
+    Object.assign(() => {}, { kind: 'gone', reason: 'removed' }),
+    Object.assign([], { kind: 'gone', reason: 'removed' }),
+  ]
+  for (const value of values) {
+    const gone = oldIsGone(value)
+    expect(isGone(value)).toBe(gone)
+    expect(omitGone(value)).toBe(gone ? undefined : value)
+    expect(here(value)).toBe(value === LOADING || gone ? undefined : value)
+  }
+  for (const reason of ['removed', 'not-visible', 'evicted']) {
+    const reads: string[] = []
+    const value = {
+      get kind() { reads.push('kind'); return 'gone' },
+      get reason() { reads.push('reason'); return reason },
+    }
+    const oldAnswer = oldIsGone(value)
+    const oldReads = reads.splice(0)
+    expect(isGone(value)).toBe(oldAnswer)
+    expect(reads).toEqual(oldReads)
+  }
 })
