@@ -156,7 +156,7 @@ function clickTarget(pool: MobxPool): string {
       return (
         node.standing.activeHuman === true &&
         node.standing.parentId === null &&
-        node.unread === true
+        pool.issueObject(candidate).unread === true
       )
     })
     if (id === undefined) throw new Error('no unread open-human root in the visible order')
@@ -408,7 +408,7 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
         const { pool } = r.handle
         audit = observeGroups(pool)
         const target = clickTarget(pool)
-        expect(tracked(() => pool.knownIssue(target)?.unread)).toBe(true)
+        expect(tracked(() => pool.issueObject(target).unread)).toBe(true)
         let splices = 0
         let sorted = 0
         const runs = countReactions(() => {
@@ -441,7 +441,7 @@ describe('scaling: the work follows the change (POD-4686, POD-4757)', () => {
           expect(count, `${name} executions`).toBe(readsLatch ? 1 : 0)
         }
         // The cursor still works: the row reads as read, stays visible, files nothing.
-        expect(tracked(() => pool.knownIssue(target)?.unread)).toBe(false)
+        expect(tracked(() => pool.issueObject(target).unread)).toBe(false)
         expect(tracked(() => pool.knownIssue(target)?.visible)).toBe(true)
         // The plant replaces the row's slot the old way — the read-state lane
         // lifted, so the cursor update writes the slot like every other
