@@ -47,12 +47,15 @@ All validation ran in the foreground on flatblock using the checkout-local depen
 | Web `worklist-window.test.tsx` | 9 passed on rebased candidate | 226,288 KiB |
 | Final wrong-answer parity mutation | 2 expected failures, 8 filtered | 316,056 KiB |
 | Full-answer walk plant | 2 expected counter failures, 8 filtered | 297,572 KiB |
+| Shared stacked-tip state/sidebar/membership proofs, each run separately | 75 + 1 + 10 passed at `99acf386b7`, mutation environment unset | Maximum worker RSS 389 MiB |
 
 Validation found a constructor-registration cycle and a lane-reset subscriber loop. Both were fixed. A reset now iterates a snapshot because queries unsubscribe/re-subscribe during notification; a bounded unit regression catches a second visit without hanging. Four ordinary worker attempts crossed the monitor threshold (3,169,296 / 3,151,708 / 3,183,740 / 3,198,440 KiB); a stalled diagnostic was stopped earlier at 1,729,692 KiB. The SIGTERM-only monitor did not ensure exit, and the coordinator had to kill orphan workers. None of those stopped attempts is a passing result.
 
 A lean gate attempt was interrupted during API declaration generation at 3,364,984 KiB, before a complete typecheck or lean result. Following the coordinator's updated shared-lane instruction, this session stopped its own checks, canceled the census queue and released a lease granted during cancellation. Remaining recorded gate PIDs were checked; no further run was started. POD-5895 owns the lean gate, full typecheck, scan ratchet, normal web build, census and final pilot validation/landing.
 
 The shared batch's full typecheck rejected candidate `1384a343f91a06cf89848a032890a7b9f55e355b`: the lane atom passed `debugName()`'s optional result where MobX requires a string. The follow-up repair uses the existing generic `'Atom'` fallback when debug names are disabled. This changes no membership or order logic; shared-lane validation of the repaired candidate remains pending.
+
+The shared scan at `99acf386b7` reported ten stale fingerprints for removed operations and five new/changed fingerprints in the native mapping, query bootstrap and phone answer getters. Their exact census metadata is being reconciled with the shared lane; existing classifications remain required repair. The same stack's web build exceeded its eager raw limit by 1,160 bytes (2,151,160 against 2,150,000); attribution is pending isolation, so this report claims neither a green scan nor a green build.
 
 ## Scope
 
