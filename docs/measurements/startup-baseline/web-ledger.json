@@ -1,0 +1,232 @@
+{
+  "cohort": "1830659a-cab4-4365-b4c0-63a2cf30f755",
+  "surface": "web",
+  "outputs": {
+    "h1a1": [
+      ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s0/run.json",
+      ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s1/run.json",
+      ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s2/run.json",
+      ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s3/run.json",
+      ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s4/run.json",
+      ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r4-s0/run.json",
+      ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s6/run.json",
+      ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s7/run.json"
+    ],
+    "h10a1": [
+      ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s0/run.json",
+      ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s1/run.json",
+      ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s2/run.json",
+      ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s3/run.json",
+      ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s4/run.json",
+      ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r4-s0/run.json",
+      ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s6/run.json",
+      ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s7/run.json"
+    ],
+    "h1a4": [
+      ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s0/run.json",
+      ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s1/run.json",
+      ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s2/run.json",
+      ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s3/run.json",
+      ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s4/run.json",
+      ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r4-s0/run.json",
+      ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s6/run.json",
+      ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s7/run.json"
+    ],
+    "h10a4": [
+      ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s0/run.json",
+      ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s1/run.json",
+      ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s2/run.json",
+      ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s3/run.json",
+      ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s4/run.json",
+      ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r4-s0/run.json",
+      ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s6/run.json",
+      ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s7/run.json"
+    ]
+  },
+  "schedule": [
+    {
+      "step": 0,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s0/run.json"
+    },
+    {
+      "step": 0,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s0/run.json"
+    },
+    {
+      "step": 0,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s0/run.json"
+    },
+    {
+      "step": 0,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s0/run.json"
+    },
+    {
+      "step": 1,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s1/run.json"
+    },
+    {
+      "step": 1,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s1/run.json"
+    },
+    {
+      "step": 1,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s1/run.json"
+    },
+    {
+      "step": 1,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s1/run.json"
+    },
+    {
+      "step": 2,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s2/run.json"
+    },
+    {
+      "step": 2,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s2/run.json"
+    },
+    {
+      "step": 2,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s2/run.json"
+    },
+    {
+      "step": 2,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s2/run.json"
+    },
+    {
+      "step": 3,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s3/run.json"
+    },
+    {
+      "step": 3,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s3/run.json"
+    },
+    {
+      "step": 3,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s3/run.json"
+    },
+    {
+      "step": 3,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s3/run.json"
+    },
+    {
+      "step": 4,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s4/run.json"
+    },
+    {
+      "step": 4,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s4/run.json"
+    },
+    {
+      "step": 4,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s4/run.json"
+    },
+    {
+      "step": 4,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s4/run.json"
+    },
+    {
+      "step": 6,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s6/run.json"
+    },
+    {
+      "step": 6,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s6/run.json"
+    },
+    {
+      "step": 6,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s6/run.json"
+    },
+    {
+      "step": 6,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s6/run.json"
+    },
+    {
+      "step": 7,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s7/run.json"
+    },
+    {
+      "step": 7,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s7/run.json"
+    },
+    {
+      "step": 7,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s7/run.json"
+    },
+    {
+      "step": 7,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s7/run.json"
+    },
+    {
+      "step": 5,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r4-s0/run.json"
+    },
+    {
+      "step": 5,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r4-s0/run.json"
+    },
+    {
+      "step": 5,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r4-s0/run.json"
+    },
+    {
+      "step": 5,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r4-s0/run.json"
+    }
+  ],
+  "samplesPerCell": 8,
+  "status": "complete",
+  "excluded": [
+    {
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s5/run.json",
+      "replacement": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r4-s0/run.json",
+      "reason": "Whole four-cell block repeated because h10a4 logged an abnormal WebSocket close/reconnect during warm startup; original bytes preserved."
+    },
+    {
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s5/run.json",
+      "replacement": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r4-s0/run.json",
+      "reason": "Whole four-cell block repeated because h10a4 logged an abnormal WebSocket close/reconnect during warm startup; original bytes preserved."
+    },
+    {
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s5/run.json",
+      "replacement": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r4-s0/run.json",
+      "reason": "Whole four-cell block repeated because h10a4 logged an abnormal WebSocket close/reconnect during warm startup; original bytes preserved."
+    },
+    {
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s5/run.json",
+      "replacement": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r4-s0/run.json",
+      "reason": "Whole four-cell block repeated because h10a4 logged an abnormal WebSocket close/reconnect during warm startup; original bytes preserved."
+    }
+  ]
+}

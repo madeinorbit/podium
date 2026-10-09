@@ -1,0 +1,1275 @@
+{
+  "cohort": "1830659a-cab4-4365-b4c0-63a2cf30f755",
+  "surface": "web",
+  "schedule": [
+    {
+      "step": 0,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s0/run.json"
+    },
+    {
+      "step": 0,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s0/run.json"
+    },
+    {
+      "step": 0,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s0/run.json"
+    },
+    {
+      "step": 0,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s0/run.json"
+    },
+    {
+      "step": 1,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s1/run.json"
+    },
+    {
+      "step": 1,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s1/run.json"
+    },
+    {
+      "step": 1,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s1/run.json"
+    },
+    {
+      "step": 1,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s1/run.json"
+    },
+    {
+      "step": 2,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s2/run.json"
+    },
+    {
+      "step": 2,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s2/run.json"
+    },
+    {
+      "step": 2,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s2/run.json"
+    },
+    {
+      "step": 2,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s2/run.json"
+    },
+    {
+      "step": 3,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s3/run.json"
+    },
+    {
+      "step": 3,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s3/run.json"
+    },
+    {
+      "step": 3,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s3/run.json"
+    },
+    {
+      "step": 3,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s3/run.json"
+    },
+    {
+      "step": 4,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s4/run.json"
+    },
+    {
+      "step": 4,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s4/run.json"
+    },
+    {
+      "step": 4,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s4/run.json"
+    },
+    {
+      "step": 4,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s4/run.json"
+    },
+    {
+      "step": 6,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s6/run.json"
+    },
+    {
+      "step": 6,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s6/run.json"
+    },
+    {
+      "step": 6,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s6/run.json"
+    },
+    {
+      "step": 6,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s6/run.json"
+    },
+    {
+      "step": 7,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s7/run.json"
+    },
+    {
+      "step": 7,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s7/run.json"
+    },
+    {
+      "step": 7,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s7/run.json"
+    },
+    {
+      "step": 7,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s7/run.json"
+    },
+    {
+      "step": 5,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r4-s0/run.json"
+    },
+    {
+      "step": 5,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r4-s0/run.json"
+    },
+    {
+      "step": 5,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r4-s0/run.json"
+    },
+    {
+      "step": 5,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r4-s0/run.json"
+    }
+  ],
+  "cells": {
+    "h1a1": {
+      "cold": {
+        "samplesMs": [
+          6610.315,
+          5377.768,
+          3888.359,
+          3971.457,
+          3959.105,
+          5134.971,
+          6470.305,
+          4250.38
+        ],
+        "medianMs": 4692.675499999999,
+        "minMs": 3888.359,
+        "maxMs": 6610.315
+      },
+      "warm": {
+        "samplesMs": [
+          4732.968,
+          3795.707,
+          3478.682,
+          2895.489,
+          3931.335,
+          3683.889,
+          4192.814,
+          3426.321
+        ],
+        "medianMs": 3739.798,
+        "minMs": 2895.489,
+        "maxMs": 4732.968
+      },
+      "runs": [
+        ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s0/run.json",
+        ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s1/run.json",
+        ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s2/run.json",
+        ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s3/run.json",
+        ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s4/run.json",
+        ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r4-s0/run.json",
+        ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s6/run.json",
+        ".artifacts/old-vs-new/timing-h1a1-web-h1a1-r3-s7/run.json"
+      ],
+      "sourceShas": [
+        "75ec571b0498638ec05b15d088ea8cbaefba2b0e"
+      ],
+      "builds": [
+        {
+          "wireSchemaDigest": "366458d430049fd2",
+          "wireVersion": 4,
+          "appVersion": "dev+75ec571",
+          "sourceSha": "75ec571",
+          "bundleVersion": "bundle+CkDtfcea"
+        }
+      ],
+      "corpus": {
+        "syntheticIssues": 4867,
+        "syntheticSessions": 4304,
+        "extraLiveIssues": 2,
+        "extraLiveSessions": 5
+      },
+      "semanticSha256": "1c18e3e02127627a2de16cbe315d0746671d96a1d946deee70bb04397c12f1ff",
+      "collectorSha256": "ee264fd434dc9aedad7208c434c387e23483c83f01593bb67fdf69296af8fcd7",
+      "browser": "153.0.8010.12",
+      "httpCache": "disabled by bootstrap request routing",
+      "startupBoundary": "sidebar-issue-row",
+      "loadStart": [
+        [
+          8.5,
+          9.92,
+          10.16
+        ],
+        [
+          6.13,
+          5.5,
+          7.29
+        ],
+        [
+          9.44,
+          7.38,
+          7.72
+        ],
+        [
+          6.63,
+          6.8,
+          7.41
+        ],
+        [
+          6.36,
+          6.02,
+          6.68
+        ],
+        [
+          5.47,
+          6.48,
+          8.2
+        ],
+        [
+          13.67,
+          13.13,
+          9.97
+        ],
+        [
+          7.77,
+          9.93,
+          9.65
+        ]
+      ],
+      "loadEnd": [
+        [
+          10.7,
+          10.29,
+          10.28
+        ],
+        [
+          7.94,
+          5.97,
+          7.39
+        ],
+        [
+          8.7,
+          7.37,
+          7.7
+        ],
+        [
+          7.81,
+          7.07,
+          7.48
+        ],
+        [
+          6.48,
+          6.07,
+          6.68
+        ],
+        [
+          6.48,
+          6.59,
+          8.18
+        ],
+        [
+          14.03,
+          13.3,
+          10.14
+        ],
+        [
+          7.79,
+          9.75,
+          9.6
+        ]
+      ],
+      "population": [
+        {
+          "issueDep": 3594,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 4869,
+          "issueUserState": 4867,
+          "machine": 8,
+          "repo": 11,
+          "session": 4310,
+          "sessionUserState": 4304,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 3594,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 4869,
+          "issueUserState": 4867,
+          "machine": 8,
+          "repo": 11,
+          "session": 4310,
+          "sessionUserState": 4304,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 3594,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 4869,
+          "issueUserState": 4867,
+          "machine": 8,
+          "repo": 11,
+          "session": 4310,
+          "sessionUserState": 4304,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 3594,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 4869,
+          "issueUserState": 4867,
+          "machine": 8,
+          "repo": 11,
+          "session": 4310,
+          "sessionUserState": 4304,
+          "userLayout": 1
+        },
+        {
+          "issueDep": 3594,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 4869,
+          "issueUserState": 4867,
+          "machine": 8,
+          "repo": 11,
+          "session": 4310,
+          "sessionUserState": 4304,
+          "userLayout": 1
+        },
+        {
+          "issueDep": 3594,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 4869,
+          "issueUserState": 4867,
+          "machine": 8,
+          "repo": 11,
+          "session": 4310,
+          "sessionUserState": 4304,
+          "userLayout": 1
+        },
+        {
+          "issueDep": 3594,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 4869,
+          "issueUserState": 4867,
+          "machine": 8,
+          "repo": 11,
+          "session": 4310,
+          "sessionUserState": 4304,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 3594,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 4869,
+          "issueUserState": 4867,
+          "machine": 8,
+          "repo": 11,
+          "session": 4310,
+          "sessionUserState": 4304,
+          "userLayout": 2
+        }
+      ],
+      "productTreeSha256": [
+        "151a921fb816493e7d0bd1c3bf2d74a16d58589f36caf2ebdd11c38e1e69532b"
+      ],
+      "startedAt": [
+        "2026-10-09T07:51:13.976Z",
+        "2026-10-09T08:10:40.625Z",
+        "2026-10-09T08:13:30.450Z",
+        "2026-10-09T08:16:35.148Z",
+        "2026-10-09T08:42:50.364Z",
+        "2026-10-09T09:06:59.439Z",
+        "2026-10-09T08:50:17.689Z",
+        "2026-10-09T08:56:13.785Z"
+      ],
+      "endedAt": [
+        "2026-10-09T07:51:46.603Z",
+        "2026-10-09T08:11:09.673Z",
+        "2026-10-09T08:13:56.213Z",
+        "2026-10-09T08:17:00.205Z",
+        "2026-10-09T08:43:14.669Z",
+        "2026-10-09T09:07:32.800Z",
+        "2026-10-09T08:50:52.097Z",
+        "2026-10-09T08:56:42.828Z"
+      ],
+      "leaseWindows": [
+        "2026-10-09T07:51:11.422549+00:00",
+        "2026-10-09T08:08:29.805040+00:00",
+        "2026-10-09T08:40:53.592827+00:00",
+        "2026-10-09T08:55:00.200027+00:00",
+        "2026-10-09T09:06:55.972514+00:00"
+      ]
+    },
+    "h10a1": {
+      "cold": {
+        "samplesMs": [
+          14584.265,
+          15178.274,
+          14510.195,
+          12949.001,
+          13148.066,
+          14256.826,
+          17300.589,
+          14370.278
+        ],
+        "medianMs": 14440.236499999999,
+        "minMs": 12949.001,
+        "maxMs": 17300.589
+      },
+      "warm": {
+        "samplesMs": [
+          10760.683,
+          10893.561,
+          9198.603,
+          10301.317,
+          9699.072,
+          10647.331,
+          12614.556,
+          9810.83
+        ],
+        "medianMs": 10474.324,
+        "minMs": 9198.603,
+        "maxMs": 12614.556
+      },
+      "runs": [
+        ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s0/run.json",
+        ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s1/run.json",
+        ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s2/run.json",
+        ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s3/run.json",
+        ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s4/run.json",
+        ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r4-s0/run.json",
+        ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s6/run.json",
+        ".artifacts/old-vs-new/timing-h10a1-web-h10a1-r3-s7/run.json"
+      ],
+      "sourceShas": [
+        "75ec571b0498638ec05b15d088ea8cbaefba2b0e"
+      ],
+      "builds": [
+        {
+          "wireSchemaDigest": "366458d430049fd2",
+          "wireVersion": 4,
+          "appVersion": "dev+75ec571",
+          "sourceSha": "75ec571",
+          "bundleVersion": "bundle+CkDtfcea"
+        }
+      ],
+      "corpus": {
+        "syntheticIssues": 27601,
+        "syntheticSessions": 30611,
+        "extraLiveIssues": 2,
+        "extraLiveSessions": 5
+      },
+      "semanticSha256": "9b4653d2d3f3f84e927865b3d064b5fa54d503c0eaf9f58303de26c69613fe8e",
+      "collectorSha256": "ee264fd434dc9aedad7208c434c387e23483c83f01593bb67fdf69296af8fcd7",
+      "browser": "153.0.8010.12",
+      "httpCache": "disabled by bootstrap request routing",
+      "startupBoundary": "sidebar-issue-row",
+      "loadStart": [
+        [
+          10.52,
+          10.27,
+          10.27
+        ],
+        [
+          9.06,
+          9.74,
+          10.07
+        ],
+        [
+          7.27,
+          7.12,
+          7.62
+        ],
+        [
+          8.33,
+          7.23,
+          7.53
+        ],
+        [
+          5.32,
+          5.69,
+          6.63
+        ],
+        [
+          6.2,
+          6.53,
+          7.92
+        ],
+        [
+          13.8,
+          12.99,
+          9.62
+        ],
+        [
+          6.05,
+          10.24,
+          9.72
+        ]
+      ],
+      "loadEnd": [
+        [
+          11.2,
+          10.44,
+          10.33
+        ],
+        [
+          7.69,
+          9.3,
+          9.9
+        ],
+        [
+          5.92,
+          6.74,
+          7.46
+        ],
+        [
+          8.21,
+          7.35,
+          7.55
+        ],
+        [
+          6.85,
+          6.09,
+          6.71
+        ],
+        [
+          6.55,
+          6.49,
+          7.81
+        ],
+        [
+          13.86,
+          13.15,
+          9.94
+        ],
+        [
+          9.2,
+          10.31,
+          9.77
+        ]
+      ],
+      "population": [
+        {
+          "issueDep": 19682,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 27603,
+          "issueUserState": 27601,
+          "machine": 8,
+          "repo": 11,
+          "session": 30617,
+          "sessionUserState": 30611,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 19682,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 27603,
+          "issueUserState": 27601,
+          "machine": 8,
+          "repo": 11,
+          "session": 30617,
+          "sessionUserState": 30611,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 19682,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 27603,
+          "issueUserState": 27601,
+          "machine": 8,
+          "repo": 11,
+          "session": 30617,
+          "sessionUserState": 30611,
+          "userLayout": 1
+        },
+        {
+          "issueDep": 19682,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 27603,
+          "issueUserState": 27601,
+          "machine": 8,
+          "repo": 11,
+          "session": 30617,
+          "sessionUserState": 30611,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 19682,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 27603,
+          "issueUserState": 27601,
+          "machine": 8,
+          "repo": 11,
+          "session": 30617,
+          "sessionUserState": 30611,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 19682,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 27603,
+          "issueUserState": 27601,
+          "machine": 8,
+          "repo": 11,
+          "session": 30617,
+          "sessionUserState": 30611,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 19682,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 27603,
+          "issueUserState": 27601,
+          "machine": 8,
+          "repo": 11,
+          "session": 30617,
+          "sessionUserState": 30611,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 19682,
+          "issueEvent": 4,
+          "issueGitState": 5,
+          "issueProjection": 27603,
+          "issueUserState": 27601,
+          "machine": 8,
+          "repo": 11,
+          "session": 30617,
+          "sessionUserState": 30611,
+          "userLayout": 2
+        }
+      ],
+      "productTreeSha256": [
+        "151a921fb816493e7d0bd1c3bf2d74a16d58589f36caf2ebdd11c38e1e69532b"
+      ],
+      "startedAt": [
+        "2026-10-09T07:52:00.554Z",
+        "2026-10-09T07:55:22.022Z",
+        "2026-10-09T08:14:10.498Z",
+        "2026-10-09T08:17:14.276Z",
+        "2026-10-09T08:41:47.005Z",
+        "2026-10-09T09:10:07.277Z",
+        "2026-10-09T08:48:51.387Z",
+        "2026-10-09T08:55:05.158Z"
+      ],
+      "endedAt": [
+        "2026-10-09T07:52:54.875Z",
+        "2026-10-09T07:56:21.807Z",
+        "2026-10-09T08:15:02.140Z",
+        "2026-10-09T08:18:08.572Z",
+        "2026-10-09T08:42:37.670Z",
+        "2026-10-09T09:11:04.175Z",
+        "2026-10-09T08:50:04.121Z",
+        "2026-10-09T08:55:59.756Z"
+      ],
+      "leaseWindows": [
+        "2026-10-09T07:51:11.422549+00:00",
+        "2026-10-09T08:08:29.805040+00:00",
+        "2026-10-09T08:40:53.592827+00:00",
+        "2026-10-09T08:55:00.200027+00:00",
+        "2026-10-09T09:06:55.972514+00:00"
+      ]
+    },
+    "h1a4": {
+      "cold": {
+        "samplesMs": [
+          10924.314,
+          8676.403,
+          9310.62,
+          9748.731,
+          9399.994,
+          10786.551,
+          9253.567,
+          9134.62
+        ],
+        "medianMs": 9355.307,
+        "minMs": 8676.403,
+        "maxMs": 10924.314
+      },
+      "warm": {
+        "samplesMs": [
+          6899.893,
+          7851.508,
+          7043.349,
+          7345.942,
+          6390.11,
+          7271.604,
+          7261.214,
+          7378.428
+        ],
+        "medianMs": 7266.409,
+        "minMs": 6390.11,
+        "maxMs": 7851.508
+      },
+      "runs": [
+        ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s0/run.json",
+        ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s1/run.json",
+        ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s2/run.json",
+        ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s3/run.json",
+        ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s4/run.json",
+        ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r4-s0/run.json",
+        ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s6/run.json",
+        ".artifacts/old-vs-new/timing-h1a4-web-h1a4-r3-s7/run.json"
+      ],
+      "sourceShas": [
+        "75ec571b0498638ec05b15d088ea8cbaefba2b0e"
+      ],
+      "builds": [
+        {
+          "wireSchemaDigest": "366458d430049fd2",
+          "wireVersion": 4,
+          "appVersion": "dev+75ec571",
+          "sourceSha": "75ec571",
+          "bundleVersion": "bundle+CkDtfcea"
+        }
+      ],
+      "corpus": {
+        "syntheticIssues": 11890,
+        "syntheticSessions": 8447,
+        "extraLiveIssues": 2,
+        "extraLiveSessions": 5
+      },
+      "semanticSha256": "742194171e3642c4d0a375bd1793af70f8d4cce7522972af26b30e299522ca9b",
+      "collectorSha256": "ee264fd434dc9aedad7208c434c387e23483c83f01593bb67fdf69296af8fcd7",
+      "browser": "153.0.8010.12",
+      "httpCache": "disabled by bootstrap request routing",
+      "startupBoundary": "sidebar-issue-row",
+      "loadStart": [
+        [
+          9.57,
+          10.11,
+          10.22
+        ],
+        [
+          3.23,
+          5.18,
+          7.48
+        ],
+        [
+          7.61,
+          5.99,
+          7.37
+        ],
+        [
+          7.4,
+          7.21,
+          7.5
+        ],
+        [
+          3.92,
+          5.52,
+          6.62
+        ],
+        [
+          6.14,
+          6.57,
+          8.01
+        ],
+        [
+          10.29,
+          12.33,
+          10.16
+        ],
+        [
+          10.38,
+          12.1,
+          10.19
+        ]
+      ],
+      "loadEnd": [
+        [
+          10.23,
+          10.21,
+          10.25
+        ],
+        [
+          3.83,
+          5.1,
+          7.36
+        ],
+        [
+          8.87,
+          6.5,
+          7.49
+        ],
+        [
+          6.74,
+          7.03,
+          7.43
+        ],
+        [
+          5.84,
+          5.8,
+          6.67
+        ],
+        [
+          7.05,
+          6.69,
+          7.99
+        ],
+        [
+          11.64,
+          12.39,
+          10.27
+        ],
+        [
+          8.57,
+          11.39,
+          10.03
+        ]
+      ],
+      "population": [
+        {
+          "issueDep": 8861,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 11892,
+          "issueUserState": 11890,
+          "machine": 8,
+          "repo": 11,
+          "session": 8453,
+          "sessionUserState": 8447,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 8861,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 11892,
+          "issueUserState": 11890,
+          "machine": 8,
+          "repo": 11,
+          "session": 8453,
+          "sessionUserState": 8447,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 8861,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 11892,
+          "issueUserState": 11890,
+          "machine": 8,
+          "repo": 11,
+          "session": 8453,
+          "sessionUserState": 8447,
+          "userLayout": 1
+        },
+        {
+          "issueDep": 8861,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 11892,
+          "issueUserState": 11890,
+          "machine": 8,
+          "repo": 11,
+          "session": 8453,
+          "sessionUserState": 8447,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 8861,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 11892,
+          "issueUserState": 11890,
+          "machine": 8,
+          "repo": 11,
+          "session": 8453,
+          "sessionUserState": 8447,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 8861,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 11892,
+          "issueUserState": 11890,
+          "machine": 8,
+          "repo": 11,
+          "session": 8453,
+          "sessionUserState": 8447,
+          "userLayout": 1
+        },
+        {
+          "issueDep": 8861,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 11892,
+          "issueUserState": 11890,
+          "machine": 8,
+          "repo": 11,
+          "session": 8453,
+          "sessionUserState": 8447,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 8861,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 11892,
+          "issueUserState": 11890,
+          "machine": 8,
+          "repo": 11,
+          "session": 8453,
+          "sessionUserState": 8447,
+          "userLayout": 2
+        }
+      ],
+      "productTreeSha256": [
+        "151a921fb816493e7d0bd1c3bf2d74a16d58589f36caf2ebdd11c38e1e69532b"
+      ],
+      "startedAt": [
+        "2026-10-09T07:53:08.255Z",
+        "2026-10-09T08:08:32.356Z",
+        "2026-10-09T08:11:24.695Z",
+        "2026-10-09T08:18:21.797Z",
+        "2026-10-09T08:40:56.274Z",
+        "2026-10-09T09:09:11.901Z",
+        "2026-10-09T08:52:40.399Z",
+        "2026-10-09T08:53:32.328Z"
+      ],
+      "endedAt": [
+        "2026-10-09T07:53:47.034Z",
+        "2026-10-09T08:09:08.201Z",
+        "2026-10-09T08:12:01.151Z",
+        "2026-10-09T08:18:59.165Z",
+        "2026-10-09T08:41:33.317Z",
+        "2026-10-09T09:09:51.558Z",
+        "2026-10-09T08:53:18.400Z",
+        "2026-10-09T08:54:09.682Z"
+      ],
+      "leaseWindows": [
+        "2026-10-09T07:51:11.422549+00:00",
+        "2026-10-09T08:08:29.805040+00:00",
+        "2026-10-09T08:40:53.592827+00:00",
+        "2026-10-09T09:06:55.972514+00:00"
+      ]
+    },
+    "h10a4": {
+      "cold": {
+        "samplesMs": [
+          18713.098,
+          17888.164,
+          17311.385,
+          18488.426,
+          20527.506,
+          21289.787,
+          22422.093,
+          22513.249
+        ],
+        "medianMs": 19620.302000000003,
+        "minMs": 17311.385,
+        "maxMs": 22513.249
+      },
+      "warm": {
+        "samplesMs": [
+          13667.607,
+          17502.837,
+          14284.285,
+          16242.262,
+          16527.284,
+          14947.291,
+          17264.25,
+          16024.17
+        ],
+        "medianMs": 16133.216,
+        "minMs": 13667.607,
+        "maxMs": 17502.837
+      },
+      "runs": [
+        ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s0/run.json",
+        ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s1/run.json",
+        ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s2/run.json",
+        ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s3/run.json",
+        ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s4/run.json",
+        ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r4-s0/run.json",
+        ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s6/run.json",
+        ".artifacts/old-vs-new/timing-h10a4-web-h10a4-r3-s7/run.json"
+      ],
+      "sourceShas": [
+        "75ec571b0498638ec05b15d088ea8cbaefba2b0e"
+      ],
+      "builds": [
+        {
+          "wireSchemaDigest": "366458d430049fd2",
+          "wireVersion": 4,
+          "appVersion": "dev+75ec571",
+          "sourceSha": "75ec571",
+          "bundleVersion": "bundle+CkDtfcea"
+        }
+      ],
+      "corpus": {
+        "syntheticIssues": 34624,
+        "syntheticSessions": 34754,
+        "extraLiveIssues": 2,
+        "extraLiveSessions": 5
+      },
+      "semanticSha256": "a8be04da883eaf4f7872662d37e74640f9cdc833fb8d345e88125b92e9662042",
+      "collectorSha256": "ee264fd434dc9aedad7208c434c387e23483c83f01593bb67fdf69296af8fcd7",
+      "browser": "153.0.8010.12",
+      "httpCache": "disabled by bootstrap request routing",
+      "startupBoundary": "sidebar-issue-row",
+      "loadStart": [
+        [
+          8.84,
+          9.91,
+          10.15
+        ],
+        [
+          3.27,
+          4.91,
+          7.27
+        ],
+        [
+          7.98,
+          6.42,
+          7.45
+        ],
+        [
+          5.77,
+          6.67,
+          7.42
+        ],
+        [
+          6.09,
+          6.87,
+          7.37
+        ],
+        [
+          6.4,
+          6.58,
+          8.15
+        ],
+        [
+          13.54,
+          13.23,
+          10.17
+        ],
+        [
+          9.43,
+          10,
+          9.68
+        ]
+      ],
+      "loadEnd": [
+        [
+          9.56,
+          9.88,
+          10.12
+        ],
+        [
+          6.89,
+          5.62,
+          7.35
+        ],
+        [
+          9.7,
+          7.32,
+          7.7
+        ],
+        [
+          7.15,
+          6.9,
+          7.45
+        ],
+        [
+          6.39,
+          6.84,
+          7.33
+        ],
+        [
+          7.12,
+          6.77,
+          8.1
+        ],
+        [
+          11.77,
+          12.69,
+          10.24
+        ],
+        [
+          10.55,
+          10.08,
+          9.72
+        ]
+      ],
+      "population": [
+        {
+          "issueDep": 24949,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 34626,
+          "issueUserState": 34624,
+          "machine": 8,
+          "repo": 11,
+          "session": 34760,
+          "sessionUserState": 34754,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 24949,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 34626,
+          "issueUserState": 34624,
+          "machine": 8,
+          "repo": 11,
+          "session": 34760,
+          "sessionUserState": 34754,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 24949,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 34626,
+          "issueUserState": 34624,
+          "machine": 8,
+          "repo": 11,
+          "session": 34760,
+          "sessionUserState": 34754,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 24949,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 34626,
+          "issueUserState": 34624,
+          "machine": 8,
+          "repo": 11,
+          "session": 34760,
+          "sessionUserState": 34754,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 24949,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 34626,
+          "issueUserState": 34624,
+          "machine": 8,
+          "repo": 11,
+          "session": 34760,
+          "sessionUserState": 34754,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 24949,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 34626,
+          "issueUserState": 34624,
+          "machine": 8,
+          "repo": 11,
+          "session": 34760,
+          "sessionUserState": 34754,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 24949,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 34626,
+          "issueUserState": 34624,
+          "machine": 8,
+          "repo": 11,
+          "session": 34760,
+          "sessionUserState": 34754,
+          "userLayout": 2
+        },
+        {
+          "issueDep": 24949,
+          "issueEvent": 4,
+          "issueGitState": 20,
+          "issueProjection": 34626,
+          "issueUserState": 34624,
+          "machine": 8,
+          "repo": 11,
+          "session": 34760,
+          "sessionUserState": 34754,
+          "userLayout": 2
+        }
+      ],
+      "productTreeSha256": [
+        "151a921fb816493e7d0bd1c3bf2d74a16d58589f36caf2ebdd11c38e1e69532b"
+      ],
+      "startedAt": [
+        "2026-10-09T07:54:01.668Z",
+        "2026-10-09T08:09:22.356Z",
+        "2026-10-09T08:12:15.204Z",
+        "2026-10-09T08:15:17.231Z",
+        "2026-10-09T08:19:13.796Z",
+        "2026-10-09T09:07:47.551Z",
+        "2026-10-09T08:51:06.876Z",
+        "2026-10-09T08:56:56.658Z"
+      ],
+      "endedAt": [
+        "2026-10-09T07:55:06.860Z",
+        "2026-10-09T08:10:27.523Z",
+        "2026-10-09T08:13:17.107Z",
+        "2026-10-09T08:16:22.011Z",
+        "2026-10-09T08:20:23.820Z",
+        "2026-10-09T09:08:54.723Z",
+        "2026-10-09T08:52:25.899Z",
+        "2026-10-09T08:58:11.751Z"
+      ],
+      "leaseWindows": [
+        "2026-10-09T07:51:11.422549+00:00",
+        "2026-10-09T08:08:29.805040+00:00",
+        "2026-10-09T08:40:53.592827+00:00",
+        "2026-10-09T08:55:00.200027+00:00",
+        "2026-10-09T09:06:55.972514+00:00"
+      ]
+    }
+  }
+}

@@ -1,0 +1,210 @@
+{
+  "cohort": "a5d8b697-6e9b-4047-9555-8c684f96edd5",
+  "surface": "phone",
+  "outputs": {
+    "h1a1": [
+      ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s0/run.json",
+      ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s1/run.json",
+      ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s2/run.json",
+      ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s3/run.json",
+      ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s4/run.json",
+      ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s5/run.json",
+      ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s6/run.json",
+      ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s7/run.json"
+    ],
+    "h10a1": [
+      ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s0/run.json",
+      ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s1/run.json",
+      ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s2/run.json",
+      ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s3/run.json",
+      ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s4/run.json",
+      ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s5/run.json",
+      ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s6/run.json",
+      ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s7/run.json"
+    ],
+    "h1a4": [
+      ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s0/run.json",
+      ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s1/run.json",
+      ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s2/run.json",
+      ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s3/run.json",
+      ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s4/run.json",
+      ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s5/run.json",
+      ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s6/run.json",
+      ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s7/run.json"
+    ],
+    "h10a4": [
+      ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s0/run.json",
+      ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s1/run.json",
+      ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s2/run.json",
+      ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s3/run.json",
+      ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s4/run.json",
+      ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s5/run.json",
+      ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s6/run.json",
+      ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s7/run.json"
+    ]
+  },
+  "schedule": [
+    {
+      "step": 0,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s0/run.json"
+    },
+    {
+      "step": 0,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s0/run.json"
+    },
+    {
+      "step": 0,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s0/run.json"
+    },
+    {
+      "step": 0,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s0/run.json"
+    },
+    {
+      "step": 1,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s1/run.json"
+    },
+    {
+      "step": 1,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s1/run.json"
+    },
+    {
+      "step": 1,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s1/run.json"
+    },
+    {
+      "step": 1,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s1/run.json"
+    },
+    {
+      "step": 2,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s2/run.json"
+    },
+    {
+      "step": 2,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s2/run.json"
+    },
+    {
+      "step": 2,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s2/run.json"
+    },
+    {
+      "step": 2,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s2/run.json"
+    },
+    {
+      "step": 3,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s3/run.json"
+    },
+    {
+      "step": 3,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s3/run.json"
+    },
+    {
+      "step": 3,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s3/run.json"
+    },
+    {
+      "step": 3,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s3/run.json"
+    },
+    {
+      "step": 4,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s4/run.json"
+    },
+    {
+      "step": 4,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s4/run.json"
+    },
+    {
+      "step": 4,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s4/run.json"
+    },
+    {
+      "step": 4,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s4/run.json"
+    },
+    {
+      "step": 5,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s5/run.json"
+    },
+    {
+      "step": 5,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s5/run.json"
+    },
+    {
+      "step": 5,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s5/run.json"
+    },
+    {
+      "step": 5,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s5/run.json"
+    },
+    {
+      "step": 6,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s6/run.json"
+    },
+    {
+      "step": 6,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s6/run.json"
+    },
+    {
+      "step": 6,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s6/run.json"
+    },
+    {
+      "step": 6,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s6/run.json"
+    },
+    {
+      "step": 7,
+      "cell": "h1a4",
+      "run": ".artifacts/old-vs-new/timing-h1a4-phone-h1a4-r3-s7/run.json"
+    },
+    {
+      "step": 7,
+      "cell": "h10a1",
+      "run": ".artifacts/old-vs-new/timing-h10a1-phone-h10a1-r3-s7/run.json"
+    },
+    {
+      "step": 7,
+      "cell": "h1a1",
+      "run": ".artifacts/old-vs-new/timing-h1a1-phone-h1a1-r3-s7/run.json"
+    },
+    {
+      "step": 7,
+      "cell": "h10a4",
+      "run": ".artifacts/old-vs-new/timing-h10a4-phone-h10a4-r3-s7/run.json"
+    }
+  ],
+  "samplesPerCell": 8,
+  "status": "complete"
+}
