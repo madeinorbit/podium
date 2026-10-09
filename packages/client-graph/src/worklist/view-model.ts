@@ -62,7 +62,7 @@ export class Worklist {
     if (changed.has('selectedIssueWasFolded')) this.setFolded(locals.selectedIssueWasFolded === true)
   }
   sections(state: SidebarState = this.layout) { return this.desktop.sections(state) }
-  mobileSections() { return this.mobileSectionsView.value }
+  mobileSections() { return this.mobileSectionsView }
   desktopRow(id: string) { return this.desktop.row(id) }
   mobileRow(ref: Pick<MobileWorkRef, 'id' | 'kind'>): WorklistIssue | WorklistWorktree | typeof LOADING | undefined {
     if (ref.kind === 'issue') {

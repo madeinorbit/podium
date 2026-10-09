@@ -111,6 +111,7 @@ function nativeSections(pinned: Row[], groups: Group[]) {
     selectedWasFolded: false,
     layout: {},
     knownRow: pool.issue,
+    mobileSections() { return (this as unknown as { mobileSectionsView: MobileSectionsView }).mobileSectionsView },
     desktop: (pool as unknown as { sidebar: unknown }).sidebar,
     reference: (id: string, kind = 'issue', attention = false) => ({
       id, kind, listKey: attention ? `needs-you:${id}` : id,
@@ -150,9 +151,10 @@ function nativeSections(pinned: Row[], groups: Group[]) {
   })
   const sections = new MobileSectionsView(pool, {})
   ;(views.get('worklist.view') as { mobileSectionsView: MobileSectionsView }).mobileSectionsView = sections
-  const value = sections.value
-  return { ...value, sections: new MobileSearchSections().update(pool, value.sections, ''),
-    orderingSections: new MobileSearchSections().update(pool, value.orderingSections, '') }
+  return { issueCount: sections.issueCount, pinnedCount: sections.pinnedCount,
+    attentionCount: sections.attentionCount, pending: sections.pending,
+    sections: new MobileSearchSections().update(pool, sections.sectionKeys, ''),
+    orderingSections: new MobileSearchSections(true).update(pool, sections.orderingSectionKeys, '') }
 }
 const bandKeys = (split: ReturnType<typeof nativeSections>) =>
   split.sections.map((section) => section.key)

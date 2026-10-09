@@ -351,7 +351,7 @@ function button(id = TARGET) {
 async function parity() {
   await act(async () => {
     for (let turn = 0; turn < 100; turn++) {
-      mobileWorkView(pool()).mobileSections()
+      mobileWorkView(pool()).mobileSections().pending
       if (!pool().hydrate()) break
     }
     await Promise.resolve()
@@ -492,7 +492,7 @@ describe('mobile pool work-list actions', () => {
     expect(screen.queryByRole('button', { name: label })).toBeNull()
     expect(
       mobileWorkView(pool()).mobileSections()
-        .sections.some((section) => section.closedIds.includes(TARGET)),
+        .sectionKeys.some((key) => mobileWorkView(pool()).mobileSections().section(key).closedIds.includes(TARGET)),
     ).toBe(true)
     await parity()
     await settle(first)
@@ -525,7 +525,7 @@ describe('mobile pool work-list actions', () => {
     await settle(write)
     expect(
       mobileWorkView(pool()).mobileSections()
-        .sections.some((section) => section.closedIds.includes(TARGET)),
+        .sectionKeys.some((key) => mobileWorkView(pool()).mobileSections().section(key).closedIds.includes(TARGET)),
     ).toBe(true)
   })
 
@@ -558,7 +558,7 @@ describe('mobile pool work-list actions', () => {
     expect(value().issue.deferred).toBe(false)
     expect(
       mobileWorkView(pool()).mobileSections()
-        .sections.some((section) => section.data.some((row) => row === TARGET)),
+        .sectionKeys.some((key) => mobileWorkView(pool()).mobileSections().section(key).data.some((row) => row === TARGET)),
     ).toBe(true)
     await parity()
     await settle(write)
@@ -727,7 +727,7 @@ describe('mobile pool work-list actions', () => {
     const write = await request('issues.delete')
     expect(
       mobileWorkView(pool()).mobileSections()
-        .sections.every((section) => section.data.every((row) => row !== TARGET)),
+        .sectionKeys.every((key) => mobileWorkView(pool()).mobileSections().section(key).data.every((row) => row !== TARGET)),
     ).toBe(true)
     await parity()
     await settle(write)
@@ -749,11 +749,11 @@ describe('mobile pool work-list actions', () => {
           })
         })
         const split = mobileWorkView(pool()).mobileSections()
-        expect(split.sections.some((section) => section.kind === 'attention')).toBe(true)
-        const ordering = split.orderingSections.find((section) => section.kind === scope)!
-        expect(ordering.data.some((row) => row === 'synthetic-1')).toBe(true)
-        expect(split.orderingSections.every((section) => section.kind !== 'attention')).toBe(true)
-        const before = ordering.data.slice()
+        expect(split.sectionKeys.includes('needs-you')).toBe(true)
+        const ordering = split.section(split.orderingSectionKeys.find((key) => split.section(key).kind === scope)!)
+        expect(ordering.allIds.some((row) => row === 'synthetic-1')).toBe(true)
+        expect(split.orderingSectionKeys.every((key) => split.section(key).kind !== 'attention')).toBe(true)
+        const before = ordering.allIds.slice()
         const moving = before.at(-1)!
         const patches = planReorderKeys(
           [moving, ...before.filter((id) => id !== moving)],
@@ -768,14 +768,13 @@ describe('mobile pool work-list actions', () => {
         })
         expect(
           mobileWorkView(pool()).mobileSections()
-            .orderingSections.find((section) => section.key === ordering.key)!.data[0]!,
+            .section(ordering.key).allIds[0]!,
         ).toBe(moving)
         await parity()
         for (const changed of patches) await settle(await request('issues.update', changed.id))
         expect(
           mobileWorkView(pool()).mobileSections()
-            .orderingSections.find((section) => section.key === ordering.key)!
-            .data.slice(),
+            .section(ordering.key).allIds.slice(),
         ).toEqual(before)
       })
 

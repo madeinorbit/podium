@@ -131,12 +131,29 @@ export function mobilePaintNow(pool: MobxPool): number {
  * straight to SectionList, and row payload changes never rebuild them. */
 export function searchMobileSections(
   pool: MobxPool,
-  sections: readonly WorkSection[],
+  sections: readonly string[],
   query: string,
   cache = new MobileSearchSections(),
 ): readonly MobileWorkSection[] {
   return cache.update(pool, sections, query)
 }
+
+function nativeSectionFields(pool: MobxPool, key: string, ordering: boolean): WorkSection {
+  const row = mobileWorkView(pool).mobileSections().section(key)
+  const collapsed = !ordering && row.collapsed
+  return {
+    key, label: row.label, kind: row.kind, total: ordering ? row.allIds.length : row.total,
+    data: ordering ? row.allIds : row.data,
+    snoozedIds: collapsed ? EMPTY_SECTION_IDS : row.snoozedIds,
+    closedIds: collapsed ? EMPTY_SECTION_IDS : row.closedIds,
+    foldKey: row.foldKey, collapsed,
+  }
+}
+const EMPTY_SECTION_IDS: readonly string[] = Object.freeze([])
+const sameSectionFields = (a: WorkSection, b: WorkSection) =>
+  a.key === b.key && a.label === b.label && a.kind === b.kind && a.total === b.total &&
+  a.data === b.data && a.snoozedIds === b.snoozedIds && a.closedIds === b.closedIds &&
+  a.foldKey === b.foldKey && a.collapsed === b.collapsed
 
 /** Matching is one shared title/ref id-set pass (POD-5561) plus one label
  * read per worktree; unchanged matches allocate no row array. A changed
@@ -147,15 +164,19 @@ export function searchMobileSections(
  * belong to one search over one pool: ending the search or a new pool
  * (another principal) drops them, so a screen holds one instance. */
 export class MobileSearchSections {
+  constructor(private readonly ordering = false) {}
   private readonly bands = new Map<string, MobileWorkSection>()
   private readonly sources = new Map<string, { source: WorkSection; native: MobileWorkSection }>()
   private nativeSources: readonly MobileWorkSection[] = []
-  private native(pool: MobxPool, sections: readonly WorkSection[]): readonly MobileWorkSection[] {
+  private native(pool: MobxPool, sections: readonly (WorkSection | string)[]): readonly MobileWorkSection[] {
     const active = new Set<string>()
-    const next = sections.map(source => {
+    const next = sections.map(key => {
+      // SectionList needs a descriptor object. Worklist retains only keys and
+      // model fields; this UI boundary forms the native library's props.
+      const source = typeof key === 'string' ? nativeSectionFields(pool, key, this.ordering) : key
       active.add(source.key)
       const old = this.sources.get(source.key)
-      if (old?.source === source) return old.native
+      if (old && sameSectionFields(old.source, source)) return old.native
       const data = old && old.native.data.length === source.data.length && old.native.data.every((ref, index) => ref.id === source.data[index])
         ? old.native.data : source.data.map(id => ({ id,
         kind: pool.tables.worktree.has(id) ? 'worktree' as const : 'issue' as const,
@@ -172,7 +193,7 @@ export class MobileSearchSections {
   private pool: MobxPool | null = null
   update(
     pool: MobxPool,
-    sources: readonly WorkSection[],
+    sources: readonly (WorkSection | string)[],
     query: string,
   ): readonly MobileWorkSection[] {
     const sections = this.native(pool, sources)
@@ -339,4 +360,3 @@ export function worklistRowStatus(value: WorklistIssue | WorklistWorktree, now: 
     sidebar.issue as unknown as Parameters<typeof issueStatusLabel>[0],
   ).toLowerCase()
 }
-

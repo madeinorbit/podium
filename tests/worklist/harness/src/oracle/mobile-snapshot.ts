@@ -31,8 +31,10 @@ function poolRow(pool: MobxPool, ref: MobileWorkRef): CheckRow {
 export function poolMobileSnapshot(pool: MobxPool, state: MobileWorkState = {}): SidebarSnapshot {
   worklistView(pool).setLayout(state)
   const answer = mobileWorkView(pool).mobileSections()
-  const split = { ...answer, sections: new MobileSearchSections().update(pool, answer.sections, ''),
-    orderingSections: new MobileSearchSections().update(pool, answer.orderingSections, '') }
+  const split = { issueCount: answer.issueCount, pinnedCount: answer.pinnedCount,
+    attentionCount: answer.attentionCount, pending: answer.pending,
+    sections: new MobileSearchSections().update(pool, answer.sectionKeys, ''),
+    orderingSections: new MobileSearchSections(true).update(pool, answer.orderingSectionKeys, '') }
   let pending = split.pending
   const cache = new Map<string, CheckRow>()
   const row = (ref: MobileWorkRef): CheckRow => {

@@ -8,8 +8,7 @@ import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { refusalFixture } from '../../../../tests/worklist/harness/src/refusal-fixture'
 import { OutboxRecoveryIndicator } from '../features/machines/OutboxRecovery'
-import { poolIssueDisplay, poolIssueRow } from '../features/worklist/pool-row-data'
-import { UnifiedIssueRow } from '../features/worklist/UnifiedIssueRow'
+import { WorklistIssueRow } from '../features/worklist/UnifiedIssueRow'
 
 const state = vi.hoisted(() => ({ current: null as Awaited<ReturnType<typeof refusalFixture>> | null }))
 const copied = vi.hoisted(() => vi.fn())
@@ -34,7 +33,7 @@ const Row = observer(function Row() {
   const f = state.current!
   const value = sidebarView(f.pool).row(f.id)
   if (!value || typeof value === 'symbol') return null
-  return <UnifiedIssueRow model={value} now={f.ctx.corpus.fixedNow}
+  return <WorklistIssueRow model={value} now={f.ctx.corpus.fixedNow}
     onSelectIssue={() => {}} onSelectPanelForIssue={() => {}} onOpenIssue={() => {}} onRenameIssue={() => {}} />
 })
 

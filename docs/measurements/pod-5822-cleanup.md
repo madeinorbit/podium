@@ -1,6 +1,6 @@
 # Worklist cleanup evidence
 
-POD-5822 follows the frontend data guide rules 3, 4, 5, 8 and 9 and the names approved by POD-5708 on 2026-10-08. The canonical name table was committed before implementation in `375e79a8b4`; its approved corrections are in `pod-5822-names.md`.
+POD-5822 follows the frontend data guide rules 3, 4, 5, 8 and 9 and the names approved by POD-5708 on 2026-10-08. The canonical name table was committed before implementation in `4b7de6fe0f`; its approved corrections are in `pod-5822-names.md`.
 
 ## Result
 
@@ -8,7 +8,7 @@ Desktop sidebar, rail and phone Work rows read `WorklistIssue`, `WorklistWorktre
 
 Selection and its fold latch are Worklist observable accessors. A row derives `selected` by ID equality; `selectionGone` reads the selected shared model’s replica `exitKind`. The runtime selection property delegates to Worklist while attached, and standalone sources feed Worklist directly. There is no second selection map, eviction value or reaction keeping them aligned. Device persistence remains POD-5797.
 
-Worklist-created membership lists are shallow-equal lazy model/ID fields. Mobile section fields are lazy parts owned by the Worklist and group nodes; native SectionList descriptors are formed at the UI boundary. Worktree roster ordering uses incremental ordered data queries over shared sessions, with shallow-equal visible/stale lists. Folded header counts read narrow shared session flags; navigation activity reads scalar session timestamps. Clock behavior remains POD-5863.
+Worklist-created membership lists are shallow-equal lazy model/ID fields. Mobile section fields are lazy parts owned by the Worklist and group nodes. The Worklist retains section-key lists and each section’s issue/worktree IDs; native SectionList descriptors are formed only at the phone UI boundary. The phone root observes the model counts directly. Worktree roster ordering uses incremental ordered data queries over shared sessions, with shallow-equal visible/stale lists. Folded header counts read narrow shared session flags; navigation activity reads scalar session timestamps. Clock behavior remains POD-5863.
 
 The cached `factRow` is replaced by an ephemeral record read inside each scalar model getter. `loadedIssue` and `loadedOrigin` retain shared models or the same LOADING/absent answers. Their only production readers are readiness and the origin's id/seq/title; the data layer's `rollupInputs.loadedIssue` protocol is unchanged. Schema-installed issue fields use the existing lazy decorator so a sort-only edit does not redraw an unchanged title/color reader; other entity getters are unchanged.
 
@@ -40,4 +40,4 @@ All validation runs use the checkout-local pinned Bun on flatblock (`~/podium-te
 
 Final focused consumer tests, full cached typecheck, lean gate, zero-error interaction scan, normal web build and locked structural census: pending.
 
-Completed focused runs include shared models/attention/eviction (17 checks), roster/query/mission (41 checks), runtime projections/pane (29 checks), and the desktop sidebar (15 checks). The desktop action file is currently 41/42 green; its remaining folded-tuck case is being isolated. These counts are focused-file evidence, not a full suite result. Two earlier harness workers were stopped at the ordinary 3 GiB limit; those runs are not reported as green.
+Completed focused runs include shared models/attention/eviction (17 checks), roster/query/mission (41 checks), runtime projections/pane (29 checks), and the desktop sidebar (15 checks). The full desktop action file passed 42/42 with temporary fold observations; a final run without those observations remains. Five of six smaller desktop checks passed; the refusal fixture was still drawing the memoized legacy row and now imports the production Worklist observer row, with its assertions unchanged. These counts are focused-file evidence, not a full suite result. Two earlier harness workers were stopped at the ordinary 3 GiB limit; those runs are not reported as green.

@@ -86,7 +86,17 @@ it('the lazy phone sections match the old keyed sections through fold and select
   try {
     for (const layout of [{}, { collapsed: { 'podium:sidebar:work-group-fold:/synthetic': true } }, { searching: true }]) {
       view.setLayout(layout)
-      const old = new MobileSectionsBefore(pool, layout).value.get(), answer = view.mobileSections()
+      const old = new MobileSectionsBefore(pool, layout).value.get(), sections = view.mobileSections()
+      const fields = (key: string, ordering = false) => {
+        const row = sections.section(key), collapsed = !ordering && row.collapsed
+        return { key, label: row.label, kind: row.kind, total: ordering ? row.allIds.length : row.total,
+          data: ordering ? row.allIds : row.data, snoozedIds: collapsed ? [] : row.snoozedIds,
+          closedIds: collapsed ? [] : row.closedIds, foldKey: row.foldKey, collapsed }
+      }
+      const answer = { issueCount: sections.issueCount, pinnedCount: sections.pinnedCount,
+        attentionCount: sections.attentionCount, pending: sections.pending,
+        sections: sections.sectionKeys.map(key => fields(key)),
+        orderingSections: sections.orderingSectionKeys.map(key => fields(key, true)) }
       const expected = { ...old, sections: old.sections.map(section => ({ ...section, data: section.data.map(ref => ref.id) })),
         orderingSections: old.orderingSections.map(section => ({ ...section, data: section.data.map(ref => ref.id) })) }
       expect(process.env.POD5822_MUTATE === '1' ? { ...answer, issueCount: -1 } : answer).toEqual(expected)

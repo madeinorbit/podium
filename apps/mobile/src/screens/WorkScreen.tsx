@@ -8,7 +8,6 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import type {
   MobileWorkRef,
   MobileWorkState,
-  MobileWorkSection as CoreWorkSection,
 } from '@podium/client-graph/worklist/mobile'
 import type { SessionId } from '@podium/model'
 import { canonicalIssueCloseReason, ISSUE_STATUS_LABELS } from '@podium/model'
@@ -133,8 +132,7 @@ function configureFoldAnimation(reduceMotion: boolean): void {
 
 const EMPTY_MOBILE_SECTIONS: readonly MobileWorkSection[] = Object.freeze([])
 const EMPTY_MOBILE_SPLIT = Object.freeze({
-  sections: Object.freeze([]) as readonly CoreWorkSection[],
-  orderingSections: Object.freeze([]) as readonly CoreWorkSection[],
+  sectionKeys: Object.freeze([]) as readonly string[],
   issueCount: 0,
   pinnedCount: 0,
   attentionCount: 0,
@@ -163,7 +161,7 @@ export function WorkScreen() {
   return <WorklistProvider model={pool ? worklistView(pool) : null}><PoolWorkScreen /></WorklistProvider>
 }
 
-function PoolWorkScreen() {
+const PoolWorkScreen = observer(function PoolWorkScreen() {
   const router = useRouter()
   const pool = useMobilePool()
   const { markIssueRead, setIssueTucked } = useStoreActions()
@@ -175,13 +173,12 @@ function PoolWorkScreen() {
   const layout = useMobilePoolProjection(readLayout, EMPTY_LAYOUT)
   const model = useWorklistModel()
   useEffect(() => { model?.setLayout(layout) }, [model, layout])
-  const readSections = useCallback((graph: MobxPool) => mobileWorkView(graph).mobileSections(), [layout])
-  const split = useMobilePoolProjection(readSections, EMPTY_MOBILE_SPLIT)
+  const split = model?.mobileSections() ?? EMPTY_MOBILE_SPLIT
   const { issueCount, pinnedCount, attentionCount } = split
   const [searchOpen, setSearchOpen] = useState(false)
   const [query, setQuery] = useState('')
   const searching = query.trim().length > 0
-  const sectionKeys = useMemo(() => split.sections.map((section) => section.key), [split.sections])
+  const sectionKeys = split.sectionKeys
   const { collapsed: collapsedKeys, toggle: toggleCollapsed } = useCollapsedSet(
     sectionKeys,
     workGroupFoldKey,
@@ -191,7 +188,7 @@ function PoolWorkScreen() {
     (graph: MobxPool) =>
       searchMobileSections(
         graph,
-        mobileWorkView(graph).mobileSections().sections,
+        mobileWorkView(graph).mobileSections().sectionKeys,
         query,
         searchSections,
       ),
@@ -387,7 +384,7 @@ function PoolWorkScreen() {
       {menu ? <WorkIssueMenu {...menu} onClose={() => setMenu(null)} /> : null}
     </Screen>
   )
-}
+})
 
 function PoolFold({
   storageKey,

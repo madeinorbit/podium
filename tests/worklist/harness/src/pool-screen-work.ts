@@ -451,11 +451,15 @@ async function measureScreenCells(
     )
     add('sidebar.selection', ['PoolSidebar'], () => sidebarView(pool).selectionGone())
     add('mobile-work.sections', ['PoolWorkScreen', 'GroupHeader'], () =>
-      mobileWorkView(pool).mobileSections(),
+      { const view = mobileWorkView(pool).mobileSections(); return {
+        sectionKeys: view.sectionKeys, orderingSectionKeys: view.orderingSectionKeys,
+        issueCount: view.issueCount, pinnedCount: view.pinnedCount,
+        attentionCount: view.attentionCount, pending: view.pending,
+      } },
     )
     const search = new MobileSearchSections()
     add('mobile-work.search', ['PoolWorkScreen'], () =>
-      searchMobileSections(pool, mobileWorkView(pool).mobileSections().sections, '', search),
+      searchMobileSections(pool, mobileWorkView(pool).mobileSections().sectionKeys, '', search),
     )
     add('mobile-work.row', ['PoolWorkRowSlot'], () => {
       const row = mobileWorkView(pool).mobileRow({ kind: 'issue', id: selected() })

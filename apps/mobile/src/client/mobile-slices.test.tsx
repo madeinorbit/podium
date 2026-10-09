@@ -98,7 +98,7 @@ function WorklistProbe() {
 function readRows(pool: MobxPool) {
   return mobileWorkView(pool)
     .mobileSections()
-    .sections.flatMap((section) =>
+    .sectionKeys.map(key => mobileWorkView(pool).mobileSections().section(key)).flatMap((section) =>
       section.data.flatMap((ref) => {
         const row = mobileWorkView(pool).mobileRow({ id: ref, kind: pool.tables.worktree.has(ref) ? 'worktree' : 'issue' })
         return row && typeof row !== 'symbol' ? [row.title] : []

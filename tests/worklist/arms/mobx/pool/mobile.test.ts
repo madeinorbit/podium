@@ -1,3 +1,4 @@
+import { MobileSearchSections, type MobileWorkSection } from '../../../../../apps/mobile/src/lib/work-sections'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 /** Frozen mobile pool outputs, native identity and observed generated changes. */
@@ -10,7 +11,7 @@ import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
 import { settableLocals } from '@podium/client-graph/shared/locals-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { MOBILE_ROW_FIELDS } from '@podium/client-graph/worklist/mobile-row'
-import type { MobileWorkSection, MobileWorkState } from '@podium/client-graph/worklist/mobile'
+import type { MobileWorkState } from '@podium/client-graph/worklist/mobile'
 import { harnessMobxPoolArm, tracked } from '../../../harness/src/adapters/mobx-pool'
 import { createReplaySource } from '../../../harness/src/count-harness'
 import { openFenceFeeds, FENCE_SCENARIOS } from '../../../harness/src/fence-scenarios'
@@ -54,8 +55,9 @@ describe('mobile pool values', () => {
     let previous: readonly MobileWorkSection[] | undefined
     let retained = 0
     let identityFailure: unknown
+    const nativeSections = new MobileSearchSections()
     const inspectNative = (scenario: string) => {
-      const native = mobileWorkView(handle.pool).mobileSections().sections
+      const native = nativeSections.update(handle.pool, mobileWorkView(handle.pool).mobileSections().sectionKeys, '')
       const before = previous
       previous = native
       if (before) for (const section of native) {
@@ -93,14 +95,14 @@ describe('mobile pool values', () => {
       if (identityFailure) throw identityFailure
       tracked(() => inspectNative(scenario))
       for (const searching of [false, true]) {
-        const state = { searching, collapsed: Object.fromEntries(['pinned', 'needs-you', ...tracked(() => mobileWorkView(handle.pool).mobileSections().orderingSections.map(section => section.key))]
+        const state = { searching, collapsed: Object.fromEntries(['pinned', 'needs-you', ...tracked(() => mobileWorkView(handle.pool).mobileSections().orderingSectionKeys)]
           .map(key => [`podium:sidebar:work-group-fold:${key}`, true])) }
         const result = tracked(() => poolMobileSnapshot(handle.pool, state))
         expect(result.pending, `${scenario}, searching=${searching}`).toBe(0)
         expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool, state)))).digest('hex')).toMatchSnapshot(`${scenario}, searching=${searching}`)
         checks.push({ scenario, searching, sections: result.sections.length, pending: result.pending })
       }
-      const first = tracked(() => mobileWorkView(handle.pool).mobileSections().orderingSections.flatMap(section => section.data)[0]!)
+      const first = tracked(() => mobileWorkView(handle.pool).mobileSections().orderingSectionKeys.flatMap(key => mobileWorkView(handle.pool).mobileSections().section(key).allIds)[0]!)
       const value = tracked(() => mobileWorkView(handle.pool).mobileRow({ id: first, kind: handle.pool.tables.worktree.has(first) ? 'worktree' : 'issue' }))
       expect(value).not.toBe(LOADING)
       expect(value !== LOADING && value?.ready).toBe('ready')
@@ -125,11 +127,11 @@ describe('mobile pool values', () => {
       await run.apply({ kind: 'issueFacts', id, variant: 0 })
       locals.flush(); run.feed().flush(); settle(handle.pool)
       const split = tracked(() => mobileWorkView(handle.pool).mobileSections())
-      expect(split.sections[0]!.key).toBe('pinned')
-      expect(split.sections.find(section => section.key === 'pinned')!.data).toContain(id)
-      expect(split.sections.find(section => section.key === 'needs-you')!.data).toContain(id)
-      expect(split.orderingSections.some(section => section.key === 'needs-you')).toBe(false)
-      const ids = split.sections.flatMap(section => section.data.map(id => section.kind === 'attention' ? `needs-you:${id}` : id))
+      expect(split.sectionKeys[0]).toBe('pinned')
+      expect(split.section('pinned').data).toContain(id)
+      expect(split.section('needs-you').data).toContain(id)
+      expect(split.orderingSectionKeys.includes('needs-you')).toBe(false)
+      const ids = split.sectionKeys.flatMap(key => split.section(key).data.map(id => key === 'needs-you' ? `needs-you:${id}` : id))
       expect(new Set(ids).size).toBe(ids.length)
       expect(tracked(() => poolMobileSnapshot(handle.pool)).pending).toBe(0)
       expect(createHash('sha256').update(JSON.stringify(tracked(() => poolMobileSnapshot(handle.pool)))).digest('hex')).toMatchSnapshot('last green pinned ask output')
