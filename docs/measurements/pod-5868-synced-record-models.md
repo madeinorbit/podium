@@ -7,13 +7,13 @@ generic tables. No entity adds storage or changes table publication granularity.
 
 ## Scope and base
 
-The complete range is now based on the actual landed POD-5867 prerequisite
-`006a4ba7c9c885ab5b196cac5961b8b8abc84d6f`. POD-5895 landed that exact SHA
-ff-only above history's `d12bee410318123f0e7ad26b2d3551a1f381deb0`; the issue
-tip stayed in pilot ancestry. The original authorization to build on the
-unlanded lifecycle branch has therefore been reconciled with actual history.
-The previous focused migration proof used the older lifecycle base; fresh
-repair-specific receipts are recorded below. This model range remains unlanded.
+The complete range is now based on actual landed pilot
+`52556201c0e89240620a5df268b8b6307ffcae36`, which adds POD-5651's owner totals
+above the landed POD-5867 prerequisite `006a4ba7c9`. The complete 23-commit
+model range was rebased from `006a..40fdb4c7f3` to `525..93d751ee32` without
+conflicts; all 23 patches are equal in range-diff. POD-5651's shared session
+facts and history's 50-row bound remain intact. This model range remains
+unlanded; the fresh proof below belongs to this actual base.
 
 The coordinator narrowed this issue to synced records. Workflow record models,
 spec metadata, request ingestion and request-record retention remain deferred
@@ -21,6 +21,64 @@ to POD-5915 while POD-5910 decides the generic machinery. Spec bodies remain
 request answers. Workflow placement's machine reader moves here; its workflow
 subject and request collections remain outside this range. POD-5874's separate
 measurement of field publication can apply to these generic tables too.
+
+## Latest reconciliation and proof
+
+POD-5895 excluded the earlier proposed POD-5866 opening-owned range after its
+retained summary control failed. Its five reader conflicts were against that
+unlanded range; it is absent from the actual `52556201c0` pilot. No transient
+reader registry or opening code was restored or manually changed during this
+rebase. A future opening-owned replacement must retain its ownership rules
+with the shared record models underneath.
+
+The following focused files passed on exact runtime tip
+`93d751ee325a3c417bab75fa6de2126423ea66ac`. The subsequent report update changes
+documentation only. All fixture values and expected assertions remain intact.
+
+| Focused file | Passed | Flatblock runner receipt |
+| --- | ---: | --- |
+| `packages/client-graph/src/synced-record-models.test.ts` | 6 | `/tmp/podium-focused-tests-OiAQIZ/results.json` |
+| `packages/client-graph/src/deferred-models.test.ts` | 1 | `/tmp/podium-focused-tests-OiAQIZ/results.json` |
+| `packages/client-graph/src/models.test.ts` | 13 | `/tmp/podium-focused-tests-OiAQIZ/results.json` |
+| `apps/web/src/app/automation-readers.test.tsx` | 6 | `/tmp/podium-focused-tests-bSIbL4/results.json` |
+| `apps/web/src/features/workflows/readers.test.tsx` | 6 | `/tmp/podium-focused-tests-Q5hmod/results.json` |
+| `apps/web/src/features/settings/sections/updates.test.tsx` | 36 | `/tmp/podium-focused-tests-ng66nw/results.json` |
+| `apps/web/src/features/settings/MachinesPanel.test.tsx` | 46 | `/tmp/podium-focused-tests-Yejv2X/results.json` |
+| `apps/mobile/src/screens/SettingsScreen.pool.test.tsx` | 4 | `/tmp/podium-focused-tests-ynWDUi/results.json` |
+| `apps/web/test/pool-bundle-boundary.test.ts` | 3 | `/tmp/podium-focused-tests-GQH1XP/results.json` |
+| **Total** | **121** | **Nine focused files, not a suite result** |
+
+The same complete-field fixture was run separately with
+`PODIUM_RECORD_NEGATIVE_CONTROL=1`: one expected failure at `machine.name`
+(`Wrong answer` versus `Workstation`), five filtered cases, exit 1. Its receipt
+is `/tmp/podium-focused-tests-VaUwcl/results.json`. The ordinary six cases pass
+above; the control changed no production source or assertion.
+
+Every run was sequential and foreground on flatblock with Bun 1.4.2 and its
+checkout-local node alias. The meter was checked free before each run; no
+memory stop occurred. The
+eight recorded validation wrappers were checked after completion and none
+remained live. Machine-panel, deferred-loading and other web/model runs emitted
+no warnings. Phone settings still prints Bun's existing unsupported
+`moduleSuffixes` warning; the mobile configuration and Bun pin are unchanged
+against `52556201c0`. No React/MobX warning was introduced or suppressed.
+
+The fresh light scan is GREEN: **2,202 fingerprints, 2,203 occurrences, 2,055
+existing REQUIRED REPAIR debts and zero ratchet errors**, logged at
+`flatblock:/tmp/pod5868-owner-base-scan.log`. Rebase required no manual census
+changes. History's `IssueActivityHistory/appendEvents` classification, owner,
+trigger, 50-row bound, reason, guard and count are identical at `006a`, `525`
+and this candidate.
+
+POD-4286 confirmed that startup budget is no longer an owner-lane blocker under
+the standing headroom rule. POD-5895's actual `525` baseline build measured
+2,149,830 eager raw bytes, leaving 170 bytes under the current 2,150,000 ceiling.
+The earlier +1,558-byte source estimate below remains historical; it is not a
+production measurement of this rebased candidate. No ceiling, allowance or
+generic deferred-entity admission change is included here. The private proposed
+budget change was withdrawn by the testing lane. The candidate's full
+typecheck, normal web build, lean gate, structural census and landing remain
+exclusively with POD-5895 after coordinator selection.
 
 ## Ownership and readers
 
@@ -92,7 +150,7 @@ validation of deferred loading. POD-4286 withdrew its temporary typecheck/build
 exceptions: those commands remain exclusively in POD-5895's lane. No remote
 validation ran during the POD-5911 trace window.
 
-### Fresh focused receipts on the landed prerequisite
+### Historical focused receipts on the lifecycle prerequisite
 
 The final runtime source is `54e8aeccb9`, on actual landed base `006a4ba7c9`.
 All twelve files in the earlier 190-case migration table passed again. The
@@ -136,7 +194,7 @@ Selected runner receipts on flatblock:
 - light scan: `/tmp/pod5868-light-scan-repair.log` — 2,210 fingerprints,
   2,211 occurrences, 2,063 carried repair debts, **0 ratchet errors**.
 
-### Startup estimate and operator hold
+### Historical startup estimate and operator hold
 
 The landed prerequisite's normal production build contains 2,149,989 eager raw
 bytes, leaving 11 bytes under the unchanged 2,150,000-byte ceiling. An isolated
@@ -265,10 +323,10 @@ crossed the stop threshold. The run receipt is also in
 `/tmp/pod5868-fixture-before-render.log` in this session, with the runner's JSON
 report at `/tmp/podium-focused-tests-ny2qRx/results.json` on flatblock.
 
-## Scan evidence and remaining gates
+## Historical scan evidence and remaining gates
 
-The fresh post-rebase light interaction scan reports **0 ratchet errors**, 2,210
-fingerprints and 2,211 occurrences. Compared with the actual prerequisite
+The earlier post-rebase light interaction scan reported **0 ratchet errors**,
+2,210 fingerprints and 2,211 occurrences. Compared with the source prerequisite
 `1a32e0d834` baseline, 110 moved
 fingerprints retain their classification, owner, trigger, bound, reason and
 guard; twelve obsolete shell-reader entries disappear. Seven new sites are
@@ -281,7 +339,8 @@ census under `meter:flatblock`, and landing, as assigned by POD-4286. Those gate
 structural flat-or-better proof and ff-only pilot landing remain pending for
 this model range. The prerequisite's green shared receipts and actual landing
 do not validate this candidate. This issue stays in progress until the required
-receipts arrive; its shared lane is held for the operator's budget decision.
+receipts arrive. The coordinator has since lifted the owner-lane budget blocker;
+current receipts and remaining shared checks are listed above.
 
 The initial compatibility preview was never used as a landed base. Complete
 source reconciliation preserves history's `appendEvents` bound at **50 rows**
