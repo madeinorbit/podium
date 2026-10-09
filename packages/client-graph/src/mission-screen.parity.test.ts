@@ -22,6 +22,7 @@ import { dedupeSessions } from '../../../tests/worklist/diagnostics/reference-st
 import { allIssueViewModels } from '../../../tests/worklist/diagnostics/reference/issue-view-models'
 import { buildCorpus } from '../../../tests/worklist/harness/src/fixture/corpus'
 import { seedCacheFromCorpus } from '../../../tests/worklist/shared/src/scenarios'
+import { expectPoolOutput } from '../../../tests/worklist/harness/src/oracle/pool-output'
 import { headerView } from './header-views'
 import { attachMobileScreens } from './mobile-screens'
 import { MissionScreen, type MissionScreenView, missionRootId } from './mission-screen'
@@ -57,6 +58,20 @@ function memoryUi() {
     },
   }
   return ui
+}
+
+/** What the deck draws of a continuation and a departure: ids, words, state. */
+const continuationFacts = (value: MissionViewValues['continuation']) =>
+  value ? { kind: value.kind, short: value.short, full: value.full, line: value.line, target: value.target?.id ?? null } : null
+const departureFacts = (values: MissionViewValues['departures']) =>
+  values.map(value => ({ id: value.issue.id, originId: value.originId, state: value.state }))
+
+/** Compare one case, and keep its answer for the frozen fingerprint: once the
+ * bundle is deleted, the fingerprint is the old answer this test still holds. */
+function same(answers: unknown[], label: string, current: { old: unknown; next: unknown } | undefined) {
+  expect(current?.next, label).not.toBe(LOADING)
+  expect(current?.next, label).toEqual(current?.old)
+  answers.push([label, current?.next])
 }
 
 function oldUnread(row: MissionDeckIssueModel, collapsed: boolean): boolean {
@@ -108,8 +123,8 @@ function oldDeck(values: MissionViewValues, view: MissionScreenView, mode: Fligh
     archivedCount: values.archivedCount,
     note: values.note,
     presence: values.presence,
-    continuation: values.continuation,
-    departures: values.departures.filter(departure => departure.issue.id !== continuationTargetId),
+    continuation: continuationFacts(values.continuation),
+    departures: departureFacts(values.departures.filter(departure => departure.issue.id !== continuationTargetId)),
     continuationState: values.departures.find(departure => departure.issue.id === continuationTargetId)?.state ?? null,
     rootTitle: rootRow?.title ?? '',
     rootRef: issueDisplayRef(values.root!),
@@ -150,8 +165,8 @@ function newDeck(screen: MissionScreen) {
     archivedCount: screen.archivedCount,
     note: screen.note,
     presence: screen.presence,
-    continuation: screen.continuation,
-    departures: screen.otherDepartures,
+    continuation: continuationFacts(screen.continuation),
+    departures: departureFacts(screen.otherDepartures),
     continuationState: screen.continuationState,
     rootTitle: screen.rootTitle,
     rootRef: screen.rootRef,
@@ -247,6 +262,7 @@ for (const { label, scale, cold } of cases) it(`opens corpus missions with the b
     const roots = interestingRoots(issues, sessions, scale).slice(0, cold ? 8 : 40)
     expect(roots.length).toBeGreaterThan(5)
     let compared = 0, archived = 0, folded = 0, searched = 0
+    const answers: unknown[] = []
     for (const rootId of roots) {
       let resolved: unknown
       const stopRoot = autorun(() => { resolved = missionRootId(pool, rootId) })
@@ -269,8 +285,7 @@ for (const { label, scale, cold } of cases) it(`opens corpus missions with the b
         })
         try {
           await settle(pool)
-          expect(current?.next, `${rootId} ${view} settles`).not.toBe(LOADING)
-          expect(current?.next, `${rootId} ${view}`).toEqual(current?.old)
+          same(answers, `${rootId} ${view}`, current)
           compared++
           if (screen.archivedCount > 0) archived++
           // Folds: close every branch, open them all, then a mixed map that
@@ -284,12 +299,12 @@ for (const { label, scale, cold } of cases) it(`opens corpus missions with the b
           ]) {
             ui.set(FLIGHT_DECK_FOLDS_KEY, writeFlightDeckFolds(folds))
             await settle(pool)
-            expect(current?.next, `${rootId} ${view} folds`).toEqual(current?.old)
+            same(answers, `${rootId} ${view} folds ${folds.size}`, current)
             if (folds.size) folded++
           }
           screen.foldAll()
           await settle(pool)
-          expect(current?.next, `${rootId} ${view} fold all`).toEqual(current?.old)
+          same(answers, `${rootId} ${view} fold all`, current)
           // Search by a title fragment, a crew name, a reference and a miss.
           const sample = screen.rows.at(-1)
           const crew = screen.crewIds.at(-1)
@@ -297,12 +312,13 @@ for (const { label, scale, cold } of cases) it(`opens corpus missions with the b
           for (const query of [sample?.title.slice(1, 5) ?? '', crewName.slice(0, 4), sample?.displayRef ?? '', ' zz-no-match ']) {
             screen.setQuery(query)
             await settle(pool)
-            expect(current?.next, `${rootId} ${view} search ${JSON.stringify(query)}`).toEqual(current?.old)
+            same(answers, `${rootId} ${view} search ${JSON.stringify(query)}`, current)
             if (query.trim()) searched++
           }
         } finally { stop(); screen.close() }
       }
     }
+    expectPoolOutput(answers, `mission screen answers at ${label}`)
     expect(compared).toBeGreaterThan(cold ? 10 : 20)
     expect(archived).toBeGreaterThan(0)
     expect(folded).toBeGreaterThan(0)
@@ -358,8 +374,8 @@ function oldPhoneDeck(values: MissionViewValues, mode: FlightDeckMode, folds: Fl
     rootSessions: rootRow ? deckSessions(rootRow, mode).map(s => s.sessionId) : [],
     led: rows.filter(row => (row as MissionDeckIssueModel).hasLead).map(row => row.issue.id),
     presence: values.presence,
-    continuation: values.continuation,
-    departures: values.departures.filter(d => d.issue.id !== target),
+    continuation: continuationFacts(values.continuation),
+    departures: departureFacts(values.departures.filter(d => d.issue.id !== target)),
     continuationState: values.departures.find(d => d.issue.id === target)?.state ?? null,
     waiting: rootRow?.waitingAgentCount ?? 0,
   }
@@ -378,8 +394,8 @@ function newPhoneDeck(screen: MissionScreen) {
     rootSessions: rootRow ? deckSessions(rootRow, screen.mode).map(s => s.sessionId) : [],
     led: screen.rows.filter(row => row.hasLead).map(row => row.id),
     presence: screen.presence,
-    continuation: screen.continuation,
-    departures: screen.otherDepartures,
+    continuation: continuationFacts(screen.continuation),
+    departures: departureFacts(screen.otherDepartures),
     continuationState: screen.continuationState,
     waiting: screen.waitingCount,
   }
@@ -396,6 +412,7 @@ it('opens phone missions with the phone bundle\'s answers: crew, header issue, p
       ...issues.filter(issue => issue.archived && !issue.deletedAt).slice(0, 4).map(issue => issue.id),
       ...issues.filter(issue => issue.parentId && !issue.archived).slice(0, 4).map(issue => issue.id)]
     let compared = 0
+    const answers: unknown[] = []
     for (const id of ids) {
       for (const mode of ['full', 'working', 'needs-you'] as const) {
         ui.set(FLIGHT_DECK_MODE_KEY, mode === 'full' ? null : mode)
@@ -427,21 +444,21 @@ it('opens phone missions with the phone bundle\'s answers: crew, header issue, p
         })
         try {
           await settle(pool)
-          expect(current?.old, `${id} ${mode} old settles`).not.toBe(LOADING)
-          expect(current?.next, `${id} ${mode}`).toEqual(current?.old)
+          same(answers, `${id} ${mode}`, current)
           if (screen) {
             const foldable = screen.foldable.map(row => row.id)
             for (const folds of [new Map(foldable.map(fid => [fid, 'closed' as const])),
               new Map(foldable.map((fid, index) => [fid, index % 2 ? 'open' as const : 'closed' as const]))]) {
               ui.set(FLIGHT_DECK_FOLDS_KEY, writeFlightDeckFolds(folds))
               await settle(pool)
-              expect(current?.next, `${id} ${mode} folds`).toEqual(current?.old)
+              same(answers, `${id} ${mode} folds`, current)
             }
           }
           compared++
         } finally { stop(); screen?.close() }
       }
     }
+    expectPoolOutput(answers, 'phone mission answers')
     expect(compared).toBeGreaterThan(30)
   } finally { pool.dispose() }
 }, 600_000)
