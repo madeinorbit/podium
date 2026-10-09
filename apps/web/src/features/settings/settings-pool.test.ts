@@ -147,9 +147,9 @@ describe('declared settings readers', () => {
   it('batches requested rows, returns loading first, and invalidates only changed rows', async () => {
     const { pool, read, publish } = fixture()
     const initialView = createPoolProjection(pool, (current) => ({
-      catalog: current.row('settingsCatalog', 'catalog'),
-      window: current.row('settingsWindow', 'window'),
-      machine: current.row('settingsMachine', 'host'),
+      catalog: omitGone(current.row('settingsCatalog', 'catalog')),
+      window: omitGone(current.row('settingsWindow', 'window')),
+      machine: omitGone(current.row('settingsMachine', 'host')),
     }))
     const initialStop = initialView.subscribe(() => {})
     disposals.push(initialStop)
@@ -163,7 +163,7 @@ describe('declared settings readers', () => {
     expect(read).toHaveBeenCalled()
     expect(omitGone(pool.row('settingsWindow', 'window'))).toEqual({ settingsTab: 'accounts' })
     expect(omitGone(pool.row('settingsMachine', 'missing'))).toBeUndefined()
-    const view = createPoolProjection(pool, (current) => current.row('settingsMachine', 'host'))
+    const view = createPoolProjection(pool, (current) => omitGone(current.row('settingsMachine', 'host')))
     const wake = vi.fn(),
       stop = view.subscribe(wake)
     disposals.push(stop)

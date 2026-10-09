@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 /** POD-5133 heap-ownership fixture. The same synthetic assembly and sidebar
  * surface as the POD-4959 memory cells (sidebar-acceptance.browser.tsx with
  * measure=0), with no measurement hooks. It adds only `__memory.holdOwners()`:
@@ -219,7 +220,7 @@ const memory = {
         .join('')
     }
     return {
-      models: await hash(graph?.queries.ids({ kind: 'commandIssues' }).map(id => graph!.row('issue', id, 'peek'))),
+      models: await hash(graph?.queries.ids({ kind: 'commandIssues' }).map(id => omitGone(graph!.row('issue', id, 'peek')))),
       sidebar: await hash(document.querySelector('[data-sidebar-shell]')?.textContent),
       visible: await hash(
         [...document.querySelectorAll('[data-issue-row]')].map((row) =>

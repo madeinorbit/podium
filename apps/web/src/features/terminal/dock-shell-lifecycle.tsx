@@ -68,7 +68,7 @@ export function useStaleDockShellIds(): SessionId[] {
         })
         .flatMap((id) => {
           const row = omitGone(pool.row('session', id, 'summary-fields'))
-          return row && typeof row !== 'symbol' ? [row as DockShellLifecycleSession] : []
+          return row && typeof row !== 'symbol' ? [row as unknown as DockShellLifecycleSession] : []
         })
       return staleDockShellIds(dockShells, sessions)
     },

@@ -124,7 +124,7 @@ function resolvePoolIssue(pool: MobxPool | null, token: string): ResolvedRef | n
   if (!id || typeof id === 'symbol') return null
   const row = omitGone(pool.row('issue', id))
   return row && typeof row !== 'symbol'
-    ? { kind: 'issue', ref: parsed, issue: row as RefIssueLike }
+    ? { kind: 'issue', ref: parsed, issue: row as unknown as RefIssueLike }
     : null
 }
 

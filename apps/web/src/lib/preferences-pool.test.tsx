@@ -70,8 +70,8 @@ it('declares routed keys before batched loads and follows late, optimistic, roll
   const ui = createRoutedUiState({ local, replicated })
   const pool = poolFor(ui)
   const projection = createPoolProjection(pool, (p) => [
-    p.row('preference', FOLD),
-    p.row('preference', STICKY),
+    omitGone(p.row('preference', FOLD)),
+    omitGone(p.row('preference', STICKY)),
   ])
   const wake = vi.fn(),
     stop = projection.subscribe(wake)

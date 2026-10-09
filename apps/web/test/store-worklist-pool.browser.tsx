@@ -1,3 +1,4 @@
+import { requireHere } from '@podium/client-graph/lookup'
 /** Fixture-only page: the real StoreProvider and attachment, with a private
  * kernel facade seeded from the pilot corpus. No app UI or live endpoint. */
 import type { PodiumClientApi } from '@podium/client-core/api'
@@ -132,7 +133,7 @@ function ReferenceProbe() {
 
 function show(name: string | null, rebuild = false): void {
   if (current !== null) {
-    const model = current.model('issue', id)
+    const model = requireHere(current.model('issue', id))
     if (model === undefined) throw new Error('fixture issue is not resident')
     models.push(new WeakRef(model))
   }

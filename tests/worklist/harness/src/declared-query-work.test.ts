@@ -374,9 +374,9 @@ describe('pool screens work ratios: declared query screen counters', () => {
       inputs.push(
         untracked(() =>
           ['guard-root', 'guard-child'].map((id) => {
-            const row = pool!.row('issue', id, 'summary-fields')
+            const row = omitGone(pool!.row('issue', id, 'summary-fields'))
             const repoId = pool!.graph.one('issue', id, 'repo')
-            const repo = repoId ? pool!.row('repo', repoId) : undefined
+            const repo = repoId ? omitGone(pool!.row('repo', repoId)) : undefined
             if (!row || row === LOADING || repo === LOADING)
               throw new Error('Visible index input is not loaded')
             const value = row as Record<string, unknown>

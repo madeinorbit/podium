@@ -368,7 +368,7 @@ describe('addressed phone menu demand', () => {
     )
     const attached = pool as MobxPool | null
     if (!attached) throw new Error('Pool did not attach')
-    const reader = attached.row('mobileSessionReader', 'reader')
+    const reader = omitGone(attached.row('mobileSessionReader', 'reader'))
     if (!reader || typeof reader === 'symbol') throw new Error('Reader did not attach')
     const count = vi.spyOn(reader, 'issueAgentCount')
     const rows = vi.spyOn(attached, 'row')

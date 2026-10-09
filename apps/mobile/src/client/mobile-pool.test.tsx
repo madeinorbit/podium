@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { preferenceSource } from '@podium/client-graph/preference-source'
 /**
  * THE MOBILE POOL ON THE REAL MOBILE PATH (POD-4976).
@@ -323,7 +324,7 @@ describe('mobile pool ownership', () => {
     if (!alice.pool) throw new Error('The mobile pool did not attach')
     expect((preferenceSource(alice.pool)?.keys() ?? [])).toHaveLength(3)
     expect(
-      (preferenceSource(alice.pool)?.keys() ?? []).map((key) => alice.pool!.row('preference', key)),
+      (preferenceSource(alice.pool)?.keys() ?? []).map((key) => omitGone(alice.pool!.row('preference', key))),
     ).toMatchObject([
       { key: 'podium.chat.stickyPrompts', value: 'saved' },
       { key: 'podium:sidebar:task-details-fold', value: 'false' },

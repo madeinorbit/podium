@@ -228,10 +228,10 @@ export type AbsentRead = 'load' | 'mark' | 'peek' | 'summary' | 'summary-fields'
 export type Residence = 'resident' | 'loading' | 'absent'
 
 export interface PoolRows {
-  issue: SliceIssue
-  session: SliceSession
-  worktree: SliceWorktree
-  repo: RepoRow
+  issue: SliceIssue & Readonly<Record<string, unknown>>
+  session: SliceSession & Readonly<Record<string, unknown>>
+  worktree: SliceWorktree & Readonly<Record<string, unknown>>
+  repo: RepoRow & Readonly<Record<string, unknown>>
 }
 
 /** A lazy collection read: the members in memory, and how many are on their way. */
@@ -584,6 +584,7 @@ export class MobxPool {
   row(entity: 'preference', id: string): Lookup<PreferenceRow>
   row(entity: HeaderEntity, id: string): Lookup<object>
   row(entity: EntityName, id: string, absent: 'peek'): Lookup<object>
+  row<E extends EntityName>(entity: E, id: string, absent: 'summary' | 'summary-fields'): Lookup<Partial<PoolRows[E]>>
   row<E extends EntityName>(
     entity: E,
     id: string,

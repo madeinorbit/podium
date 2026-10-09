@@ -1,3 +1,4 @@
+import { requireHere } from '@podium/client-graph/lookup'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { IssueViewInput } from '../../diagnostics/reference/issue-views'
 import { afterEach, describe, expect, it, vi } from 'vitest'
@@ -533,8 +534,7 @@ describe('declared issue page', () => {
     expect(tracked(() => [...links.issue.pageDependencies.ids('owner')])).toEqual(['a', 'b'])
     expect(
       tracked(() =>
-        ctx.pool
-          .model('issue', 'owner')!
+        requireHere(ctx.pool.model('issue', 'owner'))
           .pageDependencies.ready.map((row) => row.id)
           .sort(),
       ),

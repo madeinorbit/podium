@@ -229,8 +229,8 @@ it('batches observed machine demand and returns LOADING before the shared source
   expect(workflowMachines(pool).pending).toBe(0)
   const demand = createPoolProjection(pool, (current) => ({
     machines: workflowMachines(current),
-    machine: current.row('settingsMachine', fixture.machines[0]!.id),
-    catalog: current.row('settingsCatalog', 'catalog'),
+    machine: omitGone(current.row('settingsMachine', fixture.machines[0]!.id)),
+    catalog: omitGone(current.row('settingsCatalog', 'catalog')),
   }))
   const stop = demand.subscribe(() => {})
   try {

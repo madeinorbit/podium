@@ -1,3 +1,4 @@
+import { requireHere } from '@podium/client-graph/lookup'
 // @vitest-environment happy-dom
 import * as values from '@podium/client-core/values'
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -65,7 +66,7 @@ it('renewal prepares zero displayed labels and a selected title updates only its
   const sessions = ['synthetic-session-0', 'synthetic-session-1'].map(id => pool!.sessionObject(id))
   const reads = sessions.map(session => vi.spyOn(session, 'storedField'))
   const shellRenders = unrelated.renders
-  const issue = pool!.model('issue', 'synthetic-0')!
+  const issue = requireHere(pool!.model('issue', 'synthetic-0'))
   const issueReads = vi.spyOn(issue, 'storedField')
   const labelPreparations = vi.spyOn(values, 'panelLabel')
   await act(async () => {

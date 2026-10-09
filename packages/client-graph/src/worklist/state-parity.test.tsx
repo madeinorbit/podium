@@ -1,4 +1,4 @@
-import { requireHere } from '../lookup'
+import { here, requireHere } from '../lookup'
 // @vitest-environment happy-dom
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -60,7 +60,7 @@ it('matches folded counts, activity and roster order before and after a heartbea
     // The pilot header now carries the shared IssueModel. Compare the same
     // record answer as the frozen port, then judge the moved count fields.
     const answer = { ...actual, root: actual.root
-      ? { ...actual.root.row, displayRef: actual.root.displayRef } : actual.root }
+      ? { ...here(actual.root.row), displayRef: actual.root.displayRef } : actual.root }
     expect(process.env.POD5822_MUTATE === '1' ? { ...answer, live: -1 } : answer).toEqual(expected)
     const before = worktreeBefore(pool, '/loose')!, after = sidebarView(pool).worktree('/loose')!
     for (const field of ['sessions', 'visible', 'stale'] as const) {

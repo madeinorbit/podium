@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Real production consumers and one offline runtime. Every row is synthetic. */
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -175,7 +176,7 @@ function Surfaces() {
       referenceState(owner).openFileInWorktree({ root: '/synthetic/project', path: 'readme.md' })
       referenceState(owner).setSuperOpen(true)
     }
-    ready = started && Boolean(graph) && Boolean(graph?.row('shellWindow', 'window'))
+    ready = started && Boolean(graph) && Boolean(omitGone(graph?.row('shellWindow', 'window')))
   }, [owner, graph])
   return (
     <div className="min-h-screen bg-background text-foreground">
