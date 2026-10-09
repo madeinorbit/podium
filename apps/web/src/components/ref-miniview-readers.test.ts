@@ -1,7 +1,8 @@
 import { MobxPool } from '@podium/client-graph/pool'
-import { sessionForIssue } from '@/lib/ref-miniview'
+import { sessionForIssue } from '@/lib/ref-miniview.before.test.fixture'
 import { expect, it, vi } from 'vitest'
-import { readReferenceSession, readRefMiniview } from './ref-miniview-readers'
+import { readReferenceSession } from './ref-miniview-readers'
+import { readRefMiniview } from './ref-miniview-readers.before.test.fixture'
 
 const stamp = '2026-10-05T00:00:00Z'
 function fixture(size: number) {

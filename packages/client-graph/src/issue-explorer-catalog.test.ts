@@ -1,6 +1,7 @@
 import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { issuePages } from './issue-page'
+import { menuIssues } from './issue-page-menu.before.test.fixture'
 import { MobxPool } from './pool'
 import type { RowRecord } from './shared/source'
 import { LOADING } from './worklist/rollup'
@@ -25,7 +26,7 @@ it('retains catalog values and snapshots while updates read only the changed ses
     const spy = vi.spyOn(pool, 'row')
     try {
       if (!catalog || catalog === LOADING) throw new Error('Catalog is loading')
-      expect([...catalog.issues]).toEqual(views.menuIssues())
+      expect([...catalog.issues]).toEqual(menuIssues(pool))
       expect(catalog.sessions).toHaveLength(128 * scale)
       const before = catalog
       spy.mockClear()

@@ -18,6 +18,7 @@ import {
 import { asIssueId, asSessionId } from '@podium/model/browser'
 import { MobxPool } from '@podium/client-graph/pool'
 import { issuePages } from '@podium/client-graph/issue-page'
+import { menuIssues } from '@podium/client-graph/issue-page-menu.before.test.fixture'
 import { ISSUE_PAGE_SUMMARIES } from '@podium/client-graph/issue-page-schema'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
 import { relationLinks } from '@podium/client-graph/shared/links'
@@ -645,7 +646,7 @@ describe('declared issue page', () => {
       'born-a',
       'born-b',
     ])
-    expect(tracked(() => ctx.views.menuIssues())).not.toBe(LOADING)
+    expect(tracked(() => menuIssues(ctx.pool))).not.toBe(LOADING)
     expectSummaryReadsOnly(ctx, before)
     expect(tracked(() => ctx.views.issue('arch'))).toBe(LOADING)
     expect(tracked(() => ctx.views.panelIssue({ issueId: 'arch', cwd: '/synthetic' }))).toBe(

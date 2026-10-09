@@ -483,29 +483,6 @@ function createIssuePageViews(pool: MobxPool) {
     const raw = pool.row('issue', id)
     return !raw || raw === LOADING ? raw : (pool.issueObject(id) as PageIssue)
   }
-  function menuIssues(): Loaded<IssueViewModel[]> {
-    const world = issues()
-    if (!world || world === LOADING) return world
-    return world.map((value) => {
-      const childIds = [...pool.graph.many('issue', value.id, 'treeChildren')].sort(byId)
-      const memberSessionIds = [...pool.graph.many('issue', value.id, 'pageSessions')]
-        .sort(byId)
-        .map(asSessionId)
-      return {
-        ...value,
-        memberSessionIds,
-        childIds: childIds.map(asIssueId),
-        childCount: childIds.length,
-        childDoneCount: childIds.filter((id) => {
-          const child = pool.row('issue', id, 'summary') as Loaded<{
-            stage?: string
-            closedReason?: string | null
-          }>
-          return child && child !== LOADING && isFinished(child)
-        }).length,
-      }
-    })
-  }
   /** Resolve identity before any detail section subscribes to its own fields. */
   function panelIssue(args: {
     issueId?: string
@@ -602,7 +579,6 @@ function createIssuePageViews(pool: MobxPool) {
     issue,
     summary,
     issues,
-    menuIssues,
     row,
     pool,
     panelIssue,

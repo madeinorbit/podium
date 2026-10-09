@@ -5,10 +5,8 @@ import {
   miniviewReducer,
   type RefIssueLike,
   type RefSessionLike,
-  resolveRef,
-  sessionForIssue,
-  sessionWorkingIssueRef,
 } from './ref-miniview'
+import { resolveRef, sessionForIssue, sessionWorkingIssueRef } from './ref-miniview.before.test.fixture'
 
 const issues: RefIssueLike[] = [
   { id: asIssueId('iss_1'), prefix: 'POD', seq: 13, displayRef: 'POD-13', title: 'Nice ids' },

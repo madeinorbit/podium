@@ -20,7 +20,7 @@ import {
   compareSidebarSnapshots,
 } from '../../../../tests/worklist/diagnostics/sidebar-check'
 import { issueMentions } from '@/lib/at-mention/mention-sources'
-import { resolveRef, sessionForIssue } from '@/lib/ref-miniview'
+import { resolveRef, sessionForIssue } from '@/lib/ref-miniview.before.test.fixture'
 
 const loading = (row: unknown): row is symbol => typeof row === 'symbol'
 export function checkChatContext(
