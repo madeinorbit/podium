@@ -100,8 +100,8 @@ exports[`renders the same real AgentPanel header, lifecycle text and controls fo
 
 exports[`renders the same real AgentPanel header, lifecycle text and controls for every corpus state > pane-13 1`] = `
 {
-  "bytes": 886,
-  "sha256": "a1795fad8bdc55c42db9b47427d50ef5f72f156b9fef90f6c8e0f3799eff0da5",
+  "bytes": 913,
+  "sha256": "005e4c4e7bd70f4cd473269eb8290cecf95aaaf3676f26afb3e996bb7a2183bd",
 }
 `;
 

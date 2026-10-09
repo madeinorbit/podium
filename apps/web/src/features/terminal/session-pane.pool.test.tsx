@@ -1,7 +1,7 @@
 import { omitGone } from '@podium/client-graph/lookup'
 import { observer } from '@podium/client-graph/react'
 import { headerEntities } from '@podium/client-graph/header-entities'
-import { DraftStore } from '@podium/client-core/conversation'
+import { ConversationCache, DraftStore, type ConversationCacheOptions } from '@podium/client-core/conversation'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
 import { setFixtureSpawnPrompt } from '../../../../../tests/worklist/diagnostics/session-pane-fixture'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -54,7 +54,10 @@ const f = vi.hoisted(() => ({
   confirm: vi.fn(async () => true),
 }))
 const paneDrafts = new DraftStore({ storage: { get: () => null, set: () => {} }, hub: { on: () => () => {}, sendDraftEdit: () => {}, connectionHealth: () => ({ status: 'ok' }) } as never })
+let paneConversations: ConversationCache | undefined
 const paneStoreHandle = withKeyedInputs({
+  ownConversations: (options: ConversationCacheOptions) =>
+    paneConversations ??= new ConversationCache(options),
   drafts: paneDrafts,
   getSnapshot: () => f.state,
   subscribe: (_listener: () => void) => () => {},
@@ -85,9 +88,17 @@ vi.mock('@/app/store-worklist-pool', () => ({
     )
   },
 }))
-vi.mock('@podium/client-core/react', async () => ({
-  ...(await import('./test-support/presence-mock')).presenceSeamStub(),
+vi.mock('../../../../../packages/client-core/src/react/provider', async (original) => ({
+  ...(await original<typeof import('../../../../../packages/client-core/src/react/provider')>()),
   useStoreHandle: () => paneStoreHandle,
+}))
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useStoreHandle: () => paneStoreHandle,
+  usePresenceRoom: () => ({ status: 'unknown' as const }),
+  useCurrentPrincipal: () => null,
+  useModelCatalog: () => ({}),
+  useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),
 }))
 vi.mock('@/lib/hooks/use-confirm', () => ({ useConfirm: () => f.confirm }))
 vi.mock('@podium/terminal-client-react', () => ({
@@ -248,6 +259,8 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
+  paneConversations?.dispose()
+  paneConversations = undefined
   paneTransactions.dispose()
   f.pool?.dispose()
   f.pool = null
@@ -273,6 +286,9 @@ const view = (container: HTMLElement) => ({
 it('renders the same real AgentPanel header, lifecycle text and controls for every corpus state', async () => {
   for (const row of sessions) {
     const actual = render(<AgentPanel sessionId={row.sessionId} />)
+    // The logged-out fixture now uses the Codex kind (a13d968e31), so its
+    // brand and native key hints differ from the original Claude fixture.
+    // Draining addressed loads leaves the pane-13 paint unchanged.
     expectPoolOutput(view(actual.container), row.sessionId)
     actual.unmount()
   }

@@ -345,6 +345,10 @@ it('keeps accepted task output and closed-picker per-open work flat at 1x and 4x
       expect(screen.getAllByText('Normalized mobile mission').length).toBeGreaterThan(0)
       expect(screen.getByText('Ship normalized mobile?')).toBeTruthy()
       expect(screen.queryByTestId('page-sheet')).toBeNull()
+      // The paged history view (cb0ea6c26f) exposes this fixture's missing
+      // events transport as a retry control; the former hook hid the error.
+      // Its text, label and style are the entire accepted-output difference.
+      await waitFor(() => expect(screen.getByLabelText('Show earlier activity')).toBeTruthy())
       console.info('[accepted closed task]', scale, fingerprint(mounted.container))
       expect(fingerprint(mounted.container)).toMatchSnapshot(`accepted closed task at ${scale}x`)
       census.exit()
