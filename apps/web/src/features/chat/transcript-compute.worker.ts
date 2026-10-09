@@ -9,6 +9,7 @@ import {
   type TranscriptSearchState,
 } from '@podium/client-core/values'
 import { createMarkdownRenderer } from '@/lib/markdown-renderer'
+import { autorun, observable, runInAction, type IObservableValue } from 'mobx'
 
 const renderMarkdownUnsafe = createMarkdownRenderer(highlightCode)
 
@@ -116,7 +117,12 @@ interface TranscriptWorkerScope {
 const scope = self as unknown as TranscriptWorkerScope
 const MARKDOWN_CACHE_LIMIT = 2_048
 const markdownCache = new Map<string, string>()
-const models = new Map<number, { indexKey: number; graph: TranscriptGraph }>()
+const models = new Map<number, {
+  indexKey: number
+  graph: TranscriptGraph
+  query: IObservableValue<string>
+  stopSearch: () => void
+}>()
 let indexed:
   | {
       indexKey: number
@@ -165,6 +171,7 @@ scope.onmessage = (event: MessageEvent<TranscriptComputeWorkerRequest>) => {
   const request = event.data
   try {
     if (request.kind === 'forget-model') {
+      models.get(request.ownerKey)?.stopSearch()
       models.get(request.ownerKey)?.graph.dispose()
       models.delete(request.ownerKey)
       return
@@ -172,8 +179,14 @@ scope.onmessage = (event: MessageEvent<TranscriptComputeWorkerRequest>) => {
     if (request.kind === 'model') {
       let model = models.get(request.ownerKey)
       if (request.items) {
+        model?.stopSearch()
         model?.graph.dispose()
-        model = { indexKey: request.indexKey, graph: new TranscriptGraph(request.items) }
+        const graph = new TranscriptGraph(request.items)
+        const query = observable.box('')
+        // A model owns the worker's search demand, just as the UI owns it on
+        // the main thread. Empty search observes no n-gram postings.
+        const stopSearch = autorun(() => { graph.matches(query.get()) })
+        model = { indexKey: request.indexKey, graph, query, stopSearch }
         models.set(request.ownerKey, model)
       } else {
         if (!model || model.indexKey !== request.baseIndexKey)
@@ -181,6 +194,8 @@ scope.onmessage = (event: MessageEvent<TranscriptComputeWorkerRequest>) => {
         if (request.change) model.graph.apply(request.change)
         model.indexKey = request.indexKey
       }
+      const query = model.query
+      runInAction(() => { query.set(request.query) })
       const markdown: Array<[string, string]> = []
       const changed = request.items ?? request.change?.changed ?? []
       for (const text of markdownSources({ items: changed, verbosity: request.verbosity, query: '', cursor: 0 })) {

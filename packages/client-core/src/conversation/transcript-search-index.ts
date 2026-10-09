@@ -1,18 +1,29 @@
-import { action, makeObservable, observable } from 'mobx'
+import { action, createAtom, makeObservable, observable } from 'mobx'
 
-/** The ingestion owner updates postings; readers demand only query candidates. */
+/** Normalized source text stays resident; postings exist only for watched search. */
 export class TranscriptSearchIndex {
   private readonly texts = observable.map<string, string>(undefined, { deep: false })
   private readonly postings = observable.map<string, Set<string>>(undefined, { deep: false })
   private readonly gramsById = new Map<string, Set<string>>()
+  private indexed = false
+  private readonly searchDemand = createAtom('TranscriptSearchIndex.search', undefined,
+    () => this.releasePostings())
 
   constructor(private readonly positionOf: (id: string) => number) {
-    makeObservable(this, { set: action, remove: action, clear: action })
+    makeObservable<this, 'buildPostings' | 'releasePostings'>(this, {
+      set: action, remove: action, clear: action,
+      buildPostings: action, releasePostings: action,
+    })
   }
 
   set(id: string, text: string): void {
     const normalized = text.toLowerCase()
     if (this.texts.get(id) === normalized) return
+    if (this.indexed) this.updatePostings(id, normalized)
+    this.texts.set(id, normalized)
+  }
+
+  private updatePostings(id: string, normalized: string): void {
     const previous = this.gramsById.get(id)
     const next = this.grams(normalized)
     for (const gram of previous ?? []) if (!next.has(gram)) this.removePosting(gram, id)
@@ -26,7 +37,6 @@ export class TranscriptSearchIndex {
       members.add(id)
     }
     this.gramsById.set(id, next)
-    this.texts.set(id, normalized)
   }
 
   remove(id: string): void {
@@ -36,14 +46,30 @@ export class TranscriptSearchIndex {
   }
 
   clear(): void {
-    this.postings.clear()
+    this.releasePostings()
     this.texts.clear()
+  }
+
+  private releasePostings(): void {
+    this.indexed = false
+    this.postings.clear()
     this.gramsById.clear()
+  }
+
+  private buildPostings(): void {
+    for (const [id, text] of this.texts) this.updatePostings(id, text)
+    this.indexed = true
   }
 
   find(query: string): string[] {
     const normalized = query.trim().toLowerCase()
     if (!normalized) return []
+    // A snapshot search has no lifetime in which to retain an index. Watched
+    // searches keep their incremental buckets until the last reader leaves.
+    if (!this.searchDemand.reportObserved())
+      return [...this.texts].filter(([,text]) => text.includes(normalized))
+        .map(([id]) => id).sort((a,b) => this.positionOf(a)-this.positionOf(b))
+    if (!this.indexed) this.buildPostings()
     const width = Math.min(3, normalized.length)
     const grams = new Set<string>()
     for (let at = 0; at <= normalized.length - width; at++)
