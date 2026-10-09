@@ -94,6 +94,8 @@ it('materialises native Find and addressed search targets without discarding the
   const other = host.querySelector('[data-transcript-row="row-600"]')!
   act(() => other.dispatchEvent(new Event('podium-transcript-reveal', { bubbles: true })))
   expect(other.querySelector('[data-message]')).not.toBeNull()
+  expect(host.querySelector('[data-transcript-row="row-599"] [data-message]')).not.toBeNull()
+  expect(host.querySelector('[data-transcript-row="row-601"] [data-message]')).not.toBeNull()
   await act(async () => { await Promise.resolve() })
 })
 it('makes Select All include every loaded message before native selection and copy', () => {

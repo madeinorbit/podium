@@ -489,6 +489,26 @@ describe('transcript scrolling', () => {
     expect(top('row-0')).toBe(-80)
   })
 
+  it('resolves a rekeyed window anchor to its shell rather than the inset rich body', () => {
+    const lookupAnchorRow = () => 0
+    renderHarness(<Harness lookupAnchorRow={lookupAnchorRow} />)
+    row('row-0').dataset.transcriptRow = 'row-0'
+    scrollTo(80)
+    act(() => root.render(<Harness keys={['merged', ...held.slice(1)]} lookupAnchorRow={lookupAnchorRow} />))
+    const rich = row('merged')
+    const shell = document.createElement('div')
+    shell.dataset.transcriptRow = 'merged'
+    rich.replaceWith(shell); shell.append(rich)
+    const original = vi.mocked(HTMLElement.prototype.getBoundingClientRect).getMockImplementation()!
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) {
+      if (this === shell) return original.call(rich)
+      const box = original.call(this)
+      return this === rich ? rect(box.top + 24, box.height - 24) : box
+    })
+    resize()
+    expect(scroller().scrollTop).toBe(80)
+  })
+
   it('preserves the newer reading position when the reader moves during a page request', () => {
     renderHarness(<Harness moreAbove />)
     scrollTo(80)

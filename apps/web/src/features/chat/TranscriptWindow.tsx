@@ -36,6 +36,16 @@ interface Entry {
   revealing: boolean
   operator: boolean
 }
+function boundary(keys: readonly string[], entries: Map<string, Entry>, edge: number, bottom: boolean) {
+  let low = 0, high = keys.length
+  while (low < high) {
+    const mid = (low + high) >>> 1
+    const box = entries.get(keys[mid]!)?.node.getBoundingClientRect()
+    if (box && (bottom ? box.bottom : box.top) < edge) low = mid + 1
+    else high = mid
+  }
+  return low
+}
 interface TranscriptWindow {
   register: (key: string, entry: Entry) => () => void
   refresh: () => void
@@ -73,18 +83,8 @@ export function useTranscriptWindow(
     const list = ordered.current
     // Shells stay in normal flow. Read only the logarithmic boundary probes and
     // the mounted buffer; a scroll never walks the loaded transcript's DOM.
-    const boundary = (edge: number, bottom: boolean) => {
-      let low = 0, high = list.length
-      while (low < high) {
-        const mid = (low + high) >>> 1
-        const box = entries.current.get(list[mid]!)?.node.getBoundingClientRect()
-        if (box && (bottom ? box.bottom : box.top) < edge) low = mid + 1
-        else high = mid
-      }
-      return low
-    }
-    const first = boundary(viewport.top - buffer, true)
-    const last = boundary(viewport.bottom + buffer, false)
+    const first = boundary(list, entries.current, viewport.top - buffer, true)
+    const last = boundary(list, entries.current, viewport.bottom + buffer, false)
     const next = new Set(list.slice(first, last))
     const selection = scroll.ownerDocument.getSelection()
     const range = selection && !selection.isCollapsed && selection.rangeCount ? selection.getRangeAt(0) : null
@@ -219,6 +219,23 @@ export function useTranscriptWindow(
         entry.revealing = true
         mounted.current.add(shell!.dataset.transcriptRow!)
         entry.publish(true)
+      })
+      // Restore the surrounding rows before the controller moves the viewport.
+      // The extra viewport covers centering a short row; a tall row keeps both
+      // of its edges ready. The normal refresh releases any excess afterwards.
+      const box = entry.node.getBoundingClientRect()
+      const buffer = scroll.clientHeight * (BUFFER + 1)
+      const list = ordered.current
+      const first = boundary(list, entries.current, box.top - buffer, true)
+      const last = boundary(list, entries.current, box.bottom + buffer, false)
+      flushSync(() => {
+        for (const key of list.slice(first, last)) {
+          const neighbor = entries.current.get(key)
+          if (!neighbor || neighbor.mounted) continue
+          neighbor.mounted = true
+          mounted.current.add(key)
+          neighbor.publish(true)
+        }
       })
     }
     const resize = new ResizeObserver(update)

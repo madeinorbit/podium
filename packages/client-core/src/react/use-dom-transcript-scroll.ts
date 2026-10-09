@@ -193,6 +193,8 @@ export function useDomTranscriptScroll(
               (JSON.parse(row.dataset.rowAliases) as string[]).includes(anchor.key!)),
         )
       }
+      if (anchor?.element.hasAttribute('data-transcript-row'))
+        element = element?.closest<HTMLElement>('[data-transcript-row]') ?? element
       if (anchor && element?.isConnected) {
         // Include movement since capture: a compositor scroll can precede its
         // scroll event. Compensate layout without undoing that newer movement.
