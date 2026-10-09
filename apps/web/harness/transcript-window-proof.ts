@@ -65,7 +65,7 @@ try {
     const samples = []
     for (let step = 1; step <= 50; step++) {
       scroll.scrollTop = (scroll.scrollHeight - scroll.clientHeight) * (step % 25) / 24
-      await new Promise<void>(done => requestAnimationFrame(() => requestAnimationFrame(() => done())))
+      await new Promise<void>(done => requestAnimationFrame(() => setTimeout(done, 0)))
       const box = scroll.getBoundingClientRect()
       const rows = [...scroll.querySelectorAll<HTMLElement>('[data-block]')].filter(row => !row.hasAttribute('data-transcript-placeholder'))
       const visible = rows.filter(row => { const rect = row.getBoundingClientRect(); return rect.bottom > box.top && rect.top < box.bottom })
@@ -76,8 +76,43 @@ try {
   await page.evaluate(() => (window as any).__transcriptWindowProof.jump(4000))
   await page.waitForTimeout(200)
   const jump = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
+  // Exercise a real wheel event and the browser's native copy boundary.
+  const feed = page.locator('[data-feed-scroller]')
+  const feedBox = (await feed.boundingBox())!
+  await page.mouse.move(feedBox.x + feedBox.width / 2, feedBox.y + feedBox.height / 2)
+  await page.mouse.wheel(0, 1600)
+  await page.waitForTimeout(100)
+  const wheel = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
+  const selected = await page.evaluate(() => {
+    const el = document.querySelector('[data-feed-scroller]')!
+    const box = el.getBoundingClientRect()
+    const paragraphs = [...el.querySelectorAll<HTMLParagraphElement>('[data-block]:not([data-transcript-placeholder]) p')]
+      .filter(p => { const r = p.getBoundingClientRect(); return r.top >= box.top && r.bottom <= box.bottom })
+    const range = document.createRange()
+    range.setStart(paragraphs[0]!.firstChild!, 0)
+    range.setEnd(paragraphs[1]!.lastChild!, paragraphs[1]!.lastChild!.textContent!.length)
+    const selection = document.getSelection()!; selection.removeAllRanges(); selection.addRange(range)
+    return selection.toString()
+  })
+  await page.evaluate(() => { const el = document.querySelector<HTMLElement>('[data-feed-scroller]')!; el.scrollTop = 0 })
+  await page.waitForTimeout(100)
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write'])
+  await page.keyboard.press('Control+c')
+  const copied = await page.evaluate(() => navigator.clipboard.readText())
+  if (!selected || copied !== selected) throw new Error('Selection/copy changed when its rows left the viewport')
+  await page.evaluate(() => document.getSelection()!.removeAllRanges())
+  await page.waitForTimeout(100)
+  // window.find invokes Chromium's native find-in-page algorithm, including
+  // hidden-until-found/beforematch; it does not call the app's reveal handler.
+  const found = await page.evaluate(() => (window as any).find('native-needle-4000', false, false, true))
+  await page.waitForTimeout(100)
+  const nativeFind = await page.evaluate(() => ({ found: document.getSelection()?.toString(), stats: (window as any).__transcriptWindowProof.stats() }))
+  if (!found || !nativeFind.found?.includes('native-needle-4000') || !nativeFind.stats.text.some((text: string) => text.includes('native-needle-4000'))) throw new Error('Native Find did not reveal the off-window message')
+  await page.evaluate(() => document.getSelection()!.removeAllRanges())
+  await page.evaluate(() => (window as any).__transcriptWindowProof.jump(4000))
+  await page.waitForTimeout(100)
   await page.screenshot({ path: resolve(directory, 'window.png') })
-  const report = { arm, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), browser: browser.version(), samples, fastScroll, jump, errors }
+  const report = { arm, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), browser: browser.version(), samples, fastScroll, jump, wheel, selectionCopy: { selected, copied }, nativeFind, errors }
   await writeFile(resolve(directory, 'report.json'), JSON.stringify(report, null, 2))
   console.log(JSON.stringify({ arm, samples: samples.map(({ loaded, elements, drawn, heapUsed }) => ({ loaded, elements, drawn, heapUsed })), blankFrames: fastScroll.filter(sample => sample.visible === 0).length, jump: { key: jump.key, offset: jump.offset }, errors }))
   if (errors.length || fastScroll.some(sample => sample.visible === 0)) throw new Error('Production scroll proof failed')
