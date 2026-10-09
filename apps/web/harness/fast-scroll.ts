@@ -67,6 +67,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
       if (variant === 'list') { await page.getByTitle('Display', { exact: true }).click(); await page.getByRole('menuitemradio', { name: 'List', exact: true }).click(); await page.keyboard.press('Escape'); await page.waitForTimeout(500) }
       if (fixture === 'lists' && ['full', 'waterfall'].includes(variant)) {
         const id = 'i14941'
+        console.log('Mission proof', id, await page.evaluate(id => (window as any).__acceptance.shape([id]), id))
         await page.evaluate(id => (window as any).__acceptance.select(id), id)
         await page.waitForTimeout(1000)
         if (variant === 'waterfall') { await page.getByRole('button', { name: 'Waterfall', exact: true }).click(); await page.waitForTimeout(500) }
