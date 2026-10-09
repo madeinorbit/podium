@@ -37858,7 +37858,7 @@
       "file": "packages/client-graph/src/shared/row-source.ts",
       "holder": "createRowSource/publishUpdate",
       "rule": "loop:for-of",
-      "tokens": "4051b9684cf5d96986da17f29ae0f6022b852c6da8c751e2f1d868291f8c86dc",
+      "tokens": "05f5b015d9879e8c76455dd06288880598464ebed329a18e52757c853a13b44f",
       "gate": [
         "exit:then:5b874aee1f00712b9550e1be05afc4c134bfd3070dd7843cd9ab684900fa98ff",
         "exit:then:b5e85160cdad82f325c222b87f5a14371327f0797d376ffdd8848abd27587072"
@@ -37866,7 +37866,7 @@
       "origin": [
         "b3fe23e946f32ba532e9b9a05a9dcf4c97360e85c409d5ff478787955772f6ac"
       ],
-      "fingerprint": "77ae0c44328c2400bd63e9ed045f50b569e648ecf0b1104a109300eb15947b23",
+      "fingerprint": "88785f044d5d7c81db83e6d77d7a6cf7b097992cf627ed5f02654785fd9849f4",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5890",
