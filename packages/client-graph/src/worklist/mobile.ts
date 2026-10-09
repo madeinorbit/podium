@@ -64,7 +64,7 @@ export class MobileSection {
       has: id => lane().hasIn(key, id) || (key !== 'pinned' && index().hasGroupCandidate(key, id)),
       read: id => {
         if (!worktree(id)) return lane().hasIn(key, id) ? id : undefined
-        const tree = this.pool.model('worktree', id)
+        const tree = here(this.pool.model('worktree', id))
         return tree && worklistView(this.pool).tree(tree).hasCandidates ? id : undefined
       },
       order: id => worktree(id) ? `1${id}` : `0${JSON.stringify(groups().rankOf(id))}`,
@@ -124,7 +124,7 @@ export class MobileSectionsView implements MobileWorkSections {
   sectionAsking(id: string, worktree: boolean): boolean {
     const view = worklistView(this.pool)
     if (!worktree) return view.knownRow(id)?.sectionAsking ?? false
-    const tree = this.pool.model('worktree', id)
+    const tree = here(this.pool.model('worktree', id))
     return tree !== undefined && view.tree(tree).sectionAsking
   }
   pendingFor(id: string, worktree: boolean): number {

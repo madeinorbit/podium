@@ -1,5 +1,6 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { MobxPool } from '@podium/client-graph/pool'
+import { requireHere } from '@podium/client-graph/lookup'
 import { GroupNodeBefore } from '@podium/client-graph/worklist/groups-membership-before.test-helper'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { MobileSectionsBefore } from '@podium/client-graph/worklist/mobile-before.test-helper'
@@ -49,7 +50,7 @@ async function capture(domain: 'members' | 'groups', scale: number, proveParity 
     ...loose.map(value => ({ kind: 'session' as const, id: value.sessionId, value: value as never })),
   ] })
   const view = worklistView(pool)
-  const tree = view.tree(pool.model('worktree', '/loose')!)
+  const tree = view.tree(requireHere(pool.model('worktree', '/loose')))
   const native = new MobileSearchSections()
   const foldedNative = new MobileNativeSections()
   const collapsed = new Set<string>()
@@ -228,4 +229,23 @@ it('matches folded and cold membership without mounting their row bodies', () =>
       expect(pool.tables.issue.has(cold.id)).toBe(false)
     }
   } finally { stop(); pool.dispose() }
+})
+
+
+it('phone membership omits pending and gone worktrees and counts only pending issues', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
+    load: () => undefined, schedule: () => () => {},
+    exitKind: (_entity, id) => id === 'removed' ? 'removed' : undefined,
+  })
+  const sections = worklistView(pool).mobileSections()
+  try {
+    expect(sections.sectionAsking('removed', true)).toBe(false)
+    expect(sections.pendingFor('removed', false)).toBe(0)
+    expect(pool.hydrate()).toBe(0)
+    expect(sections.sectionAsking('unknown', true)).toBe(false)
+    expect(sections.pendingFor('unknown', false)).toBe(1)
+    pool.hydrate()
+    expect(sections.sectionAsking('unknown', true)).toBe(false)
+    expect(sections.pendingFor('unknown', false)).toBe(0)
+  } finally { pool.dispose() }
 })
