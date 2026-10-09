@@ -49,7 +49,7 @@ def summarize(ledger):
             'loadEnd': [run['loadEnd'] for run in runs],
             'population': [run['population'] for run in runs],
         }
-    return {'cohort': data['cohort'], 'surface': data['surface'], 'cells': cells}
+    return {'cohort': data['cohort'], 'surface': data['surface'], 'schedule': data['schedule'], 'cells': cells}
 
 
 if __name__ == '__main__':

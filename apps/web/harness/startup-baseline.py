@@ -17,7 +17,9 @@ import uuid
 
 def sample_order(cells, step):
     rotated = cells[step % len(cells):] + cells[:step % len(cells)]
-    return rotated if step % 2 == 0 else list(reversed(rotated))
+    # A complete rotation block, then its reverse: at eight samples and four
+    # cells, every cell occupies every position twice.
+    return rotated if (step // len(cells)) % 2 == 0 else list(reversed(rotated))
 
 
 def main():
@@ -42,6 +44,7 @@ def main():
         raise ValueError('This baseline round already exists; use a fresh round')
     held = []
     outputs = {cell: [] for cell in cells}
+    schedule = []
     grants = {}
     try:
         if args.meter_held:
@@ -77,8 +80,9 @@ def main():
                                               f'--log={relative}/collector.log', '--', *argv])
                 subprocess.run(['ssh', '-o', 'BatchMode=yes', 'flatblock', command], check=True)
                 outputs[cell].append(f'{relative}/run.json')
+                schedule.append({'step': step, 'cell': cell, 'run': f'{relative}/run.json'})
                 ledger.write_text(json.dumps({'cohort': cohort, 'surface': args.surface, 'outputs': outputs,
-                                               'samplesPerCell': args.samples, 'status': 'running'}, indent=2) + '\n')
+                                               'schedule': schedule, 'samplesPerCell': args.samples, 'status': 'running'}, indent=2) + '\n')
         data = json.loads(ledger.read_text())
         data['status'] = 'complete'
         ledger.write_text(json.dumps(data, indent=2) + '\n')
