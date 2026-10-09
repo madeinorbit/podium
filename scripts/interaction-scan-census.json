@@ -4248,7 +4248,7 @@
       "count": 1,
       "classification": "bounded local work",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session\u2019s activity samples",
+      "bound": "One addressed session’s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences",
       "owner": "POD-5633"
@@ -4270,7 +4270,7 @@
       "count": 1,
       "classification": "bounded local work",
       "trigger": "Demanded visible session history response",
-      "bound": "One addressed session\u2019s activity samples",
+      "bound": "One addressed session’s activity samples",
       "reason": "Request answers belong to the opening, are fenced against stale responses, and never refresh on minute ticks.",
       "guard": "waterfall-view.parity.test.ts: history demand and closed/superseded response fences",
       "owner": "POD-5633"
@@ -25045,7 +25045,7 @@
       "trigger": "A newly fetched issue event page is appended.",
       "bound": "One supplied page (the shared request owner asks for at most 50 rows per RPC); retained history is never enumerated for ID deduplication.",
       "reason": "The history owns its ID index and formats only new rows, with stable event/feed arrays and cursor advancement.",
-      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1\u21921 for 128/512 retained events; a planted retained-ID map/Set fails."
+      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1→1 for 128/512 retained events; a planted retained-ID map/Set fails."
     },
     {
       "file": "packages/client-core/src/values/issue-activity.ts",
@@ -35091,7 +35091,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
