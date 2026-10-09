@@ -15968,14 +15968,14 @@
     },
     {
       "file": "apps/web/src/test-support/mock-settings-pool-fixture.ts",
-      "holder": "mock:callback/prepare/callback/view:callback/read/callback/machines",
+      "holder": "publish/view:callback/read/callback/machines",
       "rule": "enumerate:keys",
       "tokens": "40eaf1358e02732d76f88f7e31ce7fe4cb0f15149215b4b24211f1f1985c078b",
       "gate": [],
       "origin": [
-        "ea60d9b88d69d6d9022ed7946cf4693c8de97dc8322cfe2c2a6896a8477be16d"
+        "418e7f79e56f1c28aa4eb117a0b496dfa3eff8da0a67b406f1c5bdd0742f19bc"
       ],
-      "fingerprint": "cfb04d821c9e09828d0ef287c8cde7da5561ab8342d2973c9e7b05271cd81eca",
+      "fingerprint": "560cbf9b6a0bd3b842db8bd70ca4a2af41b15fe23b76acea3adb3f6ec252001a",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5868",
@@ -15986,15 +15986,15 @@
     },
     {
       "file": "apps/web/src/test-support/mock-settings-pool-fixture.ts",
-      "holder": "mock:callback/prepare/callback/view:callback/read/callback/machines",
+      "holder": "publish/view:callback/read/callback/machines",
       "rule": "spread",
       "tokens": "f0793400b38e82a558b9378d25679684fa5e2003032a4b6f9dd925c4cff06539",
       "gate": [],
       "origin": [
-        "906516878b21a5b6e0cb4562290768c5da1c1ba0a2031103472947500b7ff60c",
-        "ea60d9b88d69d6d9022ed7946cf4693c8de97dc8322cfe2c2a6896a8477be16d"
+        "4185b1a36f6d6ca8480ae57fb537b34648c98759ff46d7d95360eef89185e932",
+        "418e7f79e56f1c28aa4eb117a0b496dfa3eff8da0a67b406f1c5bdd0742f19bc"
       ],
-      "fingerprint": "e5717bf85b4f697607c5f6240788e701a22ec573369eb21f065aad2a92359a5c",
+      "fingerprint": "d58d8821dfa0fde63ce9bb90af3345a364bd5648c79111513b35122678cd8dd0",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5868",

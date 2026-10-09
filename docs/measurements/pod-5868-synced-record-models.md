@@ -73,8 +73,10 @@ live merge, replacement/removal and migrated view identities.
 | `apps/mobile/src/screens/SettingsScreen.pool.test.tsx` | 4 |
 
 There are 190 unique passing cases; repeated runs of the six model tests are
-counted once. The panel's 46 cases pass at `d6bcb578d7`; the phone's four pass
-on that source too, including its 1x/4x work checks. Earlier files passed after
+counted once. The panel's 46 cases pass again at `c29489618a`, without warnings
+or errors in the run output; the phone's four pass on `d6bcb578d7`, including
+its 1x/4x work checks. The later fixture repair changes no production code.
+Earlier files passed after
 the applicable model/source/reader repairs; subsequent panel-only changes did
 not change those readers. Companion work remains one addressed companion and
 zero session writes at 1x/4x. Offline machine/header behavior remains green.
@@ -100,11 +102,43 @@ targeted control ran RED; the corresponding ordinary file ran GREEN.
 
 The machine-panel test changes only imports to the real model pool and an
 isolated ID-only catalogue bridge. All 46 assertions and fixture values stay
-unchanged. That fixture emits a React update-during-render warning when its
-plain input is synchronously ingested on rerender; the revoke repaint assertion
-passes. This is a test-fixture limitation recorded for review. The static
+unchanged. The bridge's render wrapper now publishes fixture input before
+mount and rerender; its pool hooks only read the prepared pool. The static
 schema assertion necessarily lists seven entities instead of four, and its
 source-citation resolver recognizes the three added wire types.
+
+### Render-warning trace and repair
+
+The earlier panel run emitted React's update-during-render warning. POD-4286
+required its removal before accepting the candidate. The source trace locates
+it in the test path: `pool-fixture.ts`'s `useFixturePool()` calls
+`syncPoolFixture()` during render; when a plain fixture changes on rerender,
+that function applies its machine rows and wakes already-mounted observers.
+The isolated bridge previously invoked that hook while `MachinesPanel`
+rendered. This was fixture ingestion on read.
+
+Production attaches through `StoreProvider`'s `useEffect`
+(`packages/client-core/src/react/provider.tsx:298`). `createPoolHost.attach`
+asynchronously creates the runtime pool
+(`packages/client-graph/src/host/pool-host.ts:132`); its production hooks read
+that attached pool. Machine bootstrap and changes are installed through
+`header-source.ts`'s keyed source callback and, for settings-only hosts,
+`SettingsSource.attach`'s initial input and `owner.onList` callback. Neither
+production pool hook invokes fixture synchronization or machine ingestion.
+
+Repair `c29489618a` makes the isolated fixture's `renderSettingsPool()` publish
+before calling testing-library `render()`. Its `rerender()` publishes inside
+`act()` before calling React's rerender. The mocked pool hooks then read only
+that prepared pool; they throw if no fixture has been published. The test file
+still changes only imports. No production code, fixture value or assertion was
+changed for this repair, and no console output was suppressed.
+
+The existing 46-case file was rerun on flatblock with the recorded-PID guard:
+46 passed, zero failures, and no warnings or errors in the complete tool output.
+The revoke-update case still passes. Validation PID was `3268849`; no worker
+crossed the stop threshold. The run receipt is also in
+`/tmp/pod5868-fixture-before-render.log` in this session, with the runner's JSON
+report at `/tmp/podium-focused-tests-ny2qRx/results.json` on flatblock.
 
 ## Scan evidence and remaining gates
 
@@ -120,3 +154,10 @@ POD-5895 owns the shared lean gate, full typecheck, normal web build, structural
 census under `meter:flatblock`, and landing, as assigned by POD-4286. Those gates,
 structural flat-or-better proof, prerequisite rebase and ff-only pilot landing
 remain pending. This issue stays in progress until their receipts arrive.
+
+POD-5895 reported a conflict-free compatibility preview on its history candidate,
+and POD-5867 inspected the preview's census context. That preview has no gates
+or landing receipt and does not replace this issue's authorized base. During
+the final rebase, preserve the landed history's `appendEvents` 50-row bound
+and all of its classification metadata; the old prerequisite base still has
+the earlier 200-row context.
