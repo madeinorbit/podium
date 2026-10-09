@@ -53,12 +53,14 @@ import {
   messagesOf,
   type SessionCostWire,
   type SessionId,
+  type TaskCostComparisonWire,
   type TaskCostRowWire,
   type TaskCostWire,
   taskCostState,
   type UsageModelTotalWire,
   type UsageSourceWire,
 } from '@podium/model'
+import { cohortOfOwnTotals } from './comparison-cohort'
 import { formatIssueRef } from '@podium/protocol'
 import { harnessTranscriptSiblingPaths } from '@podium/harness/metadata'
 import type { SessionStore } from '../../store'
@@ -249,7 +251,7 @@ export class CostService {
    * — see `TaskCostWire`. Both are DB reads over indexed columns; nothing here
    * opens a transcript.
    */
-  async task(issueId: IssueId): Promise<TaskCostWire> {
+  async task(issueId: IssueId, includeSessions = true): Promise<TaskCostWire> {
     const childrenByParent = new Map<string, string[]>()
     for (const edge of await readIssueParentEdges(this.store.issues)) {
       if (!edge.parentId) continue
@@ -310,7 +312,7 @@ export class CostService {
       // the figure is only as fresh as the least recently read row it contains,
       // but the reading a surface reports is when we last looked at all.
       ...stampOf(costs),
-      sessions: ownCosts
+      sessions: includeSessions ? ownCosts
         .filter((c) => c.messages > 0)
         .map((c): SessionCostWire => {
           const session = c.sessionId ? sessionById.get(c.sessionId) : undefined
@@ -324,8 +326,15 @@ export class CostService {
             lastTsMs: c.lastTsMs,
           }
         })
-        .sort((a, b) => tokensOf(b.models) - tokensOf(a.models)),
+        .sort((a, b) => tokensOf(b.models) - tokensOf(a.models)) : [],
     }
+  }
+
+  /** On-request total and all-time comparison, without building cost.tasks. */
+  async taskComparison(issueId: IssueId, includeSessions = true): Promise<TaskCostComparisonWire> {
+    const task = await this.task(issueId, includeSessions)
+    const cohort = cohortOfOwnTotals(await this.store.transcriptCosts.ownCohortTotals(20))
+    return { task, cohort }
   }
 
   /**

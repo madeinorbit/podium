@@ -195,6 +195,13 @@ export const COST_QUERIES = {
   task: q(z.object({ issueId: IssueIdField }), async (s, input) =>
     await new CostService(s.store).task(input.issueId),
   ),
+  /** One task total plus its all-time own-cost comparison, on request. */
+  taskComparison: q(z.object({
+    issueId: IssueIdField,
+    includeSessions: z.boolean().optional(),
+  }), async (s, input) =>
+    await new CostService(s.store).taskComparison(input.issueId, input.includeSessions),
+  ),
   /** Every task with a stored figure — the sheet's ranked table, and the cohort
    *  the "×median" rate is computed against. OWN cost per task, not rolled up:
    *  a rolled-up parent beside its own children counts the same money twice

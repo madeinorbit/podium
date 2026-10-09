@@ -16,9 +16,10 @@
  * zero writes exactly the row it wrote before.
  */
 
+import { foldModelTotals } from '@podium/model'
 import type { CostHarness, CostModelTotalWire, IssueId, MachineId, SessionId } from '@podium/model'
-import { and, count, gt, inArray, isNotNull, max, sql } from 'drizzle-orm'
-import { transcriptCosts } from '../migrations/schema'
+import { and, count, eq, gt, inArray, isNotNull, isNull, max, sql, sum } from 'drizzle-orm'
+import { issues, transcriptCosts } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
 
@@ -194,6 +195,22 @@ export class TranscriptCostsRepository {
       .where(isNotNull(transcriptCosts.issueId))
       .all())
       .map(toCost)
+  }
+
+  /** Only all-time OWN model folds for qualifying, surviving issues. One
+   * grouped SQL read; no issue bodies, window folds, sessions or rollups. */
+  async ownCohortTotals(minReplies: number): Promise<CostModelTotalWire[][]> {
+    const rows = await this.db
+      .select({ folds: sql<string>`json_group_array(${transcriptCosts.modelsJson})` })
+      .from(transcriptCosts)
+      .innerJoin(issues, eq(issues.id, transcriptCosts.issueId))
+      .where(isNull(issues.deletedAt))
+      .groupBy(transcriptCosts.issueId)
+      .having(gt(sum(transcriptCosts.messages), minReplies))
+      .all()
+    return rows.map((row) =>
+      foldModelTotals((JSON.parse(row.folds) as string[]).map(parseModels)),
+    )
   }
 
   /** Which sessions already have a fold — the `pending` state's other half. */

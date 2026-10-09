@@ -100,21 +100,14 @@ export function MissionCostChip({
   onOpenInExplorer: () => void
 }): JSX.Element | null {
   const trpc = useStoreHandle<Trpc>().access.trpc
-  // Once opened, the cohort stays wanted: the `2.3x median` line is the only
-  // thing that needs the whole corpus, and re-fetching it on every close would
-  // make closing the popover expensive.
-  const [everOpened, setEverOpened] = useState(false)
   const [open, setOpen] = useState(false)
-  const { view } = useMissionCost(trpc, issueId, everOpened)
+  const { view } = useMissionCost(trpc, issueId, open)
   if (view?.state !== 'costed') return null
   const { rollup } = view
   return (
     <Popover.Root
       open={open}
-      onOpenChange={(next) => {
-        setOpen(next)
-        if (next) setEverOpened(true)
-      }}
+      onOpenChange={setOpen}
     >
       <Popover.Trigger
         data-testid="mission-cost-chip"
