@@ -677,7 +677,8 @@ describe('row-source over the real facade (fake runtime)', () => {
       runtime.publish()
       handle.flush()
       const landed = events.at(-1)
-      expect(events).toHaveLength(3)
+      // Repaint publishes the server value; the subsequent equal feed echo is quiet.
+      expect(events).toHaveLength(2)
       expect(landed?.rows).toEqual([
         { kind: 'session', id: 's2', value: { ...real, ...ownSessionMarkers } },
       ])
