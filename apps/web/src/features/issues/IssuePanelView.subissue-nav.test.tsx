@@ -86,13 +86,14 @@ const trpc = {
   issues: {
     comments: { query: vi.fn(async () => []) },
     events: { query: vi.fn(async () => []) },
-    mail: { query: vi.fn(async () => []) },
+    mailInbox: { mutate: vi.fn(async () => []) },
   },
 }
 
 vi.mock('@/app/store', () => {
+  let fixture: unknown
   const state = () =>
-    ({
+    (fixture ??= {
       trpc,
       httpOrigin: '',
       openFileInWorktree: vi.fn(),
