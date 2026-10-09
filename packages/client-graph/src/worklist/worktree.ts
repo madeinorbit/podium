@@ -8,9 +8,7 @@ import type { Worklist } from './view-model'
 import { sidebarRosterView } from './sidebar-roster'
 import { sidebarRosterOf, type SidebarState } from './sidebar'
 import { LOADING } from './rollup'
-import { fleetOf, sidebarTiming, sidebarTimingFromFacts, combineSidebarSessionField, NO_SIDEBAR_SESSIONS, type SidebarSessionFacts } from './sidebar-row'
-import { motionPhase } from './rollup'
-import type { SliceSession } from '../shared/slice-types'
+import { sidebarTimingFromFacts, combineSidebarSessionField, NO_SIDEBAR_SESSIONS, type SidebarSessionFacts } from './sidebar-row'
 
 /** A roster keeps shared sessions, with demand-scoped data queries owning
  * ordering. A heartbeat updates one ordering key; it never sorts the roster. */
@@ -131,15 +129,7 @@ export class WorklistWorktree {
   @lazy get workingCount() { return this.sessions.reduce((count, session) => count + Number(session.executing), 0) }
   @lazy get waitingCount() { return this.sessions.reduce((count, session) => count + Number(this.worklist.session(session).phase === 'waiting'), 0) }
   @lazy get visibleUnread() { return !this.visibleWorking && this.sessions.some(session => session.unread) }
-  @lazy({ equals: compareStructural }) get timing() {
-    return sidebarTiming(this.sessions as unknown as SliceSession[], this.visiblePhase, false, this.activityAt,
-      undefined, session => this.worklist.pool.sessionObject(session.sessionId).executing,
-      session => this.worklist.pool.sessionObject(session.sessionId).stateSinceMs)
-  }
   @lazy({ equals: compareStructural }) get visibleFleet() {
-    return fleetOf(this.sessions as unknown as SliceSession[], session => this.worklist.pool.sessionObject(session.sessionId).open)
-  }
-  @lazy({ equals: compareStructural }) get factFleet() {
     let fleet = NO_SIDEBAR_SESSIONS.fleet
     for (const session of this.sessions) fleet = combineSidebarSessionField('fleet', fleet, session.fleet)
     return fleet
@@ -165,7 +155,7 @@ export class WorklistWorktree {
     for (const session of this.sessions) total = combineSidebarSessionField('totalMs', total, session.workingMsTotal)
     return total
   }
-  @lazy({ equals: compareStructural }) get factTiming() {
+  @lazy({ equals: compareStructural }) get timing() {
     const tree = this
     return sidebarTimingFromFacts({
       get working() { return tree.workingTimer },

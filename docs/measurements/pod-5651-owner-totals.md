@@ -17,6 +17,20 @@ Base: `integrate/4286-pilot` at `2c4e3bd21e`, after POD-5822 landed.
 | Phone `worklistRowStatus` | Issue totals already use companions; worktree waiting copy selects a session over the shown roster | Text selection is outside totals/timestamps; keep today's clock source |
 | Core focus/session/unread helpers and seat summaries | Pure compatibility/reference functions or record/data-layer inputs | No new reaction or history cache |
 
-The implementation starts alongside the old worktree getters so parity can be
-run before removing the production roster helper calls. Measurement and gate
-results will be added after running them on the isolated flatblock checkout.
+## Pre-removal parity proof
+
+Flatblock, Bun 1.4.2, candidate `adebc0c01b`, with the old production timing and
+fleet getters still present: `owner-totals.parity.test.ts` ran 22 tests, all
+green. It compares old/new facts and owner answers on the same records,
+including archived, headless, parked, errored, exited, absent and cold/LOADING
+sessions, zero totals, invalid timestamps, offers, and heartbeat/read/archive
+updates. The first run exposed a cold fixture missing its finished owner;
+adding the owner made the inherited-residency fixture exercise LOADING.
+
+The same candidate, with `POD5651_MUTATE=1` and the owner-parity group selected,
+failed all seven selected cases with `__wrong_answer__` versus their real
+timestamps/totals (15 other tests skipped). Only after this proof were the
+production roster timing/fleet calls removed. The pure helpers remain the
+independent reference; session facts now have their shared model as home.
+
+Owner work measurements and final gate results remain pending on flatblock.

@@ -54,11 +54,11 @@ describe('owner totals equal the previous roster helpers', () => {
       ...rows.map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })),
     ] })
     const tree = worklistView(pool).tree(pool.model('worktree', lane)!)
-    const stop = autorun(() => { void tree.factTiming; void tree.factFleet })
+    const stop = autorun(() => { void tree.timing; void tree.visibleFleet })
     try {
       const shown = tree.sessions as unknown as SliceSession[]
-      expect(candidate(tree.factTiming)).toEqual(sidebarTiming(shown, tree.visiblePhase, false, tree.activityAt))
-      expect(candidate(tree.factFleet)).toEqual(fleetOf(shown))
+      expect(candidate(tree.timing)).toEqual(sidebarTiming(shown, tree.visiblePhase, false, tree.activityAt))
+      expect(candidate(tree.visibleFleet)).toEqual(fleetOf(shown))
       expect(tree.waitingCount).toEqual(shown.filter(row => motionPhase(row, false) === 'waiting').length)
       expect(tree.visibleUnread).toEqual(!tree.visibleWorking && shown.some(row => row.unread))
     } finally { stop(); pool.dispose() }
@@ -97,8 +97,8 @@ it('live totals follow heartbeat, read state and archiving on the same records',
   const tree = worklistView(pool).tree(pool.model('worktree', lane)!)
   const stop = autorun(() => {
     const shown = tree.sessions as unknown as SliceSession[]
-    expect(candidate(tree.factTiming)).toEqual(sidebarTiming(shown, tree.visiblePhase, false, tree.activityAt))
-    expect(candidate(tree.factFleet)).toEqual(fleetOf(shown))
+    expect(candidate(tree.timing)).toEqual(sidebarTiming(shown, tree.visiblePhase, false, tree.activityAt))
+    expect(candidate(tree.visibleFleet)).toEqual(fleetOf(shown))
     expect(tree.visibleUnread).toEqual(!tree.visibleWorking && shown.some(row => row.unread))
   })
   try {

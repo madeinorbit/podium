@@ -7,7 +7,7 @@ import type { MobxPool } from '../pool'
 import { hostOf, type SessionModel } from '../models'
 import type { SliceSession } from '../shared/slice-types'
 import { attentionGroup, isOfferOnlyAttention, LOADING, type Loaded as LoadedRow, motionPhase, type SeatVerdict } from './rollup'
-import { fleetOf, unstarted, type SidebarSessionFacts, type SidebarSessionOrder } from './sidebar-row'
+import { type SidebarSessionFacts, type SidebarSessionOrder } from './sidebar-row'
 import { type Retention, retentionOf, retains, type SessionVisibility } from './visible'
 
 /** Retention and display contributions of a session in the worklist. */
@@ -46,7 +46,7 @@ export class WorklistSession implements SessionVisibility {
     return !this.sortWorking && this.host.inputs.passed((Date.parse(this.session.lastActivity) || 0) + 16 * 60 * 60 * 1000)
   }
 
-  @lazy get phase() { return motionPhase(this.session as unknown as SliceSession, false, () => this.session.executing) }
+  get phase() { return this.session.motion }
   @lazy get rosterCandidate(): boolean {
     const retention = this.retention
     if (!retention?.seat || retention.shell) return false
@@ -183,58 +183,25 @@ export class WorklistSession implements SessionVisibility {
     }
   }
 
-  @lazy({ equals: compareStructural })
-  private get verdictSidebarFactsFleet(): SidebarSessionFacts['fleet'] {
-    return fleetOf([this.verdictRow], () => this.session.open)
-  }
+  private get verdictSidebarFactsFleet(): SidebarSessionFacts['fleet'] { return this.session.fleet }
 
-  @lazy({ equals: compareStructural })
-  private get verdictSidebarFactsWorking(): SidebarSessionFacts['working'] {
-    if (!this.session.executing) return undefined
-    const row = this.verdictRow
-    const stateSince = this.session.stateSinceMs
-    return { stateSince, sinceMs: stateSince,
-      ...(row.agentState?.workingMsTotal !== undefined ? { baseMs: row.agentState.workingMsTotal } : {}) }
-  }
+  private get verdictSidebarFactsWorking(): SidebarSessionFacts['working'] { return this.session.workingTimer }
 
-  @lazy({ equals: compareStructural })
   private get verdictSidebarFactsWaitingOpen(): SidebarSessionFacts['waitingOpen'] {
-    return this.verdictOpen === 'waiting' ? this.verdictWaitingAnchor : undefined
+    return this.verdictOpen === 'waiting' ? this.session.waitingTimer : undefined
   }
 
-  @lazy({ equals: compareStructural })
   private get verdictSidebarFactsWaitingFinished(): SidebarSessionFacts['waitingFinished'] {
-    return this.verdictFinished === 'waiting' ? this.verdictWaitingAnchor : undefined
+    return this.verdictFinished === 'waiting' ? this.session.waitingTimer : undefined
   }
 
-  @lazy({ equals: compareStructural })
-  private get verdictWaitingAnchor(): NonNullable<SidebarSessionFacts['waitingOpen']> {
-    const row = this.verdictRow
-    const stateSince = this.session.stateSinceMs
-    return { stateSince, sinceMs: Date.parse(row.offer?.createdAt ?? '') || stateSince }
-  }
+  private get verdictSidebarFactsDoneSince(): SidebarSessionFacts['doneSince'] { return this.session.doneSinceMs }
 
-  @lazy
-  private get verdictSidebarFactsDoneSince(): SidebarSessionFacts['doneSince'] {
-    return this.session.stateSinceMs || 0
-  }
+  private get verdictSidebarFactsTotalMs(): SidebarSessionFacts['totalMs'] { return this.session.workingMsTotal }
 
-  @lazy
-  private get verdictSidebarFactsTotalMs(): SidebarSessionFacts['totalMs'] {
-    return this.verdictRow.agentState?.workingMsTotal
-  }
+  private get verdictSidebarFactsErrorClass(): SidebarSessionFacts['errorClass'] { return this.session.errorClass }
 
-  @lazy
-  private get verdictSidebarFactsErrorClass(): SidebarSessionFacts['errorClass'] {
-    const row = this.verdictRow
-    return this.session.open && row.agentState?.phase === 'errored'
-      ? row.agentState.error?.class ?? 'unknown' : null
-  }
-
-  @lazy
-  private get verdictSidebarFactsAllUnstarted(): SidebarSessionFacts['allUnstarted'] {
-    return unstarted(this.verdictRow)
-  }
+  private get verdictSidebarFactsAllUnstarted(): SidebarSessionFacts['allUnstarted'] { return this.session.unstarted }
 
   private get verdictSidebarOrder(): SidebarSessionOrder | undefined {
     const model = this
