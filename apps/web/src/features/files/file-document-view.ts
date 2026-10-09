@@ -90,18 +90,23 @@ export class FileDocumentView extends RequestAnswer<ReadResult> {
     void this.open()
   }
   @action async open(): Promise<void> {
-    const generation = ++this.generation
+    ++this.generation
     this.dirty = false
     this.saving = false
     this.saveFeedback = null
     this.baseHash = undefined
-    await this.load(() => this.ports.readFileScoped(this.scope, this.path), true)
-    runInAction(() => {
-      if (generation !== this.generation || !this.answer?.ok) return
-      this.content = this.answer.content ?? ''
-      this.savedContent = this.content
-      this.baseHash = this.answer.baseHash
-    })
+    await this.load(
+      () => this.ports.readFileScoped(this.scope, this.path),
+      true,
+      (answer) => {
+        if (answer.ok) {
+          this.content = answer.content ?? ''
+          this.savedContent = this.content
+          this.baseHash = answer.baseHash
+        }
+        return answer
+      },
+    )
   }
   @action save = async (overwrite = false): Promise<void> => {
     if (
