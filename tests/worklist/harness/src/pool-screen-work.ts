@@ -738,12 +738,19 @@ async function measureScreenCells(
     }))
     add('session-pane', ['AgentPanel', 'DockTerminal'], () => {
       const panes = sessionPaneView(pool),
-        mapped = panes.window().dockShells['/synthetic']
+        controls = panes.window(),
+        mapped = controls.dockShells['/synthetic'],
+        mappedPane = panes.loaded(mapped)
       return {
         session: panes.session(SESSION),
         machines: panes.machines(),
         window: panes.window(),
-        dock: { mapped, present: !!panes.loaded(mapped), hasSessions: panes.hasSessions() },
+        dock: {
+          mapped, present: !!mappedPane, hasSessions: panes.hasSessions(), reposLoaded: controls.reposLoaded,
+          status: mappedPane?.session.status, archived: mappedPane?.session.archived,
+          machineId: mappedPane?.session.machineId, machineName: mappedPane?.session.machineName,
+          geometry: mappedPane?.session.geometry,
+        },
         confirmed: panes.spawnConfirmed(SESSION),
         ownership: {
           selectedIssueId: panes.selectedIssueId,
