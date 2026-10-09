@@ -238,6 +238,7 @@ describe('reference card updates (POD-5831)', () => {
               title: 'Renamed', lastActiveAt: stamp(30), status: n % 2 ? 'exited' : 'live' }) },
           ] as never })
         expect({ ...runs, old: settled.old }).toEqual(settled)
+        const oldUnrelated = runs.old - settled.old
         // The target's own heartbeat keeps its answer: nothing redraws.
         pool.apply({ type: 'update', rows: [
           { kind: 'session', id: 'moved', value: seat('moved', 'leaf', { displayRef: 'POD-1-A', lastActiveAt: stamp(40) }) },
@@ -256,9 +257,9 @@ describe('reference card updates (POD-5831)', () => {
         // The working label follows the re-home.
         expect(seen.working).toBe(null)
         expect(runs.parent).toBe(settled.parent)
-        console.info(`POD-5831 card runs after unrelated sessions at ${scale}x`, {
-          new: settled.card + settled.target + settled.parent + settled.working,
-          old: runs.old,
+        console.info(`POD-5831 card re-runs from 8 unrelated session changes at ${scale}x`, {
+          new: 0,
+          old: oldUnrelated,
         })
       } finally {
         for (const stop of stops) stop()
