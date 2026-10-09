@@ -192,7 +192,9 @@ export function useFlightDeckWindow(
     if (frame.current !== null) return
     frame.current = requestAnimationFrame(() => {
       frame.current = null
-      readViewport()
+      // Publish once per frame, but commit the replacement rows before that
+      // frame paints the browser's new scroll offset.
+      flushSync(readViewport)
     })
   }, [readViewport])
 
@@ -343,17 +345,18 @@ export function useFlightDeckWindow(
   let first = 0
   let last = rows.length
   if (enabled) {
-    first = Math.max(0, rowAt(layout.ends, Math.max(0, viewport.top)) - DECK_OVERSCAN)
+    const buffer = viewport.height
+    first = Math.max(0, rowAt(layout.ends, Math.max(0, viewport.top - buffer)) - DECK_OVERSCAN)
     last =
       viewport.height > 0
         ? Math.min(
             rows.length,
-            rowAt(layout.ends, Math.max(0, viewport.top + viewport.height)) + DECK_OVERSCAN + 1,
+            rowAt(layout.ends, Math.max(0, viewport.top + viewport.height + buffer)) + DECK_OVERSCAN + 1,
           )
         : Math.min(rows.length, first + INITIAL_ROWS)
     if (
       viewport.height > 0 &&
-      (viewport.top >= layout.total || viewport.top + viewport.height <= 0)
+      (viewport.top - buffer >= layout.total || viewport.top + viewport.height + buffer <= 0)
     )
       last = first = 0
   }

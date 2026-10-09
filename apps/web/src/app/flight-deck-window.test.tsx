@@ -11,6 +11,7 @@ import {
 } from './flight-deck-window'
 
 const height = 560
+const windowBudget = Math.ceil(3 * height / 32) + 2 * DECK_OVERSCAN + 1
 const observers = new Set<ResizeObserverCallback>()
 class Observer {
   constructor(private callback: ResizeObserverCallback) {
@@ -119,6 +120,16 @@ function selectText(node: Node, start: number, end: number) {
 }
 
 describe('mission row window', () => {
+  it('retains the rows a fast wheel burst can expose in either direction', async () => {
+    const current = render(<Fixture values={rows(406)} />)
+    await scrollTo(current.container, 2000)
+    // Visible geometry is 2000..2480. Also keep the preceding and following
+    // viewport ready, independently of the alternating 32/46px row heights.
+    expect(current.container.querySelector('[data-mounted-row="row:40"]')).not.toBeNull()
+    expect(current.container.querySelector('[data-mounted-row="row:72"]')).not.toBeNull()
+    expect(mounted(current.container).length).toBeLessThanOrEqual(windowBudget)
+  })
+
   it('attaches native Find when a cold placeholder gains searchable text', () => {
     let loaded = false
     const row = { key: 'cold', size: 32, get text() { if (!loaded) throw LOADING; return 'Arrived task' } }
@@ -139,7 +150,7 @@ describe('mission row window', () => {
       const values = rows(406 * scale),
         current = render(<Fixture values={values} />)
       // Same viewport budget for the audit's 1x and a roster four times larger.
-      const budget = Math.ceil(height / 32) + 2 * DECK_OVERSCAN + 1
+      const budget = windowBudget
       for (const top of [0, 2500, 9000, values.length * 39 - height]) {
         await scrollTo(current.container, top)
         expect(mounted(current.container).length).toBeGreaterThan(0)
@@ -158,7 +169,7 @@ describe('mission row window', () => {
     await waitFor(() =>
       expect(document.activeElement?.getAttribute('data-real-key')).toBe('row:350'),
     )
-    expect(mounted(current.container).length).toBeLessThan(26)
+    expect(mounted(current.container).length).toBeLessThanOrEqual(windowBudget)
   })
 
   it('keeps the focused row mounted during pointer scrolling', async () => {
@@ -211,7 +222,7 @@ describe('mission row window', () => {
       expect(current.container.querySelector('[data-mounted-row="row:350"]')).not.toBeNull(),
     )
     expect(document.getSelection()?.toString()).toBe('Unique row 350')
-    expect(mounted(current.container).length).toBeLessThan(26)
+    expect(mounted(current.container).length).toBeLessThanOrEqual(windowBudget)
   })
 
   it('transfers the native find range when its scroll mounts the matching row', async () => {

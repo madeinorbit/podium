@@ -1,14 +1,15 @@
 import type { RefCallback, RefObject } from 'react'
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react'
+import { flushSync } from 'react-dom'
 
 /**
  * Hard retention limits for issue indexes [spec:SP-d562]. A viewport mounts no
- * more than 36 ordinary rows, plus a focused row and an active drag source
+ * more than 72 ordinary rows, plus a focused row and an active drag source
  * while either is outside the window. Measurements are LRU-bounded separately:
  * dynamic heights do not turn a trip through a 674-task list into 674 retained
  * element records.
  */
-export const ISSUE_VIRTUAL_MAX_ITEMS = 36
+export const ISSUE_VIRTUAL_MAX_ITEMS = 72
 export const ISSUE_VIRTUAL_SIZE_CACHE = 128
 const DEFAULT_OVERSCAN = 4
 const DEFAULT_INITIAL_ITEMS = 16
@@ -190,9 +191,12 @@ export function useBoundedVirtualList({
       const top = localScrollTop(scroll, containerRef?.current)
       const height = scroll?.clientHeight ?? 0
       priorViewportRef.current = { top, scrollTop: scroll?.scrollTop ?? 0 }
-      setViewport((current) =>
+      // The browser is about to paint the new scroll offset. A deferred React
+      // commit can expose the spacer for a frame even though the rows are ready.
+      // Still coalesce events to one publication per animation frame.
+      flushSync(() => setViewport((current) =>
         current.top === top && current.height === height ? current : { top, height },
-      )
+      ))
     })
   }, [scrollRef, containerRef])
 
@@ -356,16 +360,26 @@ export function useBoundedVirtualList({
 
   let start = 0
   let end = 0
+  const buffer = Math.max(viewport.height, overscan * (estimateSize + gap))
   if (keys.length > 0) {
     if (viewport.height <= 0) {
       start = Math.max(0, itemAt(layout, Math.max(0, viewport.top)) - overscan)
       end = Math.min(keys.length, start + Math.min(initialItems, maxItems))
-    } else if (viewport.top < layout.totalSize && viewport.top + viewport.height > 0) {
+    } else if (viewport.top - buffer < layout.totalSize && viewport.top + viewport.height + buffer > 0) {
       const first = itemAt(layout, Math.max(0, viewport.top))
       const last = itemAt(layout, Math.max(0, viewport.top + viewport.height))
-      start = Math.max(0, first - overscan)
-      end = Math.min(keys.length, last + overscan + 1)
-      if (end - start > maxItems) end = start + maxItems
+      // One viewport in each direction covers wheel bursts independently of
+      // row height. Neighbouring grouped sections enter this buffer too.
+      start = itemAt(layout, Math.max(0, viewport.top - buffer))
+      end = Math.min(keys.length, itemAt(layout, Math.max(0, viewport.top + viewport.height + buffer)) + 1)
+      if (end - start > maxItems) {
+        // Spend the limit on visible rows first, then split the spare capacity
+        // between the buffers. Truncating from the overscanned start can omit
+        // the bottom of a tall viewport.
+        const spare = Math.max(0, maxItems - (last - first + 1))
+        start = Math.max(start, first - Math.ceil(spare / 2))
+        end = Math.min(keys.length, start + maxItems)
+      }
     }
   }
 

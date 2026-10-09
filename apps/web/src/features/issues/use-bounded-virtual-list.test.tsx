@@ -78,6 +78,34 @@ function flushViewport(): void {
 }
 
 describe('bounded variable-height issue window', () => {
+  it('keeps a viewport buffer mounted on either side of a deep scroll', () => {
+    vi.useFakeTimers()
+    const view = render(<WindowHarness />)
+    const scroll = view.getByTestId('scroll')
+    sizeViewport(scroll, 320)
+    scroll.scrollTop = 2000
+    fireEvent.scroll(scroll)
+    flushViewport()
+    const indexes = view.getAllByTestId('row').map(row => Number(row.dataset.index))
+    expect(indexes[0]).toBeLessThanOrEqual(42)
+    expect(indexes.at(-1)).toBeGreaterThanOrEqual(66)
+    expect(indexes.length).toBeLessThanOrEqual(ISSUE_VIRTUAL_MAX_ITEMS)
+  })
+
+  it('reserves the capped window for visible rows before overscan in a tall viewport', () => {
+    vi.useFakeTimers()
+    const view = render(<WindowHarness />)
+    const scroll = view.getByTestId('scroll')
+    sizeViewport(scroll, 1600)
+    scroll.scrollTop = 8000
+    fireEvent.scroll(scroll)
+    flushViewport()
+    const indexes = view.getAllByTestId('row').map(row => Number(row.dataset.index))
+    expect(indexes).toContain(200)
+    expect(indexes).toContain(239)
+    expect(indexes.length).toBeLessThanOrEqual(ISSUE_VIRTUAL_MAX_ITEMS)
+  })
+
   it('keeps the row anchor when an earlier group shifts the nested container', () => {
     vi.useFakeTimers()
     const view = render(<NestedWindowHarness />)
