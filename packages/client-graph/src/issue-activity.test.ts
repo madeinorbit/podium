@@ -441,9 +441,8 @@ it('publishes a short initial ascending page to mounted Recent readers', async (
   })
   const close = view.open()
   try {
-    await flush()
+    await vi.waitFor(() => expect(view.loading).toBe(false))
     expect(shown).toEqual(legacyRecent(api.log, []))
-    expect(view.loading).toBe(false)
   } finally {
     close()
     stop()
