@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import { parseAnyRef } from '@podium/protocol'
@@ -12,7 +13,7 @@ export function readRefMiniview(pool: MobxPool, ref: string) {
   const parsed = parseAnyRef(ref)
   const session = parsed?.kind === 'session' ? readReferenceSession(pool, ref) : undefined
   const sessions: SessionView[] =
-    session && typeof session !== 'symbol' ? [session as SessionView] : []
+    session && typeof session !== 'symbol' ? [session as unknown as SessionView] : []
   const issues: RefIssueLike[] = []
   let loading = typeof session === 'symbol'
   const issueId =
@@ -22,7 +23,7 @@ export function readRefMiniview(pool: MobxPool, ref: string) {
   let haveSeat = false
   while (next && !seen.has(next)) {
     seen.add(next)
-    const row = pool.row('issue', next)
+    const row = omitGone(pool.row('issue', next))
     if (typeof row === 'symbol') {
       loading = true
       break
@@ -38,7 +39,7 @@ export function readRefMiniview(pool: MobxPool, ref: string) {
         next,
         row as { seq: number; prefix?: string; displayRef?: string },
       ),
-    } as RefIssueLike
+    } as unknown as RefIssueLike
     issues.push(issue)
     if (parsed?.kind === 'issue' && !haveSeat) {
       // Raw attachment includes headless seats. Filter their addressed source
@@ -48,10 +49,10 @@ export function readRefMiniview(pool: MobxPool, ref: string) {
         .filter((id) => pool.queries.has(question, id) && !pool.queries.collapsed(id))
         .sort((a, b) => pool.queries.orderKey(a).localeCompare(pool.queries.orderKey(b)))
       for (const id of ids) {
-        const seat = pool.row('session', id, 'summary-fields')
+        const seat = omitGone(pool.row('session', id, 'summary-fields'))
         if (typeof seat === 'symbol') loading = true
-        else if (seat && (seat as SessionView).status !== 'exited') {
-          sessions.push(seat as SessionView)
+        else if (seat && (seat as unknown as SessionView).status !== 'exited') {
+          sessions.push(seat as unknown as SessionView)
           haveSeat = true
         }
       }

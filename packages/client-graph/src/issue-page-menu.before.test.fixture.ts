@@ -1,6 +1,7 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asIssueId, asSessionId } from '@podium/model/browser'
 import { issuePages } from './issue-page'
+import { omitGone } from './lookup'
 import type { MobxPool } from './pool'
 import { isFinished } from './shared/predicates'
 import { LOADING, type Loaded } from './worklist/rollup'
@@ -23,7 +24,7 @@ export function menuIssues(pool: MobxPool): Loaded<IssueViewModel[]> {
       childIds: childIds.map(asIssueId),
       childCount: childIds.length,
       childDoneCount: childIds.filter((id) => {
-        const child = pool.row('issue', id, 'summary') as Loaded<{
+        const child = omitGone(pool.row('issue', id, 'summary')) as Loaded<{
           stage?: string
           closedReason?: string | null
         }>

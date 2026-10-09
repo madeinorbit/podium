@@ -23,8 +23,8 @@ export function readRefTarget(
     if (typeof session === 'symbol') return { target: null, loading: true }
     return {
       target:
-        session && (session as RefSessionLike).displayRef === ref.trim()
-          ? { kind: 'session', ref: parsed, session: session as RefSessionLike }
+        session && (session as unknown as RefSessionLike).displayRef === ref.trim()
+          ? { kind: 'session', ref: parsed, session: session as unknown as RefSessionLike }
           : null,
       loading: false,
     }
