@@ -26,7 +26,9 @@ def info(pid):
     try:
         fields=Path(f'/proc/{pid}/stat').read_text().rsplit(')',1)[1].split()
         rss=int(next(s.split()[1] for s in Path(f'/proc/{pid}/status').read_text().splitlines() if s.startswith('VmRSS:')))*1024
-        return {'pid':pid,'parent':int(fields[1]),'start':fields[19],'rss':rss}
+        command=Path(f'/proc/{pid}/cmdline').read_bytes()
+        worker=any(marker in command for marker in (b'vitest.mjs',b'vitest/dist',b'tinypool'))
+        return {'pid':pid,'parent':int(fields[1]),'start':fields[19],'rss':rss,'testWorker':worker}
     except (OSError,StopIteration):return None
 def host():
     v={line.split(':')[0]:int(line.split()[1])*1024 for line in Path('/proc/meminfo').read_text().splitlines() if ':' in line}
@@ -50,7 +52,11 @@ def monitor():
                 try:todo.extend(int(v) for v in Path(f'/proc/{pid}/task/{pid}/children').read_text().split() if int(v) not in todo)
                 except OSError:pass
         memory=host()
-        if a.test and any(v['rss']>3_000_000_000 for pid,v in owned.items() if info(pid) and info(pid)['start']==v['start']):
+        live=[]
+        for pid,v in owned.items():
+            current=info(pid)
+            if current and current['start']==v['start']:live.append(current)
+        if a.test and any(v['testWorker'] and v['rss']>3_000_000_000 for v in live):
             violation='ordinary test process above 3 GB'
         if a.structural and (memory['available']<1.5*1024**3 or memory['swapUsed']>12*1024**3):
             violation='structural host memory/swap limit'
