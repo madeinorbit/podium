@@ -295,7 +295,8 @@ it('an unknown mission stays loading until one failed lookup settles it as not v
   expect(reader.mission('absent')).toBe(LOADING)
   expect(reader.deck('absent')).toBe(LOADING)
   expect(load).not.toHaveBeenCalled()
-  expect(pool.hydrate()).toBe(1)
+  // A failed lookup settles without inserting a resident row.
+  expect(pool.hydrate()).toBe(0)
   expect(reader.mission('absent')).toMatchObject({ root: undefined, missionSessions: [] })
   expect(reader.deck('absent')).toMatchObject({ root: undefined, rows: [] })
   expect(pool.hydrate()).toBe(0)
