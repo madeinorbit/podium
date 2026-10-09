@@ -72,15 +72,14 @@ the startup kinds. It neither ingests records on read nor creates another row
 store. The complete field declarations and constructor bodies were relocated
 byte-for-byte from the prior candidate.
 
-The existing shared projection moved byte-for-byte to `pool-projection.ts`.
-Its two startup consumers import this leaf, so they no longer pull runtime
-settings attachment and the new definitions into the eager graph. The runtime
-module re-exports the same API. The emitted-source boundary test now also
-checks that the synced-model module is absent from the pool's eager sources;
-no byte ceiling changed. Schema/model fixtures and structural instrumentation
-load the definitions by imports, preserving their existing checks. A new
-focused test covers input rows already in the tables before loading, two
-waiting views per kind, shared identity after loading and later field changes.
+The emitted-source boundary test also checks that the synced-model module is
+absent from the pool's eager sources; no byte ceiling changed. Schema/model
+fixtures and structural instrumentation load the definitions by imports,
+preserving their existing checks. A new focused test covers input rows already
+in the tables before loading, two waiting views per kind, shared identity after
+loading and later field changes. Inspection of the prior production import graph
+confirmed runtime attachment was already deferred, so no projection extraction
+or unrelated startup refactor remains in the candidate.
 
 The light scan remains at 2,210 fingerprints, 2,211 occurrences and zero ratchet
 errors after these repairs. Their focused runtime receipts and the replacement
