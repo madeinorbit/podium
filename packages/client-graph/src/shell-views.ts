@@ -320,7 +320,7 @@ function createShellViews(pool: MobxPool) {
   function machines(): Store['machines'] {
     return memo('machines', () =>
       headerIds(pool, 'machine').flatMap((id) => {
-        const value = here(pool.row('machine', id)) as HeaderRows['machine'] | undefined
+        const value = here(pool.model('machine', id))
         return value ? [value] : []
       }),
     )

@@ -26,7 +26,7 @@ function readCatalog(pool: MobxPool): Pick<Store, 'machines' | 'repos'> {
   if (!loaded(catalog)) return EMPTY_CATALOG
   return {
     machines: catalog.machines.flatMap((id) => {
-      const row = omitGone(pool.model('machine', id))
+      const row = omitGone(pool.row('settingsMachine', id))
       return loaded(row) ? [row] : []
     }),
     repos: catalog.repositories.flatMap((id) => {

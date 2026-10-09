@@ -164,7 +164,8 @@ function MachinesPanelView({
   const [addOpen, setAddOpen] = useState(false)
   const [recommendServer, setRecommendServer] = useState(false)
   const [makeServerAfterPair, setMakeServerAfterPair] = useState(false)
-  const [serverMoveTarget, setServerMoveTarget] = useState<MachineWire | null>(null)
+  const [serverMoveTargetId, setServerMoveTargetId] = useState<string | null>(null)
+  const serverMoveTarget = machines.find(machine => machine.id === serverMoveTargetId) ?? null
 
   // [spec:SP-3701] Hosting affordances (desktop shell, client mode only). A device that
   // paired before gets the inline "Enable" action on its own machine row; the standalone
@@ -289,7 +290,7 @@ function MachinesPanelView({
               onReviewPairedMachine={() => {
                 if (newlyPairedMachine) {
                   closeAddMachine()
-                  setServerMoveTarget(newlyPairedMachine)
+                  setServerMoveTargetId(newlyPairedMachine.id)
                 }
               }}
             />
@@ -345,7 +346,7 @@ function MachinesPanelView({
                 variant="outline"
                 size="sm"
                 className="flex-none"
-                onClick={() => setServerMoveTarget(activeTransferMachine)}
+                onClick={() => setServerMoveTargetId(activeTransferMachine.id)}
               >
                 View transfer
               </Button>
@@ -369,7 +370,7 @@ function MachinesPanelView({
                   trpc={trpc}
                   isThisMachine={m.id === thisMachineId}
                   onMoveServer={
-                    eligibleTransferTargets.has(m.id) ? () => setServerMoveTarget(m) : null
+                    eligibleTransferTargets.has(m.id) ? () => setServerMoveTargetId(m.id) : null
                   }
                   serverMoveUnsupported={unsupportedTransferTargets.has(m.id)}
                   showOwnershipTransfer={showOwnershipTransfer}
@@ -420,7 +421,7 @@ function MachinesPanelView({
           onChanged={serverMoves.refresh}
           open
           onOpenChange={(open) => {
-            if (!open) setServerMoveTarget(null)
+            if (!open) setServerMoveTargetId(null)
           }}
         />
       )}
@@ -761,7 +762,7 @@ function PairingCodeDisplay({
   )
 }
 
-function ServerMoveDialog({
+const ServerMoveDialog = observer(function ServerMoveDialog({
   machine,
   sourceName,
   operation,
@@ -962,9 +963,9 @@ function ServerMoveDialog({
       </DialogContent>
     </Dialog>
   )
-}
+})
 
-function MachineRow({
+const MachineRow = observer(function MachineRow({
   machine,
   replacementMachines = [],
   now,
@@ -1727,7 +1728,7 @@ function MachineRow({
       )}
     </div>
   )
-}
+})
 
 const UPDATE_CHANNEL_LABELS: Record<UpdateChannel, string> = {
   dev: 'Development',
@@ -1856,7 +1857,7 @@ const FLEET_DEFAULT_VALUE = '__fleet__'
  * is deliberately separate: it issues one convergence grant after the selected
  * authority has resolved a concrete trusted target.
  */
-function MachineUpdateControls({
+const MachineUpdateControls = observer(function MachineUpdateControls({
   machine,
   trpc,
   convergence,
@@ -2137,4 +2138,4 @@ function MachineUpdateControls({
       )}
     </div>
   )
-}
+})

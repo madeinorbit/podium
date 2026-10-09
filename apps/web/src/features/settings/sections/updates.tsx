@@ -1,4 +1,5 @@
 import { MachineFailureReason, type FailureReason } from '@/features/updates/MachineFailureReason'
+import { observer } from '@podium/client-graph/react'
 import type { Operation, ReleaseProposal } from '@podium/protocol'
 import { parseOperation, ReleaseProposal as ReleaseProposalSchema } from '@podium/protocol'
 import type { JSX } from 'react'
@@ -824,7 +825,7 @@ export function UpdatesSection(): JSX.Element {
   )
 }
 
-function SettingsUpdateMachine({
+const SettingsUpdateMachine = observer(function SettingsUpdateMachine({
   id,
   fleetMachines,
   serverVersion,
@@ -856,7 +857,7 @@ function SettingsUpdateMachine({
       }}
     />
   )
-}
+})
 function UpdateMachineRow({
   machine,
   channel,

@@ -829,10 +829,11 @@ export class MobxPool {
    * untouched. */
   ingestLiveMachines(records: readonly { id: string; value: unknown }[]): void {
     const merged = records.map((record) => {
-      if (record.value === undefined || typeof record.value !== 'object') return record
+      const machine = { kind: 'machine' as const, ...record }
+      if (record.value === undefined || typeof record.value !== 'object') return machine
       const companion = this.companionMachineRows.get(record.id)
-      if (!companion) return record
-      return { ...record, value: { ...companion, ...(record.value as Record<string, unknown>) } }
+      if (!companion) return machine
+      return { ...machine, value: { ...companion, ...(record.value as Record<string, unknown>) } }
     })
     runInAction(() => {
       headerEntities(this).apply(merged as never)

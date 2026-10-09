@@ -1,7 +1,6 @@
 import { defineSource } from './source-registry'
 import type { Replica } from '@podium/client-core/replica'
-import { compareStructural, observable, runInAction } from 'mobx'
-import { observableRef } from '@podium/mobx-helpers'
+import { compareStructural, observable, observableRef, runInAction } from 'mobx'
 import { AUTOMATION_RELATIONS, type AutomationEntity, type AutomationRows } from './automation-schema'
 import { RelationBuckets } from './relations'
 import { MobxPool } from './pool'

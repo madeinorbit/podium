@@ -61,7 +61,8 @@ function createAutomationViews(pool: MobxPool) {
   }
   function session(id: string | undefined) {
     if (!id) return undefined
-    return pool.queries.setupSessionPresent(id) ? omitGone(pool.model('session', id)) : undefined
+    const present = pool.queries.setupSessionPresent(id)
+    return present === LOADING ? LOADING : present ? omitGone(pool.model('session', id)) : undefined
   }
   return { list, repositories, targets: targetViews.targets, target: targetViews.target,
     targetMachine: targetViews.targetMachine, targetForPath: targetViews.targetForPath, run, session,
