@@ -118,6 +118,9 @@ function forest(seed: number): Row[] {
     issue('agent-under-draft', { parentId: 'hidden-draft', audience: 'agent', seq: 63 }),
     issue('agent-orphan', { parentId: 'nowhere', audience: 'agent', seq: 64 }),
     issue('agent-under-person', { parentId: 'outer-proposal', audience: 'agent', seq: 65 }),
+    // People's tasks under that agent work: the agent parent stays out of the tree.
+    issue('person-under-agent', { parentId: 'agent-under-draft', seq: 66 }),
+    issue('person-under-orphan', { parentId: 'agent-orphan', seq: 67 }),
   )
   return rows
 }
