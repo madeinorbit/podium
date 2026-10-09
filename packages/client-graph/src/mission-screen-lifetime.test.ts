@@ -64,14 +64,21 @@ it('opening and closing a mission 50 times leaves no view model or companion rea
       return held.filter(ref => ref.deref() !== undefined).length
     }
     const first: WeakRef<object>[] = []
-    openAndClose(pool, first)
+    // Release the mounting stack before the collection probe: JSC's
+    // conservative stack scan can retain the most recent synchronous call.
+    await new Promise<void>(resolve => setTimeout(() => { openAndClose(pool, first); resolve() }, 0))
     const afterOne = await reachable(first)
     const keptAfterOne = kept()
     const many: WeakRef<object>[] = []
-    for (let opening = 0; opening < 50; opening++) openAndClose(pool, many)
+    await new Promise<void>(resolve => setTimeout(() => {
+      for (let opening = 0; opening < 50; opening++) openAndClose(pool, many)
+      resolve()
+    }, 0))
     expect(many.length).toBeGreaterThan(50 * 4)
     // Flat: fifty openings leave no more reachable than one, and one leaves none.
-    expect(await reachable(many)).toBe(afterOne)
+    const afterMany = await reachable(many)
+    console.info('[mission lifetime]', JSON.stringify({ openings: 50, afterOne, afterMany, keptAfterOne, keptAfterMany: kept() }))
+    expect(afterMany).toBe(afterOne)
     expect(afterOne).toBe(0)
     expect(kept()).toBe(keptAfterOne)
   } finally { pool.dispose() }
