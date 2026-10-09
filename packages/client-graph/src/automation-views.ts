@@ -1,4 +1,4 @@
-import { omitGone } from './lookup'
+import { here, omitGone } from './lookup'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { compareStructural } from 'mobx'
 import type { AutomationModel } from './models'
@@ -36,7 +36,7 @@ function createAutomationViews(pool: MobxPool) {
         for (const id of catalog.automations) {
           const row = omitGone(pool.model('automation', id))
           if (row === LOADING) { pending++; continue }
-          if (!row || Reflect.get(omitGone(row.row) ?? {}, 'system') === true) continue
+          if (!row || Reflect.get(here(row.row) ?? {}, 'system') === true) continue
           automations.push(row)
         }
       }

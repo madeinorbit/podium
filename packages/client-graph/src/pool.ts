@@ -75,7 +75,7 @@ import {
 import { DeadlineClock } from './clock'
 import { debugName } from './debug-name'
 import { sessionSeats, type SeatRelation } from './session-seats'
-import { reseed } from './enumerate'
+import { headerIds, reseed } from './enumerate'
 import { headerEntities } from './header-entities'
 import {
   HEADER_ISSUE_SUMMARY_FIELDS,
@@ -1025,6 +1025,15 @@ export class MobxPool {
       const tableRows = machineRows.length
         ? event.rows.map(record => record.kind === 'machine' ? mergedById.get(record.id)! : record)
         : event.rows
+      // A feed replacement cannot remove a live-only machine: it owns only
+      // replicated companions. The live source still owns those memberships.
+      const reseedRows = event.type === 'replace'
+        ? [...tableRows, ...headerIds(this, 'machine').flatMap(id => {
+            if (mergedById.has(id)) return []
+            const value = this.tables.machine.get(id)
+            return value ? [{ kind: 'machine' as const, id, value: value as RowSourceEvent['rows'][number]['value'] }] : []
+          })]
+        : tableRows
       this.queries.beginPublication(event)
       this.ownIndex?.apply(event)
       const index = this.coldIndex()
@@ -1034,7 +1043,7 @@ export class MobxPool {
       this.indexSeen = index
       if (event.type === 'replace') {
         referenceViewIfPresent(this)?.resetUnresolved()
-        reseed(this.target, tableRows, out, this.ownIndex === undefined)
+        reseed(this.target, reseedRows, out, this.ownIndex === undefined)
         this.graph.reset()
         this.reseatAll()
         this.seatVerdicts.reset()
