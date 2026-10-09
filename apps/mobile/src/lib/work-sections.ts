@@ -166,7 +166,7 @@ const sameSectionFields = (a: WorkSection, b: WorkSection) =>
 export class MobileSearchSections {
   constructor(private readonly ordering = false) {}
   private readonly bands = new Map<string, MobileWorkSection>()
-  private readonly sources = new Map<string, { source: WorkSection; native: MobileWorkSection }>()
+  private readonly sources = new Map<string, { source: WorkSection; native: MobileWorkSection; pinnedIds: readonly string[] }>()
   private nativeSources: readonly MobileWorkSection[] = []
   private native(pool: MobxPool, sections: readonly (WorkSection | string)[]): readonly MobileWorkSection[] {
     const active = new Set<string>()
@@ -176,13 +176,19 @@ export class MobileSearchSections {
       const source = typeof key === 'string' ? nativeSectionFields(pool, key, this.ordering) : key
       active.add(source.key)
       const old = this.sources.get(source.key)
-      if (old && sameSectionFields(old.source, source)) return old.native
-      const data = old && old.native.data.length === source.data.length && old.native.data.every((ref, index) => ref.id === source.data[index])
+      // Pinned attention rows also remain in Pinned and keep their distinct
+      // list key. Project attention rows keep the original record key.
+      const pinnedIds = source.kind === 'attention'
+        ? mobileWorkView(pool).mobileSections().pinned.openIds : EMPTY_SECTION_IDS
+      if (old && old.pinnedIds === pinnedIds && sameSectionFields(old.source, source)) return old.native
+      const pinned = new Set(pinnedIds)
+      const listKey = (id: string) => pinned.has(id) ? `needs-you:${id}` : id
+      const data = old && old.native.data.length === source.data.length && old.native.data.every((ref, index) => ref.id === source.data[index] && ref.listKey === listKey(ref.id))
         ? old.native.data : source.data.map(id => ({ id,
         kind: pool.tables.worktree.has(id) ? 'worktree' as const : 'issue' as const,
-        listKey: source.kind === 'attention' ? `needs-you:${id}` : id }))
+        listKey: listKey(id) }))
       const native: MobileWorkSection = { ...source, data }
-      this.sources.set(source.key, { source, native })
+      this.sources.set(source.key, { source, native, pinnedIds })
       return native
     })
     for (const key of this.sources.keys()) if (!active.has(key)) this.sources.delete(key)

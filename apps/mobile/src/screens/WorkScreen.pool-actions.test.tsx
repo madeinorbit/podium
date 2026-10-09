@@ -426,17 +426,17 @@ afterAll(() => {
 describe('mobile pool work-list actions', () => {
   it('opens the mission before the deferred mark-read, then restores unread on refusal', async () => {
     await mount((f) => f.patchIssue(TARGET, { readAt: null }))
-    expect(value().unread).toBe(true)
+    expect(value().emphasizeUnread).toBe(true)
     fireEvent.click(button())
     expect(router.push).toHaveBeenCalledWith(`/mission/${TARGET}`)
     expect(requests).toEqual([])
     const write = await request('issues.markRead')
     expect(write.input).toMatchObject({ id: TARGET, mutationId: expect.any(String) })
     expect(pool().readCursor(TARGET)).toBe(iso(0))
-    expect(value().unread).toBe(false)
+    expect(value().emphasizeUnread).toBe(false)
     await parity()
     await settle(write)
-    expect(value().unread).toBe(true)
+    expect(value().emphasizeUnread).toBe(true)
   })
 
   for (const kind of ['draft', 'worktree'] as const)
@@ -468,16 +468,16 @@ describe('mobile pool work-list actions', () => {
             agentState: { phase: 'working', since: iso(-60_000) },
           })
       })
-      const before = value().unread
+      const before = value().emphasizeUnread
       expect(before).toBe(unread)
-      if (unread) expect(value().unread).toBe(false)
+      if (unread) expect(value().emphasizeUnread).toBe(false)
       await openMenu()
       await choose(unread ? 'Mark as read' : 'Mark as unread')
       const write = await request(unread ? 'issues.markRead' : 'issues.markUnread')
-      expect(value().unread).toBe(!unread)
+      expect(value().emphasizeUnread).toBe(!unread)
       await parity()
       await settle(write)
-      expect(value().unread).toBe(unread)
+      expect(value().emphasizeUnread).toBe(unread)
     })
 
   it('tucks a completed row immediately, rolls back, and holds accepted tuck until echo', async () => {
@@ -582,12 +582,12 @@ describe('mobile pool work-list actions', () => {
     await settle(first, true)
     await rename('Second rename')
     const second = await request('issues.update')
-    expect(value().label).toBe('Second rename')
+    expect(value().title).toBe('Second rename')
     await parity()
     await settle(second)
-    expect(value().label).toBe('First rename')
+    expect(value().title).toBe('First rename')
     await patch(fixture, TARGET, { title: 'First rename' })
-    expect(value().label).toBe('First rename')
+    expect(value().title).toBe('First rename')
   })
 
   for (const input of ['cancel', '   ', 'Synthetic task 3'])
@@ -603,7 +603,7 @@ describe('mobile pool work-list actions', () => {
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 10))
       })
-      expect(value().label).toBe('Synthetic task 3')
+      expect(value().title).toBe('Synthetic task 3')
       expect(requests).toEqual([])
       await parity()
     })
