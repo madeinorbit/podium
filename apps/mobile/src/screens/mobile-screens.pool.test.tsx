@@ -43,8 +43,33 @@ const state = vi.hoisted(() => ({
   missionId: '',
   runtime: null as ClientRuntime<MobileTrpc> | null,
   errors: [] as string[],
+  loadWindows: null as (() => void)[] | null,
   publications: new Map<MobxPool, { count: number; views: Set<() => unknown> }>(),
 }))
+// The cold-banner proof owns the production loader's scheduling seam. The
+// transcript service may request the payload, but wall-clock load must not decide
+// whether the banner is observed before or after that request completes.
+vi.mock('@podium/client-graph/residency', async (original) => {
+  const real = await original<typeof import('@podium/client-graph/residency')>()
+  return {
+    ...real,
+    Residency: class extends real.Residency {
+      constructor(options: ConstructorParameters<typeof real.Residency>[0]) {
+        const windows = state.loadWindows
+        super(windows === null ? options : {
+          ...options,
+          schedule(run) {
+            windows.push(run)
+            return () => {
+              const index = windows.indexOf(run)
+              if (index !== -1) windows.splice(index, 1)
+            }
+          },
+        })
+      }
+    },
+  }
+})
 // Observe the production projection boundary; never substitute its tracking,
 // equality decision, subscription or snapshot with a fixture implementation.
 vi.mock('@podium/client-graph/runtime-pool', async (original) => {
@@ -361,6 +386,7 @@ afterEach(() => {
   missionLegacyStats.reset()
   state.errors.length = 0
   state.pool = null
+  state.loadWindows = null
 })
 afterAll(() => vi.unstubAllEnvs())
 // Retain the accepted snapshot namespace while measuring the live pool boundary.
@@ -534,6 +560,16 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: `#${root.seq}` } })
     fireEvent.click(screen.getByLabelText('Working'))
   })
+  // The Tasks model migration (24cd129136) draws placeholders while these
+  // cold descendant-progress facts load. Compare the settled text, as before
+  // the migration, rather than freezing the temporary blank rows.
+  const coldProgressRows = [4573, 4610].map((seq) =>
+    corpus.issueProjections.find((issue) => issue.seq === seq)!,
+  )
+  await waitFor(() => {
+    for (const issue of coldProgressRows)
+      expect(screen.getByTestId('tasks').textContent).toContain(issue.title)
+  }, { timeout: 5_000 })
   await checkpoint('deck mode')
   await act(async () => {
     fireEvent.click(screen.getByLabelText('Full'))
@@ -613,7 +649,7 @@ function ColdConversation({ id }: { id: string }) {
   const session = useMobilePoolProjection(read, undefined)
   return session ? <SessionConversation session={session} issue={undefined} /> : null
 }
-it('a cold conversation renders its declared joined machine name without loading the session', async () => {
+it('a cold conversation renders its declared joined machine name before and after payload loading', async () => {
   const corpus = buildCorpus(1)
   const id = asSessionId('phone-cold-machine-session')
   const issueId = asIssueId('phone-cold-machine-task')
@@ -651,6 +687,7 @@ it('a cold conversation renders its declared joined machine name without loading
       resume: undefined,
     },
   ]
+  state.loadWindows = []
   state.host = createMobilePool(false)
 
   vi.spyOn(Date, 'now').mockReturnValue(corpus.fixedNow)
@@ -668,12 +705,22 @@ it('a cold conversation renders its declared joined machine name without loading
         state.host!.host.attach(runtime, (error) => state.errors.push(error.message)),
     },
   )
-  await waitFor(() =>
+  const expectMachineName = () =>
     expect(screen.getByTestId('machine-offline-banner').textContent).toContain(
       "machine 'Cold phone machine' is offline",
-    ),
-  )
+    )
+  await waitFor(expectMachineName, { timeout: 5_000 })
   expect(state.pool!.tables.session.has(id)).toBe(false)
+  // Conversation.start requests the full session for transcript activity.
+  // Release that real request only after proving the cold display join.
+  expect(state.loadWindows.length).toBeGreaterThan(0)
+  await act(async () => {
+    for (const run of state.loadWindows!.splice(0)) run()
+  })
+  await waitFor(() => {
+    expect(state.pool!.tables.session.has(id)).toBe(true)
+    expectMachineName()
+  }, { timeout: 5_000 })
   expect(chatContextReadStats(state.pool!)).toEqual({
     mentionBuilds: 0,
     mentionIssueReads: 0,
