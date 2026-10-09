@@ -2,9 +2,9 @@
  * session projection and client publication. Only the hosted runner is fake. */
 import { createHash } from 'node:crypto'
 import { asAccountId, firstAdminMemberId, type AgentRuntimeState } from '@podium/model'
-import type { ServerMessage } from '@podium/protocol'
+import { CLIENT_WIRE_VERSION, type ServerMessage } from '@podium/protocol'
 import type { ControlMessage, DaemonMessage } from '@podium/protocol/daemon'
-import { afterEach, describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   canonicalHeadlessContractFacts,
   type SessionSpec,
@@ -41,7 +41,7 @@ async function fixture() {
   const controls: ControlMessage[] = []
   await attachHostDaemon(registry, (frame) => { controls.push(frame) })
   const clients: ServerMessage[] = []
-  attachTestClient(registry.clientGateway, (frame) => { clients.push(frame) })
+  const clientId = attachTestClient(registry.clientGateway, (frame) => { clients.push(frame) })
   const { sessionId } = await registry.modules.sessions.headless.createHeadlessSession({
     agentKind: 'claude-code', cwd: '/fixture', ownerUserId: firstAdminMemberId(),
   })
@@ -50,6 +50,12 @@ async function fixture() {
     type: 'bind', sessionId, cmd: 'headless', cwd: '/fixture', agentKind: 'claude-code',
     geometry: { cols: 80, rows: 24 }, driverId: 'headless',
   })
+  await registry.modules.sessions.flushBroadcasts()
+  await registry.clientGateway.routeClientFrame(clientId, {
+    type: 'hello', caps: ['sync.http.v1'], wireVersion: CLIENT_WIRE_VERSION,
+    clientId: '', viewport: { cols: 80, rows: 24, dpr: 1 },
+  })
+  await vi.waitFor(() => expect(clients.some((frame) => frame.type === 'feedResume')).toBe(true))
 
   let now = Date.parse('2026-10-09T08:00:00.000Z')
   const sent: DaemonMessage[] = []
@@ -118,17 +124,20 @@ async function fixture() {
         await registry.gateway.routeDaemonFrame(machineId, frame)
       }
     }
+    await registry.modules.sessions.flushBroadcasts()
   }
   const localState = () => handle.state()
   const projectedState = async () => (await registry.modules.sessions.sessionById(sessionId))?.agentState
   const publishedStates = () => clients.flatMap((frame) =>
-    frame.type === 'sessionAgentStateChanged' && frame.sessionId === sessionId ? [frame.state] : [])
+    frame.type === 'feedDelta' ? frame.changes.flatMap((change) =>
+      change.entity === 'session' && change.entityId === sessionId && change.op === 'upsert'
+        && change.value?.agentState ? [change.value.agentState] : []) : [])
   async function agree(expected: Partial<AgentRuntimeState>) {
     const local = await localState()
     expect(local).toMatchObject(expected)
     const canonical = { ...local, workingMsTotal: local.workingMsTotal ?? 0 }
     expect(await projectedState()).toEqual(canonical)
-    expect(publishedStates().at(-1)).toEqual(canonical)
+    await vi.waitFor(() => expect(publishedStates().at(-1)).toEqual(canonical))
     expect(controls.some((frame) => frame.type === 'runtimeWatch')).toBe(false)
   }
   function input(id: string, structured = false): TurnInput {
