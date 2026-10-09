@@ -1,8 +1,8 @@
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { MobxPool } from '@podium/client-graph/pool'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
-import { searchMobileSections, MobileSearchSections } from '../../../../apps/mobile/src/lib/work-sections'
-import { autorun, runInAction } from 'mobx'
+import { searchMobileSections, MobileSearchSections, MobileNativeSections } from '../../../../apps/mobile/src/lib/work-sections'
+import { autorun, observable, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
 import { insideArm, insideReader, measureWork, type WorkCounts } from './work-meter'
 
@@ -29,7 +29,7 @@ async function capture(domain: 'members' | 'groups', scale: number) {
   const members = domain === 'members' ? 16 * scale : 16
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now })
   const source = Array.from({ length: groups }, (_, g) => Array.from({ length: members }, (_, n) =>
-    issue(g, n, n === members - 1 ? { stage: 'done', closedAt: stamp, tuckedAt: stamp }
+    issue(g, n, n === members - 1 ? { stage: 'done', closedReason: 'done', closedAt: stamp, tuckedAt: stamp }
       : n === members - 2 ? { deferUntil: '2026-10-20T00:00:00Z' } : {}))).flat()
   const looseCount = domain === 'members' ? 16 * scale : 16
   const loose = Array.from({ length: looseCount }, (_, n) => session(`loose-${n}`, null, '/loose', {
@@ -45,6 +45,9 @@ async function capture(domain: 'members' | 'groups', scale: number) {
   const view = worklistView(pool)
   const tree = view.tree(pool.model('worktree', '/loose')!)
   const native = new MobileSearchSections()
+  const foldedNative = new MobileNativeSections()
+  const collapsed = observable.set<string>()
+  let foldedData: readonly unknown[] = []
   let desktopIds: readonly string[] = [], phoneIds: readonly string[] = []
   const stops = [
     autorun(() => insideReader('membership.desktop-source', () => {
@@ -57,7 +60,9 @@ async function capture(domain: 'members' | 'groups', scale: number) {
       const sections = view.mobileSections()
       const answer = searchMobileSections(pool, sections.sectionKeys, '', native)
       phoneIds = sections.project('repo-0').openIds
-      for (const section of answer.slice(0, 3)) if (!section.collapsed) void section.data.slice(0, 5)
+      const display = foldedNative.update(answer, collapsed, false)
+      foldedData = display.find(section => section.key === 'repo-0')?.data ?? []
+      for (const section of display.slice(0, 3)) if (!section.collapsed) void section.data.slice(0, 5)
     })),
     autorun(() => insideReader('membership.worktree-source', () => {
       void tree.sessions; void tree.visible; void tree.stale
@@ -73,10 +78,7 @@ async function capture(domain: 'members' | 'groups', scale: number) {
       pool.apply({ type: 'update', rows: [{ kind, id, value: value as never }] })
     const actions: Record<Action, () => void> = {
       click: () => view.select('group-0-issue-1'),
-      fold: () => view.setLayout({ collapsed: {
-        'podium:sidebar:project-fold:repo-0': true,
-        'podium:sidebar:work-group-fold:repo-0': true,
-      } }),
+      fold: () => { collapsed.add('repo-0') },
       reorder: () => update('issue', 'group-0-issue-1', issue(0, 1, { sortKey: 'z9999' })),
       membership: () => update('issue', 'group-0-issue-2', issue(0, 2, { deferUntil: '2026-10-20T00:00:00Z' })),
       heartbeat: () => update('session', 'unrelated', session('unrelated', 'group-3-issue-0', '/repo-3', { lastActiveAt: '2026-10-09T12:01:00Z' })),
@@ -87,7 +89,7 @@ async function capture(domain: 'members' | 'groups', scale: number) {
       const { work } = await measureWork(async () => insideArm(() => runInAction(change)), { pool })
       cells.push({ action, work })
       if (action === 'click') expect(view.selectedId).toBe('group-0-issue-1')
-      if (action === 'fold') expect(view.mobileSections().project('repo-0').data).toEqual([])
+      if (action === 'fold') expect(foldedData).toEqual([])
       if (action === 'reorder') {
         expect(desktopIds.at(-1)).toBe('group-0-issue-1')
         expect(phoneIds.at(-1)).toBe('group-0-issue-1')
