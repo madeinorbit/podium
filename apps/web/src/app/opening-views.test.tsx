@@ -1,5 +1,4 @@
 // @vitest-environment happy-dom
-import { gcAndSweep, releaseWeakRefs } from 'bun:jsc'
 import { useOpeningView } from '@podium/client-graph/react'
 import { createIssuePageViews } from '@podium/client-graph/issue-page'
 import { createSettingsViews } from '@podium/client-graph/settings-views'
@@ -105,11 +104,11 @@ for (const [name, factory] of factories) {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
     try {
       const refs = await exerciseOpenings(pool, factory)
+      const gc = (globalThis as unknown as { Bun: { gc(force: boolean): void } }).Bun.gc
       for (let turn = 0; turn < 3; turn++) {
         // Collect from a separate task while the assertion frame is suspended.
         await new Promise<void>((resolve) => setTimeout(() => {
-          releaseWeakRefs()
-          gcAndSweep()
+          gc(true)
           resolve()
         }, 0))
       }
