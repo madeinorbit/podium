@@ -1336,12 +1336,16 @@ export const HungRows = observer(function HungRows(ctx: HungContext): JSX.Elemen
             />
           )
         }
-        const session = ctx.model ? requireLoaded(ctx.model.view.session(sessionId))! : ctx.sessions[index]!
-        const role = sessionRole(ctx.issue, session, {
+        const session = ctx.model ? ctx.model.view.session(sessionId) : ctx.sessions[index]
+        const pending = () => <div key={sessionId} style={{ height: 46 }}><GhostBar /></div>
+        if (session === LOADING) return pending()
+        if (!session) return null
+        const role = settled(() => sessionRole(ctx.issue, session, {
           rootId: ctx.rootId,
           siblings: ctx.model?.sessions ?? ctx.sessions,
           inMission: ctx.inMission,
-        })
+        }))
+        if (role === LOADING) return pending()
         const row = (
           <SessionRow
             key={session.sessionId}
@@ -1521,11 +1525,11 @@ export const TaskRow = observer(
     // A visible session can belong to a task whose band is offscreen. That
     // session needs its own owner fields, but never the hidden band's payload.
     if (deckWindow?.enabled && !deckWindow.contains(deckTaskKey(row.key))) {
-      const issue = requireLoaded(row.view.catalogIssue(row.id))!
+      const issue = row.view.catalogIssue(row.id)
       return <div className="relative pb-1.5" data-flight-issue={row.id} data-depth={row.depth}>
         <BranchGuides carries={carries} rails={rails} mid={row.stage === 'proposed' ? PROPOSED_MID : BAND_MID} />
         <DeckRowPlaceholder row={{ key: deckTaskKey(row.key), size: BAND_HEIGHT, get text() { return deckWindow.text(deckTaskKey(row.key)) } }} window={deckWindow} />
-        {!collapsed && <HungRows issue={issue} sessions={[]} model={row} mode={mode} rootId={rootId} inMission={inMission} nameOf={nameOf}
+        {!collapsed && issue !== LOADING && issue && <HungRows issue={issue} sessions={[]} model={row} mode={mode} rootId={rootId} inMission={inMission} nameOf={nameOf}
           activeSessionId={activeSessionId} arrivals={arrivals} settle={settle} inset={bandLeft} rail={agentRail} tail={childFollows}
           onSelectSession={onSelectSession} onSelectNative={onSelectNative} window={deckWindow} />}
       </div>
