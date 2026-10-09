@@ -74,6 +74,7 @@ export interface PoolRelationsOptions {
 }
 
 const NONE: ReadonlySet<string> = Object.freeze(new Set<string>())
+const EMPTY_IDS: readonly string[] = Object.freeze([])
 
 /** One demand-scoped list field for an indexed relation slot. Models and
  * unloaded records both use IDs here; payload changes cannot change the list. */
@@ -254,6 +255,12 @@ export class PoolRelations implements RelationReader, RelationMaintenance {
   /** Slot holders are part of the data-layer index, retained only while
    * their lazy field observes the slot (including a synchronous action read). */
   private list(key: string, read: () => ReadonlySet<string>): readonly string[] {
+    // The index already answers an empty membership. Observe its slot so the
+    // first join is live, without allocating a computed for an empty answer.
+    if (read().size === 0) {
+      this.observe(key)
+      return EMPTY_IDS
+    }
     let list = this.lists.get(key)
     if (!list) {
       list = new RelationList(read, () => this.observe(key))
