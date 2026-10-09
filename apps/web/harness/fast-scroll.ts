@@ -77,6 +77,7 @@ for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture'
         .map((el, i) => { el.dataset.scrollProof = String(i); return { index: i, class: el.className, testid: el.dataset.testid, height: el.clientHeight, range: el.scrollHeight - el.clientHeight, text: el.innerText.slice(0, 70) } }))
       console.log(fixture, variant, JSON.stringify({ candidates, errors }))
       for (const candidate of candidates) {
+        if (process.argv.includes('--candidate') && candidate.index !== Number(process.argv[process.argv.indexOf('--candidate') + 1])) continue
         if (variant !== 'scroll' && candidate.testid === 'work-scroll') continue
         const selector = `[data-scroll-proof="${candidate.index}"]`
         const box = await page.locator(selector).boundingBox()
