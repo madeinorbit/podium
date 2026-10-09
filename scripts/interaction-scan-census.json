@@ -3082,14 +3082,14 @@
       "file": "apps/web/src/app/FlightDeckRows.tsx",
       "holder": "HungRows/HungRows",
       "rule": "consume:map",
-      "tokens": "10409b2ea86af42b738b8dd967c0e842465e78819f1a6ecc4a76763dc5d1bfa2",
+      "tokens": "a9eac80c7d20d83a6283bcbe947f036151dc5b47a1d2d4620558788504513ece",
       "gate": [
         "exit:then:d482a8700d79a19a9d6fdca801f248a15c67580d5b6b777f7a7bb63f275b9dbe"
       ],
       "origin": [
         "151a842bb26b09746f4be6e73abc3813fbe645814a2d3a2008e048202699b7ae"
       ],
-      "fingerprint": "46dd99e5e968b202b0c68efb0f713a057418921560e5291bb5871317172c38b7",
+      "fingerprint": "cd16daa4ef587a2065569d2c5c752a35312992ff7620026856c915683e575ccc",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5575",
@@ -3122,15 +3122,17 @@
       "file": "apps/web/src/app/FlightDeckRows.tsx",
       "holder": "HungRows/HungRows/map:callback/role",
       "rule": "reader-summary",
-      "tokens": "5ffd331d6264ff45e6cc0dcf960d734983603759b79ecea4c144f9c64e49e4d0",
+      "tokens": "1ccf38d59f87892e731fd3fbd5b7e0fe94cfb726484295493073d45f0e560b86",
       "gate": [
         "exit:then:d482a8700d79a19a9d6fdca801f248a15c67580d5b6b777f7a7bb63f275b9dbe",
+        "exit:then:a5e443e2919ebc57abe4ee22a25d1c61c6e3b01c7c1297f036811cc1773ef9d2",
+        "exit:then:af3f31ac09a111fcacab6ad6ce9fe2461daabbc6fb51e85e09983be873c5cd97",
         "exit:then:2210a5b9bb5219549a0847f7700437d104ebfdfbb193bce630058ad0ecf9d9e6"
       ],
       "origin": [
         "eaad457e36ec0a38d86f3e30506efe8b585c04441090a4278dedd9fa6735ac8e"
       ],
-      "fingerprint": "6572efeafe52990dde88c27027e33e5087c133f405fcdced1a05a05ad637b15f",
+      "fingerprint": "10cd76cb8592b659e40aeccf40fde3a3449fc9411c14234734aee8d941e68200",
       "count": 1,
       "classification": "visible output",
       "owner": "POD-5575",
@@ -14068,7 +14070,7 @@
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
       "rule": "helper-consumer",
-      "tokens": "cbc6acaef11f8f26dada0421e0703d9b7ba5b6ab92208faf0172d50efc79d670",
+      "tokens": "c8025bc211e37d473dfc300354924eecb2f151d21f5386d27d705b364f35a1b4",
       "gate": [
         "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
         "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c",
@@ -14077,7 +14079,7 @@
       "origin": [
         "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
       ],
-      "fingerprint": "05d11389bc1254c0d9b10fbc234299b33915e29ad0ab9de2b25094d61da96e64",
+      "fingerprint": "1cf2bfbc470bd33d5dc6a24293da3165f0d7dd54b248ecc3bb7834d610352163",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -27882,7 +27884,7 @@
       "trigger": "A newly fetched issue event page is appended.",
       "bound": "One supplied page (the shared request owner asks for at most 200 rows per RPC); retained history is never enumerated for ID deduplication.",
       "reason": "The history owns its ID index and formats only new rows, with stable event/feed arrays and cursor advancement.",
-      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1→1 for 128/512 retained events; a planted retained-ID map/Set fails."
+      "guard": "packages/client-graph/src/issue-activity.test.ts: append element work is 1\u21921 for 128/512 retained events; a planted retained-ID map/Set fails."
     },
     {
       "file": "packages/client-core/src/values/issue-board-filter.ts",
@@ -37820,7 +37822,7 @@
       "trigger": "Default LoadPanel metric question",
       "bound": "One stored source-order element, or one iterator.next() when no first ordered ID exists.",
       "reason": "The keys iterator is advanced once; it is never spread, looped or materialized. Named metric demand bypasses the iterator. No whole-table scan occurs.",
-      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132→516 elements."
+      "guard": "packages/client-graph/src/header-point-questions.test.ts and apps/web/src/app/header-data.point.test.tsx: first/repeat/addressed/missing/update/closed at128/512; all structural counters flat; whole-ID control grows132\u2192516 elements."
     },
     {
       "file": "packages/client-graph/src/header-repositories.ts",
@@ -43906,6 +43908,47 @@
       "bound": "The existing shellIssues catalogue supplies the IDs; it has no proven named-demand or cardinality cap.",
       "reason": "Candidate filtering and ordering moved into the view model without changing the upstream catalogue. Its existing acquisition debt remains owned by POD-5530.",
       "guard": "Exact fingerprint and multiplicity. Paired legacy fixtures preserve membership and order; this entry does not claim the upstream catalogue has been bounded."
+    },
+    {
+      "file": "apps/web/src/app/FlightDeckRows.tsx",
+      "holder": "HungRows/HungRows/map:callback/role/settled:callback",
+      "rule": "reader-summary",
+      "tokens": "5ffd331d6264ff45e6cc0dcf960d734983603759b79ecea4c144f9c64e49e4d0",
+      "gate": [
+        "exit:then:d482a8700d79a19a9d6fdca801f248a15c67580d5b6b777f7a7bb63f275b9dbe",
+        "exit:then:a5e443e2919ebc57abe4ee22a25d1c61c6e3b01c7c1297f036811cc1773ef9d2",
+        "exit:then:af3f31ac09a111fcacab6ad6ce9fe2461daabbc6fb51e85e09983be873c5cd97",
+        "exit:then:2210a5b9bb5219549a0847f7700437d104ebfdfbb193bce630058ad0ecf9d9e6"
+      ],
+      "origin": [
+        "eaad457e36ec0a38d86f3e30506efe8b585c04441090a4278dedd9fa6735ac8e"
+      ],
+      "fingerprint": "edec67f09c233410d34968bec2d2c7523e1b6a3d74296a36584191207841846d",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5880",
+      "trigger": "Cold buffered HungRows session-role callback.",
+      "bound": "The same mounted buffered session slots as the existing role reader; the settled wrapper introduces no additional iteration.",
+      "reason": "The scanner now follows the existing role reader through its loading-sentinel wrapper. Classification remains visible output.",
+      "guard": "FlightDeck.pool.test.tsx cold i14941 case; flight-deck-window.test.tsx bounds; full speed:structural census."
+    },
+    {
+      "file": "packages/client-graph/src/mission-view.ts",
+      "holder": "settled",
+      "rule": "reader-summary",
+      "tokens": "6d2d07a80cdbaacfd88384053a1b3edb39822d87f19b33f2a6dea440db0bf45b",
+      "gate": [],
+      "origin": [
+        "eaad457e36ec0a38d86f3e30506efe8b585c04441090a4278dedd9fa6735ac8e"
+      ],
+      "fingerprint": "a23992c3fadd94c4b348375a88d82700de1b7fd44eaf2f9847e287de34853865",
+      "count": 1,
+      "classification": "visible output",
+      "owner": "POD-5880",
+      "trigger": "Cold buffered HungRows session-role callback.",
+      "bound": "The same mounted buffered session slots as the existing role reader; the settled wrapper introduces no additional iteration.",
+      "reason": "The scanner now follows the existing role reader through its loading-sentinel wrapper. Classification remains visible output.",
+      "guard": "FlightDeck.pool.test.tsx cold i14941 case; flight-deck-window.test.tsx bounds; full speed:structural census."
     }
   ]
 }
