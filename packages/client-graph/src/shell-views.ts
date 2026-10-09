@@ -5,7 +5,7 @@ import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { ActiveWorktree } from '@podium/client-core/values'
-import { asSessionId, type RepoId } from '@podium/model/browser'
+import { asIssueId, asSessionId, type IssueId, type RepoId } from '@podium/model/browser'
 import { compareShallow, compareStructural } from 'mobx'
 import { headerIds } from './enumerate'
 import type { HeaderRows } from './header-schema'
@@ -207,12 +207,12 @@ export class ShellDock {
     const explicit = active?.issueId ? this.known(active.issueId) : undefined
     return explicit === LOADING ? LOADING : explicit ?? this.containing
   }
-  @lazy get mailIssueId(): Loaded<string> {
+  @lazy get mailIssueId(): Loaded<IssueId> {
     const session = this.activeSession
     if (session === LOADING) return LOADING
     if (session?.issueId != null) return session.issueId
     const containing = this.containing
-    return containing === LOADING ? LOADING : containing?.id
+    return containing === LOADING ? LOADING : containing ? asIssueId(containing.id) : undefined
   }
   @lazy get shipping(): Loaded<{ unfinishedCount: number; decisionCount: number }> {
     const scope = this.scope

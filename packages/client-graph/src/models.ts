@@ -1,6 +1,6 @@
 import { type Lookup, omitGone, isGone } from './lookup'
 import { issuePendingDecision, type IssueNavigationModel } from '@podium/client-core/values'
-import type { IssueProjection } from '@podium/model'
+import type { IssueGitState, IssueProjection } from '@podium/model'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
 import { attentionGroup, effectiveRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -1027,7 +1027,10 @@ interface IssueEdits {
 // presence fields above keep their scalar types, and no row is stored here.
 export interface SessionModel extends Readonly<Omit<SessionView, 'archived' | 'condition'>>, RelationGetters<'session'> {}
 
-export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority'>>, Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'notes'>>, IssueEdits, RelationGetters<'issue'> {}
+export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority'>>, Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'notes' | 'gitState'>>, IssueEdits, RelationGetters<'issue'> {
+  /** The stored projection uses the full wire contract; summaries only gate loading. */
+  readonly gitState?: IssueGitState | null
+}
 
 export type ModelOf = {
   issue: IssueModel &
