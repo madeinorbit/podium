@@ -1,5 +1,6 @@
 /** The phone board before POD-5865, kept only as the parity oracle for the
  * rewritten MobileTasksBoard. Same answers, built by hand in one pass. */
+import { omitGone } from '@podium/client-graph/lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { ModelOf } from '@podium/client-graph/models'
 import type { BoardFilter, IssuesOrdering } from '@podium/client-core/values'
@@ -66,13 +67,13 @@ export class MobileTasksBoardBefore {
   }
 
   private query(options: BoardQuery): readonly string[] {
-    const value = requireRow(this.pool.row('issueBoardQuery', JSON.stringify(options)))
+    const value = requireRow(omitGone(this.pool.row('issueBoardQuery', JSON.stringify(options))))
     if (!value) throw LOADING
     return value.ids
   }
 
   private position(id: string, ordering: IssuesOrdering = 'priority') {
-    return requireRow(this.pool.row('issueBoardPosition', JSON.stringify([id, ordering])))
+    return requireRow(omitGone(this.pool.row('issueBoardPosition', JSON.stringify([id, ordering]))))
   }
 
   private parent(id: string): string | undefined {
