@@ -211,6 +211,16 @@ export function useDomTranscriptScroll(
     loadOlder()
   }, [loadOlder, loadingOlder, moreAbove, releaseFollow])
 
+  const previousRenderStart = useRef(renderStart)
+  useLayoutEffect(() => {
+    if (previousRenderStart.current === renderStart) return
+    previousRenderStart.current = renderStart
+    // Revealing a history window moves the mounted head. Conserve the anchor
+    // in that commit; waiting for the next resize can paint the empty old tile.
+    // Ordinary streaming reflows still use the shared ResizeObserver below.
+    reconcileLayout()
+  }, [renderStart, reconcileLayout])
+
   // A different conversation starts at its own tail. Hiding/showing a retained
   // panel leaves the reader's intent and anchor intact.
   useLayoutEffect(() => {
