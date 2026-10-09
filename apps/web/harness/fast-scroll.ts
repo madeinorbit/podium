@@ -14,7 +14,7 @@ await mkdir(output, { recursive: true })
 const fixtures = ['lists', 'chat', 'phone-lists', 'phone-chat'] as const
 if (process.argv.includes('--build')) {
   const { build } = await import('../node_modules/vite/dist/node/index.js')
-  for (const fixture of fixtures) {
+  for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture') || name === process.argv[process.argv.indexOf('--fixture') + 1])) {
     const base = fixture === 'lists'
       ? (await import('./sidebar-acceptance.vite')).default
       : fixture === 'chat'
