@@ -94,18 +94,24 @@ export function startupTargets(
 }
 
 /** Sets and maps become sorted arrays, so answers compare structurally. */
-function plain(value: unknown): unknown {
+function plain(value: unknown, ancestors = new Set<object>()): unknown {
   if (value === LOADING) return LOADING
-  if (value instanceof Set) return [...value].map(plain).sort()
-  if (value instanceof Map) return [...value].map(([key, item]) => [key, plain(item)]).sort()
-  if (Array.isArray(value)) return value.map(plain)
   if (value !== null && typeof value === 'object') {
-    const out: Record<string, unknown> = {}
-    for (const key of Object.keys(value).sort()) {
-      const item = (value as Record<string, unknown>)[key]
-      if (typeof item !== 'function') out[key] = plain(item)
+    if (ancestors.has(value)) throw new Error('[no-wrong-number] cyclic answer; read displayed fields instead of model ownership')
+    ancestors.add(value)
+    try {
+      if (value instanceof Set) return [...value].map(item => plain(item, ancestors)).sort()
+      if (value instanceof Map) return [...value].map(([key, item]) => [key, plain(item, ancestors)]).sort()
+      if (Array.isArray(value)) return value.map(item => plain(item, ancestors))
+      const out: Record<string, unknown> = {}
+      for (const key of Object.keys(value).sort()) {
+        const item = (value as Record<string, unknown>)[key]
+        if (typeof item !== 'function') out[key] = plain(item, ancestors)
+      }
+      return out
+    } finally {
+      ancestors.delete(value)
     }
-    return out
   }
   return value
 }
@@ -120,7 +126,23 @@ export function startupQuestions(targets: StartupTargets): StartupQuestion[] {
     questions.push({ group, name: `${group}:${name}`, read })
   const board = (pool: MobxPool) => createIssueBoardSource(pool)
 
-  for (const id of targets.roots) add('first-screen', `sidebar-row:${id}`, (pool) => sidebarView(pool).row(id))
+  for (const id of targets.roots) add('first-screen', `sidebar-row:${id}`, (pool) => {
+    const row = sidebarView(pool).row(id)
+    if (row === LOADING || row === undefined) return row
+    // A companion owns references to its model and view, not a serializable
+    // answer. Ask the facts UnifiedIssueRow displays, without walking its pool.
+    const progress = row.progress
+    if (progress === LOADING) return LOADING
+    return {
+      id: row.id, title: row.title, seq: row.issue.seq, color: row.issue.color,
+      stage: row.issue.stage, timing: row.timing, working: row.visibleWorking,
+      asking: row.visibleAsking, origin: row.origin, decision: row.decision,
+      mergeCommits: row.mergeCommits, progress, showsChildProgress: row.showsChildProgress,
+      unread: row.visibleUnread, errorClass: row.errorClass, fleet: row.visibleFleet,
+      sessionOnlyDraft: row.sessionOnlyDraft, firstSessionId: row.firstSessionId,
+      continuation: row.continuation,
+    }
+  })
 
   add('counts', 'issues', (pool) => pool.queries.count('issue'))
   add('counts', 'sessions', (pool) => pool.queries.count('session'))
@@ -170,6 +192,7 @@ export function startupQuestions(targets: StartupTargets): StartupQuestion[] {
 /** One answer per question, read inside a tracking context as a screen reads. */
 export function ask(pool: MobxPool, questions: readonly StartupQuestion[]): Map<string, unknown> {
   const answers = new Map<string, unknown>()
+  let failed = false, failure: unknown
   const stop = autorun(() => {
     answers.clear()
     for (const question of questions) {
@@ -183,8 +206,10 @@ export function ask(pool: MobxPool, questions: readonly StartupQuestion[]): Map<
       }
       answers.set(question.name, plain(answer))
     }
-  })
+  }, { onError(error) { failed = true; failure = error } })
   stop()
+  if (failed) throw failure
+  if (answers.size !== questions.length) throw new Error('[no-wrong-number] incomplete or duplicate question list')
   return answers
 }
 

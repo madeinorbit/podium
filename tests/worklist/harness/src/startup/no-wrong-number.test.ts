@@ -56,6 +56,20 @@ describe('the check itself', () => {
     expect(targets.parents.length).toBeGreaterThan(0)
     expect(targets.needles.length).toBeGreaterThan(0)
   })
+
+  it('propagates a failed or cyclic answer instead of comparing truncated maps', () => {
+    const pool = fullPool(feed)
+    try {
+      const broken = { name: 'counts:broken', group: 'counts' as const, read: () => { throw new Error('broken reader') } }
+      expect(() => ask(pool, [broken])).toThrow('broken reader')
+      const cycle: { owner?: unknown } = {}
+      cycle.owner = cycle
+      expect(() => ask(pool, [{ ...broken, read: () => cycle }])).toThrow(/cyclic answer/)
+      expect(() => ask(pool, [{ ...broken, read: () => 1 }, { ...broken, read: () => 1 }])).toThrow(/duplicate question/)
+    } finally {
+      pool.dispose()
+    }
+  })
 })
 
 describe('startup states against the full bootstrap (h1a1)', () => {
@@ -63,6 +77,7 @@ describe('startup states against the full bootstrap (h1a1)', () => {
     const pool = fullPool(feed)
     const report = checkNoWrongNumber(control, ask(pool, questions))
     pool.dispose()
+    expect(report.asked).toBe(questions.length)
     expect(report.loading).toEqual([])
     assertNoWrongNumber(report, 'second full bootstrap')
   }, 600_000)
