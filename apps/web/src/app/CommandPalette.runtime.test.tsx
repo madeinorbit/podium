@@ -229,6 +229,8 @@ it('releases each opening across fifty palette cycles without growing reachable 
       expect(view.snapshot).toBe(LOADING)
       expect(view.sessions).toEqual([])
       expect(view.memberOrder).toEqual([])
+      expect(view.issuePositions.size).toBe(0)
+      expect(view.memberPositions.size).toBe(0)
     }
     expect(new Set(opening.mock.contexts).size).toBe(50)
     expect(opening).toHaveBeenCalledTimes(50)

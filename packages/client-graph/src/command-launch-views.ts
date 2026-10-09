@@ -401,7 +401,9 @@ export class CommandPaletteView {
   @observableRef accessor sessions: SessionView[] = []
   @observableRef accessor recent: RecentCommand[] = []
   // Stored on open: membership and recency, never copied labels or references.
+  @observableRef accessor issuePositions = new Map<string, number>()
   @observableRef accessor memberOrder: { issueId: string; sessionId: string }[] = []
+  @observableRef accessor memberPositions = new Map<string, number>()
   @observable accessor defaultAgent = 'codex' as SessionView['agentKind']
   private stopLoading: (() => void) | undefined
 
@@ -412,6 +414,8 @@ export class CommandPaletteView {
     const views = commandLaunchViews(this.pool)
     const take = () => {
       this.snapshot = views.opening()
+      this.issuePositions = new Map(this.snapshot && this.snapshot !== LOADING
+        ? this.snapshot.issues.map((issue, position) => [issue.id, position]) : [])
       const ids = views.sessionIds()
       this.sessions = ids && ids !== LOADING ? ids.flatMap(id => {
         const row = this.pool.row('session', id, 'summary-fields')
@@ -421,6 +425,14 @@ export class CommandPaletteView {
       this.memberOrder = this.sessions.flatMap(session =>
         session.issueId && session.agentKind !== 'shell'
           ? [{ issueId: session.issueId, sessionId: session.sessionId }] : [])
+        // Stable grouping retains the catalog's order within each issue.
+        .sort((a, b) => a.issueId < b.issueId ? -1 : a.issueId > b.issueId ? 1 : 0)
+      // Primitive offsets address the captured range; no ID-to-record map.
+      const positions = new Map<string, number>()
+      this.memberOrder.forEach((member, position) => {
+        if (!positions.has(member.issueId)) positions.set(member.issueId, position)
+      })
+      this.memberPositions = positions
       const stamp = (iso: string | undefined) => iso ? Date.parse(iso) || 0 : 0
       const recent: { at: number; command: RecentCommand }[] = []
       for (const s of this.sessions)
@@ -450,14 +462,19 @@ export class CommandPaletteView {
     if (!this.snapshot || this.snapshot === LOADING) return this.snapshot
     const views = commandLaunchViews(this.pool)
     const id = this.contextIssueId
-    const summary = id ? this.pool.row('commandIssue', id) : undefined
-    if (summary === LOADING) return LOADING
-    const issue = id && summary ? this.pool.issueObject(id) as unknown as IssueViewModel : undefined
+    const position = id ? this.issuePositions.get(id) : undefined
+    const issue = position === undefined ? undefined : this.snapshot.issues[position]
     return views.selected({ ...this.snapshot, issues: issue ? [issue] : [] }, this.memberIds)
   }
   @lazy get memberIds(): string[] {
     const id = this.contextIssueId
-    return id ? this.memberOrder.filter(member => member.issueId === id).map(member => member.sessionId) : []
+    if (!id) return []
+    let start = this.memberPositions.get(id)
+    if (start === undefined) return []
+    const ids: string[] = []
+    while (start < this.memberOrder.length && this.memberOrder[start]!.issueId === id)
+      ids.push(this.memberOrder[start++]!.sessionId)
+    return ids
   }
   @lazy({ equals: compareStructural })
   get data(): Loaded<CommandPaletteData> {
@@ -495,7 +512,9 @@ export class CommandPaletteView {
     this.snapshot = LOADING
     this.sessions = []
     this.recent = []
+    this.issuePositions = new Map()
     this.memberOrder = []
+    this.memberPositions = new Map()
   }
 }
 export const createCommandPalette = (pool: MobxPool) => new CommandPaletteView(pool)
