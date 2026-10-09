@@ -40,6 +40,15 @@ function setup() {
 }
 
 describe('native transcript intent', () => {
+  it('preloads older history a viewport before the mounted edge', () => {
+    const { result, older } = setup()
+    act(() => {
+      result.current.release()
+      result.current.onScroll(motion(580))
+    })
+    expect(older).toHaveBeenCalledTimes(1)
+  })
+
   it('requests older history on a drag when the loaded page cannot scroll', () => {
     const older = vi.fn()
     const write = vi.fn()
