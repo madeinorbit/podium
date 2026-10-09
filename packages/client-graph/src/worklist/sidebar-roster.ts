@@ -50,6 +50,7 @@ export class SidebarRosterIndex {
    * observer when the last group reader goes away. */
   private readonly groupResults = new Map<string, ReturnType<typeof createQueryResult<string>>>()
   private readonly groupListeners = new Map<string, Set<(path: string | undefined) => void>>()
+  private readonly candidateListeners = new Map<string, Set<(id: string | undefined) => void>>()
   groupIds(key: string): readonly string[] {
     let result = this.groupResults.get(key)
     if (!result) {
@@ -84,6 +85,22 @@ export class SidebarRosterIndex {
 
   /** Membership alone; the worktree companion owns read-time eligibility. */
   residentCandidates(path: string): Iterable<string> { return this.lanes.get(path) ?? EMPTY }
+
+  hasResidentCandidate(path: string, id: string): boolean { return this.lanes.get(path)?.has(id) ?? false }
+
+  /** Keyed membership moves are delivered inside the publication's action. */
+  subscribeCandidates(path: string, changed: (id: string | undefined) => void): () => void {
+    let listeners = this.candidateListeners.get(path)
+    if (!listeners) {
+      listeners = new Set()
+      this.candidateListeners.set(path, listeners)
+    }
+    listeners.add(changed)
+    return () => {
+      listeners.delete(changed)
+      if (!listeners.size) this.candidateListeners.delete(path)
+    }
+  }
 
   private readonly stops: readonly (() => void)[]
   constructor(private readonly pool: MobxPool) {
@@ -199,6 +216,7 @@ export class SidebarRosterIndex {
     }
     this.schedule(id, candidate ? deadline : Number.POSITIVE_INFINITY)
     let lane = this.lanes.get(seat.path)
+    const wasCandidate = lane?.has(id) ?? false
     if (candidate) {
       if (!lane) {
         lane = observable.set<string>(undefined, { deep: false, name: debugName(() => 'pool.sidebar.rosterSeats') })
@@ -209,6 +227,8 @@ export class SidebarRosterIndex {
       lane.delete(id)
       if (!lane.size) this.lanes.delete(seat.path)
     }
+    if (candidate !== wasCandidate)
+      for (const changed of this.candidateListeners.get(seat.path) ?? []) changed(id)
     this.filePath(seat.path)
   }
 
@@ -217,8 +237,10 @@ export class SidebarRosterIndex {
     if (!previous) return
     const lane = this.lanes.get(previous.path)
     if (lane) {
-      lane.delete(id)
+      const removed = lane.delete(id)
       if (!lane.size) this.lanes.delete(previous.path)
+      if (removed)
+        for (const changed of this.candidateListeners.get(previous.path) ?? []) changed(id)
     }
     this.seats.delete(id)
     this.schedule(id, Number.POSITIVE_INFINITY)
@@ -263,6 +285,8 @@ export class SidebarRosterIndex {
     this.seats.clear()
     this.dirty.clear(); this.lanes.clear()
     this.projects.clear(); this.projectCounts.clear(); this.worktrees.clear(); this.paths.clear()
+    for (const listeners of [...this.candidateListeners.values()])
+      for (const changed of [...listeners]) changed(undefined)
     for (const listeners of [...this.groupListeners.values()])
       for (const changed of [...listeners]) changed(undefined)
     this.expiries.clear(); this.due.clear(); this.deadlines.length = 0

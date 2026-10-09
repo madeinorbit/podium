@@ -1,5 +1,5 @@
 import { lazy } from '@podium/mobx-helpers'
-import { compareShallow, compareStructural, reaction } from 'mobx'
+import { compareShallow, compareStructural } from 'mobx'
 import { machinePathsEqual } from '@podium/model/browser'
 import { createQueryResult } from '../query-result'
 import type { IssueModel, ModelOf, SessionModel } from '../models'
@@ -43,16 +43,17 @@ export class WorklistWorktree {
   }
   private sessionQuery(stale: boolean) {
     const pool = this.worklist.pool
+    const index = sidebarRosterView(pool)
     return createQueryResult<SessionModel>({
       name: `worklist.worktree@${this.id}.${stale ? 'stale' : 'sessions'}`,
-      ids: () => this.rosterIds,
-      has: id => this.rosterIds.includes(id),
+      ids: () => index.residentCandidates(this.id),
+      has: id => index.hasResidentCandidate(this.id, id),
       read: id => {
         const state = pool.resident('session', id)
         if (state === 'loading') return LOADING
         if (state === 'absent') return undefined
         const session = pool.sessionObject(id)
-        if (session.status === 'exited') return undefined
+        if (session.status === 'exited' || !this.worklist.session(session).rosterCandidate) return undefined
         return !stale || this.worklist.session(session).stale ? session : undefined
       },
       order: id => {
@@ -63,7 +64,7 @@ export class WorklistWorktree {
         const left = JSON.parse(a) as [string, string], right = JSON.parse(b) as [string, string]
         return right[0].localeCompare(left[0]) || compareSessionKeys(left[1], right[1])
       } : compareSessionKeys,
-      subscribe: changed => reaction(() => this.rosterIds, () => changed(undefined)),
+      subscribe: changed => index.subscribeCandidates(this.id, changed),
     })
   }
   @lazy({ equals: compareShallow }) get sessions(): readonly SessionModel[] {

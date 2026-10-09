@@ -213,25 +213,24 @@ vi.mock('../components/BottomSheet', () => ({
 vi.mock('../components/WorkIssueMenu', () => ({
   WorkIssueMenu: ({
     target,
-    issues,
-    sessions,
     onClose,
   }: {
     target: { issue: { id: string }; sessionCount?: number }
-    issues: { id: string }[]
-    sessions: unknown[]
     onClose: () => void
-  }) => (
+  }) => {
+    const row = state.pool!.worklistRow(target.issue.id)!
+    return (
     <div
       data-testid="menu"
       data-issue={target.issue.id}
-      data-issues={issues.length}
-      data-sessions={sessions.length}
+      data-issues={1 + row.visibleDescendantIds.length}
+      data-sessions={row.visibleSessionIds.length}
       data-session-count={target.sessionCount}
     >
       <button type="button" aria-label="Close row menu" onClick={onClose} />
     </div>
-  ),
+    )
+  },
 }))
 vi.mock('../hooks/useContentBottomInset', () => ({ useContentBottomInset: () => 0 }))
 vi.mock('../hooks/useMinimizeTabBarOnScroll', () => ({ useMinimizeTabBarOnScroll: () => ({}) }))
