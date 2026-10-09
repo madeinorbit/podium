@@ -196,8 +196,8 @@ export function LoginPasswordSection({ trpc }: { trpc: Trpc }): JSX.Element {
           />
           {!savedEmail && (
             <p className="settings-prose">
-              Until you set an email, you sign in with just your password. After that, choose
-              “Sign in with email” on the login screen.
+              Until you set an email, you sign in with just your password. After that, choose “Sign
+              in with email” on the login screen.
             </p>
           )}
           {hasOwnCredential && (
