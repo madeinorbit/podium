@@ -3,6 +3,8 @@ import { MobxPool } from '@podium/client-graph/pool'
 import { GroupNodeBefore } from '@podium/client-graph/worklist/groups-membership-before.test-helper'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { MobileSectionsBefore } from '@podium/client-graph/worklist/mobile-before.test-helper'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { WorklistIssueBefore } from '@podium/client-graph/worklist/issue-before.test-helper'
 import { worktreeBefore } from '@podium/client-graph/worklist/heartbeat-before.test-helper'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { searchMobileSections, MobileSearchSections, MobileNativeSections } from '../../../../apps/mobile/src/lib/work-sections'
@@ -145,7 +147,10 @@ it('re-measures remaining membership work at a fixed shown prefix', async () => 
   writeFileSync('.artifacts/membership/post-cleanup.json', JSON.stringify(reports, null, 2) + '\n')
   for (const report of reports) for (const cell of report.cells)
     console.info(`[membership] ${report.domain} ${report.scale}x ${cell.action}: rows=${cell.work.rows} derivations=${cell.work.derivations} elements=${cell.work.elements}`)
-  // Growth is reported, not accepted as a new baseline or hidden as an allowance.
+  const first = reports.find(report => report.domain === 'members' && report.scale === 1)!
+  const fourth = reports.find(report => report.domain === 'members' && report.scale === 4)!
+  for (const [index, cell] of first.cells.entries()) for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const)
+    expect(fourth.cells[index]!.work[counter], `${cell.action}: ${counter}`).toBeLessThanOrEqual(cell.work[counter]!)
 }, 120_000)
 
 it('matches frozen membership and order before and after every action', async () => {
@@ -186,4 +191,41 @@ it('an unrelated heartbeat runs no section projection or session order query', a
       /MobileSection|MobileSectionsView|GroupNode|pool\.sidebar|worklist\.phone|worklist\.worktree/.test(name))
     expect(sections).toEqual([])
   }
+})
+
+it('matches folded and cold membership without mounting their row bodies', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
+    load: () => undefined, schedule: () => () => {},
+  })
+  const cold = issue(0, 99, { stage: 'done', updatedAt: '2026-01-01T00:00:00Z', closedAt: '2026-01-01T00:00:00Z' })
+  pool.apply({ type: 'replace', rows: [
+    { kind: 'issue', id: cold.id, value: cold },
+    { kind: 'issue', id: 'group-0-issue-0', value: issue(0, 0) },
+    { kind: 'issue', id: 'group-0-issue-1', value: issue(0, 1, { stage: 'done', closedReason: 'done', closedAt: stamp, tuckedAt: stamp }) },
+    { kind: 'issue', id: 'group-0-issue-2', value: issue(0, 2, { deferUntil: '2026-10-20T00:00:00Z' }) },
+  ] })
+  const view = worklistView(pool), row = view.row(pool.issueObject(cold.id))
+  const stop = autorun(() => { void view.sections(); void view.mobileSections().sectionKeys })
+  try {
+    expect(row.ready).toBe(LOADING)
+    expect(new WorklistIssueBefore(row.issue, view).mobile).toBe(LOADING)
+    expect(pool.tables.issue.has(cold.id)).toBe(false)
+    for (const searching of [false, true]) {
+      view.setLayout({ searching, collapsed: { 'podium:sidebar:work-group-fold:repo-0': true,
+        'podium:sidebar:project-fold:repo-0': true } } as never)
+      const band = view.sections().bands.find(band => band.key === 'repo-0')!
+      const oldGroup = new GroupNodeBefore('repo-0', worklistGroups(pool) as never).sidebarRows
+      for (const field of ['rowIds', 'snoozedIds', 'closedIds'] as const)
+        expect(process.env.POD5631_MUTATE === '1' ? ['wrong'] : [...band[field]]).toEqual([...oldGroup[field]])
+      const oldPhone = new MobileSectionsBefore(pool, { ...view.layout, searching }).value.get()
+      const sections = view.mobileSections()
+      expect(sections.sectionKeys).toEqual(oldPhone.sections.map(section => section.key))
+      for (const oldSection of oldPhone.sections) {
+        const section = sections.section(oldSection.key)
+        expect(process.env.POD5631_MUTATE === '1' ? ['wrong'] : [...section.data]).toEqual(oldSection.data.map(ref => ref.id))
+      }
+      expect(view.mobileRow({ id: cold.id, kind: 'issue' })).toBe(LOADING)
+      expect(pool.tables.issue.has(cold.id)).toBe(false)
+    }
+  } finally { stop(); pool.dispose() }
 })
