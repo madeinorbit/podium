@@ -115,7 +115,6 @@ export class BootFetches<TApi extends PodiumClientApi> {
   }
 
   async refreshReplicatedLayout(mutationIds: readonly string[]): Promise<void> {
-    const snapshot = await this.ports.api.layout.get.query()
-    this.ports.replicatedLayout.reconcile(snapshot, mutationIds)
+    await this.ports.replicatedLayout.hydrate(mutationIds)
   }
 }

@@ -105,6 +105,8 @@ export interface ReplicatedLayoutPort {
 
 /** Engine-only lifecycle hooks kept off POD-403's routing surface. */
 export interface ReplicatedLayoutController extends ReplicatedLayoutPort {
+  /** Cover these commands and every already-applied layout command with one read. */
+  hydrate(mutationIds?: readonly string[]): Promise<void>
   outboxChanged(): void
   commandApplied(entry: OutboxEntry): boolean
   commandDropped(entry: OutboxEntry): void
@@ -141,6 +143,7 @@ export function createReplicatedLayoutController(init: {
   // just read.
   let base: LayoutSnapshot = onlyLayoutKeys(init.seed ?? {})
   let nextToken = 1
+  let readGeneration = 0
   let temporary: TemporaryOperation[] = []
   const ignoredAwaiting = new Set<MutationId>()
   const accepted = new Map<string, AcceptedLayoutValue>()
@@ -317,6 +320,20 @@ export function createReplicatedLayoutController(init: {
     )
   }
 
+  const reconcile = (snapshot: LayoutSnapshot, mutationIds: readonly string[]): void => {
+    for (const mutationId of mutationIds) {
+      ignoredAwaiting.add(mutationId as MutationId)
+    }
+    for (const [key, value] of accepted) {
+      if (!mutationIds.includes(value.mutationId)) continue
+      if (snapshotMatches(snapshot, key, value)) value.feedConfirmed = true
+      else accepted.delete(key)
+    }
+    installBase(snapshot)
+    for (const mutationId of mutationIds) outbox.retireAwaiting(mutationId as MutationId)
+    emit()
+  }
+
   return {
     get: (key) => valueAt(canonicalLayoutKey(key)),
     set: (key, value) => {
@@ -333,15 +350,32 @@ export function createReplicatedLayoutController(init: {
       listeners.add(listener)
       return () => listeners.delete(listener)
     },
-    hydrate: async () => {
-      installFeedBase(await api.layout.get.query())
-      emit()
+    hydrate: async (mutationIds = []) => {
+      const generation = ++readGeneration
+      // A full read covers every command already applied when it starts,
+      // including restored entries and ones whose earlier read failed. Leaving
+      // an older collapse queued lets it repaint over a successfully read clear.
+      // Capture before awaiting: commands applied during the read are not covered.
+      const covered = [...new Set([
+        ...mutationIds,
+        ...outbox.awaiting()
+          .filter((entry) => operationForEntry(entry) !== null)
+          .map((entry) => entry.mutationId),
+      ])]
+      const snapshot = await api.layout.get.query()
+      if (generation !== readGeneration) return
+      if (covered.length > 0) reconcile(snapshot, covered)
+      else {
+        installFeedBase(snapshot)
+        emit()
+      }
     },
     replace: (snapshot) => {
       installFeedBase(snapshot)
       emit()
     },
     rescope: (snapshot) => {
+      readGeneration += 1
       installBase(snapshot)
       temporary = []
       accepted.clear()
@@ -375,18 +409,6 @@ export function createReplicatedLayoutController(init: {
       }
       emit(keys)
     },
-    reconcile: (snapshot, mutationIds) => {
-      installBase(snapshot)
-      for (const mutationId of mutationIds) {
-        ignoredAwaiting.add(mutationId as MutationId)
-        outbox.retireAwaiting(mutationId as MutationId)
-      }
-      for (const [key, value] of accepted) {
-        if (!mutationIds.includes(value.mutationId)) continue
-        if (snapshotMatches(snapshot, key, value)) value.feedConfirmed = true
-        else accepted.delete(key)
-      }
-      emit()
-    },
+    reconcile,
   }
 }
