@@ -11,9 +11,9 @@ function oldWorkBegun(issue: { stage: string; worktreePath?: string }, active: n
 const stamp = '2026-10-09T12:00:00Z'
 const statuses = ['starting', 'live', 'reconnecting', 'hibernated', 'exited']
 
-it('preserves enabled launch actions across every stage, checkout and session state', () => {
+it.each(ALL_ISSUE_STAGES)('preserves enabled launch actions for %s across every checkout and session state', (stage) => {
   let fixtures = 0
-  for (const stage of ALL_ISSUE_STAGES) for (const worktreePath of [undefined, '', '/checkout'])
+  for (const worktreePath of [undefined, '', '/checkout'])
     for (const status of [undefined, ...statuses]) for (const archived of [false, true])
       for (const headless of [false, true]) {
         const issue = { id: 'task', seq: 1, title: 'Task', stage, worktreePath,
@@ -38,7 +38,7 @@ it('preserves enabled launch actions across every stage, checkout and session st
           fixtures++
         } finally { pool.dispose() }
       }
-  expect(fixtures).toBe(ALL_ISSUE_STAGES.length * 3 * 6 * 2 * 2)
+  expect(fixtures).toBe(3 * 6 * 2 * 2)
 })
 
 it('follows attachment and process state while ignoring archived, moved and shell sessions', () => {
