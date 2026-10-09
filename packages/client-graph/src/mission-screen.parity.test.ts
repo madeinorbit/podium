@@ -4,18 +4,12 @@ import type { RoutedUiState } from '@podium/client-core/ui-state'
 import { FLIGHT_DECK_FOLDS_KEY, FLIGHT_DECK_MODE_KEY } from '@podium/client-core/ui-state'
 import {
   deckSessions,
-  type FlightDeckFoldMap,
-  flightDeckRowHasPayload,
-  flightDeckRowIsFolded,
   type FlightDeckMode,
-  issueOwnContentUnread,
   machineViewsFromWire,
   missionRootFor,
   reposToViews,
-  subtreeUnread,
   writeFlightDeckFolds,
 } from '@podium/client-core/values'
-import { issueDisplayRef } from '@podium/protocol'
 import { autorun } from 'mobx'
 import { expect, it } from 'vitest'
 import { dedupeSessions } from '../../../tests/worklist/diagnostics/reference-state'
@@ -25,19 +19,20 @@ import { seedCacheFromCorpus } from '../../../tests/worklist/shared/src/scenario
 import { expectPoolOutput } from '../../../tests/worklist/harness/src/oracle/pool-output'
 import { headerView } from './header-views'
 import { attachMobileScreens } from './mobile-screens'
-import { MissionScreen, type MissionScreenView, missionRootId } from './mission-screen'
-import { type MissionDeckIssueModel, type MissionViewValues, missionView, readMissionView, requireLoaded } from './mission-view'
+import { MissionScreen, missionRootId } from './mission-screen'
+import { requireLoaded } from './mission-view'
 import { MobxPool } from './pool'
 import { attachPreferenceSource } from './preference-source'
 import { MISSION_VIEW_SUMMARIES } from './mission-view-schema'
 import { LOADING } from './worklist/rollup'
 
 /**
- * The opened mission's view model against the pane bundle it replaces. The
- * OLD side is the shared reader's `MissionViewValues` plus the list rules the
- * deck component applied to it (proposals, folds, search, foldable branches);
- * the NEW side is one {@link MissionScreen} per opening. Every moved fact is
- * compared on the same corpus, archived, folded and searched crews included.
+ * The opened mission's view model against the pane bundle it replaced. The
+ * bundle and the list rules the deck components applied to it are deleted;
+ * the answers they gave, case by case, are the fingerprints frozen when both
+ * ran side by side (each case compared field by field before the deletion).
+ * Every moved fact is covered: views, folds, search, archive, cold crews and
+ * the phone's crew, header issue and deck lists.
  */
 
 const name = (session: SessionView) => session.name?.trim() || session.title || ''
@@ -61,89 +56,15 @@ function memoryUi() {
 }
 
 /** What the deck draws of a continuation and a departure: ids, words, state. */
-const continuationFacts = (value: MissionViewValues['continuation']) =>
+const continuationFacts = (value: MissionScreen['continuation']) =>
   value ? { kind: value.kind, short: value.short, full: value.full, line: value.line, target: value.target?.id ?? null } : null
-const departureFacts = (values: MissionViewValues['departures']) =>
+const departureFacts = (values: MissionScreen['departures']) =>
   values.map(value => ({ id: value.issue.id, originId: value.originId, state: value.state }))
 
-/** Compare one case, and keep its answer for the frozen fingerprint: once the
- * bundle is deleted, the fingerprint is the old answer this test still holds. */
-function same(answers: unknown[], label: string, current: { old: unknown; next: unknown } | undefined) {
+/** Keep one case's answer for the frozen fingerprint of the bundle's answers. */
+function same(answers: unknown[], label: string, current: { next: unknown } | undefined) {
   expect(current?.next, label).not.toBe(LOADING)
-  expect(current?.next, label).toEqual(current?.old)
   answers.push([label, current?.next])
-}
-
-function oldUnread(row: MissionDeckIssueModel, collapsed: boolean): boolean {
-  if (row.workingAgentCount > 0) return false
-  if (!collapsed) return issueOwnContentUnread(row.issue)
-  return subtreeUnread({ readAt: row.issue.readAt, updatedAt: row.issue.updatedAt,
-    descendantUpdatedAts: [row.updatedBelow], sessions: row.collapsedSummary.crew })
-}
-
-/** The list rules the deck component applied to the bundle, verbatim. */
-function oldDeck(values: MissionViewValues, view: MissionScreenView, mode: FlightDeckMode, folds: FlightDeckFoldMap, query: string) {
-  const deck = values.deck!
-  requireLoaded(deck.rowIds(mode))
-  const rows = deck.rows()
-  const proposalIds = new Set(view === 'waterfall' ? [] : rows.filter(row => row.depth > 0 && row.stage === 'proposed' && requireLoaded(row.deckChildren).length === 0).map(row => row.id))
-  const tree = rows.filter(row => !proposalIds.has(row.id))
-  const unfoldedIds = new Set(requireLoaded(deck.rowIds(mode, folds)))
-  const unfolded = tree.filter(row => row.depth > 0 && unfoldedIds.has(row.id))
-  const needle = view === 'handoff' ? '' : query.trim().toLowerCase()
-  const matches = (row: MissionDeckIssueModel) => {
-    const issue = requireLoaded(row.view.catalogIssue(row.id))!
-    return issue.title.toLowerCase().includes(needle) || issueDisplayRef(issue).toLowerCase().includes(needle) ||
-      row.crewIds.some(id => { const session = row.view.rawSession(id); return session && typeof session !== 'symbol' && name(session).toLowerCase().includes(needle) })
-  }
-  const keep = new Set<string>(), trail: MissionDeckIssueModel[] = []
-  if (needle) for (const row of unfolded) {
-    trail.length = row.depth; trail[row.depth] = row
-    if (matches(row)) for (const ancestor of trail) if (ancestor) keep.add(ancestor.id)
-  }
-  const visibleRows = needle ? unfolded.filter(row => keep.has(row.id)) : unfolded
-  const proposedRows = rows.filter(row => proposalIds.has(row.id) && (!needle || matches(row)))
-  const foldable = rows.filter(row => row.depth > 0 && !proposalIds.has(row.id) && row.hasPayload)
-  const rootRow = rows[0]
-  const continuationTargetId = values.continuation?.target?.id
-  return {
-    rows: rows.map(row => row.key),
-    visibleRows: visibleRows.map(row => row.key),
-    proposedRows: proposedRows.map(row => row.key),
-    foldable: foldable.map(row => row.key),
-    anyFoldable: foldable.length > 0,
-    allFolded: foldable.length > 0 && foldable.every(row => row.folded(folds)),
-    crewIds: rows.flatMap(row => row.crewIds),
-    rootSessionIds: rootRow?.sessionIds(mode) ?? [],
-    members: [...values.members].sort(),
-    liveCount: rows[0]?.liveAgentCount ?? 0,
-    workingCount: rows[0]?.workingAgentCount ?? 0,
-    waitingCount: rootRow?.waitingAgentCount ?? 0,
-    progress: values.progress,
-    archivedCount: values.archivedCount,
-    note: values.note,
-    presence: values.presence,
-    continuation: continuationFacts(values.continuation),
-    departures: departureFacts(values.departures.filter(departure => departure.issue.id !== continuationTargetId)),
-    continuationState: values.departures.find(departure => departure.issue.id === continuationTargetId)?.state ?? null,
-    rootTitle: rootRow?.title ?? '',
-    rootRef: issueDisplayRef(values.root!),
-    rootStage: values.root!.stage,
-    rootStatus: { stage: values.root!.stage, closedReason: values.root!.closedReason },
-    rootLead: rootRow?.crewIds[0],
-    rootDraft: Boolean(values.root!.isDraftVessel),
-    rootBrief: values.root!.description?.trim() || values.root!.activityNotes?.trim() || '',
-    // Per drawn row: what the strips print.
-    strips: rows.map(row => ({
-      key: row.key,
-      title: values.titles.get(row.id),
-      ref: issueDisplayRef(requireLoaded(row.view.catalogIssue(row.id))!),
-      presentation: values.rowPresentation.get(row.id),
-      unread: [oldUnread(row, false), oldUnread(row, true)],
-      draws: (['full', 'working', 'needs-you'] as const).map(m => deckSessions(row, m).length > 0),
-      stage: row.facts.stage,
-    })),
-  }
 }
 
 function newDeck(screen: MissionScreen) {
@@ -257,7 +178,6 @@ const cases = [
 ]
 for (const { label, scale, cold } of cases) it(`opens corpus missions with the bundle's answers at ${label}: views, folds, search, archive`, async () => {
   const { pool, ui, issues, sessions } = corpusPool(scale, cold)
-  const reader = missionView(pool)
   try {
     const roots = interestingRoots(issues, sessions, scale).slice(0, cold ? 8 : 40)
     expect(roots.length).toBeGreaterThan(5)
@@ -274,14 +194,9 @@ for (const { label, scale, cold } of cases) it(`opens corpus missions with the b
         ui.set(FLIGHT_DECK_FOLDS_KEY, null)
         const screen = new MissionScreen(pool, rootId, { development: true, sessionName: name, setPreference: (key, raw) => ui.set(key, raw) })
         screen.open()
-        let current: { old: ReturnType<typeof oldDeck> | typeof LOADING; next: ReturnType<typeof newDeck> | typeof LOADING } | undefined
+        let current: { next: ReturnType<typeof newDeck> | typeof LOADING } | undefined
         const stop = autorun(() => {
-          const values = readMissionView(reader, rootId, mode)
-          const ready = screen.ready && screen.view === view
-          current = {
-            old: values === LOADING ? LOADING : oldDeck(values, view, mode, screen.folds, screen.query),
-            next: ready ? newDeck(screen) : LOADING,
-          }
+          current = { next: screen.ready && screen.view === view ? newDeck(screen) : LOADING }
         })
         try {
           await settle(pool)
@@ -349,38 +264,6 @@ it('answers the agent hosts the pane catalog answered', async () => {
 }, 120_000)
 
 
-/** The phone deck's own list rules over the bundle, verbatim from MissionDeck. */
-function oldPhoneDeck(values: MissionViewValues, mode: FlightDeckMode, folds: FlightDeckFoldMap) {
-  const rows = values.rows
-  const shown: typeof rows = []
-  let hideBelow: number | null = null
-  for (const row of rows) {
-    if (hideBelow !== null && row.depth > hideBelow) continue
-    hideBelow = null
-    shown.push(row)
-    if (flightDeckRowIsFolded(row, folds)) hideBelow = row.depth
-  }
-  const rootId = values.root!.id
-  const proposalIds = new Set(rows.filter(r => r.issue.stage === 'proposed' && r.descendantIds.length === 0).map(r => r.issue.id))
-  const spine = shown.filter(r => r.issue.id !== rootId && !proposalIds.has(r.issue.id))
-  const rootRow = rows.find(r => r.issue.id === rootId)
-  const foldable = rows.filter(row => row.issue.id !== rootId && !proposalIds.has(row.issue.id) && flightDeckRowHasPayload(row))
-  const target = values.continuation?.target?.id
-  return {
-    spine: spine.map(row => [row.issue.id, row.depth, row.issue.title, issueDisplayRef(row.issue), row.issue.stage, values.rowPresentation.get(row.issue.id), flightDeckRowIsFolded(row, folds), deckSessions(row, mode).map(s => s.sessionId)]),
-    proposals: rows.filter(r => proposalIds.has(r.issue.id)).map(row => [row.issue.id, row.issue.title, issueDisplayRef(row.issue)]),
-    foldable: foldable.map(row => row.issue.id),
-    allFolded: foldable.length > 0 && foldable.every(row => flightDeckRowIsFolded(row, folds)),
-    rootSessions: rootRow ? deckSessions(rootRow, mode).map(s => s.sessionId) : [],
-    led: rows.filter(row => (row as MissionDeckIssueModel).hasLead).map(row => row.issue.id),
-    presence: values.presence,
-    continuation: continuationFacts(values.continuation),
-    departures: departureFacts(values.departures.filter(d => d.issue.id !== target)),
-    continuationState: values.departures.find(d => d.issue.id === target)?.state ?? null,
-    waiting: rootRow?.waitingAgentCount ?? 0,
-  }
-}
-
 /** The same answers through the opening's view model, with the phone's root-proposal rule. */
 function newPhoneDeck(screen: MissionScreen) {
   const rootRow = screen.rootRow
@@ -405,8 +288,6 @@ it('opens phone missions with the phone bundle\'s answers: crew, header issue, p
   const { pool, ui, issues, sessions } = corpusPool(1)
   await attachMobileScreens(pool)
   try {
-    const reader = pool.row('mobileScreenReader', 'reader')
-    if (!reader || typeof reader === 'symbol') throw new Error('Phone reader did not attach')
     // The phone also opens archived roots and children by id.
     const ids = [...interestingRoots(issues, sessions, 1),
       ...issues.filter(issue => issue.archived && !issue.deletedAt).slice(0, 4).map(issue => issue.id),
@@ -420,18 +301,10 @@ it('opens phone missions with the phone bundle\'s answers: crew, header issue, p
         let rootId: unknown
         const stopRoot = autorun(() => { rootId = missionRootId(pool, id, true) })
         await settle(pool); stopRoot()
-        let current: { old: unknown; next: unknown } | undefined
+        let current: { next: unknown } | undefined
         const screen = typeof rootId === 'string' ? new MissionScreen(pool, rootId, { setPreference: (key, raw) => ui.set(key, raw) }) : undefined
         screen?.open()
         const stop = autorun(() => {
-          const mission = reader.mission(id), deck = reader.deck(id, mode)
-          const old = mission === LOADING || deck === LOADING ? LOADING : {
-            root: mission.root?.id,
-            crew: mission.missionSessions.map(s => s.sessionId),
-            header: mission.missionSessions.map(s => mission.issues.find(issue => issue.id === s.issueId)?.id ?? mission.root?.id),
-            progress: mission.progress,
-            deck: deck.root ? oldPhoneDeck(deck, mode, screen?.folds ?? new Map()) : null,
-          }
           const next = !screen ? { root: undefined, crew: [], header: [], progress: { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }, deck: null }
             : !screen.ready ? LOADING : {
               root: screen.rootId,
@@ -440,7 +313,7 @@ it('opens phone missions with the phone bundle\'s answers: crew, header issue, p
               progress: screen.progress,
               deck: newPhoneDeck(screen),
             }
-          current = { old, next }
+          current = { next }
         })
         try {
           await settle(pool)
