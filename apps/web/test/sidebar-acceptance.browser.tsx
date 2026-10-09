@@ -213,7 +213,7 @@ function Fixture() {
               <SidebarUnified />
             </aside>
             {scrollSurface && <div className="flex min-h-0 flex-1 flex-col"><ToolbarSlotProvider><ToolbarSlotTarget /><IssuesView /></ToolbarSlotProvider></div>}
-            {scrollSurface && <aside className="flex min-h-0 w-[316px] flex-none"><IssueExplorerList /></aside>}
+            {(scrollSurface || params.get('surface') === 'explorer') && <aside className="flex min-h-0 w-[316px] flex-none"><IssueExplorerList /></aside>}
             {pageSurface && <IssuePageProbe ids={pageTargets} />}
             {full && (
               <>

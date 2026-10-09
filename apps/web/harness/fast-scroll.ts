@@ -35,7 +35,7 @@ if (process.argv.includes('--build')) {
 }
 
 const reports: unknown[] = []
-for (const fixture of fixtures) {
+for (const fixture of fixtures.filter(name => !process.argv.includes('--fixture') || name === process.argv[process.argv.indexOf('--fixture') + 1])) {
   const directory = resolve(output, fixture)
   const server = createServer(async (req, res) => {
     try {
@@ -49,8 +49,8 @@ for (const fixture of fixtures) {
   const browser = await chromium.launch({ headless: true, args: ['--no-sandbox'],
     env: { ...process.env, LD_LIBRARY_PATH: resolve('.toolchain/lib') } })
   try {
-    const variants = fixture === 'lists' ? ['scroll', 'list', 'full', 'waterfall'] : fixture === 'phone-lists' ? ['inbox', 'work', 'tasks', 'sessions'] : ['chat']
-    for (const variant of variants) {
+    const variants = fixture === 'lists' ? ['scroll', 'list', 'explorer', 'full', 'waterfall'] : fixture === 'phone-lists' ? ['inbox', 'work', 'tasks', 'sessions'] : ['chat']
+    for (const variant of variants.filter(name => !process.argv.includes('--variant') || name === process.argv[process.argv.indexOf('--variant') + 1])) {
       const page = await browser.newPage({ viewport: fixture.startsWith('phone') ? { width: 390, height: 844 } : { width: 1600, height: 900 }, reducedMotion: 'reduce' })
       const errors: string[] = []
       page.on('pageerror', error => errors.push(error.message))
@@ -61,7 +61,7 @@ for (const fixture of fixtures) {
       if (variant === 'list') { await page.getByTitle('Display', { exact: true }).click(); await page.getByRole('menuitemradio', { name: 'List', exact: true }).click(); await page.waitForTimeout(500) }
       if (fixture === 'lists' && ['full', 'waterfall'].includes(variant)) {
         const id = await page.evaluate(() => (window as any).__acceptance.targets.missions[0])
-        await page.locator(`[data-issue-row="${id}"]`).first().click()
+        await page.evaluate(id => (window as any).__acceptance.select(id), id)
         await page.waitForTimeout(1000)
         if (variant === 'waterfall') { await page.getByRole('button', { name: 'Waterfall', exact: true }).click(); await page.waitForTimeout(500) }
       }
@@ -93,7 +93,7 @@ for (const fixture of fixtures) {
             if (!state.active) return
             const box = scroll.getBoundingClientRect()
             const nodes = [...scroll.querySelectorAll<HTMLElement>(rows)]
-            const regions = [...scroll.querySelectorAll<HTMLElement>('[data-testid="worklist-window"], ul[style], [data-window-container]')]
+            const regions = [...scroll.querySelectorAll<HTMLElement>('[data-testid="worklist-window"], ul[style], [data-window-container]')].filter(el => !el.parentElement?.closest('[data-testid="worklist-window"], ul[style], [data-window-container]'))
             const spans = (regions.length ? regions : [scroll]).map(el => el.getBoundingClientRect()).filter(r => r.bottom > box.top && r.top < box.bottom)
             let blankPx = 0, area = 0
             for (const region of spans) {
