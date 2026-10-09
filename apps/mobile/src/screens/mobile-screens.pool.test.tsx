@@ -504,6 +504,17 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
     return { view, feed }
   }
   async function checkpoint(phase: string, parity = true) {
+    // The Tasks model migration (24cd129136) draws placeholders while row
+    // facts load. Drain the real addressed load windows before comparing the
+    // settled paint; a faster mission mount can otherwise race startup too.
+    for (let turn = 0; turn < 100; turn++) {
+      let loaded = 0
+      await act(async () => {
+        loaded = state.pool!.hydrate()
+      })
+      if (loaded === 0) break
+      if (turn === 99) throw new Error(`${phase}: phone loads did not settle`)
+    }
     const counts = state.publications.get(state.pool!)!
     expect(counts.count, `${phase} pool publications`).toBeGreaterThan(0)
     expect(counts.views.size, `${phase} subscribed projections`).toBeGreaterThan(0)
@@ -560,16 +571,6 @@ it('three mounted phone screens keep cumulative legacy derivations at zero (ON=t
     fireEvent.change(screen.getByLabelText('Search tasks'), { target: { value: `#${root.seq}` } })
     fireEvent.click(screen.getByLabelText('Working'))
   })
-  // The Tasks model migration (24cd129136) draws placeholders while these
-  // cold descendant-progress facts load. Compare the settled text, as before
-  // the migration, rather than freezing the temporary blank rows.
-  const coldProgressRows = [4573, 4610].map((seq) =>
-    corpus.issueProjections.find((issue) => issue.seq === seq)!,
-  )
-  await waitFor(() => {
-    for (const issue of coldProgressRows)
-      expect(screen.getByTestId('tasks').textContent).toContain(issue.title)
-  }, { timeout: 5_000 })
   await checkpoint('deck mode')
   await act(async () => {
     fireEvent.click(screen.getByLabelText('Full'))
