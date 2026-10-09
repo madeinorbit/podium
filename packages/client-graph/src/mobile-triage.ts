@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import type { AttentionGroup } from '@podium/client-core/focus'
 import { action, compareShallow, observable, observableRef, reaction } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
@@ -36,7 +37,7 @@ const screeningOrderKey = (issue: ScreeningSummary) => {
  * its ancestor chain. The keeper tracks exactly those rows, so an unrelated
  * proposal change never re-reads this entry. */
 function readScreeningId(pool: MobxPool, id: string): Loaded<string> {
-  const row = pool.row('issue', id, 'summary') as Loaded<ScreeningSummary>
+  const row = omitGone(pool.row('issue', id, 'summary')) as Loaded<ScreeningSummary>
   if (row === LOADING) return LOADING
   if (!row || !isScreenableRoot(row)) return undefined
   const seen = new Set<string>([row.id])
@@ -44,7 +45,7 @@ function readScreeningId(pool: MobxPool, id: string): Loaded<string> {
     pending = false
   while (parentId && !seen.has(parentId)) {
     seen.add(parentId)
-    const parent = pool.row('issue', parentId, 'summary') as Loaded<ScreeningSummary>
+    const parent = omitGone(pool.row('issue', parentId, 'summary')) as Loaded<ScreeningSummary>
     if (parent === LOADING) {
       pending = true
       break
@@ -106,7 +107,7 @@ export class MobileInbox {
     return { needsYou: this.needsYou.rows, idle: this.idle.rows, working: this.working.rows }
   }
   @lazy get booting() {
-    const state = this.pool.row('mobileInboxState', 'state')
+    const state = omitGone(this.pool.row('mobileInboxState', 'state'))
     return (
       !state ||
       state === LOADING ||
@@ -118,7 +119,7 @@ export class MobileInbox {
   }
   @lazy get outboxSize() {
     return (
-      (this.pool.row('window', 'window') as { outboxSize: number } | undefined)?.outboxSize ?? 0
+      (omitGone(this.pool.row('window', 'window')) as { outboxSize: number } | undefined)?.outboxSize ?? 0
     )
   }
   session(id: string) {
@@ -136,7 +137,7 @@ export function screeningQueue(pool: MobxPool): Loaded<string[]> {
     (id) => readScreeningId(pool, id),
     {
       order: (id) => {
-        const row = pool.row('issue', id, 'summary')
+        const row = omitGone(pool.row('issue', id, 'summary'))
         return row && row !== LOADING ? screeningOrderKey(row as never) : ''
       },
     },
@@ -172,7 +173,7 @@ export class ProposalScreening {
     return screeningQueue(this.pool)
   }
   @lazy get booting() {
-    const state = this.pool.row('mobileInboxState', 'state')
+    const state = omitGone(this.pool.row('mobileInboxState', 'state'))
     return (
       !state ||
       state === LOADING ||

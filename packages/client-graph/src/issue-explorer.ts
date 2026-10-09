@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { observe } from 'mobx'
 import type { BoardQuery } from './issue-board-schema'
@@ -17,7 +18,7 @@ export function createIssueExplorer(
     return matches(id, query)
   })
   const recency = keyedComputed('IssueExplorer.recency', (id: string) => {
-    const row = pool.row('issue', id, 'summary-fields') as Loaded<{ updatedAt?: string }>
+    const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<{ updatedAt?: string }>
     return row && row !== LOADING ? row.updatedAt ?? '' : ''
   })
   const results = new Map<string, ReturnType<typeof createQueryResult<string>>>()

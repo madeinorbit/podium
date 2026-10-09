@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { sessionPaneView } from '@podium/client-graph/session-pane'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
@@ -14,7 +15,7 @@ const EMPTY_OPTIONS: AtOption[] = []
 const EMPTY_MACHINES: import('@podium/model/browser').MachineWire[] = []
 const EMPTY_THREADS: import('@podium/client-core/values').SuperThreadView[] = []
 const referenceReader = (pool: MobxPool) => {
-  const reader = pool.row('chatContextReader', 'reader')
+  const reader = omitGone(pool.row('chatContextReader', 'reader'))
   return reader && !pending(reader) ? reader : undefined
 }
 function useReferencePicker(active = true) {
@@ -30,7 +31,7 @@ export function useChatSessionExitKind(id: SessionId | undefined) {
   const read = useCallback(
     (pool: MobxPool): SessionExitRows['sessionExit']['kind'] => {
       if (id === undefined) return undefined
-      const row = pool.row('sessionExit', id)
+      const row = omitGone(pool.row('sessionExit', id))
       return row && !pending(row) ? row.kind : undefined
     },
     [id],
@@ -63,7 +64,7 @@ export function useChatMentions(query: string | null) {
 export function useChatDraft(id: SessionId) {
   const read = useCallback(
     (pool: MobxPool) => {
-      const row = pool.row('chatDraft', id)
+      const row = omitGone(pool.row('chatDraft', id))
       return row && !pending(row) ? row.text : ''
     },
     [id],
@@ -71,7 +72,7 @@ export function useChatDraft(id: SessionId) {
   return useWorklistPoolProjection(read, '')
 }
 const windowRead = (pool: MobxPool) => {
-  const row = pool.row('chatWindow', 'window')
+  const row = omitGone(pool.row('chatWindow', 'window'))
   return !row || pending(row) ? EMPTY_WINDOW : row
 }
 export function useChatContextWindow() {
@@ -80,7 +81,7 @@ export function useChatContextWindow() {
 export function useChatInteractions(id: SessionId) {
   const read = useCallback(
     (pool: MobxPool) => {
-      const reader = pool.row('chatContextReader', 'reader')
+      const reader = omitGone(pool.row('chatContextReader', 'reader'))
       return !reader || pending(reader) ? EMPTY_INTERACTIONS : reader.interactions(id)
     },
     [id],
@@ -91,7 +92,7 @@ export function useChatArtifactIssue(session: Pick<SessionView, 'sessionId' | 'i
   const { issueId, sessionId } = session
   const read = useCallback(
     (pool: MobxPool) => {
-      const reader = pool.row('chatContextReader', 'reader')
+      const reader = omitGone(pool.row('chatContextReader', 'reader'))
       const issue =
         reader && !pending(reader) ? reader.artifactIssue({ issueId, sessionId }) : undefined
       return pending(issue) ? undefined : issue
@@ -104,7 +105,7 @@ export function useChatIssueSeq() {
   const pool = useWorklistPool()
   return useCallback(
     (id: string) => {
-      const reader = pool?.row('chatContextReader', 'reader')
+      const reader = omitGone(pool?.row('chatContextReader', 'reader'))
       const row = reader && !pending(reader) ? reader.issue(id) : undefined
       return row && !pending(row) ? row.seq : null
     },
@@ -113,21 +114,21 @@ export function useChatIssueSeq() {
 }
 
 const machineRead = (pool: MobxPool) => {
-  const reader = pool.row('chatContextReader', 'reader')
+  const reader = omitGone(pool.row('chatContextReader', 'reader'))
   return reader && !pending(reader) ? reader.machines() : EMPTY_MACHINES
 }
 export function useChatReferenceMachines() {
   return useWorklistPoolProjection(machineRead, EMPTY_MACHINES)
 }
 const repoRead = (pool: MobxPool) => {
-  const reader = pool.row('chatContextReader', 'reader')
+  const reader = omitGone(pool.row('chatContextReader', 'reader'))
   return reader && !pending(reader) ? reader.repositoryKey() : ''
 }
 export function useChatRepositoryKey() {
   return useWorklistPoolProjection(repoRead, '')
 }
 const threadRead = (pool: MobxPool) => {
-  const reader = pool.row('chatContextReader', 'reader')
+  const reader = omitGone(pool.row('chatContextReader', 'reader'))
   return reader && !pending(reader) ? reader.threads().threads : EMPTY_THREADS
 }
 export function useChatThreads() {
@@ -139,7 +140,7 @@ export function useChatThreads() {
 export function useChatThread(id: string | undefined) {
   const read = useCallback((pool: MobxPool) => {
     if (!id) return undefined
-    const row = pool.row('superThread', id)
+    const row = omitGone(pool.row('superThread', id))
     return row && !pending(row) ? row : undefined
   }, [id])
   return useWorklistPoolProjection(read, undefined)

@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { attachSettingsSource } from '@podium/client-graph/settings-source'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { settingsView } from '@podium/client-graph/settings-views'
@@ -95,16 +96,16 @@ describe('declared settings readers', () => {
   it('keeps borrowed row identity and stays quiet for unchanged settings publications', () => {
     const row = session('hot', 'codex'),
       { pool } = fixture([row])
-    expect(pool.row('session', row.sessionId)).toBe(row)
+    expect(omitGone(pool.row('session', row.sessionId))).toBe(row)
     const changed = vi.spyOn(pool.tables.session, 'set')
     disposals.push(() => changed.mockRestore())
-    const setup = pool.row('setupSession', row.sessionId)
+    const setup = omitGone(pool.row('setupSession', row.sessionId))
     expect(Object.isFrozen(setup)).toBe(true)
-    expect(pool.row('setupSession', row.sessionId)).toBe(setup)
+    expect(omitGone(pool.row('setupSession', row.sessionId))).toBe(setup)
     for (const type of ['update', 'replace'] as const) {
       pool.apply({ type, rows: [{ kind: 'session', id: row.sessionId, value: row }] })
-      expect(pool.row('session', row.sessionId)).toBe(row)
-      expect(pool.row('setupSession', row.sessionId)).toBe(setup)
+      expect(omitGone(pool.row('session', row.sessionId))).toBe(row)
+      expect(omitGone(pool.row('setupSession', row.sessionId))).toBe(setup)
     }
     expect(changed).not.toHaveBeenCalled()
   })
@@ -125,7 +126,7 @@ describe('declared settings readers', () => {
       stop = view.subscribe(wake)
     disposals.push(stop)
     expect(view.getSnapshot()).toBe('codex')
-    const first = pool.row('setupSession', 'cold')
+    const first = omitGone(pool.row('setupSession', 'cold'))
     expect(first).toMatchObject({ setupOrder: 1 })
     pool.apply({
       type: 'replace',
@@ -133,11 +134,11 @@ describe('declared settings readers', () => {
     })
     expect(wake).toHaveBeenCalledTimes(1)
     expect(view.getSnapshot()).toBe('claude-code')
-    expect(pool.row('session', 'hot')).toBe(hot)
-    expect(pool.row('setupSession', 'cold')).toMatchObject({ setupOrder: 2 })
-    expect(pool.row('setupSession', 'cold')).not.toBe(first)
+    expect(omitGone(pool.row('session', 'hot'))).toBe(hot)
+    expect(omitGone(pool.row('setupSession', 'cold'))).toMatchObject({ setupOrder: 2 })
+    expect(omitGone(pool.row('setupSession', 'cold'))).not.toBe(first)
     expect(first).toMatchObject({ setupOrder: 1 })
-    expect(pool.row('setupSession', 'cold')).not.toHaveProperty('privatePayload')
+    expect(omitGone(pool.row('setupSession', 'cold'))).not.toHaveProperty('privatePayload')
     expect(payloadReads).toBe(0)
     expect(load).not.toHaveBeenCalled()
     expect(pool.tables.session.has('cold')).toBe(false)
@@ -160,8 +161,8 @@ describe('declared settings readers', () => {
     await Promise.resolve()
     // One batch; it reads the catalog and window by key (POD-5433).
     expect(read).toHaveBeenCalled()
-    expect(pool.row('settingsWindow', 'window')).toEqual({ settingsTab: 'accounts' })
-    expect(pool.row('settingsMachine', 'missing')).toBeUndefined()
+    expect(omitGone(pool.row('settingsWindow', 'window'))).toEqual({ settingsTab: 'accounts' })
+    expect(omitGone(pool.row('settingsMachine', 'missing'))).toBeUndefined()
     const view = createPoolProjection(pool, (current) => current.row('settingsMachine', 'host'))
     const wake = vi.fn(),
       stop = view.subscribe(wake)
@@ -175,8 +176,8 @@ describe('declared settings readers', () => {
     expect(view.getSnapshot()).toMatchObject({ name: 'Renamed' })
     publish({ machines: [] })
     await Promise.resolve()
-    expect(pool.row('settingsMachine', 'host')).toBeUndefined()
-    expect(pool.row('settingsCatalog', 'catalog')).toMatchObject({ machines: [] })
+    expect(omitGone(pool.row('settingsMachine', 'host'))).toBeUndefined()
+    expect(omitGone(pool.row('settingsCatalog', 'catalog'))).toMatchObject({ machines: [] })
   })
 
   it('preserves default-agent ties across hot and cold summaries, updates and hydration', () => {
@@ -187,12 +188,12 @@ describe('declared settings readers', () => {
     expect(pool.residency?.isCold('session', 'z-cold')).toBe(true)
     expect(settingsView(pool).setup().defaultAgent).toBe('codex')
     expect(load).not.toHaveBeenCalled()
-    expect(pool.row('setupSession', 'z-cold')).not.toHaveProperty('title')
+    expect(omitGone(pool.row('setupSession', 'z-cold'))).not.toHaveProperty('title')
     const next = { ...feed.get('z-cold')!, title: 'not a summary field' }
     feed.set('z-cold', next)
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'z-cold', value: next }] })
     expect(settingsView(pool).setup().defaultAgent).toBe('codex')
-    expect(pool.row('session', 'z-cold')).toBe(LOADING)
+    expect(omitGone(pool.row('session', 'z-cold'))).toBe(LOADING)
     expect(pool.hydrate()).toBe(1)
     expect(load).toHaveBeenCalledTimes(1)
     expect(settingsView(pool).setup().defaultAgent).toBe('codex')
@@ -209,7 +210,7 @@ describe('declared settings readers', () => {
       { ...session('headless', 'codex'), headless: true },
     ])
     f.owner.ui.set('podium.sounds.enabled', 'false')
-    expect(f.pool.row('preference', 'podium.sounds.enabled')).toBe(LOADING)
+    expect(omitGone(f.pool.row('preference', 'podium.sounds.enabled'))).toBe(LOADING)
     expect(
       checkSettings(f.pool, f.owner as unknown as Parameters<typeof checkSettings>[1]).pending,
     ).toBeGreaterThan(0)
@@ -230,10 +231,10 @@ describe('declared settings readers', () => {
 
   it('detaches the existing owners and refuses stale reads and queued loads after disposal', async () => {
     const f = fixture()
-    const catalog = createPoolProjection(f.pool, (pool) => pool.row('settingsCatalog', 'catalog'))
+    const catalog = createPoolProjection(f.pool, (pool) => omitGone(pool.row('settingsCatalog', 'catalog')))
     disposals.push(catalog.subscribe(() => {}))
     expect(catalog.getSnapshot()).toBe(LOADING)
-    f.pool.row('preference', 'podium.sounds.enabled')
+    omitGone(f.pool.row('preference', 'podium.sounds.enabled'))
     expect(f.listeners.size).toBe(1)
     expect(f.uiListeners.size).toBe(1)
     f.pool.dispose()
@@ -241,7 +242,7 @@ describe('declared settings readers', () => {
     expect(f.uiListeners.size).toBe(0)
     await Promise.resolve()
     expect(f.read).not.toHaveBeenCalled()
-    expect(f.pool.row('settingsCatalog', 'catalog')).toBe(LOADING)
-    expect(f.pool.row('preference', 'podium.sounds.enabled')).toBe(LOADING)
+    expect(omitGone(f.pool.row('settingsCatalog', 'catalog'))).toBe(LOADING)
+    expect(omitGone(f.pool.row('preference', 'podium.sounds.enabled'))).toBe(LOADING)
   })
 })

@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { preferenceSource } from '@podium/client-graph/preference-source'
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -104,7 +105,7 @@ it('compares all file modes through declared, batched preference rows, including
   )
   try {
     attachPreferenceSource(pool, ui)
-    for (const key of FILE_VIEWER_PREFERENCE_KEYS) expect(pool.row('preference', key)).toBe(LOADING)
+    for (const key of FILE_VIEWER_PREFERENCE_KEYS) expect(omitGone(pool.row('preference', key))).toBe(LOADING)
     expect(checkFileViewerPreferences(pool, ui, tabs)).toMatchObject({ pending: 4, positions: 604 })
     await Promise.resolve()
     expect((preferenceSource(pool)?.counts ?? null)).toMatchObject({ batches: 1, loaded: 4 })

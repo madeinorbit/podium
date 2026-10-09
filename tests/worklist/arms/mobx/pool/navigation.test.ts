@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 /**
  * POD-4758 (A5) — typed relation navigation, derived from the declared
  * schema: by id (`shared/src/links.ts`), and as getters on the pool's one
@@ -218,7 +219,7 @@ describe('relation getters on the objects (POD-4758)', () => {
       tracked(() => {
         for (const entity of ENTITIES) {
           for (const id of [...pool.tables[entity].keys()]) {
-            const object = pool.model(entity, id) as unknown as Record<string, unknown>
+            const object = here(pool.model(entity, id)) as unknown as Record<string, unknown>
             for (const [name, spec] of Object.entries(SCHEMA[entity].relations)) {
               expect(name in object, `${entity}.${name} has no getter`).toBe(true)
               const got = object[name]
@@ -229,7 +230,7 @@ describe('relation getters on the objects (POD-4758)', () => {
                 const where = target === null ? 'absent' : pool.resident(spec.to, target)
                 const want =
                   where === 'resident'
-                    ? pool.model(spec.to, target as string)
+                    ? here(pool.model(spec.to, target as string))
                     : where === 'loading'
                       ? LOADING
                       : null
@@ -247,7 +248,7 @@ describe('relation getters on the objects (POD-4758)', () => {
                 expect(ids, `${entity}:${id}.${name}`).toEqual(hot)
                 expect(members.loading).toBe(cold.length)
                 for (const m of members.ready) {
-                  expect(m).toBe(pool.model(spec.to, (m as { id: string }).id))
+                  expect(m).toBe(here(pool.model(spec.to, (m as { id: string }).id)))
                 }
                 seen.ready += ids.length
                 seen.pending += members.loading
@@ -293,7 +294,7 @@ describe('relation getters on the objects (POD-4758)', () => {
       const parentId = tracked(() => pool.relations.one('issue', child as string, 'parent'))
       const seen: unknown[] = []
       const watch = autorun(() => {
-        const parent = pool.issue(child as string)?.parent
+        const parent = here(pool.issue(child as string))?.parent
         seen.push(parent === LOADING ? 'loading' : parent?.id)
       })
       r.fire()

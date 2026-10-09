@@ -1,3 +1,4 @@
+import { omitGone } from '../lookup'
 import { worklistGroups } from './groups'
 import { keyedComputed } from '@podium/mobx-helpers'
 /** Phone bands over the existing resident root/roster indexes. No legacy
@@ -133,7 +134,7 @@ export class MobileSectionsBefore {
   private waiting(row: MobileWorkRef): { asking: boolean; pending: number } {
     if (row.kind === 'issue') {
       const issue = worklistView(this.pool).knownRow(row.id)
-      if (issue === undefined) return { asking: false, pending: this.pool.row('issue', row.id) === LOADING ? 1 : 0 }
+      if (issue === undefined) return { asking: false, pending: omitGone(this.pool.row('issue', row.id)) === LOADING ? 1 : 0 }
       return { asking: mobileWaitingCount(issue.aggregate, issue.finished === true) > 0, pending: issue.aggregate.pending }
     }
     const value = mobileWorkView(this.pool).mobileRow(row)

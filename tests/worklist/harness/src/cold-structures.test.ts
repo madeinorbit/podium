@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import { rowViewOf } from '../../shared/src/row-snapshots'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /**
@@ -135,7 +136,7 @@ async function census(
   const { pool } = handle
   // The first paint, kept alive as the mounted list keeps it.
   const stop = reaction(
-    () => [visibleOrderOf(pool).map((id) => rowViewOf(pool.issue(id))), worklistGroups(pool).layout],
+    () => [visibleOrderOf(pool).map((id) => rowViewOf(here(pool.issue(id)))), worklistGroups(pool).layout],
     () => {},
   )
   try {

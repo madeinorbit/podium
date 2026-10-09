@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 /** Frozen pre-migration phone Tasks reader. Test oracle and before-memory control only. */
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -78,7 +79,7 @@ export function createLegacyMobileTasks(pool: MobxPool) {
     'MobileScreen.taskRow',
     (key: string): IssueRow<IssueViewModel> => {
       const [id, depth, childCount, expanded] = JSON.parse(key) as [string, number, number, boolean]
-      const issue = requireRow(pool.row('issueBoardRow', id))
+      const issue = requireRow(omitGone(pool.row('issueBoardRow', id)))
       if (!issue) throw LOADING
       return { issue, depth, childCount, expanded }
     },
@@ -101,7 +102,7 @@ export function createLegacyMobileTasks(pool: MobxPool) {
     return disposed ? LOADING : (cache(key, create).get() as T | typeof LOADING)
   }
   function query(options: BoardQuery) {
-    const result = requireRow(pool.row('issueBoardQuery', JSON.stringify(options)))
+    const result = requireRow(omitGone(pool.row('issueBoardQuery', JSON.stringify(options))))
     if (!result) throw LOADING
     return result.ids
   }
@@ -146,7 +147,7 @@ export function createLegacyMobileTasks(pool: MobxPool) {
     const models = new Map<string, IssueViewModel>()
     const issue = (id: string) => {
       if (models.has(id)) return models.get(id)
-      const value = requireRow(pool.row('issueBoardRow', id))
+      const value = requireRow(omitGone(pool.row('issueBoardRow', id)))
       if (value) models.set(id, value)
       return value
     }
@@ -338,7 +339,7 @@ export function createLegacyMobileTasks(pool: MobxPool) {
       filter: { stage: 'proposed' },
       showAgentTasks: true,
     })) {
-      const facts = requireRow(pool.row('issue', id, 'summary-fields')) as
+      const facts = requireRow(omitGone(pool.row('issue', id, 'summary-fields'))) as
         | IssueViewModel
         | undefined
       if (!facts || !screenable(facts)) continue
@@ -347,7 +348,7 @@ export function createLegacyMobileTasks(pool: MobxPool) {
         blocked = false
       while (next && !seen.has(next)) {
         seen.add(next)
-        const ancestor = requireRow(pool.row('issue', next, 'summary-fields')) as
+        const ancestor = requireRow(omitGone(pool.row('issue', next, 'summary-fields'))) as
           | IssueViewModel
           | undefined
         if (!ancestor) break

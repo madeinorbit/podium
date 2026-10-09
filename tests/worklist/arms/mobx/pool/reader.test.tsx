@@ -1,3 +1,4 @@
+import { here, omitGone } from '@podium/client-graph/lookup'
 // @vitest-environment happy-dom
 /**
  * POD-4743 — the pool's one row reader (`MobxPool.row`) on a row that is not
@@ -212,9 +213,9 @@ describe('POD-4743 the one row reader, not in memory', () => {
       // Its row shows loading; the reader answers LOADING, never a row.
       expect(el.querySelector(`[data-loading-row="${id}"]`)).not.toBeNull()
       expect(drawnRows(el)).not.toContain(id)
-      expect(tracked(() => pool.row('issue', id))).toBe(LOADING)
+      expect(tracked(() => omitGone(pool.row('issue', id)))).toBe(LOADING)
       expect(tracked(() => pool.resident('issue', id))).toBe('loading')
-      expect(tracked(() => pool.issue(id))).toBeUndefined()
+      expect(tracked(() => here(pool.issue(id)))).toBeUndefined()
       // Queued once, beside what drawing the list queues anyway, and nothing
       // loaded before the window closes. (The visibility parts read the row
       // by id through the feed — a peek — but never install it.)
@@ -233,7 +234,7 @@ describe('POD-4743 the one row reader, not in memory', () => {
 
       // Converged: in memory, drawn as a row, and equal to the all-in-memory pool.
       expect(tracked(() => pool.tables.issue.has(id))).toBe(true)
-      expect(tracked(() => pool.row('issue', id) === pool.tables.issue.get(id))).toBe(true)
+      expect(tracked(() => omitGone(pool.row('issue', id)) === pool.tables.issue.get(id))).toBe(true)
       expect(el.querySelector(`[data-loading-row="${id}"]`)).toBeNull()
       expect(drawnRows(el)).toEqual(wantDrawn)
       expect(r.handle.snapshot()).toEqual(want)

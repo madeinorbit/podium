@@ -80,6 +80,7 @@ export type RowSourceLocal = 'repos'
  *  are optional on the replica contract; this source refuses to start without
  *  them rather than degrading to kind-grained refreshes. */
 export interface RowSourceReplica {
+  exitKind?(entity: string, id: string): 'removed' | 'evicted' | undefined
   sessionUserStatesLoaded?(): boolean
   subscribeAddressedBatch?(cb: (batch: ReplicaAddressedBatch) => void): () => void
   rows<K extends ReplicaKind>(kind: K): readonly AnyRow[]
@@ -988,6 +989,10 @@ export function createRowSource(
     snapshot,
     companions: () => [...snapshot('repo'), ...snapshot('machine')],
     row,
+    exitKind(kind, id) {
+      const entity = kind === 'issue' ? 'issueProjection' : kind
+      return replica.exitKind?.(entity, id)
+    },
     cold,
     ...(replica.issueIdByRef
       ? {

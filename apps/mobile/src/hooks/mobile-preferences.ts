@@ -1,10 +1,11 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
 import type { MobxPool } from '@podium/client-graph'
 import { useCallback, useMemo, useSyncExternalStore } from 'react'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 
 function preferenceValue(pool: MobxPool, key: string): string | null {
-  const row = pool.row('preference', key)
+  const row = omitGone(pool.row('preference', key))
   // A cold row or an attaching pool paints the default, never a legacy read.
   return typeof row === 'object' && row !== null ? row.value : null
 }

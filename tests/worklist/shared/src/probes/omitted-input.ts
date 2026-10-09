@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 /**
  * POD-4564 (L6b) — P1, omitted input: a derivation reads an input its
  * invalidation does not know about.
@@ -30,7 +31,7 @@ export const omittedInput: Probe = {
       where:
         "The row view's own-row part: the computed on the issue model that builds the L1b own-row fields (`title`, `band`, `repoKey`, …) from the borrowed issue row (schema doc §2; row view contract §2).",
       patch: [
-        'Give the displayed title its own computed (or reuse the part that already derives it) and read the row through `untracked(() => pool.issue(id)?.title)`, so the computed has no tracked dependency on the row it reads.',
+        'Give the displayed title its own computed (or reuse the part that already derives it) and read the row through `untracked(() => here(pool.issue(id))?.title)`, so the computed has no tracked dependency on the row it reads.',
         'Equivalent forms (plant ONE): copy `row.title` into a plain field at ingest and read the copy; or give the part a custom `equals` that ignores `title`.',
         'Do not touch any other part: other fields must stay tracked, so the row still redraws when they move (the heal the probe must see through).',
       ],

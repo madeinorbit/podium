@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import { isFinished } from '@podium/model/browser'
 /**
  * THE LAUNCH BOX (POD-1224, shared since POD-1457) — the four decisions that
@@ -52,7 +53,7 @@ import { IssueAgentSettings } from './IssueAgentSettings'
 /** Both launch surfaces ask the shared issue model at their visibility gate. */
 export function useIssueWorkBegun(id: string): boolean {
   const read = useCallback((pool: import('@podium/client-graph').MobxPool) =>
-    pool.model('issue', id)?.workBegun ?? true, [id])
+    here(pool.model('issue', id))?.workBegun ?? true, [id])
   return useWorklistPoolProjection(read, true)
 }
 

@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { companion, keyedComputed, lazy } from '@podium/mobx-helpers'
 import type { IssueModel, SessionModel } from './models'
 import { missions } from './mission'
@@ -34,7 +35,7 @@ class MobileMissionReader extends MissionViewReader {
     if (rootId) return this.issue(rootId)
     // A known cold row spends the shared load window. An unknown ID is
     // outside today's complete principal replica (POD-4286's contract).
-    if (id && this.pool.row('issue', id) === LOADING) return LOADING
+    if (id && omitGone(this.pool.row('issue', id)) === LOADING) return LOADING
     return undefined
   }
 }
@@ -124,13 +125,13 @@ export function createMobileScreenReader(pool: MobxPool) {
       for (const member of this.members) {
         const row = this.headerIssueIds.has(member) || mission.facts(member).visible
           ? requireRow(mission.issue(member))
-          : requireRow(pool.row('issueBoardRow', member))
+          : requireRow(omitGone(pool.row('issueBoardRow', member)))
         if (row) issues.set(member, row)
       }
       // Authorship and sheet notes can refer outside the drawn mission.
       for (const row of [...issues.values()]) for (const dep of row.deps ?? []) {
         if (!issues.has(dep.id)) {
-          const target = requireRow(pool.row('issueBoardRow', dep.id))
+          const target = requireRow(omitGone(pool.row('issueBoardRow', dep.id)))
           if (target) issues.set(dep.id, target)
         }
       }
@@ -162,7 +163,7 @@ export function createMobileScreenReader(pool: MobxPool) {
         const childId = stack.pop()!
         if (seen.has(childId)) continue
         seen.add(childId)
-        const child = requireRow(pool.row('issueBoardRow', childId))
+        const child = requireRow(omitGone(pool.row('issueBoardRow', childId)))
         if (!child || !mission.facts(child.id).visible) continue
         if (child.stage !== 'proposed' && !issueAbandoned(child)) {
           accepted = true

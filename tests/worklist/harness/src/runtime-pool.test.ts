@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { referenceState } from '../../diagnostics/reference-state'
 // @vitest-environment happy-dom
@@ -84,8 +85,8 @@ describe('the pool over the app-owned runtime', () => {
       // pool borrows that exact input, with no second copy on repeated reads.
       // POD-4968 retires the join and must restore plain replica-row identity.
       const joined = input.mock.results[0]!.value.source.row!('issue', id)
-      expect(tracked(() => pool.row('issue', id))).toBe(joined)
-      expect(tracked(() => pool.row('issue', id))).toBe(joined)
+      expect(tracked(() => omitGone(pool.row('issue', id)))).toBe(joined)
+      expect(tracked(() => omitGone(pool.row('issue', id)))).toBe(joined)
       expect(snapshotPool(pool)).toEqual(
         snapshotFromStore(referenceState(ctx.engine), localsOfEngine(ctx.engine)),
       )
@@ -116,17 +117,17 @@ describe('the pool over the app-owned runtime', () => {
       read.mockClear()
       const id = ctx.targets.heartbeatSessionId
       expect(tracked(() => handle.pool.tables.session.has(id))).toBe(false)
-      expect(tracked(() => handle.pool.row('session', id))).toBe(LOADING)
+      expect(tracked(() => omitGone(handle.pool.row('session', id)))).toBe(LOADING)
       expect(handle.pool.hydrate()).toBeGreaterThan(0)
       expect(read).toHaveBeenCalledWith('sessions', id)
       // Since POD-5114 a session row reaches the pool as its joined view over the
       // replica row (personal, repo and machine homes), never the raw record, so
       // the computed cells are present even when their home is absent. The view
       // carries every raw cell and keeps one identity across reads.
-      const row = tracked(() => handle.pool.row('session', id))
+      const row = tracked(() => omitGone(handle.pool.row('session', id)))
       expect(row).toMatchObject(ctx.replica.row!('sessions', id)!)
       expect(row).toHaveProperty('condition', undefined)
-      expect(tracked(() => handle.pool.row('session', id))).toBe(row)
+      expect(tracked(() => omitGone(handle.pool.row('session', id)))).toBe(row)
     } finally {
       handle.dispose()
       ctx.dispose()

@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
@@ -35,15 +36,15 @@ function setup() {
 it('keeps existing worklist decoration and returns declared fields without copying them', () => {
   const { pool, load, hot } = setup()
   try {
-    const decorated = pool.row('issue', 'cold', 'summary')
-    const fields = pool.row('issue', 'cold', 'summary-fields')
+    const decorated = omitGone(pool.row('issue', 'cold', 'summary'))
+    const fields = omitGone(pool.row('issue', 'cold', 'summary-fields'))
     expect(decorated).toHaveProperty('flatUntil')
     expect(pool.residency?.summary('issue', 'cold')).toHaveProperty('flatUntil')
     expect(fields).not.toHaveProperty('flatUntil')
     expect(fields).toMatchObject({ title: 'Declared title', archived: true })
     expect(fields).not.toHaveProperty('privateBody')
-    expect(pool.row('issue', 'cold', 'summary-fields')).toBe(fields)
-    expect(pool.row('issue', 'hot', 'summary-fields')).toBe(hot)
+    expect(omitGone(pool.row('issue', 'cold', 'summary-fields'))).toBe(fields)
+    expect(omitGone(pool.row('issue', 'hot', 'summary-fields'))).toBe(hot)
     expect(pool.hydrate()).toBe(0)
     expect(load).not.toHaveBeenCalled()
   } finally {
@@ -54,14 +55,14 @@ it('keeps existing worklist decoration and returns declared fields without copyi
 it('shows painted summary fields and returns to the declared ones on rollback', () => {
   const { pool, paint, load, cold, hot } = setup()
   try {
-    const original = pool.row('issue', 'cold', 'summary-fields')
+    const original = omitGone(pool.row('issue', 'cold', 'summary-fields'))
     paint({ ...cold, title: 'Pending cold' })
     paint({ ...hot, title: 'Pending hot' })
-    expect(pool.row('issue', 'cold', 'summary-fields')).toMatchObject({ title: 'Pending cold' })
-    expect(pool.row('issue', 'hot', 'summary-fields')).toMatchObject({ title: 'Pending hot' })
+    expect(omitGone(pool.row('issue', 'cold', 'summary-fields'))).toMatchObject({ title: 'Pending cold' })
+    expect(omitGone(pool.row('issue', 'hot', 'summary-fields'))).toMatchObject({ title: 'Pending hot' })
     expect(original).toMatchObject({ title: 'Declared title' })
     paint(cold)
-    expect(pool.row('issue', 'cold', 'summary-fields')).toMatchObject({ title: 'Declared title' })
+    expect(omitGone(pool.row('issue', 'cold', 'summary-fields'))).toMatchObject({ title: 'Declared title' })
     expect(pool.hydrate()).toBe(0)
     expect(load).not.toHaveBeenCalled()
   } finally {
@@ -73,13 +74,13 @@ it('loads a missing declared summary once and resolves through the same reader',
   const { pool, load } = setup()
   try {
     vi.spyOn(pool.residency!, 'summary').mockReturnValue(undefined)
-    expect(pool.row('issue', 'cold', 'summary-fields')).toBe(LOADING)
-    expect(pool.row('issue', 'cold', 'summary-fields')).toBe(LOADING)
+    expect(omitGone(pool.row('issue', 'cold', 'summary-fields'))).toBe(LOADING)
+    expect(omitGone(pool.row('issue', 'cold', 'summary-fields'))).toBe(LOADING)
     expect(load).not.toHaveBeenCalled()
     expect(pool.hydrate()).toBe(1)
     expect(load).toHaveBeenCalledTimes(1)
-    expect(pool.row('issue', 'cold', 'summary-fields')).toMatchObject({ title: 'Declared title' })
-    expect(pool.row('issue', 'unknown', 'summary-fields')).toBeUndefined()
+    expect(omitGone(pool.row('issue', 'cold', 'summary-fields'))).toMatchObject({ title: 'Declared title' })
+    expect(omitGone(pool.row('issue', 'unknown', 'summary-fields'))).toBeUndefined()
   } finally {
     pool.dispose()
   }

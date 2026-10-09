@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { type ShippingIssueSummary, shippingPanelModel } from '@podium/client-core/values'
 import {
   canonicalShippingDestination,
@@ -91,7 +92,7 @@ function fixture(scale: 1 | 4) {
     unfinished: (repoId) => headerEntities(pool).shippingUnfinished(repoId),
     recentShipped: (repoId, limit) => headerEntities(pool).recentShipped(repoId, limit),
     counts: (repoId) => headerEntities(pool).shippingCounts(repoId),
-    order: (id) => pool.row('shipOrder', id) as Order | undefined,
+    order: (id) => omitGone(pool.row('shipOrder', id)) as Order | undefined,
     issue: (id) => issues.find((issue) => issue.id === id),
     lane: (id) => lanes.findLast((lane) => lane.id === id),
   }

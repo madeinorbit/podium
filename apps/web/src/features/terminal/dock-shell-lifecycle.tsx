@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
 import type { SessionId } from '@podium/model'
@@ -66,7 +67,7 @@ export function useStaleDockShellIds(): SessionId[] {
           return left < right ? -1 : left > right ? 1 : a.localeCompare(b)
         })
         .flatMap((id) => {
-          const row = pool.row('session', id, 'summary-fields')
+          const row = omitGone(pool.row('session', id, 'summary-fields'))
           return row && typeof row !== 'symbol' ? [row as DockShellLifecycleSession] : []
         })
       return staleDockShellIds(dockShells, sessions)

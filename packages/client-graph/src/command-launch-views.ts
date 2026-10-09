@@ -1,3 +1,4 @@
+import { here, omitGone } from './lookup'
 import type { SpawnTarget } from '@podium/client-core'
 import type { Store } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -42,7 +43,7 @@ type Common = Pick<
  * placement and selected-context overlays read their window fields. */
 function createCommandLaunchViews(pool: MobxPool) {
   const read = <E extends keyof CommandLaunchRows>(entity: E, id: string) =>
-    pool.row(entity, id) as Loaded<CommandLaunchRows[E]>
+    omitGone(pool.row(entity, id)) as Loaded<CommandLaunchRows[E]>
   const counts = {
     catalogBuilds: 0,
     issueBuilds: 0,
@@ -65,7 +66,7 @@ function createCommandLaunchViews(pool: MobxPool) {
     counts.addressedSessionReads++
     // untracked-read: launch-session-seed
     if (untracked(() => !pool.tables.session.has(id))) counts.coldSessionVisits++
-    const row = pool.row('session', id, 'summary-fields') as Loaded<SessionView>
+    const row = omitGone(pool.row('session', id, 'summary-fields')) as Loaded<SessionView>
     // Snapshot joined getter fields inside this addressed derivation.
     return row && row !== LOADING ? { ...row } : row
   }, { equals: compareStructural })
@@ -178,7 +179,7 @@ function createCommandLaunchViews(pool: MobxPool) {
   )
   // Addressed summary objects are fresh; compare their values explicitly.
   const issueSummary = keyedComputed(() => undefined, (id: string): Loaded<IssueViewModel> => {
-          const value = pool.row('commandIssue', id)
+          const value = omitGone(pool.row('commandIssue', id))
           if (!value || value === LOADING) return value
           const row = Object.fromEntries(
             COMMAND_SUMMARIES.issue.map((field) => [
@@ -188,7 +189,7 @@ function createCommandLaunchViews(pool: MobxPool) {
           ) as unknown as IssueViewModel
           const repoId = pool.graph.one('issue', id, 'repo'),
             repo = repoId
-              ? (pool.row('repo', repoId) as { prefix?: string } | undefined)
+              ? (omitGone(pool.row('repo', repoId)) as { prefix?: string } | undefined)
               : undefined
           return {
             ...row,
@@ -325,18 +326,18 @@ function createCommandLaunchViews(pool: MobxPool) {
         position = issues.findIndex((issue) => issue.id === id)
       if (id && position >= 0 && !opening) {
         const row = issues[position]!,
-          full = pool.row('issue', id)
+          full = omitGone(pool.row('issue', id))
         issues = [...issues]
         if (full === LOADING) {
           pending++
           issues.splice(position, 1)
         } else if (!full) issues.splice(position, 1)
         else {
-          const node = pool.issue(id),
+          const node = here(pool.issue(id)),
             children = [...pool.graph.many('issue', id, 'treeChildren')]
           let childDoneCount = 0
           for (const child of children) {
-            const detail = pool.row('issue', child, 'summary')
+            const detail = omitGone(pool.row('issue', child, 'summary'))
             if (detail === LOADING) pending++
             else if (detail && isFinished(detail)) childDoneCount++
           }
@@ -419,7 +420,7 @@ export class CommandPaletteView {
         ? this.snapshot.issues.map((issue, position) => [issue.id, position]) : [])
       const ids = views.sessionIds()
       this.sessions = ids && ids !== LOADING ? ids.flatMap(id => {
-        const row = this.pool.row('session', id, 'summary-fields')
+        const row = omitGone(this.pool.row('session', id, 'summary-fields'))
         return row && row !== LOADING ? [this.pool.sessionObject(id) as unknown as SessionView] : []
       }) : []
       this.defaultAgent = resolveDefaultAgent(undefined, this.sessions)

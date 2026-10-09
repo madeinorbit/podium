@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
@@ -55,7 +56,7 @@ it.each([
       <Surface />
     </StoreProvider>,
   )
-  await waitFor(() => expect(pool?.row('mobileSessionReader', 'reader')).toBeTypeOf('object'), {
+  await waitFor(() => expect(omitGone(pool?.row('mobileSessionReader', 'reader'))).toBeTypeOf('object'), {
     timeout: 10000,
   })
   await waitFor(() =>

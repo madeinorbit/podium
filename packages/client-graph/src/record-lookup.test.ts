@@ -2,6 +2,10 @@ import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
 import { LOADING } from './loading'
+import { here, isGone, omitGone, type Lookup } from './lookup'
+import { createElement } from 'react'
+import { renderToStaticMarkup } from 'react-dom/server'
+import { PoolRowSlot } from './react/row'
 
 const now = Date.parse('2026-10-09T00:00:00Z')
 const issue = (id: string, cold = false) => ({
@@ -25,7 +29,6 @@ function fixture() {
   const exits = new Map<string, 'removed' | 'evicted'>([['deleted', 'removed'], ['evicted', 'evicted']])
   const load = vi.fn((_entity: string, id: string) => rows.get(id))
   const schedule = vi.fn(() => () => {})
-  // Cast only the future option while the pre-migration proof is run.
   const options = { load, schedule, exitKind: (_entity: string, id: string) => exits.get(id) }
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, options)
   pool.apply({ type: 'replace', rows: [...rows].map(([id, value]) => ({ kind: 'issue' as const, id, value })) })
@@ -47,8 +50,62 @@ it('compares the old and new answers on resident, cold, removed and inaccessible
     f.pool.hydrate()
     expect(f.pool.row('issue', 'private')).toEqual({ kind: 'gone', reason: 'not-visible' })
     expect(f.pool.model('issue', 'private')).toEqual({ kind: 'gone', reason: 'not-visible' })
+    // Existing nullable/list callers deliberately keep their former answers.
+    expect(here(f.pool.model('issue', 'cold'))).toBe(oldModel(f.pool, 'cold'))
+    expect(omitGone(f.pool.row('issue', 'deleted'))).toBe(oldRow(f.pool, 'deleted'))
+    expect(here(f.pool.model('issue', 'deleted'))).toBe(oldModel(f.pool, 'deleted'))
   } finally { f.pool.dispose() }
 })
+
+it('a deleted cold record never starts a load, including a retained server tombstone', () => {
+  const f = fixture()
+  try {
+    const value = { ...issue('tombstone', true), deletedAt: '2026-10-09T00:00:00Z' }
+    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: value.id, value }] })
+    expect(f.pool.row('issue', value.id)).toEqual({ kind: 'gone', reason: 'removed' })
+    expect(f.pool.model('issue', value.id)).toEqual({ kind: 'gone', reason: 'removed' })
+    expect(f.pool.row('issue', 'deleted', 'summary')).toEqual({ kind: 'gone', reason: 'removed' })
+    expect(f.pool.hydrate()).toBe(0)
+    expect(f.schedule).not.toHaveBeenCalled()
+    expect(f.load).not.toHaveBeenCalled()
+  } finally { f.pool.dispose() }
+})
+
+it('the row boundary displays pending once and never spins for a deleted or inaccessible record', () => {
+  const f = fixture()
+  const render = (id: string) => renderToStaticMarkup(createElement(PoolRowSlot, {
+    pool: f.pool, id,
+    renderRow: row => createElement('span', null, row.id),
+    renderLoading: () => createElement('span', null, 'loading'),
+  }))
+  try {
+    expect(render('hot')).toBe('<span>hot</span>')
+    expect(render('cold')).toBe('<span>loading</span>')
+    expect(render('deleted')).toBe('')
+    expect(render('private')).toBe('<span>loading</span>')
+    f.pool.hydrate()
+    expect(render('private')).toBe('')
+    expect(render('deleted')).toBe('')
+  } finally { f.pool.dispose() }
+})
+
+// Compiled by the full typecheck; never invoked. The raw APIs force narrowing
+// before reading record fields and cannot silently answer undefined.
+function lookupTypes(pool: MobxPool) {
+  const model = pool.model('issue', 'id')
+  const row = pool.row('issue', 'id')
+  // @ts-expect-error handle loading and Gone before reading model fields
+  void model.title
+  // @ts-expect-error handle loading and Gone before reading stored fields
+  void row.id
+  // @ts-expect-error an addressed lookup never returns undefined
+  const absent: undefined = model
+  if (model !== LOADING && !isGone(model)) void model.title
+  if (row !== LOADING && !isGone(row)) void row.id
+  const complete: Lookup<unknown> = model
+  void absent; void complete
+}
+void lookupTypes
 
 it('batches cold, unknown and evicted requests and reloads the evicted record', () => {
   const f = fixture()

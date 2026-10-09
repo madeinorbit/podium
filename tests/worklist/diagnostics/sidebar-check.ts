@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
@@ -165,7 +166,7 @@ export function poolSidebarSnapshot(pool: MobxPool, state: SidebarState = {}): S
       const row = sidebarView(pool).row(id)
       if (row === LOADING) pending += 1
       value = { id, pending: row === LOADING, fields: row === LOADING ? { loading: true } : row === undefined ? { absent: true } : {
-        ...sidebarComparable(row), statusLine: poolStatusLine(row, pool.worklistRow(id)?.activityAt ?? 0, pool.clock.current, (seat) => pool.row('session', seat)),
+        ...sidebarComparable(row), statusLine: poolStatusLine(row, pool.worklistRow(id)?.activityAt ?? 0, pool.clock.current, (seat) => omitGone(pool.row('session', seat))),
       } }
       issues.set(id, value)
     }

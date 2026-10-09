@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { headerView } from '@podium/client-graph/header-views'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -262,7 +263,7 @@ describe('rendered mission pane parity', () => {
       })
     publishCatalog('before')
     vi.spyOn(headerView(pool), 'machines').mockImplementation(() => {
-      pool.row('worktree', '/catalog-only')
+      omitGone(pool.row('worktree', '/catalog-only'))
       return []
     })
     const committed = vi.fn()

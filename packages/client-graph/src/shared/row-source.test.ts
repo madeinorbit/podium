@@ -1,3 +1,4 @@
+import { omitGone } from '../lookup'
 import { createRequire } from 'node:module'
 import { EMPTY_PENDING } from '../../../../tests/worklist/shared/src/row-source'
 import type { ReplicaAddressedBatch, ReplicaKind } from '@podium/client-core/replica'
@@ -167,14 +168,14 @@ it('counts a throwing pool listener and replaces the half-applied pool on the ne
     for (const id of ['a', 'b', 'c']) f.session(id, 'after')
     f.update('a', 'b', 'c')
     expect(f.source.flush()?.type).toBe('update')
-    expect(handle.pool.row('session', 'a')).toMatchObject({ title: 'after' })
-    expect(handle.pool.row('session', 'c')).toMatchObject({ title: 'before' })
+    expect(omitGone(handle.pool.row('session', 'a'))).toMatchObject({ title: 'after' })
+    expect(omitGone(handle.pool.row('session', 'c'))).toMatchObject({ title: 'before' })
     expect(f.source.stats).toMatchObject({ applyErrors: 1 })
     expect(handle.pool.diagnostics).toBe(f.source.source.diagnostics)
     expect(handle.pool.diagnostics).toMatchObject({ errors: 1, resyncPending: true })
     expectFeedLogged(seen, '[pool feed] listener:update failed', error)
     expect(f.source.flush()?.type).toBe('replace')
-    expect(handle.pool.row('session', 'c')).toMatchObject({ title: 'after' })
+    expect(omitGone(handle.pool.row('session', 'c'))).toMatchObject({ title: 'after' })
     expect(events.map((event) => event.type)).toEqual(['update', 'replace'])
     expect(f.source.flush()).toBeNull()
     expect(handle.pool.diagnostics).toMatchObject({ replaceResyncs: 1, resyncPending: false })
@@ -326,11 +327,11 @@ it('recovery includes pending optimism, removals, and rollback', () => {
     ])
     f.tables.get('sessions')!.delete('removed')
     expect(f.source.repaint([{ kind: 'session', id: 'a' }])?.type).toBe('replace')
-    expect(handle.pool.row('session', 'a')).toMatchObject({ title: 'optimistic' })
-    expect(handle.pool.row('session', 'removed')).toBeUndefined()
+    expect(omitGone(handle.pool.row('session', 'a'))).toMatchObject({ title: 'optimistic' })
+    expect(omitGone(handle.pool.row('session', 'removed'))).toBeUndefined()
     overlays.clear()
     f.source.repaint([{ kind: 'session', id: 'a' }])
-    expect(handle.pool.row('session', 'a')).toMatchObject({ title: 'server' })
+    expect(omitGone(handle.pool.row('session', 'a'))).toMatchObject({ title: 'server' })
   } finally {
     handle.dispose()
     f.source.dispose()
@@ -451,7 +452,7 @@ it.each([1, 4])('records heartbeat owner-history work and watched fields at %sx'
     runtime.Bun.gc(true)
     return (createRequire(import.meta.url)('bun:jsc') as { heapStats(): { heapSize: number } }).heapStats().heapSize
   }
-  const original = handle.pool.row('issue', 'one')
+  const original = omitGone(handle.pool.row('issue', 'one'))
   let storedRuns = 0
   const stop = autorun(() => { void issue.title; void issue.stage; storedRuns++ })
   try {
@@ -461,12 +462,12 @@ it.each([1, 4])('records heartbeat owner-history work and watched fields at %sx'
     const event = f.source.flush()
     expect(f.source.stats).toMatchObject({ sessionFactsVisited: 1, sessionFactsRescanned: 0, sessionStaffingChanges: 0 })
     expect(event?.rows.filter(record => record.kind === 'issue')).toHaveLength(0)
-    expect(handle.pool.row('issue', 'one')).toBe(original)
+    expect(omitGone(handle.pool.row('issue', 'one'))).toBe(original)
     expect(storedRuns).toBe(1)
     expect(issue.lastActivityAt).toBe('2026-10-09')
     console.info('[issue heartbeat]', JSON.stringify({ scale, stats: f.source.stats,
       issueRows: event?.rows.filter(record => record.kind === 'issue').length,
-      rowReplaced: original !== handle.pool.row('issue', 'one'), storedRuns,
+      rowReplaced: original !== omitGone(handle.pool.row('issue', 'one')), storedRuns,
       watchedFields: names.size, heapBytes: heap(), heapSource: runtime.Bun ? 'JSC full-GC heapSize' : 'process heapUsed' }))
   } finally { stop(); watcher.dispose(); handle.dispose(); f.source.dispose() }
 })

@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { cachedKey } from './cached'
 import type { MobxPool } from './pool'
 import { MISSION_SCHEMA } from './mission-schema'
@@ -25,17 +26,17 @@ export function createMissionViews(pool: MobxPool): MissionViews {
   // No reaction keeps a visited id's computed alive (review finding 2).
   const rootRow = (id: string) => {
     // The one reader overlays pending values on both rows and summaries.
-    let row = pool.row('issue', id, 'summary')
+    let row = omitGone(pool.row('issue', id, 'summary'))
     // stage is required on every full issue and on our declared summary.
     // Without it an empty/partial summary cannot answer optional parents.
-    if (row && row !== LOADING && !Object.hasOwn(row, 'stage')) row = pool.row('issue', id)
+    if (row && row !== LOADING && !Object.hasOwn(row, 'stage')) row = omitGone(pool.row('issue', id))
     return row as Loaded<{ archived?: boolean; deletedAt?: string | null }>
   }
   const hidden = cachedKey('Mission', 'hidden', (id): Loaded<boolean> => {
     const row = rootRow(id)
     return row === undefined || row === LOADING ? row : Boolean(row.archived || row.deletedAt)
   })
-  const resident = cachedKey('Mission', 'resident', id => pool.row('issue', id, 'mark') !== LOADING)
+  const resident = cachedKey('Mission', 'resident', id => omitGone(pool.row('issue', id, 'mark')) !== LOADING)
 
   const roots = cachedKey('Mission', 'root', (id): Loaded<string> => {
     stats.roots++
@@ -52,7 +53,7 @@ export function createMissionViews(pool: MobxPool): MissionViews {
       if (parent === undefined || parent) break
       // Navigation waits for a live ancestor's full row, as the sidebar did
       // before this cache. Archived/deleted ancestors stop at the summary.
-      if (!resident(parentId)) { pool.row('issue', parentId); return LOADING }
+      if (!resident(parentId)) { omitGone(pool.row('issue', parentId)); return LOADING }
       current = parentId
     }
     return current

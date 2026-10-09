@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 /** Pool-only regression output frozen by the accepted phone parity controls. */
 import type { SessionView } from '@podium/client-core/session-values'
 import {
@@ -226,7 +227,7 @@ export function poolMobileScreensSnapshot(
   pool: MobxPool,
   input: MobileScreenInput,
 ): SidebarSnapshot | typeof LOADING {
-  const reader = pool.row('mobileScreenReader', 'reader')
+  const reader = omitGone(pool.row('mobileScreenReader', 'reader'))
   if (!reader || reader === LOADING) return LOADING
   const tasks = input.tasks ? readMobileTaskSnapshot(pool, input.tasks) : EMPTY_MOBILE_TASKS,
     mission = reader.mission(input.selectedId),

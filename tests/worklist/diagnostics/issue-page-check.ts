@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { isFinished } from '@podium/client-graph/shared/predicates'
 import { referenceState } from './reference-state'
 /** Explicit diagnostic job only. Private values are compared in memory; the
@@ -115,7 +116,7 @@ export function poolIssuePageSnapshot(pool: MobxPool): IssuePageCheckRow[] {
       const left = pool.graph.orderKey('session', a), right = pool.graph.orderKey('session', b)
       return left < right ? -1 : left > right ? 1 : 0
     })) {
-      const seat = pool.row('session', sid) as SessionView | typeof LOADING | undefined
+      const seat = omitGone(pool.row('session', sid)) as SessionView | typeof LOADING | undefined
       if (seat === LOADING) return { id, value: LOADING }
       if (seat && seat.issueId != null && seat.issueId !== id && !seat.archived) moved.push(seat)
     }

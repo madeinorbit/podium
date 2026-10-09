@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { preferenceSource } from '@podium/client-graph/preference-source'
 /** On-demand differential using the sidebar comparison contract. Reports expose
  * positions only: keys may contain paths, and values are never evidence. */
@@ -16,7 +17,7 @@ export function checkPreferences(pool: MobxPool, ui: RoutedUiState, keys = (pref
     }),
   )
   const actual = keys.map((key, index): CheckRow => {
-    const row = pool.row('preference', key)
+    const row = omitGone(pool.row('preference', key))
     const loading = row === LOADING
     if (loading) pending++
     return {

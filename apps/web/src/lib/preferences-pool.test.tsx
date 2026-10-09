@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { preferenceSource } from '@podium/client-graph/preference-source'
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -78,7 +79,7 @@ it('declares routed keys before batched loads and follows late, optimistic, roll
     expect(projection.getSnapshot()).toEqual([LOADING, LOADING])
     expect(local.get).not.toHaveBeenCalled()
     expect(replicated.get).not.toHaveBeenCalled()
-    expect(() => pool.row('preference', 'unclassified.key')).toThrow('Unclassified')
+    expect(() => omitGone(pool.row('preference', 'unclassified.key'))).toThrow('Unclassified')
     await Promise.resolve()
     expect((preferenceSource(pool)?.counts ?? null)?.batches).toBe(1)
     expect(checkPreferences(pool, ui)).toMatchObject({ differences: 0, pending: 0, positions: 2 })
@@ -120,7 +121,7 @@ it('declares routed keys before batched loads and follows late, optimistic, roll
 it('releases the source and cancels queued reads on disposal', async () => {
   const ui = port(),
     pool = poolFor(ui)
-  expect(pool.row('preference', STICKY)).toBe(LOADING)
+  expect(omitGone(pool.row('preference', STICKY))).toBe(LOADING)
   expect(ui.listeners.size).toBe(1)
   pool.dispose()
   ui.emit()
@@ -128,7 +129,7 @@ it('releases the source and cancels queued reads on disposal', async () => {
   expect(ui.get).not.toHaveBeenCalled()
   expect(ui.listeners.size).toBe(0)
   expect((preferenceSource(pool)?.keys() ?? [])).toEqual([])
-  expect(pool.row('preference', STICKY)).toBe(LOADING)
+  expect(omitGone(pool.row('preference', STICKY))).toBe(LOADING)
 })
 
 it('uses one offline runtime pool and no legacy preference reads across StrictMode and principal rebuilds', async () => {

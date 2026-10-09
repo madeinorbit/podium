@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { resolveIssueEdge } from '@podium/client-core/values'
 import type { PageIssue } from '@podium/client-graph/issue-page'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -37,7 +38,7 @@ export function useIssueTargets(
       if (!enabled) return NO_TARGETS
       const prefixes: Record<string, string | undefined> = {}
       for (const id of pool.queries.repoIds(issue.repoPath)) {
-        const repo = pool.row('repo', id) as { prefix?: string } | typeof LOADING | undefined
+        const repo = omitGone(pool.row('repo', id)) as { prefix?: string } | typeof LOADING | undefined
         if (repo === LOADING) return null
         prefixes[id] = repo?.prefix
       }
@@ -59,7 +60,7 @@ export function resolveEdgeFromPool(pool: MobxPool | null, id: string | undefine
   return resolveIssueEdge(
     id,
     (targetId) => {
-      const raw = pool?.row('issue', targetId, 'summary-fields')
+      const raw = omitGone(pool?.row('issue', targetId, 'summary-fields'))
       return raw && typeof raw !== 'symbol' ? (pool!.issueObject(targetId) as PageIssue) : undefined
     },
     'opaque',

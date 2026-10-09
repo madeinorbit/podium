@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import type { NavigationTopologyDelta } from '@podium/client-core/engine'
 import type { IssueCloseMemberCounts } from '@podium/client-core/values'
 import { machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
@@ -137,7 +138,7 @@ export class ReaderQueries {
         const row =
           change.type === 'delete'
             ? undefined
-            : (pool.row('repo', change.name) as Readonly<Record<string, unknown>> | undefined)
+            : (omitGone(pool.row('repo', change.name)) as Readonly<Record<string, unknown>> | undefined)
         this.updateRepo(change.name, row)
         if (!this.publishing) this.publishQueries()
       }),
@@ -415,7 +416,7 @@ export class ReaderQueries {
       }
     }
     this.repoOverrides.set(id, prefix)
-    const row = this.pool.row('repo', id) as Readonly<Record<string, unknown>> | undefined
+    const row = omitGone(this.pool.row('repo', id)) as Readonly<Record<string, unknown>> | undefined
     this.residents.apply({ type: 'update', rows: [{ kind: 'repo', id, value: row }] })
     this.routeQueryChanges(this.residents.changes)
     const identities = this.issueIdentities(),
@@ -1080,7 +1081,7 @@ export class ReaderQueries {
     } else {
       for (const id of index.issueIdentityRepoChanges(event)) {
         // untracked-read: reader-repo-identity
-        const row = untracked(() => this.pool.row('repo', id)) as
+        const row = untracked(() => omitGone(this.pool.row('repo', id))) as
           | Readonly<Record<string, unknown>>
           | undefined
         this.updateRepo(id, row)

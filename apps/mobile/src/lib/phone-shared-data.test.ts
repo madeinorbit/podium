@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import { compareRecency } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { createMobileInboxViews } from '../../test/legacy-mobile-inbox'
@@ -74,7 +75,7 @@ it('compares shared menu facts and actions with the old captured menu on the sam
     for (const lane of ['live', 'closed', 'snoozed'] as const) {
       const old = resolvePoolWorkMenu(f.pool, 'a', lane)!
       const next = resolveSharedWorkMenu(f.pool, 'a', lane)!
-      expect(next.target.issue).toBe(f.pool.model('issue', 'a'))
+      expect(next.target.issue).toBe(here(f.pool.model('issue', 'a')))
       for (const key of [
         'id',
         'title',

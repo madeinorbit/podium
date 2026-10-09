@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
@@ -143,7 +144,7 @@ it('bounds a file-tab page selection and updates with large histories sharing it
       const control = await measure('planted whole-path-history winner scan', () => {
         let best: { id: string; seq: number; worktreePath: string } | undefined
         for (const id of pool.queries.ids({ kind: 'containingIssues', cwd: '/shared/src/file' })) {
-          const value = pool.row('issue', id, 'summary') as Loaded<{
+          const value = omitGone(pool.row('issue', id, 'summary')) as Loaded<{
             id: string
             seq: number
             worktreePath: string

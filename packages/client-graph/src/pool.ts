@@ -94,13 +94,14 @@ import {
 import type { PreferenceRow } from './preference-schema'
 import { preferenceSource } from './preference-source'
 import { ReaderQueries } from './reader-queries'
+import { type Lookup, here, omitGone, isGone, NOT_VISIBLE, REMOVED } from './lookup'
 import { PoolRelations } from './relations'
 import { type LoadRow, Residency, type Schedule } from './residency'
 import { type ColdIndex, type ColdQueries, createColdIndex } from './shared/cold-index'
 import { relationLinks } from './shared/links'
 import type { RelationReader } from './shared/relation-reader'
 import { COLD_SESSION_FIELDS, type EntityName, type ModelSchema, SCHEMA } from './shared/schema'
-import type { LocalsKey, SliceIssue, SliceLocals, SliceSession } from './shared/slice-types'
+import type { LocalsKey, SliceIssue, SliceLocals, SliceSession, SliceWorktree } from './shared/slice-types'
 import { FeedDiagnostics } from './shared/feed-diagnostics'
 import type { RowSourceEvent } from './shared/source'
 import {
@@ -176,6 +177,7 @@ export interface PoolLazyOptions {
   readonly diagnostics?: FeedDiagnostics
   readonly issueSessionFact?: IssueSessionFactReader
   readonly load: LoadRow
+  readonly exitKind?: (entity: EntityName, id: string) => 'removed' | 'evicted' | undefined
   /** The feed's cold index (`RowSource.cold`), holding these declared summary fields. */
   readonly cold?: (summaries: PoolSummaryFields) => ColdQueries
   readonly issueIdByRef?: (ref: string) => string | undefined
@@ -215,7 +217,7 @@ export interface PoolMutator {
  *   edits overlaid; a missing cold summary queues the normal batched load.
  * - `summary-fields`: the same declared fields and pending edits, without
  *   the worklist-only flatUntil decoration or copying the cold summary.
- * Unknown rows answer undefined in every mode.
+ * Addressed load reads queue unknown rows once; non-loading probes never queue them.
  */
 /** What the cold index holds per issue for `readCursor`. */
 const READ_CURSOR_FIELDS = ['readAt'] as const
@@ -224,6 +226,13 @@ export type AbsentRead = 'load' | 'mark' | 'peek' | 'summary' | 'summary-fields'
 
 /** Where a row stands, for a reader that asked for it by id (tracked). */
 export type Residence = 'resident' | 'loading' | 'absent'
+
+export interface PoolRows {
+  issue: SliceIssue
+  session: SliceSession
+  worktree: SliceWorktree
+  repo: RepoRow
+}
 
 /** A lazy collection read: the members in memory, and how many are on their way. */
 export interface LazyMembers {
@@ -360,6 +369,7 @@ export class MobxPool {
             hot: tables,
             index: () => this.coldIndex(),
             load: (entity, id) => lazy.load(entity, id),
+            exitKind: lazy.exitKind,
             // Read at ingest, after the constructor has built the clock.
             now: () => this.clock.peekNow(),
             ...(lazy.windowMs === undefined ? {} : { windowMs: lazy.windowMs }),
@@ -462,9 +472,9 @@ export class MobxPool {
       // untracked-read: seat-membership-maintenance
       seats: (id) => untracked(() => this.graph.members('issue', id, 'sessions')),
       // untracked-read: seat-session-maintenance
-      session: (id) => untracked(() => this.row('session', id, 'peek')) as SliceSession | undefined,
+      session: (id) => untracked(() => omitGone(this.row('session', id, 'peek'))) as SliceSession | undefined,
       // untracked-read: seat-issue-maintenance
-      issue: (id) => untracked(() => this.row('issue', id, 'peek')) as SliceIssue | undefined,
+      issue: (id) => untracked(() => omitGone(this.row('issue', id, 'peek'))) as SliceIssue | undefined,
       now: () => this.clock.peekNow(),
     })
     worklistView(this)
@@ -472,16 +482,15 @@ export class MobxPool {
     // functions is replaced after construction (pending changes arrive as
     // rows, from the transaction log). A view reads rows in memory: a row that
     // is not answers undefined, its load queued.
-    const inMemory = (row: Loaded<object>): object | undefined =>
-      row === LOADING ? undefined : row
+    const inMemory = (row: Loaded<object>) => row === LOADING ? undefined : row
     const links = relationLinks(this.relations, this.graph.schema)
     this.inputs = {
       links,
-      issue: (id) => inMemory(this.row('issue', id)) as SliceIssue | undefined,
-      session: (id) => inMemory(this.row('session', id)) as SliceSession | undefined,
+      issue: (id) => inMemory(omitGone(this.row('issue', id))) as SliceIssue | undefined,
+      session: (id) => inMemory(omitGone(this.row('session', id))) as SliceSession | undefined,
       // The member's cached stamp (its object's, hot or cold): no row read.
       sessionActivity: (id) => (this.object('session', id) as SessionModel).activityMs,
-      repo: (id) => inMemory(this.row('repo', id)) as RepoRow | undefined,
+      repo: (id) => inMemory(omitGone(this.row('repo', id))) as RepoRow | undefined,
       // An issue answers from its object's cached in-memory read (no table
       // probe per run); other entities from the table.
       present: (entity, id) =>
@@ -511,15 +520,15 @@ export class MobxPool {
       },
       // Hot or cold: a cold row is read by id through the feed, never loaded.
       // untracked-read: visibility-issue-peek
-      issueRow: (id) => this.row('issue', id, 'peek') as SliceIssue | undefined,
+      issueRow: (id) => omitGone(this.row('issue', id, 'peek')) as SliceIssue | undefined,
       // untracked-read: visibility-session-peek
-      sessionRow: (id) => this.row('session', id, 'peek') as SliceSession | undefined,
+      sessionRow: (id) => omitGone(this.row('session', id, 'peek')) as SliceSession | undefined,
       issue: (id) => this.knownIssue(id),
       session: (id) => worklistView(this).session(this.sessionObject(id)),
       passed: (t) => this.clock.passed(t),
       reached: (t) => this.clock.reached(t),
-      loadedIssue: (id) => this.row('issue', id) as Loaded<SliceIssue>,
-      loadedSession: (id) => this.row('session', id) as Loaded<SliceSession>,
+      loadedIssue: (id) => omitGone(this.row('issue', id)) as Loaded<SliceIssue>,
+      loadedSession: (id) => omitGone(this.row('session', id)) as Loaded<SliceSession>,
       issueRead: (id) => this.readCursor(id),
       nested: (id) => worklistView(this).row(this.issueObject(id)).nested,
       formalChildren: (id) => links.issue.children.ids(id),
@@ -564,33 +573,33 @@ export class MobxPool {
    * Not in memory (cold, POD-4567): what `absent` names (`AbsentRead`). A
    * cold row's value is read by id through the feed; it is tracked by
    * residency's per-id atom, which reports every relink and the load.
-   * Unknown rows answer undefined. Never blocks.
+   * Unknown addressed rows load once, then answer Gone if not visible. Never blocks.
    */
-  row<E extends SourceEntity>(entity: E, id: string): Loaded<PoolSourceRows[E]>
-  row(entity: 'setupSession', id: string): Loaded<SetupSession>
-  row(entity: 'preference', id: string): Loaded<PreferenceRow>
-  row(entity: HeaderEntity, id: string): object | undefined
-  row(entity: EntityName, id: string, absent: 'peek'): object | undefined
-  row(
-    entity: EntityName,
+  row<E extends SourceEntity>(entity: E, id: string): Lookup<PoolSourceRows[E]>
+  row(entity: 'setupSession', id: string): Lookup<SetupSession>
+  row(entity: 'preference', id: string): Lookup<PreferenceRow>
+  row(entity: HeaderEntity, id: string): Lookup<object>
+  row(entity: EntityName, id: string, absent: 'peek'): Lookup<object>
+  row<E extends EntityName>(
+    entity: E,
     id: string,
     absent?: 'load' | 'mark' | 'summary' | 'summary-fields',
-  ): Loaded<object>
+  ): Lookup<PoolRows[E]>
   row(
     entity: EntityName | HeaderEntity | SourceEntity | 'setupSession' | 'preference',
     id: string,
     absent: AbsentRead = 'load',
-  ): Loaded<object> {
-    if (entity === 'setupSession') return readSetupSession(this, id)
-    if (isHeaderEntity(entity)) return headerEntities(this).get(entity, id)
-    if (!Object.hasOwn(this.tables, entity)) return this.sources.read(entity as SourceEntity, id)
+  ): Lookup<object> {
+    if (entity === 'setupSession') return readSetupSession(this, id) ?? NOT_VISIBLE
+    if (isHeaderEntity(entity)) return headerEntities(this).get(entity, id) ?? NOT_VISIBLE
+    if (!Object.hasOwn(this.tables, entity)) return this.sources.read(entity as SourceEntity, id) ?? NOT_VISIBLE
     const core = entity as EntityName
     if (core === 'repo') {
       // The stable repo facade observes fields independently. Row presence
       // stays addressed; the map value atom belongs to the prefix field.
       const table = this.tables.repo
       // untracked-read: pool-auxiliary-presence
-      return table.has(id) ? untracked(() => table.get(id)) : undefined
+      return table.has(id) ? untracked(() => table.get(id))! : NOT_VISIBLE
     }
     const residency = this.residency
     // The residency key already reports cold-summary changes, hydration and
@@ -602,27 +611,29 @@ export class MobxPool {
       !untracked(() => this.tables[core].has(id))
     let server = coldSummary ? undefined : (this.tables[core].get(id) as object | undefined)
     if (server === undefined) {
-      if (residency === null) return undefined
-      if (absent === 'load') return residency.loading(core, id) ? LOADING : undefined
-      if (!residency.known(core, id)) return undefined
-      if (absent === 'mark') return LOADING
+      if (residency === null) return NOT_VISIBLE
+      if (absent === 'load') return residency.lookup(core, id)
+      if (residency.removed(core, id)) return REMOVED
+      if (!residency.known(core, id)) return NOT_VISIBLE
+      if (absent === 'mark') return residency.lookup(core, id, false)
       if (absent === 'summary' || absent === 'summary-fields') {
         server = residency.summary(core, id, absent === 'summary')
-        if (server === undefined) return residency.loading(core, id) ? LOADING : undefined
+        if (server === undefined) return residency.lookup(core, id)
       } else
         server =
           core === 'session'
             ? (residency.summary(core, id) ?? residency.read(core, id))
             : residency.read(core, id)
-      if (server === undefined) return undefined
+      if (server === undefined) return residency.lookup(core, id)
     }
+    if ('deletedAt' in server && server.deletedAt) return REMOVED
     if ((core === 'session' || core === 'issue') && (core === 'session' ? 'machineId' in server || 'refRepoId' in server || 'handoffTargetMachineId' in server : 'repoId' in server)
     ) {
       let view = this.joinedRows.get(server)
       if (!view) {
         view = joinedFields(core, server as Readonly<Record<string, unknown>>, core === 'session' ? SESSION_JOIN_FIELDS : ['repoPath'], (kind, key) => {
-          const companion = kind === 'machine' ? this.row('machine', key) : this.model('repo', key)?.row
-          return companion as Readonly<Record<string, unknown>> | undefined
+          const companion = kind === 'machine' ? here(this.row('machine', key)) : here(this.model('repo', key))?.row
+          return companion === undefined ? undefined : here(companion) as Readonly<Record<string, unknown>> | undefined
         })
         this.joinedRows.set(server, view)
       }
@@ -674,9 +685,10 @@ export class MobxPool {
     return held === undefined ? undefined : readAtOf(held['readAt'])
   }
 
-  /** The model of a row in memory, built on first request; undefined when absent (tracked). */
-  model<E extends EntityName>(entity: E, id: string): ModelOf[E] | undefined {
-    if (!this.tables[entity].has(id)) return undefined
+  /** The addressed model, a batched load, or a terminal absence (tracked). */
+  model<E extends EntityName>(entity: E, id: string): Lookup<ModelOf[E]> {
+    const row = this.row(entity, id)
+    if (row === LOADING || isGone(row)) return row
     return this.object(entity, id) as ModelOf[E]
   }
 
@@ -730,7 +742,7 @@ export class MobxPool {
   }
 
   issueExitKind(id: string) {
-    const exit = this.row('issueExit', id)
+    const exit = omitGone(this.row('issueExit', id))
     if (exit === LOADING) throw LOADING
     return exit?.kind
   }
@@ -825,14 +837,14 @@ export class MobxPool {
     return this.transactions.mutate(kind, input)
   }
 
-  issue(id: string): ModelOf['issue'] | undefined {
+  issue(id: string): Lookup<ModelOf['issue']> {
     return this.model('issue', id)
   }
 
   /** The worklist companion of a resident issue, shared by both screens. */
   worklistRow(id: string) {
     const issue = this.issue(id)
-    return issue === undefined ? undefined : worklistView(this).row(issue)
+    return issue === LOADING || isGone(issue) ? undefined : worklistView(this).row(issue)
   }
 
   /** TRACKED: the declared parent key, without reading either row's fields.
@@ -850,8 +862,8 @@ export class MobxPool {
    * an empty row.
    */
   resident(entity: EntityName, id: string): Residence {
-    if (this.tables[entity].has(id)) return 'resident'
-    return this.residency?.loading(entity, id) === true ? 'loading' : 'absent'
+    const answer = this.row(entity, id)
+    return answer === LOADING ? 'loading' : isGone(answer) ? 'absent' : 'resident'
   }
 
   /**
@@ -1067,7 +1079,7 @@ export class MobxPool {
     const row =
       type === 'delete'
         ? undefined
-        : (this.row('issue', id, 'mark') as Readonly<Record<string, unknown>> | undefined)
+        : (omitGone(this.row('issue', id, 'mark')) as Readonly<Record<string, unknown>> | undefined)
     if (row === undefined || row['archived'] === true || row['deletedAt'] != null) {
       this.worklist.untrack(id)
     } else {

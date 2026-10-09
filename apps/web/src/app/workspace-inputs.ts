@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { SessionView } from '@podium/client-core/session-values'
 import { allTabIds, orphanSessionFor } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
@@ -34,11 +35,11 @@ export function workspaceSessions(
     if (pool.queries.collapsed(id)) return []
     // Known cold tabs still demand their full row before summary fields arrive.
     // Addressed presence excludes file ids without delaying the load request.
-    const present = fullIds.has(id) ? pool.row('session', id, 'mark') : undefined
+    const present = fullIds.has(id) ? omitGone(pool.row('session', id, 'mark')) : undefined
     if (fullIds.has(id) && !present) return []
-    const detail = fullIds.has(id) ? pool.row('session', id) : undefined
+    const detail = fullIds.has(id) ? omitGone(pool.row('session', id)) : undefined
     const row =
-      detail && typeof detail !== 'symbol' ? detail : pool.row('session', id, 'summary-fields')
+      detail && typeof detail !== 'symbol' ? detail : omitGone(pool.row('session', id, 'summary-fields'))
     return row && typeof row !== 'symbol' ? [row as SessionView] : []
   })
 }

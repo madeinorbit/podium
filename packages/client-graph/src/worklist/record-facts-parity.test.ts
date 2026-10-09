@@ -1,3 +1,4 @@
+import { omitGone } from '../lookup'
 import { describe, expect, it } from 'vitest'
 import { isExcluded } from '@podium/model/browser'
 import { issuePendingDecision, type IssueNavigationModel } from '@podium/client-core/values'
@@ -24,9 +25,9 @@ const fields = ['excluded', 'finished', 'awaitingMerge', 'pendingDecision', 'upd
 
 // The old private factRow lookup, frozen before removing its retained raw row.
 function previousFacts(pool: MobxPool, id: string) {
-  const resident = pool.row('issue', id, 'mark')
+  const resident = omitGone(pool.row('issue', id, 'mark'))
   if (resident !== LOADING) return resident as SliceIssue | undefined
-  const summary = pool.row('issue', id, 'summary-fields')
+  const summary = omitGone(pool.row('issue', id, 'summary-fields'))
   return summary === LOADING ? undefined : summary as SliceIssue | undefined
 }
 const ms = (value: string | null | undefined) => { const number = Date.parse(value ?? ''); return Number.isFinite(number) ? number : null }

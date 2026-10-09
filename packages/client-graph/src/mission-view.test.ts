@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { autorun, runInAction } from 'mobx'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
@@ -72,7 +73,7 @@ it('uses archived-inclusive relations, small scalar summaries and one batched lo
   const { pool, load, reader } = open([coldRoot()], [session('old', 'root')])
   expect(pool.tables.session.has('old')).toBe(false)
   expect(tracked(() => [...pool.graph.many('issue', 'root', 'missionSessions')])).toEqual(['old'])
-  const summary = tracked(() => pool.row('session', 'old', 'summary'))
+  const summary = tracked(() => omitGone(pool.row('session', 'old', 'summary')))
   expect(summary).toMatchObject({ sessionId: 'old', issueId: 'root', archived: true })
   expect(summary).not.toHaveProperty('name'); expect(summary).not.toHaveProperty('title')
   expect(tracked(() => reader.issue('root'))).toBe(LOADING)

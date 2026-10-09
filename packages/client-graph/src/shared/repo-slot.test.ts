@@ -1,3 +1,4 @@
+import { omitGone } from '../lookup'
 /**
  * POD-5423 (review finding 12): the repo's row follows the repo's own facts.
  * A lane-only change (its branch, a scan) keeps the row, so a reader of the
@@ -37,7 +38,7 @@ it('keeps the repo row across lane-only changes and moves it with the repo’s f
     let prefix: unknown
     const stop = autorun(() => {
       runs += 1
-      prefix = (pool.row('repo', 'repo-1') as { prefix?: string } | undefined)?.prefix
+      prefix = (omitGone(pool.row('repo', 'repo-1')) as { prefix?: string } | undefined)?.prefix
     })
     const held = pool.tables.repo.get('repo-1')
     put(lane('/r/b', { branch: 'b2' }), '/r/b')

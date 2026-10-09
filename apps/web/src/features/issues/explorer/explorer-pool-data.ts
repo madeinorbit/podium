@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph'
 import type { PoolExplorerData } from '@podium/client-graph/issue-board-schema'
 import { useCallback } from 'react'
@@ -35,7 +36,7 @@ export function useExplorerCrumbs(ids: readonly string[]): IssueViewModel[] {
   const read = useCallback(
     (pool: MobxPool) =>
       (JSON.parse(key) as string[]).flatMap((id) => {
-        const row = pool.row('issueBoardRow', id)
+        const row = omitGone(pool.row('issueBoardRow', id))
         return row && typeof row !== 'symbol' ? [row] : []
       }),
     [key],

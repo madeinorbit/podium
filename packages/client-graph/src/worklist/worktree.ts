@@ -1,3 +1,4 @@
+import { here } from '../lookup'
 import { lazy } from '@podium/mobx-helpers'
 import { compareShallow, compareStructural } from 'mobx'
 import { machinePathsEqual } from '@podium/model/browser'
@@ -88,7 +89,7 @@ export class WorklistWorktree {
     for (const id of this.rosterIds) {
       const session = this.worklist.pool.sessionObject(id)
       if (session.issueLink !== null) {
-        const issue = this.worklist.pool.model('issue', session.issueLink)
+        const issue = here(this.worklist.pool.model('issue', session.issueLink))
         if (issue) issues.add(issue)
       }
     }

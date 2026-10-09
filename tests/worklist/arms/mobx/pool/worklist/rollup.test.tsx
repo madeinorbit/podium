@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import { rowViewOf } from '../../../../shared/src/row-snapshots'
 import { referenceState } from '../../../../diagnostics/reference-state'
 import { upsertIssue } from '../../../../shared/src/scenarios'
@@ -354,12 +355,12 @@ async function familyRig(eagerRollups = false) {
   const draw = (id: string): void => {
     stops.push(
       reaction(
-        () => rowViewOf(pool.issue(id)),
+        () => rowViewOf(here(pool.issue(id))),
         () => {},
       ),
     )
   }
-  const view = (id: string): RowView => tracked(() => rowViewOf(pool.issue(id))!)
+  const view = (id: string): RowView => tracked(() => rowViewOf(here(pool.issue(id)))!)
   /** The progress markers below a row (its closure's cold units) and its attention's. */
   const pending = (id: string) =>
     tracked(() => {
@@ -512,7 +513,7 @@ describe('row roll-ups (Mb3)', () => {
         const visible = tracked(() => [...visibleOrderOf(pool)])
         const firstPaint = tracked(() =>
           visible.map((id) => {
-            const view = rowViewOf(pool.issue(id))
+            const view = rowViewOf(here(pool.issue(id)))
             return {
               id,
               resident: view !== undefined,
@@ -567,7 +568,7 @@ describe('row roll-ups (Mb3)', () => {
         expect(cell.progressLoads).toBe(cell.coldFormalChildrenOfVisibleRows)
         expect(cell.loadingRows, 'drawn rows wait for their families').toBeGreaterThan(0)
         const settled = tracked(() =>
-          visible.filter((id) => rowViewOf(pool.issue(id))?.loading === true),
+          visible.filter((id) => rowViewOf(here(pool.issue(id)))?.loading === true),
         )
         expect(settled).toEqual([])
         cells.push(cell)
@@ -787,7 +788,7 @@ describe('row roll-ups (Mb3)', () => {
       expect(found, 'a visible row with a cold, started spin-off').not.toBeNull()
       const { id, spinOff } = found!
       observe = reaction(
-        () => rowViewOf(pool.issue(id)),
+        () => rowViewOf(here(pool.issue(id))),
         () => {},
       )
       const wire = ctx.cache.read('issueProjection', id)?.value as object
@@ -798,7 +799,7 @@ describe('row roll-ups (Mb3)', () => {
       await new Promise((resolve) => setTimeout(resolve, ctx.settleMs))
       feeds.flush()
       expect(residency.isCold('issue', spinOff), 'the spin-off stays cold').toBe(true)
-      const waiting = tracked(() => rowViewOf(pool.issue(id))!)
+      const waiting = tracked(() => rowViewOf(here(pool.issue(id)))!)
       const batch = residency.take()
       for (const [entity, rowId] of batch) residency.request(entity, rowId)
       expect(waiting.loading, 'loading while the spin-off is pending').toBe(true)
@@ -808,7 +809,7 @@ describe('row roll-ups (Mb3)', () => {
         pool.hydrate()
         windows += 1
       }
-      const landed = tracked(() => rowViewOf(pool.issue(id))!)
+      const landed = tracked(() => rowViewOf(here(pool.issue(id)))!)
       const oracle = rowViewsFromStore(referenceState(ctx.engine), {
         ...parityLocals(ctx),
         selectedIssueId: null,

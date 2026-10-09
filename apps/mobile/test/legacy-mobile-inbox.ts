@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 // Frozen pre-migration answers for paired fixture comparisons. Never imported by product code.
 import { groupSessions, withoutShells } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -41,7 +42,7 @@ interface ScreeningEntry {
  * its ancestor chain. The keeper tracks exactly those rows, so an unrelated
  * proposal change never re-reads this entry. */
 export function readScreeningEntry(pool: MobxPool, id: string): Loaded<ScreeningEntry> {
-  const row = pool.row('issue', id, 'summary') as Loaded<ScreeningSummary>
+  const row = omitGone(pool.row('issue', id, 'summary')) as Loaded<ScreeningSummary>
   if (row === LOADING) return LOADING
   if (!row || !isScreenableRoot(row)) return undefined
   const seen = new Set<string>([row.id])
@@ -49,7 +50,7 @@ export function readScreeningEntry(pool: MobxPool, id: string): Loaded<Screening
     pending = false
   while (parentId && !seen.has(parentId)) {
     seen.add(parentId)
-    const parent = pool.row('issue', parentId, 'summary') as Loaded<ScreeningSummary>
+    const parent = omitGone(pool.row('issue', parentId, 'summary')) as Loaded<ScreeningSummary>
     if (parent === LOADING) {
       pending = true
       break
@@ -65,7 +66,7 @@ export function readScreeningEntry(pool: MobxPool, id: string): Loaded<Screening
  * callbacks and retained chips addressed to this pool and this principal. */
 export function createMobileInboxViews(pool: MobxPool) {
   const booting = () => {
-    const state = pool.row('mobileInboxState', 'state')
+    const state = omitGone(pool.row('mobileInboxState', 'state'))
     return (
       !state ||
       state === LOADING ||
@@ -79,14 +80,14 @@ export function createMobileInboxViews(pool: MobxPool) {
       let loading = booting()
       for (const id of pool.queries.ids({ kind: 'inboxSessions' })) {
         if (pool.queries.collapsed(id)) continue
-        const summary = pool.row('session', id, 'summary') as Loaded<SessionView>
+        const summary = omitGone(pool.row('session', id, 'summary')) as Loaded<SessionView>
         if (summary === LOADING) {
           loading = true
           continue
         }
         if (!summary || summary.archived || summary.headless || summary.agentKind === 'shell')
           continue
-        const session = pool.row('session', id) as Loaded<SessionView>
+        const session = omitGone(pool.row('session', id)) as Loaded<SessionView>
         if (session === LOADING) {
           loading = true
           continue
@@ -100,7 +101,7 @@ export function createMobileInboxViews(pool: MobxPool) {
           else if (issue) issues[issueId] = issue
         }
       }
-      const window = pool.row('window', 'window') as { outboxSize: number } | undefined
+      const window = omitGone(pool.row('window', 'window')) as { outboxSize: number } | undefined
       return {
         groups: groupSessions(withoutShells(sessions)),
         issues,

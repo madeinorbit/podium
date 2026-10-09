@@ -1,3 +1,4 @@
+import { here, omitGone, requireHere } from './lookup'
 import type { SessionView } from '@podium/client-core/session-values'
 import { CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS } from '@podium/model/browser'
 import { autorun } from 'mobx'
@@ -51,10 +52,10 @@ const displayedSession = (value: Pick<SessionView, 'sessionId' | 'title' | 'name
 function oldSelected(pool: MobxPool) {
   const id = worklistView(pool).selectedId
   if (!id) return undefined
-  const value = pool.row('issue', id) as ReturnType<typeof issue> & { deletedAt?: string | null } | typeof LOADING | undefined
+  const value = omitGone(pool.row('issue', id)) as ReturnType<typeof issue> & { deletedAt?: string | null } | typeof LOADING | undefined
   if (value === LOADING) return LOADING
   if (!value || value.deletedAt) return undefined
-  return { ...value, displayRef: pool.model('issue', id)?.displayRef ?? `#${value.seq}` }
+  return { ...value, displayRef: here(pool.model('issue', id))?.displayRef ?? `#${value.seq}` }
 }
 
 describe('header display answers', () => {
@@ -92,7 +93,7 @@ describe('header display answers', () => {
       autorun(() => { runs.count++; headerView(f.pool).workingCount() }),
       autorun(() => { runs.title++; const selected = headerModel(f.pool).selectedIssue;
         title = selected && selected !== LOADING ? selected.title : '' }),
-      autorun(() => { runs.other++; void f.pool.model('issue', 'two')!.title }),
+      autorun(() => { runs.other++; void requireHere(f.pool.model('issue', 'two'))!.title }),
     ]
     try {
       f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'one', value: { ...issue('one', 1), title: 'New selected title' } }] })

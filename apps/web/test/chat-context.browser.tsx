@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Real provider/replica/outbox, synthetic rows, and actual composer/offer UI.
  * Reports counts only: this acceptance is not a timed benchmark. */
@@ -129,8 +130,8 @@ const Surface = observer(function Surface() {
   const artifact = useChatArtifactIssue({ sessionId: id, issueId: 'synthetic-0' as never })
   const actions = runtime.access
   const conversation = useConversation(id)
-  const held = pool?.row('chatHeld', id)
-  const reader = pool?.row('chatContextReader', 'reader')
+  const held = omitGone(pool?.row('chatHeld', id))
+  const reader = omitGone(pool?.row('chatContextReader', 'reader'))
   const taRef = useRef<HTMLTextAreaElement>(null),
     fileInputRef = useRef<HTMLInputElement>(null)
   useEffect(() => {

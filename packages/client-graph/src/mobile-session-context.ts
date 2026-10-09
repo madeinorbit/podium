@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { sessionPaneView } from './session-pane'
 import { mobileSessionChromeIssue } from './mobile-session-chrome'
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -38,14 +39,14 @@ export function mobileSessionIssue(pool: MobxPool, id: string | undefined): Load
 
 /** Phone roster: pooled session models, not projected copies. */
 function pooledMobileSessions(pool: MobxPool) {
-  const order = pool.row('chatSessionOrder', 'order')
+  const order = omitGone(pool.row('chatSessionOrder', 'order'))
   const sessions: SessionView[] = []
   let pending = !order || typeof order === 'symbol' ? 1 : 0
   if (!order || typeof order === 'symbol') return { sessions, pending }
   const known = pool.queries.ids({ kind: 'referenceSessions' })
   const present = new Set(known)
   for (const id of new Set([...order.ids.filter((id) => present.has(id)), ...known])) {
-    const row = pool.row('session', id, 'summary-fields') as Loaded<SessionView>
+    const row = omitGone(pool.row('session', id, 'summary-fields')) as Loaded<SessionView>
     if (typeof row === 'symbol') pending++
     else if (row) sessions.push(row)
   }
@@ -74,7 +75,7 @@ export function createMobileSessionReader(pool: MobxPool) {
     sessions: () => pooledMobileSessions(pool),
     issues: () => chatMentionIssues(pool),
     machine: (id: string | undefined): MachineWire | undefined =>
-      id === undefined ? undefined : pool.row('machine', id) as MachineWire | undefined,
+      id === undefined ? undefined : omitGone(pool.row('machine', id)) as MachineWire | undefined,
     /** Feed companion display name for the offline banner (POD-5661):
      * undefined without a companion, so the banner can fall back. */
     machineHome: (id: string | undefined): string | undefined =>
@@ -82,12 +83,12 @@ export function createMobileSessionReader(pool: MobxPool) {
     machines: () => sessionPaneView(pool).machines(),
     spawnPending(id: string | undefined): Loaded<boolean> {
       if (id === undefined) return false
-      const row = pool.row('sessionPaneWindow', 'window')
+      const row = omitGone(pool.row('sessionPaneWindow', 'window'))
       return !row || row === LOADING ? LOADING : !sessionPaneView(pool).spawnConfirmed(id)
     },
     spawnPrompt(id: string | undefined): Loaded<string> {
       if (id === undefined) return undefined
-      const row = pool.row('mobileSessionWindow', 'window')
+      const row = omitGone(pool.row('mobileSessionWindow', 'window'))
       if (!row || row === LOADING) return LOADING
       // POD-5432: the pool's log holds the placeholders while it owns sessions.
       const placeholders = pool.spawnPlaceholders()
@@ -95,16 +96,16 @@ export function createMobileSessionReader(pool: MobxPool) {
     },
     exit(id: string | undefined) {
       if (id === undefined) return undefined
-      const row = pool.row('sessionExit', id)
+      const row = omitGone(pool.row('sessionExit', id))
       return !row || row === LOADING ? LOADING : row.kind
     },
     draft(id: string) {
-      const row = pool.row('chatDraft', id)
+      const row = omitGone(pool.row('chatDraft', id))
       return !row || row === LOADING ? LOADING : row.text
     },
     question: (id: string) => chatInteractions(pool, id),
     booting(): boolean {
-      const window = pool.row('mobileSessionWindow', 'window')
+      const window = omitGone(pool.row('mobileSessionWindow', 'window'))
       if (!window || window === LOADING) return true
       return (
         window.cursor === null &&
@@ -114,8 +115,8 @@ export function createMobileSessionReader(pool: MobxPool) {
       )
     },
     conversation(id: string) {
-      const held = pool.row('chatHeld', id),
-        draft = pool.row('chatDraft', id),
+      const held = omitGone(pool.row('chatHeld', id)),
+        draft = omitGone(pool.row('chatDraft', id)),
         records = chatRecords(pool, id)
       return {
         records: records.records,
@@ -133,7 +134,7 @@ export function createMobileSessionReader(pool: MobxPool) {
      * copies arrive via the composer's stored-draft hook.
      */
     conversationPorts(id: string) {
-      const held = pool.row('chatHeld', id),
+      const held = omitGone(pool.row('chatHeld', id)),
         records = chatRecords(pool, id)
       return {
         records: records.records,

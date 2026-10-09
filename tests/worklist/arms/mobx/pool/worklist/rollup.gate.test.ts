@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import { rowViewOf } from '../../../../shared/src/row-snapshots'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /**
@@ -66,7 +67,7 @@ function gapped(base: CheckableArm, tally: { applied: number }): CheckedArm {
       const handle = base.create(source, locals, reads) as HarnessMobxPoolHandle
       const { pool } = handle
       const stop = reaction(
-        () => [visibleOrderOf(pool).map((id) => rowViewOf(pool.issue(id))), worklistGroups(pool).layout],
+        () => [visibleOrderOf(pool).map((id) => rowViewOf(here(pool.issue(id)))), worklistGroups(pool).layout],
         () => {},
         { name: 'gate.observer' },
       )

@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 // @vitest-environment happy-dom
@@ -284,13 +285,13 @@ describe('keyed adapter inputs (POD-5433)', () => {
         expect(other).not.toBe('')
         let runs = 0
         const off = autorun(() => {
-          f.pool.row('issueExit', other)
+          omitGone(f.pool.row('issueExit', other))
           runs++
         })
         cleanups.push(off)
         const named = { runs: 0 }
         const offNamed = autorun(() => {
-          f.pool.row('issueExit', renamed)
+          omitGone(f.pool.row('issueExit', renamed))
           named.runs++
         })
         cleanups.push(offNamed)

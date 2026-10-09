@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { reaction, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -22,16 +23,16 @@ it('maintenance summary probes build no atoms and preserve an observed cold read
   const pool = handle.pool
   const cold = pool.residency!.ids('issue')[0]!
   const seen: unknown[] = []
-  const stop = reaction(() => pool.row('issue', cold), row => seen.push(row), { fireImmediately: true })
+  const stop = reaction(() => omitGone(pool.row('issue', cold)), row => seen.push(row), { fireImmediately: true })
   const census = startCensus()
   try {
     expect(seen).toEqual([LOADING])
     runInAction(() => {
       for (let index = 0; index < 100; index += 1) {
-        expect(pool.row('issue', `absent-${index}`, 'mark')).toBeUndefined()
-        expect(pool.row('issue', `absent-${index}`, 'summary')).toBeUndefined()
-        expect(pool.row('issue', cold, 'mark')).toBe(LOADING)
-        void pool.row('issue', cold, 'summary')
+        expect(omitGone(pool.row('issue', `absent-${index}`, 'mark'))).toBeUndefined()
+        expect(omitGone(pool.row('issue', `absent-${index}`, 'summary'))).toBeUndefined()
+        expect(omitGone(pool.row('issue', cold, 'mark'))).toBe(LOADING)
+        void omitGone(pool.row('issue', cold, 'summary'))
       }
     })
     expect(census.snapshot().entries.filter(entry => entry.kind === 'atom')).toEqual([])

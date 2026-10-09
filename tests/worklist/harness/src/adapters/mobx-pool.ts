@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import { rowViewOf } from '../../../shared/src/row-snapshots'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 /**
@@ -216,7 +217,7 @@ export function snapshotPool(pool: MobxPool): SliceSnapshot {
       const layout = worklistGroups(pool).layout
       const rowsById: SliceSnapshot['rowsById'] = {}
       for (const id of visibleOrderOf(pool)) {
-        const view = rowViewOf(pool.issue(id))
+        const view = rowViewOf(here(pool.issue(id)))
         if (view === undefined) {
           pool.resident('issue', id)
           continue

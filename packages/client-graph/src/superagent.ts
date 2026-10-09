@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 import { sessionPaneView } from './session-pane'
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
@@ -320,19 +321,19 @@ export function newestEvents(ids: Iterable<string>, read: (id: string) => number
 // Dependency-free readers: importing the OFF screen builds no graph or MobX.
 const pending = (row: unknown): boolean => typeof row === 'symbol'
 export function superagentThread(pool: MobxPool, id: string) {
-  const catalog = pool.row('superThreadCatalog', 'catalog')
+  const catalog = omitGone(pool.row('superThreadCatalog', 'catalog'))
   if (!catalog || typeof catalog === 'symbol') return { thread: undefined, loading: pending(catalog) }
   // A bare, guessed private id never becomes an addressed load or an RPC.
   if (!catalog.ids.includes(id)) return { thread: undefined, loading: false }
-  const thread = pool.row('superThread', id)
+  const thread = omitGone(pool.row('superThread', id))
   return { thread: typeof thread === 'symbol' ? undefined : thread, loading: pending(thread) }
 }
 export function superagentState(pool: MobxPool): SuperagentSliceValue & { loading: boolean; booting: boolean } {
-  const local = pool.row('superagentLocal', 'local'), catalog = pool.row('superThreadCatalog', 'catalog')
+  const local = omitGone(pool.row('superagentLocal', 'local')), catalog = omitGone(pool.row('superThreadCatalog', 'catalog'))
   const threads: SuperThreadView[] = []
   let loading = pending(local) || pending(catalog)
   if (catalog && typeof catalog !== 'symbol') for (const id of catalog.ids) {
-    const row = pool.row('superThread', id)
+    const row = omitGone(pool.row('superThread', id))
     if (typeof row === 'symbol') loading = true
     else if (row) threads.push(row)
   }
@@ -341,36 +342,36 @@ export function superagentState(pool: MobxPool): SuperagentSliceValue & { loadin
     booting: !local || typeof local === 'symbol' || local.booting }
 }
 export function superagentFeed(pool: MobxPool) {
-  const tail = pool.row('superagentEventTail', 'tail')
+  const tail = omitGone(pool.row('superagentEventTail', 'tail'))
   const events: { id: number; ts: string; kind: string; subject: string; repoPath: string | null; payload: unknown }[] = []
   let loading = pending(tail)
   if (tail && typeof tail !== 'symbol') for (const id of tail.ids) {
-    const row = pool.row('superagentEvent', id)
+    const row = omitGone(pool.row('superagentEvent', id))
     if (typeof row === 'symbol') loading = true
     else if (row) events.push({ id: row.eventId, ts: row.ts, kind: row.kind, subject: row.subject, repoPath: row.repoPath, payload: row.payload })
   }
   return { events, loading }
 }
 export function superagentCursor(pool: MobxPool) {
-  const row = pool.row('superagentReadPosition', 'issueEvents')
+  const row = omitGone(pool.row('superagentReadPosition', 'issueEvents'))
   return { cursor: !row || typeof row === 'symbol' ? { lastEventId: 0, seenAt: null } : row, loading: pending(row) }
 }
 export function superagentQuestion(pool: MobxPool, sessionId: SessionId | undefined) {
   if (!sessionId) return { question: undefined, loading: false }
-  const membership = pool.row('noticeSession', sessionId)
+  const membership = omitGone(pool.row('noticeSession', sessionId))
   let loading = pending(membership)
   if (membership && typeof membership !== 'symbol') for (const id of membership.interactions) {
-    const row = pool.row('pendingInteraction', id)
+    const row = omitGone(pool.row('pendingInteraction', id))
     if (typeof row === 'symbol') { loading = true; continue }
     if (row?.sessionId === sessionId && row.kind === 'question' && row.status === 'asked') return { question: row, loading }
   }
   return { question: undefined as Extract<PendingInteractionWire, { kind: 'question' }> | undefined, loading }
 }
 export function superagentFocus(pool: MobxPool) {
-  const local = pool.row('superagentLocal', 'local')
+  const local = omitGone(pool.row('superagentLocal', 'local'))
   const repos: GitRepositoryWire[] = []
   for (const id of headerEntities(pool).orders.get('repository') ?? []) {
-    const row = pool.row('repository', id)
+    const row = omitGone(pool.row('repository', id))
     if (row && typeof row !== 'symbol') repos.push(row as GitRepositoryWire)
   }
   if (!local || typeof local === 'symbol') return { repos, selectedWorktree: null, paneA: null, sessions: [], loading: true }

@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { IssueViewInput } from '../../diagnostics/reference/issue-views'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { reaction, runInAction } from 'mobx'
@@ -280,7 +281,7 @@ describe('declared issue page', () => {
       expect(snapshots).toHaveLength(3)
       expect(snapshots[2]?.every((row) => row.prefix === 'NEW')).toBe(true)
       expectSummaryReadsOnly(ctx)
-      expect(tracked(() => ctx.pool.row('issue', 'cold-0', 'mark'))).toBe(LOADING)
+      expect(tracked(() => omitGone(ctx.pool.row('issue', 'cold-0', 'mark')))).toBe(LOADING)
     } finally {
       stop()
     }
@@ -326,7 +327,7 @@ describe('declared issue page', () => {
       (next) => values.push(next),
       { fireImmediately: true },
     )
-    const payload = tracked(() => ctx.pool.row('issue', 'root'))
+    const payload = tracked(() => omitGone(ctx.pool.row('issue', 'root')))
     try {
       ctx.pool.applyLocals(
         { selectedIssueId: null, coarseNow: NOW + 999 },
@@ -341,7 +342,7 @@ describe('declared issue page', () => {
         [true, false],
         [false, true],
       ])
-      expect(tracked(() => ctx.pool.row('issue', 'root'))).toBe(payload)
+      expect(tracked(() => omitGone(ctx.pool.row('issue', 'root')))).toBe(payload)
       expect(ctx.check()).toMatchObject({ differences: 0, acceptedDeadlineDifferences: 2 })
       const wrongTitle = ctx.world().map((row) => ({ ...row, title: 'Different title' }))
       expect(tracked(() => checkIssuePages(ctx.pool, wrongTitle, ctx.visible()))).toMatchObject({
@@ -389,10 +390,10 @@ describe('declared issue page', () => {
       () => {},
       { fireImmediately: true },
     )
-    const payload = tracked(() => ctx.pool.row('issue', 'root'))
+    const payload = tracked(() => omitGone(ctx.pool.row('issue', 'root')))
     try {
       ctx.patch('issue', 'root', task('root', { readAt: STAMP }))
-      expect(tracked(() => ctx.pool.row('issue', 'root'))).toBe(payload)
+      expect(tracked(() => omitGone(ctx.pool.row('issue', 'root')))).toBe(payload)
       expect(tracked(() => poolIssuePageFields(ctx.pool, 'root'))).toMatchObject({ readAt: STAMP, unread: false })
       expect(ctx.check()).toMatchObject({ differences: 0 })
     } finally {
@@ -638,8 +639,8 @@ describe('declared issue page', () => {
     )
     const read = vi.spyOn(ctx.pool, 'row'),
       before = ctx.load.mock.calls.length
-    expect(tracked(() => ctx.pool.row('session', 'born-a', 'mark'))).toBe(LOADING)
-    expect(tracked(() => ctx.pool.row('session', 'born-a', 'summary'))).toMatchObject({
+    expect(tracked(() => omitGone(ctx.pool.row('session', 'born-a', 'mark')))).toBe(LOADING)
+    expect(tracked(() => omitGone(ctx.pool.row('session', 'born-a', 'summary')))).toMatchObject({
       refIssueId: 'arch',
     })
     expect(tracked(() => [...ctx.pool.graph.many('issue', 'arch', 'bornSessions')])).toEqual([

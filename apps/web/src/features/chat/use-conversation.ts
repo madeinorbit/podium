@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { sessionPaneView } from '@podium/client-graph/session-pane'
 import {
   Conversation, type ConversationPendingTurn, type ConversationOptions, hubConnection, nativeSessionCanInterrupt,
@@ -52,11 +53,11 @@ export class WebConversation extends Conversation {
   }
   get retainHistory(): boolean { return [...this.views].some(view => view.retainHistory) }
   @lazy get session(): SessionView | undefined { return sessionPaneView(this.pool).session(this.sessionId) }
-  @lazy get thread() { return this.mount.superThread ? loaded(this.pool.row('superThread', this.mount.superThread.threadId)) : undefined }
+  @lazy get thread() { return this.mount.superThread ? loaded(omitGone(this.pool.row('superThread', this.mount.superThread.threadId))) : undefined }
   @lazy get hasPending(): boolean { return this.sends.bubbles.length > 0 }
   @lazy get ready(): boolean {
-    const reader = loaded(this.pool.row('chatContextReader', 'reader'))
-    const held = loaded(this.pool.row('chatHeld', this.sessionId))
+    const reader = loaded(omitGone(this.pool.row('chatContextReader', 'reader')))
+    const held = loaded(omitGone(this.pool.row('chatHeld', this.sessionId)))
     return !!reader && !!held && reader.records(this.sessionId).pending === 0
   }
   @actionBound rememberPrompt(text: string): void { this.lastSubmittedPrompt = text || null }
@@ -68,9 +69,9 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
   const store = runtime.access
   const { hub, trpc, replica } = store
   const readSession = () => sessionPaneView(pool).session(sessionId)
-  const readReader = () => loaded(pool.row('chatContextReader', 'reader'))
+  const readReader = () => loaded(omitGone(pool.row('chatContextReader', 'reader')))
   const recordValues = computed(() => readReader()?.records(sessionId).records ?? [], { equals: compareShallow })
-  const heldValues = computed(() => loaded(pool.row('chatHeld', sessionId))?.sends ?? [], { equals: compareShallow })
+  const heldValues = computed(() => loaded(omitGone(pool.row('chatHeld', sessionId)))?.sends ?? [], { equals: compareShallow })
   const headless = mount.superThread !== undefined || readSession()?.headless === true
   let conversation: WebConversation
   const held: ConversationPendingTurn[] = headless ? [] : heldValues.get().map((send, index) => ({
@@ -169,8 +170,8 @@ export function useConversation(sessionId: SessionId, options: ConversationMount
   const runtime = useStoreHandle<Trpc>()
   const pool = useWorklistPool()
   const readReady = useCallback((pool: MobxPool) => {
-    const reader = loaded(pool.row('chatContextReader', 'reader'))
-    const held = loaded(pool.row('chatHeld', sessionId))
+    const reader = loaded(omitGone(pool.row('chatContextReader', 'reader')))
+    const held = loaded(omitGone(pool.row('chatHeld', sessionId)))
     return !!reader && !!held && reader.records(sessionId).pending === 0
   }, [sessionId])
   const ready = useWorklistPoolProjection(readReady, false)

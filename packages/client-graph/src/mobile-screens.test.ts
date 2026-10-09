@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { autorun, observable, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { attachMobileScreens } from './mobile-screens'
@@ -54,7 +55,7 @@ async function setup(
     scans.mockRestore()
     pool.dispose()
   })
-  const reader = pool.row('mobileScreenReader', 'reader')
+  const reader = omitGone(pool.row('mobileScreenReader', 'reader'))
   if (!reader || reader === LOADING) throw new Error('screen reader missing')
   return { pool, reader, load, scans }
 }

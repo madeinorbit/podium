@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { autorun, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { residentIds } from './enumerate'
@@ -57,7 +58,7 @@ function residentScan(
   for (const id of residents) {
     counts.residentVisits++
     if (excluded.has(id) || f.pool.queries.collapsed(id)) continue
-    const row = f.pool.row('session', id, 'summary-fields') as
+    const row = omitGone(f.pool.row('session', id, 'summary-fields')) as
       | { cwd: string; lastActiveAt?: string; agentKind?: string }
       | undefined
     if (!row || (question.agentsOnly && row.agentKind === 'shell')) continue

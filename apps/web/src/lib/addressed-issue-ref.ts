@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph'
 
 /** Identity labels need the named row and its declared repo, never the
@@ -8,7 +9,7 @@ export function readAddressedIssueRef(
   row: { seq: number; prefix?: string; displayRef?: string },
 ) {
   const repoId = pool.relations.one('issue', id, 'repo')
-  const repo = repoId ? pool.row('repo', repoId) : undefined
+  const repo = repoId ? omitGone(pool.row('repo', repoId)) : undefined
   const prefix =
     (repo && typeof repo !== 'symbol' ? (repo as { prefix?: string }).prefix : undefined) ??
     row.prefix

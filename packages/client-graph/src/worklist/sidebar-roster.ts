@@ -1,3 +1,4 @@
+import { here, omitGone } from '../lookup'
 import { machinePathKey, machinePathsEqual } from '@podium/model/browser'
 /** Resident roster seats, maintained by existing ingest.
  * No per-session reaction or full session/issue record is retained here.
@@ -58,7 +59,7 @@ export class SidebarRosterIndex {
         name: `pool.sidebar.rosterIds.${key}`,
         ids: () => this.paths.lane(key),
         has: path => this.paths.has(path) && this.worktrees.get(path)?.group === key,
-        read: path => { const tree = this.pool.model('worktree', path); return tree && worklistView(this.pool).tree(tree).hasCandidates ? path : undefined },
+        read: path => { const tree = here(this.pool.model('worktree', path)); return tree && worklistView(this.pool).tree(tree).hasCandidates ? path : undefined },
         subscribe: changed => {
           let listeners = this.groupListeners.get(key)
           if (!listeners) {
@@ -120,7 +121,7 @@ export class SidebarRosterIndex {
   /** TRACKED. Only the path's resident seats and their owners are observed. */
   candidates(path: string): Iterable<string> {
     this.pool.worklist.need()
-    const tree = this.pool.model('worktree', path)
+    const tree = here(this.pool.model('worktree', path))
     return tree ? worklistView(this.pool).tree(tree).candidateIds : EMPTY
   }
   keys(): Iterable<string> {
@@ -134,13 +135,13 @@ export class SidebarRosterIndex {
   unpinnedProjectLanes(project: number | undefined, pinned: readonly string[]): number {
     let count = this.projectCounts.get(project) ?? 0
     for (const path of pinned) {
-      const row = this.pool.row('worktree', this.pool.queries.registeredWorktreePath(path) ?? path)
+      const row = omitGone(this.pool.row('worktree', this.pool.queries.registeredWorktreePath(path) ?? path))
       if (row !== undefined && row !== LOADING && (row as SliceWorktree).projectIndex === project) count -= 1
     }
     return count
   }
   fileWorktree(path: string): void {
-    const value = this.pool.row('worktree', path, 'mark')
+    const value = omitGone(this.pool.row('worktree', path, 'mark'))
     const lane = value === LOADING ? undefined : value as SliceWorktree | undefined
     const previous = this.worktrees.get(path)
     const project = lane?.projectIndex
@@ -190,7 +191,7 @@ export class SidebarRosterIndex {
   }
 
   private sync(id: string): void {
-    const row = this.pool.row('session', id, 'mark')
+    const row = omitGone(this.pool.row('session', id, 'mark'))
     const path = row === LOADING || row === undefined ? null : this.pool.graph.forwardTarget('session', id, 'worktree')
     if (row === LOADING || row === undefined || path === null) { this.removeSeat(id); return }
     const session = row as SliceSession
@@ -209,7 +210,7 @@ export class SidebarRosterIndex {
     let candidate = true
     let deadline = Number.POSITIVE_INFINITY
     if (candidate) {
-      const row = this.pool.row('session', id, 'mark')
+      const row = omitGone(this.pool.row('session', id, 'mark'))
       const retention = row === LOADING ? null : retentionOf(row as SliceSession | undefined)
       const passed = (at: number) => { deadline = Math.min(deadline, nextUp(at)); return this.pool.clock.peekNow() > at }
       candidate = retention !== null && retention.seat && !retention.shell && retains(retention, undefined, undefined, { passed })

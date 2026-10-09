@@ -1,3 +1,4 @@
+import { here, requireHere } from './lookup'
 import { autorun } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -51,11 +52,11 @@ const old = {
 describe.each(Object.entries(old))('session %s parity', (name, answer) => {
   it.each(patches)('matches the previous answer for %j', patch => {
     const row = sessionRow(patch), { pool } = open(issueRow(), [row])
-    const model = pool.model('session', row.sessionId)! as unknown as Record<string, unknown>
+    const model = requireHere(pool.model('session', row.sessionId))! as unknown as Record<string, unknown>
     expect(tracked(() => model[name])).toBe(answer(row))
   })
   it('rejects a deliberately wrong new field', () => {
-    const row = sessionRow(), { pool } = open(), model = pool.model('session', row.sessionId)!
+    const row = sessionRow(), { pool } = open(), model = requireHere(pool.model('session', row.sessionId))!
     Object.defineProperty(model, name, { configurable: true, get: () => !answer(row) })
     expect(() => expect((model as unknown as Record<string, unknown>)[name]).toBe(answer(row))).toThrow()
   })
@@ -134,7 +135,7 @@ it.each(['open', 'onRoster', 'atWork', 'asking', 'executing', 'motion', 'settled
 
 it('the archived flag uses the declared scalar while a session is cold', () => {
   const { pool, load } = open(issueRow({ stage: 'done', archived: true }), [sessionRow({ archived: true })], true)
-  expect(pool.model('session', 'crew')).toBeUndefined()
+  expect(here(pool.model('session', 'crew'))).toBeUndefined()
   expect(tracked(() => pool.sessionObject('crew').archived)).toBe(true)
   expect(load).not.toHaveBeenCalled()
 })

@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import type { ShippingIssueSummary, ShippingPanelRow } from '@podium/client-core/values'
 import { lazy } from '@podium/mobx-helpers'
 import {
@@ -33,10 +34,10 @@ export function poolShippingSource(pool: MobxPool): ShippingSource {
     unfinished: (repoId) => header.shippingUnfinished(repoId),
     recentShipped: (repoId, limit) => header.recentShipped(repoId, limit),
     counts: (repoId) => header.shippingCounts(repoId),
-    order: (id) => pool.row('shipOrder', id) as ShipOrderProjection | undefined,
+    order: (id) => omitGone(pool.row('shipOrder', id)) as ShipOrderProjection | undefined,
     issue: (id) => shell.issue(id) as Loaded<ShippingIssueSummary>,
     lane: (id) => {
-      const lane = pool.row('shellShipLane', id)
+      const lane = omitGone(pool.row('shellShipLane', id))
       return lane && lane !== LOADING ? lane : undefined
     },
   }

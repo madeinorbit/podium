@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 /**
  * POD-4746 — the outside work counter (`work-meter.ts`), both directions:
  * each kind of walk counts its elements, derivation bodies count, work on the
@@ -212,7 +213,7 @@ describe('pool reader windows', () => {
         const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
         const model = new Model('guard-seat', pool)
         const fields = ['exists', 'lastActivity', 'phase'].map((field) => computed(
-          () => pool.row(model.entity, model.id),
+          () => omitGone(pool.row(model.entity, model.id)),
           { name: named ? `${Model.name}@guard-seat.${field}` : field, context: model },
         ))
         let stop: (() => void) | undefined
@@ -265,7 +266,7 @@ describe('pool reader windows', () => {
     readonly id = 'guard-seat'
     constructor(readonly items: readonly string[], readonly pool: MobxPool) {}
     @lazy get rowReads() {
-      for (let index = 0; index < this.items.length; index++) this.pool.row('issue', this.items[index]!)
+      for (let index = 0; index < this.items.length; index++) omitGone(this.pool.row('issue', this.items[index]!))
       return this.items.length
     }
   }
@@ -282,7 +283,7 @@ describe('pool reader windows', () => {
           insideReader('second-view', () => model.rowReads)
           // A much larger flat counter cannot drown out the planted field.
           insideReader('expensive-constant', () => {
-            for (let index = 0; index < 1000; index++) pool.row('issue', 'constant')
+            for (let index = 0; index < 1000; index++) omitGone(pool.row('issue', 'constant'))
           })
         }, { name: 'demand' })
       }, { pool })).work
@@ -328,7 +329,7 @@ describe('pool reader windows', () => {
 
   it('recognizes explicit entity-field names without a scope but keeps nested view work on its consumer', async () => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-    const view = computed(() => pool.row('issue', 'view'), { name: 'MissionDeckModel@guard-seat.row' })
+    const view = computed(() => omitGone(pool.row('issue', 'view')), { name: 'MissionDeckModel@guard-seat.row' })
     const field = computed(() => view.get(), { name: 'SessionModel@guard-seat.exists' })
     let stop: (() => void) | undefined
     try {
@@ -452,7 +453,7 @@ describe('pool reader windows', () => {
         })),
       })
       const views = rows.map((id) =>
-        computed(() => pool.row('issue', id), { name: 'rowProjection' }),
+        computed(() => omitGone(pool.row('issue', id)), { name: 'rowProjection' }),
       )
       try {
         return (
@@ -516,13 +517,13 @@ describe('pool reader windows', () => {
       const measured = await measureWork(
         async () => {
           insideReader('menu', () => {
-            pool.row('issue', 'i1')
-            pool.row('issue', 'i1', 'summary')
-            pool.row('issue', 'missing')
+            omitGone(pool.row('issue', 'i1'))
+            omitGone(pool.row('issue', 'i1', 'summary'))
+            omitGone(pool.row('issue', 'missing'))
           })
           await insideReader('after-await', async () => {
             await Promise.resolve()
-            pool.row('issue', 'i1')
+            omitGone(pool.row('issue', 'i1'))
           })
         },
         { pool },
@@ -535,7 +536,7 @@ describe('pool reader windows', () => {
       await expect(
         measureWork(
           async () => {
-            pool.row('issue', 'i1')
+            omitGone(pool.row('issue', 'i1'))
             throw new Error('plant')
           },
           { pool },

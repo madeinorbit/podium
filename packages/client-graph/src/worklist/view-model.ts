@@ -1,3 +1,4 @@
+import { here, omitGone } from '../lookup'
 import { observable, observableRef, action } from 'mobx'
 import { lazy, companion } from '@podium/mobx-helpers'
 import type { IssueModel, ModelHost, ModelOf, SessionModel } from '../models'
@@ -66,13 +67,13 @@ export class Worklist {
   desktopRow(id: string) { return this.desktop.row(id) }
   mobileRow(ref: Pick<MobileWorkRef, 'id' | 'kind'>): WorklistIssue | WorklistWorktree | typeof LOADING | undefined {
     if (ref.kind === 'issue') {
-      const issue = this.pool.issue(ref.id)
-      if (!issue) return this.pool.row('issue', ref.id) === LOADING ? LOADING : undefined
+      const issue = here(this.pool.issue(ref.id))
+      if (!issue) return omitGone(this.pool.row('issue', ref.id)) === LOADING ? LOADING : undefined
       const row = this.row(issue), ready = row.ready
       return ready === 'ready' ? row : ready
     }
-    if (this.pool.row('worktree', ref.id) === LOADING) return LOADING
-    const tree = this.pool.model('worktree', ref.id)
+    if (omitGone(this.pool.row('worktree', ref.id)) === LOADING) return LOADING
+    const tree = here(this.pool.model('worktree', ref.id))
     if (!tree) return undefined
     const row = this.tree(tree), ready = row.ready
     return ready === 'ready' ? row : ready

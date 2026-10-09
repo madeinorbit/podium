@@ -1,3 +1,4 @@
+import { here, omitGone } from '@podium/client-graph/lookup'
 import { rowViewOf } from '../../../shared/src/row-snapshots'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 // @vitest-environment happy-dom
@@ -372,7 +373,7 @@ describe('bootstrap', () => {
     const origins = new Set(
       tracked(() =>
         drawn.flatMap((id) => {
-          const origin = pool.issue(id!)?.originRef
+          const origin = here(pool.issue(id!))?.originRef
           return origin != null && !drawnSet.has(origin) ? [origin] : []
         }),
       ),
@@ -439,7 +440,7 @@ describe('the loader', () => {
     const seen: string[] = []
     const watch = autorun(() => {
       const state = pool.resident('issue', a!.id)
-      const view = rowViewOf(pool.issue(a!.id))
+      const view = rowViewOf(here(pool.issue(a!.id)))
       seen.push(`${state}:${view === undefined ? '-' : view.title}`)
     })
     // Asked for: queued, the window armed once at 50 ms, nothing read yet.
@@ -513,7 +514,7 @@ describe('the loader', () => {
     expect(pool.residency?.isCold('issue', closed.id)).toBe(true)
     expect(tracked(() => pool.resident('issue', closed.id))).toBe('loading')
     r.fire()
-    expect(tracked(() => rowViewOf(pool.issue(closed.id))?.title)).toBe('Renamed while cold')
+    expect(tracked(() => rowViewOf(here(pool.issue(closed.id)))?.title)).toBe('Renamed while cold')
   })
 
   it('a cold row read by a derivation stays tracked across an untracked residency check (POD-4569)', () => {
@@ -523,7 +524,7 @@ describe('the loader', () => {
     // A long-lived derivation reads the cold row by id (as a visibility node does).
     const titles: (string | undefined)[] = []
     const watch = autorun(() => {
-      titles.push((pool.row('issue', closed.id, 'peek') as { title?: string } | undefined)?.title)
+      titles.push((omitGone(pool.row('issue', closed.id, 'peek')) as { title?: string } | undefined)?.title)
     })
     try {
       // An untracked check between steps, inside an action, as the gate's
@@ -615,7 +616,7 @@ describe('lazy relations', () => {
     r.fire()
     const views: (RowView | undefined)[] = []
     const watch = autorun(() => {
-      views.push(rowViewOf(pool.issue(issue.id)))
+      views.push(rowViewOf(here(pool.issue(issue.id))))
     })
     // Its sessions stay cold: the row is loading, its activity provisional.
     expect(views.length).toBe(1)
@@ -645,7 +646,7 @@ describe('lazy relations', () => {
     const spinOff = hotIssues.find((issue) => (issue.deps ?? []).length === 0 && !issue.isDraftVessel)!
     const views: (RowView | undefined)[] = []
     const watch = autorun(() => {
-      views.push(rowViewOf(pool.issue(spinOff.id)))
+      views.push(rowViewOf(here(pool.issue(spinOff.id))))
     })
     r.push({
       type: 'update',
@@ -695,7 +696,7 @@ describe('transitions', () => {
       drawn.push(pool.worklistRow(issue.id)?.lazyLoading === true)
     })
     for (const session of sessions) {
-      expect(tracked(() => pool.row('session', session.sessionId))).toBe(LOADING)
+      expect(tracked(() => omitGone(pool.row('session', session.sessionId)))).toBe(LOADING)
     }
     expect(drawn).toEqual([true])
     expectAskedThenLanded(
@@ -705,7 +706,7 @@ describe('transitions', () => {
     // Exactly one window later every session is the row itself, and the
     // drawn row stopped loading in that window's one action.
     for (const session of sessions) {
-      expect(tracked(() => pool.row('session', session.sessionId))).toEqual(
+      expect(tracked(() => omitGone(pool.row('session', session.sessionId)))).toEqual(
         r.replay.source.row?.('session', session.sessionId),
       )
     }

@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS } from '@podium/model/browser'
 import { autorun, runInAction } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
@@ -57,7 +58,7 @@ async function setup(
   })
   await attachMobileScreens(pool)
   disposals.push(() => pool.dispose())
-  const reader = pool.row('mobileScreenReader', 'reader')
+  const reader = omitGone(pool.row('mobileScreenReader', 'reader'))
   if (!reader || reader === LOADING) throw new Error('screen reader missing')
   return { pool, reader }
 }

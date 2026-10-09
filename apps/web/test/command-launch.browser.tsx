@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Actual menus, one existing offline runtime/replica/outbox. Synthetic data only. */
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -161,7 +162,7 @@ root.render(
 )
 const frame = () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve()))
 const driver = {
-  ready: () => booted && pool !== null && typeof pool.row('commandWindow', 'window') === 'object',
+  ready: () => booted && pool !== null && typeof omitGone(pool.row('commandWindow', 'window')) === 'object',
   reset() {
     storeStats.reset()
     commits = 0

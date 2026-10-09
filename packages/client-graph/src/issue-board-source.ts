@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { headerView } from './header-views'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { isFinished } from './shared/predicates'
@@ -105,7 +106,7 @@ export function createIssueBoardSource(
     return pool.tables.issue.has(id) ? memo(`facts:${id}`, () => readFacts(id)) : readFacts(id)
   }
   function readFacts(id: string): Loaded<IssueViewModel> {
-    const row = pool.row('issue', id, 'summary-fields')
+    const row = omitGone(pool.row('issue', id, 'summary-fields'))
     if (!row || row === LOADING) return row
     const raw = row as Record<string, unknown>
     // Cold input already IS the declared summary. Picking every field again
@@ -115,7 +116,7 @@ export function createIssueBoardSource(
       ? Object.fromEntries(ISSUE_BOARD_SUMMARIES.issue.map((key) => [key, raw[key]]))
       : raw
     const repoId = pool.graph.one('issue', id, 'repo')
-    const repo = repoId ? (pool.row('repo', repoId) as Loaded<{ prefix?: string }>) : undefined
+    const repo = repoId ? (omitGone(pool.row('repo', repoId)) as Loaded<{ prefix?: string }>) : undefined
     if (repo === LOADING) return LOADING
     const prefix = repo?.prefix
     const deadline = Date.parse((raw.deferUntil as string) ?? '')
@@ -152,7 +153,7 @@ export function createIssueBoardSource(
         read: (sid) =>
           pool.graph.isCollapsed('session', sid)
             ? undefined
-            : (pool.row('session', sid, 'summary') as Loaded<SessionView>),
+            : (omitGone(pool.row('session', sid, 'summary')) as Loaded<SessionView>),
         matches: [
           (seat) => !seat.archived && sessionNeedsHuman(seat),
           (seat) => !seat.archived && seat.issueId === id && sessionPresentOnTask(seat),
@@ -214,7 +215,7 @@ export function createIssueBoardSource(
   }
   const catalogEntry = keyedComputed('IssueBoard.catalogEntry', (key: string) => {
     const [id, agents] = JSON.parse(key) as [string, boolean]
-    const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
+    const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<IssueViewModel>
     if (!row || row === LOADING) return row
     const eligible = !row.archived && !row.deletedAt && scoped(row, agents, true, id)
     return { path: row.repoPath, eligible, assignee: eligible ? row.assignee : undefined,
@@ -260,13 +261,13 @@ export function createIssueBoardSource(
       const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
       let childDoneCount = 0
       for (const childId of childIds) {
-        const row = pool.row('issue', childId, 'summary-fields') as Loaded<{ stage?: string; closedReason?: string | null }>
+        const row = omitGone(pool.row('issue', childId, 'summary-fields')) as Loaded<{ stage?: string; closedReason?: string | null }>
         if (row === LOADING) return LOADING
         if (row && isFinished(row)) childDoneCount++
       }
       const dependents: IssueViewModel['dependents'] = []
       for (const sourceId of [...pool.graph.many('issue', id, 'pageDependents')].sort(byId)) {
-        const row = pool.row('issue', sourceId, 'summary-fields') as Loaded<{
+        const row = omitGone(pool.row('issue', sourceId, 'summary-fields')) as Loaded<{
           deps?: { id: string; type: string }[]
         }>
         if (row === LOADING) return LOADING
@@ -280,7 +281,7 @@ export function createIssueBoardSource(
       const byPhase: Record<string, number> = {}
       let total = 0
       for (const sid of memberSessionIds) {
-        const seat = pool.row('session', sid, 'summary') as Loaded<SessionView>
+        const seat = omitGone(pool.row('session', sid, 'summary')) as Loaded<SessionView>
         if (seat === LOADING) return LOADING
         if (!seat) continue
         total++

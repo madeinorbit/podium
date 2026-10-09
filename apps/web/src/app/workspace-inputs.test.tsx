@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 // @vitest-environment happy-dom
 
 import { LOADING, MobxPool } from '@podium/client-graph'
@@ -124,7 +125,7 @@ it.each([
 
 it('loads an addressed cold tab even before its summary is available', async () => {
   const f = fixture()
-  expect(f.pool.row('session', 'unvisited-0', 'mark')).toBe(LOADING)
+  expect(omitGone(f.pool.row('session', 'unvisited-0', 'mark'))).toBe(LOADING)
   const original = f.pool.row.bind(f.pool)
   vi.spyOn(f.pool, 'row').mockImplementation((...args) => {
     if (args[0] === 'session' && args[1] === 'unvisited-0' && args[2] === 'summary-fields')

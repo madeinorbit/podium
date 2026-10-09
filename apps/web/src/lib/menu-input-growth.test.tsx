@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { SessionView } from '@podium/client-core/session-values'
 import { MobxPool, LOADING, type MobxPool as Pool } from '@podium/client-graph'
 import { headerEntities } from '@podium/client-graph/header-entities'
@@ -146,7 +147,7 @@ it('measures opened menu and handoff inputs at 1x and 4x hidden data', async () 
       expect(within(targetMenu).getByRole('menuitem', { name: /target offline/ }).textContent).toContain('offline')
       await probe('heartbeat', () => headerEntities(pool).apply([{ kind: 'machine', id: targetId,
         value: { ...machine(targetId), online: false, lastSeenAt: '2026-10-06T12:01:00Z' } }]))
-      const before = pool.row('session', sessionId) as SessionView
+      const before = omitGone(pool.row('session', sessionId)) as SessionView
       await probe('sender-heartbeat', () => pool.apply({ type: 'update', rows: [{ kind: 'session', id: sessionId,
         value: { ...before, lastActiveAt: '2026-10-06T12:01:00Z' } }] }))
       fireEvent.click(within(targetMenu).getByRole('menuitem', { name: 'other-target' }))

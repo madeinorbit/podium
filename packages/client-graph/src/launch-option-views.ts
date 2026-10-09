@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { lazy, keyedComputed } from '@podium/mobx-helpers'
 import {
   machineViewsFromWire,
@@ -22,14 +23,14 @@ export function launchOptionViews(pool: MobxPool) {
       const scans = headerEntities(pool)
         .repositoryGroupRoots(id)
         .flatMap((id) => {
-          const row = pool.row('repository', id) as GitRepositoryWire | undefined
+          const row = omitGone(pool.row('repository', id)) as GitRepositoryWire | undefined
           return row && typeof row !== 'symbol' ? [row] : []
         })
       return reposToViews(scans)[0]
     })
     const machines = computed(() => headerView(pool).machines())
     const pins = computed(() => {
-      const row = pool.row('commandWindow', 'window')
+      const row = omitGone(pool.row('commandWindow', 'window'))
       return row && row !== LOADING ? row.pins : EMPTY_PINS
     })
     const projectForRepository = (repo: NonNullable<ReturnType<typeof repository>>): RepoNavView => {
@@ -74,7 +75,7 @@ export function launchOptionViews(pool: MobxPool) {
         usageAt: new Map(projects.map(value => [machinePathKey(value.repo.path), value.projectAt])) }
     }
     const catalogRoot = keyedComputed('launch.catalogRoot', (id: string) => {
-      const row = pool.row('repository', id) as GitRepositoryWire | undefined
+      const row = omitGone(pool.row('repository', id)) as GitRepositoryWire | undefined
       return row && typeof row !== 'symbol' ? row : undefined
     })
     const catalogOnOpen = () => {
@@ -104,7 +105,7 @@ export function launchOptionViews(pool: MobxPool) {
     const recentMachine = computed(() => JSON.parse(recentMachineKey.get()) as { machineId: string; createdAt: string } | null)
     const repositoryAt = keyedComputed('launch.repositoryAt', (path: string) =>
       reposToViews(headerEntities(pool).repositoryGroup(path).flatMap(id => {
-        const row = pool.row('repository', id) as GitRepositoryWire | undefined
+        const row = omitGone(pool.row('repository', id)) as GitRepositoryWire | undefined
         return row && typeof row !== 'symbol' ? [row] : []
       }))[0])
     const origin = keyedComputed('launch.origin', (path: string) => {
@@ -213,7 +214,7 @@ function storedOrder(order: readonly string[], paths: readonly string[]): string
 class LaunchCatalogRoot {
   constructor(private readonly pool: MobxPool, private readonly id: string) {}
   @lazy get path(): string | undefined {
-    const row = this.pool.row('repository', this.id) as GitRepositoryWire | undefined
+    const row = omitGone(this.pool.row('repository', this.id)) as GitRepositoryWire | undefined
     return row && typeof row !== 'symbol' && row.kind !== 'worktree' ? row.path : undefined
   }
 }

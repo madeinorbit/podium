@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MobileWorkSection } from '../lib/work-sections'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { listWindow } from '../components/list-window'
@@ -145,7 +146,7 @@ const EMPTY_LAYOUT: MobileWorkState = Object.freeze({
   pinnedWorktrees: [],
 })
 const readLayout = (pool: MobxPool): MobileWorkState => {
-  const window = pool.row('commandWindow', 'window')
+  const window = omitGone(pool.row('commandWindow', 'window'))
   return window && typeof window !== 'symbol'
     ? {
         projectOrder: window.sidebarSettings.repoOrder,

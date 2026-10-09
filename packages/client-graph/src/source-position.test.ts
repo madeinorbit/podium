@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
@@ -39,7 +40,7 @@ it.each(['pool', 'source'] as const)(
     for (const scale of [1, 4]) {
       const rows = Array.from({ length: 128 * scale }, (_, n) => session(`s${n}`))
       const f = fixture(owner, rows)
-      const read = vi.fn((id: string) => f.pool.row('setupSession', id))
+      const read = vi.fn((id: string) => omitGone(f.pool.row('setupSession', id)))
       const stops = rows.map(row => autorun(() => read(row.id)))
       // Same answers as the old shared-version dependency, including its
       // negative control: an unrelated add/remove wakes every legacy reader.
@@ -51,7 +52,7 @@ it.each(['pool', 'source'] as const)(
       try {
         for (const row of rows) {
           expect(f.pool.sourcePosition('session', row.id)).toBe(legacyRead(row.id))
-          expect(f.pool.row('setupSession', row.id)).toMatchObject({
+          expect(omitGone(f.pool.row('setupSession', row.id))).toMatchObject({
             sessionId: row.id, setupOrder: f.index().position('session', row.id),
           })
         }
@@ -70,7 +71,7 @@ it.each(['pool', 'source'] as const)(
         read.mockClear()
         f.publish({ type: 'update', rows: [session('s0')] })
         expect(read.mock.calls).toEqual([['s0']])
-        expect(f.pool.row('setupSession', 's0')).toMatchObject({ setupOrder: rows.length + 2 })
+        expect(omitGone(f.pool.row('setupSession', 's0'))).toMatchObject({ setupOrder: rows.length + 2 })
         expect(f.load).not.toHaveBeenCalled()
       } finally { stops.forEach(stop => stop()); legacyStops.forEach(stop => stop()); f.pool.dispose() }
     }

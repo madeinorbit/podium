@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { observable, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
 import { createCommandPalette } from './command-launch-views'
@@ -25,7 +26,7 @@ it('preserves the opening member order for every addressed issue, then renews it
   pool.sources.register(['commandCatalog', 'commandWindow', 'commandIssue'], {
     read: (entity, id) => entity === 'commandCatalog'
       ? { issues: ids, sessions: sessions.map(session => session.sessionId), repositories: [], repos: [], worktrees: [], machines: [] }
-      : entity === 'commandIssue' ? pool.row('issue', id) as never
+      : entity === 'commandIssue' ? omitGone(pool.row('issue', id)) as never
       : { paletteOpen: true, pins: { repos: [], worktrees: [] }, selectedIssueId: selected.get('id') ?? null,
           openIssueId: null, selectedWorktree: null, paneA: null, recentFiles: [], sidebarSettings: {} } as never,
     dispose() {},

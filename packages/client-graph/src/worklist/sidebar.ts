@@ -1,3 +1,4 @@
+import { here, omitGone } from '../lookup'
 import { worklistGroups } from './groups'
 import { machinePathKey, machinePathsEqual } from '@podium/model/browser'
 import { sidebarRosterView } from './sidebar-roster'
@@ -78,7 +79,7 @@ export function sidebarRosterOf(host: ModelHost, path: string): SidebarRoster {
   // POD-5407: the candidates are resident seats only (`SidebarRosterIndex`):
   // a session the rule keeps cold can no longer be a retained seat.
   for (const id of host.rosterCandidates(path)) {
-    const session = host.model('session', id)
+    const session = here(host.model('session', id))
     if (session === undefined) continue
     const retention = worklistView(host as MobxPool).session(session).retention
     if (retention === null || !retention.seat || retention.shell) continue
@@ -180,7 +181,7 @@ export class SidebarIndex {
   constructor(private readonly view: Worklist) {}
 
   row(id: string): WorklistIssue | typeof LOADING | undefined {
-    const model = this.pool.issue(id)
+    const model = here(this.pool.issue(id))
     if (model !== undefined) return sidebarIssueRow(model, this.pool)
     return this.pool.resident('issue', id) === 'loading' ? LOADING : undefined
   }
@@ -192,7 +193,7 @@ export class SidebarIndex {
   }
 
   active(id: string, state: SidebarState): boolean {
-    const model = this.pool.issue(id)
+    const model = here(this.pool.issue(id))
     if (model === undefined || !this.view.row(model).selected) return false
     const row = sidebarIssueRow(model, this.pool)
     return (
@@ -203,7 +204,7 @@ export class SidebarIndex {
   }
 
   worktree(path: string, state: SidebarState = {}): SidebarWorktree | undefined {
-    const model = this.pool.model('worktree', path)
+    const model = here(this.pool.model('worktree', path))
     if (!model) return undefined
     const tree = this.view.tree(model)
     if (!tree.rosterIds.length && tree.pending === 0) return undefined
@@ -288,7 +289,7 @@ export class SidebarIndex {
   private specValues(state: SidebarState): BandSpecs {
     const index = sidebarRosterView(this.pool)
     const repos = [...index.projects]
-      .map((path) => this.pool.row('worktree', path))
+      .map((path) => omitGone(this.pool.row('worktree', path)))
       .filter((row): row is SliceWorktree => row !== undefined && row !== LOADING)
       .filter(
         (lane) =>

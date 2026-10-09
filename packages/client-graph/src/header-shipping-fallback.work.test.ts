@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
 import { autorun, runInAction } from 'mobx'
@@ -166,7 +167,7 @@ it('bounds shipping fallback demand and updates with 1x/4x histories on the same
       const control = await measure('planted previous shipping fallback', () => {
         let best: { id: string; seq: number; worktreePath: string } | undefined
         for (const id of pool.queries.ids({ kind: 'containingIssues', cwd: '/shared/src/file' })) {
-          const candidate = pool.row('issue', id, 'summary') as
+          const candidate = omitGone(pool.row('issue', id, 'summary')) as
             | {
                 id: string
                 seq: number

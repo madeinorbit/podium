@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 /** Diagnostic materialization only. Production reads MobileTasksBoard IDs and shared models. */
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -47,7 +48,7 @@ class TaskSnapshot {
         workingByIssue = new Map<string, number>(),
         progressByIssue = new Map<string, TaskProgress | null>()
       const row = (id: string) => {
-        const value = this.pool.row('issueBoardRow', id)
+        const value = omitGone(this.pool.row('issueBoardRow', id))
         if (!value || value === LOADING) throw LOADING
         issues.set(id, value)
         return value

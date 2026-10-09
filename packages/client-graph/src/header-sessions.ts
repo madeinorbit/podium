@@ -1,3 +1,4 @@
+import { here, omitGone } from './lookup'
 import { headerModel } from './header-companion'
 import { headerEntities } from './header-entities'
 import type { MachineId } from '@podium/model/browser'
@@ -63,11 +64,11 @@ export class HeaderSessions {
   private readonly stops: (() => void)[]
 
   private readonly residentHost = cachedKey('pool.header', 'sessionHost', (id) => {
-    const model = this.pool.model('session', id)
+    const model = here(this.pool.row('session', id, 'mark')) === undefined ? undefined : this.pool.sessionObject(id)
     return contribution(model ? headerModel(this.pool).session(model).headerHost : null)
   }, compareStructural)
   private readonly residentWorking = cachedKey('pool.header', 'sessionWorking', (id) => {
-    const model = this.pool.model('session', id)
+    const model = here(this.pool.row('session', id, 'mark')) === undefined ? undefined : this.pool.sessionObject(id)
     return model ? headerModel(this.pool).session(model).working : false
   }, Object.is)
   private readonly machine = cachedKey('pool.header', 'machineAggregate', (id) => {
@@ -126,8 +127,8 @@ export class HeaderSessions {
   private cold(id: string): void {
     // untracked-read: header-cold-seed
     const summary = untracked(() => {
-      if (this.pool.row('session', id, 'mark') !== LOADING) return undefined
-      const value = this.pool.row('session', id, 'summary') as { archived?: boolean } | typeof LOADING | undefined
+      if (omitGone(this.pool.row('session', id, 'mark')) !== LOADING) return undefined
+      const value = omitGone(this.pool.row('session', id, 'summary')) as { archived?: boolean } | typeof LOADING | undefined
       return value === LOADING ? undefined : value
     })
     const session = this.pool.sessionObject(id), header = headerModel(this.pool).session(session)

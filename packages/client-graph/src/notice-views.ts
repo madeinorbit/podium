@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/values'
 import { deadLetterDeliveryLine, isMessageRecordAttention } from '@podium/model'
 import { machinePathBasename } from '@podium/model/browser'
@@ -11,10 +12,10 @@ import { LOADING } from './worklist/rollup'
  * payloads enter the notice indexes; a missing summary returns pending while
  * the pool coalesces its loads. Recovery never consults its target. */
 function messageNotice(pool: MobxPool, id: string): { notice?: MessageNotice; pending: number; labelPending?: boolean } {
-  const record = pool.row('messageRecord', id)
+  const record = omitGone(pool.row('messageRecord', id))
   if (record === LOADING) return { pending: 1 }
   if (!record || !isMessageRecordAttention(record.status)) return { pending: 0 }
-  const session = pool.row('session', record.sessionId, 'summary') as NoticeSessionSummary | typeof LOADING | undefined
+  const session = omitGone(pool.row('session', record.sessionId, 'summary')) as NoticeSessionSummary | typeof LOADING | undefined
   const label = !session ? 'a closed session' : session === LOADING ? 'Loading session…'
     : session.name?.trim() || session.title?.trim() || machinePathBasename(session.cwd ?? '') || session.agentKind
   const first = record.body.trim().split('\n')[0] ?? ''
@@ -28,12 +29,12 @@ function messageNotice(pool: MobxPool, id: string): { notice?: MessageNotice; pe
 }
 
 export function noticeMessageCount(pool: MobxPool): number {
-  const attention = pool.row('noticeAttention', 'attention')
+  const attention = omitGone(pool.row('noticeAttention', 'attention'))
   return attention && attention !== LOADING ? attention.count : 0
 }
 
 export function noticeNewestMessage(pool: MobxPool) {
-  const attention = pool.row('noticeAttention', 'attention')
+  const attention = omitGone(pool.row('noticeAttention', 'attention'))
   if (!attention || attention === LOADING) return { count: 0, notice: undefined, pending: attention === LOADING ? 1 : 0 }
   const newest = attention.newest ? messageNotice(pool, attention.newest) : { notice: undefined, pending: 0 }
   return { count: attention.count, notice: newest.notice, pending: newest.pending }
@@ -45,7 +46,7 @@ export function noticeNewestMessage(pool: MobxPool) {
 export const NOTICE_MESSAGE_WINDOW = 100
 
 export function noticeMessages(pool: MobxPool, limit = Number.POSITIVE_INFINITY) {
-  const catalog = pool.row('noticeMessageCatalog', 'catalog')
+  const catalog = omitGone(pool.row('noticeMessageCatalog', 'catalog'))
   const notices: MessageNotice[] = [], pendingIds: string[] = []
   let pending = catalog === LOADING ? 1 : 0
   if (catalog && catalog !== LOADING) for (const id of catalog.messages.slice(0, limit)) {
@@ -59,11 +60,11 @@ export function noticeMessages(pool: MobxPool, limit = Number.POSITIVE_INFINITY)
 }
 
 export function noticeInteractions(pool: MobxPool, sessionId: string) {
-  const index = pool.row('noticeSession', sessionId)
+  const index = omitGone(pool.row('noticeSession', sessionId))
   const rows: NoticeRows['pendingInteraction'][] = []
   let pending = index === LOADING ? 1 : 0
   if (index && index !== LOADING) for (const id of index.interactions) {
-    const row = pool.row('pendingInteraction', id)
+    const row = omitGone(pool.row('pendingInteraction', id))
     if (row === LOADING) pending++
     else if (row?.status === 'asked') rows.push(row)
   }
@@ -75,11 +76,11 @@ export function noticeInteractions(pool: MobxPool, sessionId: string) {
 }
 
 export function noticeRecovery(pool: MobxPool) {
-  const catalog = pool.row('noticeRecoveryCatalog', 'catalog')
+  const catalog = omitGone(pool.row('noticeRecoveryCatalog', 'catalog'))
   const deadLetters: NoticeRows['outboxDeadLetter'][] = []
   let pending = catalog === LOADING ? 1 : 0
   if (catalog && catalog !== LOADING) for (const id of catalog.deadLetters) {
-    const row = pool.row('outboxDeadLetter', id)
+    const row = omitGone(pool.row('outboxDeadLetter', id))
     if (row === LOADING) pending++
     else if (row) deadLetters.push(row)
   }
@@ -87,7 +88,7 @@ export function noticeRecovery(pool: MobxPool) {
 }
 
 export function noticeContinuity(pool: MobxPool) {
-  const recovery = pool.row('noticeRecoveryCatalog', 'catalog')
-  const window = pool.row('window', 'window') as HeaderRows['window'] | undefined
+  const recovery = omitGone(pool.row('noticeRecoveryCatalog', 'catalog'))
+  const window = omitGone(pool.row('window', 'window')) as HeaderRows['window'] | undefined
   return { outboxSize: window?.outboxSize ?? 0, deadLetters: recovery && recovery !== LOADING ? recovery.deadLetters.length : 0, pending: recovery === LOADING ? 1 : 0 }
 }

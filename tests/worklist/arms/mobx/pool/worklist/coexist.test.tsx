@@ -1,3 +1,4 @@
+import { requireHere } from '@podium/client-graph/lookup'
 import { referenceState } from '../../../../diagnostics/reference-state'
 // @vitest-environment happy-dom
 /**
@@ -143,7 +144,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
         handle.settleLoads()
       })
       const id = ctx.targets.visibleRootId
-      const before = tracked(() => sidebarIssueRow(pool.issue(id)!, pool))
+      const before = tracked(() => sidebarIssueRow(requireHere(pool.issue(id))!, pool))
       if (before === undefined || before === LOADING)
         throw new Error('roster head fixture did not load')
       const next = before.sessions.find(
@@ -166,7 +167,7 @@ describe('coexistence: arm and control on one runtime (POD-4576)', () => {
       assertReads(moved, { readsPerChange: 3 })
       const readHead = () =>
         tracked(() => {
-          const row = sidebarIssueRow(pool.issue(id)!, pool)
+          const row = sidebarIssueRow(requireHere(pool.issue(id))!, pool)
           return row === undefined || row === LOADING ? null : row.firstSessionId
         })
       expect(readHead(), 'cached ID follows the promoted roster head').toBe(next)

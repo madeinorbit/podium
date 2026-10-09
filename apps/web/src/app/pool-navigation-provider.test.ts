@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { fixtureNavigation } from '@podium/client-core/test-support/navigation'
 import type { IssueProjection } from '@podium/model'
 import { issueActivityAt } from '../../../../tests/worklist/diagnostics/reference-state'
@@ -772,7 +773,7 @@ describe('web pool navigation', () => {
       'updateMarkReadTimer',
     ].map((name) => vi.spyOn(reactions, name as keyof typeof reactions))
     try {
-      const row = tracked(() => handle.pool.row('issue', target)) as SliceIssue
+      const row = tracked(() => omitGone(handle.pool.row('issue', target))) as SliceIssue
       handle.pool.apply({
         type: 'update',
         rows: [{ kind: 'issue', id: target, value: { ...row, title: 'Changed display title' } }],

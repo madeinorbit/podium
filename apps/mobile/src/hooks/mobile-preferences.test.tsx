@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { preferenceSource } from '@podium/client-graph/preference-source'
 import type { RoutedUiState } from '@podium/client-core/ui-state'
@@ -258,7 +259,7 @@ it('batches all demanded keys, never falls back while attaching, and reports mat
   expect(ui.listeners.size).toBe(1)
   const values = () =>
     (preferenceSource(pool)?.keys() ?? []).map((key) => {
-      const row = pool.row('preference', key)
+      const row = omitGone(pool.row('preference', key))
       return typeof row === 'object' && row ? row.value : row
     })
   expect(values()).toEqual(['saved', null, null, 'true'])

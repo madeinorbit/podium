@@ -1,3 +1,4 @@
+import { here } from '../lookup'
 import { sidebarRosterView } from './sidebar-roster'
 import { lazy } from '@podium/mobx-helpers'
 import { MobileSection } from './mobile'
@@ -242,7 +243,7 @@ export class GroupNode {
 
   @lazy get rosterBand() {
     const pool = this.groups.pool, ids = sidebarRosterView(pool).groupIds(this.key)
-    const head = ids[0] === undefined ? undefined : pool.model('worktree', ids[0])
+    const head = ids[0] === undefined ? undefined : here(pool.model('worktree', ids[0]))
     return { ids, label: head?.repoName ?? this.key, repoPath: head?.repoPath ?? this.key }
   }
   private section?: MobileSection

@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -191,7 +192,7 @@ const PoolRailTile = observer(function PoolRailTile({
     shallowEqual,
   )
   const value = kind === 'issue' ? sidebarView(pool).row(id) : undefined
-  const entity = kind === 'worktree' ? pool.model('worktree', id) : undefined
+  const entity = kind === 'worktree' ? here(pool.model('worktree', id)) : undefined
   const tree = entity ? worklistView(pool).tree(entity) : undefined
   if (
     (kind === 'issue' && (value === undefined || value === LOADING)) ||

@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 // @vitest-environment happy-dom
 import { recoverableAuthoredText } from '@podium/client-core/outbox-recovery-copy'
 import { autorun } from 'mobx'
@@ -17,7 +18,7 @@ it('announces a refusal after its model rebases and preserves the exact input fo
   const f = await boot()
   const views: { title: string | undefined; notSaved: boolean }[] = []
   const title = () => {
-    const row = f.pool.row('issue', f.id)
+    const row = omitGone(f.pool.row('issue', f.id))
     return row && typeof row !== 'symbol' ? (row as { title: string }).title : undefined
   }
   const stop = autorun(() => views.push({ title: title(), notSaved: f.pool.notSaved('issue', f.id) }))
@@ -44,7 +45,7 @@ it('rolls back an expired real queue entry and shows its mark until recovery dis
   f.setOnline(true)
   await vi.waitFor(() => expect(f.outbox.deadLetters()).toHaveLength(1))
   expect(f.outbox.deadLetters()[0]).toMatchObject({ parkedFrom: 'expired', reason: { code: 'max-age' } })
-  expect(f.pool.row('issue', f.id)).toMatchObject({ title: f.original })
+  expect(omitGone(f.pool.row('issue', f.id))).toMatchObject({ title: f.original })
   expect(f.pool.notSaved('issue', f.id)).toBe(true)
   await f.outbox.discard(id)
   expect(f.pool.notSaved('issue', f.id)).toBe(false)

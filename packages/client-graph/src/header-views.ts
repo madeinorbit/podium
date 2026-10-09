@@ -1,3 +1,4 @@
+import { here, omitGone } from './lookup'
 import type { SessionModel } from './models'
 import { headerModel } from './header-companion'
 import { headerEntities } from './header-entities'
@@ -109,13 +110,13 @@ function createHeaderViews(pool: MobxPool) {
     { name: debugName(() => 'header.worktreeCount') },
   )
   function row<E extends HeaderEntity>(entity: E, id: string): HeaderRows[E] | undefined {
-    return pool.row(entity, id) as HeaderRows[E] | undefined
+    return omitGone(pool.row(entity, id)) as HeaderRows[E] | undefined
   }
   function issue(id: string): SliceIssue | typeof LOADING | undefined {
-    return pool.row('issue', id) as SliceIssue | typeof LOADING | undefined
+    return omitGone(pool.row('issue', id)) as SliceIssue | typeof LOADING | undefined
   }
   function issueSummary(id: string): (Partial<SliceIssue> & { machineId?: MachineId }) | undefined {
-    const value = pool.row('issue', id, 'summary')
+    const value = omitGone(pool.row('issue', id, 'summary'))
     return value === LOADING
       ? undefined
       : (value as (Partial<SliceIssue> & { machineId?: MachineId }) | undefined)
@@ -123,9 +124,9 @@ function createHeaderViews(pool: MobxPool) {
   function sessionSummary(
     id: string,
   ): (Partial<SliceSession> & { machineId?: MachineId }) | undefined {
-    const model = pool.model('session', id)
+    const model = here(pool.row('session', id, 'mark')) === undefined ? undefined : pool.sessionObject(id)
     if (model) return headerModel(pool).session(model).headerDock
-    const value = pool.row('session', id, 'summary')
+    const value = omitGone(pool.row('session', id, 'summary'))
     return value === LOADING
       ? undefined
       : (value as (Partial<SliceSession> & { machineId?: MachineId }) | undefined)
@@ -152,11 +153,11 @@ function createHeaderViews(pool: MobxPool) {
         .ids({ kind: 'headerOccupancy' })
         .flatMap((id) => {
           if (pool.tables.session.has(id)) {
-            const session = pool.model('session', id)
+            const session = here(pool.model('session', id))
             const member = session ? headerModel(pool).session(session).headerHost : null
             return member ? [member.cwd] : []
           }
-          const summary = pool.row('session', id, 'summary') as
+          const summary = omitGone(pool.row('session', id, 'summary')) as
             | SessionView
             | typeof LOADING
             | undefined
@@ -165,7 +166,7 @@ function createHeaderViews(pool: MobxPool) {
             summary !== LOADING &&
             ['live', 'starting', 'reconnecting'].includes(summary.status)
               ? memo(`coldHost:${id}`, () => {
-                  const value = pool.row('session', id, 'summary') as
+                  const value = omitGone(pool.row('session', id, 'summary')) as
                     | SessionView
                     | typeof LOADING
                     | undefined
@@ -197,7 +198,7 @@ function createHeaderViews(pool: MobxPool) {
     const value = issue(rootId)
     if (value === LOADING) return FOLDED_LOADING
     // The same root value selectedIssue() gives when the root is selected.
-    const root: IssueModel | undefined = value && pool.model('issue', value.id)
+    const root: IssueModel | undefined = value && here(pool.model('issue', value.id))
     if (!root || root.archived || root.deletedAt) return FOLDED_NONE
     const ids = missions(pool).members(root.id)
     if (ids === LOADING) return FOLDED_LOADING
@@ -288,7 +289,7 @@ function createHeaderViews(pool: MobxPool) {
       })
     )
       return { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading }
-    const model = pool.model('issue', root.id)
+    const model = here(pool.model('issue', root.id))
     const progress = model === undefined ? undefined : sidebarIssueProgress(model)
     if (progress === LOADING) loading = true
     return {
@@ -431,7 +432,7 @@ function createHeaderViews(pool: MobxPool) {
     working: workingRoster,
     workingIds,
     workingCount,
-    session: (id: string) => pool.row('session', id) as SessionView | typeof LOADING | undefined,
+    session: (id: string) => omitGone(pool.row('session', id)) as SessionView | typeof LOADING | undefined,
     clear: () => {
       sessions?.dispose()
       sessions = undefined

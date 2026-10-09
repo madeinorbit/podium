@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { relativeTime } from '@podium/client-core/focus'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import { issueReferenceModel } from '@podium/client-core/values'
@@ -121,7 +122,7 @@ function resolvePoolIssue(pool: MobxPool | null, token: string): ResolvedRef | n
   if (!pool || parsed?.kind !== 'issue') return null
   const id = pool.queries.issueReferenceId(token)
   if (!id || typeof id === 'symbol') return null
-  const row = pool.row('issue', id)
+  const row = omitGone(pool.row('issue', id))
   return row && typeof row !== 'symbol'
     ? { kind: 'issue', ref: parsed, issue: row as RefIssueLike }
     : null

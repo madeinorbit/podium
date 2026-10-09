@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph'
 import { useCallback } from 'react'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
@@ -7,6 +8,6 @@ export function useBoardPoolProjection<T>(
   entity: 'issueBoardModel' | 'issueExplorerModel',
   key: string,
 ): T | undefined {
-  const read = useCallback((pool: MobxPool) => pool.row(entity, key), [entity, key])
+  const read = useCallback((pool: MobxPool) => omitGone(pool.row(entity, key)), [entity, key])
   return useWorklistPoolProjection(read, undefined) as T | undefined
 }

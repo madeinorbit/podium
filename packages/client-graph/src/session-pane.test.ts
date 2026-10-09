@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -42,7 +43,7 @@ it('follows a panel-mode change through the keyed locals (POD-5433)', () => {
   const f = fixture()
   try {
     f.change({ panelMode: { 'pane-0': 'native' } } as never)
-    const window = f.pool.row('sessionPaneWindow', 'window') as { panelMode: Record<string, string> }
+    const window = omitGone(f.pool.row('sessionPaneWindow', 'window')) as { panelMode: Record<string, string> }
     expect(window.panelMode).toEqual({ 'pane-0': 'native' })
   } finally { f.pool.dispose() }
 })
@@ -92,7 +93,7 @@ it('loads cold pane detail through one batched reader, with no full payload reta
     expect(paneSession(f.pool, cold.sessionId)).toBe(LOADING)
     expect(paneSession(f.pool, cold.sessionId)).toBe(LOADING)
     expect(f.load).not.toHaveBeenCalled()
-    expect(f.pool.row('session', cold.sessionId, 'summary')).not.toHaveProperty('configureFields')
+    expect(omitGone(f.pool.row('session', cold.sessionId, 'summary'))).not.toHaveProperty('configureFields')
     expect(f.pool.hydrate()).toBe(1)
     expect(f.load).toHaveBeenCalledTimes(1)
     expect(paneSession(f.pool, cold.sessionId)).toEqual(cold)
@@ -113,7 +114,7 @@ it('isolates addressed pane updates and releases the control source with its poo
     stop()
     f.pool.dispose()
     expect(f.listeners.size).toBe(0)
-    expect(f.pool.row('sessionPaneWindow', 'window')).toBe(LOADING)
+    expect(omitGone(f.pool.row('sessionPaneWindow', 'window'))).toBe(LOADING)
   } finally { f.pool.dispose() }
 })
 

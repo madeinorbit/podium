@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 /** Real components and their sole offline runtime, with the fixed 4x corpus. */
 import type { PodiumClientApi } from '@podium/client-core/api'
@@ -140,7 +141,7 @@ function Fixture() {
 
 Object.assign(window, {
   __boardHarness: {
-    ready: () => ready && !!pool && typeof pool.row('issueBoardWindow', 'current') !== 'symbol',
+    ready: () => ready && !!pool && typeof omitGone(pool.row('issueBoardWindow', 'current')) !== 'symbol',
     errors: () => [...errors],
     corpus: corpus.stats,
     now: FIXED_NOW,

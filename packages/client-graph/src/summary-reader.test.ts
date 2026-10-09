@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { reaction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
@@ -35,10 +36,10 @@ it('summary declarations compose and exclude undeclared cold payloads', () => {
   const { pool, load, hot } = setup()
   try {
     expect(pool.tables.issue.has('cold')).toBe(false)
-    const cold = pool.row('issue', 'cold', 'summary')
+    const cold = omitGone(pool.row('issue', 'cold', 'summary'))
     expect(cold).toMatchObject({ title: 'Declared title', archived: true })
     expect(cold).not.toHaveProperty('privateBody')
-    expect(pool.row('issue', 'hot', 'summary')).toBe(hot)
+    expect(omitGone(pool.row('issue', 'hot', 'summary'))).toBe(hot)
     expect(pool.hydrate()).toBe(0)
     expect(load).not.toHaveBeenCalled()
   } finally { pool.dispose() }
@@ -49,8 +50,8 @@ it('summary mode shows a painted change on both resident and cold rows', () => {
   try {
     paint('cold', { title: 'Pending cold' })
     paint('hot', { title: 'Pending hot' })
-    expect(pool.row('issue', 'cold', 'summary')).toMatchObject({ title: 'Pending cold' })
-    expect(pool.row('issue', 'hot', 'summary')).toMatchObject({ title: 'Pending hot' })
+    expect(omitGone(pool.row('issue', 'cold', 'summary'))).toMatchObject({ title: 'Pending cold' })
+    expect(omitGone(pool.row('issue', 'hot', 'summary'))).toMatchObject({ title: 'Pending hot' })
     expect(pool.tables.issue.has('cold')).toBe(false)
     expect(load).not.toHaveBeenCalled()
   } finally { pool.dispose() }
@@ -60,7 +61,7 @@ it.each(['summary', 'summary-fields'] as const)('%s follows painted changes and 
   const { pool, paint, rebase, cold, load } = setup()
   const seen: (string | undefined)[] = []
   const stop = reaction(() => {
-    const value = pool.row('issue', 'cold', mode)
+    const value = omitGone(pool.row('issue', 'cold', mode))
     return value === LOADING ? 'loading' : (value as { title: string } | undefined)?.title
   }, title => seen.push(title), { fireImmediately: true })
   try {
@@ -77,7 +78,7 @@ it.each(['summary', 'summary-fields'] as const)('%s follows painted changes and 
     expect(pool.hydrate()).toBe(0)
     expect(load).not.toHaveBeenCalled()
 
-    expect(pool.row('issue', 'cold')).toBe(LOADING)
+    expect(omitGone(pool.row('issue', 'cold'))).toBe(LOADING)
     expect(pool.hydrate()).toBe(1)
     paint('cold', { title: 'Pending resident' })
     expect(seen.at(-1)).toBe('Pending resident')
@@ -128,12 +129,12 @@ it('a missing cold summary returns LOADING and queues one batched row load', () 
   const { pool, load } = setup()
   try {
     vi.spyOn(pool.residency!, 'summary').mockReturnValue(undefined)
-    expect(pool.row('issue', 'cold', 'summary')).toBe(LOADING)
-    expect(pool.row('issue', 'cold', 'summary')).toBe(LOADING)
+    expect(omitGone(pool.row('issue', 'cold', 'summary'))).toBe(LOADING)
+    expect(omitGone(pool.row('issue', 'cold', 'summary'))).toBe(LOADING)
     expect(load).not.toHaveBeenCalled()
     expect(pool.hydrate()).toBe(1)
     expect(load).toHaveBeenCalledTimes(1)
-    expect(pool.row('issue', 'cold', 'summary')).toMatchObject({ title: 'Declared title' })
-    expect(pool.row('issue', 'deleted', 'summary')).toBeUndefined()
+    expect(omitGone(pool.row('issue', 'cold', 'summary'))).toMatchObject({ title: 'Declared title' })
+    expect(omitGone(pool.row('issue', 'deleted', 'summary'))).toBeUndefined()
   } finally { pool.dispose() }
 })

@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
@@ -177,7 +178,7 @@ export function sidebarDiff(pool: MobxPool, derivation: LegacyDerivation, rows: 
       }
     }
     const line = row.continuation ?? rowStatusLine(row, now, 0)
-    const seat = (id: string) => pool.row('session', id)
+    const seat = (id: string) => omitGone(pool.row('session', id))
     if (poolStatusLine(value, pool.worklistRow(row.issue.id)?.activityAt ?? 0, now, seat) !== line) differences.push(`${row.issue.id}.statusLine: ${poolStatusLine(value, pool.worklistRow(row.issue.id)?.activityAt ?? 0, now, seat)} expected ${line}`)
   }
   return differences

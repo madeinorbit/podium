@@ -1,3 +1,5 @@
+import { isGone } from '../lookup'
+import { LOADING } from '../loading'
 import { observer } from 'mobx-react-lite'
 import type { ReactElement } from 'react'
 import type { WorklistIssue } from '../worklist/issue'
@@ -31,8 +33,7 @@ export const PoolRowSlot = observer(function PoolRowSlot({
   renderLoading?: (id: string) => ReactElement | null
 }): ReactElement | null {
   const model = pool.issue(id)
-  if (model === undefined) {
-    return pool.resident('issue', id) === 'loading' ? (renderLoading?.(id) ?? null) : null
-  }
+  if (model === LOADING) return renderLoading?.(id) ?? null
+  if (isGone(model)) return null
   return <PoolRowView model={worklistView(pool).row(model)} renderRow={renderRow} />
 })

@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { reaction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
@@ -85,13 +86,13 @@ it.each([
 
     // Promotion switches to the existing cursor lane. A cursor-only update
     // still leaves the resident payload alone, and removal forgets the cursor.
-    expect(pool.row('issue', cold.id)).toBe(LOADING)
+    expect(omitGone(pool.row('issue', cold.id))).toBe(LOADING)
     expect(pool.hydrate()).toBe(1)
     expect(load).toHaveBeenCalledExactlyOnceWith('issue', cold.id)
-    const payload = pool.row('issue', cold.id)
+    const payload = omitGone(pool.row('issue', cold.id))
     publish({ ...cold, readAt: later })
     expect(seen.at(-1)).toBe(later)
-    expect(pool.row('issue', cold.id)).toBe(payload)
+    expect(omitGone(pool.row('issue', cold.id))).toBe(payload)
     publish(undefined)
     expect(seen.at(-1)).toBeUndefined()
   } finally {

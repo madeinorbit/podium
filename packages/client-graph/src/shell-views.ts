@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 import { companion, keyedComputed, lazy } from '@podium/mobx-helpers'
 import type { Store } from '@podium/client-core/engine'
@@ -34,8 +35,8 @@ export class ShellIssueChrome {
   get id() { return this.issue.id }
 
   @lazy get known(): Loaded<boolean> {
-    const row = this.pool.row('issue', this.id, 'summary')
-    if (row === LOADING) { void this.pool.row('issue', this.id); return LOADING }
+    const row = omitGone(this.pool.row('issue', this.id, 'summary'))
+    if (row === LOADING) { void omitGone(this.pool.row('issue', this.id)); return LOADING }
     return row ? true : undefined
   }
   // Color selection is summary-only, including an archived child of a live
@@ -66,7 +67,7 @@ export class ShellChrome {
     return value.known === true ? value : undefined
   }
   @lazy private get colorIssue(): Loaded<ShellIssueChrome> {
-    const state = this.pool.row('shellWindow', 'window')
+    const state = omitGone(this.pool.row('shellWindow', 'window'))
     if (!state || state === LOADING) return LOADING
     if (!state.selectedIssueId) return undefined
     const value = this.issue(this.pool.issueObject(state.selectedIssueId))
@@ -87,7 +88,7 @@ export class ShellChrome {
     return true
   }
   @lazy private get missionRoot(): Loaded<ShellIssueChrome> {
-    const state = this.pool.row('shellWindow', 'window')
+    const state = omitGone(this.pool.row('shellWindow', 'window'))
     if (!state || state === LOADING) return LOADING
     const id = missions(this.pool).rootFor(state.selectedIssueId)
     if (id === LOADING) return LOADING
@@ -98,7 +99,7 @@ export class ShellChrome {
     return empty === LOADING ? LOADING : empty ? undefined : value
   }
   @lazy({ equals: compareShallow }) get value() {
-    const state = this.pool.row('shellWindow', 'window')
+    const state = omitGone(this.pool.row('shellWindow', 'window'))
     if (!state || state === LOADING) return LOADING
     try {
       const colorIssue = this.colorIssue, missionRoot = this.missionRoot
@@ -134,30 +135,30 @@ function createShellViews(pool: MobxPool) {
     { equals: compareStructural },
   )
   const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
-  const window = () => pool.row('shellWindow', 'window')
-  const catalog = () => pool.row('shellCatalog', 'catalog')
+  const window = () => omitGone(pool.row('shellWindow', 'window'))
+  const catalog = () => omitGone(pool.row('shellCatalog', 'catalog'))
   function records<E extends 'shellApproval' | 'shellFile' | 'shellShipLane'>(
     entity: E,
     ids: readonly string[],
   ): Loaded<ShellRows[E][]> {
     const values: ShellRows[E][] = []
     for (const id of ids) {
-      const value = pool.row(entity, id)
+      const value = omitGone(pool.row(entity, id))
       if (value === LOADING) return LOADING
       if (value) values.push(value)
     }
     return values
   }
   function issue(id: string, full = false): Loaded<ShellIssue> {
-    const value = pool.row('issue', id, full ? 'load' : 'summary')
+    const value = omitGone(pool.row('issue', id, full ? 'load' : 'summary'))
     if (value === LOADING) {
-      void pool.row('issue', id)
+      void omitGone(pool.row('issue', id))
       return LOADING
     }
     if (!value) return undefined
     const input = value as Record<string, unknown>,
       repoId = input.repoId as string | undefined
-    const repo = repoId ? (pool.row('repo', repoId) as { prefix?: string } | undefined) : undefined
+    const repo = repoId ? (omitGone(pool.row('repo', repoId)) as { prefix?: string } | undefined) : undefined
     const prefix = repo?.prefix
     return {
       ...(full ? input : Object.fromEntries(SHELL_SUMMARIES.issue.map((key) => [key, input[key]]))),
@@ -182,7 +183,7 @@ function createShellViews(pool: MobxPool) {
   function session(id: string): Loaded<SessionView> {
     return memo(`session:${id}`, () => {
       if (pool.queries.collapsed(id)) return undefined
-      const row = pool.row('session', id, 'summary-fields')
+      const row = omitGone(pool.row('session', id, 'summary-fields'))
       if (row === LOADING) return LOADING
       return row
         ? (Object.fromEntries(
@@ -208,7 +209,7 @@ function createShellViews(pool: MobxPool) {
   function repositories(): HeaderRows['repository'][] {
     return memo('repositories', () =>
       headerIds(pool, 'repository').flatMap((id) => {
-        const value = pool.row('repository', id) as HeaderRows['repository'] | undefined
+        const value = omitGone(pool.row('repository', id)) as HeaderRows['repository'] | undefined
         return value ? [value] : []
       }),
     )
@@ -216,7 +217,7 @@ function createShellViews(pool: MobxPool) {
   function machines(): Store['machines'] {
     return memo('machines', () =>
       headerIds(pool, 'machine').flatMap((id) => {
-        const value = pool.row('machine', id) as HeaderRows['machine'] | undefined
+        const value = omitGone(pool.row('machine', id)) as HeaderRows['machine'] | undefined
         return value ? [value] : []
       }),
     )
@@ -224,7 +225,7 @@ function createShellViews(pool: MobxPool) {
   function orders(): HeaderRows['shipOrder'][] {
     return memo('orders', () =>
       headerIds(pool, 'shipOrder').flatMap((id) => {
-        const row = pool.row('shipOrder', id) as HeaderRows['shipOrder'] | undefined
+        const row = omitGone(pool.row('shipOrder', id)) as HeaderRows['shipOrder'] | undefined
         return row ? [row] : []
       }),
     )
@@ -268,7 +269,7 @@ function createShellViews(pool: MobxPool) {
       const key = workspaceKey(),
         fileTabs = files()
       if (!key || key === LOADING || !fileTabs || fileTabs === LOADING) return LOADING
-      const layout = pool.row('shellWorkspace', key)
+      const layout = omitGone(pool.row('shellWorkspace', key))
       return layout === LOADING ? LOADING : { workspaceKey: key, layout, fileTabs }
     })
   }

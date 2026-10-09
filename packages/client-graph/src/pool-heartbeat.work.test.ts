@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { asMachineId } from '@podium/model/browser'
 import { expect, it } from 'vitest'
 import { autorun, Reaction } from 'mobx'
@@ -83,7 +84,7 @@ async function measured(scale: 1 | 4, demand: boolean) {
         f.session('visible', f.repos[0]!.worktrees[0]!.path, '2026-10-04T12:00:00Z'),
       ] }))
     }, { pool: f.pool })
-    expect(f.pool.row('session', 'visible')).toMatchObject({ lastActiveAt: '2026-10-04T12:00:00Z' })
+    expect(omitGone(f.pool.row('session', 'visible'))).toMatchObject({ lastActiveAt: '2026-10-04T12:00:00Z' })
     expect(f.pool.queries.activity(questions[0]!)).toBe(Date.parse('2026-10-04T12:00:00Z'))
     expect(invalidations).toBe(demand ? 1 : 0)
     return heartbeat.work

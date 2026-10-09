@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -152,7 +153,7 @@ it('matches scoped placement and cold issue/session targets through the one read
     offerable: [{ id: 'synthetic-available' }],
   })
   expect(
-    fixture.profiles.map((profile) => pool.row('settingsMachine', profile.machineId ?? '')),
+    fixture.profiles.map((profile) => omitGone(pool.row('settingsMachine', profile.machineId ?? ''))),
   ).toHaveLength(8)
   expect(result.current.machines.views.map((view) => view.availability)).toEqual([
     'available',

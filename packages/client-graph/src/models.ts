@@ -1,3 +1,4 @@
+import { type Lookup, omitGone, isGone } from './lookup'
 import { issuePendingDecision, type IssueNavigationModel } from '@podium/client-core/values'
 import type { IssueProjection } from '@podium/model'
 import type { IssueSessionFactReader } from './shared/issue-session-facts'
@@ -41,7 +42,7 @@ const ISSUE_PAINT_FIELDS: ReadonlySet<string> = new Set([
 export interface ModelHost {
   readonly issueSessionFact: IssueSessionFactReader
   /** The pool's one row reader (`MobxPool.row`): pending edits overlaid, `LOADING` when not in memory. */
-  row(entity: EntityName, id: string, absent?: 'mark' | 'summary' | 'summary-fields'): LoadedRow<object>
+  row(entity: EntityName, id: string, absent?: 'mark' | 'summary' | 'summary-fields'): Lookup<object>
   /** The pool's shared session object, including an addressed cold session. */
   sessionObject(id: string): SessionModel
   issueObject(id: string): IssueModel
@@ -67,7 +68,7 @@ export interface ModelHost {
   /** The pool's relation reader: what the relation getters follow. */
   readonly relations: RelationReader
   /** The object of a row in memory, built on first request; undefined when not in memory. */
-  model<E extends EntityName>(entity: E, id: string): ModelOf[E] | undefined
+  model<E extends EntityName>(entity: E, id: string): Lookup<ModelOf[E]>
   /** Where a row stands; a cold one answers `loading` and is queued (first access). */
   resident(entity: EntityName, id: string): Residence
   /** Resident fallback seats; cold rows are requested from a declared lane summary. */
@@ -95,14 +96,16 @@ export class EntityModel {
   ) {}
 
   /** The row as the pool shows it (the one reader: tracked, pending edits overlaid). */
-  get row(): StoredRow | undefined {
-    const row = this.host.row(this.entity, this.id)
-    return row === LOADING ? undefined : (row as StoredRow | undefined)
+  get row(): Lookup<StoredRow> {
+    return this.host.row(this.entity, this.id) as Lookup<StoredRow>
   }
 
   /** Schema-installed fields use the same reader, with no copied row. */
   storedField(property: string): unknown {
-    return (this.row as Readonly<Record<string, unknown>> | undefined)?.[property]
+    const row = this.row
+    if (row === LOADING) throw LOADING
+    if (isGone(row)) return undefined
+    return (row as Readonly<Record<string, unknown>>)[property]
   }
 }
 
@@ -237,7 +240,8 @@ function objectOrLoading(
   to: EntityName,
   id: string,
 ): EntityModel | typeof LOADING | null {
-  return host.model(to, id) ?? (host.resident(to, id) === 'loading' ? LOADING : null)
+  const answer = host.model(to, id)
+  return isGone(answer) ? null : answer
 }
 
 /** A live collection (Rule L). `ready` is the shallow-equal list of shared
@@ -314,13 +318,13 @@ export class IssueModel extends EntityModel {
   // Stored fields: display summaries never promote an undisplayed child.
   override storedField(property: string): unknown {
     if (property === 'readAt') return this.host.visibleInputs.issueRead(this.id)
-    const resident = this.host.row('issue', this.id, 'mark')
+    const resident = omitGone(this.host.row('issue', this.id, 'mark'))
     if (resident !== LOADING) return (resident as Record<string, unknown> | undefined)?.[property]
     if (this.host.issueSummaryField(property)) {
-      const summary = this.host.row('issue', this.id, 'summary-fields')
+      const summary = omitGone(this.host.row('issue', this.id, 'summary-fields'))
       if (summary !== LOADING) return (summary as Record<string, unknown> | undefined)?.[property]
     }
-    const row = this.host.row('issue', this.id)
+    const row = omitGone(this.host.row('issue', this.id))
     if (row === LOADING) throw LOADING
     return (row as Record<string, unknown> | undefined)?.[property]
   }
@@ -408,9 +412,9 @@ export class IssueModel extends EntityModel {
   // Stored fields and presence
   /** Declared issue facts, usable without loading a historical payload. */
   private readFacts(): SliceIssue | undefined {
-    const resident = this.host.row('issue', this.id, 'mark')
+    const resident = omitGone(this.host.row('issue', this.id, 'mark'))
     if (resident !== LOADING) return resident as SliceIssue | undefined
-    const summary = this.host.row('issue', this.id, 'summary-fields')
+    const summary = omitGone(this.host.row('issue', this.id, 'summary-fields'))
     return summary === LOADING ? undefined : summary as SliceIssue | undefined
   }
 
@@ -455,7 +459,7 @@ export class IssueModel extends EntityModel {
   // Presence: archive/deletion is independent of the sidebar's `placed` rule.
   @lazy
   get visible(): boolean {
-    const row = this.host.row('issue', this.id)
+    const row = omitGone(this.host.row('issue', this.id))
     if (row === LOADING) throw LOADING
     return Boolean(row && !(row as SliceIssue).archived && !(row as SliceIssue).deletedAt)
   }
@@ -473,7 +477,7 @@ export class IssueModel extends EntityModel {
 
   @lazy
   get hasLead(): boolean {
-    const row = this.host.row('issue', this.id)
+    const row = omitGone(this.host.row('issue', this.id))
     if (row === LOADING) throw LOADING
     const id = (row as { coordinatorSessionId?: string } | undefined)?.coordinatorSessionId
     if (!id) return false
@@ -682,7 +686,7 @@ export class IssueModel extends EntityModel {
       const id = stack.pop()!
       if (seen.has(id)) continue
       seen.add(id)
-      const row = this.host.row('issue', id, 'summary') as LoadedRow<SliceIssue>
+      const row = omitGone(this.host.row('issue', id, 'summary')) as LoadedRow<SliceIssue>
       if (row === LOADING) throw LOADING
       if (!row || row.archived || row.deletedAt || row.isDraftVessel) continue
       total++
@@ -702,7 +706,7 @@ export class IssueModel extends EntityModel {
   private get dependencySources(): readonly { id: string; type: string }[] {
     const result: { id: string; type: string }[] = []
     for (const id of [...this.host.relations.many('issue', this.id, 'pageDependents')].sort()) {
-      const row = this.host.row('issue', id, 'summary') as LoadedRow<SliceIssue>
+      const row = omitGone(this.host.row('issue', id, 'summary')) as LoadedRow<SliceIssue>
       if (row === LOADING) throw LOADING
       for (const dep of row?.deps ?? []) if (dep.id === this.id) result.push({ id, type: dep.type })
     }
@@ -775,13 +779,13 @@ export class SessionModel extends EntityModel {
 
   // Stored fields: declared summaries can answer a field without promoting it.
   @lazy private get residentRow(): StoredRow | typeof LOADING | undefined {
-    return this.host.row('session', this.id, 'mark') as StoredRow | typeof LOADING | undefined
+    return omitGone(this.host.row('session', this.id, 'mark')) as StoredRow | typeof LOADING | undefined
   }
 
   @lazy
   private get declaredRow(): StoredRow | typeof LOADING | undefined {
     return this.residentRow === LOADING
-      ? this.host.row('session', this.id, 'summary-fields') as StoredRow | typeof LOADING | undefined
+      ? omitGone(this.host.row('session', this.id, 'summary-fields')) as StoredRow | typeof LOADING | undefined
       : this.residentRow
   }
 
@@ -794,20 +798,20 @@ export class SessionModel extends EntityModel {
     if (summary !== LOADING && this.host.sessionSummaryField(property)) {
       return (summary as Readonly<Record<string, unknown>> | undefined)?.[property]
     }
-    const row = this.host.row('session', this.id)
+    const row = omitGone(this.host.row('session', this.id))
     if (row === LOADING) throw LOADING
     return (row as Record<string, unknown> | undefined)?.[property]
   }
 
   @lazy
   get exists(): boolean {
-    const resident = this.host.row('session', this.id, 'mark')
+    const resident = omitGone(this.host.row('session', this.id, 'mark'))
     if (resident !== LOADING) return resident !== undefined
-    const summary = this.host.row('session', this.id, 'summary')
+    const summary = omitGone(this.host.row('session', this.id, 'summary'))
     // A complete declared display summary is a usable session object; a
     // partial cutoff still spends the shared batched load window.
     if (summary && summary !== LOADING && ['sessionId', 'cwd', 'status', 'lastActiveAt', 'title'].every(field => Object.hasOwn(summary, field))) return true
-    const row = this.host.row('session', this.id)
+    const row = omitGone(this.host.row('session', this.id))
     if (row === LOADING) throw LOADING
     return row !== undefined
   }
@@ -817,7 +821,7 @@ export class SessionModel extends EntityModel {
   get archived(): boolean | undefined {
     const flag = this.host.sessionArchiveField(this.id)
     if (flag !== undefined) return flag
-    const row = this.host.row('session', this.id, 'mark')
+    const row = omitGone(this.host.row('session', this.id, 'mark'))
     if (row === undefined) return undefined
     return Boolean(this.storedField('archived'))
   }
@@ -953,7 +957,7 @@ class RepoModel extends EntityModel {
   }
 
   /** One addressed facade for every join. Its fields still track independently. */
-  @lazy override get row(): StoredRow | undefined {
+  @lazy override get row(): Lookup<StoredRow> {
     return super.row
   }
 }

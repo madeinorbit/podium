@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 import { settingsView } from './settings-views'
 import { headerView } from './header-views'
@@ -60,7 +61,7 @@ it('hydrates normalized issue facets without reading the repository companion', 
       { kind: 'worktree', id: lane.path, value: countedLane },
       { kind: 'issue', id: issue.id, value: issue },
     ] as RowRecord[] })
-    expect(pool.row('issue', issue.id)).toBe(LOADING)
+    expect(omitGone(pool.row('issue', issue.id))).toBe(LOADING)
     fields.length = 0
     expect(pool.hydrate()).toBe(1)
     expect(fields).toEqual([])
@@ -70,7 +71,7 @@ it('hydrates normalized issue facets without reading the repository companion', 
 
     const shownPaths: unknown[] = []
     stop = autorun(() => {
-      const row = pool.row('issue', issue.id) as { repoPath: string }
+      const row = omitGone(pool.row('issue', issue.id)) as { repoPath: string }
       shownPaths.push(row.repoPath)
     })
     expect(shownPaths).toEqual(['/repo'])
@@ -399,7 +400,7 @@ function snapshot(name: string, value: unknown): SidebarSnapshot {
   return { pending: 0, sections: [{ key: name, fields: { value }, rows: [] }] }
 }
 const readers: { name: string; bootOnly?: boolean; read(pool: MobxPool): unknown }[] = [
-  { name: 'phone launcher', read: (pool) => pool.row('commandCatalog', 'catalog') },
+  { name: 'phone launcher', read: (pool) => omitGone(pool.row('commandCatalog', 'catalog')) },
   {
     name: 'phone inbox',
     read: (pool) => {
@@ -550,7 +551,7 @@ describe('readers behind declared cold questions', () => {
     try {
       publish(rows)
       // An unrelated resident must not be unioned into the requested roster.
-      f.pool.row('session', 'host', 'summary')
+      omitGone(f.pool.row('session', 'host', 'summary'))
       f.pool.hydrate()
       const roster = () => f.pool.queries.ids(question).sort()
       expect(roster()).toEqual([
@@ -781,8 +782,8 @@ describe('readers behind declared cold questions', () => {
     const f = fixture()
     const missing = vi.spyOn(f.pool.residency!, 'summary').mockReturnValue(undefined)
     try {
-      expect(f.pool.row('session', 'cold-session-0', 'summary')).toBe(LOADING)
-      expect(f.pool.row('session', 'cold-session-0', 'summary')).toBe(LOADING)
+      expect(omitGone(f.pool.row('session', 'cold-session-0', 'summary'))).toBe(LOADING)
+      expect(omitGone(f.pool.row('session', 'cold-session-0', 'summary'))).toBe(LOADING)
       expect(f.load).not.toHaveBeenCalled()
       expect(f.pool.hydrate()).toBeGreaterThan(0)
       expect(f.load.mock.calls.filter(([, id]) => id === 'cold-session-0')).toHaveLength(1)

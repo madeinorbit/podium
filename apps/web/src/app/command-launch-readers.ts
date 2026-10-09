@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import {
   commandLaunchViews,
 } from '@podium/client-graph/command-launch-views'
@@ -12,7 +13,7 @@ function launchOptions(pool: MobxPool) {
   const view = pool.sources.peekView<ReturnType<typeof launchOptionViews>>('launch.options')
   // The existing lazy command attachment installs the view before its source.
   // Observe that source while pending so its publication wakes this reader.
-  if (!view) pool.row('commandWindow', 'window')
+  if (!view) omitGone(pool.row('commandWindow', 'window'))
   return view
 }
 export const readLaunchOptions = launchOptions

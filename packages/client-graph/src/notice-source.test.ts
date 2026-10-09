@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
@@ -62,8 +63,8 @@ function fixture() {
 it('coalesces initial LOADING demand and matches messages, all asks and parked input', async () => {
   const f = fixture()
   try {
-    expect(f.pool.row('noticeCatalog', 'catalog')).toBe(LOADING)
-    expect(f.pool.row('noticeSession', 'synthetic-session-0')).toBe(LOADING)
+    expect(omitGone(f.pool.row('noticeCatalog', 'catalog'))).toBe(LOADING)
+    expect(omitGone(f.pool.row('noticeSession', 'synthetic-session-0'))).toBe(LOADING)
     expect(f.rows).toHaveBeenCalledTimes(2)
     const result = await f.load()
     expect(result).toMatchObject({ differences: 0, pending: 0, positions: 20 })
@@ -80,7 +81,7 @@ it('maintains session membership, ordering and removal from addressed deltas', a
     f.updateAsks(f.data.interactions.map((row, i) => i === 0 ? { ...row, sessionId: asSessionId('other-session') } : row))
     expect(f.check()).toMatchObject({ differences: 0, pending: 0 })
     f.updateAsks(f.data.interactions.slice(1), ['notice-ask-0'])
-    expect(f.pool.row('noticeSession', 'other-session')).toBeUndefined()
+    expect(omitGone(f.pool.row('noticeSession', 'other-session'))).toBeUndefined()
     expect(f.check().differences).toBe(0)
     expect(f.source.counts.collectionReads).toBe(2)
     stop()
@@ -92,7 +93,7 @@ it('keeps only declared cold session label fields without loading their payload'
   try {
     await f.load()
     expect(f.pool.tables.session.has('cold-notice-session')).toBe(false)
-    const summary = f.pool.row('session', 'cold-notice-session', 'summary')
+    const summary = omitGone(f.pool.row('session', 'cold-notice-session', 'summary'))
     expect(summary).toMatchObject({ title: 'Saved agent', cwd: '/synthetic/saved' })
     expect(summary).not.toHaveProperty('privateBody')
     expect(noticeMessages(f.pool).notices.find(row => row.messageId === 'notice-message-1')?.sessionLabel).toBe('Saved agent')
@@ -133,12 +134,12 @@ it('clears a replacement scope and cancels a pending load on disposal', async ()
   f.replaceEmpty()
   await Promise.resolve()
   expect(f.check().differences).toBe(0)
-  expect(f.pool.row('noticeSession', 'synthetic-session-0')).toBeUndefined()
+  expect(omitGone(f.pool.row('noticeSession', 'synthetic-session-0'))).toBeUndefined()
   f.pool.dispose()
   expect(f.listeners.size).toBe(0)
   expect(f.outboxListeners.size).toBe(0)
   const fresh = fixture()
-  fresh.pool.row('noticeCatalog', 'catalog')
+  omitGone(fresh.pool.row('noticeCatalog', 'catalog'))
   fresh.pool.dispose()
   await Promise.resolve()
   expect(fresh.rows).toHaveBeenCalledTimes(2)

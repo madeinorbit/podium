@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { operationalState } from '@podium/client-core/values'
@@ -56,13 +57,13 @@ export class BoardCard {
   get stageCounts(): readonly StageCount[] {
     const { issue } = this, pool = this.pool, agents = this.agents
     if (!issue.childCount) return NO_STAGES
-    const own = pool.row('issue', issue.id, 'summary-fields') as Loaded<IssueViewModel>
+    const own = omitGone(pool.row('issue', issue.id, 'summary-fields')) as Loaded<IssueViewModel>
     if (own === LOADING) throw LOADING
     if (!own || own.archived || own.deletedAt || !inBoardScope(pool, own, issue.id, agents, true))
       return NO_STAGES
     const counts = new Map<IssueViewModel['stage'], number>()
     for (const id of pool.graph.many('issue', issue.id, 'treeChildren')) {
-      const child = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
+      const child = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<IssueViewModel>
       if (child === LOADING) throw LOADING
       if (child && id !== issue.id && !child.archived && !child.deletedAt &&
         inBoardScope(pool, child, id, agents, true))

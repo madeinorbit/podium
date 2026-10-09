@@ -1,3 +1,4 @@
+import { here, omitGone, requireHere } from '../lookup'
 /** Frozen HB05/HB07 algorithms from ddc113ec4c, retained only for parity.
  * They deliberately read raw seats. Production must not import this file. */
 import type { SessionView } from '@podium/client-core/session-values'
@@ -19,11 +20,11 @@ const FOLDED_LOADING = { root: undefined, progress: NO_PROGRESS, live: 0, workin
 const FOLDED_NONE = { ...FOLDED_LOADING, loading: false }
 const sessionPresentOnTask = (session: SessionView) => !session.archived && session.status !== 'exited'
 export function foldedBefore(pool: MobxPool, rootId: string) {
-  const issue = (id: string) => pool.row('issue', id) as SliceIssue | typeof LOADING | undefined
+  const issue = (id: string) => omitGone(pool.row('issue', id)) as SliceIssue | typeof LOADING | undefined
   const sessionSummary = (id: string) => {
-    const model = pool.model('session', id)
+    const model = here(pool.model('session', id))
     if (model) return headerModel(pool).session(model).headerDock
-    const row = pool.row('session', id, 'summary')
+    const row = omitGone(pool.row('session', id, 'summary'))
     return row === LOADING ? undefined : row as Partial<SliceSession> | undefined
   }
     const value = issue(rootId)
@@ -31,7 +32,7 @@ export function foldedBefore(pool: MobxPool, rootId: string) {
     // The same root value selectedIssue() gives when the root is selected.
     const root = value && {
       ...value,
-      displayRef: pool.model('issue', value.id)?.displayRef ?? `#${value.seq}`,
+      displayRef: here(pool.model('issue', value.id))?.displayRef ?? `#${value.seq}`,
     }
     if (!root || root.archived || root.deletedAt) return FOLDED_NONE
     const ids = missions(pool).members(root.id)
@@ -91,7 +92,7 @@ export function foldedBefore(pool: MobxPool, rootId: string) {
       let asking = false,
         staffed = false
       for (const sid of present(id)) {
-        const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
+        const member = omitGone(pool.row('session', sid)) as SliceSession | typeof LOADING | undefined
         if (member === LOADING) {
           loading = true
           continue
@@ -121,12 +122,12 @@ export function foldedBefore(pool: MobxPool, rootId: string) {
       root.isDraftVessel &&
       !root.worktreePath &&
       !present(root.id).some((sid) => {
-        const member = pool.row('session', sid) as SliceSession | typeof LOADING | undefined
+        const member = omitGone(pool.row('session', sid)) as SliceSession | typeof LOADING | undefined
         return member && member !== LOADING && !member.archived
       })
     )
       return { root: undefined, progress: NO_PROGRESS, live: 0, working: 0, needs: 0, loading }
-    const model = pool.model('issue', root.id)
+    const model = here(pool.model('issue', root.id))
     const progress = model === undefined ? undefined : sidebarIssueProgress(model)
     if (progress === LOADING) loading = true
     return {
@@ -141,18 +142,18 @@ export function foldedBefore(pool: MobxPool, rootId: string) {
 
 export function worktreeBefore(pool: MobxPool, path: string, state: SidebarState = {}): SidebarWorktree | undefined {
     const view = worklistView(pool)
-    const lane = pool.row('worktree', path)
+    const lane = omitGone(pool.row('worktree', path))
     if (lane === undefined || lane === LOADING) return undefined
     const sessions: SliceSession[] = []
     const issues = new Map<string, SliceIssue & { readonly displayRef: string }>()
-    const tree = pool.model('worktree', path)
+    const tree = here(pool.model('worktree', path))
     const roster = tree ? view.tree(tree).roster : undefined
     if (roster === undefined || (!roster.ids.length && roster.pending === 0)) return undefined
     let activityAt = 0,
       pending = roster.pending
     for (const id of roster.ids) {
-      const sessionModel = pool.model('session', id)
-      const row = pool.row('session', id)
+      const sessionModel = here(pool.model('session', id))
+      const row = omitGone(pool.row('session', id))
       if (row === LOADING) {
         pending += 1
         continue
@@ -162,13 +163,13 @@ export function worktreeBefore(pool: MobxPool, path: string, state: SidebarState
       const owner =
         sessionModel.issueLink === null ? undefined : pool.knownIssue(sessionModel.issueLink)
       if (session.issueId && owner) {
-        const raw = pool.row('issue', session.issueId)
+        const raw = omitGone(pool.row('issue', session.issueId))
         if (raw === LOADING) pending += 1
         else if (raw !== undefined)
           issues.set(
             session.issueId,
             overlayRow(raw as SliceIssue, {
-              displayRef: pool.issue(session.issueId)!.displayRef,
+              displayRef: requireHere(pool.issue(session.issueId))!.displayRef,
             }),
           )
       }

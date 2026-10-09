@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { ConversationOutbox, ConversationRecords } from '@podium/client-core/conversation'
 import type { OutboxChatSend } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -20,7 +21,7 @@ const EMPTY_ISSUES: IssueViewModel[] = []
 function useRead<T>(read: (reader: Reader) => T, empty: T): T {
   const project = useCallback(
     (pool: MobxPool) => {
-      const reader = pool.row('mobileSessionReader', 'reader')
+      const reader = omitGone(pool.row('mobileSessionReader', 'reader'))
       return reader && !pending(reader) ? read(reader) : empty
     },
     [read, empty],
@@ -88,7 +89,7 @@ export function useSessionContextReferenceIssue(ref: string | undefined) {
   const read = useCallback(
     (pool: MobxPool): IssueViewModel | null | undefined => {
       if (ref === undefined) return undefined
-      const reader = pool.row('mobileSessionReader', 'reader')
+      const reader = omitGone(pool.row('mobileSessionReader', 'reader'))
       if (!reader || pending(reader)) return undefined
       const id = pool.queries.linkedIssueId(ref)
       if (id === undefined) return null
@@ -225,7 +226,7 @@ export function mobileConversationPorts(
   id: SessionId,
 ): Pick<Ports, 'records' | 'outbox'> {
   const read = () => {
-    const reader = pool.row('mobileSessionReader', 'reader')
+    const reader = omitGone(pool.row('mobileSessionReader', 'reader'))
     return reader && !pending(reader) ? reader.conversationPorts(id) : EMPTY_PORTS_INPUT
   }
   return {

@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { cachedKey } from './cached'
 import { MISSION_SCHEMA } from './mission-schema'
 import type { MobxPool } from './pool'
@@ -51,9 +52,9 @@ export function createNavigationActivity(pool: MobxPool): NavigationActivity {
   })
   /** The issue's own stamp; undefined when the issue is unknown (its subtree is not read). */
   const own = cachedKey('NavigationActivity', 'own', (id): Loaded<{ at: string | undefined }> => {
-    let issue = pool.row('issue', id, 'summary')
+    let issue = omitGone(pool.row('issue', id, 'summary'))
     if (issue && issue !== LOADING && !Object.hasOwn(issue, 'updatedAt'))
-      issue = pool.row('issue', id)
+      issue = omitGone(pool.row('issue', id))
     if (issue === LOADING || issue === undefined) return issue
     let latest: string | undefined = pool.issueObject(id).updatedAt
     const partition = seats.partition(MISSION_SCHEMA.members.sessions, id)

@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import {
   confirmedWorkingAgentCount,
   operationalState,
@@ -287,9 +288,9 @@ it('resolves no presentation field for hidden, folded or unmounted cards', async
         const options = { display: { layout, ordering: 'priority' as const, showAgentTasks: false },
           filter: {}, expanded, isMobile: false, now }
         settle(pool, () => {
-          const board = pool.row('issueBoardModel', JSON.stringify(options))
+          const board = omitGone(pool.row('issueBoardModel', JSON.stringify(options)))
           if (board === LOADING) throw LOADING
-          pool.row('issueExplorerModel', JSON.stringify({ tab: null, query: '', windowed: true }))
+          omitGone(pool.row('issueExplorerModel', JSON.stringify({ tab: null, query: '', windowed: true })))
         })
       }
     // Layouts publish ids only: no card answered anything.

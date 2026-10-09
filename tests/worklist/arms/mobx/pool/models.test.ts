@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 /**
  * POD-4565 (Ma1) — every field the schema declares is readable on a model,
  * and reads the row it was fed. The test iterates `SCHEMA`, not a list of
@@ -108,7 +109,7 @@ describe('schema fields on models', () => {
           const rows = [...pool.tables[entity].entries()]
           expect(rows.length, `${entity}: the corpus feeds rows of every entity`).toBeGreaterThan(0)
           for (const [id, row] of rows) {
-            const model = pool.model(entity, id) as unknown as Record<string, unknown>
+            const model = here(pool.model(entity, id)) as unknown as Record<string, unknown>
             expect(model, `${entity}:${id}`).toBeDefined()
             for (const field of Object.keys(spec.fields)) {
               expect(field in model, `${entity}.${field} has no getter`).toBe(true)

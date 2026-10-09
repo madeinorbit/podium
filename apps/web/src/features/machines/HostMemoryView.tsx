@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   formatMemBytes,
@@ -50,7 +51,7 @@ const REFRESH_MS = 5_000
 const readParkedCount = (pool: MobxPool): number =>
   pool.queries.ids({ kind: 'shellSessions' }).reduce((count, id) => {
     if (pool.queries.collapsed(id)) return count
-    const row = pool.row('session', id, 'summary-fields')
+    const row = omitGone(pool.row('session', id, 'summary-fields'))
     return (
       count +
       (row && typeof row !== 'symbol' && (row as { status?: string }).status === 'hibernated'

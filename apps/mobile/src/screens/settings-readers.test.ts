@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '../../../../tests/worklist/diagnostics/reference-state'
 import { MobxPool } from '@podium/client-graph'
@@ -71,13 +72,13 @@ async function fixture() {
 it('batches declared diagnostics and maintains counts without iterating payloads', async () => {
   const f = await fixture()
   expect(f.read).not.toHaveBeenCalled()
-  expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toBe(LOADING)
-  expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toBe(LOADING)
+  expect(omitGone(f.pool.row('mobileSettingsDiagnostics', 'diagnostics'))).toBe(LOADING)
+  expect(omitGone(f.pool.row('mobileSettingsDiagnostics', 'diagnostics'))).toBe(LOADING)
   expect(f.read).not.toHaveBeenCalled()
   await Promise.resolve()
   // One batch reads the two counts, by key.
   expect(f.read).toHaveBeenCalledTimes(2)
-  expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toEqual({
+  expect(omitGone(f.pool.row('mobileSettingsDiagnostics', 'diagnostics'))).toEqual({
     issueCount: 100_000,
     conversationCount: 5,
     cursor: null,
@@ -86,7 +87,7 @@ it('batches declared diagnostics and maintains counts without iterating payloads
   f.publish(1, 10)
   await Promise.resolve()
   expect(f.source.counts.batches).toBe(2)
-  expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toMatchObject({
+  expect(omitGone(f.pool.row('mobileSettingsDiagnostics', 'diagnostics'))).toMatchObject({
     issueCount: 1,
     conversationCount: 10,
   })
@@ -95,7 +96,7 @@ it('batches declared diagnostics and maintains counts without iterating payloads
 it('refreshes the cursor on its signal and suppresses equal diagnostics', async () => {
   const f = await fixture()
   const view = createPoolProjection(f.pool, (pool) =>
-    pool.row('mobileSettingsDiagnostics', 'diagnostics'),
+    omitGone(pool.row('mobileSettingsDiagnostics', 'diagnostics')),
   )
   const wake = vi.fn()
   stops.push(view.subscribe(wake))
@@ -112,11 +113,11 @@ it('refreshes the cursor on its signal and suppresses equal diagnostics', async 
 
 it('unsubscribes at disposal and cancels a pending diagnostic batch', async () => {
   const f = await fixture()
-  expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toBe(LOADING)
+  expect(omitGone(f.pool.row('mobileSettingsDiagnostics', 'diagnostics'))).toBe(LOADING)
   f.pool.dispose()
   expect(f.runtimeListeners.size).toBe(0)
   expect(f.cursorListeners.size).toBe(0)
   await Promise.resolve()
   expect(f.read).not.toHaveBeenCalled()
-  expect(f.pool.row('mobileSettingsDiagnostics', 'diagnostics')).toBe(LOADING)
+  expect(omitGone(f.pool.row('mobileSettingsDiagnostics', 'diagnostics'))).toBe(LOADING)
 })

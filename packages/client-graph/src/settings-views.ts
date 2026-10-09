@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { DEFAULT_HARNESS_AGENT, machinePathKey } from '@podium/model/browser'
 import { compareStructural } from 'mobx'
@@ -18,7 +19,7 @@ function createSettingsViews(pool: MobxPool) {
   const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
   function sessions() {
     return pool.queries.summarize(
-      { kind: 'setupSessions' }, 'settings.sessions', (id) => pool.row('setupSession', id), {
+      { kind: 'setupSessions' }, 'settings.sessions', (id) => omitGone(pool.row('setupSession', id)), {
         // Resume winners occupy their group's first source position, including
         // ties across cold/hot partitions. Headless rows remain independent.
         order: (id) => String(pool.sourcePosition('session', id) ?? 0).padStart(16, '0'),
@@ -58,7 +59,7 @@ export function settingsView(pool: MobxPool): ReturnType<typeof createSettingsVi
 
 /** Setup decoration and the first-task decision belong to the setup screen. */
 export function readSetupSession(pool: MobxPool, id: string): Loaded<SetupSession> {
-  const row = pool.row('session', id, 'summary-fields')
+  const row = omitGone(pool.row('session', id, 'summary-fields'))
   return row && row !== LOADING
     ? setupSessionSummary(row as Readonly<Record<string, unknown>>, pool.sourcePosition('session', id))
     : row

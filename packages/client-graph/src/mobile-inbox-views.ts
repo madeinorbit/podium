@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { referenceView } from './issue-reference'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { IssueReferenceModel } from '@podium/client-core/values'
@@ -15,7 +16,7 @@ import { LOADING, type Loaded } from './worklist/rollup'
 export function createMobileInboxViews(pool: MobxPool) {
   const waits = new Set<() => void>()
   const booting = () => {
-    const state = pool.row('mobileInboxState', 'state')
+    const state = omitGone(pool.row('mobileInboxState', 'state'))
     return (
       !state ||
       state === LOADING ||
@@ -58,7 +59,7 @@ export function createMobileInboxViews(pool: MobxPool) {
   }
   function session(identifier: string): Loaded<SessionView> {
     const trimmed = identifier.trim()
-    const direct = pool.row('session', trimmed, 'summary') as Loaded<SessionView>
+    const direct = omitGone(pool.row('session', trimmed, 'summary')) as Loaded<SessionView>
     if (direct && direct !== LOADING && !pool.queries.collapsed(trimmed)) return direct
     if (!parseSessionRef(trimmed)) return direct === LOADING ? LOADING : undefined
     let pending = false
@@ -68,7 +69,7 @@ export function createMobileInboxViews(pool: MobxPool) {
       .sort((a, b) => pool.queries.orderKey(a).localeCompare(pool.queries.orderKey(b)))
     for (const id of ids) {
       if (pool.queries.collapsed(id)) continue
-      const row = pool.row('session', id, 'summary') as Loaded<SessionView>
+      const row = omitGone(pool.row('session', id, 'summary')) as Loaded<SessionView>
       if (row === LOADING) pending = true
       else if (row?.displayRef === trimmed) return row
     }
@@ -85,7 +86,7 @@ export function createMobileInboxViews(pool: MobxPool) {
           ? `/session/${encodeURIComponent(row.sessionId)}`
           : null
     }
-    const direct = pool.row('issue', target.issue.trim(), 'summary') as Loaded<{ id: string }>
+    const direct = omitGone(pool.row('issue', target.issue.trim(), 'summary')) as Loaded<{ id: string }>
     if (direct && direct !== LOADING) return `/issue/${encodeURIComponent(direct.id)}`
     // Bare aliases match the displayed fallback literally. Unlike PREFIX-N,
     // the legacy route does not parse a zero-padded bare sequence number.

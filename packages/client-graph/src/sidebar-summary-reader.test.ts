@@ -1,3 +1,4 @@
+import { requireHere } from './lookup'
 import { sidebarRosterView } from './worklist/sidebar-roster'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
@@ -17,7 +18,7 @@ it('keeps a missing cold seat out of the roster without indexing or loading its 
     { kind: 'session', id: session.sessionId, value: session as never },
   ] })
   const missing = vi.spyOn(pool.residency!, 'summary').mockReturnValue(undefined)
-  const tree = worklistView(pool).tree(pool.model('worktree', path)!)
+  const tree = worklistView(pool).tree(requireHere(pool.model('worktree', path))!)
   try {
     expect(pool.tables.session.has(session.sessionId)).toBe(false)
     pool.apply({ type: 'update', rows: [{ kind: 'session', id: session.sessionId, value: { ...session, title: 'Changed' } as never }] })

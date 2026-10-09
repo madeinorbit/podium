@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { settingsView } from '@podium/client-graph/settings-views'
 import { referenceState } from './reference-state'
 /** Fixture and private-replay comparison using the sidebar contract. Expected
@@ -19,8 +20,8 @@ export interface SettingsCheckOwner {
 
 export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
   const state = referenceState(owner)
-  const catalog = pool.row('settingsCatalog', 'catalog')
-  const window = pool.row('settingsWindow', 'window')
+  const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
+  const window = omitGone(pool.row('settingsWindow', 'window'))
   const expectedUsage = createRepositoryUsageSelector()(state.sessions)
   const setup = settingsView(pool).setup([...expectedUsage.keys()])
   const sessions = settingsView(pool).sessions()
@@ -49,7 +50,7 @@ export function checkSettings(pool: MobxPool, owner: SettingsCheckOwner) {
     ids: readonly string[],
   ): CheckRow[] =>
     ids.map((id) => {
-      const row = pool.row(entity, id)
+      const row = omitGone(pool.row(entity, id))
       if (row === LOADING) pending++
       return { id, pending: row === LOADING, fields: row === LOADING || !row ? {} : { value: row } }
     })

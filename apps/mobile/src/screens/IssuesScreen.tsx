@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { MobileTasksBoard, type MobileTaskIssue } from '@podium/client-graph/mobile-tasks'
 import type { BoardListRow } from '@podium/client-graph/issue-board-schema'
@@ -602,7 +603,7 @@ const TaskRow = observer(function TaskRow({
   onOpenActions: (issue: MobileTaskIssue) => void
 }) {
   // The shared load window resolves just this drawn row; membership stays live.
-  if (!issue.row) return <View style={styles.rowWrap} />
+  if (!here(issue.row)) return <View style={styles.rowWrap} />
   let workingAgents: number, progress: MobileTaskIssue['taskProgress']
   try {
     workingAgents = issue.confirmedWorkingAgents

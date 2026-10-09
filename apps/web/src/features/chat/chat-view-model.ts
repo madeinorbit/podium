@@ -1,3 +1,4 @@
+import { here, omitGone } from '@podium/client-graph/lookup'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   chatActivityState,
@@ -52,13 +53,13 @@ export class ChatViewModel {
   }
   @lazy get session(): SessionView | undefined {
     const pool = this.conversation.pool
-    const row = pool.row('session', this.conversation.sessionId)
+    const row = omitGone(pool.row('session', this.conversation.sessionId))
     return !row || typeof row === 'symbol'
       ? undefined
-      : (pool.model('session', this.conversation.sessionId) as unknown as SessionView)
+      : (here(pool.model('session', this.conversation.sessionId)) as unknown as SessionView)
   }
   @lazy get reference() {
-    const row = this.conversation.pool.row('sessionExit', this.conversation.sessionId)
+    const row = omitGone(this.conversation.pool.row('sessionExit', this.conversation.sessionId))
     const exit = row && typeof row !== 'symbol' ? row.kind : undefined
     return chatSessionReference(
       this.conversation.sessionId,
@@ -152,13 +153,13 @@ export class ChatViewModel {
     return this.headless ? null : this.conversation.sends.offer
   }
   @lazy get question() {
-    const reader = this.conversation.pool.row('chatContextReader', 'reader')
+    const reader = omitGone(this.conversation.pool.row('chatContextReader', 'reader'))
     return reader && typeof reader !== 'symbol'
       ? reader.interactions(this.conversation.sessionId).question
       : undefined
   }
   @lazy get blocked(): boolean {
-    const reader = this.conversation.pool.row('chatContextReader', 'reader')
+    const reader = omitGone(this.conversation.pool.row('chatContextReader', 'reader'))
     return reader && typeof reader !== 'symbol'
       ? reader.interactions(this.conversation.sessionId).blocked
       : false
@@ -168,7 +169,7 @@ export class ChatViewModel {
     const pool = this.conversation.pool
     const id = this.session?.machineId
     const machine =
-      id === undefined ? undefined : (pool.row('machine', id) as MachineWire | symbol | undefined)
+      id === undefined ? undefined : (omitGone(pool.row('machine', id)) as MachineWire | symbol | undefined)
     return machine && typeof machine !== 'symbol' && isMachineOfflineForLiveTerminal(machine)
       ? (this.session?.machineName ?? machine.name ?? id ?? null)
       : null
@@ -176,10 +177,10 @@ export class ChatViewModel {
   @lazy({ equals: compareStructural }) get attached() {
     if (!this.superThread) return null
     const pool = this.conversation.pool
-    const window = pool.row('chatWindow', 'window')
+    const window = omitGone(pool.row('chatWindow', 'window'))
     const id = window && typeof window !== 'symbol' ? window.attachedSessionId : null
     if (!id) return null
-    const session = pool.model('session', id)
+    const session = here(pool.model('session', id))
     return {
       sessionId: id,
       label: session?.name ?? session?.title ?? id,
@@ -187,7 +188,7 @@ export class ChatViewModel {
     }
   }
   @lazy get transcriptReveal() {
-    const row = this.conversation.pool.row('chatWindow', 'window')
+    const row = omitGone(this.conversation.pool.row('chatWindow', 'window'))
     return row && typeof row !== 'symbol' ? row.transcriptReveal : null
   }
   @lazy({ equals: compareStructural }) get backend() {
@@ -217,7 +218,7 @@ export class ChatViewModel {
   @actionBound captureContext(): void {
     if (!this.compact) return
     const id = this.conversation.runtime.access.getUserFocus().issueId
-    this.ctxSeq = id ? (this.conversation.pool.model('issue', id)?.seq ?? null) : null
+    this.ctxSeq = id ? (here(this.conversation.pool.model('issue', id))?.seq ?? null) : null
   }
   isOperatorPromptRow = (row: ChatRow): boolean =>
     isOperatorPromptRow(row, {

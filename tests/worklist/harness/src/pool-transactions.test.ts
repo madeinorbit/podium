@@ -1,3 +1,4 @@
+import { here, omitGone } from '@podium/client-graph/lookup'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { referenceState } from '../../diagnostics/reference-state'
 // @vitest-environment happy-dom
@@ -281,9 +282,9 @@ describe.each([
       expect(differences(ctx, reference.pool, pooled.pool, focus), kind).toEqual([])
     }
     // A model setter is the same write path (`issue.title = x` → `pool.mutate`).
-    const model = tracked(() => pooled.pool.issue(t.markReadId))!
+    const model = tracked(() => here(pooled.pool.issue(t.markReadId)))!
     model.title = 'Through the setter'
-    expect(tracked(() => pooled.pool.issue(t.markReadId)?.title)).toBe('Through the setter')
+    expect(tracked(() => here(pooled.pool.issue(t.markReadId))?.title)).toBe('Through the setter')
     await settle(ctx)
     expect(differences(ctx, reference.pool, pooled.pool, [t.markReadId])).toEqual([])
     // Every kind the shared reducers paint was driven through the pool.
@@ -342,17 +343,17 @@ describe.each([
         title: (rejection.input as { patch: { title?: string } }).patch.title,
         parked: rejection.parked,
         // Announced after the rebase: the model already shows the accepted title.
-        shown: tracked(() => pooled.pool.issue(id)?.title),
+        shown: tracked(() => here(pooled.pool.issue(id))?.title),
       })
     })
     pooled.pool.mutate('issueUpdate', { id, patch: { title: 'A' } })
     // Painted at the press, in the same action, ahead of the durable commit.
-    expect(tracked(() => pooled.pool.issue(id)?.title)).toBe('A')
+    expect(tracked(() => here(pooled.pool.issue(id))?.title)).toBe('A')
     pooled.pool.mutate('issueUpdate', { id, patch: { title: 'B' } })
     pooled.pool.mutate('issueUpdate', { id, patch: { stage: 'review' } })
     await settle(ctx)
     check()
-    expect(tracked(() => pooled.pool.issue(id)?.title)).toBe('B')
+    expect(tracked(() => here(pooled.pool.issue(id))?.title)).toBe('B')
     // A lands; its echo follows.
     answers.shift()!.resolve({})
     await settle(ctx)
@@ -369,8 +370,8 @@ describe.each([
     )
     await settle(ctx)
     check()
-    expect(tracked(() => pooled.pool.issue(id)?.title)).toBe('A')
-    expect(tracked(() => pooled.pool.issue(id)?.stage)).toBe('review')
+    expect(tracked(() => here(pooled.pool.issue(id))?.title)).toBe('A')
+    expect(tracked(() => here(pooled.pool.issue(id))?.stage)).toBe('review')
     expect(refusals).toEqual([{ title: 'B', parked: true, shown: 'A' }])
     // Nothing waits behind the refusal: the stage change goes, lands, echoes.
     await settle(ctx)
@@ -394,17 +395,17 @@ describe.each([
     await settle(ctx)
     expect(ctx.engine.outbox.pending()).toHaveLength(0)
     check(t.visibleRootId)
-    expect(tracked(() => pooled.pool.issue(t.visibleRootId)?.title)).toBe('Applied')
+    expect(tracked(() => here(pooled.pool.issue(t.visibleRootId))?.title)).toBe('Applied')
     // An unrelated cell moving is not coverage: still held.
     upsertIssue(ctx, t.visibleRootId, { description: 'Unrelated edit' }, 7)
     await settle(ctx)
     check(t.visibleRootId)
-    expect(tracked(() => pooled.pool.issue(t.visibleRootId)?.title)).toBe('Applied')
+    expect(tracked(() => here(pooled.pool.issue(t.visibleRootId))?.title)).toBe('Applied')
     // Another writer's title wins over the held one (moved past the baseline).
     upsertIssue(ctx, t.visibleRootId, { title: 'Someone else' }, 8)
     await settle(ctx)
     check(t.visibleRootId)
-    expect(tracked(() => pooled.pool.issue(t.visibleRootId)?.title)).toBe('Someone else')
+    expect(tracked(() => here(pooled.pool.issue(t.visibleRootId))?.title)).toBe('Someone else')
     // The plain case: the echo covers it.
     pooled.pool.mutate('issueUpdate', { id: t.markReadId, patch: { title: 'Echoed' } })
     await settle(ctx)
@@ -412,7 +413,7 @@ describe.each([
     upsertIssue(ctx, t.markReadId, { title: 'Echoed' }, 9)
     await settle(ctx)
     check(t.markReadId)
-    expect(tracked(() => pooled.pool.issue(t.markReadId)?.title)).toBe('Echoed')
+    expect(tracked(() => here(pooled.pool.issue(t.markReadId))?.title)).toBe('Echoed')
   }, 120_000)
 
   it('paints a per-user row the server never wrote (absent means nothing set)', async () => {
@@ -433,7 +434,7 @@ describe.each([
     expect(differences(ctx, reference.pool, pooled.pool, [t.markReadId])).toEqual([])
     expect(
       tracked(
-        () => (pooled.pool.row('issue', t.markReadId, 'peek') as { readAt?: unknown })?.readAt,
+        () => (omitGone(pooled.pool.row('issue', t.markReadId, 'peek')) as { readAt?: unknown })?.readAt,
       ),
     ).toBeTruthy()
   }, 120_000)
@@ -462,7 +463,7 @@ describe.each([
     expect(
       differences(ctx, handles.reference.pool, handles.pooled.pool, [t.visibleRootId, t.markReadId]),
     ).toEqual([])
-    expect(tracked(() => handles.pooled.pool.issue(t.visibleRootId)?.title)).toBe('Before reload')
+    expect(tracked(() => here(handles.pooled.pool.issue(t.visibleRootId))?.title)).toBe('Before reload')
   }, 120_000)
 
   it('adopts spawn placeholders and takes them back after a failed create', async () => {
@@ -485,12 +486,12 @@ describe.each([
     // Direct creation has one pool owner; the independent outbox observer
     // receives the server rows later. Assert the first paint at its owner.
     expect(tracked(() => {
-      const issue = pooled.pool.issue(spawned.issueId)
+      const issue = here(pooled.pool.issue(spawned.issueId))
       return issue ? { id: issue.id, stage: issue.stage, seq: issue.seq } : undefined
     })).toEqual({
       id: spawned.issueId, stage: 'backlog', seq: 0,
     })
-    expect(tracked(() => pooled.pool.row('session', spawned.sessionId, 'peek'))).toBeDefined()
+    expect(tracked(() => omitGone(pooled.pool.row('session', spawned.sessionId, 'peek')))).toBeDefined()
     // POD-5432 step 6: owning sessions, pool screens read the placeholders
     // (adapters 4 and 12) from the log; the reference's copy answers otherwise.
     const ownsSessions = owns.includes('session' as never)
@@ -507,7 +508,7 @@ describe.each([
     expect(referenceState(ctx.engine).pendingSpawnIds.has(spawned.sessionId)).toBe(false)
     if (ownsSessions) expect(tracked(() => placeholders()!.has(spawned.sessionId))).toBe(false)
     expect(differences(ctx, reference.pool, pooled.pool)).toEqual([])
-    expect(tracked(() => pooled.pool.row('session', spawned.sessionId, 'peek'))).toBeUndefined()
+    expect(tracked(() => omitGone(pooled.pool.row('session', spawned.sessionId, 'peek')))).toBeUndefined()
   }, 120_000)
 
   it("adopts another tab's and the runtime's queued writes from the outbox", async () => {
@@ -522,7 +523,7 @@ describe.each([
     })
     await settle(ctx)
     expect(differences(ctx, reference.pool, pooled.pool, [t.visibleRootId])).toEqual([])
-    expect(tracked(() => pooled.pool.issue(t.visibleRootId)?.title)).toBe('Other tab')
+    expect(tracked(() => here(pooled.pool.issue(t.visibleRootId))?.title)).toBe('Other tab')
     // The runtime's actions enter the same product writer.
     await referenceState(ctx.engine).markIssueRead(asIssueId(t.markReadId))
     await ctx.engine.access.updateIssue(asIssueId(t.visibleRootId), { title: 'Runtime action' })
@@ -545,12 +546,12 @@ describe.each([
     upsert(ctx, 'issueProjection', t.evictId, before, 3, true)
     await settle(ctx)
     expect(differences(ctx, reference.pool, pooled.pool, [t.evictId])).toEqual([])
-    expect(tracked(() => pooled.pool.issue(t.evictId)?.title)).toBe('Survives eviction')
+    expect(tracked(() => here(pooled.pool.issue(t.evictId))?.title)).toBe('Survives eviction')
     await writeRescopeGrow(ctx)
     expect(differences(ctx, reference.pool, pooled.pool, [t.visibleRootId])).toEqual([])
     await writeRescopeBack(ctx)
     expect(differences(ctx, reference.pool, pooled.pool, [t.visibleRootId])).toEqual([])
-    expect(tracked(() => pooled.pool.issue(t.visibleRootId)?.title)).toBe('Survives rescope')
+    expect(tracked(() => here(pooled.pool.issue(t.visibleRootId))?.title)).toBe('Survives rescope')
   }, 120_000)
 
   it('fails the comparison when the pool reduces a command wrongly (planted)', async () => {
@@ -618,7 +619,7 @@ describe.each([
       const stop = autorun(() => {
         void worklistGroups(pool).layout
         for (const id of visibleOrderOf(pool)) {
-          const model = pool.issue(id)
+          const model = here(pool.issue(id))
           void model?.title
           void model?.stage
         }
@@ -644,7 +645,7 @@ describe.each([
         }
       })
       await settle(ctx)
-      expect(tracked(() => pool.issue(id)?.title)).toBe(`Clicked at ${scale}x`)
+      expect(tracked(() => here(pool.issue(id))?.title)).toBe(`Clicked at ${scale}x`)
       const neighbourhood = neighbourhoodOf(before, state(), [`issue:${id}`], [id]).members.size
       return { reads, derivations: work.derivations, neighbourhood }
     }
@@ -684,7 +685,7 @@ describe.each([
     void store.updateIssue(asIssueId(t.visibleRootId), { title: 'Routed' } as never)
     void store.renameSession(asSessionId(s1!), 'Routed session')
     // The same tick: nothing is durable yet, the log already painted.
-    expect(tracked(() => pooled.pool.issue(t.visibleRootId)?.title)).toBe('Routed')
+    expect(tracked(() => here(pooled.pool.issue(t.visibleRootId))?.title)).toBe('Routed')
     expect(pooled.transactions!.size()).toBe(2)
     await settle(ctx)
     // One record per press: the log enqueued through the reference, never twice.
@@ -722,9 +723,9 @@ describe.each([
       rows.dispose()
     })
     const id = ctx.targets.visibleRootId
-    const before = tracked(() => planted.pool.issue(id)?.title)
+    const before = tracked(() => here(planted.pool.issue(id))?.title)
     await expect(engine.access.updateIssue(asIssueId(id), { title: 'Routed' } as never)).rejects.toThrow(/pool/i)
-    expect(tracked(() => planted.pool.issue(id)?.title)).toBe(before)
+    expect(tracked(() => here(planted.pool.issue(id))?.title)).toBe(before)
     expect(engine.outbox.pending()).toEqual([])
   }, 120_000)
 
@@ -736,26 +737,26 @@ describe.each([
     const { ctx } = await boot(1, { online: true, server })
     const { reference, pooled } = pair(ctx)
     const id = ctx.targets.visibleRootId
-    const original = tracked(() => pooled.pool.issue(id)?.title)
+    const original = tracked(() => here(pooled.pool.issue(id))?.title)
     const seen: unknown[] = []
     const stop = autorun(() => {
-      seen.push(pooled.pool.row('issue', id))
+      seen.push(omitGone(pooled.pool.row('issue', id)))
     })
     cleanups.push(stop)
     void referenceState(ctx.engine).updateIssue(asIssueId(id), { title: 'Refused' } as never)
-    const painted = tracked(() => pooled.pool.row('issue', id))
+    const painted = tracked(() => omitGone(pooled.pool.row('issue', id)))
     // One plain object, the table's own, on every read: no read-time overlay.
-    expect(tracked(() => pooled.pool.row('issue', id))).toBe(painted)
+    expect(tracked(() => omitGone(pooled.pool.row('issue', id)))).toBe(painted)
     expect(types.isProxy(painted)).toBe(false)
     expect((painted as { title: string }).title).toBe('Refused')
     await settle(ctx)
-    expect(tracked(() => pooled.pool.row('issue', id))).toBe(painted)
+    expect(tracked(() => omitGone(pooled.pool.row('issue', id)))).toBe(painted)
     const runs = seen.length
     answers
       .shift()!
       .reject(Object.assign(new Error('conflict'), { data: { code: 'CONFLICT', httpStatus: 409 } }))
     await settle(ctx)
-    expect(tracked(() => pooled.pool.issue(id)?.title)).toBe(original)
+    expect(tracked(() => here(pooled.pool.issue(id))?.title)).toBe(original)
     // Exactly one rewind: one new row object after the refusal, never a
     // second fold of the same refusal from the reference.
     expect(seen.length - runs).toBe(1)
@@ -779,7 +780,7 @@ describe.each([
       const stop = autorun(() => {
         void worklistGroups(pool).layout
         for (const id of visibleOrderOf(pool)) {
-          const model = pool.issue(id)
+          const model = here(pool.issue(id))
           void model?.title
           void model?.stage
         }
@@ -806,7 +807,7 @@ describe.each([
         }
       })
       await settle(ctx)
-      expect(tracked(() => pool.issue(id)?.title)).toBe(`Action at ${scale}x`)
+      expect(tracked(() => here(pool.issue(id))?.title)).toBe(`Action at ${scale}x`)
       const neighbourhood = neighbourhoodOf(before, state(), [`issue:${id}`], [id]).members.size
       return { reads, derivations: work.derivations, neighbourhood }
     }

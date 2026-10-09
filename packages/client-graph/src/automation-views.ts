@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { compareStructural } from 'mobx'
 import type { AutomationRows } from './automation-schema'
@@ -28,12 +29,12 @@ function createAutomationViews(pool: MobxPool) {
    * them (`run`), from the window that history asked the server for. */
   function list() {
     return memo('list', () => {
-      const catalog = pool.row('automationCatalog', 'catalog')
+      const catalog = omitGone(pool.row('automationCatalog', 'catalog'))
       const automations: AutomationRows['automation'][] = []
       let pending = catalog === LOADING ? 1 : 0
       if (catalog && catalog !== LOADING) {
         for (const id of catalog.automations) {
-          const row = pool.row('automation', id)
+          const row = omitGone(pool.row('automation', id))
           if (row === LOADING) { pending++; continue }
           if (!row || Reflect.get(row, 'system') === true) continue
           automations.push(row)
@@ -44,11 +45,11 @@ function createAutomationViews(pool: MobxPool) {
   }
   function repositories() {
     return memo('repositories', () => {
-      const catalog = pool.row('settingsCatalog', 'catalog')
+      const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
       const repos: SettingsRows['settingsRepository'][] = []
       let pending = catalog === LOADING ? 1 : 0
       if (catalog && catalog !== LOADING) for (const id of catalog.repositories) {
-        const row = pool.row('settingsRepository', id)
+        const row = omitGone(pool.row('settingsRepository', id))
         if (row === LOADING) pending++
         else if (row) repos.push(row)
       }
@@ -56,11 +57,11 @@ function createAutomationViews(pool: MobxPool) {
     })
   }
   function run(id: string) {
-    return pool.row('automationRun', id)
+    return omitGone(pool.row('automationRun', id))
   }
   function session(id: string | undefined) {
     if (!id) return undefined
-    return pool.queries.setupSessionPresent(id) ? pool.row('setupSession', id) : undefined
+    return pool.queries.setupSessionPresent(id) ? omitGone(pool.row('setupSession', id)) : undefined
   }
   return { list, repositories, targets: targetViews.targets, target: targetViews.target,
     targetMachine: targetViews.targetMachine, targetForPath: targetViews.targetForPath, run, session,

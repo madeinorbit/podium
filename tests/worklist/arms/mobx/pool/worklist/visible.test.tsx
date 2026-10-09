@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import { rowViewOf } from '../../../../shared/src/row-snapshots'
 import { referenceState } from '../../../../diagnostics/reference-state'
 
@@ -134,7 +135,7 @@ function checkParity(ctx: ScenarioEngine, handle: HarnessMobxPoolHandle, at: str
   const diffs: string[] = []
   tracked(() => {
     for (const id of order) {
-      const live = rowViewOf(pool.issue(id))
+      const live = rowViewOf(here(pool.issue(id)))
       const oracle = views[id]
       for (const field of OWN_FIELDS) {
         if (JSON.stringify(live?.[field]) !== JSON.stringify(oracle?.[field])) {

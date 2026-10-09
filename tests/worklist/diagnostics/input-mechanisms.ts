@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 /** One-field invalidation measurements, collected before POD-5420's fixes. */
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -124,31 +125,31 @@ export async function inputMechanisms(scale: 1 | 4) {
     )
   }
   watch('shell.chrome', () => {
-    const row = f.pool.row('shellWindow', 'window')
+    const row = omitGone(f.pool.row('shellWindow', 'window'))
     return row && row !== LOADING ? row.paletteOpen : row
   })
   watch('shell.dock', () => {
-    const row = f.pool.row('shellWindow', 'window')
+    const row = omitGone(f.pool.row('shellWindow', 'window'))
     return row && row !== LOADING ? row.paneA : row
   })
   watch('header.shipping', () => {
-    const row = f.pool.row('window', 'window') as HeaderRows['window'] | undefined
+    const row = omitGone(f.pool.row('window', 'window')) as HeaderRows['window'] | undefined
     return row?.paneA
   })
   watch('header.outbox', () => {
-    const row = f.pool.row('window', 'window') as HeaderRows['window'] | undefined
+    const row = omitGone(f.pool.row('window', 'window')) as HeaderRows['window'] | undefined
     return row?.outboxSize
   })
   watch('command.pane', () => {
-    const row = f.pool.row('commandWindow', 'window')
+    const row = omitGone(f.pool.row('commandWindow', 'window'))
     return row && row !== LOADING ? row.paneA : row
   })
   watch('command.pins', () => {
-    const row = f.pool.row('commandWindow', 'window')
+    const row = omitGone(f.pool.row('commandWindow', 'window'))
     return row && row !== LOADING ? row.pins : row
   })
   watch('mobile.cursor', () => {
-    const row = f.pool.row('mobileSessionWindow', 'window')
+    const row = omitGone(f.pool.row('mobileSessionWindow', 'window'))
     // Typed field access, never a quoted field check: the replica cursor's
     // name as a string literal trips the harness-vendor lint (POD-5614). The
     // window carries its cursor unconditionally (null included), so this reads
@@ -168,7 +169,7 @@ export async function inputMechanisms(scale: 1 | 4) {
   })
   watch(
     'repo.prefix',
-    () => (f.pool.row('repo', 'shell-repo') as { prefix?: string } | undefined)?.prefix,
+    () => (omitGone(f.pool.row('repo', 'shell-repo')) as { prefix?: string } | undefined)?.prefix,
   )
   await flush()
   const capture = async (action: string, write: () => void) => {

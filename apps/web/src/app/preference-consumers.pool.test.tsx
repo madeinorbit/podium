@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { preferenceSource } from '@podium/client-graph/preference-source'
 import { EXISTING_PODIUM_CLIENT_DRAFT_KEY, type RoutedUiState } from '@podium/client-core/ui-state'
@@ -217,7 +218,7 @@ describe('pool-only preference consumers', () => {
     expect(ui.get).not.toHaveBeenCalled()
     ports.pool = pool
     paint(density(true))
-    expect(pool.row('preference', SHELL_DENSITY_KEY)).toBe(LOADING)
+    expect(omitGone(pool.row('preference', SHELL_DENSITY_KEY))).toBe(LOADING)
     expect(container.textContent).toBe('balanced')
     await settle()
     expect(container.textContent).toBe('compact')

@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { preferenceSource } from '@podium/client-graph/preference-source'
 import { createSideCache, memoryStorage } from '@podium/client-core/replica'
@@ -53,7 +54,7 @@ it('re-reads only the changed key in the owner batch, routes both homes, and dro
   const stops = keys.map((key) =>
     autorun(() => {
       runs[key] = (runs[key] ?? 0) + 1
-      const row = f.pool.row('preference', key)
+      const row = omitGone(f.pool.row('preference', key))
       seen[key] = row && row !== LOADING ? row.value : row
     }),
   )
@@ -99,7 +100,7 @@ it('re-reads only the changed key in the owner batch, routes both homes, and dro
 it('preserves exact preference values and rejects a planted stale value in the parity check', async () => {
   const f = fixture(),
     key = 'podium:sidebar:project-fold:parity'
-  const stop = autorun(() => f.pool.row('preference', key))
+  const stop = autorun(() => omitGone(f.pool.row('preference', key)))
   try {
     await flush()
     f.ui.set(key, '1')
@@ -121,11 +122,11 @@ it('publishes an addressed local draft before input-end while keeping other pref
   const otherKey = 'podium:sidebar:project-fold:other'
   let draft: unknown, other: unknown
   const stopDraft = autorun(() => {
-    const row = f.pool.row('preference', draftKey)
+    const row = omitGone(f.pool.row('preference', draftKey))
     draft = row && row !== LOADING ? row.value : row
   })
   const stopOther = autorun(() => {
-    const row = f.pool.row('preference', otherKey)
+    const row = omitGone(f.pool.row('preference', otherKey))
     other = row && row !== LOADING ? row.value : row
   })
   try {

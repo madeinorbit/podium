@@ -1,3 +1,4 @@
+import { requireHere } from '../lookup'
 import { runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { draftOf } from './draft-of'
@@ -21,7 +22,7 @@ function fixture() {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
   pool.attachTransactions(tx)
   pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: 'i-1', value: row() }] })
-  const issue = pool.issue('i-1')!
+  const issue = requireHere(pool.issue('i-1'))!
   return { enqueue, pool, issue, dispose() { tx.dispose(); pool.dispose() } }
 }
 

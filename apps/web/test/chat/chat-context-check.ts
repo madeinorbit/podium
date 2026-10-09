@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { headerView } from '@podium/client-graph/header-views'
 /** Fixture comparison for pool regression tests. The report exports only counts
  * and positions; both sets of words and authored sends remain in memory. */
@@ -48,7 +49,7 @@ export function checkChatContext(
       issueMentions(mentions.issues, query, 5),
       mentions.pending > 0,
     )
-  const window = pool.row('chatWindow', 'window')
+  const window = omitGone(pool.row('chatWindow', 'window'))
   compare(
     'window',
     {
@@ -61,9 +62,9 @@ export function checkChatContext(
   for (const id of ids) {
     const asks = chatInteractions(pool, id),
       records = chatRecords(pool, id)
-    const draft = pool.row('chatDraft', id),
-      held = pool.row('chatHeld', id)
-    const exit = pool.row('sessionExit', id)
+    const draft = omitGone(pool.row('chatDraft', id)),
+      held = omitGone(pool.row('chatHeld', id))
+    const exit = omitGone(pool.row('sessionExit', id))
     compare(
       `sessionExit:${id}`,
       state.replica.exitKind?.('session', id),
@@ -182,7 +183,7 @@ export function checkChatContext(
       .sort()
       .join('\n'),
   )
-  const reader = pool.row('chatContextReader', 'reader')
+  const reader = omitGone(pool.row('chatContextReader', 'reader'))
   const threads = reader && !loading(reader) ? reader.threads() : { threads: [], pending: 1 }
   compare('threads', state.superThreads ?? [], threads.threads, threads.pending > 0)
   const targetIdentity = (target: ReturnType<typeof sessionForIssue>) =>

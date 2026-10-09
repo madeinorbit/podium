@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { headerModel } from '@podium/client-graph/header-companion'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { headerView } from '@podium/client-graph/header-views'
@@ -94,7 +95,7 @@ export function usePoolMachines() {
 export function usePoolMachine(id: string | undefined) {
   const read = useMemo(
     () => (pool: MobxPool) =>
-      id ? (pool.row('machine', id) as MachineWire | undefined) : undefined,
+      id ? (omitGone(pool.row('machine', id)) as MachineWire | undefined) : undefined,
     [id],
   )
   return useWorklistPoolProjection(read, undefined)

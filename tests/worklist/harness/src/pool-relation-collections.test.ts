@@ -1,3 +1,4 @@
+import { omitGone, requireHere } from '@podium/client-graph/lookup'
 import { describe, expect, it } from 'vitest'
 import { runInAction } from 'mobx'
 import { MobxPool } from '@podium/client-graph/pool'
@@ -54,12 +55,12 @@ describe('page schema generic relation collections', () => {
       expect(tracked(() => [...pool.graph.many('issue', 'b', 'pageDependents')])).toEqual(['owner'])
       expect(pool.hydrate()).toBe(0)
       expect(loads).toEqual([])
-      expect(tracked(() => pool.row('issue', 'owner'))).toBe(LOADING)
+      expect(tracked(() => omitGone(pool.row('issue', 'owner')))).toBe(LOADING)
       expect(pool.hydrate()).toBe(1)
       expect(loads).toEqual(['issue:owner'])
-      expect(tracked(() => pool.model('issue', 'owner')!.pageDependencies.ready.map(row => row.id))).toEqual(['a', 'b'])
+      expect(tracked(() => requireHere(pool.model('issue', 'owner'))!.pageDependencies.ready.map(row => row.id))).toEqual(['a', 'b'])
       pool.apply({ type: 'update', rows: [issue('owner', [{ id: 'b', type: 'custom' }])] })
-      expect(tracked(() => pool.model('issue', 'owner')!.pageDependencies.ready.map(row => row.id))).toEqual(['b'])
+      expect(tracked(() => requireHere(pool.model('issue', 'owner'))!.pageDependencies.ready.map(row => row.id))).toEqual(['b'])
       expect(tracked(() => [...pool.graph.many('issue', 'a', 'pageDependents')])).toEqual([])
       pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'owner', value: undefined }] })
       expect(tracked(() => [...pool.graph.many('issue', 'b', 'pageDependents')])).toEqual([])

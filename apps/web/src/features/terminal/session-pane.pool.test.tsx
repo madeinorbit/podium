@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { DraftStore } from '@podium/client-core/conversation'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
@@ -233,7 +234,7 @@ beforeEach(() => {
     SESSION_PANE_ENTITIES,
     new SessionPaneSource(withKeyedInputs({ getSnapshot: () => state, subscribe: () => () => {} })),
   )
-  for (const row of sessions) f.pool.row('session', row.sessionId)
+  for (const row of sessions) omitGone(f.pool.row('session', row.sessionId))
   f.pool.hydrate()
   bindStoreStatsOwner(f.owner, f.owner)
   bindStoreStatsOwner(paneStoreHandle, f.owner)

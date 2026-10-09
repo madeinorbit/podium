@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { BoardFilterIssue, BoardRowIssue, IssuesOrdering } from '@podium/client-core/values'
 import { filterBoardIssues, filterChips, issueRowsByStage } from '@podium/client-core/values'
@@ -24,7 +25,7 @@ const questionOf = (query: BoardQuery) => {
  * reverse index, reaction writes, rich issue facts, or session catalog. */
 export function createBoardLayout(pool: MobxPool) {
   type Scalars = Pick<IssueViewModel, 'parentId' | 'stage' | 'priority' | 'seq' | 'createdAt' | 'updatedAt' | 'deferUntil' | 'blocked' | 'closedReason'>
-  const raw = (id: string) => pool.row('issue', id, 'summary-fields') as Loaded<Scalars>
+  const raw = (id: string) => omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<Scalars>
   const scope = keyedComputed('IssueBoard.inScope', (key: string): boolean => {
     const [id, agents] = JSON.parse(key) as [string, boolean]
     const row = pool.queries.issueScope(id)
@@ -63,7 +64,7 @@ export function createBoardLayout(pool: MobxPool) {
   const matchesFacet = keyedComputed('IssueBoard.matchesFacet', (key: string): Loaded<boolean> => {
     const [id, queryKey] = JSON.parse(key) as [string, string]
     const query = JSON.parse(queryKey) as BoardQuery
-    const row = pool.row('issue', id, 'summary-fields') as Loaded<BoardFilterIssue>
+    const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<BoardFilterIssue>
     if (!row || row === LOADING) return row
     const { text: _text, status, ...filter } = query.filter ?? {}
     // Facets narrow the candidates; this per-issue scalar answer also keeps

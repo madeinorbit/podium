@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 // @vitest-environment happy-dom
 
 import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
@@ -159,8 +160,8 @@ afterEach(() => {
 it('declares and batches demand, with zero synchronous replica reads for absent context', async () => {
   const corpus = f.fixture!
   const bootstrapCollections = corpus.counts.collections
-  expect(corpus.pool.row('chatDraft', corpus.sessions[0]!.sessionId)).toBe(LOADING)
-  expect(corpus.pool.row('chatHeld', corpus.sessions[0]!.sessionId)).toBe(LOADING)
+  expect(omitGone(corpus.pool.row('chatDraft', corpus.sessions[0]!.sessionId))).toBe(LOADING)
+  expect(omitGone(corpus.pool.row('chatHeld', corpus.sessions[0]!.sessionId))).toBe(LOADING)
   expect(corpus.counts.collections).toBe(bootstrapCollections)
   const first = corpus.check()
   expect(first.pending).toBeGreaterThan(0)
@@ -181,27 +182,27 @@ it('shares addressed session exits, batches absent evidence and updates removal,
     },
   )
   expect(shared).toBe(corpus.exitSource)
-  expect(corpus.pool.row('sessionExit', id)).toBe(LOADING)
-  expect(corpus.pool.row('sessionExit', id)).toBe(LOADING)
+  expect(omitGone(corpus.pool.row('sessionExit', id))).toBe(LOADING)
+  expect(omitGone(corpus.pool.row('sessionExit', id))).toBe(LOADING)
   expect(corpus.counts.exits).toBe(0)
   await Promise.resolve()
   expect(corpus.counts.exits).toBe(1)
-  expect(corpus.pool.row('sessionExit', id)).toEqual({ kind: undefined })
+  expect(omitGone(corpus.pool.row('sessionExit', id))).toEqual({ kind: undefined })
   corpus.updateExit(id, 'removed')
   await Promise.resolve()
-  expect(corpus.pool.row('sessionExit', id)).toEqual({ kind: 'removed' })
+  expect(omitGone(corpus.pool.row('sessionExit', id))).toEqual({ kind: 'removed' })
   corpus.updateExit(id, 'evicted')
   await Promise.resolve()
-  expect(corpus.pool.row('sessionExit', id)).toEqual({ kind: 'evicted' })
+  expect(omitGone(corpus.pool.row('sessionExit', id))).toEqual({ kind: 'evicted' })
   corpus.updateExit(id, undefined, true)
   await Promise.resolve()
-  expect(corpus.pool.row('sessionExit', id)).toEqual({ kind: undefined })
+  expect(omitGone(corpus.pool.row('sessionExit', id))).toEqual({ kind: undefined })
   const before = corpus.counts.exits
   corpus.exitSource.dispose()
   corpus.updateExit(id, 'removed')
   await Promise.resolve()
   expect(corpus.counts.exits).toBe(before)
-  expect(corpus.pool.row('sessionExit', id)).toBe(LOADING)
+  expect(omitGone(corpus.pool.row('sessionExit', id))).toBe(LOADING)
 })
 
 it('preserves mention ties, pending question order, saved drafts, held sends and reference contexts', async () => {
@@ -217,10 +218,10 @@ it('preserves mention ties, pending question order, saved drafts, held sends and
     corpus.sessions.map((row) => row.sessionId),
   )
   expect(corpus.pool.tables.session.has(corpus.sessions[1]!.sessionId)).toBe(false)
-  expect(corpus.pool.row('session', corpus.sessions[1]!.sessionId, 'summary')).not.toHaveProperty(
+  expect(omitGone(corpus.pool.row('session', corpus.sessions[1]!.sessionId, 'summary'))).not.toHaveProperty(
     'privateBody',
   )
-  expect(corpus.pool.row('chatHeld', corpus.sessions[0]!.sessionId)).toMatchObject({
+  expect(omitGone(corpus.pool.row('chatHeld', corpus.sessions[0]!.sessionId))).toMatchObject({
     sends: [{ mutationId: 'held-failed' }, { mutationId: 'held-live' }],
   })
 })
@@ -277,7 +278,7 @@ it('updates addressed records, question membership and outbox without re-reading
   )
   corpus.updateMessages(corpus.data.messages.slice(1), ['notice-message-0'])
   expect(corpus.check().differences).toBe(0)
-  expect(corpus.pool.row('noticeSession', corpus.sessions[0]!.sessionId)).not.toMatchObject({
+  expect(omitGone(corpus.pool.row('noticeSession', corpus.sessions[0]!.sessionId))).not.toMatchObject({
     messages: expect.arrayContaining(['notice-message-0']),
   })
 })
@@ -307,7 +308,7 @@ it('clears rescope inputs and releases all borrowed subscriptions on disposal', 
   corpus.check() // The next imperative read starts the replacement's loading pass.
   await Promise.resolve()
   expect(corpus.check()).toMatchObject({ differences: 0, pending: 0 })
-  expect(corpus.pool.row('noticeSession', corpus.sessions[0]!.sessionId)).toBeUndefined()
+  expect(omitGone(corpus.pool.row('noticeSession', corpus.sessions[0]!.sessionId))).toBeUndefined()
   corpus.pool.dispose()
   expect(corpus.addressed.size).toBe(0)
   expect(corpus.listeners.size).toBe(0)

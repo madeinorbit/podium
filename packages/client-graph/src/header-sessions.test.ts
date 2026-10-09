@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -83,7 +84,7 @@ function fixture(coldCount = 0) {
       change.name,
       change.type === 'delete'
         ? undefined
-        : (pool.row('session', change.name) as object | undefined),
+        : (omitGone(pool.row('session', change.name)) as object | undefined),
     ),
   )
   runInAction(() => {
@@ -369,7 +370,7 @@ describe('incremental header sessions', () => {
       expect(working).toEqual(['cold-0', 'resident-0'])
       expect(f.load).not.toHaveBeenCalled()
       check('cold-0', () => {
-        expect(f.pool.row('session', 'cold-0')).toBe(LOADING)
+        expect(omitGone(f.pool.row('session', 'cold-0'))).toBe(LOADING)
         expect(f.pool.hydrate()).toBe(1)
       })
       expect(working).toEqual(['cold-0', 'resident-0'])
@@ -417,7 +418,7 @@ describe('incremental header sessions', () => {
       expect(first.count).toBe(32)
       expect(second).toMatchObject({ count: 1, idleSplit: { protected: 1 } })
       check('cold-0', () => {
-        f.pool.row('session', 'cold-0')
+        omitGone(f.pool.row('session', 'cold-0'))
         f.pool.hydrate()
       })
       expect(second.count).toBe(1)
@@ -483,7 +484,7 @@ describe('incremental header sessions', () => {
       parity()
       f.change('resident-0', { archived: false, machineId: HOSTS[1] })
       parity()
-      f.pool.row('session', 'cold-0')
+      omitGone(f.pool.row('session', 'cold-0'))
       f.pool.hydrate()
       parity()
       f.apply('resident-0', undefined)

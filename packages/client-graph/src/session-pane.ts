@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { worklistView } from './worklist/view-model'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asIssueId, type MachineWire, machinePathAncestors, machinePathSeparator } from '@podium/model/browser'
@@ -7,14 +8,14 @@ import type { SessionPaneRows } from './session-pane-schema'
 import { LOADING, type Loaded } from './worklist/rollup'
 
 export function paneSession(pool: MobxPool, id: string | undefined): Loaded<SessionView> {
-  return id === undefined ? undefined : (pool.row('session', id) as Loaded<SessionView>)
+  return id === undefined ? undefined : (omitGone(pool.row('session', id)) as Loaded<SessionView>)
 }
 export function paneWindow(pool: MobxPool): Loaded<SessionPaneRows['sessionPaneWindow']> {
-  return pool.row('sessionPaneWindow', 'window')
+  return omitGone(pool.row('sessionPaneWindow', 'window'))
 }
 export function paneMachines(pool: MobxPool): MachineWire[] {
   return headerIds(pool, 'machine').flatMap(id => {
-    const row = pool.row('machine', id) as MachineWire | undefined
+    const row = omitGone(pool.row('machine', id)) as MachineWire | undefined
     return row ? [row] : []
   })
 }
@@ -41,7 +42,7 @@ export interface PaneIssue {
   gitState?: import('@podium/client-core/replica').IssueViewModel['gitState']
 }
 function eligibleIssue(pool: MobxPool, id: string): Loaded<PaneIssue> {
-  const summary = pool.row('issue', id, 'summary') as Loaded<PaneIssue>
+  const summary = omitGone(pool.row('issue', id, 'summary')) as Loaded<PaneIssue>
   if (summary === LOADING) return LOADING
   return summary && !summary.archived && !summary.deletedAt ? summary : undefined
 }
@@ -53,7 +54,7 @@ export function paneStampIssue(pool: MobxPool, session: SessionView | undefined)
   if (session.issueId) {
     const attached = eligibleIssue(pool, session.issueId)
     if (attached === LOADING) return LOADING
-    if (attached) return pool.row('issue', session.issueId) as Loaded<PaneIssue>
+    if (attached) return omitGone(pool.row('issue', session.issueId)) as Loaded<PaneIssue>
   }
   const paths = machinePathSeparator(session.cwd) === '\\' ? machinePathAncestors(session.cwd) : [session.cwd]
   if (machinePathSeparator(session.cwd) === '/') for (let at = session.cwd.lastIndexOf('/'); at >= 0; at = session.cwd.lastIndexOf('/', at - 1)) {
@@ -64,7 +65,7 @@ export function paneStampIssue(pool: MobxPool, session: SessionView | undefined)
     for (const id of pool.relations.many('worktree', path, 'issues')) {
       const candidate = eligibleIssue(pool, id)
       if (candidate === LOADING) return LOADING
-      if (candidate) return pool.row('issue', id) as Loaded<PaneIssue>
+      if (candidate) return omitGone(pool.row('issue', id)) as Loaded<PaneIssue>
     }
   }
   return undefined
@@ -80,7 +81,7 @@ export function paneIssueColor(pool: MobxPool, id: string | null, hex: (color: s
     if (own) return own
     if (!row.parentId || seen.has(row.parentId)) return undefined
     seen.add(row.parentId)
-    row = pool.row('issue', row.parentId, 'summary') as Loaded<PaneIssue>
+    row = omitGone(pool.row('issue', row.parentId, 'summary')) as Loaded<PaneIssue>
   }
   return row === LOADING ? LOADING : undefined
 }

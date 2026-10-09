@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { issueObserver as observer } from './issue-observer'
 /**
  * CROSS-BOUNDARY ISSUE EDGES ON THE DETAIL PAGE (POD-646).
@@ -114,7 +115,7 @@ export function useIssueEdgeResolver(): (
       resolveIssueEdge(
         id,
         (targetId) => {
-          const row = pool?.row('issue', targetId, 'summary-fields')
+          const row = omitGone(pool?.row('issue', targetId, 'summary-fields'))
           return row && typeof row !== 'symbol'
             ? (pool!.issueObject(targetId) as PageIssue)
             : undefined

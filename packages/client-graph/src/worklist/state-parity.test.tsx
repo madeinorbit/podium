@@ -1,3 +1,4 @@
+import { requireHere } from '../lookup'
 // @vitest-environment happy-dom
 import { act } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -53,7 +54,7 @@ it('a selection click redraws only the previous and next selected rows', async (
 })
 
 it('matches folded counts, activity and roster order before and after a heartbeat', () => {
-  const pool = fixture(), tree = worklistView(pool).tree(pool.model('worktree', '/loose')!)
+  const pool = fixture(), tree = worklistView(pool).tree(requireHere(pool.model('worktree', '/loose'))!)
   const check = () => {
     const actual = headerView(pool).folded(), expected = foldedBefore(pool, 'root')
     // The pilot header now carries the shared IssueModel. Compare the same
@@ -132,7 +133,7 @@ for (const state of ['waiting', 'working', 'queued', 'stale'] as const) {
       const phone = mobileWorktreeValues('/loose', 'Synthetic', 'loose', old.sessions, old.activityAt,
         row => pool.sessionObject(row.sessionId).executing, row => pool.sessionObject(row.sessionId).open,
         row => pool.sessionObject(row.sessionId).stateSinceMs)
-      const row = worklistView(pool).tree(pool.model('worktree', '/loose')!)
+      const row = worklistView(pool).tree(requireHere(pool.model('worktree', '/loose'))!)
       const expected = {
         id: phone.id, title: phone.label, timing: phone.timing, visiblePhase: phone.timing.phase,
         visibleWorking: phone.working, waitingCount: phone.waitingCount, visibleUnread: phone.unread,

@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import type { Store } from '@podium/client-core/engine'
 import { asSessionId } from '@podium/model/browser'
 import { autorun } from 'mobx'
@@ -50,9 +51,9 @@ describe('declared window input readers', () => {
       })),
     })
     const fields = ['id', 'prefix', 'repoPath'] as const
-    const meter = observeFields(fields, () => pool.row('repo', 'r'))
+    const meter = observeFields(fields, () => omitGone(pool.row('repo', 'r')))
     try {
-      const row = pool.row('repo', 'r')
+      const row = omitGone(pool.row('repo', 'r'))
       const update = (value: typeof second) =>
         pool.apply({
           type: 'update',
@@ -61,7 +62,7 @@ describe('declared window input readers', () => {
       meter.reset()
       update({ ...second, branch: 'topic' })
       expect(meter.runs).toEqual(zero(fields))
-      expect(pool.row('repo', 'r')).toBe(row)
+      expect(omitGone(pool.row('repo', 'r'))).toBe(row)
       meter.reset()
       update({ ...second, prefix: 'TWO' })
       expect(meter.runs).toEqual({ id: 0, prefix: 1, repoPath: 0 })
@@ -74,10 +75,10 @@ describe('declared window input readers', () => {
         type: 'update',
         rows: [{ kind: 'worktree', id: second.path, value: undefined }],
       })
-      expect(pool.row('repo', 'r')).toMatchObject({ prefix: 'ONE', repoPath: '/r' })
+      expect(omitGone(pool.row('repo', 'r'))).toMatchObject({ prefix: 'ONE', repoPath: '/r' })
       expect(meter.runs).toEqual({ id: 0, prefix: 1, repoPath: 1 })
       pool.apply({ type: 'update', rows: [{ kind: 'worktree', id: first.path, value: undefined }] })
-      expect(pool.row('repo', 'r')).toBeUndefined()
+      expect(omitGone(pool.row('repo', 'r'))).toBeUndefined()
     } finally {
       meter.dispose()
       pool.dispose()
@@ -109,17 +110,17 @@ describe('declared window input readers', () => {
     const sources = [
       {
         fields: SHELL_SCHEMA.shellWindow.fields,
-        read: () => f.pool.row('shellWindow', 'window'),
+        read: () => omitGone(f.pool.row('shellWindow', 'window')),
         write: f.change,
       },
       {
         fields: HEADER_SCHEMA.window.fields,
-        read: () => f.pool.row('window', 'window'),
+        read: () => omitGone(f.pool.row('window', 'window')),
         write: fixture.change,
       },
       {
         fields: COMMAND_LAUNCH_SCHEMA.commandWindow.fields,
-        read: () => f.pool.row('commandWindow', 'window'),
+        read: () => omitGone(f.pool.row('commandWindow', 'window')),
         write: fixture.change,
       },
     ]
@@ -142,13 +143,13 @@ describe('declared window input readers', () => {
           meter.dispose()
         }
       }
-      f.pool.row('mobileSessionWindow', 'window')
+      omitGone(f.pool.row('mobileSessionWindow', 'window'))
       await flush()
       // The window's field list lives here, with the test: spelling it in the
       // schema trips the harness-vendor lint on the replica cursor's name, and
       // this is its only reader (POD-5614).
       const mobile = observeFields(['cursor'] as const, () =>
-        f.pool.row('mobileSessionWindow', 'window'),
+        omitGone(f.pool.row('mobileSessionWindow', 'window')),
       )
       try {
         mobile.reset()
@@ -171,11 +172,11 @@ describe('declared window input readers', () => {
     const stops = [
       autorun(() => {
         meter.first++
-        fixture.f.pool.row('issueExit', first)
+        omitGone(fixture.f.pool.row('issueExit', first))
       }),
       autorun(() => {
         meter.second++
-        fixture.f.pool.row('issueExit', second)
+        omitGone(fixture.f.pool.row('issueExit', second))
       }),
     ]
     try {

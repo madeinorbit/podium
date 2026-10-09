@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import { DiffView } from './features/git/diff-view'
 import { parseDiff as parseDesktopDiff } from './features/git/diff-model'
 import { MergeQueueView } from './features/merge-queue/merge-queue-view'
@@ -227,7 +228,7 @@ describe('legacy and view-owned answers on identical fixtures', () => {
       expect(view.candidates.map((issue) => issue.id)).toEqual(
         readyMergeCandidates(rows, scope, null).map((issue) => issue.id),
       )
-      expect(view.candidates[0]).toBe(pool.model('issue', rows[0]!.id))
+      expect(view.candidates[0]).toBe(here(pool.model('issue', rows[0]!.id)))
       view.close()
       expect(view.answer).toBeUndefined()
       expect(view.candidates).toEqual([])

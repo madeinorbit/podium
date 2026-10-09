@@ -1,3 +1,4 @@
+import { here, omitGone } from '@podium/client-graph/lookup'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import type { SessionView } from '@podium/client-core/session-values'
 import { relativeTime } from '@podium/client-core/focus'
@@ -141,7 +142,7 @@ function matches(pool: MobxPool, slot: Slot, needle: string): boolean {
     const value = sidebarView(pool).row(slot.id)
     return value !== undefined && value !== LOADING && worklistIssueHaystack(value).includes(needle)
   }
-  const value = pool.row('worktree', slot.id) as SliceWorktree | typeof LOADING | undefined
+  const value = omitGone(pool.row('worktree', slot.id)) as SliceWorktree | typeof LOADING | undefined
   return (
     value !== undefined &&
     value !== LOADING &&
@@ -833,7 +834,7 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
     const active = visible && s.selectedIssueId === null && s.selectedWorktree != null && machinePathsEqual(s.selectedWorktree, path)
     return { selectedWorktree: active ? path : null, paneA: active ? s.paneA : null }
   }, shallowEqual)
-  const entity = pool.model('worktree', path)
+  const entity = here(pool.model('worktree', path))
   const model = entity ? worklistView(pool).tree(entity) : undefined
   const now = useRef(0)
   if (visible) now.current = pool.clock.trackedNow()
@@ -888,7 +889,7 @@ const PoolPanelRow = observer(function PoolPanelRow({
   const visible = usePanelVisible()
   const projection = useMemo(
     () =>
-      computed(() => pool.row('session', id) as SessionView | typeof LOADING | undefined, {
+      computed(() => omitGone(pool.row('session', id)) as SessionView | typeof LOADING | undefined, {
         equals: (a, b) =>
           compareStructural(
             a !== undefined && a !== LOADING ? poolSessionPaint(a) : a,

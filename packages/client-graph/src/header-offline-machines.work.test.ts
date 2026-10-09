@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
 import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
@@ -173,7 +174,7 @@ it('bounds the actual offline header window across online fleet and expired hist
             .map((id) => headerEntities(pool).one('hostMetric', id, 'machine')),
         )
         headerView(pool).ids('machine').flatMap((id) => {
-          const value = pool.row('machine', id) as HeaderRows['machine'] | undefined
+          const value = omitGone(pool.row('machine', id)) as HeaderRows['machine'] | undefined
           if (
             !value ||
             !isMachineOfflineForLiveTerminal(value) ||

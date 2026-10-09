@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReferenceState as Store } from '../../../tests/worklist/diagnostics/reference-state'
@@ -59,7 +60,7 @@ async function settle(f: Awaited<ReturnType<typeof fixture>>) {
 
 it('declares private threads, active selection, session relations and an exact differential', async () => {
   const f = await fixture()
-  expect(f.pool.row('superThreadCatalog', 'catalog')).toBe(LOADING)
+  expect(omitGone(f.pool.row('superThreadCatalog', 'catalog'))).toBe(LOADING)
   expect(superagentState(f.pool).loading).toBe(true)
   await settle(f)
   expect(checkSuperagent(f.pool, f.state)).toMatchObject({ differences: 0, pending: 0, positions: 5 })
@@ -74,16 +75,16 @@ it('never addresses an unlisted private id and removes private rows and edges on
   expect(superagentThread(f.pool, 'someone-elses-private')).toEqual({ thread: undefined, loading: false })
   expect(read.mock.calls.some(([entity, id]) => String(entity) === 'superThread' && id === 'someone-elses-private')).toBe(false)
   f.publish({ superThreads: [] }); await Promise.resolve()
-  expect(f.pool.row('superThread', 'global')).toBeUndefined()
+  expect(omitGone(f.pool.row('superThread', 'global'))).toBeUndefined()
   expect(f.source.related?.('session', 's-a', 'superThreads')).toEqual([])
   expect(superagentState(f.pool).threads).toEqual([])
 })
 it('keeps unrelated publications out of thread derivation and honors active-thread changes', async () => {
   const f = await fixture(); await settle(f)
-  const lists = f.source.counts.threadLists, previous = f.pool.row('superThread', 'global')
+  const lists = f.source.counts.threadLists, previous = omitGone(f.pool.row('superThread', 'global'))
   f.publish({ outboxSize: 40 }); await Promise.resolve()
   expect(f.source.counts.threadLists).toBe(lists)
-  expect(f.pool.row('superThread', 'global')).toBe(previous)
+  expect(omitGone(f.pool.row('superThread', 'global'))).toBe(previous)
   f.publish({ superThreadId: 'global' as Store['superThreadId'] }); await Promise.resolve()
   expect(superagentState(f.pool).activeSessionId).toBe('s-a')
 })
@@ -109,7 +110,7 @@ it('orders numeric event ids, caps the tail and updates only addressed event row
   expect(superagentFeed(f.pool).events.at(-1)?.id).toBe(121)
   expect(f.source.counts.eventCollections).toBe(scans + 1)
   many.shift(); f.batch('issueEvents', event(1).id)
-  expect(f.pool.row('superagentEvent', event(1).id)).toBeUndefined()
+  expect(omitGone(f.pool.row('superagentEvent', event(1).id))).toBeUndefined()
 })
 it('keeps the legacy 40-event tail through addressed changes, reading only the window at 1x and 4x history', async () => {
   const reads: number[] = [], seed = { value: 7 }
@@ -170,16 +171,16 @@ it('batches addressed cold session loads without indexing cold session payloads'
   f.publish({ sessions: [...f.state.sessions, cold], superThreads: [{ id: 'global', kind: 'global', podiumSessionId: cold.sessionId }] }); await Promise.resolve()
   f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: cold.sessionId, value: cold as never }] })
   f.load.mockClear()
-  expect(f.pool.row('session', cold.sessionId)).toBe(LOADING)
-  expect(f.pool.row('session', cold.sessionId)).toBe(LOADING)
+  expect(omitGone(f.pool.row('session', cold.sessionId))).toBe(LOADING)
+  expect(omitGone(f.pool.row('session', cold.sessionId))).toBe(LOADING)
   expect(f.pool.tables.session.has(cold.sessionId)).toBe(false)
   expect(f.source.related?.('session', cold.sessionId, 'superThreads')).toEqual(['global'])
   expect(f.rows.mock.calls.some(([kind]) => kind === 'sessions')).toBe(false)
   expect(f.load).not.toHaveBeenCalled()
   expect(f.pool.hydrate()).toBe(1)
   expect(f.load).toHaveBeenCalledTimes(1)
-  expect(f.pool.row('session', cold.sessionId)).toMatchObject({ cwd: '/synthetic' })
-  expect(f.pool.row('session', 'known-absent')).toBeUndefined()
+  expect(omitGone(f.pool.row('session', cold.sessionId))).toMatchObject({ cwd: '/synthetic' })
+  expect(omitGone(f.pool.row('session', 'known-absent'))).toBeUndefined()
 })
 it('releases all scoped state and subscriptions, including an already queued demand', async () => {
   const f = await fixture(); superagentState(f.pool)
@@ -210,27 +211,27 @@ it('answers selected private backends through one owned row, with no catalog at 
     }))] as Store['superThreads'] })
     const ids = vi.spyOn(f.owner, 'listIds'), rows = vi.spyOn(f.owner, 'listRow')
     expect(f.source.counts.threadLists).toBe(0)
-    expect(f.pool.row('superThread', 'global')).toBe(LOADING)
+    expect(omitGone(f.pool.row('superThread', 'global'))).toBe(LOADING)
     await Promise.resolve()
-    expect(f.pool.row('superThread', 'global')).toMatchObject({ id: 'global' })
+    expect(omitGone(f.pool.row('superThread', 'global'))).toMatchObject({ id: 'global' })
     expect(ids.mock.calls.filter(([kind]) => kind === 'superThreads')).toEqual([])
     expect(rows.mock.calls.filter(([kind]) => kind === 'superThreads')).toEqual([['superThreads', 'global']])
     expect(f.source.counts.threadLists).toBe(0)
     expect(f.source.related?.('superThread', 'global', 'session')).toEqual(['s-a'])
     expect(f.source.related?.('session', 's-a', 'superThreads')).toEqual(['global'])
     // A principal-foreign ID cannot cause a lookup RPC or acquire an owned row.
-    expect(f.pool.row('superThread', 'foreign')).toBe(LOADING)
+    expect(omitGone(f.pool.row('superThread', 'foreign'))).toBe(LOADING)
     await Promise.resolve()
-    expect(f.pool.row('superThread', 'foreign')).toBeUndefined()
+    expect(omitGone(f.pool.row('superThread', 'foreign'))).toBeUndefined()
     const own = f.state.superThreads[0]!
     f.publish({ superThreads: [{ ...own, model: 'updated-backend' }, ...f.state.superThreads.slice(1)] })
     await Promise.resolve()
-    expect(f.pool.row('superThread', 'global')).toMatchObject({ model: 'updated-backend' })
+    expect(omitGone(f.pool.row('superThread', 'global'))).toMatchObject({ model: 'updated-backend' })
     expect(f.source.counts.threadLists).toBe(0)
     // Demand for a visible thread picker can still build its licensed catalog.
-    expect(f.pool.row('superThreadCatalog', 'catalog')).toBe(LOADING)
+    expect(omitGone(f.pool.row('superThreadCatalog', 'catalog'))).toBe(LOADING)
     await Promise.resolve()
-    expect(f.pool.row('superThreadCatalog', 'catalog')).toMatchObject({ ids: expect.arrayContaining(['global', 'btw-private']) })
+    expect(omitGone(f.pool.row('superThreadCatalog', 'catalog'))).toMatchObject({ ids: expect.arrayContaining(['global', 'btw-private']) })
     ids.mockRestore(); rows.mockRestore()
   }
 })

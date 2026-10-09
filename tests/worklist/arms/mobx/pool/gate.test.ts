@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import { rowViewOf } from '../../../shared/src/row-snapshots'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { referenceState } from '../../../diagnostics/reference-state'
@@ -435,7 +436,7 @@ function checked(
       if (attach.length > 0) throw new Error(`attach (snapshot ${wrapper.snapshots}): ${attach.join('; ')}`)
       // Kept alive as the mounted list keeps it (see OBSERVED).
       const stop = reaction(
-        () => [visibleOrderOf(pool).map((id) => rowViewOf(pool.issue(id))), worklistGroups(pool).layout],
+        () => [visibleOrderOf(pool).map((id) => rowViewOf(here(pool.issue(id)))), worklistGroups(pool).layout],
         () => {},
         { name: 'gate.observer' },
       )
@@ -466,7 +467,7 @@ function checked(
           }
           const direct = rebuildViews(source, locals)
           wrapper.views += direct.size
-          const views = tracked(() => diffViews((id) => rowViewOf(pool.issue(id)), direct))
+          const views = tracked(() => diffViews((id) => rowViewOf(here(pool.issue(id))), direct))
           if (views.length > 0) {
             throw new Error(
               `row views diverged from the direct rule table (snapshot ${wrapper.snapshots}):\n${views.join('\n')}`,
@@ -700,7 +701,7 @@ describe('row fields against the oracle', () => {
       })
       snapshotPool(handle.pool)
       const actual = tracked(() =>
-        Object.fromEntries(ids.map((id) => [id, rowViewOf(handle.pool.issue(id))])),
+        Object.fromEntries(ids.map((id) => [id, rowViewOf(here(handle.pool.issue(id)))])),
       )
       let closedByOracle = 0
       // POD-4671 fixed: no gap, every row's seat-fed fields compare.

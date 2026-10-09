@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 /** Count real pool publications across bootstrap, updates, gestures, idle and
  * provider rebuilds. Settled screen projections must reuse their cached paint
@@ -602,7 +603,7 @@ function ColdConversation({ id }: { id: string }) {
   const read = useCallback(
     (pool: MobxPool) => {
       state.pool = pool
-      const session = pool.row('session', id, 'summary')
+      const session = omitGone(pool.row('session', id, 'summary'))
       return session && typeof session !== 'symbol' ? (session as SessionView) : undefined
     },
     [id],

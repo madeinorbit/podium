@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 /** Read-only operator layout replay. Raw keys and values never leave this
  * ludovico process, enter a file, or appear in its output. Device-local values
@@ -33,7 +34,7 @@ if (unsupported) throw new Error(`Replay needs declarations for ${unsupported} s
 const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
 try {
   attachPreferenceSource(pool, ui)
-  for (const key of keys) pool.row('preference', key!)
+  for (const key of keys) omitGone(pool.row('preference', key!))
   await Promise.resolve()
   const result = checkPreferences(pool, ui)
   console.log(JSON.stringify({ ...result, storedKeys: keys.length }))

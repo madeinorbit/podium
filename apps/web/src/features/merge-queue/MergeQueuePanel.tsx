@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import { observer } from '@podium/client-graph/react'
 import type { IssueModel } from '@podium/client-graph/models'
 import { useWorklistPool } from '@/app/store-worklist-pool'
@@ -654,7 +655,7 @@ export const MergeQueuePanelView = observer(function MergeQueuePanelView({
   onSelectIssue,
 }: MergeQueuePanelViewProps): JSX.Element {
   const issueById = (id: string): QueueIssue | undefined =>
-    model ? model.pool.model('issue', id) : issues.find((issue) => issue.id === id)
+    model ? here(model.pool.model('issue', id)) : issues.find((issue) => issue.id === id)
   const locks = state.status === 'ready' ? state.locks : []
   const { merge, lanes } = queueGroups(locks)
   const candidates: readonly QueueIssue[] =

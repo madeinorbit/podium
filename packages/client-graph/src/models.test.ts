@@ -1,3 +1,4 @@
+import { omitGone, requireHere } from './lookup'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
@@ -63,7 +64,7 @@ it.each([true, false])('a cold reference uses only declared identity (%s) withou
     }) as never },
   ] })
   try {
-    const stored = pool.row('issue', 'cold-ref', 'summary-fields')
+    const stored = omitGone(pool.row('issue', 'cold-ref', 'summary-fields'))
     expect(stored && stored !== LOADING ? Reflect.get(stored, 'seq') : undefined).toBe(declared ? 0 : undefined)
     expect(pool.issueObject('cold-ref').displayRef).toBe(declared ? displayRefOf(0, 'POD') : '')
     expect(pool.tables.issue.has('cold-ref')).toBe(false)
@@ -139,7 +140,7 @@ it('roster IDs do not change when headless own presence changes', () => {
 })
 
 it('session ownership reads do not demand the independent worktree link', () => {
-  const pool = fixture(), seat = pool.model('session', 'seat')!
+  const pool = fixture(), seat = requireHere(pool.model('session', 'seat'))!
   const worktree = vi.spyOn(seat, 'worktreeLink', 'get').mockImplementation(() => {
     throw new Error('An issue-only reader demanded the worktree link')
   })
@@ -149,7 +150,7 @@ it('session ownership reads do not demand the independent worktree link', () => 
 })
 
 it('archive, host-location and seat-motion readers ignore independent cursor and title edits', () => {
-  const pool = fixture(), seat = pool.model('session', 'seat')!
+  const pool = fixture(), seat = requireHere(pool.model('session', 'seat'))!
   const row = worklistView(pool).session(seat), header = headerModel(pool).session(seat)
   let archiveRuns = 0, hostRuns = 0, workingRuns = 0, titleRuns = 0
   const stops = [

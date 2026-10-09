@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { chatContextReadStats } from '@podium/client-graph/chat-context'
@@ -155,7 +156,7 @@ async function openMenu(issue: IssueViewModel) {
 }
 
 const readVesselDeletedAt = (pool: MobxPool) => {
-  const issue = pool.row('issue', vesselId) as IssueViewModel | undefined | symbol
+  const issue = omitGone(pool.row('issue', vesselId)) as IssueViewModel | undefined | symbol
   return issue && typeof issue !== 'symbol' ? issue.deletedAt : undefined
 }
 /** Inspect the addressed optimistic row: mention catalogs exclude tombstones. */

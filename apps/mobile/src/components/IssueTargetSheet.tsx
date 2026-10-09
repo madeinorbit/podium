@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -112,13 +113,13 @@ function IssueTargetRow({
 }) {
   const read = useCallback(
     (pool: MobxPool): IssueTarget | typeof LOADING | undefined => {
-      const row = pool.row('issue', id, 'summary-fields') as
+      const row = omitGone(pool.row('issue', id, 'summary-fields')) as
         | Pick<IssueViewModel, 'seq' | 'title' | 'stage' | 'repoId'>
         | typeof LOADING
         | undefined
       if (!row || row === LOADING) return row
       const repo = row.repoId
-        ? (pool.row('repo', row.repoId) as { prefix?: string } | typeof LOADING | undefined)
+        ? (omitGone(pool.row('repo', row.repoId)) as { prefix?: string } | typeof LOADING | undefined)
         : undefined
       if (repo === LOADING) return LOADING
       return {

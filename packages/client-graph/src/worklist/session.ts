@@ -1,3 +1,4 @@
+import { here } from '../lookup'
 import { compareStructural } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
 import { worklistView } from './view-model'
@@ -58,7 +59,7 @@ export class WorklistSession implements SessionVisibility {
     if (!retainedBy(owner)) return false
     if (retention.issueId === undefined) {
       const path = pool.graph.one('session', this.id, 'worktree')
-      const tree = path === null ? undefined : pool.model('worktree', path)
+      const tree = path === null ? undefined : here(pool.model('worktree', path))
       if (tree && view.tree(tree).representedIssues.some(issue => retainedBy(view.row(issue).rosterOwner))) return false
     }
     return true

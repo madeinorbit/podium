@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { describe, expect, it } from 'vitest'
 import { reaction, runInAction } from 'mobx'
 import { MobxPool } from '@podium/client-graph/pool'
@@ -21,18 +22,18 @@ describe('issue page exit evidence', () => {
     }
     const stop = attachIssuePageSource(pool, { replica } as Parameters<typeof attachIssuePageSource>[1])
     const states: unknown[] = []
-    const unobserve = reaction(() => pool.row('issueExit', 'opaque'), next => states.push(next), { fireImmediately: true })
+    const unobserve = reaction(() => omitGone(pool.row('issueExit', 'opaque')), next => states.push(next), { fireImmediately: true })
     try {
-      expect(tracked(() => pool.row('issueExit', 'opaque'))).toEqual({ kind: 'evicted' })
+      expect(tracked(() => omitGone(pool.row('issueExit', 'opaque')))).toEqual({ kind: 'evicted' })
       kind = 'removed'; receive({ type: 'replace', reason: 'rescope' })
-      expect(tracked(() => pool.row('issueExit', 'opaque'))).toEqual({ kind: 'removed' })
+      expect(tracked(() => omitGone(pool.row('issueExit', 'opaque')))).toEqual({ kind: 'removed' })
       kind = undefined; receive({ type: 'replace', reason: 'rescope' })
-      expect(tracked(() => pool.row('issueExit', 'opaque'))).toEqual({ kind: undefined })
+      expect(tracked(() => omitGone(pool.row('issueExit', 'opaque')))).toEqual({ kind: undefined })
       expect(states).toEqual([{ kind: 'evicted' }, { kind: 'removed' }, { kind: undefined }])
       unobserve()
       stop(); stop(); pool.dispose()
       expect(stops).toBe(1)
-      expect(runInAction(() => pool.row('issueExit', 'opaque'))).toBe(LOADING)
+      expect(runInAction(() => omitGone(pool.row('issueExit', 'opaque')))).toBe(LOADING)
     } finally { unobserve(); pool.dispose() }
   })
 })

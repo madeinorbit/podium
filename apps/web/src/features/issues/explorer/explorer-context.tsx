@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
@@ -101,7 +102,7 @@ export function poolExplorerTarget(
   if (root.isDraftVessel && !root.worktreePath && !pool.issueObject(root.id).headlessOccupied) {
     let occupied = false
     for (const id of pool.graph.many('issue', root.id, 'sessions')) {
-      const session = pool.row('session', id, 'summary')
+      const session = omitGone(pool.row('session', id, 'summary'))
       if (session === LOADING) return LOADING
       if (session && (session as { archived?: boolean }).archived !== true) {
         occupied = true
@@ -111,7 +112,7 @@ export function poolExplorerTarget(
     if (!occupied) return null
   }
   if (!focusedId) return root.id
-  const focused = pool.row('issue', focusedId, 'summary')
+  const focused = omitGone(pool.row('issue', focusedId, 'summary'))
   if (focused === LOADING) return LOADING
   if (!focused || (focused as SliceIssue).deletedAt) return root.id
   const belongs = poolMissionContains(pool, root.id, focusedId)
@@ -119,7 +120,7 @@ export function poolExplorerTarget(
 }
 
 function poolPresence(pool: MobxPool, id: string): boolean | typeof LOADING {
-  const row = pool.row('issue', id, 'summary')
+  const row = omitGone(pool.row('issue', id, 'summary'))
   return row === LOADING ? LOADING : Boolean(row && !(row as SliceIssue).deletedAt)
 }
 

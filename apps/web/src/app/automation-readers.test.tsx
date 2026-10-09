@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 // @vitest-environment happy-dom
 import { storeStats } from '@podium/client-core/perf'
@@ -292,13 +293,13 @@ it('enabled list, launch, run and specs readers execute zero legacy derivations 
 
 /** The removed list's run groups, verbatim: every related run, resolved and sorted. */
 function legacyRunGroups(pool: MobxPool) {
-  const catalog = pool.row('automationCatalog', 'catalog')
+  const catalog = omitGone(pool.row('automationCatalog', 'catalog'))
   const runGroups: Record<string, AutomationRun[]> = {}
   if (catalog && catalog !== LOADING) for (const id of catalog.automations) {
-    const row = pool.row('automation', id)
+    const row = omitGone(pool.row('automation', id))
     if (!row || row === LOADING || Reflect.get(row, 'system') === true) continue
     runGroups[id] = pool.sources.related('automation', id, 'runs').flatMap(runId => {
-      const run = pool.row('automationRun', runId)
+      const run = omitGone(pool.row('automationRun', runId))
       return run && run !== LOADING ? [run] : []
     }).sort((a, b) => b.firedAt.localeCompare(a.firedAt))
   }

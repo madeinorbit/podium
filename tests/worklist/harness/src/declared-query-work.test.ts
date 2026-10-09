@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { writeFileSync, mkdirSync } from 'node:fs'
 import { join } from 'node:path'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
@@ -147,10 +148,10 @@ async function measured(
           a.localeCompare(b),
       )
       .filter((id) => !f.pool.graph.isCollapsed('session', id))
-      .map((id) => f.pool.row('session', id, 'summary'))
+      .map((id) => omitGone(f.pool.row('session', id, 'summary')))
       .filter((value) => value !== undefined)
   const fullAttention = () => {
-    const row = f.pool.row('issue', 'root', 'summary-fields')
+    const row = omitGone(f.pool.row('issue', 'root', 'summary-fields'))
     const seats = fullRoster()
     if (row === LOADING || seats.includes(LOADING)) return LOADING
     const asking =

@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import type { Store } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -43,7 +44,7 @@ export function useSidebarProjectSections(): SidebarSections {
   const read = useCallback(
     (pool: MobxPool): SidebarSections => {
       const lanes = [...pool.tables.worktree.keys()].flatMap((path) => {
-        const row = pool.row('worktree', path) as SliceWorktree | typeof LOADING | undefined
+        const row = omitGone(pool.row('worktree', path)) as SliceWorktree | typeof LOADING | undefined
         return row && typeof row === 'object' ? [row] : []
       })
       const worktrees = lanes.map((lane) => ({
@@ -52,7 +53,7 @@ export function useSidebarProjectSections(): SidebarSections {
         issues: [],
         sessions: [...pool.graph.many('worktree', String(lane['path']), 'sessions')].flatMap(
           (id) => {
-            const row = pool.row('session', id)
+            const row = omitGone(pool.row('session', id))
             return row && typeof row === 'object' ? [row as unknown as SessionView] : []
           },
         ),

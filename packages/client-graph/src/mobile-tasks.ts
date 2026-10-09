@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssueModel, ModelOf } from './models'
 import type { BoardFilter, IssuesOrdering } from '@podium/client-core/values'
@@ -343,11 +344,11 @@ export class MobileTasksBoard {
   }
 
   position(id: string, ordering: IssuesOrdering = 'priority') {
-    return requireRow(this.pool.row('issueBoardPosition', JSON.stringify([id, ordering])))
+    return requireRow(omitGone(this.pool.row('issueBoardPosition', JSON.stringify([id, ordering]))))
   }
 
   private boardQuery(options: BoardQuery): readonly string[] {
-    const value = requireRow(this.pool.row('issueBoardQuery', JSON.stringify(options)))
+    const value = requireRow(omitGone(this.pool.row('issueBoardQuery', JSON.stringify(options))))
     if (!value) throw LOADING
     return value.ids
   }

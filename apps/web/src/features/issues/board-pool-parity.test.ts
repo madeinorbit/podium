@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 
 import { dedupeSessions } from '../../../../../tests/worklist/diagnostics/reference-state'
@@ -48,7 +49,7 @@ function expectExplorer(
   tab: import('@podium/client-graph/issue-board-schema').PoolExplorerData['tab'] | null,
   query: string,
 ) {
-  const value = inBoardCheck(() => pool.row('issueExplorerModel', JSON.stringify({ tab, query })))
+  const value = inBoardCheck(() => omitGone(pool.row('issueExplorerModel', JSON.stringify({ tab, query }))))
   if (!value || value === LOADING) throw new Error('Explorer fixture is loading')
   expectPoolOutput(explorerSnapshot(value), JSON.stringify({ tab, query }))
 }

@@ -1,3 +1,4 @@
+import { here, requireHere } from '@podium/client-graph/lookup'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { rowViewOf } from '../../../shared/src/row-snapshots'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
@@ -144,7 +145,7 @@ function observeAll(handle: HarnessMobxPoolHandle): {
   for (const id of ids) {
     stops.push(
       autorun(() => {
-        views.set(id, rowViewOf(handle.pool.issue(id)))
+        views.set(id, rowViewOf(here(handle.pool.issue(id))))
         rerun.add(id)
       }),
     )
@@ -311,11 +312,11 @@ describe('ingest', () => {
       )!.id
       const titles: (string | undefined)[] = []
       const watch = autorun(() => {
-        titles.push(rowViewOf(pool.issue(id))?.title)
+        titles.push(rowViewOf(here(pool.issue(id)))?.title)
       })
       r.push({ type: 'update', rows: [{ kind: 'issue', id, value: undefined }] })
       expect(runInAction(() => pool.tables.issue.has(id))).toBe(false)
-      expect(tracked(() => pool.issue(id))).toBeUndefined()
+      expect(tracked(() => here(pool.issue(id)))).toBeUndefined()
       r.push({ type: 'update', rows: [issueRecord(id, { title: 'Back again' })] })
       watch()
       expect(titles).toEqual([
@@ -336,7 +337,7 @@ describe('ingest', () => {
       for (const lane of corpus.sliceWorktrees)
         if (lane.repoId) byRepo.set(lane.repoId, [...(byRepo.get(lane.repoId) ?? []), lane.path])
       const [repoId, paths] = [...byRepo].find(([, list]) => list.length === 1)!
-      const prefix = tracked(() => pool.model('repo', repoId)?.prefix)
+      const prefix = tracked(() => here(pool.model('repo', repoId))?.prefix)
       expect(prefix).toBe(corpus.sliceWorktrees.find((lane) => lane.repoId === repoId)!.prefix)
       r.push({ type: 'update', rows: [{ kind: 'worktree', id: paths[0]!, value: undefined }] })
       expect(runInAction(() => pool.tables.repo.has(repoId))).toBe(false)
@@ -436,7 +437,7 @@ describe('dispose', () => {
     const closed = corpus.sliceIssues.find((issue) => issue.closedAt != null)!
     expect(tracked(() => pool.resident('issue', closed.id))).toBe('loading')
     expect(poolPendingLoads(pool)).toBe(1)
-    const models = tracked(() => [...pool.tables.issue.keys()].map((id) => pool.issue(id)!))
+    const models = tracked(() => [...pool.tables.issue.keys()].map((id) => requireHere(pool.issue(id))!))
     r.locals.set({ selectedIssueId: models[0]!.id })
     r.locals.flush()
     expect(r.listeners()).toBe(2)
@@ -456,7 +457,7 @@ describe('dispose', () => {
     expect(tracked(() => Number(worklistView(pool).selectedId !== null))).toBe(0)
     expect(getObserverTree(worklistGroups(pool), 'keys').observers ?? []).toEqual([])
     expect(tracked(() => visibleOrderOf(pool))).toEqual([])
-    expect(tracked(() => pool.issue(models[0]!.id))).toBeUndefined()
+    expect(tracked(() => here(pool.issue(models[0]!.id)))).toBeUndefined()
     // A row view is a cached group on its issue, dropped once unobserved; one
     // still observed would observe its table slots, which the check above
     // finds empty.

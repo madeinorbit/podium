@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import { machinePathKey } from '@podium/model'
@@ -130,7 +131,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
             change.name,
             change.type === 'delete'
               ? undefined
-              : (pool.row('session', change.name) as object | undefined),
+              : (omitGone(pool.row('session', change.name)) as object | undefined),
           ),
         )
       }),
@@ -231,7 +232,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     for (const path of moved) for (const id of this.sessionsByPath.get(path) ?? []) affected.add(id)
     for (const id of affected) {
       this.counts.sessionLinks++
-      this.change('session', id, this.pool.row('session', id) as object | undefined)
+      this.change('session', id, omitGone(this.pool.row('session', id)) as object | undefined)
     }
   }
 
@@ -298,7 +299,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
 
   private readById<K extends CommandEntity>(entity: K, id: string): Loaded<PoolSourceRows[K]> {
     if (entity === 'commandIssue')
-      return this.pool.row('issue', id, 'summary') as Loaded<PoolSourceRows[K]>
+      return omitGone(this.pool.row('issue', id, 'summary')) as Loaded<PoolSourceRows[K]>
     return (
       entity === 'commandCatalog' && id === 'catalog'
         ? this.catalog.get()

@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 // @vitest-environment happy-dom
 
@@ -234,13 +235,13 @@ describe('declared command and launch targets', () => {
     const f = await fixture()
     try {
       const before = { ...f.source.counts }
-      const window = f.pool.row('commandWindow', 'window')
+      const window = omitGone(f.pool.row('commandWindow', 'window'))
       await writePhaseChange(f.ctx)
       await Promise.resolve()
       expect(f.source.counts.repoChanges).toBe(before.repoChanges)
       expect(f.source.counts.windowChanges).toBe(before.windowChanges)
       expect(f.source.counts.sessionChanges).toBeGreaterThan(before.sessionChanges)
-      expect(f.pool.row('commandWindow', 'window')).toBe(window)
+      expect(omitGone(f.pool.row('commandWindow', 'window'))).toBe(window)
       f.parity('heartbeat relations')
       const id = f.ctx.targets.phaseSessionId,
         row = f.ctx.cache.read('session', id)!.value as { issueId: string }
@@ -284,7 +285,7 @@ describe('declared command and launch targets', () => {
           resume,
         })
       await new Promise((resolve) => setTimeout(resolve, f.ctx.settleMs))
-      const catalog = f.pool.row('commandCatalog', 'catalog')
+      const catalog = omitGone(f.pool.row('commandCatalog', 'catalog'))
       expect(
         catalog && catalog !== LOADING
           ? catalog.sessions.filter((id) => id.startsWith('command-'))

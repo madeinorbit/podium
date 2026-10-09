@@ -1,3 +1,4 @@
+import { here, omitGone } from './lookup'
 import { companion, lazy, keyedComputed } from '@podium/mobx-helpers'
 import type { ModelOf, SessionModel } from './models'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -33,14 +34,14 @@ function createIssueDetailLists(issue: PageIssue, pool: MobxPool) {
     ids: () => pool.graph.many('issue', issue.id, 'treeChildren'),
     has: (id) => pool.queries.hasMember('issue', issue.id, 'treeChildren', id),
     order: (id) => {
-      const row = pool.row('issue', id, 'summary-fields') as
+      const row = omitGone(pool.row('issue', id, 'summary-fields')) as
         | { seq?: number }
         | typeof LOADING
         | undefined
       return row === LOADING ? '' : String(row?.seq ?? 0).padStart(12, '0')
     },
     read: (id) => {
-      const row = pool.row('issue', id, 'summary-fields') as
+      const row = omitGone(pool.row('issue', id, 'summary-fields')) as
         | { deletedAt?: string }
         | typeof LOADING
         | undefined
@@ -214,7 +215,7 @@ export class IssuePageRow {
     if (members === LOADING) throw LOADING
     return issueDisplayTitle(
       {
-        ...this.issue.row,
+        ...here(this.issue.row),
         id: this.issue.id,
         title,
         memberSessionIds: (members ?? []).map((session) => session.sessionId),
@@ -315,7 +316,7 @@ function createIssuePageViews(pool: MobxPool) {
     order: (id) => pool.queries.orderKey(id),
     read: (id) => {
       if (pool.queries.collapsed(id)) return undefined
-      const seat = pool.row('session', id, 'summary') as Loaded<SessionView>
+      const seat = omitGone(pool.row('session', id, 'summary')) as Loaded<SessionView>
       return seat && seat !== LOADING ? { ...seat } : seat
     },
     subscribe: (changed) => {
@@ -337,7 +338,7 @@ function createIssuePageViews(pool: MobxPool) {
   }
   function session(id: string): Loaded<SessionView> {
     if (pool.graph.isCollapsed('session', id)) return undefined
-    const row = pool.row('session', id) as Loaded<SessionView>
+    const row = omitGone(pool.row('session', id)) as Loaded<SessionView>
     return row && row !== LOADING ? { ...row } : row
   }
   function attachedSessions(id: string): Loaded<SessionView[]> {
@@ -351,7 +352,7 @@ function createIssuePageViews(pool: MobxPool) {
   function closeFacts(
     id: string,
   ): Loaded<{ subject: IssueCloseScalarSubject; members: IssueCloseMemberCounts }> {
-    const known = pool.row('issue', id, 'summary-fields')
+    const known = omitGone(pool.row('issue', id, 'summary-fields'))
     if (!known || known === LOADING) return known
     const model = pool.issueObject(id) as PageIssue
     try {
@@ -408,7 +409,7 @@ function createIssuePageViews(pool: MobxPool) {
     if (!repoId) return undefined
     if (prefixes?.has(repoId)) return prefixes.get(repoId)
     const value = memo(`prefix:${repoId}`, () => {
-      const repo = pool.model('repo', repoId)
+      const repo = here(pool.model('repo', repoId))
       return repo?.prefix ?? undefined
     })
     prefixes?.set(repoId, value)
@@ -418,7 +419,7 @@ function createIssuePageViews(pool: MobxPool) {
     const result: IssueViewModel['dependents'] = []
     let pending = false
     for (const sourceId of [...pool.graph.many('issue', id, 'pageDependents')].sort(byId)) {
-      const source = pool.row('issue', sourceId, 'summary-fields') as Loaded<{
+      const source = omitGone(pool.row('issue', sourceId, 'summary-fields')) as Loaded<{
         deps?: { id: string; type: string }[]
       }>
       if (source === LOADING) pending = true
@@ -436,7 +437,7 @@ function createIssuePageViews(pool: MobxPool) {
     prefixes?: Map<string, string | undefined>,
   ): Loaded<IssueViewModel> {
     // Menus need declared fields, not the worklist's computed presence bound.
-    const row = pool.row('issue', id, 'summary-fields')
+    const row = omitGone(pool.row('issue', id, 'summary-fields'))
     if (!row || row === LOADING) return row
     // Pick declared menu facts even for a resident row: a read cursor or
     // body update cannot invalidate the whole menu/edge lookup world.
@@ -480,7 +481,7 @@ function createIssuePageViews(pool: MobxPool) {
   }
   function issue(id: string): Loaded<PageIssue> {
     if (disposed) return LOADING
-    const raw = pool.row('issue', id)
+    const raw = omitGone(pool.row('issue', id))
     return !raw || raw === LOADING ? raw : (pool.issueObject(id) as PageIssue)
   }
   /** Resolve identity before any detail section subscribes to its own fields. */
@@ -546,7 +547,7 @@ function createIssuePageViews(pool: MobxPool) {
                 const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
                 let childDoneCount = 0
                 for (const childId of childIds) {
-                  const child = pool.row('issue', childId, 'summary') as Loaded<{
+                  const child = omitGone(pool.row('issue', childId, 'summary')) as Loaded<{
                     stage?: string
                     closedReason?: string | null
                   }>

@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { useStoreHandle } from '@podium/client-core/react'
 import { LOADING } from '@podium/client-graph'
 import { CommandSessionRow, createCommandPalette, type CommandPaletteData, type RecentCommand } from '@podium/client-graph/command-launch-views'
@@ -131,7 +132,7 @@ export function useCommandRecentFiles() {
 export function useCommandIssue(id: string | null) {
   const read = useMemo(() => (pool: Parameters<typeof readSession>[0]) => {
     if (id === null) return undefined
-    const reader = pool.row('chatContextReader', 'reader')
+    const reader = omitGone(pool.row('chatContextReader', 'reader'))
     const issue = reader && reader !== LOADING ? reader.issue(id) : undefined
     return issue && issue !== LOADING ? {
       id: issue.id, seq: issue.seq, title: issue.title, stage: issue.stage,

@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 /** Fixture and private-replay comparison. Reference values stay in memory; only
  * counts, positions and field paths leave a replay or browser fixture. */
 import type { ReferenceState as Store } from './reference-state'
@@ -126,7 +127,7 @@ export function checkSuperagent(pool: MobxPool, state: State) {
   ]
   for (const id of ids) {
     const question = superagentQuestion(pool, id),
-      session = pool.row('session', id)
+      session = omitGone(pool.row('session', id))
     pending += Number(question.loading) + Number(typeof session === 'symbol')
     const referenceSession = state.sessions.find((row) => row.sessionId === id)
     const sessionFields = (row: typeof referenceSession) => ({

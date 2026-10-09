@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 /** Focused recovery proof over the production kernel queue and pool writer. */
@@ -36,7 +37,7 @@ export async function refusalFixture(scale: 1 | 4 = 1) {
   pool.sources.register(NOTICE_ENTITIES, new NoticeSource(ctx.engine))
   const id = ctx.targets.visibleRootId
   const stop = autorun(() => {
-    pool.row('issue', id)
+    omitGone(pool.row('issue', id))
     sidebarView(pool).row(id)
     mobileWorkView(pool).mobileRow({ kind: 'issue', id })
   })

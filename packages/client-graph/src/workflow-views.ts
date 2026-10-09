@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { settingsView } from './settings-views'
 import { machineViewsFromWire, runSubjectReference, type RunSubjectReference } from '@podium/client-core/values'
 import type { WorkflowRunWire } from '@podium/protocol'
@@ -9,11 +10,11 @@ import { LOADING } from './worklist/rollup'
 /** Read-only projections over the one pool reader. The host's observed
  * projection supplies memoization; nothing here retains a second row copy. */
 export function workflowMachines(pool: MobxPool) {
-  const catalog = pool.row(WORKFLOW_SCHEMA.machines.catalog, 'catalog')
+  const catalog = omitGone(pool.row(WORKFLOW_SCHEMA.machines.catalog, 'catalog'))
   const machines: SettingsRows['settingsMachine'][] = []
   let pending = catalog === LOADING ? 1 : 0
   if (catalog && catalog !== LOADING) for (const id of catalog.machines) {
-    const row = pool.row(WORKFLOW_SCHEMA.machines.entity, id)
+    const row = omitGone(pool.row(WORKFLOW_SCHEMA.machines.entity, id))
     if (row === LOADING) pending++
     else if (row) machines.push(row)
   }
@@ -25,7 +26,7 @@ export function workflowSubject(pool: MobxPool, run: WorkflowRunWire): RunSubjec
   // tie break. A raw keyed session read would expose a suppressed parked twin.
   const present = run.subjectKind === 'session'
     ? settingsView(pool).sessionPresent(run.subjectId)
-    : pool.row(WORKFLOW_SCHEMA.issue.entity, run.subjectId, 'summary')
+    : omitGone(pool.row(WORKFLOW_SCHEMA.issue.entity, run.subjectId, 'summary'))
   if (present === LOADING) return LOADING
   return runSubjectReference(run, id => present ? { id } : undefined)
 }

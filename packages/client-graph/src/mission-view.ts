@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import type { SessionView } from '@podium/client-core/session-values'
 
 import { displayRefOf } from './views'
@@ -654,10 +655,10 @@ export class MissionViewReader {
   /** Menu metadata is already declared in the cold summary. Reading it does
    * not promote a closed issue and initialize its full display roster. */
   menuCatalogIssue(id: string): Loaded<IssueNavigationModel> {
-    const row = this.pool.row('issue', id, 'summary-fields') as Loaded<IssueNavigationModel>
+    const row = omitGone(this.pool.row('issue', id, 'summary-fields')) as Loaded<IssueNavigationModel>
     if (!row || row === LOADING) return row
     const repoId = this.pool.graph.one('issue', id, 'repo')
-    const repo = repoId ? this.pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
+    const repo = repoId ? omitGone(this.pool.row('repo', repoId)) as { prefix?: string } | undefined : undefined
     return issueRefOverlay(row, { prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }) }) as IssueNavigationModel
   }
   /** Shared raw-member facts: read cursors and machine display changes do not
@@ -668,11 +669,11 @@ export class MissionViewReader {
     return this.node(id).catalog
   }
   readCatalogIssue(id: string): Loaded<IssueNavigationModel> {
-    const raw = this.pool.row('issue', id)
+    const raw = omitGone(this.pool.row('issue', id))
     if (!raw || raw === LOADING) return raw
     const row = raw as IssueNavigationModel
     const repoId = this.pool.graph.one('issue', id, 'repo')
-    const repo = repoId ? this.pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
+    const repo = repoId ? omitGone(this.pool.row('repo', repoId)) as { prefix?: string } | undefined : undefined
     return issueRefOverlay(row, { prefix: repo?.prefix, displayRef: joinedIssueRef({ seq: row.seq, prefix: repo?.prefix }) }) as IssueNavigationModel
   }
   /** Every explicit mission sender, archived history included, in session
@@ -736,7 +737,7 @@ export class MissionViewReader {
   menuSession(id: string): Loaded<SessionView> {
     // Menus borrow a row projection so omissions and serialization keep their
     // wire shape; session facts everywhere else come from the shared model.
-    const row = this.pool.row('session', id) as Loaded<SessionView>
+    const row = omitGone(this.pool.row('session', id)) as Loaded<SessionView>
     return !row || row === LOADING ? row : menuSessionOverlay(row, MENU_SESSION_OVERRIDES, MENU_SESSION_OMISSIONS)
   }
   private seatIds(relation: SeatRelation, id: string, archived: boolean): readonly string[] | typeof LOADING {
@@ -858,7 +859,7 @@ export class MissionViewReader {
   }
   readIssue(id: string): Loaded<IssueNavigationModel> {
     this.stats.issueReads++
-    const raw = this.pool.row('issue', id)
+    const raw = omitGone(this.pool.row('issue', id))
     if (raw === LOADING || !raw) return raw
     const row = raw as Omit<IssueNavigationModel, 'description' | 'notes'> & { description: string | { value: string }; notes?: string | { value: string } }
     if (!this.settled(id)) return LOADING
@@ -874,7 +875,7 @@ export class MissionViewReader {
     // edge list preserves custom types, duplicate edges and per-source order.
     const dependents: IssueNavigationModel['dependents'] = []
     for (const sourceId of [...this.pool.graph.many('issue', id, 'pageDependents')].sort()) {
-      const source = this.pool.row('issue', sourceId) as Loaded<IssueNavigationModel>
+      const source = omitGone(this.pool.row('issue', sourceId)) as Loaded<IssueNavigationModel>
       if (source === LOADING) pending = true
       else if (source) for (const dep of source.deps ?? []) {
         if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
@@ -882,7 +883,7 @@ export class MissionViewReader {
     }
     if (pending || members === LOADING) return LOADING
     const repoId = this.pool.graph.one('issue', id, 'repo')
-    const repo = repoId ? this.pool.row('repo', repoId) as { prefix?: string } | undefined : undefined
+    const repo = repoId ? omitGone(this.pool.row('repo', repoId)) as { prefix?: string } | undefined : undefined
     const readAt = this.pool.readCursor(id) ?? null
     let unread = !readAt || !Number.isFinite(Date.parse(readAt)) || Date.parse(row.updatedAt) > Date.parse(readAt)
     unread ||= members.latest > Date.parse(readAt ?? '')
@@ -915,10 +916,10 @@ export class MissionViewReader {
     while (id && !seen.has(id)) {
       seen.add(id)
       const currentId = id
-      const facts = this.pool.row('issue', id, 'summary') as Loaded<{ archived?: boolean; deletedAt?: string }>
+      const facts = omitGone(this.pool.row('issue', id, 'summary')) as Loaded<{ archived?: boolean; deletedAt?: string }>
       const visible = settled(() => this.facts(currentId).visible)
       if (facts === undefined || visible === false) break
-      void this.pool.row('issue', id)
+      void omitGone(this.pool.row('issue', id))
       id = this.pool.graph.one('issue', id, 'parent')
     }
     return LOADING
@@ -950,7 +951,7 @@ export class MissionViewReader {
     const drawn = new Set<string>(), tips = new Set<string>(), addressed = new Set<string>()
     let pending = false
     const visibleId = (id: string) => {
-      const row = this.pool.row('issue', id, 'summary') as Loaded<{ archived?: boolean; deletedAt?: string | null }>
+      const row = omitGone(this.pool.row('issue', id, 'summary')) as Loaded<{ archived?: boolean; deletedAt?: string | null }>
       if (row === LOADING) { pending = true; return false }
       return Boolean(row && this.facts(id).visible)
     }

@@ -1,3 +1,4 @@
+import { requireHere } from '@podium/client-graph/lookup'
 // @vitest-environment happy-dom
 import { mkdirSync, writeFileSync } from 'node:fs'
 import { resolve } from 'node:path'
@@ -56,7 +57,7 @@ describe('worklist view model migration', () => {
         expect(view).toBe(mobileWorkView(handle.pool))
         expect(view.selectedId).toBe(locals.selectedIssueId)
         for (const [id, answer] of Object.entries(expected)) {
-          const issue = handle.pool.model('issue', id)!, row = view.row(issue)
+          const issue = requireHere(handle.pool.model('issue', id))!, row = view.row(issue)
           expect(plainRowView(row), `row ${id}`).toEqual(answer)
           expect(() => expect({ ...plainRowView(row), title: 'wrong title' }).toEqual(answer)).toThrow()
           expect(view.row(issue)).toBe(row)

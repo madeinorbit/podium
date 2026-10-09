@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { afterEach, expect, it, vi } from 'vitest'
 import { dedupeSessionsByResume } from '@podium/model'
 import { autorun, observable, runInAction } from 'mobx'
@@ -148,13 +149,13 @@ it('updates reference fields, ordering, resume ranking and membership without st
 
 // The previous reader's algorithm, retained only as a same-fixture oracle.
 function previousReferenceSessions(pool: MobxPool) {
-  const order = pool.row('chatSessionOrder', 'order')
+  const order = omitGone(pool.row('chatSessionOrder', 'order'))
   const sessions: import('@podium/client-core/session-values').SessionView[] = []
   let pending = typeof order === 'symbol' ? 1 : 0
   if (!order || typeof order === 'symbol') return { sessions, pending }
   const known = pool.queries.ids({ kind: 'referenceSessions' }), present = new Set(known)
   for (const id of new Set([...order.ids.filter(id => present.has(id)), ...known])) {
-    const row = pool.row('session', id, 'summary-fields')
+    const row = omitGone(pool.row('session', id, 'summary-fields'))
     if (typeof row === 'symbol') pending++
     else if (row) sessions.push(row as import('@podium/client-core/session-values').SessionView)
   }

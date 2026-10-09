@@ -25,6 +25,7 @@ export function createWorklistPool(
     diagnostics: source.diagnostics,
     issueSessionFact: source.issueSessionFact,
     load: row,
+    exitKind: source.exitKind?.bind(source),
     issueIdByRef: source.issueIdByRef?.bind(source),
     cold: source.cold?.bind(source),
   })

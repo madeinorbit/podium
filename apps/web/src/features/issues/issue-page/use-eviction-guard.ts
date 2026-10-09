@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 /**
  * EVICT IS NOT A DELETION (POD-646, POD-1077, doc §3.1 ¶2 and §3.1.5).
  *
@@ -54,7 +55,7 @@ import { useCallback } from 'react'
  * @param onLeave what to do when it goes — the page passes its `onBack`
  */
 export function useEvictionGuard(issue: IssueViewModel, onLeave: () => void): void {
-  const read = useCallback((pool: MobxPool) => pool.row('issue', issue.id, 'mark'), [issue.id])
+  const read = useCallback((pool: MobxPool) => omitGone(pool.row('issue', issue.id, 'mark')), [issue.id])
   const row = useWorklistPoolProjection(read, undefined)
   useEvictionPresenceGuard(issue.id, typeof row === 'symbol' ? null : Boolean(row), onLeave)
 }

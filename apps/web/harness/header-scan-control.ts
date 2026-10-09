@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { headerModel } from '@podium/client-graph/header-companion'
 /** Capture-only control: the pre-delta header algorithms, with their original
@@ -13,8 +14,8 @@ const knownSessionIds = (pool: MobxPool) => pool.queries.ids({ kind: 'commandSes
 const coldSessionIds = (pool: MobxPool) => knownSessionIds(pool).filter(id => !pool.tables.session.has(id))
 export function createScanningHeaderSessions(pool: MobxPool, memo: Memo) {
   const coldSummary = (id: string) => {
-    if (pool.row('session', id, 'mark') !== LOADING) return undefined
-    const value = pool.row('session', id, 'summary') as SessionView | typeof LOADING | undefined
+    if (omitGone(pool.row('session', id, 'mark')) !== LOADING) return undefined
+    const value = omitGone(pool.row('session', id, 'summary')) as SessionView | typeof LOADING | undefined
     return value === LOADING ? undefined : value
   }
   return {

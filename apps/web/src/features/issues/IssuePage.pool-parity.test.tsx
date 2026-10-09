@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { IssueViewInput } from '../../../../../tests/worklist/diagnostics/reference/issue-views'
 import { writeFileSync } from 'node:fs'
 import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
@@ -602,7 +603,7 @@ describe('issue page rendered pool parity', () => {
     forbidden = true
     const issue = legacyIssues.find((row) => row.id === 'root')!,
       back = vi.fn()
-    const payload = pool.row('issue', issue.id)
+    const payload = omitGone(pool.row('issue', issue.id))
     if (!payload || typeof payload === 'symbol') throw new Error('Missing eviction fixture payload')
     const view = render(
       wrap(<IssuePage issue={issue} orderedIds={[]} onBack={back} onNavigate={navigate} />),

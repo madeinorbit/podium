@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { action, compareStructural, observable, observableRef, when } from 'mobx'
 import { headerEntities } from './header-entities'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -24,7 +25,7 @@ type ChatReadCounts = {
   referenceSessionReads: number
 }
 function readerCounts(pool: MobxPool): ChatReadCounts | undefined {
-  const reader = pool.row('chatContextReader', 'reader')
+  const reader = omitGone(pool.row('chatContextReader', 'reader'))
   return reader && !loading(reader) ? reader.counts : undefined
 }
 export function chatContextReadStats(pool: MobxPool): Readonly<ChatReadCounts> {
@@ -38,10 +39,10 @@ export function chatContextReadStats(pool: MobxPool): Readonly<ChatReadCounts> {
   )
 }
 export function chatIssue(pool: MobxPool, id: string): Loaded<IssueViewModel> {
-  const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
+  const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<IssueViewModel>
   if (!row || loading(row)) return row
   const repoId = pool.relations.one('issue', id, 'repo')
-  const repo = repoId ? (pool.row('repo', repoId) as { prefix?: string } | undefined) : undefined
+  const repo = repoId ? (omitGone(pool.row('repo', repoId)) as { prefix?: string } | undefined) : undefined
   return {
     ...row,
     prefix: repo?.prefix,
@@ -50,7 +51,7 @@ export function chatIssue(pool: MobxPool, id: string): Loaded<IssueViewModel> {
 }
 export function chatMentionIssues(pool: MobxPool, counts = readerCounts(pool)) {
   if (counts) counts.mentionBuilds++
-  const order = pool.row('chatIssueOrder', 'order')
+  const order = omitGone(pool.row('chatIssueOrder', 'order'))
   const issues: IssueViewModel[] = []
   let pending = loading(order) ? 1 : 0
   if (!order || loading(order)) return { issues, pending }
@@ -74,7 +75,7 @@ export function chatMentionMatches(
   if (counts) counts.mentionBuilds++
   const prefixes: Record<string, string | undefined> = {}
   for (const id of pool.tables.repo.keys()) {
-    const repo = pool.row('repo', id)
+    const repo = omitGone(pool.row('repo', id))
     if (repo && !loading(repo)) prefixes[id] = (repo as { prefix?: string }).prefix
   }
   const ids = pool.queries.ids({ kind: 'issueMentionMatches', query, limit, prefixes })
@@ -89,12 +90,12 @@ export function chatMentionMatches(
   return { issues, pending }
 }
 export function chatInteractions(pool: MobxPool, sessionId: string) {
-  const membership = pool.row('noticeSession', sessionId)
+  const membership = omitGone(pool.row('noticeSession', sessionId))
   const rows: PendingInteractionWire[] = []
   let pending = loading(membership) ? 1 : 0
   if (membership && !loading(membership))
     for (const id of membership.interactions) {
-      const row = pool.row('pendingInteraction', id)
+      const row = omitGone(pool.row('pendingInteraction', id))
       if (loading(row)) pending++
       else if (row?.sessionId === sessionId && row.status === 'asked') rows.push(row)
     }
@@ -105,12 +106,12 @@ export function chatInteractions(pool: MobxPool, sessionId: string) {
   }
 }
 export function chatRecords(pool: MobxPool, sessionId: string) {
-  const membership = pool.row('noticeSession', sessionId)
+  const membership = omitGone(pool.row('noticeSession', sessionId))
   const records: MessageRecordWire[] = []
   let pending = loading(membership) ? 1 : 0
   if (membership && !loading(membership))
     for (const id of membership.messages) {
-      const row = pool.row('messageRecord', id)
+      const row = omitGone(pool.row('messageRecord', id))
       if (loading(row)) pending++
       else if (row) records.push(row)
     }
@@ -121,13 +122,13 @@ export function chatArtifactIssue(
   session: Pick<SessionView, 'issueId' | 'sessionId'>,
 ): Loaded<IssueViewModel> {
   if (session.issueId) {
-    const direct = pool.row('issue', session.issueId)
+    const direct = omitGone(pool.row('issue', session.issueId))
     if (loading(direct)) return direct
     if (direct && !(direct as IssueViewModel).deletedAt) return direct as IssueViewModel
   }
   // Normalized membership is the declared raw non-shell attachment relation.
   const owner = pool.relations.one('session', session.sessionId, 'pageIssue')
-  const issue = owner ? (pool.row('issue', owner) as Loaded<IssueViewModel>) : undefined
+  const issue = owner ? (omitGone(pool.row('issue', owner)) as Loaded<IssueViewModel>) : undefined
   return issue && !loading(issue) && issue.deletedAt ? undefined : issue
 }
 export function chatReferenceSessions(pool: MobxPool, counts = readerCounts(pool)) {
@@ -161,7 +162,7 @@ class ReferenceSessionProjection {
   sessions() { return this.result }
   @lazy private get result() {
     if (this.counts) this.counts.referenceBuilds++
-    const order = this.pool.row('chatSessionOrder', 'order')
+    const order = omitGone(this.pool.row('chatSessionOrder', 'order'))
     const sessions: SessionView[] = []
     let pending = loading(order) ? 1 : 0
     if (!order || loading(order)) return { sessions, pending }
@@ -188,7 +189,7 @@ class ReferenceSessionSummary {
   ) {}
   @lazy({ equals: compareStructural }) get presentation(): Loaded<SessionView> {
     if (this.counts) this.counts.referenceSessionReads++
-    const row = this.pool.row('session', this.model.id, 'summary-fields') as Loaded<SessionView>
+    const row = omitGone(this.pool.row('session', this.model.id, 'summary-fields')) as Loaded<SessionView>
     if (!row || loading(row)) return row
     // Reference cards name their fields; the phone roster preserves the
     // richer declared summary and resident metadata it already consumed.
@@ -202,7 +203,7 @@ class ReferenceSessionSummary {
 }
 export function chatReferenceMachines(pool: MobxPool): MachineWire[] {
   return headerIds(pool, 'machine').flatMap((id) => {
-    const row = pool.row('machine', id)
+    const row = omitGone(pool.row('machine', id))
     return row && !loading(row) ? [row as MachineWire] : []
   })
 }
@@ -236,12 +237,12 @@ export function createChatContextReader(pool: MobxPool) {
     machines: () => chatReferenceMachines(pool),
     repositoryKey: () => chatRepositoryKey(pool),
     threads() {
-      const catalog = pool.row('superThreadCatalog', 'catalog')
+      const catalog = omitGone(pool.row('superThreadCatalog', 'catalog'))
       const threads: import('@podium/client-core/values').SuperThreadView[] = []
       let pending = loading(catalog) ? 1 : 0
       if (catalog && !loading(catalog))
         for (const id of catalog.ids) {
-          const row = pool.row('superThread', id)
+          const row = omitGone(pool.row('superThread', id))
           if (loading(row)) pending++
           else if (row) threads.push(row)
         }

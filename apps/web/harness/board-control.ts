@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 
@@ -81,7 +82,7 @@ export function checkExplorer(
     byId: new Map(issues.map((row) => [row.id, row])),
     total: EXPLORER_TABS.reduce((n, entry) => n + (entry.id === 'needs' ? 0 : counts[entry.id]), 0),
   }
-  const actual = pool.row('issueExplorerModel', JSON.stringify({ tab: pickedTab, query }))
+  const actual = omitGone(pool.row('issueExplorerModel', JSON.stringify({ tab: pickedTab, query })))
   return !actual || typeof actual === 'symbol'
     ? { differences: 0, pending: 1, first: null }
     : compareBoardValues(explorerSnapshot(expected), explorerSnapshot(actual))

@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { NAVIGATION_LOADING, type NavigationProvider } from '@podium/client-core/navigation-provider'
 import type { SessionView } from '@podium/client-core/session-values'
 import { allowImperativeRead } from '@podium/mobx-helpers'
@@ -21,20 +22,20 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
     issueSessions(id) {
       const rows: SessionView[] = []
       for (const key of pool.queries.ids({ kind: 'commandIssueSessions', issueId: id, archived: false })) {
-        const row = pool.row('session', key)
+        const row = omitGone(pool.row('session', key))
         if (row === LOADING) return NAVIGATION_LOADING
         if (row) rows.push(row as SessionView)
       }
       return rows
     },
     issue(id) {
-      let row = pool.row('issue', id, 'summary') as SliceIssue | typeof LOADING | undefined
+      let row = omitGone(pool.row('issue', id, 'summary')) as SliceIssue | typeof LOADING | undefined
       if (
         row &&
         row !== LOADING &&
         (!Object.hasOwn(row, 'id') || !Object.hasOwn(row, 'updatedAt'))
       ) {
-        row = pool.row('issue', id) as SliceIssue | typeof LOADING | undefined
+        row = omitGone(pool.row('issue', id)) as SliceIssue | typeof LOADING | undefined
       }
       if (row === LOADING) return NAVIGATION_LOADING
       // Borrow the normalized row; do not retain a parallel issue index.
@@ -53,23 +54,23 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
       return ids === LOADING ? NAVIGATION_LOADING : ids
     },
     session(id) {
-      let row = pool.row('session', id)
+      let row = omitGone(pool.row('session', id))
       if (row === LOADING) return NAVIGATION_LOADING
       if (row !== undefined || !parseSessionRef(id.trim())) return row as SessionView | undefined
       const key = pool.queries.sessionReferenceId(id.trim())
       if (!key) return undefined
-      row = pool.row('session', key)
+      row = omitGone(pool.row('session', key))
       return row === LOADING ? NAVIGATION_LOADING : (row as SessionView | undefined)
     },
     sessionMembership(id) {
-      const row = pool.row('session', id, 'summary-fields')
+      const row = omitGone(pool.row('session', id, 'summary-fields'))
       return row === LOADING
         ? NAVIGATION_LOADING
         : (row as ReturnType<NonNullable<NavigationProvider['sessionMembership']>>)
     },
     registeredWorktree(path) {
       const registered = pool.queries.registeredWorktreePath(path)
-      return registered !== undefined && (pool.row('worktree', registered) as { path?: string } | undefined)?.path === registered
+      return registered !== undefined && (omitGone(pool.row('worktree', registered)) as { path?: string } | undefined)?.path === registered
     },
     worktreeForCwd(cwd) {
       if (machinePathSeparator(cwd) === '\\') {
@@ -97,7 +98,7 @@ export function createPoolNavigationProvider(pool: MobxPool): NavigationProvider
     firstWorktree: () => pool.queries.firstWorktreePath(),
     hasWorktreeSession: path => pool.queries.hasSessionWithin(path),
     worktreeSession(id) {
-      const row = pool.row('session', id, 'summary-fields')
+      const row = omitGone(pool.row('session', id, 'summary-fields'))
       return row === LOADING ? NAVIGATION_LOADING : row as ReturnType<NonNullable<NavigationProvider['worktreeSession']>>
     },
     topologySession: id => pool.queries.sessionTopology(id),

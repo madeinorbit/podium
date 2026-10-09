@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import { rowViewOf } from '../../../shared/src/row-snapshots'
 import { sidebarRosterView } from '@podium/client-graph/worklist/sidebar-roster'
 /**
@@ -1578,13 +1579,13 @@ describe('the row views resolve relations through the engine (M3 F2)', () => {
     runInAction(() => r.pool.graph.publish({ ...NO_DELTA, forwards: [[`issue.${relation}`, id]] }))
   }
 
-  const view = (r: Rig, id: string) => tracked(() => rowViewOf(r.pool.issue(id)))
+  const view = (r: Rig, id: string) => tracked(() => rowViewOf(here(r.pool.issue(id))))
   const rebuilt = (r: Rig) => rebuildSnapshot(r.replay.source, r.locals.source)
 
   it('a wrong issue.repo forward slot reaches displayRef, and the rebuild disagrees', () => {
     const r = rig(rows)
     try {
-      const keep = autorun(() => rowViewOf(r.pool.issue('I1')))
+      const keep = autorun(() => rowViewOf(here(r.pool.issue('I1'))))
       expect(view(r, 'I1')?.displayRef).toBe('POD-1')
       expect(snapshotPool(r.pool).rowsById).toEqual(rebuilt(r).rowsById)
       plant(r, 'repo', 'I1', 'RB')
@@ -1603,7 +1604,7 @@ describe('the row views resolve relations through the engine (M3 F2)', () => {
   it('a wrong issue.discoveredFrom forward slot reaches originTick', () => {
     const r = rig(rows)
     try {
-      const keep = autorun(() => rowViewOf(r.pool.issue('I3')))
+      const keep = autorun(() => rowViewOf(here(r.pool.issue('I3'))))
       expect(view(r, 'I3')?.originTick?.id).toBe('I2')
       plant(r, 'discoveredFrom', 'I3', 'I1')
       expect(view(r, 'I3')?.originTick?.id, 'the view reads the engine').toBe('I1')

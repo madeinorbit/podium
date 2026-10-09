@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { headerView } from '@podium/client-graph/header-views'
 import { referenceState } from '../../diagnostics/reference-state'
@@ -192,11 +193,11 @@ describe('header pool values', () => {
       status = 0
     const stops = [
       autorun(() => {
-        f.pool.row('hostMetric', first)
+        omitGone(f.pool.row('hostMetric', first))
         a++
       }),
       autorun(() => {
-        f.pool.row('hostMetric', second)
+        omitGone(f.pool.row('hostMetric', second))
         b++
       }),
       autorun(() => {
@@ -222,7 +223,7 @@ describe('header pool values', () => {
       expect(headerStats.read()).toEqual({})
       // A membership delta still removes the metric and its inverse edge.
       f.ctx.hub.emit('hostMetrics', [metric(second, 'fixed')])
-      expect(f.pool.row('hostMetric', first)).toBeUndefined()
+      expect(omitGone(f.pool.row('hostMetric', first))).toBeUndefined()
       expect(headerEntities(f.pool).members('machine', first, 'metrics')).toEqual([])
     } finally {
       for (const stop of stops) stop()

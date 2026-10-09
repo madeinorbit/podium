@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 /** On-demand comparison only. Paths and saved values stay in this process;
  * reports contain counts and positions, using the sidebar-check contract. */
 import {
@@ -44,7 +45,7 @@ export function checkFileViewerPreferences(
 ) {
   const keys = [...new Set([...FILE_VIEWER_PREFERENCE_KEYS, ...tabs.map((tab) => tab.mapKey)])]
   // All reads use the declared preference entity and the shared pool reader.
-  const rows = new Map(keys.map((key) => [key, pool.row('preference', key)]))
+  const rows = new Map(keys.map((key) => [key, omitGone(pool.row('preference', key))]))
   const expected: CheckRow[] = [],
     actual: CheckRow[] = []
   let pending = 0

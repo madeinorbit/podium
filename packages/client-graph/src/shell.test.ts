@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 
 import { asSessionId } from '@podium/model/browser'
@@ -202,11 +203,11 @@ describe('shell pool', () => {
           session.sessionId === archived.sessionId ? archived : session,
         ),
       })
-      expect(f.pool.row('issue', draft.id)).toMatchObject({
+      expect(omitGone(f.pool.row('issue', draft.id))).toMatchObject({
         isDraftVessel: true,
         worktreePath: null,
       })
-      expect(f.pool.row('session', f.sessions[2]!.sessionId, 'summary')).toMatchObject({
+      expect(omitGone(f.pool.row('session', f.sessions[2]!.sessionId, 'summary'))).toMatchObject({
         archived: true,
       })
       expect(shellViews(f.pool).chrome()).toHaveProperty('missionRoot', undefined)
@@ -236,7 +237,7 @@ describe('shell pool', () => {
     try {
       const id = f.issues[30]!.id
       expect(f.pool.tables.issue.has(id)).toBe(false)
-      expect(f.pool.row('issue', id, 'summary')).not.toHaveProperty('panel')
+      expect(omitGone(f.pool.row('issue', id, 'summary'))).not.toHaveProperty('panel')
       expect(shellViews(f.pool).issue(id, true)).toBe(LOADING)
       expect(shellViews(f.pool).issue(id, true)).toBe(LOADING)
       expect(f.loads).toEqual([])

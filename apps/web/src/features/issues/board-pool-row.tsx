@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { SessionView } from '@podium/client-core/session-values'
 import { blockingCloseConcerns, issueCloseConcerns } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
@@ -12,7 +13,7 @@ import { issueMemberSessions } from './issue-lifecycle'
 export function useBoardIssueReader() {
   const pool = useWorklistPool()
   return useCallback((id: string) => {
-    const value = pool?.row('issueBoardRow', id)
+    const value = omitGone(pool?.row('issueBoardRow', id))
     return value && typeof value !== 'symbol' ? value : undefined
   }, [pool])
 }
@@ -21,7 +22,7 @@ export function useBoardAddressed(ids: readonly string[]) {
   const read = useCallback((pool: MobxPool) => {
     const rows: IssueViewModel[] = []
     for (const id of JSON.parse(key) as string[]) {
-      const row = pool.row('issueBoardRow', id)
+      const row = omitGone(pool.row('issueBoardRow', id))
       if (row && typeof row !== 'symbol') rows.push(row)
     }
     return rows
@@ -44,14 +45,14 @@ export const BoardPoolRow = observer(function BoardPoolRow({
 })
 export function useBoardSessionReader() {
   const pool = useWorklistPool()
-  return useCallback((issue: IssueViewModel) => pool?.row('issueBoardSessions', issue.id), [pool])
+  return useCallback((issue: IssueViewModel) => omitGone(pool?.row('issueBoardSessions', issue.id)), [pool])
 }
 export function useBoardCloseGuard(_sessions: readonly SessionView[]) {
   const pool = useWorklistPool()
   return useCallback(
     (issue: IssueViewModel) => {
-      const row = pool?.row('issueBoardRow', issue.id),
-        seats = pool?.row('issueBoardSessions', issue.id)
+      const row = omitGone(pool?.row('issueBoardRow', issue.id)),
+        seats = omitGone(pool?.row('issueBoardSessions', issue.id))
       if (!row || !seats || typeof row === 'symbol' || typeof seats === 'symbol') return true
       return (
         blockingCloseConcerns(issueCloseConcerns(row, issueMemberSessions(row, seats))).length > 0

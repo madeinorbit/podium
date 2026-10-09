@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 /** Frozen pre-migration desktop board card (POD-5828). The board source built
  * a second card graph: a visible-row overlay, a sorted seat projection, a
  * descendant progress walk and child stage counts. Cards now read the shared
@@ -31,14 +32,14 @@ export function readLegacyBoardCard(
   options: { id: string; agents?: boolean },
 ): Loaded<LegacyBoardCard> {
   function facts(id: string): Loaded<IssueViewModel> {
-    const row = pool.row('issue', id, 'summary-fields')
+    const row = omitGone(pool.row('issue', id, 'summary-fields'))
     if (!row || row === LOADING) return row
     const raw = row as Record<string, unknown>
     const fields = pool.tables.issue.has(id)
       ? Object.fromEntries(ISSUE_BOARD_SUMMARIES.issue.map((key) => [key, raw[key]]))
       : raw
     const repoId = pool.graph.one('issue', id, 'repo')
-    const repo = repoId ? (pool.row('repo', repoId) as Loaded<{ prefix?: string }>) : undefined
+    const repo = repoId ? (omitGone(pool.row('repo', repoId)) as Loaded<{ prefix?: string }>) : undefined
     if (repo === LOADING) return LOADING
     const prefix = repo?.prefix
     const deadline = Date.parse((raw.deferUntil as string) ?? '')
@@ -78,7 +79,7 @@ export function readLegacyBoardCard(
     const seats = pool.queries.project({ kind: 'commandIssueSessions', issueId: id,
       archived: false, includeShells: true }, `LegacyBoard@sessions:${id}`, sid =>
       pool.graph.isCollapsed('session', sid) ? undefined
-        : pool.row('session', sid, 'summary') as Loaded<SessionView>)
+        : omitGone(pool.row('session', sid, 'summary')) as Loaded<SessionView>)
     if (!seats || seats === LOADING) return seats
     return seats.slice().sort((a, b) => pool.graph.orderKey('session', a.sessionId)
       .localeCompare(pool.graph.orderKey('session', b.sessionId)))
@@ -89,13 +90,13 @@ export function readLegacyBoardCard(
     const childIds = [...pool.graph.many('issue', id, 'treeChildren')].sort(byId)
     let childDoneCount = 0
     for (const childId of childIds) {
-      const row = pool.row('issue', childId, 'summary-fields') as Loaded<{ stage?: string; closedReason?: string | null }>
+      const row = omitGone(pool.row('issue', childId, 'summary-fields')) as Loaded<{ stage?: string; closedReason?: string | null }>
       if (row === LOADING) return LOADING
       if (row && isFinished(row)) childDoneCount++
     }
     const dependents: IssueViewModel['dependents'] = []
     for (const sourceId of [...pool.graph.many('issue', id, 'pageDependents')].sort(byId)) {
-      const row = pool.row('issue', sourceId, 'summary-fields') as Loaded<{ deps?: { id: string; type: string }[] }>
+      const row = omitGone(pool.row('issue', sourceId, 'summary-fields')) as Loaded<{ deps?: { id: string; type: string }[] }>
       if (row === LOADING) return LOADING
       for (const dep of row?.deps ?? [])
         if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
@@ -114,7 +115,7 @@ export function readLegacyBoardCard(
     const byPhase: Record<string, number> = {}
     let total = 0
     for (const sid of memberSessionIds) {
-      const seat = pool.row('session', sid, 'summary') as Loaded<SessionView>
+      const seat = omitGone(pool.row('session', sid, 'summary')) as Loaded<SessionView>
       if (seat === LOADING) return LOADING
       if (!seat) continue
       total++
@@ -157,7 +158,7 @@ export function readLegacyBoardCard(
       const next = stack.pop()!
       if (seen.has(next)) continue
       seen.add(next)
-      const row = pool.row('issue', next, 'summary-fields') as Loaded<IssueViewModel>
+      const row = omitGone(pool.row('issue', next, 'summary-fields')) as Loaded<IssueViewModel>
       if (row === LOADING) return LOADING
       if (!row || row.archived || row.deletedAt || row.isDraftVessel) continue
       total++
@@ -182,7 +183,7 @@ export function readLegacyBoardCard(
   const counts = new Map<IssueViewModel['stage'], number>()
   if (!row.archived && !row.deletedAt && scoped(row, agents, true)) {
     for (const childId of pool.graph.many('issue', row.id, 'treeChildren')) {
-      const child = pool.row('issue', childId, 'summary-fields') as Loaded<IssueViewModel>
+      const child = omitGone(pool.row('issue', childId, 'summary-fields')) as Loaded<IssueViewModel>
       if (child === LOADING) return LOADING
       if (child && child.id !== row.id && !child.archived && !child.deletedAt &&
         scoped(child, agents, true, childId))

@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import { rowViewOf } from '../../../../shared/src/row-snapshots'
 import { referenceState } from '../../../../diagnostics/reference-state'
 import { upsertIssue } from '../../../../shared/src/scenarios'
@@ -141,7 +142,7 @@ function expectViews(
     for (const id of ids) {
       const oracle = views[id]
       expect(oracle, `${id} is oracle-visible`).toBeDefined()
-      const live = rowViewOf(handle.pool.issue(id))
+      const live = rowViewOf(here(handle.pool.issue(id)))
       expect(live, `${id} is pool-visible`).toBeDefined()
       expect(live!.phase, `${id}.phase`).toBe(oracle!.phase)
       expect(live!.asking, `${id}.asking`).toBe(oracle!.asking)

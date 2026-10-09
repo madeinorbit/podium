@@ -1,3 +1,4 @@
+import { here, omitGone } from './lookup'
 import { worklistView } from './worklist/view-model'
 import { lazy, companion } from '@podium/mobx-helpers'
 import type { IssueModel, SessionModel } from './models'
@@ -176,10 +177,10 @@ export class HeaderModel {
   get selectedIssue(): IssueModel | typeof LOADING | undefined {
     const id = worklistView(this.pool).selectedId
     if (!id) return undefined
-    const value = this.pool.row('issue', id)
+    const value = omitGone(this.pool.row('issue', id))
     if (value === LOADING) return LOADING
     if (!value || (value as { deletedAt?: string | null }).deletedAt) return undefined
-    return this.pool.model('issue', id)
+    return here(this.pool.model('issue', id))
   }
 }
 

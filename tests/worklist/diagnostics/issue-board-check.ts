@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 /** Values stay in the check process; reports contain counts/positions only. */
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { operationalState, type TaskProgress } from '@podium/client-core/values'
@@ -111,8 +112,8 @@ export function boardSnapshot(data: BoardSnapshotData) {
  * only ID lists and each virtual card; this diagnostic preserves the frozen
  * rich-value oracle without putting it back on the interaction path. */
 export function readBoardSnapshot(pool: MobxPool, options: BoardOptions) {
-  const layout = pool.row('issueBoardModel', JSON.stringify(options))
-  const catalog = pool.row('issueBoardCatalog', String(options.display.showAgentTasks))
+  const layout = omitGone(pool.row('issueBoardModel', JSON.stringify(options)))
+  const catalog = omitGone(pool.row('issueBoardCatalog', String(options.display.showAgentTasks)))
   if (!layout || layout === LOADING || !catalog || catalog === LOADING) return LOADING
   const models = new Map<string, IssueViewModel>()
   const stageCounts: BoardSnapshotData['view']['stageCounts'] = new Map()
@@ -123,7 +124,7 @@ export function readBoardSnapshot(pool: MobxPool, options: BoardOptions) {
   // counts; the frozen legacy values pin both (POD-5828).
   const cards = boardCards(pool)
   for (const id of shown) {
-    const row = pool.row('issueBoardRow', id)
+    const row = omitGone(pool.row('issueBoardRow', id))
     if (!row || row === LOADING) return LOADING
     const model = cards.issue(id)
     try {
@@ -139,7 +140,7 @@ export function readBoardSnapshot(pool: MobxPool, options: BoardOptions) {
     rows: group.rows.map(({ id, ...row }) => ({ ...row, issue: models.get(id)! })),
   }))
   const openIds = options.openIssueId
-    ? pool.row('issueBoardOpenIds', JSON.stringify({ ...options, id: options.openIssueId })) : []
+    ? omitGone(pool.row('issueBoardOpenIds', JSON.stringify({ ...options, id: options.openIssueId }))) : []
   if (openIds === LOADING) return LOADING
   const data: BoardSnapshotData = {
     issues: [...models.values()], sessions: [], projectPaths: catalog.projectPaths,
@@ -156,7 +157,7 @@ export function readBoardSnapshot(pool: MobxPool, options: BoardOptions) {
   // The legacy board calculates nested navigation on an open even in board
   // layout. Keep that explicit diagnostic request distinct from the layout.
   if (options.openIssueId && data.view.layout === 'board') {
-    const nested = pool.row('issueBoardModel', JSON.stringify({ ...options, display: { ...options.display, layout: 'list' } }))
+    const nested = omitGone(pool.row('issueBoardModel', JSON.stringify({ ...options, display: { ...options.display, layout: 'list' } })))
     if (!nested || nested === LOADING) return LOADING
     data.view.listIds = nested.view.listIds
     data.view.rowGroups = nested.view.rowGroups.map(group => ({ stage: group.stage,

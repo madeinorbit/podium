@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { attachSettingsSource } from '@podium/client-graph/settings-source'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
@@ -52,9 +53,9 @@ try {
   attachPreferenceSource(pool, ui)
   pool.apply({ type: 'replace', rows: sessions.map((row) => ({ kind: 'session' as const, id: row.sessionId,
     value: row as unknown as SliceSession })) })
-  pool.row('settingsCatalog', 'catalog')
-  pool.row('settingsWindow', 'window')
-  pool.row('preference', 'podium.sounds.enabled')
+  omitGone(pool.row('settingsCatalog', 'catalog'))
+  omitGone(pool.row('settingsWindow', 'window'))
+  omitGone(pool.row('preference', 'podium.sounds.enabled'))
   await Promise.resolve()
   const result = checkSettings(pool, owner as never)
   console.log(JSON.stringify({ ...result, sessions: sessions.length, machines: machines.length, registeredRoots: roots.length }))

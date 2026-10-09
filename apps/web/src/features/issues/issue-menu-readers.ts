@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { issuePages } from '@podium/client-graph/issue-page'
@@ -15,7 +16,7 @@ export function readIssueMenuOrigins(pool: MobxPool, issues: readonly IssueNavig
   return [
     ...issues,
     ...[...origins].flatMap((id) => {
-      const row = pool.row('issue', id, 'summary-fields')
+      const row = omitGone(pool.row('issue', id, 'summary-fields'))
       if (!row || typeof row === 'symbol') return []
       return [
         {

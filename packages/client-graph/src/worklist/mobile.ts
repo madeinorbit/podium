@@ -1,3 +1,4 @@
+import { omitGone } from '../lookup'
 import { worklistGroups } from './groups'
 import { lazy } from '@podium/mobx-helpers'
 /** Phone bands over the existing resident root/roster indexes. No legacy
@@ -93,7 +94,7 @@ export class MobileSectionsView implements MobileWorkSections {
   waiting(id: string, worktree: boolean): { asking: boolean; pending: number } {
     if (!worktree) {
       const issue = worklistView(this.pool).knownRow(id)
-      if (issue === undefined) return { asking: false, pending: this.pool.row('issue', id) === LOADING ? 1 : 0 }
+      if (issue === undefined) return { asking: false, pending: omitGone(this.pool.row('issue', id)) === LOADING ? 1 : 0 }
       return { asking: mobileWaitingCount(issue.aggregate, issue.issue.finished === true) > 0, pending: issue.aggregate.pending }
     }
     const value = worklistView(this.pool).mobileRow({ id, kind: 'worktree' })

@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 /**
  * POD-4565 (Ma1) — the ENUMERATION MODULE (`fence.json`): the only place in
@@ -133,7 +134,7 @@ export function residentSessionIds(pool: MobxPool): string[] {
 }
 export function allResidentSessions(pool: MobxPool): [string, object][] {
   return [...pool.tables.session.keys()].flatMap((id) => {
-    const row = pool.row('session', id)
+    const row = omitGone(pool.row('session', id))
     return typeof row === 'object' && row !== null ? [[id, row] as [string, object]] : []
   })
 }

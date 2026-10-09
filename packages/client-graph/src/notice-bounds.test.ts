@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { asSessionId, type MessageRecordWire } from '@podium/model'
@@ -123,8 +124,8 @@ it('bounds conversation open, addressed edits and closed readers at 1x/4x, with 
       // The prior reader shape walks global IDs before selecting this session.
       // This negative control proves the element meter sees that hidden work.
       const control = await measureWork(async () => insideArm(() => {
-        for (const id of live.messages.keys()) if (live.messages.get(id)?.sessionId === 'selected') live.pool.row('messageRecord', id)
-        for (const id of live.asks.keys()) if (live.asks.get(id)?.sessionId === 'selected') live.pool.row('pendingInteraction', id)
+        for (const id of live.messages.keys()) if (live.messages.get(id)?.sessionId === 'selected') omitGone(live.pool.row('messageRecord', id))
+        for (const id of live.asks.keys()) if (live.asks.get(id)?.sessionId === 'selected') omitGone(live.pool.row('pendingInteraction', id))
       }), { pool: live.pool })
       measured.push({ scale, open: compact(open.work), background: compact(background.work), selected: compact(selected.work),
         closed: compact(closed.work), legacyControl: compact(control.work) })
@@ -241,7 +242,7 @@ it('retains replica order through session moves, optimistic insert/rollback and 
     f.writeAsk('z-ask', { ...f.asks.get('z-ask')!, sessionId: asSessionId('selected') })()
     expect(records.records.map(row => row.id)).toEqual(['z-message', 'a-message'])
     expect(interactions.question?.id).toBe('z-ask')
-    expect(f.pool.row('noticeSession', 'moved')).toBeUndefined()
+    expect(omitGone(f.pool.row('noticeSession', 'moved'))).toBeUndefined()
     f.writeMessage('optimistic', message('optimistic', 'selected', 'typed'))()
     f.writeAsk('optimistic-ask', ask('optimistic-ask'))()
     expect(records.records.map(row => row.id)).toEqual(['z-message', 'a-message', 'optimistic'])
@@ -271,15 +272,15 @@ it('keeps aggregate answers lazy, incremental while observed, and released with 
     const unopened = f.writeMessage('z-message', { ...f.messages.get('z-message')!, body: 'Changed before opening' })
     unopened(); f.outbox()
     expect(f.source.counts).toMatchObject({ catalogBuilds: 0, attentionBuilds: 0, outboxReads: 0, payloadReads: 0 })
-    const cancel = autorun(() => f.pool.row('noticeSession', 'selected'))
+    const cancel = autorun(() => omitGone(f.pool.row('noticeSession', 'selected')))
     cancel(); await Promise.resolve()
     expect(f.source.counts.batches).toBe(0)
     expect(f.source.demand.keys).toBe(0)
-    expect(f.pool.row('noticeSession', 'selected')).toBe(LOADING)
+    expect(omitGone(f.pool.row('noticeSession', 'selected'))).toBe(LOADING)
     await Promise.resolve()
-    let catalog = f.pool.row('noticeCatalog', 'catalog')
+    let catalog = omitGone(f.pool.row('noticeCatalog', 'catalog'))
     expect(f.source.demand.catalog).toBe(false)
-    const stop = autorun(() => { catalog = f.pool.row('noticeCatalog', 'catalog') })
+    const stop = autorun(() => { catalog = omitGone(f.pool.row('noticeCatalog', 'catalog')) })
     const before = { ...f.source.counts }
     f.writeMessage('new-id', message('new-id'))()
     expect(catalog && catalog !== LOADING ? catalog.messages.includes('new-id') : false).toBe(true)

@@ -62,6 +62,8 @@
  */
 
 import { createDemandAtoms } from '@podium/mobx-helpers'
+import { LOADING } from './loading'
+import { type Gone, NOT_VISIBLE, REMOVED } from './lookup'
 import { debugName } from './debug-name'
 import type { ColdQueries } from './shared/cold-index'
 import type { RelationDelta } from './shared/relation-index'
@@ -98,6 +100,8 @@ export interface ResidencyOptions {
   readonly hot: { readonly [E in EntityName]: { get(id: string): unknown; has(id: string): boolean } }
   /** The one per-row read through the feed. */
   readonly load: LoadRow
+  /** Borrow canonical replica exits; never copy its tombstone ledger. */
+  readonly exitKind?: (entity: EntityName, id: string) => 'removed' | 'evicted' | undefined
   /** The cold index (the row source's, or the pool's own), read at every call. */
   readonly index: () => ColdQueries
   /** The slice clock (`coarseNow`): what an `unlessShown` rule's deadlines are read against. */
@@ -131,6 +135,9 @@ export class Residency {
   private readonly schema: ModelSchema
   private readonly hot: ResidencyOptions['hot']
   private readonly load: LoadRow
+  private readonly exitKind: ResidencyOptions['exitKind']
+  /** Only failed addressed requests, cleared when the feed publishes that id. */
+  private readonly unavailable = new Set<string>()
   private readonly index: () => ColdQueries
   private readonly clock: () => number
   private readonly schedule: Schedule
@@ -182,6 +189,7 @@ export class Residency {
     this.schema = options.schema
     this.hot = options.hot
     this.load = options.load
+    this.exitKind = options.exitKind
     this.index = options.index
     this.clock = options.now
     this.keeperKinds = keeperEntities(this.schema)
@@ -290,6 +298,23 @@ export class Residency {
     this.see(entity, id)
     this.request(entity as LoadableEntity, id)
     return true
+  }
+
+  /** An addressed missing payload either starts one load or gives a terminal
+   * answer. An evicted replica row can be retried; a removed one cannot. */
+  lookup(entity: EntityName, id: string, request = true): typeof LOADING | Gone {
+    this.observe(entity, id)
+    if (this.removed(entity, id)) return REMOVED
+    if (!loadable(entity) || this.unavailable.has(`${entity}:${id}`)) return NOT_VISIBLE
+    if (!request && !this.isCold(entity, id)) return NOT_VISIBLE
+    this.see(entity, id)
+    if (request) this.request(entity, id)
+    return LOADING
+  }
+
+  removed(entity: EntityName, id: string): boolean {
+    return this.exitKind?.(entity, id) === 'removed' ||
+      (entity === 'issue' && Boolean(this.index().heldFields(entity, id, ['deletedAt'])?.['deletedAt']))
   }
 
   /** TRACKED: whether `id` is cold, so hidden from the list unless loaded. */
@@ -423,6 +448,7 @@ export class Residency {
    * checked once every row is in (`settle`).
    */
   ingest(target: IngestTarget, entity: EntityName, id: string, value: StoredRow | undefined, out: IngestOut): void {
+    this.unavailable.delete(`${entity}:${id}`)
     const previous = target.read[entity].get(id) as Row | undefined
     this.marks(entity, id, previous, value as Row | undefined)
     if (value === undefined) {
@@ -476,6 +502,7 @@ export class Residency {
   ): AttachStats {
     const index = this.index()
     const now = this.now()
+    this.unavailable.clear()
     // The cold rows readers asked about may have left the slice or changed:
     // they hear once the attach is in (as each dropped registry entry used to).
     const asked: [EntityName, string][] = []
@@ -531,11 +558,13 @@ export class Residency {
   install(target: IngestTarget, batch: readonly [LoadableEntity, string][], out: IngestOut): number {
     let installed = 0
     for (const [entity, id] of batch) {
-      if (!this.isCold(entity, id)) continue
+      if (this.hot[entity].has(id) || this.removed(entity, id)) continue
       const value = this.load(entity, id) as StoredRow | undefined
-      // Gone from the kernel, its removal not yet published: stays cold until
-      // the removal arrives.
-      if (value === undefined) continue
+      if (value === undefined) {
+        this.unavailable.add(`${entity}:${id}`)
+        this.notify(entity, id)
+        continue
+      }
       this.putWarm(target, entity, id, value, out)
       this.mark(entity, id)
       this.moved.add(`${entity}:${id}`)
@@ -607,6 +636,7 @@ export class Residency {
 
   /** Forget everything (the pool's dispose). */
   clear(): void {
+    this.unavailable.clear()
     this.referenceQueue.clear()
     this.cancel?.()
     this.cancel = null

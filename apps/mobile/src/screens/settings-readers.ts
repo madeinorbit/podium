@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { settingsView } from '@podium/client-graph/settings-views'
 import type { MobxPool } from '@podium/client-graph'
 import type { MobileSettingsDiagnostics } from '@podium/client-graph/mobile-settings'
@@ -42,14 +43,14 @@ const loaded = <T extends object>(row: T | symbol | undefined): row is T =>
 function machineReaders(pool: MobxPool) {
   return pool.sources.view('phone.settings.machines', () => {
     const ids = keyedComputed('phone.settings.machineIds', (_key: null) => {
-      const catalog = pool.row('settingsCatalog', 'catalog')
+      const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
       return loaded(catalog) ? catalog.machines : EMPTY_IDS
     })
     const shown = keyedComputed('phone.settings.shownMachineIds', (_key: null) =>
       ids(null).slice(0, 12),
     )
     const flags = keyedComputed('phone.settings.machineFlags', (id: string) => {
-      const row = pool.row('settingsMachine', id)
+      const row = omitGone(pool.row('settingsMachine', id))
       if (!loaded(row)) return -1
       const view = visibleFleetOperations({ machines: [row], hosts: [] }).machines[0]!
       return (UPDATE_STATES.indexOf(view.updateState) << 1) | Number(view.online)
@@ -90,7 +91,7 @@ function machineReaders(pool: MobxPool) {
     const status = keyedComputed(
       'phone.settings.machineStatus',
       (id: string): SettingsMachineStatus | null => {
-        const row = pool.row('settingsMachine', id)
+        const row = omitGone(pool.row('settingsMachine', id))
         if (!loaded(row)) return null
         const view = visibleFleetOperations({ machines: [row], hosts: [] }).machines[0]!
         const { name, online, statusLabel, updateChannel, updateLabel } = view
@@ -113,9 +114,9 @@ function machineReaders(pool: MobxPool) {
 }
 
 export function readSettingsData(pool: MobxPool): SettingsData {
-  const diagnostics = pool.row('mobileSettingsDiagnostics', 'diagnostics')
-  const window = pool.row('window', 'window') as { outboxSize: number } | undefined
-  const notices = pool.row('noticeCatalog', 'catalog')
+  const diagnostics = omitGone(pool.row('mobileSettingsDiagnostics', 'diagnostics'))
+  const window = omitGone(pool.row('window', 'window')) as { outboxSize: number } | undefined
+  const notices = omitGone(pool.row('noticeCatalog', 'catalog'))
   const machines = machineReaders(pool)
   return {
     ...machines.summary(null),

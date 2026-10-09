@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 // Test-only chrome oracle frozen before the shared-model replacement.
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { asIssueId } from '@podium/model/browser'
@@ -8,10 +9,10 @@ export function createMobileSessionReader(pool: MobxPool) {
   return {
     chromeIssue(id: string | undefined): Loaded<IssueViewModel> {
       if (id === undefined) return undefined
-      const row = pool.row('issue', id, 'summary-fields') as Loaded<IssueViewModel>
+      const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<IssueViewModel>
       if (!row || row === LOADING || row.deletedAt) return row === LOADING ? LOADING : undefined
       const repoId = pool.graph.one('issue', id, 'repo')
-      const repo = repoId ? (pool.row('repo', repoId) as Loaded<{ prefix?: string }>) : undefined
+      const repo = repoId ? (omitGone(pool.row('repo', repoId)) as Loaded<{ prefix?: string }>) : undefined
       const prefix = repo && repo !== LOADING ? repo.prefix : undefined
       return {
         ...row,

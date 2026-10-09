@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 // @vitest-environment happy-dom
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { asClientPrincipal } from '@podium/client-core/principal'
@@ -95,7 +96,7 @@ it.each([
       <AgentPanel sessionId={sid} />
     </StoreProvider>,
   )
-  await waitFor(() => expect(pool?.row('shellWindow', 'window')).toBeTypeOf('object'), {
+  await waitFor(() => expect(omitGone(pool?.row('shellWindow', 'window'))).toBeTypeOf('object'), {
     timeout: 10000,
   })
   await act(async () => {

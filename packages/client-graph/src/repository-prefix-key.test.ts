@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { autorun, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
@@ -114,7 +115,7 @@ it('reads no repo catalog at first demand and bounds update row reads and deriva
           insideReader('planted old prefix catalog', () => {
             const prefixes = new Set<string>()
             for (const id of pool.tables.repo.keys()) {
-              const row = pool.row('repo', id) as { prefix?: string } | undefined
+              const row = omitGone(pool.row('repo', id)) as { prefix?: string } | undefined
               if (row?.prefix) prefixes.add(row.prefix)
             }
             expect([...prefixes].sort().join(',')).toBe(value)

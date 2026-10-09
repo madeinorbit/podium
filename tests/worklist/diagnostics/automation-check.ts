@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { ReferenceState as Store } from './reference-state'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { automationViews, type AutomationTarget, type TargetExclusions } from '@podium/client-graph/automation-views'
@@ -27,7 +28,7 @@ export function poolAutomationSnapshot(pool: MobxPool, paths: readonly (string |
   const view = automationViews(pool), list = view.list(), repos = view.repositories()
   let pending = list.pending + repos.pending
   // The list holds no runs: read the run source's own membership, row by row.
-  const catalog = pool.row('automationCatalog', 'catalog')
+  const catalog = omitGone(pool.row('automationCatalog', 'catalog'))
   if (catalog === LOADING) pending++
   const runRows = (catalog && catalog !== LOADING ? catalog.runs : []).flatMap(id => {
     const row = view.run(id)

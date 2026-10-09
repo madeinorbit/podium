@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 /**
  * A REAL STORE FOR MOBILE COMPONENT TESTS (POD-332).
  *
@@ -310,7 +311,7 @@ export async function renderWithMobileStore(children: ReactNode, fixture: Mobile
 
 function readReady(pool: MobxPool): boolean {
   for (const kind of ['mobileScreenReader', 'mobileSessionReader', 'commandCatalog'] as const) {
-    const row = pool.row(kind, kind === 'commandCatalog' ? 'catalog' : 'reader')
+    const row = omitGone(pool.row(kind, kind === 'commandCatalog' ? 'catalog' : 'reader'))
     if (!row || typeof row === 'symbol') return false
   }
   return true

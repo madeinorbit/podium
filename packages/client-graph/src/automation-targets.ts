@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { keyedComputed } from '@podium/mobx-helpers'
 import { agentExecutionRejection, machinePathBasename, machinePathKey, machinePathsEqual, structuralRejection } from '@podium/model/browser'
 import type { AutomationTarget, TargetAvailability, TargetExclusions } from './automation-views'
@@ -23,10 +24,10 @@ export function createAutomationTargets(pool: MobxPool) {
     (_key: string, read: () => unknown) => read(),
   )
   const memo = <T>(key: string, read: () => T): T => cache(key, read) as T
-  const catalog = () => memo('targetCatalog', () => pool.row('settingsCatalog', 'catalog'))
+  const catalog = () => memo('targetCatalog', () => omitGone(pool.row('settingsCatalog', 'catalog')))
   const path = (id: string): string => {
     const value = memo(`targetPath:${id}`, () => {
-      const row = pool.row('settingsRepository', id)
+      const row = omitGone(pool.row('settingsRepository', id))
       return row === LOADING ? LOADING : row?.path
     })
     return value === LOADING ? '' : value ?? ''
@@ -42,26 +43,26 @@ export function createAutomationTargets(pool: MobxPool) {
     return paths
   })
   const kind = (id: string) => memo(`targetKind:${id}`, () => {
-    const row = pool.row('settingsRepository', id)
+    const row = omitGone(pool.row('settingsRepository', id))
     return row === LOADING ? LOADING : row?.kind
   })
   const machineId = (id: string) => memo(`targetMachine:${id}`, () => {
-    const row = pool.row('settingsRepository', id)
+    const row = omitGone(pool.row('settingsRepository', id))
     return row === LOADING ? LOADING : row?.machineId
   })
   const worktrees = (id: string) => memo(`targetWorktrees:${id}`, () => {
-    const row = pool.row('settingsRepository', id)
+    const row = omitGone(pool.row('settingsRepository', id))
     return row === LOADING ? LOADING : row?.worktrees
   })
   const scoped = () => memo('targetsScoped', () => {
     const rows = catalog()
     return !!rows && rows !== LOADING && rows.machines.some(id => {
-      const row = pool.row('settingsMachine', id)
+      const row = omitGone(pool.row('settingsMachine', id))
       return !!row && row !== LOADING && row.use !== undefined
     })
   })
   const machineState = (id: string) => memo(`targetMachineState:${id}`, (): TargetAvailability | typeof LOADING => {
-    const machine = pool.row('settingsMachine', id)
+    const machine = omitGone(pool.row('settingsMachine', id))
     if (machine === LOADING) return LOADING
     if (!machine || scoped() && machine.use !== 'granted') return 'unauthorized'
     if (structuralRejection(machine) === 'no-daemon') return 'incapable'
@@ -163,7 +164,7 @@ export function createAutomationTargets(pool: MobxPool) {
       }
       const rows = catalog()
       if (rows && rows !== LOADING) for (const id of rows.machines)
-        if (pool.row('settingsMachine', id) === LOADING) pending++
+        if (omitGone(pool.row('settingsMachine', id)) === LOADING) pending++
       const global = fixedQuery(null).get()
       const saved = currentPath === null ? undefined : fixedQuery(currentPath).get()
       const ids = choices === LOADING || global === LOADING || saved === LOADING ? EMPTY_IDS

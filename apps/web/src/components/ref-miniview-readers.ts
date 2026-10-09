@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
 import { parseAnyRef } from '@podium/protocol'
@@ -7,7 +8,7 @@ import type { RefIssueLike, RefSessionLike, ResolvedRef } from '@/lib/ref-minivi
 
 export function readReferenceSession(pool: MobxPool, ref: string) {
   const id = pool.queries.sessionReferenceId(ref)
-  return id ? pool.row('session', id, 'summary-fields') : undefined
+  return id ? omitGone(pool.row('session', id, 'summary-fields')) : undefined
 }
 
 /** The named row is the card's whole input. Its parent label, its session
@@ -29,7 +30,7 @@ export function readRefTarget(
     }
   }
   const id = parsed?.kind === 'issue' ? pool.queries.issueReferenceId(ref) : undefined
-  const row = id ? pool.row('issue', id) : undefined
+  const row = id ? omitGone(pool.row('issue', id)) : undefined
   if (typeof row === 'symbol') return { target: null, loading: true }
   if (!id || !row || !parsed) return { target: null, loading: false }
   const description = (row as { description?: string | { value?: string } }).description
@@ -38,7 +39,7 @@ export function readRefTarget(
     description: typeof description === 'string' ? description : (description?.value ?? ''),
     ...pool.queries.issueChildCounts(id),
     ...readAddressedIssueRef(pool, id, row as { seq: number; prefix?: string; displayRef?: string }),
-  } as RefIssueLike
+  } as unknown as RefIssueLike
   return { target: { kind: 'issue', ref: parsed, issue }, loading: false }
 }
 

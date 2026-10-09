@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { allowImperativeRead } from '@podium/mobx-helpers'
 import { beginSwitch } from '@podium/client-core/perf'
@@ -29,7 +30,7 @@ export function poolMissionRoot(
   id: string | null,
 ): SliceIssue | typeof LOADING | undefined {
   if (!id) return undefined
-  let current = pool.row('issue', id) as SliceIssue | typeof LOADING | undefined
+  let current = omitGone(pool.row('issue', id)) as SliceIssue | typeof LOADING | undefined
   const seen = new Set<string>()
   while (
     current !== undefined &&
@@ -40,13 +41,13 @@ export function poolMissionRoot(
     seen.add(current.id)
     const parentId = pool.graph.one('issue', current.id, 'treeParent')
     if (!parentId) break
-    const summary = pool.row('issue', parentId, 'summary') as
+    const summary = omitGone(pool.row('issue', parentId, 'summary')) as
       | SliceIssue
       | typeof LOADING
       | undefined
     if (summary === LOADING) return LOADING
     if (summary?.archived || summary?.deletedAt) break
-    const parent = pool.row('issue', parentId) as SliceIssue | typeof LOADING | undefined
+    const parent = omitGone(pool.row('issue', parentId)) as SliceIssue | typeof LOADING | undefined
     if (parent === LOADING) return LOADING
     if (parent === undefined || parent.archived || parent.deletedAt) break
     current = parent
@@ -67,7 +68,7 @@ export function poolMissionContains(
     if (member === rootId) return true
     if (seen.has(member)) return false
     seen.add(member)
-    const issue = pool.row('issue', member) as SliceIssue | typeof LOADING | undefined
+    const issue = omitGone(pool.row('issue', member)) as SliceIssue | typeof LOADING | undefined
     if (issue === LOADING) return LOADING
     if (!issue) return false
     // Formal closure is rooted at the original mission only. A child of a
@@ -77,7 +78,7 @@ export function poolMissionContains(
     while (parent && !parents.has(parent)) {
       if (parent === rootId) return true
       parents.add(parent)
-      const ancestor = pool.row('issue', parent)
+      const ancestor = omitGone(pool.row('issue', parent))
       if (ancestor === LOADING) return LOADING
       if (!ancestor) break
       parent = pool.graph.one('issue', parent, 'parent')
@@ -90,7 +91,7 @@ export function poolMissionContains(
       return false
     const starter = pool.graph.one('issue', member, 'startedBy')
     if (!starter) return false
-    const sender = pool.row('session', starter, 'summary')
+    const sender = omitGone(pool.row('session', starter, 'summary'))
     if (sender === LOADING) return LOADING
     const owner = (sender as { issueId?: string } | undefined)?.issueId
     return owner ? visit(owner) : false
@@ -121,7 +122,7 @@ function sessionMembership(
       (pool.queries.residentInsertionOrder('session', b) ?? Infinity))
     : pool.tables.session.keys()
   for (const id of candidates) {
-    const session = pool.row('session', id) as SessionView | typeof LOADING | undefined
+    const session = omitGone(pool.row('session', id)) as SessionView | typeof LOADING | undefined
     if (session === undefined || session === LOADING || !session.issueId) continue
     const members = byIssue.get(session.issueId)
     if (members) members.push(session)
@@ -198,7 +199,7 @@ export function createPoolWorkActions(
       store.setSelectedIssueId(null)
       store.setSelectedWorktree(path)
       const members = [...pool.graph.many('worktree', path, 'sessions')].flatMap((id) => {
-        const session = pool.row('session', id) as SessionView | typeof LOADING | undefined
+        const session = omitGone(pool.row('session', id)) as SessionView | typeof LOADING | undefined
         return session === undefined ||
           session === LOADING ||
           session.archived ||

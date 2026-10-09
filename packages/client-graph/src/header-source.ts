@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime, HeaderInputKey, KeyedListChange } from '@podium/client-core/engine'
@@ -115,7 +116,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
       change.name,
       change.type === 'delete'
         ? undefined
-        : (pool.row('session', change.name) as object | undefined),
+        : (omitGone(pool.row('session', change.name)) as object | undefined),
     )
   })
   keyed('machine', 'machines')

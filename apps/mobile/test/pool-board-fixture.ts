@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 /** Literal board and screening fixtures read through the production pool only. */
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { createMobileInboxViews } from '@podium/client-graph/mobile-inbox-views'
@@ -67,7 +68,7 @@ export async function readPoolTasks(
   const pool = fixture(issues, workers)
   try {
     await attachMobileScreens(pool)
-    const reader = pool.row('mobileScreenReader', 'reader')
+    const reader = omitGone(pool.row('mobileScreenReader', 'reader'))
     if (!reader || reader === LOADING) throw new Error('Resident task reader did not attach')
     const data = readMobileTaskSnapshot(pool, {
       showDone: false,

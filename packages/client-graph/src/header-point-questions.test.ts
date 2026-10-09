@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
 import type { MachineId } from '@podium/model/browser'
@@ -180,7 +181,7 @@ it('answers repository membership count without reading any row at 1x/4x', async
         headerEntities(f.pool).apply([{ kind: 'repository', id: 'r0', value: undefined }])
       })
       const control = await f.measure('whole repository count control', () => {
-        const rows = headerView(f.pool).ids('repository').map((id) => f.pool.row('repository', id))
+        const rows = headerView(f.pool).ids('repository').map((id) => omitGone(f.pool.row('repository', id)))
         expect(rows.length).toBe(128 * scale - 1)
       })
       expect(control.work.rows).toBe(128 * scale - 1)

@@ -28,6 +28,8 @@ export interface RowSource {
    * that can be cold. Optional: a source without it cannot back a lazy pool.
    */
   row?(kind: 'issue' | 'session', id: string): RowRecord['value']
+  /** Canonical replica exit evidence, addressed and read without loading. */
+  exitKind?(kind: RowRecord['kind'], id: string): 'removed' | 'evicted' | undefined
   /**
    * POD-5405 — the residency rule's questions over EVERY row this feed carries
    * (`cold-index.ts`): built on first call from one snapshot per kind, then

@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { worklistRowStatus } from '../../../../apps/mobile/src/lib/work-sections'
 import { sidebarComparable } from '../../diagnostics/oracle'
@@ -670,7 +671,7 @@ async function measureScreenCells(
       }
     })
     add('board.model', ['IssueBoard', 'useBoardData'], () =>
-      pool.row(
+      omitGone(pool.row(
         'issueBoardModel',
         JSON.stringify({
           display: { layout: 'board', ordering: 'priority', showAgentTasks: false },
@@ -681,10 +682,10 @@ async function measureScreenCells(
           now: 0,
           windowed: true,
         }),
-      ),
+      )),
     )
     add('board.explorer', ['IssueExplorer'], () =>
-      pool.row('issueExplorerModel', JSON.stringify({ tab: null, query: '', windowed: true })),
+      omitGone(pool.row('issueExplorerModel', JSON.stringify({ tab: null, query: '', windowed: true }))),
     )
     add('chat.detail', ['SessionConversation', 'AgentPanel'], () => ({
       issue: chat.issue(selected()),
@@ -721,7 +722,7 @@ async function measureScreenCells(
       present: settingsView(pool).sessionPresent(SESSION),
     }))
     add('preferences', ['SettingsView', 'SettingsScreen', 'WorkScreen'], () =>
-      pool.row('preference', 'podium:sidebar:pinned-fold'),
+      omitGone(pool.row('preference', 'podium:sidebar:pinned-fold')),
     )
     add('references', ['IssueChipLiveness', 'RefChip', 'RefMiniview'], () => ({
       token: referenceView(pool).read('#999999'),
@@ -793,7 +794,7 @@ async function measureScreenCells(
       booting: mobileSession.booting(),
     }))
     add('mobile-settings', ['SettingsScreen'], () =>
-      pool.row('mobileSettingsDiagnostics', 'diagnostics'),
+      omitGone(pool.row('mobileSettingsDiagnostics', 'diagnostics')),
     )
     for (const reader of readers) {
       const projection = createPoolProjection(pool, () => insideReader(reader.name, reader.read), {
@@ -891,9 +892,9 @@ async function measureScreenCells(
     const cells: ScreenWorkCell[] = []
     const proveAction = (action: ScreenAction) => {
       const state = referenceState(ctx.engine)
-      const issue = pool.row('issue', ROOT)
+      const issue = omitGone(pool.row('issue', ROOT))
       const sessionId = action === 'heartbeat' ? heartbeatId : SESSION
-      const session = pool.row('session', sessionId)
+      const session = omitGone(pool.row('session', sessionId))
       if (action === 'select' && state.selectedIssueId !== CHILD)
         throw new Error('Selection click did not select its row')
       if (action === 'pane-switch' && state.paneA !== SESSION)
@@ -986,7 +987,7 @@ async function measureScreenCells(
       const pane = values.get('mission.pane') as ReturnType<typeof readMissionPane> | undefined
       if (values.has('mission.pane') && (pane === LOADING || pane?.mission.root?.id !== ROOT))
         throw new Error('Mission output lost its root')
-      const row = pool.row('issue', ROOT)
+      const row = omitGone(pool.row('issue', ROOT))
       if (!row || row === LOADING || Reflect.get(row, 'title') !== ROOT)
         throw new Error('Pool/legacy row parity failed')
     }

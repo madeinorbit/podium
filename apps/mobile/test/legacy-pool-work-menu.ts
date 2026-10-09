@@ -1,3 +1,4 @@
+import { here, omitGone } from '@podium/client-graph/lookup'
 // Frozen pre-migration menu answer for paired fixture comparisons.
 import { allowImperativeRead } from '@podium/mobx-helpers'
 import type { IssueViewModel } from '@podium/client-core/replica'
@@ -25,8 +26,8 @@ export function resolvePoolWorkMenu(
   lane: WorkIssueMenuTarget['lane'] = 'live',
 ): PoolWorkMenuData | null {
   return allowImperativeRead(() => {
-    const model = pool.issue(id)
-    const raw = pool.row('issue', id) as SliceIssue | typeof LOADING | undefined
+    const model = here(pool.issue(id))
+    const raw = omitGone(pool.row('issue', id)) as SliceIssue | typeof LOADING | undefined
     if (!model || !raw || raw === LOADING) return null
     // Only the Closed lane shows the inverse-fold eligibility. Live menus
     // acquire close concerns on the status press, rather than warming rollups.

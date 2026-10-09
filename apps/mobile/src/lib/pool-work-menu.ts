@@ -1,3 +1,4 @@
+import { here, omitGone } from '@podium/client-graph/lookup'
 import { allowImperativeRead, lazy } from '@podium/mobx-helpers'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -34,9 +35,9 @@ export function resolvePoolWorkMenu(
   lane: WorkIssueMenuTarget['lane'] = 'live',
 ): PoolWorkMenuData | null {
   return allowImperativeRead(() => {
-    const raw = pool.row('issue', id)
+    const raw = omitGone(pool.row('issue', id))
     if (!raw || raw === LOADING) return null
-    const issue = pool.model('issue', id)
+    const issue = here(pool.model('issue', id))
     if (!issue) return null
     return {
       target: new SharedMenuTarget(pool, issue as unknown as WorkIssueMenuTarget['issue'], lane),

@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { referenceView } from '@podium/client-graph/issue-reference'
 import { type IssueReferenceSource, issueReferenceModel } from '@podium/client-core/values'
 import { LOADING, MobxPool } from '@podium/client-graph'
@@ -207,7 +208,7 @@ describe('per-issue pool references', () => {
     expect(referenceView(pool).read('POD-01')).toBe(LOADING)
     expect(referenceView(pool).read('POD-999')).toBe(LOADING)
     // A relation and a chip can ask for the same row in the same window.
-    expect(pool.row('issue', cold[0]!.id)).toBe(LOADING)
+    expect(omitGone(pool.row('issue', cold[0]!.id))).toBe(LOADING)
     expect(issueIdByRef).not.toHaveBeenCalled()
     expect(load).not.toHaveBeenCalled()
     expect(due).toHaveLength(1)

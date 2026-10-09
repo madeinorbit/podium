@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { settingsView } from '@podium/client-graph/settings-views'
 import type { MobxPool } from '@podium/client-graph'
 import type { SettingsRows } from '@podium/client-graph/settings-schema'
@@ -21,15 +22,15 @@ const loaded = <T extends object>(row: T | symbol | undefined): row is T =>
   typeof row === 'object' && row !== null
 
 function readCatalog(pool: MobxPool): Pick<Store, 'machines' | 'repos'> {
-  const catalog = pool.row('settingsCatalog', 'catalog')
+  const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
   if (!loaded(catalog)) return EMPTY_CATALOG
   return {
     machines: catalog.machines.flatMap((id) => {
-      const row = pool.row('settingsMachine', id)
+      const row = omitGone(pool.row('settingsMachine', id))
       return loaded(row) ? [row] : []
     }),
     repos: catalog.repositories.flatMap((id) => {
-      const row = pool.row('settingsRepository', id)
+      const row = omitGone(pool.row('settingsRepository', id))
       return loaded(row) ? [row] : []
     }),
   }
@@ -44,15 +45,15 @@ const EMPTY_TARGETS: Record<string, string> = {}
 function machineReaders(pool: MobxPool) {
   return pool.sources.view('web.settings.machines', () => {
     const ids = keyedComputed('settings.machineIds', (_key: null) => {
-      const catalog = pool.row('settingsCatalog', 'catalog')
+      const catalog = omitGone(pool.row('settingsCatalog', 'catalog'))
       return loaded(catalog) ? catalog.machines : EMPTY_MACHINE_IDS
     })
     const override = keyedComputed('settings.machineChannel', (id: string) => {
-      const row = pool.row('settingsMachine', id)
+      const row = omitGone(pool.row('settingsMachine', id))
       return loaded(row) ? (row.updateChannelOverride ?? null) : null
     })
     const version = keyedComputed('settings.machineTarget', (id: string) => {
-      const row = pool.row('settingsMachine', id)
+      const row = omitGone(pool.row('settingsMachine', id))
       return loaded(row) ? (row.targetVersion ?? null) : null
     })
     const targets = keyedComputed('settings.channelTargets', (channel: string | null) => {
@@ -83,7 +84,7 @@ export function useSettingsMachineIds(): readonly string[] {
 export function useSettingsMachine(id: string): Store['machines'][number] | null {
   const read = useCallback(
     (pool: MobxPool) => {
-      const row = pool.row('settingsMachine', id)
+      const row = omitGone(pool.row('settingsMachine', id))
       return loaded(row) ? row : null
     },
     [id],
@@ -96,7 +97,7 @@ export function useSettingsMachineTargets(channel: string | null): Record<string
 }
 
 const readTab = (pool: MobxPool) => {
-  const row = pool.row('settingsWindow', 'window')
+  const row = omitGone(pool.row('settingsWindow', 'window'))
   return loaded(row) ? row.settingsTab : 'sessions'
 }
 export function useSettingsTab(): SettingsRows['settingsWindow']['settingsTab'] {
@@ -131,7 +132,7 @@ function usePoolPreference<T>(
   const pool = useWorklistPool()
   const read = useCallback(
     (pool: MobxPool) => {
-      const row = pool.row('preference', key)
+      const row = omitGone(pool.row('preference', key))
       return loaded(row) ? row.value : null
     },
     [key],
@@ -189,7 +190,7 @@ function usePoolSettingsDraftSeed<T>(
   const read = useCallback(
     (pool: MobxPool) => {
       if (key === null) return { raw: null, loading: false }
-      const row = pool.row('preference', key)
+      const row = omitGone(pool.row('preference', key))
       return loaded(row) ? { raw: row.value, loading: false } : { raw: null, loading: true }
     },
     [key],

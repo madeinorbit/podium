@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 import { referenceState } from '../../../diagnostics/reference-state'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ReferenceState as Store } from '../../../diagnostics/reference-state'
@@ -217,7 +218,7 @@ describe('mission pane value differential', () => {
     try {
       const before = { ...reader.stats }
       const other = ids.find((id) => id !== selected)!
-      const raw = tracked(() => handle.pool.row('issue', other)) as
+      const raw = tracked(() => omitGone(handle.pool.row('issue', other))) as
         | SliceIssue
         | typeof LOADING
         | undefined

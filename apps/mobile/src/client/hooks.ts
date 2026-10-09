@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 /** Phone reads use the shared pool; actions and transport handles retain
  * their existing owner and API. Missing pool facts retain loading values. */
 import type { Store } from '@podium/client-core/engine'
@@ -127,7 +128,7 @@ export function useConnected(): boolean {
 
 function poolBooting(pool: MobxPool): boolean {
   if (demoEnabled()) return false
-  const reader = pool.row('mobileSessionReader', 'reader')
+  const reader = omitGone(pool.row('mobileSessionReader', 'reader'))
   return !reader || typeof reader === 'symbol' || reader.booting()
 }
 
@@ -136,7 +137,7 @@ const EMPTY_MISSION_READ: MissionRead = { ...EMPTY_MOBILE_MISSION, resolved: fal
 export function useMissionScreenData(id: string): MissionRead {
   const read = useCallback(
     (pool: MobxPool): MissionRead => {
-      const reader = pool.row('mobileScreenReader', 'reader')
+      const reader = omitGone(pool.row('mobileScreenReader', 'reader'))
       if (!reader || typeof reader === 'symbol') return EMPTY_MISSION_READ
       const data = reader.mission(id)
       return typeof data === 'symbol'
@@ -171,7 +172,7 @@ const EMPTY_DECK: MissionViewValues = {
 export function useMissionDeckData(id: string, mode: FlightDeckMode): MissionViewValues {
   const read = useCallback(
     (pool: MobxPool) => {
-      const reader = pool.row('mobileScreenReader', 'reader')
+      const reader = omitGone(pool.row('mobileScreenReader', 'reader'))
       if (!reader || typeof reader === 'symbol') return EMPTY_DECK
       const data = reader.deck(id, mode)
       return typeof data === 'symbol' ? EMPTY_DECK : data

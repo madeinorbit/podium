@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { sidebarIssueRow } from '@podium/client-graph/worklist/sidebar'
@@ -265,7 +266,7 @@ function paintWindow(pool: MobxPool): () => void {
     stops.push(
       autorun(
         () => {
-          if (pool.issue(id) === undefined) void pool.resident('issue', id)
+          if (here(pool.issue(id)) === undefined) void pool.resident('issue', id)
         },
         { name: `paint.slot.${id}` },
       ),

@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import type { WorklistIssue } from '@podium/client-graph/worklist/issue'
@@ -426,7 +427,7 @@ export const PoolWorkRowSlot = memo(
     const pool = useMobilePool()
     const context = useWorklistModel()
     const model = context ?? (pool ? worklistView(pool) : null)
-    const entity = pool && item.kind === 'worktree' ? pool.model('worktree', item.id) : undefined
+    const entity = pool && item.kind === 'worktree' ? here(pool.model('worktree', item.id)) : undefined
     const row = item.kind === 'issue' ? model?.knownRow(item.id) : entity ? model?.tree(entity) : undefined
     const value = row?.ready
     const reader = pool ? mobileWorkView(pool) : undefined

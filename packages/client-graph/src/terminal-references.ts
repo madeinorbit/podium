@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { asIssueId, type IssueId, type IssueStage } from '@podium/model/browser'
 import { parseAnyRef } from '@podium/protocol'
 import type { MobxPool } from './pool'
@@ -22,7 +23,7 @@ function referenceRow(pool: MobxPool, token: string) {
   const key = issueToken(token)
   const id = key === undefined ? undefined : pool.queries.issueReferenceId(key)
   if (id === undefined) return undefined
-  const row = pool.row('issue', id, 'summary-fields') as Loaded<{ stage: IssueStage; deletedAt?: string }>
+  const row = omitGone(pool.row('issue', id, 'summary-fields')) as Loaded<{ stage: IssueStage; deletedAt?: string }>
   return !row || row === LOADING || row.deletedAt ? undefined : { id, stage: row.stage }
 }
 /** Clicks borrow current source identity and one named summary, retaining no

@@ -1,3 +1,4 @@
+import { here } from '@podium/client-graph/lookup'
 // @vitest-environment happy-dom
 /**
  * POD-4577 (Mc5) — the round-three MobX pool (`harnessMobxPoolArm`, `arms/mobx/pool`,
@@ -320,7 +321,7 @@ const PlantedSlot = observer(function PlantedSlot({
   pool: MobxPool
   id: string
 }): ReactElement | null {
-  for (const other of visibleOrderOf(pool)) void pool.issue(other)?.title
+  for (const other of visibleOrderOf(pool)) void here(pool.issue(other))?.title
   const model = pool.worklistRow(id)
   if (model === undefined || !model.inMemory) return null
   return <RowShell row={model} component={PoolNativeRow} />

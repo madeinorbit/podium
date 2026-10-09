@@ -1,3 +1,4 @@
+import { omitGone } from '@podium/client-graph/lookup'
 /** Foreground, focused planted failures; private flatblock checkout only. */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { copyFileSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
@@ -156,8 +157,8 @@ const cases = [
     file: source,
     test,
     title: 'uses declared cold',
-    from: "const row = pool.row('issue', id, 'summary-fields')",
-    to: "const row = pool.row('issue', id)",
+    from: "const row = omitGone(pool.row('issue', id, 'summary-fields'))",
+    to: "const row = omitGone(pool.row('issue', id))",
   },
   {
     name: 'passive-membership',
@@ -196,8 +197,8 @@ const cases = [
     file: source,
     test,
     title: 'updates overlays',
-    from: "const row = pool.row('issue', id, 'summary-fields')",
-    to: "const row = pool.tables.issue.get(id) ?? pool.row('issue', id, 'summary-fields')",
+    from: "const row = omitGone(pool.row('issue', id, 'summary-fields'))",
+    to: "const row = pool.tables.issue.get(id) ?? omitGone(pool.row('issue', id, 'summary-fields'))",
   },
   {
     name: 'resident-release',

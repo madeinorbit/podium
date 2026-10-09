@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { types } from 'node:util'
 import { expect, it } from 'vitest'
 import { MobxPool } from './pool'
@@ -15,17 +16,17 @@ it('serves the applied row object itself, the same on every read', () => {
     stage: 'in_progress', title: 'server', updatedAt: new Date(now).toISOString() }
   try {
     pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: row.id, value: row }] })
-    expect(pool.row('issue', row.id)).toBe(row)
-    expect(pool.row('issue', row.id)).toBe(row)
-    expect(types.isProxy(pool.row('issue', row.id))).toBe(false)
+    expect(omitGone(pool.row('issue', row.id))).toBe(row)
+    expect(omitGone(pool.row('issue', row.id))).toBe(row)
+    expect(types.isProxy(omitGone(pool.row('issue', row.id)))).toBe(false)
     // A pending title, as the log paints it: a new visible row through the feed.
     const painted = { ...row, title: 'pending' }
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: row.id, value: painted }] })
-    expect(pool.row('issue', row.id)).toBe(painted)
-    expect(pool.row('issue', row.id)).toBe(painted)
+    expect(omitGone(pool.row('issue', row.id))).toBe(painted)
+    expect(omitGone(pool.row('issue', row.id))).toBe(painted)
     // Its rollback: the server row again.
     pool.apply({ type: 'update', rows: [{ kind: 'issue', id: row.id, value: row }] })
-    expect(pool.row('issue', row.id)).toBe(row)
+    expect(omitGone(pool.row('issue', row.id))).toBe(row)
   } finally { pool.dispose() }
 })
 
@@ -37,15 +38,15 @@ it('merges only the declared cold summary on demand, then the hydrated row', () 
     { load: () => row, summaries: { issue: ['title'] }, schedule: () => () => {} })
   try {
     pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: row.id, value: row }] })
-    expect(pool.row('issue', row.id, 'mark')).toBe(LOADING)
-    const summary = pool.row('issue', row.id, 'summary-fields')
+    expect(omitGone(pool.row('issue', row.id, 'mark'))).toBe(LOADING)
+    const summary = omitGone(pool.row('issue', row.id, 'summary-fields'))
     expect(summary).toMatchObject({ title: 'pending' })
     expect(summary).not.toHaveProperty('description')
-    expect(pool.row('issue', row.id, 'summary-fields')).toBe(summary)
+    expect(omitGone(pool.row('issue', row.id, 'summary-fields'))).toBe(summary)
     expect(pool.tables.issue.has(row.id)).toBe(false)
-    expect(pool.row('issue', row.id)).toBe(LOADING)
+    expect(omitGone(pool.row('issue', row.id))).toBe(LOADING)
     expect(pool.hydrate()).toBe(1)
-    expect(pool.row('issue', row.id)).toMatchObject({ title: 'pending', description: 'cold payload' })
-    expect(pool.row('issue', row.id)).not.toBe(summary)
+    expect(omitGone(pool.row('issue', row.id))).toMatchObject({ title: 'pending', description: 'cold payload' })
+    expect(omitGone(pool.row('issue', row.id))).not.toBe(summary)
   } finally { pool.dispose() }
 })

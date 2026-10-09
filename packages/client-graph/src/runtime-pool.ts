@@ -1,3 +1,4 @@
+import { omitGone } from './lookup'
 import { worklistView } from './worklist/view-model'
 import { attachPreferenceSource } from './preference-source'
 import type { SessionPhaseChange } from '@podium/client-core/sound'
@@ -264,7 +265,7 @@ export function createRuntimeTransactions(runtime: WorklistRuntime): PoolTransac
         if (!pool) throw new Error('Pool spawn placement is not attached')
         const issues = pool.queries.indexed({ kind: 'spawnIssues', repoPath: target.repoPath, ...(target.repoId ? { repoId: target.repoId } : {}) })
           // untracked-read: spawn-sort-peek
-          .map(id => pool.row('issue', id, 'peek')).filter(row => row && typeof row !== 'symbol')
+          .map(id => omitGone(pool.row('issue', id, 'peek'))).filter(row => row && typeof row !== 'symbol')
         return optimisticDraftSortKey(issues as unknown as IssueViewModel[], target.repoPath, target.repoId)
       }),
     },
