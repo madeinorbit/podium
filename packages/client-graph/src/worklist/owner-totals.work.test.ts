@@ -13,7 +13,7 @@ const sender = (sessionId: string, archived = false) => ({ sessionId, cwd: lane,
   agentState: { phase: 'idle', since: stamp, idle: { kind: 'done' }, workingMsTotal: 42 } })
 
 async function measure(history: number, legacy: boolean, hidden = false, readState = false) {
-  const pool = new MobxPool({ coarseNow: Date.parse(stamp) })
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
   const live = ['a', 'b', 'c'].map(id => sender(id))
   pool.apply({ type: 'replace', rows: [
     { kind: 'worktree', id: lane, value: { path: lane, repoPath: '/synthetic' } },

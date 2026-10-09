@@ -29,7 +29,7 @@ const candidate = <T>(value: T): T | string => process.env.POD5651_MUTATE === '1
 
 describe('shared session facts equal the old verdict on identical records', () => {
   for (const row of fixtures) it(row.sessionId, () => {
-    const pool = new MobxPool({ coarseNow: Date.parse(stamp) })
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
     pool.apply({ type: 'replace', rows: [{ kind: 'session', id: row.sessionId, value: row as never }] })
     const model = pool.sessionObject(row.sessionId)
     try {
@@ -48,7 +48,7 @@ describe('shared session facts equal the old verdict on identical records', () =
 describe('owner totals equal the previous roster helpers', () => {
   for (const rows of [[], [fixtures[0]!], [fixtures[1]!], [fixtures[2]!], fixtures,
     [fixtures[3]!, fixtures[2]!], [fixtures[0]!, fixtures[11]!]]) it(rows.map(row => row.sessionId).join(',') || 'empty', () => {
-    const pool = new MobxPool({ coarseNow: Date.parse(stamp) })
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
     pool.apply({ type: 'replace', rows: [
       { kind: 'worktree', id: lane, value: { path: lane, repoPath: '/synthetic', repoName: 'Synthetic' } },
       ...rows.map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })),
@@ -66,7 +66,7 @@ describe('owner totals equal the previous roster helpers', () => {
 })
 
 it('cold/LOADING and absent verdicts retain their old answers without warming timer facts', () => {
-  const pool = new MobxPool({ coarseNow: Date.parse(stamp) }, undefined, {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
     load: () => undefined, schedule: () => () => {},
   })
   const old = '2026-01-01T00:00:00Z'
@@ -88,7 +88,7 @@ it('cold/LOADING and absent verdicts retain their old answers without warming ti
 })
 
 it('live totals follow heartbeat, read state and archiving on the same records', () => {
-  const pool = new MobxPool({ coarseNow: Date.parse(stamp) })
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
   const row = session('seat', { unread: true })
   pool.apply({ type: 'replace', rows: [
     { kind: 'worktree', id: lane, value: { path: lane, repoPath: '/synthetic' } },
@@ -114,7 +114,7 @@ it('live totals follow heartbeat, read state and archiving on the same records',
 // to the shared model. In particular, finished rows suppress only offer asks.
 it('finished and unfinished issue verdicts preserve attention and timestamps', () => {
   for (const row of fixtures) {
-    const pool = new MobxPool({ coarseNow: Date.parse(stamp) })
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
     pool.apply({ type: 'replace', rows: [{ kind: 'session', id: row.sessionId, value: row as never }] })
     try {
       const verdict = worklistView(pool).session(pool.sessionObject(row.sessionId)).verdict
