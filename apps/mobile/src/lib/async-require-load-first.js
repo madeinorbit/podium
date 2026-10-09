@@ -17,6 +17,7 @@
  * CommonJS like Expo's: Metro calls `require(<this path>)` itself as the function.
  */
 const expoAsyncRequire = require('expo/internal/async-require-module')
+const { loadBundleWithRecovery } = require('./lazy-chunk-recovery')
 
 /**
  * The chunk load for `moduleID` when the import names one, else undefined.
@@ -28,7 +29,7 @@ function loadFirst(moduleID, paths) {
   const bundle = paths?.[String(moduleID)]
   if (bundle == null) return undefined
   const load = globalThis[`${__METRO_GLOBAL_PREFIX__ ?? ''}__loadBundleAsync`]
-  return load == null ? undefined : load(bundle)
+  return load == null ? undefined : loadBundleWithRecovery(bundle, load)
 }
 
 /**
