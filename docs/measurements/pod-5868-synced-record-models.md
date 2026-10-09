@@ -7,13 +7,15 @@ generic tables. No entity adds storage or changes table publication granularity.
 
 ## Scope and base
 
-The complete 27-commit candidate `d05ee9a3b1..1ae8bb32ed` is now replayed
-onto landed shell/transfer pilot `036a78dd913ae7e700d642ce6fac975c680435f5`.
-All 27 commits remain, ending at `d965538b2b`; scan-only reconciliation
-`546d97aea8` follows. The exact validated runtime candidate is `546d97aea8`;
-this report update changes only documentation. The original 24-commit model
-range `52556201c0..cdd6c8aa1c` and required-four-key diagnostic fix remain
-contained in full. Shared validation and landing remain owned by POD-5895.
+The complete 29-commit candidate `036a78dd91..3fb5ea2701` is now replayed
+onto publication-suppression pilot `8f5ae42e45587ed9dd83e5a05abff6e67200a91d`.
+All 29 commits remain, ending at validated runtime `36f19a5fde`; this report
+update changes only documentation. The original synced-model range, four-key
+diagnostic repair and shell field preservation remain contained in full.
+Focused model tests, the two-package typecheck and the light scan are green.
+The worklist feed fence has two failures that also reproduce on the exact
+landed pilot; their assertions remain unchanged and the coordinator has the
+isolation evidence. Shared validation and landing remain with POD-5895.
 
 The coordinator narrowed this issue to synced records. Workflow record models,
 spec metadata, request ingestion and request-record retention remain deferred
@@ -22,7 +24,72 @@ request answers. Workflow placement's machine reader moves here; its workflow
 subject and request collections remain outside this range. POD-5874's separate
 measurement of field publication can apply to these generic tables too.
 
-## Landed shell pilot proof
+## Publication suppression pilot proof
+
+The complete 29-commit rebase onto `8f5ae42e45` has 28 equal patches and one
+context change. Its only conflict was the snapshot branch of
+`packages/client-graph/src/shared/row-source.ts`: automation and automationRun
+join the companion kinds while the landed `seededKinds`, `published`, `retain`,
+structural comparison and publication bookkeeping remain intact. No test
+fixture or expected value changed. The earlier session/pane fields and shared
+machine, automation and run definitions are preserved.
+
+At exact runtime `36f19a5fde`, the focused two-package typecheck passed:
+
+```sh
+bun run typecheck -- --filter=@podium/client-graph --filter=@podium/worklist-tests --only
+```
+
+Exactly two tasks succeeded, at concurrency one, with no dependency-package
+tasks. Turbo summary on flatblock:
+`/home/mgw/podium-test-5868/.turbo/runs/3KTT61PlAQYSNp3mzaQYGSiFdIU.json`.
+
+The requested focused files executed through `bun run test:file -- <paths>`:
+
+| Focused file | Passed | Failed |
+| --- | ---: | ---: |
+| `packages/client-graph/src/synced-record-models.test.ts` | 6 | 0 |
+| `packages/client-graph/src/deferred-models.test.ts` | 1 | 0 |
+| `packages/client-graph/src/models.test.ts` | 13 | 0 |
+| `packages/client-graph/src/shared/row-source.test.ts` | 19 | 0 |
+| `tests/worklist/shared/src/row-source.test.ts` | 22 | 2 |
+| **Candidate total** | **61** | **2** |
+
+The 19 client-graph feed cases include revision-only/identical issue publication
+suppression with and without git data, actual title/stage/description changes,
+masked remote changes and rollback, and snapshots that must not swallow pending
+updates or inserts. They all pass unchanged on the combined source.
+
+The two failed worklist cases are the pooled and truth visited-per-publication
+fences at line 1690: heartbeat visits one row while the fixture expects two.
+Both feed files are byte-identical to the landed pilot. Running only those two
+cases on exact `8f5ae42e45`, without any model commits, reproduces both failures
+with 22 cases filtered. Parsed candidate/baseline cost tables are equal for
+every step in both modes and at both scales. Heartbeat and settled heartbeat
+visit/emit one row, and a burst of 50 visits/emits 50; the fixture's ADDRESSED
+map still expects two and 100 respectively. This is inherited expectation debt,
+not a changed result from the model rebase. Assertions remain untouched; the
+coordinator received the adjacent-work diagnostic and routing request.
+
+Saved flatblock logs: `/tmp/pod5868-8f5-models.log`,
+`/tmp/pod5868-8f5-feed.log` and `/tmp/pod5868-8f5-baseline-feed.log`.
+All three focused invocations ran sequentially in the foreground using
+checkout-local Bun 1.4.2 and `node -> bun`. No memory stop occurred; the guard
+sampled at most 620.1 MiB process RSS and confirmed no recorded PID remained
+live. Baseline failures are isolation evidence and are not counted a second
+time in the candidate totals.
+
+The light scan at `36f19a5fde` is GREEN: **2,074 fingerprints, 2,075 occurrences,
+1,912 existing REQUIRED REPAIR entries and zero ratchet errors**, saved at
+`flatblock:/tmp/pod5868-8f5-scan.json`. Rebase required no manual census changes.
+
+No full gates, builds, structural census or landing ran in this continuation.
+POD-5895's earlier green shared receipts belong to `3fb5ea2701` on `036a78dd91`;
+they do not validate this new base. This complete replacement is handed through
+POD-4286 with the inherited feed failure called out. Shared checks and landing
+remain with POD-5895, and the issue remains in progress.
+
+## Historical shell pilot proof
 
 POD-4286 requested this reconciliation after POD-5878's shell range and
 POD-5925's interrupted-transfer fix landed. Range-diff of the complete
