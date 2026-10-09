@@ -37,7 +37,7 @@ import {
   hasUserSystemd,
   reloadUserSystemd,
   renderTunnelUnit,
-  startSystemdUnits,
+  restartSystemdUnits,
   userUnitDir,
   writeUserUnit,
 } from './cli-systemd'
@@ -267,7 +267,10 @@ export function enableTunnel(deps: Omit<TunnelCliDeps, 'io'> = {}): EnableTunnel
       deps.enableAndStart ??
       ((name) => {
         enableSystemdUnits([name])
-        startSystemdUnits([name])
+        // RESTART, not start: on a box whose tunnel already runs, `start` is a no-op, so the
+        // rewritten unit never takes effect and setup — which has just cleared the old
+        // address — waits for a new one that never comes (measured on the lab, 2026-10-09).
+        restartSystemdUnits([name])
       })
     )(unit)
   } catch (error) {

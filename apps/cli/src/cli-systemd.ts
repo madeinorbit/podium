@@ -6,10 +6,8 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { userInfo } from 'node:os'
 import { join } from 'node:path'
-import { userUnitDir } from '@podium/runtime/topology-migration'
 import type { PodiumConfig } from '@podium/runtime/config'
 import { DAEMON_BLOCKED_EXIT_CODE } from '@podium/runtime/connectivity'
-import { CHILD_REFUSAL_EXIT_CODE } from '@podium/runtime/parent-supervisor'
 import {
   defaultInstancePorts,
   instanceCommandName,
@@ -17,6 +15,8 @@ import {
   instanceUpdateTimerName,
   resolveInstanceId,
 } from '@podium/runtime/instance'
+import { CHILD_REFUSAL_EXIT_CODE } from '@podium/runtime/parent-supervisor'
+import { userUnitDir } from '@podium/runtime/topology-migration'
 
 export type SystemdProfile = 'packaged' | 'dev'
 
@@ -666,6 +666,12 @@ export function unmaskSystemdUnits(units: string[]): void {
 export function startSystemdUnits(units: string[]): void {
   if (units.length === 0) return
   run('systemctl', ['--user', 'start', ...units])
+}
+
+/** Start the named user units, or restart them when they already run. */
+export function restartSystemdUnits(units: string[]): void {
+  if (units.length === 0) return
+  run('systemctl', ['--user', 'restart', ...units])
 }
 
 /**
