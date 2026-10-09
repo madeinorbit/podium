@@ -98,7 +98,7 @@ import type { IssueViewModel, MainView } from './store'
 type PaletteIssue = Pick<
   IssueViewModel,
   'id' | 'seq' | 'title' | 'stage' | 'displayRef' | 'linearIdentifier' | 'color' | 'parentId'
->
+> & Partial<Pick<IssueViewModel, 'archived' | 'deletedAt' | 'isDraftVessel'>>
 
 const SEARCH_DEBOUNCE_MS = 150
 const SEARCH_MIN_QUERY_LEN = 2
