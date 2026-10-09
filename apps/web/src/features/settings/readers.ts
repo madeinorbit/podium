@@ -1,4 +1,3 @@
-import { createSettingsMachineReaders } from './settings-machine-readers'
 import { useOpeningView } from '@podium/client-graph/react'
 import { useSettingsOpening } from './opening-context'
 import { omitGone } from '@podium/client-graph/lookup'

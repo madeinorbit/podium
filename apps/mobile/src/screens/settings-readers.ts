@@ -3,7 +3,7 @@ import { omitGone } from '@podium/client-graph/lookup'
 import { useSettingsOpening } from './settings-opening'
 import type { MobxPool } from '@podium/client-graph'
 import type { MobileSettingsDiagnostics } from '@podium/client-graph/mobile-settings'
-import { visibleFleetOperations, type MachineOperationsView } from '@podium/client-core/values'
+import { type MachineOperationsView } from '@podium/client-core/values'
 import { useCallback } from 'react'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 
@@ -21,7 +21,6 @@ export interface SettingsData extends MobileSettingsDiagnostics {
   outboxDeadLetterCount: number
 }
 const EMPTY_IDS: readonly string[] = []
-const UPDATE_STATES = ['current', 'behind', 'ahead', 'unreported', 'unknown'] as const
 const EMPTY_SETTINGS: SettingsData = {
   machineIds: EMPTY_IDS,
   machineCount: 0,

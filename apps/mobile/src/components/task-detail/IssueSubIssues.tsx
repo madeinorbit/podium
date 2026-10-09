@@ -1,5 +1,6 @@
+import { useIssueOpening } from '../../client/issue-opening'
 import { issueObserver as observer } from '../../client/issue-observer'
-import { issuePages, type PageIssue } from '@podium/client-graph/issue-page'
+import { type PageIssue } from '@podium/client-graph/issue-page'
 import { isFinished } from '@podium/model/browser'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'

@@ -61,14 +61,14 @@ export function createMobileSessionReader(pool: MobxPool) {
       if (id === undefined) return 0
       // This service needs only the existing raw membership/count policy;
       // it must not keep an issue-detail opening alive for its header.
-      let count = 0
+      let count = 0, pending = false
       for (const sid of pool.graph.many('issue', id, 'missionSessions')) {
         if (pool.queries.collapsed(sid)) continue
         const seat = omitGone(pool.row('session', sid)) as Loaded<SessionView>
-        if (seat === LOADING) return LOADING
-        if (seat && !seat.archived) count++
+        if (seat === LOADING) pending = true
+        else if (seat && !seat.archived) count++
       }
-      return count
+      return pending ? LOADING : count
     },
     nextSession: (id: string) => runInAction(() => pool.queries.nextTriageSession(id)),
     // Rule 1 (one shared model per record): the phone roster hands out the

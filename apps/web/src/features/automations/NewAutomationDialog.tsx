@@ -109,7 +109,7 @@ export function NewAutomationDialog(
   )
 }
 
-function NewAutomationDialogBody({
+export function NewAutomationDialogBody({
   trpc,
   automation,
   onClose,

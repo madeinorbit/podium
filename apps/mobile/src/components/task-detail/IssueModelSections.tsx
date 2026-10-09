@@ -44,7 +44,6 @@ export const PhoneNow = observer(function PhoneNow({
   issue,
   onOpenSession,
 }: Pick<ComponentProps<typeof IssueNow>, 'issue' | 'onOpenSession'>) {
-  const pool = useMobilePool()
   const views = useIssueOpening()
   const sessions = views ? views.row(issue.id).phoneSessions : []
   if (typeof sessions === 'symbol') throw sessions

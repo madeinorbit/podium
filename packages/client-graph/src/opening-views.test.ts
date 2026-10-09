@@ -10,6 +10,7 @@ import {
 } from './opening-views.before.test.fixture'
 import { MobxPool } from './pool'
 import type { RowRecord } from './shared/source'
+import { LOADING } from './loading'
 
 const stamp = '2026-10-01T00:00:00Z'
 function fixture() {
@@ -135,5 +136,26 @@ it('collects opening models and companions after fifty closes while their pool s
   expect(pool.issueObject('issue-49').authoredTitle).toBe('Task 49')
   for (const key of ['issue-page', 'settings.views', 'automations'])
     expect(pool.sources.peekView(key)).toBeUndefined()
+  pool.dispose()
+})
+
+it('drops companions even if a late handler still holds the closed view', async () => {
+  const pool = fixture(), view = createIssuePageViews(pool)
+  function showAndClose() {
+    const row = view.row('issue-0')
+    const stop = autorun(() => { void row.children; void row.activeSessions })
+    stop()
+    const ref = new WeakRef(row)
+    view.dispose()
+    return ref
+  }
+  const ref = showAndClose()
+  for (let turn = 0; turn < 3; turn++) {
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    ;(globalThis as unknown as { Bun: { gc(force: boolean): void } }).Bun.gc(true)
+  }
+  expect(ref.deref()).toBeUndefined()
+  expect(view.issue('issue-0')).toBe(LOADING)
+  expect(pool.issueObject('issue-0').authoredTitle).toBe('Task 0')
   pool.dispose()
 })

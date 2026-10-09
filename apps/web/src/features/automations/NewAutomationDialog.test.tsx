@@ -15,7 +15,7 @@ vi.mock('@/app/automation-readers', () => ({
   useAutomationTargetMachine: () => undefined,
 }))
 
-const { NewAutomationDialog } = await import('./NewAutomationDialog')
+const { NewAutomationDialogBody: NewAutomationDialog } = await import('./NewAutomationDialog')
 
 const automation: AutomationWire = {
   id: asAutomationId('aut_1'),
