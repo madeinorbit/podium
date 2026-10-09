@@ -122,3 +122,23 @@ it('re-measures remaining membership work at a fixed shown prefix', async () => 
     console.info(`[membership] ${report.domain} ${report.scale}x ${cell.action}: rows=${cell.work.rows} derivations=${cell.work.derivations} elements=${cell.work.elements}`)
   // Growth is reported, not accepted as a new baseline or hidden as an allowance.
 }, 120_000)
+
+for (const [action, mechanism] of [
+  ['reorder', 'GroupNode.sidebarRows'],
+  ['reorder', 'MobileSection.allIds'],
+  ['reorder', 'MobileSection.attentionIds'],
+  ['reorder', 'MobileSection.liveIds'],
+  ['roster-heartbeat', 'WorklistWorktree@/loose.visible'],
+  ['roster-heartbeat', 'WorklistWorktree@/loose.waitingCount'],
+] as const) {
+  it(`keeps ${mechanism} flat on ${action}`, async () => {
+    const first = await capture('members', 1), fourth = await capture('members', 4)
+    const count = (report: Awaited<ReturnType<typeof capture>>) => {
+      const cell = report.cells.find(cell => cell.action === action)!
+      return Object.entries(cell.work.elementsBy).reduce((total, [name, value]) =>
+        total + (name === mechanism || name.endsWith(`/${mechanism}`) ? value : 0), 0)
+    }
+    console.info(`[membership counter] ${mechanism}: ${count(first)}→${count(fourth)}`)
+    expect(count(fourth), mechanism).toBeLessThanOrEqual(count(first))
+  })
+}
