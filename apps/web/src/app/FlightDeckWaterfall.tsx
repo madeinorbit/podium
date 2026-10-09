@@ -1,4 +1,4 @@
-import { isFinished } from '@podium/model/browser'
+import { asIssueId, isFinished } from '@podium/model/browser'
 import { Tooltip as TooltipPrimitive } from '@base-ui/react/tooltip'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -1630,15 +1630,15 @@ const WaterfallContent = observer(function WaterfallContent({
                             onToggle={() => onToggle(item.row)}
                             onSelectIssue={(permanent) => onSelectIssue(item.row, permanent)}
                             onSelectSession={(session, permanent) =>
-                              onSelectSession(item.row.id, session, { permanent })
+                              onSelectSession(asIssueId(item.row.id), session, { permanent })
                             }
                             onSelectNative={(session) =>
-                              onSelectSession(item.row.id, session, {
+                              onSelectSession(asIssueId(item.row.id), session, {
                                 permanent: false,
                                 native: true,
                               })
                             }
-                            onIssueMenu={(anchor) => onIssueMenu(item.row.id, anchor)}
+                            onIssueMenu={(anchor) => onIssueMenu(asIssueId(item.row.id), anchor)}
                             onStatusPick={(value) => onStatusPick(item.row.id, value)}
                             onRenameIssue={(title) =>
                               onRenameIssue(
