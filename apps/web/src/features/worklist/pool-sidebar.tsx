@@ -196,14 +196,17 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
           </div>
         }
       />
-      <div
+      <WorklistMotion layoutGroupId="sidebar-scroll">
+      <m.div
+        layoutScroll
         ref={scrollRef}
         data-testid="work-scroll"
         style={{ overflowAnchor: 'none' }}
         className="scroll-none flex min-h-0 flex-1 flex-col overflow-x-clip overflow-y-auto pb-2.5"
       >
         <PoolWorkSections query={input.deferredQuery} scrollRef={scrollRef} />
-      </div>
+      </m.div>
+      </WorklistMotion>
       <MobilePromoCard />
     </WorklistProvider>
   )
