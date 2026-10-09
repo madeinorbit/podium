@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import { isExcluded } from '@podium/model/browser'
+import { issuePendingDecision, type IssueNavigationModel } from '@podium/client-core/values'
 import { isFinished } from '../shared/predicates'
 import { awaitingMergeOf } from '../shared/schema'
 import type { SliceIssue } from '../shared/slice-types'
@@ -19,7 +20,7 @@ const fixtures = [
   ['cold', { stage: 'done', closedAt: '2026-01-01T00:00:00Z', updatedAt: '2026-01-01T00:00:00Z' }],
   ['missing', undefined],
 ] as const
-const fields = ['excluded', 'finished', 'awaitingMerge', 'updatedMs', 'finishedMs', 'parentRef'] as const
+const fields = ['excluded', 'finished', 'awaitingMerge', 'pendingDecision', 'updatedMs', 'finishedMs', 'parentRef'] as const
 
 // The old private factRow lookup, frozen before removing its retained raw row.
 function previousFacts(pool: MobxPool, id: string) {
@@ -34,6 +35,7 @@ function answers(row: SliceIssue | undefined) {
     excluded: row !== undefined && isExcluded(row),
     finished: row === undefined ? undefined : isFinished(row),
     awaitingMerge: row !== undefined && awaitingMergeOf(row),
+    pendingDecision: row ? issuePendingDecision(row as unknown as IssueNavigationModel) : null,
     updatedMs: ms(row?.updatedAt),
     finishedMs: ms(row?.closedAt ?? row?.updatedAt) ?? 0,
     parentRef: row?.parentId || null,
