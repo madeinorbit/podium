@@ -134,7 +134,7 @@ it('phone mission batches cold spin-offs and their dependency targets together',
     // the dependency each one waits on. A cold sibling must not prevent the
     // remaining siblings from requesting their rows.
     const read = () => settled(() => screen.ready
-      ? [screen.rootId, ...screen.otherDepartures.map(departure => departure.issue.id), ...screen.otherDepartures.flatMap(departure =>
+      ? [screen.rootId, ...screen.departures.map(departure => departure.issue.id), ...screen.departures.flatMap(departure =>
         departure.issue.deps.filter(dep => dep.type === 'blocks').map(dep => dep.id))]
       : LOADING)
     // Keep the opening mounted while hydration publishes the next load wave.
