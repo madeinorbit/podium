@@ -1,12 +1,11 @@
 import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
-import { useIssueViews } from '../issue-page/opening-context'
-import type { PageIssue } from '@podium/client-graph/issue-page'
+import type { BoardIssue } from '@podium/client-graph/issue-board-cards'
 
 import { issueDisplayRef } from '@podium/protocol'
 import { Search, X } from 'lucide-react'
 import type { JSX } from 'react'
-import { useLayoutEffect, useRef } from 'react'
+import { useContext, useLayoutEffect, useRef } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { GhostBar, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { cn } from '@/lib/utils'
@@ -20,6 +19,7 @@ import { useIssueStatusApply } from '../use-issue-status-apply'
 import { useIssueExplorer } from './explorer-context'
 import { EXPLORER_TABS } from './explorer-list'
 import { useExplorerData } from './explorer-pool-data'
+import { ExplorerViewsContext, useExplorerViews } from './opening-context'
 
 /**
  * Level 0 — every task in the repo, searchable, bucketed by stage.
@@ -30,6 +30,15 @@ import { useExplorerData } from './explorer-pool-data'
  * half-visible tab reads as more to scroll instead of as a layout that ran out.
  */
 export function IssueExplorerList(): JSX.Element {
+  const views = useExplorerViews()
+  return (
+    <ExplorerViewsContext.Provider value={views}>
+      <IssueExplorerListBody />
+    </ExplorerViewsContext.Provider>
+  )
+}
+
+function IssueExplorerListBody(): JSX.Element {
   const {
     tab: pickedTab,
     setTab,
@@ -310,9 +319,9 @@ const ExplorerRow = observer(function ExplorerRow({
   onStatusPick: (value: string, issue: IssueViewModel) => void
 }): JSX.Element | null {
   const pool = useWorklistPool()
-  const views = useIssueViews()
+  const views = useContext(ExplorerViewsContext)
   if (!pool || !views) return <ExplorerRowLoading />
-  const issue = pool.issueObject(id) as PageIssue
+  const issue = pool.issueObject(id) as BoardIssue
   // An issue the pool does not know draws nothing, as before.
   if (issue.finished === undefined) return null
   const state = views.explorerRow(issue).state

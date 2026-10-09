@@ -3,7 +3,7 @@ import { expect, it, vi } from 'vitest'
 import { createIssuePageViews } from './issue-page'
 import { createSettingsViews } from './settings-views'
 import { createAutomationViews } from './automation-views'
-import { boardCards } from './issue-board-cards'
+import { boardCards, createExplorerViews } from './issue-board-cards'
 import {
   beforeIssuePages,
   beforeSettingsView,
@@ -61,6 +61,7 @@ it('keeps the old and opening-owned answers identical on the same fixtures', () 
   const pool = fixture()
   const oldIssue = beforeIssuePages(pool),
     nextIssue = createIssuePageViews(pool)
+  const nextExplorer = createExplorerViews(pool)
   const oldSettings = beforeSettingsView(pool),
     nextSettings = createSettingsViews(pool)
   const oldAutomations = beforeAutomationViews(pool),
@@ -79,8 +80,8 @@ it('keeps the old and opening-owned answers identical on the same fixtures', () 
       if (process.env.PODIUM_OPENING_WRONG === '1') next.title = 'wrong opening'
       expect(next).toEqual(read(oldIssue, n))
       expect(next.title).toBe(`Task ${n}`)
-      const model = pool.issueObject(`issue-${n}`) as Parameters<typeof nextIssue.explorerRow>[0]
-      expect(nextIssue.explorerRow(model).state).toEqual(boardCards(pool).explorerRow(model).state)
+      const model = pool.issueObject(`issue-${n}`) as Parameters<typeof nextExplorer.explorerRow>[0]
+      expect(nextExplorer.explorerRow(model).state).toEqual(boardCards(pool).explorerRow(model).state)
     }
     expect(nextSettings.setup()).toEqual(oldSettings.setup())
     expect(nextSettings.sessions()).toEqual(oldSettings.sessions())
@@ -91,6 +92,7 @@ it('keeps the old and opening-owned answers identical on the same fixtures', () 
     expect(nextIssue.issue('missing')).toEqual(oldIssue.issue('missing'))
   } finally {
     nextIssue.dispose()
+    nextExplorer.dispose()
     nextSettings.clear()
     nextAutomations.dispose()
     pool.dispose()
@@ -153,10 +155,11 @@ it('collects opening models and companions after fifty closes while their pool s
   const refs: { kind: string; ref: WeakRef<object> }[] = []
   function opening(n: number) {
     const issue = createIssuePageViews(pool),
+      explorer = createExplorerViews(pool),
       settings = createSettingsViews(pool),
       automation = createAutomationViews(pool)
     const row = issue.row(`issue-${n}`)
-    const explorerRow = issue.explorerRow(row.issue)
+    const explorerRow = explorer.explorerRow(row.issue)
     const stop = autorun(() => {
       void row.children
       void row.activeSessions
@@ -171,6 +174,7 @@ it('collects opening models and companions after fifty closes while their pool s
     })
     for (const [kind, value] of [
       ['issue', issue],
+      ['explorer', explorer],
       ['companion', row],
       ['explorer companion', explorerRow],
       ['settings', settings],
@@ -179,6 +183,7 @@ it('collects opening models and companions after fifty closes while their pool s
       refs.push({ kind, ref: new WeakRef(value) })
     stop()
     issue.dispose()
+    explorer.dispose()
     settings.dispose()
     automation.dispose()
   }
@@ -191,7 +196,7 @@ it('collects opening models and companions after fifty closes while their pool s
   const reachable = refs.filter(({ ref }) => ref.deref() !== undefined).map(({ kind }) => kind)
   console.info(
     'opening reachability',
-    JSON.stringify({ openings: 50, models: 150, companions: 100, reachable }),
+    JSON.stringify({ openings: 50, models: 200, companions: 100, reachable }),
   )
   expect(reachable).toEqual([])
   expect(pool.issueObject('issue-49').authoredTitle).toBe('Task 49')
@@ -201,21 +206,23 @@ it('collects opening models and companions after fifty closes while their pool s
 })
 
 it('drops companions even if a late handler still holds the closed view', async () => {
-  const pool = fixture(), view = createIssuePageViews(pool)
+  const pool = fixture(), view = createIssuePageViews(pool), explorer = createExplorerViews(pool)
   function showAndClose() {
     const row = view.row('issue-0')
-    const stop = autorun(() => { void row.children; void row.activeSessions })
+    const explorerRow = explorer.explorerRow(row.issue)
+    const stop = autorun(() => { void row.children; void row.activeSessions; void explorerRow.state })
     stop()
-    const ref = new WeakRef(row)
+    const refs = [new WeakRef(row), new WeakRef(explorerRow)]
     view.dispose()
-    return ref
+    explorer.dispose()
+    return refs
   }
-  const ref = showAndClose()
+  const refs = showAndClose()
   for (let turn = 0; turn < 3; turn++) {
     await new Promise((resolve) => setTimeout(resolve, 0))
     ;(globalThis as unknown as { Bun: { gc(force: boolean): void } }).Bun.gc(true)
   }
-  expect(ref.deref()).toBeUndefined()
+  expect(refs.map(ref => ref.deref())).toEqual([undefined, undefined])
   expect(view.issue('issue-0')).toBe(LOADING)
   expect(pool.issueObject('issue-0').authoredTitle).toBe('Task 0')
   pool.dispose()

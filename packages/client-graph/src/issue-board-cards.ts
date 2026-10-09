@@ -2,7 +2,7 @@ import { omitGone } from './lookup'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import { operationalState } from '@podium/client-core/values'
-import { companion, lazy } from '@podium/mobx-helpers'
+import { companion, clearCompanions, lazy } from '@podium/mobx-helpers'
 import { ISSUE_STAGES } from '@podium/model/browser'
 import { compareShallow, compareStructural } from 'mobx'
 import type { ModelOf, SessionModel } from './models'
@@ -120,7 +120,18 @@ export class ExplorerRow {
   }
 }
 
-/** The board's and explorer's per-record companions, one per pool. */
+/** The deferred explorer root owns its row companions until this opening closes. */
+export function createExplorerViews(pool: MobxPool) {
+  const explorerRow = companion((issue: BoardIssue) => new ExplorerRow(issue, pool))
+  return {
+    explorerRow,
+    dispose() { clearCompanions(explorerRow) },
+  }
+}
+
+export type ExplorerViews = ReturnType<typeof createExplorerViews>
+
+/** The always-on board's per-record companions, one per pool. */
 export class BoardCards {
   private readonly cards = [false, true].map(agents =>
     companion((issue: BoardIssue) => new BoardCard(issue, this.pool, agents)))

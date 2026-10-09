@@ -11,6 +11,7 @@ import { useIssueExplorer } from './explorer-context'
 import { crumbTrail } from './explorer-nav'
 import { IssueExplorerList } from './IssueExplorerList'
 import { IssueViewsContext, useIssueViews } from '../issue-page/opening-context'
+import { ExplorerViewsContext, useExplorerViews } from './opening-context'
 
 /** How long a level takes to come in. Matches the shell's one-shot morph band
  *  (150–400ms) — structural motion, not a status signal. */
@@ -49,9 +50,12 @@ export function IssueExplorer({
   machineId?: MachineId
 }): JSX.Element {
   const views = useIssueViews()
+  const explorer = useExplorerViews()
   return (
     <IssueViewsContext.Provider value={views}>
-      <IssueExplorerBody cwd={cwd} machineId={machineId} />
+      <ExplorerViewsContext.Provider value={explorer}>
+        <IssueExplorerBody cwd={cwd} machineId={machineId} />
+      </ExplorerViewsContext.Provider>
     </IssueViewsContext.Provider>
   )
 }
