@@ -79,6 +79,7 @@ A **view** is a feature the user sees: the worklist, mission, issue detail, laun
   ```
   A cold, unknown or evicted issue/session starts the shared batched load. A replica `removed` exit returns `Gone` with reason `removed` immediately, even while its removal publication is pending. An unsuccessful load settles as `Gone` with reason `not-visible`; another read never restarts it until the feed changes that ID or replaces the scope. A resident row carrying soft-delete metadata is still a row, so restore flows can read it. `EntityModel.row` preserves the same three answers.
   A nullable list/view can deliberately omit gone records with `omitGone(answer)`; it must still handle `LOADING`. Optional resident details/counts can use `here(answer)` to omit pending and gone records. Both helpers live in `@podium/client-graph/lookup` and document the caller's omission policy. Maintenance modes (`mark`, `peek`) do not start a load; summary modes return only declared fields and may load when the summary is incomplete.
+  Startup boundary: `lookup.ts` is part of the always-pool store contract and its first-screen readers. It imports only `loading.ts` and defines scalar sentinels and narrowing policies; it brings in no optional screen. The web bundle boundary declares this exact leaf without changing byte budgets or allowing other graph modules.
 - **Per-record rules for one view, with selection and a list:**
   ```ts
   class WorklistIssue {
