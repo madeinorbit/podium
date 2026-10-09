@@ -92,12 +92,12 @@ describe('tunnelPreflight: the opt-in', () => {
         config: OPTED_IN,
         env: { ...ENV, PODIUM_HOME: '/opt/podium' },
         findBinary: () => undefined,
-        fileExists: (path) => path !== '/opt/podium/cloudflared',
+        fileExists: (path) => path !== '/home/u/.podium/bin/cloudflared',
       }),
     ).toMatchObject({ ok: false, reason: expect.stringContaining('cloudflared is not installed') })
   })
 
-  it('uses the cloudflared setup downloaded beside podium when PATH has none', () => {
+  it('uses the cloudflared setup downloaded into the state directory when PATH has none', () => {
     const env = { ...ENV, PODIUM_HOME: '/opt/podium' }
     expect(
       tunnelPreflight({
@@ -106,7 +106,8 @@ describe('tunnelPreflight: the opt-in', () => {
         findBinary: () => undefined,
         fileExists: () => true,
       }),
-    ).toMatchObject({ ok: true, cloudflared: '/opt/podium/cloudflared' })
+      // Never the install directory (/opt/podium): an update replaces that whole.
+    ).toMatchObject({ ok: true, cloudflared: '/home/u/.podium/bin/cloudflared' })
   })
 
   it("prefers the operator's own cloudflared on PATH over the downloaded copy", () => {

@@ -16,7 +16,7 @@
  */
 import { spawnSync } from 'node:child_process'
 import { chmodSync, existsSync, mkdirSync, renameSync, rmSync, writeFileSync } from 'node:fs'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 import {
   type EnvSource,
   forgetConfig,
@@ -90,10 +90,12 @@ export function resolveTunnelBinary(env: EnvSource = process.env): string {
   return env.PODIUM_TUNNEL_BIN ?? join(resolveInstallDir(env), TUNNEL_BINARY)
 }
 
-/** The cloudflared `podium setup` downloads: beside podium, so a user-level install needs
- *  no sudo and nothing outside Podium's own directory. */
+/** The cloudflared `podium setup` downloads: under Podium's state directory, so a
+ *  user-level install needs no sudo. NOT beside podium in the install directory — every
+ *  update and every re-run of install.sh swaps that directory out whole, and the tunnel
+ *  would lose its cloudflared at the next restart after one. */
 export function bundledCloudflaredPath(env: EnvSource = process.env): string {
-  return join(resolveInstallDir(env), CLOUDFLARED_BINARY)
+  return join(instanceStateDir(resolveInstanceId(env), env), 'bin', CLOUDFLARED_BINARY)
 }
 
 /**
@@ -287,7 +289,7 @@ function enable(io: TunnelCliIo, deps: TunnelCliDeps): number {
 }
 
 /**
- * Download Cloudflare's own cloudflared build beside podium and prove it runs. Written
+ * Download Cloudflare's own cloudflared build into Podium's state directory and prove it runs. Written
  * to a temporary name and renamed into place, so an interrupted download never leaves a
  * half-written file where {@link resolveCloudflared} would find it. Returns the path.
  */
@@ -301,7 +303,7 @@ export async function downloadCloudflared(
   const partial = `${dest}.download`
   const res = await fetch(url, { redirect: 'follow' })
   if (!res.ok) throw new Error(`download failed: ${res.status} ${res.statusText} (${url})`)
-  mkdirSync(resolveInstallDir(env), { recursive: true })
+  mkdirSync(dirname(dest), { recursive: true })
   try {
     writeFileSync(partial, new Uint8Array(await res.arrayBuffer()))
     chmodSync(partial, 0o755)
