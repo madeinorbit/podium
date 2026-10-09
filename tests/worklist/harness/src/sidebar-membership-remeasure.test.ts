@@ -2,7 +2,7 @@ import { mkdirSync, writeFileSync } from 'node:fs'
 import { MobxPool } from '@podium/client-graph/pool'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { searchMobileSections, MobileSearchSections, MobileNativeSections } from '../../../../apps/mobile/src/lib/work-sections'
-import { autorun, observable, runInAction } from 'mobx'
+import { autorun, runInAction } from 'mobx'
 import { expect, it } from 'vitest'
 import { insideArm, insideReader, measureWork, type WorkCounts } from './work-meter'
 
@@ -46,7 +46,8 @@ async function capture(domain: 'members' | 'groups', scale: number) {
   const tree = view.tree(pool.model('worktree', '/loose')!)
   const native = new MobileSearchSections()
   const foldedNative = new MobileNativeSections()
-  const collapsed = observable.set<string>()
+  const collapsed = new Set<string>()
+  let nativeAnswer: ReturnType<typeof searchMobileSections> = []
   let foldedData: readonly unknown[] = []
   let desktopIds: readonly string[] = [], phoneIds: readonly string[] = []
   const stops = [
@@ -60,6 +61,7 @@ async function capture(domain: 'members' | 'groups', scale: number) {
       const sections = view.mobileSections()
       const answer = searchMobileSections(pool, sections.sectionKeys, '', native)
       phoneIds = sections.project('repo-0').openIds
+      nativeAnswer = answer
       const display = foldedNative.update(answer, collapsed, false)
       foldedData = display.find(section => section.key === 'repo-0')?.data ?? []
       for (const section of display.slice(0, 3)) if (!section.collapsed) void section.data.slice(0, 5)
@@ -78,11 +80,17 @@ async function capture(domain: 'members' | 'groups', scale: number) {
       pool.apply({ type: 'update', rows: [{ kind, id, value: value as never }] })
     const actions: Record<Action, () => void> = {
       click: () => view.select('group-0-issue-1'),
-      fold: () => { collapsed.add('repo-0') },
+      fold: () => {
+        collapsed.add('repo-0')
+        // WorkScreen's React memo folds the existing native source; it does
+        // not rerun its pool projection when only collapsedKeys changes.
+        const display = insideReader('membership.phone-fold', () => foldedNative.update(nativeAnswer, collapsed, false))
+        foldedData = display.find(section => section.key === 'repo-0')!.data
+      },
       reorder: () => update('issue', 'group-0-issue-1', issue(0, 1, { sortKey: 'z9999' })),
       membership: () => update('issue', 'group-0-issue-2', issue(0, 2, { deferUntil: '2026-10-20T00:00:00Z' })),
       heartbeat: () => update('session', 'unrelated', session('unrelated', 'group-3-issue-0', '/repo-3', { lastActiveAt: '2026-10-09T12:01:00Z' })),
-      'roster-heartbeat': () => update('session', 'loose-0', { ...loose[0], lastActiveAt: '2026-10-09T12:01:00Z' }),
+      'roster-heartbeat': () => update('session', `loose-${looseCount - 1}`, { ...loose[looseCount - 1], lastActiveAt: '2026-10-09T12:01:00Z' }),
     }
     const cells: { action: Action; work: WorkCounts }[] = []
     for (const [action, change] of Object.entries(actions) as [Action, () => void][]) {
@@ -99,7 +107,7 @@ async function capture(domain: 'members' | 'groups', scale: number) {
         expect(phoneIds).not.toContain('group-0-issue-2')
       }
       if (action === 'heartbeat') expect(pool.sessionObject('unrelated').lastActivity).toBe('2026-10-09T12:01:00Z')
-      if (action === 'roster-heartbeat') expect(tree.sessions[0]!.id).toBe('loose-0')
+      if (action === 'roster-heartbeat') expect(tree.sessions[0]!.id).toBe(`loose-${looseCount - 1}`)
     }
     return { domain, scale, groups, members, looseCount, visiblePrefix: 5, cells }
   } finally { for (const stop of stops) stop(); pool.dispose() }
