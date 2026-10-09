@@ -186,12 +186,18 @@ describe('the shared replica unread answer replaces the raw row copy', () => {
     ['already read', { readAt: cursor, updatedAt: earlier }, undefined, false],
     ['new issue edit', { readAt: cursor, updatedAt: later }, undefined, true],
     ['archived member activity', { readAt: cursor, updatedAt: earlier }, { archived: true, agentKind: 'codex' }, true],
+    ['member without replica timestamp', { readAt: cursor, updatedAt: earlier }, { archived: true, agentKind: 'codex' }, true],
     ['shell activity', { readAt: cursor, updatedAt: earlier }, { archived: true, agentKind: 'shell' }, false],
     ['deleted', { deletedAt: later }, undefined, false],
     ['cold read', { stage: 'done', closedAt: earlier, updatedAt: earlier, readAt: cursor }, undefined, false],
   ] as const) it(name, () => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined,
       name === 'cold read' ? { load: () => undefined, schedule: () => () => {} } : undefined)
+    if (name === 'member without replica timestamp') {
+      const fact = pool.issueSessionFact.bind(pool)
+      Object.defineProperty(pool, 'issueSessionFact', { value: (id: string, key: Parameters<typeof fact>[1]) =>
+        key === 'replicaActivityAt' ? undefined : fact(id, key) })
+    }
     pool.apply({ type: 'replace', rows: [
       { kind: 'issue', id: 'root', value: issue('root', patch) as never },
       ...(member ? [{ kind: 'session' as const, id: 'member', value: session('member', 'root', { ...member, lastActiveAt: later }) as never }] : []),
