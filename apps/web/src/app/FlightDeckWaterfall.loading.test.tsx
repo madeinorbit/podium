@@ -1,11 +1,11 @@
 // @vitest-environment happy-dom
-import { cleanup, render, waitFor } from '@testing-library/react'
+import { act, cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { LOADING } from '@podium/client-graph'
 import { screenOptions } from '@podium/client-graph/host'
 import { MissionScreen } from '@podium/client-graph/mission-screen'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
-import { autorun } from 'mobx'
+import { autorun, observable, runInAction } from 'mobx'
 import { startScenarioEngine } from '../../../../tests/worklist/shared/src/scenarios'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
 import { poolBackedScreens } from './pool-screens'
@@ -105,14 +105,18 @@ it.each([
   const f = await waterfallFixture(3)
   state.pool = f.pool
   state.now = NOW
+  const gate = observable({ loading: true })
+  const rootRow = f.screen.rootRow
   const read =
     seam === 'spine'
       ? vi.spyOn(f.screen, 'rootRow', 'get').mockImplementation(() => {
-          throw LOADING
+          if (gate.loading) throw LOADING
+          return rootRow
         })
       : null
   const pending = () => {
-    throw LOADING
+    if (gate.loading) throw LOADING
+    return false
   }
   try {
     const ui = render(waterfall(f.screen, seam === 'row' ? pending : undefined))
@@ -120,8 +124,11 @@ it.each([
       expect(ui.getAllByRole('status')[0]?.textContent).toContain('Loading timeline'),
     )
     expect(ui.container.querySelector('.waterfall-issue-open')).toBeNull()
-    read?.mockRestore()
-    ui.rerender(waterfall(f.screen))
+    await act(async () =>
+      runInAction(() => {
+        gate.loading = false
+      }),
+    )
     await waitFor(() => expect(ui.container.querySelector('.waterfall-issue-open')).not.toBeNull())
     expect(ui.queryByRole('status')).toBeNull()
   } finally {
