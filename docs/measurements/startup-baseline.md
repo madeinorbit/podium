@@ -63,31 +63,40 @@ the states this issue proves the check on: `fullPool` (control),
 `partialPool` (active rows only, no markers) and `lazyPool` (the production
 lazy pool on the whole feed, before and after `hydrateAll`).
 
-Results on `h1a1` (flatblock, 2026-10-09; `no-wrong-number.test.ts` and
+Results on `h1a1` (flatblock, 2026-10-09, candidate `fca58f638b` rebased onto
+pilot `a3177c8f17`; `no-wrong-number.test.ts` and
 `no-wrong-number.lazy.test.ts`), answers per group as equal / LOADING / wrong:
 
 | Candidate state | First screen | Counts | Search | Board archive | Closed children |
 | --- | --- | --- | --- | --- | --- |
 | Second full bootstrap | 24 / 0 / 0 | 5 / 0 / 0 | 13 / 0 / 0 | 9 / 0 / 0 | 96 / 0 / 0 |
-| Partial store, no markers | 9 / 0 / **15** | 1 / 0 / **4** | 1 / 0 / **12** | 0 / 0 / **9** | 18 / 0 / **78** |
-| Lazy pool, history cold | 9 / 15 / 0 | 5 / 0 / 0 | 13 / 0 / 0 | 9 / 0 / 0 | 62 / 34 / 0 |
+| Partial store, no markers | 23 / 0 / **1** | 1 / 0 / **4** | 1 / 0 / **12** | 0 / 0 / **9** | 18 / 0 / **78** |
+| Lazy pool, history cold | 23 / 1 / 0 | 5 / 0 / 0 | 13 / 0 / 0 | 9 / 0 / 0 | 62 / 34 / 0 |
 | Lazy pool, history loaded | 24 / 0 / 0 | 5 / 0 / 0 | 13 / 0 / 0 | 9 / 0 / 0 | 96 / 0 / 0 |
 
 The check is armed: a pool given only the active rows, with nothing saying
 history is missing, answers smaller counts, misses search hits, shows empty or
-short closed tabs and lower closed-children progress (147 questions, 118
+short closed tabs and lower closed-children progress (147 questions, 104
 wrong). That is the state POD-5597 paints first, and POD-5595's markers must
 turn every one of those answers into LOADING. Today's lazy pool stays honest
 because its cold index still holds every row the feed carried: its unloaded
 rows answer LOADING (first-screen rows and closed-children progress) or from
 their declared summaries (counts, search, closed tabs), and after loading
-(1,552 rows) every answer equals the control. The second full bootstrap shows
+(1,544 rows) every answer equals the control. The second full bootstrap shows
 the check is not noisy.
 
-Memory: the questions are the heavy part (about 0.75 GB of heap to ask them of
+The current sidebar returns a WorklistIssue companion. The check reads its
+displayed fields explicitly; recursively serializing its model/view ownership
+would encounter a cycle. A regression test requires failed reads, cyclic
+answers and duplicate questions to throw, and `ask` requires every question to
+produce an answer. MobX reaction errors cannot silently truncate a comparison.
+The older pre-rebase report's 118 wrong answers compared the previous sidebar
+payload; it is replaced by this complete 147-question proof on the current API.
+
+Memory: the questions are the heavy part (about 0.9 GB of heap to ask them of
 a 1x pool); the engine that publishes the feed is dropped once its rows are
 read. `PODIUM_STARTUP_MEMORY=1` logs RSS and heap per stage. Both files stay
-under the 3 GB worker cap at 1x (peak RSS about 1.8 GB); a 10x run of the check needs the
+under the 3 GB worker cap at 1x (lazy proof peak RSS about 2.5 GiB); a 10x run of the check needs the
 `meter:flatblock` lease.
 
 ## First paint

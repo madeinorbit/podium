@@ -27,7 +27,7 @@ def processes():
             continue
         try:
             fields = (path / 'stat').read_text().rsplit(')', 1)[1].split()
-            result[int(path.name)] = (int(fields[3]), fields[19], int(fields[21]) * os.sysconf('SC_PAGE_SIZE'))
+            result[int(path.name)] = (int(fields[3]), fields[19], int(fields[21]) * os.sysconf('SC_PAGE_SIZE'), int(fields[1]))
         except (FileNotFoundError, ProcessLookupError):
             pass
     return result
@@ -68,9 +68,17 @@ def main():
         with path.open('wb') as log:
             while child.poll() is None or selector.get_map():
                 current = processes()
-                for pid, (session, started, rss) in current.items():
-                    if session == child.pid:
-                        recorded[pid] = started
+                owned = {child.pid, *(pid for pid, identity in recorded.items() if current.get(pid, ())[:2] == identity)}
+                # Chromium may create its own session. Follow parentage while
+                # its parent is alive, then retain its observed identity.
+                while True:
+                    descendants = {pid for pid, facts in current.items() if facts[3] in owned}
+                    if descendants <= owned:
+                        break
+                    owned.update(descendants)
+                for pid, (session, started, rss, _parent) in current.items():
+                    if pid in owned or session == child.pid:
+                        recorded[pid] = (session, started)
                         peak = max(peak, rss)
                         if not args.census and rss > 3 * 1024**3:
                             try:
@@ -103,8 +111,8 @@ def main():
         # Check its start time again before signalling, to refuse PID reuse.
         for sig in (signal.SIGTERM, signal.SIGKILL):
             current = processes()
-            for pid, started in reversed(list(recorded.items())):
-                if current.get(pid, (None, None, None))[:2] == (child.pid, started):
+            for pid, identity in reversed(list(recorded.items())):
+                if current.get(pid, ())[:2] == identity:
                     try:
                         os.kill(pid, sig)
                     except ProcessLookupError:
