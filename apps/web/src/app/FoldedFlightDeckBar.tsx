@@ -3,13 +3,18 @@ import {
   missionCrewLabel,
   type selectedMissionRoot,
 } from '@podium/client-core/values'
+import type { MobxPool } from '@podium/client-graph'
+import { MissionScreen, missionRootId } from '@podium/client-graph/mission-screen'
+import { observer } from '@podium/client-graph/react'
+import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { IssueColorSlot } from '@podium/model/browser'
 import { ChevronRight, MessageCircleQuestion, Users } from 'lucide-react'
-import type { JSX, ReactNode } from 'react'
+import { type JSX, type ReactNode, useCallback, useEffect, useMemo } from 'react'
 import { IdSquare, idSquareLabel } from '@/components/IdSquare'
 import { WorkingMark } from '@/lib/motion'
 import { cn } from '@/lib/utils'
-import { usePoolMissionFolded } from './mission-pane-data'
+import { useRuntimeSelector } from './store'
+import { useWorklistPool, useWorklistPoolProjection } from './store-worklist-pool'
 
 /**
  * THE CLOSED DECK REPORTS INSTEAD OF LABELLING (POD-738).
@@ -206,9 +211,65 @@ function FootStat({
   )
 }
 
-/** The Flight Deck's compact state keeps its operational payload visible. */
+const NO_PROGRESS: MissionProgress = { total: 0, done: 0, run: 0, review: 0, stall: 0, block: 0, wait: 0 }
+
+/** The Flight Deck's compact state keeps its operational payload visible.
+ * Folded is one opening of the mission: it gets its own view model. */
 export function FoldedFlightDeckBar({ onExpand }: { onExpand: () => void }): JSX.Element {
-  const { root: sourceRoot, progress, live, working, needs } = usePoolMissionFolded()
+  const selectedId = useRuntimeSelector((store) => store.selectedIssueId)
+  const pool = useWorklistPool()
+  const readRoot = useCallback((pool: MobxPool) => missionRootId(pool, selectedId), [selectedId])
+  const rootId = useWorklistPoolProjection(readRoot, LOADING)
+  return pool && typeof rootId === 'string' ? (
+    <FoldedOpening key={rootId} pool={pool} rootId={rootId} onExpand={onExpand} />
+  ) : (
+    <FoldedBar root={null} progress={NO_PROGRESS} live={0} working={0} needs={0} onExpand={onExpand} />
+  )
+}
+
+const FoldedOpening = observer(function FoldedOpening({
+  pool,
+  rootId,
+  onExpand,
+}: {
+  pool: MobxPool
+  rootId: string
+  onExpand: () => void
+}): JSX.Element {
+  const screen = useMemo(() => new MissionScreen(pool, rootId), [pool, rootId])
+  useEffect(() => {
+    screen.open()
+    return () => screen.close()
+  }, [screen])
+  const ready = screen.ready
+  const root = ready ? screen.reader.issue(rootId) : undefined
+  return (
+    <FoldedBar
+      root={root && root !== LOADING ? root : null}
+      progress={ready ? screen.progress : NO_PROGRESS}
+      live={ready ? screen.liveCount : 0}
+      working={ready ? screen.workingCount : 0}
+      needs={ready ? screen.needsCount : 0}
+      onExpand={onExpand}
+    />
+  )
+})
+
+function FoldedBar({
+  root: sourceRoot,
+  progress,
+  live,
+  working,
+  needs,
+  onExpand,
+}: {
+  root: unknown
+  progress: MissionProgress
+  live: number
+  working: number
+  needs: number
+  onExpand: () => void
+}): JSX.Element {
   const root = sourceRoot as ReturnType<typeof selectedMissionRoot>
   const crew = missionCrewLabel(live, working)
   const label = root ? idSquareLabel(root) : null

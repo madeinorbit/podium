@@ -15,6 +15,7 @@ vi.mock('./store', () => ({
     select({ sessions: [], selectedIssueId: 'root' }),
 }))
 vi.mock('./store-worklist-pool', () => ({
+  useWorklistPool: () => state.pool as MobxPool,
   useWorklistPoolProjection: (read: (pool: MobxPool) => unknown) => {
     const pool = state.pool as MobxPool
     const projection = useMemo(() => createPoolProjection(pool, read), [pool, read])
