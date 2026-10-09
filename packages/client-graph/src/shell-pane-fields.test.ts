@@ -144,9 +144,12 @@ it('routes the dock exactly as the old dock bundle across pane, file, fallback, 
     check('file tab without checkout falls back to the recent session')
     f.change({ paneA: null as never, fileTabs: f.fileTabs })
     check('no pane: recent session fallback')
-    f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: f.sessions[1]!.sessionId,
-      value: { ...f.sessions[1]!, archived: true } }] as never })
+    expect(dock.active).toMatchObject({ sessionId: f.sessions[0]!.sessionId })
+    // Archive the session the fallback lands on: the next recent one serves.
+    f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: f.sessions[0]!.sessionId,
+      value: { ...f.sessions[0]!, archived: true } }] as never })
     check('fallback skips an archived recent session')
+    expect(dock.active).toMatchObject({ sessionId: f.sessions[1]!.sessionId })
     f.change({ paneA: f.sessions[0]!.sessionId })
     const moved = { ...f.sessions[0]!, cwd: '/undiscovered/sub', issueId: f.issues[2]!.id }
     f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: moved.sessionId, value: moved }] as never })
