@@ -13,7 +13,7 @@ import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import { planReorderKeys } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
-import type { MobileWorkSection } from '@podium/client-graph/worklist/mobile'
+import type { MobileWorkSection } from '../lib/work-sections'
 import {
   asUserId,
   issueStatusMenuEntries,
