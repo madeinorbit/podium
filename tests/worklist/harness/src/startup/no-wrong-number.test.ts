@@ -8,7 +8,8 @@
  * - a partial store without markers (active rows only): wrong numbers in
  *   counts, search, the board's closed tabs and closed-children progress.
  *   That is the failure POD-5595's markers must turn into LOADING;
- * - the lazy pool before its cold rows load, and after.
+ * The lazy pool (before and after its cold rows load) is in
+ * `no-wrong-number.lazy.test.ts`: its own worker, for memory.
  */
 import { beforeAll, describe, expect, it } from 'vitest'
 import { writeResult } from '../results'
@@ -20,7 +21,7 @@ import {
   startupTargets,
   summarize,
 } from './no-wrong-number'
-import { fullPool, hydrateAll, lazyPool, openStartupFeed, partialPool, type StartupFeed } from './startup-states'
+import { collectGarbage, fullPool, openStartupFeed, partialPool, type StartupFeed } from './startup-states'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 
 let feed: StartupFeed
@@ -33,6 +34,7 @@ beforeAll(async () => {
   const pool = fullPool(feed)
   control = ask(pool, questions)
   pool.dispose()
+  collectGarbage()
 }, 600_000)
 
 describe('the check itself', () => {
@@ -75,21 +77,5 @@ describe('startup states against the full bootstrap (h1a1)', () => {
     expect(() => assertNoWrongNumber(report, 'partial store')).toThrow(/wrong numbers/)
     for (const group of ['counts', 'search', 'board-archive', 'closed-children'] as const)
       expect(groups[group]?.wrong ?? 0, group).toBeGreaterThan(0)
-  })
-
-  it('the lazy pool, before and after its cold rows load', () => {
-    const handle = lazyPool(feed)
-    try {
-      const before = checkNoWrongNumber(control, ask(handle.pool, questions))
-      const loaded = hydrateAll(handle.pool, questions)
-      const after = checkNoWrongNumber(control, ask(handle.pool, questions))
-      const result = { before: summarize(before), after: summarize(after), loaded,
-        wrongBefore: before.wrong.slice(0, 40), wrongAfter: after.wrong.slice(0, 40) }
-      console.info(`[no-wrong-number] lazy pool: ${JSON.stringify({ before: result.before, after: result.after, loaded })}`)
-      writeResult('startup-no-wrong-number-lazy-h1a1', result)
-      assertNoWrongNumber(after, 'lazy pool after loading')
-    } finally {
-      handle.dispose()
-    }
   })
 })

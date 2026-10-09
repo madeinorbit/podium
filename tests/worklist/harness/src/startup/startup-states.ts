@@ -55,6 +55,7 @@ export async function openStartupFeed(cell: CorpusCell, seed = 4443): Promise<St
     handle.dispose()
     ctx.dispose()
   }
+  collectGarbage()
   const tables = new Map<string, Map<string, unknown>>()
   for (const row of rows) {
     let table = tables.get(row.kind)
@@ -112,4 +113,9 @@ export function hydrateAll(pool: MobxPool, questions: readonly StartupQuestion[]
     loaded += count
   }
   throw new Error(`[startup-states] still loading after ${rounds} rounds`)
+}
+
+/** Between pools: give back what a disposed pool held (Bun, when present). */
+export function collectGarbage(): void {
+  ;(globalThis as { Bun?: { gc(force: boolean): void } }).Bun?.gc(true)
 }
