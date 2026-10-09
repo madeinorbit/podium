@@ -448,7 +448,9 @@ export class CommandPaletteView {
     if (!this.snapshot || this.snapshot === LOADING) return this.snapshot
     const views = commandLaunchViews(this.pool)
     const id = this.contextIssueId
-    const issue = id ? this.snapshot.issues.find(issue => issue.id === id) : undefined
+    const summary = id ? this.pool.row('commandIssue', id) : undefined
+    if (summary === LOADING) return LOADING
+    const issue = id && summary ? this.pool.issueObject(id) as unknown as IssueViewModel : undefined
     return views.selected({ ...this.snapshot, issues: issue ? [issue] : [] }, this.memberIds)
   }
   @lazy get memberIds(): string[] {
