@@ -27,6 +27,23 @@ import { navigation } from './inbox-platform'
 const complete = new URLSearchParams(location.search).get('complete') === '1'
 const fixture = createInboxFixture(5600, 5014),
   failures: string[] = []
+// The ordinary Inbox proof has twelve active rows. Scroll captures need a
+// genuinely long working set, identical in both production builds.
+if (new URLSearchParams(location.search).has('scrollScreen')) {
+  for (let index = 12; index < 600; index++) {
+    const issueKey = `issueProjection:synthetic-${index}`
+    const issue = fixture.records.get(issueKey)!
+    fixture.records.set(issueKey, { ...issue, value: { ...(issue.value as object),
+      archived: false, closedAt: null, closedReason: null, stage: 'in_progress',
+      worktreePath: '/synthetic/project',
+    } })
+    const sessionKey = `session:synthetic-session-${index}`
+    const session = fixture.records.get(sessionKey)!
+    fixture.records.set(sessionKey, { ...session, value: { ...(session.value as object),
+      archived: false, status: 'live',
+    } })
+  }
+}
 const tokens = [
   { token: 'SYN-1000', kind: 'issue' as const, prefix: 'SYN' },
   { token: 'SYN-1018', kind: 'issue' as const, prefix: 'SYN' },
