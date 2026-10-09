@@ -411,6 +411,13 @@ describe('transcript scrolling', () => {
     expect(scroller().scrollTop).toBe(840)
   })
 
+  it('requests older rows within a viewport of the mounted history edge', () => {
+    renderHarness(<Harness moreAbove />)
+    scrollTo(viewport - 20)
+    expect(loadOlder).toHaveBeenCalledTimes(1)
+    expect(api.atBottom).toBe(false)
+  })
+
   it('keeps its anchor through loading-only commits until the actual older rows mount', () => {
     renderHarness(<Harness moreAbove />)
     scrollTo(80)
