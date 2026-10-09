@@ -34,8 +34,10 @@ const server = createServer(async (req, res) => {
 })
 await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
 const nativeTools = resolve('.toolchain/native-find')
+const framebuffer = resolve(directory, 'display')
+await mkdir(framebuffer, { recursive: true })
 const nativeEnv = { ...process.env, DISPLAY: '', PROOT_NO_SECCOMP: '1', LD_LIBRARY_PATH: `${nativeTools}/usr/lib/x86_64-linux-gnu:${resolve('.toolchain/lib')}` }
-const displayServer = spawn(`${nativeTools}/usr/bin/proot`, ['--kill-on-exit', '-b', `${nativeTools}/usr/bin/xkbcomp:/usr/bin/xkbcomp`, `${nativeTools}/usr/bin/Xvfb`, '-displayfd', '1', '-screen', '0', '1920x1080x24', '-nolisten', 'tcp', '-ac', '-xkbdir', `${nativeTools}/usr/share/X11/xkb`], { env: nativeEnv, stdio: ['ignore', 'pipe', 'pipe'] })
+const displayServer = spawn(`${nativeTools}/usr/bin/proot`, ['--kill-on-exit', '-b', `${nativeTools}/usr/bin/xkbcomp:/usr/bin/xkbcomp`, `${nativeTools}/usr/bin/Xvfb`, '-displayfd', '1', '-screen', '0', '1920x1080x24', '-nolisten', 'tcp', '-ac', '-xkbdir', `${nativeTools}/usr/share/X11/xkb`, '-fbdir', framebuffer], { env: nativeEnv, stdio: ['ignore', 'pipe', 'pipe'] })
 displayServer.stderr.on('data', data => process.stderr.write(data))
 const display = await new Promise<string>((done, reject) => {
   displayServer.stdout.once('data', data => done(`:${String(data).trim()}`))
@@ -136,6 +138,7 @@ try {
   if (!nativeFind.stats.text.some((text: string) => text.includes('native-needle-4000'))) throw new Error('Native Find did not reveal its off-window match')
   if (arm === 'after' && !nativeFind.beforematch) throw new Error('Native Find did not exercise beforematch')
   await page.screenshot({ path: resolve(directory, 'find.png') })
+  execFileSync('python3', ['apps/web/harness/xvfb-screen.py', resolve(framebuffer, 'Xvfb_screen0'), resolve(directory, 'browser-find.png')])
   nativeKey(windowId, 'Escape')
   await page.waitForTimeout(100)
   const nativeReveal = await page.evaluate(() => ({ ...((window as any).__transcriptWindowProof.stats()), selection: document.getSelection()?.toString() }))
