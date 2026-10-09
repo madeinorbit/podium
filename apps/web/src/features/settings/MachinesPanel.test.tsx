@@ -1,8 +1,8 @@
 import '@/test-support/mock-pool-store-handle'
-import '@/test-support/mock-settings-pool-fixture'
+import { renderSettingsPool as render } from '@/test-support/mock-settings-pool-fixture'
 import type { MachineWire } from '@podium/model'
 import { asMachineId } from '@podium/model'
-import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 type Store = ReferenceState<import('@/app/trpc').Trpc>
