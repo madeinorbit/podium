@@ -22,6 +22,7 @@ import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-conte
 import {
   hasActivationState,
   isActivationEligible,
+  shouldStartBrowserAtProjectIntake,
   shouldStartRemoteClientAtHandoff,
 } from '@/features/setup/activation-route'
 import { restartPodiumShell } from '@/features/setup/restart-shell'
@@ -440,6 +441,17 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
       hasActivationCheckpoint,
       hasVpsCheckpoint: vpsActivation.state !== null,
     })
+  const shouldStartBrowserAtIntake =
+    vpsActivation.ready &&
+    shouldStartBrowserAtProjectIntake({
+      nativeShell: nativeDesktopBridge() !== undefined,
+      loaded: reposLoaded,
+      repoCount,
+      sessionCount,
+      route: activationState.route,
+      hasActivationCheckpoint,
+      hasVpsCheckpoint: vpsActivation.state !== null,
+    })
   const activationEligible = isActivationEligible({
     loaded: reposLoaded,
     repoCount,
@@ -486,6 +498,10 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   useEffect(() => {
     if (shouldContinueRemoteActivation) reconcileActivation('server-connected')
   }, [reconcileActivation, shouldContinueRemoteActivation])
+
+  useEffect(() => {
+    if (shouldStartBrowserAtIntake) reconcileActivation('local-project')
+  }, [reconcileActivation, shouldStartBrowserAtIntake])
 
   // A durable setup checkpoint may arrive after the URL; reconstruct the route it names.
   useEffect(() => {

@@ -130,6 +130,41 @@ export function shouldStartRemoteClientAtHandoff({
 }
 
 /**
+ * A BROWSER is already looking at a running server, so "Where should Podium run?" has been
+ * answered before the page could load: by `podium setup` in a terminal, or by whoever put
+ * the server there (POD-3274). That screen is the desktop app's question — run here, or on
+ * a VPS — and in a tab it asked again what the terminal had just settled. A fresh browser
+ * starts at project intake instead; Back still reaches the welcome screen.
+ */
+export function shouldStartBrowserAtProjectIntake({
+  nativeShell,
+  loaded,
+  repoCount,
+  sessionCount,
+  route,
+  hasActivationCheckpoint,
+  hasVpsCheckpoint,
+}: {
+  nativeShell: boolean
+  loaded: boolean
+  repoCount: number
+  sessionCount: number
+  route: ActivationRoute
+  hasActivationCheckpoint: boolean
+  hasVpsCheckpoint: boolean
+}): boolean {
+  return (
+    !nativeShell &&
+    loaded &&
+    repoCount === 0 &&
+    sessionCount === 0 &&
+    route === 'welcome' &&
+    !hasActivationCheckpoint &&
+    !hasVpsCheckpoint
+  )
+}
+
+/**
  * Where closing project intake goes. On a desktop that has handed itself to a
  * remote server, the step behind intake is the confirmation that the handoff
  * landed; `welcome` is a topology question that desktop has already answered,

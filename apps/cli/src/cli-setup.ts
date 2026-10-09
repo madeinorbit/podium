@@ -2,7 +2,6 @@ import { existsSync, renameSync, rmSync } from 'node:fs'
 import { stagePasswordForFirstBoot as realSetPassword } from '@podium/runtime/auth-store'
 import {
   configPath,
-  type EnvSource,
   forgetConfig,
   inspectConfig,
   loadConfig,
@@ -24,7 +23,6 @@ import {
   validatePublicUrl,
 } from '@podium/runtime/setup'
 import { prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
-import { indentExample, setConsent, shouldAskForConsent } from '@podium/telemetry'
 import { applyJoinToken } from './cli-join'
 import { realCheckReachability } from './cli-reachability'
 import { hasSystemctl, hasUserSystemd } from './cli-systemd'
@@ -260,7 +258,7 @@ export function shouldRunCliSetup(opts: {
 
 type HostMode = 'all-in-one' | 'server'
 /** What the mode menu can return. The three modes, plus the host-only quick edits. */
-type SetupChoice = HostMode | 'daemon' | 'url' | 'password' | 'telemetry'
+type SetupChoice = HostMode | 'daemon' | 'url' | 'password'
 
 /**
  * WHAT THE DEPLOYMENT OWNS, THIS COMMAND MAY NOT WRITE (PDM-26).
@@ -332,9 +330,9 @@ type ReachabilityChoice =
  */
 /** What {@link confirmUrlChange} names as the replacement when the URL is not known yet. */
 const MANAGED_TUNNEL_TARGET = 'a Cloudflare quick tunnel'
-const MANAGED_TUNNEL_LABEL = 'Cloudflare quick tunnel, run by Podium (easiest, no account)'
+const MANAGED_TUNNEL_LABEL = 'Cloudflare quick tunnel, managed by Podium (easiest, no account)'
 const MANAGED_TUNNEL_NOTE =
-  'Podium keeps the tunnel running and keeps track of its address, which is random and changes when the tunnel restarts.'
+  'One-click setup, with nothing to install or sign up for. Cloudflare gives no uptime guarantee for quick tunnels.'
 
 /**
  * Get cloudflared onto this machine for the managed tunnel, asking first. False means the
@@ -388,11 +386,13 @@ async function startManagedTunnel(
     return undefined
   }
   spin.stop(`The Cloudflare tunnel is up at ${url}`)
+  // ONE paragraph per line: clack wraps note text to the terminal itself, so a line broken
+  // by hand here gets broken twice and reads ragged.
   io.note(
     [
-      'The address changes whenever the tunnel restarts — after a reboot or a dropped',
-      'connection. Podium records each new one, and machines joined to this server find',
-      'it on their own. A browser bookmark will not: `podium status` shows the current one.',
+      'The address changes whenever the tunnel restarts, for example after a reboot or a dropped connection.',
+      'Podium records each new address, and machines joined to this server follow it on their own.',
+      'The browser and the desktop and mobile apps do not follow it yet: `podium status` shows the current address.',
     ].join('\n'),
     'About this address',
   )
@@ -453,11 +453,9 @@ export function manualProxyRequirements(port: number): string {
   return [
     'Your reverse proxy needs to:',
     '',
-    '• serve Podium over HTTPS, with a valid certificate,',
-    '  at the root of its own hostname (no path prefix)',
+    '• serve Podium over HTTPS, with a valid certificate, at the root of its own hostname (no path prefix)',
     `• run on this machine and forward everything to http://127.0.0.1:${port}`,
-    '• pass WebSocket upgrades through, on every path, and not',
-    '  time out long-lived connections',
+    '• pass WebSocket upgrades through, on every path, and not time out long-lived connections',
     '• send X-Forwarded-Proto: https',
   ].join('\n')
 }
@@ -503,7 +501,7 @@ async function reachabilityStep(
       {
         value: 'manual',
         label: 'My own reverse proxy',
-        hint: 'You already serve HTTPS for a domain and point it at Podium.',
+        hint: 'You make sure clients can reach Podium on this machine over HTTPS.',
       },
     ],
   })
@@ -746,16 +744,18 @@ async function passwordStep(
   io: SetupIO,
   setPassword: (password: string) => Promise<void>,
 ): Promise<boolean> {
-  io.step('Set a password to require login (recommended for a public URL).')
+  io.step(
+    'Choose the password you will log in to Podium with: in the browser, and in the desktop and mobile apps.',
+  )
   // Loops until the operator either sets a password or explicitly accepts an open box.
   // A cancel (Ctrl-C, or a scripted run out of answers) ends it — which is why there is no
   // attempt counter: CANCEL is the terminating condition readline could never report.
   for (;;) {
-    const pw = await io.password({ message: 'Password (leave blank to run without one)' })
+    const pw = await io.password({ message: 'Podium login password (leave blank for no login)' })
     if (isCancel(pw)) break
     if (pw.trim()) {
       await setPassword(pw.trim())
-      io.success('Password set — devices must log in to use this instance.')
+      io.success('Password set. The browser and the apps ask for it when they connect.')
       return true
     }
     // SP-7f2c: the no-password option must be an explicit opt-in behind a confirmed warning.
@@ -773,75 +773,6 @@ async function passwordStep(
   }
   io.error('No password chosen and no-password mode not confirmed.')
   return false
-}
-
-/**
- * The telemetry prompt's example report [spec:SP-f933]. Shown BY DEFAULT, not
- * behind a "learn more": the audience is developers, and the JSON documents
- * itself better than prose describing it (Syncthing showed the exact report and
- * got ~zero friction; Ubuntu's install-time preview got 67% yes).
- *
- * Illustrative VALUES, deliberately — it renders before consent exists, so there
- * is nothing real to show. The FIELDS are the schema's, enforced: the example
- * lives in @podium/telemetry beside `UsageReport` because `packages/*` may not
- * import `apps/*`, so an example defined here could never be drift-tested (it
- * shipped advertising a `claude` session kind that the wire has never had).
- */
-export const TELEMETRY_PROMPT_BODY = [
-  'Nothing is collected unless you turn it on. One report a day,',
-  'and this is exactly what it looks like:',
-  '',
-  indentExample(),
-  '',
-  '• Never     paths, repo names, prompts, code, any free text',
-  '• Your IP   dropped at ingest, never reaches analytics',
-  '• Opt out   anytime in Settings → Privacy, or: podium telemetry off',
-  '• Details   podium telemetry show · podium.dev/telemetry',
-].join('\n')
-
-/** Read one [y/N] answer. Anything that isn't an explicit yes is a NO — the
- *  default must never drift toward on, and stdin EOF resolves '' forever
- *  (which lands here as 'no', not as a spin). */
-function yes(answer: unknown): boolean {
-  return answer === true
-}
-
-/**
- * Telemetry step [spec:SP-f933] — the LAST step of the host flow, after the
- * machine already works.
- *
- * Placement is the whole design: steps 3-7 are all REQUIRED for a working
- * Podium; this is the only optional question, so it must not be a tollbooth on
- * the way to a working install. A Ctrl-C here leaves a fully working install
- * with telemetry absent (= off), which is the best available failure mode. It
- * also lands at the moment the user has just succeeded, which is when goodwill
- * is highest.
- *
- * Skipped entirely when DO_NOT_TRACK / PODIUM_TELEMETRY=off is set: a box that
- * has declared it does not want to be tracked must not be asked about tracking.
- * Only hosts reach here at all (D10) — the join path never calls it.
- *
- * Both questions default to N; Enter-Enter opts out of both.
- */
-export async function telemetryStep(io: SetupIO, env: EnvSource = process.env): Promise<void> {
-  if (!shouldAskForConsent(env)) return
-  io.note(TELEMETRY_PROMPT_BODY, 'Anonymous telemetry (opt-in)')
-  const usage = yes(
-    await io.confirm({ message: 'Send anonymous usage reports?', initialValue: false }),
-  )
-  const crash = yes(
-    await io.confirm({ message: 'Send crash reports (scrubbed traces)?', initialValue: false }),
-  )
-  // Written even when both are 'no': an explicit 'off' is not the same as
-  // 'absent', and recording the answer is how we know we asked (D11).
-  setConsent({ usage: usage ? 'on' : 'off', crash: crash ? 'on' : 'off' })
-  if (usage || crash) {
-    const on = [usage ? 'usage' : '', crash ? 'crash' : ''].filter(Boolean).join(' + ')
-    io.success(`Thanks — ${on} reporting is on.`)
-    io.command('podium telemetry off', 'Turn it off any time:')
-  } else {
-    io.step('Telemetry stays off. Nothing will be collected or sent.')
-  }
 }
 
 /**
@@ -944,7 +875,6 @@ async function hostStep(
   setPassword: (password: string) => Promise<void>,
   startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
   options: {
-    askTelemetry?: boolean
     activateImmediately?: boolean
     /** `--confirm-url-change`: answer the "this strands joined machines" question ahead of time. */
     confirmUrlChange?: boolean
@@ -1006,18 +936,12 @@ async function hostStep(
       stepOpts,
     )
   }
-  // LAST, deliberately (step 8): the backend is already running and the install
-  // already works, so this question can be abandoned at no cost [spec:SP-f933].
-  // The backend being up first is why consent must be read fresh at flush (D9) —
-  // and that is the right behavior independently.
-  if (options.askTelemetry !== false) await telemetryStep(io)
 }
 
 /**
  * Fresh-VPS setup used by desktop onboarding. This is intentionally NOT the reconfiguration menu:
  * the machine is a new all-in-one Podium authority, so topology is already decided. Reachability,
  * login protection, and persistence remain because they are required for a safe usable server.
- * Telemetry stays in the desktop activation finish screen instead of being asked twice.
  */
 export async function runVpsSetup(io: SetupIO, port: number, deps: SetupDeps = {}): Promise<void> {
   const inspection = inspectConfig()
@@ -1036,7 +960,6 @@ export async function runVpsSetup(io: SetupIO, port: number, deps: SetupDeps = {
     deps.setPassword ?? realSetPassword,
     deps.startBackend ?? startBackendEngine,
     {
-      askTelemetry: false,
       activateImmediately: true,
       ...(deps.hasCommand ? { hasCommand: deps.hasCommand } : {}),
       ...(deps.checkReachability ? { checkReachability: deps.checkReachability } : {}),
@@ -1144,7 +1067,7 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
     {
       value: 'all-in-one',
       label: 'Run the Podium server AND agents here. (Recommended)',
-      hint: 'It will serve the web frontend and let native desktop clients connect to it.',
+      hint: 'It will serve the web frontend and let our native desktop and mobile apps connect to it.',
     },
     {
       value: 'daemon',
@@ -1161,10 +1084,6 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
     menu.push(
       { value: 'url', label: 'Change how this machine is reached (its URL)', hint: '' },
       { value: 'password', label: 'Change or remove the login password', hint: '' },
-      // Host-only, same condition as the two above [spec:SP-f933]: only hosts emit, so only
-      // hosts are asked (D10). This is the entire "ask an existing install" story —
-      // no one-time card, no prompt on a bare `podium` (D11).
-      { value: 'telemetry', label: 'Change telemetry', hint: '' },
     )
   }
 
@@ -1219,8 +1138,6 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
     }
   } else if (choice === 'password' && hostsServer) {
     await passwordStep(io, setPassword)
-  } else if (choice === 'telemetry' && hostsServer) {
-    await telemetryStep(io)
   } else {
     io.step('Nothing changed.')
   }

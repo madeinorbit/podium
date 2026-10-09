@@ -311,7 +311,7 @@ describe('runCliSetup', () => {
     it('labels blank password as the no-password confirmation path', async () => {
       const { prompts, done } = start(['all-in-one', MANUAL, 'https://box.ts.net', '', true, false])
       await done
-      expect(prompts).toContain('Password (leave blank to run without one)')
+      expect(prompts).toContain('Podium login password (leave blank for no login)')
       expect(prompts).toContain('Run without a password?')
     })
 
@@ -1031,140 +1031,19 @@ describe('runCliSetup', () => {
       expect(loadConfig().publicUrl).toBe('https://existing.ts.net')
       expect(loadConfig().mode).toBe('all-in-one')
     })
-
-    it('change telemetry only (option 6), leaving mode/URL/password alone', async () => {
-      const setPw = vi.fn(async () => {})
-      await run(['telemetry', true, false], setPw)
-      expect(loadConfig().telemetry).toMatchObject({ usage: 'on', crash: 'off' })
-      expect(loadConfig().publicUrl).toBe('https://existing.ts.net')
-      expect(loadConfig().mode).toBe('all-in-one')
-      expect(setPw).not.toHaveBeenCalled()
-    })
   })
 
-  // ------------------------------------------------------------------
-  // Telemetry step [spec:SP-f933]
-  // ------------------------------------------------------------------
-  describe('telemetry step (the last step of the host flow)', () => {
-    const HOST_ANSWERS: unknown[] = ['all-in-one', MANUAL, 'https://box.ts.net', 's3cret', false]
-
-    it('is reached only AFTER the install works (step 8)', async () => {
-      const order: string[] = []
-      const s = scriptedIO([...HOST_ANSWERS, true, true])
-      const io = {
-        ...s.io,
-        confirm: async (o: { message: string; initialValue?: boolean }) => {
-          if (o.message.includes('systemd')) order.push('persistence')
-          if (o.message.includes('usage reports')) order.push('telemetry')
-          return s.io.confirm(o)
-        },
-      }
-      await runCliSetup(io, 18787, {
-        ...HERMETIC,
-        hasCommand: () => true,
-        setPassword: vi.fn(async () => {}),
-        startBackend: async (o) => {
-          order.push('startBackend')
-          return { effectivePersistence: o.persistence, message: '' }
-        },
-      })
-      // Telemetry is the last thing asked, and the backend is already up when
-      // it is — which is exactly why consent must be read fresh at flush (D9).
-      expect(order).toEqual(['persistence', 'startBackend', 'telemetry'])
-      expect(loadConfig().telemetry).toMatchObject({ usage: 'on', crash: 'on' })
-    })
-
-    it('shows the example report and the opt-out routes in the prompt', async () => {
-      const { output, done } = start([...HOST_ANSWERS, false, false])
-      await done
-      const out = output.join('\n')
-      expect(out).toContain('Anonymous telemetry (opt-in)')
-      expect(out).toContain('"installAge": "1-7d"')
-      expect(out).toContain('podium telemetry off')
-      expect(out).toContain('Settings → Privacy')
-    })
-
-    it('defaults to NO — Enter-Enter opts out of both', async () => {
-      await run([...HOST_ANSWERS, false, false])
-      expect(loadConfig().telemetry).toMatchObject({ usage: 'off', crash: 'off' })
-      expect(loadConfig().telemetry?.installId).toBeUndefined()
-    })
-
-    it('records an explicit off (which is not the same as never asked)', async () => {
-      await run([...HOST_ANSWERS, false, false])
-      expect(loadConfig().telemetry?.usage).toBe('off')
-    })
-
-    it('each tier is consented independently', async () => {
-      await run([...HOST_ANSWERS, false, true])
-      expect(loadConfig().telemetry).toMatchObject({ usage: 'off', crash: 'on' })
-    })
-
-    it('Ctrl-C at the telemetry step leaves a WORKING install with telemetry absent', async () => {
-      // The reason this step is last: abandoning it costs the user nothing.
-      // stdin EOF resolves '' forever — the bounded prompt must not spin, and
-      // '' is a NO, so the box ends up configured with telemetry off.
-      await run(HOST_ANSWERS) // nothing left to answer → '' forever
-      expect(loadConfig().mode).toBe('all-in-one')
-      expect(loadConfig().publicUrl).toBe('https://box.ts.net')
-      expect(loadConfig().persistence).toBe('detached')
-      expect(loadConfig().telemetry?.installId).toBeUndefined()
-    })
-
-    it('DO_NOT_TRACK suppresses the PROMPT, not just the sending', async () => {
-      process.env.DO_NOT_TRACK = '1'
-      try {
-        const { prompts, done } = start([...HOST_ANSWERS])
-        await done
-        expect(prompts.some((p) => p.includes('usage reports'))).toBe(false)
-        // Not even an 'off' is written: we never asked, so we record nothing.
-        expect(loadConfig().telemetry).toBeUndefined()
-        expect(loadConfig().mode).toBe('all-in-one') // the install still works
-      } finally {
-        delete process.env.DO_NOT_TRACK
-      }
-    })
-
-    it('PODIUM_TELEMETRY=off suppresses the prompt too', async () => {
-      process.env.PODIUM_TELEMETRY = 'off'
-      try {
-        await run([...HOST_ANSWERS, true, true])
-        expect(loadConfig().telemetry).toBeUndefined()
-      } finally {
-        delete process.env.PODIUM_TELEMETRY
-      }
-    })
-
-    it('the JOIN path is never prompted (D10 — the hub decided)', async () => {
-      const token = encodeJoin({ v: 1, serverUrl: 'wss://relay.example', pairCode: 'ABCD-1234' })
-      const { prompts, done } = start(['daemon', token, false])
-      await done
-      expect(loadConfig().mode).toBe('daemon')
-      expect(prompts.some((p) => p.includes('usage reports'))).toBe(false)
-      expect(loadConfig().telemetry).toBeUndefined()
-    })
-
-    it('the non-interactive `podium setup --join` never prompts either', async () => {
-      const token = encodeJoin({ v: 1, serverUrl: 'wss://relay.example', pairCode: 'ABCD-1234' })
-      await runJoinSetup(token, 'systemd', 18787, {
-        startBackend: async (o) => ({ effectivePersistence: o.persistence, message: '' }),
-        waitForEnrollment: async () => {},
-      })
-      expect(loadConfig().mode).toBe('daemon')
-      expect(loadConfig().telemetry).toBeUndefined()
-    })
-
-    it('the telemetry menu entry is host-only', async () => {
-      // Fresh box (no mode): the host-only entries are not OFFERED at all.
-      const fresh = start([])
-      await fresh.done
-      expect(fresh.prompts.join('\n')).not.toContain('Change telemetry')
-
-      saveConfig({ mode: 'all-in-one', publicUrl: 'https://x.ts.net' })
-      const host = start([])
-      await host.done
-      expect(host.prompts.join('\n')).toContain('Change telemetry')
-    })
+  // Telemetry is not asked in setup at all: it is a setting (Settings → Privacy, or
+  // `podium telemetry`), never a question on the way to a working install.
+  it('never asks about telemetry, on any path, and writes no consent', async () => {
+    const host = start(['all-in-one', MANUAL, 'https://box.ts.net', 's3cret', false])
+    await host.done
+    expect(host.prompts.some((p) => /telemetry|usage reports|crash reports/i.test(p))).toBe(false)
+    expect(loadConfig().mode).toBe('all-in-one')
+    expect(loadConfig().telemetry).toBeUndefined()
+    const menu = start([])
+    await menu.done
+    expect(menu.prompts.join('\n')).not.toContain('telemetry')
   })
 })
 
@@ -1354,7 +1233,7 @@ describe('waitForDaemonEnrollment ignores a dead daemon s leftover record (POD-3
  * THE MANAGED QUICK TUNNEL (POD-3274): picking Cloudflare means Podium runs it. No URL
  * to paste — the address is unknown until the tunnel starts, which needs the server up.
  */
-describe('runCliSetup: Cloudflare quick tunnel run by Podium', () => {
+describe('runCliSetup: Cloudflare quick tunnel managed by Podium', () => {
   let dir: string
   beforeEach(() => {
     dir = mkdtempSync(join(tmpdir(), 'podium-clisetup-tunnel-'))
@@ -1434,10 +1313,12 @@ describe('runCliSetup: Cloudflare quick tunnel run by Podium', () => {
     expect(s.output).toContain(`Reachable — ${TUNNEL_URL} answers through Cloudflare.`)
   })
 
-  it('labels the row as run by Podium, never as "not installed"', async () => {
+  it('labels the row as managed by Podium, never as "not installed"', async () => {
     const { prompts, done } = runTunnel(['all-in-one'])
     await done
-    expect(prompts.some((p) => p.startsWith('Cloudflare quick tunnel, run by Podium'))).toBe(true)
+    expect(prompts.some((p) => p.startsWith('Cloudflare quick tunnel, managed by Podium'))).toBe(
+      true,
+    )
     expect(prompts.some((p) => p.includes('cloudflared is not installed —'))).toBe(false)
   })
 

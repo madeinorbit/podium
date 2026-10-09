@@ -6,6 +6,7 @@ import {
   isActivationEligible,
   projectIntakeReturnRoute,
   readActivationState,
+  shouldStartBrowserAtProjectIntake,
   shouldStartRemoteClientAtHandoff,
 } from './activation-route'
 
@@ -136,6 +137,28 @@ describe('activation route persistence', () => {
     expect(
       shouldStartRemoteClientAtHandoff({ ...freshClient, hasActivationCheckpoint: true }),
     ).toBe(false)
+  })
+
+  // POD-3274: a tab is already on a running server — the terminal answered "where".
+  it('starts a fresh browser at project intake, never a desktop or a resumed setup', () => {
+    const freshTab = {
+      nativeShell: false,
+      loaded: true,
+      repoCount: 0,
+      sessionCount: 0,
+      route: 'welcome' as const,
+      hasActivationCheckpoint: false,
+      hasVpsCheckpoint: false,
+    }
+    expect(shouldStartBrowserAtProjectIntake(freshTab)).toBe(true)
+    expect(shouldStartBrowserAtProjectIntake({ ...freshTab, nativeShell: true })).toBe(false)
+    expect(shouldStartBrowserAtProjectIntake({ ...freshTab, loaded: false })).toBe(false)
+    // Back to welcome writes a checkpoint: the user chose to see it, so it stays.
+    expect(shouldStartBrowserAtProjectIntake({ ...freshTab, hasActivationCheckpoint: true })).toBe(
+      false,
+    )
+    expect(shouldStartBrowserAtProjectIntake({ ...freshTab, hasVpsCheckpoint: true })).toBe(false)
+    expect(shouldStartBrowserAtProjectIntake({ ...freshTab, repoCount: 1 })).toBe(false)
   })
 
   it('restores the connection confirmation a client desktop lands on', () => {
