@@ -137,6 +137,16 @@ try {
   await writeFile(resolve(directory, 'native-find.json'), JSON.stringify(nativeFind, null, 2))
   if (!nativeFind.stats.text.some((text: string) => text.includes('native-needle-4000'))) throw new Error('Native Find did not reveal its off-window match')
   if (arm === 'after' && !nativeFind.beforematch) throw new Error('Native Find did not exercise beforematch')
+  const nativeFindRoundTrip = [{ query: 'native-needle-4000', ...nativeFind.stats }]
+  for (const query of ['native-needle-6000', 'native-needle-4000']) {
+    nativeKey(windowId, 'ctrl+a')
+    execFileSync(`${nativeTools}/usr/bin/xdotool`, ['type', '--window', windowId, '--clearmodifiers', '--delay', '0', query], { env: nativeEnv })
+    await page.waitForTimeout(300)
+    const stats = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
+    if (!stats.text.some((text: string) => text.includes(query))) throw new Error('Native Find round-trip did not reveal its match')
+    if (arm === 'after' && stats.drawn >= 64) throw new Error('Native Find retained distant rich rows')
+    nativeFindRoundTrip.push({ query, ...stats })
+  }
   await page.screenshot({ path: resolve(directory, 'find.png') })
   execFileSync('python3', ['apps/web/harness/xvfb-screen.py', resolve(framebuffer, 'Xvfb_screen0'), resolve(directory, 'browser-find.png')])
   nativeKey(windowId, 'Escape')
@@ -147,7 +157,7 @@ try {
   await page.evaluate(() => (window as any).__transcriptWindowProof.jump(4000))
   await page.waitForTimeout(100)
   await page.screenshot({ path: resolve(directory, 'window.png') })
-  const report = { arm, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), browser: browser.version(), samples, fastScroll, jump, wheel, selectionCopy: { selected, copied }, nativeFind, nativeReveal, errors }
+  const report = { arm, revision: execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim(), browser: browser.version(), samples, fastScroll, jump, wheel, selectionCopy: { selected, copied }, nativeFind, nativeFindRoundTrip, nativeReveal, errors }
   await writeFile(resolve(directory, 'report.json'), JSON.stringify(report, null, 2))
   console.log(JSON.stringify({ arm, samples: samples.map(({ loaded, elements, drawn, heapUsed }) => ({ loaded, elements, drawn, heapUsed })), blankFrames: fastScroll.filter(sample => sample.visible === 0).length, jump: { key: jump.key, offset: jump.offset }, errors }))
   if (errors.length || fastScroll.some(sample => sample.visible === 0)) throw new Error('Production scroll proof failed')
