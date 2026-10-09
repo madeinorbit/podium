@@ -32,7 +32,7 @@ export function missionPaneReader(pool: MobxPool, visible = 24) {
     }
     return screen
   }
-  const read = (input: MissionPaneInput) => {
+  const read = (input: MissionPaneInput) => settled(() => {
     const rootId = missionRootId(pool, input.selectedIssueId)
     let pending = rootId === LOADING
     for (const id of new Set([input.paneA, input.split ? input.paneB : null])) {
@@ -78,7 +78,7 @@ export function missionPaneReader(pool: MobxPool, visible = 24) {
       departures: screen.otherDepartures,
       handoff,
     }
-  }
+  })
   return {
     read,
     open,
