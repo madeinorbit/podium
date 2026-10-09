@@ -18,6 +18,8 @@ import { MessageLedgerView } from '@/features/messages/MessageLedgerView'
 import { UsageView } from '@/features/usage/UsageView'
 import { resetUsageCache } from '@/features/usage/useUsageFeed'
 import { resetPolledQueryCache } from '@/lib/use-polled-query'
+import { MissionScreen } from '@podium/client-graph/mission-screen'
+import { MobxPool } from '@podium/client-graph/pool'
 import { FlightDeckHandoff } from './FlightDeckHandoff'
 import { useWaterfallActivity } from './FlightDeckWaterfall'
 import { MissionCostChip } from './MissionCostChip'
@@ -235,10 +237,16 @@ it('MissionCostChip acquires the existing runtime API without a snapshot subscri
 
 it('FlightDeckHandoff acquires review events without a snapshot subscription', async () => {
   const ctx = setup()
+  // The timeline's review-return counts are the opening's request answers.
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(issue.updatedAt) })
+  pool.apply({ type: 'replace', rows: [{ kind: 'issue', id: issue.id, value: issue }] })
+  const opening = new MissionScreen(pool, issue.id, { issueEvents: (input) => ctx.reads.events(input) })
+  opening.open()
   const view = render(
     <FlightDeckHandoff
       rootIssue={issue}
-      issues={[issue]}
+      issue={(id) => (id === issue.id ? issue : undefined)}
+      reviewReturns={opening}
       lookupSession={() => undefined}
       poolValues={{
         crew: [],
@@ -262,6 +270,8 @@ it('FlightDeckHandoff acquires review events without a snapshot subscription', a
     limit: 200,
   })
   expect(view.getByTestId('flight-deck-handoff').textContent).toContain('Ready for review.')
+  opening.close()
+  pool.dispose()
 })
 
 it('FlightDeckWaterfall activity acquires the existing runtime API without a snapshot subscription', async () => {
