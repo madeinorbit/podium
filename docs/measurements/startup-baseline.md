@@ -96,4 +96,79 @@ PENDING.
 
 ## How to rerun
 
-PENDING.
+Run all validation and builds on **flatblock**, in an issue-owned checkout
+(`~/podium-test-5594` here). Its `.toolchain/bun` must match `mise.toml`, and
+`.toolchain/node` must link to that Bun. Run `bun run setup:worktree` after
+updating the checkout; never share a complete `node_modules` tree.
+
+Generate each cell once on flatblock, under `meter:flatblock`:
+
+```sh
+.toolchain/bun --conditions=@podium/source apps/web/harness/old-vs-new-corpus.mjs --cell=h1a1
+# Repeat for h10a1, h1a4, h10a4; compare independent same-seed output with cmp.
+```
+
+Build normal production clients (`cd apps/web && bun run build`, then
+`cd apps/mobile && bun run build`) using the checkout-local toolchain on PATH.
+No diagnostic transforms, production flags or ablations enter this baseline.
+
+From the local **issue worktree**, run the lightweight SSH controller:
+
+```sh
+python3 apps/web/harness/cold-start-pair.py --cells=h1a1,h10a1,h1a4,h10a4 \
+  --checkout=podium-test-5594 --surface=web --samples=8 --round=1 --meter --no-profile
+python3 apps/mobile/harness/startup-baseline.py \
+  --checkout=podium-test-5594 --samples=8 --round=1
+```
+
+The controller holds `meter:flatblock` and `bench:flatblock`, renews both,
+and starts exactly one collector process tree at a time. It rotates and
+reverses the four cell orders between rounds. Each invocation captures one
+cold navigation and its warm reload, closes its browser and isolated server,
+then gives the next cell its turn. Eight samples per cell, per surface.
+The phone entry uses the same seeded full-bootstrap feed and Paint collector
+as web; its boundary is an unobscured issue row on `/mobile/work`, at Pixel 7
+viewport settings. It measures the production phone **web** client, not native
+device performance.
+
+Cold means fresh browser context/application storage. Warm retains committed
+IndexedDB rows and preferences and resumes its cursor without an augmented
+snapshot. Request routing disables HTTP cache for both. The complete seeded
+corpus must reach durable storage before each warm reload. Timing ends at an
+actual Chromium Paint after the first visible issue row and after the boot
+splash disappears, rather than at a DOM mutation or a readiness promise.
+
+The controller writes `.artifacts/startup-baseline/<surface>-r<round>.json`
+locally, listing raw remote `run.json` paths. Copy that ledger into the same
+path in the flatblock checkout, then summarize there:
+
+```sh
+python3 apps/web/harness/startup-summary.py \
+  --ledger=.artifacts/startup-baseline/web-r1.json \
+  --out=.artifacts/startup-baseline/web-summary.json
+# Repeat for phone-r1.json and phone-summary.json.
+```
+
+The summary reuses `cold-start-guard.py`'s provenance, full-population and
+browser-error checks, requires eight unprofiled cold/warm pairs, and reports
+median and min–max spread. It does not certify the existing 2.5-second startup
+budget. Raw traces remain next to each remote ledger.
+
+`flatblock-budget.py` wraps each capture in foreground, admitting it only at
+MemAvailable ≥ 6 GiB and SwapFree ≥ 2 GiB. The memory-heavy corpus uses the
+operator's census exception under the measurement lease: stop below 1.5 GiB
+available or 2 GiB swap free. Ordinary Vitest workers stop above 3 GiB RSS.
+Only recorded process IDs whose session and start time still match are stopped;
+resource observations are saved beside each collector log.
+
+Correctness and fixture proof use focused files through the repository lane:
+
+```sh
+bun run test:file -- tests/worklist/harness/src/fixture/cells.test.ts scripts/cold-start-guard.test.ts
+bun run test:file -- tests/worklist/harness/src/startup/no-wrong-number.test.ts
+bun run test:file -- tests/worklist/harness/src/startup/no-wrong-number.lazy.test.ts
+```
+
+Run those commands sequentially. The normal landing evidence is the lean gate,
+full typecheck, interaction scan check, normal web build, and structural census
+under `meter:flatblock`; the report below records what actually ran.
