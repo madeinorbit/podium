@@ -83,7 +83,7 @@ it('keeps focused and expanded controls alive while other distant rows unmount',
   expect(host.querySelector('[data-transcript-row="row-4"] [data-message]')).not.toBeNull()
   expect(host.querySelector('[data-transcript-row="row-6"] [data-message]')).toBeNull()
 })
-it('materialises native Find and addressed search targets without discarding their text node', () => {
+it('materialises native Find and addressed search targets without discarding their text node', async () => {
   const shell = host.querySelector('[data-transcript-row="row-800"]')!
   const text = shell.querySelector('[hidden="until-found"]')!
   const range = document.createRange(); range.setStart(text.firstChild!, 0); range.setEnd(text.firstChild!, 7)
@@ -94,6 +94,7 @@ it('materialises native Find and addressed search targets without discarding the
   const other = host.querySelector('[data-transcript-row="row-600"]')!
   act(() => other.dispatchEvent(new Event('podium-transcript-reveal', { bubbles: true })))
   expect(other.querySelector('[data-message]')).not.toBeNull()
+  await act(async () => { await Promise.resolve() })
 })
 it('makes Select All include every loaded message before native selection and copy', () => {
   act(() => root.render(<Fixture key="select-all" count={100} />))

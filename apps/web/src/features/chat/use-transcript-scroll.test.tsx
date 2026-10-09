@@ -467,7 +467,7 @@ describe('transcript scrolling', () => {
     const shell = document.createElement('div')
     shell.dataset.transcriptRow = 'row-0'
     rich.replaceWith(shell); shell.append(rich)
-    const original = HTMLElement.prototype.getBoundingClientRect
+    const original = vi.mocked(HTMLElement.prototype.getBoundingClientRect).getMockImplementation()!
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(function(this: HTMLElement) {
       if (this !== shell) return original.call(this)
       const box = original.call(shell.firstElementChild ?? shell)
