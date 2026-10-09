@@ -12,7 +12,7 @@ import { ModelPicker } from '@/lib/ModelEffortPicker'
 import { type AccountView, RoleBackendEditor, Row, Section } from './shared'
 
 /** New-session defaults (which account/model/effort coding agents start with,
- *  subagent strategy, start screen) + the auto-continue toggle. */
+ *  subagent model, start screen) + the auto-continue toggle. */
 export function SessionsSection({
   settings,
   accounts,
@@ -58,37 +58,6 @@ export function SessionsSection({
               })
             }
           />
-        </Row>
-        <Row
-          label="Subagents"
-          description="Built-in subagents share the harness and are the best choice today. Podium-coordinated subagents (for cross-harness work) are coming soon."
-        >
-          <Select
-            value={settings.roles.coding.subagentStrategy}
-            onValueChange={(value) => {
-              if (value !== 'builtin') return // 'podium' is coming soon
-              patch({
-                roles: {
-                  ...settings.roles,
-                  coding: { ...settings.roles.coding, subagentStrategy: 'builtin' },
-                },
-              })
-            }}
-          >
-            <SelectTrigger className="w-full flex-1">
-              <SelectValue>
-                {settings.roles.coding.subagentStrategy === 'builtin'
-                  ? "Built-in (the harness's own)"
-                  : 'Coordinate via Podium'}
-              </SelectValue>
-            </SelectTrigger>
-            <SelectContent>
-              <SelectItem value="builtin">Built-in (the harness's own)</SelectItem>
-              <SelectItem value="podium" disabled>
-                Coordinate via Podium — coming soon
-              </SelectItem>
-            </SelectContent>
-          </Select>
         </Row>
         <Row label="New session opens on">
           <Select
