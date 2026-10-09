@@ -47,9 +47,9 @@ const EMPTY_IDS: readonly string[] = Object.freeze([])
 /** Per-group lazy fields belong to the existing group row, never a keyed cache. */
 export class MobileSection {
   constructor(readonly pool: MobxPool, readonly key: string, readonly root: MobileSectionsView) {}
-  @lazy get label() { return this.key === 'pinned' ? 'Pinned' : this.key === 'needs-you' ? 'Needs you'
-    : sidebarView(this.pool).band(this.root.state, this.key)?.label ?? '' }
-  @lazy get kind(): MobileWorkSection['kind'] { return this.key === 'pinned' ? 'pinned' : this.key === 'needs-you' ? 'attention' : 'project' }
+  get label() { return this.key === 'pinned' ? 'Pinned' : this.key === 'needs-you' ? 'Needs you' : this.projectLabel }
+  @lazy private get projectLabel() { return sidebarView(this.pool).band(this.root.state, this.key)?.label ?? '' }
+  get kind(): MobileWorkSection['kind'] { return this.key === 'pinned' ? 'pinned' : this.key === 'needs-you' ? 'attention' : 'project' }
   @lazy({ equals: compareShallow }) get worktreeIds() { return this.kind === 'project'
     ? sidebarView(this.pool).band(this.root.state, this.key)?.worktreeIds ?? EMPTY_IDS : EMPTY_IDS }
   @lazy({ equals: compareShallow }) get openIds() { return this.kind === 'pinned' ? worklistGroups(this.pool).pinnedRootIds
@@ -75,8 +75,8 @@ export class MobileSectionsView implements MobileWorkSections {
   @lazy({ equals: compareShallow }) get projectKeys() { return sidebarView(this.pool).bandKeys(this.state) }
   project(key: string): MobileSection { return worklistGroups(this.pool).group(key).workSection }
   section(key: string): MobileSection { return key === 'pinned' ? this.pinned : key === 'needs-you' ? this.attention : this.project(key) }
-  @lazy get pinned() { return new MobileSection(this.pool, 'pinned', this) }
-  @lazy get attention() { return new MobileSection(this.pool, 'needs-you', this) }
+  readonly pinned = new MobileSection(this.pool, 'pinned', this)
+  readonly attention = new MobileSection(this.pool, 'needs-you', this)
   @lazy({ equals: compareShallow }) get attentionIds() {
     return [...this.pinned.attentionIds, ...this.projectKeys.flatMap(key => this.project(key).attentionIds)]
   }

@@ -38,12 +38,12 @@ export class Worklist {
     seatActivity: id => this.pool.rollupInputs.seatActivity(id),
     spinOffIds: id => this.pool.rollupInputs.spinOffIds(id),
   }
-  @lazy get mobileSectionsView() { return new MobileSectionsView(this.pool) }
+  readonly mobileSectionsView: MobileSectionsView
 
   constructor(readonly pool: MobxPool) {
     this.host = pool
     this.desktop = new SidebarIndex(this)
-
+    this.mobileSectionsView = new MobileSectionsView(pool)
   }
 
   @action select(id: string | null): void {

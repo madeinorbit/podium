@@ -14,7 +14,13 @@ import type { SliceSession } from '../shared/slice-types'
 /** A roster keeps shared sessions, with demand-scoped data queries owning
  * ordering. A heartbeat updates one ordering key; it never sorts the roster. */
 export class WorklistWorktree {
-  constructor(readonly worktree: ModelOf['worktree'], readonly worklist: Worklist) {}
+  private readonly orderedSessions: ReturnType<WorklistWorktree['sessionQuery']>
+  private readonly oldestSessions: ReturnType<WorklistWorktree['sessionQuery']>
+  constructor(readonly worktree: ModelOf['worktree'], readonly worklist: Worklist) {
+    // Query contents and subscriptions live only while a reader watches get().
+    this.orderedSessions = this.sessionQuery(false)
+    this.oldestSessions = this.sessionQuery(true)
+  }
   get id() { return this.worktree.id }
   @lazy({ equals: compareShallow }) get representedIssues(): readonly IssueModel[] {
     const pool = this.worklist.pool
@@ -35,12 +41,6 @@ export class WorklistWorktree {
   }
   get roster() { return { ids: this.rosterIds, pending: 0 } }
 
-  @lazy private get orderedSessions() {
-    return this.sessionQuery(false)
-  }
-  @lazy private get oldestSessions() {
-    return this.sessionQuery(true)
-  }
   private sessionQuery(stale: boolean) {
     const pool = this.worklist.pool
     const index = sidebarRosterView(pool)

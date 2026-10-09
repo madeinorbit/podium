@@ -50,12 +50,6 @@ const inBatch = () =>
   // untracked-read: lazy-batch-probe
   untracked(() => probe.get() === probe.get())
 
-// Owned helper factories can have no changing inputs: their fields read the
-// data instead. They still have a watched lifetime. One shared, unchanged atom
-// gives batch-created entries that dependency without allocating an atom per
-// field or coupling the helper's identity to an unrelated piece of app state.
-const lifetime = createAtom('lazy.lifetime')
-
 /** A cached derived getter, like MobX's `@computed`, except that nothing is
  * allocated until the field is read and the cache is dropped when nothing
  * needs it any more. A read while a reaction watches the field keeps it until
@@ -100,10 +94,7 @@ function decorate<T extends object, V>(
     let released = false
     const value = computed(
       off === undefined
-        ? () => {
-          lifetime.reportObserved()
-          return get.call(this)
-        }
+        ? () => get.call(this)
         : () => {
           off.reportObserved()
           return released ? (undefined as V) : get.call(this)

@@ -245,9 +245,12 @@ export class GroupNode {
     const head = ids[0] === undefined ? undefined : pool.model('worktree', ids[0])
     return { ids, label: head?.repoName ?? this.key, repoPath: head?.repoPath ?? this.key }
   }
-  @lazy get workSection() {
+  private section?: MobileSection
+  // Some non-phone group owners have no pool. Create this constant part only
+  // when the phone asks; its lazy answers own all changing data.
+  get workSection() {
     const pool = this.groups.pool
-    return new MobileSection(pool, this.key, worklistView(pool).mobileSectionsView)
+    return this.section ??= new MobileSection(pool, this.key, worklistView(pool).mobileSectionsView)
   }
 
   /** The rank-first member's rank (open or closed), or undefined once the group is empty. */

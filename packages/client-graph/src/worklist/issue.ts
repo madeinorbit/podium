@@ -30,8 +30,9 @@ export class WorklistIssue implements HeldIssue, RowView {
   get visible(): boolean { return this.issue.visible }
   private get host(): ModelHost { return this.worklist.host }
 
-  @lazy private get filingAttention() { return new AttentionFields(this, () => this.worklist.host.rollupInputs) }
-  @lazy private get visibleAttentionFields() { return new AttentionFields(this, () => this.worklist.rowInputs) }
+  // Constant owned helpers; their answers are lazy and release their own data.
+  private readonly filingAttention = new AttentionFields(this, () => this.worklist.host.rollupInputs)
+  private readonly visibleAttentionFields = new AttentionFields(this, () => this.worklist.rowInputs)
 
   // Presence and sidebar placement
 
