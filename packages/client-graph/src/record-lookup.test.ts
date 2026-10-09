@@ -152,6 +152,35 @@ it('a deletion wakes its observer to gone and never queues another load', () => 
   } finally { stop(); f.pool.dispose() }
 })
 
+it('compares old and new resident identity subscriptions while fields stay live', () => {
+  const f = fixture()
+  const oldAnswers: unknown[] = [], answers: unknown[] = [], titles: unknown[] = []
+  const oldStop = autorun(() => { oldAnswers.push(oldModel(f.pool, 'hot')) })
+  const stop = autorun(() => { answers.push(f.pool.model('issue', 'hot')) })
+  const fieldsStop = autorun(() => { titles.push(f.pool.issueObject('hot').title) })
+  try {
+    expect(answers).toEqual(oldAnswers)
+    const value = { ...f.rows.get('hot')!, title: 'renamed' }
+    f.rows.set('hot', value)
+    f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'hot', value }] })
+    // A payload update changes fields, never the addressed model's identity
+    // or availability. It must not wake every join holding that identity.
+    expect(oldAnswers).toHaveLength(1)
+    expect(answers).toEqual(oldAnswers)
+    expect(titles).toEqual(['hot', 'renamed'])
+    runInAction(() => {
+      f.rows.delete('hot'); f.exits.set('hot', 'removed')
+      f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'hot', value: undefined }] })
+    })
+    expect(oldAnswers).toHaveLength(2)
+    expect(oldAnswers.at(-1)).toBeUndefined()
+    expect(answers).toHaveLength(2)
+    expect(answers.at(-1)).toEqual({ kind: 'gone', reason: 'removed' })
+    expect(answers).not.toContain(LOADING)
+    expect(f.load).not.toHaveBeenCalled()
+  } finally { oldStop(); stop(); fieldsStop(); f.pool.dispose() }
+})
+
 it('a failed load settles once, and a later publication makes the record available again', () => {
   const f = fixture()
   const answers: unknown[] = []
