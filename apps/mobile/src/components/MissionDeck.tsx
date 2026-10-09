@@ -554,8 +554,13 @@ export const SpineRow = observer(function SpineRow({
     )
   })
   return content === LOADING ? (
-    <View accessibilityLabel="Loading task" style={{ minHeight: STRIP_H, justifyContent: 'center', paddingHorizontal: space.md }}>
-      <View style={{ height: 8, width: 120, borderRadius: radius.sm, backgroundColor: color.tertiaryFill }} />
+    <View
+      accessibilityLabel="Loading task"
+      style={{ minHeight: STRIP_H, justifyContent: 'center', paddingHorizontal: space.md }}
+    >
+      <View
+        style={{ height: 8, width: 120, borderRadius: radius.sm, backgroundColor: color.tertiaryFill }}
+      />
     </View>
   ) : content
 })

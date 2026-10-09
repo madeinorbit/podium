@@ -1320,7 +1320,11 @@ interface HungContext {
 export const HungRows = observer(function HungRows(ctx: HungContext): JSX.Element | null {
   const reduce = useReducedMotion()
   const ids = settled(() => ctx.model.sessionIds(ctx.mode))
-  if (ids === LOADING) return <div role="status" aria-label="Loading agents" style={{ height: 46, marginLeft: ctx.inset }}><GhostBar /></div>
+  if (ids === LOADING) return (
+    <div role="status" aria-label="Loading agents" style={{ height: 46, marginLeft: ctx.inset }}>
+      <GhostBar />
+    </div>
+  )
   if (ids.length === 0) return null
   return (
     <div className="relative" style={{ marginLeft: ctx.inset }}>
@@ -1584,7 +1588,12 @@ export const TaskRow = observer(
   }): JSX.Element {
     const intent = useClickIntent()
     const depth = settled(() => row.depth)
-    const pending = () => <div className="relative pb-1.5" data-flight-issue={row.id} role="status" aria-label="Loading task" style={{ minHeight: BAND_HEIGHT }}><GhostBar /></div>
+    const pending = () => (
+      <div className="relative pb-1.5" data-flight-issue={row.id} role="status"
+        aria-label="Loading task" style={{ minHeight: BAND_HEIGHT }}>
+        <GhostBar />
+      </div>
+    )
     if (depth === LOADING) return pending()
     const bandLeft = SPINE_PAD + depth * DEPTH_STEP
     const ownRailX = SPINE_PAD + (depth - 1) * DEPTH_STEP + RAIL_INSET
