@@ -1266,9 +1266,12 @@ it('keeps existing declarations within the bookkeeping bound and preserves colla
     // they do not write an observable relation, copy a row or visit a bucket.
     // POD-5618 declared missionSessions subsets (unarchived 5f19ab9d51, agents
     // c2474bc561) add two plain bookkeeping writes to the fixed publication.
+    // Empty relation slots now share EMPTY_IDS without allocating lazy list
+    // holders (a766d3bbb5). This synchronous publication has no settling window;
+    // pin its current smaller allocation cost, retaining every other bound.
     expect({ outside: outsideTotal(count), plain: count.plain }).toEqual({
       outside: 0,
-      plain: { written: 192, deleted: 4, iterated: 112, copied: 0 },
+      plain: { written: 190, deleted: 4, iterated: 112, copied: 0 },
     })
     const ref = { kind: 'codex-thread', value: 'compatibility' }
     r.push(session('S1', { issueId: 'I1', status: 'exited', resume: ref }),
