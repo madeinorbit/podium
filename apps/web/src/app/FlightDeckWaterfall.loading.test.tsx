@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { act, cleanup, render, waitFor } from '@testing-library/react'
+import { cleanup, render, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { LOADING } from '@podium/client-graph'
 import { screenOptions } from '@podium/client-graph/host'
@@ -47,8 +47,7 @@ it('opens a cold production mission in Waterfall without throwing the loading se
     expect(screen.ready).toBe(true)
     const scrollRef = { current: null as HTMLElement | null }
     let ui!: ReturnType<typeof render>
-    await act(async () => {
-      ui = render(<div ref={(node) => {
+    ui = render(<div ref={(node) => {
         scrollRef.current = node
         if (node) Object.defineProperty(node, 'clientHeight', { value: 192, configurable: true })
       }}><FlightDeckWaterfall
@@ -58,7 +57,7 @@ it('opens a cold production mission in Waterfall without throwing the loading se
         onSelectSession={() => {}} onIssueMenu={() => {}} onStatusPick={() => {}}
         onRenameIssue={() => {}} onRenameDone={() => {}}
       /></div>)
-    })
+    expect(ui.container.querySelector('[aria-busy="true"]')).not.toBeNull()
     await waitFor(() => {
       handle.pool.hydrate()
       expect(ui.container.querySelector('.waterfall-issue-row')).not.toBeNull()

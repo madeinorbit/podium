@@ -45,6 +45,8 @@ import {
 import { observer } from 'mobx-react-lite'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
 import type { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
+import { settled } from '@podium/client-graph/mission-view'
+import { LOADING } from '@podium/client-graph/loading'
 import { WaterfallLiveEdge } from './waterfall-live-edge'
 import {
   WaterfallView,
@@ -220,6 +222,20 @@ interface FlightDeckWaterfallProps {
   onStatusPick: (issueId: string, value: string) => void
   onRenameIssue: (issueId: string, title: string, openedTitle: string) => void
   onRenameDone: () => void
+}
+
+function WaterfallLoading({ issueId }: { issueId?: string }): JSX.Element {
+  return (
+    <div
+      className="waterfall-issue-row"
+      data-flight-issue={issueId}
+      role="status"
+      aria-busy="true"
+      style={{ minHeight: 48 }}
+    >
+      <span className="waterfall-issue-cell">Loading timeline…</span>
+    </div>
+  )
 }
 
 function issueFuture(row: FlightDeckRow): WaterfallFuture | null {
@@ -910,6 +926,7 @@ const WaterfallIssue = observer(function WaterfallIssue({
   onLocalPick: (sessionId: string) => void
 }): JSX.Element {
   const intent = useClickIntent()
+  const content = settled(() => {
   const historyOpen = item.historyOpen
   const root = item.row.id === item.view.screen.rootId
   const future = issueFuture(item.row)
@@ -938,7 +955,7 @@ const WaterfallIssue = observer(function WaterfallIssue({
   return (
     <div
       className="waterfall-issue-row"
-      data-flight-issue={item.row.issue.id}
+      data-flight-issue={item.row.id}
       data-depth={item.row.depth}
       data-focused={focused || undefined}
       data-attention={attention || undefined}
@@ -1056,9 +1073,27 @@ const WaterfallIssue = observer(function WaterfallIssue({
       </div>
     </div>
   )
+  })
+  return content === LOADING ? <WaterfallLoading issueId={item.row.id} /> : content
 })
 
-export const FlightDeckWaterfall = observer(function FlightDeckWaterfall({
+/** Read the mission spine at the reader seam, before mounting its geometry.
+ * Header readiness does not guarantee folded membership or search has settled. */
+export const FlightDeckWaterfall = observer(function FlightDeckWaterfall(props: FlightDeckWaterfallProps): JSX.Element {
+  const query = useStoreHandle<Trpc>().access.trpc.sessions?.activityHistory?.query
+  const view = useMemo(() => new WaterfallView(props.screen, query), [props.screen, query])
+  useLayoutEffect(() => {
+    view.resume()
+    return () => view.close()
+  }, [view])
+  useLayoutEffect(() => view.focus(props.activeSessionId), [view, props.activeSessionId])
+  return settled(() => view.rows) === LOADING
+    ? <WaterfallLoading />
+    : <WaterfallContent {...props} view={view} />
+})
+
+const WaterfallContent = observer(function WaterfallContent({
+  view,
   screen,
   scrollRef,
   display,
@@ -1073,14 +1108,7 @@ export const FlightDeckWaterfall = observer(function FlightDeckWaterfall({
   onStatusPick,
   onRenameIssue,
   onRenameDone,
-}: FlightDeckWaterfallProps): JSX.Element {
-  const query = useStoreHandle<Trpc>().access.trpc.sessions?.activityHistory?.query
-  const view = useMemo(() => new WaterfallView(screen, query), [screen, query])
-  useLayoutEffect(() => {
-    view.resume()
-    return () => view.close()
-  }, [view])
-  useLayoutEffect(() => view.focus(activeSessionId), [view, activeSessionId])
+}: FlightDeckWaterfallProps & { view: WaterfallView }): JSX.Element {
   const now = view.openedNow ?? 0
   const rowsRef = useRef<HTMLDivElement | null>(null)
   const virtual = useBoundedVirtualList({
@@ -1091,15 +1119,16 @@ export const FlightDeckWaterfall = observer(function FlightDeckWaterfall({
     overscan: 0,
     viewportBuffer: 0,
     initialItems: scrollRef.current?.clientHeight === 0 ? 8 : 0,
-    revealKey: activeSessionId ? (view.followed?.issueLink ?? focusedIssueId) : focusedIssueId,
+    revealKey: activeSessionId && settled(() => view.followed?.issueLink) !== LOADING
+      ? (view.followed?.issueLink ?? focusedIssueId) : focusedIssueId,
     pinnedKeys: [],
   })
   const projected = virtual.items.map((item) => view.row(view.rows[item.index]!))
   useLayoutEffect(() => {
-    if (view.openedNow !== null) view.seed(projected.map((item) => item.row))
-  }, [view, view.openedNow, virtual.items])
+    if (view.openedNow !== null) settled(() => view.seed(projected.map((item) => item.row)))
+  }, [view, view.openedNow, projected])
   const hasFuture = projected.some(
-    (item) => item.sessionIds.length === 0 && issueFuture(item.row) !== null,
+    (item) => settled(() => item.sessionIds.length === 0 && issueFuture(item.row) !== null) === true,
   )
   const [manual, setManual] = useState<WaterfallViewport | null>(null)
   const [flashSessionId, setFlashSessionId] = useState<string | null>(null)
@@ -1110,7 +1139,10 @@ export const FlightDeckWaterfall = observer(function FlightDeckWaterfall({
   )
   const [rowZoomPreview, setRowZoomPreview] = useState<number | null>(null)
   const [availableHeight, setAvailableHeight] = useState(0)
-  const initialLaneCounts = projected.map((item) => item.laneCount)
+  const initialLaneCounts = projected.map((item) => {
+    const count = settled(() => item.laneCount)
+    return count === LOADING ? 1 : count
+  })
   const automaticRowZoom = useMemo(
     () => defaultWaterfallRowZoom(availableHeight, initialLaneCounts),
     [availableHeight, initialLaneCounts],
@@ -1142,7 +1174,10 @@ export const FlightDeckWaterfall = observer(function FlightDeckWaterfall({
   const automaticTaskWidth = useMemo(
     () =>
       defaultWaterfallTaskWidth(
-        projected.map((item) => item.row.title),
+        projected.map((item) => {
+          const title = settled(() => item.row.title)
+          return title === LOADING ? '' : title
+        }),
         rootPx,
         display === 'expanded',
       ),
@@ -1574,40 +1609,41 @@ export const FlightDeckWaterfall = observer(function FlightDeckWaterfall({
               <div key={virtualItem.key}>
                 {gap > 0 ? <div aria-hidden="true" style={{ height: gap }} /> : null}
                 <div ref={virtual.measureRef(virtualItem.key)}>
-                  {view.openedNow !== null ? (
-                    <WaterfallIssue
-                      key={item.row.issue.id}
+                  {view.openedNow !== null ? (() => {
+                    const row = settled(() => <WaterfallIssue
+                      key={item.row.id}
                       item={item}
                       frame={frame}
-                      focused={focusedIssueId === item.row.issue.id}
+                      focused={focusedIssueId === item.row.id}
                       activeSessionId={activeSessionId}
                       flashSessionId={flashSessionId}
-                      renameSeed={renameTarget?.id === item.row.issue.id ? renameTarget.seed : null}
+                      renameSeed={renameTarget?.id === item.row.id ? renameTarget.seed : null}
                       folded={isFolded(item.row)}
                       onToggle={() => onToggle(item.row)}
                       onSelectIssue={(permanent) => onSelectIssue(item.row, permanent)}
                       onSelectSession={(session, permanent) =>
-                        onSelectSession(item.row.issue.id, session, { permanent })
+                        onSelectSession(item.row.id, session, { permanent })
                       }
                       onSelectNative={(session) =>
-                        onSelectSession(item.row.issue.id, session, {
+                        onSelectSession(item.row.id, session, {
                           permanent: false,
                           native: true,
                         })
                       }
-                      onIssueMenu={(anchor) => onIssueMenu(item.row.issue.id, anchor)}
-                      onStatusPick={(value) => onStatusPick(item.row.issue.id, value)}
+                      onIssueMenu={(anchor) => onIssueMenu(item.row.id, anchor)}
+                      onStatusPick={(value) => onStatusPick(item.row.id, value)}
                       onRenameIssue={(title) =>
                         onRenameIssue(
-                          item.row.issue.id,
+                          item.row.id,
                           title,
                           renameTarget?.seed ?? item.row.title,
                         )
                       }
                       onRenameDone={onRenameDone}
                       onLocalPick={onLocalPick}
-                    />
-                  ) : null}
+                    />)
+                    return row === LOADING ? <WaterfallLoading issueId={item.row.id} /> : row
+                  })() : null}
                 </div>
               </div>
             )
