@@ -34,7 +34,7 @@ const server = createServer(async (req, res) => {
 })
 await new Promise<void>(done => server.listen(0, '127.0.0.1', done))
 const nativeTools = resolve('.toolchain/native-find')
-const nativeEnv = { ...process.env, LD_LIBRARY_PATH: `${nativeTools}/usr/lib/x86_64-linux-gnu:${resolve('.toolchain/lib')}` }
+const nativeEnv = { ...process.env, DISPLAY: '', LD_LIBRARY_PATH: `${nativeTools}/usr/lib/x86_64-linux-gnu:${resolve('.toolchain/lib')}` }
 const displayServer = spawn(`${nativeTools}/usr/bin/Xvfb`, ['-displayfd', '1', '-screen', '0', '1920x1080x24', '-nolisten', 'tcp', '-ac', '-xkbdir', `${nativeTools}/usr/share/X11/xkb`], { env: nativeEnv, stdio: ['ignore', 'pipe', 'pipe'] })
 displayServer.stderr.on('data', data => process.stderr.write(data))
 const display = await new Promise<string>((done, reject) => {
