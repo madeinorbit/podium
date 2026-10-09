@@ -384,13 +384,15 @@ export function commandIssueSearchRef(issue: Pick<IssueViewModel, 'seq' | 'displ
   const displayRef = issue instanceof IssueModel ? issue.storedField('displayRef') : issue.displayRef
   return canonicalIssueRef({ seq: issue.seq,
     displayRef: typeof displayRef === 'string' ? displayRef : undefined,
-    prefix: issue instanceof IssueModel ? issue.prefix : undefined })
+    prefix: issue instanceof IssueModel ? issue.prefix ?? undefined : undefined })
 }
 
 export function commandIssueReference(issue: IssueModel | (Pick<IssueViewModel, 'id' | 'seq' | 'title' | 'stage' | 'displayRef'> &
   Partial<Pick<IssueViewModel, 'archived' | 'deletedAt'>>)) {
-  return issueReferenceModel({ id: asIssueId(issue.id), seq: issue.seq, title: issue.title, stage: issue.stage,
-    displayRef: commandIssueSearchRef(issue), archived: issue.archived, deletedAt: issue.deletedAt })
+  return issueReferenceModel({ id: asIssueId(issue.id), seq: issue.seq, title: issue.title,
+    // The declared issue row carries the wire's recognized lifecycle stage.
+    stage: issue.stage as IssueViewModel['stage'],
+    displayRef: commandIssueSearchRef(issue), archived: issue.archived, deletedAt: issue.deletedAt ?? undefined })
 }
 
 /** A palette mount owns its ordering. Catalog demand lives only in open(). */

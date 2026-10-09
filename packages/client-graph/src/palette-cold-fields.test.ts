@@ -1,9 +1,9 @@
 import { runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
-import { COMMAND_SUMMARIES } from './command-launch-schema'
+import { COMMAND_SUMMARIES, type CommandLaunchRows } from './command-launch-schema'
 import { commandIssueSearchRef, commandLaunchViews, createCommandPalette } from './command-launch-views'
 import { MobxPool } from './pool'
-import { LOADING } from './worklist/rollup'
+import { LOADING, type Loaded } from './worklist/rollup'
 
 it('matches legacy search fields for cold palette issues without loading their payloads', () => {
   const stamp = '2020-01-01T00:00:00Z'
@@ -22,7 +22,7 @@ it('matches legacy search fields for cold palette issues without loading their p
   pool.sources.register(['commandCatalog', 'commandWindow', 'commandIssue'], {
     read: (entity, id) => entity === 'commandCatalog'
       ? { issues: issues.map(issue => issue.id), sessions: [], repositories: [], repos: [], worktrees: [], machines: [] }
-      : entity === 'commandIssue' ? pool.row('issue', id, 'summary')
+      : entity === 'commandIssue' ? pool.row('issue', id, 'summary') as Loaded<CommandLaunchRows['commandIssue']>
       : { paletteOpen: true, pins: { repos: [], worktrees: [] }, selectedIssueId: null,
           openIssueId: null, selectedWorktree: null, paneA: null, recentFiles: [], sidebarSettings: {} } as never,
     dispose() {},
