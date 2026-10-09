@@ -2,6 +2,7 @@ import { autorun } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { issueBoardStats } from '../../../tests/worklist/harness/src/perf/issue-board'
 import { ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
+import { boardCards } from './issue-board-cards'
 import { createIssueBoardSource } from './issue-board-source'
 import { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
@@ -49,8 +50,11 @@ it('publishes full recency order without materializing offscreen cards at 1x/4x'
       expect(value.ids).toHaveLength(128 * scale - 1)
       expect(value.ids.includes('task-0001')).toBe(false)
       expect(value.counts.planning).toBe(1)
-      expect(f.source.card({ id: value.ids[0]! })).toMatchObject({ issue: { id: 'task-0000' } })
-      expect(issueBoardStats.read().rowModels).toBe(1)
+      // A mounted line reads the shared model and its own word; no overlay.
+      const line = boardCards(f.pool).issue(value.ids[0]!)
+      expect({ id: line.id, title: line.title }).toEqual({ id: 'task-0000', title: 'task-0000' })
+      expect(boardCards(f.pool).explorerRow(line).state).toMatchObject({ state: 'ready' })
+      expect(issueBoardStats.read().rowModels ?? 0).toBe(0)
       expect(f.load).not.toHaveBeenCalled()
       stop()
       expect(f.source.stats()).toMatchObject({ cached: 0, demandKeys: 0, residentRows: 0 })

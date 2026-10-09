@@ -3,14 +3,18 @@ import type { observer } from 'mobx-react-lite'
 import { LOADING } from './worklist/rollup'
 
 /** Keep a loading section's addressed reads observed. Its neighbours remain
- * mounted; when the batched load arrives MobX retries this section alone. */
+ * mounted; when the batched load arrives MobX retries this section alone.
+ * `loading` draws the section meanwhile (nothing by default). */
 export function createIssueObserver(observe: typeof observer) {
-  return function issueObserver<P extends object>(render: FunctionComponent<P>) {
+  return function issueObserver<P extends object>(
+    render: FunctionComponent<P>,
+    loading?: FunctionComponent<P>,
+  ) {
     const Section: FunctionComponent<P> = (props) => {
       try {
         return render(props)
       } catch (error) {
-        if (error === LOADING) return null
+        if (error === LOADING) return loading ? loading(props) : null
         throw error
       }
     }

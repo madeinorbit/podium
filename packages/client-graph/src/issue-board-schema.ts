@@ -119,14 +119,6 @@ export interface BoardQuery {
   tab?: BoardExplorerTab
   query?: string
 }
-export interface BoardCardData {
-  issue: IssueViewModel
-  sessions: SessionView[]
-  fleet: SessionView[]
-  byId: Map<string, IssueViewModel>
-  stageCounts: { stage: IssueStage; count: number }[]
-  progress: TaskProgress | null
-}
 export interface IssueBoardSourceRows {
   issueBoardWindow: { openIssueId: IssueId | null }
   issueBoardQuery: { ids: string[] }
@@ -139,7 +131,6 @@ export interface IssueBoardSourceRows {
   issueBoardDropIndex: { index: number }
   issueExplorerModel: PoolExplorerData
   issueBoardRow: IssueViewModel
-  issueBoardCard: BoardCardData
   issueBoardSessions: SessionView[]
 }
 declare module './source-registry' {
@@ -158,7 +149,6 @@ export const ISSUE_BOARD_ENTITIES = [
   'issueBoardDropIndex',
   'issueExplorerModel',
   'issueBoardRow',
-  'issueBoardCard',
   'issueBoardSessions',
 ] as const
 /** Core already declares repo, treeParent/treeChildren, pageDependencies,

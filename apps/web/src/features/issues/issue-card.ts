@@ -95,7 +95,7 @@ export type CardStateSlot =
   | { kind: 'live'; count: number }
   | { kind: 'merge'; ahead: number }
   | { kind: 'subtree'; done: number; total: number }
-  | { kind: 'stages'; counts: { stage: IssueStage; count: number }[] }
+  | { kind: 'stages'; counts: readonly { stage: IssueStage; count: number }[] }
   | { kind: 'labels'; labels: string[]; overflow: number }
   | { kind: 'due'; label: string }
   | { kind: 'estimate'; label: string }
@@ -123,7 +123,7 @@ export function issueCardStateSlots(
     workingAgents,
   }: {
     badges: IssuesDisplay['badges']
-    stageCounts?: { stage: IssueStage; count: number }[]
+    stageCounts?: readonly { stage: IssueStage; count: number }[]
     progress?: EpicProgress | null
     /** Canonical count resolved from the member session rows. */
     workingAgents: number

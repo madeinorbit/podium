@@ -25,9 +25,9 @@ const issue = (id: string, stage: IssueStage, seq = 1) =>
   })
 
 const fixture = vi.hoisted(() => ({ issues: new Map<string, import('@/app/store').IssueViewModel>() }))
-vi.mock('@/app/store-worklist-pool', () => {
+vi.mock('@/app/store-worklist-pool', async () => {
+  const { fakeBoardPool } = await import('@/test-support/fake-board-pool')
   const row = (entity: string, key: string) => {
-    if (entity === 'issueBoardCard') return { issue: fixture.issues.get(JSON.parse(key).id), fleet: [] }
     if (entity === 'issueBoardDropIndex') {
       const options = JSON.parse(key)
       return { index: plannedDropIndex([...fixture.issues.values()].filter(issue => issue.stage === options.stage),
@@ -35,9 +35,10 @@ vi.mock('@/app/store-worklist-pool', () => {
     }
     return undefined
   }
+  const pool = fakeBoardPool(row, (id) => fixture.issues.get(id))
   return {
-    useWorklistPool: () => ({ row, notSaved: () => false }),
-    useWorklistPoolProjection: (read: (pool: object) => unknown) => read({ row, notSaved: () => false }),
+    useWorklistPool: () => pool,
+    useWorklistPoolProjection: (read: (pool: object) => unknown) => read(pool),
   }
 })
 function boardProps(over: Partial<IssuesKanbanProps> = {}): IssuesKanbanProps {

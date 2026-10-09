@@ -59,12 +59,14 @@ function rows(count: number): IssueRow[] {
 }
 
 const fixture = vi.hoisted(() => ({ issues: new Map<string, IssueViewModel>() }))
-vi.mock('@/app/store-worklist-pool', () => ({
-  useWorklistPoolProjection: (read: (pool: object) => unknown) => read({
-    notSaved: () => false,
-    row: (_entity: string, id: string) => fixture.issues.get(id),
-  }),
-}))
+vi.mock('@/app/store-worklist-pool', async () => {
+  const { fakeBoardPool } = await import('@/test-support/fake-board-pool')
+  const pool = fakeBoardPool((_entity: string, id: string) => fixture.issues.get(id), (id) => fixture.issues.get(id))
+  return {
+    useWorklistPool: () => pool,
+    useWorklistPoolProjection: (read: (pool: object) => unknown) => read(pool),
+  }
+})
 function groupOf(rows: IssueRow[]) {
   for (const row of rows) fixture.issues.set(row.issue.id, row.issue)
   return { stage: 'backlog' as const, count: rows.filter(row => row.issue.stage === 'backlog').length,

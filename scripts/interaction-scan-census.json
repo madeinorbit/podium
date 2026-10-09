@@ -7174,18 +7174,15 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "apps/web/src/features/issues/explorer/IssueExplorerList.tsx",
+      "file": "packages/client-graph/src/issue-board-cards.ts",
       "holder": "ExplorerRow/state",
       "rule": "helper-consumer",
-      "tokens": "fed512eb44942d64255665ce7662a08ed330207a063f6aaa141ea6bb7bfa7536",
-      "gate": [
-        "exit:then:a2d43354d75b6fe51e1e94d8a2dead74dfa238d8b65afddab60866be99b5e09d",
-        "exit:then:774a7e4fedab0c7de3baac02e6ad7a366424e1917c5471d4625b83c55902f266"
-      ],
+      "tokens": "dc77f0b3eee377fe04751d94eed5e78da554289940d431f044614be2cb5c27a5",
+      "gate": [],
       "origin": [
-        "a0c436eae16b5b6882097532f6cd5cd175e2247712c5c7b51f266fbce509796c"
+        "d018788975fe3b8b3257aec548f46aa1fbf80ba9bfd0093a59f54a75abb6ed37"
       ],
-      "fingerprint": "d44030bd47a55347e5061da1087b0f177b5b6eb941f744d3e700a5ae30757ef2",
+      "fingerprint": "0a51ce2946f90730a3fdb882e730e9d109a96d96d9c9cf3bd0344b708a193e2c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -21246,24 +21243,6 @@
       "tokens": "c4d1d29380572aafd84393ed67a731f766f9e88545b7a6a929b3dc21f8d362a9",
       "gate": [],
       "origin": [
-        "9a0c22217b3528c219ceb10b3afab15ab8608133f0af6d3de04a201734575cca"
-      ],
-      "fingerprint": "cdf4291ce7cec13b11797afb535511f6d8941812fc34d96c6ed0a1c96f57bb75",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5555",
-      "trigger": "Invocation of withoutShells",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:filter carries collection taint; scalar card work does not establish a bound for this ID-list or downstream collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/focus.ts",
-      "holder": "withoutShells",
-      "rule": "consume:filter",
-      "tokens": "c4d1d29380572aafd84393ed67a731f766f9e88545b7a6a929b3dc21f8d362a9",
-      "gate": [],
-      "origin": [
         "3a1f37c3762b0eeccad08c3bb05fc38ecec3b12da2ca026ca73760bcd48085e3"
       ],
       "fingerprint": "f91e5b04a8a945beade9afff6199a2de1fec626cdddc361ffc3beaf417b57366",
@@ -29798,9 +29777,9 @@
         "exit:then:cc71c20fca35ba20b176e7a04d1837e7e207e374d6ee195c208a1f2488055462"
       ],
       "origin": [
-        "a0c436eae16b5b6882097532f6cd5cd175e2247712c5c7b51f266fbce509796c"
+        "d018788975fe3b8b3257aec548f46aa1fbf80ba9bfd0093a59f54a75abb6ed37"
       ],
-      "fingerprint": "4c39a90e6c18728ba8b4b7fbaae292cc7860f5731728da63d3017a769c67ea54",
+      "fingerprint": "b8e5dd5b769919151e8233716a11ed9975314c07afec98c6b785671b3a52abf6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -31408,9 +31387,9 @@
       "tokens": "a02258323fcbbc5cfb8ae7f34b9711e195323c7d5a0884fb7eb8a721ea1a633c",
       "gate": [],
       "origin": [
-        "a0c436eae16b5b6882097532f6cd5cd175e2247712c5c7b51f266fbce509796c"
+        "d018788975fe3b8b3257aec548f46aa1fbf80ba9bfd0093a59f54a75abb6ed37"
       ],
-      "fingerprint": "6304e6b7fe44a541d2adcc490c34775e43c0b715af9b032b4f81942b4870f459",
+      "fingerprint": "012a567f2fe98c805c677ccffb9bbfd7226f4f9e4c23d7d7b6359da5dfe3fbcd",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -31462,9 +31441,9 @@
       "tokens": "9a84f37babae05c5542c4ed84da9bb08eda5d2ab3ef5dc7fefd973955c7614e9",
       "gate": [],
       "origin": [
-        "a0c436eae16b5b6882097532f6cd5cd175e2247712c5c7b51f266fbce509796c"
+        "d018788975fe3b8b3257aec548f46aa1fbf80ba9bfd0093a59f54a75abb6ed37"
       ],
-      "fingerprint": "e371ef3bb47b9c23b38c4bfa7e82bbbda927530ad3d51a5864e3ea80c49e9bfa",
+      "fingerprint": "c32854e618dd230f38b3f723a6d7e073eff24d00e4cc86d7554dd7521642fa47",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -33346,24 +33325,6 @@
     {
       "file": "packages/client-core/src/values/task-state.ts",
       "holder": "confirmedWorkingAgentCount",
-      "rule": "reader-summary",
-      "tokens": "7c7f13a7a79e8efcf5deb9c5026af6643629c38674f7c34a3eb3eebae579635f",
-      "gate": [],
-      "origin": [
-        "9a0c22217b3528c219ceb10b3afab15ab8608133f0af6d3de04a201734575cca"
-      ],
-      "fingerprint": "16d4adc5cb5257486bf57a8bb1028dc92c2d892a0f33d85ee0c8b96459d3e898",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5555",
-      "trigger": "Invocation of confirmedWorkingAgentCount",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries collection taint; scalar card work does not establish a bound for this ID-list or downstream collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/task-state.ts",
-      "holder": "confirmedWorkingAgentCount",
       "rule": "spread",
       "tokens": "94422aec01a6e9e777c98a9be0f6080e1bf8938e21eae49b2ae5f8b1ad63a231",
       "gate": [],
@@ -33395,24 +33356,6 @@
       "trigger": "Invocation of confirmedWorkingAgentCount",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/task-state.ts",
-      "holder": "confirmedWorkingAgentCount",
-      "rule": "helper-consumer",
-      "tokens": "8551f6461e82cceece79575a737814b3795b269d3597e7c65601351daf6dcaf5",
-      "gate": [],
-      "origin": [
-        "9a0c22217b3528c219ceb10b3afab15ab8608133f0af6d3de04a201734575cca"
-      ],
-      "fingerprint": "7153cbe1668d1eee7584921b6483703b5efc8c165c74d1677cf3c8bfb3ed1d65",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5555",
-      "trigger": "Invocation of confirmedWorkingAgentCount",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries collection taint; scalar card work does not establish a bound for this ID-list or downstream collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -33467,24 +33410,6 @@
       "trigger": "Invocation of confirmedWorkingAgentCount",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:reduce carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/values/task-state.ts",
-      "holder": "confirmedWorkingAgentCount",
-      "rule": "consume:reduce",
-      "tokens": "0e417d4173bf0eea77c6a77117176151a1ffe8ee1db61936102b07a94e7211e4",
-      "gate": [],
-      "origin": [
-        "9a0c22217b3528c219ceb10b3afab15ab8608133f0af6d3de04a201734575cca"
-      ],
-      "fingerprint": "ca793798429030e51262955dd1aa5a02c9e69364e060f739a486966cd9788bb5",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5555",
-      "trigger": "Invocation of confirmedWorkingAgentCount",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:reduce carries collection taint; scalar card work does not establish a bound for this ID-list or downstream collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -38435,13 +38360,13 @@
       "file": "packages/client-graph/src/issue-board-source.ts",
       "holder": "createIssueBoardSource/menu",
       "rule": "reader-summary",
-      "tokens": "57839a6156513a40d2813bc97d2cfc4b058ef9ed991ff1f4aa4df0d34260e277",
+      "tokens": "8b0fa6c15f932599fc442453b0c84b49080c72e990355402c574f8592daf1f69",
       "gate": [],
       "origin": [
         "bc28fa7d4e8a3c49e795ba0b73c5d3e02048f2808d8f284ecad0c19c03eb8bba",
         "fcddd084a495b1fb1ae3eac69ee6ef19a028f4d03cfd067c9bd933c0d36964d7"
       ],
-      "fingerprint": "5cf9612548969d22c559d11baa4425e05fe5233dc1cb198a815747d5a83ff264",
+      "fingerprint": "26fbc24a1a46956509d9ab6f966c155a622b24af56ac9f3ebd599126e70729f2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5555",
@@ -38526,42 +38451,6 @@
       "trigger": "Invocation of createIssueBoardSource/tabCounts/ids/callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "question:boardCounts carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/issue-board-source.ts",
-      "holder": "createIssueBoardSource/workingAgents",
-      "rule": "loop:for-of",
-      "tokens": "bf097cc33d8f6273ffa19602deafd7f4ec3cc6a2110770ec8956f9354f1203a3",
-      "gate": [],
-      "origin": [
-        "9a0c22217b3528c219ceb10b3afab15ab8608133f0af6d3de04a201734575cca"
-      ],
-      "fingerprint": "902227c6ab0422f2cf5ce50b7c8a555c3095cb3a8a36fe8e0fc0fc579fbaa58f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5555",
-      "trigger": "Invocation of createIssueBoardSource/workingAgents",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "loop:for-of carries collection taint; scalar card work does not establish a bound for this ID-list or downstream collection path.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-graph/src/issue-board-source.ts",
-      "holder": "createIssueBoardSource/workingAgents",
-      "rule": "helper-consumer",
-      "tokens": "1286d9f61c50432fc10f90df00557762be70c2732913a543968ea07c47b686d7",
-      "gate": [],
-      "origin": [
-        "9a0c22217b3528c219ceb10b3afab15ab8608133f0af6d3de04a201734575cca"
-      ],
-      "fingerprint": "f2aac026f91a007ee2691405d519c3fea5b7d26284d5be9806036902b2433e13",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5555",
-      "trigger": "Invocation of createIssueBoardSource/workingAgents",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries collection taint; scalar card work does not establish a bound for this ID-list or downstream collection path.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {

@@ -2,6 +2,7 @@ import { issueBoardStats } from '../../../tests/worklist/harness/src/perf/issue-
 import { asIssueId, CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, ISSUE_BOARD_STAGES } from '@podium/model/browser'
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
+import { boardCards } from './issue-board-cards'
 import { type BoardOptions, ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
 import { MobxPool } from './pool'
@@ -16,6 +17,13 @@ const row = (id: string, patch: object = {}) => ({
 const options: BoardOptions = {
   display: { layout: 'board', ordering: 'priority', showAgentTasks: false },
   filter: {}, expanded: [], isMobile: false, windowed: true, openIssueId: null, now,
+}
+/** What a mounted desktop card reads (POD-5828): shared issue fields, the
+ * shared rollups and the board's own child stage counts. */
+function readCard(pool: MobxPool, id: string) {
+  const cards = boardCards(pool), issue = cards.issue(id)
+  return [issue.title, issue.stage, issue.labels, issue.unread, issue.dependents, issue.childCount,
+    issue.confirmedWorkingAgents, issue.taskProgress, issue.presentMembers, cards.card(issue, false).stageCounts]
 }
 function setup(scale: number) {
   const rows = ISSUE_BOARD_STAGES.flatMap(stage => Array.from({ length: 128 * scale }, (_, n) =>
@@ -56,16 +64,18 @@ it('keeps opening rich facts proportional to visible cards at 1x and 4x', () => 
     try {
       stops.push(autorun(() => f.source.board(options)))
       for (const stage of ISSUE_BOARD_STAGES)
-        for (let n = 0; n < 8; n++) stops.push(autorun(() => f.source.card({ id: `${stage}-${n}`, now })))
+        for (let n = 0; n < 8; n++) stops.push(autorun(() => readCard(f.pool, `${stage}-${n}`)))
       const counts = issueBoardStats.read(), descriptions = f.descriptions()
       console.info('board opening work', JSON.stringify({ scale, counts, descriptions }))
       // This counter is on the actual declared summary's document access.
       // Today's board() builds facts for the corpus and fails this bound.
       expect(descriptions).toBeLessThanOrEqual(48 * 3)
-      expect(counts.rowModels).toBe(48)
-      expect(counts.factReads).toBe(48)
+      // One board rule per mounted card; cards build no row overlay or facts.
+      expect(counts.cards).toBe(48)
+      expect(counts.rowModels ?? 0).toBe(0)
+      expect(counts.factReads ?? 0).toBe(0)
       expect(f.source.stats().residentRows).toBe(0)
-      return { descriptions, facts: counts.factReads, cards: counts.cards }
+      return { descriptions, facts: counts.factReads ?? 0, cards: counts.cards }
     } finally {
       for (const stop of stops.reverse()) stop()
       expect(f.source.stats().cached).toBe(0)
@@ -89,20 +99,27 @@ it('changes one card and two columns for a stage edit; clicks and minute ticks l
       for (const stage of ISSUE_BOARD_STAGES) stops.push(autorun(() => f.source.columnIds({
         stage, showAgentTasks: false, ordering: 'priority', filter: {},
       })))
+      const reruns = new Map<string, number>()
       for (const stage of ISSUE_BOARD_STAGES)
-        for (let n = 0; n < 8; n++) stops.push(autorun(() => f.source.card({ id: `${stage}-${n}`, now })))
+        for (let n = 0; n < 8; n++) {
+          const id = `${stage}-${n}`
+          stops.push(autorun(() => { readCard(f.pool, id); reruns.set(id, (reruns.get(id) ?? 0) + 1) }))
+        }
       issueBoardStats.reset()
+      reruns.clear()
       const before = board!
       runInAction(() => selected.set('backlog-0'))
       expect(board!).toBe(before)
       expect(issueBoardStats.read()).toEqual({})
       runInAction(() => f.pool.clock.advance(now + 60_000))
       expect(issueBoardStats.read()).toEqual({})
+      expect(reruns.size).toBe(0)
       f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'backlog-0',
         value: { ...f.rows.find(row => row.id === 'backlog-0')!, stage: 'planning' } }] })
       const counts = issueBoardStats.read()
-      expect(counts.cards).toBe(1)
-      expect(counts.rowModels).toBe(1)
+      // Only the edited card's reader reruns; it builds no overlay.
+      expect([...reruns.keys()]).toEqual(['backlog-0'])
+      expect(counts.rowModels ?? 0).toBe(0)
       expect(counts['column.backlog']).toBe(1)
       expect(counts['column.planning']).toBe(1)
       expect(ISSUE_BOARD_STAGES.filter(stage => counts[`column.${stage}`])).toEqual(['backlog', 'planning'])
@@ -153,17 +170,18 @@ it('expires a confirmed descendant worker at its deadline without minute card ke
     { kind: 'session', id: 'worker', value: { sessionId: 'worker', issueId: 'child', status: 'live', agentKind: 'codex',
       lastActiveAt: new Date(now).toISOString(), agentState: { phase: 'working', since: new Date(now).toISOString() } } },
   ] })
-  let card: ReturnType<typeof f.source.card>
-  const stop = autorun(() => { card = f.source.card({ id: 'parent', now }) })
+  let progress: unknown, runs = 0
+  const stop = autorun(() => { progress = boardCards(f.pool).issue('parent').taskProgress; runs++ })
   try {
-    expect(card! && card! !== LOADING && card!.progress).toEqual({ total: 1, done: 0, liveAgents: 1 })
-    const before = card!
+    expect(progress).toEqual({ total: 1, done: 0, liveAgents: 1 })
+    const before = progress, ran = runs
     runInAction(() => f.pool.clock.advance(now + 60_000))
-    expect(card!).toBe(before)
+    expect(progress).toBe(before)
     runInAction(() => f.pool.clock.advance(now + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS))
-    expect(card!).toBe(before)
+    expect(progress).toBe(before)
+    expect(runs).toBe(ran)
     runInAction(() => f.pool.clock.advance(now + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS + 1))
-    expect(card! && card! !== LOADING && card!.progress).toEqual({ total: 1, done: 0, liveAgents: 0 })
+    expect(progress).toEqual({ total: 1, done: 0, liveAgents: 0 })
   } finally { stop(); f.stop() }
 })
 
@@ -179,17 +197,21 @@ it('keeps a drawn card flat through archived session history while preserving un
       { kind: 'session', id: 'worker', value: { sessionId: 'worker', issueId: 'parent', status: 'live', agentKind: 'codex',
         lastActiveAt: readAt, agentState: { phase: 'idle' } } }, ...archived,
     ] })
-    let card: ReturnType<typeof f.source.card>
-    const stop = autorun(() => { card = f.source.card({ id: 'parent', now }) })
+    let card!: { unread: boolean; stage: string; sessions: string[] }
+    const stop = autorun(() => {
+      const cards = boardCards(f.pool), issue = cards.issue('parent')
+      readCard(f.pool, 'parent')
+      card = { unread: issue.unread, stage: issue.stage, sessions: cards.explorerRow(issue).sessions.map(seat => seat.id) }
+    })
     const read = vi.spyOn(f.pool, 'row')
     try {
-      expect(card! && card! !== LOADING && card!.issue.unread).toBe(true)
-      expect(card! && card! !== LOADING && card!.sessions.map(seat => seat.sessionId)).toEqual(['worker'])
+      expect(card.unread).toBe(true)
+      expect(card.sessions).toEqual(['worker'])
       read.mockClear()
       f.pool.apply({ type: 'update', rows: [{ kind: 'issue', id: 'parent', value: row('parent', {
         readAt, updatedAt: readAt, stage: 'planning',
       }) }] })
-      expect(card! && card! !== LOADING && card!.issue.stage).toBe('planning')
+      expect(card.stage).toBe('planning')
       expect(read.mock.calls.filter(([entity, id]) => entity === 'session' && id.startsWith('history-'))).toHaveLength(0)
     } finally { read.mockRestore(); stop(); f.stop() }
   }

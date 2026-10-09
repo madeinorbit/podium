@@ -408,7 +408,7 @@ describe('pool screens work ratios: declared query screen counters', () => {
     const verdicts = screenWorkVerdicts(at1x.cells, at4x.cells)
     const judged = verdicts.filter(
       (value) =>
-        /IssuePage@summaries|IssueBoard@sessions:|IssueBoard@index:|^consumer:session-pane(?:\/|$)/.test(
+        /IssuePage@summaries|IssueBoard@index:|^consumer:(?:session-pane|board\.card)(?:\/|$)/.test(
           value.reader,
         ) || /^consumer:issue-page\.(?:detail|panel|phone|inspector)(?:\/|$)/.test(value.reader),
     )
@@ -421,7 +421,9 @@ describe('pool screens work ratios: declared query screen counters', () => {
       /^consumer:issue-page.panel/,
       /^consumer:issue-page.phone/,
       /^consumer:issue-page.inspector/,
-      /IssueBoard@sessions:/,
+      // POD-5828: a board card reads the shared issue/session models and its
+      // own BoardCard rule; the board's seat projection no longer exists.
+      /^consumer:board\.card/,
       /^consumer:session-pane/,
     ])
       expect(

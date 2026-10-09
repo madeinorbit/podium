@@ -2,6 +2,7 @@ import { issueBoardStats } from '../../../tests/worklist/harness/src/perf/issue-
 import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { insideReader, measureWork } from '../../../tests/worklist/harness/src/work-meter'
+import { boardCards } from './issue-board-cards'
 import { ISSUE_BOARD_SUMMARIES } from './issue-board-schema'
 import { createIssueBoardSource } from './issue-board-source'
 import { MobxPool } from './pool'
@@ -24,6 +25,18 @@ const row = (id: string, overrides: object = {}) => ({
   deps: [],
   ...overrides,
 })
+/** What a mounted desktop card reads (POD-5828): the shared issue and session
+ * fields, and the board's own child stage counts. */
+function cardOf(pool: MobxPool, id: string) {
+  const cards = boardCards(pool), issue = cards.issue(id)
+  return {
+    issue: { id: issue.id, childCount: issue.childCount },
+    sessions: cards.explorerRow(issue).sessions.map((seat) => seat.id),
+    fleet: issue.presentMembers.map((seat) => seat.id),
+    stageCounts: cards.card(issue, false).stageCounts,
+    progress: issue.taskProgress,
+  }
+}
 function setup(rows = [row('hot'), row('cold', { archived: true, stage: 'done' })]) {
   const load = vi.fn((_entity: string, id: string) => rows.find((row) => row.id === id))
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: now }, undefined, {
@@ -226,12 +239,14 @@ it('keeps rich card derivations inside the virtual window and addresses selectio
       'hot',
     ])
     expect(issueBoardStats.read().rowModels ?? 0).toBe(0)
-    expect(source.card({ id: 'cold', now })).toMatchObject({
+    expect(cardOf(pool, 'cold')).toMatchObject({
       issue: { id: 'cold', childCount: 0 },
       sessions: [],
       progress: null,
     })
-    expect(issueBoardStats.read().rowModels).toBe(1)
+    // The card reads the shared model: one card rule, no row overlay.
+    expect(issueBoardStats.read().cards).toBe(1)
+    expect(issueBoardStats.read().rowModels ?? 0).toBe(0)
     expect(source.board({ ...options, addressed: ['hot'] })).toEqual(board)
     expect(pool.hydrate()).toBe(0)
     expect(load).not.toHaveBeenCalled()
@@ -241,14 +256,14 @@ it('keeps rich card derivations inside the virtual window and addresses selectio
   }
 })
 it('derives a virtual card child summary and progress through declared relations', () => {
-  const { source, stop } = setup([
+  const { pool, stop } = setup([
     row('root'),
     row('planning', { parentId: 'root', stage: 'planning' }),
     row('done', { parentId: 'root', stage: 'done' }),
     row('hidden', { parentId: 'root', deletedAt: '2026-01-01T00:00:00Z' }),
   ])
   try {
-    expect(source.card({ id: 'root', now })).toMatchObject({
+    expect(cardOf(pool, 'root')).toMatchObject({
       issue: { childCount: 3 },
       stageCounts: [
         { stage: 'planning', count: 1 },
@@ -261,7 +276,7 @@ it('derives a virtual card child summary and progress through declared relations
   }
 })
 it('orders a virtual fleet by declared member IDs after resume collapse', () => {
-  const { source, pool, stop } = setup([row('root')])
+  const { pool, stop } = setup([row('root')])
   const seat = (id: string, status: string, resume?: { kind: string; value: string }) => ({
     sessionId: id,
     cwd: '/fixture',
@@ -286,15 +301,9 @@ it('orders a virtual fleet by declared member IDs after resume collapse', () => 
     ].map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
   })
   try {
-    const value = source.card({ id: 'root', now })
-    expect(value && value !== LOADING && value.sessions.map((seat) => seat.sessionId)).toEqual([
-      'z',
-      'm',
-    ])
-    expect(value && value !== LOADING && value.fleet.map((seat) => seat.sessionId)).toEqual([
-      'm',
-      'z',
-    ])
+    const value = cardOf(pool, 'root')
+    expect(value.sessions).toEqual(['z', 'm'])
+    expect(value.fleet).toEqual(['m', 'z'])
   } finally {
     stop()
   }

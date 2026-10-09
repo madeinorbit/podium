@@ -9,6 +9,7 @@ import {
   issueStatusValueOf,
 } from '@podium/model/browser'
 import { Check } from 'lucide-react'
+import { observer } from 'mobx-react-lite'
 import {
   cloneElement,
   Fragment,
@@ -67,8 +68,11 @@ const lazyMenus =
  * to ~20px; the matching negative margin gives the space straight back to the
  * layout, so every row's columns land exactly where they did when the glyph was
  * inert.
+ *
+ * An observer: it reads the status fields itself, so a shared issue model
+ * passed in redraws it when they change.
  */
-export function IssueStatusPicker({
+export const IssueStatusPicker = observer(function IssueStatusPicker({
   issue,
   size = 12,
   align = 'start',
@@ -279,4 +283,4 @@ export function IssueStatusPicker({
       )}
     </span>
   )
-}
+})

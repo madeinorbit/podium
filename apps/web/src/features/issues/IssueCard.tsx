@@ -31,16 +31,16 @@ import type { SessionView } from '@podium/client-core/session-values'
  * did to every card the mouse crossed and which spends The Signal Rule's one
  * voice on a mouse position.
  */
-import type { IssueId, IssueStage} from '@podium/model/browser'
+import { deriveFleetPresence } from '@podium/client-core/values'
+import { type BoardIssue, boardCards } from '@podium/client-graph/issue-board-cards'
+import type { IssueId } from '@podium/model/browser'
 import { Flag, ShieldAlert } from 'lucide-react'
 import type { JSX, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent } from 'react'
-import { memo } from 'react'
-import { useBoardCard } from './board-pool-row'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 
 /** Selection belongs to the visible card. Passing the resulting booleans to
  * the memoized leaf lets an unchanged card keep its own row subscription. */
-export function BoardIssueCard({ id, focusId, selectedIds, ...props }: Omit<Parameters<typeof IssueCard>[0], 'issue' | 'focused' | 'selected'> & {
-  id: string
+export function BoardIssueCard({ id, focusId, selectedIds, ...props }: Omit<IssueCardProps, 'focused' | 'selected'> & {
   focusId: string | null
   selectedIds: ReadonlySet<string>
 }) {
@@ -53,6 +53,7 @@ import { UnreadDot } from '@/components/UnreadMark'
 import { issueColorHex } from '@/lib/issueColors'
 import { WorkingMark } from '@/lib/motion'
 import { cn } from '@/lib/utils'
+import { issueObserver as observer } from './issue-page/issue-observer'
 import {
   type CardStateSlot,
   cardAge,
@@ -63,7 +64,7 @@ import {
 } from './issue-card'
 import { PriorityGlyph, StageGlyph } from './issue-glyphs'
 import { isEpic } from './issue-hierarchy'
-import { confirmedWorkingAgentCount, type EpicProgress, type IssuesDisplay } from './issues-display'
+import type { IssuesDisplay } from './issues-display'
 
 /** Slot → pixels. One switch, so the rank order in `issue-card.ts` is the only
  *  place the composition is decided. */
@@ -196,33 +197,11 @@ function labelDotColor(label: string): string {
   return LABEL_DOT_HUES[hash % LABEL_DOT_HUES.length] as string
 }
 
-function IssueCardLeaf({
-  issue: suppliedIssue,
-  id,
-  sessions: suppliedSessions,
-  badges,
-  stageCounts: suppliedCounts,
-  progress: suppliedProgress,
-  showAgentTasks = false,
-  poolRollups = true,
-  focused,
-  selected,
-  dragging,
-  now,
-  onOpen,
-  onApprove,
-  onToggleSelect,
-  onContextMenu,
-  onDragStart,
-}: {
-  issue?: IssueViewModel
-  id?: string
-  /** This issue's member sessions, resolved by the board — the fleet stack. */
-  sessions?: SessionView[]
+type IssueCardProps = {
+  id: string
   badges: IssuesDisplay['badges']
-  stageCounts?: { stage: IssueStage; count: number }[]
-  progress?: EpicProgress | null
   showAgentTasks?: boolean
+  /** The drag proxy draws the card without its subtree rollups. */
   poolRollups?: boolean
   focused: boolean
   selected: boolean
@@ -235,20 +214,83 @@ function IssueCardLeaf({
   onToggleSelect: (id: IssueId) => void
   onContextMenu: (id: IssueId, event: ReactMouseEvent) => void
   onDragStart: (event: ReactPointerEvent, issue: IssueViewModel) => void
-}): JSX.Element {
-  const data = useBoardCard(id ?? suppliedIssue!.id, now, showAgentTasks)
-  if (typeof data === 'symbol') return <div role="status">Loading task…</div>
-  const issue = data?.issue ?? suppliedIssue
-  if (!issue) return <div role="status">Loading task…</div>
-  const sessions = data?.fleet ?? suppliedSessions ?? []
-  const stageCounts = poolRollups ? data?.stageCounts ?? suppliedCounts : suppliedCounts
-  const progress = poolRollups ? data?.progress ?? suppliedProgress : suppliedProgress
+}
+
+const CardLoading = () => <div role="status">Loading task…</div>
+
+/** The state line reads the shared rollups; a worker's heartbeat redraws
+ *  this line alone, and only when its answer changes. */
+const CardStateLine = observer(function CardStateLine({
+  issue,
+  badges,
+  showAgentTasks,
+  poolRollups,
+}: {
+  issue: BoardIssue
+  badges: IssuesDisplay['badges']
+  showAgentTasks: boolean
+  poolRollups: boolean
+}): JSX.Element | null {
+  const pool = useWorklistPool()
   const slots = issueCardStateSlots(issue, {
     badges,
-    stageCounts,
-    progress,
-    workingAgents: confirmedWorkingAgentCount(sessions, now),
+    ...(poolRollups && pool
+      ? {
+          stageCounts: boardCards(pool).card(issue, showAgentTasks).stageCounts,
+          progress: issue.taskProgress,
+        }
+      : {}),
+    workingAgents: issue.confirmedWorkingAgents,
   })
+  if (slots.length === 0) return null
+  return (
+    <div className="flex h-[15px] items-center gap-2.5 overflow-hidden whitespace-nowrap">
+      {slots.map((slot) => (
+        <StateSlot key={slot.kind} slot={slot} />
+      ))}
+    </div>
+  )
+})
+
+/** Who is on this task: the issue's present agents, as one stacked mark. */
+const CardFleet = observer(function CardFleet({ issue }: { issue: BoardIssue }): JSX.Element | null {
+  const members = issue.presentMembers
+  if (members.length === 0) return null
+  const fleet = deriveFleetPresence(members as unknown as SessionView[])
+  return (
+    <IssueFleetSummary
+      sessions={[]}
+      summary={{
+        total: fleet.present.length,
+        parkedCount: fleet.parkedCount,
+        nativeCount: fleet.nativeCount,
+        tiles: fleet.tiles,
+      }}
+      size={16}
+    />
+  )
+})
+
+const IssueCardLeaf = observer(function IssueCardLeaf({
+  id,
+  badges,
+  showAgentTasks = false,
+  poolRollups = true,
+  focused,
+  selected,
+  dragging,
+  now,
+  onOpen,
+  onApprove,
+  onToggleSelect,
+  onContextMenu,
+  onDragStart,
+}: IssueCardProps): JSX.Element {
+  const pool = useWorklistPool()
+  if (!pool) return <CardLoading />
+  const issue = boardCards(pool).issue(id)
+  // No declared facts yet: the addressed summary is on its way.
+  if (issue.finished === undefined) return <CardLoading />
   const hex = issueColorHex(issue.color)
   const epic = isEpic(issue)
   return (
@@ -338,9 +380,7 @@ function IssueCardLeaf({
                 since POD-744 — harness KINDS and a total, not one tile per
                 session — so a card and its row answer "who is on this" the same
                 way, in the same words. */}
-            {badges.sessions && sessions.length > 0 && (
-              <IssueFleetSummary sessions={sessions} size={16} />
-            )}
+            {badges.sessions && <CardFleet issue={issue} />}
             <span className="font-mono text-[10px] text-text-faint tabular-nums">
               {cardAge(issue.updatedAt, now)}
             </span>
@@ -358,13 +398,12 @@ function IssueCardLeaf({
           {issue.unread ? <UnreadDot className="mt-1.5" /> : null}
         </div>
 
-        {slots.length > 0 && (
-          <div className="flex h-[15px] items-center gap-2.5 overflow-hidden whitespace-nowrap">
-            {slots.map((slot) => (
-              <StateSlot key={slot.kind} slot={slot} />
-            ))}
-          </div>
-        )}
+        <CardStateLine
+          issue={issue}
+          badges={badges}
+          showAgentTasks={showAgentTasks}
+          poolRollups={poolRollups}
+        />
       </button>
 
       {/* Selection lives where the ref was: the checkbox fades in on hover in
@@ -443,6 +482,6 @@ function IssueCardLeaf({
       )}
     </div>
   )
-}
+}, CardLoading)
 
-export const IssueCard = memo(IssueCardLeaf)
+export const IssueCard = IssueCardLeaf

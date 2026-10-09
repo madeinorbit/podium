@@ -17,14 +17,17 @@ import { KERNEL_REPLICA_DB, type KernelAssembly, openKernelAssembly } from './ke
 import { makeIssue } from './test-issue'
 
 const screenFixture = vi.hoisted(() => ({ issues: new Map<string, IssueViewModel>() }))
-vi.mock('@/app/store-worklist-pool', () => ({
-  useWorklistPool: () => null,
-  useWorklistPoolProjection: (read: (pool: object) => unknown) => read({
-    notSaved: () => false,
-    row: (entity: string, key: string) => entity === 'issueBoardRow' ? screenFixture.issues.get(key)
-      : entity === 'issueBoardCard' ? { issue: screenFixture.issues.get(JSON.parse(key).id), fleet: [] } : undefined,
-  }),
-}))
+vi.mock('@/app/store-worklist-pool', async () => {
+  const { fakeBoardPool } = await import('@/test-support/fake-board-pool')
+  const pool = fakeBoardPool(
+    (entity: string, key: string) => entity === 'issueBoardRow' ? screenFixture.issues.get(key) : undefined,
+    (id) => screenFixture.issues.get(id),
+  )
+  return {
+    useWorklistPool: () => pool,
+    useWorklistPoolProjection: (read: (pool: object) => unknown) => read(pool),
+  }
+})
 
 const principal = JSON.stringify(['installation-a', 'alice'])
 const assemblies: KernelAssembly[] = []

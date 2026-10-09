@@ -366,7 +366,7 @@ function DragProxy({
       aria-hidden="true"
     >
       <IssueCard
-        issue={drag.issue}
+        id={drag.issue.id}
         poolRollups={false}
         badges={badges}
         focused={false}

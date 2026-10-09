@@ -16,6 +16,7 @@ import {
   ISSUE_BOARD_SOURCE_KEY,
   ISSUE_BOARD_SUMMARIES,
 } from '@podium/client-graph/issue-board-schema'
+import { boardCards } from '@podium/client-graph/issue-board-cards'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { createReadOnlyRuntimePool } from '../../../../../tests/worklist/shared/src/read-only-pool'
 import { expect, it } from 'vitest'
@@ -33,9 +34,9 @@ function expectBoard(
     if (value === LOADING) return { value, unread: [] }
     return { value, unread: value.values.flatMap(({ fields }) => {
       const id = fields.id as string
-      const card = pool.row('issueBoardCard', JSON.stringify({ id, agents: options.display.showAgentTasks }))
-      return card && card !== LOADING && card.issue.unread !== fields.unread
-        ? [{ id, expected: fields.unread, actual: card.issue.unread }] : []
+      const card = boardCards(pool).issue(id)
+      return card.unread !== fields.unread
+        ? [{ id, expected: fields.unread, actual: card.unread }] : []
     }) }
   })
   if (!value || value === LOADING) throw new Error('Board fixture is loading')

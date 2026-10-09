@@ -30,6 +30,7 @@ import {
   ISSUE_BOARD_ENTITIES,
   ISSUE_BOARD_SUMMARIES,
 } from '@podium/client-graph/issue-board-schema'
+import { boardCards } from '@podium/client-graph/issue-board-cards'
 import { createIssueBoardSource } from '@podium/client-graph/issue-board-source'
 import { readBoardCatalog } from '@podium/client-graph/issue-board-readers'
 import { issuePages } from '@podium/client-graph/issue-page'
@@ -644,9 +645,21 @@ async function measureScreenCells(
     add('board.query', ['IssueBoard', 'IssueExplorer'], () =>
       board.queryIds({ kind: 'board', showAgentTasks: false }),
     )
-    add('board.card', ['PoolBoardCard'], () =>
-      board.card({ id: selected(), now: ctx.corpus.fixedNow }),
-    )
+    // A mounted desktop card reads the shared issue model and its board rule.
+    add('board.card', ['PoolBoardCard'], () => {
+      const cards = boardCards(pool), issue = cards.issue(selected())
+      return {
+        title: issue.title,
+        stage: issue.stage,
+        unread: issue.unread,
+        working: issue.confirmedWorkingAgents,
+        progress: issue.taskProgress,
+        dependents: issue.dependents,
+        fleet: issue.presentMembers,
+        stages: cards.card(issue, false).stageCounts,
+        word: cards.explorerRow(issue).state,
+      }
+    })
     add('board.model', ['IssueBoard', 'useBoardData'], () =>
       pool.row(
         'issueBoardModel',

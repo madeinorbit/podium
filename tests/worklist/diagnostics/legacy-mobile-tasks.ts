@@ -15,6 +15,7 @@ import {
   MOBILE_TASK_STAGES,
   type MobileTasksOptions,
 } from '../../../packages/client-graph/src/mobile-screens-schema'
+import { readLegacyBoardCard } from './legacy-board-card'
 import type { MobileTasksData, MobileTaskSection } from './mobile-task-snapshot'
 import type { MobxPool } from '../../../packages/client-graph/src/pool'
 import { isFinished } from '../../../packages/client-graph/src/shared/predicates'
@@ -79,7 +80,7 @@ export function createLegacyMobileTasks(pool: MobxPool) {
   const taskProgress = keyedComputed(
     'MobileScreen.taskProgress',
     (key: string) => {
-      const card = requireRow(pool.row('issueBoardCard', key))
+      const card = requireRow(readLegacyBoardCard(pool, JSON.parse(key) as { id: string; agents: boolean }))
       if (!card) throw LOADING
       return card.progress
     },
@@ -303,14 +304,7 @@ export function createLegacyMobileTasks(pool: MobxPool) {
     const sessions = new Map<string, SessionView>()
     for (const row of board.flatMap((section) => section.rows)) {
       const card = requireRow(
-        pool.row(
-          'issueBoardCard',
-          JSON.stringify({
-            id: row.issue.id,
-            now: pool.clock.trackedNow(),
-            agents: options.showAgentTasks,
-          }),
-        ),
+        readLegacyBoardCard(pool, { id: row.issue.id, agents: options.showAgentTasks }),
       )
       if (!card) throw LOADING
       workingByIssue.set(

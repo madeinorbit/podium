@@ -37,9 +37,13 @@ export function instrumentProductWork(code: string, id: string): string | undefi
     code = once(code, 'export function createIssueBoardSource(', 'export function createIssueBoardSource(', file)
     for (const [anchor, counter] of [
       ['function facts(id: string): Loaded<IssueViewModel> {', "'factReads'"],
-      ["return memo(`${visible ? 'visibleRow' : 'row'}:${id}`, () => {", "'rowModels'"],
-      ['return memo(`card:${JSON.stringify({ id: options.id, agents: options.agents ?? false })}`, () => {', "'cards'"],
+      ['return memo(`row:${id}`, () => {', "'rowModels'"],
     ]) code = once(code, anchor!, `${anchor}\n    __countIssueBoard(${counter})`, file)
+  } else if (file.endsWith('/packages/client-graph/src/issue-board-cards.ts')) {
+    // A mounted card's one board-only rule (POD-5828). Its shared issue and
+    // session fields are named per record by the lazy transform above.
+    const anchor = 'get stageCounts(): readonly StageCount[] {'
+    code = once(code, anchor, `${anchor}\n    __countIssueBoard('cards')`, file)
   } else if (file.endsWith('/packages/client-graph/src/issue-board-layout.ts')) {
     for (const anchor of ["const matching = keyedComputed('IssueBoard.matchingIds'", "const columnIds = keyedComputed('IssueBoard.columnIds'"])
       code = once(code, anchor, anchor, file)

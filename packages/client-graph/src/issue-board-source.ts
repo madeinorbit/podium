@@ -4,13 +4,12 @@ import { isFinished } from './shared/predicates'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
-  confirmedWorkingAgentCount,
   filterBoardIssues,
   issueIsActionable,
   sessionNeedsHuman,
   sessionPresentOnTask,
 } from '@podium/client-core/values'
-import { asIssueId, asSessionId, CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS, ISSUE_STAGES, issueStatusOf, machinePathBasename, machinePathKey } from '@podium/model/browser'
+import { asIssueId, asSessionId, issueStatusOf, machinePathBasename, machinePathKey } from '@podium/model/browser'
 import {
   compareStructural,
   observable,
@@ -20,16 +19,15 @@ import {
 import { createBoardLayout } from './issue-board-layout'
 import {
   BOARD_EXPLORER_TABS,
-  type BoardCardData,
   type BoardCatalog,
   type BoardColumnOptions,
   type BoardExplorerTab,
-  type BoardOptions,
   type BoardQuery,
   ISSUE_BOARD_SUMMARIES,
   type IssueBoardSourceRows,
   type PoolExplorerData,
 } from './issue-board-schema'
+import { inBoardScope } from './issue-board-cards'
 import { createIssueExplorer } from './issue-explorer'
 import type { MobxPool } from './pool'
 import { createQueryResult } from './query-result'
@@ -140,29 +138,8 @@ export function createIssueBoardSource(
       worktreePath: raw.worktreePath ?? null,
     } as IssueViewModel
   }
-  function scoped(
-    row: IssueViewModel,
-    agents: boolean,
-    liveParents = false,
-    id: string = row.id,
-  ): boolean {
-    if (row.isDraftVessel && !row.deletedAt) return false
-    if (agents || row.deletedAt || row.audience !== 'agent') return true
-    const seen = new Set([id])
-    let parent = pool.graph.one('issue', id, 'treeParent')
-    while (parent && !seen.has(parent)) {
-      seen.add(parent)
-      const value = pool.queries.issueScope(parent)
-      if (
-        !value ||
-        (value.draft && !value.deleted) ||
-        (liveParents && (value.archived || value.deleted))
-      )
-        return false
-      if (value.deleted || !value.agent) return true
-      parent = pool.graph.one('issue', parent, 'treeParent')
-    }
-    return false
+  function scoped(row: IssueViewModel, agents: boolean, liveParents = false, id: string = row.id): boolean {
+    return inBoardScope(pool, row, id, agents, liveParents)
   }
   function roster(id: string) {
     let result = rosters.get(id)
@@ -189,17 +166,6 @@ export function createIssueBoardSource(
   }
   function sessions(id: string): Loaded<SessionView[]> {
     return frame.disposed ? LOADING : roster(id).get()
-  }
-  function cardSessions(id: string): Loaded<SessionView[]> {
-    return memo(`visibleSessions:${id}`, () => {
-      const seats = pool.queries.project({ kind: 'commandIssueSessions', issueId: id,
-        archived: false, includeShells: true }, `IssueBoard@sessions:${id}`, sid =>
-        pool.graph.isCollapsed('session', sid) ? undefined
-          : pool.row('session', sid, 'summary') as Loaded<SessionView>)
-      if (!seats || seats === LOADING) return seats
-      return seats.slice().sort((a, b) => pool.graph.orderKey('session', a.sessionId)
-        .localeCompare(pool.graph.orderKey('session', b.sessionId)))
-    })
   }
   function actionable(row: IssueViewModel): boolean {
     if (row.archived || row.deletedAt || isFinished(row)) return false
@@ -286,8 +252,8 @@ export function createIssueBoardSource(
           }
     })
   }
-  function issue(id: string, visible = false): Loaded<IssueViewModel> {
-    return memo(`${visible ? 'visibleRow' : 'row'}:${id}`, () => {
+  function issue(id: string): Loaded<IssueViewModel> {
+    return memo(`row:${id}`, () => {
 
       const value = facts(id)
       if (!value || value === LOADING) return value
@@ -307,20 +273,10 @@ export function createIssueBoardSource(
         for (const dep of row?.deps ?? [])
           if (dep.id === id) dependents.push({ id: asIssueId(sourceId), type: dep.type })
       }
-      const visibleSeats = visible ? cardSessions(id) : undefined
-      if (visibleSeats === LOADING) return LOADING
-      const memberSessionIds = (visible
-        ? (visibleSeats ?? []).filter(seat => seat.agentKind !== 'shell').map(seat => seat.sessionId)
-        : [...pool.graph.many('issue', id, 'pageSessions')])
-        .sort(byId)
-        .map(asSessionId)
+      const memberSessionIds = [...pool.graph.many('issue', id, 'pageSessions')].sort(byId).map(asSessionId)
       const readAt = pool.readCursor(id) ?? null,
         readTime = Date.parse(readAt ?? '')
       let unread = !Number.isFinite(readTime) || Date.parse(value.updatedAt) > readTime
-      if (visible && !pool.graph.many('issue', id, 'pageSessions')[Symbol.iterator]().next().done) {
-        const activity = pool.visibleInputs.seatSummary?.(id).activity
-        if (activity != null && activity > readTime) unread = true
-      }
       const byPhase: Record<string, number> = {}
       let total = 0
       for (const sid of memberSessionIds) {
@@ -344,91 +300,6 @@ export function createIssueBoardSource(
         memberSessionIds,
         unread: !value.deletedAt && unread,
         sessionSummary: { total, byPhase },
-      }
-    })
-  }
-  function workingAgents(seats: readonly SessionView[]): number {
-    for (const seat of seats) {
-      if (seat.status !== 'live' || seat.archived || seat.agentKind === 'shell' ||
-        !['working', 'compacting'].includes(seat.agentState?.phase ?? '')) continue
-      const at = Math.max(...[seat.lastActiveAt, seat.agentState?.since, seat.agentState?.stateObservedAt]
-        .map(stamp => Date.parse(stamp ?? '')).filter(Number.isFinite))
-      if (Number.isFinite(at)) pool.clock.passed(at + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS)
-    }
-    // The count's time value pairs with the exact per-seat expiry deadlines
-    // above, so read it untracked: a minute tick must not wake the card.
-    return confirmedWorkingAgentCount(seats, pool.clock.peekNow())
-  }
-  function progress(id: string) {
-    if (pool.graph.many('issue', id, 'treeChildren')[Symbol.iterator]().next().done) return null
-    return memo(`progress:${id}`, () => {
-      let total = 0,
-        done = 0,
-        liveAgents = 0
-      const seen = new Set([id]),
-        stack = [...pool.graph.many('issue', id, 'treeChildren')]
-      while (stack.length) {
-        const next = stack.pop()!
-        if (seen.has(next)) continue
-        seen.add(next)
-        // Progress needs closure membership and terminal state, never a rich
-        // card's document, labels, reference or presentation fields.
-        const row = pool.row('issue', next, 'summary-fields') as Loaded<IssueViewModel>
-        if (row === LOADING) return LOADING
-        if (!row || row.archived || row.deletedAt || row.isDraftVessel) continue
-        total++
-        if (isFinished(row)) done++
-        const seats = cardSessions(next)
-        if (seats === LOADING) return LOADING
-        liveAgents += workingAgents(seats ?? [])
-        stack.push(...pool.graph.many('issue', next, 'treeChildren'))
-      }
-      return total ? { total, done, liveAgents } : null
-    })
-  }
-  function card(options: { id: string; now?: number; agents?: boolean }): Loaded<BoardCardData> {
-    return memo(`card:${JSON.stringify({ id: options.id, agents: options.agents ?? false })}`, () => {
-
-      const row = issue(options.id, true),
-        roster = cardSessions(options.id)
-      if (!row || row === LOADING || roster === LOADING)
-        return row === undefined ? undefined : LOADING
-      const byId = new Map<string, IssueViewModel>([[row.id, row]])
-      for (const other of pool.graph.many('issue', row.id, 'pageDependencies')) {
-        const value = facts(other)
-        if (value === LOADING) return LOADING
-        if (value) byId.set(other, value)
-      }
-      const counts = new Map<IssueViewModel['stage'], number>()
-      if (!row.archived && !row.deletedAt && scoped(row, options.agents ?? false, true)) {
-        for (const childId of pool.graph.many('issue', row.id, 'treeChildren')) {
-          const child = pool.row('issue', childId, 'summary-fields') as Loaded<IssueViewModel>
-          if (child === LOADING) return LOADING
-          if (
-            child &&
-            child.id !== row.id &&
-            !child.archived &&
-            !child.deletedAt &&
-            scoped(child, options.agents ?? false, true, childId)
-          )
-            counts.set(child.stage, (counts.get(child.stage) ?? 0) + 1)
-        }
-      }
-      const rollup = progress(row.id)
-      if (rollup === LOADING) return LOADING
-      const seatsById = new Map((roster ?? []).map((seat) => [seat.sessionId as string, seat]))
-      return {
-        issue: row,
-        sessions: roster ?? [],
-        fleet: row.memberSessionIds.flatMap((id) => {
-          const seat = seatsById.get(id)
-          return seat ? [seat] : []
-        }),
-        byId,
-        stageCounts: ISSUE_STAGES.map((stage) => ({ stage, count: counts.get(stage) ?? 0 })).filter(
-          (value) => value.count,
-        ),
-        progress: rollup,
       }
     })
   }
@@ -556,8 +427,6 @@ export function createIssueBoardSource(
         return explorer(JSON.parse(id))
       case 'issueBoardRow':
         return issue(id)
-      case 'issueBoardCard':
-        return card(JSON.parse(id))
       case 'issueBoardSessions':
         return sessions(id)
 
@@ -580,7 +449,6 @@ export function createIssueBoardSource(
     explorer,
     explorerCounts,
     issue,
-    card,
     sessions,
     queryIds,
     catalog,

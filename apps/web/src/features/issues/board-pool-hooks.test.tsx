@@ -6,7 +6,7 @@ import { act, cleanup, render, renderHook } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { EMPTY_BOARD, readBoardCatalog, useBoardBase, useBoardCatalog, useBoardData } from './board-pool-data'
-import { useBoardCard, useBoardCloseGuard } from './board-pool-row'
+import { useBoardCloseGuard } from './board-pool-row'
 import { useExplorerData } from './explorer/explorer-pool-data'
 import { IssueBulkCloseDialog } from './issue-lifecycle'
 import { DEFAULT_DISPLAY } from './issues-display'
@@ -74,11 +74,6 @@ it('keeps card time and addressed interaction state out of layout keys and defer
   state.poolReads.mockClear()
   board.rerender({ now: 60_000, id: 'one' as import('@podium/model/browser').IssueId })
   expect(state.poolReads.mock.calls.filter(([entity]) => entity === 'issueBoardModel').every(([, key]) => key === demand)).toBe(true)
-  const card = renderHook(({ now }) => useBoardCard('one', now), { initialProps: { now: 0 } })
-  const first = state.poolReads.mock.calls.find(([entity]) => entity === 'issueBoardCard')?.[1]
-  state.poolReads.mockClear()
-  card.rerender({ now: 60_000 })
-  expect(state.poolReads.mock.calls.filter(([entity]) => entity === 'issueBoardCard').every(([, key]) => key === first)).toBe(true)
   const catalog = renderHook(({ open }) => useBoardCatalog(open, false), { initialProps: { open: false } })
   expect(state.poolReads.mock.calls.some(([entity]) => entity === 'issueBoardCatalog')).toBe(false)
   catalog.rerender({ open: true })

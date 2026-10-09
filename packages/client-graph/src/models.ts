@@ -9,7 +9,7 @@ import { motionPhase as sessionMotion } from '@podium/client-core/values'
 /** One shared object per server record. Schema fields and relations are installed
  * once; derived entity facts use @lazy. Views own their per-record companions. */
 
-import { compareStructural } from 'mobx'
+import { compareShallow, compareStructural } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
 import type { Residence } from './pool'
 import type { SeatRelation } from './session-seats'
@@ -41,7 +41,7 @@ export interface ModelHost {
   sessionSummaryField(property: string): boolean
   issueSummaryField(property: string): boolean
   issueExitKind(id: string): ReferentExit | undefined
-  readonly queries: Pick<ReaderQueries, 'issueCloseCounts' | 'issueChildCounts'>
+  readonly queries: Pick<ReaderQueries, 'issueCloseCounts' | 'issueChildCounts' | 'collapsed'>
   /** Borrow the data layer's archive partition without copying its IDs. */
   sessionSeatIds(relation: SeatRelation, issueId: string, archived: boolean): readonly string[] | typeof LOADING
   /** The declared parent key, tracked without reading the source or target payload. */
@@ -406,8 +406,10 @@ export class IssueModel extends EntityModel {
   @lazy get finishedMs(): number { return parseMs(this.factRow?.closedAt ?? this.factRow?.updatedAt) ?? 0 }
 
   // Links and reference: independent of any screen's row label or nesting
+  /** The declared `seq` answers a cold row too, without loading its payload. */
   @lazy get displayRef(): string {
-    return this.inMemory ? displayRefOf(this.seq, this.prefix) : ''
+    const seq = this.factRow?.seq
+    return seq === undefined ? '' : displayRefOf(seq, this.prefix)
   }
   @lazy get repoTarget(): string | null { return repoTargetPartOf(this.host.inputs, this.id) }
   @lazy get prefix(): string | null { return prefixPartOf(this.host.inputs, this.repoTarget) }
@@ -479,6 +481,30 @@ export class IssueModel extends EntityModel {
     return { total, byPhase }
   }
 
+  /** Present non-shell members, by session id: unarchived, known from a
+   * resident row or declared summary (no payload load), and not folded into a
+   * resumed twin. A heartbeat never re-sorts this list. */
+  @lazy({ equals: compareShallow })
+  get presentMembers(): readonly SessionModel[] {
+    const present: SessionModel[] = []
+    for (const id of [...this.livePageSessionIds()].sort()) {
+      const session = this.host.sessionObject(id)
+      if (session.known && !this.host.queries.collapsed(id)) present.push(session)
+    }
+    return present
+  }
+
+  // Read state: the replica rollup. Updated, or a non-shell member (archived
+  // included) active, after this user's read cursor; a deleted issue reads as read.
+  @lazy get unread(): boolean {
+    const row = this.factRow
+    if (row === undefined || row.deletedAt) return false
+    const read = parseMs(this.host.visibleInputs.issueRead(this.id))
+    if (read === null) return true
+    const updated = this.updatedMs, active = parseMs(this.lastActivityAt)
+    return (updated !== null && updated > read) || (active !== null && active > read)
+  }
+
   @lazy
   get memberLatestActivity(): number {
     const present = this.presentMemberActivity, archived = this.archivedMemberActivity
@@ -535,18 +561,20 @@ export class IssueModel extends EntityModel {
   }
 
   get confirmedWorkingAgents(): number {
-    const ids = this.host.sessionSeatIds('pageSessions', this.id, false)
-    if (ids === LOADING) throw LOADING
-    return ids.length ? this.confirmedWorkerCount : 0
+    return this.memberCount ? this.confirmedWorkerCount : 0
   }
 
   @lazy
   private get confirmedWorkerCount(): number {
-    const ids = this.host.sessionSeatIds('pageSessions', this.id, false)
-    if (ids === LOADING) throw LOADING
     let count = 0
-    for (const id of ids) if (this.host.sessionObject(id).confirmedWorking) count++
+    for (const id of this.livePageSessionIds()) if (this.host.sessionObject(id).confirmedWorking) count++
     return count
+  }
+
+  /** Unarchived page members from the declared live subset: archived history
+   * is never visited, however long it grows. */
+  private livePageSessionIds(): Iterable<string> {
+    return this.host.relations.subset('issue', this.id, 'pageSessions', 'unarchived')
   }
 
   get taskProgress(): TaskProgress | null { return this.childCount ? this.descendantTaskProgress : null }

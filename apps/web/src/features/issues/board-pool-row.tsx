@@ -1,17 +1,14 @@
 import type { SessionView } from '@podium/client-core/session-values'
 import { blockingCloseConcerns, issueCloseConcerns } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
+import { type BoardIssue, boardCards } from '@podium/client-graph/issue-board-cards'
 import type { JSX } from 'react'
 import { useCallback } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { issueObserver as observer } from './issue-page/issue-observer'
 import { issueMemberSessions } from './issue-lifecycle'
 
-export function useBoardCard(id: string, _now: number, agents = false) {
-  const key = JSON.stringify({ id, agents })
-  const read = useCallback((pool: MobxPool) => pool.row('issueBoardCard', key), [key])
-  return useWorklistPoolProjection(read, undefined)
-}
 export function useBoardIssueReader() {
   const pool = useWorklistPool()
   return useCallback((id: string) => {
@@ -31,21 +28,20 @@ export function useBoardAddressed(ids: readonly string[]) {
   }, [key])
   return useWorklistPoolProjection(read, undefined) ?? []
 }
-export function BoardPoolRow({
-  issue,
+/** One mounted list row over the shared issue model. The row's reads run in
+ *  this observer, so it redraws when a field it shows changes. */
+export const BoardPoolRow = observer(function BoardPoolRow({
   id,
   children,
 }: {
-  issue?: IssueViewModel
-  id?: string
-  children: (issue: IssueViewModel) => JSX.Element
-}) {
-  const key = id ?? issue!.id
-  const read = useCallback((pool: MobxPool) => pool.row('issueBoardRow', key), [key])
-  const value = useWorklistPoolProjection(read, undefined)
-  const row = value && typeof value !== 'symbol' ? value : issue
-  return row ? children(row) : null
-}
+  id: string
+  children: (issue: BoardIssue) => JSX.Element
+}): JSX.Element | null {
+  const pool = useWorklistPool()
+  if (!pool) return null
+  const issue = boardCards(pool).issue(id)
+  return issue.finished === undefined ? null : children(issue)
+})
 export function useBoardSessionReader() {
   const pool = useWorklistPool()
   return useCallback((issue: IssueViewModel) => pool?.row('issueBoardSessions', issue.id), [pool])

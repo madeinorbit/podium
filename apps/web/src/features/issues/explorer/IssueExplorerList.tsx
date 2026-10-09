@@ -1,6 +1,6 @@
 import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
-import { operationalState } from '@podium/client-core/values'
+import { boardCards } from '@podium/client-graph/issue-board-cards'
 
 import { issueDisplayRef } from '@podium/protocol'
 import { Search, X } from 'lucide-react'
@@ -9,10 +9,11 @@ import { useLayoutEffect, useRef } from 'react'
 import type { IssueViewModel } from '@/app/store'
 import { GhostBar, GhostPreview, GhostSquare } from '@/components/GhostPreview'
 import { cn } from '@/lib/utils'
-import { useBoardCard } from '../board-pool-row'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import { DOCK_ROW, DOCK_STAMP } from '../IssueCompactControls'
 import { IssueStatusPicker } from '../IssueStatusPicker'
 import { issueIdTitle } from '../issue-card'
+import { issueObserver as observer } from '../issue-page/issue-observer'
 import { useBoundedVirtualList } from '../use-bounded-virtual-list'
 import { useIssueStatusApply } from '../use-issue-status-apply'
 import { useIssueExplorer } from './explorer-context'
@@ -297,7 +298,7 @@ function EmptyList({
 
 /** One task line. Each mounted row owns its card's addressed issue and
  * session neighbours, including the state word on the right. */
-function ExplorerRow({
+const ExplorerRow = observer(function ExplorerRow({
   id,
   onOpen,
   onStatusPick,
@@ -307,11 +308,13 @@ function ExplorerRow({
   /** The row's status glyph is its picker (POD-1271); the list applies the pick. */
   onStatusPick: (value: string, issue: IssueViewModel) => void
 }): JSX.Element | null {
-  const data = useBoardCard(id, 0)
-  if (typeof data === 'symbol') return <div role="status">Loading task…</div>
-  if (!data) return null
-  const issue = data.issue
-  const state = operationalState(issue, data.sessions, data.byId)
+  const pool = useWorklistPool()
+  if (!pool) return <ExplorerRowLoading />
+  const cards = boardCards(pool)
+  const issue = cards.issue(id)
+  // An issue the pool does not know draws nothing, as before.
+  if (issue.finished === undefined) return null
+  const state = cards.explorerRow(issue).state
   const closed = isFinished(issue)
   // An errored task is a needs-you with a cause (POD-1601): the row's own
   // `data-needs-you` tint is what makes it findable in a long list, and an
@@ -368,4 +371,8 @@ function ExplorerRow({
       </span>
     </button>
   )
+}, ExplorerRowLoading)
+
+function ExplorerRowLoading(): JSX.Element {
+  return <div role="status">Loading task…</div>
 }

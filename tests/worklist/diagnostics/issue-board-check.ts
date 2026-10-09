@@ -4,6 +4,7 @@ import { operationalState, type TaskProgress } from '@podium/client-core/values'
 import { asIssueId } from '@podium/model/browser'
 import { autorun } from 'mobx'
 import type { BoardOptions, BoardSnapshotData, PoolExplorerData } from '@podium/client-graph/issue-board-schema'
+import { boardCards } from '@podium/client-graph/issue-board-cards'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { issuePageFirstDifference } from './issue-page-check'
@@ -118,13 +119,21 @@ export function readBoardSnapshot(pool: MobxPool, options: BoardOptions) {
   const progress = new Map<string, TaskProgress | null>()
   const shown = new Set([...layout.rootIds, ...layout.view.rowGroups.flatMap(group => group.rows.map(row => row.id))])
   if (options.openIssueId) shown.add(options.openIssueId)
+  // Cards read the shared model's rollups and the board companion's stage
+  // counts; the frozen legacy values pin both (POD-5828).
+  const cards = boardCards(pool)
   for (const id of shown) {
-    const card = pool.row('issueBoardCard', JSON.stringify({ id, agents: options.display.showAgentTasks }))
     const row = pool.row('issueBoardRow', id)
-    if (!card || card === LOADING || !row || row === LOADING) return LOADING
-    models.set(id, row)
-    stageCounts.set(id, card.stageCounts)
-    if (layout.rootIds.includes(id)) progress.set(id, card.progress)
+    if (!row || row === LOADING) return LOADING
+    const model = cards.issue(id)
+    try {
+      models.set(id, row)
+      stageCounts.set(id, [...cards.card(model, options.display.showAgentTasks).stageCounts])
+      if (layout.rootIds.includes(id)) progress.set(id, model.taskProgress)
+    } catch (error) {
+      if (error === LOADING) return LOADING
+      throw error
+    }
   }
   const rowGroups = layout.view.rowGroups.map(group => ({ stage: group.stage,
     rows: group.rows.map(({ id, ...row }) => ({ ...row, issue: models.get(id)! })),
