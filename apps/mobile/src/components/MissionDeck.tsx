@@ -1,5 +1,5 @@
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
-import type { MissionDeckIssueModel } from '@podium/client-graph/mission-view'
+import { type MissionDeckIssueModel, settled } from '@podium/client-graph/mission-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { SessionModel } from '@podium/client-graph/models'
 import { observer } from 'mobx-react-lite'
@@ -38,6 +38,7 @@ import {
   railFor,
   roleLabel,
   SessionBand,
+  STRIP_H,
   seatFor,
   TaskStrip,
 } from './spine'
@@ -451,7 +452,7 @@ const MissionProposal = observer(function MissionProposal({
   )
 })
 
-const SpineRow = observer(function SpineRow({
+export const SpineRow = observer(function SpineRow({
   row,
   carries,
   rails,
@@ -485,71 +486,78 @@ const SpineRow = observer(function SpineRow({
   onOpenTaskMenu?: () => void
   onOpenSession: (s: SessionView) => void
 }) {
-  const presentation = row.presentation
-  const state = presentation.state
-  const context = mode !== 'full' && !row.matched
-  const note = context ? null : presentation.note
-  const bands = folded ? [] : deckSessions(row, mode)
-  // The seat is held for work that could be picked up — never under a proposal,
-  // and never to restate a dependency the strip has already named above it.
-  const seat =
-    context || row.stage === 'proposed' ? null : seatFor(presentation.presence)
-  // A FOLDED BRANCH REPORTS LIVE STATE, not the count already in its payload:
-  // "2 running" is the thing the fold is hiding, and `3 tasks` is printed on the
-  // same line beside it.
-  const liveWord =
-    folded && row.descendantIds.length > 0 && row.workingAgentCount > 0
-      ? `${row.workingAgentCount} running`
-      : undefined
-  const selected = bands.some((s) => s.sessionId === currentSessionId)
-  // NO GAP BETWEEN BLOCKS, deliberately. Every row draws the rails crossing it
-  // inside its own band, so the tree is continuous only while the rows are
-  // flush: a few points of breathing room between task blocks would cut every
-  // ancestor line in the column at exactly that point.
-  return (
-    <View>
-      <TaskStrip
-        depth={row.depth}
-        carries={carries}
-        rails={rails}
-        accent={accent}
-        // The strip's own rail is its PARENT's descent, at the parent's x. It
-        // ends at this elbow when no sibling follows — the agents and children
-        // below hang one step further in, on a different line.
-        stops={stops}
-        title={row.title}
-        displayRef={row.displayRef}
-        stage={row.stage}
-        state={state}
-        note={note}
-        seat={seat}
-        summary={row.collapsedSummary}
-        folded={folded}
-        liveWord={liveWord}
-        selected={selected}
-        context={context}
-        foldable={row.hasPayload}
-        onPress={onOpenTask}
-        onLongPress={context ? undefined : onOpenTaskMenu}
-        onToggleFold={onToggleFold}
-      />
-      {bands.map((session, i) => (
-        <Band
-          key={session.sessionId}
-          row={row}
-          session={session}
+  const content = settled(() => {
+    const presentation = row.presentation
+    const state = presentation.state
+    const context = mode !== 'full' && !row.matched
+    const note = context ? null : presentation.note
+    const bands = folded ? [] : deckSessions(row, mode)
+    // The seat is held for work that could be picked up — never under a proposal,
+    // and never to restate a dependency the strip has already named above it.
+    const seat =
+      context || row.stage === 'proposed' ? null : seatFor(presentation.presence)
+    // A FOLDED BRANCH REPORTS LIVE STATE, not the count already in its payload:
+    // "2 running" is the thing the fold is hiding, and `3 tasks` is printed on the
+    // same line beside it.
+    const liveWord =
+      folded && row.descendantIds.length > 0 && row.workingAgentCount > 0
+        ? `${row.workingAgentCount} running`
+        : undefined
+    const selected = bands.some((s) => s.sessionId === currentSessionId)
+    // NO GAP BETWEEN BLOCKS, deliberately. Every row draws the rails crossing it
+    // inside its own band, so the tree is continuous only while the rows are
+    // flush: a few points of breathing room between task blocks would cut every
+    // ancestor line in the column at exactly that point.
+    return (
+      <View>
+        <TaskStrip
           depth={row.depth}
           carries={carries}
           rails={rails}
           accent={accent}
-          nameOf={nameOf}
-          stops={i === bands.length - 1 && !childFollows}
-          current={session.sessionId === currentSessionId}
-          onPress={() => onOpenSession(session)}
+          // The strip's own rail is its PARENT's descent, at the parent's x. It
+          // ends at this elbow when no sibling follows — the agents and children
+          // below hang one step further in, on a different line.
+          stops={stops}
+          title={row.title}
+          displayRef={row.displayRef}
+          stage={row.stage}
+          state={state}
+          note={note}
+          seat={seat}
+          summary={row.collapsedSummary}
+          folded={folded}
+          liveWord={liveWord}
+          selected={selected}
+          context={context}
+          foldable={row.hasPayload}
+          onPress={onOpenTask}
+          onLongPress={context ? undefined : onOpenTaskMenu}
+          onToggleFold={onToggleFold}
         />
-      ))}
+        {bands.map((session, i) => (
+          <Band
+            key={session.sessionId}
+            row={row}
+            session={session}
+            depth={row.depth}
+            carries={carries}
+            rails={rails}
+            accent={accent}
+            nameOf={nameOf}
+            stops={i === bands.length - 1 && !childFollows}
+            current={session.sessionId === currentSessionId}
+            onPress={() => onOpenSession(session)}
+          />
+        ))}
+      </View>
+    )
+  })
+  return content === LOADING ? (
+    <View accessibilityLabel="Loading task" style={{ minHeight: STRIP_H, justifyContent: 'center', paddingHorizontal: space.md }}>
+      <View style={{ height: 8, width: 120, borderRadius: radius.sm, backgroundColor: color.tertiaryFill }} />
     </View>
-  )
+  ) : content
 })
 
 const Band = observer(function Band({

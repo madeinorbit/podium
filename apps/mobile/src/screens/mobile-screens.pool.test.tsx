@@ -1,4 +1,5 @@
 import { omitGone } from '@podium/client-graph/lookup'
+import { coldMissionRowFixture } from '@podium/client-graph/mission-row-loading.test.fixture'
 import { referenceState } from '../../../../tests/worklist/diagnostics/reference-state'
 /** Count real pool publications across bootstrap, updates, gestures, idle and
  * provider rebuilds. Settled screen projections must reuse their cached paint
@@ -23,7 +24,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import { asIssueId, asSessionId } from '@podium/model'
 import { formatSessionRef } from '@podium/protocol'
 import type { EntityRecord } from '@podium/sync/replica'
-import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { type ReactNode, useCallback } from 'react'
 import { afterAll, afterEach, expect, it, vi } from 'vitest'
 import { buildCorpus } from '../../../../tests/worklist/harness/src/fixture'
@@ -263,6 +264,7 @@ vi.mock('expo-router/build/react-navigation/bottom-tabs', async () => {
 vi.stubEnv('EXPO_OS', 'web')
 const { createMobilePool, useMobilePoolProjection } = await import('../client/mobile-pool')
 const { SessionConversation } = await import('../components/SessionConversation')
+const { SpineRow } = await import('../components/MissionDeck')
 const { IssuesScreen } = await import('./IssuesScreen')
 const { MissionScreen } = await import('./MissionScreen')
 const { MissionDetailsScreen } = await import('./MissionDetailsScreen')
@@ -680,3 +682,24 @@ it('a cold conversation renders its declared joined machine name without loading
   })
   expect(state.errors).toEqual([])
 }, 30_000)
+
+
+it.each([false, true])('a cold phone SpineRow shows loading then its task (folded=%s)', async (folded) => {
+  const f = coldMissionRowFixture()
+  try {
+    expect(f.pool.tables.issue.has(f.row.id)).toBe(false)
+    const ui = render(<SpineRow row={f.row} carries={[]} rails={[]} accent="#a04090"
+      stops childFollows={false} mode="full" nameOf={() => undefined} folded={folded}
+      currentSessionId={undefined} onToggleFold={() => {}} onOpenTask={() => {}}
+      onOpenSession={() => {}} />)
+    expect(ui.getByLabelText('Loading task')).toBeDefined()
+    expect(ui.container.textContent).not.toContain('Loaded cold task')
+    await act(async () => { f.pool.hydrate() })
+    await waitFor(() => expect(ui.container.textContent).toContain('Loaded cold task'))
+    expect(ui.queryByLabelText('Loading task')).toBeNull()
+    if (!folded) expect(ui.container.textContent).toContain('Loaded cold agent 0')
+  } finally {
+    cleanup()
+    f.close()
+  }
+})

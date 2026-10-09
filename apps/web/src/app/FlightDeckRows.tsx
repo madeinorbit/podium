@@ -1319,7 +1319,8 @@ interface HungContext {
 
 export const HungRows = observer(function HungRows(ctx: HungContext): JSX.Element | null {
   const reduce = useReducedMotion()
-  const ids = ctx.model.sessionIds(ctx.mode)
+  const ids = settled(() => ctx.model.sessionIds(ctx.mode))
+  if (ids === LOADING) return <div role="status" aria-label="Loading agents" style={{ height: 46, marginLeft: ctx.inset }}><GhostBar /></div>
   if (ids.length === 0) return null
   return (
     <div className="relative" style={{ marginLeft: ctx.inset }}>
@@ -1582,24 +1583,30 @@ export const TaskRow = observer(
     onRenameDone: () => void
   }): JSX.Element {
     const intent = useClickIntent()
-    const payload = row.hasPayload
-    const bandLeft = SPINE_PAD + row.depth * DEPTH_STEP
-    const ownRailX = SPINE_PAD + (row.depth - 1) * DEPTH_STEP + RAIL_INSET
+    const depth = settled(() => row.depth)
+    const pending = () => <div className="relative pb-1.5" data-flight-issue={row.id} role="status" aria-label="Loading task" style={{ minHeight: BAND_HEIGHT }}><GhostBar /></div>
+    if (depth === LOADING) return pending()
+    const bandLeft = SPINE_PAD + depth * DEPTH_STEP
+    const ownRailX = SPINE_PAD + (depth - 1) * DEPTH_STEP + RAIL_INSET
     // A visible session can belong to a task whose band is offscreen. That
     // session needs its own owner fields, but never the hidden band's payload.
     if (deckWindow?.enabled && !deckWindow.contains(deckTaskKey(row.key))) {
       const issue = row.view.catalogIssue(row.id)
+      const stage = settled(() => row.stage)
+      if (stage === LOADING) return pending()
       return <div className="relative pb-1.5" data-flight-issue={row.id} data-depth={row.depth}>
-        <BranchGuides carries={carries} rails={rails} mid={row.stage === 'proposed' ? PROPOSED_MID : BAND_MID} />
+        <BranchGuides carries={carries} rails={rails} mid={stage === 'proposed' ? PROPOSED_MID : BAND_MID} />
         <DeckRowPlaceholder row={{ key: deckTaskKey(row.key), size: BAND_HEIGHT, get text() { return deckWindow.text(deckTaskKey(row.key)) } }} window={deckWindow} />
         {!collapsed && issue !== LOADING && issue && <HungRows model={row} mode={mode} rootId={rootId} inMission={inMission} nameOf={nameOf}
           activeSessionId={activeSessionId} arrivals={arrivals} settle={settle} inset={bandLeft} rail={agentRail} tail={childFollows}
           onSelectSession={onSelectSession} onSelectNative={onSelectNative} window={deckWindow} />}
       </div>
     }
-    if (!row.drawable) return <div className="relative pb-1.5" data-flight-issue={row.id}><GhostBar /></div>
+    if (!row.drawable) return pending()
+    const payload = settled(() => row.hasPayload)
+    if (payload === LOADING) return pending()
     const presentation = settled(() => row.presentation)
-    if (presentation === LOADING) return <div className="relative pb-1.5" data-flight-issue={row.id}><GhostBar /></div>
+    if (presentation === LOADING) return pending()
     if (!presentation) throw new Error('Pool mission row has no presentation values')
     const state = presentation!.state
     const drawsSessions = row.drawsSessions(mode)
