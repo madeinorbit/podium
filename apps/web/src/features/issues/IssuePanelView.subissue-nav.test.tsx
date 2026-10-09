@@ -97,7 +97,7 @@ vi.mock('@/app/store', () => {
       trpc,
       httpOrigin: '',
       openFileInWorktree: vi.fn(),
-      uiState: { get: () => null, set: vi.fn() },
+      uiState: { get: () => null, set: vi.fn(), subscribe: () => () => {} },
       issues: [PARENT, CHILD, RELATED, EMPTY_DRAFT, FINISHED],
       sessions: [CHILD_SESSION],
       machines: [],
