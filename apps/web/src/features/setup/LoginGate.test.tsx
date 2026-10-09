@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { LoginGate, LoginView } from './LoginGate'
 
 afterEach(() => {
@@ -139,11 +139,52 @@ describe('LoginGate', () => {
 })
 
 describe('LoginView', () => {
+  beforeEach(() => localStorage.clear())
+
   function typePasswordAndSubmit(value: string) {
-    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'alice@example.com' } })
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value } })
     fireEvent.click(screen.getByRole('button', { name: /log in/i }))
   }
+
+  const signedIn = {
+    ok: true,
+    status: 200,
+    json: async () => ({
+      ok: true,
+      userId: 'alice',
+      memberId: 'alice',
+      syncBoundaryId: 'installation-a',
+    }),
+  }
+
+  it('hides the email field and signs in the first admin as user:sole', async () => {
+    const login = vi.fn().mockResolvedValue(signedIn)
+    vi.stubGlobal('fetch', login)
+    const onLoggedIn = vi.fn()
+    render(<LoginView httpOrigin="http://x" onLoggedIn={onLoggedIn} />)
+    expect(screen.queryByLabelText(/^email$/i)).toBeNull()
+    expect(document.activeElement).toBe(screen.getByLabelText(/password/i))
+    typePasswordAndSubmit('hunter2')
+    await waitFor(() => expect(onLoggedIn).toHaveBeenCalled())
+    const body = JSON.parse((login.mock.calls[0]?.[1] as { body: string }).body)
+    expect(body).toEqual({ email: 'user:sole', password: 'hunter2' })
+  })
+
+  it('signs in with an email once revealed, and keeps it shown next time', async () => {
+    const login = vi.fn().mockResolvedValue(signedIn)
+    vi.stubGlobal('fetch', login)
+    const onLoggedIn = vi.fn()
+    const view = render(<LoginView httpOrigin="http://x" onLoggedIn={onLoggedIn} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with email' }))
+    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'alice@example.com' } })
+    typePasswordAndSubmit('hunter2')
+    await waitFor(() => expect(onLoggedIn).toHaveBeenCalled())
+    const body = JSON.parse((login.mock.calls[0]?.[1] as { body: string }).body)
+    expect(body).toEqual({ email: 'alice@example.com', password: 'hunter2' })
+    view.unmount()
+    render(<LoginView httpOrigin="http://x" onLoggedIn={vi.fn()} />)
+    expect(screen.getByLabelText(/^email$/i)).toBeTruthy()
+  })
 
   it('logs in with the entered password (credentials included) and calls onLoggedIn', async () => {
     const login = vi.fn().mockResolvedValue({
@@ -168,7 +209,7 @@ describe('LoginView', () => {
       expect.objectContaining({ method: 'POST', credentials: 'include' }),
     )
     const body = JSON.parse((login.mock.calls[0]?.[1] as { body: string }).body)
-    expect(body).toEqual({ email: 'alice@example.com', password: 'hunter2' })
+    expect(body).toEqual({ email: 'user:sole', password: 'hunter2' })
   })
 
   it('shows an error and does not proceed on a wrong password (401)', async () => {
@@ -224,7 +265,6 @@ describe('LoginView', () => {
     expect(status.textContent).toContain('waiting on you')
     fireEvent.change(screen.getByLabelText(/password/i), { target: { value: 'pw' } })
     expect(status.textContent).toContain('press ⏎ to sign in')
-    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'alice@example.com' } })
     fireEvent.click(screen.getByRole('button', { name: /log in/i }))
     expect(status.textContent).toContain('verifying')
     release({
