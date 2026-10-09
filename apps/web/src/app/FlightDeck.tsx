@@ -1,21 +1,14 @@
 import type { SessionModel } from '@podium/client-graph/models'
-import { isFinished } from '@podium/model/browser'
 import { relativeTime } from '@podium/client-core/focus'
 import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
-import {
-  FLIGHT_DECK_BRIEF_CUTOFF_KEY,
-  FLIGHT_DECK_FOLDS_KEY,
-  FLIGHT_DECK_MODE_KEY,
-} from '@podium/client-core/ui-state'
+import { FLIGHT_DECK_BRIEF_CUTOFF_KEY } from '@podium/client-core/ui-state'
 import {
   type CollapsedSummary,
   type DeckIssueState,
   type DeckState,
   deckSessions,
   deckViewEmptyLine,
-  type FlightDeckFoldMap,
-  type FlightDeckFoldState,
   type FlightDeckMode,
   type FlightDeckRow,
   flightDeckRowDefaultFolded,
@@ -25,13 +18,10 @@ import {
   type IssueNavigationModel,
   type IssueNote,
   isCoordinatorSession,
-  issueAbandoned,
   issueOwnContentUnread,
   type MissionDeparture,
   type machineViewsFromWire,
-  nativeSubagentRows,
   type PresenceNote,
-  readFlightDeckFolds,
   type SessionRole,
   sessionRole,
   sessionUnreadEmphasized,
@@ -39,7 +29,6 @@ import {
   spawnIssueAgent,
   subtreeUnread,
   treeGuides,
-  writeFlightDeckFolds,
 } from '@podium/client-core/values'
 import { MissionDeckIssueModel, requireLoaded, settled } from '@podium/client-graph/mission-view'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
@@ -93,7 +82,6 @@ import { useIssueExplorer } from '@/features/issues/explorer/explorer-context'
 import type { IssueContextMenu } from '@/features/issues/IssueContextMenu'
 import { IssueStatusPicker } from '@/features/issues/IssueStatusPicker'
 import { STAGE_LABELS } from '@/features/issues/issue-card'
-import { StageGlyph } from '@/features/issues/issue-glyphs'
 import { IssueCloseDialog, useIssueCloseGuard } from '@/features/issues/issue-lifecycle'
 import { useIssueStatusApply } from '@/features/issues/use-issue-status-apply'
 import {
@@ -270,7 +258,7 @@ function MissionAgentMenuContent({
  * edge — which settles the same confusion without spending a second line on it,
  * and lets one branch line carry everything a task owns.
  */
-import { DEPTH_STEP, RAIL_INSET, BAND_HEIGHT, PROPOSED_BAND, ROOT_RAIL, ROOT_BLOCK_INSET, GUTTER, STATE_COL, type RailTone, railFor, readMode, writeMode, type FoldState, type FoldMap, readFolds, writeFolds, type FoldableRow, hasPayload, isFolded, sessionSearchText, IssueNoteChip, SeatChip, seatFor, roleLabel, SessionRow, HungRows, DeckFlatRows, TaskRow, ProposalRow } from './FlightDeckRows'
+import { DEPTH_STEP, RAIL_INSET, BAND_HEIGHT, PROPOSED_BAND, ROOT_RAIL, ROOT_BLOCK_INSET, GUTTER, STATE_COL, type RailTone, railFor, type FoldState, type FoldMap, readFolds, writeFolds, hasPayload, isFolded, sessionSearchText, IssueNoteChip, SeatChip, seatFor, roleLabel, SessionRow, HungRows, DeckFlatRows, TaskRow, ProposalRow } from './FlightDeckRows'
 export { readFolds, writeFolds, hasPayload, defaultFolded, isFolded, deckTaskUnread } from './FlightDeckRows'
 export type { FoldState, FoldMap } from './FlightDeckRows'
 
