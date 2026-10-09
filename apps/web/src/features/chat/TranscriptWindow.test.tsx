@@ -98,3 +98,15 @@ it('makes Select All include every loaded message before native selection and co
   document.getSelection()!.removeAllRanges(); scroll(40_080)
   expect(host.querySelectorAll('[data-message]').length).toBeLessThan(40)
 })
+
+it('unmounts automatically unfolded runs while preserving deliberate user-opened state', () => {
+  const automatic = host.querySelector('[data-transcript-row="row-4"] [data-message]')!
+  automatic.setAttribute('data-transcript-run-view', '')
+  automatic.setAttribute('data-open', 'true')
+  automatic.querySelector('button')!.setAttribute('data-transcript-run-toggle', '')
+  automatic.querySelector('button')!.setAttribute('aria-expanded', 'true')
+  host.querySelector('[data-transcript-row="row-6"] [data-message]')!.setAttribute('data-transcript-retain', '')
+  scroll(40_000)
+  expect(host.querySelector('[data-transcript-row="row-4"] [data-message]')).toBeNull()
+  expect(host.querySelector('[data-transcript-row="row-6"] [data-message]')).not.toBeNull()
+})
