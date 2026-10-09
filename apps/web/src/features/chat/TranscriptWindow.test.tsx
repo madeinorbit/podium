@@ -173,3 +173,16 @@ it('preserves the matched occurrence when native Find repeats a word in one mess
   expect(selection.toString()).toBe('retained')
   expect(selection.anchorOffset).toBe(15)
 })
+
+it('keeps only the buffer drawn across repeated native Find jumps while retaining its text nodes', () => {
+  const earlier = host.querySelector('[data-transcript-row="row-600"]')!
+  const text = earlier.querySelector('[data-transcript-find-proxy]')!.firstChild!
+  act(() => text.parentElement!.dispatchEvent(new Event('beforematch')))
+  scroll(48_000)
+  const next = host.querySelector('[data-transcript-row="row-900"]')!
+  act(() => next.querySelector('[data-transcript-find-proxy]')!.dispatchEvent(new Event('beforematch')))
+  scroll(72_000)
+  expect(earlier.querySelector('[data-message]')).toBeNull()
+  expect(text.isConnected).toBe(true)
+  expect(host.querySelectorAll('[data-message]').length).toBeLessThan(40)
+})

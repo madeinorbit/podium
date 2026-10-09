@@ -125,11 +125,11 @@ export function useTranscriptWindow(
       if (!entry) continue
       if (entry.mounted && entry.height <= 0 && !entry.node.hasAttribute('data-transcript-placeholder')) entry.height = measuredHeight(entry.node)
       if (next.has(key)) entry.revealing = false
-      const show = next.has(key) || entry.finding || entry.revealing || entry.height <= 0
+      const show = next.has(key) || entry.revealing || entry.height <= 0
       if (show === entry.mounted) continue
       if (!show) {
         entry.height = measuredHeight(entry.node)
-        entry.text = entry.node.innerText ?? entry.node.textContent ?? ''
+        if (!entry.finding) entry.text = entry.node.innerText ?? entry.node.textContent ?? ''
       }
       entry.mounted = show
       if (show) mounted.current.add(key)
@@ -360,7 +360,7 @@ export function TranscriptWindowRow({ window: windowing, rowKey, index, geometry
       document.removeEventListener('pointerdown', finish, true)
       document.removeEventListener('keydown', finish, true)
     }
-  }, [finding, windowing])
+  }, [finding, mounted, windowing])
   return <div ref={ref} data-transcript-row={rowKey}
     data-transcript-placeholder={!mounted ? '' : undefined}
     data-block={!mounted ? index : undefined} data-row-key={!mounted ? rowKey : undefined}
