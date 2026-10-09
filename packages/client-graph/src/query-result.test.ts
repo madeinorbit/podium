@@ -558,3 +558,90 @@ describe('unpublished keyed answer construction', () => {
     expect(builder.finish().snapshot()).toEqual([1])
   })
 })
+
+describe('keyed subsets and bounded partitions', () => {
+  it('tracks shared-record predicates and totals independently of order and releases demand', () => {
+    const rows = observable.map([
+      ['a', observable({ id: 'a', order: '1', asking: true, pending: 2, body: '' })],
+      ['b', observable({ id: 'b', order: '2', asking: false, pending: 0, body: '' })],
+    ], { deep: false })
+    const reads = vi.fn((id: string) => rows.get(id))
+    const query = createQueryResult({ name: 'shared subset', ids: () => rows.keys(), has: id => rows.has(id),
+      read: reads, order: id => rows.get(id)!.order, matches: [row => row.asking], totals: [row => row.pending], subscribe: () => () => {} })
+    let answer: unknown, subset: unknown
+    const counts: unknown[] = [], totals: unknown[] = []
+    const stops = [autorun(() => { answer = query.get() }), autorun(() => { subset = query.getMatch(0) }),
+      autorun(() => counts.push(query.countMatch(0))), autorun(() => totals.push(query.total(0)))]
+    try {
+      const first = answer, firstSubset = subset
+      reads.mockClear()
+      runInAction(() => { rows.get('b')!.body = 'unrelated payload' })
+      expect(reads).not.toHaveBeenCalled()
+      expect(answer).toBe(first); expect(subset).toBe(firstSubset)
+      runInAction(() => { rows.get('b')!.order = '0' })
+      expect(counts).toEqual([1]); expect(totals).toEqual([2])
+      expect(subset).toBe(firstSubset)
+      runInAction(() => { rows.get('b')!.asking = true; rows.get('a')!.pending = 0 })
+      expect((subset as { id: string }[]).map(row => row.id)).toEqual(['b', 'a'])
+      expect(counts).toEqual([1, 2]); expect(totals).toEqual([2, 0])
+      expect((firstSubset as { id: string }[]).map(row => row.id)).toEqual(['a'])
+      for (const stop of stops) stop()
+      reads.mockClear()
+      runInAction(() => { rows.get('a')!.asking = false })
+      expect(reads).not.toHaveBeenCalled()
+    } finally { for (const stop of stops) stop(); query.dispose() }
+  })
+
+  it('matches rebuild partition order through boundary crossings, ties, moves and removals', () => {
+    const rows = observable.map<string, { id: string; order: string; stale?: string }>(undefined, { deep: false })
+    let changed: ((id: string | undefined) => void) | undefined
+    const query = createQueryResult({ name: 'retained prefix', ids: () => rows.keys(), has: id => rows.has(id),
+      read: id => rows.get(id), order: id => rows.get(id)!.order,
+      partition: { order: row => row.stale, compareOrder: (a, b) => a.localeCompare(b), keepFirst: 3, minimumSize: 5 },
+      subscribe: listener => { changed = listener; return () => { changed = undefined } } })
+    const stop = autorun(() => { query.partition(false); query.partition(true) })
+    const check = () => {
+      const all = [...rows.values()].sort((a, b) => a.order.localeCompare(b.order) || a.id.localeCompare(b.id))
+      const candidates = all.filter(row => row.stale !== undefined).sort((a, b) => a.stale!.localeCompare(b.stale!) || a.id.localeCompare(b.id))
+      const hidden = new Set(all.length > 5 ? candidates.slice(3).map(row => row.id) : [])
+      for (const hide of [false, true]) {
+        const actual = query.partition(hide)
+        expect(actual).not.toBe(LOADING)
+        expect((actual as { id: string }[]).map(row => row.id)).toEqual(all.filter(row => hidden.has(row.id) === hide).map(row => row.id))
+      }
+    }
+    const set = (id: string, order?: string, stale?: string) => runInAction(() => {
+      if (order === undefined) rows.delete(id)
+      else rows.set(id, { id, order, stale })
+      changed?.(id)
+    })
+    try {
+      for (let index = 0; index < 8; index++) { set(String(index), String(index), String(index % 3)); check() }
+      const saved = query.partition(true) as { id: string }[], savedIds = saved.map(row => row.id)
+      set('7', '-1', '-1'); check()
+      expect(saved.map(row => row.id)).toEqual(savedIds)
+      set('1', '1'); check()
+      set('0', '9', '9'); check()
+      for (const id of ['6', '7', '5', '4']) { set(id); check() }
+      runInAction(() => { rows.clear(); changed?.(undefined) }); check()
+    } finally { stop(); query.dispose() }
+  })
+
+  it('notifies every declared answer through pending resolution and empty replacement', () => {
+    let ids = ['pending'], changed: ((id: string | undefined) => void) | undefined
+    const ready = observable.box(false)
+    const query = createQueryResult({ name: 'pending subsets', ids: () => ids, has: id => ids.includes(id),
+      read: () => ready.get() ? 1 : LOADING, matches: [value => value > 0], totals: [value => value],
+      partition: { order: () => undefined, compareOrder: (a, b) => a.localeCompare(b), keepFirst: 3, minimumSize: 5 },
+      subscribe: listener => { changed = listener; return () => { changed = undefined } } })
+    let answer: unknown[] = []
+    const stop = autorun(() => { answer = [query.getMatch(0), query.count(), query.total(0), query.partition(false)] })
+    try {
+      expect(answer).toEqual([LOADING, LOADING, LOADING, LOADING])
+      runInAction(() => ready.set(true))
+      expect(answer).toEqual([[1], 1, 1, [1]])
+      runInAction(() => { ids = []; changed?.(undefined) })
+      expect(answer).toEqual([[], 0, 0, []])
+    } finally { stop(); query.dispose() }
+  })
+})

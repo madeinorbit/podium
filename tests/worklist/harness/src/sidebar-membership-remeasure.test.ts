@@ -177,3 +177,13 @@ for (const [action, mechanism] of [
     expect(count(fourth), mechanism).toBeLessThanOrEqual(count(first))
   })
 }
+
+it('an unrelated heartbeat runs no section projection or session order query', async () => {
+  for (const scale of [1, 4]) {
+    const report = await capture('members', scale)
+    const work = report.cells.find(cell => cell.action === 'heartbeat')!.work
+    const sections = Object.entries(work.derivationsBy).filter(([name]) =>
+      /MobileSection|MobileSectionsView|GroupNode|pool\.sidebar|worklist\.phone|worklist\.worktree/.test(name))
+    expect(sections).toEqual([])
+  }
+})
