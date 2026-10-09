@@ -9,6 +9,21 @@ import { MobxPool } from './pool'
 const stamp = '2026-10-07T12:00:00Z'
 const gc = () => (globalThis as unknown as { Bun: { gc(force: boolean): void } }).Bun.gc(true)
 const turns = async () => { for (let turn = 0; turn < 10; turn++) await new Promise<void>(resolve => setTimeout(resolve, 0)) }
+async function reachable(held: WeakRef<object>[]): Promise<number> {
+  let remaining = held.length
+  // JSC can conservatively retain the last mounting stack. Give collections
+  // and weak reads separate jobs, with a finite limit. A real owner still
+  // retains its targets through this same probe (the negative control below).
+  for (let attempt = 0; attempt < 20; attempt++) {
+    await turns()
+    await new Promise<void>(resolve => setTimeout(() => { gc(); resolve() }, 0))
+    remaining = await new Promise<number>(resolve => setTimeout(() => {
+      resolve(held.filter(ref => ref.deref() !== undefined).length)
+    }, 0))
+    if (remaining === 0) return 0
+  }
+  return remaining
+}
 
 function missionPool() {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
@@ -59,10 +74,6 @@ it('opening and closing a mission 50 times leaves no view model or companion rea
   const pool = missionPool()
   try {
     const kept = () => ['root', 'a', 'b', 'a1', 'p'].reduce((sum, id) => sum + lazyKeptCount(pool.issueObject(id)), 0)
-    const reachable = async (held: WeakRef<object>[]) => {
-      await turns(); gc(); await turns(); gc()
-      return held.filter(ref => ref.deref() !== undefined).length
-    }
     const first: WeakRef<object>[] = []
     // Release the mounting stack before the collection probe: JSC's
     // conservative stack scan can retain the most recent synchronous call.
@@ -70,10 +81,8 @@ it('opening and closing a mission 50 times leaves no view model or companion rea
     const afterOne = await reachable(first)
     const keptAfterOne = kept()
     const many: WeakRef<object>[] = []
-    await new Promise<void>(resolve => setTimeout(() => {
-      for (let opening = 0; opening < 50; opening++) openAndClose(pool, many)
-      resolve()
-    }, 0))
+    for (let opening = 0; opening < 50; opening++)
+      await new Promise<void>(resolve => setTimeout(() => { openAndClose(pool, many); resolve() }, 0))
     expect(many.length).toBeGreaterThan(50 * 4)
     // Flat: fifty openings leave no more reachable than one, and one leaves none.
     const afterMany = await reachable(many)
@@ -96,8 +105,7 @@ it('a view model still held after close is the leak this test would see', async 
     const held: WeakRef<object>[] = []
     const owner: MissionScreen[] = []
     for (let opening = 0; opening < 5; opening++) openAndClose(pool, held, owner)
-    await turns(); gc(); await turns(); gc()
-    expect(held.filter(ref => ref.deref() !== undefined).length).toBeGreaterThanOrEqual(5 * 3)
+    expect(await reachable(held)).toBeGreaterThanOrEqual(5 * 3)
     expect(owner).toHaveLength(5)
   } finally { pool.dispose() }
 }, 120_000)
