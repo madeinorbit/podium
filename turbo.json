@@ -216,6 +216,7 @@
         "$TURBO_ROOT$/apps/web/src/app/command-launch-readers.ts",
         "$TURBO_ROOT$/apps/web/src/app/flight-deck-display.ts",
         "$TURBO_ROOT$/apps/web/src/app/pool-navigation-provider.ts",
+        "$TURBO_ROOT$/apps/web/src/app/workspace-mission-reads.ts",
         "$TURBO_ROOT$/apps/web/src/features/worklist/pool-row-data.ts",
         "$TURBO_ROOT$/apps/web/src/lib/issueColors.ts"
       ],
