@@ -1024,7 +1024,7 @@ export const FlightDeckWaterfall = observer(function FlightDeckWaterfall({
 }: FlightDeckWaterfallProps): JSX.Element {
   const query = useStoreHandle<Trpc>().access.trpc.sessions?.activityHistory?.query
   const view = useMemo(() => new WaterfallView(screen, query), [screen, query])
-  useEffect(() => () => view.close(), [view])
+  useEffect(() => { view.resume(); return () => view.close() }, [view])
   useLayoutEffect(() => view.focus(activeSessionId), [view, activeSessionId])
   const now = view.openedNow ?? 0
   const rowsRef = useRef<HTMLDivElement | null>(null)

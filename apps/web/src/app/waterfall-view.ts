@@ -23,13 +23,14 @@ export class WaterfallSession {
   @observable accessor error: string | null = null
   private requestedPhase: string | undefined
   private requestedSettled = false
+  private requestedGeneration = -1
   private request = 0
   private demands = 0
 
   @lazy get startMs(): number { return waterfallSessionStart(this.session, this.view.openedNow ?? 0) }
   /** Stored-on-open fallback. Retained geometry never observes a clock. */
   @lazy get endMs(): number { return Math.max(this.startMs, waterfallSessionEnd(this.session, this.view.openedNow ?? 0)) }
-  @lazy get historyEndMs(): number { return Math.max(this.endMs, this.samples.at(-1)?.at ?? this.endMs) }
+  @lazy get historyEndMs(): number { return this.settled ? this.endMs : Math.max(this.endMs, this.samples.at(-1)?.at ?? this.endMs) }
   @lazy get phase(): string { return this.session.phase }
   @lazy get settled(): boolean { return this.session.settled }
   @lazy get segments() { return waterfallSegments(this.samples, this.startMs, this.historyEndMs) }
@@ -46,20 +47,22 @@ export class WaterfallSession {
   @action load(): void {
     const query = this.view.query
     if (!query || this.view.closed || this.demands === 0) return
-    if (this.requestedPhase !== undefined && (this.requestedSettled === this.settled && this.requestedPhase === this.phase)) return
+    if (this.requestedGeneration === this.view.generation && this.requestedPhase !== undefined && (this.requestedSettled === this.settled && this.requestedPhase === this.phase)) return
     this.requestedPhase = this.phase
     this.requestedSettled = this.settled
+    this.requestedGeneration = this.view.generation
+    const generation = this.view.generation
     const request = ++this.request
     this.loading = true
     this.error = null
     void query({ sessionIds: [this.session.id] }).then(result => runInAction(() => {
-      if (this.view.closed || request !== this.request) return
+      if (this.view.closed || generation !== this.view.generation || request !== this.request) return
       this.loading = false
       this.samples = (result.sessions?.[this.session.id] ?? [])
         .map(sample => ({ at: Date.parse(sample.at), phase: sample.phase }))
         .filter(sample => Number.isFinite(sample.at))
     }), error => runInAction(() => {
-      if (this.view.closed || request !== this.request) return
+      if (this.view.closed || generation !== this.view.generation || request !== this.request) return
       this.loading = false
       this.error = error instanceof Error ? error.message : String(error)
       this.requestedPhase = undefined
@@ -114,6 +117,7 @@ export class WaterfallView {
   @observable accessor activeSessionId: string | null = null
   @observable accessor followedSessionId: string | null = null
   closed = false
+  generation = 0
   readonly row = companion((row: MissionDeckIssueModel) => new WaterfallRow(row, this))
   readonly seat = companion((session: SessionModel) => new WaterfallSession(session, this))
   @lazy({ equals: compareShallow }) get rows(): readonly MissionDeckIssueModel[] {
@@ -123,7 +127,8 @@ export class WaterfallView {
   @lazy get followed(): SessionModel | undefined {
     return this.followedSessionId ? here(this.screen.pool.model('session', this.followedSessionId)) : undefined
   }
-  @action open(now: number): void { if (this.openedNow === null) this.openedNow = now }
+  @action resume(): void { this.closed = false }
+  @action open(now: number): void { this.closed = false; if (this.openedNow === null) this.openedNow = now }
   @action focus(id: string | null): void {
     this.activeSessionId = id
     if (id) this.followedSessionId = id
@@ -138,6 +143,6 @@ export class WaterfallView {
     }
     this.followedSessionId = fallback ?? null
   }
-  @action close(): void { this.closed = true }
+  @action close(): void { this.closed = true; this.generation++ }
 }
 

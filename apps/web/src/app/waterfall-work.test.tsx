@@ -98,11 +98,20 @@ describe('elements waterfall viewport', () => {
           cells.push({ name, ...measured.work })
         }
         history.mockClear()
+        const updated = f.pool.row('session', 's-1-0') as Record<string, unknown>
+        const activity = await measureWork(async () => insideReader('waterfall.activity', async () => {
+          await act(async () => f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 's-1-0',
+            value: { ...updated, agentState: { ...(updated.agentState as object), phase: 'needs_user' } } }] }))
+          await settle()
+        }), { pool: f.pool })
+        expect(history.mock.calls.flatMap(([input]) => input.sessionIds)).toEqual(['s-1-0'])
+        cells.push({ name: 'activity', ...activity.work })
+        history.mockClear()
         const tick = await measureWork(async () => insideReader('waterfall.minute', async () => {
           await act(async () => { state.now += 60000; for (const listener of state.listeners) listener() })
         }), { pool: f.pool })
         expect(history).not.toHaveBeenCalled()
-        expect(Object.keys(tick.work.derivationsBy).filter(name => name.startsWith('observer'))).toEqual(['observerWaterfallLiveEdge'])
+        expect(Object.keys(tick.work.derivationsBy).filter(name => /(?:^|\/)observer/.test(name))).toEqual(['consumer:waterfall.minute/observerWaterfallLiveEdge'])
         expect(Object.keys(tick.work.derivationsBy).some(name => /WaterfallRow|WaterfallSession|observerFlightDeckWaterfall|observerWaterfallIssue|observerWaterfallSessionBar/.test(name))).toBe(false)
         cells.push({ name: 'minute', ...tick.work })
         scales.push(cells)
