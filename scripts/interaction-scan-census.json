@@ -16773,12 +16773,12 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "fixtureSidebarSections",
       "rule": "loop:for-of",
-      "tokens": "f6517c6f5f8922a3ad8c7a51c08654947937cb7608ae6b055734fe1a21bdfb01",
+      "tokens": "efaa117cb36f2a3ee6e552dcf0fd203f5f7fb0d8d1bc4c70914e5e30b1f160b8",
       "gate": [],
       "origin": [
         "4bed1838542c1263d86af04d8f60231a7891b8bcb42ec58e87a88aef7c00c3a7"
       ],
-      "fingerprint": "9287eccce71d34505509e6ee8b3503da2447f143d852b9da10be8dfe2f8b434c",
+      "fingerprint": "d6768b302952d4858e5a5f4735006b153e7b1a1833f7dc04e7f958416aa19523",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -18098,13 +18098,13 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/sidebar/sections/callback",
       "rule": "helper-consumer",
-      "tokens": "7c5bf5216b9e515c52b5a58425276dc2a8dc638a85130948e51a2d2016e699b0",
+      "tokens": "86e7eac067010845922e4465718743e24e726bca576cd4d38fc7220a9a5aa840",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "fc715e76874bdc8fdbd5dfbddec6c7933a5a70840b29bba36e943a2abd6335f2",
+      "fingerprint": "f2705f90f0abfed29350b6c1cf79774254ff2667f6adb6d8f2bd3dcdb4de47e6",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -40774,12 +40774,12 @@
       "file": "packages/client-graph/src/shared/schema.ts",
       "holder": "tableColdRule/ctx",
       "rule": "helper-consumer",
-      "tokens": "664897eb16a0633cefc9a6596dea668d8758b4e9de51ad638132868aeb8f4680",
+      "tokens": "b208f4fdf0b6977e4a079290f637bd0d1805cbe2e4fd98952fa719f11b29feb3",
       "gate": [],
       "origin": [
         "0b48d2161558789ffcf71a27714a263266fb56c6a82c1405fd5d315c19df69f0"
       ],
-      "fingerprint": "46e1c894e397fe1d8cbbfbb24b5acff4208733c0414ac8d0bd9235dddf3bd95f",
+      "fingerprint": "e97c3e21e2882aa4b9a1ac89a0952d16fcbb441ec72338f6faeccb51f84de634",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",

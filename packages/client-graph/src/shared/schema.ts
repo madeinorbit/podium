@@ -1,6 +1,21 @@
-import { isMachinePathWithinRoot, machinePathAncestors, machinePathKey, machinePathSeparator } from '@podium/model/browser'
+import {
+  type ColdContext as ActiveWorkContext,
+  type ColdSpec,
+  coldByRule,
+  ISSUE_ACTIVE_WORK,
+  isMachinePathWithinRoot,
+  keepDeadline,
+  type KeptBySpec,
+  keptByKey,
+  type LaneKeptBySpec,
+  machinePathAncestors,
+  machinePathKey,
+  machinePathSeparator,
+  type MemberKeep,
+  type MembersKeptBySpec,
+  SESSION_ACTIVE_WORK,
+} from '@podium/model/browser'
 import { MISSION_VIEW_ISSUE_FIELDS, MISSION_VIEW_SESSION_FIELDS } from '../mission-view-schema'
-import { isClosed, isExcluded, isFinished, issueAbandoned } from './predicates'
 
 /**
  * POD-4546 (L1a) — the ONE declared model schema both round-three substrates
@@ -293,125 +308,31 @@ export interface ComponentSpec {
 }
 
 /**
- * Whether instances of an entity can be absent from memory.
- *
- * Linear's partial bootstrap: cold collections stay on disk until touched and
- * objects become observable on first access (audit §7). `own` states the
- * predicate over the row itself; `via` says coldness is inherited through a
- * relation because the row alone cannot decide it.
+ * The residency rule's declarations (`ColdSpec` and its sources) and its
+ * evaluator are the active-work rule in `@podium/model` (POD-5593): one
+ * definition for the pool, the server and the disk stores. Re-exported here
+ * for the pool's readers.
  */
-export type ColdSpec =
-  | { readonly kind: 'never'; readonly why: string }
-  | {
-      readonly kind: 'own'
-      /** Human-readable form of `predicate`, for the document and the panel. */
-      readonly when: string
-      /** Fields `predicate` reads; a change to any re-evaluates residency. */
-      readonly dependsOn: readonly string[]
-      readonly predicate: (row: Readonly<Record<string, unknown>>) => boolean
-      readonly why: string
-    }
-  | {
-      readonly kind: 'via'
-      readonly relation: string
-      /** Own decay when the raw reference is absent; a missing referenced row stays conservative. */
-      readonly unbound?: {
-        readonly dependsOn: readonly string[]
-        readonly predicate: (row: Readonly<Record<string, unknown>>) => boolean
-        readonly shownUntil: (row: Readonly<Record<string, unknown>>) => number
-      }
-      readonly why: string
-    }
-  | UnlessShownColdSpec
+export {
+  type ActiveWorkRow,
+  awaitingMergeOf,
+  COLD_SESSION_FIELDS,
+  coldByRule,
+  type ColdSpec,
+  keepDeadline,
+  type KeptBySpec,
+  keptByKey,
+  type LaneKeptBySpec,
+  type MemberKeep,
+  type MembersKeptBySpec,
+  type MergeVerdictRow,
+  type UnlessShownColdSpec,
+  unmergedDeliveryOf,
+  viaTargetOf,
+} from '@podium/model/browser'
 
-/**
- * POD-4665 — cold when `predicate` holds AND nothing the visible rule reads
- * can show the row: the row's own standing ({@link UnlessShownColdSpec.shownUntil})
- * and the members of each declared source ({@link KeptBySpec}) each say how
- * long they can show it, as a deadline on the slice clock (`coarseNow`,
- * inclusive: a deadline `t` shows the row while `coarseNow <= t`). The rule is
- * a SUPERSET of visibility, never a restatement of it: every deadline is the
- * latest instant its input could keep the row visible, so a row R-VIS shows is
- * never cold by rule, and a hidden row may be resident. Deadlines only pass,
- * so a row cold by rule at one clock stays cold by rule at every later one.
- */
-export interface UnlessShownColdSpec {
-  readonly kind: 'unlessShown'
-  /** Human-readable form of the whole rule, for the document and the panel. */
-  readonly when: string
-  /** Own fields `predicate`, `shownUntil` and `finishOf` read. */
-  readonly dependsOn: readonly string[]
-  /** Whether the row may be cold at all. */
-  readonly predicate: (row: Readonly<Record<string, unknown>>) => boolean
-  /** Structural/placement bound, shared with member-triggered warming. */
-  readonly canShow?: {
-    /** Small summary kept for cold rows; never the full row. */
-    readonly fields: readonly string[]
-    /** Ancestor relation whose inverse must be revisited when an ancestor changes. */
-    readonly through: string
-    readonly test: (row: Readonly<Record<string, unknown>>, ctx: ColdContext) => boolean
-  }
-  /** The last instant the row can show on its own; `-Infinity` never, `Infinity` without limit. */
-  readonly shownUntil: (row: Readonly<Record<string, unknown>>) => number
-  /**
-   * The instant a member's {@link MemberKeep} function decays from, or null
-   * when it does not decay at all (read by the member side only).
-   */
-  readonly finishOf: (row: Readonly<Record<string, unknown>>) => number | null
-  /** Every source of members that can keep the row shown; cold only when none can. */
-  readonly keptBy: readonly KeptBySpec[]
-  readonly why: string
-}
-
-/** One source of members that can keep an `unlessShown` row shown. */
-export type KeptBySpec = MembersKeptBySpec | LaneKeptBySpec
-
-/**
- * Members by reference: the rows of one `hasMany` (its inverse `belongsTo`,
- * by the RAW foreign key with the relation's `where` applied, before any
- * collapse) that can keep their row shown.
- */
-export interface MembersKeptBySpec {
-  readonly kind: 'members'
-  /** A `hasMany` on the cold entity, the inverse of a `belongsTo`. */
-  readonly relation: string
-  /** Member fields `keep` reads. */
-  readonly dependsOn: readonly string[]
-  readonly keep: (member: Readonly<Record<string, unknown>>) => MemberKeep
-  readonly why: string
-}
-
-/**
- * POD-4745 — members by containment (slice §2 R3): the rows a `prefix`
- * relation seats in the row's OWN lane that no explicit owner claims. The
- * row names its lane through `through` (a `belongsTo`, by its raw foreign
- * key); the lane's `relation` is a `hasMany` whose inverse is the `prefix`,
- * read as the relation holds it (the prefix's `where`, collapsed twins out,
- * the lane resolved over the union root set); a member counts only while it
- * is in the relation's declared `subset` (POD-4758: the issueless sessions,
- * the legacy test `issueId !== undefined`, `session-ownership.ts:152-158`).
- * Bounded by the lane's members: a row reads its own lane, never a scan.
- */
-export interface LaneKeptBySpec {
-  readonly kind: 'lane'
-  /** A `belongsTo` on the cold entity naming its lane. */
-  readonly through: string
-  /** A `hasMany` on the lane whose inverse is a `prefix` on the member entity. */
-  readonly relation: string
-  /** A subset declared on `relation`: only its members are counted. */
-  readonly subset: string
-  /** Member fields `keep` reads. */
-  readonly dependsOn: readonly string[]
-  readonly keep: (member: Readonly<Record<string, unknown>>) => MemberKeep
-  readonly why: string
-}
-
-/**
- * How long one member can keep its row shown: a deadline, or a function of
- * the row's {@link UnlessShownColdSpec.finishOf} (an idle session whose turn
- * finished decays from its issue's finish, `visibility.ts:51-58`).
- */
-export type MemberKeep = number | ((finish: number) => number)
+/** What the rule asks of its caller, over the pool schema's entities. */
+export type ColdContext = ActiveWorkContext<EntityName>
 
 /**
  * A whole-kind membership rule: rows of one entity that share a group key
@@ -522,174 +443,8 @@ const SESSION_STATUS_RANK: Readonly<Record<string, number>> = {
   hibernated: 1,
 }
 
-// ---------------------------------------------------------------------------
-// The issue's residency bound (POD-4665)
-// ---------------------------------------------------------------------------
-//
-// Upper bounds on R-VIS (slice spec §3; executable definition: the legacy
-// `buildUnifiedRows`, `rows.ts:51-118`, with `sessionRetainsWorklistRow` and
-// `issueVisibleInSidebar` from `slices/worklist/visibility.ts`). Each is the
-// latest instant its input could keep the row visible. The inputs are every
-// input R-VIS has: the issue's own standing, its unlanded branch
-// (`awaitingMergeOf`, no decay), its explicit members (R2) and the
-// issueless sessions its own checkout seats (R3, POD-4745). What is left out
-// only makes a row resident that R-VIS hides: the rescue (a finished row is
-// never rescued, `rows.ts:147`), nesting and placement (they only hide), the
-// unread rollup (both decay windows are allowed), and resume-twin collapse
-// for explicit members (every raw member counts). So the bound is complete:
-// a row R-VIS shows at the pool's clock is never cold by rule. Only a clock
-// rewind can show a cold row (the pool reads the highest clock it has seen).
-
-/** `SIDEBAR_FINISHED_GRACE_MS` (`visibility.ts:18`). */
-const FINISHED_GRACE_MS = 24 * 60 * 60 * 1000
-/** `SIDEBAR_FINISHED_UNREAD_WINDOW_MS` (`visibility.ts:22`). */
-const FINISHED_UNREAD_WINDOW_MS = 7 * 24 * 60 * 60 * 1000
-
-function epochMs(value: unknown): number {
-  return typeof value === 'string' ? Date.parse(value) || 0 : 0
-}
-
-/** `visibility.ts:25-41` and `:51-69`: unread decays after 7 days, read after 24 h past the later of finish and read. */
-function decayDeadline(finishMs: number, unread: boolean, readMs: number | null): number {
-  if (unread || readMs === null) return finishMs + FINISHED_UNREAD_WINDOW_MS
-  return Math.max(finishMs, readMs) + FINISHED_GRACE_MS
-}
-
 /** `rows.ts:62-69`: archived, deleted, `proposed`, or system-owned (`shipping`). */
 export { isExcluded as issueExcluded } from './predicates'
-
-/**
- * The most the merge verdict reads of an issue row: the finished and blocked
- * standing, the close reason (abandoned closures ask nothing), and the
- * checkout's merge axis. Structural so a frozen slice row (`SliceIssue`,
- * which does not spell `branch`/`gitState`) still answers it: the pool's
- * composed row carries the wire's fields at runtime
- * (`row-source.ts:84`, the wire cast).
- */
-export interface MergeVerdictRow {
-  readonly stage?: unknown
-  readonly closedReason?: unknown
-  readonly blocked?: unknown
-  readonly branch?: unknown
-  readonly gitState?: unknown
-}
-
-/**
- * `issuePendingDecision` (`slices/issues.ts:391-404`) without the review
- * fallback: a finished, non-abandoned issue whose private branch holds
- * unlanded work (`issueHasUnmergedDelivery`, `slices/issues.ts:357-367`).
- * R-VIS keeps such a row without limit (`rows.ts:95-104`,
- * `visibility.ts:31-32`), so the cold bound must too.
- */
-export function awaitingMergeOf(row: MergeVerdictRow): boolean {
-  const finished = isFinished(row)
-  if (!finished) return false
-  if (issueAbandoned(row)) return false
-  return unmergedDeliveryOf(row)
-}
-
-/** Private unlanded commits, including a review-stage deliverable. */
-export function unmergedDeliveryOf(row: MergeVerdictRow): boolean {
-  const git = row.gitState as { shared?: unknown; merged?: unknown; ahead?: unknown } | null | undefined
-  return (
-    typeof row.branch === 'string' &&
-    row.branch.length > 0 &&
-    git != null &&
-    git.shared === false &&
-    git.merged !== true &&
-    typeof git.ahead === 'number' &&
-    git.ahead > 0
-  )
-}
-
-/**
- * How long the issue can show without a session (`rows.ts:83-106`): an
- * active human issue and a closed top-level human issue without limit (the
- * closed fold does not decay, `visibility.ts:30`); a finished issue awaiting
- * merge without limit (unlanded commits stay unlanded, `visibility.ts:32`);
- * a finished human child inside `issueVisibleInSidebar`'s window, whichever
- * of the unread and read windows is later (the unread rollup reads sessions);
- * anything else never.
- */
-function issueShownUntil(row: Readonly<Record<string, unknown>>): number {
-  if (isExcluded(row)) return Number.NEGATIVE_INFINITY
-  if (awaitingMergeOf(row)) return Number.POSITIVE_INFINITY
-  const human = row['audience'] === 'human'
-  const stage = row['stage']
-  if (human && (stage === 'planning' || stage === 'in_progress' || stage === 'review')) {
-    return Number.POSITIVE_INFINITY
-  }
-  if (!isFinished(row)) return Number.NEGATIVE_INFINITY
-  if (!row['parentId']) {
-    return human && isClosed(row)
-      ? Number.POSITIVE_INFINITY
-      : Number.NEGATIVE_INFINITY
-  }
-  if (!human) return Number.NEGATIVE_INFINITY
-  const finishMs = epochMs(row['closedAt'] ?? row['updatedAt'])
-  const readMs = row['readAt'] ? epochMs(row['readAt']) : null
-  return Math.max(decayDeadline(finishMs, true, null), decayDeadline(finishMs, false, readMs))
-}
-
-/** `issueFinishedAt` (`issues.ts:310`) when the issue is finished; an idle finished turn decays from it. */
-function issueFinishOf(row: Readonly<Record<string, unknown>>): number | null {
-  return isFinished(row) ? epochMs(row['closedAt'] ?? row['updatedAt']) : null
-}
-
-/**
- * Internal children only render under a placed, non-agent ancestor. An
- * excluded or cold human ancestor cannot be that row at this clock. Walk
- * the raw tree, as nesting does; an unknown ancestor remains conservative.
- * Parentless issues keep their started-by fallback and are not tightened.
- */
-function issueCanShow(row: Readonly<Record<string, unknown>>, ctx: ColdContext): boolean {
-  if (isExcluded(row)) return false
-  if (row['audience'] !== 'agent' || !row['parentId'] || ctx.summary === undefined) return true
-  const seen = new Set<string>()
-  let parent: unknown = row['parentId']
-  while (typeof parent === 'string' && parent.length > 0 && !seen.has(parent)) {
-    seen.add(parent)
-    const ancestor = ctx.summary('issue', parent)
-    if (ancestor === undefined) return true
-    // A parentless agent ancestor can itself be placed through its starter's
-    // owner. Do not dismiss that fallback by looking only at the raw tree.
-    if (!isExcluded(ancestor) &&
-      (ancestor['audience'] !== 'agent' || (!ancestor['parentId'] && ancestor['startedBySession'])) &&
-      !ctx.coldTarget('issue', parent)) return true
-    parent = ancestor['parentId']
-  }
-  return false
-}
-
-/** The session fields {@link sessionKeep} reads. */
-const SESSION_KEEP_FIELDS = ['archived', 'agentKind', 'stoppedAt', 'agentState', 'unread', 'readAt'] as const
-
-/** What visibility reads of a cold session, without loading the full row. */
-export const COLD_SESSION_FIELDS = [...SESSION_KEEP_FIELDS, 'issueId', 'status', 'lastActiveAt'] as const
-
-/**
- * How long a session can keep its issue shown (`sessionRetainsWorklistRow`,
- * `visibility.ts:44-70`): a shell or an archived session never
- * (`isRowSeat`); a run that never finished without limit; a finished run
- * inside its decay window; an idle finished turn inside the window counted
- * from its issue's finish.
- */
-function sessionKeep(row: Readonly<Record<string, unknown>>): MemberKeep {
-  if (row['archived'] === true || row['agentKind'] === 'shell') return Number.NEGATIVE_INFINITY
-  const state = row['agentState'] as
-    | { phase?: unknown; since?: unknown; idle?: { kind?: unknown } }
-    | undefined
-  const phase = state?.phase
-  const unread = row['unread'] === true
-  const readMs = typeof row['readAt'] === 'string' && row['readAt'] ? epochMs(row['readAt']) : null
-  const finishedRaw = row['stoppedAt'] ?? (phase === 'ended' ? state?.since : undefined)
-  if (finishedRaw) return decayDeadline(epochMs(finishedRaw), unread, readMs)
-  const idle = state?.idle?.kind
-  if (phase === 'idle' && (idle === 'done' || idle === 'open_todos')) {
-    return (finish) => decayDeadline(finish, unread, readMs)
-  }
-  return Number.POSITIVE_INFINITY
-}
 
 // ---------------------------------------------------------------------------
 // THE SCHEMA
@@ -945,53 +700,7 @@ const DECLARED = defineSchema({
         why: 'Replaces the denormalized `issue.prefix`: `displayRef` reads `issue.repo.prefix` (replica/contract.ts:106-110).',
       }),
     },
-    cold: {
-      kind: 'unlessShown',
-      when: 'archived, deleted, or closed, and structurally unable to show or past every own/member/lane keeper at the current clock',
-      dependsOn: [
-        'closedAt',
-        'archived',
-        'deletedAt',
-        'stage',
-        'closedReason',
-        'blocked',
-        'audience',
-        'parentId',
-        'startedBySession',
-        'worktreePath',
-        'readAt',
-        'updatedAt',
-        'branch',
-        'gitState',
-      ],
-      predicate: (row) => row['closedAt'] != null || row['archived'] === true || row['deletedAt'] != null,
-      canShow: {
-        fields: ['parentId', 'audience', 'archived', 'deletedAt', 'stage', 'startedBySession', 'worktreePath'],
-        through: 'treeParent',
-        test: issueCanShow,
-      },
-      shownUntil: issueShownUntil,
-      finishOf: issueFinishOf,
-      keptBy: [
-        {
-          kind: 'members',
-          relation: 'sessions',
-          dependsOn: SESSION_KEEP_FIELDS,
-          keep: sessionKeep,
-          why: 'A retained session keeps a closed issue in the list (R-VIS 2); 294 of the 376 closed rows visible at 1x are there for one.',
-        },
-        {
-          kind: 'lane',
-          through: 'worktree',
-          relation: 'sessions',
-          subset: 'issueless',
-          dependsOn: SESSION_KEEP_FIELDS,
-          keep: sessionKeep,
-          why: "R3 (POD-4745): an issueless session running in the issue's own checkout is one of its seats by containment (`indexSessionOwnership`, session-ownership.ts:152-158), and a retained seat keeps the row shown exactly as an explicit member does. Without it the bound held only on today's data (no closed row at 1x or 4x is kept by such a session alone), and an arm had to evaluate every cold row at bootstrap to be safe.",
-        },
-      ],
-      why: 'History stays out of observable tables unless R-VIS can show it: closed folds, completion windows, merge work and retained sessions. Archived/deleted rows and internal children with no potential nesting path cannot show, whatever a session keeps. A parentless ancestor may use its started-by fallback; a live descendant loads an unplaced parent only when its compact keeper bound can give pre-nesting presence. A clock rewind remains the loading exception.',
-    },
+    cold: ISSUE_ACTIVE_WORK,
   },
 
   /** One session (slice §1). */
@@ -1147,16 +856,7 @@ const DECLARED = defineSchema({
         'dedupeSessionsByResume (model/src/identity/session-identity.ts), preserved by the pool resumeGroup collapse rule.',
       why: "Resume twins: session rows pointing at the SAME agent conversation collapse to the most useful one (live > starting/reconnecting > hibernated > exited, then the most recently active), EXCEPT that a group holding an active row is kept in full. A headless row never takes part: it shares its terminal twin's ref by design. On an exact tie of rank and recency the legacy keeps the row earlier in the runtime's list, an order a pool does not have; the lower session id is kept instead.",
     },
-    cold: {
-      kind: 'via',
-      relation: 'issue',
-      unbound: {
-        dependsOn: ['issueId', ...SESSION_KEEP_FIELDS],
-        predicate: (row) => row['stoppedAt'] != null || (row['agentState'] as { phase?: unknown } | undefined)?.phase === 'ended',
-        shownUntil: (row) => keepDeadline(sessionKeep(row), null),
-      },
-      why: 'A bound session inherits its issue’s residency. An unbound stopped run is cold after the same acknowledgment/decay window its issue keeper uses.',
-    },
+    cold: SESSION_ACTIVE_WORK,
   },
 
   /**
@@ -1292,94 +992,6 @@ export function expectedLazy(schema: ModelSchema, relation: RelationSpec): boole
 }
 
 /**
- * The row a `via` entity inherits residency from (its `cold.relation`'s
- * RAW foreign key: residency follows the reference, not the relation's
- * `where`, so a headless session of a closed issue is cold too), or null.
- */
-export function viaTargetOf(
-  schema: ModelSchema,
-  entity: EntityName,
-  row: object,
-): { readonly to: EntityName; readonly id: string } | null {
-  const spec = schema[entity].cold
-  if (spec.kind !== 'via') return null
-  const relation = schema[entity].relations[spec.relation]
-  if (relation?.kind !== 'belongsTo') {
-    throw new Error(`[schema] ${entity}.cold.via must name a belongsTo (got ${relation?.kind})`)
-  }
-  const key = (row as Readonly<Record<string, unknown>>)[relation.foreignKey]
-  return typeof key === 'string' && key.length > 0 ? { to: relation.to, id: key } : null
-}
-
-/**
- * What {@link coldByRule} asks of its caller. A pool answers from what it
- * holds; a rebuild, a re-partition and the gate's check answer from whole
- * row tables ({@link tableColdContext}).
- */
-export interface ColdContext {
-  /** The slice clock (`coarseNow`, epoch ms) `unlessShown` deadlines are read against. */
-  readonly now: number
-  /** Whether `to:id` is known and cold by rule (a `via` row's target). */
-  coldTarget(to: EntityName, id: string): boolean
-  /** Only the entity's declared canShow summary, from resident input or a cold summary. */
-  summary?(entity: EntityName, id: string): Readonly<Record<string, unknown>> | undefined
-  /**
-   * The keeps of the members one `source` of an `unlessShown` entity's
-   * `keptBy` holds at `key` ({@link keptByKey}): for `members`, every member
-   * row naming the row by the raw foreign key with the relation's `where`
-   * passed ({@link keeperOf}); for `lane`, every unowned member the lane
-   * named `key` seats ({@link laneKeepOf}).
-   */
-  keeps(entity: EntityName, source: KeptBySpec, key: string): Iterable<MemberKeep>
-}
-
-/**
- * Whether `row` of `entity` may stay out of memory, by `schema[entity].cold`:
- * `never` is always resident, `own` is the entity's predicate over its row,
- * `via` is cold when the row it inherits from ({@link viaTargetOf}) is known
- * and cold by rule, which `ctx.coldTarget` answers; `unlessShown` is cold when
- * its predicate holds and every deadline, its own and each member's of every
- * source, has passed at `ctx.now` (POD-4665, POD-4745). POD-4580 (Ha3) shares
- * it so a pool, its rebuild and the gate's partition check apply one rule;
- * both arms import it (the MobX arm since POD-4568 G2).
- */
-export function coldByRule(
-  schema: ModelSchema,
-  entity: EntityName,
-  row: object,
-  ctx: ColdContext,
-): boolean {
-  const spec = schema[entity].cold
-  const fields = row as Readonly<Record<string, unknown>>
-  if (spec.kind === 'never') return false
-  if (spec.kind === 'own') return spec.predicate(fields)
-  if (spec.kind === 'unlessShown') {
-    if (!spec.predicate(fields)) return false
-    if (spec.canShow !== undefined && !spec.canShow.test(fields, ctx)) return true
-    if (ctx.now <= spec.shownUntil(fields)) return false
-    const finish = spec.finishOf(fields)
-    for (const source of spec.keptBy) {
-      const key = keptByKey(schema, entity, fields, source)
-      if (key === null) continue
-      for (const keep of ctx.keeps(entity, source, key)) {
-        if (ctx.now <= keepDeadline(keep, finish)) return false
-      }
-    }
-    return true
-  }
-  const target = viaTargetOf(schema, entity, row)
-  return target === null
-    ? spec.unbound !== undefined && spec.unbound.predicate(fields) && ctx.now > spec.unbound.shownUntil(fields)
-    : ctx.coldTarget(target.to, target.id)
-}
-
-/** A member's deadline given its row's `finishOf` (null: an idle finished turn never decays). */
-export function keepDeadline(keep: MemberKeep, finish: number | null): number {
-  if (typeof keep === 'number') return keep
-  return finish === null ? Number.POSITIVE_INFINITY : keep(finish)
-}
-
-/**
  * The pre-nesting presence bound in a cold issue's declared summary. Reuses
  * its compact own/finish deadlines and existing keeper indexes; no row read.
  * A placement-cold issue with a live descendant needs a load only while
@@ -1402,26 +1014,6 @@ export function coldFlatUntil(
     for (const keep of ctx.keeps(entity, source, key)) until = Math.max(until, keepDeadline(keep, bound.finish))
   }
   return until
-}
-
-/**
- * Where `source` holds the members of `row` of the `unlessShown` entity
- * `entity`: its own key for `members`; the raw foreign key of `through` (its
- * lane) for `lane`. Null when the row has none.
- */
-export function keptByKey(
-  schema: ModelSchema,
-  entity: EntityName,
-  row: object,
-  source: KeptBySpec,
-): string | null {
-  const fields = row as Readonly<Record<string, unknown>>
-  const field =
-    source.kind === 'members'
-      ? schema[entity].key
-      : laneOf(schema, entity, source).through.foreignKey
-  const key = fields[field]
-  return typeof key === 'string' && key.length > 0 ? key : null
 }
 
 /** A `members` source, resolved: the member entity and the `belongsTo` naming the owner. */

@@ -3,7 +3,8 @@
  * cold row comes in (schema doc §5; audit §7, Linear's partial bootstrap).
  *
  * THE RULE, FROM THE SCHEMA. `schema[entity].cold` decides, per row, whether
- * it may stay out of memory (`coldByRule` in `shared/src/schema.ts`, one
+ * it may stay out of memory (`coldByRule`, the active-work rule in
+ * `@podium/model` the pool schema declares, POD-5593; one
  * rule for both arms, the rebuild and the gate): `own` is the entity's
  * predicate over its row; `unlessShown` adds that nothing can keep the row in
  * the list at the clock (an issue with a `closedAt` and no session or own
