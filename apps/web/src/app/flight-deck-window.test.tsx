@@ -179,7 +179,7 @@ describe('mission row window', () => {
     await scrollTo(current.container, 6000)
     expect(document.activeElement).toBe(button)
     expect(current.container.querySelector('[data-mounted-row="row:1"]')).not.toBeNull()
-    expect(mounted(current.container).length).toBeLessThan(27)
+    expect(mounted(current.container).length).toBeLessThanOrEqual(windowBudget + 1)
   })
 
   it('restores the last Tab stop when entering an offscreen row in reverse order', async () => {
@@ -303,7 +303,7 @@ describe('mission row window', () => {
     await scrollTo(current.container, 6000)
     expect(document.getSelection()?.toString()).toBe('Unique')
     expect(current.container.querySelector('[data-mounted-row="row:1"]')).not.toBeNull()
-    expect(mounted(current.container).length).toBeLessThan(27)
+    expect(mounted(current.container).length).toBeLessThanOrEqual(windowBudget + 1)
   })
 
   it('retains the same row and pixel when rows above it are removed', async () => {
