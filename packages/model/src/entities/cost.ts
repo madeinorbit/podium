@@ -176,6 +176,20 @@ export const TaskCostWire = z.object({
 })
 export type TaskCostWire = z.infer<typeof TaskCostWire>
 
+/** The all-time own-cost cohort used by an addressed task comparison. */
+export const CostCohortWire = z.object({
+  medianUsdPerReply: z.number().nonnegative().nullable(),
+  taskCount: z.number().int().nonnegative(),
+})
+export type CostCohortWire = z.infer<typeof CostCohortWire>
+
+/** One addressed total and its comparison; no corpus rows cross the wire. */
+export const TaskCostComparisonWire = z.object({
+  task: TaskCostWire,
+  cohort: CostCohortWire,
+})
+export type TaskCostComparisonWire = z.infer<typeof TaskCostComparisonWire>
+
 /**
  * One task's aggregate, for the sheet's ranked table and for the rate cohort.
  * Deliberately not the full `TaskCostWire`: the sheet ranks 226 tasks and does

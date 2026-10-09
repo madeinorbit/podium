@@ -15,6 +15,11 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
     },
+    "./cost-pricing": {
+      "@podium/source": "./src/cost-pricing.ts",
+      "types": "./src/cost-pricing.ts",
+      "import": "./src/cost-pricing.ts"
+    },
     "./browser": {
       "@podium/source": "./src/browser.ts",
       "types": "./src/browser.ts",
