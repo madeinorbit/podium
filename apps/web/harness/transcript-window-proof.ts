@@ -49,7 +49,7 @@ const displayPid = Number((await readFile(`/proc/${displayServer.pid}/task/${dis
 if (!(await readFile(`/proc/${displayPid}/cmdline`, 'utf8')).includes(`${nativeTools}/usr/bin/Xvfb`)) throw new Error('Unidentified private display process')
 const stopDisplay = () => process.kill(displayPid, 'SIGTERM')
 const browser = await chromium.launch({ headless: false, executablePath: resolve(process.env.HOME!, '.cache/ms-playwright/chromium-1243/chrome-linux64/chrome'), args: ['--no-sandbox'], env: nativeEnv }).catch(error => { stopDisplay(); throw error })
-const nativeKey = (id: string, ...keys: string[]) => execFileSync(`${nativeTools}/usr/bin/xdotool`, ['key', '--window', id, '--clearmodifiers', ...keys], { env: nativeEnv })
+const nativeKey = (...keys: string[]) => execFileSync(`${nativeTools}/usr/bin/xdotool`, ['key', '--clearmodifiers', ...keys], { env: nativeEnv })
 try {
   const page = await browser.newPage({ viewport: { width: 1600, height: 900 }, reducedMotion: 'reduce' })
   const errors: string[] = []; page.on('pageerror', error => { errors.push(error.message); console.log('Page error:', error.message) })
@@ -129,8 +129,8 @@ try {
   await page.evaluate(() => { (window as any).__nativeFindEvents = 0; document.addEventListener('beforematch', () => (window as any).__nativeFindEvents++, true) })
   const windowId = execFileSync(`${nativeTools}/usr/bin/xdotool`, ['search', '--onlyvisible', '--class', 'chrom(e|ium)'], { env: nativeEnv, encoding: 'utf8' }).trim().split('\n')[0]!
   execFileSync(`${nativeTools}/usr/bin/xdotool`, ['windowfocus', '--sync', windowId], { env: nativeEnv })
-  nativeKey(windowId, 'ctrl+f')
-  execFileSync(`${nativeTools}/usr/bin/xdotool`, ['type', '--window', windowId, '--clearmodifiers', '--delay', '0', 'native-needle-4000'], { env: nativeEnv })
+  nativeKey('ctrl+f')
+  execFileSync(`${nativeTools}/usr/bin/xdotool`, ['type', '--clearmodifiers', '--delay', '0', 'native-needle-4000'], { env: nativeEnv })
   await page.waitForTimeout(300)
   const nativeFind = await page.evaluate(() => ({ selection: document.getSelection()?.toString(), beforematch: (window as any).__nativeFindEvents, stats: (window as any).__transcriptWindowProof.stats() }))
   console.log(JSON.stringify({ nativeFind }))
@@ -141,8 +141,8 @@ try {
   execFileSync('python3', ['apps/web/harness/xvfb-screen.py', resolve(framebuffer, 'Xvfb_screen0'), resolve(directory, 'browser-find.png')])
   const nativeFindRoundTrip = [{ query: 'native-needle-4000', ...nativeFind.stats }]
   for (const query of ['native-needle-6000', 'native-needle-4000']) {
-    nativeKey(windowId, 'ctrl+f', 'ctrl+a')
-    execFileSync(`${nativeTools}/usr/bin/xdotool`, ['type', '--window', windowId, '--clearmodifiers', '--delay', '0', query], { env: nativeEnv })
+    nativeKey('ctrl+f', 'ctrl+a')
+    execFileSync(`${nativeTools}/usr/bin/xdotool`, ['type', '--clearmodifiers', '--delay', '0', query], { env: nativeEnv })
     await page.waitForTimeout(300)
     const stats = await page.evaluate(() => (window as any).__transcriptWindowProof.stats())
     await writeFile(resolve(directory, 'find-roundtrip.json'), JSON.stringify({ query, stats }, null, 2))
@@ -153,7 +153,7 @@ try {
   }
   await page.screenshot({ path: resolve(directory, 'find.png') })
   execFileSync('python3', ['apps/web/harness/xvfb-screen.py', resolve(framebuffer, 'Xvfb_screen0'), resolve(directory, 'browser-find.png')])
-  nativeKey(windowId, 'Escape')
+  nativeKey('Escape')
   await page.waitForTimeout(100)
   const nativeReveal = await page.evaluate(() => ({ ...((window as any).__transcriptWindowProof.stats()), selection: document.getSelection()?.toString() }))
   if (nativeReveal.selection !== 'native-needle-4000') throw new Error('Native Find lost its range when the bar closed')
