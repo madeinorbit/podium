@@ -62,6 +62,7 @@ export function useDomTranscriptScroll(
     loadingOlder,
     loadOlder,
     rowsToRender,
+    renderStart,
     onFollowChange,
     onPositionChange,
     lookupAnchorRow,
@@ -215,6 +216,7 @@ export function useDomTranscriptScroll(
   useLayoutEffect(() => {
     if (previousRenderStart.current === renderStart) return
     previousRenderStart.current = renderStart
+    if (following.current) return
     // Revealing a history window moves the mounted head. Conserve the anchor
     // in that commit; waiting for the next resize can paint the empty old tile.
     // Ordinary streaming reflows still use the shared ResizeObserver below.
