@@ -7,8 +7,8 @@ import type { MobxPool } from './pool'
 import { pendingInteractionCard } from './notice-card'
 
 export class NoticeMessage implements MessageNotice {
-  constructor(readonly message: MessageModel, private readonly pool: MobxPool) {}
-  @lazy get messageId() { return this.message.id }
+  readonly messageId: string
+  constructor(readonly message: MessageModel, private readonly pool: MobxPool) { this.messageId = message.id }
   @lazy get sessionId() { return this.message.sessionId! }
   @lazy get status() { return this.message.status as MessageNotice['status'] }
   @lazy get createdAt() { return this.message.createdAt }

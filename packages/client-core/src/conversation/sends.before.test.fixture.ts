@@ -1,5 +1,5 @@
+import type { ConversationMessage as MessageRecordWire } from './contracts'
 import type {
-  MessageRecordWire,
   SessionId,
   SessionOffer,
   TranscriptItem,

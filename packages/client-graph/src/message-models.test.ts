@@ -1,3 +1,4 @@
+import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/values'
 import { asSessionId, asThreadId, type MessageRecordWire, type MessageLedgerWire } from '@podium/model'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
@@ -28,11 +29,11 @@ const ledgerRow = (patch: Partial<MessageLedgerWire> = {}): MessageLedgerWire =>
   deliveryStatus: 'failed', ackedBy: null, deliveredAt: null, deliveredTo: null, expiresAt: null,
   clampedFrom: null, hop: 0, ...patch,
 })
-const messageAnswer = (row: ReturnType<typeof noticeMessages>['notices'][number]) => ({
+const messageAnswer = (row: MessageNotice) => ({
   messageId: row.messageId, sessionId: row.sessionId, sessionLabel: row.sessionLabel,
   excerpt: row.excerpt, status: row.status, createdAt: row.createdAt, line: row.line,
 })
-const cardAnswer = (row: ReturnType<typeof noticeInteractions>['cards'][number]) => ({
+const cardAnswer = (row: PendingInteractionCard) => ({
   id: row.id, sessionId: row.sessionId, kind: row.kind, title: row.title, detail: row.detail,
   actions: row.actions, note: row.note, surface: row.surface,
 })
