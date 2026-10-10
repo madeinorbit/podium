@@ -188,7 +188,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
       const origin = normalizeOriginUrl(discovery.originUrl)
       const groupId =
         discovery.repoId ??
-        (origin || `__no_remote__:${discovery.machineId ?? ''}:${machinePathKey(discovery.path)}`)
+        (origin || `local:${discovery.machineId ?? ''}:${machinePathKey(discovery.path)}`)
       headerEntities(this.pool).apply([{ kind: 'repository', id, value: discovery }])
       scans.push([id, { path: discovery.path, machineId: discovery.machineId, groupId, linked: linked.has(machinePathKey(discovery.path)) }])
       for (const root of [discovery.path, ...discovery.worktrees.map((tree) => tree.path)])

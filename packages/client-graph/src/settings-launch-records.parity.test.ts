@@ -11,7 +11,7 @@ import { headerEntities } from './header-entities'
 import { SettingsRepositories } from './settings-repositories'
 import { asMachineId, asRepoId } from '@podium/model/browser'
 import { createLaunchWorkPicker } from './launch-option-views'
-import { createLaunchWorkPicker as beforePicker } from './test-support/launch-option-views-before.test-helper'
+import { createLaunchWorkPicker as beforePicker } from './test-support/launch-option-views-before.test.fixture'
 
 const account: AccountView = { id: 'managed:openai', provider: 'openai', source: 'managed', kind: 'api-key',
   identity: 'abcd…1234', status: 'connected', credentialSource: 'stored', harness: 'codex',
