@@ -264,3 +264,34 @@ it('does no polling without a visible mounted header and resumes on reveal', asy
   release()
   expect(vi.getTimerCount()).toBe(0)
 })
+
+
+it('renews addressed working evidence without clearing or rearming its timer', async () => {
+  const f = start()
+  f.service.start()
+  await flush()
+  const original = Date.now()
+  const active = {
+    sessionId: asSessionId('renewed'), status: 'live',
+    lastActiveAt: new Date(original).toISOString(),
+    agentState: { phase: 'working', since: new Date(original).toISOString() },
+  } as SessionMeta
+  f.sessions.set('renewed', active)
+  f.emit({ type: 'update', rows: [{ kind: 'sessions', id: 'renewed' }] })
+  await flush()
+  await vi.advanceTimersByTimeAsync(1_000)
+  f.rows.mockClear()
+  const arm = vi.spyOn(globalThis, 'setTimeout')
+  const cancel = vi.spyOn(globalThis, 'clearTimeout')
+  f.sessions.set('renewed', { ...active, lastActiveAt: new Date().toISOString() })
+  f.emit({ type: 'update', rows: [{ kind: 'sessions', id: 'renewed' }] })
+  await flush()
+  expect(arm).not.toHaveBeenCalled()
+  expect(cancel).not.toHaveBeenCalled()
+  arm.mockRestore(); cancel.mockRestore()
+  await vi.advanceTimersByTimeAsync(15 * 60_000 + 1 - 1_000)
+  expect(f.history).toHaveBeenCalledTimes(5) // bootstrap, membership, three cadence polls
+  await vi.advanceTimersByTimeAsync(1_000)
+  expect(f.history).toHaveBeenCalledTimes(6) // latest evidence expires, one addressed refresh
+  expect(f.rows).not.toHaveBeenCalled()
+})
