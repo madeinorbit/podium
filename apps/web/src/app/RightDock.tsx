@@ -1,4 +1,3 @@
-import { useClock } from '@/lib/clock-hooks'
 import { asIssueId } from '@podium/model/browser'
 import { observer } from '@podium/client-graph/react'
 import { LOADING, type Loaded } from '@podium/client-graph/worklist/rollup'
@@ -78,12 +77,11 @@ function shown<T>(value: Loaded<T> | undefined): T | undefined {
   return value === LOADING ? undefined : value
 }
 
-/** The shipping panel with the shell's coarse clock, read only while it is open. */
+/** Time belongs to the mounted wait labels inside the shipping panel. */
 const ShippingDockPanel = observer(function ShippingDockPanel(
   props: Omit<ComponentProps<typeof ShippingPanel>, 'now'>,
 ): JSX.Element {
-  const now = useClock(60_000)
-  return <ShippingPanel {...props} now={now} />
+  return <ShippingPanel {...props} now={0} />
 })
 
 function DockPanelFallback(): JSX.Element {

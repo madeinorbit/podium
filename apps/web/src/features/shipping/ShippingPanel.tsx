@@ -24,6 +24,7 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { formatAppError } from '@/app/AppErrorPage'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { issueIdTitle, issueRefLabel } from '@/lib/issue-labels'
+import { useAgeNow } from '@/lib/clock-hooks'
 
 export interface ShippingPanelCommands {
   resolveHold(input: {
@@ -114,7 +115,8 @@ function IssueIdentity({ row }: { row: ShippingPanelRow }): JSX.Element {
 }
 
 function ElapsedWait({ queuedAt, now }: { queuedAt: string; now: number }): JSX.Element {
-  const elapsed = shippingElapsed(queuedAt, now)
+  const live = useAgeNow(queuedAt, 0, now === 0)
+  const elapsed = shippingElapsed(queuedAt, now || live)
   const queued = new Date(queuedAt)
   return (
     <time

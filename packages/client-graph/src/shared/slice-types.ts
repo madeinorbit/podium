@@ -130,9 +130,8 @@ export interface SliceWorktree {
 }
 
 /**
- * Locals (spec §5). Selection is a local, never a row field; the coarse clock
- * is data, never `Date.now()`. Arms receive them through a `LocalsSource`
- * (`arm.ts`, POD-4608), never as a value fixed at creation.
+ * Selection locals (spec §5), published through a keyed LocalsSource.
+ * Wall time is an observed clock/deadline, never a runtime local.
  */
 export interface SliceLocals {
   selectedIssueId: string | null

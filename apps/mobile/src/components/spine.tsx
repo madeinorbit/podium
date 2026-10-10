@@ -8,6 +8,7 @@ import {
   sessionSettled,
 } from '@podium/client-core/values'
 import type { AgentKind, IssueStage, SessionId } from '@podium/model'
+import type { ReactNode } from 'react'
 import { Animated, StyleSheet, Text, View } from 'react-native'
 import Svg, { Line } from 'react-native-svg'
 import { alpha } from '../theme/mix'
@@ -587,7 +588,7 @@ export function SessionBand({
   /** The transcript underneath is showing this session. */
   current: boolean
   /** The timer, the age, or the compute total — whichever this state earns. */
-  right: string | null
+  right: ReactNode
   onPress: () => void
   onLongPress?: () => void
 }) {
