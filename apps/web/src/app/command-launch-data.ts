@@ -1,7 +1,7 @@
 import { omitGone } from '@podium/client-graph/lookup'
 import { useStoreHandle } from '@podium/client-core/react'
 import { LOADING } from '@podium/client-graph'
-import { CommandSessionRow, createCommandPalette, type CommandPaletteData, type RecentCommand } from '@podium/client-graph/command-launch-views'
+import type { CommandPaletteData, RecentCommand } from '@podium/client-graph/command-launch-views'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { RepoView } from '@podium/client-core/values'
 import type { MachineWire } from '@podium/model/browser'
@@ -16,6 +16,7 @@ import {
   readTargetMachines,
   readOpen,
   readPalette,
+  readCommandViews,
   readSession,
   readSessions,
 } from './command-launch-readers'
@@ -103,8 +104,8 @@ type CommandPaletteSnapshot = {
   defaultAgent: SessionView['agentKind']
 }
 export function useCommandPaletteSnapshot(active = true): CommandPaletteSnapshot | undefined {
-  const pool = useWorklistPool()
-  const picker = useMemo(() => pool && active ? createCommandPalette(pool) : undefined, [pool, active])
+  const views = useWorklistPoolProjection(readCommandViews, undefined, active)
+  const picker = useMemo(() => views && active ? views.picker() : undefined, [views, active])
   useEffect(() => { if (active) picker?.open(); return () => picker?.close() }, [picker, active])
   const read = useMemo(() => (): CommandPaletteSnapshot | undefined => picker && { data: picker.palette(), sessions: picker.sessions, selectedSessions: picker.selectedSessions, recent: picker.recent, defaultAgent: picker.defaultAgent }, [picker])
   return useWorklistPoolProjection(read, undefined, active)
@@ -116,8 +117,8 @@ export function useCommandSessions(): Loaded<SessionView[]> {
   return useWorklistPoolProjection(readSessions, LOADING)
 }
 export function useCommandSession(id: string | null): Loaded<SessionView> {
-  const pool = useWorklistPool()
-  const row = useMemo(() => pool && id !== null ? new CommandSessionRow(pool, id) : undefined, [pool, id])
+  const views = useWorklistPoolProjection(readCommandViews, undefined, id !== null)
+  const row = useMemo(() => views && id !== null ? views.sessionRow(id) : undefined, [views, id])
   const read = useMemo(() => () => row?.presentation, [row])
   return useWorklistPoolProjection(read, LOADING)
 }

@@ -307,6 +307,8 @@ function createCommandLaunchViews(pool: MobxPool) {
   }
   const palette = computed(() => projection(), { equals: compareStructural })
   return {
+    picker: (): CommandPaletteView => new CommandPaletteView(pool),
+    sessionRow: (id: string): CommandSessionRow => new CommandSessionRow(pool, id),
     palette: () => palette.get(),
     opening: () => projection(undefined, undefined, true),
     selected: (snapshot: CommandLaunchData, memberIds: string[]) => projection(snapshot, memberIds),

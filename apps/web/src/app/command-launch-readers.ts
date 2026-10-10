@@ -31,6 +31,7 @@ function commandViews(pool: MobxPool) {
   if (!view) omitGone(pool.row('commandWindow', 'window'))
   return view
 }
+export const readCommandViews = commandViews
 export const readPalette = (pool: MobxPool) => {
   const view = commandViews(pool)
   return view ? view.palette() : LOADING
