@@ -2,6 +2,7 @@ import { here, requireHere } from '@podium/client-graph/lookup'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { rowViewOf } from '../../../shared/src/row-snapshots'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
+import { lazyKeptCount } from '@podium/mobx-helpers'
 // @vitest-environment happy-dom
 /**
  * POD-4565 (Ma1) — the pool's ingest, lifecycle and locals, on the 1x corpus
@@ -193,12 +194,16 @@ describe('ingest', () => {
       // POD-5407: the cold rows are the ones the index knows and the pool does not hold.
       const cold = tracked(() => ENTITIES.map((entity) =>
         pool.residency?.capable(entity) === true ? pool.coldIndex().count(entity) - pool.tables[entity].size : 0))
-      expect(sizes.map((size, i) => size + cold[i]!)).toEqual([
-        corpus.sliceIssues.length,
-        corpus.sliceSessions.length,
-        corpus.sliceWorktrees.length,
-        repos.size,
-      ])
+      // c7efbe9cac added three synced kinds; this fixture supplies none of them.
+      expect(Object.fromEntries(ENTITIES.map((entity, i) => [entity, sizes[i]! + cold[i]!]))).toEqual({
+        issue: corpus.sliceIssues.length,
+        session: corpus.sliceSessions.length,
+        worktree: corpus.sliceWorktrees.length,
+        repo: repos.size,
+        machine: 0,
+        automation: 0,
+        automationRun: 0,
+      })
       expect(sizes[0]).toBe(residentIssues.length)
       expect(repos.size).toBeGreaterThan(0)
       // One filing reaction per issue in memory (POD-4945: read per id, since
@@ -425,6 +430,9 @@ describe('dispose', () => {
       r.handle.mountWeb(el)
     })
     const { pool } = r.handle
+    // Retain the mounted owners: the registry is cleared during disposal.
+    const groups = worklistGroups(pool)
+    const worklist = worklistView(pool)
     // Mb1 (POD-4569): the list draws the visible rows; cold ones wait for their load.
     const visibleHot = tracked(
       () => visibleOrderOf(pool).filter((id) => pool.tables.issue.has(id)).length,
@@ -438,10 +446,14 @@ describe('dispose', () => {
     expect(tracked(() => pool.resident('issue', closed.id))).toBe('loading')
     expect(poolPendingLoads(pool)).toBe(1)
     const models = tracked(() => [...pool.tables.issue.keys()].map((id) => requireHere(pool.issue(id))!))
-    r.locals.set({ selectedIssueId: models[0]!.id })
-    r.locals.flush()
+    act(() => {
+      r.locals.set({ selectedIssueId: models[0]!.id })
+      r.locals.flush()
+    })
     expect(r.listeners()).toBe(2)
-    expect(getObserverTree(worklistGroups(pool), 'keys').observers?.length ?? 0).toBeGreaterThan(0)
+    expect(tracked(() => worklist.selectedId)).toBe(models[0]!.id)
+    // f25f76a87e moved keys to @lazy, outside MobX's property administration.
+    expect(lazyKeptCount(groups)).toBeGreaterThan(0)
     expect(tracked(() => visibleOrderOf(pool).length)).toBeGreaterThan(0)
 
     await act(async () => {
@@ -450,19 +462,19 @@ describe('dispose', () => {
 
     expect(r.listeners()).toBe(0)
     expect(el.querySelectorAll('[data-issue-row]').length).toBe(0)
-    expect(tracked(() => ENTITIES.map((entity) => pool.tables[entity].size))).toEqual([0, 0, 0, 0])
     for (const entity of ENTITIES) {
+      expect(tracked(() => pool.tables[entity].size), entity).toBe(0)
       expect(getObserverTree(pool.tables[entity]).observers ?? [], entity).toEqual([])
+      expect(pool.residency?.ids(entity), entity).toEqual([])
     }
-    expect(tracked(() => Number(worklistView(pool).selectedId !== null))).toBe(0)
-    expect(getObserverTree(worklistGroups(pool), 'keys').observers ?? []).toEqual([])
+    expect(tracked(() => worklist.selectedId)).toBeNull()
+    expect(lazyKeptCount(groups)).toBe(0)
     expect(tracked(() => visibleOrderOf(pool))).toEqual([])
     expect(tracked(() => here(pool.issue(models[0]!.id)))).toBeUndefined()
     // A row view is a cached group on its issue, dropped once unobserved; one
     // still observed would observe its table slots, which the check above
     // finds empty.
     expect(poolPendingLoads(pool)).toBe(0)
-    expect(ENTITIES.map((entity) => pool.residency?.ids(entity))).toEqual([[], [], [], []])
     // After disposal the feed can publish; nothing listens.
     r.push({ type: 'update', rows: [issueRecord(models[1]!.id, { title: 'after dispose' })] })
     expect(tracked(() => pool.tables.issue.size)).toBe(0)
