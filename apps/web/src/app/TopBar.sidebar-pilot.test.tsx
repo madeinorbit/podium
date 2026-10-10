@@ -3,6 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { TopBar } from './TopBar'
 
 vi.mock('./header-data', () => ({
+  useHeaderPolling: () => {},
   useHeaderView: () => 'workspace',
   useHeaderActions: () => ({ setView: vi.fn() }),
 }))
