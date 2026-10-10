@@ -249,7 +249,9 @@ it('an authority message update crosses the real replica boundary and reaches ev
     await replica.receive(authority.frameFor(principal, beforeAsk)); await replica.settled(); await settle()
     expect(here(pool.model('pendingInteraction', ask.id))).toBe(sharedAsk)
     expect(chatInteractions(pool, 'seat').blocked).toBe(true)
-    expect(noticeInteractions(pool, 'seat').cards[0]).toMatchObject({ detail: 'updated permission', interaction: sharedAsk })
+    const card = noticeInteractions(pool, 'seat').cards[0]!
+    expect(card.detail).toBe('Read: updated permission')
+    expect('interaction' in card && card.interaction).toBe(sharedAsk)
     const beforeRemove = authority.head()
     authority.append({ entity: 'message', entityId: rowId, op: 'remove' })
     authority.append({ entity: 'pendingInteraction', entityId: askRowId, op: 'remove' })

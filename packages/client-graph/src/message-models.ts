@@ -85,7 +85,9 @@ export function ingestLedgerMessages(pool: MobxPool, records: readonly MessageLe
     const previous = pool.tables.messageRecord.get(record.id) as MessagePoolRow | undefined
     const synced = current?.(record.id)
     return { kind: 'messageRecord', id: record.id, value: {
-      ...previous, ...record, status: deliveryStatus,
+      ...previous, queuePosition: undefined, readAt: undefined, deadLetteredAt: undefined,
+      deliveryDeferredAt: undefined, deliveryDeferredReason: undefined,
+      ...record, status: deliveryStatus,
       ...(synced ? chatFields(synced) : {}),
     } }
   }) })
