@@ -208,12 +208,16 @@ describe('elements waterfall viewport', () => {
         await act(async () =>
           fireEvent.click(ui.getByRole('button', { name: 'Follow current work and time' })),
         )
+        // Keep Now in a fixed viewport so a timer step must move the live edge,
+        // rather than moving the following viewport along with it.
+        await act(async () => fireEvent.click(ui.getByRole('button', { name: 'Zoom out' })))
         history.mockClear()
         const liveLane = root.querySelector<HTMLElement>('[data-waterfall-live="true"]')!
         expect(liveLane).not.toBeNull()
-        const liveDuration = () => liveLane.querySelector('.waterfall-session-time')!.textContent
-        const durationBefore = liveDuration()
+        const liveTailRatio = () => Number(liveLane.style.getPropertyValue('--waterfall-duration-ratio'))
+        const ratioBefore = liveTailRatio()
         const widthBefore = liveLane.style.getPropertyValue('--waterfall-width')
+        const nowBefore = root.style.getPropertyValue('--waterfall-now')
         const tick = await measureWork(
           async () =>
             insideReader('waterfall.minute', async () => {
@@ -222,7 +226,8 @@ describe('elements waterfall viewport', () => {
           { pool: f.pool },
         )
         expect(root.contains(liveLane)).toBe(true)
-        expect(liveDuration()).not.toBe(durationBefore)
+        expect(root.style.getPropertyValue('--waterfall-now')).not.toBe(nowBefore)
+        expect(liveTailRatio()).toBeLessThan(ratioBefore)
         expect(liveLane.style.getPropertyValue('--waterfall-width')).not.toBe(widthBefore)
         expect(history).not.toHaveBeenCalled()
         expect(
@@ -241,7 +246,7 @@ describe('elements waterfall viewport', () => {
           await act(async () => fireEvent.keyDown(root, { key: 'ArrowLeft', altKey: true }))
         history.mockClear()
         const pastNow = root.style.getPropertyValue('--waterfall-now')
-        const pastDuration = liveDuration()
+        const pastRatio = liveTailRatio()
         const pastWidth = liveLane.style.getPropertyValue('--waterfall-width')
         const pastTick = await measureWork(
           async () => {
@@ -251,7 +256,7 @@ describe('elements waterfall viewport', () => {
         )
         expect(root.contains(liveLane)).toBe(true)
         expect(root.style.getPropertyValue('--waterfall-now')).toBe(pastNow)
-        expect(liveDuration()).toBe(pastDuration)
+        expect(liveTailRatio()).toBe(pastRatio)
         expect(liveLane.style.getPropertyValue('--waterfall-width')).toBe(pastWidth)
         expect(pastTick.work.derivations).toBe(0)
         expect(history).not.toHaveBeenCalled()
