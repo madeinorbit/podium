@@ -203,6 +203,8 @@ describe('ingest', () => {
         machine: 0,
         automation: 0,
         automationRun: 0,
+        messageRecord: 0,
+        pendingInteraction: 0,
       })
       expect(sizes[0]).toBe(residentIssues.length)
       expect(repos.size).toBeGreaterThan(0)
