@@ -6,9 +6,8 @@ import type { Frequency } from './cron-format'
 import { issueDefaultAgentKind } from '@/lib/issue-agents'
 
 export const localDateTimeValue = (iso?: string | null): string => {
-  const fallback = new Date(Date.now() + 60 * 60_000)
-  fallback.setSeconds(0, 0)
-  const date = iso ? new Date(iso) : fallback
+  const date = iso ? new Date(iso) : new Date(Date.now() + 60 * 60_000)
+  if (!iso) date.setSeconds(0, 0)
   if (Number.isNaN(date.getTime())) return ''
   return new Date(date.getTime() - date.getTimezoneOffset() * 60_000).toISOString().slice(0, 16)
 }
@@ -22,6 +21,8 @@ export type AutomationChanges = Partial<Omit<Pick<Automation, typeof FIELDS[numb
 /** The record draft owns edits; schedule controls are this opening's UI state. */
 export class AutomationEditDraft implements AutomationFormState {
   readonly record
+  // Stored on open: the suggestion for a new one-off time must stay still.
+  private readonly defaultRunAt = localDateTimeValue()
   @observable accessor kind: AutomationFormState['kind'] = 'schedule'
   @observable accessor time = '09:00'
   @observable accessor weekday = 1
@@ -54,7 +55,7 @@ export class AutomationEditDraft implements AutomationFormState {
   @lazy get target() { return this.record.repoPath ?? GLOBAL_TARGET }
   @lazy get freq(): Frequency { return this.frequency ?? (this.record.scheduleKind === 'once' ? 'once' : 'cron') }
   @lazy get rawCron() { return this.record.cron ?? '' }
-  @lazy get runAt() { return localDateTimeValue(this.record.runAt) }
+  @lazy get runAt() { return this.record.runAt ? localDateTimeValue(this.record.runAt) : this.defaultRunAt }
   @lazy get isDirty() { return this.record.isDirty }
 
   @action patch(next: Partial<AutomationFormState>): void {

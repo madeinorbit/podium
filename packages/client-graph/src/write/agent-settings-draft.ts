@@ -1,4 +1,4 @@
-import type { IssueProjection, MachineId } from '@podium/model/browser'
+import type { IssueProjection, MachineId } from '@podium/model'
 import { draft } from '@podium/mobx-helpers'
 
 export type AgentSettingsRecord = Partial<Pick<IssueProjection,
