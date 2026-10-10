@@ -1,6 +1,6 @@
 import { useSettingsOpening } from './opening-context'
 import { useOpeningView } from '@podium/client-graph/react'
-import { RecordRequest, ingestSettings, SETTINGS_RECORD_ID } from '@podium/client-graph/requested-records'
+import { RecordRequest, SettingsRecordRequest } from '@podium/client-graph/requested-records'
 import { here } from '@podium/client-graph/lookup'
 import type { MobxPool, PoolRows } from '@podium/client-graph/pool'
 import type { RequestedEntity } from '@podium/client-graph/requested-records'
@@ -27,20 +27,14 @@ export function useSettingsRecords<E extends Exclude<RequestedEntity, 'podiumSet
     }, 15_000)
     return () => window.clearInterval(timer)
   }, [request, reload])
-  const projection = useCallback(() => request, [request])
-  return { request: useWorklistPoolProjection(projection, null), reload }
+  return { request, reload }
 }
 
+const createSettingsRecord = (pool: MobxPool) => new SettingsRecordRequest(pool)
 export function useSettingsRecord(read: () => Promise<PodiumSettings>) {
-  const pool = useWorklistPool()
-  useEffect(() => {
-    if (!pool) return
-    let closed = false
-    void read().then(settings => { if (!closed) ingestSettings(pool, settings) }).catch(error => pool.diagnostics.report('settings.get', error))
-    return () => { closed = true }
-  }, [pool, read])
-  const project = useCallback((pool: MobxPool) => here(pool.model('podiumSettings', SETTINGS_RECORD_ID)), [])
-  return useWorklistPoolProjection(project, undefined)
+  const request = useOpeningView(useWorklistPool(), createSettingsRecord)
+  useEffect(() => { void request?.read(read) }, [request, read])
+  return request
 }
 export const accountKey = (row: PoolRows['account']) => row.id
 export const memberKey = (row: PoolRows['member']) => row.id

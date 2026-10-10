@@ -290,7 +290,8 @@ const SettingsViewBody = observer(function SettingsViewBody({ onClose }: { onClo
   )
   const pool = useWorklistPool()
   const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
-  const record = useSettingsRecord(readSettings)
+  const settingsRequest = useSettingsRecord(readSettings)
+  const record = settingsRequest?.model
   const lastSaved = record ? here(record.row) as PodiumSettings | undefined : undefined
   // Existing form draft remains local until the dedicated settings draft change.
   // The canonical saved record is never copied into component state.
@@ -679,8 +680,8 @@ const SettingsViewBody = observer(function SettingsViewBody({ onClose }: { onClo
       // to "close", however it was asked for.
       onClose={requestClose}
       toolbar={
-        error && !settings ? (
-          <span className="text-[12px] text-destructive">{error}</span>
+        (error || settingsRequest?.error) && !settings ? (
+          <span className="text-[12px] text-destructive">{error || settingsRequest?.error}</span>
         ) : undefined
       }
     >

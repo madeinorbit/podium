@@ -1,6 +1,9 @@
 import { headerView } from '@podium/client-graph/header-views'
 import type { RepoView } from '@podium/client-core/values'
-import { createLaunchWorkPicker, type LaunchWorkMode } from '@podium/client-graph/launch-option-views'
+import { createLaunchWorkPicker, launchOptionViews, type LaunchWorkMode } from '@podium/client-graph/launch-option-views'
+import { LOADING } from '@podium/client-graph/loading'
+import { here, isGone } from '@podium/client-graph/lookup'
+import { headerEntities } from '@podium/client-graph/header-entities'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { MachineWire } from '@podium/model'
 import { useCallback, useEffect, useMemo } from 'react'
@@ -9,10 +12,7 @@ import { useMobilePool, useMobilePoolProjection } from './mobile-pool'
 const EMPTY = { repo: undefined as RepoView | undefined, machines: [] as MachineWire[] }
 export function useLaunchInputs(repoPath: string) {
   const read = useCallback(
-    (pool: MobxPool) => ({
-      repo: headerView(pool).repository(repoPath),
-      machines: headerView(pool).machines(),
-    }),
+    (pool: MobxPool) => launchOptionViews(pool).origin(repoPath),
     [repoPath],
   )
   return useMobilePoolProjection(read, EMPTY)
@@ -33,6 +33,11 @@ export function useLaunchWorkPicker(mode: LaunchWorkMode = 'work') {
 const NO_REPOSITORIES: string[] = []
 export function useLaunchRepositoryPaths() {
   const picker = useLaunchWorkPicker('paths')
-  const read = useCallback(() => picker?.opened ? picker.repositoryPaths : NO_REPOSITORIES, [picker])
-  return useMobilePoolProjection(read, NO_REPOSITORIES)
+  const read = useCallback((pool: MobxPool) => {
+    const catalog = pool.row('commandCatalog', 'catalog')
+    if (catalog === LOADING && !headerEntities(pool).orders.has('repository')) return LOADING
+    if (isGone(catalog)) return catalog
+    return picker?.opened ? picker.repositoryPaths : headerEntities(pool).repositoryGroupIds().flatMap(id => launchOptionViews(pool).repository(id)?.path ?? [])
+  }, [picker])
+  return useMobilePoolProjection(read, LOADING)
 }

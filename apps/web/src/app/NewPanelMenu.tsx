@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 import { relativeTime } from '@podium/client-core/focus'
 import type { RecentFileEntry, RepoView, WorktreeView } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
@@ -162,7 +163,7 @@ function NewPanelChoices(props: Omit<Parameters<typeof NewPanelMenuBody>[0], 'da
   return <NewPanelMenuBody {...props} data={data} />
 }
 
-function NewPanelMenuBody({
+const NewPanelMenuBody = observer(function NewPanelMenuBody({
   data,
   worktree,
   onOpened,
@@ -185,7 +186,7 @@ function NewPanelMenuBody({
   const runtimeDriversEnabled = useFeature('runtime-drivers')
 
   // Resolve the repo view for the current worktree (cross-machine merged view).
-  const repoView = useMemo((): RepoView => {
+  const repoView = ((): RepoView => {
     const found = data.repo
     if (found) return found
     // Fallback: synthesize a minimal single-machine RepoView so the logic below
@@ -196,7 +197,7 @@ function NewPanelMenuBody({
       worktrees: [worktree],
       machines: worktree.machineId ? [{ machineId: worktree.machineId, path: worktree.path }] : [],
     }
-  }, [data.repo, worktree])
+  })()
 
   // The recommended machine is agent-specific: a host with the repo but without
   // this harness (or its login) must never receive an optimistic spawn.
@@ -387,7 +388,7 @@ function NewPanelMenuBody({
       <RecentFilesSection worktree={worktree} {...(issueId ? { issueId } : {})} />
     </DropdownMenuContent>
   )
-}
+})
 
 /** What the header's subject line says: the branch a worktree is on, or the repo
  *  name when this is the main checkout (where "main" would name the branch and

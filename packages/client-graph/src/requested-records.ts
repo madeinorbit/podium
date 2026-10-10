@@ -62,3 +62,12 @@ export class RecordRequest<E extends RequestedEntity> extends RequestAnswer<read
   }
   dispose() { this.close() }
 }
+
+export class SettingsRecordRequest extends RequestAnswer<string> {
+  constructor(readonly pool: MobxPool) { super(); records(pool) }
+  @action read(read: () => Promise<PodiumSettings>): Promise<void> {
+    return this.load(read, false, settings => { ingestSettings(this.pool, settings); return SETTINGS_RECORD_ID })
+  }
+  @lazy get model() { return here(this.pool.model('podiumSettings', SETTINGS_RECORD_ID)) }
+  dispose() { this.close() }
+}

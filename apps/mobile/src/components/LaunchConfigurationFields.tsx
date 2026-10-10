@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 import { useHarnessDescriptors, useModelCatalogState } from '@podium/client-core/react'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
@@ -42,7 +43,7 @@ import { PressableScale } from './PressableScale'
 type Picker = 'agent' | 'model' | 'effort' | 'machine' | null
 
 /** Native Where/How controls shared by task creation and deferred task launch. */
-export function LaunchConfigurationFields({
+export const LaunchConfigurationFields = observer(function LaunchConfigurationFields({
   repoPath,
   value,
   onChange,
@@ -58,10 +59,8 @@ export function LaunchConfigurationFields({
   const store = useLaunchInputs(repoPath)
   const [fallback, setFallback] = useState<Picker>(null)
   const repo = store.repo
-  const machines = useMemo(
-    () => (repo ? machinesForRepoOrClone(repo, store.machines) : []),
-    [repo, store.machines],
-  )
+  const machines = (
+    () => (repo ? machinesForRepoOrClone(repo, store.machines) : []))()
   // An unpinned launch is validated by the server's own authority/default
   // catalog. Never substitute the first eligible repo machine: it may expose a
   // different harness or model set than the host that validates the spawn.
@@ -73,7 +72,7 @@ export function LaunchConfigurationFields({
   const { served } = useHarnessDescriptors<MobileTrpc>(
     value.machineId ? (value.machineId as MachineId) : undefined,
   )
-  const machineOptions = useMemo<LaunchMachineOption[]>(() => {
+  const machineOptions = (() => {
     const explicit = machines.map((machine) => {
       const rejection = agentCapabilityRejection(machine, value.agentKind)
       const reason =
@@ -95,7 +94,7 @@ export function LaunchConfigurationFields({
       autoLaunchMachineOption(explicit, issueAgentLabel(value.agentKind, served)),
       ...explicit,
     ]
-  }, [machines, value.agentKind, served])
+  })()
   const plan = useMemo(
     () => normalizeLaunchConfiguration(value, catalog, machineOptions, catalogStatus),
     [catalog, catalogStatus, machineOptions, value],
@@ -250,7 +249,7 @@ export function LaunchConfigurationFields({
       )}
     </>
   )
-}
+})
 
 const styles = StyleSheet.create({
   group: {

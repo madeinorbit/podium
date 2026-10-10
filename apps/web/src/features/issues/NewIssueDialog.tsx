@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 import type { RepoView } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
 import {
@@ -219,7 +220,7 @@ export function NewIssueDialog(
   return <NewIssueDialogBody {...props} data={data} />
 }
 
-function NewIssueDialogBody({
+const NewIssueDialogBody = observer(function NewIssueDialogBody({
   data,
   onClose,
   initialStage,
@@ -635,4 +636,4 @@ function NewIssueDialogBody({
       </DialogContent>
     </Dialog>
   )
-}
+})

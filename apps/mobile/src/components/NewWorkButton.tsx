@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 import type { LaunchWorkPicker } from '@podium/client-graph/launch-option-views'
 import { relativeTime } from '@podium/client-core/focus'
 import { useHarnessDescriptors, useModelCatalog } from '@podium/client-core/react'
@@ -129,7 +130,7 @@ export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
 }
 
 /** Catalog and machine demand belongs to the visible sheet, not its trigger. */
-function NewWorkLauncher({
+const NewWorkLauncher = observer(function NewWorkLauncher({
   step,
   setStep,
   prompt,
@@ -175,8 +176,8 @@ function NewWorkLauncher({
   // the automations form and the execution-profile picker use. Two spellings of
   // "may I run here" is exactly how one surface comes to offer a machine
   // another refuses.
-  const machineViews = useMemo(() => machineViewsFromWire(machines), [machines])
-  const usable = useMemo(() => usableMachines(machineViews), [machineViews])
+  const machineViews = (() => machineViewsFromWire(machines))()
+  const usable = (() => usableMachines(machineViews))()
   const showMachine = machineViews.length > 1
   const machineId =
     (machinePick && machineViews.some((view) => view.machine.id === machinePick)
@@ -193,10 +194,8 @@ function NewWorkLauncher({
   // models and effort support render from the report, bundled copy offline.
   const { served } = useHarnessDescriptors<MobileTrpc>(machineId ?? undefined)
 
-  const visibleRepos = useMemo(
-    () => reposOnMachine(repos, machineId, machineViews.length),
-    [repos, machineId, machineViews.length],
-  )
+  const visibleRepos = (
+    () => reposOnMachine(repos, machineId, machineViews.length))()
 
   /**
    * The project this sheet will start in, decided BEFORE it is shown.
@@ -646,7 +645,7 @@ function NewWorkLauncher({
       ) : null}
     </BottomSheet>
   )
-}
+})
 
 /**
  * The model list, with a filter once it is long enough to scroll past what a

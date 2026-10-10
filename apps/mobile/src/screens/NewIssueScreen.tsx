@@ -1,10 +1,16 @@
+import { observer } from 'mobx-react-lite'
+import { LOADING } from '@podium/client-graph/loading'
+import { isGone, here } from '@podium/client-graph/lookup'
+import { SettingsRecordRequest } from '@podium/client-graph/requested-records'
+import { useMobilePool } from '../client/mobile-pool'
+import { useMemo } from 'react'
 import { codingRoleHarness, ISSUE_STAGE_LABELS } from '@podium/client-core/values'
 import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage, machinePathBasename } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
 import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
-import { useLaunchRepositoryCount, useLaunchRepositoryPaths } from '../client/use-launch-inputs'
+import { useLaunchRepositoryPaths } from '../client/use-launch-inputs'
 import { LaunchConfigurationFields } from '../components/LaunchConfigurationFields'
 import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
@@ -33,17 +39,19 @@ const DEFAULT_LAUNCH: LaunchConfiguration = {
   machineId: '',
 }
 
-export function NewIssueScreen() {
+export const NewIssueScreen = observer(function NewIssueScreen() {
   const router = useRouter()
   // The modal sheet reaches the physical bottom edge, so the Create button
   // still has to clear the home indicator (the hook is the plain safe-area
   // inset here).
   const bottomInset = useContentBottomInset()
   const trpc = useTrpc()
-  const repositoryCount = useLaunchRepositoryCount()
   const repositoryPaths = useLaunchRepositoryPaths()
-  const [fallbackRepos, setFallbackRepos] = useState<string[]>([])
-  const repos = repositoryCount === 0 ? fallbackRepos : repositoryPaths
+  const repositoriesLoading = repositoryPaths === LOADING
+  const repositoriesGone = isGone(repositoryPaths)
+  const repos = repositoryPaths === LOADING || isGone(repositoryPaths) ? [] : repositoryPaths
+  const pool = useMobilePool()
+  const settingsRequest = useMemo(() => pool ? new SettingsRecordRequest(pool) : null, [pool])
   const [repoPath, setRepoPath] = useState('')
   const [title, setTitle] = useState('')
   const [prompt, setPrompt] = useState('')
@@ -55,31 +63,11 @@ export function NewIssueScreen() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
+  useEffect(() => { void settingsRequest?.read(() => trpc.settings.get.query()); return () => settingsRequest?.close() }, [settingsRequest, trpc])
+  const configuredAgent = settingsRequest?.model ? issueAgentKind(codingRoleHarness(settingsRequest.model)) : undefined
   useEffect(() => {
-    if (repositoryCount > 0) return
-    trpc.repos.list
-      .query()
-      .then(setFallbackRepos)
-      .catch(() => setFallbackRepos([]))
-  }, [repositoryCount, trpc])
-
-  useEffect(() => {
-    let cancelled = false
-    trpc.settings.get
-      .query()
-      .then((settings) => {
-        if (cancelled) return
-        const configured = issueAgentKind(codingRoleHarness(settings))
-        if (!configured) return
-        setLaunch((current) =>
-          current.inheritAgent ? { ...current, agentKind: configured } : current,
-        )
-      })
-      .catch(() => {})
-    return () => {
-      cancelled = true
-    }
-  }, [trpc])
+    if (configuredAgent) setLaunch(current => current.inheritAgent ? { ...current, agentKind: configuredAgent } : current)
+  }, [configuredAgent])
 
   useEffect(() => {
     if (!repoPath || !repos.includes(repoPath)) setRepoPath(repos[0] ?? '')
@@ -125,6 +113,7 @@ export function NewIssueScreen() {
         keyboardShouldPersistTaps="handled"
       >
         <SectionHeader label="Where" />
+        {repositoriesLoading ? <Text>Loading repositories…</Text> : repositoriesGone ? <Text>Repositories are unavailable.</Text> : repos.length === 0 ? <Text>No repositories registered.</Text> : null}
         <View style={styles.chipWrap} accessibilityRole="radiogroup">
           {repos.map((repo) => {
             const name = machinePathBasename(repo)
@@ -241,7 +230,7 @@ export function NewIssueScreen() {
       </ScrollView>
     </Screen>
   )
-}
+})
 
 function Choice({
   label,

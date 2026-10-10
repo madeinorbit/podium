@@ -1,3 +1,5 @@
+import { launchRecords } from './launch-records'
+import { here } from './lookup'
 import { omitGone } from './lookup'
 import { lazy, keyedComputed } from '@podium/mobx-helpers'
 import {
@@ -7,7 +9,7 @@ import {
   type RepoNavView,
 } from '@podium/client-core/values'
 import { type GitRepositoryWire, machinePathBasename, machinePathKey, machinePathsEqual } from '@podium/model/browser'
-import { action, computed, observable, observableRef } from 'mobx'
+import { action, computed, observable, observableRef, compareShallow } from 'mobx'
 import { headerEntities } from './header-entities'
 import { headerView } from './header-views'
 import type { MobxPool } from './pool'
@@ -20,29 +22,15 @@ export function launchOptionViews(pool: MobxPool) {
     const counts = { repositoryBuilds: 0, usageQueries: 0 }
     const repository = keyedComputed('launch.repository', (id: string) => {
       counts.repositoryBuilds++
-      const scans = headerEntities(pool)
-        .repositoryGroupRoots(id)
-        .flatMap((id) => {
-          const row = omitGone(pool.row('repository', id)) as GitRepositoryWire | undefined
-          return row && typeof row !== 'symbol' ? [row] : []
-        })
-      return reposToViews(scans)[0]
+      return launchRecords(pool).group(id)
     })
-    const machines = computed(() => headerView(pool).machines())
+    const machines = computed(() => headerEntities(pool).orders.get('machine')?.flatMap(id => here(pool.model('machine', id)) ?? []) ?? [...pool.tables.machine.keys()].flatMap(id => here(pool.model('machine', id)) ?? []))
     const pins = computed(() => {
       const row = omitGone(pool.row('commandWindow', 'window'))
       return row && row !== LOADING ? row.pins : EMPTY_PINS
     })
-    const projectForRepository = (repo: NonNullable<ReturnType<typeof repository>>): RepoNavView => {
-      const pinned = pins.get().worktrees
-      return { ...repo, worktrees: repo.worktrees.flatMap(tree =>
-        pinned.some(path => machinePathsEqual(path, tree.path)) ? [] :
-          [{ ...tree, repoName: repo.name, sessions: [], issues: [] }]) }
-    }
-    const project = keyedComputed('launch.project', (id: string): RepoNavView | undefined => {
-      const repo = repository(id)
-      return repo ? projectForRepository(repo) : undefined
-    })
+    const projectForRepository = (repo: NonNullable<ReturnType<typeof repository>>) => launchRecords(pool).group(repo.id, true)!
+    const project = keyedComputed('launch.project', (id: string) => launchRecords(pool).group(id, true))
     const projectIsEligible = (repo: RepoNavView) =>
       pins.get().repos.some(path => machinePathsEqual(path, repo.path)) || repo.worktrees.length > 0
     const workOnOpen = (mode: LaunchWorkMode) => {
@@ -103,15 +91,8 @@ export function launchOptionViews(pool: MobxPool) {
     )
     const recentMachineKey = computed(() => JSON.stringify(pool.queries.latestMachineSession(JSON.parse(eligibleMachineKey.get()) as string[]) ?? null))
     const recentMachine = computed(() => JSON.parse(recentMachineKey.get()) as { machineId: string; createdAt: string } | null)
-    const repositoryAt = keyedComputed('launch.repositoryAt', (path: string) =>
-      reposToViews(headerEntities(pool).repositoryGroup(path).flatMap(id => {
-        const row = omitGone(pool.row('repository', id)) as GitRepositoryWire | undefined
-        return row && typeof row !== 'symbol' ? [row] : []
-      }))[0])
-    const origin = keyedComputed('launch.origin', (path: string) => {
-      const hosts = machines.get()
-      return { repo: repositoryAt(path), machines: hosts }
-    })
+    const repositoryAt = keyedComputed('launch.repositoryAt', (path: string) => launchRecords(pool).at(path))
+    const origin = keyedComputed('launch.origin', (path: string) => new LaunchOrigin(pool, path))
     return {
       workOnOpen,
       catalogOnOpen,
@@ -148,18 +129,16 @@ export class LaunchCatalogPicker {
     this.initialRepoPath = catalog.initialRepoPath
     this.opened = true
   }
-  @lazy get roots() {
+  @lazy({ equals: compareShallow }) get roots() {
     return headerEntities(this.pool).repositoryRootIds()
       .map(id => new LaunchCatalogRoot(this.pool, id))
   }
-  @lazy get repoPaths() {
+  @lazy({ equals: compareShallow }) get repoPaths() {
     const paths = this.roots.flatMap(root => root.path === undefined ? [] : [root.path])
     return storedOrder(this.order, paths)
   }
-  @lazy get data() {
-    return { initialRepoPath: this.initialRepoPath, repoPaths: this.repoPaths, machines: headerView(this.pool).machines() }
-  }
-  catalog() { return this.data }
+  @lazy get machines() { return launchOptionViews(this.pool).machines() }
+  catalog() { return this }
 }
 export const createLaunchCatalogPicker = (pool: MobxPool) => new LaunchCatalogPicker(pool)
 
@@ -179,28 +158,26 @@ export class LaunchWorkPicker {
     this.usageAt = snapshot.usageAt
     this.opened = true
   }
-  @lazy get repositoryPaths() {
+  @lazy({ equals: compareShallow }) get repositoryPaths() {
     const paths = headerEntities(this.pool).repositoryGroupIds()
       .flatMap(id => launchOptionViews(this.pool).repository(id)?.path ?? [])
     return storedOrder(this.pathOrder, paths)
   }
-  @lazy get choices() {
+  @lazy({ equals: compareShallow }) get choices() {
     const views = launchOptionViews(this.pool)
     return headerEntities(this.pool).repositoryGroupIds().flatMap(id => {
       const repo = views.project(id)
       return repo && views.projectIsEligible(repo) ? [repo] : []
     })
   }
-  @lazy get repos() {
+  @lazy({ equals: compareShallow }) get repos() {
     const choices = this.choices
     const byPath = new Map(choices.map(repo => [repo.path, repo]))
     return storedOrder(this.projectOrder, choices.map(repo => repo.path)).flatMap(path => byPath.get(path) ?? [])
   }
-  @lazy get data() {
-    const views = launchOptionViews(this.pool)
-    return { machines: views.machines(), repos: this.repos, recentMachine: views.recentMachine() }
-  }
-  newWork() { return this.data }
+  @lazy get machines() { return launchOptionViews(this.pool).machines() }
+  @lazy get recentMachine() { return launchOptionViews(this.pool).recentMachine() }
+  newWork() { return this }
   repositoryActivity(path: string) { return this.usageAt.get(machinePathKey(path)) ?? 0 }
 }
 export const createLaunchWorkPicker = (pool: MobxPool) => new LaunchWorkPicker(pool)
@@ -217,4 +194,11 @@ class LaunchCatalogRoot {
     const row = omitGone(this.pool.row('repository', this.id)) as GitRepositoryWire | undefined
     return row && typeof row !== 'symbol' && row.kind !== 'worktree' ? row.path : undefined
   }
+}
+
+/** One launch opening addresses a repository by path; facts stay on models. */
+export class LaunchOrigin {
+  constructor(private readonly pool: MobxPool, readonly path: string) {}
+  @lazy get repo() { return launchRecords(this.pool).at(this.path) }
+  @lazy get machines() { return launchOptionViews(this.pool).machines() }
 }

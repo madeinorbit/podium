@@ -1,3 +1,5 @@
+import { launchRecords } from './launch-records'
+import { launchOptionViews } from './launch-option-views'
 import { here, omitGone } from './lookup'
 import type { SpawnTarget } from '@podium/client-core'
 import type { Store } from '@podium/client-core/engine'
@@ -68,7 +70,7 @@ function createCommandLaunchViews(pool: MobxPool) {
     if (untracked(() => !pool.tables.session.has(id))) counts.coldSessionVisits++
     const row = omitGone(pool.row('session', id, 'summary-fields')) as Loaded<SessionView>
     // Snapshot joined getter fields inside this addressed derivation.
-    return row && row !== LOADING ? { ...row } : row
+    return row && row !== LOADING ? pool.sessionObject(id) as unknown as SessionView : row
   }, { equals: compareStructural })
   // Search and launch choices explicitly license browsing summaries while the
   // menu is open. The shared launch/window projection carries only their ids.
@@ -86,8 +88,8 @@ function createCommandLaunchViews(pool: MobxPool) {
     const catalog = read('commandCatalog', 'catalog')
     if (!catalog || catalog === LOADING) return []
     return catalog.machines.flatMap(id => {
-      const row = read('commandMachine', id)
-      return row && row !== LOADING ? [row] : []
+      const row = here(pool.model('machine', id))
+      return row ? [row] : []
     })
   })
   const sessionMembership = computed(() => {
@@ -112,35 +114,13 @@ function createCommandLaunchViews(pool: MobxPool) {
           }
           return row ? [row] : []
         })
-      const repos = rows('commandRepository', catalog.repositories),
-        machines = rows('commandMachine', catalog.machines)
+      const repos = catalog.repositories.flatMap(id => here(pool.model('repository', id)) ?? []),
+        machines = catalog.machines.flatMap(id => here(pool.model('machine', id)) ?? [])
       const repoViews: RepoView[] = []
       for (const id of catalog.repos) {
         if (!read('commandRepo', id)) continue
-        const memberIds = pool.sources.related('commandRepo', id, 'repositories')
-        const scans = rows(
-          'commandRepository',
-          catalog.repositories.filter((key) => memberIds.includes(key)),
-        ).filter((scan) => !scan.linked)
-        const first = scans[0]
-        if (!first) continue
-        const treeIds = pool.sources.related('commandRepo', id, 'worktrees')
-        const worktrees = rows(
-          'commandWorktree',
-          catalog.worktrees.filter((key) => treeIds.includes(key)),
-        ).map(({ repositoryId: _scan, groupId: _group, ...tree }) => tree)
-        const originUrl = scans.map((scan) => normalizeOriginUrl(scan.originUrl)).find(Boolean)
-        const repoId = scans.find((scan) => scan.repoId !== undefined)?.repoId
-        repoViews.push({
-          path: first.path,
-          name: repoNameFromOrigin(originUrl) ?? (machinePathBasename(first.path) || first.path),
-          worktrees,
-          machines: scans.flatMap((scan) =>
-            scan.machineId ? [{ machineId: scan.machineId, path: scan.path }] : [],
-          ),
-          ...(originUrl !== undefined ? { originUrl } : {}),
-          ...(repoId !== undefined ? { repoId } : {}),
-        })
+        const repo = launchRecords(pool).group(id)
+        if (repo) repoViews.push(repo)
       }
       const usage: Record<string, number> = {}
       for (const repo of repos) {
@@ -179,24 +159,9 @@ function createCommandLaunchViews(pool: MobxPool) {
   )
   // Addressed summary objects are fresh; compare their values explicitly.
   const issueSummary = keyedComputed(() => undefined, (id: string): Loaded<IssueViewModel> => {
-          const value = omitGone(pool.row('commandIssue', id))
-          if (!value || value === LOADING) return value
-          const row = Object.fromEntries(
-            COMMAND_SUMMARIES.issue.map((field) => [
-              field,
-              (value as unknown as Record<string, unknown>)[field],
-            ]),
-          ) as unknown as IssueViewModel
-          const repoId = pool.graph.one('issue', id, 'repo'),
-            repo = repoId
-              ? (omitGone(pool.row('repo', repoId)) as { prefix?: string } | undefined)
-              : undefined
-          return {
-            ...row,
-            displayRef:
-              row.displayRef ?? (repo?.prefix ? `${repo.prefix}-${row.seq}` : `#${row.seq}`),
-          } as IssueViewModel
-  }, { equals: compareStructural })
+    const value = omitGone(pool.row('commandIssue', id))
+    return !value || value === LOADING ? value : pool.issueObject(id) as unknown as IssueViewModel
+  })
   const browsing = computed(
     (): Loaded<{ issues: IssueViewModel[]; pending: number }> => {
       const data = common.get()
@@ -333,26 +298,7 @@ function createCommandLaunchViews(pool: MobxPool) {
           issues.splice(position, 1)
         } else if (!full) issues.splice(position, 1)
         else {
-          const node = here(pool.issue(id)),
-            children = [...pool.graph.many('issue', id, 'treeChildren')]
-          let childDoneCount = 0
-          for (const child of children) {
-            const detail = omitGone(pool.row('issue', child, 'summary'))
-            if (detail === LOADING) pending++
-            else if (detail && isFinished(detail)) childDoneCount++
-          }
-          const members = memberIds ?? memberSessionIds(id)
-          issues[position] = {
-            ...full,
-            // The addressed command summary already resolved the birth ref.
-            // Reading the model again would demand its cold loaded group.
-            displayRef: row.displayRef ?? `#${row.seq}`,
-            readAt: pool.readCursor(id) ?? null,
-            unread: node?.unread ?? false,
-            memberSessionIds: members,
-            childCount: children.length,
-            childDoneCount,
-          } as unknown as IssueViewModel
+          issues[position] = pool.issueObject(id) as unknown as IssueViewModel
         }
       }
     }
@@ -399,8 +345,8 @@ export function commandIssueReference(issue: IssueModel | (Pick<IssueViewModel, 
 
 /** A palette mount owns its ordering. Catalog demand lives only in open(). */
 export class CommandPaletteView {
-  @observableRef accessor snapshot: Loaded<CommandLaunchData> = LOADING
-  @observableRef accessor sessions: SessionView[] = []
+  @observableRef accessor openingIds: readonly string[] | typeof LOADING = LOADING
+  @observableRef accessor sessionOrder: readonly string[] = []
   @observableRef accessor recent: RecentCommand[] = []
   // Stored on open: membership and recency, never copied labels or references.
   @observableRef accessor issuePositions = new Map<string, number>()
@@ -415,14 +361,12 @@ export class CommandPaletteView {
     this.close()
     const views = commandLaunchViews(this.pool)
     const take = () => {
-      this.snapshot = views.opening()
-      this.issuePositions = new Map(this.snapshot && this.snapshot !== LOADING
-        ? this.snapshot.issues.map((issue, position) => [issue.id, position]) : [])
+      const snapshot = views.opening()
+      this.openingIds = snapshot && snapshot !== LOADING ? snapshot.issues.map(issue => issue.id) : LOADING
+      this.issuePositions = new Map(snapshot && snapshot !== LOADING
+        ? snapshot.issues.map((issue, position) => [issue.id, position]) : [])
       const ids = views.sessionIds()
-      this.sessions = ids && ids !== LOADING ? ids.flatMap(id => {
-        const row = omitGone(this.pool.row('session', id, 'summary-fields'))
-        return row && row !== LOADING ? [this.pool.sessionObject(id) as unknown as SessionView] : []
-      }) : []
+      this.sessionOrder = ids && ids !== LOADING ? ids : []
       this.defaultAgent = resolveDefaultAgent(undefined, this.sessions)
       this.memberOrder = this.sessions.flatMap(session =>
         session.issueId && session.agentKind !== 'shell'
@@ -439,21 +383,33 @@ export class CommandPaletteView {
       const recent: { at: number; command: RecentCommand }[] = []
       for (const s of this.sessions)
         if (!s.archived) recent.push({ at: stamp(s.lastActiveAt), command: { kind: 'session', id: s.sessionId } })
-      if (this.snapshot && this.snapshot !== LOADING)
-        for (const i of this.snapshot.issues)
+      if (snapshot && snapshot !== LOADING)
+        for (const i of snapshot.issues)
           if (!i.archived && !i.deletedAt && !i.isDraftVessel)
             recent.push({ at: stamp(i.updatedAt), command: { kind: 'issue', id: i.id } })
       recent.sort((a, b) => b.at - a.at)
       this.recent = recent.slice(0, 6).map(value => value.command)
     }
     take()
-    if (this.snapshot === LOADING || this.snapshot === undefined || this.snapshot.pending > 0)
+    if (this.openingIds === LOADING)
       this.stopLoading = when(() => {
         const value = views.opening()
         return !!value && value !== LOADING && value.pending === 0
       }, take)
   }
 
+  @lazy({ equals: compareShallow }) get sessions(): SessionView[] {
+    return this.sessionOrder.flatMap(id => {
+      const row = commandLaunchViews(this.pool).session(id)
+      return row && row !== LOADING ? [row] : []
+    })
+  }
+  @lazy get snapshot(): Loaded<CommandLaunchData> {
+    if (this.openingIds === LOADING) return LOADING
+    const live = commandLaunchViews(this.pool).opening()
+    if (!live || live === LOADING) return live
+    return { ...live, issues: this.openingIds.flatMap(id => here(this.pool.model('issue', id)) as unknown as IssueViewModel ?? []) }
+  }
   @lazy get contextIssueId() {
     const views = commandLaunchViews(this.pool)
     const id = views.window('openIssueId') ?? views.window('selectedIssueId')
@@ -484,16 +440,12 @@ export class CommandPaletteView {
     if (!selected || selected === LOADING) return selected
     const snapshot = this.snapshot
     const issue = selected.issues[0]
-    // The menu consumes live eligibility, not the cursor stamp or embedded
-    // session activity. Its session actions use their addressed row readers.
-    const { readAt: _cursor, ...issueFields } =
-      (issue ?? {}) as Partial<IssueViewModel>
     return snapshot && snapshot !== LOADING ? {
-      ...selected, issues: snapshot.issues,
-      selectedIssue: issue ? issueFields as IssueViewModel : undefined,
+      ...selected, issues: snapshot.issues, selectedIssue: issue,
       machines: commandLaunchViews(this.pool).machines(),
     } : snapshot
   }
+
   @lazy get selectedRows() {
     const id = this.contextIssueId
     if (!id) return []
@@ -511,8 +463,8 @@ export class CommandPaletteView {
   @action close() {
     this.stopLoading?.()
     this.stopLoading = undefined
-    this.snapshot = LOADING
-    this.sessions = []
+    this.openingIds = LOADING
+    this.sessionOrder = []
     this.recent = []
     this.issuePositions = new Map()
     this.memberOrder = []
@@ -533,6 +485,6 @@ export class CommandSessionRow {
   @lazy({ equals: compareStructural }) get presentation(): Loaded<SessionView> {
     const row = commandLaunchViews(this.pool).session(this.id)
     if (!row || row === LOADING) return row
-    return { ...row, lastActiveAt: this.openedAt }
+    return row
   }
 }
