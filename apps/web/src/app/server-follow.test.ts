@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest'
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
-import { webFollowPorts } from './server-follow'
+import { startBundledServerSearch, webFollowPorts } from './server-follow'
 
 const IDENTITY = {
   installationId: `pdm_${'a'.repeat(43)}`,
@@ -63,7 +63,7 @@ describe('the web app follows a moved server (POD-5921)', () => {
     expect(webFollowPorts({ bridge: undefined, location: page(), ...immediate }).loadIdentity()).toBeUndefined()
   })
 
-  it('is not the browser adapter under the desktop bridge: no identity, no Connect move', async () => {
+  it('under an older desktop bridge: no identity, no Connect move, transfers as before', async () => {
     const location = page()
     const bridge = { platform: 'linux' } as NativeDesktopBridge
     const ports = webFollowPorts({ bridge, location, ...immediate })
@@ -71,5 +71,84 @@ describe('the web app follows a moved server (POD-5921)', () => {
     expect(ports.loadIdentity()).toBeUndefined()
     await expect(ports.adopt({ via: 'connect', origin: 'https://new.example' })).rejects.toThrow()
     expect(location.replace).not.toHaveBeenCalled()
+  })
+
+  it('a desktop window keeps its identity in the shell and moves through it, never by navigating', async () => {
+    const location = page()
+    const moveServer = vi.fn(async () => {})
+    const saveServerIdentity = vi.fn(async () => {})
+    const notify = vi.fn()
+    const bridge = {
+      platform: 'linux',
+      serverIdentity: IDENTITY,
+      moveServer,
+      saveServerIdentity,
+    } as unknown as NativeDesktopBridge
+    const ports = webFollowPorts({ bridge, location, notify })
+    expect(ports.loadIdentity()).toEqual(IDENTITY)
+    ports.saveIdentity(IDENTITY)
+    expect(saveServerIdentity).not.toHaveBeenCalled()
+    const next = { ...IDENTITY, installationId: `pdm_${'b'.repeat(43)}` }
+    ports.saveIdentity(next)
+    expect(saveServerIdentity).toHaveBeenCalledExactlyOnceWith(next)
+    expect(ports.loadIdentity()).toEqual(next)
+
+    await ports.adopt({ via: 'connect', origin: 'https://new.example' })
+    await ports.adopt({ via: 'transfer', origin: 'https://t.example', transferId: 't1', claimToken: 'c' })
+    expect(moveServer.mock.calls).toEqual([
+      ['https://new.example'],
+      ['https://t.example', 't1', 'c'],
+    ])
+    expect(notify).toHaveBeenCalledWith('Podium moved to new.example')
+    expect(location.replace).not.toHaveBeenCalled()
+  })
+})
+
+describe('the bundled desktop window looks for its server (POD-5921)', () => {
+  const run = async (opts: { storedProves: boolean; located?: string }) => {
+    vi.useFakeTimers()
+    try {
+      const moveServer = vi.fn(async () => {})
+      const proved: string[] = []
+      const located: string[] = []
+      const stop = startBundledServerSearch({
+        serverUrl: 'wss://old-words.trycloudflare.com',
+        identity: IDENTITY,
+        moveServer,
+        connectBaseUrl: 'https://connect.test',
+        random: () => 0.5,
+        prove: async ({ origin }) => {
+          proved.push(origin)
+          return opts.storedProves ? { ok: true } : { ok: false, reason: 'down' }
+        },
+        locate: async ({ currentOrigin }) => {
+          located.push(currentOrigin)
+          return opts.located
+        },
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      stop()
+      return { moveServer, proved, located }
+    } finally {
+      vi.useRealTimers()
+    }
+  }
+
+  it('returns to the stored address when it proves itself again', async () => {
+    const r = await run({ storedProves: true, located: 'https://elsewhere.example' })
+    expect(r.proved).toEqual(['https://old-words.trycloudflare.com'])
+    expect(r.located).toEqual([])
+    expect(r.moveServer).toHaveBeenCalledExactlyOnceWith('https://old-words.trycloudflare.com')
+  })
+
+  it('otherwise moves to where Connect found it, skipping the stored address', async () => {
+    const r = await run({ storedProves: false, located: 'https://new-words.trycloudflare.com' })
+    expect(r.located).toEqual(['https://old-words.trycloudflare.com'])
+    expect(r.moveServer).toHaveBeenCalledExactlyOnceWith('https://new-words.trycloudflare.com')
+  })
+
+  it('moves nowhere when nothing proves itself', async () => {
+    const r = await run({ storedProves: false })
+    expect(r.moveServer).not.toHaveBeenCalled()
   })
 })
