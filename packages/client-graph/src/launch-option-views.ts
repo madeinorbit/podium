@@ -5,14 +5,12 @@ import { omitGone } from './lookup'
 import { lazy, keyedComputed } from '@podium/mobx-helpers'
 import {
   machineViewsFromWire,
-  reposToViews,
   usableMachines,
   type RepoNavView,
 } from '@podium/client-core/values'
 import { type GitRepositoryWire, machinePathBasename, machinePathKey, machinePathsEqual } from '@podium/model/browser'
 import { action, computed, observable, observableRef, compareShallow } from 'mobx'
 import { headerEntities } from './header-entities'
-import { headerView } from './header-views'
 import type { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
@@ -92,7 +90,6 @@ export function launchOptionViews(pool: MobxPool) {
     )
     const recentMachineKey = computed(() => JSON.stringify(pool.queries.latestMachineSession(JSON.parse(eligibleMachineKey.get()) as string[]) ?? null))
     const recentMachine = computed(() => JSON.parse(recentMachineKey.get()) as { machineId: string; createdAt: string } | null)
-    const repositoryAt = keyedComputed('launch.repositoryAt', (path: string) => launchRecords(pool).at(path))
     const origin = keyedComputed('launch.origin', (path: string) => new LaunchOrigin(pool, path))
     return {
       workOnOpen,
@@ -108,7 +105,6 @@ export function launchOptionViews(pool: MobxPool) {
       dispose() {
         repository.clear()
         project.clear()
-        repositoryAt.clear()
         origin.clear()
         catalogRoot.clear()
       },
@@ -183,8 +179,10 @@ export class LaunchWorkPicker {
   }
   @lazy({ equals: compareShallow }) get repos() {
     const choices = this.choices
-    const byPath = new Map(choices.map(repo => [repo.path, repo]))
-    return storedOrder(this.projectOrder, choices.map(repo => repo.path)).flatMap(path => byPath.get(path) ?? [])
+    return storedOrder(this.projectOrder, choices.map(repo => repo.path)).flatMap(path => {
+      const repository = launchRecords(this.pool).at(path)
+      return repository ? launchRecords(this.pool).group(repository.id, true) ?? [] : []
+    })
   }
   @lazy get machines() { return launchOptionViews(this.pool).machines() }
   @lazy get recentMachine() { return launchOptionViews(this.pool).recentMachine() }
