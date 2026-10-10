@@ -2,7 +2,10 @@ import '@/test-support/mock-core-store-handle'
 import '@/test-support/mock-request-pool.test.fixture'
 import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import { normalizeSettings } from '@podium/runtime'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { applySettingsPatch } from '@podium/commands/settings-write-plan'
+import { ingestSettings } from '@podium/client-graph/requested-records'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 type Store = ReferenceState<import('@/app/trpc').Trpc>
@@ -115,6 +118,24 @@ async function makeDirty(): Promise<void> {
 }
 
 describe('Settings sheet — closing with unsaved edits', () => {
+  it('shows remote untouched preferences, discards to live and saves only the changed leaf', async () => {
+    storeState.settingsTab = 'hibernation'
+    const remote = normalizeSettings({ hibernation: { memoryPct: 90, idleMinutes: 123, enabled: false } })
+    const update = vi.fn(async ({ values }: { values: Record<string, unknown> }) => applySettingsPatch(remote, values))
+    Object.assign(storeState.trpc.settings, { updateInstance: { mutate: update } })
+    render(<SettingsView onClose={onClose} />)
+    const memory = await screen.findByDisplayValue('80') as HTMLInputElement
+    fireEvent.change(memory, { target: { value: '85' } })
+    act(() => ingestSettings(useWorklistPool()!, remote))
+    expect(await screen.findByDisplayValue('123')).toBeTruthy()
+    expect(memory.value).toBe('85')
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(memory.value).toBe('90')
+    fireEvent.change(memory, { target: { value: '85' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(update).toHaveBeenCalledExactlyOnceWith({ values: { 'hibernation.memoryPct': 85 } }))
+    expect(await screen.findByText('Saved ✓')).toBeTruthy()
+  })
   it('demands the cap scalar only on Hibernation and never demands fleet metric rows', async () => {
     const view = render(<SettingsView onClose={onClose} />)
     await makeDirty()

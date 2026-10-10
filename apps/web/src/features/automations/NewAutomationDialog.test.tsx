@@ -1,5 +1,6 @@
 import { type AutomationWire, asAutomationId, asSessionId } from '@podium/model'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { observable, runInAction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import '@/test-support/model-catalog-mock'
 
@@ -42,6 +43,22 @@ afterEach(() => {
 })
 
 describe('NewAutomationDialog edit mode', () => {
+  it('keeps untouched inputs live, discards to live and submits only changed fields', async () => {
+    const record = observable({ ...automation })
+    render(<NewAutomationDialog trpc={{ automations: { create: { mutate: create }, update: { mutate: update } } } as never}
+      automation={record} onClose={vi.fn()} onSaved={vi.fn()} />)
+    fireEvent.change(screen.getByDisplayValue('Nightly sweep'), { target: { value: 'Local sweep' } })
+    act(() => runInAction(() => { record.name = 'Remote sweep'; record.prompt = 'Remote prompt'; record.cron = '*/5 * * * *' }))
+    expect(await screen.findByDisplayValue('Remote prompt')).toBeTruthy()
+    expect(screen.getByDisplayValue('*/5 * * * *')).toBeTruthy()
+    expect(screen.getByDisplayValue('Local sweep')).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Discard' }))
+    expect(screen.getByDisplayValue('Remote sweep')).toBeTruthy()
+    expect(screen.queryByRole('button', { name: 'Discard' })).toBeNull()
+    fireEvent.change(screen.getByDisplayValue('Remote sweep'), { target: { value: 'Saved sweep' } })
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
+    await waitFor(() => expect(update).toHaveBeenCalledExactlyOnceWith({ id: record.id, patch: { name: 'Saved sweep' } }))
+  })
   it('prefills the exact schedule and updates the existing automation', async () => {
     const onSaved = vi.fn()
     render(
