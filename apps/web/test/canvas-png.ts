@@ -5,16 +5,19 @@ import { afterEach, beforeEach, type MockInstance, vi } from 'vitest'
 // the raster boundary. Real-browser evidence verifies the actual picture.
 const PNG =
   'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII='
-let context: MockInstance | undefined
-let png: MockInstance | undefined
 
-beforeEach(() => {
-  if (typeof HTMLCanvasElement === 'undefined') return
-  context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
-  png = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(PNG)
-})
+export function installCanvasPngHooks(): void {
+  let context: MockInstance | undefined
+  let png: MockInstance | undefined
 
-afterEach(() => {
-  context?.mockRestore()
-  png?.mockRestore()
-})
+  beforeEach(() => {
+    if (typeof HTMLCanvasElement === 'undefined') return
+    context = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+    png = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(PNG)
+  })
+
+  afterEach(() => {
+    context?.mockRestore()
+    png?.mockRestore()
+  })
+}

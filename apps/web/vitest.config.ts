@@ -50,10 +50,7 @@ export default defineConfig({
   },
   test: {
     ...sharedVitestConfig.test,
-    setupFiles: [
-      ...sharedSetupFiles,
-      fileURLToPath(new URL('./test/canvas-png.ts', import.meta.url)),
-    ],
+    setupFiles: sharedSetupFiles,
     environment: 'happy-dom',
     include: ['src/**/*.test.{ts,tsx}', 'test/**/*.test.{ts,tsx}'],
     passWithNoTests: false,
