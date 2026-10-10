@@ -18,6 +18,8 @@ import { currentMessageRecord, ingestLedgerMessages, ingestMessageRecords } from
 import { MessageLedger } from './message-ledger'
 import { LedgerEntry } from './ledger-entry'
 import * as beforeLedger from './ledger-entry.before.test.fixture'
+import { SCHEMA, validateStructure } from './shared/schema'
+import { fieldsOf, validateSources } from '../../../tests/worklist/shared/src/schema-sources'
 import { MobxPool } from './pool'
 import { NoticeSource } from './notice-source'
 import { NOTICE_ENTITIES } from './notice-schema'
@@ -352,4 +354,14 @@ it('matches each old ledger fact on shared models, with wrong-answer controls', 
         expect(() => expect({ ...actual, [field]: 'wrong' }).toEqual(expected)).toThrow()
     }
   } finally { pool.dispose() }
+})
+
+
+it('declares every stored message and interaction field against its authoritative schema', () => {
+  expect(validateStructure()).toEqual([])
+  expect(validateSources()).toEqual([])
+  expect(Object.keys(SCHEMA.pendingInteraction.fields).sort()).toEqual(fieldsOf('PendingInteractionWire').sort())
+  expect(Object.keys(SCHEMA.messageRecord.fields)).toEqual(expect.arrayContaining(fieldsOf('MessageRecordWire')))
+  expect(Object.keys(SCHEMA.messageRecord.fields)).toEqual(expect.arrayContaining(
+    fieldsOf('MessageLedgerWire').filter(field => field !== 'deliveryStatus')))
 })

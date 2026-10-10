@@ -22,8 +22,13 @@ export type PendingInteractionModel = InteractionModel & Readonly<PendingInterac
 
 function fields(schema: 'MessageRecordWire' | 'MessageLedgerWire' | 'PendingInteractionWire',
   arrivesOn: 'replica:messageRecords' | 'replica:pendingInteractions' | 'request:messages.ledger',
-  definitions: Record<string, FieldType>): Record<string, FieldSpec> {
-  return Object.fromEntries(Object.entries(definitions).map(([name, type]) => [name, { type, source: { schema, arrivesOn } }]))
+  definitions: Record<string, FieldType>,
+  options: { optional?: readonly string[]; nullable?: readonly string[] } = {}): Record<string, FieldSpec> {
+  return Object.fromEntries(Object.entries(definitions).map(([name, type]) => [name, {
+    type, source: { schema, arrivesOn },
+    ...(options.optional?.includes(name) ? { optional: true } : {}),
+    ...(options.nullable?.includes(name) ? { nullable: true } : {}),
+  }]))
 }
 const schema = {
   messageRecord: {
@@ -38,13 +43,17 @@ const schema = {
         id: 'id', sessionId: 'id', senderUserId: 'id', body: 'string', attachments: 'object',
         createdAt: 'isoDate', status: 'enum', reason: 'string', transcriptItem: 'object',
         retractRequestedAt: 'isoDate', noticeDismissedAt: 'isoDate',
-      }),
+      }, { optional: ['sessionId', 'senderUserId', 'attachments', 'reason', 'transcriptItem', 'retractRequestedAt', 'noticeDismissedAt'] }),
       // Requested ledger metadata
       ...fields('MessageLedgerWire', 'request:messages.ledger', {
         threadId: 'id', inReplyTo: 'id', from: 'string', to: 'string', kind: 'enum', urgency: 'enum', lifecycle: 'enum',
         queuePosition: 'number', ackedBy: 'id', deliveredAt: 'isoDate', deliveredTo: 'id', expiresAt: 'isoDate',
         clampedFrom: 'string', hop: 'number', readAt: 'isoDate', deadLetteredAt: 'isoDate',
         deliveryDeferredAt: 'isoDate', deliveryDeferredReason: 'string',
+      }, {
+        optional: ['threadId', 'inReplyTo', 'from', 'to', 'kind', 'urgency', 'lifecycle', 'queuePosition', 'ackedBy',
+          'deliveredAt', 'deliveredTo', 'expiresAt', 'clampedFrom', 'hop', 'readAt', 'deadLetteredAt', 'deliveryDeferredAt', 'deliveryDeferredReason'],
+        nullable: ['inReplyTo', 'ackedBy', 'deliveredAt', 'deliveredTo', 'expiresAt', 'clampedFrom', 'readAt', 'deadLetteredAt', 'deliveryDeferredAt', 'deliveryDeferredReason'],
       }),
     }, relations: {}, cold: { kind: 'never', why: 'Synced working set and requested ledger records use existing resident tables.' },
   },
@@ -55,10 +64,10 @@ const schema = {
       // Identity and request
       ...fields('PendingInteractionWire', 'replica:pendingInteractions', {
         id: 'id', sessionId: 'id', kind: 'enum', askedAt: 'isoDate', source: 'enum', answerable: 'enum',
-        payload: 'object', fingerprint: 'string',
+        payload: 'object', fingerprint: 'string', policyVerdict: 'enum', expiresAt: 'isoDate',
         // Resolution
-        status: 'enum', answeredAt: 'isoDate', answeredBy: 'enum', answer: 'object',
-      }),
+        status: 'enum', answeredAt: 'isoDate', answeredBy: 'enum', answer: 'object', deliveredVia: 'enum', expiredAt: 'isoDate',
+      }, { optional: ['policyVerdict', 'expiresAt', 'answeredAt', 'answeredBy', 'answer', 'deliveredVia', 'expiredAt'] }),
     }, relations: {}, cold: { kind: 'never', why: 'The synced pending ask set stays resident.' },
   },
 } satisfies Pick<ModelSchema, 'messageRecord' | 'pendingInteraction'>
@@ -98,7 +107,7 @@ export function ingestLedgerMessages(pool: MobxPool, records: readonly MessageLe
  * use the message ID. Identity fields already in the table provide that join. */
 export function currentMessageRecord(pool: MobxPool, replica: ClientRuntime['replica'], id: string): MessageRecordWire | undefined {
   const row = pool.tables.messageRecord.get(id) as MessagePoolRow | undefined
-  return row?.sessionId && row.senderUserId ? replica.row('messageRecords', messageRecordRowId({
+  return row?.sessionId && row.senderUserId ? replica.row?.('messageRecords', messageRecordRowId({
     sessionId: row.sessionId, senderUserId: row.senderUserId, messageId: id,
   })) : undefined
 }
