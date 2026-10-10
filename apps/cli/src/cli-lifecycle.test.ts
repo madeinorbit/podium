@@ -585,7 +585,7 @@ describe('restart', () => {
   it('stops detached parents before children and starts the existing mode again', async () => {
     const stopped: string[] = []
     let started = false
-    await restartCommand({ config: { mode: 'server', persistence: 'detached', port: 23456 }, live: () => [rec({ role: 'server' }), rec({ role: 'parent' })], reclaim: async (role) => { stopped.push(role) }, start: async (mode, port) => { expect(mode).toBe('server'); expect(port).toBe(23456); expect(stopped).toEqual(['parent', 'server']); started = true; return { serverUp: true } }, tunnelExists: async () => false, out: () => {} })
+    await restartCommand({ config: { mode: 'server', persistence: 'detached', port: 23456 }, live: () => [rec({ role: 'server' }), rec({ role: 'parent' })], reclaim: async (role) => { stopped.push(role); return { reclaimed: true } }, start: async (mode, port) => { expect(mode).toBe('server'); expect(port).toBe(23456); expect(stopped).toEqual(['parent', 'server']); started = true; return { serverUp: true } }, tunnelExists: async () => false, out: () => {} })
     expect(started).toBe(true)
   })
   it('still restarts the tunnel if the server does not come back', async () => {
