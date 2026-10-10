@@ -600,8 +600,6 @@ export class MobxPool {
     id: string,
     absent: AbsentRead = 'load',
   ): Lookup<object> {
-    // A retired pool has no visible records and must never restart its loader.
-    if (this.disposed) return NOT_VISIBLE
     if (entity === 'setupSession') return readSetupSession(this, id) ?? NOT_VISIBLE
     if (isHeaderEntity(entity) && entity !== 'machine') return headerEntities(this).get(entity, id) ?? NOT_VISIBLE
     if (!Object.hasOwn(this.tables, entity)) return this.sources.read(entity as SourceEntity, id) ?? NOT_VISIBLE
@@ -623,7 +621,8 @@ export class MobxPool {
       !untracked(() => this.tables[core].has(id))
     let server = coldSummary ? undefined : (this.tables[core].get(id) as object | undefined)
     if (server === undefined) {
-      if (residency === null) return NOT_VISIBLE
+      // Resident readers finish teardown, but missing rows must not restart a retired loader.
+      if (this.disposed || residency === null) return NOT_VISIBLE
       if (absent === 'load') return residency.lookup(core, id)
       if (residency.removed(core, id)) return REMOVED
       if (!residency.known(core, id)) return NOT_VISIBLE
