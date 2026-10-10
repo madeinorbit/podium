@@ -27,7 +27,8 @@ import {
   ServerFollower,
   type ServerIdentity,
   type ServerMove,
-} from '@podium/client-core/live-connection'
+} from '@podium/client-core/server-follow'
+import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol/server-locate'
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
 
 export interface WebFollowContext {
@@ -98,9 +99,10 @@ export function webFollowPorts(context: WebFollowContext): FollowPorts {
  */
 export function startWebFollowing(
   hub: FollowableHub,
-  context: WebFollowContext & { connectBaseUrl: string },
+  context: WebFollowContext & { connectBaseUrl?: string },
 ): () => void {
-  return followHub(hub, webFollowPorts(context), { connectBaseUrl: () => context.connectBaseUrl })
+  const connectBaseUrl = context.connectBaseUrl ?? CONNECT_DEFAULT_BASE_URL
+  return followHub(hub, webFollowPorts(context), { connectBaseUrl: () => connectBaseUrl })
 }
 
 /**

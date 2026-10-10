@@ -5,7 +5,6 @@ import {
   FLIGHT_DECK_EXPANDED_WIDTH_KEY,
 } from '@podium/client-core/ui-state'
 import { observer } from '@podium/client-graph/react'
-import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol'
 import { ChevronLeft } from 'lucide-react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
@@ -234,7 +233,6 @@ function ServerFollowObserver(): null {
           bridge: nativeDesktopBridge(),
           location: window.location,
           notify: (message) => toast(message),
-          connectBaseUrl: CONNECT_DEFAULT_BASE_URL,
         })
       })
       .catch(() => {

@@ -9,7 +9,7 @@ import {
   withPairingIdentity,
   withProfileServerIdentity,
 } from '@podium/client-core/accounts'
-import { locateServer } from '@podium/client-core/live-connection'
+import { locateServer } from '@podium/client-core/server-follow'
 import {
   parseServerOrigin,
   type ServerConfig,
@@ -17,7 +17,7 @@ import {
   workspaceSelectorFromLocation,
 } from '@podium/client-core/transport'
 import { createLogger } from '@podium/logger'
-import { CONNECT_DEFAULT_BASE_URL, type ServerIdentity } from '@podium/protocol'
+import { CONNECT_DEFAULT_BASE_URL, type ServerIdentity } from '@podium/protocol/server-locate'
 import * as Haptics from 'expo-haptics'
 import { router } from 'expo-router'
 import {

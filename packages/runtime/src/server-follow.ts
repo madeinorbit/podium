@@ -43,7 +43,7 @@ import {
   parseLocateProofResponse,
   rawPublicKeyFromWire,
   type ServerIdentity,
-} from '@podium/protocol'
+} from '@podium/protocol/server-locate'
 
 export type { ServerIdentity }
 export { isServerIdentity }

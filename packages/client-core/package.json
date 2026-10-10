@@ -185,6 +185,11 @@
       "types": "./src/live-connection/index.ts",
       "import": "./src/live-connection/index.ts"
     },
+    "./server-follow": {
+      "@podium/source": "./src/live-connection/server-follow.ts",
+      "types": "./src/live-connection/server-follow.ts",
+      "import": "./src/live-connection/server-follow.ts"
+    },
     "./test-support/local-store": {
       "@podium/source": "./test-support/local-store.ts",
       "types": "./test-support/local-store.ts",

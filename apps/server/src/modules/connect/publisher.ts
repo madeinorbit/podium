@@ -16,7 +16,7 @@
  * env → config.json → default on each call, so a settings write is picked up
  * on the next tick with no hook into the settings path.
  */
-import { connectStableLink } from '@podium/protocol'
+import { connectStableLink } from '@podium/protocol/server-locate'
 import type { InstallationIdentity } from '@podium/runtime/installation-identity'
 import type { CheckResult, ConnectClient, ConnectFailure, LocatorRecord } from './client'
 
