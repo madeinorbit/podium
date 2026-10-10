@@ -1,6 +1,5 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
-import { useRef, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
@@ -11,17 +10,12 @@ import * as old from './flight-deck-waterfall.legacy.test.fixture'
 
 const state = vi.hoisted(() => ({
   pool: null as MobxPool | null,
-  now: 0,
   history: null as ((input: { sessionIds: string[] }) => Promise<unknown>) | null,
-  listeners: new Set<() => void>(),
 }))
 const query = (input: { sessionIds: string[] }) =>
   state.history?.(input) ?? Promise.resolve({ sessions: {} })
 const owner = {
   access: {
-    get coarseNow() {
-      return state.now
-    },
     renameSession: async () => {},
     uiState: { get: () => null, set: () => {} },
     trpc: { sessions: { activityHistory: { query } } },
@@ -31,20 +25,6 @@ vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   useStoreHandle: () => owner,
 }))
-vi.mock('./store', () => ({
-  useRuntimeSelector: (read: (access: typeof owner.access) => unknown) => {
-    const selector = useRef(read)
-    selector.current = read
-    return useSyncExternalStore(
-      (callback) => {
-        state.listeners.add(callback)
-        return () => state.listeners.delete(callback)
-      },
-      () => selector.current(owner.access),
-      () => selector.current(owner.access),
-    )
-  },
-}))
 vi.mock('./store-worklist-pool', () => ({
   useWorklistPoolProjection: (read: (pool: MobxPool) => unknown, empty: unknown) =>
     state.pool ? read(state.pool) : empty,
@@ -52,21 +32,22 @@ vi.mock('./store-worklist-pool', () => ({
 }))
 afterEach(() => {
   cleanup()
-  state.listeners.clear()
   state.pool = null
+  vi.useRealTimers()
   vi.restoreAllMocks()
 })
 
 const settle = async () => {
   await act(async () => {
-    await new Promise((resolve) => setTimeout(resolve, 40))
+    await vi.advanceTimersByTimeAsync(40)
   })
 }
 
 async function mount(count: number) {
   const f = await waterfallFixture(count)
+  vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+  vi.setSystemTime(NOW)
   state.pool = f.pool
-  state.now = NOW
   const history = vi.fn(async ({ sessionIds }: { sessionIds: string[] }) => ({
     sessions: Object.fromEntries(
       sessionIds.map((id) => [
@@ -119,6 +100,7 @@ async function mount(count: number) {
     close: () => {
       ui.unmount()
       f.close()
+      vi.useRealTimers()
     },
   }
 }
@@ -227,16 +209,21 @@ describe('elements waterfall viewport', () => {
           fireEvent.click(ui.getByRole('button', { name: 'Follow current work and time' })),
         )
         history.mockClear()
+        const liveLane = root.querySelector<HTMLElement>('[data-waterfall-live="true"]')!
+        expect(liveLane).not.toBeNull()
+        const liveDuration = () => liveLane.querySelector('.waterfall-session-time')!.textContent
+        const durationBefore = liveDuration()
+        const widthBefore = liveLane.style.getPropertyValue('--waterfall-width')
         const tick = await measureWork(
           async () =>
             insideReader('waterfall.minute', async () => {
-              await act(async () => {
-                state.now += 60000
-                for (const listener of state.listeners) listener()
-              })
+              await act(async () => vi.advanceTimersByTimeAsync(60000))
             }),
           { pool: f.pool },
         )
+        expect(root.contains(liveLane)).toBe(true)
+        expect(liveDuration()).not.toBe(durationBefore)
+        expect(liveLane.style.getPropertyValue('--waterfall-width')).not.toBe(widthBefore)
         expect(history).not.toHaveBeenCalled()
         expect(
           Object.keys(tick.work.derivationsBy).filter((name) => /(?:^|\/)observer/.test(name)),
@@ -253,15 +240,19 @@ describe('elements waterfall viewport', () => {
         for (let pan = 0; pan < 6; pan++)
           await act(async () => fireEvent.keyDown(root, { key: 'ArrowLeft', altKey: true }))
         history.mockClear()
+        const pastNow = root.style.getPropertyValue('--waterfall-now')
+        const pastDuration = liveDuration()
+        const pastWidth = liveLane.style.getPropertyValue('--waterfall-width')
         const pastTick = await measureWork(
           async () => {
-            await act(async () => {
-              state.now += 60000
-              for (const listener of state.listeners) listener()
-            })
+            await act(async () => vi.advanceTimersByTimeAsync(60000))
           },
           { pool: f.pool },
         )
+        expect(root.contains(liveLane)).toBe(true)
+        expect(root.style.getPropertyValue('--waterfall-now')).toBe(pastNow)
+        expect(liveDuration()).toBe(pastDuration)
+        expect(liveLane.style.getPropertyValue('--waterfall-width')).toBe(pastWidth)
         expect(pastTick.work.derivations).toBe(0)
         expect(history).not.toHaveBeenCalled()
         scales.push(cells)
