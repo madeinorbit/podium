@@ -408,6 +408,9 @@ function useFixturePool(): MobxPool {
   live.current = input
   useLayoutEffect(() => {
     if (!isDeepStrictEqual(signal.get(), input)) runInAction(() => signal.set(input))
+    // Warm conversation services retain their first pool adapter. Publish the
+    // synthetic session rows into its canonical models after every fixture move.
+    syncPoolFixture({ ...input.state, issues: input.issues } as never, true)
   })
   const seenSelected = useRef<string | null>(null)
   // Stable across renders (a per-render closure would reset the counter on
@@ -455,9 +458,13 @@ function useFixturePool(): MobxPool {
     const pool = {
       notSaved: () => false,
       issueObject: (id: string) => records().issueObject(id),
+      sessionObject: (id: string) => records().sessionObject(id),
+      bindSessionDrafts: (drafts: Parameters<MobxPool['bindSessionDrafts']>[0]) => records().bindSessionDrafts(drafts),
       // These provider-free fixtures already hand out their record objects.
       // Real-pool observation tests cover shared model identity and field demand.
-      model: (entity: Parameters<MobxPool['row']>[0], id: string) => omitGone(pool.row(entity, id)),
+      model: (entity: Parameters<MobxPool['row']>[0], id: string) => entity === 'session'
+        ? records().model(entity, id)
+        : omitGone(pool.row(entity, id)),
       selection: {
         // The selected row the fixture store names (the real pool's
         // selection local): rows read it for their selected weight, and the
