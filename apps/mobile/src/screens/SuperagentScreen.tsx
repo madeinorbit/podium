@@ -1,4 +1,4 @@
-import { loadedPaneSession } from '@podium/client-graph/session-pane'
+import { here } from '@podium/client-graph/lookup'
 import { useModelCatalog } from '@podium/client-core/react'
 import type { MobileChatViewModel } from '../lib/chat-view-model'
 import type { SuperagentSliceValue } from '@podium/client-core/values'
@@ -72,7 +72,7 @@ function usePoolQuestion(id: SessionId | undefined) {
   return useMobilePoolProjection(read, undefined)
 }
 function usePoolTranscriptSession(id: SessionId | undefined) {
-  const read = useCallback((pool: MobxPool) => loadedPaneSession(pool, id), [id])
+  const read = useCallback((pool: MobxPool) => id ? here(pool.model('session', id)) : undefined, [id])
   return useMobilePoolProjection(read, undefined)
 }
 
