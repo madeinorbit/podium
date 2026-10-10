@@ -754,10 +754,6 @@ export function AgentPanel({
   // only while such a wait is actually on screen in this pane.
   // …and it also has to tick while a reconnecting session's machine is away,
   // which is a wait with no output and no attach to end it [POD-2290 round 2].
-  const silenceNow = useClock(
-    1_000,
-    gates.terminalActive && (!ready || !outputSeen || session?.status === 'reconnecting'),
-  )
   // When THIS mount started waiting for its attach [POD-2290] — zero while
   // attached, restamped on the next wait, so a re-attach is judged on its own
   // window instead of inheriting the first one's age. A render-phase ref write,
@@ -778,17 +774,7 @@ export function AgentPanel({
   const awaitingSinceRef = useRef(0)
   if (!machineAway) awaitingSinceRef.current = 0
   else if (awaitingSinceRef.current === 0) awaitingSinceRef.current = Date.now()
-  const overlay = startupOverlay({
-    ready,
-    outputSeen,
-    ageMs: sessionAgeMs(session?.createdAt, silenceNow),
-    attachWaitMs:
-      attachWaitSinceRef.current === 0
-        ? null
-        : Math.max(0, silenceNow - attachWaitSinceRef.current),
-    awaitingMachineMs:
-      awaitingSinceRef.current === 0 ? null : Math.max(0, silenceNow - awaitingSinceRef.current),
-  })
+
 
   // Native-mode dictation: transcribed speech types straight into the PTY as
   // keystrokes — no auto-submit, so the user can edit before hitting Enter.
@@ -1413,75 +1399,16 @@ export function AgentPanel({
                 {/* The HOST. No flex sizing: xterm sizes it to cols x cell and
                 the box above pads or clips around it. */}
                 <div ref={termRef} className="term" />
-                {overlay.kind !== 'hidden' && (
-                  <div
-                    className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-[13px] text-zinc-400"
-                    style={{ backgroundColor: termBg }}
-                    data-testid="terminal-startup-overlay"
-                    role="status"
-                    aria-live="polite"
-                  >
-                    {/* The spinner is a CLAIM that something is still happening, so
-                    it is dropped the moment that claim stops being credible
-                    [POD-2290] — a stalled mount says so in words instead of
-                    animating over a wait that is not going to end. */}
-                    {overlay.kind !== 'stalled' && overlay.kind !== 'awaiting-machine' && (
-                      <span
-                        className="size-[22px] animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300"
-                        aria-hidden="true"
-                      />
-                    )}
-                    <span data-testid="startup-headline">
-                      {overlay.kind === 'awaiting-machine'
-                        ? 'Waiting for this machine'
-                        : overlay.kind === 'stalled'
-                          ? `${session ? panelLabel(session.agentKind) : 'This session'} hasn’t started`
-                          : `Starting ${session ? panelLabel(session.agentKind) : 'session'}…`}
-                    </span>
-                    {/* The one overlay arm that names a cause, because here the
-                    panel actually knows it: the session row is `reconnecting`
-                    and no driver fact has arrived, so what is missing is the
-                    MACHINE, not the harness. Saying "Starting OpenCode…" over
-                    this is the round-two bug in miniature — a claim about a
-                    process nobody is talking to. [POD-2290] */}
-                    {overlay.kind === 'awaiting-machine' && (
-                      <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
-                        Podium hasn’t heard from this machine in {formatClock(overlay.elapsedMs)}.
-                        The session is still here — it will pick up again once the machine
-                        reconnects.
-                      </span>
-                    )}
-                    {/* What the operator can actually do about it. Deliberately
-                    silent on the CAUSE: nothing here can tell a spawn that
-                    failed from a machine that went away, and naming the wrong
-                    one is worse than naming none. */}
-                    {overlay.kind === 'stalled' && (
-                      <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
-                        Nothing has attached to this terminal in {formatClock(overlay.elapsedMs)}.
-                        The session may have failed to start — check its status, or spawn it again.
-                      </span>
-                    )}
-                    {/* Machine voice, mono and tabular so the digits don't jitter.
-                    aria-hidden: a per-second counter inside a live region would
-                    re-announce itself every tick; the lines around it carry the
-                    meaning a screen reader needs. */}
-                    {overlay.kind === 'silent' && overlay.elapsedMs !== null && (
-                      <span
-                        className="font-mono text-[11px] text-zinc-500 tabular-nums"
-                        data-testid="startup-silence"
-                        aria-hidden="true"
-                      >
-                        no output yet · {formatClock(overlay.elapsedMs)}
-                      </span>
-                    )}
-                    {overlay.kind === 'silent' && overlay.hint && (
-                      <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
-                        Still attached — some CLIs update themselves or run first-time setup before
-                        printing anything.
-                      </span>
-                    )}
-                  </div>
-                )}
+                <TerminalStartupOverlay
+                  ready={ready}
+                  outputSeen={outputSeen}
+                  createdAt={session?.createdAt}
+                  agentKind={session?.agentKind}
+                  attachWaitSince={attachWaitSinceRef.current}
+                  awaitingSince={awaitingSinceRef.current}
+                  active={gates.terminalActive && effectiveMode !== 'chat'}
+                  termBg={termBg}
+                />
                 {ready && !atBottom && (
                   <Button
                     type="button"
@@ -1644,4 +1571,93 @@ export function AgentPanel({
       <OfferLiftContext.Provider value={offerLift}>{panel}</OfferLiftContext.Provider>
     </OfferDismissalContext.Provider>
   )
+}
+
+/** Only this visible wait label observes time; the terminal panel stays still. */
+function TerminalStartupOverlay({ ready, outputSeen, createdAt, agentKind, attachWaitSince, awaitingSince, active, termBg }: {
+  ready: boolean
+  outputSeen: boolean
+  createdAt?: string
+  agentKind?: Parameters<typeof panelLabel>[0]
+  attachWaitSince: number
+  awaitingSince: number
+  active: boolean
+  termBg: string
+}) {
+  const silenceNow = useClock(1_000, active && (!ready || !outputSeen || awaitingSince !== 0))
+  const overlay = startupOverlay({
+    ready, outputSeen,
+    ageMs: sessionAgeMs(createdAt, silenceNow),
+    attachWaitMs: attachWaitSince === 0 ? null : Math.max(0, silenceNow - attachWaitSince),
+    awaitingMachineMs: awaitingSince === 0 ? null : Math.max(0, silenceNow - awaitingSince),
+  })
+return overlay.kind === 'hidden' ? null : (
+                  <div
+                    className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center text-[13px] text-zinc-400"
+                    style={{ backgroundColor: termBg }}
+                    data-testid="terminal-startup-overlay"
+                    role="status"
+                    aria-live="polite"
+                  >
+                    {/* The spinner is a CLAIM that something is still happening, so
+                    it is dropped the moment that claim stops being credible
+                    [POD-2290] — a stalled mount says so in words instead of
+                    animating over a wait that is not going to end. */}
+                    {overlay.kind !== 'stalled' && overlay.kind !== 'awaiting-machine' && (
+                      <span
+                        className="size-[22px] animate-spin rounded-full border-2 border-zinc-700 border-t-zinc-300"
+                        aria-hidden="true"
+                      />
+                    )}
+                    <span data-testid="startup-headline">
+                      {overlay.kind === 'awaiting-machine'
+                        ? 'Waiting for this machine'
+                        : overlay.kind === 'stalled'
+                          ? `${agentKind ? panelLabel(agentKind) : 'This session'} hasn’t started`
+                          : `Starting ${agentKind ? panelLabel(agentKind) : 'session'}…`}
+                    </span>
+                    {/* The one overlay arm that names a cause, because here the
+                    panel actually knows it: the session row is `reconnecting`
+                    and no driver fact has arrived, so what is missing is the
+                    MACHINE, not the harness. Saying "Starting OpenCode…" over
+                    this is the round-two bug in miniature — a claim about a
+                    process nobody is talking to. [POD-2290] */}
+                    {overlay.kind === 'awaiting-machine' && (
+                      <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
+                        Podium hasn’t heard from this machine in {formatClock(overlay.elapsedMs)}.
+                        The session is still here — it will pick up again once the machine
+                        reconnects.
+                      </span>
+                    )}
+                    {/* What the operator can actually do about it. Deliberately
+                    silent on the CAUSE: nothing here can tell a spawn that
+                    failed from a machine that went away, and naming the wrong
+                    one is worse than naming none. */}
+                    {overlay.kind === 'stalled' && (
+                      <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
+                        Nothing has attached to this terminal in {formatClock(overlay.elapsedMs)}.
+                        The session may have failed to start — check its status, or spawn it again.
+                      </span>
+                    )}
+                    {/* Machine voice, mono and tabular so the digits don't jitter.
+                    aria-hidden: a per-second counter inside a live region would
+                    re-announce itself every tick; the lines around it carry the
+                    meaning a screen reader needs. */}
+                    {overlay.kind === 'silent' && overlay.elapsedMs !== null && (
+                      <span
+                        className="font-mono text-[11px] text-zinc-500 tabular-nums"
+                        data-testid="startup-silence"
+                        aria-hidden="true"
+                      >
+                        no output yet · {formatClock(overlay.elapsedMs)}
+                      </span>
+                    )}
+                    {overlay.kind === 'silent' && overlay.hint && (
+                      <span className="max-w-[44ch] text-[11px] text-balance text-zinc-500 leading-relaxed">
+                        Still attached — some CLIs update themselves or run first-time setup before
+                        printing anything.
+                      </span>
+                    )}
+                  </div>
+                )
 }

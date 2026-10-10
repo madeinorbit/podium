@@ -1,4 +1,5 @@
 import { useAgeNow } from '../lib/clock-hooks'
+import { observer } from '@podium/client-graph/react'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 
@@ -440,6 +441,6 @@ const styles = StyleSheet.create({
   },
 })
 
-function ScreeningAge({ issue }: { issue: { createdAt: string } }) {
+const ScreeningAge = observer(function ScreeningAge({ issue }: { issue: { createdAt: string } }) {
   return ` · proposed ${relativeTime(issue.createdAt, useAgeNow(issue.createdAt))}`
-}
+})

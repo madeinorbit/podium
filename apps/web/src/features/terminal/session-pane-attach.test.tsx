@@ -66,7 +66,7 @@ vi.mock('@/lib/SnoozeControl', () => ({ SnoozeControl: () => null }))
 vi.mock('./use-terminal-appearance', () => ({
   useTerminalAppearance: () => ({ settings: {}, appearance: { theme: { background: '#000' } } }),
 }))
-vi.mock('@/lib/clock-hooks', () => ({ useClock: () => SESSION_PANE_NOW }))
+vi.mock('@/lib/clock-hooks', () => ({ useClock: () => SESSION_PANE_NOW, useDeadlineNow: () => SESSION_PANE_NOW }))
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
 

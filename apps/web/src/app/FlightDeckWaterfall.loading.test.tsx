@@ -44,7 +44,7 @@ it('opens a cold production mission in Waterfall without throwing the loading se
   const handle = createRuntimeWorklistPool(ctx.engine, screenOptions(poolBackedScreens, ctx.engine))
   const screen = new MissionScreen(handle.pool, 'i1766', { development: true })
   state.pool = handle.pool
-  state.now = ctx.engine.access.coarseNow
+  state.now = ctx.corpus.fixedNow
   screen.open()
   const stop = autorun(() => void screen.ready)
   try {
