@@ -1,6 +1,8 @@
 // @vitest-environment happy-dom
 import { expect, it } from 'vitest'
 import { runInAction } from 'mobx'
+import { asIssueId } from '@podium/model/browser'
+import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { startScenarioEngine } from '../../../tests/worklist/shared/src/scenarios'
 import { createRuntimeWorklistPool } from './runtime-pool'
 import { COMMAND_SUMMARIES } from './command-launch-schema'
@@ -29,6 +31,26 @@ it('reads the existing licensed command summaries without promoting historical p
     }
     step = 'hydrate after summary reads'
     expect(handle.pool.hydrate()).toBe(0)
+    const cold = handle.pool.queries.ids({ kind: 'commandIssues' }).filter(id => handle.pool.residency!.isCold('issue', id))
+    expect(cold.length).toBeGreaterThan(0)
+    referenceState(ctx.engine).setSelectedIssueId(asIssueId(cold[0]!))
+    await Promise.resolve()
+    step = 'selected pending'
+    const selected = runInAction(() => commandLaunchViews(handle.pool).palette())
+    expect(selected && selected !== LOADING ? selected.pending : 0).toBeGreaterThan(0)
+    expect(handle.pool.hydrate()).toBeGreaterThan(0)
+    for (let turn = 0; turn < 32; turn++) {
+      step = `selected turn ${turn}`
+      const value = runInAction(() => commandLaunchViews(handle.pool).palette())
+      if (value && value !== LOADING) {
+        const issue = value.issues.find(issue => issue.id === cold[0])
+        if (issue) for (const key of ['unread', 'readAt', 'memberSessionIds', 'childCount', 'childDoneCount', 'gitState', 'needsHuman', 'blocked', 'stage', 'closedReason'] as const) {
+          step = `selected ${key}`
+          runInAction(() => { void issue[key] })
+        }
+      }
+      if (!handle.pool.hydrate()) break
+    }
     detach()
   } catch (cause) {
     throw new Error(`${step}: ${String(cause)}`, { cause })
