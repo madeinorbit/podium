@@ -52,5 +52,36 @@ so a partial paint cannot silently replace the baseline.
 The six-cell refresh executes seven tests, including the writer, with peak
 process RSS **2,511,155,200 bytes**. The bounded bootstrap and product-window
 controls execute five tests with peak RSS **1,552,756,736 bytes**. These are
-focused test results, not full-suite results. The final landing checks are
-recorded below after validating the complete candidate.
+focused test results, not full-suite results.
+
+## Candidate proof and handoff
+
+The final harness candidate `10e6f1ed5c` is based on pilot `2657d68f61`.
+The following foreground runs use its unmodified sources on flatblock:
+
+| Focused command (`bun run test:file -- ...`) | Result | Peak process RSS |
+| --- | --- | --- |
+| `bootstrap.test.ts -t "counts at 1x"` | 1 passed, 4x skipped | 1,576,448,000 bytes |
+| `tracking-counts.test.ts`, without an update environment variable | 6 passed, baseline writer skipped | 2,576,449,536 bytes |
+| `mobx-graph.test.ts` and `tracking-window.test.ts` | 4 passed | 1,102,225,408 bytes |
+
+The tracking run compares every count to the checked-in baseline; it does not
+refresh the baseline while validating. The control run proves that the product
+list has rows under both measurement modes, and that companion-owned model
+identities are counted without depending on their debug names.
+
+`bun scripts/check-interaction-scans.ts` reports 2,071 fingerprints, 2,072
+occurrences and **0 ratchet errors**. The existing classifications are unchanged.
+
+The 4x bootstrap attempts exceed the ordinary-worker 3 GB cap and are stopped.
+These interrupted runs are **no result**, including attempts that printed
+model counts before cleanup. Recorded worker PIDs are checked by process start
+time and killed explicitly after a stop; no surviving recorded worker remains.
+The coordinator requested no further ordinary 4x attempts. POD-5895 must
+schedule the isolated 4x bootstrap under its solo meter window.
+
+The operator's shared-lane handoff assigns the full typecheck, lean gate,
+builds, structural census and landing to POD-5895. This branch changes only
+tests, measurement helpers, their baseline and this report; it changes no
+product code. The entire pilot-to-candidate range is handed to POD-4286 with
+these focused results. Heavy checks and landing have not been claimed here.
