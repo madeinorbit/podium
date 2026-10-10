@@ -1,4 +1,4 @@
-import type { SessionView } from '@podium/client-core/session-values'
+import { observer } from 'mobx-react-lite'
 /**
  * Shared building blocks for the settings sections (P5d, issue #264): the
  * Section/Row layout primitives, the account/provider label helpers, and the
@@ -8,7 +8,7 @@ import type { SessionView } from '@podium/client-core/session-values'
 import {
   type AccountId,
   asAccountId,
-  type MachineId} from '@podium/model/browser'
+} from '@podium/model/browser'
 import type { ApiProvider, HarnessAgent, RoleBackend } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'
@@ -259,7 +259,7 @@ export function accountOptions(
  * "Provider backend (API key or local login)"), then model + effort. Includes
  * the billing explainer the spec demands when picking a harness.
  */
-export function RoleBackendEditor({
+export const RoleBackendEditor = observer(function RoleBackendEditor({
   role,
   backend,
   accounts,
@@ -458,4 +458,4 @@ export function RoleBackendEditor({
       )}
     </>
   )
-}
+})
