@@ -129,8 +129,15 @@ export function loadMachineState(
     // keeps a stale one (flatblock: machine.id from an earlier pairing, daemon.json the
     // live row), and a supervised box keeps a dead daemon.json (ludovico). Disagreement
     // is ordinary, never a refusal; every section is kept verbatim.
+    //
+    // A daemon.json WITHOUT a token is not a credential row and outranks nothing
+    // (POD-5931). A 0.1.0 all-in-one wrote one (machineId + updatePubkey) while its
+    // local daemon authenticated as `machine.id` with the same-host secret; taking the
+    // daemon.json id there renamed the host away from the row its repos and sessions
+    // live on, and the host could never be adopted onto a machine key.
     let legacy: MachineState['legacy']
     const legacyIds: Partial<Record<'supervisor.json' | 'machine.id' | 'daemon.json', string>> = {}
+    let daemonHasToken = false
     for (const name of LEGACY_FILES) {
       const raw = readOptional(join(dir, name))
       if (raw === undefined) continue
@@ -147,11 +154,15 @@ export function loadMachineState(
           if (typeof data.machineId !== 'string' || !data.machineId.trim())
             throw new Error(`invalid legacy identity in ${name}`)
           legacyIds[section === 'daemon' ? 'daemon.json' : 'supervisor.json'] = data.machineId
+          if (section === 'daemon') daemonHasToken = typeof data.token === 'string' && data.token !== ''
         }
       }
     }
     const legacyId =
-      legacyIds['supervisor.json'] ?? legacyIds['daemon.json'] ?? legacyIds['machine.id']
+      legacyIds['supervisor.json'] ??
+      (daemonHasToken ? legacyIds['daemon.json'] : undefined) ??
+      legacyIds['machine.id'] ??
+      legacyIds['daemon.json']
     if (legacyId === undefined && !expectedId && !allowCreate)
       throw new Error('machine identity is missing')
     const machineId = (legacyId ?? expectedId ?? randomUUID()) as MachineId

@@ -1,6 +1,6 @@
 import { bootStage } from './boot-timing'
 import { readNewestTargetPromotionMetadata } from './modules/server-transfer/target-status'
-import { completePreauthorizedSetup } from './setup-enrollment'
+import { adoptLegacyHostMachine, completePreauthorizedSetup, isLegacyHostMachine } from './setup-enrollment'
 import { requestParentEnrollment } from '@podium/runtime/parent-control'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { readLegacyInstancePasswordHash, deleteLegacyInstancePasswordFile, hashPassword } from '@podium/runtime/auth-store'
@@ -813,6 +813,8 @@ export async function startServer(
       const stagedHash = readLegacyInstancePasswordHash()
       const passwordHash = stagedHash ?? (process.env.PODIUM_PASSWORD ? await hashPassword(process.env.PODIUM_PASSWORD) : undefined)
       const receipt = await completePreauthorizedSetup(store, installation.installationId, setupRequest, passwordHash)
+        // A legacy-host adoption (below) that prepared its key but did not finish: resume it.
+        ?? await adoptLegacyHostMachine(store, installation.installationId, setupRequest)
       if (receipt) {
         // Credential activation and enrollment committed together. Files and parent RPC happen afterwards.
         if (stagedHash && receipt.actor && (await store.users.credentialFor(receipt.actor))?.passwordHash === stagedHash) deleteLegacyInstancePasswordFile()
@@ -831,6 +833,28 @@ export async function startServer(
       const applied = await applyEnvFirstAdminPassword({ users: store.users })
       if (applied.applied && applied.userId)
         await registry.modules.machines.grantHostMachineIfUnowned(applied.userId)
+      // AN UPGRADED HOST HAS NO MACHINE CREDENTIAL (POD-5931). Releases before setup
+      // enrollment ran this host's daemon on the same-host bootstrap secret, which is no
+      // longer a machine credential, and an upgrade never runs setup — so the host's
+      // daemon and supervisor would retry "pair it first" forever and no agent could run
+      // here. Re-key the existing row through the same parent channel setup uses; the row
+      // keeps its id, owner, repos and sessions.
+      if (!rehearsal && !supervisorSetup.enrolledPublicKey && !supervisorSetup.token
+        && supervisorSetup.machineId === hostMachineId
+        && (envMode === 'all-in-one' || envMode === 'server')
+        && await isLegacyHostMachine(store, hostMachineId)) {
+        try {
+          const request = await requestParentEnrollment({ action: 'prepare', agentExecution: envMode === 'all-in-one' })
+          const receipt = await adoptLegacyHostMachine(store, installation.installationId, request)
+          if (receipt) {
+            await requestParentEnrollment({ action: 'confirm', agentExecution: receipt.agentExecution,
+              setupRequestId: receipt.requestId, publicKey: receipt.publicKey, installationId: receipt.installationId })
+            log.info('adopted the legacy host machine onto a machine key', { machineId: hostMachineId })
+          }
+        } catch (error) {
+          log.warn('legacy host machine adoption did not finish; it resumes at the next boot', { err: error })
+        }
+      }
     }
   }
   bootStage('setup enrollment', setupStarted)

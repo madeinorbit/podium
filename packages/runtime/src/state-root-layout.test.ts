@@ -142,6 +142,25 @@ it('resolves disagreeing legacy identities by credential: supervisor, then daemo
   expect(readOrCreateLocalMachineId(dir3)).toBe('sup-id')
 })
 
+it('keeps machine.id over a daemon.json that carries no credential (0.1.0 all-in-one)', () => {
+  // A published 0.1.0 all-in-one's real state root (POD-5931): its local daemon
+  // authenticated as machine.id with the same-host secret, and daemon.json held only
+  // a different machineId and the update key. The database knows the host by
+  // machine.id; taking the daemon.json id orphaned the host from its own row.
+  const dir = mkdtempSync(join(tmpdir(), 'podium-state-aio-010-'))
+  roots.push(dir)
+  writeFileSync(join(dir, 'machine.id'), 'host-row')
+  writeFileSync(join(dir, 'daemon.json'), JSON.stringify({ machineId: 'unused-daemon-id', updatePubkey: 'k' }))
+  expect(readOrCreateLocalMachineId(dir)).toBe('host-row')
+  expect(readMachineState(dir)?.daemon).toEqual({ machineId: 'unused-daemon-id', updatePubkey: 'k' })
+
+  // With nothing else to go on, a token-less daemon.json still names the machine.
+  const dir2 = mkdtempSync(join(tmpdir(), 'podium-state-aio-010b-'))
+  roots.push(dir2)
+  writeFileSync(join(dir2, 'daemon.json'), JSON.stringify({ machineId: 'only-id' }))
+  expect(readOrCreateLocalMachineId(dir2)).toBe('only-id')
+})
+
 it('preserves malformed legacy inputs without publishing a replacement', () => {
   const dir = mkdtempSync(join(tmpdir(), 'podium-state-refusal-'))
   roots.push(dir)
