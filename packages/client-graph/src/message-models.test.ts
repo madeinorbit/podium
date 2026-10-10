@@ -1,3 +1,7 @@
+import { createKernelReplica, createSideCache, memoryStorage } from '@podium/client-core/replica'
+import { InMemoryReplicaStore } from '../../sync/src/replica/memory-store'
+import { Replica as SyncReplica } from '../../sync/src/replica/replica'
+import { ConformanceAuthority, conformanceUser, requireHuman } from '../../sync/src/conformance/authority'
 import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/values'
 import { asSessionId, asThreadId, type MessageRecordWire, type MessageLedgerWire } from '@podium/model'
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -174,4 +178,73 @@ it('polls every 15 seconds only while visible, and ignores answers after closing
     expect(closed.ids).toBeNull()
     expect(here(pool.model('messageRecord', 'late'))).toBeUndefined()
   } finally { ledger.dispose(); pool.dispose() }
+})
+
+it('an authority message update crosses the real replica boundary and reaches every shared reader', async () => {
+  const authority = new ConformanceAuthority()
+  await authority.resolveIdentity()
+  const principal = conformanceUser('message-model-user')
+  authority.append({ entity: 'message', entityId: 'message', op: 'upsert', payload: record() })
+  authority.grant(requireHuman(principal), 'message', 'message')
+  const store = new InMemoryReplicaStore()
+  const facade = createKernelReplica({ cache: store.cache,
+    side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
+    exits: (entity, id) => replica.exitKind(entity, id),
+  })
+  const replica = new SyncReplica({ store: store.cache, authority: authority.portFor(principal),
+    onEvent: event => facade.onKernelEvent(event), batchEvents: emit => facade.batch(emit),
+  })
+  replica.connect(); await replica.settled()
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+  pool.apply({ type: 'replace', rows: [{ kind: 'session', id: 'seat', value: {
+    sessionId: 'seat', name: 'Named agent', cwd: '/synthetic', agentKind: 'codex', status: 'live',
+  } }] })
+  pool.sources.register(NOTICE_ENTITIES, new NoticeSource({ replica: facade,
+    outbox: { deadLetters: () => [], subscribe: () => () => {} },
+  } as unknown as Pick<ClientRuntime, 'replica' | 'outbox'>))
+  const transcript = new TranscriptLog({ sessionId: asSessionId('seat'), source: {
+    read: async () => ({ items: [], hasMore: false }), subscribe: () => () => {},
+  } })
+  const sends = new Sends({ sessionId: asSessionId('seat'), transcript,
+    drafts: { get: () => '', set: () => {} }, readContext: () => ({ canInterrupt: false }),
+    createDeliveryId: () => 'local', deliver: async () => {},
+    records: { getSnapshot: () => chatRecords(pool, 'seat').records,
+      subscribe: listener => reaction(() => chatRecords(pool, 'seat').records.map(row => row.row), listener) },
+    messageRecords: { read: id => here(pool.model('messageRecord', id)), ingest: rows => ingestMessageRecords(pool, rows) },
+  })
+  const ledger = new MessageLedger(pool, { ledger: async () => [ledgerRow()] })
+  let notices = noticeMessages(pool)
+  const stop = autorun(() => { notices = noticeMessages(pool) })
+  try {
+    await settle(); sends.start(); await ledger.refresh()
+    const shared = here(pool.model('messageRecord', 'message'))!
+    const from = authority.head()
+    authority.append({ entity: 'message', entityId: 'message', op: 'upsert', payload: record({ body: 'authority update', status: 'unknown' }) })
+    await replica.receive(authority.frameFor(principal, from)); await replica.settled(); await settle()
+    expect(sends.bubbles[0]).toMatchObject({ text: 'authority update', state: 'unknown' })
+    expect(sends.bubbles[0]?.record).toBe(shared)
+    expect(notices.notices[0]).toMatchObject({ excerpt: 'authority update', status: 'unknown' })
+    expect(here(pool.model('messageRecord', ledger.ids![0]!))).toBe(shared)
+    expect(ledger.row(shared).message.body).toBe('authority update')
+    expect(ledger.row(shared).line).toBe('not confirmed · it may or may not have arrived')
+  } finally { stop(); ledger.dispose(); sends.dispose(); transcript.dispose(); pool.dispose(); replica.disconnect() }
+})
+
+it('a session activity change leaves notice membership and label consumers quiet', async () => {
+  const f = fixture()
+  let membershipRuns = 0, labelRuns = 0
+  const stop = autorun(() => { membershipRuns++; noticeMessages(f.pool) })
+  try {
+    await settle()
+    const notice = noticeMessages(f.pool).notices[0]!
+    const label = autorun(() => { labelRuns++; notice.sessionLabel })
+    try {
+      const initialMembershipRuns = membershipRuns, initialLabelRuns = labelRuns
+      f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'seat', value: {
+        sessionId: 'seat', name: 'Named agent', title: 'Title', cwd: '/repo', agentKind: 'codex', status: 'live', lastActiveAt: stamp,
+      } }] })
+      expect(membershipRuns).toBe(initialMembershipRuns)
+      expect(labelRuns).toBe(initialLabelRuns)
+    } finally { label() }
+  } finally { stop(); f.pool.dispose() }
 })

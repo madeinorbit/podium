@@ -1,4 +1,3 @@
-import { lazy } from '@podium/mobx-helpers'
 import type { MessageRecordWire } from '@podium/model'
 import type { MessageLedgerWire } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
@@ -11,7 +10,6 @@ export type MessagePoolRow = Partial<Omit<MessageLedgerWire, 'deliveryStatus'>> 
   id: string; body: string; createdAt: string; status: MessageRecordWire['status']
 }
 export class MessageModel extends EntityModel {
-  @lazy override get row() { return super.row }
   constructor(id: string, host: ModelHost) { super('messageRecord', id, host) }
 }
 export interface MessageModel extends Readonly<MessagePoolRow> {}

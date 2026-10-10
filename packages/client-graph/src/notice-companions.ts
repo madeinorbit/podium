@@ -9,10 +9,9 @@ import { pendingInteractionCard } from './notice-card'
 export class NoticeMessage implements MessageNotice {
   readonly messageId: string
   constructor(readonly message: MessageModel, private readonly pool: MobxPool) { this.messageId = message.id }
-  @lazy get sessionId() { return this.message.sessionId! }
-  @lazy get status() { return this.message.status as MessageNotice['status'] }
-  @lazy get createdAt() { return this.message.createdAt }
-  @lazy get labelPending() { return !this.pool.sessionObject(this.sessionId).known }
+  get sessionId() { return this.message.sessionId! }
+  get status() { return this.message.status as MessageNotice['status'] }
+  get createdAt() { return this.message.createdAt }
   @lazy get sessionLabel(): string {
     const session = this.pool.sessionObject(this.sessionId)
     if (!session.known) {
@@ -34,8 +33,8 @@ export class NoticeInteraction implements PendingInteractionCard {
   readonly id: string
   constructor(readonly interaction: PendingInteractionModel) { this.id = interaction.id }
   @lazy private get card() { return pendingInteractionCard(this.interaction) }
-  @lazy get sessionId() { return this.interaction.sessionId }
-  @lazy get kind() { return this.interaction.kind }
+  get sessionId() { return this.interaction.sessionId }
+  get kind() { return this.interaction.kind }
   @lazy get title() { return this.card.title }
   @lazy get detail() { return this.card.detail }
   @lazy get actions() { return this.card.actions }
