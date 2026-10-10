@@ -108,14 +108,14 @@ describe('declared command and launch targets', () => {
     const stops = [
       autorun(() => { views.sessionIds(); runs.ids++ }),
       autorun(() => { launcher.catalog(); runs.launch++ }),
-      autorun(() => { views.session(target); runs.target++ }),
-      autorun(() => { views.session(other); runs.other++ }),
+      autorun(() => { const row = views.session(target); if (row && row !== LOADING) { row.name; row.displayRef }; runs.target++ }),
+      autorun(() => { const row = views.session(other); if (row && row !== LOADING) { row.name; row.displayRef }; runs.other++ }),
     ]
     try {
       expect(launcher.catalog().repoPaths.length).toBeGreaterThan(0)
       const before = { ...runs }
       const beforeIds = views.sessionIds()
-      const row = views.session(target)
+      const row = omitGone(f.pool.row('session', target)) as import('@podium/client-core/session-values').SessionView
       if (!row || row === LOADING) throw new Error('Target session did not settle')
       runInAction(() => {
         f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: target, value: { ...row, name: 'Addressed title' } }] })

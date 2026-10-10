@@ -1,3 +1,4 @@
+import { launchRepositoryFacts } from './test-support/launch-repository-facts.test.fixture'
 import { reposToViews } from '@podium/client-core/values'
 import type { GitRepositoryWire, MachineWire } from '@podium/model'
 import { asRepoId } from '@podium/model/browser'
@@ -40,7 +41,7 @@ it('keeps open phone repository deltas addressed at 1x/4x and releases demand on
       paths = picker.repositoryPaths
     })
     try {
-      expect(work.repos).toEqual(
+      expect(work.repos.map(repo => launchRepositoryFacts(repo, true))).toEqual(
         reposToViews(repos)
           .map((repo) => ({
             ...repo,
@@ -155,7 +156,7 @@ it('preserves clone ordering, linked-scan exclusion, and pinned project choices'
     projects = picker.newWork()
   })
   try {
-    expect(views.origin('/first').repo).toEqual(reposToViews(repos)[0])
+    expect(launchRepositoryFacts(views.origin('/first').repo)).toEqual(reposToViews(repos)[0])
     expect(catalog.catalog().repoPaths).toEqual(['/first', '/second'])
     expect(catalog.catalog().initialRepoPath).toBe('/first')
     expect(projects.repos).toMatchObject([{ path: '/first', worktrees: [] }])

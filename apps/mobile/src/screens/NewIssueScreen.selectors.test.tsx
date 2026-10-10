@@ -38,6 +38,7 @@ vi.mock('../client/hooks', async (original) => {
   return { ...real, useSessions: () => fixture.sessions }
 })
 vi.mock('../client/mobile-pool', () => ({
+  useMobilePool: () => fixture.pool,
   useMobilePoolProjection: <T,>(read: (pool: MobxPool) => T) => {
     const view = useMemo(() => createPoolProjection(fixture.pool!, read), [read])
     return useSyncExternalStore(view.subscribe, view.getSnapshot)

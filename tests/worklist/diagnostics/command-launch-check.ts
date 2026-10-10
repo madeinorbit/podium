@@ -1,3 +1,4 @@
+import { launchRepositoryFacts, machineFacts } from '@podium/client-graph/test-support/launch-repository-facts.test.fixture'
 /** Fixture and private-replay comparison. Row values stay in process;
  * reports contain counts and positions. */
 
@@ -56,12 +57,12 @@ function snapshot(
       {
         key: 'repos',
         fields: {},
-        rows: data.repoViews.map((repo) => ({ id: repo.path, fields: { value: repo } })),
+        rows: data.repoViews.map((repo) => ({ id: repo.path, fields: { value: launchRepositoryFacts(repo) } })),
       },
       {
         key: 'machines',
         fields: {},
-        rows: data.machines.map((machine) => ({ id: machine.id, fields: { value: machine } })),
+        rows: data.machines.map((machine) => ({ id: machine.id, fields: { value: machineFacts(machine) } })),
       },
       {
         key: 'sessions',
