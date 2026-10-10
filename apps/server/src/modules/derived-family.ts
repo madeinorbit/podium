@@ -168,6 +168,7 @@ export interface FamilyState {
    * nothing to prod.
    */
   readonly connect?: Context['connect']
+  readonly tunnelHealth?: Context['tunnelHealth']
   /**
    * THIS PROCESS's event-loop accounting rings (loop design §7.2), for
    * `perf.snapshot`. On the bundle for the same reason as `repos` and
@@ -438,6 +439,7 @@ export const familyState = (ctx: Context): FamilyState => ({
     : {}),
   ...(ctx.loopAccounting ? { loopAccounting: ctx.loopAccounting } : {}),
   ...(ctx.connect ? { connect: ctx.connect } : {}),
+  ...(ctx.tunnelHealth ? { tunnelHealth: ctx.tunnelHealth } : {}),
   caller: {
     userId: callerUserId(ctx),
     sessionState: sessionStatePrincipalFor(ctx.principal),

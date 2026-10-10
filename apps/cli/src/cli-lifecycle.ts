@@ -16,6 +16,9 @@ import { type LiveConnectivity, readLiveConnectivity } from '@podium/runtime/con
 import { CRASH_MAX_EVENTS, type CrashEvent, createCrashStore } from '@podium/runtime/crash-store'
 import { listLive, logDir, type RunRecord, RunRole, reclaim } from '@podium/runtime/run-registry'
 import { desiredParentUnit, legacyUnitNames } from '@podium/runtime/topology-migration'
+import { instanceServiceName } from '@podium/runtime/instance'
+import { diagnose, renderChecks, type Diagnosis } from './cli-doctor'
+import { restartSystemdUnits } from './cli-systemd'
 import { declareFlags, parseFlags, UnknownFlagError } from './argv'
 
 /** Human "3s / 4m / 2h / 1d ago" from an ISO start time. */
@@ -47,6 +50,7 @@ export interface StatusView {
   /** The Connect link that always lands on this server (POD-5921): present when
    *  the server has an installation identity and Connect publishing is on. */
   stableLink?: string
+  diagnosis?: Diagnosis
 }
 
 /**
@@ -158,8 +162,9 @@ export function renderStatus(view: StatusView): string {
       ...renderFenceCaveat(view.connectivity),
     )
   }
-  const url = config.publicUrl ?? localServerUrl(view.port ?? config.port ?? 18787)
-  lines.push(`  URL: ${url}`)
+  if (view.diagnosis) lines.push(renderChecks(view.diagnosis.checks))
+  const url = view.diagnosis ? view.diagnosis.currentUrl : config.publicUrl ?? localServerUrl(view.port ?? config.port ?? 18787)
+  if (url) lines.push(`  URL: ${url}`)
   if (view.stableLink) lines.push(`  Stable link: ${view.stableLink}`)
   return lines.join('\n')
 }
@@ -178,17 +183,6 @@ function hasSystemctl(): boolean {
   try {
     execFileSync('systemctl', ['--version'], { stdio: 'ignore' })
     return true
-  } catch {
-    return false
-  }
-}
-
-async function serverHealth(port: number): Promise<boolean> {
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}/health`, {
-      signal: AbortSignal.timeout(1_500),
-    })
-    return res.ok
   } catch {
     return false
   }
@@ -223,9 +217,8 @@ export async function statusCommand(): Promise<void> {
   // permanent phantom outage after an update (POD-3815).
   const connectivity = readLiveConnectivity()
   const port = resolvePort(config)
-  const serverHealthy =
-    config.mode === 'server' || config.mode === 'all-in-one' ? await serverHealth(port) : false
-  const stableLink = serverHealthy ? await localStableLink(port) : undefined
+  const diagnosis = await diagnose({ config })
+  const { serverHealthy, stableLink } = diagnosis
   console.log(
     renderStatus({
       live: listLive(),
@@ -234,6 +227,7 @@ export async function statusCommand(): Promise<void> {
       instanceId: resolveInstanceId(),
       port,
       serverHealthy,
+      diagnosis,
       ...(stableLink ? { stableLink } : {}),
       ...(connectivity ? { connectivity } : {}),
     }),
@@ -262,6 +256,30 @@ export async function stopCommand(): Promise<void> {
     await reclaim(rec.role)
     console.log(`Stopped ${rec.role} (pid ${rec.pid}).`)
   }
+}
+
+/** Restart the selected instance using its existing supervisor. */
+export async function restartCommand(): Promise<void> {
+  const config = loadConfig()
+  const { resolveSetting } = await import('@podium/runtime/config')
+  const mode = resolveSetting('mode', config).value
+  if (!mode || mode === 'client') throw new Error('Choose a server or machine mode with podium setup first.')
+  const tunnel = instanceServiceName('tunnel', resolveInstanceId())
+  if (config.persistence === 'systemd') {
+    restartSystemdUnits([desiredParentUnit(resolveInstanceId())])
+  } else {
+    // Reclaim the parent first, so it cannot recreate a child while it is being stopped.
+    const records = listLive().sort((a, b) => Number(b.role === 'parent') - Number(a.role === 'parent'))
+    for (const rec of records) await reclaim(rec.role)
+    const { startDetachedStack } = await import('./cli-spawn')
+    const result = await startDetachedStack(mode, resolvePort(config), config.bindHost)
+    if (!result.serverUp) throw new Error('The server did not answer after restarting. Run podium doctor.')
+  }
+  // The tunnel can be systemd-managed even when the backend is detached.
+  const { capture } = await import('./cli-doctor')
+  const loadState = await capture('systemctl', ['--user', 'show', tunnel, '--property=LoadState', '--value'])
+  if (loadState === 'loaded') restartSystemdUnits([tunnel])
+  console.log('Podium restarted.')
 }
 
 /**
@@ -301,6 +319,7 @@ const LOG_COMPONENTS = [
   'daemon',
   'all-in-one',
   'cli',
+  'tunnel',
   // The desktop shell's NATIVE half (apps/desktop/src-tauri/src/logging.rs) —
   // the supervisor process, its panics, and the update path. It writes the same
   // NDJSON shape into the same directory, so it costs one name here to be
@@ -553,6 +572,16 @@ export function logsHelpText(): string {
   ].join('\n')
 }
 
+/** The parent owns child logs; the tunnel is an independent unit. */
+export function logUnitsFor(components: string[], instanceId = resolveInstanceId()): string[] {
+  const parent = desiredParentUnit(instanceId)
+  const tunnel = instanceServiceName('tunnel', instanceId)
+  if (components.length === 0) return [...selectedUnits(instanceId), tunnel]
+  return [...new Set(components.flatMap((component) => component === 'tunnel' ? [tunnel]
+    : component === 'parent' || component === 'all-in-one' ? [parent]
+    : ['server', 'daemon', 'janitor'].includes(component) ? [parent, instanceServiceName(component as 'server' | 'daemon' | 'janitor', instanceId)] : []))]
+}
+
 export async function logsCommand(argv: string[]): Promise<void> {
   // `export-crash` is a subcommand of `logs` rather than a sibling verb: it is
   // the same data under the same directory, and a support instruction that says
@@ -600,16 +629,15 @@ export async function logsCommand(argv: string[]): Promise<void> {
     return
   }
   const { follow, pretty, components } = options
-  if (config.persistence === 'systemd') {
-    const units = selectedUnits()
-    const unitFlags = units.map((u) => `-u ${u}`).join(' ')
-    const parentOrServer = units[0]
-    console.log(
-      'Under systemd — view logs with:\n' +
-        `  journalctl --user ${unitFlags} -f\n` +
-        '\nRecords are NDJSON, one object per line. To read them as a table:\n' +
-        `  journalctl --user -u ${parentOrServer} -o cat | jq -r '"\\(.ts) \\(.level) \\(.ns) \\(.msg)"'`,
-    )
+  if (config.persistence === 'systemd' || components.includes('tunnel')) {
+    const units = config.persistence === 'systemd' ? logUnitsFor(components) : [instanceServiceName('tunnel', resolveInstanceId())]
+    if (units.length === 0) {
+      console.log('No systemd logs for these components.')
+      return
+    }
+    const child = spawn('journalctl', ['--user', ...units.flatMap((unit) => ['-u', unit]), '-n', '200', '-o', 'cat', ...(follow ? ['-f'] : [])], { stdio: 'inherit' })
+    child.on('error', (error) => { console.error(`podium logs: ${error.message}`); process.exitCode = 1 })
+    await new Promise<void>((resolve) => child.once('exit', (code) => { process.exitCode = code ?? 1; resolve() }))
     return
   }
   const files = logFilesFor(components)

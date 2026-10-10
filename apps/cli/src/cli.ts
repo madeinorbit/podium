@@ -105,6 +105,8 @@ const SELF_PARSED_FLAGS: Readonly<Record<string, FlagDeclaration>> = {
   channel: declareFlags({ known: [] }),
   status: declareFlags({ known: [] }),
   stop: declareFlags({ known: [] }),
+  restart: declareFlags({ known: [] }),
+  doctor: declareFlags({ known: [], booleans: ['fix', 'report'] }),
   'join-config': declareFlags({ known: [] }),
   'set-server': declareFlags({ known: [] }),
   'server-transfer-promote': declareFlags({ known: [] }),
@@ -134,6 +136,7 @@ const HELP_DELEGATED = new Set([
   'workflow',
   'telemetry',
   'tunnel',
+  'doctor',
   'quota',
   'machine',
   'instance',
@@ -268,6 +271,8 @@ export type LaunchPlan =
   | { kind: 'perf'; args: string[] }
   | { kind: 'status' }
   | { kind: 'stop' }
+  | { kind: 'restart' }
+  | { kind: 'doctor'; args: string[] }
   | { kind: 'logs'; args: string[] }
   /** Malformed invocation: print `message` to stderr and exit 2. */
   | { kind: 'usage-error'; message: string }
@@ -644,6 +649,9 @@ export function resolvePlan(
       }
       return { kind: 'approval-request', op: { kind: 'update' } }
     }
+    if (argv[0] === 'restart' || (argv[0] === 'doctor' && argv.includes('--fix'))) {
+      return { kind: 'usage-error', message: `podium ${argv[0]} changes running services; run it outside a managed agent session` }
+    }
     if (argv[0] === 'stop') return { kind: 'approval-request', op: { kind: 'stop' } }
     // Not brokered: it puts this box on the public internet, which is the
     // operator's decision to make at their own shell, not an agent's.
@@ -849,6 +857,8 @@ export function resolvePlan(
   if (argv[0] === 'merge-lock') return { kind: 'merge-lock', args: argv.slice(1) }
   if (argv[0] === 'perf') return { kind: 'perf', args: argv.slice(1) }
   if (argv[0] === 'status') return { kind: 'status' }
+  if (argv[0] === 'restart') return { kind: 'restart' }
+  if (argv[0] === 'doctor') return { kind: 'doctor', args: argv.slice(1) }
   if (argv[0] === 'stop') return { kind: 'stop' }
   if (argv[0] === 'logs') return { kind: 'logs', args: argv.slice(1) }
 
@@ -1000,7 +1010,9 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '  tunnel enable|disable Keep a Cloudflare quick tunnel up and its URL recorded (opt-in)',
     '',
     'Lifecycle:',
-    '  status                Show what is running (run registry + systemd)',
+    '  status                Check the service, public address, and Podium Connect',
+    '  doctor [--fix] [--report] Find the first broken link, repair it, or write a support file',
+    '  restart               Restart Podium and its managed tunnel',
     '  stop                  Stop managed podium processes',
     '  logs [component] [-f] [--pretty]',
     '                        Show logs for managed processes (NDJSON; --pretty renders them)',
@@ -2251,6 +2263,16 @@ export async function main(
     case 'status': {
       const { statusCommand } = await import('./cli-lifecycle')
       await statusCommand()
+      return
+    }
+    case 'doctor': {
+      const { doctorCommand } = await import('./cli-doctor')
+      await doctorCommand(plan.args)
+      return
+    }
+    case 'restart': {
+      const { restartCommand } = await import('./cli-lifecycle')
+      await restartCommand()
       return
     }
     case 'stop': {
