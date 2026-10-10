@@ -353,6 +353,7 @@ export class CommandPaletteView {
   @observableRef accessor repoChoiceOrder: readonly string[] = []
   @observableRef accessor repoViewOrder: readonly string[] = []
   @observableRef accessor openingUsage: Readonly<Record<string, number>> = {}
+  @observableRef accessor spawnOrder: readonly { path: string; machineId?: string }[] = []
   @observable accessor initialRepoPath = '' 
   @observableRef accessor recent: RecentCommand[] = []
   // Stored on open: membership and recency, never copied labels or references.
@@ -376,6 +377,7 @@ export class CommandPaletteView {
         this.repoOrder = snapshot.repos.map(repo => (repo as RepositoryModel).id)
         this.repoChoiceOrder = snapshot.repoChoices.map(repo => (repo as RepositoryModel).id)
         this.repoViewOrder = snapshot.repoViews.map(repo => (repo as LaunchRepository).id)
+        this.spawnOrder = snapshot.spawnTargets.map(target => ({ path: target.path, ...(target.machineId ? { machineId: target.machineId } : {}) }))
         this.openingUsage = snapshot.usage
         this.initialRepoPath = snapshot.initialRepoPath
       }
@@ -418,18 +420,32 @@ export class CommandPaletteView {
       return row && row !== LOADING ? [row] : []
     })
   }
+  @lazy({ equals: compareShallow }) get spawnTargets(): SpawnTarget[] {
+    return this.spawnOrder.flatMap(target => {
+      const repo = launchRecords(this.pool).at(target.path)
+      const tree = repo?.worktrees.find(tree => machinePathsEqual(tree.path, target.path) &&
+        (target.machineId === undefined || tree.machineId === target.machineId))
+      return tree ? [tree] : []
+    })
+  }
   @lazy get snapshot(): Loaded<CommandLaunchData> {
     if (this.openingIds === LOADING) return LOADING
-    const live = commandLaunchViews(this.pool).opening()
-    if (!live || live === LOADING) return live
-    return { ...live,
-      issues: this.openingIds.flatMap(id => {
-        const summary = omitGone(this.pool.row('commandIssue', id))
-        return summary && summary !== LOADING ? [this.pool.issueObject(id) as unknown as IssueViewModel] : []
-      }),
+    const window = omitGone(this.pool.row('commandWindow', 'window'))
+    if (!window || window === LOADING) return window
+    let pending = 0
+    const issues = this.openingIds.flatMap(id => {
+      const summary = omitGone(this.pool.row('commandIssue', id))
+      if (summary === LOADING) { pending++; return [] }
+      return summary ? [this.pool.issueObject(id) as unknown as IssueViewModel] : []
+    })
+    // Captured IDs retain this opening's order; each reader owns live facts.
+    // No catalog or usage question runs again while the menu is open.
+    return { ...window, issues, pending,
       repos: this.repoOrder.flatMap(id => here(this.pool.model('repository', id)) ?? []),
       repoChoices: this.repoChoiceOrder.flatMap(id => here(this.pool.model('repository', id)) ?? []),
       repoViews: this.repoViewOrder.flatMap(id => launchRecords(this.pool).group(id) ?? []),
+      machines: commandLaunchViews(this.pool).machines(),
+      sessionIds: this.sessionOrder, spawnTargets: this.spawnTargets,
       usage: this.openingUsage, initialRepoPath: this.initialRepoPath,
     }
   }
@@ -492,6 +508,7 @@ export class CommandPaletteView {
     this.repoChoiceOrder = []
     this.repoViewOrder = []
     this.openingUsage = {}
+    this.spawnOrder = []
     this.initialRepoPath = ''
     this.recent = []
     this.issuePositions = new Map()
