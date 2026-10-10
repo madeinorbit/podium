@@ -22,6 +22,7 @@ import {
   observableRef,
   reaction,
   compareStructural,
+  compareShallow,
   runInAction,
 } from 'mobx'
 import type {
@@ -138,14 +139,14 @@ export class Sends {
   @lazy get canInterrupt(): boolean {
     return this.context.canInterrupt
   }
-  get draft(): string {
+  @lazy get draft(): string {
     return this.options.drafts.get(this.options.sessionId)
   }
   setDraft(text: string): void {
     if (!this.disposed) this.options.drafts.set(this.options.sessionId, text)
   }
 
-  @lazy get bubbles(): ConversationBubble[] {
+  @lazy({ equals: compareShallow }) get bubbles(): ConversationBubble[] {
     if (!this.started) return this.stoppedBubbles
     return projectConversation({
       turns: this.pending,

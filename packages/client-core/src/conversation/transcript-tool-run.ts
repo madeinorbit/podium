@@ -1,5 +1,5 @@
 import { lazy } from '@podium/mobx-helpers'
-import { action, observable } from 'mobx'
+import { action, compareShallow, observable } from 'mobx'
 import { toolBatchTitleFromClauses, toolCategory, toolSubject, toolVerdict, toolRunElapsedMs, type ChatBlock, type ToolTitleClause } from '../values/chat'
 
 interface Category {
@@ -40,7 +40,7 @@ export class TranscriptToolRun {
     return id === undefined ? undefined : this.readBlock(id)
   }
   /** Only an unfolded run or a complete snapshot demands all children. */
-  @lazy get blocks(): ChatBlock[] { return this.ids.map(id => this.readBlock(id)!) }
+  @lazy({ equals: compareShallow }) get blocks(): ChatBlock[] { return this.ids.map(id => this.readBlock(id)!) }
   @lazy get title(): string { return toolBatchTitleFromClauses(this.clauses()) }
   elapsed(now?: number): number | undefined {
     const first = this.firstBlock, last = this.lastBlock
