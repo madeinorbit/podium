@@ -17,10 +17,11 @@
  * (PODIUM_CONNECT=off), no installation identity on this box yet (a fresh box
  * whose server has never booted — the server mints and registers the identity
  * on first boot, and setup must not mint or register anything itself), a
- * misconfigured Connect base URL, or a throw around the request. The flow
- * proceeds exactly as it does today: no warning, no extra prompt. A cloud
- * answer of CONNECT_UNAVAILABLE is the same thing one layer down and is
- * handled the same way by the caller.
+ * misconfigured Connect base URL, or a throw around the request. The flow then
+ * tries the URL from this machine instead. A cloud answer of CONNECT_UNAVAILABLE
+ * is the same thing one layer down and is handled the same way by the caller —
+ * except UNKNOWN_INSTALLATION, which only means the server's first publish has
+ * not registered this box yet, so the check waits for it.
  *
  * The identity load is READ-ONLY in both senses: podium.db is opened
  * `{ readOnly: true }` (opening it writable would CREATE it as a side effect
@@ -32,19 +33,15 @@
  */
 import { existsSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { connectClient } from '@podium/runtime/connect-client'
+import { resolveConnectBaseUrl, resolveConnectEnabled, stateDir } from '@podium/runtime/config'
 import type { CheckResult } from '@podium/runtime/connect-check'
-import {
-  resolveConnectBaseUrl,
-  resolveConnectEnabled,
-  stateDir,
-} from '@podium/runtime/config'
+import { connectClient } from '@podium/runtime/connect-client'
 import {
   INSTALLATION_FILE,
   INSTALLATION_META_KEY,
   INSTALLATION_PRIVATE_KEY,
-  parseInstallationIdentity,
   type InstallationIdentity,
+  parseInstallationIdentity,
 } from '@podium/runtime/installation-identity'
 import { openDatabase } from '@podium/runtime/sqlite'
 import type { SetupIO } from './setup-ui'
@@ -54,9 +51,9 @@ export function loadCheckIdentity(dir: string = stateDir()): InstallationIdentit
   try {
     const db = openDatabase(join(dir, 'podium.db'), { readOnly: true })
     try {
-      const meta = db
-        .prepare('SELECT value FROM meta WHERE key = ?')
-        .get(INSTALLATION_META_KEY) as { value: string } | undefined
+      const meta = db.prepare('SELECT value FROM meta WHERE key = ?').get(INSTALLATION_META_KEY) as
+        | { value: string }
+        | undefined
       const secret = db
         .prepare('SELECT value FROM server_secrets WHERE key = ?')
         .get(INSTALLATION_PRIVATE_KEY) as { value: string } | undefined
@@ -105,6 +102,15 @@ export async function waitForCheckIdentity(
   }
 }
 
+/** How long the check waits for the server's first publish to register this installation. */
+const REGISTRATION_WAIT_MS = 30_000
+
+/** Connect's answer for an installation the server has not registered yet. */
+const isUnregistered = (verdict: CheckResult): boolean =>
+  !verdict.ok &&
+  verdict.error === 'CONNECT_UNAVAILABLE' &&
+  verdict.detail === 'UNKNOWN_INSTALLATION'
+
 /**
  * Probe `url` from the outside via Podium Connect, with a spinner while the
  * request is in flight. `undefined` = no opinion (see above); anything else is
@@ -113,7 +119,7 @@ export async function waitForCheckIdentity(
 export async function realCheckReachability(
   url: string,
   io: SetupIO,
-  opts: { waitForIdentityMs?: number } = {},
+  opts: { waitForIdentityMs?: number; registrationWaitMs?: number } = {},
 ): Promise<CheckResult | undefined> {
   try {
     if (!resolveConnectEnabled()) return undefined
@@ -132,7 +138,16 @@ export async function realCheckReachability(
   const spin = io.spinner()
   spin.start('Checking that this URL is reachable from the outside…')
   try {
-    return await connectClient({ baseUrl, identity: () => identity }).check(url)
+    const client = connectClient({ baseUrl, identity: () => identity })
+    // The server registers this installation with Connect on its first publish, a moment
+    // after the address was handed to it; until then Connect does not know whom to check
+    // for. Asked too early, that read as "could not check" (lab, 2026-10-10).
+    const deadline = Date.now() + (opts.registrationWaitMs ?? REGISTRATION_WAIT_MS)
+    for (;;) {
+      const verdict = await client.check(url)
+      if (!isUnregistered(verdict) || Date.now() >= deadline) return verdict
+      await new Promise((resolve) => setTimeout(resolve, 2_000))
+    }
   } catch {
     return undefined
   } finally {

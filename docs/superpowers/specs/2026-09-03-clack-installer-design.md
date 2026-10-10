@@ -167,9 +167,9 @@ nothing else, so a drag-select is exactly what you run. It is the single impleme
 | `Run this, then come back:\n\n    tailscale funnel 18787` | `command()` box |
 | paste-URL loop, ten attempts | `text` with inline `validatePublicUrl` |
 | `Password (blank starts…)`, `Type "open"` | `password`, then a `confirm` defaulting to No |
-| `Type CHANGE to replace it` | stays a typed word (`text` + validate) |
+| `Type CHANGE to replace it` | a `confirm` defaulting to No, asked only when Podium Connect is off: with it on, everything that joined finds the new address (POD-3274) |
 | `[Y/n]` systemd | `confirm`, default yes |
-| telemetry example, two `[y/N]` | example as a `note`, two `confirm`s, both default No |
+| telemetry example, two `[y/N]` | removed: telemetry is a setting, not a setup question (POD-3274) |
 | join-code loop | `text` validating via `decodeJoin` |
 | silent `waitForEnrollment` | `spinner` |
 
