@@ -1,9 +1,10 @@
+import type { MessageModel } from './message-models'
 import { omitGone } from './lookup'
 import { action, compareStructural, observable, observableRef, when } from 'mobx'
 import { headerEntities } from './header-entities'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
-import type { MachineWire, MessageRecordWire } from '@podium/model'
+import type { MachineWire } from '@podium/model'
 import { dedupeSessionsByResume } from '@podium/model'
 import { companion, lazy } from '@podium/mobx-helpers'
 import type { PendingInteractionWire } from '@podium/protocol'
@@ -95,7 +96,7 @@ export function chatInteractions(pool: MobxPool, sessionId: string) {
   let pending = loading(membership) ? 1 : 0
   if (membership && !loading(membership))
     for (const id of membership.interactions) {
-      const row = omitGone(pool.row('pendingInteraction', id))
+      const row = omitGone(pool.model('pendingInteraction', id))
       if (loading(row)) pending++
       else if (row?.sessionId === sessionId && row.status === 'asked') rows.push(row)
     }
@@ -107,13 +108,13 @@ export function chatInteractions(pool: MobxPool, sessionId: string) {
 }
 export function chatRecords(pool: MobxPool, sessionId: string) {
   const membership = omitGone(pool.row('noticeSession', sessionId))
-  const records: MessageRecordWire[] = []
+  const records: MessageModel[] = []
   let pending = loading(membership) ? 1 : 0
   if (membership && !loading(membership))
     for (const id of membership.messages) {
-      const row = omitGone(pool.row('messageRecord', id))
+      const row = omitGone(pool.model('message', id))
       if (loading(row)) pending++
-      else if (row) records.push(row)
+      else if (row) { row.row; records.push(row) }
     }
   return { records, pending }
 }

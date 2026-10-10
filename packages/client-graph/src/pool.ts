@@ -1,3 +1,5 @@
+import type { MessagePoolRow } from './message-models'
+import type { PendingInteractionWire } from '@podium/protocol'
 import { IssueSessionFactsIndex, type IssueSessionFacts, type IssueSessionFactReader } from './shared/issue-session-facts'
 import type { SessionPhaseChange, NotificationSession } from '@podium/client-core/sound'
 import { asSessionId } from '@podium/model'
@@ -232,6 +234,8 @@ export type AbsentRead = 'load' | 'mark' | 'peek' | 'summary' | 'summary-fields'
 export type Residence = 'resident' | 'loading' | 'absent'
 
 export interface PoolRows {
+  message: MessagePoolRow & Readonly<Record<string, unknown>>
+  pendingInteraction: PendingInteractionWire & Readonly<Record<string, unknown>>
   machine: Readonly<MachineWire & MachineProjection> & Readonly<Record<string, unknown>>
   automation: Readonly<AutomationWire> & Readonly<Record<string, unknown>>
   automationRun: Readonly<AutomationRunWire> & Readonly<Record<string, unknown>>

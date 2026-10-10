@@ -1,3 +1,8 @@
+import './message-models'
+import { ingestMessageRecords } from './message-models'
+import { MobxPool } from './pool'
+import { omitGone } from './lookup'
+import type { RowRecord } from './shared/source'
 import { defineSource } from './source-registry'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
@@ -48,6 +53,8 @@ export class NoticeSource {
   private attentionAnswer: IdAnswer | undefined
   private recoveryAnswer: Recovery | undefined
   private recoveryReaders = 0
+  private pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  private ownsPool = true
   private loaded = false
   private imperativeLoad = false
   private outboxDirty = false
@@ -90,6 +97,18 @@ export class NoticeSource {
     })]
   }
 
+  attach(pool: MobxPool): void {
+    if (pool === this.pool) return
+    const rows: RowRecord[] = []
+    for (const [entity, kind] of [['messageRecord', 'message'], ['pendingInteraction', 'pendingInteraction']] as const)
+      for (const id of this.identities[entity].keys())
+        rows.push({ kind, id, value: omitGone(this.pool.row(kind, id)) as RowRecord['value'] })
+    pool.apply({ type: 'update', rows })
+    if (this.ownsPool) this.pool.dispose()
+    this.pool = pool
+    this.ownsPool = false
+  }
+
   /** Display demand, independent of the ingestion identity index. */
   get demand() {
     return { keys: this.watched.size, catalog: !!this.catalogAnswer,
@@ -111,7 +130,7 @@ export class NoticeSource {
     }
     if (entity === 'messageRecord' || entity === 'pendingInteraction') {
       this.counts.payloadReads++
-      return this.runtime.replica.row!(RECORD_KINDS[entity], id)
+      return omitGone(this.pool.row(entity === 'messageRecord' ? 'message' : entity, id)) as Loaded<NoticeRows[NoticeEntity]>
     }
     if (entity === 'noticeSession') {
       const members = this.sessions.get(id)
@@ -140,6 +159,10 @@ export class NoticeSource {
   private wake(key: string): void { this.watched.get(key)?.reportChanged() }
 
   private seed(): void {
+    const removed: RowRecord[] = []
+    for (const [entity, kind] of [['messageRecord', 'message'], ['pendingInteraction', 'pendingInteraction']] as const)
+      for (const id of this.identities[entity].keys()) removed.push({ kind, id, value: undefined })
+    this.pool.apply({ type: 'update', rows: removed })
     this.identities.messageRecord.clear(); this.identities.pendingInteraction.clear(); this.sessions.clear()
     this.positions.messageRecord = 0; this.positions.pendingInteraction = 0
     this.catalogAnswer = undefined; this.attentionAnswer = undefined
@@ -150,6 +173,8 @@ export class NoticeSource {
   }
 
   private change(entity: RecordEntity, id: string, next: object | undefined): void {
+    if (entity === 'messageRecord' && next) ingestMessageRecords(this.pool, [next as MessageRecordWire])
+    else this.pool.apply({ type: 'update', rows: [{ kind: entity === 'messageRecord' ? 'message' : entity, id, value: next as RowRecord['value'] }] })
     const identities = this.identities[entity], previous = identities.get(id)
     if (!next && !previous) return
     const relation = NOTICE_RELATIONS.find(relation => relation.from === entity)!
@@ -255,6 +280,7 @@ export class NoticeSource {
 
   private release(): void {
     for (const stop of this.stops) stop()
+    if (this.ownsPool) this.pool.dispose()
     this.watched.clear(); this.sessions.clear(); this.identities.messageRecord.clear(); this.identities.pendingInteraction.clear()
     this.catalogAnswer = undefined; this.attentionAnswer = undefined; this.recoveryAnswer = undefined
   }

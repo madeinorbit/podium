@@ -69,7 +69,7 @@ export interface LocalsSource<T extends SliceLocals = SliceLocals> {
 
 /** One row in the kernel's per-row change stream (spec §2). */
 export interface RowRecord {
-  kind: 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun'
+  kind: 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'message' | 'pendingInteraction'
   id: string
   /**
    * The row value, or `undefined` when the row left the replica's scope.

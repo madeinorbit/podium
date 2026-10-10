@@ -1,3 +1,4 @@
+import type { MessageModel, PendingInteractionModel } from './message-models'
 import { type Lookup, omitGone, isGone } from './lookup'
 import { issuePendingDecision, type IssueNavigationModel } from '@podium/client-core/values'
 import type { IssueGitState, IssueProjection } from '@podium/model'
@@ -1036,6 +1037,8 @@ export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority'>>,
 }
 
 export type ModelOf = {
+  message: MessageModel
+  pendingInteraction: PendingInteractionModel
   machine: MachineModel
   automation: AutomationModel
   automationRun: AutomationRunModel
@@ -1066,7 +1069,7 @@ for (const [entity, Model] of Object.entries(MODEL_CLASSES) as [EntityName, Mode
 const deferredClasses = observable.map<EntityName, ModelClass | Error>(undefined, { deep: false })
 let deferredRequest: Promise<unknown> | undefined
 export function loadSyncedModels(): Promise<unknown> {
-  return deferredRequest ??= import('./synced-models').catch(cause => {
+  return deferredRequest ??= Promise.all([import('./synced-models'), import('./message-models')]).catch(cause => {
     const error = cause instanceof Error ? cause : new Error(String(cause))
     runInAction(() => {
       for (const entity of Object.keys(SCHEMA) as EntityName[])

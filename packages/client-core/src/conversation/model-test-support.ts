@@ -49,7 +49,13 @@ export function createSendsFixture(options: FixtureOptions) {
       if (active) sends?.reconcile(change)
     },
   })
+  // Standalone fixture record store; production supplies the application pool.
+  const looked = observable.map<string, MessageRecordWire>(undefined, { deep: false })
   sends = new Sends({
+    messageRecords: {
+      read: id => options.records?.getSnapshot().find(record => record.id === id) ?? looked.get(id),
+      ingest: action(records => { for (const record of records) looked.set(record.id, record) }),
+    },
     ...options,
     transcript,
     readContext: () => context.get(),

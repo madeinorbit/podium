@@ -1,23 +1,31 @@
-import type { PendingInteractionModel } from './message-models'
-import { noticeCompanions, type NoticeMessage } from './notice-companions'
 import { omitGone } from './lookup'
 import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/values'
-import { isMessageRecordAttention } from '@podium/model'
+import { deadLetterDeliveryLine, isMessageRecordAttention } from '@podium/model'
+import { machinePathBasename } from '@podium/model/browser'
 import type { HeaderRows } from './header-schema'
-import type { NoticeRows } from './notice-schema'
+import { pendingInteractionCard } from './notice-card'
+import type { NoticeRows, NoticeSessionSummary } from './notice-schema'
 import type { MobxPool } from './pool'
 import { LOADING } from './worklist/rollup'
 
 /** All payload and summary reads pass through the pool's one reader. No cold
  * payloads enter the notice indexes; a missing summary returns pending while
  * the pool coalesces its loads. Recovery never consults its target. */
-function messageNotice(pool: MobxPool, id: string): { notice?: NoticeMessage; pending: number; labelPending?: boolean } {
-  const message = omitGone(pool.model('message', id))
-  if (message === LOADING) return { pending: 1 }
-  if (!message || !isMessageRecordAttention(message.status)) return { pending: 0 }
-  const notice = noticeCompanions(pool).message(message)
-  const row = pool.row('session', notice.sessionId, 'summary-fields')
-  return { notice, pending: row === LOADING ? 1 : 0, labelPending: row === LOADING }
+function messageNotice(pool: MobxPool, id: string): { notice?: MessageNotice; pending: number; labelPending?: boolean } {
+  const record = omitGone(pool.row('messageRecord', id))
+  if (record === LOADING) return { pending: 1 }
+  if (!record || !isMessageRecordAttention(record.status)) return { pending: 0 }
+  const session = omitGone(pool.row('session', record.sessionId, 'summary')) as NoticeSessionSummary | typeof LOADING | undefined
+  const label = !session ? 'a closed session' : session === LOADING ? 'Loading session…'
+    : session.name?.trim() || session.title?.trim() || machinePathBasename(session.cwd ?? '') || session.agentKind
+  const first = record.body.trim().split('\n')[0] ?? ''
+  return { pending: session === LOADING ? 1 : 0, labelPending: session === LOADING, notice: {
+    messageId: record.id, sessionId: record.sessionId, sessionLabel: label ?? 'a closed session',
+    excerpt: first.length > 80 ? `${first.slice(0, 79)}…` : first,
+    status: record.status as MessageNotice['status'], createdAt: record.createdAt,
+    line: record.status === 'unknown' ? 'not confirmed — it may or may not have arrived'
+      : record.status === 'expired' ? 'not delivered · it waited too long' : deadLetterDeliveryLine(record.reason),
+  } }
 }
 
 export function noticeMessageCount(pool: MobxPool): number {
@@ -39,7 +47,7 @@ export const NOTICE_MESSAGE_WINDOW = 100
 
 export function noticeMessages(pool: MobxPool, limit = Number.POSITIVE_INFINITY) {
   const catalog = omitGone(pool.row('noticeMessageCatalog', 'catalog'))
-  const notices: NoticeMessage[] = [], pendingIds: string[] = []
+  const notices: MessageNotice[] = [], pendingIds: string[] = []
   let pending = catalog === LOADING ? 1 : 0
   if (catalog && catalog !== LOADING) for (const id of catalog.messages.slice(0, limit)) {
     const row = messageNotice(pool, id)
@@ -53,17 +61,17 @@ export function noticeMessages(pool: MobxPool, limit = Number.POSITIVE_INFINITY)
 
 export function noticeInteractions(pool: MobxPool, sessionId: string) {
   const index = omitGone(pool.row('noticeSession', sessionId))
-  const rows: PendingInteractionModel[] = []
+  const rows: NoticeRows['pendingInteraction'][] = []
   let pending = index === LOADING ? 1 : 0
   if (index && index !== LOADING) for (const id of index.interactions) {
-    const row = omitGone(pool.model('pendingInteraction', id))
+    const row = omitGone(pool.row('pendingInteraction', id))
     if (row === LOADING) pending++
     else if (row?.status === 'asked') rows.push(row)
   }
   // Notice cards previously started in ID order; keep that timestamp tie rule
   // while chat/superagent use the declared replica insertion order.
   rows.sort((a, b) => a.askedAt < b.askedAt ? -1 : a.askedAt > b.askedAt ? 1 : a.id < b.id ? -1 : a.id > b.id ? 1 : 0)
-  const cards: PendingInteractionCard[] = rows.map(row => noticeCompanions(pool).interaction(row))
+  const cards: PendingInteractionCard[] = rows.map(pendingInteractionCard)
   return { cards, pending }
 }
 

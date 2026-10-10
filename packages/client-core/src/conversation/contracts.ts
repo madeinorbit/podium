@@ -4,9 +4,13 @@ import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 import type { OutboxChatSend } from '../engine/chat-send'
 import { type ConversationPendingTurn } from './projection'
 
+/** Facts used by send projection; ledger-only messages need no chat identity. */
+export type ConversationMessage = Pick<MessageRecordWire,
+  'id' | 'body' | 'createdAt' | 'status' | 'attachments' | 'reason' | 'transcriptItem' | 'retractRequestedAt' | 'noticeDismissedAt'>
+
 /** This session's message records, as the synced feed carries them (POD-4764). */
 export interface ConversationRecords {
-  getSnapshot(): readonly MessageRecordWire[]
+  getSnapshot(): readonly ConversationMessage[]
   subscribe(listener: () => void): () => void
 }
 
@@ -82,6 +86,11 @@ export interface ConversationSendOptions {
   /** The synced records that say where each sent message stands. Absent for a
    *  conversation whose sends make no message record (a headless thread). */
   records?: ConversationRecords
+  /** The app's shared record pool, also used by notices and the ledger. */
+  messageRecords?: {
+    read(id: string): ConversationMessage | undefined
+    ingest(records: readonly MessageRecordWire[]): void
+  }
   /**
    * Read these messages' records from the server by id, all in one request
    * (POD-4811) — the catch-up for this device's own sends the feed does not

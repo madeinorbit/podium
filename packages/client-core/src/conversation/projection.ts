@@ -1,4 +1,5 @@
-import type { MessageRecordWire, TranscriptTag } from '@podium/model'
+import type { ConversationMessage } from './contracts'
+import type { TranscriptTag } from '@podium/model'
 import { deadLetterDeliveryLine, MessageDelivery, readDeliveryStatus } from '@podium/model'
 import type { RuntimeAttachmentRef } from '@podium/protocol/daemon'
 
@@ -65,7 +66,7 @@ export type ConversationBubbleState =
 export interface ConversationBubble extends Omit<ConversationPendingTurn, 'state'> {
   state: ConversationBubbleState
   /** The server's record of the message, once the feed carries it. */
-  record?: MessageRecordWire
+  record?: ConversationMessage
   /** The sender may still take it back: its status still allows a retract to
    *  win, and none was asked for yet (POD-4776). */
   retractable: boolean
@@ -87,7 +88,7 @@ export interface ConversationBubble extends Omit<ConversationPendingTurn, 'state
 export interface ConversationProjectionInput {
   readonly turns: readonly ConversationPendingTurn[]
   /** This session's records, as the feed carries them. */
-  readonly records: readonly MessageRecordWire[]
+  readonly records: readonly ConversationMessage[]
   /** Membership maintained when the transcript changes; projecting bubbles
    * asks only about the history entries named by their records. */
   readonly transcriptIds: Pick<ReadonlySet<string>, 'has'>
@@ -104,13 +105,13 @@ export interface ConversationProjectionInput {
 }
 
 /** A retract can still win: the lifecycle lets the status move to `cancelled`. */
-const statusAllowsRetract = (status: MessageRecordWire['status']): boolean =>
+const statusAllowsRetract = (status: ConversationMessage['status']): boolean =>
   MessageDelivery.canMove(status, 'cancelled')
 
 /** A local send the server may hold and has not confirmed. */
 const LOCAL_RETRACTABLE = new Set<ConversationPendingTurn['state']>(['sending', 'queued', 'sent'])
 
-function retractOf(record: MessageRecordWire): ConversationBubble['retract'] {
+function retractOf(record: ConversationMessage): ConversationBubble['retract'] {
   if (!record.retractRequestedAt || record.status === 'cancelled') return undefined
   if (statusAllowsRetract(record.status)) return 'requested'
   if (
@@ -125,7 +126,7 @@ function retractOf(record: MessageRecordWire): ConversationBubble['retract'] {
   return undefined
 }
 
-function recordState(record: MessageRecordWire): ConversationBubbleState {
+function recordState(record: ConversationMessage): ConversationBubbleState {
   switch (record.status) {
     case 'stored':
       return 'queued'
@@ -155,7 +156,7 @@ function recordState(record: MessageRecordWire): ConversationBubbleState {
  * a bubble; no text is ever compared.
  */
 function recordShows(
-  record: MessageRecordWire,
+  record: ConversationMessage,
   onScreen: Pick<ReadonlySet<string>, 'has'>,
   seenOpen: ReadonlySet<string>,
   seenHistory?: ReadonlySet<string>,
@@ -171,12 +172,12 @@ function recordShows(
   return record.transcriptItem !== undefined && seenOpen.has(record.id)
 }
 
-function failureOf(record: MessageRecordWire): string {
+function failureOf(record: ConversationMessage): string {
   if (record.status === 'expired') return 'not delivered · it waited too long'
   return deadLetterDeliveryLine(record.reason)
 }
 
-function fromRecord(received: MessageRecordWire): ConversationBubble {
+function fromRecord(received: ConversationMessage): ConversationBubble {
   // A record read by id arrives without a schema, and a newer server may name a
   // status this build does not know (POD-4885): read it as still on its way,
   // never let it reach the lifecycle table, which has no row for it.

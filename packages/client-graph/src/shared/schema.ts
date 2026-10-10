@@ -88,6 +88,9 @@ export type ModelSchemaName =
   | 'MachineWire'
   | 'AutomationWire'
   | 'AutomationRunWire'
+  | 'MessageRecordWire'
+  | 'MessageLedgerWire'
+  | 'PendingInteractionWire'
 
 /**
  * Where a row physically arrives from.
@@ -112,6 +115,9 @@ export type RowArrival =
   | 'replica:automations'
   | 'replica:automationRuns'
   | 'engine:machines'
+  | 'replica:messageRecords'
+  | 'replica:pendingInteractions'
+  | 'request:messages.ledger'
 
 /** Where one declared field's value comes from. */
 export interface FieldSource {
@@ -166,7 +172,7 @@ export interface FieldSpec {
 // Relations
 // ---------------------------------------------------------------------------
 
-export type EntityName = 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun'
+export type EntityName = 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'message' | 'pendingInteraction'
 
 /**
  * Four kinds, and no more.
@@ -984,6 +990,8 @@ const DECLARED = defineSchema({
     },
     cold: { kind: 'never', why: 'One row per repo: a handful. Always resident.' },
   },
+  message: syncedIdentity('MessageRecordWire', 'replica:messageRecords'),
+  pendingInteraction: syncedIdentity('PendingInteractionWire', 'replica:pendingInteractions'),
   machine: syncedIdentity('MachineProjection', 'replica:machines'),
   automation: syncedIdentity('AutomationWire', 'replica:automations'),
   automationRun: syncedIdentity('AutomationRunWire', 'replica:automationRuns'),

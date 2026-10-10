@@ -27,7 +27,6 @@ import {
 } from 'mobx'
 import type {
   ConversationSendOptions,
-  ConversationMessage,
   ConversationContext,
   ConversationClock,
   ConversationSendInput,
@@ -60,7 +59,7 @@ function errorText(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
 }
 
-export class Sends {
+export class BeforeSends {
   readonly pending = observable.array<ConversationPendingTurn>([], { deep: false })
   offer: SessionOffer | null = null
   dismissedOfferAt: string | null = null
@@ -71,7 +70,7 @@ export class Sends {
   private disposed = false
   private started = false
   private stoppedBubbles: ConversationBubble[] = []
-  private feedIds: readonly string[] = []
+  private feedRecords: readonly MessageRecordWire[] = []
   private pendingSeq = 0
   private sendSeq = 0
   private openSend: OpenSend | null = null
@@ -110,13 +109,12 @@ export class Sends {
    * (POD-4811). Each stands in for the feed's record of that message while a
    * local turn still shows it; the feed's own record wins whenever it has one.
    */
-  private readonly looked = observable.set<string>()
+  private readonly looked = observable.map<string, MessageRecordWire>(undefined, { deep: false })
   /** A catch-up read is in flight; one asked for meanwhile runs after it. */
   private catchingUp = false
   private catchUpAgain = false
 
   constructor(private readonly options: SendsOptions) {
-    if (options.lookupRecords && !options.messageRecords) throw new Error('Message lookup requires the shared record pool')
     this.clock = options.clock ?? defaultClock
     const pending = [...(options.initialPending ?? [])]
     runInAction(() => {
@@ -130,7 +128,7 @@ export class Sends {
     makeObservable<
       this,
       | 'started'
-      | 'feedIds'
+      | 'feedRecords'
       | 'patch'
       | 'observeRecords'
       | 'observeOutbox'
@@ -144,7 +142,7 @@ export class Sends {
       interruptError: observable,
       interruptMessageId: observable,
       started: observable,
-      feedIds: observableRef,
+      feedRecords: observableRef,
       context: computed,
       canInterrupt: computed,
       bubbles: computed,
@@ -666,16 +664,15 @@ export class Sends {
    *  answered by id. */
   private currentRecords(
     pending: readonly ConversationPendingTurn[] = this.pending,
-  ): readonly ConversationMessage[] {
-    const shown = new Set(pending.map(turn => turn.deliveryId))
-    const ids = new Set(this.feedIds)
-    for (const id of this.looked) if (shown.has(id)) ids.add(id)
-    const records: ConversationMessage[] = []
-    for (const id of ids) {
-      const record = this.options.messageRecords?.read(id) ?? this.options.records?.getSnapshot().find(record => record.id === id)
-      if (record) records.push(record)
-    }
-    return records
+  ): readonly MessageRecordWire[] {
+    const feed = this.feedRecords
+    if (this.looked.size === 0) return feed
+    const carried = new Set(feed.map((record) => record.id))
+    const shown = new Set(pending.map((turn) => turn.deliveryId))
+    const extra = [...this.looked.values()].filter(
+      (record) => !carried.has(record.id) && shown.has(record.id),
+    )
+    return extra.length === 0 ? feed : [...feed, ...extra]
   }
 
   /**
@@ -739,10 +736,9 @@ export class Sends {
     if (this.disposed) return
     const found = new Map<string, MessageRecordWire>()
     for (const record of answer) if (asked.has(record.id)) found.set(record.id, record)
-    this.options.messageRecords!.ingest([...found.values()])
     for (const id of asked.keys()) {
       const record = found.get(id)
-      if (record) this.looked.add(id)
+      if (record) this.looked.set(id, record)
       else this.looked.delete(id)
     }
     const carried = new Set((this.options.records?.getSnapshot() ?? []).map((record) => record.id))
@@ -780,8 +776,8 @@ export class Sends {
    */
   private observeRecords(notify = true): void {
     const records = this.options.records?.getSnapshot() ?? []
-    this.feedIds = records.map(record => record.id)
-    const present = new Map<string, ConversationMessage>()
+    this.feedRecords = records
+    const present = new Map<string, MessageRecordWire>()
     for (const record of records) {
       present.set(record.id, record)
       this.seenRecord.add(record.id)

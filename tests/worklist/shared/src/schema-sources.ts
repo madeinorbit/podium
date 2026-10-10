@@ -1,3 +1,5 @@
+import '@podium/client-graph/message-models'
+import { PendingInteractionWire } from '@podium/protocol'
 import '@podium/client-graph/synced-models'
 /**
  * POD-4546 (L1a) — the runtime bridge from a field citation in `schema.ts` to
@@ -24,6 +26,8 @@ import {
 } from '@podium/client-graph/shared/schema'
 import {
   AgentRuntimeState,
+  MessageRecordWire,
+  MessageLedgerWire,
   MachineProjection,
   MachineWire,
   AutomationWire,
@@ -55,6 +59,9 @@ export interface ShapeCarrier {
  * typecheck, so the citation vocabulary cannot drift from the model.
  */
 export const MODEL_SCHEMAS: Readonly<Record<ModelSchemaName, ShapeCarrier>> = {
+  PendingInteractionWire: { shape: Object.assign({}, ...PendingInteractionWire.options.map(arm => arm.shape)) },
+  MessageRecordWire,
+  MessageLedgerWire,
   MachineProjection,
   MachineWire,
   AutomationWire,
