@@ -61,7 +61,7 @@ import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'
 import { SnoozeControl } from '@/lib/SnoozeControl'
 import { sessionMenuEligibility } from '@/lib/session-context-menu'
-import { useNow } from '@/lib/useNow'
+import { useClock, useDeadlineNow } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 import { KindIcon, sessionDisplayName } from '@/lib/WorkerLabel'
 import type { AgentPanelProps } from './agent-panel-props'
@@ -421,7 +421,7 @@ export function AgentPanel({
   // screen. (The arbitration hook reads the same query for the mode default; that
   // one is a MODE input, this one is a layout one, so they stay separate.)
   const isMobile = typeof window !== 'undefined' && window.matchMedia('(max-width: 768px)').matches
-  const snoozeNow = useNow(60_000)
+  const snoozeNow = useDeadlineNow(session?.snoozedUntil && session.snoozedUntil !== 'forever' ? Date.parse(session.snoozedUntil) : undefined)
   // Offer snooze in the full view when the session is in (or already snoozed out
   // of) the attention surface — not for actively-working or parked sessions.
   const showSnooze =
@@ -754,7 +754,7 @@ export function AgentPanel({
   // only while such a wait is actually on screen in this pane.
   // …and it also has to tick while a reconnecting session's machine is away,
   // which is a wait with no output and no attach to end it [POD-2290 round 2].
-  const silenceNow = useNow(
+  const silenceNow = useClock(
     1_000,
     gates.terminalActive && (!ready || !outputSeen || session?.status === 'reconnecting'),
   )

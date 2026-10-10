@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom'
 import { useLayoutEffect, useState, useRef, type MutableRefObject, type RefObject } from 'react'
 import type { WaterfallFrame } from './FlightDeckWaterfall'
 import type { WaterfallView } from './waterfall-view'
-import { useRuntimeSelector } from './store'
+import { useClock } from '@/lib/clock-hooks'
 import {
   followWaterfallSessionViewport,
   waterfallBarGeometry,
@@ -76,8 +76,8 @@ export const WaterfallLiveEdge = observer(function WaterfallLiveEdge({
   const watchClock =
     view.openedNow === null ||
     (following ? !view.followed?.settled : manualNowPct >= 0 && manualNowPct <= 100)
-  const tick = useRuntimeSelector((store) => (watchClock ? store.coarseNow : undefined))
-  if (tick !== undefined) lastNow.current = tick
+  const tick = useClock(1_000, watchClock)
+  if (watchClock) lastNow.current = tick
   const now = lastNow.current
   const [targets, setTargets] = useState<{ labels: HTMLElement; lines: HTMLElement } | null>(null)
   const viewport = following

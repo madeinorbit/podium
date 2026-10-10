@@ -81,6 +81,7 @@ export function createHeaderFixture(count: number, sessionCount = count) {
                 ? lifecycle
                 : undefined,
         onInput: () => () => {},
+        retain: () => () => {},
       }
       Object.assign(owner, { headerInputs: inputs })
     },

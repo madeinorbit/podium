@@ -1,159 +1,204 @@
-/**
- * POD-4565 (Ma1) — the coarse clock as deadlines, so a tick wakes only the
- * derivations whose answer it changes.
- *
- * A time rule never asks "what time is it"; it asks "has `t` passed"
- * (`reached(t)`, true when `coarseNow >= t`): a defer lapsing
- * (`deferUntil <= now`), a finished row leaving its 24 h grace. A derivation
- * that reads the clock VALUE would re-run on every 60 s tick and re-read its
- * row; one that reads a deadline re-runs only when the tick crosses it
- * (methodology #8 changes no view; #8b crosses the grace rows only).
- *
- * TRACKING. `reached(t)` before `t`: observes the atom for `t` (created on
- * first use, dropped from the registry when nothing observes it). After `t`:
- * observes the one `rewind` atom, which fires only if the clock moves
- * BACKWARD (a new engine can hand an arm an earlier clock only through a new
- * arm, but the channel does not promise monotony, so a rewind is handled).
- * `advance(now)` fires the atoms of the deadlines it crosses, found by binary
- * search in the sorted registry: O(crossed + log registered), never a walk.
- *
- * `now` is a plain field read inside derivations. It is safe because every
- * answer it produces is paired with an atom that fires when that answer can
- * change (the crossing, or the rewind); `clock.test.ts` pins both directions.
- *
- * EVERY UNTRACKED READ A DERIVATION MAKES IN `pool/` (M3 N1), each paired
- * with a tracked read or an atom that fires when its answer can change, or
- * an identity memo whose answer for a key never changes:
- * 1. this clock's `now` (above);
- * 2. the residency registry (`residency.ts` `isCold`, reached through
- *    `loading`/`known`): plain maps, each id's answer paired with that id's
- *    atom, observed before the plain read and fired by `notify` on every
- *    registry change;
- * 3. the relation engine's plain twins (`relations.ts` `coldForward`,
- *    `coldBuckets`) and its residency probe: `one`/`bucket` observe the
- *    row's residency atom before reading a twin, and every twin write
- *    reports it changed (`ColdSlots.changed`);
- * 4. the pool's object memo (`pool.ts` `MobxPool.object`, the plain
- *    `models` maps), reached through `knownIssue`, `issueObject` and the
- *    inputs' `session`, `sessionActivity` and `parts`: an identity memo (an
- *    id answers one object while the row lives), and every value read off
- *    the object is its own tracked read; `knownIssue` answers an object only
- *    after a tracked presence probe (the issue table's `has`, else the
- *    residency atom);
- * 5. the cached groups' memo (`cached.ts` `cachedGroup`, the plain `live`
- *    map): an identity memo of each object's computed, whose `get` is the
- *    tracked read;
- * 6. the groups' node memo (`worklist/groups.ts` `WorklistGroups.nodes`,
- *    read by `keys`): an identity memo of each group's node, whose values are
- *    tracked.
- * 7. the sidebar's per-state/per-project computed memos (`worklist/sidebar.ts`
- *    `sectionViews`, `worklist/sidebar-roster.ts` `bands`): identity memos,
- *    whose `get` tracks the resident lanes and row reader. Roster ownership,
- *    locations, project membership and expiry registries are read only during
- *    maintenance, inside the existing publication or clock action; derivations
- *    read the observable candidate/path lanes and cold-lane summaries instead.
- * Nothing else: every table, bucket, forward, lane and overlay read is an
- * observable read. What a list filed each id under (`worklist/sorted-lanes.ts`
- * `SortedLanes.filed`) is read only by the filing itself, inside an action,
- * never by a derivation: a lane's reader reads the lane, and anything about
- * a member (a group's label, the head's rank) from the member, tracked.
- */
+import { autorun, createAtom, reaction, runInAction, type IAtom } from 'mobx'
 
-import { createAtom, type IAtom } from 'mobx'
-import { debugName } from './debug-name'
+const MAX_DELAY = 2_147_483_647
+const HOUR = 3_600_000
+let active = true
+const wakeReaders = new Set<() => void>()
+let detachWake: (() => void) | undefined
 
+function awake(): boolean {
+  return active && (typeof document === 'undefined' || document.visibilityState !== 'hidden')
+}
+
+/** Phone AppState uses the same pause/resume boundary as the DOM. */
+export function setClockActive(value: boolean): void {
+  active = value
+  refreshClocks()
+}
+
+/** Recheck exact deadlines immediately after a suspended app resumes. */
+export function refreshClocks(): void {
+  runInAction(() => { for (const wake of [...wakeReaders]) wake() })
+}
+
+function watchWake(wake: () => void): () => void {
+  wakeReaders.add(wake)
+  if (!detachWake && typeof window !== 'undefined' && typeof document !== 'undefined') {
+    window.addEventListener('focus', refreshClocks)
+    window.addEventListener('pageshow', refreshClocks)
+    document.addEventListener('visibilitychange', refreshClocks)
+    detachWake = () => {
+      window.removeEventListener('focus', refreshClocks)
+      window.removeEventListener('pageshow', refreshClocks)
+      document.removeEventListener('visibilitychange', refreshClocks)
+    }
+  }
+  return () => {
+    wakeReaders.delete(wake)
+    if (!wakeReaders.size) { detachWake?.(); detachWake = undefined }
+  }
+}
+
+class PrecisionClock {
+  private value = Date.now()
+  private timer: ReturnType<typeof setTimeout> | undefined
+  private stopWake: (() => void) | undefined
+  observed = false
+  readonly atom: IAtom
+  constructor(readonly precision: number) {
+    this.atom = createAtom(`clock.now.${precision}`, () => {
+      this.observed = true
+      this.value = Date.now()
+      this.stopWake = watchWake(this.wake)
+      this.schedule()
+    }, () => {
+      this.observed = false
+      this.cancel()
+      this.stopWake?.(); this.stopWake = undefined
+      clocks.delete(this.precision)
+    })
+  }
+  read(): number { return this.atom.reportObserved() ? this.value : Date.now() }
+  private cancel(): void { if (this.timer !== undefined) clearTimeout(this.timer); this.timer = undefined }
+  private schedule(): void {
+    this.cancel()
+    if (!awake()) return
+    this.timer = setTimeout(this.wake, this.precision)
+  }
+  private wake = (): void => {
+    this.cancel()
+    if (awake()) {
+      const value = Date.now()
+      if (value !== this.value) {
+        this.value = value
+        runInAction(() => this.atom.reportChanged())
+      }
+      if (this.stopWake) this.schedule()
+    }
+  }
+}
+
+const clocks = new Map<number, PrecisionClock>()
+/** One timer per precision, created on first observation and dropped with the last. */
+export function now(precision = 60_000): number {
+  if (!Number.isFinite(precision) || precision <= 0) throw new RangeError('Clock precision must be positive and finite')
+  let clock = clocks.get(precision)
+  if (!clock) { clock = new PrecisionClock(precision); clocks.set(precision, clock) }
+  const value = clock.read()
+  // Imperative reads must not accumulate an unobserved precision registry.
+  if (!clock.observed) clocks.delete(precision)
+  return value
+}
+
+/** Age labels share seconds below one hour and minutes above it. */
+export function nowForAge(since: number | string, baseMs = 0): number {
+  const start = typeof since === 'string' ? Date.parse(since) : since
+  return now(Date.now() - start + baseMs < HOUR ? 1_000 : 60_000)
+}
+
+/** A cached scalar external store for React; only subscription observes time. */
+export function clockStore(read: () => number, enabled = true) {
+  let value = read()
+  return {
+    getSnapshot: () => value,
+    subscribe(changed: () => void): () => void {
+      if (!enabled) return () => {}
+      return autorun(() => {
+        const next = read()
+        if (next !== value) { value = next; changed() }
+      })
+    },
+  }
+}
+
+/** Exact, observed deadlines. A numeric seed is an explicitly manual test clock. */
 export class DeadlineClock {
-  /** Sorted, unique deadlines someone is waiting on. */
   private readonly deadlines: number[] = []
   private readonly atoms = new Map<number, IAtom>()
-  private readonly rewind: IAtom = createAtom(debugName(() => 'pool.clock.rewind') ?? 'Atom')
-  /** Deadlines crossed (fired) since construction. */
+  private readonly rewind = createAtom('clock.rewind')
+  private timer: ReturnType<typeof setTimeout> | undefined
+  private scheduledAt: number | undefined
+  private stopWake: (() => void) | undefined
+  private readonly manual: boolean
+  private value: number
   crossings = 0
 
-  constructor(private now: number) {}
+  constructor(seed?: number) { this.manual = seed !== undefined; this.value = seed ?? Date.now() }
+  get current(): number { return this.peekNow() }
+  peekNow(): number { return this.manual ? this.value : Date.now() }
 
-  /** The current `coarseNow`, untracked (residency reads it inside ingest: `residency.ts` `now`). */
-  get current(): number {
-    return this.now
-  }
-
-  /** The current coarse tick, tracked in both directions. The rewind atom
-   * also admits tracked reads, so an imperative read registers no deadline. */
-  trackedNow(): number {
-    const now = this.now
-    if (this.rewind.reportObserved()) this.reached(now + 1)
-    return now
-  }
-
-  /** Maintenance, or a reader that pairs time with its own exact deadlines. */
-  peekNow(): number {
-    return this.now
-  }
-
-  /** `coarseNow >= t`, tracked so that the answer's change wakes the reader. */
   reached(t: number): boolean {
-    if (this.now >= t) {
-      this.rewind.reportObserved()
-      return true
-    }
+    if (this.peekNow() >= t) { this.rewind.reportObserved(); return true }
+    if (!Number.isFinite(t)) return false
     let atom = this.atoms.get(t)
-    if (atom === undefined) {
-      const created = createAtom(debugName(() => `pool.clock@${t}`) ?? 'Atom', undefined, () => this.forget(t, created))
+    if (!atom) {
+      const created = createAtom(`clock.deadline.${t}`, () => {
+        this.atoms.set(t, created)
+        this.deadlines.splice(this.indexOf(t), 0, t)
+        this.schedule()
+      }, () => this.forget(t, created))
       atom = created
-      this.atoms.set(t, created)
-      this.deadlines.splice(this.indexOf(t), 0, t)
     }
     atom.reportObserved()
     return false
   }
+  passed(t: number): boolean { return this.reached(nextUp(t)) }
 
-  /** `coarseNow > t`: `reached` at the next representable instant after `t`. */
-  passed(t: number): boolean {
-    return this.reached(nextUp(t))
+  /** One registration for a maintained index's next due entry. */
+  at(t: number, due: () => void): () => void {
+    return reaction(() => this.reached(t), reached => { if (reached) due() }, { fireImmediately: true })
   }
 
-  /** Move the clock. Call inside an action. */
-  advance(now: number): void {
-    const before = this.now
-    this.now = now
-    if (now < before) {
-      this.rewind.reportChanged()
-      return
-    }
-    const end = this.indexOf(nextUp(now)) // deadlines <= now
-    if (end === 0) return
-    const crossed = this.deadlines.splice(0, end)
-    for (const t of crossed) {
-      const atom = this.atoms.get(t)
-      this.atoms.delete(t)
-      this.crossings += 1
-      atom?.reportChanged()
-    }
+  /** Advance a manual fixture, or recheck the wall clock on wake. */
+  advance(value: number): void {
+    runInAction(() => {
+      const before = this.value
+      this.value = value
+      if (value < before) this.rewind.reportChanged()
+      const end = this.indexOf(nextUp(value))
+      const crossed = this.deadlines.splice(0, end)
+      for (const t of crossed) {
+        const atom = this.atoms.get(t)
+        this.atoms.delete(t)
+        this.crossings++
+        atom?.reportChanged()
+      }
+      this.schedule()
+    })
   }
-
-  /** Drop every registration (disposal). */
   clear(): void {
-    this.deadlines.length = 0
-    this.atoms.clear()
+    this.deadlines.length = 0; this.atoms.clear()
+    this.cancel(); this.stopWake?.(); this.stopWake = undefined
   }
-
-  /** Nothing observes `atom` any more: stop waiting on `t`, unless a newer atom took it over. */
+  private wake = (): void => {
+    this.cancel()
+    if (awake()) this.advance(Date.now())
+  }
+  private cancel(): void {
+    if (this.timer !== undefined) clearTimeout(this.timer)
+    this.timer = undefined; this.scheduledAt = undefined
+  }
+  private schedule(): void {
+    if (this.manual) return
+    const next = this.deadlines[0]
+    if (next === undefined) { this.cancel(); this.stopWake?.(); this.stopWake = undefined; return }
+    this.stopWake ??= watchWake(this.wake)
+    if (!awake()) { this.cancel(); return }
+    if (next === this.scheduledAt) return
+    this.cancel(); this.scheduledAt = next
+    // Epoch milliseconds are integral; passed(t) must wait through the next ms.
+    this.timer = setTimeout(this.wake, Math.min(MAX_DELAY, Math.max(0, Math.ceil(next - Date.now()))))
+  }
   private forget(t: number, atom: IAtom): void {
     if (this.atoms.get(t) !== atom) return
     this.atoms.delete(t)
     const at = this.indexOf(t)
     if (this.deadlines[at] === t) this.deadlines.splice(at, 1)
+    this.schedule()
   }
-
-  /** First index whose deadline is >= t. */
   private indexOf(t: number): number {
-    let lo = 0
-    let hi = this.deadlines.length
-    while (lo < hi) {
-      const mid = (lo + hi) >>> 1
-      if ((this.deadlines[mid] as number) < t) lo = mid + 1
-      else hi = mid
-    }
+    let lo = 0, hi = this.deadlines.length
+    while (lo < hi) { const mid = (lo + hi) >>> 1; if (this.deadlines[mid]! < t) lo = mid + 1; else hi = mid }
     return lo
   }
 }
@@ -167,3 +212,6 @@ export function nextUp(x: number): number {
   word[0] = (word[0] as bigint) + (x > 0 ? 1n : -1n)
   return bits[0] as number
 }
+
+/** Shared wall-clock deadline scheduler; subscriptions own every registration. */
+export const deadlineClock = new DeadlineClock()

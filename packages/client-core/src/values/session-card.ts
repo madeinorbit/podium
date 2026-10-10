@@ -27,12 +27,12 @@ export function sessionTitle(session: SessionView): string {
 export function sessionCardModel(
   session: SessionView,
   issue: Pick<IssueViewModel, 'seq' | 'title'> | undefined,
-  now: number,
+  now?: number,
 ): SessionCardModel {
   return {
     sessionId: session.sessionId,
     title: sessionTitle(session),
-    subtitle: `${panelLabel(session.agentKind)} · ${session.status} · ${relativeTime(session.lastActiveAt, now)}`,
+    subtitle: `${panelLabel(session.agentKind)} · ${session.status}${now === undefined ? '' : ` · ${relativeTime(session.lastActiveAt, now)}`}`,
     issueLabel: issue ? `#${issue.seq} ${issue.title}` : null,
     summary: attentionSummary(session),
     group: attentionGroup(session),

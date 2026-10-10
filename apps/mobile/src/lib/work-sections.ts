@@ -124,10 +124,6 @@ export function mobileRowStamp(timing: MobileRowValues['timing'], now: number): 
   return null
 }
 
-/** The equality-filtered reader wakes React only if its displayed stamp changed. */
-export function mobilePaintNow(pool: MobxPool): number {
-  return pool.clock.trackedNow()
-}
 
 /** Search is opt-in work. Without a query the pool's stable native arrays go
  * straight to SectionList, and row payload changes never rebuild them. */

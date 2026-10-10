@@ -133,9 +133,10 @@ describe('header display answers', () => {
       parity()
       f.pool.applyLocals({ selectedIssueId: null, coarseNow: NOW }, new Set(['selectedIssueId']))
       parity()
-      f.pool.applyLocals({ selectedIssueId: null, coarseNow: NOW + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS + 1 }, new Set(['coarseNow']))
+      f.pool.clock.advance(NOW + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS + 1)
       parity()
-      f.pool.applyLocals({ selectedIssueId: 'one', coarseNow: NOW }, new Set(['selectedIssueId', 'coarseNow']))
+      f.pool.clock.advance(NOW)
+      f.pool.applyLocals({ selectedIssueId: 'one' }, new Set(['selectedIssueId']))
       parity()
     } finally { stop(); index.dispose(); f.pool.dispose() }
   })

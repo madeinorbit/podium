@@ -1,3 +1,4 @@
+import { useAgeNow } from '@/lib/clock-hooks'
 import type { SessionModel } from '@podium/client-graph/models'
 import type { FlightDeckView } from './FlightDeck'
 import { relativeTime } from '@podium/client-core/focus'
@@ -575,7 +576,7 @@ const CREW_SHOWN = 4
  * tooltip, which is also where an icon dropped by a narrow column survives.
  */
 const CrewCensus = observer(function CrewCensus({ crew }: { crew: readonly SessionView[] }): JSX.Element {
-  const now = useRuntimeSelector((store) => store.coarseNow)
+  const now = Date.now()
   const shown = crew.slice(0, CREW_SHOWN)
   const extra = crew.length - shown.length
   return (
@@ -975,7 +976,7 @@ export const SessionRow = observer(function SessionRow({
     !retired && (model ? model.asks(session) : facts.asking)
   const phase = facts.motion
   const since = Date.parse(session.agentState?.since ?? session.lastActiveAt)
-  const now = useRuntimeSelector((store) => store.coarseNow)
+  const now = Date.now()
   const stamp = relativeTime(session.lastActiveAt, now)
   const total = session.agentState?.workingMsTotal
   const name = sessionDisplayName(session)
@@ -1206,7 +1207,7 @@ export const SessionRow = observer(function SessionRow({
                 Retired
                 {/* Keep the retirement age visible. Narrow rows make room by
                     changing composition, not by silently dropping the stamp. */}
-                <span className="deck-agent-elapsed"> · {stamp}</span>
+                <span className="deck-agent-elapsed"> · <SessionAge session={session} /></span>
               </span>
             ) : starting ? (
               <span className="shell-type-micro font-mono text-text-dim">Starting</span>
@@ -1222,7 +1223,7 @@ export const SessionRow = observer(function SessionRow({
                 {phase === 'done' && total !== undefined && Number.isFinite(since) ? (
                   <PhaseTimer phase="done" sinceMs={since} totalMs={total} />
                 ) : (
-                  <span className="shell-type-micro font-mono text-text-dim">{stamp}</span>
+                  <span className="shell-type-micro font-mono text-text-dim"><SessionAge session={session} /></span>
                 )}
               </>
             )}
@@ -1966,4 +1967,8 @@ export const ProposalRow = observer(function ProposalRow({
       </button>
     </div>
   )
+})
+
+const SessionAge = observer(function SessionAge({ session }: { session: SessionView }) {
+  return relativeTime(session.lastActiveAt, useAgeNow(session.lastActiveAt))
 })

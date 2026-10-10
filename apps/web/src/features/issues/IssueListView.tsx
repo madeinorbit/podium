@@ -1,3 +1,4 @@
+import { CardAge } from './CardAge'
 import type { IssueId, IssueStage } from '@podium/model/browser'
 import { ChevronDown, ChevronRight, Plus } from 'lucide-react'
 import {
@@ -12,7 +13,6 @@ import {
 import { Badge } from '@/components/ui/badge'
 import { NotSavedMark } from '@/components/NotSavedMark'
 import { issueColorHex } from '@/lib/issueColors'
-import { useNow } from '@/lib/useNow'
 import { cn } from '@/lib/utils'
 import type { PoolBoardData } from '@podium/client-graph/issue-board-schema'
 import { IssueStatusPicker } from './IssueStatusPicker'
@@ -60,7 +60,7 @@ export function IssueListView({
 }): JSX.Element {
   // Row ages tick at minute granularity, as they do on the board — a list of
   // 140 rows must not repaint every second to move one digit.
-  const now = useNow(60_000)
+  const now = 0
   const scrollRef = useRef<HTMLDivElement | null>(null)
   const restoredRef = useRef(false)
   const setScrollRef = useCallback(
@@ -303,7 +303,7 @@ function VirtualStageRows({
                       two vocabularies for one fact on one index — and a US
                       month/day format for an operator the app never asked. */}
               <span className="hidden w-8 shrink-0 text-right font-mono text-[10px] text-text-faint tabular-nums md:inline">
-                {cardAge(issue.updatedAt, now)}
+                <CardAge stamp={issue.updatedAt} now={now} />
               </span>
               <AssigneeAvatar assignee={m.assignee} />
             </button>

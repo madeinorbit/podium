@@ -33,7 +33,7 @@ function stubRuntime() {
       },
     },
     replica: { rows: () => [], subscribeAddressedBatch: () => () => {} },
-    headerInputs: { read: () => undefined, onInput: () => () => {} },
+    headerInputs: { read: () => undefined, onInput: () => () => {}, retain: () => () => {} },
   } as unknown as ClientRuntime
   return {
     runtime,

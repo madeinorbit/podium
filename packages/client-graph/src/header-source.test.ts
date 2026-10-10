@@ -63,7 +63,7 @@ it('reads only changed header keys between 1x/4x and preserves removal and resco
           }
         },
       },
-      headerInputs: { read: () => undefined, onInput: () => () => {} },
+      headerInputs: { read: () => undefined, onInput: () => () => {}, retain: () => () => {} },
       access: {
         trpc: {
           quota: { summary: { query: async () => [] } },
@@ -227,6 +227,7 @@ function pollingFixture() {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
   const reportError = vi.fn()
   const polling = createHeaderPollingService({ api: runtime.access.trpc, replica: runtime.replica, reportError })
+  polling.inputs.retain()
   Object.assign(runtime, { headerInputs: polling.inputs })
   return {
     pool, quota, history, lifecycle, reading, polling, reportError, runtime,

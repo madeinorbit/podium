@@ -8,10 +8,14 @@ import { sessionViews, type SessionView } from '@podium/client-core/session-valu
 import { runInAction } from 'mobx'
 
 export type ReferenceState<T extends import('@podium/client-core/api').PodiumClientApi = import('@podium/client-core/api').PodiumClientApi> = Store<T> & Omit<{ [K in keyof ReplicaRows]: ReplicaRows[K][] }, 'sessions' | 'repos' | 'machines'> & {
+  coarseNow: number
   sessions: SessionView[]
   pendingSpawnIds: ReadonlySet<string>
   pendingSpawnPrompts: Readonly<Record<string, string>>
 }
+const fixtureClocks = new WeakMap<object, () => number>()
+export function setReferenceClock(runtime: object, read: () => number): void { fixtureClocks.set(runtime, read) }
+
 /** Test oracle only. Production has no full record state or publication. */
 export function referenceState<T extends import('@podium/client-core/api').PodiumClientApi>(runtime: { readonly access: Store<T>; readonly replica?: ClientRuntime['replica']; readonly principal?: { userId: string } }): ReferenceState<T> {
   return runInAction(() => {
@@ -44,7 +48,7 @@ export function referenceState<T extends import('@podium/client-core/api').Podiu
   const records = Object.fromEntries(kinds.map(kind => [kind, read(kind)]))
   const sessions = dedupeSessions(sessionViews(read('sessions'), { userId, userStates: read('sessionUserStates'), repos: replica.rows('repos'), machines: replica.rows('machines'), userStatesLoaded: replica.sessionUserStatesLoaded?.() }))
   const prompts = log?.spawnPrompts ?? new Map<string,string>()
-  return { ...access, ...records, sessions, pendingSpawnIds: new Set(prompts.keys()), pendingSpawnPrompts: Object.fromEntries(prompts) } as unknown as ReferenceState<T>
+  return { ...access, coarseNow: fixtureClocks.get(runtime)?.() ?? Date.now(), ...records, sessions, pendingSpawnIds: new Set(prompts.keys()), pendingSpawnPrompts: Object.fromEntries(prompts) } as unknown as ReferenceState<T>
   })
 }
 

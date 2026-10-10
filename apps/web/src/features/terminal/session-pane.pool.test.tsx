@@ -157,7 +157,7 @@ vi.mock('@/lib/SnoozeControl', () => ({
 vi.mock('./use-terminal-appearance', () => ({
   useTerminalAppearance: () => ({ settings: {}, appearance: { theme: { background: '#000' } } }),
 }))
-vi.mock('@/lib/useNow', () => ({ useNow: () => SESSION_PANE_NOW }))
+vi.mock('@/lib/clock-hooks', () => ({ useClock: () => SESSION_PANE_NOW }))
 
 const useFixtureIssues = () => f.issues
 import { useChatSession } from '../chat/use-chat-context'

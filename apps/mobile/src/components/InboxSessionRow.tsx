@@ -108,10 +108,10 @@ export const InboxSessionRow = issueObserver(function InboxSessionRow({
   const session = pool.sessionObject(id) as unknown as SessionView
   const issue = session.issueId ? readPageIssue(pool, session.issueId) : undefined
   if (issue === LOADING) throw LOADING
-  if (needsYou) return <NeedsYouCard session={session} issue={issue} now={Date.now()} />
+  if (needsYou) return <NeedsYouCard session={session} issue={issue} now={0} />
   return (
     <ObservedSessionCard
-      model={sessionCardModel(session, issue, Date.now())}
+      model={sessionCardModel(session, issue)}
       issue={issue}
       session={session}
       agentColor={session.agentColor}

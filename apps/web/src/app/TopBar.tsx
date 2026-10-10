@@ -18,7 +18,7 @@ import { type NativeDesktopBridge, nativeDesktopBridge } from '@/lib/nativeDeskt
 import { useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { HostedWorkspaceSwitcher } from './HostedWorkspaceSwitcher'
-import { useHeaderActions, useHeaderView } from './header-data'
+import { useHeaderActions, useHeaderView, useHeaderPolling } from './header-data'
 import type { MainView } from './store'
 import { ToolbarSlotTarget, useToolbarSlotFilled } from './ToolbarSlot'
 
@@ -59,6 +59,7 @@ export function TopBar({
   /** The first bar after setup hands the window back — fade its contents in. */
   revealing?: boolean
 } = {}): JSX.Element {
+  useHeaderPolling(!chromeless)
   const view = useHeaderView()
   const { setView } = useHeaderActions()
   const workflowsEnabled = useFeature('workflows')

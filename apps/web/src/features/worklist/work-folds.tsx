@@ -1,3 +1,4 @@
+import { useAgeNow, useClock } from '@/lib/clock-hooks'
 import { relativeTime } from '@podium/client-core/focus'
 import {
   type IssueNavigationModel,
@@ -390,7 +391,6 @@ function FoldedWorkRowInner({
   onContextMenu?: (e: ReactMouseEvent) => void
 }): JSX.Element {
   const issue = model ? model.issue as unknown as IssueNavigationModel : suppliedIssue!
-  const marker = foldedMarker(issue, lane, now)
   // How long ago the work entered this fold — manually tucked rows date from
   // the tuck, while never-tucked closures fall back to their finish time.
   // Suspended rows date from their last activity (POD-293). One dim
@@ -399,7 +399,6 @@ function FoldedWorkRowInner({
   // Keep this source shared with grouping: Closed must not say "tucked 5m ago"
   // while placing the row by a days-old close time.
   const stampIso = lane === 'closed' ? model?.foldAt ?? issueClosedFoldAt(issue) : issue.updatedAt
-  const ago = stampIso ? relativeTime(stampIso, now) : null
   return (
     <button
       data-pressable
@@ -428,10 +427,8 @@ function FoldedWorkRowInner({
       </span>
       <NotSavedMark kind="issue" id={issue.id} />
       <span className="shell-type-micro flex flex-none items-center gap-1.5 font-mono">
-        <span className={cn(marker === 'merged' ? 'text-info/70' : 'text-text-faint')}>
-          {marker}
-        </span>
-        {ago && <span className="tabular-nums text-text-dim">{ago}</span>}
+        <FoldMarker issue={issue} lane={lane} />
+        {stampIso && <FoldAge stamp={stampIso} />}
       </span>
     </button>
   )
@@ -629,3 +626,11 @@ export function ClosedIssueFold<T>({
 
 export const FoldedWorkRow = FoldedWorkRowInner
 export const WorklistFoldedRow = observer(FoldedWorkRowInner)
+
+const FoldMarker = observer(function FoldMarker({ issue, lane }: { issue: IssueNavigationModel; lane: 'closed' | 'snoozed' }) {
+  const marker = foldedMarker(issue, lane, useClock(60_000, lane === 'snoozed'))
+  return <span className={cn(marker === 'merged' ? 'text-info/70' : 'text-text-faint')}>{marker}</span>
+})
+function FoldAge({ stamp }: { stamp: string }) {
+  return <span className="tabular-nums text-text-dim">{relativeTime(stamp, useAgeNow(stamp))}</span>
+}

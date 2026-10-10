@@ -5,7 +5,7 @@ import { headerView } from '@podium/client-graph/header-views'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph'
 import type { MachineId, MachineWire } from '@podium/model/browser'
-import { useMemo } from 'react'
+import { useEffect, useMemo } from 'react'
 import type { Store } from './store'
 import { useWorklistPoolProjection } from './store-worklist-pool'
 
@@ -128,4 +128,10 @@ const readLifecycle = (pool: MobxPool) => {
 }
 export function usePoolLifecycleSettings() {
   return useWorklistPoolProjection(readLifecycle, null)
+}
+
+/** Only a mounted, visible header retains the runtime's poll schedule. */
+export function useHeaderPolling(visible: boolean): void {
+  const owner = useStoreHandle<Store['trpc']>()
+  useEffect(() => visible ? owner.headerInputs.retain() : undefined, [owner, visible])
 }

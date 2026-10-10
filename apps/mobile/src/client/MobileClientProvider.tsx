@@ -79,7 +79,8 @@ export { BOOT_STALL_MS, STORE_REFRESH_NOTICE } from '@podium/client-core/replica
 
 import AsyncStorage from '@react-native-async-storage/async-storage'
 import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { Platform } from 'react-native'
+import { AppState, Platform } from 'react-native'
+import { setClockActive } from '@podium/mobx-helpers'
 import { BootSplash } from '../components/BootSplash'
 import { BootTroubleScreen } from '../components/BootTroubleScreen'
 import { mobileAccountCredentials } from './account-credentials'
@@ -494,6 +495,12 @@ function LiveProvider({ children }: { children: ReactNode }) {
   // seams the shared client already has; `undefined` on web, where the DOM
   // answers those questions itself. Built once for the life of the provider —
   // it holds two OS subscriptions, so a rebuild per render would leak them.
+  useEffect(() => {
+    if (Platform.OS === 'web') return
+    setClockActive(AppState.currentState === 'active')
+    const subscription = AppState.addEventListener('change', state => setClockActive(state === 'active'))
+    return () => { subscription.remove(); setClockActive(true) }
+  }, [])
   const connectivity = useMemo(() => createPlatformConnectivity(), [])
   useEffect(() => () => connectivity?.dispose(), [connectivity])
   const { error, report: reportError, notices } = useShellErrorChannel()

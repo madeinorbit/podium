@@ -687,16 +687,7 @@ const PoolMotionRow = observer(function PoolMotionRow({
   const folded = lane === 'closed' || lane === 'snoozed'
   const visible = usePanelVisible()
   const fresh = companion?.ready === 'ready' ? companion : companion?.ready
-  // Preserve the existing folded-word clock filter without copying row paint.
-  // Open-row timers already own their clock; their row receives no changing time.
-  const foldedClock = useMemo(() => computed(() => {
-    if (!folded || !companion || companion.ready !== 'ready') return { now: 0, words: '' }
-    const now = pool.clock.trackedNow()
-    const issue = navigationIssue(companion.issue)
-    const stamp = lane === 'closed' ? companion.foldAt : issue.updatedAt
-    return { now, words: JSON.stringify([foldedMarker(issue, lane as 'closed' | 'snoozed', now), stamp ? relativeTime(stamp, now) : null]) }
-  }, { equals: (a, b) => a.words === b.words }), [pool, companion, folded, lane])
-  const now = foldedClock.get().now
+  const now = 0
   // The existing exit snapshot retains the final paint after archive or eviction.
   const previous = useRef<SidebarRowValues | undefined>(undefined)
   // Retain the last committed paint. Snapshot-only stored fields must not
@@ -836,8 +827,6 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
   }, shallowEqual)
   const entity = here(pool.model('worktree', path))
   const model = entity ? worklistView(pool).tree(entity) : undefined
-  const now = useRef(0)
-  if (visible) now.current = pool.clock.trackedNow()
   const select = useCallback(() => actions.selectWorktree(path), [actions, path])
   const panel = useCallback((sid: SessionId) => actions.selectPanel(path, sid), [actions, path])
   const renderSession = useCallback(
@@ -861,7 +850,7 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
       model={model}
       active={model.active(state)}
       paneA={state.paneA}
-      now={now.current}
+      now={0}
       renderSession={renderSession}
       onSelect={select}
       onSelectPanel={panel}

@@ -8,7 +8,7 @@ import {
 import type { TranscriptItem } from '@podium/model/browser'
 import type { JSX } from 'react'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
-import { useNow } from '@/lib/useNow'
+import { useAgeNow } from '@/lib/clock-hooks'
 
 /**
  * THE TAIL (POD-376) — the end of the feed, as ONE object in three states.
@@ -223,10 +223,7 @@ export function TranscriptTail({
   const waitingOnDependency = state?.mode === 'wait'
   // Two clocks so nothing wakes faster than its figure can change: the working
   // timer counts seconds, and an idle one only needs that in its first minute.
-  const coarse = useNow(working || waitingOnDependency ? 1000 : 20_000)
-  const fresh = known && coarse - startedAt < 60_000
-  const fine = useNow(1000, !working && fresh)
-  const now = working || !fresh ? coarse : fine
+  const now = useAgeNow(startedAt, 0, known && !!state)
   const elapsed = known ? Math.max(0, now - startedAt) : 0
 
   if (!state) return null

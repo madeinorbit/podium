@@ -8,7 +8,7 @@ import { isClosed } from '@podium/model/browser'
  */
 
 import { relativeTime } from '@podium/client-core/focus'
-import { useNow } from '@/lib/useNow'
+import { useAgeNow } from '@/lib/clock-hooks'
 import { ChevronRight, Pin } from 'lucide-react'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
@@ -174,7 +174,7 @@ export const StatusStrip = observer(function StatusStrip({
 }: {
   issue: IssueViewModel
 }): JSX.Element {
-  const now = useNow(60_000)
+  const now = useAgeNow(Math.max(Date.parse(issue.createdAt), Date.parse(issue.updatedAt)))
   const created = relativeTime(issue.createdAt, now)
   const updated = relativeTime(issue.updatedAt, now)
   const facts: { key: string; text: string; title?: string }[] = [

@@ -72,7 +72,7 @@ import {
   runInAction,
   untracked,
 } from 'mobx'
-import { DeadlineClock } from './clock'
+import { DeadlineClock, deadlineClock } from './clock'
 import { debugName } from './debug-name'
 import { sessionSeats, type SeatRelation } from './session-seats'
 import { headerIds, reseed } from './enumerate'
@@ -176,6 +176,8 @@ function cursorOnlyChange(previous: object, next: object): boolean {
 
 /** Residency options: the per-row read, and (tests) the window and timer. */
 export interface PoolLazyOptions {
+  /** Explicit deterministic clock for corpus/replay fixtures. */
+  readonly clock?: DeadlineClock
   readonly diagnostics?: FeedDiagnostics
   readonly issueSessionFact?: IssueSessionFactReader
   readonly load: LoadRow
@@ -448,7 +450,7 @@ export class MobxPool {
       deep: false,
       name: debugName(() => 'pool.reads'),
     })
-    this.clock = new DeadlineClock(locals.coarseNow)
+    this.clock = lazy?.clock ?? (locals.coarseNow === undefined ? deadlineClock : new DeadlineClock(locals.coarseNow))
     this.models = Object.fromEntries(
       ENTITIES.map((entity) => [entity, new Map()]),
     ) as MobxPool['models']
@@ -481,6 +483,7 @@ export class MobxPool {
       // untracked-read: seat-issue-maintenance
       issue: (id) => untracked(() => omitGone(this.row('issue', id, 'peek'))) as SliceIssue | undefined,
       now: () => this.clock.peekNow(),
+      at: (t, due) => this.clock.at(t, due),
     })
     worklistView(this)
     // Every row below comes from the one reader (`row`); none of these
@@ -1127,15 +1130,7 @@ export class MobxPool {
   /** One locals notification, one action: only the keys it names. */
   applyLocals(locals: SliceLocals, changed: ReadonlySet<LocalsKey>): void {
     worklistView(this).applyLocals(locals, changed)
-    const clock = changed.has('coarseNow')
-    if (!clock) return
-    runInAction(() => {
-      if (clock) {
-        this.clock.advance(locals.coarseNow)
-        sidebarRosterView(this).advanceClock(locals.coarseNow)
-        this.seatVerdicts.advanceClock(locals.coarseNow)
-      }
-    })
+
   }
 
   private refreshSourcePosition(index: ColdQueries, id: string): void {
@@ -1170,7 +1165,7 @@ export class MobxPool {
     })
     for (const entity of ENTITIES) this.models[entity].clear()
     this.residency?.clear()
-    this.clock.clear()
+    if (this.clock !== deadlineClock) this.clock.clear()
     // A retired pool may outlive its switch (POD-5402); it must not hold the
     // retired feed's cold index, which carries every row's relations.
     this.indexSeen = undefined

@@ -11,7 +11,6 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { SessionId } from '@podium/model'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { mobilePaintNow } from '../lib/work-sections'
 import { demoEnabled } from './demoData'
 import { useMobilePool, useMobilePoolProjection } from './mobile-pool'
 import type { MobileTrpc, TranscriptPage } from './trpc'
@@ -25,11 +24,6 @@ export {
   useSessionContextSpawnPending as useSpawnPending,
   useSessionContextSpawnPrompt as useSpawnPrompt,
 } from './use-session-context'
-
-/** The pool clock tracks forward advances and rewinds at the displayed boundary. */
-export function useCoarseNow(): number {
-  return useMobilePoolProjection(mobilePaintNow, 0)
-}
 
 type MobileStore = Store<MobileTrpc>
 

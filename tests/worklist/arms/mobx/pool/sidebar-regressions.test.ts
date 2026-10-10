@@ -190,7 +190,6 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
     createReplicaFn: () => replica,
     routerWindow: createMemoryRouterWindow(),
     createHub: () => ({ dispose: () => {} }) as unknown as SocketHub,
-    coarseClock: { now: () => NOW, subscribe: () => () => {} },
   })
   // Seed the discovery inputs the row source reads (production: boot and
   // daemon inventory populate both; this engine never starts I/O). The
@@ -280,7 +279,6 @@ function replay(data: LiveCollections, sessionUserId = USER_ID) {
         createReplicaFn: () => replica,
         routerWindow: createMemoryRouterWindow(),
         createHub: () => ({ dispose: () => {} }) as unknown as SocketHub,
-        coarseClock: { now: () => NOW, subscribe: () => () => {} },
       })
       try {
         const derivation = legacyDerivationFromStore(referenceState(app), NOW)

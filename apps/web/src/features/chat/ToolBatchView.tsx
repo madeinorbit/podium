@@ -15,7 +15,7 @@ import type { JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useMemo, useRef, useState } from 'react'
 import { throughRestarts } from '@/lib/chunk-recovery'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
-import { useNow } from '@/lib/useNow'
+import { useAgeNow } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 import { type ProcessPosition, processClass, type TurnPosition, turnClass } from './ChatBlockView'
 import {
@@ -39,8 +39,6 @@ const DiffSheet = lazy(() =>
   throughRestarts(() => import('@/features/git/DiffSheet')).then((m) => ({ default: m.DiffSheet })),
 )
 
-const LIVE_TICK_MS = 1000
-const IDLE_TICK_MS = 600_000
 const EMPTY_BLOCKS: ChatBlock[] = []
 
 /** How much of a recorded edit goes to the SHEET. The inline row capped at 160
@@ -323,10 +321,6 @@ export const ToolBatchView = observer(function ToolBatchView({
   const activeWaiting = ownsTail ? waiting : undefined
   const active = live && ownsTail
   const computing = active && !activeWaiting
-  const now = useNow(active ? LIVE_TICK_MS : IDLE_TICK_MS)
-  const elapsedMs = run ? run.elapsed(active ? now : undefined) : toolRunElapsedMs(row.blocks, active ? now : undefined)
-  const showElapsed =
-    elapsedMs !== undefined && (active || (!live && count > 1 && elapsedMs >= MIN_SETTLED_SPAN_MS))
   // A tools row always folds ≥1 block, so the last one exists.
   const lastItem = (run?.lastBlock ?? row.blocks[count - 1]!).item
   const title = run?.title ?? row.title
@@ -358,7 +352,7 @@ export const ToolBatchView = observer(function ToolBatchView({
       </span>
       <span className="work-line-phrase">{phrase}</span>
       {failed > 0 && <span className="work-line-fail">✕ {failed} failed</span>}
-      {showElapsed && <span className="work-line-time">{formatClock(elapsedMs)}</span>}
+      <ToolElapsed run={run} blocks={row.blocks} active={active} live={live} count={count} />
       <span className="work-line-count">{count}</span>
       <ChevronDown className="work-line-chev" size={11} aria-hidden="true" />
     </>
@@ -452,4 +446,14 @@ export const ToolBatchView = observer(function ToolBatchView({
       )}
     </div>
   )
+})
+
+const ToolElapsed = observer(function ToolElapsed({ run, blocks, active, live, count }: {
+  run?: TranscriptToolRun; blocks: ChatBlock[]; active: boolean; live: boolean; count: number
+}) {
+  const first = run?.firstBlock ?? blocks[0]
+  const now = useAgeNow(first?.item.ts ?? '', 0, active)
+  const elapsedMs = run ? run.elapsed(active ? now : undefined) : toolRunElapsedMs(blocks, active ? now : undefined)
+  const show = elapsedMs !== undefined && (active || (!live && count > 1 && elapsedMs >= MIN_SETTLED_SPAN_MS))
+  return show ? <span className="work-line-time">{formatClock(elapsedMs)}</span> : null
 })

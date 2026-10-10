@@ -2,10 +2,10 @@ import { act, cleanup, render, screen } from '@testing-library/react'
 import type { JSX } from 'react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { PanelVisible } from '@/app/panel-visible'
-import { useNow } from './useNow'
+import { useClock } from './clock-hooks'
 
 function Clock(): JSX.Element {
-  return <output>{useNow(1_000)}</output>
+  return <output>{useClock(1_000)}</output>
 }
 
 function PanelClock({ visible }: { visible: boolean }): JSX.Element {
@@ -26,7 +26,7 @@ afterEach(() => {
   vi.useRealTimers()
 })
 
-describe('useNow panel visibility', () => {
+describe('useClock panel visibility', () => {
   it('stops hidden clocks and resamples before a panel is revealed', () => {
     const view = render(<PanelClock visible />)
     expect(screen.getByRole('status').textContent).toBe('10000')

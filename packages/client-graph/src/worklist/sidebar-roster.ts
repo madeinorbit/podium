@@ -79,6 +79,8 @@ export class SidebarRosterIndex {
   private readonly expiries = new Map<string, number>()
   private readonly due = new Map<number, Set<string>>()
   private readonly deadlines: number[] = []
+  private stopDeadline: (() => void) | undefined
+  private scheduledAt: number | undefined
   private now: number
 
   /** Membership alone; the worktree companion owns read-time eligibility. */
@@ -268,7 +270,7 @@ export class SidebarRosterIndex {
       }
       this.expiries.delete(id)
     }
-    if (!Number.isFinite(at)) return
+    if (!Number.isFinite(at)) { this.armDeadline(); return }
     let ids = this.due.get(at)
     if (!ids) {
       ids = new Set(); this.due.set(at, ids)
@@ -277,9 +279,11 @@ export class SidebarRosterIndex {
       this.deadlines.splice(lo, 0, at)
     }
     ids.add(id); this.expiries.set(id, at)
+    this.armDeadline()
   }
 
   clear(): void {
+    this.stopDeadline?.(); this.stopDeadline = undefined; this.scheduledAt = undefined
     this.seats.clear()
     this.dirty.clear(); this.lanes.clear()
     this.projects.clear(); this.projectCounts.clear(); this.worktrees.clear(); this.paths.clear()
@@ -289,4 +293,17 @@ export class SidebarRosterIndex {
       for (const changed of [...listeners]) changed(undefined)
     this.expiries.clear(); this.due.clear(); this.deadlines.length = 0
   }
+  private armDeadline(): void {
+    const next = this.deadlines[0]
+    if (this.scheduledAt === next) return
+    this.stopDeadline?.(); this.stopDeadline = undefined
+    this.scheduledAt = next
+    if (next !== undefined) this.stopDeadline = this.pool.clock.at(next, () => {
+      this.scheduledAt = undefined
+      this.stopDeadline?.(); this.stopDeadline = undefined
+      this.advanceClock(this.pool.clock.peekNow())
+      this.armDeadline()
+    })
+  }
+
 }

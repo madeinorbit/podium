@@ -271,33 +271,7 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
   draftSendDebounceMs?: number
   /** Test seam: overrides DRAFT_PERSIST_DEBOUNCE_MS (POD-2045). */
   draftPersistDebounceMs?: number
-  /** Test seam: the coarse clock's source (POD-331). Default: `Date.now()`
-   *  seeded at construction and re-read every COARSE_CLOCK_MS. A harness
-   *  injects its own to pin the clock and tick it on demand (POD-4550). */
-  coarseClock?: CoarseClock
 }
-
-/** Where the coarse clock reads time and when it ticks. */
-export interface CoarseClock {
-  now(): number
-  /** Calls `tick` with the new time on every tick; returns the unsubscribe. */
-  subscribe(tick: (now: number) => void): () => void
-}
-
-const wallCoarseClock: CoarseClock = {
-  now: () => Date.now(),
-  subscribe: (tick) => {
-    const timer = setInterval(() => tick(Date.now()), COARSE_CLOCK_MS)
-    return () => clearInterval(timer)
-  },
-}
-
-/**
- * Coarse-clock period (POD-331). Minute granularity, matching the `useNow(60_000)`
- * the sidebar surfaces used to each run privately — snoozes lapse on screen
- * without a server round-trip, and nothing here needs finer resolution.
- */
-export const COARSE_CLOCK_MS = 60_000
 
 const log = createLogger('client-core:runtime')
 
@@ -412,7 +386,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
   private readonly onFeed: boolean
   readonly drafts: DraftStore
   private conversationCache: ConversationCache | undefined
-  private readonly coarseClock: CoarseClock
   private readonly networkEnabled: boolean
   /** One-time boot fetches (repos/pins/tab-orders/settings) — once per runtime,
    *  even across a StrictMode dispose/re-start cycle. */
@@ -426,7 +399,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     this.onFatalError = init.onFatalError
     this.formatError = init.formatError ?? defaultFormatError
     this.httpOrigin = init.config.httpOrigin
-    this.coarseClock = init.coarseClock ?? wallCoarseClock
     this.networkEnabled = init.networkEnabled ?? true
     // The runtime type is only half the guard — an untyped caller omitting the
     // factory must fail LOUDLY here rather than quietly adopt ambient storage.
@@ -540,7 +512,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       // already restored its durable recovery home, so the first Store snapshot
       // must expose it without waiting for start() or a queue notification.
       outboxDeadLetters: this.outbox.deadLetters(),
-      now: this.coarseClock.now(),
     })
     this.workspaceKey = workspaceKeyForState(this.state)
     // Drafts are hydrate-first for the same reason the entity slices are, and
@@ -632,9 +603,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     const cur = this.router.current()
     if (cur !== this.prevRoute) this.onRouteChanged(cur)
     offs.push(this.replicatedLayout.subscribe(() => this.syncReplicatedUi()))
-
-    // One coarse clock per runtime; the pool follows this keyed local.
-    offs.push(this.coarseClock.subscribe((now) => this.apply({ coarseNow: now })))
 
     // The outbox publishes local recovery state; PoolTransactions owns paint.
     offs.push(

@@ -53,6 +53,7 @@ export interface SeatVerdictHost {
   session(id: string): SliceSession | undefined
   issue(id: string): SliceIssue | undefined
   /** The clock now. */
+  at?(t: number, due: () => void): () => void
   now(): number
 }
 
@@ -118,6 +119,8 @@ export class SeatVerdicts {
   private readonly expiries = new Map<string, number>()
   private readonly due = new Map<number, Set<string>>()
   private readonly deadlines: number[] = []
+  private stopDeadline: (() => void) | undefined
+  private scheduledAt: number | undefined
   private now: number
 
   constructor(private readonly host: SeatVerdictHost) {
@@ -232,6 +235,7 @@ export class SeatVerdicts {
   }
 
   clear(): void {
+    this.stopDeadline?.(); this.stopDeadline = undefined; this.scheduledAt = undefined
     this.issues.clear()
     this.owner.clear()
     this.dirtySeats.clear()
@@ -250,6 +254,7 @@ export class SeatVerdicts {
 
   /** `retainedSeatIdsPartOf` / `rosterIdsPartOf` / `openOwnPartOf` for one seat, at the clock. */
   private judge(seat: string, issueId: string, known: SliceIssue | undefined): Verdict {
+    this.now = this.host.now()
     const retention = retentionOf(this.host.session(seat))
     let deadline = Number.POSITIVE_INFINITY
     let verdict = OUT
@@ -346,7 +351,7 @@ export class SeatVerdicts {
       }
       this.expiries.delete(seat)
     }
-    if (!Number.isFinite(at)) return
+    if (!Number.isFinite(at)) { this.armDeadline(); return }
     let seats = this.due.get(at)
     if (!seats) {
       seats = new Set()
@@ -362,5 +367,19 @@ export class SeatVerdicts {
     }
     seats.add(seat)
     this.expiries.set(seat, at)
+    this.armDeadline()
   }
+  private armDeadline(): void {
+    const next = this.deadlines[0]
+    if (this.scheduledAt === next) return
+    this.stopDeadline?.(); this.stopDeadline = undefined
+    this.scheduledAt = next
+    if (next !== undefined) this.stopDeadline = this.host.at?.(next, () => {
+      this.scheduledAt = undefined
+      this.stopDeadline?.(); this.stopDeadline = undefined
+      this.advanceClock(this.host.now())
+      this.armDeadline()
+    })
+  }
+
 }

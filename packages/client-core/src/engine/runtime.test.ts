@@ -73,7 +73,7 @@ import {
   type NavigationProvider,
   type NavigationTopologyDelta,
 } from './navigation-provider'
-import { COARSE_CLOCK_MS, type CoarseClock, createClientRuntime } from './runtime'
+import { createClientRuntime } from './runtime'
 import type { EngineState } from './state'
 
 const settle = (ms = 25): Promise<void> => new Promise((r) => setTimeout(r, ms))
@@ -290,7 +290,6 @@ function makeEngine(
     draftPersistDebounceMs?: number
     principal?: string
     networkEnabled?: boolean
-    coarseClock?: CoarseClock
     info?: (title: string, destination?: string) => void
   } = {},
 ) {
@@ -321,7 +320,6 @@ function makeEngine(
     ...(opts.draftPersistDebounceMs !== undefined
       ? { draftPersistDebounceMs: opts.draftPersistDebounceMs }
       : {}),
-    ...(opts.coarseClock !== undefined ? { coarseClock: opts.coarseClock } : {}),
   })
   engine.setNavigationProvider(
     fixtureNavigation({

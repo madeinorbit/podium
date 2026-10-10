@@ -39,7 +39,6 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { createPortal } from 'react-dom'
 import { CardBoundary } from '@/app/CardBoundary'
 import type { IssueViewModel } from '@/app/store'
-import { useNow } from '@/lib/useNow'
 import { issueColorHex } from '@/lib/issueColors'
 import { cn } from '@/lib/utils'
 import { BoardIssueCard, IssueCard } from './IssueCard'
@@ -90,8 +89,7 @@ function sameDropTarget(a: DragState['over'], b: DragState['over']): boolean {
 const NOOP = (): void => {}
 
 export function IssuesKanban(props: IssuesKanbanProps): JSX.Element {
-  const clock = useNow(60_000)
-  const now = props.now ?? clock
+  const now = props.now ?? 0
   const dropIndex = useBoardDropIndex()
   const dropIndexRef = useRef(dropIndex)
   dropIndexRef.current = dropIndex

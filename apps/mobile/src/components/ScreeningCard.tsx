@@ -1,3 +1,4 @@
+import { useAgeNow } from '../lib/clock-hooks'
 import { relativeTime } from '@podium/client-core/focus'
 import type { IssueViewModel } from '@podium/client-core/replica'
 
@@ -194,7 +195,6 @@ export function ScreeningCard({
   })
 
   const hex = issueColorHex(issue.color) ?? FLOW_HEX
-  const now = Date.now()
   const cardStyle = useAnimatedStyle(() => ({
     opacity: exitOpacity.get(),
     transform: [
@@ -255,7 +255,7 @@ export function ScreeningCard({
             <Text style={styles.ref}>{issue.displayRef ?? `#${issue.seq}`}</Text>
             <Text style={styles.origin} numberOfLines={1}>
               {repoName}
-              {` · proposed ${relativeTime(issue.createdAt, now)}`}
+              <ScreeningAge issue={issue} />
             </Text>
           </View>
           <PressableScale
@@ -439,3 +439,7 @@ const styles = StyleSheet.create({
     fontSize: font.micro,
   },
 })
+
+function ScreeningAge({ issue }: { issue: { createdAt: string } }) {
+  return ` · proposed ${relativeTime(issue.createdAt, useAgeNow(issue.createdAt))}`
+}

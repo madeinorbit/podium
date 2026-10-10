@@ -1,3 +1,7 @@
+import { relativeTime } from '@podium/client-core/focus'
+import { panelLabel } from '@podium/client-core/values'
+import { observer } from '@podium/client-graph/react'
+import { useAgeNow } from '../lib/clock-hooks'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import { agentColorHex, type DotTone, type SessionCardModel } from '@podium/client-core/values'
 import type { SessionMeta } from '@podium/model'
@@ -128,7 +132,7 @@ export function SessionCard({
             style={[styles.subtitle, hex ? { color: flow.muted(hex) } : null]}
             numberOfLines={1}
           >
-            {model.subtitle}
+            {session ? <SessionSubtitle session={session} /> : model.subtitle}
           </Text>
           {session ? <NotSavedMark kind="session" id={session.sessionId} /> : issue ? <NotSavedMark kind="issue" id={issue.id} /> : null}
         </View>
@@ -246,4 +250,8 @@ const styles = StyleSheet.create({
     fontSize: font.small,
     lineHeight: leading(font.small, 'prose'),
   },
+})
+
+const SessionSubtitle = observer(function SessionSubtitle({ session }: { session: SessionMeta }) {
+  return `${panelLabel(session.agentKind)} · ${session.status} · ${relativeTime(session.lastActiveAt, useAgeNow(session.lastActiveAt))}`
 })

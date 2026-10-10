@@ -21,12 +21,11 @@
 import { relativeTime } from '@podium/client-core/focus'
 import { formatClock, type MotionPhase } from '@podium/client-core/values'
 import type { JSX } from 'react'
-import { useNow } from '@/lib/useNow'
+import { useAgeNow } from '@/lib/clock-hooks'
 import { cn } from '@/lib/utils'
 import { usePhaseMorph } from './usePhaseMorph'
 import { WorkingMark } from './WorkingMark'
 
-const HOUR_MS = 3_600_000
 
 export function PhaseTimer({
   phase,
@@ -71,10 +70,7 @@ export function PhaseTimer({
   className?: string
 }): JSX.Element | null {
   const morph = usePhaseMorph(phase)
-  // One interval per timer so the second-hand never re-renders a whole list;
-  // seconds only matter while working and under an hour on the clock.
-  const coarse = phase !== 'working' || Date.now() - sinceMs + baseMs >= HOUR_MS
-  const now = useNow(coarse ? 60_000 : 1_000)
+  const now = useAgeNow(sinceMs, phase === 'working' ? baseMs : 0, phase === 'working' || phase === 'waiting')
 
   if (phase === 'working') {
     return (

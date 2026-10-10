@@ -1,5 +1,5 @@
 export { allowImperativeRead, assertReactiveRead, keyedComputed, type KeyedComputed, type KeyedComputedOptions } from './keyed-computed'
-export { DeadlineClock, nextUp } from './clock'
+export { DeadlineClock, deadlineClock, nextUp, now, nowForAge, clockStore, refreshClocks, setClockActive } from './clock'
 export { debugName, enableDebugNames } from './debug-name'
 export { configureDevelopmentChecks } from './development'
 export { createDemandAtoms, type DemandAtomOptions } from './demand'

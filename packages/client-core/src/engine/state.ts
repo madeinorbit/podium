@@ -119,9 +119,6 @@ export interface EngineState {
   recentFiles: RecentFileEntry[]
   outboxSize: number
   outboxDeadLetters: OutboxDeadLetterEntry[]
-  /** One minute-granularity clock, published as a keyed local. The pool uses
-   * it for snoozes, grace periods and recency without component timers. */
-  coarseNow: number
 }
 
 /** The store fields that are NOT state: action methods and constant handles,
@@ -614,9 +611,6 @@ export interface EngineStateSeed {
   readonly persisted: WorkspaceUiSnapshot
   readonly route: { settingsTab: string | null; issueId?: IssueId | null }
   readonly outboxDeadLetters: OutboxDeadLetterEntry[]
-  /** Seed for the coarse clock (see {@link EngineState.coarseNow}). Injected
-   *  rather than read here so a test can pin it. */
-  readonly now: number
 }
 
 /**
@@ -684,6 +678,5 @@ export function initialEngineState(seed: EngineStateSeed): EngineState {
     recentFiles: seed.persisted.recentFiles,
     outboxSize: 0,
     outboxDeadLetters: seed.outboxDeadLetters,
-    coarseNow: seed.now,
   }
 }

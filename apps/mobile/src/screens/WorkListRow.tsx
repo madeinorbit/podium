@@ -1,3 +1,4 @@
+import { useAgeNow } from '../lib/clock-hooks'
 import { here } from '@podium/client-graph/lookup'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
@@ -19,7 +20,7 @@ import { PressableScale } from '../components/PressableScale'
 import { NotSavedMark } from '../components/NotSavedMark'
 import { WorkingMark } from '../components/WorkingMark'
 import { FleetSummary, GitStampLine, RowProgressMeter } from '../components/WorkRowParts'
-import { mobilePaintNow, mobileRowStamp, worklistRowStatus } from '../lib/work-sections'
+import { mobileRowStamp, worklistRowStatus } from '../lib/work-sections'
 import { flow, issueColorHex } from '../theme/issueColors'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -72,8 +73,7 @@ export const WorkRow = observer(function WorkRow({
   const progressValue = isIssue ? row.progress : null
   const progress = progressValue && typeof progressValue !== 'symbol' && progressValue.total >= 2 ? progressValue : null
   const originSeq = isIssue ? row.origin?.seq ?? null : null
-  const statusLine = worklistRowStatus(row, mobilePaintNow(row.worklist.pool))
-  const stamp = mobileRowStamp(row.timing, mobilePaintNow(row.worklist.pool))
+  const statusLine = worklistRowStatus(row, row.worklist.pool.clock.peekNow())
   const snoozed = issue?.deferred === true
   const unsnoozed = isIssue && row.returnedFromDefer
   const hex = isIssue ? issueColorHex(issueColor) : undefined
@@ -154,11 +154,7 @@ export const WorkRow = observer(function WorkRow({
               ) : (
                 <>
                   {working ? <WorkingMark size={11} /> : null}
-                  {stamp ? (
-                    <Text style={rowStyles.stamp} numberOfLines={1}>
-                      {stamp}
-                    </Text>
-                  ) : null}
+                  <WorkStamp row={row} />
                 </>
               )}
             </View>
@@ -466,3 +462,10 @@ export const PoolWorkRowSlot = memo(
     a.onOpenSession === b.onOpenSession &&
     a.onLongPress === b.onLongPress,
 )
+
+const WorkStamp = observer(function WorkStamp({ row }: { row: WorklistIssue | WorklistWorktree }) {
+  const timing = row.timing
+  const now = useAgeNow(timing.sinceMs, timing.baseMs ?? 0, timing.phase === 'working' || timing.phase === 'waiting')
+  const stamp = mobileRowStamp(timing, now)
+  return stamp ? <Text style={rowStyles.stamp} numberOfLines={1}>{stamp}</Text> : null
+})

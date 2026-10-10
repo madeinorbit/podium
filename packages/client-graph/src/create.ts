@@ -47,7 +47,6 @@ export function createWorklistPool(
   const offRows = source.subscribe((event) => pool.apply(event))
   const offLocals = locals.subscribe((changed) => {
     if (selectionOwner === 'locals') worklistView(pool).applyLocals(locals.get(), changed)
-    if (changed.has('coarseNow')) pool.applyLocals(locals.get(), new Set(['coarseNow']))
   })
   return {
     pool,

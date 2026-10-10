@@ -1,4 +1,4 @@
-export { DeadlineClock, nextUp } from '@podium/mobx-helpers'
+export { DeadlineClock, deadlineClock, nextUp } from '@podium/mobx-helpers'
 
 /** Every production untracked()/peek call site has a unique untracked-read tag.
  * A peek avoids loading; it still tracks the addressed row/residency when read in a derivation. */

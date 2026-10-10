@@ -1,3 +1,4 @@
+import { useClock } from '../lib/clock-hooks'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { MobileWorkSection } from '../lib/work-sections'
 import { mobileWorkView } from '@podium/client-graph/worklist/mobile'
@@ -52,7 +53,6 @@ import { sessionHref } from '../lib/session-route'
 import {
   MobileNativeSections,
   MobileSearchSections,
-  mobilePaintNow,
   searchMobileSections,
   workGroupFoldKey,
 } from '../lib/work-sections'
@@ -446,7 +446,6 @@ const PoolFoldRow = memo(observer(function PoolFoldRow({
   if (!pool || row?.ready !== 'ready') return <View accessibilityLabel="Loading work" />
   const issue = row.issue as unknown as IssueNavigationModel
   const ref = issueDisplayRef(issue)
-  const marker = foldedMarker(issue, lane, lane === 'snoozed' ? mobilePaintNow(pool) : pool.clock.peekNow())
   return (
     <PressableScale
       accessibilityRole="button"
@@ -461,9 +460,7 @@ const PoolFoldRow = memo(observer(function PoolFoldRow({
       <Text style={styles.foldedTitle} numberOfLines={1}>
         {row.title}
       </Text>
-      <Text style={[styles.foldedMarker, marker === 'merged' && styles.foldedMerged]}>
-        {marker}
-      </Text>
+      <FoldMarker issue={issue} lane={lane} />
     </PressableScale>
   )
 }))
@@ -670,4 +667,9 @@ const styles = StyleSheet.create({
   pressed: {
     opacity: 0.65,
   },
+})
+
+const FoldMarker = observer(function FoldMarker({ issue, lane }: { issue: IssueNavigationModel; lane: 'closed' | 'snoozed' }) {
+  const marker = foldedMarker(issue, lane, useClock(60_000, lane === 'snoozed'))
+  return <Text style={[styles.foldedMarker, marker === 'merged' && styles.foldedMerged]}>{marker}</Text>
 })

@@ -8,7 +8,7 @@ import { createPortal } from 'react-dom'
 import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { MENU_ITEM, MENU_PANEL, MENU_SECTION_LABEL } from './menu-surface'
-import { useNow } from './useNow'
+import { useDeadlineNow } from './clock-hooks'
 import { cn } from './utils'
 
 const COARSE_POINTER =
@@ -65,7 +65,7 @@ export function SnoozeControl({
     (s) => ({ setSnooze: s.setSnooze, clearSnooze: s.clearSnooze }),
     shallowEqual,
   )
-  const now = useNow(60_000)
+  const now = useDeadlineNow(session.snoozedUntil && session.snoozedUntil !== 'forever' ? Date.parse(session.snoozedUntil) : undefined)
   const snoozed = isSnoozed(session, now)
   const menuKey = useId()
   const open = useIsActiveMenu(menuKey)

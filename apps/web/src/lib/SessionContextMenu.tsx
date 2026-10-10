@@ -52,7 +52,7 @@ import {
   sessionMenuEligibility,
 } from './session-context-menu'
 import { useCursorMenu } from './use-cursor-menu'
-import { useNow } from './useNow'
+import { useDeadlineNow } from './clock-hooks'
 import { sessionDisplayName } from './WorkerLabel'
 
 /**
@@ -98,7 +98,7 @@ export function SessionContextMenu({
     session,
   ])
   const handoffEnabled = useFeature('session-handoff')
-  const now = useNow(60_000)
+  const now = useDeadlineNow(session.snoozedUntil && session.snoozedUntil !== 'forever' ? Date.parse(session.snoozedUntil) : undefined)
   // The attached issue is part of the handoff gate: a session whose cwd drifted
   // onto the main checkout is still eligible via the issue's worktree (SP-3f7a).
   // Viewport clamp + outside-press/Escape/scroll dismissal, shared with the two

@@ -138,8 +138,8 @@ export interface SliceLocals {
   selectedIssueId: string | null
   /** Whether the selected row was inside the closed fold when clicked (lane latch). */
   selectedIssueWasFolded?: boolean
-  /** Epoch ms. Arms re-derive time-dependent outputs only from this value. */
-  coarseNow: number
+  /** Historical corpus fixture seed only; runtime locals never publish time. */
+  coarseNow?: number
 }
 
 /** One local, as a `LocalsSource` notification names it. */

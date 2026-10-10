@@ -155,7 +155,7 @@ export function PanelDeck({
             {...(visible ? promotionFor(item.id) : undefined)}
           >
             {/* A hidden warm panel paints nothing, so nothing inside it should be
-                waking once a second to re-render (POD-1607). `useNow` reads this
+                waking once a second to re-render (POD-1607). `useClock` reads this
                 and freezes; it resamples in a LAYOUT effect on reveal, so the
                 clock is never painted at the value it stopped at. */}
             <PanelVisible visible={visible}>

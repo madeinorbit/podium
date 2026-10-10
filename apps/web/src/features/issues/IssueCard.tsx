@@ -1,3 +1,4 @@
+import { CardAge } from './CardAge'
 import type { SessionView } from '@podium/client-core/session-values'
 /**
  * ONE BOARD CARD — three slots, in this order, always:
@@ -382,7 +383,7 @@ const IssueCardLeaf = observer(function IssueCardLeaf({
                 way, in the same words. */}
             {badges.sessions && <CardFleet issue={issue} />}
             <span className="font-mono text-[10px] text-text-faint tabular-nums">
-              {cardAge(issue.updatedAt, now)}
+              <CardAge stamp={issue.updatedAt} now={now} />
             </span>
           </span>
         </div>

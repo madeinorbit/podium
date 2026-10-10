@@ -1,3 +1,4 @@
+import { setReferenceClock } from '../../diagnostics/reference-state'
 import { DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 import { referenceState } from '../../diagnostics/reference-state'
 
@@ -84,7 +85,6 @@ import { fixtureGitStates, fixtureMarkers } from '../../harness/src/fixture/norm
 
 import type { PodiumClientApi } from '@podium/client-core/api'
 import {
-  type CoarseClock,
   createClientRuntime,
   loadingNavigationProvider,
   openKernelEngineOutbox,
@@ -336,7 +336,9 @@ function scenarioApi(
 
 /** A coarse clock the scenario drives by hand: pinned at `start`, advanced
  *  only by `advance`, which publishes through the runtime's own tick path. */
-interface ManualClock extends CoarseClock {
+interface ManualClock {
+  now(): number
+  subscribe(tick: (now: number) => void): () => void
   advance(ms: number): void
 }
 
@@ -817,12 +819,13 @@ export async function startEngineOnCorpus(
       createReplicaFn: () => replica,
       routerWindow: fakeRouterWindow(),
       createHub: () => hub as unknown as SocketHub,
-      coarseClock: clock,
       ...(createOutboxFn ? { createOutboxFn } : {}),
       ...(opts.network
         ? { isOnline: opts.network.isOnline, onlineEvents: opts.network.onlineEvents }
         : {}),
     })
+    Object.assign(engine, { fixtureClock: clock })
+    setReferenceClock(engine, clock.now)
     return { engine, hub }
   }
   const install = async (ctx: ScenarioEngine): Promise<void> => {

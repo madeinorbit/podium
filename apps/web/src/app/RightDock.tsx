@@ -1,3 +1,4 @@
+import { useClock } from '@/lib/clock-hooks'
 import { asIssueId } from '@podium/model/browser'
 import { observer } from '@podium/client-graph/react'
 import { LOADING, type Loaded } from '@podium/client-graph/worklist/rollup'
@@ -81,7 +82,7 @@ function shown<T>(value: Loaded<T> | undefined): T | undefined {
 const ShippingDockPanel = observer(function ShippingDockPanel(
   props: Omit<ComponentProps<typeof ShippingPanel>, 'now'>,
 ): JSX.Element {
-  const now = useShellWindow()?.coarseNow ?? 0
+  const now = useClock(60_000)
   return <ShippingPanel {...props} now={now} />
 })
 

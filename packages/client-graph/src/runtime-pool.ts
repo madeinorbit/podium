@@ -1,3 +1,4 @@
+import { DeadlineClock } from './clock'
 import { omitGone } from './lookup'
 import { worklistView } from './worklist/view-model'
 import { sessionPaneView } from './session-pane-view'
@@ -225,6 +226,8 @@ function releaseProjection<T>(state: ProjectionState<T>): void {
 /** Structural seam satisfied by the app's StoreProvider runtime. */
 export type WorklistRuntime = RowSourceRuntime &
   LocalsEngine & {
+    /** Historical corpus harness only; production supplies no manual clock. */
+    fixtureClock?: { now(): number; subscribe(tick: (now: number) => void): () => void }
     readonly replica: RowSourceReplica
     readonly ui?: RoutedUiState
     attachWorklistSelection?(selection: { readonly selectedId: string | null; select(id: string | null): void }): () => void
@@ -330,6 +333,7 @@ export function createRuntimeWorklistPool(
         settings: options.settings,
         summaries: options.summaries,
         worklist: 'demand',
+        ...(runtime.fixtureClock ? { clock: new DeadlineClock(runtime.fixtureClock.now()) } : {}),
       },
       runtime.attachWorklistSelection ? 'worklist' : 'locals',
     )
@@ -363,6 +367,11 @@ export function createRuntimeWorklistPool(
     spawnPools.set(runtime, handle.pool)
     const phasePool = handle.pool
     stopSounds = runtime.attachSessionPhases?.(() => phasePool.sessionPhaseChanges.get())
+    if (runtime.fixtureClock) {
+      const stopClock = runtime.fixtureClock.subscribe(value => handle!.pool.clock.advance(value))
+      const previousStop = stopSounds
+      stopSounds = () => { stopClock(); previousStop?.() }
+    }
     transactions.bind(rows)
     handle.pool.attachTransactions(transactions, true)
     stopWriter = attachRuntimeWriter(runtime, transactions)

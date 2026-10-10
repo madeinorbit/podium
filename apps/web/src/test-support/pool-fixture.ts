@@ -164,6 +164,7 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
     previousRows = nextRows
     const selectionChanged =
       (worklistView(pool).selectedId) !== (state.selectedIssueId ?? null)
+    pool.clock.advance(state.coarseNow ?? Date.now())
     pool.applyLocals(
       {
         selectedIssueId: state.selectedIssueId ?? null,
@@ -222,6 +223,7 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
     const polling = createHeaderPollingService({ api: fixtureState.trpc, replica: owner.replica })
     Object.assign(owner, { headerInputs: polling.inputs })
     const detach = attachHeaderSource(pool, owner as never)
+    polling.inputs.retain()
     polling.start()
     stopHeader = () => { detach(); polling.destroy() }
   }

@@ -10,9 +10,8 @@ import { relativeTime } from '@podium/client-core/focus'
 import { isSessionWorking } from '@podium/client-core/values'
 
 import type { JSX } from 'react'
-import { useNow } from '@/lib/useNow'
+import { useAgeNow } from '@/lib/clock-hooks'
 
-const HOUR_MS = 3_600_000
 
 /** Compact elapsed duration: `34s` / `12m 34s` / `2h 5m` / `1d 3h`. */
 export function formatElapsed(ms: number): string {
@@ -49,8 +48,7 @@ const STAMP_CLASS = 'shell-type-micro flex-none tabular-nums text-text-dim'
  *  shows seconds (<1h), then drops to a once-a-minute tick — each timer owns
  *  its own interval so the second-hand never re-renders the whole sidebar. */
 export function WorkingTimer({ sinceMs }: { sinceMs: number }): JSX.Element {
-  const coarse = Date.now() - sinceMs >= HOUR_MS
-  const now = useNow(coarse ? 60_000 : 1_000)
+  const now = useAgeNow(sinceMs)
   return (
     <span className={STAMP_CLASS} title={`Working since ${new Date(sinceMs).toLocaleString()}`}>
       {formatElapsed(now - sinceMs)}
@@ -60,7 +58,8 @@ export function WorkingTimer({ sinceMs }: { sinceMs: number }): JSX.Element {
 
 /** Relative "2h ago" stamp for WORK rows. `now` rides the caller's coarse
  *  clock (the sidebar already ticks at minute granularity). */
-export function AgoStamp({ atMs, now }: { atMs: number; now: number }): JSX.Element | null {
+export function AgoStamp({ atMs }: { atMs: number; now?: number }): JSX.Element | null {
+  const now = useAgeNow(atMs, 0, Number.isFinite(atMs) && atMs > 0)
   if (!Number.isFinite(atMs) || atMs <= 0) return null
   return (
     <span className={STAMP_CLASS} title={new Date(atMs).toLocaleString()}>

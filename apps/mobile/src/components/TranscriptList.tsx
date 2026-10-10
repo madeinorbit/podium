@@ -1,3 +1,4 @@
+import { useAgeNow } from '../lib/clock-hooks'
 import { MobileTranscriptSearch, type MobileConversationPresentation } from '../lib/conversation-presentation'
 import {
   type ChatBlock,
@@ -363,36 +364,7 @@ function elapsedSince(since: string | undefined, now: number): string | null {
 }
 
 function TranscriptTail({ state }: { state?: TranscriptTailState }) {
-  const [now, setNow] = useState(Date.now())
-  const tone = state?.tone
-  const since = state?.since
-  useEffect(() => {
-    if (!since) return
-    // The heartbeat pauses while the app is not on screen — the same fix the
-    // web transcript made for its hidden-tab heartbeat. A working tail ticks
-    // every second; ticking a backgrounded surface spends renderer work on a
-    // number nobody can see. On return the first tick catches the clock up
-    // before the interval resumes.
-    let timer: ReturnType<typeof setInterval> | null = null
-    const start = () => {
-      if (timer !== null) return
-      setNow(Date.now())
-      timer = setInterval(() => setNow(Date.now()), tone === 'working' ? 1000 : 20_000)
-    }
-    const stop = () => {
-      if (timer === null) return
-      clearInterval(timer)
-      timer = null
-    }
-    if (AppState.currentState !== 'background' && AppState.currentState !== 'inactive') start()
-    const subscription = AppState.addEventListener('change', (next) =>
-      next === 'active' ? start() : stop(),
-    )
-    return () => {
-      stop()
-      subscription.remove()
-    }
-  }, [since, tone])
+  const now = useAgeNow(state?.since ?? '', 0, !!state?.since)
 
   if (!state) return null
   const elapsed = elapsedSince(state.since, now)

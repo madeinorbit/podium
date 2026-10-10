@@ -29,7 +29,7 @@ import { issueDisplayRef } from '@podium/protocol'
 import { useLocalSearchParams, useRouter } from 'expo-router'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { ScrollView, StyleSheet, View } from 'react-native'
-import { useCoarseNow, useConnected, useStoreActions, useTrpc } from '../client/hooks'
+import { useConnected, useStoreActions, useTrpc } from '../client/hooks'
 import { useIssueCloseGuard } from '../client/use-issue-close'
 import { useHasIssueMates, useIssueModel, useIssueTargets } from '../client/use-issue-model'
 import {

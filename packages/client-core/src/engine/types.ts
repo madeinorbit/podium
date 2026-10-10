@@ -128,8 +128,6 @@ export interface Store<TApi extends PodiumClientApi = PodiumClientApi> {
   navigation: import('./state').NavigationProvider
   hub: SocketHub
   trpc: TApi
-  /** One minute-granularity clock per runtime, followed by the pool. */
-  coarseNow: number
   /** Local replica (docs/spec/thin-client-replica.md): the ONE entity read
    *  path (sessions/issues/conversations) + offline transcript windows. When
    *  durable storage is unusable (private mode) the same collections run in

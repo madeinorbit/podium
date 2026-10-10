@@ -1,3 +1,4 @@
+import { deadlineClock } from '@podium/mobx-helpers'
 import { createLogger } from '@podium/logger'
 import {
   CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS,
@@ -21,6 +22,8 @@ export type HeaderInputKey = keyof HeaderInputRows
 export interface HeaderInputs {
   read<K extends HeaderInputKey>(key: K): HeaderInputRows[K] | undefined
   onInput(key: HeaderInputKey, changed: () => void): () => void
+  /** The mounted header owns polling demand; hidden documents pause it. */
+  retain(): () => void
 }
 
 /** One service per principal runtime. Stop/restart fences in-flight replies;
@@ -33,10 +36,26 @@ export function createHeaderPollingService(ports: {
   const samples: Partial<HeaderInputRows> = {}
   const listeners = new Map<HeaderInputKey, Set<() => void>>()
   const diagnostics = { errors: 0, counts: {} as Partial<Record<HeaderInputKey, number>> }
+  let demand = 0
+  let running = false
   let destroyed = false
   let generation: { stop(): void } | undefined
   const inputs: HeaderInputs = {
     read: (key) => samples[key],
+    retain() {
+      if (destroyed) return () => {}
+      demand++
+      if (demand === 1 && typeof document !== 'undefined') document.addEventListener('visibilitychange', reconcile)
+      reconcile()
+      let released = false
+      return () => {
+        if (released) return
+        released = true
+        demand--
+        if (!demand && typeof document !== 'undefined') document.removeEventListener('visibilitychange', reconcile)
+        reconcile()
+      }
+    },
     onInput(key, changed) {
       if (destroyed) return () => {}
       let keyed = listeners.get(key)
@@ -65,41 +84,48 @@ export function createHeaderPollingService(ports: {
       else log.warn('header polling failed; retaining the last sample', { key, error })
     }
   }
-  function start(): void {
+  function startRun(): void {
     if (destroyed || generation) return
     const run = { stop: () => {} }
     generation = run
     const current = () => generation === run && !destroyed
     const pending = new Set<HeaderInputKey>()
     let lifecycleReceived = samples.lifecycle !== undefined
-    const working = new Map<string, ReturnType<typeof setTimeout>>()
+    const working = new Map<string, number>()
+    let stopDeadline: (() => void) | undefined
+    let nextDeadline: number | undefined
+    function armWorking(at: number): void {
+      // Renewals keep the armed moment: on that wake we consult the latest
+      // evidence. Heartbeats never clear/rearm a timer for every session.
+      if (nextDeadline !== undefined && nextDeadline <= at) return
+      stopDeadline?.()
+      nextDeadline = at
+      stopDeadline = deadlineClock.at(at, () => {
+        nextDeadline = undefined
+        stopDeadline?.(); stopDeadline = undefined
+        if (!current()) return
+        const before = working.size
+        let next = Infinity
+        const now = deadlineClock.peekNow()
+        for (const [id, expires] of working) {
+          if (expires <= now) working.delete(id)
+          else next = Math.min(next, expires)
+        }
+        if (Number.isFinite(next)) armWorking(next)
+        if (before !== working.size) history()
+      })
+    }
     function updateWorking(id: string, row: SessionMeta | undefined): void {
-      const previous = working.get(id)
-      if (previous !== undefined) clearTimeout(previous)
-      working.delete(id)
-      if (!row || !isAgentConfirmedComputing(row, Date.now())) return
+      if (!row || !isAgentConfirmedComputing(row, deadlineClock.peekNow())) { working.delete(id); return }
       const activity = Math.max(
         ...[row.agentState?.stateObservedAt, row.lastActiveAt, row.agentState?.since]
-          .map((stamp) => Date.parse(stamp ?? ''))
-          .filter(Number.isFinite),
+          .map(stamp => Date.parse(stamp ?? '')).filter(Number.isFinite),
       )
-      // One addressed deadline, rather than scanning the fleet on clock ticks.
-      const delay = Math.min(
-        2_147_483_647,
-        activity + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS - Date.now() + 1,
-      )
-      working.set(
-        id,
-        setTimeout(() => {
-          if (!current()) return
-          const before = working.size
-          updateWorking(id, ports.replica.row?.('sessions', id))
-          if (before !== working.size) history()
-        }, delay),
-      )
+      const expires = activity + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS + 1
+      working.set(id, expires)
+      armWorking(expires)
     }
     const resetWorking = () => {
-      for (const timer of working.values()) clearTimeout(timer)
       working.clear()
       // Whole scope only at bootstrap/rescope; ordinary updates read their ids.
       for (const row of ports.replica.rows('sessions')) updateWorking(row.sessionId, row)
@@ -168,7 +194,7 @@ export function createHeaderPollingService(ports: {
       clearInterval(timer)
       clearInterval(historyTimer)
       off?.()
-      for (const deadline of working.values()) clearTimeout(deadline)
+      stopDeadline?.()
       working.clear()
     }
     void quota()
@@ -180,13 +206,20 @@ export function createHeaderPollingService(ports: {
     generation = undefined
     previous?.stop()
   }
+  function reconcile(): void {
+    const visible = typeof document === 'undefined' || document.visibilityState !== 'hidden'
+    if (running && demand > 0 && visible && !destroyed) startRun()
+    else stop()
+  }
   return {
     inputs,
     diagnostics,
-    start,
-    stop,
+    start() { running = true; reconcile() },
+    stop() { running = false; stop() },
     destroy() {
+      running = false
       stop()
+      if (typeof document !== 'undefined') document.removeEventListener('visibilitychange', reconcile)
       destroyed = true
       delete samples.quota
       delete samples.history
