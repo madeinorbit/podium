@@ -230,6 +230,9 @@ export class ConnectPublisher {
           this.#deps.onTransferred?.()
           return
         }
+        // A forced repair may target the same URL before the daily refresh is due.
+        // Keep it pending so the retry timer actually sends the failed write again.
+        this.#republish = true
         return this.#fail('connect: publish failed, retrying', result.failure)
       }
       this.#publishedUrl = url
