@@ -1,8 +1,7 @@
-import type { ModelOf } from '../models'
-import type { MachineId } from '@podium/model/browser'
+import type { IssueProjection, MachineId } from '@podium/model/browser'
 import { draft } from '@podium/mobx-helpers'
 
-export type AgentSettingsRecord = Partial<Pick<ModelOf['issue'],
+export type AgentSettingsRecord = Partial<Pick<IssueProjection,
   'defaultAgent' | 'defaultModel' | 'defaultEffort'>> & { readonly machineId?: MachineId | null }
 export type AgentSettingsPatch = Partial<AgentSettingsRecord>
 
