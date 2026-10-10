@@ -82,6 +82,22 @@ export interface NativeDesktopBridge {
   enableHosting?: (pairCode: string) => Promise<void>
   /** Reads this shell's daemon-owned durable connection status. */
   daemonConnectivity?: () => Promise<NativeDaemonConnectivity | null>
+  /**
+   * POD-5921, remote modes only: the installation this window's server is, from the shell's
+   * config.json (`null` when it has none yet).
+   */
+  serverIdentity?: { installationId: string; installationPublicKey: string } | null
+  /** POD-5921: remember the installation the window just authenticated to. */
+  saveServerIdentity?: (identity: {
+    installationId: string
+    installationPublicKey: string
+  }) => Promise<void>
+  /**
+   * POD-5921: follow the server to a proven (or transfer-announced) https origin. The shell
+   * persists it, carries the session cookie, grants the bridge there and navigates the window
+   * (to the claim page when a transfer brought one). Refused in local modes.
+   */
+  moveServer?: (origin: string, transferId?: string, claimToken?: string) => Promise<void>
 }
 
 /**

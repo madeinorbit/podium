@@ -1597,29 +1597,22 @@ fn repair_payload(
 
 fn grant_transfer_remote_capabilities(app: &AppHandle, server_url: &str) -> Result<(), String> {
     let pattern = remote_capability_pattern(server_url)?;
-    // One set of identifiers PER ORIGIN: a window that follows its server more than once
-    // (POD-5921) grants each new origin beside the last instead of colliding with it.
-    let suffix: String = pattern
-        .chars()
-        .map(|c| if c.is_ascii_alphanumeric() { c } else { '-' })
-        .collect();
-    let window = native_window_capability(
-        &format!("transfer-window-controls-{suffix}"),
-        Some(pattern.clone()),
-    );
-    let opener = tauri::ipc::CapabilityBuilder::new(format!("transfer-external-link-opener-{suffix}"))
+    // Granting again for each origin a window follows its server to (POD-5921) is fine: the
+    // runtime authority merges capabilities, it does not reject a repeated identifier.
+    let window = native_window_capability("transfer-window-controls", Some(pattern.clone()));
+    let opener = tauri::ipc::CapabilityBuilder::new("transfer-external-link-opener")
         .window("main")
         .remote(pattern.clone())
         .permission("opener:allow-open-url")
         .permission("opener:allow-default-urls");
-    let sqlite = tauri::ipc::CapabilityBuilder::new(format!("transfer-replica-sqlite-{suffix}"))
+    let sqlite = tauri::ipc::CapabilityBuilder::new("transfer-replica-sqlite")
         .window("main")
         .remote(pattern.clone())
         .permission("sql:allow-load")
         .permission("sql:allow-select")
         .permission("sql:allow-execute")
         .permission("sql:allow-close");
-    let updates = tauri::ipc::CapabilityBuilder::new(format!("transfer-update-bridge-{suffix}"))
+    let updates = tauri::ipc::CapabilityBuilder::new("transfer-update-bridge")
         .window("main")
         .remote(pattern)
         .permission("allow-claim-update-ownership")

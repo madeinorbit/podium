@@ -3005,6 +3005,8 @@ version = "0.1.0"
 dependencies = [
  "libc",
  "log",
+ "reqwest",
+ "rustls",
  "semver",
  "serde",
  "serde_json",

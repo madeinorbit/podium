@@ -22,6 +22,7 @@ import {
   type FollowEvent,
   httpOriginOf,
   locateServer,
+  proveServer,
   type ServerIdentity,
   type ServerMove,
   ServerFollower,
@@ -29,8 +30,8 @@ import {
 import type { HubEvents } from '../socket-transport/socket-hub'
 
 export type { FollowEvent, ServerIdentity, ServerMove }
-/** Re-exported for a client's one-shot ask at a failed cold start (spec rule 4). */
-export { locateServer }
+/** Re-exported for a client's ask at a failed cold start, where no hub runs yet (spec rule 4). */
+export { locateServer, proveServer, ServerFollower }
 
 export interface FollowPorts {
   loadIdentity(): ServerIdentity | undefined
