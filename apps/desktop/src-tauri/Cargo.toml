@@ -46,6 +46,11 @@ serde = { version = "1", features = ["derive"] }
 # The native updater uses the same parsed SemVer fields as the Tauri plugin while
 # applying Podium's explicit dev > edge prerelease tiers.
 semver = "1"
+# POD-5921: one HTTPS `/health` probe of a remote server at cold start, so a window whose server
+# moved loads the bundled app (which finds it) instead of a dead tunnel's error page. The same
+# reqwest + rustls/ring the vendored updater already compiles in; no new crates.
+reqwest = { version = "0.13", default-features = false, features = ["rustls-no-provider"] }
+rustls = { version = "0.23", default-features = false, features = ["ring"] }
 # Bound native download cancellation to the supervisor command lifetime.
 tokio = { version = "1", features = ["time", "macros", "net", "io-util"] }
 # Required by tauri::generate_context! once plugins.updater config is embedded.
