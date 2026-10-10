@@ -1,3 +1,4 @@
+import { refreshClocks } from '@podium/mobx-helpers'
 import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
@@ -187,8 +188,7 @@ async function advanceClock(byMs: number) {
   const now = referenceState(runtime).coarseNow + byMs
   await act(async () => {
     vi.setSystemTime(now)
-    const clockPublisher = runtime as unknown as { apply(patch: { coarseNow: number }): void }
-    clockPublisher.apply({ coarseNow: now })
+    refreshClocks()
   })
 }
 

@@ -67,6 +67,7 @@ function start() {
 }
 afterEach(() => {
   for (const service of services.splice(0)) service.destroy()
+  vi.unstubAllGlobals()
   vi.useRealTimers()
 })
 const flush = async () => {
@@ -239,6 +240,10 @@ it('accepts an absent history endpoint, ignores malformed readings, and destroys
 
 it('does no polling without a visible mounted header and resumes on reveal', async () => {
   vi.useFakeTimers(); vi.setSystemTime(new Date('2026-10-05T00:00:00Z'))
+  const doc = new EventTarget()
+  let visibility = 'visible'
+  Object.defineProperty(doc, 'visibilityState', { get: () => visibility })
+  vi.stubGlobal('document', doc)
   const f = fixture(); services.push(f.service)
   f.service.start()
   await vi.advanceTimersByTimeAsync(5 * 60_000)
@@ -247,15 +252,15 @@ it('does no polling without a visible mounted header and resumes on reveal', asy
   const release = f.service.inputs.retain()
   await flush()
   expect(f.quota).toHaveBeenCalledTimes(1)
-  const hidden = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('hidden')
+  visibility = 'hidden'
   document.dispatchEvent(new Event('visibilitychange'))
   expect(vi.getTimerCount()).toBe(0)
   await vi.advanceTimersByTimeAsync(60_000)
   expect(f.quota).toHaveBeenCalledTimes(1)
-  hidden.mockReturnValue('visible')
+  visibility = 'visible'
   document.dispatchEvent(new Event('visibilitychange'))
   await flush()
   expect(f.quota).toHaveBeenCalledTimes(2)
-  release(); hidden.mockRestore()
+  release()
   expect(vi.getTimerCount()).toBe(0)
 })

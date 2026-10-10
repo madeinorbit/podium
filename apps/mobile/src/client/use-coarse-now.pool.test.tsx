@@ -45,7 +45,7 @@ it('paints forward ticks and rewinds of the shared pool clock without reading ro
     const tick = await measureWork(
       async () => {
         act(() =>
-          pool.applyLocals({ selectedIssueId: null, coarseNow: next }, new Set(['coarseNow'])),
+          pool.clock.advance(next),
         )
       },
       { pool },

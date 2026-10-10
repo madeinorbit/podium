@@ -288,7 +288,7 @@ describe('incremental header sessions', () => {
       cold.mockClear()
       f.change('cold-0', { status: 'live', agentState: state('working') })
       f.change('resident-0', { agentState: state('working') })
-      f.pool.applyLocals({ selectedIssueId: null, coarseNow: NOW + 1000 }, new Set(['coarseNow']))
+      f.pool.clock.advance(NOW + 1000)
       expect(cold).not.toHaveBeenCalled()
       const stop = autorun(() => { expect(headerView(f.pool).workingCount()).toBe(2) })
       stop()
@@ -523,7 +523,7 @@ describe('incremental header sessions', () => {
     })
     const count = visits(f.pool)
     const tick = (ms: number) =>
-      f.pool.applyLocals({ selectedIssueId: null, coarseNow: ms }, new Set(['coarseNow']))
+      f.pool.clock.advance(ms)
     try {
       count.reset()
       tick(NOW + 60_000)

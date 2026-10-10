@@ -96,7 +96,7 @@ it('requests no offscreen activity and keeps retained history through pan and mi
     const samples = retained.samples
     retained.load()
     // The existing coarse clock is deliberately outside the waterfall view.
-    f.pool.applyLocals({ selectedIssueId: 'root', coarseNow: NOW + 60000 }, new Set(['coarseNow']))
+    f.pool.clock.advance(NOW + 60000)
     expect(retained.samples).toBe(samples)
     expect(query).toHaveBeenCalledTimes(before + 1)
   } finally {

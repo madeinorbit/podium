@@ -253,7 +253,7 @@ it('updates addressed confirmed workers at the inclusive expiry deadline without
   )
   const before = sections
   expect(live).toBe(1)
-  pool.applyLocals({ selectedIssueId: null, coarseNow: now + 15 * 60_000 }, new Set(['coarseNow']))
+  pool.clock.advance(now + 15 * 60_000)
   expect(live).toBe(1)
   pool.applyLocals(
     { selectedIssueId: null, coarseNow: now + 15 * 60_000 + 1 },
@@ -262,7 +262,7 @@ it('updates addressed confirmed workers at the inclusive expiry deadline without
   expect(live).toBe(0)
   expect(sections).toBe(before)
   // Rewinds revive the same per-session fact, with no whole-board clock.
-  pool.applyLocals({ selectedIssueId: null, coarseNow: now }, new Set(['coarseNow']))
+  pool.clock.advance(now)
   expect(live).toBe(1)
 })
 

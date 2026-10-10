@@ -137,8 +137,8 @@ export interface FenceScenario {
 }
 
 /** Selection and clock as the engine holds them: what the row views show. */
-export function engineLocals(ctx: ScenarioEngine): SliceLocals {
-  return localsOfEngine(ctx.engine)
+export function engineLocals(ctx: ScenarioEngine): SliceLocals & { coarseNow: number } {
+  return { ...localsOfEngine(ctx.engine), coarseNow: referenceState(ctx.engine).coarseNow }
 }
 
 /** #8b: one tick across the finished-grace boundary (`SIDEBAR_FINISHED_GRACE_MS`). */
@@ -280,7 +280,7 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
 }
 
 /** The parity snapshot's locals: the engine clock, no selection (spec §7). */
-export function parityLocals(ctx: ScenarioEngine): SliceLocals {
+export function parityLocals(ctx: ScenarioEngine): SliceLocals & { coarseNow: number } {
   return { selectedIssueId: null, coarseNow: referenceState(ctx.engine).coarseNow }
 }
 

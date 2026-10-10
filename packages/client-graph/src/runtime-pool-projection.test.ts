@@ -37,7 +37,7 @@ function fixture() {
     view,
     subscribe,
     change: (id: string | null) =>
-      pool.applyLocals({ selectedIssueId: id, coarseNow: 0 }, new Set(['selectedIssueId'])),
+      pool.clock.advance(0 }, new Set(['selectedIssueId'])),
     observers: () => observerCount() - selectionObservers,
   }
 }
@@ -170,7 +170,7 @@ it('retains the snapshot object when observed inputs change to an equal result',
   expect(f.read).toHaveBeenCalledTimes(2)
   expect(f.view.getSnapshot()).toBe(first)
   expect(wake).not.toHaveBeenCalled()
-  f.pool.applyLocals({ selectedIssueId: 'other', coarseNow: 60_000 }, new Set(['coarseNow']))
+  f.pool.applyLocals({ selectedIssueId: 'other', coarseNow: 60_000)
   expect(f.view.getSnapshot()).toBe(first)
   expect(f.read).toHaveBeenCalledTimes(2)
 })
