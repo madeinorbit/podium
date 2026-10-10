@@ -4678,12 +4678,12 @@
       "file": "apps/web/src/features/chat/test-support/model-send.ts",
       "holder": "useModelSend/ports",
       "rule": "reader-summary",
-      "tokens": "cab28a5a05498f4ebbdad2b5fad182ea1b4fe6fff7c22de1c4e1db0021b5781f",
+      "tokens": "ab001fa058d78ec11877feecb580b0831fd8892a89f1487859d42d7d6019f8cb",
       "gate": [],
       "origin": [
         "3a9d65e191b03acd36af003a1ff49536c0e0b72cbb2ed394da7d73a9d8e29ac7"
       ],
-      "fingerprint": "1029704de2dae7ca077ae3cf2fdacc49978340ee2b188d1141b31f6f96e01660",
+      "fingerprint": "9dd26adbcc48ec2667ee8657038cdff486c3d69ee291d32c344919616b122d58",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
