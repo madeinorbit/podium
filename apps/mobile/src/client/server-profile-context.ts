@@ -42,7 +42,10 @@ export interface ServerProfileContextValue {
    */
   moveServer?(origin: string): Promise<void>
   /** Remember the installation this profile just authenticated to (POD-5921). */
-  saveServerIdentity?(identity: { installationId: string; installationPublicKey: string }): Promise<void>
+  saveServerIdentity?(identity: {
+    installationId: string
+    installationPublicKey: string
+  }): Promise<void>
 }
 
 export const ServerProfileContext = createContext<ServerProfileContextValue | null>(null)

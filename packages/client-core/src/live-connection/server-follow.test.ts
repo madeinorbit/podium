@@ -134,7 +134,8 @@ function fakeHub(url = 'wss://old.example/client'): FollowableHub & {
       return () => set.delete(handler)
     },
     emit(kind, ...payload) {
-      for (const handler of handlers.get(kind) ?? []) (handler as (...a: unknown[]) => void)(...payload)
+      for (const handler of handlers.get(kind) ?? [])
+        (handler as (...a: unknown[]) => void)(...payload)
     },
   } as FollowableHub & {
     emit<K extends 'link' | 'serverRelocation'>(kind: K, ...payload: HubEvents[K]): void
@@ -203,7 +204,9 @@ describe('followHub', () => {
   })
 
   it('saves nothing from a server that advertises no full identity', async () => {
-    const h = harness({ versionBody: { appVersion: 'dev', installationId: IDENTITY.installationId } })
+    const h = harness({
+      versionBody: { appVersion: 'dev', installationId: IDENTITY.installationId },
+    })
     h.hub.emit('link', 'welcomed')
     await vi.advanceTimersByTimeAsync(0)
     expect(h.saved).toEqual([])

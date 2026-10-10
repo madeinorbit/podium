@@ -10,12 +10,12 @@ import {
   resolveSetting,
   saveConfig,
 } from './config'
+import { decodeJoin } from './join'
 import {
   fetchVersionIdentity,
   isLocatorInstallationId,
   isLocatorInstallationPublicKey,
 } from './server-follow'
-import { decodeJoin } from './join'
 import { hasMachineCredential, prepareSetupEnrollment } from './setup-enrollment'
 
 export type NetworkOption = 'tailscale-funnel' | 'tailscale-serve' | 'cloudflare-tunnel' | 'manual'

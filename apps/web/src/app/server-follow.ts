@@ -22,8 +22,8 @@ import {
   type FollowPorts,
   locateServer,
   proveServer,
-  type ServerIdentity,
   ServerFollower,
+  type ServerIdentity,
   type ServerMove,
 } from '@podium/client-core/live-connection'
 import type { NativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -109,7 +109,8 @@ export function startBundledServerSearch(opts: {
   random?: () => number
 }): () => void {
   const stored = new URL(opts.serverUrl)
-  stored.protocol = stored.protocol === 'ws:' ? 'http:' : stored.protocol === 'wss:' ? 'https:' : stored.protocol
+  stored.protocol =
+    stored.protocol === 'ws:' ? 'http:' : stored.protocol === 'wss:' ? 'https:' : stored.protocol
   const storedOrigin = stored.origin
   const locate = opts.locate ?? locateServer
   const prove = opts.prove ?? proveServer

@@ -206,7 +206,8 @@ export async function localStableLink(port: number): Promise<string | undefined>
     })
     if (!res.ok) return undefined
     const body = (await res.json()) as { stableLink?: unknown }
-    return typeof body.stableLink === 'string' && /^https?:\/\/[^\s]+\/to\/pdm_[A-Za-z0-9_-]{43}$/.test(body.stableLink)
+    return typeof body.stableLink === 'string' &&
+      /^https?:\/\/[^\s]+\/to\/pdm_[A-Za-z0-9_-]{43}$/.test(body.stableLink)
       ? body.stableLink
       : undefined
   } catch {

@@ -33,8 +33,10 @@ export const LOCATE_PROOF_PATH = '/.well-known/podium/locate'
 /** Where every client looks a moved server up unless told otherwise. */
 export const CONNECT_DEFAULT_BASE_URL = 'https://connect.podium.do'
 /** The stable link a browser can bookmark: Connect redirects it to wherever the server is now. */
-export const connectStableLink = (installationId: string, base: string = CONNECT_DEFAULT_BASE_URL) =>
-  `${base.replace(/\/+$/, '')}/to/${installationId}`
+export const connectStableLink = (
+  installationId: string,
+  base: string = CONNECT_DEFAULT_BASE_URL,
+) => `${base.replace(/\/+$/, '')}/to/${installationId}`
 /** Domain separation: distinct from every other installation-key prefix, and
  *  neither a prefix of one nor prefixed by one. */
 export const LOCATE_PROOF_PREFIX = 'podium-locate-v1\n'

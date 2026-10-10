@@ -9,7 +9,12 @@ const INSTALLATION_ID = `pdm_${'a'.repeat(43)}`
 const INSTALLATION_KEY = `ed25519:${'B'.repeat(43)}`
 
 const recordBody = (endpoints: Array<{ url: string; priority: number }>) =>
-  JSON.stringify({ generation: 3, issuedAt: '2026-09-22T00:00:00.000Z', expiresAt: null, endpoints })
+  JSON.stringify({
+    generation: 3,
+    issuedAt: '2026-09-22T00:00:00.000Z',
+    expiresAt: null,
+    endpoints,
+  })
 
 const versionBody = (installationId: string, installationPublicKey?: string) =>
   JSON.stringify({
@@ -35,7 +40,11 @@ describe('resolveLocatorRecord', () => {
   it('reads the record unsigned: no installation headers on the wire', async () => {
     const { fetch, calls } = stubFetch(() => Response.json(JSON.parse(recordBody([]))))
     // An empty endpoint list is "no answer", but the request shape is what matters here.
-    await resolveLocatorRecord({ baseUrl: 'https://connect.test/', installationId: INSTALLATION_ID, fetch })
+    await resolveLocatorRecord({
+      baseUrl: 'https://connect.test/',
+      installationId: INSTALLATION_ID,
+      fetch,
+    })
     expect(calls).toEqual([`https://connect.test/v1/installations/${INSTALLATION_ID}`])
   })
 
@@ -95,41 +104,67 @@ describe('resolveLocatorRecord', () => {
   it('never throws: unknown id, bad JSON, oversized body and network failure are no answer', async () => {
     const notFound = stubFetch(() => new Response('nope', { status: 404 }))
     await expect(
-      resolveLocatorRecord({ baseUrl: 'https://connect.test', installationId: INSTALLATION_ID, fetch: notFound.fetch }),
+      resolveLocatorRecord({
+        baseUrl: 'https://connect.test',
+        installationId: INSTALLATION_ID,
+        fetch: notFound.fetch,
+      }),
     ).resolves.toBeUndefined()
 
     const garbage = stubFetch(() => new Response('{{not json', { status: 200 }))
     await expect(
-      resolveLocatorRecord({ baseUrl: 'https://connect.test', installationId: INSTALLATION_ID, fetch: garbage.fetch }),
+      resolveLocatorRecord({
+        baseUrl: 'https://connect.test',
+        installationId: INSTALLATION_ID,
+        fetch: garbage.fetch,
+      }),
     ).resolves.toBeUndefined()
 
     const huge = stubFetch(
       () => new Response('x'.repeat(CONNECT_LOCATOR_MAX_BODY_BYTES + 1), { status: 200 }),
     )
     await expect(
-      resolveLocatorRecord({ baseUrl: 'https://connect.test', installationId: INSTALLATION_ID, fetch: huge.fetch }),
+      resolveLocatorRecord({
+        baseUrl: 'https://connect.test',
+        installationId: INSTALLATION_ID,
+        fetch: huge.fetch,
+      }),
     ).resolves.toBeUndefined()
 
     const down: typeof fetch = (async () => {
       throw new TypeError('fetch failed')
     }) as unknown as typeof fetch
     await expect(
-      resolveLocatorRecord({ baseUrl: 'https://connect.test', installationId: INSTALLATION_ID, fetch: down }),
+      resolveLocatorRecord({
+        baseUrl: 'https://connect.test',
+        installationId: INSTALLATION_ID,
+        fetch: down,
+      }),
     ).resolves.toBeUndefined()
 
     const malformedId = stubFetch(() => {
       throw new Error('must never be called')
     })
     await expect(
-      resolveLocatorRecord({ baseUrl: 'https://connect.test', installationId: 'not-an-id', fetch: malformedId.fetch }),
+      resolveLocatorRecord({
+        baseUrl: 'https://connect.test',
+        installationId: 'not-an-id',
+        fetch: malformedId.fetch,
+      }),
     ).resolves.toBeUndefined()
     expect(malformedId.calls).toEqual([])
   })
 
   it('refuses a record with no usable endpoints', async () => {
-    const { fetch } = stubFetch(() => Response.json(JSON.parse(recordBody([{ url: 'http://plain.example', priority: 1 }]))))
+    const { fetch } = stubFetch(() =>
+      Response.json(JSON.parse(recordBody([{ url: 'http://plain.example', priority: 1 }]))),
+    )
     await expect(
-      resolveLocatorRecord({ baseUrl: 'https://connect.test', installationId: INSTALLATION_ID, fetch }),
+      resolveLocatorRecord({
+        baseUrl: 'https://connect.test',
+        installationId: INSTALLATION_ID,
+        fetch,
+      }),
     ).resolves.toBeUndefined()
   })
 })
@@ -148,6 +183,8 @@ describe('fetchVersionIdentity', () => {
 
   it('answers undefined when the candidate names no installation', async () => {
     const { fetch } = stubFetch(() => new Response(JSON.stringify({ appVersion: 'dev' })))
-    await expect(fetchVersionIdentity({ serverUrl: 'https://candidate.example', fetch })).resolves.toBeUndefined()
+    await expect(
+      fetchVersionIdentity({ serverUrl: 'https://candidate.example', fetch }),
+    ).resolves.toBeUndefined()
   })
 })

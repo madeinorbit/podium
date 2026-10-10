@@ -77,7 +77,10 @@ const cases = [
     signer: server,
     serverProduces: true,
     candidate: 'https://words-one.trycloudflare.com',
-    stored: { installationId: server.installationId, installationPublicKey: other.installationPublicKey },
+    stored: {
+      installationId: server.installationId,
+      installationPublicKey: other.installationPublicKey,
+    },
     verdict: 'bad-signature',
   },
   {

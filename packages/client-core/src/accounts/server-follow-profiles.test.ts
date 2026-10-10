@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest'
 import {
-  adoptServerProfileMove,
   type AccountCredentials,
+  adoptServerProfileMove,
   createServerProfiles,
   moveServerProfile,
   profileServerIdentity,
@@ -87,9 +87,17 @@ describe('moveServerProfile (POD-5921)', () => {
   })
 
   it('refuses to move onto another installation, or one that cannot say', () => {
-    const other = { ...profile, id: 'server-b', httpOrigin: NEW, installationId: ID_B, installationPublicKey: KEY_B }
+    const other = {
+      ...profile,
+      id: 'server-b',
+      httpOrigin: NEW,
+      installationId: ID_B,
+      installationPublicKey: KEY_B,
+    }
     const state = { activeProfileId: profile.id, profiles: [profile, other] }
-    expect(() => moveServerProfile(state, profile.id, NEW)).toThrow(/another server is already saved/)
+    expect(() => moveServerProfile(state, profile.id, NEW)).toThrow(
+      /another server is already saved/,
+    )
     const { installationId: _i, installationPublicKey: _k, ...anonymous } = other
     expect(() =>
       moveServerProfile({ ...state, profiles: [profile, anonymous] }, profile.id, NEW),
@@ -97,7 +105,13 @@ describe('moveServerProfile (POD-5921)', () => {
   })
 
   it('a profile in another workspace at that origin is not a clash', () => {
-    const other = { ...profile, id: 'server-w', httpOrigin: NEW, workspaceId: 'w2', installationId: ID_B }
+    const other = {
+      ...profile,
+      id: 'server-w',
+      httpOrigin: NEW,
+      workspaceId: 'w2',
+      installationId: ID_B,
+    }
     const { displaced } = moveServerProfile(
       { activeProfileId: profile.id, profiles: [profile, other] },
       profile.id,
@@ -118,7 +132,10 @@ describe('adoptServerProfileMove persists the move', () => {
     const { storage } = metadata()
     const profiles = createServerProfiles({ storage })
     const duplicate = { ...profile, id: 'server-dup', httpOrigin: 'https://new.example' }
-    await profiles.saveServerProfiles({ activeProfileId: profile.id, profiles: [profile, duplicate] })
+    await profiles.saveServerProfiles({
+      activeProfileId: profile.id,
+      profiles: [profile, duplicate],
+    })
     const creds = credentials()
     const erase = vi.fn(async () => {})
     const { state, moved } = await adoptServerProfileMove({
@@ -147,7 +164,10 @@ describe('the stored identity', () => {
       installationPublicKey: KEY_A,
     })
     const half = { ...profile, installationPublicKey: 'ed25519:short' }
-    values.set('podium.accounts.server-profiles.v1', JSON.stringify({ activeProfileId: profile.id, profiles: [half] }))
+    values.set(
+      'podium.accounts.server-profiles.v1',
+      JSON.stringify({ activeProfileId: profile.id, profiles: [half] }),
+    )
     const loaded = (await profiles.loadServerProfiles()).profiles[0]!
     expect(loaded.id).toBe(profile.id)
     expect(profileServerIdentity(loaded)).toBeUndefined()
@@ -156,9 +176,20 @@ describe('the stored identity', () => {
 
   it('is overwritten by a later authenticated login, and untouched when unchanged', () => {
     const state = { activeProfileId: profile.id, profiles: [profile] }
-    expect(withProfileServerIdentity(state, profile.id, { installationId: ID_A, installationPublicKey: KEY_A })).toBe(state)
-    const next = withProfileServerIdentity(state, profile.id, { installationId: ID_B, installationPublicKey: KEY_B })
-    expect(profileServerIdentity(next.profiles[0]!)).toEqual({ installationId: ID_B, installationPublicKey: KEY_B })
+    expect(
+      withProfileServerIdentity(state, profile.id, {
+        installationId: ID_A,
+        installationPublicKey: KEY_A,
+      }),
+    ).toBe(state)
+    const next = withProfileServerIdentity(state, profile.id, {
+      installationId: ID_B,
+      installationPublicKey: KEY_B,
+    })
+    expect(profileServerIdentity(next.profiles[0]!)).toEqual({
+      installationId: ID_B,
+      installationPublicKey: KEY_B,
+    })
   })
 
   it('comes from the pairing envelope, when the envelope names one', () => {

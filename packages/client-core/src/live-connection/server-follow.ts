@@ -18,14 +18,14 @@
  * and a hub retarget on a phone, a bridge command on the desktop).
  */
 import {
-  fetchAdvertisedIdentity,
   type FollowEvent,
+  fetchAdvertisedIdentity,
   httpOriginOf,
   locateServer,
   proveServer,
+  ServerFollower,
   type ServerIdentity,
   type ServerMove,
-  ServerFollower,
 } from '@podium/runtime/server-follow'
 import type { HubEvents } from '../socket-transport/socket-hub'
 
@@ -63,7 +63,11 @@ export interface FollowHubOptions {
 }
 
 /** Starts following; returns the stop function. */
-export function followHub(hub: FollowableHub, ports: FollowPorts, opts: FollowHubOptions): () => void {
+export function followHub(
+  hub: FollowableHub,
+  ports: FollowPorts,
+  opts: FollowHubOptions,
+): () => void {
   const currentOrigin = () => httpOriginOf(hub.url) ?? hub.url
   const follower = new ServerFollower({
     identity: () => ports.loadIdentity(),
@@ -84,7 +88,10 @@ export function followHub(hub: FollowableHub, ports: FollowPorts, opts: FollowHu
   const learnIdentity = (): void => {
     const origin = currentOrigin()
     const mine = ++capture
-    void fetchAdvertisedIdentity({ serverUrl: origin, ...(opts.fetch ? { fetch: opts.fetch } : {}) })
+    void fetchAdvertisedIdentity({
+      serverUrl: origin,
+      ...(opts.fetch ? { fetch: opts.fetch } : {}),
+    })
       .then((identity) => {
         if (stopped || mine !== capture || identity === undefined) return
         // The socket may have moved while /version was in flight.
