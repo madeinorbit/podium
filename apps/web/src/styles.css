@@ -6440,12 +6440,8 @@ html[data-density="compact"] .brief-shelf {
   gap: 11px;
   min-width: 0;
 }
-/* THE MARK IS BIG HERE (POD-993 round 2). It used to sit in a 13px cell, which
-   is the size of a glyph in a mono line — and it is not a glyph, it is the one
-   object in the window a reader watches while waiting. At a 22px cell the wave
-   travelling down the dots is actually separable and the whole thing reads as
-   the system thinking rather than as a smudge. The other marks keep the cell
-   they had; only the tail needed the room. */
+/* The feed gives the tetrahedron a full 24px square; compact rows keep their
+   smaller marks. Reserve its width so it cannot crowd the label. */
 .feed-tail-mark {
   display: flex;
   flex: none;
@@ -6456,7 +6452,7 @@ html[data-density="compact"] .brief-shelf {
 }
 .feed-tail[data-tail="working"] .feed-tail-mark,
 .feed-tail[data-tail="sending"] .feed-tail-mark {
-  width: 16px;
+  width: 24px;
 }
 .feed-tail-dot {
   width: 5px;

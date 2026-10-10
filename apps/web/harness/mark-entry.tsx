@@ -1,274 +1,100 @@
-/**
- * THE WORKING MARK, IN ITS REAL CONTEXTS, BESIDE THE ONE IT REPLACED.
- *
- * The mark is CSS + the app's own tokens, so a screenshot of the component in
- * isolation proves nothing about the thing that actually matters: whether the
- * cell sits right beside 9px mono in a sidebar row, inside a 13px corner badge,
- * and at the end of the feed. Every row below is the real component against the
- * real `styles.css`.
- *
- * The left column of the A/B is the PREVIOUS mark, reproduced here (the stepped
- * braille glyph, and the breathing canvas ring's cell size) so the comparison is
- * against what shipped rather than against memory — and so a harness that
- * rendered no animation at all would be visible as such.
- */
+/** Working-mark layout review using the app's row, badge, tab glyph and feed tail. */
+import type { SessionView } from '@podium/client-core/session-values'
+import { pauseWorkingMarksWhenIdle } from '@podium/working-mark'
 import { type JSX, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
+import { TranscriptTail } from '@/features/chat/TranscriptTail'
+import { WorkRowShell } from '@/features/worklist/WorkRowShell'
+import { AgentStatusGlyph } from '@/lib/motion/AgentStatusGlyph'
 import { PhaseTimer } from '@/lib/motion/PhaseTimer'
 import { StatusBadge } from '@/lib/motion/StatusBadge'
 import { WorkingMark } from '@/lib/motion/WorkingMark'
 import '@/index.css'
 import '@/styles.css'
 
-/** The glyph the mark replaces, inlined — the old rule is gone from motion.css. */
-function LegacySpinner({ size }: { size: number }): JSX.Element {
-  return (
-    <span
-      aria-hidden
-      style={{
-        display: 'inline-block',
-        minWidth: 8,
-        fontFamily: 'var(--font-mono, ui-monospace, monospace)',
-        fontSize: size,
-        color: 'var(--motion-working)',
-      }}
-    >
-      ⠹
-    </span>
-  )
-}
+const stopIdlePause = pauseWorkingMarksWhenIdle()
+import.meta.hot?.dispose(stopIdlePause)
+const since = new Date(Date.now() - 390_000).toISOString()
+const working = { agentState: { phase: 'working', since, nativeSubagentCount: 0 } } as SessionView
 
 function Panel({ title, children }: { title: string; children: JSX.Element }): JSX.Element {
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
-      <div
-        style={{
-          fontFamily: 'var(--font-mono, monospace)',
-          fontSize: 10,
-          letterSpacing: '.1em',
-          textTransform: 'uppercase',
-          color: 'var(--muted-foreground)',
-        }}
-      >
+    <section data-context={title} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+      <h2 style={{ fontFamily: 'var(--font-mono)', fontSize: 11, color: 'var(--muted-foreground)' }}>
         {title}
-      </div>
+      </h2>
       {children}
-    </div>
+    </section>
   )
 }
 
-/** A sidebar row, at the density the real worklist uses. */
-function Row({ mark }: { mark: JSX.Element }): JSX.Element {
+function Row({ asking = false }: { asking?: boolean }): JSX.Element {
   return (
-    <div
-      style={{
-        display: 'flex',
-        alignItems: 'center',
-        gap: 8,
-        minHeight: 44,
-        padding: '7px 11px',
-        borderRadius: 8,
-        background: 'var(--card)',
-      }}
-    >
-      <span
-        style={{
-          width: 26,
-          textAlign: 'right',
-          fontFamily: 'var(--font-mono, monospace)',
-          fontSize: 10,
-          color: 'var(--muted-foreground)',
-        }}
-      >
-        844
-      </span>
-      <span style={{ flex: 1, minWidth: 0, fontSize: 12.5, color: 'var(--foreground)' }}>
-        QR server pairing on mobile
-      </span>
-      <span
-        style={{
-          display: 'inline-flex',
-          alignItems: 'center',
-          gap: 5,
-          fontFamily: 'var(--font-mono, monospace)',
-          fontSize: 9,
-          color: 'var(--motion-working)',
-        }}
-      >
-        {mark}
-        4:53
-      </span>
-    </div>
-  )
-}
-
-/** The end of the transcript, in the real tail chrome. */
-function Tail({ mark, width }: { mark: JSX.Element; width: number }): JSX.Element {
-  return (
-    <div className="feed-tail" data-tail="working">
-      <span className="feed-tail-body">
-        <span className="feed-tail-mark" aria-hidden="true" style={{ width }}>
-          {mark}
-        </span>
-        <span className="feed-tail-label">Working</span>
-        <span className="feed-tail-figure">1:12</span>
-      </span>
-    </div>
-  )
-}
-
-function Column({ legacy }: { legacy: boolean }): JSX.Element {
-  const mark = (size: number, legacySize: number): JSX.Element =>
-    legacy ? <LegacySpinner size={legacySize} /> : <WorkingMark size={size} />
-  return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 22, width: 380 }}>
-      <div style={{ fontSize: 15, fontWeight: 600, color: 'var(--foreground)' }}>
-        {legacy ? 'Before — braille spinner' : 'After — working mark'}
-      </div>
-
-      <Panel title="Sidebar row">
-        <Row mark={mark(12, 9)} />
-      </Panel>
-
-      <Panel title="Timer (the real PhaseTimer)">
-        {legacy ? (
-          <span
-            style={{
-              display: 'inline-flex',
-              alignItems: 'center',
-              gap: 5,
-              fontFamily: 'var(--font-mono, monospace)',
-              fontSize: 9,
-              color: 'var(--motion-working)',
-            }}
-          >
-            <LegacySpinner size={9} />
-            6:30
-          </span>
-        ) : (
-          <PhaseTimer phase="working" sinceMs={Date.now() - 390_000} />
-        )}
-      </Panel>
-
-      <Panel title="Corner badge on an ID square">
-        <span
-          style={{
-            position: 'relative',
-            display: 'inline-flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            width: 30,
-            height: 30,
-            borderRadius: 8,
-            background: '#2b3350',
-            color: 'var(--foreground)',
-            fontFamily: 'var(--font-mono, monospace)',
-            fontSize: 11,
-          }}
-        >
-          844
-          {legacy ? (
-            <span
-              style={{
-                position: 'absolute',
-                top: -5,
-                right: -5,
-                display: 'flex',
-                alignItems: 'center',
-                justifyContent: 'center',
-                height: 13,
-                minWidth: 13,
-                borderRadius: 999,
-                background: 'var(--motion-badge-bg)',
-                border: '1px solid var(--motion-working)',
-              }}
-            >
-              <LegacySpinner size={8} />
-            </span>
-          ) : (
-            <StatusBadge kind="spinner" ringColor="#0d0e11" />
-          )}
-        </span>
-      </Panel>
-
-      <Panel title="Tab strip">
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 8,
-            height: 30,
-            padding: '0 11px',
-            borderRadius: 8,
-            background: 'var(--card)',
-            fontSize: 12,
-            fontWeight: 600,
-            color: 'var(--foreground)',
-          }}
-        >
-          {mark(15, 9)}
-          POD-844 · pairing
-        </span>
-      </Panel>
-
-      <Panel title="End of the feed">
-        <Tail
-          mark={legacy ? <LegacySpinner size={13} /> : <WorkingMark size={22} />}
-          width={legacy ? 22 : 16}
-        />
-      </Panel>
-
-      <Panel title="Pending button">
-        <span
-          style={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            gap: 6,
-            height: 32,
-            padding: '0 12px',
-            borderRadius: 8,
-            background: 'var(--card)',
-            fontSize: 13,
-            color: 'var(--foreground)',
-          }}
-        >
-          {mark(13, 11)}
-          Working…
-        </span>
-      </Panel>
-    </div>
+    <WorkRowShell
+      idNumber="844"
+      idLabel="POD-844"
+      label="QR server pairing on mobile with a long title"
+      statusLine={
+        asking ? <><WorkingMark size={12} className="mr-1" />Waiting on you</> : 'Working'
+      }
+      hex={undefined}
+      phase={asking ? 'waiting' : 'working'}
+      timeMeta={<PhaseTimer phase={asking ? 'waiting' : 'working'} sinceMs={Date.parse(since)} size={10.5} mutedWorking />}
+      active={false}
+      onSelect={() => {}}
+      testId={asking ? 'asking-row' : 'working-row'}
+    />
   )
 }
 
 function App(): JSX.Element {
-  const [light, setLight] = useState(false)
-  // Podium light retunes --motion-working, so the mark has to be looked at
-  // in both: the same blue that reads calm on near-black washes out on stone.
+  const [light, setLight] = useState(new URLSearchParams(location.search).get('light') === '1')
   useEffect(() => {
-    const html = document.documentElement
-    html.classList.toggle('dark', !light)
-    html.setAttribute('data-theme', 'podium')
+    document.documentElement.classList.toggle('dark', !light)
+    document.documentElement.setAttribute('data-theme', 'podium')
   }, [light])
   return (
-    <div
-      style={{
-        minHeight: '100vh',
-        padding: 28,
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 20,
-        background: 'var(--background)',
-        fontFamily: 'var(--font-sans, system-ui)',
-      }}
-    >
-      <button type="button" data-testid="theme-toggle" onClick={() => setLight((v) => !v)}>
-        {light ? 'to dark' : 'to light'}
+    <main style={{ minHeight: '100vh', padding: 28, background: 'var(--background)', fontFamily: 'var(--font-sans)' }}>
+      <button type="button" data-testid="theme-toggle" onClick={() => setLight(v => !v)}>
+        {light ? 'Use dark theme' : 'Use light theme'}
       </button>
-      <div style={{ display: 'flex', gap: 40 }}>
-        <Column legacy />
-        <Column legacy={false} />
+      <div style={{ display: 'flex', gap: 36, marginTop: 24 }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24, width: 320 }}>
+          <Panel title="Rows"><div><Row /><Row asking /></div></Panel>
+          <Panel title="Badge">
+            <span style={{ position: 'relative', display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 30, height: 30, borderRadius: 8, background: 'var(--card)', color: 'var(--foreground)', fontFamily: 'var(--font-mono)', fontSize: 11 }}>
+              844<StatusBadge kind="spinner" />
+            </span>
+          </Panel>
+          <Panel title="Tab">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, height: 30, padding: '0 11px', background: 'var(--card)', color: 'var(--foreground)', fontSize: 12 }}>
+              <AgentStatusGlyph session={working} variant="tab" />POD-844 · pairing
+            </div>
+          </Panel>
+          <Panel title="Menu row">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--foreground)', fontSize: 12 }}>
+              <AgentStatusGlyph session={working} variant="row" />QR server pairing
+            </div>
+          </Panel>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 24, width: 380 }}>
+          <Panel title="Feed">
+            <TranscriptTail activity={{ label: 'Working', tone: 'working' }} since={since} session={working} />
+          </Panel>
+          <Panel title="Sending">
+            <TranscriptTail activity={{ label: 'Sending', tone: 'idle', transient: 'just-sent' }} />
+          </Panel>
+          <Panel title="Timer">
+            <PhaseTimer phase="working" sinceMs={Date.parse(since)} mutedWorking />
+          </Panel>
+          <Panel title="Pending button">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6, height: 32, padding: '0 12px', background: 'var(--card)', color: 'var(--foreground)', fontSize: 13 }}>
+              <WorkingMark size={13} />Working…
+            </div>
+          </Panel>
+        </div>
       </div>
-    </div>
+    </main>
   )
 }
 

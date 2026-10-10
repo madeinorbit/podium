@@ -91,7 +91,7 @@ export function PhaseTimer({
             pairs a 12px cell with 9px mono — so it scales off the type size
             rather than matching it.
 
-            AND IT KEEPS THE BLUE THROUGH A MUTED LOCKUP: `.pod-mark` fills with
+            AND IT KEEPS THE BLUE THROUGH A MUTED LOCKUP: `.pod-mark` draws in
             `var(--mark-color, var(--motion-working))` rather than inheriting
             `color`, so `mutedWorking` takes the digits to the neutral ramp and
             leaves the mark alone — which is the artboard's meta column exactly,

@@ -69,6 +69,9 @@ describe('TranscriptTail', () => {
     // …and it is the one state licensed to move: the working mark, in the
     // larger cell the end of the feed gets.
     expect(host.querySelector('.pod-mark')).not.toBeNull()
+    const mark = host.querySelector('.pod-mark') as HTMLElement
+    expect(mark.style.width).toBe('24px')
+    expect(mark.style.height).toBe('24px')
   })
 
   it('marks just-sent transport, timerless even with an old session clock', () => {

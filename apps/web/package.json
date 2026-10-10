@@ -39,6 +39,7 @@
     "@podium/telemetry": "workspace:*",
     "@podium/terminal-client": "workspace:*",
     "@podium/terminal-client-react": "workspace:*",
+    "@podium/working-mark": "workspace:*",
     "@tauri-apps/plugin-sql": "^2.3.2",
     "@trpc/client": "^11.0.0",
     "@trpc/server": "^11.0.0",

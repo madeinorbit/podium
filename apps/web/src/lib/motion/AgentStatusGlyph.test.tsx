@@ -49,6 +49,7 @@ describe('AgentStatusGlyph — tab variant', () => {
     const mark = container.querySelector('.pod-mark') as HTMLElement
     expect(mark).toBeTruthy()
     expect(mark.style.height).toBe('15px')
+    expect(mark.style.width).toBe('15px')
   })
 
   it('waiting renders a still amber dot, no mark', () => {
@@ -87,5 +88,6 @@ describe('AgentStatusGlyph — row variant (mobile menu rows)', () => {
     const { container } = render(<AgentStatusGlyph session={working} variant="row" />)
     const el = container.querySelector('.pod-mark') as HTMLElement
     expect(el.style.height).toBe('13px')
+    expect(el.style.width).toBe('13px')
   })
 })

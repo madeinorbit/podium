@@ -1,4 +1,5 @@
 import { configureDevelopmentChecks, setClockWakeSource } from '@podium/mobx-helpers'
+import { pauseWorkingMarksWhenIdle } from '@podium/working-mark'
 import { browserClockWakeSource } from '@/lib/clock-wake-source'
 import type { JSX } from 'react'
 import { lazy, StrictMode, Suspense, useRef, useState } from 'react'
@@ -148,6 +149,9 @@ installVitePreloadErrorRecovery()
 startWebLogging()
 configureDevelopmentChecks(import.meta.env.DEV)
 restoreReloadRoute()
+
+const stopWorkingMarkIdlePause = pauseWorkingMarksWhenIdle()
+import.meta.hot?.dispose(stopWorkingMarkIdlePause)
 
 const root = document.getElementById('root')
 if (!root) throw new Error('Podium web root was not found')

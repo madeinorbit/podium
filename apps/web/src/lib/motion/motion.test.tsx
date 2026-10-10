@@ -48,26 +48,22 @@ describe('usePhaseMorph — one-shot transition latch', () => {
 })
 
 describe('WorkingMark', () => {
-  it('renders a decorative eight-dot cell without an animated mask layer', () => {
+  it('renders a decorative square mark using the shared image runtime', () => {
     const { container } = render(<WorkingMark size={12} />)
     const el = container.querySelector('.pod-mark') as HTMLElement
-    const shape = el.querySelector('svg') as SVGElement
     expect(el).toBeTruthy()
     expect(el.getAttribute('aria-hidden')).toBe('true')
-    expect(el.querySelectorAll('circle')).toHaveLength(8)
-    expect(el.querySelector('.pod-mark-frames')).toBeNull()
-    expect(el.querySelector('animate, animateTransform, image')).toBeNull()
-    // The cell is 66×100, so the box the row reserves follows the height.
-    expect(shape.getAttribute('height')).toBe('12')
-    expect(shape.getAttribute('width')).toBe('8')
+    expect(el.querySelector('img')?.alt).toBe('')
+    expect(el.style.width).toBe('12px')
+    expect(el.style.height).toBe('12px')
   })
 
-  it('fattens the dots in a small cell so the wave has something to cross', () => {
-    const { container } = render(<WorkingMark size={22} />)
-    const big = container.querySelector('circle')?.getAttribute('r')
-    cleanup()
-    const { container: small } = render(<WorkingMark size={11} />)
-    expect(Number(small.querySelector('circle')?.getAttribute('r'))).toBeGreaterThan(Number(big))
+  it.each([11, 12, 13, 15, 24])('reserves a full square at %ipx', (size) => {
+    const { container } = render(<WorkingMark size={size} className="custom-mark" />)
+    const el = container.querySelector('.pod-mark') as HTMLElement
+    expect(el.classList.contains('custom-mark')).toBe(true)
+    expect(el.style.width).toBe(`${size}px`)
+    expect(el.style.height).toBe(`${size}px`)
   })
 })
 
@@ -159,6 +155,7 @@ describe('StatusBadge', () => {
     rerender(<StatusBadge kind="spinner" />)
     expect(container.querySelector('.pod-mark')).toBeTruthy()
     expect(container.querySelector('.morph-tick-in')).toBeTruthy()
+    expect((container.querySelector('.pod-mark') as HTMLElement).style.width).toBe('11px')
   })
 
   it('count: renders the amber pill, no pop on mount, pops on increase', () => {

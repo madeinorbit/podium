@@ -1,5 +1,5 @@
 /* Motion grammar (redesign handoff option 1d, .design/specs/motion.md).
-   The working mark stays still; the calm-blue counting timer updates only
+   The working mark tumbles; the calm-blue counting timer updates only
    while an agent computes. Every phase change is a single
    one-shot morph, then total stillness — stillness means "needs you". No
    pulses, no glows, no breathing rings. Keyframe values are verbatim from the
@@ -33,10 +33,8 @@
   --motion-total: #a3a199;
 }
 
-/* THE WORKING MARK — a still, fully lit braille cell (see WorkingMark.tsx).
-   The former animated external SVG masks made WebKit revisit the surrounding
-   compositing hierarchy on every frame, delaying native textarea input.
-   Colour, labels and the timer carry the working state (POD-5508). */
+/* THE WORKING MARK — the shared animated tetrahedron (see WorkingMark.tsx).
+   The package shows its resting picture for reduced motion and while idle. */
 
 /* One-shot morphs. Every class below runs its animation exactly once when the
    element mounts with the class applied — none of them loop. Consumers gate
@@ -108,8 +106,7 @@
   }
 }
 
-/* The mark's cell. Fixed intrinsic width, so neighbours never shift as the wave
-   travels — the dots move in place, the box does not. */
+/* A fixed square box keeps neighbours still as the tetrahedron tumbles. */
 .pod-mark {
   position: relative;
   display: inline-block;
@@ -117,12 +114,7 @@
   overflow: hidden;
   vertical-align: middle;
   contain: strict;
-}
-.pod-mark-static {
-  position: absolute;
-  inset: 0;
-  display: block;
-  fill: var(--mark-color, var(--motion-working));
+  color: var(--mark-color, var(--motion-working));
 }
 
 /* Handover transit wire (POD-337): a session moving to another machine covers

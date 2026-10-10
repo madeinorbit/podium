@@ -99,7 +99,7 @@ export function StatusBadge({
         } as CSSProperties
       }
     >
-      {kind === 'check' ? '✓' : <WorkingMark size={10} />}
+      {kind === 'check' ? '✓' : <WorkingMark size={11} />}
     </span>
   )
 }
