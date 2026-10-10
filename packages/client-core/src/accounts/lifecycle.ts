@@ -3,6 +3,7 @@ import {
   canOpenProfileOffline,
   classifyServerTransport,
   createServerProfiles,
+  moveServerProfile,
   type ServerProfile,
   type ServerProfiles,
   type ServerProfileState,
@@ -146,6 +147,53 @@ export async function removeServerProfile(args: {
     await profiles.completePendingProfileCleanup(cleanup)
   }
   return next
+}
+
+/**
+ * PERSIST A PROFILE'S MOVE TO WHERE ITS SERVER WENT (POD-5921). Same profile
+ * id, so the stored credential and the replica come along unchanged; see
+ * {@link moveServerProfile} for the clash rules. A displaced duplicate of the
+ * same installation is removed with its credential — and its replica too,
+ * unless it is the very principal the moving profile also owns.
+ */
+export async function adoptServerProfileMove(args: {
+  profileId: string
+  origin: string
+  profiles: ServerProfiles
+  credentials: AccountCredentials
+  erasePrincipal?(principal: string): Promise<void>
+}): Promise<{ state: ServerProfileState; moved: ServerProfile }> {
+  const current = await args.profiles.loadServerProfiles()
+  const { state, moved, displaced } = moveServerProfile(current, args.profileId, args.origin)
+  for (const row of displaced) {
+    const samePrincipal =
+      row.syncBoundaryId !== undefined &&
+      row.syncBoundaryId === moved.syncBoundaryId &&
+      row.memberId === moved.memberId
+    if (samePrincipal || !row.userId) {
+      // Its replica is the mover's own (or it never had one): only the
+      // duplicate's metadata and credential go. No cleanup intent, which
+      // would later erase the namespace the moved profile still reads.
+      await args.credentials.remove(row.id)
+    } else {
+      await removeServerProfile({
+        profile: row,
+        profiles: args.profiles,
+        credentials: args.credentials,
+        ...(args.erasePrincipal ? { erasePrincipal: args.erasePrincipal } : {}),
+      })
+    }
+  }
+  const displacedIds = new Set(displaced.map((row) => row.id))
+  const latest = displaced.length > 0 ? await args.profiles.loadServerProfiles() : current
+  const next: ServerProfileState = {
+    profiles: latest.profiles
+      .filter((row) => !displacedIds.has(row.id))
+      .map((row) => (row.id === moved.id ? moved : row)),
+    activeProfileId: state.activeProfileId,
+  }
+  await args.profiles.saveServerProfiles(next)
+  return { state: next, moved }
 }
 
 export async function drainProfileCleanups(args: {

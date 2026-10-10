@@ -42,13 +42,19 @@ import {
 
 import type { PodiumClientApi } from '@podium/client-core/api'
 import { type CreateEngineOutbox, OUTBOX_COMMANDS } from '@podium/client-core/engine'
+import { profileServerIdentity } from '@podium/client-core/accounts'
 import {
-  browserServerRelocation,
+  browserFollowAdopt,
   browserWakeSource,
   createFeedRelay,
   type FeedBroadcastChannelFactory,
+  type FollowEvent,
+  type FollowPorts,
+  followHub,
   observeLiveConnection,
+  type ServerIdentity,
 } from '@podium/client-core/live-connection'
+import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import {
@@ -110,6 +116,15 @@ import type { MobileShell, NoticeTone } from './shell'
 import { MobileShellSurface, useShellErrorChannel } from './shell-surface'
 
 const log = createLogger('mobile:replica')
+const followLog = createLogger('mobile:server-follow')
+
+/** Why the phone is or is not following, for whoever reads the log (POD-5921). */
+function logFollowEvent(event: FollowEvent): void {
+  if (event.kind === 'miss') followLog.info('server not found elsewhere yet', { ...event.miss })
+  else if (event.kind === 'found') followLog.info('server found at a new address', { origin: event.origin })
+  else if (event.kind === 'adopted') followLog.info('followed the server', { ...event.move, claimToken: undefined })
+  else if (event.kind === 'adopt-failed') followLog.warn('could not follow the server', { err: event.error })
+}
 
 import { type MobileTrpc, makeMobileTrpc, readServerConfig } from './trpc'
 
@@ -441,6 +456,7 @@ function MobileHubAttach({
   httpOrigin,
   bearer,
   onVersionNotice,
+  follow,
 }: {
   connectivity: NativeConnectivity | undefined
   networkEnabled: boolean
@@ -448,8 +464,17 @@ function MobileHubAttach({
   httpOrigin: string
   bearer: string | null
   onVersionNotice: (message: string) => void
+  /** How this client follows a moved server (POD-5921); absent in demo mode. */
+  follow: FollowPorts | undefined
 }): null {
   const hub = useStoreHandle<MobileTrpc>().access.hub
+  useEffect(() => {
+    if (!follow) return
+    return followHub(hub, follow, {
+      connectBaseUrl: () => CONNECT_DEFAULT_BASE_URL,
+      log: logFollowEvent,
+    })
+  }, [follow, hub])
   useEffect(() => {
     const version = mobileVersionObservers({
       credentials: mobileAccountCredentials,
@@ -498,6 +523,47 @@ function LiveProvider({ children }: { children: ReactNode }) {
   useEffect(() => () => connectivity?.dispose(), [connectivity])
   const { error, report: reportError, notices } = useShellErrorChannel()
   const [notice, setNotice] = useState<{ message: string; tone: NoticeTone } | null>(null)
+  // FOLLOWING A MOVED SERVER (POD-5921). Native: the identity lives on the
+  // saved profile and a move is the SAME profile at the new origin, so the
+  // SecureStore bearer comes along. Web: the page came from the server, so the
+  // identity is kept in memory and a move is a navigation (the session cookie
+  // cannot follow; the person signs in there).
+  const serverProfileRef = useRef(serverProfile)
+  serverProfileRef.current = serverProfile
+  const followPorts = useMemo<FollowPorts>(() => {
+    if (Platform.OS === 'web') {
+      let identity: ServerIdentity | undefined
+      return {
+        loadIdentity: () => identity,
+        saveIdentity: (next) => {
+          identity = next
+        },
+        adopt: browserFollowAdopt({
+          location: window.location,
+          notify: (message) => setNotice({ message, tone: 'info' }),
+        }),
+      }
+    }
+    return {
+      loadIdentity: () => {
+        const profile = serverProfileRef.current?.profile
+        return profile ? profileServerIdentity(profile) : undefined
+      },
+      saveIdentity: (identity) => {
+        void serverProfileRef.current?.saveServerIdentity?.(identity).catch((cause: unknown) => {
+          followLog.warn('could not save the server identity', { err: cause })
+        })
+      },
+      adopt: async (move) => {
+        const moveServer = serverProfileRef.current?.moveServer
+        if (!moveServer) throw new Error('no saved server profile to move')
+        // A transfer's claim token is for a browser session; the phone's own
+        // bearer lives in the moved database and keeps working (POD-5921).
+        await moveServer(move.origin)
+        setNotice({ message: `Podium moved to ${new URL(move.origin).host}`, tone: 'info' })
+      },
+    }
+  }, [])
   const authExpiryHandled = useRef(false)
   // biome-ignore lint/correctness/useExhaustiveDependencies: a different credential or workspace resets expiry handling
   useEffect(() => {
@@ -802,9 +868,6 @@ function LiveProvider({ children }: { children: ReactNode }) {
       attachRuntime={(runtime) => attachMobilePool(runtime, (cause) => reportError(cause.message))}
       networkEnabled={networkEnabled}
       makeSocket={makeSocket}
-      onServerRelocation={
-        Platform.OS === 'web' ? browserServerRelocation(window.location) : undefined
-      }
       routerWindow={routerWindow}
       // Visibility, connectivity and ping cadence, from the platform rather
       // than from browser globals a phone does not have (POD-2055 WP-C).
@@ -818,6 +881,7 @@ function LiveProvider({ children }: { children: ReactNode }) {
         httpOrigin={config.httpOrigin}
         bearer={bearer}
         onVersionNotice={reportVersionNotice}
+        follow={followPorts}
       />
       <MobileShellSurface value={shell}>
         <MobileSyncBoundary

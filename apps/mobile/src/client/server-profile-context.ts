@@ -35,6 +35,14 @@ export interface ServerProfileContextValue {
   /** Revalidate an offline-opened profile before releasing its saved bearer or
    *  allowing the parked outbox to drain. */
   revalidateOfflineProfile(): Promise<void>
+  /**
+   * Follow the server to a new origin (POD-5921): the same profile, so the
+   * same credential, under the new address. Native only; throws when the move
+   * is refused (another installation is saved there).
+   */
+  moveServer?(origin: string): Promise<void>
+  /** Remember the installation this profile just authenticated to (POD-5921). */
+  saveServerIdentity?(identity: { installationId: string; installationPublicKey: string }): Promise<void>
 }
 
 export const ServerProfileContext = createContext<ServerProfileContextValue | null>(null)
