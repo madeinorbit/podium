@@ -129,9 +129,9 @@ function quantile(sorted: readonly number[], q: number): number {
 }
 
 describe('bootstrap in the count harness', () => {
-  it('counts at 1x and 4x (and walls when asked)', () => {
+  for (const scale of SCALES) it(`counts at ${scale}x (and walls when asked)`, () => {
     const cells = []
-    for (const scale of SCALES) {
+    {
       const feed = feedOf(scale)
       const lazy = counted('lazy', feed)
       const all = counted('allResident', feed)
@@ -198,6 +198,6 @@ describe('bootstrap in the count harness', () => {
       }
       cells.push(cell)
     }
-    writeResult(WALLS ? 'mobx-pool-bootstrap-walls' : 'mobx-pool-bootstrap-counts', { cells })
+    writeResult(`mobx-pool-bootstrap-${WALLS ? 'walls' : 'counts'}-${scale}x`, { cells })
   }, 600_000)
 })
