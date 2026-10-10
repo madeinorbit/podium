@@ -5,6 +5,7 @@ import {
   forgetConfig,
   inspectConfig,
   loadConfig,
+  resolvePort,
   saveConfig,
   stateDir,
 } from '@podium/runtime/config'
@@ -24,6 +25,7 @@ import {
 } from '@podium/runtime/setup'
 import { prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
 import { applyJoinToken } from './cli-join'
+import { localStableLink } from './cli-lifecycle'
 import { realCheckReachability } from './cli-reachability'
 import { hasSystemctl, hasUserSystemd } from './cli-systemd'
 import { realTailscaleDeps, type TailscaleDeps, tailscaleStep } from './setup-tailscale'
@@ -118,6 +120,8 @@ export interface ManagedTunnelDeps {
   enable: () => EnableTunnelResult
   /** Resolve to the first quick-tunnel URL the server records that is not `previous`. */
   waitForUrl: (previous?: string) => Promise<string | undefined>
+  /** The running server's stable Connect link, when it offers one (POD-5921). */
+  stableLink: () => Promise<string | undefined>
 }
 
 function managedTunnelDeps(
@@ -130,6 +134,7 @@ function managedTunnelDeps(
     download: () => realDownloadCloudflared(),
     enable: () => realEnableTunnel(),
     waitForUrl: (previous) => realWaitForTunnelUrl(previous ? { previous } : {}),
+    stableLink: () => localStableLink(resolvePort(loadConfig())),
     ...over,
   }
 }
@@ -388,11 +393,12 @@ async function startManagedTunnel(
   spin.stop(`The Cloudflare tunnel is up at ${url}`)
   // ONE paragraph per line: clack wraps note text to the terminal itself, so a line broken
   // by hand here gets broken twice and reads ragged.
+  const stableLink = await tunnel.stableLink().catch(() => undefined)
   io.note(
     [
       'The address changes whenever the tunnel restarts, for example after a reboot or a dropped connection.',
-      'Podium records each new address, and machines joined to this server follow it on their own.',
-      'The browser and the desktop and mobile apps do not follow it yet: `podium status` shows the current address.',
+      'Joined machines and the desktop and mobile apps follow it on their own.',
+      ...(stableLink ? [`In a browser, bookmark this link instead: ${stableLink}`] : []),
     ].join('\n'),
     'About this address',
   )

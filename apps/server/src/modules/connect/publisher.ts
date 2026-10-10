@@ -16,6 +16,7 @@
  * env → config.json → default on each call, so a settings write is picked up
  * on the next tick with no hook into the settings path.
  */
+import { connectStableLink } from '@podium/protocol'
 import type { InstallationIdentity } from '@podium/runtime/installation-identity'
 import type { CheckResult, ConnectClient, ConnectFailure, LocatorRecord } from './client'
 
@@ -41,6 +42,8 @@ export interface PublisherDeps {
   }
   /** Called once when GENERATION_BEHIND arrives: this installation moved elsewhere. */
   onTransferred?: () => void
+  /** The Connect origin, for the stable link a browser bookmarks (POD-5921). */
+  baseUrl?: string
   setTimer?: (fn: () => void, ms: number) => unknown
   clearTimer?: (handle: unknown) => void
   /** Milliseconds. */
@@ -103,6 +106,20 @@ export class ConnectPublisher {
     }
     this.#disarm()
     void this.#tick()
+  }
+
+  /**
+   * `https://connect.podium.do/to/<installationId>` (POD-5921): a bookmark that
+   * survives this server's address changing. `undefined` while publishing is
+   * off — the link would lead nowhere — or without a Connect origin.
+   */
+  stableLink(): string | undefined {
+    if (!this.#deps.baseUrl || !this.#deps.enabled()) return undefined
+    try {
+      return connectStableLink(this.#deps.identity().installationId, this.#deps.baseUrl)
+    } catch {
+      return undefined
+    }
   }
 
   check(url: string): Promise<CheckResult> {

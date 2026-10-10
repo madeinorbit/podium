@@ -1273,11 +1273,24 @@ describe('runCliSetup: Cloudflare quick tunnel managed by Podium', () => {
           return { ok: true, unit: 'podium-tunnel.service' }
         },
         waitForUrl: async () => TUNNEL_URL,
+        stableLink: async () => undefined,
         ...over,
       },
     })
     return { ...s, events, done }
   }
+
+  it('says who follows the address, and offers the stable link to bookmark (POD-5921)', async () => {
+    const link = `https://connect.podium.do/to/pdm_${'a'.repeat(43)}`
+    const { output, done } = runTunnel(['all-in-one', CLOUDFLARE, 's3cret', true], {
+      stableLink: async () => link,
+    })
+    await done
+    const text = output.join('\n')
+    expect(text).toContain('Joined machines and the desktop and mobile apps follow it on their own.')
+    expect(text).toContain(`In a browser, bookmark this link instead: ${link}`)
+    expect(text).not.toContain('do not follow it yet')
+  })
 
   it('asks for no URL, starts the tunnel AFTER the server, and shows the address it got', async () => {
     const { prompts, output, events, done } = runTunnel(['all-in-one', CLOUDFLARE, 's3cret', true])
@@ -1306,6 +1319,7 @@ describe('runCliSetup: Cloudflare quick tunnel managed by Podium', () => {
         canSupervise: () => true,
         enable: () => ({ ok: true, unit: 'podium-tunnel.service' }),
         waitForUrl: async () => TUNNEL_URL,
+        stableLink: async () => undefined,
       },
     })
     expect(outside).not.toHaveBeenCalled()

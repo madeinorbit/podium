@@ -5802,6 +5802,7 @@ type Output_setup_info = {
     publicUrl: null | string;
     publicUrlSource: SettingSource;
     serverUrl: null | string;
+    stableLink: null | string;
     transcriptLake: TranscriptLakeMode;
     transcriptLakeSource: SettingSource;
 };

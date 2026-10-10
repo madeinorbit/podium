@@ -342,6 +342,12 @@ export function registerVersionRoute(
      */
     installationPublicKey?: string
     /**
+     * The Connect link that always lands on this server (POD-5921), while
+     * Connect publishing is on. Public like the id it is built from; `podium
+     * status` and setup print it for the operator to bookmark.
+     */
+    stableLink?: () => string | undefined
+    /**
      * The grade of the visibility policy this server actually runs (POD-376).
      * ON THE PRE-BOOT PROBE, and that placement is the decision. The client must
      * resolve its replica-path flag BEFORE it constructs a replica or opens a
@@ -510,6 +516,7 @@ export function registerVersionRoute(
         ? { installationPublicKey: deps.installationPublicKey }
         : {}),
       ...(deps.appUrl?.() ? { appUrl: deps.appUrl() } : {}),
+      ...(deps.stableLink?.() ? { stableLink: deps.stableLink() } : {}),
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
       daemonConnected,
       components,
@@ -673,6 +680,7 @@ export async function startServer(
     publicUrl: claimedPublicUrl,
     enabled: () => store.settings.resolve('connectEnabled').value,
     log: createLogger('server:connect'),
+    baseUrl: resolveConnectBaseUrl(config, process.env),
   })
   const updateSigningKey = readOrCreateUpdateSigningKey(stateDir(), {
     allowCreate: !recoveryOnly && (await store.machines.listMachines()).length === 0,
@@ -1445,6 +1453,7 @@ export async function startServer(
     instanceId,
     installationId: installation.installationId,
     installationPublicKey,
+    stableLink: () => connectPublisher.stableLink(),
     appUrl: () => resolveAppUrl(loadConfig(), process.env),
     appVersion: () => appVersion,
     sourceDigest: serverBuildSourceDigest,

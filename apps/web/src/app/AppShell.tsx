@@ -2,8 +2,10 @@ import { cookieCredentials } from '@podium/client-core/accounts'
 import {
   browserServerRelocation,
   createSocketLogin,
+  followHub,
   observeLiveConnection,
 } from '@podium/client-core/live-connection'
+import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol'
 import {
   FLIGHT_DECK_DISPLAY_KEY,
   FLIGHT_DECK_EXPANDED_WIDTH_KEY,
@@ -52,6 +54,7 @@ import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
+import { webFollowPorts } from './server-follow'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
 import type { SyncProgressStore } from '@/lib/sync-progress'
 import { useFeature } from '@/lib/use-feature'
@@ -220,6 +223,29 @@ function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
   return null
 }
 
+/**
+ * FOLLOW THE SERVER WHEN ITS ADDRESS CHANGES (POD-5921). A lost link asks
+ * Connect where the server went and moves only to an address that proves it
+ * holds the installation key; a transfer frame moves at once.
+ */
+function ServerFollowObserver(): null {
+  const hub = useRuntimeSelector((s) => s.hub)
+  useEffect(
+    () =>
+      followHub(
+        hub,
+        webFollowPorts({
+          bridge: nativeDesktopBridge(),
+          location: window.location,
+          notify: (message) => toast(message),
+        }),
+        { connectBaseUrl: () => CONNECT_DEFAULT_BASE_URL },
+      ),
+    [hub],
+  )
+  return null
+}
+
 function ReplicaReadyPodiumLinkHost({
   syncProgress,
   initialHref,
@@ -339,6 +365,7 @@ export function AppShell({
                 onServerRelocation={browserServerRelocation(window.location)}
               >
                 <KernelWireSkewObserver httpOrigin={config.httpOrigin} />
+                <ServerFollowObserver />
                 <ReplicaReadyPodiumLinkHost
                   syncProgress={kernel.assembly.progress}
                   initialHref={pendingInitialPodiumHref.current}
