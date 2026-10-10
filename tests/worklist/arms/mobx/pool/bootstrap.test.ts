@@ -58,13 +58,15 @@ function feedOf(scale: 1 | 4) {
   return { corpus, replay: createReplaySource(rows) }
 }
 
-/** One bootstrap of `arm`; returns its pool (the caller disposes). */
-function boot(arm: Arm, feed: ReturnType<typeof feedOf>): MobxPool {
+type BootHandle = { pool: MobxPool; dispose(): void }
+
+/** One bootstrap of `arm`; the caller releases its pool and feed subscriptions. */
+function boot(arm: Arm, feed: ReturnType<typeof feedOf>): BootHandle {
   const locals = settableLocals({ selectedIssueId: null, coarseNow: feed.corpus.fixedNow })
   if (arm === 'lazy') {
     return harnessMobxPoolArm.create(feed.replay.source, locals.source, DISABLED_READ_FENCE, {
       schedule: () => () => {},
-    }).pool
+    })
   }
   const pool = new MobxPool(locals.source.get())
   const { source } = feed.replay
@@ -76,7 +78,7 @@ function boot(arm: Arm, feed: ReturnType<typeof feedOf>): MobxPool {
       ...source.snapshot('worktree'),
     ],
   })
-  return pool
+  return { pool, dispose: () => pool.dispose() }
 }
 
 function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
@@ -93,10 +95,13 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
   // (POD-4945): the product exposes no held-node or model counts. One filing
   // reaction per issue in memory is an exact count here: `track` dedupes by
   // id, so a double-track would show as growth.
-  let pool!: MobxPool
+  let handle!: BootHandle
+  console.info(`[bootstrap ${feed.corpus.scale}x ${arm}] start`)
   const reactions = collectReactions(() => {
-    pool = boot(arm, feed)
+    handle = boot(arm, feed)
   })
+  const { pool } = handle
+  console.info(`[bootstrap ${feed.corpus.scale}x ${arm}] booted`)
   off()
   const filing = filingReactions(reactions)
   const models = objectsBehind(filing)
@@ -120,7 +125,8 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
     tableSlots: (built['pool.issue'] ?? 0) + (built['pool.session'] ?? 0),
     byMap: built,
   }
-  pool.dispose()
+  handle.dispose()
+  console.info(`[bootstrap ${feed.corpus.scale}x ${arm}] disposed`)
   return cell
 }
 
@@ -172,9 +178,9 @@ describe('bootstrap in the count harness', () => {
         for (const arm of order) {
           loads.push(loadavg()[0] as number)
           const start = performance.now()
-          const pool = boot(arm, feed)
+          const handle = boot(arm, feed)
           samples[arm].push(performance.now() - start)
-          pool.dispose()
+          handle.dispose()
         }
       }
       const maxLoad = Math.max(...loads)
