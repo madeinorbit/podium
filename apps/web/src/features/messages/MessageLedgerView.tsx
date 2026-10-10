@@ -1,5 +1,5 @@
 import { MessageLedger } from '@podium/client-graph/message-ledger'
-import type { MessageModel } from '@podium/client-graph/message-models'
+import type { LedgerEntry } from '@podium/client-graph/ledger-entry'
 import { LOADING, isGone } from '@podium/client-graph'
 import { observer } from 'mobx-react-lite'
 import { useWorklistPool } from '@/app/store-worklist-pool'
@@ -21,10 +21,7 @@ import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
-  clampSummary,
-  deliveryLine,
   type LedgerStatusTone,
-  ledgerStatusTone,
 } from './message-ledger'
 
 const STATUS_CHIP: Record<LedgerStatusTone, string> = {
@@ -33,9 +30,10 @@ const STATUS_CHIP: Record<LedgerStatusTone, string> = {
   dead: 'bg-muted text-muted-foreground line-through',
 }
 
-const LedgerRow = observer(function LedgerRow({ m, now }: { m: MessageModel; now: number }): JSX.Element {
+const LedgerRow = observer(function LedgerRow({ row, now }: { row: LedgerEntry; now: number }): JSX.Element {
   const [open, setOpen] = useState(false)
-  const clamp = clampSummary(m)
+  const m = row.message
+  const clamp = row.clamp
   return (
     <div
       data-testid="ledger-row"
@@ -54,7 +52,7 @@ const LedgerRow = observer(function LedgerRow({ m, now }: { m: MessageModel; now
         <span
           className={cn(
             'rounded-full px-1.5 shell-type-micro font-semibold uppercase tracking-wide',
-            STATUS_CHIP[ledgerStatusTone(m.status)],
+            STATUS_CHIP[row.tone],
           )}
         >
           {m.status}
@@ -87,7 +85,7 @@ const LedgerRow = observer(function LedgerRow({ m, now }: { m: MessageModel; now
       </div>
       {open && (
         <div className="mt-1 border-t border-border/40 pt-1">
-          <div className="text-[10px] text-muted-foreground/70">{deliveryLine(m)}</div>
+          <div className="text-[10px] text-muted-foreground/70">{row.line}</div>
           {m.inReplyTo && (
             <div className="font-mono shell-type-micro text-muted-foreground/50">
               in reply to {m.inReplyTo}
@@ -164,5 +162,5 @@ const PooledLedgerRow = observer(function PooledLedgerRow({ ledger, id, now }: {
   const message = ledger.pool.model('message', id)
   if (message === LOADING) return <div className="text-xs">Loading…</div>
   if (isGone(message)) return null
-  return <LedgerRow m={message} now={now} />
+  return <LedgerRow row={ledger.row(message)} now={now} />
 })

@@ -31,9 +31,9 @@ export class NoticeMessage implements MessageNotice {
   }
 }
 export class NoticeInteraction implements PendingInteractionCard {
-  constructor(readonly interaction: PendingInteractionModel) {}
+  readonly id: string
+  constructor(readonly interaction: PendingInteractionModel) { this.id = interaction.id }
   @lazy private get card() { return pendingInteractionCard(this.interaction) }
-  @lazy get id() { return this.interaction.id }
   @lazy get sessionId() { return this.interaction.sessionId }
   @lazy get kind() { return this.interaction.kind }
   @lazy get title() { return this.card.title }
