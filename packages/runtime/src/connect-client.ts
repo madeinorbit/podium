@@ -27,9 +27,9 @@ import {
   type LocatorEndpoint,
   type LocatorRecord,
   resolveLocatorRecord,
-} from './connect-locator'
+} from './server-follow'
 
-// ONE definition, in connect-locator (POD-4533): the caps it enforces when parsing a
+// ONE definition, in server-follow (POD-4533, POD-5921): the caps it enforces when parsing a
 // record and the shape callers see must not be able to drift apart.
 export type { LocatorEndpoint, LocatorRecord }
 
@@ -58,7 +58,7 @@ export interface ConnectClient {
    * The unsigned read of this installation's own record (POD-4533). `GET
    * /v1/installations/:id` carries no signature because the id IS the capability — a
    * reader holds no installation key, and only that key may write what it reads. Caps
-   * and the never-throw contract belong to `connect-locator`; this supplies the base
+   * and the never-throw contract belong to `server-follow`; this supplies the base
    * URL, the id and the fetch.
    */
   resolve(): Promise<LocatorRecord | undefined>

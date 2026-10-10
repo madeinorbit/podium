@@ -7,6 +7,7 @@ import { isSigningKeyPair, mintSigningKeyPair } from './signing'
 export {
   publicKeyWire as installationPublicKeyWire,
   parseWirePublicKey,
+  signBytes as signBytesWithInstallation,
   signMessage as signWithInstallation,
   verifyWithWireKey,
 } from './signing'

@@ -87,6 +87,21 @@ export function signMessage(
   return sign(null, Buffer.from(prefix + message, 'utf8'), key).toString('base64url')
 }
 
+/**
+ * base64url Ed25519 signature over raw bytes, for a message that is not a
+ * string — the locate proof carries a raw nonce (POD-5921). The caller builds
+ * the bytes, domain prefix included.
+ */
+export function signBytes(identity: Pick<SigningKeyPair, 'privateKey'>, message: Uint8Array): string {
+  const key = createPrivateKey({
+    key: Buffer.from(identity.privateKey, 'base64'),
+    format: 'der',
+    type: 'pkcs8',
+  })
+  if (key.asymmetricKeyType !== 'ed25519') throw new Error('expected an Ed25519 private key')
+  return sign(null, message, key).toString('base64url')
+}
+
 /** False on every failure, never thrown. */
 export function verifyWithWireKey(
   publicKeyWire: string,

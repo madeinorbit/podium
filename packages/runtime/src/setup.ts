@@ -14,7 +14,7 @@ import {
   fetchVersionIdentity,
   isLocatorInstallationId,
   isLocatorInstallationPublicKey,
-} from './connect-locator'
+} from './server-follow'
 import { decodeJoin } from './join'
 import { hasMachineCredential, prepareSetupEnrollment } from './setup-enrollment'
 

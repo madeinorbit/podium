@@ -51,260 +51,42 @@
  * defend; TLS and the trust established at pairing time bound the rest.
  */
 
-export interface LocatorEndpoint {
-  url: string
-  priority: number
-}
+import {
+  httpOriginOf as httpsOriginOf,
+  isLocatorInstallationId,
+  isLocatorInstallationPublicKey,
+  readVersionIdentity,
+  resolveLocatorRecord,
+  type FetchVersionIdentityOptions,
+  type VersionIdentity,
+} from './server-follow'
 
-export interface LocatorRecord {
-  generation: number
-  issuedAt: string
-  expiresAt: string | null
-  endpoints: LocatorEndpoint[]
-}
-
-/** At most this many endpoints are accepted from one record; the rest are dropped. */
-export const CONNECT_LOCATOR_MAX_ENDPOINTS = 4
-/** The largest locator body this client will parse; anything bigger is "no answer". */
-export const CONNECT_LOCATOR_MAX_BODY_BYTES = 8_192
-/** The largest `/version` body the verifier will parse. */
-export const CONNECT_VERSION_MAX_BODY_BYTES = 32_768
-/** One slow rescue attempt must never stall a reconnect loop. */
-export const CONNECT_LOCATOR_TIMEOUT_MS = 10_000
-/** Endpoints may name an https origin only — never plaintext, never a scheme upgrade. */
-const LOCATOR_URL_SCHEME = 'https:'
-const MAX_URL_CHARS = 2_048
-
-/** Mirrors `isInstallationId` in `installation-identity.ts` (kept local: that
- *  module imports `node:crypto`, which this RN-safe file must not pull in). */
-const INSTALLATION_ID_RE = /^pdm_[A-Za-z0-9_-]{43}$/
-/** Mirrors `InstallationPublicKeyField` in `packages/protocol/src/pairing.ts`. */
-const INSTALLATION_PUBLIC_KEY_RE = /^ed25519:[A-Za-z0-9_-]{43}$/
-
-export const isLocatorInstallationId = (value: unknown): value is string =>
-  typeof value === 'string' && INSTALLATION_ID_RE.test(value)
-
-export const isLocatorInstallationPublicKey = (value: unknown): value is string =>
-  typeof value === 'string' && INSTALLATION_PUBLIC_KEY_RE.test(value)
-
-export interface ResolveLocatorOptions {
-  /** A bare origin, e.g. https://connect.podium.do. */
-  baseUrl: string
-  installationId: string
-  fetch?: typeof fetch
-  /** Milliseconds. */
-  timeoutMs?: number
-}
-
-function abortAfter(ms: number): { signal: AbortSignal | undefined } {
-  try {
-    return { signal: AbortSignal.timeout(ms) }
-  } catch {
-    // An older fetch without timeout support still resolves; the caller waits.
-    return { signal: undefined }
-  }
-}
-
-async function readCappedText(res: Response, maxBytes: number): Promise<string | undefined> {
-  try {
-    const declared = res.headers?.get('content-length')
-    if (declared !== null && declared !== undefined && declared !== '') {
-      const length = Number(declared)
-      if (Number.isFinite(length) && length > maxBytes) return undefined
-    }
-    const text = await res.text()
-    return text.length > maxBytes ? undefined : text
-  } catch {
-    return undefined
-  }
-}
-
-function sanitizeEndpoint(value: unknown): LocatorEndpoint | undefined {
-  if (typeof value !== 'object' || value === null) return undefined
-  const { url, priority } = value as { url?: unknown; priority?: unknown }
-  if (typeof url !== 'string' || url.length < 1 || url.length > MAX_URL_CHARS) return undefined
-  if (typeof priority !== 'number' || !Number.isFinite(priority)) return undefined
-  let parsed: URL
-  try {
-    parsed = new URL(url.trim())
-  } catch {
-    return undefined
-  }
-  if (parsed.protocol !== LOCATOR_URL_SCHEME) return undefined
-  if (parsed.username || parsed.password) return undefined
-  if (!parsed.hostname) return undefined
-  // Origins only: a path, query or fragment would be reinterpreted by every
-  // caller that appends its own routes, the same reason `publicUrl` is bare.
-  return { url: parsed.origin, priority }
-}
-
-function sanitizeLocatorRecord(body: unknown): LocatorRecord | undefined {
-  if (typeof body !== 'object' || body === null) return undefined
-  const { generation, issuedAt, expiresAt, endpoints } = body as {
-    generation?: unknown
-    issuedAt?: unknown
-    expiresAt?: unknown
-    endpoints?: unknown
-  }
-  if (!Number.isSafeInteger(generation) || (generation as number) < 1) return undefined
-  if (typeof issuedAt !== 'string' || issuedAt.length === 0) return undefined
-  if (expiresAt !== null && (typeof expiresAt !== 'string' || expiresAt.length === 0)) {
-    return undefined
-  }
-  if (!Array.isArray(endpoints)) return undefined
-  const accepted = endpoints
-    .map(sanitizeEndpoint)
-    .filter((endpoint): endpoint is LocatorEndpoint => endpoint !== undefined)
-    .sort((a, b) => b.priority - a.priority)
-    .slice(0, CONNECT_LOCATOR_MAX_ENDPOINTS)
-  if (accepted.length === 0) return undefined
-  return {
-    generation: generation as number,
-    issuedAt,
-    expiresAt: expiresAt as string | null,
-    endpoints: accepted,
-  }
-}
-
-/**
- * The unsigned read: `GET /v1/installations/:id`. Unsigned because the id is
- * the capability — a reader holds no installation key to sign with — and the
- * record it names can only have been written by that key. Never throws: every
- * failure is `undefined`.
- */
-export async function resolveLocatorRecord(
-  opts: ResolveLocatorOptions,
-): Promise<LocatorRecord | undefined> {
-  try {
-    if (!isLocatorInstallationId(opts.installationId)) return undefined
-    let base: URL
-    try {
-      base = new URL(opts.baseUrl.trim().replace(/\/+$/, ''))
-    } catch {
-      return undefined
-    }
-    if (base.protocol !== 'http:' && base.protocol !== 'https:') return undefined
-    const fetchImpl = opts.fetch ?? fetch
-    const timeoutMs = opts.timeoutMs ?? CONNECT_LOCATOR_TIMEOUT_MS
-    const res = await fetchImpl(
-      `${base.origin}/v1/installations/${encodeURIComponent(opts.installationId)}`,
-      { headers: { accept: 'application/json' }, ...abortAfter(timeoutMs) },
-    )
-    if (!res.ok) return undefined
-    const text = await readCappedText(res, CONNECT_LOCATOR_MAX_BODY_BYTES)
-    if (text === undefined) return undefined
-    let body: unknown
-    try {
-      body = JSON.parse(text)
-    } catch {
-      return undefined
-    }
-    return sanitizeLocatorRecord(body)
-  } catch {
-    return undefined
-  }
-}
-
-export interface VersionIdentity {
-  installationId: string
-  installationPublicKey?: string
-}
-
-export interface FetchVersionIdentityOptions {
-  /** The candidate's https origin — or a ws(s) server URL, which is converted. */
-  serverUrl: string
-  fetch?: typeof fetch
-  /** Milliseconds. */
-  timeoutMs?: number
-}
-
-/**
- * What the thing at `serverUrl` claims to be, read from its public `/version`.
- * Never throws. A server older than the public-key advertisement names only
- * its id; that still verifies — the key check below simply has nothing to
- * compare against.
- */
-export async function fetchVersionIdentity(
-  opts: FetchVersionIdentityOptions,
-): Promise<VersionIdentity | undefined> {
-  const probe = await probeVersionIdentity(opts)
-  return 'identity' in probe ? probe.identity : undefined
-}
-
-/** A failed probe's reason, in words an operator reading a log can act on. */
-function describeFetchError(error: unknown, timeoutMs: number): string {
-  const e = error as { name?: string; code?: string; message?: string; cause?: { code?: string } }
-  if (e?.name === 'TimeoutError' || e?.name === 'AbortError')
-    return `timed out after ${timeoutMs} ms`
-  const code = e?.code ?? e?.cause?.code
-  if (code === 'ENOTFOUND' || code === 'EAI_NONAME' || code === 'DNSException')
-    return `name does not resolve (${code})`
-  const message = e?.message ?? String(error)
-  return code ? `${code}: ${message}` : message
-}
+// Moved to server-follow (POD-5921); re-exported until the last caller of the
+// self-reported resolver below is switched to the proof and this file goes.
+export {
+  CONNECT_LOCATOR_MAX_BODY_BYTES,
+  CONNECT_LOCATOR_MAX_ENDPOINTS,
+  CONNECT_LOCATOR_TIMEOUT_MS,
+  CONNECT_VERSION_MAX_BODY_BYTES,
+  fetchVersionIdentity,
+  isLocatorInstallationId,
+  isLocatorInstallationPublicKey,
+  resolveLocatorRecord,
+  type FetchVersionIdentityOptions,
+  type LocatorEndpoint,
+  type LocatorRecord,
+  type ResolveLocatorOptions,
+  type VersionIdentity,
+} from './server-follow'
 
 /**
  * {@link fetchVersionIdentity}, keeping WHY a candidate gave no identity, so a
- * daemon that rejects an address can say so (POD-3274): a lookup that failed
- * silently left a 60-second DNS-cache stall readable only from the code.
+ * daemon that rejects an address can say so (POD-3274).
  */
 export async function probeVersionIdentity(
   opts: FetchVersionIdentityOptions,
 ): Promise<{ identity: VersionIdentity } | { failure: string }> {
-  const timeoutMs = opts.timeoutMs ?? CONNECT_LOCATOR_TIMEOUT_MS
-  try {
-    let target: URL
-    try {
-      target = new URL(opts.serverUrl.trim())
-    } catch {
-      return { failure: 'not a URL' }
-    }
-    const protocol =
-      target.protocol === 'ws:' ? 'http:' : target.protocol === 'wss:' ? 'https:' : target.protocol
-    if (protocol !== 'http:' && protocol !== 'https:')
-      return { failure: `unsupported scheme ${target.protocol}` }
-    const fetchImpl = opts.fetch ?? fetch
-    const res = await fetchImpl(`${protocol}//${target.host}/version`, {
-      headers: { accept: 'application/json' },
-      ...abortAfter(timeoutMs),
-    })
-    if (!res.ok) return { failure: `/version answered HTTP ${res.status}` }
-    const text = await readCappedText(res, CONNECT_VERSION_MAX_BODY_BYTES)
-    if (text === undefined) return { failure: '/version body too large or unreadable' }
-    let body: unknown
-    try {
-      body = JSON.parse(text)
-    } catch {
-      return { failure: '/version is not JSON' }
-    }
-    if (typeof body !== 'object' || body === null) return { failure: '/version is not an object' }
-    const { installationId, installationPublicKey } = body as {
-      installationId?: unknown
-      installationPublicKey?: unknown
-    }
-    if (!isLocatorInstallationId(installationId))
-      return { failure: '/version names no installation' }
-    return {
-      identity: isLocatorInstallationPublicKey(installationPublicKey)
-        ? { installationId, installationPublicKey }
-        : { installationId },
-    }
-  } catch (error) {
-    return { failure: describeFetchError(error, timeoutMs) }
-  }
-}
-
-/** ws(s) and http(s) spellings of one origin, for skipping the URL already dialled. */
-function httpsOriginOf(value: string): string | undefined {
-  try {
-    const parsed = new URL(value.trim())
-    const protocol =
-      parsed.protocol === 'ws:' ? 'http:' : parsed.protocol === 'wss:' ? 'https:' : parsed.protocol
-    if (protocol !== 'http:' && protocol !== 'https:') return undefined
-    return `${protocol}//${parsed.host}`
-  } catch {
-    return undefined
-  }
+  return readVersionIdentity(opts)
 }
 
 export interface ResolveServerUrlOptions {
