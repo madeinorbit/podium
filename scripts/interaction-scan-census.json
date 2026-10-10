@@ -20109,15 +20109,15 @@
       "tokens": "c97c5dca9d34f18fe1d874e79447a9c6ea40b9e349fb5f6815dbf76e544c393a",
       "gate": [],
       "origin": [
-        "ff4b74886ee331340effcab0c92bc44c3704d7bd2d85da9063af7a2508f0b44a"
+        "5339dc68e0b97b3e79a8b5e9795fd89180561629413a6e1acb0ea24c2db01334"
       ],
-      "fingerprint": "deb61dc2f3ae317b014ecc52ceee93295c6a01b8878926e988ddeadbbb7122ce",
+      "fingerprint": "ad7f054c2297a501aebdba8a637b4f75f815b2197f7705a2ffb0cb6a9191ab91",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of chatSessionReference/resolved/resolveReferent:callback",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
+      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5872 narrows the referent input to addressed model identity; the generic type changes the origin fingerprint only, with identical operation tokens and multiplicity. This remains REQUIRED REPAIR.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
