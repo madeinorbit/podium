@@ -3,7 +3,7 @@ import { InMemoryReplicaStore } from '../../sync/src/replica/memory-store'
 import { Replica as SyncReplica } from '../../sync/src/replica/replica'
 import { ConformanceAuthority, conformanceUser, requireHuman } from '../../sync/src/conformance/authority'
 import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/values'
-import { messageRecordRowId, asSessionId, asThreadId, type MessageRecordWire, type MessageLedgerWire } from '@podium/model'
+import { messageRecordRowId, interactionRowId, asSessionId, asThreadId, type MessageRecordWire, type MessageLedgerWire } from '@podium/model'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { BeforeSends } from '../../client-core/src/conversation/sends.before.test.fixture'
@@ -14,7 +14,7 @@ import { afterEach, expect, it, vi } from 'vitest'
 import { noticeFixture } from '../../../tests/worklist/diagnostics/notice-fixture'
 import { chatInteractions, chatRecords } from './chat-context'
 import { here } from './lookup'
-import { ingestLedgerMessages, ingestMessageRecords } from './message-models'
+import { currentMessageRecord, ingestLedgerMessages, ingestMessageRecords } from './message-models'
 import { MessageLedger } from './message-ledger'
 import { MobxPool } from './pool'
 import { NoticeSource } from './notice-source'
@@ -190,6 +190,10 @@ it('an authority message update crosses the real replica boundary and reaches ev
   const rowId = messageRecordRowId({ sessionId: 'seat', senderUserId: 'user', messageId: 'message' })
   authority.append({ entity: 'message', entityId: rowId, op: 'upsert', payload: record() })
   authority.grant(requireHuman(principal), 'message', rowId)
+  const ask = noticeFixture('seat').interactions.find(row => row.kind === 'permission')!
+  const askRowId = interactionRowId('seat', ask.id)
+  authority.append({ entity: 'pendingInteraction', entityId: askRowId, op: 'upsert', payload: ask })
+  authority.grant(requireHuman(principal), 'pendingInteraction', askRowId)
   const store = new InMemoryReplicaStore()
   const facade = createKernelReplica({ cache: store.cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
@@ -222,6 +226,8 @@ it('an authority message update crosses the real replica boundary and reaches ev
   try {
     await settle(); sends.start(); await ledger.refresh()
     const shared = here(pool.model('messageRecord', 'message'))!
+    const sharedAsk = here(pool.model('pendingInteraction', ask.id))!
+    expect(currentMessageRecord(pool, facade, 'message')).toEqual(record())
     const from = authority.head()
     authority.append({ entity: 'message', entityId: rowId, op: 'upsert', payload: record({ body: 'authority update', status: 'unknown' }) })
     await replica.receive(authority.frameFor(principal, from)); await replica.settled(); await settle()
@@ -231,6 +237,22 @@ it('an authority message update crosses the real replica boundary and reaches ev
     expect(here(pool.model('messageRecord', ledger.ids![0]!))).toBe(shared)
     expect(ledger.row(shared).message.body).toBe('authority update')
     expect(ledger.row(shared).line).toBe('not confirmed · it may or may not have arrived')
+    const beforeAsk = authority.head()
+    authority.append({ entity: 'pendingInteraction', entityId: askRowId, op: 'upsert', payload: {
+      ...ask, payload: { ...ask.payload, inputSummary: 'updated permission' },
+    } })
+    await replica.receive(authority.frameFor(principal, beforeAsk)); await replica.settled(); await settle()
+    expect(here(pool.model('pendingInteraction', ask.id))).toBe(sharedAsk)
+    expect(chatInteractions(pool, 'seat').blocked).toBe(true)
+    expect(noticeInteractions(pool, 'seat').cards[0]).toMatchObject({ detail: 'updated permission', interaction: sharedAsk })
+    const beforeRemove = authority.head()
+    authority.append({ entity: 'message', entityId: rowId, op: 'remove' })
+    authority.append({ entity: 'pendingInteraction', entityId: askRowId, op: 'remove' })
+    await replica.receive(authority.frameFor(principal, beforeRemove)); await replica.settled(); await settle()
+    expect(here(pool.model('messageRecord', 'message'))).toBeUndefined()
+    expect(here(pool.model('pendingInteraction', ask.id))).toBeUndefined()
+    expect(chatInteractions(pool, 'seat').blocked).toBe(false)
+    expect(notices.notices).toEqual([])
   } finally { stop(); ledger.dispose(); sends.dispose(); transcript.dispose(); pool.dispose(); replica.disconnect() }
 })
 

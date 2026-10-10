@@ -1,4 +1,4 @@
-import { ingestMessageRecords } from '@podium/client-graph/message-models'
+import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
 import { here } from '@podium/client-graph/lookup'
 import { omitGone } from '@podium/client-graph/lookup'
 import { loadedPaneSession } from '@podium/client-graph/session-pane'
@@ -118,7 +118,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
       ...(headless ? { reconcile: 'next-user-item' as const } : {
         records: { getSnapshot: () => recordValues.get(), subscribe: listener => reaction(() => recordValues.get().map(record => record.row), listener, { equals: compareShallow }) },
         outbox: { held: () => heldValues.get(), subscribe: listener => reaction(() => heldValues.get(), listener) },
-        messageRecords: { read: id => here(pool.model('messageRecord', id)), ingest: records => ingestMessageRecords(pool, records, id => replica.row('messageRecords', id)) },
+        messageRecords: { read: id => here(pool.model('messageRecord', id)), ingest: records => ingestMessageRecords(pool, records, id => currentMessageRecord(pool, replica, id)) },
         lookupRecords: ids => trpc.messages.records.query({ ids: [...ids] }).then(answer => answer.records),
         retract: id => trpc.messages.cancel.mutate({ id }).then(message => message.deliveryStatus),
         discard: id => store.discardChat(asMutationId(id)),

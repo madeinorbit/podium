@@ -1,4 +1,5 @@
-import type { MessageRecordWire } from '@podium/model'
+import { messageRecordRowId, type MessageRecordWire } from '@podium/model'
+import type { ClientRuntime } from '@podium/client-core/engine'
 import type { MessageLedgerWire } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 import { EntityModel, registerModels, type ModelHost } from './models'
@@ -88,4 +89,14 @@ export function ingestLedgerMessages(pool: MobxPool, records: readonly MessageLe
       ...(synced ? chatFields(synced) : {}),
     } }
   }) })
+}
+
+
+/** The replica addresses messages by session/sender/message, while pool readers
+ * use the message ID. Identity fields already in the table provide that join. */
+export function currentMessageRecord(pool: MobxPool, replica: ClientRuntime['replica'], id: string): MessageRecordWire | undefined {
+  const row = pool.tables.messageRecord.get(id) as MessagePoolRow | undefined
+  return row?.sessionId && row.senderUserId ? replica.row('messageRecords', messageRecordRowId({
+    sessionId: row.sessionId, senderUserId: row.senderUserId, messageId: id,
+  })) : undefined
 }

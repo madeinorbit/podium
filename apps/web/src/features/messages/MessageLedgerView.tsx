@@ -1,6 +1,7 @@
 import { useOpeningView } from '@podium/client-graph/react/opening-view'
 import type { MobxPool } from '@podium/client-graph'
 import { MessageLedger } from '@podium/client-graph/message-ledger'
+import { currentMessageRecord } from '@podium/client-graph/message-models'
 import type { LedgerEntry } from '@podium/client-graph/ledger-entry'
 import { LOADING, isGone } from '@podium/client-graph'
 import { observer } from 'mobx-react-lite'
@@ -114,7 +115,7 @@ export const MessageLedgerView = observer(function MessageLedgerView({
       ...(issueId ? { issueId } : {}), ...(sessionId ? { sessionId } : {}),
     }) : Promise.resolve([]),
     records: ids => trpc.messages.records.query({ ids: [...ids] }).then(answer => answer.records),
-    currentRecord: id => replica.row('messageRecords', id),
+    currentRecord: id => currentMessageRecord(pool, replica, id),
   }), [trpc, replica, issueId, sessionId])
   const ledger = useOpeningView(pool, createLedger)
   useEffect(() => {

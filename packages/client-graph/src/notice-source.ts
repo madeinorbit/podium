@@ -6,7 +6,7 @@ import type { RowRecord } from './shared/source'
 import { defineSource } from './source-registry'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
-import { isMessageRecordAttention, type MessageRecordWire } from '@podium/model'
+import { isMessageRecordAttention, parseMessageRecordRowId, parseInteractionRowId, type MessageRecordWire } from '@podium/model'
 import { createDemandAtoms } from '@podium/mobx-helpers'
 import { compareStructural, runInAction } from 'mobx'
 import { NOTICE_RELATIONS, type NoticeEntity, type NoticeRows } from './notice-schema'
@@ -20,6 +20,10 @@ type IdAnswer = ReturnType<typeof createKeyedAnswer<string>>
 type SessionMembers = { messages: IdAnswer; interactions: IdAnswer }
 interface Identity { sessionId: string | undefined; order: string; attentionAt: string | undefined }
 interface Recovery { ids: readonly string[]; rows: Map<string, OutboxDeadLetterEntry> }
+function recordId(entity: RecordEntity, address: string): string {
+  if (!address.includes('\n')) return address
+  return entity === 'messageRecord' ? parseMessageRecordRowId(address).messageId : parseInteractionRowId(address).interactionId
+}
 const CATALOG = 'noticeCatalog:catalog', ATTENTION = 'noticeAttention:attention'
 const MESSAGES = 'noticeMessageCatalog:catalog', RECOVERY = 'noticeRecoveryCatalog:catalog'
 
@@ -84,9 +88,13 @@ export class NoticeSource {
         for (const address of batch.rows) {
           if (address.kind !== 'messageRecords' && address.kind !== 'pendingInteractions') continue
           const entity = address.kind === 'messageRecords' ? 'messageRecord' : 'pendingInteraction'
-          this.change(entity, address.id, replica.row!(address.kind, address.id))
+          const row = replica.row!(address.kind, address.id)
+          // Kernel message/interaction changes use composite visibility addresses.
+          // The shared table and every reader are keyed by the record's own ID.
+          const id = row?.id ?? recordId(entity, address.id)
+          this.change(entity, id, row)
           this.counts.addressedRows++
-          this.wake(`${entity}:${address.id}`)
+          this.wake(`${entity}:${id}`)
         }
       })
     }), outbox.subscribe(() => {
