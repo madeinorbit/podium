@@ -293,7 +293,9 @@ export async function repairLink(link: Link): Promise<string | undefined> {
       if (!installed.ok) throw new Error(installed.reason)
       restartSystemdUnits([instanceServiceName('parent', resolveInstanceId())])
       const { waitForHealth } = await import('./cli-spawn')
-      await waitForHealth(resolvePort(config), config.bindHost)
+      if (mode === 'server' || mode === 'all-in-one') {
+        await waitForHealth(resolvePort(config), config.bindHost)
+      }
       if (installed.lingerRemedy) return installed.lingerRemedy
     } else {
       const { restartCommand } = await import('./cli-lifecycle')
@@ -371,10 +373,15 @@ export async function writeDoctorReport(deps: { capture?: typeof capture } = {})
         output: await run('systemctl', ['--user', 'status', '--no-pager', '--full', unit], 3_000),
       })),
     ),
-    run(
-      'journalctl',
-      ['--user', ...units.flatMap((unit) => ['-u', unit]), '--no-pager', '-n', '400', '-o', 'cat'],
-      3_000,
+    Promise.all(
+      (['parent', 'server', 'daemon', 'tunnel'] as const).map(async (role) => ({
+        unit: instanceServiceName(role, instance),
+        output: await run(
+          'journalctl',
+          ['--user', '-u', instanceServiceName(role, instance), '--no-pager', '-n', '300', '-o', 'cat'],
+          3_000,
+        ),
+      })),
     ),
     Promise.all(
       ['parent', 'server', 'daemon', 'tunnel'].flatMap((role) =>

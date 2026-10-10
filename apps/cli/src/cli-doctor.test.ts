@@ -290,6 +290,12 @@ describe('support report redaction', () => {
         'podium-tunnel.service',
       ])
       expect(report.logs).toHaveLength(8)
+      expect(report.journal.map((entry: { unit: string }) => entry.unit)).toEqual([
+        'podium.service',
+        'podium-server.service',
+        'podium-daemon.service',
+        'podium-tunnel.service',
+      ])
       expect(report.versions.os).toBeTruthy()
       expect(statSync(path).mode & 0o777).toBe(0o600)
       for (const secret of ['top-secret-value', 'pair-value', 'another-secret'])
