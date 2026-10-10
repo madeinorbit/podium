@@ -206,6 +206,53 @@ describe('reference card visible session targets (POD-5884)', () => {
         pool.dispose()
       }
     })
+
+  it('passes over headless seats to the nearest visible ancestor session', () => {
+    const pool = poolOf(tree, [
+      seat('own-headless', 'leaf', { headless: true }),
+      seat('parent-headless', 'mid', { headless: true }),
+      seat('visible', 'root'),
+    ])
+    try {
+      expect(newTarget(pool, 'POD-3')).toMatchObject({ sessionId: 'visible', viaId: 'root' })
+    } finally {
+      pool.dispose()
+    }
+  })
+
+  it('offers no session target when the whole chain has only headless seats', () => {
+    const pool = poolOf(tree, [
+      seat('own-headless', 'leaf', { headless: true }),
+      seat('parent-headless', 'mid', { headless: true }),
+      seat('root-headless', 'root', { headless: true }),
+    ])
+    try {
+      expect(newTarget(pool, 'POD-3')).toBeNull()
+    } finally {
+      pool.dispose()
+    }
+  })
+
+  it('follows a coordinator becoming headless and visible again', () => {
+    const pool = poolOf(
+      [issue('one', 1, { coordinatorSessionId: 'lead' })],
+      [seat('lead', 'one'), seat('other', 'one', { lastActiveAt: stamp(9) })],
+    )
+    const targets: (string | null)[] = []
+    const stop = autorun(() => { targets.push(newTarget(pool, 'POD-1')?.sessionId ?? null) })
+    try {
+      pool.apply({ type: 'update', rows: [
+        { kind: 'session', id: 'lead', value: seat('lead', 'one', { headless: true }) },
+      ] as never })
+      pool.apply({ type: 'update', rows: [
+        { kind: 'session', id: 'lead', value: seat('lead', 'one', { headless: false }) },
+      ] as never })
+      expect(targets).toEqual(['lead', 'other', 'lead'])
+    } finally {
+      stop()
+      pool.dispose()
+    }
+  })
 })
 
 describe('reference card updates (POD-5831)', () => {
