@@ -473,7 +473,7 @@ async function measureScreenCells(
     )
     add('mobile-work.row', ['PoolWorkRowSlot'], () => {
       const row = mobileWorkView(pool).mobileRow({ kind: 'issue', id: selected() })
-      return row === undefined || row === LOADING ? row : rowAnswers({ id: row.id, title: row.title, timing: row.timing, working: row.visibleWorking, waiting: row.waitingCount, fleet: row.visibleFleet, ...('issue' in row ? { progress: row.progress, unread: row.emphasizeUnread, status: worklistRowStatus(row, pool.clock.trackedNow()), issue: sidebarComparable(row).issue } : {}) })
+      return row === undefined || row === LOADING ? row : rowAnswers({ id: row.id, title: row.title, timing: row.timing, working: row.visibleWorking, waiting: row.waitingCount, fleet: row.visibleFleet, ...('issue' in row ? { progress: row.progress, unread: row.emphasizeUnread, status: worklistRowStatus(row, pool.clock.peekNow()), issue: sidebarComparable(row).issue } : {}) })
     })
     add('header.folded', ['FoldedFlightDeckBar'], () => headerView(pool).folded())
     add('header.shipping', ['useShippingCounts'], () => headerView(pool).shipping())

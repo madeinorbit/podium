@@ -3,9 +3,9 @@ import { createLocalsSource } from './locals-source'
 import type { SliceLocals } from './slice-types'
 
 /** The runtime's selection, read by key (POD-5433): a batch
- *  that moves neither does not wake this source. */
+ *  that does not move selection does not wake this source. */
 export interface LocalsEngine {
-  onLocals(keys: readonly ('selectedIssueId')[], listener: () => void): () => void
+  onLocals(keys: readonly 'selectedIssueId'[], listener: () => void): () => void
   readLocal<K extends keyof EngineLocalValues>(key: K): EngineLocalValues[K]
 }
 

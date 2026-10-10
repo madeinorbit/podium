@@ -1,3 +1,4 @@
+import { useAgeNow } from '../lib/clock-hooks'
 import type { MissionScreen } from '@podium/client-graph/mission-screen'
 import { type MissionDeckIssueModel, settled } from '@podium/client-graph/mission-view'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
@@ -618,7 +619,7 @@ const Band = observer(function Band({
       // task's lead is `phase-lead` — so this IS "the mission's own lead".
       coordinator={role?.kind === 'coordinator'}
       current={current}
-      right={current ? 'reading' : stamp(session, phase, working, asking)}
+      right={current ? 'reading' : <MissionSessionStamp session={session} phase={phase} working={working} asking={asking} />}
       onPress={onPress}
     />
   )
@@ -765,19 +766,20 @@ function stamp(
   phase: MotionPhase,
   working: boolean,
   asking: boolean,
+  now: number,
 ): string | null {
   const state = session.agentState
   if (working) {
     const since = state?.since ? Date.parse(state.since) : Number.NaN
     if (!Number.isFinite(since)) return null
-    return formatClock(Math.max(0, Date.now() - since) + (state?.workingMsTotal ?? 0))
+    return formatClock(Math.max(0, now - since) + (state?.workingMsTotal ?? 0))
   }
   if (asking) return null
   if (!(session as SessionModel).open) {
-    return `Retired · ${relativeTime(session.lastActiveAt, Date.now())}`
+    return `Retired · ${relativeTime(session.lastActiveAt, now)}`
   }
   if (phase === 'done' && state?.workingMsTotal) return `∑ ${formatClock(state.workingMsTotal)}`
-  return relativeTime(session.lastActiveAt, Date.now())
+  return relativeTime(session.lastActiveAt, now)
 }
 
 const styles = StyleSheet.create({
@@ -912,4 +914,13 @@ const styles = StyleSheet.create({
   departureTitle: { ...sans(400), flex: 1, minWidth: 0, fontSize: font.tiny, color: color.textDim },
   departureAttention: { width: 5, height: 5, borderRadius: 3, backgroundColor: color.accent },
   departureState: { ...mono(400), flexShrink: 0, fontSize: font.micro, color: color.textFaint },
+})
+
+const MissionSessionStamp = observer(function MissionSessionStamp({ session, phase, working, asking }: {
+  session: SessionView; phase: MotionPhase; working: boolean; asking: boolean
+}) {
+  const since = working ? session.agentState?.since ?? session.lastActiveAt : session.lastActiveAt
+  const now = useAgeNow(since, working ? session.agentState?.workingMsTotal ?? 0 : 0,
+    !asking && (working || !(session as SessionModel).open || phase !== 'done' || !session.agentState?.workingMsTotal))
+  return stamp(session, phase, working, asking, now)
 })

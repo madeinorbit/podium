@@ -1543,11 +1543,12 @@ describe('reconnect nudges from the platform (POD-2060)', () => {
 })
 
 describe('runtime-owned header inputs', () => {
-  it('polls without a pool, restarts once, and stops permanently at principal destruction', async () => {
+  it('polls for a mounted header without a pool, restarts once, and stops permanently at principal destruction', async () => {
     const api = makeApi()
     const { engine } = makeEngine({ api })
     const changed = vi.fn()
     engine.headerInputs.onInput('quota', changed)
+    engine.headerInputs.retain()
     try {
       engine.start()
       engine.start()

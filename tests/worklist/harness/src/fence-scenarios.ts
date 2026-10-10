@@ -194,6 +194,7 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
     stopWriter = attachRuntimeWriter(ctx.engine, transactions)
   }
   const rawLocals = createEngineLocals(ctx.engine)
+  const clockStops: (() => void)[] = []
   let rowReads = 0
   let named = new Set<string>()
   const row = raw.source.row?.bind(raw.source)
@@ -253,6 +254,8 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
     locals,
     ...(transactions === null ? {} : { transactions }),
     attachPool(pool: MobxPool): void {
+      const clock = (ctx.engine as unknown as { fixtureClock?: { subscribe(tick: (now: number) => void): () => void } }).fixtureClock
+      if (clock) clockStops.push(clock.subscribe(value => pool.clock.advance(value)))
       ctx.engine.setNavigationProvider(createPoolNavigationProvider(pool))
       if (transactions !== null)
         pool.attachTransactions(transactions, true)
@@ -270,6 +273,7 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
     dispose(): void {
       ctx.engine.setNavigationProvider(loadingNavigationProvider)
       stopWriter()
+      for (const stop of clockStops) stop()
       transactions?.dispose()
       rows.dispose()
       locals.dispose()

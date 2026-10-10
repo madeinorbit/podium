@@ -317,14 +317,14 @@ export function createLegacyMobileTasks(pool: MobxPool) {
       if (!card) throw LOADING
       workingByIssue.set(
         row.issue.id,
-        confirmedWorkingAgentCount(card.fleet, pool.clock.trackedNow()),
+        confirmedWorkingAgentCount(card.fleet, legacyTrackedNow(pool.clock)),
       )
       progressByIssue.set(
         row.issue.id,
         taskProgress(
           JSON.stringify({
             id: row.issue.id,
-            now: pool.clock.trackedNow(),
+            now: legacyTrackedNow(pool.clock),
             agents: options.showAgentTasks,
           }),
         ),
@@ -381,4 +381,12 @@ export function createLegacyMobileTasks(pool: MobxPool) {
       taskProgress.clear()
     },
   }
+}
+
+/** Former raw-tick question, retained only for before/after oracle parity. */
+function legacyTrackedNow(clock: MobxPool['clock']): number {
+  const value = clock.peekNow()
+  clock.reached(value)
+  clock.reached(value + 1)
+  return value
 }
