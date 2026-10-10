@@ -95,6 +95,8 @@ export interface InstanceDeps {
    * prod the server's control socket gives a rotated tunnel URL.
    */
   readonly onPublicUrlChanged?: (() => void) | undefined
+  /** The Connect stable link, when this server has one to offer (POD-5921). */
+  readonly stableLink?: (() => string | undefined) | undefined
   /**
    * Live readiness, for `setup.activate` (POD-2766). READ AT APPLY, not captured
    * at construction: the whole point of the command is that it refuses an
@@ -210,6 +212,12 @@ export class InstanceService {
       transcriptLakeSource: transcriptLake.source,
       networkOption: c.networkOption ?? null,
       serverUrl: c.serverUrl ?? null,
+      /**
+       * `https://connect.podium.do/to/<installationId>` (POD-5921): a browser
+       * bookmark that follows this server when its address changes. `null`
+       * when Connect publishing is off or this box is not a server.
+       */
+      stableLink: this.deps.stableLink?.() ?? null,
       // Must stay the literal `process.env.PODIUM_APP_VERSION` read (build-bun
       // --define); the Machines panel compares each daemon's reported version
       // against this. [POD-838]

@@ -105,4 +105,48 @@ describe('NetworkSection', () => {
     expect(screen.getByRole('button', { name: 'Save network settings' })).toBeTruthy()
     expect(screen.queryByRole('button', { name: /change|set up/i })).toBeNull()
   })
+
+  it('offers the stable Connect link to bookmark, only when the server has one (POD-5921)', async () => {
+    const info = {
+      mode: 'server',
+      publicUrl: 'https://box.tail.ts.net',
+      networkOption: 'tailscale-serve',
+      serverUrl: null,
+      stableLink: `https://connect.podium.do/to/pdm_${'a'.repeat(43)}`,
+    }
+    const trpc = (answer: object) =>
+      ({
+        setup: {
+          info: { query: vi.fn().mockResolvedValue(answer) },
+          options: {
+            query: vi.fn().mockResolvedValue([
+              {
+                id: 'tailscale-serve',
+                label: 'Tailscale Serve (private)',
+                note: 'Reachable only from devices on your tailnet.',
+              },
+            ]),
+          },
+          commandFor: {
+            query: vi.fn().mockResolvedValue({
+              command: 'tailscale serve 18787',
+              hint: 'Then paste the URL it prints.',
+            }),
+          },
+          complete: { mutate: vi.fn() },
+        },
+        auth: { status: { query: vi.fn().mockResolvedValue({ hasOwnCredential: true }) } },
+      }) as unknown as Store['trpc']
+    storeState.trpc = trpc(info)
+    render(<NetworkSection />)
+    const link = (await screen.findByText(info.stableLink)) as HTMLAnchorElement
+    expect(link.getAttribute('href')).toBe(info.stableLink)
+    expect(screen.getByText('Stable link (bookmark this)')).toBeTruthy()
+    cleanup()
+
+    storeState.trpc = trpc({ ...info, stableLink: null })
+    render(<NetworkSection />)
+    await screen.findByLabelText('Podium URL')
+    expect(screen.queryByText('Stable link (bookmark this)')).toBeNull()
+  })
 })

@@ -98,6 +98,26 @@ export const NetworkSection = observer(function NetworkSection({
         <NetworkStep embedded trpc={trpc} onSaved={load} onSaveStateChange={onSaveStateChange} />
       )}
       {/*
+        THE ADDRESS THAT DOES NOT CHANGE (POD-5921). A quick tunnel's URL moves on
+        every restart; this Connect link always lands wherever the server is now.
+        Shown only while Connect publishing is on, when the link actually works.
+      */}
+      {info.stableLink && (
+        <Row
+          label="Stable link (bookmark this)"
+          description="Always opens this server, even after its address changes."
+        >
+          <a
+            href={info.stableLink}
+            target="_blank"
+            rel="noreferrer"
+            className="min-w-0 flex-1 truncate font-mono text-[13.5px] text-foreground underline-offset-2 hover:underline"
+          >
+            {info.stableLink}
+          </a>
+        </Row>
+      )}
+      {/*
         WHERE THE UI IS, when it is not here. Read-only and shown only when set:
         an operator who never split their hosting has no such thing, and a row
         saying "not set" would invite them to look for a setting that would only

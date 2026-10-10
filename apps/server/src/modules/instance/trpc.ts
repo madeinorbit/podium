@@ -28,7 +28,7 @@ const instanceService = (state: {
   readiness?: (() => ServerReadiness) | undefined
   requestCoordinatorRestart?: (() => void | Promise<void>) | undefined
   caller: { userId: UserId }
-  connect?: { publicUrlChanged(): void } | undefined
+  connect?: { publicUrlChanged(): void; stableLink?(): string | undefined } | undefined
   modules?:
     | {
         bus: import('../bus').EventBus
@@ -62,6 +62,8 @@ const instanceService = (state: {
       : undefined,
     // POD-4640: a URL written from Settings reaches Connect now, not in 5 minutes.
     onPublicUrlChanged: state.connect ? () => state.connect?.publicUrlChanged() : undefined,
+    // POD-5921: Settings → Network shows the bookmarkable link beside the address.
+    stableLink: state.connect?.stableLink ? () => state.connect?.stableLink?.() : undefined,
     // POD-4179: setup.complete records the host machine's grantee.
     grantHostMachine: state.modules
       ? async (ownerUserId) => await state.modules!.machines.grantHostMachineIfUnowned(ownerUserId)
