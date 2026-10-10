@@ -91,41 +91,37 @@ export function createHeaderPollingService(ports: {
     const current = () => generation === run && !destroyed
     const pending = new Set<HeaderInputKey>()
     let lifecycleReceived = samples.lifecycle !== undefined
-    const working = new Map<string, number>()
-    let stopDeadline: (() => void) | undefined
-    let nextDeadline: number | undefined
-    function armWorking(at: number): void {
-      // Renewals keep the armed moment: on that wake we consult the latest
-      // evidence. Heartbeats never clear/rearm a timer for every session.
-      if (nextDeadline !== undefined && nextDeadline <= at) return
-      stopDeadline?.()
-      nextDeadline = at
-      stopDeadline = deadlineClock.at(at, () => {
-        nextDeadline = undefined
-        stopDeadline?.(); stopDeadline = undefined
-        if (!current()) return
-        const before = working.size
-        let next = Infinity
-        const now = deadlineClock.peekNow()
-        for (const [id, expires] of working) {
-          if (expires <= now) working.delete(id)
-          else next = Math.min(next, expires)
-        }
-        if (Number.isFinite(next)) armWorking(next)
-        if (before !== working.size) history()
+    type WorkingEvidence = { expires: number; stop?: () => void }
+    const working = new Map<string, WorkingEvidence>()
+    function armWorking(id: string, entry: WorkingEvidence): void {
+      entry.stop = deadlineClock.at(entry.expires, () => {
+        entry.stop?.(); entry.stop = undefined
+        if (!current() || working.get(id) !== entry) return
+        // Renewals update only the addressed scalar. At the original moment,
+        // consult that latest expiry and register its next exact deadline.
+        if (entry.expires > deadlineClock.peekNow()) armWorking(id, entry)
+        else { working.delete(id); history() }
       })
     }
     function updateWorking(id: string, row: SessionMeta | undefined): void {
-      if (!row || !isAgentConfirmedComputing(row, deadlineClock.peekNow())) { working.delete(id); return }
+      const previous = working.get(id)
+      if (!row || !isAgentConfirmedComputing(row, deadlineClock.peekNow())) {
+        previous?.stop?.(); working.delete(id); return
+      }
       const activity = Math.max(
         ...[row.agentState?.stateObservedAt, row.lastActiveAt, row.agentState?.since]
           .map(stamp => Date.parse(stamp ?? '')).filter(Number.isFinite),
       )
       const expires = activity + CONFIRMED_AGENT_ACTIVITY_MAX_AGE_MS + 1
-      working.set(id, expires)
-      armWorking(expires)
+      if (previous) previous.expires = expires
+      else {
+        const entry = { expires }
+        working.set(id, entry)
+        armWorking(id, entry)
+      }
     }
     const resetWorking = () => {
+      for (const entry of working.values()) entry.stop?.()
       working.clear()
       // Whole scope only at bootstrap/rescope; ordinary updates read their ids.
       for (const row of ports.replica.rows('sessions')) updateWorking(row.sessionId, row)
@@ -194,7 +190,7 @@ export function createHeaderPollingService(ports: {
       clearInterval(timer)
       clearInterval(historyTimer)
       off?.()
-      stopDeadline?.()
+      for (const entry of working.values()) entry.stop?.()
       working.clear()
     }
     void quota()

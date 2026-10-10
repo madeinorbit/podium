@@ -775,7 +775,6 @@ export function AgentPanel({
   if (!machineAway) awaitingSinceRef.current = 0
   else if (awaitingSinceRef.current === 0) awaitingSinceRef.current = Date.now()
 
-
   // Native-mode dictation: transcribed speech types straight into the PTY as
   // keystrokes — no auto-submit, so the user can edit before hitting Enter.
   const voice = useVoiceInput((text) => mountedRef.current?.connection.sendInput(`${text} `))
