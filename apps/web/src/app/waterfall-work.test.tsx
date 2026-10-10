@@ -1,5 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react'
+import { useRef, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
@@ -11,6 +12,7 @@ import * as old from './flight-deck-waterfall.legacy.test.fixture'
 const state = vi.hoisted(() => ({
   pool: null as MobxPool | null,
   history: null as ((input: { sessionIds: string[] }) => Promise<unknown>) | null,
+  listeners: new Set<() => void>(),
 }))
 const query = (input: { sessionIds: string[] }) =>
   state.history?.(input) ?? Promise.resolve({ sessions: {} })
@@ -25,6 +27,20 @@ vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
   useStoreHandle: () => owner,
 }))
+vi.mock('./store', () => ({
+  useRuntimeSelector: (read: (access: typeof owner.access) => unknown) => {
+    const selector = useRef(read)
+    selector.current = read
+    return useSyncExternalStore(
+      (callback) => {
+        state.listeners.add(callback)
+        return () => state.listeners.delete(callback)
+      },
+      () => selector.current(owner.access),
+      () => selector.current(owner.access),
+    )
+  },
+}))
 vi.mock('./store-worklist-pool', () => ({
   useWorklistPoolProjection: (read: (pool: MobxPool) => unknown, empty: unknown) =>
     state.pool ? read(state.pool) : empty,
@@ -32,6 +48,7 @@ vi.mock('./store-worklist-pool', () => ({
 }))
 afterEach(() => {
   cleanup()
+  state.listeners.clear()
   state.pool = null
   vi.useRealTimers()
   vi.restoreAllMocks()
