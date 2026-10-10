@@ -72,6 +72,8 @@ export interface SessionQuestions {
   setFacts(id: string, value: SessionQuestionFacts | undefined): void
   fact(id: string): SessionQuestionFacts | undefined
   visibilityChanged(id: string): void
+  /** Refresh source order inputs without re-filing unchanged visibility. */
+  orderChanged(id: string): void
   triageFact(id: string, now: number): TriageSession | undefined
   machineFact(id: string): MachineSession | undefined
   machineRevision(ids: readonly string[]): number
@@ -373,6 +375,10 @@ export function createSessionQuestions(
       const next = { ...value, order: order(id), setupOrder: setupOrder(id) }
       facts.set(id, id, next)
       file(id, next, value, true)
+    },
+    orderChanged(id) {
+      const value = facts.get(id)
+      if (value) setFacts(id, { ...value, order: order(id), setupOrder: setupOrder(id) })
     },
     triageFact(id, now) {
       const value = facts.get(id)

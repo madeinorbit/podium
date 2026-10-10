@@ -1099,9 +1099,15 @@ export class ReaderQueries {
         this.updateRepo(id, row)
       }
       const delta = index.changes(event)
-      for (const [entity, id] of [...delta.flips, ...delta.orders])
-        if (entity === 'session')
+      const flipped = new Set<string>()
+      for (const [entity, id] of delta.flips)
+        if (entity === 'session') {
+          flipped.add(id)
           this.changeSessionFacts(id, (questions) => questions.visibilityChanged(id))
+        }
+      for (const [entity, id] of delta.orders)
+        if (entity === 'session' && !flipped.has(id))
+          this.changeSessionFacts(id, (questions) => questions.orderChanged(id))
     }
     // Replacement counts were rebuilt from residents above. Observed identity
     // answers are rebuilt below from the new source catalog. Updating every

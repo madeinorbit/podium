@@ -758,9 +758,13 @@ export function createColdIndex(schema: ModelSchema, summaries: HeldSummaries = 
       } else {
         for (const record of event.rows) if (record.kind === 'session')
           sessionQuestions.set(record.id, record.value as Row | undefined)
-        for (const [entity, id] of [...delta.flips, ...delta.orders]) if (entity === 'session') {
+        const flipped = new Set<string>()
+        for (const [entity, id] of delta.flips) if (entity === 'session') {
+          flipped.add(id)
           sessionQuestions.visibilityChanged(id)
         }
+        for (const [entity, id] of delta.orders) if (entity === 'session' && !flipped.has(id))
+          sessionQuestions.orderChanged(id)
       }
     },
   }
