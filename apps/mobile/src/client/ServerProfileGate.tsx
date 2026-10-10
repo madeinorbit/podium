@@ -594,10 +594,11 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           if (!alive || setupOwnsStartup.current) return
           if (generation !== startupLinkGeneration.current) continue
           if (found) {
+            const movingId = active.id
             try {
               const { state: movedState, moved } = await profileWrites.run(() =>
                 adoptServerProfileMove({
-                  profileId: active.id,
+                  profileId: movingId,
                   origin: found,
                   profiles: { ...mobileServerProfiles, loadServerProfiles, saveServerProfiles },
                   credentials: {
