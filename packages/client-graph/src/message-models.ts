@@ -65,21 +65,27 @@ registerModels(schema, { messageRecord: MessageModel, pendingInteraction: Intera
 
 /** Request and replica records enter the same existing tables. No request cache.
  * A record projection replaces optional chat fields too, so stale confirmation
- * references cannot survive a new server answer. Ledger metadata is preserved. */
-export function ingestMessageRecords(pool: MobxPool, records: readonly MessageRecordWire[]): void {
+ * references cannot survive a new server answer. Ledger metadata is preserved.
+ * Request callers provide the current replica row: a late response cannot
+ * overwrite an authoritative pushed record (the declared component precedence). */
+export type CurrentMessageRecord = (id: string) => MessageRecordWire | undefined
+const chatFields = (record: MessageRecordWire) => ({
+  attachments: undefined, reason: undefined, transcriptItem: undefined,
+  retractRequestedAt: undefined, noticeDismissedAt: undefined, ...record,
+})
+export function ingestMessageRecords(pool: MobxPool, records: readonly MessageRecordWire[], current?: CurrentMessageRecord): void {
   pool.apply({ type: 'update', rows: records.map(record => {
     const row = (pool.tables.messageRecord.get(record.id) as MessagePoolRow | undefined) ?? {}
-    return { kind: 'messageRecord', id: record.id, value: { ...row,
-      attachments: undefined, reason: undefined, transcriptItem: undefined,
-      retractRequestedAt: undefined, noticeDismissedAt: undefined, ...record } }
+    return { kind: 'messageRecord', id: record.id, value: { ...row, ...chatFields(current?.(record.id) ?? record) } }
   }) })
 }
-export function ingestLedgerMessages(pool: MobxPool, records: readonly MessageLedgerWire[]): void {
+export function ingestLedgerMessages(pool: MobxPool, records: readonly MessageLedgerWire[], current?: CurrentMessageRecord): void {
   pool.apply({ type: 'update', rows: records.map(({ deliveryStatus, ...record }) => {
     const previous = pool.tables.messageRecord.get(record.id) as MessagePoolRow | undefined
+    const synced = current?.(record.id)
     return { kind: 'messageRecord', id: record.id, value: {
-      ...previous, ...record,
-      status: deliveryStatus,
+      ...previous, ...record, status: deliveryStatus,
+      ...(synced ? chatFields(synced) : {}),
     } }
   }) })
 }

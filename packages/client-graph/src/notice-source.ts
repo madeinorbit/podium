@@ -20,7 +20,6 @@ type IdAnswer = ReturnType<typeof createKeyedAnswer<string>>
 type SessionMembers = { messages: IdAnswer; interactions: IdAnswer }
 interface Identity { sessionId: string | undefined; order: string; attentionAt: string | undefined }
 interface Recovery { ids: readonly string[]; rows: Map<string, OutboxDeadLetterEntry> }
-const RECORD_KINDS = { messageRecord: 'messageRecords', pendingInteraction: 'pendingInteractions' } as const
 const CATALOG = 'noticeCatalog:catalog', ATTENTION = 'noticeAttention:attention'
 const MESSAGES = 'noticeMessageCatalog:catalog', RECOVERY = 'noticeRecoveryCatalog:catalog'
 
@@ -130,7 +129,7 @@ export class NoticeSource {
     }
     if (entity === 'messageRecord' || entity === 'pendingInteraction') {
       this.counts.payloadReads++
-      return omitGone(this.pool.row(entity === 'messageRecord' ? 'messageRecord' : entity, id)) as Loaded<NoticeRows[NoticeEntity]>
+      return omitGone(this.pool.row(entity, id)) as Loaded<NoticeRows[NoticeEntity]>
     }
     if (entity === 'noticeSession') {
       const members = this.sessions.get(id)
@@ -159,22 +158,29 @@ export class NoticeSource {
   private wake(key: string): void { this.watched.get(key)?.reportChanged() }
 
   private seed(): void {
+    // A replacement publishes new facts without replacing retained identities.
+    // Only IDs actually absent from the new replica lose their shared model.
+    const messages = this.runtime.replica.rows('messageRecords')
+    const interactions = this.runtime.replica.rows('pendingInteractions')
+    this.counts.collectionReads += 2
+    const replacement = { messageRecord: messages, pendingInteraction: interactions }
     const removed: RowRecord[] = []
-    for (const [entity, kind] of [['messageRecord', 'messageRecord'], ['pendingInteraction', 'pendingInteraction']] as const)
-      for (const id of this.identities[entity].keys()) removed.push({ kind, id, value: undefined })
+    for (const entity of ['messageRecord', 'pendingInteraction'] as const) {
+      const retained = new Set(replacement[entity].map(row => row.id))
+      for (const id of this.identities[entity].keys())
+        if (!retained.has(id)) removed.push({ kind: entity, id, value: undefined })
+    }
     this.pool.apply({ type: 'update', rows: removed })
     this.identities.messageRecord.clear(); this.identities.pendingInteraction.clear(); this.sessions.clear()
     this.positions.messageRecord = 0; this.positions.pendingInteraction = 0
     this.catalogAnswer = undefined; this.attentionAnswer = undefined
-    for (const entity of ['messageRecord', 'pendingInteraction'] as const) {
-      for (const row of this.runtime.replica.rows(RECORD_KINDS[entity])) this.change(entity, row.id, row)
-      this.counts.collectionReads++
-    }
+    for (const entity of ['messageRecord', 'pendingInteraction'] as const)
+      for (const row of replacement[entity]) this.change(entity, row.id, row)
   }
 
   private change(entity: RecordEntity, id: string, next: object | undefined): void {
     if (entity === 'messageRecord' && next) ingestMessageRecords(this.pool, [next as MessageRecordWire])
-    else this.pool.apply({ type: 'update', rows: [{ kind: entity === 'messageRecord' ? 'messageRecord' : entity, id, value: next as RowRecord['value'] }] })
+    else this.pool.apply({ type: 'update', rows: [{ kind: entity, id, value: next as RowRecord['value'] }] })
     const identities = this.identities[entity], previous = identities.get(id)
     if (!next && !previous) return
     const relation = NOTICE_RELATIONS.find(relation => relation.from === entity)!

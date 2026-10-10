@@ -1,6 +1,7 @@
 import type { MessageNotice } from '@podium/client-core/values'
 import { useRouter } from 'expo-router'
 import { useContext, useState } from 'react'
+import { observer } from 'mobx-react-lite'
 import { StyleSheet, Text, View } from 'react-native'
 import { SafeAreaInsetsContext } from 'react-native-safe-area-context'
 import { useTrpc } from '../client/hooks'
@@ -24,7 +25,7 @@ export function MessageNoticeBanner() {
   return <MessageNoticeBannerBody newest={notice} count={count} />
 }
 
-function MessageNoticeBannerBody({ newest, count }: { newest: MessageNotice | undefined; count: number }) {
+const MessageNoticeBannerBody = observer(function MessageNoticeBannerBody({ newest, count }: { newest: MessageNotice | undefined; count: number }) {
   const trpc = useTrpc()
   const router = useRouter()
   const [error, setError] = useState<string | null>(null)
@@ -74,7 +75,7 @@ function MessageNoticeBannerBody({ newest, count }: { newest: MessageNotice | un
       </View>
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   host: {

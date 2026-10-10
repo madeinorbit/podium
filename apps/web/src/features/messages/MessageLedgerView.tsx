@@ -107,14 +107,15 @@ const LedgerRow = observer(function LedgerRow({ row, now }: { row: LedgerEntry; 
 export const MessageLedgerView = observer(function MessageLedgerView({
   issueId, sessionId,
 }: { issueId?: IssueId; sessionId?: SessionId }): JSX.Element {
-  const trpc = useStoreHandle<Trpc>().access.trpc
+  const { trpc, replica } = useStoreHandle<Trpc>().access
   const pool = useWorklistPool()
   const createLedger = useCallback((pool: MobxPool) => new MessageLedger(pool, {
     ledger: () => issueId || sessionId ? trpc.messages.ledger.query({
       ...(issueId ? { issueId } : {}), ...(sessionId ? { sessionId } : {}),
     }) : Promise.resolve([]),
     records: ids => trpc.messages.records.query({ ids: [...ids] }).then(answer => answer.records),
-  }), [trpc, issueId, sessionId])
+    currentRecord: id => replica.row('messageRecords', id),
+  }), [trpc, replica, issueId, sessionId])
   const ledger = useOpeningView(pool, createLedger)
   useEffect(() => {
     if (!ledger) return

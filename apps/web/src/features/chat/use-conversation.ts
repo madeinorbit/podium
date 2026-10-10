@@ -78,13 +78,13 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
   let conversation: WebConversation
   const held: ConversationPendingTurn[] = headless ? [] : heldValues.get().map((send, index) => ({
     id: `outbox-${index}-${send.mutationId}`, deliveryId: send.mutationId,
-    text: send.text, wire: send.text, at: send.queuedAt, state: send.state, kind: 'messageRecord',
+    text: send.text, wire: send.text, at: send.queuedAt, state: send.state, kind: 'message',
     ...(send.attachments ? { attachments: send.attachments } : {}),
     ...(send.failure ? { error: send.failure.message, ...(send.failure.retryable ? {} : { retryable: false }) } : {}),
   }))
   const initialPending = mount.initialPendingText ? [{
     id: 'pending-first-turn', deliveryId: 'pending-first-turn', text: mount.initialPendingText,
-    wire: mount.initialPendingText, at: Date.now(), state: 'sent' as const, kind: 'messageRecord' as const,
+    wire: mount.initialPendingText, at: Date.now(), state: 'sent' as const, kind: 'message' as const,
     reconcile: 'next-user-item' as const,
   }, ...held] : held
   conversation = new WebConversation({
@@ -118,7 +118,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
       ...(headless ? { reconcile: 'next-user-item' as const } : {
         records: { getSnapshot: () => recordValues.get(), subscribe: listener => reaction(() => recordValues.get().map(record => record.row), listener, { equals: compareShallow }) },
         outbox: { held: () => heldValues.get(), subscribe: listener => reaction(() => heldValues.get(), listener) },
-        messageRecords: { read: id => here(pool.model('messageRecord', id)), ingest: records => ingestMessageRecords(pool, records) },
+        messageRecords: { read: id => here(pool.model('messageRecord', id)), ingest: records => ingestMessageRecords(pool, records, id => replica.row('messageRecords', id)) },
         lookupRecords: ids => trpc.messages.records.query({ ids: [...ids] }).then(answer => answer.records),
         retract: id => trpc.messages.cancel.mutate({ id }).then(message => message.deliveryStatus),
         discard: id => store.discardChat(asMutationId(id)),

@@ -3,7 +3,7 @@ import { InMemoryReplicaStore } from '../../sync/src/replica/memory-store'
 import { Replica as SyncReplica } from '../../sync/src/replica/replica'
 import { ConformanceAuthority, conformanceUser, requireHuman } from '../../sync/src/conformance/authority'
 import type { MessageNotice, PendingInteractionCard } from '@podium/client-core/values'
-import { asSessionId, asThreadId, type MessageRecordWire, type MessageLedgerWire } from '@podium/model'
+import { messageRecordRowId, asSessionId, asThreadId, type MessageRecordWire, type MessageLedgerWire } from '@podium/model'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { ReplicaAddressedBatch } from '@podium/client-core/replica'
 import { BeforeSends } from '../../client-core/src/conversation/sends.before.test.fixture'
@@ -61,7 +61,10 @@ function fixture(initial = [record()]) {
     records.set(row.id, row)
     for (const listener of listeners) listener({ type: 'update', rows: [{ kind: 'messageRecords', id: row.id }] })
   }
-  return { pool, source, records, asks, update }
+  const replace = () => {
+    for (const listener of listeners) listener({ type: 'replace', reason: 'rescope' })
+  }
+  return { pool, source, records, asks, update, replace }
 }
 const settle = async () => { for (let turn = 0; turn < 8; turn++) await Promise.resolve() }
 afterEach(() => vi.useRealTimers())
@@ -184,8 +187,9 @@ it('an authority message update crosses the real replica boundary and reaches ev
   const authority = new ConformanceAuthority()
   await authority.resolveIdentity()
   const principal = conformanceUser('message-model-user')
-  authority.append({ entity: 'message', entityId: 'message', op: 'upsert', payload: record() })
-  authority.grant(requireHuman(principal), 'message', 'message')
+  const rowId = messageRecordRowId({ sessionId: 'seat', senderUserId: 'user', messageId: 'message' })
+  authority.append({ entity: 'message', entityId: rowId, op: 'upsert', payload: record() })
+  authority.grant(requireHuman(principal), 'message', rowId)
   const store = new InMemoryReplicaStore()
   const facade = createKernelReplica({ cache: store.cache,
     side: createSideCache({ storage: memoryStorage(), enumerateKeys: () => [] }),
@@ -219,7 +223,7 @@ it('an authority message update crosses the real replica boundary and reaches ev
     await settle(); sends.start(); await ledger.refresh()
     const shared = here(pool.model('messageRecord', 'message'))!
     const from = authority.head()
-    authority.append({ entity: 'message', entityId: 'message', op: 'upsert', payload: record({ body: 'authority update', status: 'unknown' }) })
+    authority.append({ entity: 'message', entityId: rowId, op: 'upsert', payload: record({ body: 'authority update', status: 'unknown' }) })
     await replica.receive(authority.frameFor(principal, from)); await replica.settled(); await settle()
     expect(sends.bubbles[0]).toMatchObject({ text: 'authority update', state: 'unknown' })
     expect(sends.bubbles[0]?.record).toBe(shared)
@@ -247,4 +251,51 @@ it('a session activity change leaves notice membership and label consumers quiet
       expect(labelRuns).toBe(initialLabelRuns)
     } finally { label() }
   } finally { stop(); f.pool.dispose() }
+})
+
+
+it('retains shared identities on replica replacement, removing only missing synced records', async () => {
+  const f = fixture([record(), record({ id: 'removed' })])
+  try {
+    const shared = here(f.pool.model('messageRecord', 'message'))!
+    const interaction = here(f.pool.model('pendingInteraction', f.asks[0]!.id))!
+    const removed = here(f.pool.model('messageRecord', 'removed'))!
+    f.records.delete('removed')
+    f.records.set('message', record({ body: 'replacement body' }))
+    f.replace(); await settle()
+    expect(here(f.pool.model('messageRecord', 'message'))).toBe(shared)
+    expect(here(f.pool.model('pendingInteraction', f.asks[0]!.id))).toBe(interaction)
+    expect(shared.body).toBe('replacement body')
+    expect(here(f.pool.model('messageRecord', removed.id))).toBeUndefined()
+  } finally { f.pool.dispose() }
+})
+
+it('a late lookup or ledger response preserves the current pushed record', async () => {
+  const f = fixture([record({ body: 'new server body', status: 'unknown' })])
+  const current = (id: string) => f.records.get(id)
+  const ledger = new MessageLedger(f.pool, {
+    ledger: async () => [ledgerRow({ body: 'stale ledger', deliveryStatus: 'stored' })],
+    records: async () => [record({ body: 'stale lookup', status: 'stored' })], currentRecord: current,
+  })
+  try {
+    const shared = here(f.pool.model('messageRecord', 'message'))!
+    ingestMessageRecords(f.pool, [record({ body: 'old lookup' })], current)
+    expect(shared).toMatchObject({ body: 'new server body', status: 'unknown' })
+    await ledger.refresh()
+    expect(shared).toMatchObject({ body: 'new server body', status: 'unknown', from: 'user' })
+    expect(here(f.pool.model('messageRecord', ledger.ids![0]!))).toBe(shared)
+  } finally { ledger.dispose(); f.pool.dispose() }
+})
+
+it('requests message records in the existing 100-ID batches', async () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  const rows = Array.from({ length: 205 }, (_, i) => ledgerRow({ id: `ledger-${i}` }))
+  const records = vi.fn(async (ids: readonly string[]) => ids.map(id => record({ id })))
+  const ledger = new MessageLedger(pool, { ledger: async () => rows, records })
+  try {
+    await ledger.refresh()
+    expect(records.mock.calls.map(([ids]) => ids.length)).toEqual([100, 100, 5])
+    expect(ledger.ids).toEqual(rows.map(row => row.id))
+    expect(here(pool.model('messageRecord', 'ledger-204'))).toMatchObject({ body: record().body, from: 'user' })
+  } finally { ledger.dispose(); pool.dispose() }
 })

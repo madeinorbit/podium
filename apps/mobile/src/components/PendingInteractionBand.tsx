@@ -4,6 +4,7 @@ import type {
 } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model'
 import { useState } from 'react'
+import { observer } from 'mobx-react-lite'
 import { StyleSheet, Text, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
 import { usePoolInteractionCards } from '../client/use-pool-notices'
@@ -36,7 +37,7 @@ export function PendingInteractionBand({ sessionId }: { sessionId: SessionId }) 
   return <PendingInteractionBandBody cards={cards} />
 }
 
-function PendingInteractionBandBody({ cards }: { cards: readonly PendingInteractionCard[] }) {
+const PendingInteractionBandBody = observer(function PendingInteractionBandBody({ cards }: { cards: readonly PendingInteractionCard[] }) {
   const trpc = useTrpc()
   const [sending, setSending] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -114,7 +115,7 @@ function PendingInteractionBandBody({ cards }: { cards: readonly PendingInteract
       ))}
     </View>
   )
-}
+})
 
 const styles = StyleSheet.create({
   layer: {

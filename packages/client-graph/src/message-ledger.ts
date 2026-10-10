@@ -3,12 +3,13 @@ import { LedgerEntry } from './ledger-entry'
 import type { MessageModel } from './message-models'
 import type { MessageLedgerWire, MessageRecordWire } from '@podium/model'
 import { action, observable, observableRef, runInAction } from 'mobx'
-import { ingestLedgerMessages, ingestMessageRecords } from './message-models'
+import { ingestLedgerMessages, ingestMessageRecords, type CurrentMessageRecord } from './message-models'
 import type { MobxPool } from './pool'
 
 export interface LedgerRequest {
   ledger(): Promise<readonly MessageLedgerWire[]>
   records?(ids: readonly string[]): Promise<readonly MessageRecordWire[]>
+  currentRecord?: CurrentMessageRecord
 }
 /** A fresh model per opening. The request selects IDs; record facts join the
  * existing tables. Polling has visible demand only, pending server push. */
@@ -42,8 +43,8 @@ export class MessageLedger {
         records.push(...await this.request.records(ids.slice(offset, offset + 100)))
       if (this.disposed || sequence !== this.sequence) return
       runInAction(() => {
-        ingestLedgerMessages(this.pool, rows)
-        ingestMessageRecords(this.pool, records)
+        ingestLedgerMessages(this.pool, rows, this.request.currentRecord)
+        ingestMessageRecords(this.pool, records, this.request.currentRecord)
         this.ids = ids
         this.error = null
       })
