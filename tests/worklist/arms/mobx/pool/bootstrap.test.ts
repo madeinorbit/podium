@@ -58,15 +58,13 @@ function feedOf(scale: 1 | 4) {
   return { corpus, replay: createReplaySource(rows) }
 }
 
-type BootHandle = { pool: MobxPool; dispose(): void }
-
-/** One bootstrap of `arm`; the caller releases its pool and feed subscriptions. */
-function boot(arm: Arm, feed: ReturnType<typeof feedOf>): BootHandle {
+/** One bootstrap of `arm`; returns its pool (the caller disposes). */
+function boot(arm: Arm, feed: ReturnType<typeof feedOf>): MobxPool {
   const locals = settableLocals({ selectedIssueId: null, coarseNow: feed.corpus.fixedNow })
   if (arm === 'lazy') {
     return harnessMobxPoolArm.create(feed.replay.source, locals.source, DISABLED_READ_FENCE, {
       schedule: () => () => {},
-    })
+    }).pool
   }
   const pool = new MobxPool(locals.source.get())
   const { source } = feed.replay
@@ -78,7 +76,7 @@ function boot(arm: Arm, feed: ReturnType<typeof feedOf>): BootHandle {
       ...source.snapshot('worktree'),
     ],
   })
-  return { pool, dispose: () => pool.dispose() }
+  return pool
 }
 
 function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
@@ -95,11 +93,10 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
   // (POD-4945): the product exposes no held-node or model counts. One filing
   // reaction per issue in memory is an exact count here: `track` dedupes by
   // id, so a double-track would show as growth.
-  let handle!: BootHandle
+  let pool!: MobxPool
   const reactions = collectReactions(() => {
-    handle = boot(arm, feed)
+    pool = boot(arm, feed)
   })
-  const { pool } = handle
   off()
   const filing = filingReactions(reactions)
   const models = objectsBehind(filing)
@@ -123,7 +120,7 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
     tableSlots: (built['pool.issue'] ?? 0) + (built['pool.session'] ?? 0),
     byMap: built,
   }
-  handle.dispose()
+  pool.dispose()
   return cell
 }
 
@@ -171,9 +168,9 @@ describe('bootstrap in the count harness', () => {
         for (const arm of order) {
           loads.push(loadavg()[0] as number)
           const start = performance.now()
-          const handle = boot(arm, feed)
+          const pool = boot(arm, feed)
           samples[arm].push(performance.now() - start)
-          handle.dispose()
+          pool.dispose()
         }
       }
       const maxLoad = Math.max(...loads)
