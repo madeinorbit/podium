@@ -105,8 +105,6 @@ const SCENARIOS: { name: string; issues: Row[]; sessions: Row[]; ref: string }[]
   { name: 'exited, archived and shell seats are passed over', issues: tree, ref: 'POD-3',
     sessions: [seat('gone', 'leaf', { status: 'exited' }), seat('retired', 'leaf', { archived: true }),
       seat('shell', 'leaf', { agentKind: 'shell' }), seat('up', 'mid')] },
-  { name: 'a headless seat still counts, as before', issues: [issue('one', 1)], ref: 'POD-1',
-    sessions: [seat('quiet', 'one', { headless: true })] },
   { name: 'a parked resume twin folds away', issues: [issue('one', 1)], ref: 'POD-1',
     sessions: [
       seat('twin-old', 'one', { status: 'hibernated', resume: { kind: 'claude', value: 'r' }, lastActiveAt: stamp(9) }),
@@ -190,6 +188,24 @@ describe('reference card target parity (POD-5831)', () => {
       pool.dispose()
     }
   })
+})
+
+describe('reference card visible session targets (POD-5884)', () => {
+  for (const coordinatorSessionId of [undefined, 'quiet'])
+    it(`chooses a visible seat over a newer headless ${coordinatorSessionId ? 'coordinator' : 'member'}`, () => {
+      const pool = poolOf(
+        [issue('one', 1, { coordinatorSessionId })],
+        [seat('quiet', 'one', { headless: true, lastActiveAt: stamp(9) }),
+          seat('visible', 'one', { lastActiveAt: stamp(1) })],
+      )
+      try {
+        // The old picker reproduces the bug on these same rows.
+        expect(oldTarget(pool, 'POD-1')).toMatchObject({ sessionId: 'quiet' })
+        expect(newTarget(pool, 'POD-1')).toMatchObject({ sessionId: 'visible', viaId: 'one' })
+      } finally {
+        pool.dispose()
+      }
+    })
 })
 
 describe('reference card updates (POD-5831)', () => {

@@ -510,9 +510,10 @@ export class IssueModel extends EntityModel {
   }
 
   // Session target: where "go to session" lands for this task.
-  /** This task's own live seat, in the dock roster's contract order: the
-   * coordinator when it is one of them, else the most recently active (ties
-   * keep the collapse order). A seat still loading is skipped until it lands. */
+  /** This task's own visible live seat, in the dock roster's contract order:
+   * the coordinator when it is one of them, else the most recently active
+   * (ties keep the collapse order). Headless seats cannot be opened; a seat
+   * still loading is skipped until it lands. */
   @lazy
   get liveSeatId(): string | null {
     const coordinator = this.storedField('coordinatorSessionId')
@@ -522,7 +523,7 @@ export class IssueModel extends EntityModel {
       const session = this.host.sessionObject(id)
       let at: string
       try {
-        if (session.status === 'exited') continue
+        if (session.headless || session.status === 'exited') continue
         if (id === coordinator) return id
         at = session.lastActiveAt ?? ''
       } catch (error) { if (error !== LOADING) throw error; continue }
