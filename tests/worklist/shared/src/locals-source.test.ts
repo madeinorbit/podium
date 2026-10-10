@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from 'vitest'
 import { createLocalsSource, fixedLocals, settableLocals } from '@podium/client-graph/shared/locals-source'
-import type { LocalsKey, SliceLocals } from '@podium/client-graph/shared/slice-types'
+import type { LocalsKey, SliceLocals } from './slice-types'
 
 const NOW = 1_758_000_000_000
 const BASE: SliceLocals = { selectedIssueId: null, coarseNow: NOW }

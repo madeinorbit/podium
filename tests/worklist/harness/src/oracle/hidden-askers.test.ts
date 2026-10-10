@@ -12,7 +12,7 @@
  * them amber: the check can fail, and the case is edged rather than vacuous.
  */
 import { describe, expect, it } from 'vitest'
-import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
+import type { SliceLocals } from '../../../shared/src/slice-types'
 import { buildCorpus, type EdgedAsker, FIXED_NOW, type FixtureCorpus } from '../fixture/index'
 import { plantFormalSubtreeBubbling, rootsAskingOverHiddenAskers } from './hidden-askers'
 import { expectedSnapshot } from './index'

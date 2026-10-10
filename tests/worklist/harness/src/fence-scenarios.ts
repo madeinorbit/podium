@@ -65,7 +65,7 @@ import type { LocalsSourceHandle } from '@podium/client-graph/shared/locals-sour
 import { type RowSourceHandle } from '@podium/client-graph/shared/row-source'
 import { type RowSourceMode } from '../../shared/src/row-source'
 import { createRowSource } from '../../shared/src/row-source'
-import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
+import type { SliceLocals, SliceSnapshot } from '../../shared/src/slice-types'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
 import { poolIssuePaint } from '../../../../apps/web/src/features/worklist/pool-row-data'
 import type { PoolTransactions } from '@podium/client-graph/write/transactions'
@@ -147,7 +147,7 @@ export const GRACE_CROSSING_TICK_MS = 24 * 60 * 60 * 1000
 /** What a fenced arm consumes: the row source and the locals channel, drained together. */
 export interface FenceFeeds {
   rows: RowSourceHandle
-  locals: LocalsSourceHandle
+  locals: LocalsSourceHandle<SliceLocals>
   /** Drain both, rows first: what each step runs after its write. */
   flush(): void
   /**
@@ -233,7 +233,7 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
     subscribe: (listener) =>
       rawLocals.source.subscribe((changed) => insideArm(() => listener(changed))),
   }
-  const locals: LocalsSourceHandle = {
+  const locals: LocalsSourceHandle<SliceLocals> = {
     source: localsSource,
     get stats() {
       return rawLocals.stats

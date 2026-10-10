@@ -29,7 +29,7 @@ import {
 } from '@podium/client-core/values'
 
 import { isRowSeat, type RowOriginTick, type RowView } from '@podium/client-graph/shared/row-view'
-import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
+import type { SliceLocals } from '../../../shared/src/slice-types'
 import {
   type LegacyDerivation,
   legacyDerivationFromStore,

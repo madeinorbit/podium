@@ -37,7 +37,7 @@ import {
   RowShell,
 } from '../../../shared/src/row-shell'
 import type { RowView } from '@podium/client-graph/shared/row-view'
-import type { SliceLocals, SliceOrder, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
+import type { SliceLocals, SliceOrder, SliceSnapshot } from '../../../shared/src/slice-types'
 import type { ArmStats } from '../../../shared/src/stats'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { type RowViews, rowViewsFromStore, snapshotFromStore } from '../oracle/index'

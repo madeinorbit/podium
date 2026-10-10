@@ -22,8 +22,8 @@ import type { LocalsSource } from './source'
 import { LOCALS_KEYS, type LocalsKey, type SliceLocals } from './slice-types'
 import type { LocalsSourceStats } from './source'
 
-export interface LocalsSourceHandle {
-  readonly source: LocalsSource
+export interface LocalsSourceHandle<T extends SliceLocals = SliceLocals> {
+  readonly source: LocalsSource<T>
   readonly stats: LocalsSourceStats
   /** Drain a pending signal synchronously; returns the keys notified, if any. */
   flush(): ReadonlySet<LocalsKey> | null
@@ -50,11 +50,11 @@ function zeroKeys(): Record<LocalsKey, number> {
  * A locals source over any input. `read` returns the current locals; `signal`
  * registers a wake-up for when they may have moved and returns its teardown.
  */
-export function createLocalsSource(
-  read: () => SliceLocals,
+export function createLocalsSource<T extends SliceLocals>(
+  read: () => T,
   signal: (wake: () => void) => () => void,
-): LocalsSourceHandle {
-  let published: SliceLocals = Object.freeze({ ...read() })
+): LocalsSourceHandle<T> {
+  let published: T = Object.freeze({ ...read() })
   const listeners = new Set<(changed: ReadonlySet<LocalsKey>) => void>()
   let dirty = false
   let scheduled = false
@@ -131,7 +131,7 @@ export function createLocalsSource(
 }
 
 /** Locals that never move: unit tests and one-shot runs. Never notifies. */
-export function fixedLocals(value: SliceLocals): LocalsSourceHandle {
+export function fixedLocals<T extends SliceLocals>(value: T): LocalsSourceHandle<T> {
   return createLocalsSource(
     () => value,
     () => () => {},

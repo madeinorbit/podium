@@ -23,7 +23,7 @@ import { fixtureViewModels } from './normalized-issues'
 
 import { createHmac, randomBytes } from 'node:crypto'
 import type { PinState } from '@podium/client-core/values'
-import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
+import type { SliceLocals, SliceSnapshot } from '../../../shared/src/slice-types'
 import type {
   GitRepositoryWire,
   IssueDepProjection,

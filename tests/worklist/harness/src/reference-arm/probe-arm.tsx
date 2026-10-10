@@ -86,7 +86,7 @@ import type {
   SliceLocals,
   SliceOrder,
   SliceSnapshot,
-} from '@podium/client-graph/shared/slice-types'
+} from '../../../shared/src/slice-types'
 import type { ArmStats, RowRecord, RowSourceEvent } from '../../../shared/src/stats'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import {
@@ -407,7 +407,7 @@ export function probeReferenceArmFor(
         rebuildFromScratch(): SliceSnapshot {
           return snapshotFromStore(referenceState(engine), {
             selectedIssueId: null,
-            coarseNow: channel.get().coarseNow,
+            coarseNow: channel.get().coarseNow!,
           })
         },
         dispose(): void {

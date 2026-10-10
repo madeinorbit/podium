@@ -30,7 +30,7 @@ import type {
   SliceOrder,
   SliceRow,
   SliceSnapshot,
-} from '@podium/client-graph/shared/slice-types'
+} from '../../../shared/src/slice-types'
 import type { FixtureCorpus } from '../fixture/index'
 
 export {

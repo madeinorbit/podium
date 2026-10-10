@@ -1,5 +1,5 @@
 import { referenceState } from '../../../diagnostics/reference-state'
-import type { SliceLocals, SliceSnapshot } from '@podium/client-graph/shared/slice-types'
+import type { SliceLocals, SliceSnapshot } from '../../../shared/src/slice-types'
 /**
  * POD-4559 — the store helpers run on ONE clock: the caller's.
  *

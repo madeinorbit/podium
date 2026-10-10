@@ -22,7 +22,7 @@ import {
   rankOf,
   type RowView,
 } from '@podium/client-graph/shared/row-view'
-import type { SliceLocals, SliceOrder } from '@podium/client-graph/shared/slice-types'
+import type { SliceLocals, SliceOrder } from '../../../shared/src/slice-types'
 import { buildCorpus, FIXED_NOW, type FixtureCorpus } from '../fixture/index'
 import { projectRowViews, projectSnapshot, runLegacyDerivation } from './index'
 

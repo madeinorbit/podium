@@ -62,8 +62,8 @@ export interface RowSource {
  * (`harness/src/engine-locals.ts`). Each counts its traffic in
  * `LocalsSourceStats` (`stats.ts`).
  */
-export interface LocalsSource {
-  get(): SliceLocals
+export interface LocalsSource<T extends SliceLocals = SliceLocals> {
+  get(): T
   subscribe(listener: (changed: ReadonlySet<LocalsKey>) => void): () => void
 }
 

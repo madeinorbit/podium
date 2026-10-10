@@ -14,7 +14,7 @@ import {
   type RowPlacement,
   type RowView,
 } from '@podium/client-graph/shared/row-view'
-import type { SliceLocals, SliceOrder } from '@podium/client-graph/shared/slice-types'
+import type { SliceLocals, SliceOrder } from './slice-types'
 
 const NOW = Date.parse('2026-09-20T12:00:00Z')
 

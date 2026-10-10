@@ -7,7 +7,7 @@
  * control, and per-field coverage of the projection.
  */
 import { describe, expect, it } from 'vitest'
-import type { SliceLocals } from '@podium/client-graph/shared/slice-types'
+import type { SliceLocals } from '../../../shared/src/slice-types'
 import { buildCorpus, FIXED_NOW } from '../fixture/index'
 import { plantFormalSubtreeBubbling, rootsAskingOverHiddenAskers } from './hidden-askers'
 import { expectedSnapshot } from './index'
