@@ -1,7 +1,8 @@
+import type { SessionMeta } from '@podium/model'
 import type { SessionView } from '@podium/client-core/session-values'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
 import '@/test-support/model-catalog-mock'
-import { asIssueId, asSessionId, asUserId } from '@podium/model'
+import { asIssueId, asRepoId, asSessionId, asUserId } from '@podium/model'
 import { parseAnyRef } from '@podium/protocol'
 import { act } from 'react'
 import { createRoot, type Root } from 'react-dom/client'
@@ -23,7 +24,7 @@ const hostStore = vi.hoisted(() => ({
   ],
   replicaIssues: [] as RefIssueLike[],
   legacyIssues: [] as RefIssueLike[],
-  sessions: [] as RefSessionLike[],
+  sessions: [] as (RefSessionLike & Pick<SessionMeta, 'refRepoId' | 'refSeq' | 'refLetter'>)[],
   referenceReads: vi.fn(),
   activeReferenceReaders: 0,
   setOpenIssueId: vi.fn(),
@@ -229,9 +230,17 @@ describe('RefMiniviewHost issue resolution', () => {
   })
 
   it('resolves direct session activation from the latest addressed row without a roster', () => {
+    // The repository supplies the prefix; session identity comes from birth facts.
+    hostStore.replicaIssues = [rich]
     act(() => root.render(<RefMiniviewHost />))
     hostStore.sessions = [
-      { sessionId: asSessionId('s_late'), displayRef: 'POD-517-A', cwd: '/repo' },
+      {
+        sessionId: asSessionId('s_late'),
+        refRepoId: asRepoId('fixture-repo'),
+        refSeq: 517,
+        refLetter: 'A',
+        cwd: '/repo',
+      },
     ]
     act(() => { publishPoolFixture(); activateRef('POD-517-A', { metaKey: true }) })
     expect(hostStore.navigateToSession).toHaveBeenCalledWith('POD-517-A')

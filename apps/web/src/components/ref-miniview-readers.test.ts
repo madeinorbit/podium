@@ -20,7 +20,10 @@ function fixture(size: number) {
   const session = {
     sessionId: 'seat',
     issueId: 'parent',
-    displayRef: 'POD-2-A',
+    // Reference lookup indexes birth facts; displayRef is a joined label.
+    refRepoId: 'repo',
+    refSeq: 2,
+    refLetter: 'A',
     cwd: '/synthetic',
     agentKind: 'codex',
     status: 'live',
@@ -48,10 +51,10 @@ function fixture(size: number) {
       ].map((value) => ({ kind: 'issue' as const, id: value.id, value })),
       ...[
         session,
-        { ...session, sessionId: 'headless', displayRef: 'POD-2-B', headless: true },
-        { ...session, sessionId: 'dead', displayRef: 'POD-2-C', status: 'exited' },
-        { ...session, sessionId: 'archived', displayRef: 'POD-2-D', archived: true },
-        { ...session, sessionId: 'shell', displayRef: 'POD-2-E', agentKind: 'shell' },
+        { ...session, sessionId: 'headless', refLetter: 'B', headless: true },
+        { ...session, sessionId: 'dead', refLetter: 'C', status: 'exited' },
+        { ...session, sessionId: 'archived', refLetter: 'D', archived: true },
+        { ...session, sessionId: 'shell', refLetter: 'E', agentKind: 'shell' },
       ].map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
       ...Array.from({ length: size }, (_, i) => [
         {
@@ -66,7 +69,7 @@ function fixture(size: number) {
             ...session,
             sessionId: `other-${i}`,
             issueId: `unrelated-${i}`,
-            displayRef: `POD-${i + 10}-A`,
+            refSeq: i + 10,
           },
         },
       ]).flat(),
