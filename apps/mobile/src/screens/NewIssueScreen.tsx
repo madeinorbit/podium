@@ -68,7 +68,9 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
     const stop = followPhoneRequest(() => { if (settingsRequest && !settingsRequest.loading) void settingsRequest.read(() => trpc.settings.get.query()) })
     return () => { stop(); settingsRequest?.close() }
   }, [settingsRequest, trpc])
-  const configuredAgent = settingsRequest?.model ? issueAgentKind(codingRoleHarness(settingsRequest.model)) : undefined
+  const configuredSettings = settingsRequest?.model
+  const configuredAgent = configuredSettings?.roles?.coding
+    ? issueAgentKind(codingRoleHarness(configuredSettings)) : undefined
   useEffect(() => {
     if (configuredAgent) setLaunch(current => current.inheritAgent ? { ...current, agentKind: configuredAgent } : current)
   }, [configuredAgent])

@@ -115,7 +115,7 @@ describe('declared command and launch targets', () => {
       expect(launcher.catalog().repoPaths.length).toBeGreaterThan(0)
       const before = { ...runs }
       const beforeIds = views.sessionIds()
-      const row = omitGone(f.pool.row('session', target)) as import('@podium/client-core/session-values').SessionView
+      const row = omitGone(f.pool.row('session', target)) as import('@podium/client-core/session-values').SessionView | typeof LOADING | undefined
       if (!row || row === LOADING) throw new Error('Target session did not settle')
       runInAction(() => {
         f.pool.apply({ type: 'update', rows: [{ kind: 'session', id: target, value: { ...row, name: 'Addressed title' } }] })
