@@ -70,7 +70,7 @@ function createCommandLaunchViews(pool: MobxPool) {
     // untracked-read: launch-session-seed
     if (untracked(() => !pool.tables.session.has(id))) counts.coldSessionVisits++
     const row = omitGone(pool.row('session', id, 'summary-fields')) as Loaded<SessionView>
-    // Snapshot joined getter fields inside this addressed derivation.
+    // Return the pool identity; displayed fields subscribe at their readers.
     return row && row !== LOADING ? pool.sessionObject(id) as unknown as SessionView : row
   }, { equals: compareStructural })
   // Search and launch choices explicitly license browsing summaries while the
@@ -158,7 +158,7 @@ function createCommandLaunchViews(pool: MobxPool) {
     },
     { equals: compareStructural },
   )
-  // Addressed summary objects are fresh; compare their values explicitly.
+  // Presence is licensed by the command summary; facts stay on its model.
   const issueSummary = keyedComputed(() => undefined, (id: string): Loaded<IssueViewModel> => {
     const value = omitGone(pool.row('commandIssue', id))
     return !value || value === LOADING ? value : pool.issueObject(id) as unknown as IssueViewModel
@@ -423,7 +423,10 @@ export class CommandPaletteView {
     const live = commandLaunchViews(this.pool).opening()
     if (!live || live === LOADING) return live
     return { ...live,
-      issues: this.openingIds.flatMap(id => here(this.pool.model('issue', id)) as unknown as IssueViewModel ?? []),
+      issues: this.openingIds.flatMap(id => {
+        const summary = omitGone(this.pool.row('commandIssue', id))
+        return summary && summary !== LOADING ? [this.pool.issueObject(id) as unknown as IssueViewModel] : []
+      }),
       repos: this.repoOrder.flatMap(id => here(this.pool.model('repository', id)) ?? []),
       repoChoices: this.repoChoiceOrder.flatMap(id => here(this.pool.model('repository', id)) ?? []),
       repoViews: this.repoViewOrder.flatMap(id => launchRecords(this.pool).group(id) ?? []),
@@ -441,7 +444,7 @@ export class CommandPaletteView {
     const views = commandLaunchViews(this.pool)
     const id = this.contextIssueId
     const position = id ? this.issuePositions.get(id) : undefined
-    const issue = position === undefined || !id ? undefined : here(this.pool.model('issue', id)) as unknown as IssueViewModel
+    const issue = position === undefined || !id ? undefined : this.pool.issueObject(id) as unknown as IssueViewModel
     return views.selected({ ...this.snapshot, issues: issue ? [issue] : [] }, this.memberIds)
   }
   @lazy({ equals: compareShallow }) get memberIds(): string[] {
