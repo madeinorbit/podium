@@ -93,7 +93,7 @@ import { referenceState } from '../../../diagnostics/reference-state'
 
 import { readFileSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
-import { autorun } from 'mobx'
+import { autorun, _getGlobalState } from 'mobx'
 import { describe, expect, it } from 'vitest'
 import { openFenceFeeds, parityLocals } from '../../../harness/src/fence-scenarios'
 import {
@@ -230,6 +230,7 @@ function paintWindow(pool: MobxPool): () => void {
   stops.push(
     autorun(
       () => {
+        console.info('window autorun entered')
         items.length = 0
         void sidebarView(pool).sections()
         const groups = worklistGroups(pool)
@@ -244,6 +245,7 @@ function paintWindow(pool: MobxPool): () => void {
       { name: 'paint.list' },
     ),
   )
+  console.info('window initial items', items.length, 'batch', _getGlobalState().inBatch)
   let rows = 0
   for (const item of items) {
     if (rows === WINDOW_ROWS) break
@@ -451,7 +453,9 @@ async function measure(scale: FixtureScale, variant: Variant): Promise<ScaleCoun
         PENDING_TITLE_EDITS,
       )
     }
+    console.info('tracking before snapshot batch', _getGlobalState().inBatch)
     const startup = checkpoint(census.snapshot(), facts)
+    console.info('tracking after checkpoint batch', _getGlobalState().inBatch)
     census.enter('firstPaint')
     stopPaint = paintWindow(handle.pool)
     census.exit()
