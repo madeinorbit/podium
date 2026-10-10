@@ -2,15 +2,15 @@ import { createPrivateKey, sign } from 'node:crypto'
 import vectors from '@podium/protocol/server-locate-vectors'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
+  type FollowEvent,
   fetchAdvertisedIdentity,
   type LocateMiss,
   locateDelayMs,
   locateServer,
   proveServer,
+  ServerFollower,
   type ServerIdentity,
   type ServerMove,
-  ServerFollower,
-  type FollowEvent,
 } from './server-follow'
 
 const SERVER: ServerIdentity = {
@@ -45,7 +45,10 @@ const recordBody = (endpoints: Array<{ url: string; priority: number }>) => ({
 })
 
 /** A real server: signs whatever nonce it is sent, over `publicUrl`, with the vectors key. */
-function proofAnswer(init: RequestInit | undefined, over: { publicUrl: string; installationId?: string }) {
+function proofAnswer(
+  init: RequestInit | undefined,
+  over: { publicUrl: string; installationId?: string },
+) {
   const { nonce } = JSON.parse(String(init?.body)) as { nonce: string }
   const message = Buffer.concat([
     Buffer.from('podium-locate-v1\n'),
@@ -87,8 +90,12 @@ describe('proveServer against the shared vectors (POD-5921)', () => {
       sent.push(JSON.parse(String(init?.body)).nonce)
       return proofAnswer(init, { publicUrl: 'https://a.example' })
     })
-    expect(await proveServer({ origin: 'https://a.example', identity: SERVER, fetch })).toEqual({ ok: true })
-    expect(await proveServer({ origin: 'wss://a.example', identity: SERVER, fetch })).toEqual({ ok: true })
+    expect(await proveServer({ origin: 'https://a.example', identity: SERVER, fetch })).toEqual({
+      ok: true,
+    })
+    expect(await proveServer({ origin: 'wss://a.example', identity: SERVER, fetch })).toEqual({
+      ok: true,
+    })
     expect(calls).toEqual([
       'POST https://a.example/.well-known/podium/locate',
       'POST https://a.example/.well-known/podium/locate',
@@ -108,14 +115,20 @@ describe('proveServer against the shared vectors (POD-5921)', () => {
 
   it('times out a slow candidate and never throws', async () => {
     const { fetch } = stubFetch(() => new Promise<Response>(() => {}))
-    expect(await proveServer({ origin: 'https://a.example', identity: SERVER, fetch, timeoutMs: 20 })).toEqual({
+    expect(
+      await proveServer({ origin: 'https://a.example', identity: SERVER, fetch, timeoutMs: 20 }),
+    ).toEqual({
       ok: false,
       reason: 'timed out after 20 ms',
     })
     const throwing = stubFetch(() => {
       throw Object.assign(new Error('getaddrinfo'), { code: 'ENOTFOUND' })
     })
-    const result = await proveServer({ origin: 'https://a.example', identity: SERVER, fetch: throwing.fetch })
+    const result = await proveServer({
+      origin: 'https://a.example',
+      identity: SERVER,
+      fetch: throwing.fetch,
+    })
     expect(result).toEqual({ ok: false, reason: 'name does not resolve (ENOTFOUND)' })
   })
 
@@ -143,16 +156,23 @@ describe('locateServer: every failure row of the spec (§9)', () => {
         return Response.json(recordBody(opts.record))
       }
       const origin = new URL(url).origin
-      if (url.endsWith('/version') && opts.versions?.[origin]) return Response.json(opts.versions[origin])
+      if (url.endsWith('/version') && opts.versions?.[origin])
+        return Response.json(opts.versions[origin])
       const server = opts.servers?.[origin]
       if (!server) throw new TypeError('fetch failed')
       return server(url, init)
     })
   }
 
-  const honest = (publicUrl: string): Route => (_url, init) => proofAnswer(init, { publicUrl })
+  const honest =
+    (publicUrl: string): Route =>
+    (_url, init) =>
+      proofAnswer(init, { publicUrl })
 
-  async function run(w: ReturnType<typeof world>, over: { identity?: ServerIdentity | undefined; legacy?: boolean } = {}) {
+  async function run(
+    w: ReturnType<typeof world>,
+    over: { identity?: ServerIdentity | undefined; legacy?: boolean } = {},
+  ) {
     const misses: LocateMiss[] = []
     const found = await locateServer({
       identity: 'identity' in over ? over.identity : SERVER,
@@ -176,7 +196,10 @@ describe('locateServer: every failure row of the spec (§9)', () => {
 
   it('no identity stored: phones nobody', async () => {
     const w = world({ record: [{ url: 'https://new.example', priority: 100 }] })
-    expect(await run(w, { identity: undefined })).toEqual({ found: undefined, misses: [{ kind: 'no-identity' }] })
+    expect(await run(w, { identity: undefined })).toEqual({
+      found: undefined,
+      misses: [{ kind: 'no-identity' }],
+    })
     expect(w.calls).toEqual([])
   })
 
@@ -211,7 +234,11 @@ describe('locateServer: every failure row of the spec (§9)', () => {
     expect(misses).toEqual([
       { kind: 'rejected', url: 'https://unreachable.example', reason: 'fetch failed' },
       { kind: 'rejected', url: 'https://slow.example', reason: 'timed out after 50 ms' },
-      { kind: 'rejected', url: 'https://old-server.example', reason: 'answers no locate proof (HTTP 404)' },
+      {
+        kind: 'rejected',
+        url: 'https://old-server.example',
+        reason: 'answers no locate proof (HTTP 404)',
+      },
       {
         kind: 'rejected',
         url: 'https://relay.example',
@@ -249,21 +276,34 @@ describe('locateServer: every failure row of the spec (§9)', () => {
 
   it('the daemon transition: a 404 proof falls back to /version only when asked to', async () => {
     const versions = {
-      'https://new.example': { installationId: SERVER.installationId, installationPublicKey: SERVER.installationPublicKey },
+      'https://new.example': {
+        installationId: SERVER.installationId,
+        installationPublicKey: SERVER.installationPublicKey,
+      },
     }
     const servers = { 'https://new.example': () => new Response('', { status: 404 }) }
     const record = [{ url: 'https://new.example', priority: 100 }]
     expect((await run(world({ record, servers, versions }))).found).toBeUndefined()
-    expect((await run(world({ record, servers, versions }), { legacy: true })).found).toBe('https://new.example')
+    expect((await run(world({ record, servers, versions }), { legacy: true })).found).toBe(
+      'https://new.example',
+    )
     // Never for a candidate that answered the proof and failed it.
     const forged = { 'https://new.example': honest('https://elsewhere.example') }
-    expect((await run(world({ record, servers: forged, versions }), { legacy: true })).found).toBeUndefined()
+    expect(
+      (await run(world({ record, servers: forged, versions }), { legacy: true })).found,
+    ).toBeUndefined()
     // And /version must still name this installation.
     const wrong = { 'https://new.example': { installationId: OTHER_ID } }
-    const { found, misses } = await run(world({ record, servers, versions: wrong }), { legacy: true })
+    const { found, misses } = await run(world({ record, servers, versions: wrong }), {
+      legacy: true,
+    })
     expect(found).toBeUndefined()
     expect(misses).toEqual([
-      { kind: 'rejected', url: 'https://new.example', reason: `serves a different installation (${OTHER_ID})` },
+      {
+        kind: 'rejected',
+        url: 'https://new.example',
+        reason: `serves a different installation (${OTHER_ID})`,
+      },
     ])
   })
 })
@@ -271,10 +311,14 @@ describe('locateServer: every failure row of the spec (§9)', () => {
 describe('fetchAdvertisedIdentity', () => {
   it('reads both halves from /version, converting ws(s), and refuses half an identity', async () => {
     const full = stubFetch(() => Response.json({ ...SERVER, appVersion: 'dev' }))
-    expect(await fetchAdvertisedIdentity({ serverUrl: 'wss://a.example', fetch: full.fetch })).toEqual(SERVER)
+    expect(
+      await fetchAdvertisedIdentity({ serverUrl: 'wss://a.example', fetch: full.fetch }),
+    ).toEqual(SERVER)
     expect(full.calls).toEqual(['GET https://a.example/version'])
     const half = stubFetch(() => Response.json({ installationId: SERVER.installationId }))
-    expect(await fetchAdvertisedIdentity({ serverUrl: 'https://a.example', fetch: half.fetch })).toBeUndefined()
+    expect(
+      await fetchAdvertisedIdentity({ serverUrl: 'https://a.example', fetch: half.fetch }),
+    ).toBeUndefined()
   })
 })
 
@@ -304,11 +348,13 @@ describe('ServerFollower', () => {
     vi.useRealTimers()
   })
 
-  function follower(over: {
-    locate?: (n: number) => Promise<string | undefined>
-    adopt?: (move: ServerMove) => Promise<void>
-    identity?: ServerIdentity | undefined
-  } = {}) {
+  function follower(
+    over: {
+      locate?: (n: number) => Promise<string | undefined>
+      adopt?: (move: ServerMove) => Promise<void>
+      identity?: ServerIdentity | undefined
+    } = {},
+  ) {
     vi.useFakeTimers()
     let asks = 0
     const adopted: ServerMove[] = []
@@ -416,7 +462,12 @@ describe('ServerFollower', () => {
 
   it('pushed() adopts a transfer at once, without locating', async () => {
     const h = follower()
-    h.f.pushed({ via: 'transfer', origin: 'https://target.example', transferId: 't1', claimToken: 'c' })
+    h.f.pushed({
+      via: 'transfer',
+      origin: 'https://target.example',
+      transferId: 't1',
+      claimToken: 'c',
+    })
     await vi.advanceTimersByTimeAsync(0)
     expect(h.asks()).toBe(0)
     expect(h.adopted).toEqual([

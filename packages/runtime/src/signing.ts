@@ -92,7 +92,10 @@ export function signMessage(
  * string — the locate proof carries a raw nonce (POD-5921). The caller builds
  * the bytes, domain prefix included.
  */
-export function signBytes(identity: Pick<SigningKeyPair, 'privateKey'>, message: Uint8Array): string {
+export function signBytes(
+  identity: Pick<SigningKeyPair, 'privateKey'>,
+  message: Uint8Array,
+): string {
   const key = createPrivateKey({
     key: Buffer.from(identity.privateKey, 'base64'),
     format: 'der',

@@ -55,7 +55,9 @@ export function browserFollowDestination(
   return `${new URL(origin).origin}${location.pathname}${location.search}${location.hash}`
 }
 
-export function browserFollowAdopt(opts: BrowserFollowOptions): (move: BrowserMove) => Promise<void> {
+export function browserFollowAdopt(
+  opts: BrowserFollowOptions,
+): (move: BrowserMove) => Promise<void> {
   const wait = (ms: number) =>
     new Promise<void>((resolve) => (opts.setTimeout ?? setTimeout)(resolve, ms))
   return async (move) => {

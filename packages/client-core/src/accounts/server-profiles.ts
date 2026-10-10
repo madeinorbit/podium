@@ -138,7 +138,10 @@ export function profileServerIdentity(
   profile: Pick<ServerProfile, 'installationId' | 'installationPublicKey'>,
 ): { installationId: string; installationPublicKey: string } | undefined {
   return profile.installationId && profile.installationPublicKey
-    ? { installationId: profile.installationId, installationPublicKey: profile.installationPublicKey }
+    ? {
+        installationId: profile.installationId,
+        installationPublicKey: profile.installationPublicKey,
+      }
     : undefined
 }
 
@@ -189,7 +192,8 @@ export function moveServerProfile(
     ...mover,
     httpOrigin: origin,
     transport: classifyServerTransport(origin),
-    name: mover.name === defaultProfileName(mover.httpOrigin) ? defaultProfileName(origin) : mover.name,
+    name:
+      mover.name === defaultProfileName(mover.httpOrigin) ? defaultProfileName(origin) : mover.name,
     updatedAt: now,
   }
   const displacedIds = new Set(clashing.map((row) => row.id))

@@ -18,14 +18,18 @@ import vectors from './server-locate.vectors.json'
 const CONNECT_REACHABILITY_PREFIX = 'podium-reachability-v1\n'
 const CONNECT_PROBE_PREFIX = 'podium-connect-probe-v1\n'
 
-const hex = (bytes: Uint8Array) => Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
+const hex = (bytes: Uint8Array) =>
+  Array.from(bytes, (b) => b.toString(16).padStart(2, '0')).join('')
 
 describe('locate proof message (POD-5921)', () => {
   it('is prefix || nonce || publicUrl, byte for byte', () => {
     const nonce = new Uint8Array(32).fill(7)
     const message = locateProofMessage(nonce, 'https://a.example')
-    const ascii = (s: string) => Array.from(s, (c) => c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
-    expect(hex(message)).toBe(`${ascii('podium-locate-v1\n')}${'07'.repeat(32)}${ascii('https://a.example')}`)
+    const ascii = (s: string) =>
+      Array.from(s, (c) => c.charCodeAt(0).toString(16).padStart(2, '0')).join('')
+    expect(hex(message)).toBe(
+      `${ascii('podium-locate-v1\n')}${'07'.repeat(32)}${ascii('https://a.example')}`,
+    )
   })
 
   it('has a domain prefix distinct from every other installation-key context', () => {
@@ -50,8 +54,12 @@ describe('locate proof parsers', () => {
     const parsed = parseLocateProofRequest({ nonce })
     expect('nonce' in parsed && hex(parsed.nonce)).toBe('01'.repeat(32))
     expect(parseLocateProofRequest({ nonce: `${nonce}=` })).toHaveProperty('error')
-    expect(parseLocateProofRequest({ nonce: base64urlFromBytes(new Uint8Array(31)) })).toHaveProperty('error')
-    expect(parseLocateProofRequest({ nonce: base64urlFromBytes(new Uint8Array(33)) })).toHaveProperty('error')
+    expect(
+      parseLocateProofRequest({ nonce: base64urlFromBytes(new Uint8Array(31)) }),
+    ).toHaveProperty('error')
+    expect(
+      parseLocateProofRequest({ nonce: base64urlFromBytes(new Uint8Array(33)) }),
+    ).toHaveProperty('error')
     expect(parseLocateProofRequest({})).toHaveProperty('error')
     expect(parseLocateProofRequest(null)).toHaveProperty('error')
     expect(parseLocateProofRequest([nonce])).toHaveProperty('error')
@@ -64,7 +72,9 @@ describe('locate proof parsers', () => {
     expect(parseLocateProofResponse({ ...good, installationId: 'pdm_short' })).toBeUndefined()
     expect(parseLocateProofResponse({ ...good, publicUrl: 'ftp://a.example' })).toBeUndefined()
     expect(parseLocateProofResponse({ ...good, publicUrl: 'not a url' })).toBeUndefined()
-    expect(parseLocateProofResponse({ ...good, signature: good.signature.slice(1) })).toBeUndefined()
+    expect(
+      parseLocateProofResponse({ ...good, signature: good.signature.slice(1) }),
+    ).toBeUndefined()
     expect(parseLocateProofResponse({ ...good, signature: undefined })).toBeUndefined()
     expect(parseLocateProofResponse('nope')).toBeUndefined()
   })
@@ -103,16 +113,20 @@ describe('the shared vectors', () => {
     it(`${vector.name}: the signed message is prefix || nonce || normalised publicUrl`, () => {
       const signedNonce = bytesFromBase64url(vector.signedNonce)!
       expect(signedNonce.length).toBe(32)
-      expect(hex(locateProofMessage(signedNonce, vector.response.publicUrl))).toBe(vector.messageHex)
+      expect(hex(locateProofMessage(signedNonce, vector.response.publicUrl))).toBe(
+        vector.messageHex,
+      )
       expect(vector.response.publicUrl).toBe(locateOrigin(vector.configuredPublicUrl))
       expect(parseLocateProofResponse(vector.response)).toEqual(vector.response)
       expect(isServerIdentity(vector.stored)).toBe(true)
       // The id and origin checks need no signature library; the signature itself
       // is checked by the runtime verifier test against the same file.
       const idMatches = vector.response.installationId === vector.stored.installationId
-      const originMatches = locateOrigin(vector.response.publicUrl) === locateOrigin(vector.candidate)
+      const originMatches =
+        locateOrigin(vector.response.publicUrl) === locateOrigin(vector.candidate)
       if (vector.verdict === 'wrong-id') expect(idMatches).toBe(false)
-      else if (vector.verdict === 'origin-mismatch') expect([idMatches, originMatches]).toEqual([true, false])
+      else if (vector.verdict === 'origin-mismatch')
+        expect([idMatches, originMatches]).toEqual([true, false])
       else expect([idMatches, originMatches]).toEqual([true, true])
     })
   }

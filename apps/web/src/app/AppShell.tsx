@@ -4,12 +4,12 @@ import {
   followHub,
   observeLiveConnection,
 } from '@podium/client-core/live-connection'
-import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol'
 import {
   FLIGHT_DECK_DISPLAY_KEY,
   FLIGHT_DECK_EXPANDED_WIDTH_KEY,
 } from '@podium/client-core/ui-state'
 import { observer } from '@podium/client-graph/react'
+import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol'
 import { ChevronLeft } from 'lucide-react'
 import type { CSSProperties, JSX, ReactNode } from 'react'
 import { lazy, Suspense, useEffect, useRef, useState, useSyncExternalStore } from 'react'
@@ -53,7 +53,6 @@ import { throughRestarts } from '@/lib/chunk-recovery'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
 import { effectiveIssueColorHex, FLOW_CSS } from '@/lib/issueColors'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
-import { webFollowPorts } from './server-follow'
 import { prefetchAfterFirstPaint } from '@/lib/prefetch-after-first-paint'
 import type { SyncProgressStore } from '@/lib/sync-progress'
 import { useFeature } from '@/lib/use-feature'
@@ -84,6 +83,7 @@ import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
 import { StatusStrip } from './StatusStrip'
 import { SyncLoader, WarmSyncStatus } from './SyncLoader'
+import { webFollowPorts } from './server-follow'
 import { useShellActions, useShellChrome } from './shell-data'
 import {
   CLOSE_RIGHT_PANEL,

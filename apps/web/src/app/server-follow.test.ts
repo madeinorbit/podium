@@ -60,7 +60,9 @@ describe('the web app follows a moved server (POD-5921)', () => {
     expect(ports.loadIdentity()).toBeUndefined()
     ports.saveIdentity(IDENTITY)
     expect(ports.loadIdentity()).toEqual(IDENTITY)
-    expect(webFollowPorts({ bridge: undefined, location: page(), ...immediate }).loadIdentity()).toBeUndefined()
+    expect(
+      webFollowPorts({ bridge: undefined, location: page(), ...immediate }).loadIdentity(),
+    ).toBeUndefined()
   })
 
   it('under an older desktop bridge: no identity, no Connect move, transfers as before', async () => {
@@ -94,7 +96,12 @@ describe('the web app follows a moved server (POD-5921)', () => {
     expect(ports.loadIdentity()).toEqual(next)
 
     await ports.adopt({ via: 'connect', origin: 'https://new.example' })
-    await ports.adopt({ via: 'transfer', origin: 'https://t.example', transferId: 't1', claimToken: 'c' })
+    await ports.adopt({
+      via: 'transfer',
+      origin: 'https://t.example',
+      transferId: 't1',
+      claimToken: 'c',
+    })
     expect(moveServer.mock.calls).toEqual([
       ['https://new.example'],
       ['https://t.example', 't1', 'c'],

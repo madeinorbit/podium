@@ -1287,7 +1287,9 @@ describe('runCliSetup: Cloudflare quick tunnel managed by Podium', () => {
     })
     await done
     const text = output.join('\n')
-    expect(text).toContain('Joined machines and the desktop and mobile apps follow it on their own.')
+    expect(text).toContain(
+      'Joined machines and the desktop and mobile apps follow it on their own.',
+    )
     expect(text).toContain(`In a browser, bookmark this link instead: ${link}`)
     expect(text).not.toContain('do not follow it yet')
   })

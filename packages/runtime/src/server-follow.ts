@@ -32,17 +32,17 @@
  * bundle.
  */
 import {
+  base64urlFromBytes,
   bytesFromBase64url,
+  isServerIdentity,
   LOCATE_NONCE_BYTES,
   LOCATE_PROOF_MAX_RESPONSE_BYTES,
   LOCATE_PROOF_PATH,
-  base64urlFromBytes,
   locateOrigin,
   locateProofMessage,
   parseLocateProofResponse,
   rawPublicKeyFromWire,
   type ServerIdentity,
-  isServerIdentity,
 } from '@podium/protocol'
 
 export type { ServerIdentity }
@@ -481,7 +481,11 @@ async function legacyVersionAccepts(
   url: string,
   opts: LocateServerOptions & { identity: ServerIdentity },
 ): Promise<string | undefined> {
-  const read = await readVersionIdentity({ serverUrl: url, fetch: opts.fetch, timeoutMs: opts.timeoutMs })
+  const read = await readVersionIdentity({
+    serverUrl: url,
+    fetch: opts.fetch,
+    timeoutMs: opts.timeoutMs,
+  })
   if ('failure' in read) return read.failure
   if (read.identity.installationId !== opts.identity.installationId) {
     return `serves a different installation (${read.identity.installationId})`

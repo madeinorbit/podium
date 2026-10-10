@@ -9,15 +9,15 @@ import {
   withPairingIdentity,
   withProfileServerIdentity,
 } from '@podium/client-core/accounts'
-import { CONNECT_DEFAULT_BASE_URL, type ServerIdentity } from '@podium/protocol'
 import { locateServer } from '@podium/client-core/live-connection'
-import { createLogger } from '@podium/logger'
 import {
   parseServerOrigin,
-  workspaceSelectorFromLocation,
   type ServerConfig,
   type WorkspaceSelector,
+  workspaceSelectorFromLocation,
 } from '@podium/client-core/transport'
+import { createLogger } from '@podium/logger'
+import { CONNECT_DEFAULT_BASE_URL, type ServerIdentity } from '@podium/protocol'
 import * as Haptics from 'expo-haptics'
 import { router } from 'expo-router'
 import {
@@ -30,8 +30,8 @@ import {
   useSyncExternalStore,
 } from 'react'
 import {
-  ActivityIndicator,
   AccessibilityInfo,
+  ActivityIndicator,
   Alert,
   Linking,
   Platform,
@@ -41,30 +41,30 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { PairingScanner } from '../components/PairingScanner'
+import { HostedSignInButton } from '../components/HostedSignInButton'
 import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { MembershipDeniedView } from '../components/MembershipDeniedView'
+import { PairingScanner } from '../components/PairingScanner'
 import { PressableScale } from '../components/PressableScale'
 import { setKnownPodiumOrigins } from '../lib/podium-link'
 import { color, font, radius, sans, space } from '../theme/theme'
-import { fetchAuthStatus, logout } from './auth'
 import { mobileAccountCredentials } from './account-credentials'
 import { mobileAccountEraser } from './account-data'
+import { fetchAuthStatus, logout } from './auth'
 import { mobileBrowserAccounts } from './browser-accounts'
-import { HostedSignInButton } from '../components/HostedSignInButton'
 import {
+  CredentialWriteQueue,
+  replaceCredentialForOwner,
+  StaleCredentialOwnerError,
+} from './credential-ownership'
+import {
+  type HostedReturn,
+  type HostedSession,
   HostedSignInCanceledError,
   isHostedReturn,
   parseHostedReturn,
-  type HostedReturn,
-  type HostedSession,
 } from './hosted-sign-in'
 import { hostedSignIn } from './hosted-sign-in-runtime'
-import {
-  CredentialWriteQueue,
-  StaleCredentialOwnerError,
-  replaceCredentialForOwner,
-} from './credential-ownership'
 import { LaunchReadyView } from './launch-ready'
 import {
   captureMobileHandoffUrl,
@@ -608,7 +608,10 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
                   erasePrincipal: mobileAccountEraser.erase,
                 }),
               )
-              followLog.info('saved server moved', { profileId: moved.id, origin: moved.httpOrigin })
+              followLog.info('saved server moved', {
+                profileId: moved.id,
+                origin: moved.httpOrigin,
+              })
               startupState = { ...movedState, activeProfileId: startupState.activeProfileId }
               active = moved
               result = await preflightServer(active.httpOrigin, active.workspaceId)
@@ -1312,7 +1315,11 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             ...state,
             profiles: state.profiles.map((row) =>
               row.id === profile.id
-                ? { ...row, installationId: identity.installationId, installationPublicKey: identity.installationPublicKey }
+                ? {
+                    ...row,
+                    installationId: identity.installationId,
+                    installationPublicKey: identity.installationPublicKey,
+                  }
                 : row,
             ),
           }))
