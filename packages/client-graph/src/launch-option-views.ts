@@ -28,7 +28,7 @@ export function launchOptionViews(pool: MobxPool) {
       const row = omitGone(pool.row('commandWindow', 'window'))
       return row && row !== LOADING ? row.pins : EMPTY_PINS
     })
-    const projectForRepository = (repo: NonNullable<ReturnType<typeof repository>>) => launchRecords(pool).group(repo.id, true)!
+    const projectForRepository = (repo: NonNullable<ReturnType<typeof repository>>) => launchRecords(pool).byId(repo.id, true)!
     const project = keyedComputed('launch.project', (id: string) => launchRecords(pool).group(id, true))
     const projectIsEligible = (repo: RepoNavView) =>
       pins.get().repos.some(path => machinePathsEqual(path, repo.path)) || repo.worktrees.length > 0
@@ -181,7 +181,7 @@ export class LaunchWorkPicker {
     const choices = this.choices
     return storedOrder(this.projectOrder, choices.map(repo => repo.path)).flatMap(path => {
       const repository = launchRecords(this.pool).at(path)
-      return repository ? launchRecords(this.pool).group(repository.id, true) ?? [] : []
+      return repository ? launchRecords(this.pool).byId(repository.id, true) ?? [] : []
     })
   }
   @lazy get machines() { return launchOptionViews(this.pool).machines() }

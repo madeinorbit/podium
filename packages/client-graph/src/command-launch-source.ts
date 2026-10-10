@@ -109,7 +109,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
           'commandMachine',
           runtime.listIds('machines').flatMap((id) => {
             const row = runtime.listRow('machines', id)
-            return row ? [[id, row] as const] : []
+            return row ? [[id, { id }] as const] : []
           }),
         ),
       )

@@ -25,7 +25,7 @@ import { LOADING, type Loaded } from './worklist/rollup'
 export type CommandLaunchData = CommandLaunchRows['commandWindow'] & {
   repos: Store['repos']
   repoViews: RepoView[]
-  machines: CommandLaunchRows['commandMachine'][]
+  machines: Store['machines']
   sessionIds: readonly string[]
   issues: IssueViewModel[]
   repoChoices: Store['repos']

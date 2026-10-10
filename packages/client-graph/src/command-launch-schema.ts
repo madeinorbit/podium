@@ -10,7 +10,7 @@ export interface CommandLaunchRows {
   commandRepository: Pick<Store['repos'][number], 'path' | 'machineId'> & { groupId: string; linked: boolean }
   commandRepo: { id: string }
   commandWorktree: Pick<WorktreeView, 'path'> & { repositoryId: string; groupId: string }
-  commandMachine: Store['machines'][number]
+  commandMachine: Pick<Store['machines'][number], 'id'>
   commandIssue: SliceIssue
 }
 export type CommandEntity = keyof CommandLaunchRows

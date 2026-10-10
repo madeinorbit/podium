@@ -27,10 +27,11 @@ export class LaunchTree implements WorktreeView {
   readonly issues = []
 }
 export class LaunchRepository implements RepoNavView {
-  constructor(readonly repository: RepositoryModel, private readonly pool: MobxPool, private readonly projectOnly = false) {}
-  @lazy get id() { return headerEntities(this.pool).repositoryGroupId(this.repository.id) ?? this.repository.id }
+  readonly id: string
+  constructor(readonly repository: RepositoryModel, private readonly pool: MobxPool, private readonly projectOnly = false) { this.id = repository.id }
   @lazy({ equals: compareShallow }) get scans(): RepositoryModel[] {
-    return headerEntities(this.pool).repositoryGroupRoots(this.id).flatMap(id => here(this.pool.model('repository', id)) ?? [])
+    const group = headerEntities(this.pool).repositoryGroupId(this.id)
+    return group ? headerEntities(this.pool).repositoryGroupRoots(group).flatMap(id => here(this.pool.model('repository', id)) ?? []) : []
   }
   @lazy get path() { return this.scans[0]?.path ?? '' }
   @lazy get originUrl() { return this.scans.map(scan => normalizeOriginUrl(scan.originUrl)).find(Boolean) }
@@ -60,9 +61,9 @@ export function launchRecords(pool: MobxPool) {
     }
     return {
       group,
-      byId(id: string) {
+      byId(id: string, projects = false) {
         const scan = here(pool.model('repository', id))
-        return scan ? repository(scan) : undefined
+        return scan ? (projects ? project(scan) : repository(scan)) : undefined
       },
       at(path: string) {
         const ids = headerEntities(pool).repositoryGroup(path)
