@@ -600,6 +600,8 @@ export class MobxPool {
     id: string,
     absent: AbsentRead = 'load',
   ): Lookup<object> {
+    // A retired pool has no visible records and must never restart its loader.
+    if (this.disposed) return NOT_VISIBLE
     if (entity === 'setupSession') return readSetupSession(this, id) ?? NOT_VISIBLE
     if (isHeaderEntity(entity) && entity !== 'machine') return headerEntities(this).get(entity, id) ?? NOT_VISIBLE
     if (!Object.hasOwn(this.tables, entity)) return this.sources.read(entity as SourceEntity, id) ?? NOT_VISIBLE

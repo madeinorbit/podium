@@ -1,4 +1,4 @@
-import { here, requireHere } from '@podium/client-graph/lookup'
+import { here, NOT_VISIBLE, requireHere } from '@podium/client-graph/lookup'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { rowViewOf } from '../../../shared/src/row-snapshots'
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
@@ -470,7 +470,9 @@ describe('dispose', () => {
     expect(tracked(() => worklist.selectedId)).toBeNull()
     expect(lazyKeptCount(groups)).toBe(0)
     expect(tracked(() => visibleOrderOf(pool))).toEqual([])
-    expect(tracked(() => here(pool.issue(models[0]!.id)))).toBeUndefined()
+    expect(tracked(() => pool.issue(models[0]!.id))).toBe(NOT_VISIBLE)
+    expect(runInAction(() => pool.row('issue', models[0]!.id))).toBe(NOT_VISIBLE)
+    expect(tracked(() => pool.resident('issue', models[0]!.id))).toBe('absent')
     // A row view is a cached group on its issue, dropped once unobserved; one
     // still observed would observe its table slots, which the check above
     // finds empty.
