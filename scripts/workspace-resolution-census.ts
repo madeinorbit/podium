@@ -88,13 +88,23 @@ function workspaceManifests(root: string): string[] {
     .sort()
 }
 
-function sourceFiles(directory: string): string[] {
+function sourceFiles(directory: string, apiTypes: boolean): string[] {
   const files: string[] = []
   const visit = (current: string) => {
     for (const entry of readdirSync(current, { withFileTypes: true }).sort((a, b) =>
       a.name.localeCompare(b.name),
     )) {
       if (SKIPPED_DIRECTORIES.has(entry.name)) continue
+      // build.ts emits a temporary server declaration tree here. An interrupted
+      // build can leave it behind; those imports belong to the server, not this package.
+      if (
+        apiTypes &&
+        current === directory &&
+        entry.isDirectory() &&
+        entry.name.startsWith('.generated-')
+      ) {
+        continue
+      }
       const path = join(current, entry.name)
       if (entry.isDirectory()) visit(path)
       else if (entry.isFile() && SOURCE_EXTENSIONS.has(extname(entry.name))) files.push(path)
@@ -114,7 +124,7 @@ function loaderForSource(path: string): Bun.JavaScriptLoader {
 
 function workspaceImports(workspace: Workspace, errors: string[]): Set<string> {
   const imports = new Set<string>()
-  for (const file of sourceFiles(workspace.directory)) {
+  for (const file of sourceFiles(workspace.directory, workspace.name === '@podium/api-types')) {
     try {
       const transpiler = new Bun.Transpiler({ loader: loaderForSource(file) })
       for (const imported of transpiler.scan(readFileSync(file)).imports) {

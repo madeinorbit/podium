@@ -328,6 +328,50 @@ describe('workspace resolution ownership', () => {
       fingerprint({ ...environment, resolutions: before.records }),
     )
   })
+
+  it('admits a checkout with stale API declaration trees [POD-5893]', () => {
+    const root = resolutionFixture('isolated', 'healthy')
+    const api = join(root, 'packages/api-types')
+    writeJson(join(api, 'package.json'), { name: '@podium/api-types' })
+    mkdirSync(join(api, 'src'), { recursive: true })
+    writeFileSync(join(api, 'src/index.d.ts'), 'export {}\n')
+    const before = readWorkspaceResolutionCensus(root)
+    expect(before.errors).toEqual([])
+
+    for (const directory of ['.generated-ABC123', '.generated-DEF456']) {
+      const declarations = join(api, directory, 'declarations/apps/server/src')
+      mkdirSync(declarations, { recursive: true })
+      writeFileSync(join(api, directory, 'scope.ts'), "import '@podium/stale-scope'\n")
+      writeFileSync(join(declarations, 'internal.d.ts'), "import '@podium/stale-server'\n")
+    }
+    const after = readWorkspaceResolutionCensus(root)
+    expect(after).toEqual(before)
+    const environment = {
+      install: { config: [], layout: [], errors: [] },
+      resolutions: after.records,
+      admissionErrors: after.errors,
+      runtime: { bun: Bun.version, platform: 'linux', arch: 'x64' },
+    }
+    expect(admissionRefusal(environment, 'test')).toBeNull()
+    expect(fingerprint(environment)).toBe(
+      fingerprint({ ...environment, resolutions: before.records }),
+    )
+
+    // Only the build's top-level output is excluded; source imports still matter.
+    const source = join(api, 'src/.generated-contracts')
+    mkdirSync(source, { recursive: true })
+    writeFileSync(join(source, 'internal.d.ts'), "import '@podium/stale-server'\n")
+    expect(readWorkspaceResolutionCensus(root).errors).toContain(
+      '@podium/api-types: import @podium/stale-server is not declared by its owner',
+    )
+
+    const otherWorkspace = join(root, 'packages/a/.generated-ABC123')
+    mkdirSync(otherWorkspace, { recursive: true })
+    writeFileSync(join(otherWorkspace, 'internal.d.ts'), "import '@podium/stale-server'\n")
+    expect(readWorkspaceResolutionCensus(root).errors).toContain(
+      '@podium/a: import @podium/stale-server is not declared by its owner',
+    )
+  })
 })
 
 function executableTopologyFixture(): {

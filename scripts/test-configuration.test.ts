@@ -10,7 +10,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { dirname, join, resolve } from 'node:path'
+import { dirname, join, relative, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { describe, expect, it } from 'vitest'
 import desktopConfig from '../apps/desktop/vitest.config'
@@ -197,6 +197,15 @@ const escapingImports = (packageDir: string, root: string): string[] => {
     for (const entry of readdirSync(dir, { withFileTypes: true })) {
       const full = join(dir, entry.name)
       if (entry.isDirectory()) {
+        // Interrupted API builds leave server declarations in this temporary
+        // tree. They are build output, not inputs to the api-types checker.
+        if (
+          packageDir === 'packages/api-types' &&
+          dir === absolutePackageDir &&
+          entry.name.startsWith('.generated-')
+        ) {
+          continue
+        }
         if (['node_modules', 'dist', 'build', '.turbo', 'ios', 'android'].includes(entry.name)) {
           continue
         }
@@ -1022,6 +1031,36 @@ describe('test lane configuration', () => {
       readFileSync(new URL('../apps/mobile/package.json', import.meta.url), 'utf8'),
     )
     expect(mobile.devDependencies['@trpc/server']).toBeTruthy()
+  })
+
+  it('ignores stale API declaration trees when scanning typecheck inputs [POD-5893]', () => {
+    const fixture = mkdtempSync(join(tmpdir(), 'podium-api-type-inputs-'))
+    const api = join(fixture, 'packages/api-types')
+    const server = join(fixture, 'apps/server/src/internal.ts')
+    const writeImport = (file: string) => {
+      mkdirSync(dirname(file), { recursive: true })
+      writeFileSync(file, `export type { Internal } from '${relative(dirname(file), server)}'\n`)
+    }
+    try {
+      mkdirSync(dirname(server), { recursive: true })
+      writeFileSync(server, 'export interface Internal { value: string }\n')
+      mkdirSync(join(api, 'src'), { recursive: true })
+      writeFileSync(join(api, 'src/index.d.ts'), 'export {}\n')
+      expect(escapingImports('packages/api-types', fixture)).toEqual([])
+
+      writeImport(join(api, '.generated-ABC123/declarations/apps/server/src/internal.d.ts'))
+      writeImport(join(api, '.generated-DEF456/index.ts'))
+      expect(escapingImports('packages/api-types', fixture)).toEqual([])
+
+      // A similarly named source directory is still checked.
+      writeImport(join(api, 'src/.generated-contracts/index.d.ts'))
+      expect(escapingImports('packages/api-types', fixture)).toEqual(['apps/server/src/internal.ts'])
+
+      writeImport(join(fixture, 'packages/model/.generated-ABC123/index.d.ts'))
+      expect(escapingImports('packages/model', fixture)).toEqual(['apps/server/src/internal.ts'])
+    } finally {
+      rmSync(fixture, { recursive: true, force: true })
+    }
   })
 
   it('keeps every typecheck cache key over the sources that task actually reads [POD-2807]', () => {
