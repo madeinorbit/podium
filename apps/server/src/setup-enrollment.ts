@@ -69,3 +69,44 @@ export async function completePreauthorizedSetup(store: SessionStore, installati
     return enrollSetupMachine(store, installationId, request, actor)
   })
 }
+
+/**
+ * Whether this host's own row predates setup enrollment (POD-5931): a live `bearer-hash`
+ * row that the local daemon used to reach with the same-host bootstrap secret. Such a
+ * host has no credential the current release accepts until it is adopted below.
+ */
+export async function isLegacyHostMachine(store: SessionStore, machineId: string): Promise<boolean> {
+  return store.machines.hasLegacyBearerCredential(asMachineId(machineId))
+}
+
+/**
+ * Move an upgraded host's legacy row onto the key its parent just prepared.
+ *
+ * The request's machine id is read from the server's own state dir by the same
+ * supervisor that holds the private key, so it names this host and nothing else. The
+ * row keeps its id, owner, repos and sessions; only the credential and the service
+ * assignment (always server, plus agents when this host runs them) change. Like setup,
+ * the receipt makes a retry after a lost parent confirmation return the same answer.
+ * `undefined` when the row is not a legacy host row — the caller then has nothing to do.
+ */
+export async function adoptLegacyHostMachine(store: SessionStore, installationId: string,
+  request: SetupEnrollmentRequest): Promise<SetupEnrollmentReceipt | undefined> {
+  if (!installationId || !parseWirePublicKey(request.publicKey)) throw new Error('invalid setup enrollment identity')
+  return store.transact(async () => {
+    const prior = await readSetupEnrollment(store, installationId, request)
+    if (prior) return prior
+    const id = asMachineId(request.machineId)
+    const adopted = await store.machines.adoptLegacyHostCredential(id, request.publicKey,
+      { server: true, agentExecution: request.agentExecution },
+      { version: 1, source: 'legacy-host-adoption', requestId: request.requestId })
+    if (!adopted) return undefined
+    const actor = await store.machines.custodian(id)
+    const receipt = { ...request, installationId, actor: actor ? asUserId(actor) : null }
+    await store.settings.recordSetupEnrollment(receiptKey(installationId, request), JSON.stringify(receipt))
+    await store.settingsAudit.append({ command: 'machines.adoptLegacyHost', outcome: 'applied',
+      actorKind: 'system', actorId: null, onBehalfOf: null,
+      detail: { installationId, machineId: id, requestId: request.requestId, publicKey: request.publicKey },
+      redactedPaths: [], createdAt: new Date().toISOString() })
+    return receipt
+  })
+}
