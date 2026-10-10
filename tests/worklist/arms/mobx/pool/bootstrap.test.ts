@@ -96,20 +96,13 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
   // reaction per issue in memory is an exact count here: `track` dedupes by
   // id, so a double-track would show as growth.
   let handle!: BootHandle
-  console.info(`[bootstrap ${feed.corpus.scale}x ${arm}] start`)
   const reactions = collectReactions(() => {
     handle = boot(arm, feed)
   })
   const { pool } = handle
-  console.info(`[bootstrap ${feed.corpus.scale}x ${arm}] booted`)
   off()
   const filing = filingReactions(reactions)
   const models = objectsBehind(filing)
-  const held = filing.length
-  // The census needs only scalar results after the walk. Release its graph
-  // roots before disposing the pool, rather than retaining every derivation.
-  filing.length = 0
-  reactions.clear()
   const cell = {
     rows: tracked(() => ({
       issue: pool.tables.issue.size,
@@ -125,13 +118,12 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
     models: (models['IssueModel'] ?? 0) + (models['SessionModel'] ?? 0),
     issueModels: models['IssueModel'] ?? 0,
     sessionModels: models['SessionModel'] ?? 0,
-    held,
+    held: filing.length,
     observables: Object.values(built).reduce((a, b) => a + b, 0),
     tableSlots: (built['pool.issue'] ?? 0) + (built['pool.session'] ?? 0),
     byMap: built,
   }
   handle.dispose()
-  console.info(`[bootstrap ${feed.corpus.scale}x ${arm}] disposed`)
   return cell
 }
 
@@ -142,12 +134,10 @@ function quantile(sorted: readonly number[], q: number): number {
 describe('bootstrap in the count harness', () => {
   for (const scale of SCALES) it(`counts at ${scale}x (and walls when asked)`, async () => {
     const cells = []
-    Bun.gc(true)
     const feed = feedOf(scale)
     const lazy = counted('lazy', feed)
     // Release @lazy's synchronous-read temporaries from the disposed arm.
     await Promise.resolve()
-    Bun.gc(true)
     const all = counted('allResident', feed)
     // Resident = what the schema's rule keeps (POD-4665), over the corpus at the pool's clock.
     const cold = tableColdRule(
