@@ -8,12 +8,18 @@ import { here, isGone } from './lookup'
 import { RecordRequest, SettingsRecordRequest } from './requested-records'
 import { MemberDirectory } from './member-directory'
 import { headerEntities } from './header-entities'
+import { SettingsRepositories } from './settings-repositories'
+import { asMachineId, asRepoId } from '@podium/model/browser'
 import { createLaunchWorkPicker } from './launch-option-views'
-import { launchOptionViews as beforeOptions, createLaunchWorkPicker as beforePicker } from './test-support/launch-option-views-before.test-helper'
+import { createLaunchWorkPicker as beforePicker } from './test-support/launch-option-views-before.test-helper'
 
 const account: AccountView = { id: 'managed:openai', provider: 'openai', source: 'managed', kind: 'api-key',
-  identity: 'abcd…1234', status: 'connected', credentialSource: 'stored' }
-const member: MemberView = { id: 'owner', displayName: 'Owner', email: 'owner@example.test', role: 'admin' }
+  identity: 'abcd…1234', status: 'connected', credentialSource: 'stored', harness: 'codex',
+  machines: ['Host'], identityFingerprint: 'fingerprint', loginRequired: false,
+  serverAi: { machineId: asMachineId('host'), machineName: 'Host', lastError: 'prior error' },
+  loginMachines: [{ id: asMachineId('host'), name: 'Host' }],
+  loginAttempt: { sessionId: 'login', machineId: asMachineId('host'), machineName: 'Host', status: 'succeeded' } }
+const member: MemberView = { id: 'owner', displayName: 'Owner', email: 'owner@example.test', role: 'admin', accountId: 'managed:openai', avatar: null, createdAt: '2026-01-01T00:00:00Z', disabledAt: null }
 const device: MobileClientSession = { sessionId: 'abcdefghijklmnopqrstuvwx', userId: 'owner', label: 'mobile',
   deviceId: 'phone', deviceName: 'Phone', platform: 'ios', current: false,
   createdAt: '2026-01-01T00:00:00Z', expiresAt: '2099-01-01T00:00:00Z', lastSeenAt: null }
@@ -33,7 +39,9 @@ it('matches every account/member/device/settings fact from the old section respo
     await directory.read(async () => ({ members: [member], invites: [], currentMemberId: 'owner', mailAvailable: true }))
     await devices.read(async () => [device])
     await settings.read(async () => DEFAULT_SETTINGS)
-    expect(values(accounts.models[0]!, account)).toEqual(account)
+    const accountAnswer = values(accounts.models[0]!, account)
+    if (process.env.POD5870_PARITY_MUTANT === '1') accountAnswer.status = 'unknown'
+    expect(accountAnswer).toEqual(account)
     expect(values(directory.members[0]!, member)).toEqual(member)
     expect(values(devices.models[0]!, device)).toEqual(device)
     expect(values(settings.model!, DEFAULT_SETTINGS)).toEqual(DEFAULT_SETTINGS)
@@ -102,4 +110,29 @@ it('matches the original repository grouping, pinned filtering and open order on
     expect(branches.at(-1)).toBe('elsewhere')
     stop()
   } finally { legacy.dispose(); next.dispose(); vi.restoreAllMocks() }
+})
+
+it('matches the registered repository prefix section on the same scan/projection fixtures and follows a remote prefix edit', () => {
+  const p = pool(), machineId = asMachineId('host'), repoId = asRepoId('project')
+  const oldRows = [
+    { machineId, path: '/repo', originUrl: 'https://example.test/project.git', repoId, prefix: 'OLD' },
+    { machineId, path: '/repo/topic', originUrl: 'https://example.test/project.git', repoId, prefix: 'OLD' },
+  ]
+  try {
+    p.apply({ type: 'update', rows: [{ kind: 'repo', id: repoId, value: { id: repoId, prefix: 'OLD', path: '/repo' } as never }] })
+    headerEntities(p).apply(oldRows.map((row, i) => ({ kind: 'repository' as const, id: `scan${i}`, value: {
+      kind: i === 0 ? 'repository' as const : 'worktree' as const, machineId, path: row.path, originUrl: row.originUrl, repoId,
+      worktrees: i === 0 ? [{ path: '/repo/topic', branch: 'topic' }] : [],
+    } })))
+    headerEntities(p).order('repository', ['scan0', 'scan1'])
+    const section = new SettingsRepositories(p)
+    expect(section.rows.map(row => ({ machineId: row.machineId, path: row.path, prefix: row.prefix })))
+      .toEqual(oldRows.map(({ machineId, path, prefix }) => ({ machineId, path, prefix })))
+    const retained = section.rows[0]!, seen: (string | null)[] = []
+    const stop = autorun(() => seen.push(retained.prefix))
+    p.apply({ type: 'update', rows: [{ kind: 'repo', id: repoId, value: { id: repoId, prefix: 'NEW', path: '/repo' } as never }] })
+    expect(seen.at(-1)).toBe('NEW')
+    expect(section.rows[0]).toBe(retained)
+    stop()
+  } finally { p.dispose() }
 })
