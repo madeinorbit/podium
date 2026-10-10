@@ -378,7 +378,16 @@ export async function writeDoctorReport(deps: { capture?: typeof capture } = {})
         unit: instanceServiceName(role, instance),
         output: await run(
           'journalctl',
-          ['--user', '-u', instanceServiceName(role, instance), '--no-pager', '-n', '300', '-o', 'cat'],
+          [
+            '--user',
+            '-u',
+            instanceServiceName(role, instance),
+            '--no-pager',
+            '-n',
+            '300',
+            '-o',
+            'cat',
+          ],
           3_000,
         ),
       })),
