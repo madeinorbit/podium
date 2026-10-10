@@ -14,6 +14,7 @@ import { applyPublicUrl } from '@podium/runtime/setup'
 import { listenUserSocket, type UserSocketServer } from '@podium/runtime/user-socket'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONTROL_BODY_MAX_BYTES, controlSocketHandler } from './control-socket'
+import { TunnelHealthStore } from './tunnel-health'
 import type { CheckResult, ConnectClient, LocatorRecord } from './modules/connect/client'
 import { ConnectPublisher, TICK_MS } from './modules/connect/publisher'
 
@@ -62,6 +63,7 @@ describe('server control socket', () => {
   let publisherTimers: { fn: () => void; ms: number }[]
   let publisher: ConnectPublisher
   let socketPath: string
+  let health: TunnelHealthStore
 
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'podium-control-'))
@@ -96,11 +98,15 @@ describe('server control socket', () => {
         if (i >= 0) publisherTimers.splice(i, 1)
       },
     })
+    health = new TunnelHealthStore()
     // The same composition server.ts does.
     socketPath = join(dir, 'run', 'control.sock')
     socket = await listenUserSocket(
       socketPath,
       controlSocketHandler({
+        tunnelHealth: (report) => health.report(report),
+        diagnostics: () => ({ connect: publisher.diagnostics(), tunnelHealth: health.read(loadConfig().publicUrl) }),
+        publishConnect: () => publisher.republish(),
         setPublicUrl: (url, opts) => {
           const result = applyPublicUrl(url, opts)
           if (result.ok && result.changed) publisher.publicUrlChanged()
@@ -174,6 +180,27 @@ describe('server control socket', () => {
     expect(refused.status).toBe(409)
     expect(refused.json.error).toContain('PODIUM_PUBLIC_URL')
     expect(loadConfig().publicUrl).toBe(A)
+  })
+
+  it('reports transient tunnel health over the local socket and rejects malformed reports', async () => {
+    saveConfig({ mode: 'server', networkOption: 'cloudflare-tunnel', publicUrl: A })
+    const report = { state: 'working', url: A, lastOkAt: Date.now(), failedSince: null, lastError: null }
+    expect((await send(socketPath, { path: '/v1/tunnel-health', body: JSON.stringify(report) })).status).toBe(200)
+    const diagnostics = await send(socketPath, { method: 'GET', path: '/v1/diagnostics' })
+    expect(diagnostics.json.tunnelHealth).toMatchObject(report)
+    expect(diagnostics.json.connect).toMatchObject({ enabled: true, installationId: identity.installationId, generation: 1 })
+    expect((await send(socketPath, { path: '/v1/tunnel-health', body: '{"state":"bad"}' })).status).toBe(400)
+    expect(health.read(A)?.state).toBe('working')
+  })
+
+  it('doctor republishes even when the same address was already published', async () => {
+    saveConfig({ mode: 'server', publicUrl: A })
+    publisher.start()
+    await publisher.settled
+    expect(published).toEqual([A])
+    expect((await send(socketPath, { path: '/v1/connect-publish', body: '{}' })).status).toBe(200)
+    await publisher.settled
+    expect(published).toEqual([A, A])
   })
 
   it('400 for a body that is not JSON or not a URL; 404 elsewhere; 413 when oversized', async () => {

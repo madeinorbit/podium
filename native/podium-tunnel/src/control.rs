@@ -44,9 +44,12 @@ pub fn request_body(url: &str) -> String {
 }
 
 pub fn request_bytes(url: &str) -> Vec<u8> {
-    let body = request_body(url);
+    post_bytes("/v1/public-url", &request_body(url))
+}
+
+fn post_bytes(path: &str, body: &str) -> Vec<u8> {
     format!(
-        "POST /v1/public-url HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
+        "POST {path} HTTP/1.1\r\nHost: localhost\r\nContent-Type: application/json\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{}",
         body.len(),
         body
     )
@@ -77,12 +80,20 @@ pub fn classify(status: u16, body: String) -> PostOutcome {
 /// POST `url` to the control socket. An `Err` means the server was not
 /// reachable (not running, restarting): the caller retries.
 pub fn post_public_url(socket: &Path, url: &str) -> io::Result<PostOutcome> {
+    post(socket, &request_bytes(url))
+}
+
+pub fn post_health(socket: &Path, body: &str) -> io::Result<PostOutcome> {
+    post(socket, &post_bytes("/v1/tunnel-health", body))
+}
+
+fn post(socket: &Path, bytes: &[u8]) -> io::Result<PostOutcome> {
     let mut stream = UnixStream::connect(socket)?;
     stream.set_read_timeout(Some(IO_TIMEOUT))?;
     stream.set_write_timeout(Some(IO_TIMEOUT))?;
-    stream.write_all(&request_bytes(url))?;
+    stream.write_all(bytes)?;
     let mut raw = Vec::new();
-    stream.read_to_end(&mut raw)?;
+    stream.take(65_537).read_to_end(&mut raw)?;
     Ok(match parse_response(&raw) {
         Some((status, body)) => classify(status, body),
         None => PostOutcome::Retry { status: 0 },

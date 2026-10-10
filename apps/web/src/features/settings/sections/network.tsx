@@ -26,7 +26,7 @@ export const NetworkSection = observer(function NetworkSection({
   const forcedOrigins = useForcedSetting('allowedOrigins')
   const view = useMemo(() => new NetworkSettingsView(trpc), [trpc])
   useEffect(() => {
-    void view.refresh(true)
+    view.open()
     return () => view.close()
   }, [view])
   const load = (showLoading = false): void => {
@@ -85,6 +85,11 @@ export const NetworkSection = observer(function NetworkSection({
       title="Network"
       hint="Choose how phones, browsers, and other machines reach this Podium server."
     >
+      {info.networkOption === 'cloudflare-tunnel' && (
+        <Row label="Tunnel">
+          <span role="status" className="text-[13.5px] text-foreground">{view.tunnelHealthLabel}</span>
+        </Row>
+      )}
       {forcedPublicUrl.forced ? (
         <>
           <Row label="Public URL">

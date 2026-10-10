@@ -258,28 +258,51 @@ export async function stopCommand(): Promise<void> {
   }
 }
 
+export interface RestartDeps {
+  config?: PodiumConfig
+  instanceId?: string
+  live?: () => RunRecord[]
+  reclaim?: typeof reclaim
+  restart?: typeof restartSystemdUnits
+  start?: typeof import('./cli-spawn').startDetachedStack
+  wait?: typeof import('./cli-spawn').waitForHealth
+  tunnelExists?: (unit: string) => Promise<boolean>
+  out?: (line: string) => void
+}
+
 /** Restart the selected instance using its existing supervisor. */
-export async function restartCommand(): Promise<void> {
-  const config = loadConfig()
+export async function restartCommand(deps: RestartDeps = {}): Promise<void> {
+  const config = deps.config ?? loadConfig()
   const { resolveSetting } = await import('@podium/runtime/config')
   const mode = resolveSetting('mode', config).value
   if (!mode || mode === 'client') throw new Error('Choose a server or machine mode with podium setup first.')
-  const tunnel = instanceServiceName('tunnel', resolveInstanceId())
-  if (config.persistence === 'systemd') {
-    restartSystemdUnits([desiredParentUnit(resolveInstanceId())])
-  } else {
-    // Reclaim the parent first, so it cannot recreate a child while it is being stopped.
-    const records = listLive().sort((a, b) => Number(b.role === 'parent') - Number(a.role === 'parent'))
-    for (const rec of records) await reclaim(rec.role)
-    const { startDetachedStack } = await import('./cli-spawn')
-    const result = await startDetachedStack(mode, resolvePort(config), config.bindHost)
-    if (!result.serverUp) throw new Error('The server did not answer after restarting. Run podium doctor.')
-  }
-  // The tunnel can be systemd-managed even when the backend is detached.
+  const instance = deps.instanceId ?? resolveInstanceId()
+  const tunnel = instanceServiceName('tunnel', instance)
+  const restart = deps.restart ?? restartSystemdUnits
+  const errors: string[] = []
+  try {
+    if (config.persistence === 'systemd') {
+      restart([desiredParentUnit(instance)])
+      if (mode === 'server' || mode === 'all-in-one') {
+        const { waitForHealth } = await import('./cli-spawn')
+        if (!await (deps.wait ?? waitForHealth)(resolvePort(config), config.bindHost)) throw new Error('The server did not answer after restarting. Run podium doctor.')
+      }
+    } else {
+      // Stop the parent first so it cannot recreate a child while it is being stopped.
+      const records = (deps.live ?? listLive)().sort((a, b) => Number(b.role === 'parent') - Number(a.role === 'parent'))
+      for (const rec of records) await (deps.reclaim ?? reclaim)(rec.role)
+      const { startDetachedStack } = await import('./cli-spawn')
+      const result = await (deps.start ?? startDetachedStack)(mode, resolvePort(config), config.bindHost)
+      if (!result.serverUp) throw new Error('The server did not answer after restarting. Run podium doctor.')
+    }
+  } catch (error) { errors.push((error as Error).message) }
+  // The tunnel may be systemd-managed even when the backend is detached. Try it even
+  // if the server failed to start, so one failure never skips the second restart.
   const { capture } = await import('./cli-doctor')
-  const loadState = await capture('systemctl', ['--user', 'show', tunnel, '--property=LoadState', '--value'])
-  if (loadState === 'loaded') restartSystemdUnits([tunnel])
-  console.log('Podium restarted.')
+  const tunnelExists = deps.tunnelExists ?? (async (unit) => (await capture('systemctl', ['--user', 'show', unit, '--property=LoadState', '--value'])) === 'loaded')
+  try { if (await tunnelExists(tunnel)) restart([tunnel]) } catch (error) { errors.push((error as Error).message) }
+  if (errors.length) throw new Error(errors.join(' '))
+  ;(deps.out ?? console.log)('Podium restarted.')
 }
 
 /**
@@ -637,7 +660,10 @@ export async function logsCommand(argv: string[]): Promise<void> {
     }
     const child = spawn('journalctl', ['--user', ...units.flatMap((unit) => ['-u', unit]), '-n', '200', '-o', 'cat', ...(follow ? ['-f'] : [])], { stdio: 'inherit' })
     child.on('error', (error) => { console.error(`podium logs: ${error.message}`); process.exitCode = 1 })
-    await new Promise<void>((resolve) => child.once('exit', (code) => { process.exitCode = code ?? 1; resolve() }))
+    await new Promise<void>((resolve) => {
+      child.once('error', () => resolve())
+      child.once('exit', (code) => { process.exitCode = code ?? 1; resolve() })
+    })
     return
   }
   const files = logFilesFor(components)

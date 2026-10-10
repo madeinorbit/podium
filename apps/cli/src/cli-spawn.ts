@@ -85,6 +85,7 @@ export async function waitForHealth(
     try {
       const res = await fetch(
         bindHost ? `http://127.0.0.1:${port}/health` : `${localServerUrl(port)}/health`,
+        { signal: AbortSignal.timeout(1_500) },
       )
       if (res.ok) return true
     } catch {

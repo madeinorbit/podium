@@ -12,6 +12,8 @@ path = "src/main.rs"
 
 [dependencies]
 libc = "0.2"
+serde_json = "1"
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
 
 # Small, static and quiet: this runs for months as a supervisor of one child.
 [profile.release]

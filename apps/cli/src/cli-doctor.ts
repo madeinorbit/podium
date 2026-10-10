@@ -157,6 +157,8 @@ export async function repairLink(link: Link): Promise<string | undefined> {
       const installed = installSystemd(mode, resolvePort(config))
       if (!installed.ok) throw new Error(installed.reason)
       restartSystemdUnits([instanceServiceName('parent', resolveInstanceId())])
+      const { waitForHealth } = await import('./cli-spawn')
+      await waitForHealth(resolvePort(config), config.bindHost)
       if (installed.lingerRemedy) return installed.lingerRemedy
     } else {
       const { restartCommand } = await import('./cli-lifecycle')
@@ -207,7 +209,8 @@ export function redactText(text: string, secrets: ReadonlySet<string>): string {
     .replace(/-----BEGIN [^-]*PRIVATE KEY-----[\s\S]*?-----END [^-]*PRIVATE KEY-----/g, '[removed]')
 }
 
-export async function writeDoctorReport(): Promise<string> {
+export async function writeDoctorReport(deps: { capture?: typeof capture } = {}): Promise<string> {
+  const run = deps.capture ?? capture
   let raw: unknown
   try { raw = JSON.parse(readFileSync(configPath(), 'utf8')) } catch { raw = { error: 'Config is missing or unreadable.' } }
   const secrets = new Set<string>()
@@ -216,13 +219,13 @@ export async function writeDoctorReport(): Promise<string> {
   const units = [instanceServiceName('parent', instance), instanceServiceName('tunnel', instance)]
   const cloudflared = resolveCloudflared()
   const [unitStatus, journal, logs, cloudflaredVersion] = await Promise.all([
-    Promise.all(units.map(async (unit) => ({ unit, output: await capture('systemctl', ['--user', 'status', '--no-pager', '--full', unit], 3_000) }))),
-    capture('journalctl', ['--user', ...units.flatMap((unit) => ['-u', unit]), '--no-pager', '-n', '400', '-o', 'cat'], 3_000),
+    Promise.all(units.map(async (unit) => ({ unit, output: await run('systemctl', ['--user', 'status', '--no-pager', '--full', unit], 3_000) }))),
+    run('journalctl', ['--user', ...units.flatMap((unit) => ['-u', unit]), '--no-pager', '-n', '400', '-o', 'cat'], 3_000),
     Promise.all(['parent', 'server', 'daemon', 'tunnel'].flatMap((role) => ['log', 'ndjson'].map(async (ext) => {
       const path = join(logDir(), `${role}.${ext}`)
-      return { component: `${role}.${ext}`, output: await capture('tail', ['-n', '300', path], 3_000) }
+      return { component: `${role}.${ext}`, output: await run('tail', ['-n', '300', path], 3_000) }
     }))),
-    cloudflared ? capture(cloudflared, ['--version'], 3_000) : 'Missing.',
+    cloudflared ? run(cloudflared, ['--version'], 3_000) : 'Missing.',
   ])
   const report = { kind: 'podium-doctor-report', exportedAt: new Date().toISOString(), instanceId: instance, versions: { podium: process.env.PODIUM_APP_VERSION ?? 'dev', cloudflared: cloudflaredVersion, os: `${platform()} ${release()}` }, config, unitStatus, journal, logs }
   const dir = join(stateDir(), 'reports')
@@ -257,6 +260,10 @@ export async function doctorCommand(argv: string[], deps: { diagnose?: typeof di
         const broken = result.checks.find((check) => !check.ok && !attempted.has(check.link))
         if (!broken) break
         attempted.add(broken.link)
+        // One tunnel restart repairs all three managed-tunnel links together.
+        if (['tunnel', 'cloudflared'].includes(broken.link) || (broken.link === 'public' && loadConfig().networkOption === 'cloudflare-tunnel')) {
+          for (const link of ['tunnel', 'cloudflared', 'public'] as const) attempted.add(link)
+        }
         try {
           const note = await (deps.repair ?? repairLink)(broken.link)
           out(`Repair ${broken.name}: ${note ?? 'Restarted.'}`)

@@ -19,6 +19,7 @@
 
 mod control;
 mod dns;
+mod health;
 mod url;
 
 use std::fs::{self, File, OpenOptions};
@@ -69,6 +70,11 @@ struct Config {
     dns_fallback: Duration,
     /// Ask these nameservers instead of the zone's own (tests).
     dns_authorities: Option<Vec<SocketAddr>>,
+    probe_grace: Duration,
+    probe_interval: Duration,
+    probe_timeout: Duration,
+    /// Local fake origin in process tests; absent means the tunnel's own address.
+    probe_url: Option<String>,
 }
 
 fn millis(list: &[u64]) -> Vec<Duration> {
@@ -102,6 +108,10 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
     let mut dns_wait = Duration::from_secs(45);
     let mut dns_fallback = Duration::from_secs(5);
     let mut dns_authorities: Option<Vec<SocketAddr>> = None;
+    let mut probe_grace = Duration::from_secs(60);
+    let mut probe_interval = Duration::from_secs(300);
+    let mut probe_timeout = Duration::from_secs(10);
+    let mut probe_url = None;
     let mut i = 0;
     while i < args.len() {
         let flag = args[i].as_str();
@@ -117,6 +127,10 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
             "--stable-ms" => stable_after = parse_millis(&value?)?,
             "--backoff-ms" => backoff = parse_millis_list(&value?)?,
             "--post-backoff-ms" => post_backoff = parse_millis_list(&value?)?,
+            "--probe-grace-ms" => probe_grace = parse_millis(&value?)?,
+            "--probe-interval-ms" => probe_interval = parse_millis(&value?)?,
+            "--probe-timeout-ms" => probe_timeout = parse_millis(&value?)?,
+            "--probe-url" => probe_url = Some(value?),
             "--dns-wait-ms" => dns_wait = parse_millis(&value?)?,
             "--dns-fallback-ms" => dns_fallback = parse_millis(&value?)?,
             "--dns-authority" => {
@@ -144,6 +158,10 @@ fn parse_args(args: &[String]) -> Result<Config, String> {
         dns_wait,
         dns_fallback,
         dns_authorities,
+        probe_grace,
+        probe_interval,
+        probe_timeout,
+        probe_url,
     })
 }
 
@@ -196,6 +214,7 @@ enum Event {
     Signal(libc::c_int),
     /// The poster thread's answer for `url`.
     Posted { url: String, outcome: PostOutcome },
+    Probed { run: u64, result: Result<(), String> },
 }
 
 fn spawn_reader(run: u64, pipe: impl Read + Send + 'static, events: Sender<Event>) {
@@ -281,6 +300,23 @@ fn spawn_poster(
     });
 }
 
+/// A separate worker keeps socket I/O off the supervisor's signal and child-reaping loop.
+/// Repeat the latest report so a restarted server learns health without restarting the tunnel.
+fn spawn_health_reporter(socket: PathBuf, reports: Receiver<health::Health>) {
+    thread::spawn(move || {
+        let mut latest = match reports.recv() { Ok(report) => report, Err(_) => return };
+        loop {
+            while let Ok(newer) = reports.try_recv() { latest = newer; }
+            let _ = control::post_health(&socket, &latest.body());
+            match reports.recv_timeout(Duration::from_secs(30)) {
+                Ok(newer) => latest = newer,
+                Err(RecvTimeoutError::Timeout) => {},
+                Err(RecvTimeoutError::Disconnected) => return,
+            }
+        }
+    });
+}
+
 fn wait_for_dns(url: &str, config: &dns::WaitConfig) {
     let host = url.trim_start_matches("https://");
     match dns::wait_until_resolvable(host, config) {
@@ -326,6 +362,10 @@ struct Supervisor {
     kill_at: Option<Instant>,
     last_sent: Option<String>,
     exit_code: u8,
+    health: health::Health,
+    reports: Sender<health::Health>,
+    next_probe: Option<Instant>,
+    probe_in_flight: bool,
 }
 
 impl Supervisor {
@@ -334,6 +374,10 @@ impl Supervisor {
         // previous one's exit has been reaped. Two would be two URLs racing.
         debug_assert!(self.child.is_none());
         self.run += 1;
+        self.next_probe = None;
+        self.probe_in_flight = false;
+        self.health.restarting();
+        self.report_health();
         let mut command = Command::new(&self.config.cloudflared);
         command
             // --no-autoupdate: cloudflared replacing its own binary and
@@ -382,6 +426,9 @@ impl Supervisor {
     fn schedule_restart(&mut self) {
         let delay = self.config.backoff[self.attempts.min(self.config.backoff.len() - 1)];
         self.attempts += 1;
+        self.health.restarting();
+        self.next_probe = None;
+        self.report_health();
         log(&format!("restarting cloudflared in {} ms", delay.as_millis()));
         self.phase = Phase::Backoff { until: Instant::now() + delay };
     }
@@ -410,6 +457,8 @@ impl Supervisor {
             return;
         }
         self.exit_code = exit_code;
+        self.health.state = "stopped";
+        self.report_health();
         self.phase = Phase::Stopping;
         self.terminate_child();
     }
@@ -421,6 +470,9 @@ impl Supervisor {
         let Some(found) = url::parse_quick_tunnel_url(line) else { return };
         log(&format!("cloudflared is serving {found}"));
         self.phase = Phase::Running { since: Instant::now() };
+        self.health.starting(found.clone());
+        self.next_probe = Some(Instant::now() + self.config.probe_grace);
+        self.report_health();
         // The same URL again writes nothing: no config churn, no republish.
         if self.last_sent.as_deref() != Some(found.as_str()) {
             self.last_sent = Some(found.clone());
@@ -428,7 +480,25 @@ impl Supervisor {
         }
     }
 
+    fn report_health(&self) { let _ = self.reports.send(self.health.clone()); }
+
+    fn on_probed(&mut self, run: u64, result: Result<(), String>) {
+        // A reply from a killed child or during shutdown must never revive its health.
+        if run != self.run || self.kill_at.is_some() || !matches!(self.phase, Phase::Running { .. }) { return; }
+        self.probe_in_flight = false;
+        self.next_probe = Some(Instant::now() + self.config.probe_interval);
+        if let Err(error) = &result { log(&format!("public address is not answering: {}", error.replace(['\n', '\r'], " "))); }
+        if self.health.observe(&result, health::now_ms()) {
+            log("public address failed three checks; restarting cloudflared");
+            self.health.restarting();
+            self.next_probe = None;
+            self.terminate_child();
+        }
+        self.report_health();
+    }
+
     fn on_posted(&mut self, url: String, outcome: PostOutcome) {
+        if self.last_sent.as_deref() != Some(url.as_str()) || !matches!(self.phase, Phase::Running { .. }) { return; }
         match outcome {
             PostOutcome::Accepted => log(&format!("server recorded {url}")),
             PostOutcome::Refused { status, body } => {
@@ -459,6 +529,7 @@ impl Supervisor {
     fn next_wake(&self) -> Duration {
         let now = Instant::now();
         let mut due = now + Duration::from_millis(250);
+        if let Some(next) = self.next_probe { due = due.min(next); }
         match self.phase {
             Phase::Starting { deadline } => due = due.min(deadline),
             Phase::Backoff { until } => due = due.min(until),
@@ -482,6 +553,15 @@ impl Supervisor {
                 self.signal_child(libc::SIGKILL);
                 self.kill_at = Some(now + Duration::from_secs(3600));
             }
+        }
+        if matches!(self.phase, Phase::Running { .. }) && self.kill_at.is_none() && !self.probe_in_flight && self.next_probe.is_some_and(|at| now >= at) {
+            self.probe_in_flight = true;
+            self.next_probe = None;
+            let url = self.config.probe_url.clone().or_else(|| self.health.url.clone()).unwrap();
+            let timeout = self.config.probe_timeout;
+            let events = self.events.clone();
+            let run = self.run;
+            thread::spawn(move || { let _ = events.send(Event::Probed { run, result: health::probe(&url, timeout) }); });
         }
         match self.phase {
             Phase::Starting { deadline } if now >= deadline && self.kill_at.is_none() => {
@@ -557,6 +637,8 @@ fn main() -> ExitCode {
     };
     spawn_poster(config.socket.clone(), config.post_backoff.clone(), dns_wait, urls_rx, events_tx.clone());
 
+    let (reports_tx, reports_rx) = mpsc::channel();
+    spawn_health_reporter(config.socket.clone(), reports_rx);
     let mut supervisor = Supervisor {
         config,
         events: events_tx,
@@ -568,11 +650,16 @@ fn main() -> ExitCode {
         kill_at: None,
         last_sent: None,
         exit_code: 0,
+        health: health::Health::new(),
+        reports: reports_tx,
+        next_probe: None,
+        probe_in_flight: false,
     };
     supervisor.start_run();
     loop {
         match events.recv_timeout(supervisor.next_wake()) {
             Ok(Event::Line { run, line }) => supervisor.on_line(run, &line),
+            Ok(Event::Probed { run, result }) => supervisor.on_probed(run, result),
             Ok(Event::Posted { url, outcome }) => supervisor.on_posted(url, outcome),
             Ok(Event::Signal(signal)) => {
                 log(&format!("received signal {signal}; stopping cloudflared"));
