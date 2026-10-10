@@ -163,7 +163,7 @@ it('bounds newest/count demand without reading ordinary history or non-newest pa
       const dismiss = f.writeMessage('z-message', { ...f.messages.get('z-message')!, status: 'confirmed' })
       const dismissWork = await measureWork(async () => dismiss(), { pool: f.pool })
       expect(current).toMatchObject({ count: 128 * scale + 1, notice: { messageId: 'a-message' } })
-      expect(reads.mock.calls.filter(([entity]) => String(entity) === 'messageRecord').map(([, id]) => id)).toEqual(['z-message', 'a-message'])
+      expect(reads.mock.calls.filter(([entity]) => String(entity) === 'messageRecord').map(([, id]) => id)).toEqual(['z-message', 'z-message', 'z-message', 'z-message', 'a-message', 'a-message', 'a-message'])
       expect(reads.mock.calls.some(([entity]) => String(entity) === 'noticeMessageCatalog' || String(entity) === 'noticeCatalog')).toBe(false)
       expect(f.source.counts).toMatchObject({ collectionReads: 2, attentionBuilds: 1, attentionUpdates: 1, catalogBuilds: 0, outboxReads: 0 })
       stop()

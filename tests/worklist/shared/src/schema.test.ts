@@ -57,7 +57,7 @@ function relationsOf(entity: EntityName): Record<string, RelationSpec> {
 
 describe('the declared schema', () => {
   it('declares the synced record models, with the issue projection remaining a component', () => {
-    expect(Object.keys(SCHEMA).sort()).toEqual(['automation', 'automationRun', 'issue', 'machine', 'repo', 'session', 'worktree'])
+    expect(Object.keys(SCHEMA).sort()).toEqual(['automation', 'automationRun', 'issue', 'machine', 'messageRecord', 'pendingInteraction', 'repo', 'session', 'worktree'])
     // The projection is composed into `issue` by id, not a separate entity.
     expect(Object.keys(SCHEMA.issue.components).sort()).toEqual(['issueProjection'])
     expect(SCHEMA.issue.components.issueProjection?.joinKey).toBe('id')
