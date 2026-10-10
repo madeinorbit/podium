@@ -201,11 +201,26 @@ describe('reference card visible session targets (POD-5884)', () => {
       try {
         // The old picker reproduces the bug on these same rows.
         expect(oldTarget(pool, 'POD-1')).toMatchObject({ sessionId: 'quiet' })
+        expect(pool.issueObject('one').liveSeatId).toBe('visible')
         expect(newTarget(pool, 'POD-1')).toMatchObject({ sessionId: 'visible', viaId: 'one' })
       } finally {
         pool.dispose()
       }
     })
+
+  it('has no live seat when only headless seats exist', () => {
+    const pool = poolOf(
+      [issue('one', 1, { coordinatorSessionId: 'quiet' })],
+      [seat('quiet', 'one', { headless: true, lastActiveAt: stamp(9) }),
+        seat('other-headless', 'one', { headless: true })],
+    )
+    try {
+      expect(pool.issueObject('one').liveSeatId).toBeUndefined()
+      expect(newTarget(pool, 'POD-1')).toBeNull()
+    } finally {
+      pool.dispose()
+    }
+  })
 
   it('passes over headless seats to the nearest visible ancestor session', () => {
     const pool = poolOf(tree, [
