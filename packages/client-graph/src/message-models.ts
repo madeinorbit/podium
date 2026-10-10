@@ -2,8 +2,6 @@ import type { MessageRecordWire } from '@podium/model'
 import type { MessageLedgerWire } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
 import { EntityModel, registerModels, type ModelHost } from './models'
-import { isGone } from './lookup'
-import { LOADING } from './loading'
 import type { MobxPool } from './pool'
 import type { FieldSpec, FieldType, ModelSchema } from './shared/schema'
 
@@ -70,8 +68,7 @@ registerModels(schema, { message: MessageModel, pendingInteraction: InteractionM
  * references cannot survive a new server answer. Ledger metadata is preserved. */
 export function ingestMessageRecords(pool: MobxPool, records: readonly MessageRecordWire[]): void {
   pool.apply({ type: 'update', rows: records.map(record => {
-    const previous = pool.row('message', record.id, 'peek')
-    const row = previous === LOADING || isGone(previous) ? {} : previous
+    const row = (pool.tables.message.get(record.id) as MessagePoolRow | undefined) ?? {}
     return { kind: 'message', id: record.id, value: { ...row,
       attachments: undefined, reason: undefined, transcriptItem: undefined,
       retractRequestedAt: undefined, noticeDismissedAt: undefined, ...record } }
@@ -79,9 +76,9 @@ export function ingestMessageRecords(pool: MobxPool, records: readonly MessageRe
 }
 export function ingestLedgerMessages(pool: MobxPool, records: readonly MessageLedgerWire[]): void {
   pool.apply({ type: 'update', rows: records.map(({ deliveryStatus, ...record }) => {
-    const previous = pool.row('message', record.id, 'peek')
+    const previous = pool.tables.message.get(record.id) as MessagePoolRow | undefined
     return { kind: 'message', id: record.id, value: {
-      ...(previous === LOADING || isGone(previous) ? {} : previous), ...record,
+      ...previous, ...record,
       status: deliveryStatus,
     } }
   }) })

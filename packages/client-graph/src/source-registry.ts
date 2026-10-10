@@ -119,6 +119,10 @@ export class PoolSources {
     })
   }
 
+  /** A separately attached record source owns removals from its tables. A
+   * core-feed replacement must not evict its independently scoped records. */
+  ownsRecords(entity: EntityName): boolean { return this.byEntity.has(entity as SourceEntity) }
+
   read<E extends SourceEntity>(entity: E, id: string): Loaded<PoolSourceRows[E]> {
     if (this.disposed) return LOADING
     const source = this.byEntity.get(entity)

@@ -1054,7 +1054,7 @@ export class MobxPool {
       this.indexSeen = index
       if (event.type === 'replace') {
         referenceViewIfPresent(this)?.resetUnresolved()
-        reseed(this.target, reseedRows, out, this.ownIndex === undefined)
+        reseed(this.target, reseedRows, out, this.ownIndex === undefined, entity => this.sources.ownsRecords(entity))
         this.graph.reset()
         this.reseatAll()
         this.seatVerdicts.reset()

@@ -128,7 +128,7 @@ export class NoticeSource {
       this.schedule()
       return LOADING
     }
-    if (entity === 'messageRecord' || entity === 'pendingInteraction') {
+    if (entity === 'message' || entity === 'messageRecord' || entity === 'pendingInteraction') {
       this.counts.payloadReads++
       return omitGone(this.pool.row(entity === 'messageRecord' ? 'message' : entity, id)) as Loaded<NoticeRows[NoticeEntity]>
     }

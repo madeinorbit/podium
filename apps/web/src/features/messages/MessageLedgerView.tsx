@@ -1,3 +1,5 @@
+import { useOpeningView } from '@podium/client-graph/react/opening-view'
+import type { MobxPool } from '@podium/client-graph'
 import { MessageLedger } from '@podium/client-graph/message-ledger'
 import type { LedgerEntry } from '@podium/client-graph/ledger-entry'
 import { LOADING, isGone } from '@podium/client-graph'
@@ -16,7 +18,7 @@ import { relativeTime } from '@podium/client-core/focus'
 import { useStoreHandle } from '@podium/client-core/react'
 import { Mail as MailIcon, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
@@ -107,18 +109,19 @@ export const MessageLedgerView = observer(function MessageLedgerView({
 }: { issueId?: IssueId; sessionId?: SessionId }): JSX.Element {
   const trpc = useStoreHandle<Trpc>().access.trpc
   const pool = useWorklistPool()
-  const ledger = useMemo(() => pool ? new MessageLedger(pool, {
+  const createLedger = useCallback((pool: MobxPool) => new MessageLedger(pool, {
     ledger: () => issueId || sessionId ? trpc.messages.ledger.query({
       ...(issueId ? { issueId } : {}), ...(sessionId ? { sessionId } : {}),
     }) : Promise.resolve([]),
     records: ids => trpc.messages.records.query({ ids: [...ids] }).then(answer => answer.records),
-  }) : null, [pool, trpc, issueId, sessionId])
+  }), [trpc, issueId, sessionId])
+  const ledger = useOpeningView(pool, createLedger)
   useEffect(() => {
     if (!ledger) return
     const visible = () => ledger.setVisible(document.visibilityState !== 'hidden')
     visible()
     document.addEventListener('visibilitychange', visible)
-    return () => { document.removeEventListener('visibilitychange', visible); ledger.dispose() }
+    return () => { document.removeEventListener('visibilitychange', visible); ledger.setVisible(false) }
   }, [ledger])
   const rows = ledger?.ids ?? null
   const error = ledger?.error

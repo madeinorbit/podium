@@ -37,7 +37,9 @@ export class MessageLedger {
       const rows = await this.request.ledger()
       if (this.disposed || sequence !== this.sequence) return
       const ids = rows.map(row => row.id)
-      const records = this.request.records && ids.length ? await this.request.records(ids) : []
+      const records: MessageRecordWire[] = []
+      if (this.request.records) for (let offset = 0; offset < ids.length; offset += 100)
+        records.push(...await this.request.records(ids.slice(offset, offset + 100)))
       if (this.disposed || sequence !== this.sequence) return
       runInAction(() => {
         ingestLedgerMessages(this.pool, rows)

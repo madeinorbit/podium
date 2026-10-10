@@ -77,6 +77,7 @@ export function reseed(
   out: IngestOut,
   /** The index was built from other publications than `rows` (a source's own): rows it may not know. */
   external = false,
+  ownsRecords?: (entity: EntityName) => boolean,
 ): void {
   const incoming = createPlainTables()
   const scratch = ingestOut()
@@ -98,7 +99,7 @@ export function reseed(
     const table = target.write[entity]
     const next = incoming[entity]
     const gone: string[] = []
-    for (const id of table.keys()) if (!next.has(id)) gone.push(id)
+    if (!ownsRecords?.(entity)) for (const id of table.keys()) if (!next.has(id)) gone.push(id)
     for (const id of gone) drop(target, entity, id, out)
     for (const [id, row] of next) put(target, entity, id, row, out)
   }
