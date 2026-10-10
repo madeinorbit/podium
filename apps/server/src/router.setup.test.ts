@@ -232,6 +232,7 @@ describe('setup tRPC', () => {
       transcriptLakeSource: 'default',
       networkOption: null,
       serverUrl: null,
+      stableLink: null,
       appVersion,
     })
     await (await caller()).setup.complete({
@@ -252,6 +253,7 @@ describe('setup tRPC', () => {
       transcriptLakeSource: 'default',
       networkOption: 'tailscale-serve',
       serverUrl: null,
+      stableLink: null,
       appVersion,
     })
   })
