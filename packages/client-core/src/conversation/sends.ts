@@ -670,9 +670,11 @@ export class Sends {
     const shown = new Set(pending.map(turn => turn.deliveryId))
     const ids = new Set(this.feedIds)
     for (const id of this.looked) if (shown.has(id)) ids.add(id)
+    const shared = this.options.messageRecords
+    if (!shared) return (this.options.records?.getSnapshot() ?? []).filter(record => ids.has(record.id))
     const records: ConversationMessage[] = []
     for (const id of ids) {
-      const record = this.options.messageRecords?.read(id) ?? this.options.records?.getSnapshot().find(record => record.id === id)
+      const record = shared.read(id)
       if (record) records.push(record)
     }
     return records
