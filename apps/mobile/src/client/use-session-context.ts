@@ -4,10 +4,11 @@ import type { OutboxChatSend } from '@podium/client-core/engine'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { MobxPool } from '@podium/client-graph'
+import type { MessageModel } from '@podium/client-graph/message-models'
 import type { MobileSessionRows } from '@podium/client-graph/mobile-session-schema'
-import type { MachineWire, MessageRecordWire, SessionId } from '@podium/model'
+import type { MachineWire, SessionId } from '@podium/model'
 import { asSessionId } from '@podium/model'
-import { reaction } from 'mobx'
+import { compareShallow, reaction } from 'mobx'
 import { useCallback, useLayoutEffect, useMemo } from 'react'
 import { demoEnabled } from './demoData'
 import { useMobilePoolProjection } from './mobile-pool'
@@ -166,7 +167,7 @@ type Ports = {
   ready: boolean
 }
 const EMPTY_PORTS_INPUT = {
-  records: [] as readonly MessageRecordWire[],
+  records: [] as readonly MessageModel[],
   sends: [] as readonly OutboxChatSend[],
   ready: false,
 }
@@ -232,7 +233,7 @@ export function mobileConversationPorts(
   return {
     records: {
       getSnapshot: () => read().records,
-      subscribe: (listener) => reaction(() => read().records, listener),
+      subscribe: (listener) => reaction(() => read().records.map(record => record.row), listener, { equals: compareShallow }),
     },
     outbox: {
       held: () => read().sends,

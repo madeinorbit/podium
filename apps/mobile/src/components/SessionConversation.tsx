@@ -1,5 +1,7 @@
 import { MobileConversation } from '../lib/mobile-conversation'
 import { loadedPaneSession } from '@podium/client-graph/session-pane'
+import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
+import { here } from '@podium/client-graph/lookup'
 import {
   type Conversation,
   PHONE_WARM_CONVERSATIONS,
@@ -248,6 +250,10 @@ export function SessionConversation(
       },
       sends: {
         records: ports.records,
+        messageRecords: {
+          read: id => pool ? here(pool.model('messageRecord', id)) : undefined,
+          ingest: records => { if (pool) ingestMessageRecords(pool, records, id => currentMessageRecord(pool, owner.replica, id)) },
+        },
         outbox: ports.outbox,
         initialPending: [
           ...(props.initialPendingText
