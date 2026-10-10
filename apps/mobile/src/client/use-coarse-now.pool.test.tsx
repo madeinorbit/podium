@@ -1,5 +1,5 @@
 import { MobxPool } from '@podium/client-graph/pool'
-import { refreshClocks, setClockActive } from '@podium/mobx-helpers'
+import { refreshClocks, setClockWakeSource } from '@podium/mobx-helpers'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { useClock } from '../lib/clock-hooks'
@@ -8,7 +8,7 @@ import { useClock } from '../lib/clock-hooks'
 
 afterEach(() => {
   cleanup()
-  setClockActive(true)
+  setClockWakeSource(undefined)
   vi.useRealTimers()
 })
 
@@ -16,6 +16,12 @@ it('resamples the shared native label clock without reading pool rows', () => {
   vi.useFakeTimers()
   const start = Date.parse('2026-10-03T08:00:00Z')
   vi.setSystemTime(start)
+  let active = true
+  let wake: (() => void) | undefined
+  setClockWakeSource({ isActive: () => active, subscribe: callback => {
+    wake = callback
+    return () => { wake = undefined }
+  } })
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: start })
   const ids = vi.spyOn(pool.queries, 'ids')
   function Clock() { return <span data-testid="phone-clock">{useClock(60_000)}</span> }
@@ -26,9 +32,9 @@ it('resamples the shared native label clock without reading pool rows', () => {
     act(() => { vi.setSystemTime(next); refreshClocks() })
     expect(screen.getByTestId('phone-clock').textContent).toBe(String(next))
   }
-  act(() => setClockActive(false))
+  act(() => { active = false; wake!() })
   expect(vi.getTimerCount()).toBe(0)
-  act(() => { vi.setSystemTime(start + 180_000); setClockActive(true) })
+  act(() => { vi.setSystemTime(start + 180_000); active = true; wake!() })
   expect(screen.getByTestId('phone-clock').textContent).toBe(String(start + 180_000))
   expect(ids).not.toHaveBeenCalled()
   view.unmount()
