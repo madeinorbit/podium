@@ -44,17 +44,19 @@ import type { PodiumClientApi } from '@podium/client-core/api'
 import { type CreateEngineOutbox, OUTBOX_COMMANDS } from '@podium/client-core/engine'
 import { profileServerIdentity } from '@podium/client-core/accounts'
 import {
-  browserFollowAdopt,
   browserWakeSource,
   createFeedRelay,
   type FeedBroadcastChannelFactory,
+  observeLiveConnection,
+} from '@podium/client-core/live-connection'
+import {
+  browserFollowAdopt,
   type FollowEvent,
   type FollowPorts,
   followHub,
-  observeLiveConnection,
   type ServerIdentity,
-} from '@podium/client-core/live-connection'
-import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol'
+} from '@podium/client-core/server-follow'
+import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol/server-locate'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import {

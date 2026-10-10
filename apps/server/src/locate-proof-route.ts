@@ -29,7 +29,7 @@ import {
   locateOrigin,
   locateProofMessage,
   parseLocateProofRequest,
-} from '@podium/protocol'
+} from '@podium/protocol/server-locate'
 import {
   type InstallationIdentity,
   signBytesWithInstallation,

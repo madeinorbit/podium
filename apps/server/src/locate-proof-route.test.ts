@@ -1,4 +1,4 @@
-import { LOCATE_PROOF_PATH } from '@podium/protocol'
+import { LOCATE_PROOF_PATH } from '@podium/protocol/server-locate'
 import vectors from '@podium/protocol/server-locate-vectors'
 import type { InstallationIdentity } from '@podium/runtime/installation-identity'
 import { Hono } from 'hono'

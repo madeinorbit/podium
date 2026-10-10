@@ -15,7 +15,11 @@
  *
  * Platforms differ only in their {@link FollowPorts}: where the identity is
  * kept, and what moving means (a page navigation in a browser, a profile move
- * and a hub retarget on a phone, a bridge command on the desktop).
+ * on a phone, a bridge command on the desktop).
+ *
+ * Its own subpath (`@podium/client-core/server-follow`), not part of the
+ * live-connection barrel: the web app loads it lazily, so the follower, the
+ * Connect read and the proof never weigh on the startup bundle.
  */
 import {
   type FollowEvent,
@@ -32,6 +36,7 @@ import type { HubEvents } from '../socket-transport/socket-hub'
 export type { FollowEvent, ServerIdentity, ServerMove }
 /** Re-exported for a client's ask at a failed cold start, where no hub runs yet (spec rule 4). */
 export { locateServer, proveServer, ServerFollower }
+export { browserFollowAdopt, type BrowserFollowOptions } from './relocation'
 
 export interface FollowPorts {
   loadIdentity(): ServerIdentity | undefined

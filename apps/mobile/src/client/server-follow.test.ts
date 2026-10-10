@@ -3,7 +3,7 @@ import {
   cookieCredentials,
   type ServerProfile,
 } from '@podium/client-core/accounts'
-import { followHub, type ServerMove } from '@podium/client-core/live-connection'
+import { followHub, type ServerMove } from '@podium/client-core/server-follow'
 import { SocketHub, type WebSocketLike } from '@podium/client-core/socket-transport'
 import { encode, type ServerMessage } from '@podium/protocol'
 import AsyncStorage from '@react-native-async-storage/async-storage'

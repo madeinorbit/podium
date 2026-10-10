@@ -1,4 +1,4 @@
-import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol'
+import { CONNECT_DEFAULT_BASE_URL } from '@podium/protocol/server-locate'
 import type { JSX } from 'react'
 import { useEffect, useState } from 'react'
 import { restartPodiumShell } from '@/features/setup/restart-shell'
