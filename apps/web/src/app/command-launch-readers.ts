@@ -1,7 +1,5 @@
 import { omitGone } from '@podium/client-graph/lookup'
-import {
-  commandLaunchViews,
-} from '@podium/client-graph/command-launch-views'
+import type { commandLaunchViews } from '@podium/client-graph/command-launch-views'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { launchOptionViews } from '@podium/client-graph/launch-option-views'
 import type { RepoView } from '@podium/client-core/values'
@@ -28,15 +26,29 @@ export function readTargetMachines(pool: MobxPool, repo: RepoView | undefined, m
       : eligible.find(machine => machine.id === preferred[kind])?.id ?? eligible[0]?.id]
   }))
 }
-export const readPalette = (pool: MobxPool) => commandLaunchViews(pool).palette()
-export const readSessions = (pool: MobxPool) => commandLaunchViews(pool).sessions()
-export const readSession = (pool: MobxPool, id: string) => commandLaunchViews(pool).session(id)
+function commandViews(pool: MobxPool) {
+  const view = pool.sources.peekView<ReturnType<typeof commandLaunchViews>>('commands')
+  if (!view) omitGone(pool.row('commandWindow', 'window'))
+  return view
+}
+export const readPalette = (pool: MobxPool) => {
+  const view = commandViews(pool)
+  return view ? view.palette() : LOADING
+}
+export const readSessions = (pool: MobxPool) => {
+  const view = commandViews(pool)
+  return view ? view.sessions() : LOADING
+}
+export const readSession = (pool: MobxPool, id: string) => {
+  const view = commandViews(pool)
+  return view ? view.session(id) : LOADING
+}
 export const readOpen = (pool: MobxPool) => {
-  const value = commandLaunchViews(pool).window('paletteOpen')
-  return value !== LOADING ? value ?? false : false
+  const window = omitGone(pool.row('commandWindow', 'window'))
+  return window && window !== LOADING ? window.paletteOpen : false
 }
 export const EMPTY_FILES: import('@podium/client-core/engine').Store['recentFiles'] = []
 export const readFiles = (pool: MobxPool) => {
-  const value = commandLaunchViews(pool).window('recentFiles')
-  return value && value !== LOADING ? value : EMPTY_FILES
+  const window = omitGone(pool.row('commandWindow', 'window'))
+  return window && window !== LOADING ? window.recentFiles : EMPTY_FILES
 }

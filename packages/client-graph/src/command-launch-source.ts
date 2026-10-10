@@ -1,4 +1,5 @@
 import './requested-models'
+import { commandLaunchViews } from './command-launch-views'
 import { headerEntities } from './header-entities'
 import { omitGone } from './lookup'
 import type { PodiumClientApi } from '@podium/client-core/api'
@@ -59,6 +60,9 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     private readonly pool: MobxPool,
     runtime: ClientRuntime<PodiumClientApi>,
   ) {
+    // The optional source owns its reader registration. Startup consumers use
+    // the registry without pulling launcher derivations into the eager bundle.
+    commandLaunchViews(pool)
     this.catalog = computed(
       (): CommandLaunchRows['commandCatalog'] => ({
         repositories: this.orders.get('commandRepository') ?? [],
