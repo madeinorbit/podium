@@ -644,89 +644,89 @@ const MobileDeviceRow = observer(function MobileDeviceRow({ session, confirming,
 }) {
   const isConfirming = confirming === session.sessionId
   return (
-                <div className="py-3.5">
-                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-                    <div className="flex min-w-0 items-start gap-3">
-                      <Smartphone
-                        className="mt-0.5 size-4 flex-none text-muted-foreground"
-                        aria-hidden="true"
-                      />
-                      <div className="min-w-0">
-                        <div className="flex flex-wrap items-center gap-2">
-                          <p className="settings-label truncate text-foreground">
-                            {session.deviceName}
-                          </p>
-                          {session.current && (
-                            <Badge variant="outline" className="h-4 px-1.5 text-[11px]">
-                              This device
-                            </Badge>
-                          )}
-                        </div>
-                        <p className="settings-micro mt-1">
-                          {displayPlatform(session.platform)} · Last active{' '}
-                          <MobileDeviceActivity session={session} />
-                        </p>
-                      </div>
-                    </div>
-                    {!isConfirming && (
-                      <Button
-                        type="button"
-                        size="xs"
-                        variant="destructive"
-                        className="self-start sm:self-auto"
-                        onClick={() => {
-                          confirm(session.sessionId)
-                        }}
-                      >
-                        Revoke
-                      </Button>
-                    )}
-                  </div>
-                  {isConfirming && (
-                    <div
-                      ref={confirmationRef}
-                      className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 outline-none"
-                      role="group"
-                      aria-label={`Confirm revoking ${session.deviceName}`}
-                      tabIndex={-1}
-                    >
-                      <p className="settings-prose">
-                        Revoke <strong>{session.deviceName}</strong>?{' '}
-                        {session.current
-                          ? 'This is your current device, so this browser will be signed out immediately.'
-                          : 'It will lose access immediately; your other devices stay signed in.'}
-                      </p>
-                      <div className="mt-2 flex flex-wrap gap-2">
-                        <Button
-                          type="button"
-                          size="xs"
-                          variant="destructive"
-                          pending={revoking === session.sessionId}
-                          pendingLabel="Revoking…"
-                          onClick={() => void revoke(session)}
-                        >
-                          Revoke device
-                        </Button>
-                        <Button
-                          type="button"
-                          size="xs"
-                          variant="outline"
-                          disabled={revoking !== null}
-                          onClick={() => {
-                            confirm(null)
-                          }}
-                        >
-                          Cancel
-                        </Button>
-                      </div>
-                      {revokeError && (
-                        <p role="alert" className="settings-prose mt-2 text-destructive">
-                          {revokeError}
-                        </p>
-                      )}
-                    </div>
-                  )}
-                </div>
+    <div className="py-3.5">
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+        <div className="flex min-w-0 items-start gap-3">
+          <Smartphone
+            className="mt-0.5 size-4 flex-none text-muted-foreground"
+            aria-hidden="true"
+          />
+          <div className="min-w-0">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className="settings-label truncate text-foreground">
+                {session.deviceName}
+              </p>
+              {session.current && (
+                <Badge variant="outline" className="h-4 px-1.5 text-[11px]">
+                  This device
+                </Badge>
+              )}
+            </div>
+            <p className="settings-micro mt-1">
+              {displayPlatform(session.platform)} · Last active{' '}
+              <MobileDeviceActivity session={session} />
+            </p>
+          </div>
+        </div>
+        {!isConfirming && (
+          <Button
+            type="button"
+            size="xs"
+            variant="destructive"
+            className="self-start sm:self-auto"
+            onClick={() => {
+              confirm(session.sessionId)
+            }}
+          >
+            Revoke
+          </Button>
+        )}
+      </div>
+      {isConfirming && (
+        <div
+          ref={confirmationRef}
+          className="mt-3 rounded-md border border-destructive/30 bg-destructive/5 p-3 outline-none"
+          role="group"
+          aria-label={`Confirm revoking ${session.deviceName}`}
+          tabIndex={-1}
+        >
+          <p className="settings-prose">
+            Revoke <strong>{session.deviceName}</strong>?{' '}
+            {session.current
+              ? 'This is your current device, so this browser will be signed out immediately.'
+              : 'It will lose access immediately; your other devices stay signed in.'}
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            <Button
+              type="button"
+              size="xs"
+              variant="destructive"
+              pending={revoking === session.sessionId}
+              pendingLabel="Revoking…"
+              onClick={() => void revoke(session)}
+            >
+              Revoke device
+            </Button>
+            <Button
+              type="button"
+              size="xs"
+              variant="outline"
+              disabled={revoking !== null}
+              onClick={() => {
+                confirm(null)
+              }}
+            >
+              Cancel
+            </Button>
+          </div>
+          {revokeError && (
+            <p role="alert" className="settings-prose mt-2 text-destructive">
+              {revokeError}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
   )
 })
 
