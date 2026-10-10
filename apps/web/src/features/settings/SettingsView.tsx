@@ -296,7 +296,7 @@ const SettingsViewBody = observer(function SettingsViewBody({ onClose }: { onClo
   // Existing form draft remains local until the dedicated settings draft change.
   // The canonical saved record is never copied into component state.
   const [edited, setSettings] = useState<PodiumSettings | null>(null)
-  const settings = edited ?? lastSaved ?? null
+  const settings = edited ?? record ?? null
   const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
   const { request: accountRequest } = useSettingsRecords('account', readAccounts, accountKey)
   const accounts = accountRequest?.models ?? []
@@ -533,6 +533,7 @@ const SettingsViewBody = observer(function SettingsViewBody({ onClose }: { onClo
    * stays exactly as the user typed it rather than being reverted under them.
    */
   const save = async () => {
+    const settings = edited ?? lastSaved
     if (!settings) return
     setSaving(true)
     setError(null)
@@ -558,11 +559,11 @@ const SettingsViewBody = observer(function SettingsViewBody({ onClose }: { onClo
     }
   }
 
-  const patch = (p: Partial<PodiumSettings>) => setSettings((s) => settings ? { ...(s ?? settings), ...p } : null)
+  const patch = (p: Partial<PodiumSettings>) => setSettings((s) => lastSaved ? { ...(s ?? lastSaved), ...p } : null)
   const dirty =
-    settings !== null &&
+    edited !== null &&
     lastSaved !== undefined &&
-    JSON.stringify(settings) !== JSON.stringify(lastSaved)
+    JSON.stringify(edited) !== JSON.stringify(lastSaved)
   // The saved flash keeps the bar visible for a beat after a successful save.
   const [, forceTick] = useState(0)
   const savedFlash = savedAt > 0 && Date.now() - savedAt < 1500
