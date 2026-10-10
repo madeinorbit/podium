@@ -931,6 +931,14 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
     typeof installUpdate === 'function' &&
     desktopChannel !== undefined &&
     (desktopUpdate !== undefined || desktopTargeted || desktopAsked)
+  /**
+   * THE APP ITSELF IS BEHIND, NOT THIS PAGE (POD-5931). A desktop whose shell found a
+   * newer build has something to install even when the page is current and the
+   * operation is over — a 0.1.0 app joined to a server is the plain case: its daemon
+   * lives inside the app, so only installing the app moves that machine, and the
+   * page has claimed the update from the shell's own native prompt.
+   */
+  const appBehind = surface.startsWith('desktop') && canInstallDesktop && desktopUpdate !== undefined
   const minimumDesktopBridge = target?.minRequired?.desktopBridge
   const shellBridgeVersion = nativeDesktopBridge()?.bridgeVersion ?? 0
   const bridgeIncompatibility =
@@ -963,7 +971,7 @@ export function useUpdateState(options: UseUpdateStateOptions): UpdateStateResul
   const view = operationView({
     operation,
     offer,
-    local: { behind, canReload: options.reload !== undefined, canInstallDesktop },
+    local: { behind: behind || appBehind, canReload: options.reload !== undefined, canInstallDesktop },
     surface,
     now,
     ...(desktopProgress && pending === 'install-desktop' ? { desktopProgress } : {}),
