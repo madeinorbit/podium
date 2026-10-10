@@ -1,6 +1,7 @@
 import { expect, it, vi } from 'vitest'
 import { autorun } from 'mobx'
 import { DEFAULT_SETTINGS } from '@podium/runtime'
+import { codingRoleHarness } from '@podium/client-core/values'
 import type { AccountView, GitRepositoryWire, MemberView } from '@podium/model'
 import type { MobileClientSession } from '@podium/protocol'
 import { MobxPool } from './pool'
@@ -46,6 +47,7 @@ it('matches every account/member/device/settings fact from the old section respo
     expect(values(directory.members[0]!, member)).toEqual(member)
     expect(values(devices.models[0]!, device)).toEqual(device)
     expect(values(settings.model!, DEFAULT_SETTINGS)).toEqual(DEFAULT_SETTINGS)
+    expect(settings.model?.codingHarness).toBe(codingRoleHarness(DEFAULT_SETTINGS))
     // The old loaders returned exactly the payload. Poisoning one new answer
     // must fail this same comparison, not an assertion about the implementation.
     expect(() => expect({ ...values(accounts.models[0]!, account), status: 'unknown' }).toEqual(account)).toThrow()

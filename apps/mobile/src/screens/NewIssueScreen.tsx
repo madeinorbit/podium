@@ -5,7 +5,7 @@ import { SettingsRecordRequest } from '@podium/client-graph/requested-records'
 import { useMobilePool } from '../client/mobile-pool'
 import { followPhoneRequest } from '../client/visible-request'
 import { useMemo } from 'react'
-import { codingRoleHarness, ISSUE_STAGE_LABELS } from '@podium/client-core/values'
+import { ISSUE_STAGE_LABELS } from '@podium/client-core/values'
 import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage, machinePathBasename } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
@@ -68,9 +68,8 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
     const stop = followPhoneRequest(() => { if (settingsRequest && !settingsRequest.loading) void settingsRequest.read(() => trpc.settings.get.query()) })
     return () => { stop(); settingsRequest?.close() }
   }, [settingsRequest, trpc])
-  const configuredSettings = settingsRequest?.model
-  const configuredAgent = configuredSettings?.roles?.coding
-    ? issueAgentKind(codingRoleHarness(configuredSettings)) : undefined
+  const configuredHarness = settingsRequest?.model?.codingHarness
+  const configuredAgent = configuredHarness ? issueAgentKind(configuredHarness) : undefined
   useEffect(() => {
     if (configuredAgent) setLaunch(current => current.inheritAgent ? { ...current, agentKind: configuredAgent } : current)
   }, [configuredAgent])

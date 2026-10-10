@@ -2,6 +2,7 @@ import type { AccountView, MemberView, GitRepositoryWire } from '@podium/model'
 import { machinePathBasename, repoNameFromOrigin } from '@podium/model/browser'
 import type { MobileClientSession } from '@podium/protocol'
 import type { PodiumClientApi } from '@podium/client-core/api'
+import { codingRoleHarness } from '@podium/client-core/values'
 type PodiumSettings = Awaited<ReturnType<PodiumClientApi['settings']['get']['query']>>
 import { lazy } from '@podium/mobx-helpers'
 import { EntityModel, registerModels, type ModelHost } from './models'
@@ -21,6 +22,8 @@ export class DeviceModel extends EntityModel {
 export interface DeviceModel extends Readonly<MobileClientSession> {}
 export class PodiumSettingsModel extends EntityModel {
   constructor(id: string, host: ModelHost) { super('podiumSettings', id, host) }
+  // Role defaults are shared facts, read once while a launcher observes them.
+  @lazy get codingHarness(): string | undefined { return this.roles?.coding ? codingRoleHarness(this) : undefined }
 }
 export interface PodiumSettingsModel extends Readonly<PodiumSettings> {}
 /** Existing per-machine scan storage, now read through the pool's model identity. */
