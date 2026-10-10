@@ -15,7 +15,6 @@ import { useWorklistPool } from '@/app/store-worklist-pool'
  */
 
 import type { IssueId, SessionId } from '@podium/model'
-import { relativeTime } from '@podium/client-core/focus'
 import { useStoreHandle } from '@podium/client-core/react'
 import { Mail as MailIcon, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
@@ -23,6 +22,7 @@ import { useCallback, useEffect, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
+import { LedgerAge } from './LedgerAge'
 import {
   type LedgerStatusTone,
 } from './message-ledger'
@@ -33,7 +33,7 @@ const STATUS_CHIP: Record<LedgerStatusTone, string> = {
   dead: 'bg-muted text-muted-foreground line-through',
 }
 
-const LedgerRow = observer(function LedgerRow({ row, now }: { row: LedgerEntry; now: number }): JSX.Element {
+const LedgerRow = observer(function LedgerRow({ row }: { row: LedgerEntry }): JSX.Element {
   const [open, setOpen] = useState(false)
   const m = row.message
   const clamp = row.clamp
@@ -66,7 +66,7 @@ const LedgerRow = observer(function LedgerRow({ row, now }: { row: LedgerEntry; 
           </span>
         )}
         <span className="ml-auto flex-none text-[10px] text-muted-foreground/60">
-          {relativeTime(m.createdAt, now)}
+          <LedgerAge message={m} />
         </span>
       </button>
       <div className="mt-0.5 flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5 text-[10px] text-muted-foreground/70">
@@ -128,7 +128,6 @@ export const MessageLedgerView = observer(function MessageLedgerView({
   const rows = ledger?.ids ?? null
   const error = ledger?.error
   const refresh = () => { void ledger?.refresh() }
-  const now = Date.now()
   return (
     <div
       className="flex min-h-0 flex-1 flex-col overflow-y-auto p-2.5"
@@ -156,16 +155,16 @@ export const MessageLedgerView = observer(function MessageLedgerView({
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
-          {rows.map(id => <PooledLedgerRow key={id} ledger={ledger!} id={id} now={now} />)}
+          {rows.map(id => <PooledLedgerRow key={id} ledger={ledger!} id={id} />)}
         </div>
       )}
     </div>
   )
 })
 
-const PooledLedgerRow = observer(function PooledLedgerRow({ ledger, id, now }: { ledger: MessageLedger; id: string; now: number }) {
+const PooledLedgerRow = observer(function PooledLedgerRow({ ledger, id }: { ledger: MessageLedger; id: string }) {
   const message = ledger.pool.model('messageRecord', id)
   if (message === LOADING) return <div className="text-xs">Loading…</div>
   if (isGone(message)) return null
-  return <LedgerRow row={ledger.row(message)} now={now} />
+  return <LedgerRow row={ledger.row(message)} />
 })
