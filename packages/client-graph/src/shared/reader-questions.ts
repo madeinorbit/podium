@@ -201,8 +201,10 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
   function bucket(key: string): ReadonlySet<string> {
     return buckets.get(key) ?? new Set<string>()
   }
-  function keys(kind: string, row: Row): Set<string> {
-    const out = new Set<string>([`${kind}:all`])
+  function keys(kind: string, row: Row, previous?: Row, previousKeys?: Set<string>): Set<string> {
+    const out = previous
+      ? new Set(previousKeys)
+      : new Set<string>([`${kind}:all`])
     if (kind === 'issue') {
       // Read the source scalars once, even when the source is a counted proxy.
       const { repoId, repoPath, priority, stage, closedReason, blocked, archived,
@@ -227,27 +229,48 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
     } else if (kind === 'session') {
       updates.sessionFacets++
       const { archived, headless, agentKind, status, issueId } = row
-      if (!archived) out.add('session:unarchived')
-      if (!archived && !headless && agentKind !== 'shell') out.add('session:inbox')
-      if (['live', 'starting', 'reconnecting'].includes(status as string))
-        out.add('session:host')
-      const reference = sessionReferenceKey(row)
-      if (reference) out.add(`session:ref:${reference}`)
-      if (typeof issueId === 'string') {
-        out.add(`session:commandIssueWithShells:${issueId}`)
-        if (agentKind !== 'shell') out.add(`session:commandIssue:${issueId}`)
-        if (!archived) {
-          out.add(`session:commandIssueLiveWithShells:${issueId}`)
-          if (agentKind !== 'shell') out.add(`session:commandIssueLive:${issueId}`)
+      if (!previous || archived !== previous.archived) {
+        if (!archived) out.add('session:unarchived')
+        else out.delete('session:unarchived')
+      }
+      if (!previous || archived !== previous.archived || headless !== previous.headless || agentKind !== previous.agentKind) {
+        if (!archived && !headless && agentKind !== 'shell') out.add('session:inbox')
+        else out.delete('session:inbox')
+      }
+      if (!previous || status !== previous.status) {
+        if (['live', 'starting', 'reconnecting'].includes(status as string)) out.add('session:host')
+        else out.delete('session:host')
+      }
+      if (!previous || row.refRepoId !== previous.refRepoId || row.refSeq !== previous.refSeq ||
+        row.refLetter !== previous.refLetter || row.refDraft !== previous.refDraft) {
+        const beforeRef = previous && sessionReferenceKey(previous)
+        if (beforeRef) out.delete(`session:ref:${beforeRef}`)
+        const reference = sessionReferenceKey(row)
+        if (reference) out.add(`session:ref:${reference}`)
+      }
+      if (!previous || issueId !== previous.issueId || agentKind !== previous.agentKind || archived !== previous.archived) {
+        if (typeof previous?.issueId === 'string') {
+          out.delete(`session:commandIssueWithShells:${previous.issueId}`)
+          out.delete(`session:commandIssue:${previous.issueId}`)
+          out.delete(`session:commandIssueLiveWithShells:${previous.issueId}`)
+          out.delete(`session:commandIssueLive:${previous.issueId}`)
+        }
+        if (typeof issueId === 'string') {
+          out.add(`session:commandIssueWithShells:${issueId}`)
+          if (agentKind !== 'shell') out.add(`session:commandIssue:${issueId}`)
+          if (!archived) {
+            out.add(`session:commandIssueLiveWithShells:${issueId}`)
+            if (agentKind !== 'shell') out.add(`session:commandIssueLive:${issueId}`)
+          }
         }
       }
     }
     return out
   }
-  function set(kind: string, id: string, row: Row | undefined) {
+  function set(kind: string, id: string, row: Row | undefined, previousSession?: Row) {
     const address = `${kind}:${id}`,
       before = filed.get(address) ?? new Set<string>()
-    const after = row ? keys(kind, row) : new Set<string>()
+    const after = row ? keys(kind, row, previousSession, before) : new Set<string>()
     if (kind === 'issue') {
       const beforeMention = mentions?.revision
       mentions?.set(id, row)
@@ -432,6 +455,19 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
     },
     changes,
     updates,
+    /** A resident slot supplies its old plain row; no row payload is retained
+     * by this index just to determine which predicates need maintenance. */
+    updateSession(id: string, row: Row | undefined, previous?: Row) {
+      changes.clear()
+      changedId = id
+      if (row && previous && filed.has(`session:${id}`) &&
+        row.archived === previous.archived && row.headless === previous.headless &&
+        row.agentKind === previous.agentKind && row.status === previous.status &&
+        row.issueId === previous.issueId && row.refRepoId === previous.refRepoId &&
+        row.refSeq === previous.refSeq && row.refLetter === previous.refLetter &&
+        row.refDraft === previous.refDraft && options.recent === false) return
+      set('session', id, row, row && previous && filed.has(`session:${id}`) ? previous : undefined)
+    },
     watchChanges(): () => void {
       changeReaders++
       return () => {

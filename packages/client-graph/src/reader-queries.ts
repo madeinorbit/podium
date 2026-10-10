@@ -132,7 +132,7 @@ export class ReaderQueries {
     for (const entity of ['issue', 'session'] as const)
       this.stopTables.push(
         observe(pool.tables[entity], (change) => {
-          this.updateResident(entity, change.name)
+          this.updateResident(entity, change.name, change.type === 'update' ? change.oldValue : undefined)
           this.correctCount(entity, change.name)
           if (!this.publishing) this.publishQueries()
         }),
@@ -213,7 +213,7 @@ export class ReaderQueries {
       ? { cwd: fact.cwd, issueId: fact.issueId, order: fact.order }
       : undefined
   }
-  private updateResident(entity: 'issue' | 'session', id: string): void {
+  private updateResident(entity: 'issue' | 'session', id: string, previous?: Readonly<Record<string, unknown>>): void {
     const present = this.pool.tables[entity].has(id)
     if (!present) this.residentOrder[entity].delete(id)
     else if (!this.residentOrder[entity].has(id))
@@ -226,7 +226,8 @@ export class ReaderQueries {
     // A display facade would evaluate companion joins during hydration.
     // untracked-read: reader-resident-maintenance
     const row = present ? untracked(() => this.pool.tables[entity].get(id)) : undefined
-    this.residents.apply({
+    if (entity === 'session') this.residents.updateSession(id, row, previous)
+    else this.residents.apply({
       type: 'update',
       rows: [
         {
@@ -685,12 +686,17 @@ export class ReaderQueries {
     if (previous?.archived !== next?.archived)
       this.sessionAtoms.get(`archived:${id}`)?.reportChanged()
     const after = next?.issueId
-    if (before) this.publishIssueClose(before)
-    if (after && after !== before) this.publishIssueClose(after)
-    this.publishSessionReference(beforeRef)
     const afterRef = next?.referenceKey
-    if (afterRef !== beforeRef) this.publishSessionReference(afterRef)
-    if (this.sessionPathAtoms.size) {
+    if (beforeVisible !== afterVisible || before !== after ||
+      previous?.closeOffers !== next?.closeOffers || previous?.closeWorking !== next?.closeWorking) {
+      if (before) this.publishIssueClose(before)
+      if (after && after !== before) this.publishIssueClose(after)
+    }
+    if (beforeVisible !== afterVisible || beforeRef !== afterRef || previous?.order !== next?.order) {
+      this.publishSessionReference(beforeRef)
+      if (afterRef !== beforeRef) this.publishSessionReference(afterRef)
+    }
+    if (this.sessionPathAtoms.size && (beforeVisible !== afterVisible || previous?.cwd !== next?.cwd)) {
       const paths = new Set<string>()
       for (const cwd of [previous?.cwd, next?.cwd]) {
         if (cwd === undefined) continue

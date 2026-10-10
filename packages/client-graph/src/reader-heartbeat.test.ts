@@ -73,6 +73,37 @@ it('matches complete question rebuilds across individual field edits, visibility
   check(undefined); check(row)
 })
 
+it('matches full facet filing through resident field edits and reused addresses', () => {
+  const index = createReaderIndex({ targetSearch: false, recent: false })
+  const questions: ReaderQuestion[] = [
+    { kind: 'commandSessions' }, { kind: 'inboxSessions' }, { kind: 'headerOccupancy' },
+    { kind: 'referenceSessions' }, { kind: 'sessionReference', ref: 'POD-1a' },
+    { kind: 'sessionReference', ref: 'POD-2b' },
+    ...['one', 'two'].flatMap(issueId => [false, true].flatMap(archived => [false, true].map(includeShells =>
+      ({ kind: 'commandIssueSessions' as const, issueId, archived, includeShells })))),
+  ]
+  const repo = { kind: 'repo', id: 'repo', value: { prefix: 'POD' } } as RowRecord
+  // A slot's ID is authoritative even if a partial row omits sessionId.
+  const row = { status: 'live', agentKind: 'codex', issueId: 'one', archived: false,
+    refRepoId: 'repo', refSeq: 1, refLetter: 'a' }
+  index.apply({ type: 'replace', rows: [repo] })
+  let previous: Readonly<Record<string, unknown>> | undefined
+  const check = (next: Readonly<Record<string, unknown>> | undefined) => {
+    index.updateSession('active', next, previous)
+    previous = next
+    const rebuilt = createReaderIndex({ targetSearch: false, recent: false })
+    rebuilt.apply({ type: 'replace', rows: [repo, { kind: 'session', id: 'active', value: next } as RowRecord] })
+    for (const question of questions) expect(index.ids(question)).toEqual(rebuilt.ids(question))
+  }
+  check(row)
+  for (const patch of [
+    { lastActiveAt: '2026-10-09' }, { title: 'Renamed' }, { archived: true }, { headless: true },
+    { agentKind: 'shell' }, { status: 'exited' }, { issueId: 'two' }, { issueId: undefined },
+    { refSeq: 2, refLetter: 'b' }, { refRepoId: undefined },
+  ]) { check({ ...row, ...patch }); check(row) }
+  check(undefined); check(row)
+})
+
 it.each([1, 4])('matches the old observed query walk and records heartbeat bookkeeping at %sx', scale => {
   const rows = new Map<string, RowRecord>()
   const issue = (id: string, patch: object = {}): RowRecord => ({ kind: 'issue', id, value: {

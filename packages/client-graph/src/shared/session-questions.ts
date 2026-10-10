@@ -151,17 +151,18 @@ export function createSessionQuestions(
     return builder.answer
   }
   const touch = (key: string) => revisions.set(key, key, ++version)
-  function fileSetup(id: string, value: SessionQuestionFacts | undefined) {
+  function fileSetupCount(id: string, visible: boolean) {
     updates.setupCount++
-    const visible = value !== undefined && !collapsed(id)
     if (setupMembers.has(id) !== visible) {
       if (visible) { setupMembers.set(id, id, true); setupCount++ }
       else { setupMembers.delete(id); setupCount-- }
       touch('setup:count')
     }
-    const next = visible && value.agentKind !== 'shell' && !value.headless
-      ? { id, at: value.activity, setupOrder: value.setupOrder, agentKind: value.agentKind } : undefined
+  }
+  function fileSetupAgent(id: string, value: SessionQuestionFacts | undefined, visible: boolean) {
     updates.setupAgent++
+    const next = visible && value && value.agentKind !== 'shell' && !value.headless
+      ? { id, at: value.activity, setupOrder: value.setupOrder, agentKind: value.agentKind } : undefined
     const before = setupAgents.get(id)
     if (before && next && compareSetupAgent(before, next) === 0 && before.agentKind === next.agentKind) return
     if (before === next) return
@@ -206,72 +207,90 @@ export function createSessionQuestions(
     else collection.delete(key)
     touch(key)
   }
-  function file(value: FiledSessionFacts) {
-    fileClose(value.id, value)
-    fileSetup(value.id, value)
-    const visible = !collapsed(value.id)
-    updates.reference++
-    if (value.referenceKey) bucket(references, `ref:${value.referenceKey}`, value.id,
-      visible ? { id: value.id, order: value.order } : undefined, compareReference)
-    updates.triage++
-    const next = value.rank === null || !visible ? undefined : {
-      id: value.id, rank: value.rank, createdAt: value.createdAt, at: value.at,
+  /** Each declared answer reads only these scalar inputs. Presence and source
+   * visibility changes re-file their contributions; payload edits do not. */
+  function file(id: string, value: FiledSessionFacts | undefined, before?: FiledSessionFacts, visibilityChanged = false) {
+    const presence = !before || !value
+    const membership = presence || visibilityChanged
+    const visible = value !== undefined && !collapsed(id)
+    if (membership || before.issueId !== value.issueId ||
+      before.closeOffers !== value.closeOffers || before.closeWorking !== value.closeWorking)
+      fileClose(id, value)
+    if (membership) fileSetupCount(id, visible)
+    if (membership || before.activity !== value.activity || before.agentKind !== value.agentKind ||
+      before.headless !== value.headless || before.setupOrder !== value.setupOrder)
+      fileSetupAgent(id, value, visible)
+    if (membership || before.referenceKey !== value.referenceKey || before.order !== value.order) {
+      updates.reference++
+      if (before?.referenceKey && before.referenceKey !== value?.referenceKey)
+        bucket(references, `ref:${before.referenceKey}`, id, undefined, compareReference)
+      if (value?.referenceKey) bucket(references, `ref:${value.referenceKey}`, id,
+        visible ? { id, order: value.order } : undefined, compareReference)
     }
-    const timed = value.snooze > value.at && Number.isFinite(value.deadline)
-    if (next && timed) {
-      triage.delete(value.id)
-      future.set(value.id, '', { ...next, deadline: value.deadline })
-      expired.set(value.id, '', { ...next, at: value.snooze, deadline: value.deadline })
-    } else {
-      future.delete(value.id)
-      expired.delete(value.id)
-      if (next) triage.set(value.id, '', next)
-      else triage.delete(value.id)
+    if (membership || before.rank !== value.rank || before.at !== value.at ||
+      before.createdAt !== value.createdAt || before.snooze !== value.snooze ||
+      !Object.is(before.deadline, value.deadline)) {
+      updates.triage++
+      const next = !value || value.rank === null || !visible ? undefined : {
+        id, rank: value.rank, createdAt: value.createdAt, at: value.at,
+      }
+      const timed = value && value.snooze > value.at && Number.isFinite(value.deadline)
+      if (next && timed) {
+        triage.delete(id)
+        future.set(id, '', { ...next, deadline: value.deadline })
+        expired.set(id, '', { ...next, at: value.snooze, deadline: value.deadline })
+      } else {
+        future.delete(id)
+        expired.delete(id)
+        if (next) triage.set(id, '', next)
+        else triage.delete(id)
+      }
     }
-    updates.recent++
-    const recency = value.archived ? undefined : { id: value.id, at: value.activity }
-    const beforeRecent = recent.get(value.id)
-    if (beforeRecent !== recency && !(beforeRecent && recency && compareRecent(beforeRecent, recency) === 0)) {
-      if (recency) recent.set(value.id, '', recency)
-      else recent.delete(value.id)
-      touch('recent')
+    if (presence || before.archived !== value.archived || before.activity !== value.activity) {
+      updates.recent++
+      const recency = !value || value.archived ? undefined : { id, at: value.activity }
+      const beforeRecent = recent.get(id)
+      if (beforeRecent !== recency && !(beforeRecent && recency && compareRecent(beforeRecent, recency) === 0)) {
+        if (recency) recent.set(id, '', recency)
+        else recent.delete(id)
+        touch('recent')
+      }
     }
-    updates.machine++
-    if (value.machineId) bucket(machines, `machine:${value.machineId}`, value.id,
-      visible ? { id: value.id, machineId: value.machineId, createdAt: value.createdAt, order: value.order } : undefined,
-      compareMachineSessions)
-    updates.activity++
-    for (const path of value.activityPaths) bucket(activities, path, value.id,
-      visible ? { id: value.id, at: Date.parse(value.activity) || 0 } : undefined, compareActivity)
+    if (membership || before.machineId !== value.machineId ||
+      before.createdAt !== value.createdAt || before.order !== value.order) {
+      updates.machine++
+      if (before?.machineId && before.machineId !== value?.machineId)
+        bucket(machines, `machine:${before.machineId}`, id, undefined, compareMachineSessions)
+      if (value?.machineId) bucket(machines, `machine:${value.machineId}`, id,
+        visible ? { id, machineId: value.machineId, createdAt: value.createdAt, order: value.order } : undefined,
+        compareMachineSessions)
+    }
+    if (membership || before.activity !== value.activity || before.activityPaths !== value.activityPaths) {
+      updates.activity++
+      if (before && before.activityPaths !== value?.activityPaths) {
+        const remaining = new Set(value?.activityPaths)
+        for (const path of before.activityPaths)
+          if (!remaining.has(path)) bucket(activities, path, id, undefined, compareActivity)
+      }
+      const at = Date.parse(value?.activity ?? '') || 0
+      for (const path of value?.activityPaths ?? []) bucket(activities, path, id,
+        visible ? { id, at } : undefined, compareActivity)
+    }
   }
   function setFacts(id: string, next: SessionQuestionFacts | undefined) {
     const before = facts.get(id)
     if (same(before, next)) return
-    if (before?.referenceKey && before.referenceKey !== next?.referenceKey)
-      bucket(references, `ref:${before.referenceKey}`, id, undefined, compareReference)
-    if (before?.machineId && before.machineId !== next?.machineId)
-      bucket(machines, `machine:${before.machineId}`, id, undefined, compareMachineSessions)
     const samePaths = before && next && before.cwd === next.cwd &&
       (before.agentKind === 'shell') === (next.agentKind === 'shell')
     const nextPaths = next ? samePaths ? before.activityPaths : activityPaths(next) : []
-    if (before && !samePaths) {
-      const remaining = new Set(nextPaths)
-      for (const path of before.activityPaths)
-        if (!remaining.has(path)) bucket(activities, path, id, undefined, compareActivity)
-    }
-    future.delete(id)
-    expired.delete(id)
     if (!next) {
-      fileClose(id, undefined)
-      fileSetup(id, undefined)
       facts.delete(id)
-      triage.delete(id)
-      if (recent.has(id)) { recent.delete(id); touch('recent') }
+      file(id, undefined, before)
       return
     }
     const filed = { ...next, activityPaths: nextPaths }
     facts.set(id, id, filed)
-    file(filed)
+    file(id, filed, before)
   }
   const api: SessionQuestions = {
     updates,
@@ -353,7 +372,7 @@ export function createSessionQuestions(
       if (!value) return
       const next = { ...value, order: order(id), setupOrder: setupOrder(id) }
       facts.set(id, id, next)
-      file(next)
+      file(id, next, value, true)
     },
     triageFact(id, now) {
       const value = facts.get(id)

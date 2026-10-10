@@ -1,4 +1,5 @@
-/** Bounded apply-only CPU replay. Run with checkout-local Bun on flatblock.
+/** Bounded apply-only CPU replay. Run with checkout-local Bun on flatblock:
+ * bun --conditions=@podium/source tests/worklist/harness/src/resident-heartbeat-cpu.ts
  * Optional --cpu-prof captures the same 3,000-heartbeat workload; no operator data. */
 import { autorun } from 'mobx'
 import { MobxPool } from '../../../../packages/client-graph/src/pool'
@@ -32,7 +33,7 @@ try {
   const wallMs = performance.now() - start, used = process.cpuUsage(cpu)
   const delta = Object.fromEntries(Object.entries(pool.queries.residentUpdates)
     .map(([key, count]) => [key, count - before[key as keyof typeof before]]))
-  const latest = Date.parse(heartbeats.at(-1)!.rows[0]!.value!.lastActiveAt as string)
+  const latest = Date.parse(old) + heartbeats.length * 1000
   if (pool.queries.activity({ kind: 'commandRootActivity', roots: ['/repo'] }) !== latest)
     throw new Error('Heartbeat activity became stale')
   if (pool.queries.ids({ kind: 'headerRecentSession' })[0] !== 'session-0')
