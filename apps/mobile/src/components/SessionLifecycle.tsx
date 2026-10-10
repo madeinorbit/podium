@@ -81,7 +81,7 @@ function LifecycleButton({
   compact,
 }: {
   action: RecoveryAction
-  session: SessionMeta
+  session: Pick<SessionMeta, 'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'>
   onResume: (sessionId: SessionMeta['sessionId']) => Promise<SessionResurrectionResult>
   onRemove: (sessionId: SessionMeta['sessionId']) => Promise<void>
   compact: boolean
@@ -155,7 +155,7 @@ export function MobileSessionLifecycle({
   onResume,
   onRemove,
 }: {
-  session: SessionMeta
+  session: Pick<SessionMeta, 'sessionId' | 'status' | 'exitCode' | 'spawnFailure' | 'agentKind' | 'resumable' | 'neverBound'>
   hasTranscript: boolean
   onResume: (sessionId: SessionMeta['sessionId']) => Promise<SessionResurrectionResult>
   onRemove: (sessionId: SessionMeta['sessionId']) => Promise<void>

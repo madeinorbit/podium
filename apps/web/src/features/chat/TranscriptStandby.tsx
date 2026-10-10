@@ -71,7 +71,7 @@ interface StandbyCopy {
  * `SuperagentView`; POD-782 deleted that screen and the sentence moved here,
  * because this is where the product already says what an empty chat is.
  */
-export function standbyCopy(session: SessionView | undefined, superagent = false): StandbyCopy {
+export function standbyCopy(session: Pick<SessionView, 'agentKind' | 'status' | 'observedModel' | 'model'> | undefined, superagent = false): StandbyCopy {
   if (superagent)
     return {
       title: 'What do you want to work on?',
@@ -95,7 +95,7 @@ export function standbyCopy(session: SessionView | undefined, superagent = false
 }
 
 /** Who is answering, and from where. Omitted rather than shown empty. */
-function coordinates(session: SessionView | undefined, cwd: string): readonly string[] {
+function coordinates(session: Pick<SessionView, 'agentKind' | 'status' | 'observedModel' | 'model'> | undefined, cwd: string): readonly string[] {
   const out: string[] = []
   if (session) {
     // A shell has no model — whatever a spawn-time selection left on the row is
@@ -116,7 +116,7 @@ export function TranscriptStandby({
   cwd,
   superagent = false,
 }: {
-  session: SessionView | undefined
+  session: Pick<SessionView, 'agentKind' | 'status' | 'observedModel' | 'model'> | undefined
   cwd: string
   /** This is the orchestrator's own thread, not an agent's session. */
   superagent?: boolean

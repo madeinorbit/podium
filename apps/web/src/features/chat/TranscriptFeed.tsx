@@ -274,7 +274,7 @@ export interface TranscriptFeedProps {
   loadOlder: () => void
   sessionId: SessionId
   cwd: string
-  session: SessionView | undefined
+  session: SessionView | SessionModel | undefined
   httpOrigin: string
   openFile: (sessionId: SessionId, path: string) => void
   onOpenImage: (url: string) => void

@@ -156,7 +156,7 @@ export interface AgentBadge {
 
 /** Map harness-observed runtime state to the little badge on a session row.
  *  Null = nothing to show (uninstrumented agent kinds stay clean). */
-export function agentBadge(meta: SessionView, issue?: Pick<IssueProjection, 'stage' | 'closedReason'>, offer = meta.offer): AgentBadge | null {
+export function agentBadge(meta: Pick<SessionView, 'agentState' | 'offer'>, issue?: Pick<IssueProjection, 'stage' | 'closedReason'>, offer = meta.offer): AgentBadge | null {
   // An offer is an explicit pending decision even when the turn that produced
   // it has already classified as idle/done. Keep every status surface (session
   // dot, sidebar meta, chat activity) amber until that offer is cleared —
@@ -255,7 +255,7 @@ export interface ChatActivity {
  * `justSent` only covers the optimistic gap before the send's own meta update
  * lands, and only while the session is still parked.
  */
-export function sessionWaking(meta: SessionView | undefined, justSent = false): boolean {
+export function sessionWaking(meta: Pick<SessionView, 'status' | 'queuedMessageCount'> | undefined, justSent = false): boolean {
   if (!meta) return false
   const queued = (meta.queuedMessageCount ?? 0) > 0
   if (meta.status === 'hibernated' || meta.status === 'exited') return queued || justSent
@@ -310,7 +310,7 @@ export function sessionWaking(meta: SessionView | undefined, justSent = false): 
  * and dropped the offer line entirely, with no send anywhere in sight.
  */
 export function chatActivity(
-  meta: SessionView | undefined,
+  meta: Pick<SessionView, 'status' | 'queuedMessageCount' | 'agentState' | 'offer' | 'busy'> | undefined,
   justSent: boolean,
   offer = meta?.offer,
 ): ChatActivity | null {

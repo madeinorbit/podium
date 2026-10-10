@@ -29,7 +29,7 @@ export function OfferArtifactStrip({
   className,
 }: {
   offer: SessionOffer
-  session: SessionView
+  session: Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt'>
   /** Extra classes on the strip root (spacing differs per host surface). Only
    *  applied when the strip renders — an empty strip must not leave margins. */
   className?: string

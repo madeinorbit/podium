@@ -138,7 +138,7 @@ export function OfferBar({
   onDismiss?: (offerCreatedAt: string) => Promise<void> | void
   /** When given, the offer's issue-artifact evidence renders as a thumbnail
    *  strip [POD-120] (needs the session to find its issue + input recency). */
-  session?: SessionView
+  session?: Pick<SessionView, 'sessionId' | 'issueId' | 'lastInputAt'>
 }): JSX.Element {
   const [expanded, setExpanded] = useState(false)
   // Callback ref, not useRef: the fold has to be measured the moment its body

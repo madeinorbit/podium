@@ -10,6 +10,7 @@ import {
 import { randomUUID } from '@podium/client-core/id'
 import { useConversation, useStoreHandle } from '@podium/client-core/react'
 import { REPLICA_TRANSCRIPT_ITEM_CAP, type IssueViewModel } from '@podium/client-core/replica'
+import type { SessionModel } from '@podium/client-graph/models'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
   composerState,
@@ -346,7 +347,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
   onInitialPendingSettled,
 }: {
   pool: ReturnType<typeof useMobilePool>
-  session: SessionView
+  session: SessionView | SessionModel
   model: MobileChatViewModel
   /** The task this session belongs to; drives task context and the plan bridge. */
   issue: IssueViewModel | undefined

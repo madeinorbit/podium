@@ -143,7 +143,7 @@ export interface TranscriptAttribution {
  */
 export function transcriptAttribution(
   item: TranscriptItem,
-  session: SessionView | undefined,
+  session: Pick<SessionView, 'name' | 'agentKind'> | undefined,
 ): TranscriptAttribution {
   const actorKind: TranscriptAttribution['actorKind'] =
     item.role === 'user' ? 'human' : item.role === 'system' ? 'system' : 'agent'
@@ -172,7 +172,7 @@ export interface TranscriptAttributionTable {
 }
 
 export function transcriptAttributionTable(
-  session: SessionView | undefined,
+  session: Pick<SessionView, 'name' | 'agentKind'> | undefined,
 ): TranscriptAttributionTable {
   const pair = (role: TranscriptItem['role']): TranscriptAttribution =>
     transcriptAttribution({ role, id: '', text: '' } as TranscriptItem, session)
@@ -190,7 +190,7 @@ export function attributionForRole(
 /** The agent half of the pair, from server-stamped session fields only. The
  *  curated `name` is preferred because a human may have set it (`nameSource`),
  *  and the harness kind is the fallback identity the server always carries. */
-function agentActorId(session: SessionView | undefined): string | undefined {
+function agentActorId(session: Pick<SessionView, 'name' | 'agentKind'> | undefined): string | undefined {
   if (!session) return undefined
   return session.name ?? session.agentKind ?? undefined
 }
@@ -203,7 +203,7 @@ function agentActorId(session: SessionView | undefined): string | undefined {
  * one function means the field arrives in exactly one place, and until it does
  * every consumer gets `undefined` (unknown) rather than a fabricated value.
  */
-function sessionOnBehalfOf(session: SessionView | undefined): string | null | undefined {
+function sessionOnBehalfOf(session: Pick<SessionView, 'name' | 'agentKind'> | undefined): string | null | undefined {
   if (!session) return undefined
   const carried = (session as { onBehalfOf?: string | null }).onBehalfOf
   return carried === undefined ? undefined : carried
@@ -221,17 +221,17 @@ function sessionOnBehalfOf(session: SessionView | undefined): string | null | un
  * revoked (POD-1077), the entity still exists, and rendering it as a deletion is
  * the defect this type exists to prevent. `removed` is a real tombstone.
  */
-export interface ChatSessionReference {
+export interface ChatSessionReference<T extends Pick<SessionView, 'sessionId'> = Pick<SessionView, 'sessionId'>> {
   readonly state: ReferentState
   readonly id: string
-  readonly value?: SessionView
+  readonly value?: T
 }
 
-export function chatSessionReference(
+export function chatSessionReference<T extends Pick<SessionView, 'sessionId'>>(
   sessionId: SessionId,
-  sessions: readonly SessionView[],
+  sessions: readonly T[],
   exitOf: (id: string) => ReferentExit | undefined = () => undefined,
-): ChatSessionReference {
+): ChatSessionReference<T> {
   const resolved = resolveReferent(
     sessionId,
     (id) => sessionById(sessions).get(id),
@@ -498,7 +498,7 @@ export interface ComposerState {
 }
 
 export function composerState(input: {
-  session: SessionView | undefined
+  session: (Pick<SessionView, 'status' | 'resumable' | 'agentState' | 'queuedMessageCount'> & { readonly archived?: boolean }) | undefined
   headless: boolean
   turnRunning: boolean
   compact: boolean
@@ -631,7 +631,7 @@ export function chatSendRoute(input: {
  *  (optimistic hide until the server's cleared meta arrives). Headless superagent
  *  threads never show one. */
 export function visibleOffer(input: {
-  session: SessionView | undefined
+  session: Pick<SessionView, 'offer'> | undefined
   headless: boolean
   dismissedOfferAt: string | null
 }): SessionView['offer'] | null {
@@ -648,7 +648,7 @@ export function visibleOffer(input: {
  * the one-line badge above the composer.
  */
 export function chatActivityState(input: {
-  session: SessionView | undefined
+  session: Parameters<typeof chatActivity>[0]
   headless: boolean
   turnRunning: boolean
   justSent: boolean
