@@ -2373,7 +2373,12 @@ fn main() {
             let runtime_probe = runtime_probe_script();
             // Remote modes already resolved webview_url + window_injection. Local modes
             // fill them after the readiness probe inside the spawn below.
-            let remote_init_injection = window_injection;
+            // POD-5921: the page of a remote window learns which installation its server is.
+            let identity_injection = follow_identity
+                .as_ref()
+                .map(bootstrap::server_identity_injection_script)
+                .unwrap_or_default();
+            let remote_init_injection = format!("{identity_injection}\n{window_injection}");
             let watchdog_shutting_down = shutting_down.clone();
             let server_transport_error_for_window = server_transport_error;
             let payload_start_error_for_window = payload_start_error;
@@ -2447,10 +2452,6 @@ fn main() {
                         (bootstrap::local_window_target(port, ready), injection)
                     }
                 } else {
-                    let identity_injection = follow_identity
-                        .as_ref()
-                        .map(bootstrap::server_identity_injection_script)
-                        .unwrap_or_default();
                     let cold_start = match remote_server_for_window.as_deref() {
                         Some(server_url) if follow_identity.is_some() => bootstrap::remote_cold_start(
                             remote_server_answers(server_url),
@@ -2473,10 +2474,7 @@ fn main() {
                                 ),
                             )
                         }
-                        _ => (
-                            webview_url,
-                            format!("{identity_injection}\n{remote_init_injection}"),
-                        ),
+                        _ => (webview_url, remote_init_injection),
                     }
                 };
                 // External-link shim (ALL modes): route window.open/_blank to the OS browser.
