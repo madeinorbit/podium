@@ -10,6 +10,7 @@ import { createMobileSessionReader } from '@podium/client-graph/mobile-session-c
 import { MOBILE_SESSION_SCHEMA } from '@podium/client-graph/mobile-session-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
+import { here } from '@podium/client-graph/lookup'
 import { issueDisplayRef, type PodiumTarget } from '@podium/protocol'
 
 const cardFields = [
@@ -101,6 +102,7 @@ export function mobileSessionSnapshot(pool: MobxPool, ids: readonly string[], no
       const session = reader.session(id)
       const issue = reader.issue(session && session !== LOADING ? session.issueId : undefined)
       const ports = reader.conversation(id)
+      const question = reader.question(id)
       return {
         id,
         session: sessionFacts(session === LOADING ? undefined : session),
@@ -109,8 +111,8 @@ export function mobileSessionSnapshot(pool: MobxPool, ids: readonly string[], no
         prompt: reader.spawnPrompt(id),
         exit: reader.exit(id),
         draft: reader.draft(id),
-        question: reader.question(id),
-        records: ports.records,
+        question: { ...question, question: question.question ? here(pool.row('pendingInteraction', question.question.id)) : undefined },
+        records: ports.records.map(record => here(record.row)),
         held: ports.sends.map(({ failure, ...send }) => ({
           ...send,
           failure: failure ? { message: failure.message, retryable: failure.retryable } : undefined,

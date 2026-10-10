@@ -1,4 +1,4 @@
-import { messageRecordRowId, type MessageRecordWire } from '@podium/model'
+import { messageRecordRowId, readDeliveryStatus, type MessageRecordWire } from '@podium/model'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import type { MessageLedgerWire } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
@@ -79,26 +79,27 @@ registerModels(schema, { messageRecord: MessageModel, pendingInteraction: Intera
  * Request callers provide the current replica row: a late response cannot
  * overwrite an authoritative pushed record (the declared component precedence). */
 export type CurrentMessageRecord = (id: string) => MessageRecordWire | undefined
-const chatFields = (record: MessageRecordWire) => ({
-  attachments: undefined, reason: undefined, transcriptItem: undefined,
-  retractRequestedAt: undefined, noticeDismissedAt: undefined, ...record,
-})
+const CHAT_OPTIONAL = ['attachments', 'reason', 'transcriptItem', 'retractRequestedAt', 'noticeDismissedAt'] as const
+const LEDGER_OPTIONAL = ['queuePosition', 'readAt', 'deadLetteredAt', 'deliveryDeferredAt', 'deliveryDeferredReason'] as const
+function replaceChatFields(previous: Partial<MessagePoolRow>, record: MessageRecordWire): MessagePoolRow {
+  const next = { ...previous }
+  for (const field of CHAT_OPTIONAL) delete next[field]
+  // Apply the same tolerant wire decoding as Sends; there is one status in the table.
+  return { ...next, ...record, status: readDeliveryStatus(record.status) }
+}
 export function ingestMessageRecords(pool: MobxPool, records: readonly MessageRecordWire[], current?: CurrentMessageRecord): void {
   pool.apply({ type: 'update', rows: records.map(record => {
-    const row = (pool.tables.messageRecord.get(record.id) as MessagePoolRow | undefined) ?? {}
-    return { kind: 'messageRecord', id: record.id, value: { ...row, ...chatFields(current?.(record.id) ?? record) } }
+    const previous = (pool.tables.messageRecord.get(record.id) as MessagePoolRow | undefined) ?? {}
+    return { kind: 'messageRecord', id: record.id, value: replaceChatFields(previous, current?.(record.id) ?? record) }
   }) })
 }
 export function ingestLedgerMessages(pool: MobxPool, records: readonly MessageLedgerWire[], current?: CurrentMessageRecord): void {
   pool.apply({ type: 'update', rows: records.map(({ deliveryStatus, ...record }) => {
-    const previous = pool.tables.messageRecord.get(record.id) as MessagePoolRow | undefined
+    const previous = { ...pool.tables.messageRecord.get(record.id) } as Partial<MessagePoolRow>
+    for (const field of LEDGER_OPTIONAL) delete previous[field]
+    const next: MessagePoolRow = { ...previous, ...record, status: readDeliveryStatus(deliveryStatus) }
     const synced = current?.(record.id)
-    return { kind: 'messageRecord', id: record.id, value: {
-      ...previous, queuePosition: undefined, readAt: undefined, deadLetteredAt: undefined,
-      deliveryDeferredAt: undefined, deliveryDeferredReason: undefined,
-      ...record, status: deliveryStatus,
-      ...(synced ? chatFields(synced) : {}),
-    } }
+    return { kind: 'messageRecord', id: record.id, value: synced ? replaceChatFields(next, synced) : next }
   }) })
 }
 

@@ -90,7 +90,7 @@ it('matches old notice facts and all interaction card answers on identical fixtu
 })
 
 it('matches old Sends facts for every status, retract and transcript confirmation, with a wrong-answer control', async () => {
-  const statuses: MessageRecordWire['status'][] = ['stored', 'dispatched', 'typing', 'typed', 'accepted', 'confirmed', 'failed', 'expired', 'cancelled', 'unknown']
+  const statuses: MessageRecordWire['status'][] = ['stored', 'dispatched', 'typing', 'typed', 'accepted', 'confirmed', 'failed', 'expired', 'cancelled', 'unknown', 'new-server-status' as MessageRecordWire['status']]
   const f = fixture([])
   const transcript = new TranscriptLog({ sessionId: asSessionId('seat'), source: { read: async () => ({ items: [], hasMore: false }), subscribe: () => () => {} } })
   let current = record()
