@@ -1,3 +1,4 @@
+import '../../../test/shared-notice-model-fixture'
 import { noticeFixture } from '../../../../../tests/worklist/diagnostics/notice-fixture'
 import { NOTICE_MESSAGE_WINDOW } from '@podium/client-graph/notice-views'
 import type { JSX, ReactNode } from 'react'

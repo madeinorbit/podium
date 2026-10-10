@@ -887,10 +887,10 @@ export class MobxPool {
    * and is queued (first access); a reader renders that as loading, never as
    * an empty row.
    */
-  resident(entity: EntityName, id: string): Residence {
+  resident(entity: EntityName, id: string, absent: 'load' | 'summary-fields' = 'load'): Residence {
     // Availability observes presence; payload changes belong to field readers.
     if (this.tables[entity].has(id)) return 'resident'
-    const answer = this.row(entity, id)
+    const answer = this.row(entity, id, absent)
     return answer === LOADING ? 'loading' : isGone(answer) ? 'absent' : 'resident'
   }
 

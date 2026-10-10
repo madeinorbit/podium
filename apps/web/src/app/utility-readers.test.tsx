@@ -1,3 +1,4 @@
+import '../../test/opening-pool-fixture'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 
 // @vitest-environment happy-dom

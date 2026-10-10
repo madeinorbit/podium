@@ -16,6 +16,8 @@ import { chatInteractions, chatRecords } from './chat-context'
 import { here } from './lookup'
 import { currentMessageRecord, ingestLedgerMessages, ingestMessageRecords } from './message-models'
 import { MessageLedger } from './message-ledger'
+import { LedgerEntry } from './ledger-entry'
+import * as beforeLedger from './ledger-entry.before.test.fixture'
 import { MobxPool } from './pool'
 import { NoticeSource } from './notice-source'
 import { NOTICE_ENTITIES } from './notice-schema'
@@ -186,6 +188,9 @@ it('polls every 15 seconds only while visible, and ignores answers after closing
 it('an authority message update crosses the real replica boundary and reaches every shared reader', async () => {
   const authority = new ConformanceAuthority()
   await authority.resolveIdentity()
+  const classOf = authority.policy.classOf.bind(authority.policy)
+  vi.spyOn(authority.policy, 'classOf').mockImplementation(entity =>
+    entity === 'message' || entity === 'pendingInteraction' ? 'personal' : classOf(entity))
   const principal = conformanceUser('message-model-user')
   const rowId = messageRecordRowId({ sessionId: 'seat', senderUserId: 'user', messageId: 'message' })
   authority.append({ entity: 'message', entityId: rowId, op: 'upsert', payload: record() })
@@ -320,4 +325,29 @@ it('requests message records in the existing 100-ID batches', async () => {
     expect(ledger.ids).toEqual(rows.map(row => row.id))
     expect(here(pool.model('messageRecord', 'ledger-204'))).toMatchObject({ body: record().body, from: 'user' })
   } finally { ledger.dispose(); pool.dispose() }
+})
+
+
+it('matches each old ledger fact on shared models, with wrong-answer controls', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  const statuses: MessageRecordWire['status'][] = ['stored', 'dispatched', 'typing', 'typed', 'accepted', 'confirmed', 'failed', 'expired', 'cancelled', 'unknown']
+  const metadata: Partial<MessageLedgerWire>[] = [
+    {}, { queuePosition: 3, expiresAt: stamp }, { ackedBy: 'other', deliveredTo: 'seat' },
+    { readAt: stamp, deliveredTo: 'seat' }, { deliveryDeferredAt: stamp, deliveryDeferredReason: 'busy' },
+    { clampedFrom: JSON.stringify({ urgency: 'interrupt', lifecycle: 'wake', reasons: ['sleeping'] }) },
+    { clampedFrom: 'invalid json' },
+  ]
+  try {
+    for (const status of statuses) for (const patch of metadata) {
+      const wire = ledgerRow({ ...patch, deliveryStatus: status })
+      ingestLedgerMessages(pool, [wire])
+      const model = here(pool.model('messageRecord', wire.id))!
+      const entry = new LedgerEntry(model)
+      const expected = { clamp: beforeLedger.clampSummary(wire), tone: beforeLedger.ledgerStatusTone(status), line: beforeLedger.deliveryLine(wire) }
+      const actual = { clamp: entry.clamp, tone: entry.tone, line: entry.line }
+      expect(actual).toEqual(expected)
+      for (const field of ['clamp', 'tone', 'line'] as const)
+        expect(() => expect({ ...actual, [field]: 'wrong' }).toEqual(expected)).toThrow()
+    }
+  } finally { pool.dispose() }
 })

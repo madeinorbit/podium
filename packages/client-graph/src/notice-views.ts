@@ -16,7 +16,7 @@ function messageNotice(pool: MobxPool, id: string): { notice?: NoticeMessage; pe
   if (message === LOADING) return { pending: 1 }
   if (!message || !isMessageRecordAttention(message.status)) return { pending: 0 }
   const notice = noticeCompanions(pool).message(message)
-  const labelPending = !pool.sessionObject(notice.sessionId).known && pool.row('session', notice.sessionId, 'summary-fields') === LOADING
+  const labelPending = pool.resident('session', notice.sessionId, 'summary-fields') === 'loading'
   return { notice, pending: labelPending ? 1 : 0, labelPending }
 }
 
