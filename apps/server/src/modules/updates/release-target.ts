@@ -41,16 +41,20 @@ const RELEASE_ARTIFACT_BASE = `${RELEASE_BASE}/download/`
 /**
  * Hosts a RELEASE-CHANNEL artifact HEAD may land on after GitHub redirects.
  *
- * GitHub serves every `releases/download/...` asset by 302ing to
- * `objects.githubusercontent.com`. The named URL stays under the GitHub
- * download prefix; the bytes live on that object host. This list is the
- * voucher for that hop — compared as the whole hostname, never as a suffix,
- * so `objects.githubusercontent.com.evil.example` is not a match. Dev has
- * no entry: that feed never redirects.
+ * GitHub serves every `releases/download/...` asset by 302ing to its object
+ * host: `release-assets.githubusercontent.com` today, `objects.githubusercontent.com`
+ * before that. The named URL stays under the GitHub download prefix; the bytes live
+ * on that object host. This list is the voucher for that hop — compared as the whole
+ * hostname, never as a suffix, so `objects.githubusercontent.com.evil.example` is not
+ * a match. Dev has no entry: that feed never redirects.
+ *
+ * Missing the current host strands every install on its version: each release
+ * resolves as "redirected outside the feed", so no update is ever offered again.
  */
 export const RELEASE_ARTIFACT_REDIRECT_HOSTS = [
   'github.com',
   'objects.githubusercontent.com',
+  'release-assets.githubusercontent.com',
 ] as const
 
 /** GitHub 302s once; two extra hops is slack, not a tour of the internet. */
