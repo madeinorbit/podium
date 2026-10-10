@@ -15,7 +15,9 @@ export const localDateTimeValue = (iso?: string | null): string => {
 
 const FIELDS = ['name', 'repoPath', 'scheduleKind', 'cron', 'runAt', 'agentKind',
   'model', 'effort', 'prompt', 'enabled', 'sessionMode'] as const
-export type AutomationChanges = Partial<Pick<Automation, typeof FIELDS[number]>>
+export type AutomationChanges = Partial<Omit<Pick<Automation, typeof FIELDS[number]>, 'agentKind'> & {
+  agentKind: ReturnType<typeof issueDefaultAgentKind>
+}>
 
 /** The record draft owns edits; schedule controls are this opening's UI state. */
 export class AutomationEditDraft implements AutomationFormState {
@@ -29,7 +31,9 @@ export class AutomationEditDraft implements AutomationFormState {
 
   constructor(readonly automation: Automation, save: (changes: AutomationChanges) => Promise<unknown>) {
     this.record = draft(automation, { fields: FIELDS, save: changes => {
-      const patch = { ...changes,
+      const { agentKind, ...fields } = changes
+      const patch: AutomationChanges = { ...fields,
+        ...(agentKind !== undefined ? { agentKind: issueDefaultAgentKind(agentKind) } : {}),
         ...('name' in changes ? { name: changes.name!.trim() } : {}),
         ...('prompt' in changes ? { prompt: changes.prompt!.trim() } : {}),
       }

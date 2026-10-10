@@ -1,8 +1,9 @@
-import type { IssueUpdatePatch } from '@podium/commands'
+import type { ModelOf } from '../models'
+import type { MachineId } from '@podium/model/browser'
 import { draft } from '@podium/mobx-helpers'
 
-export type AgentSettingsRecord = Pick<IssueUpdatePatch,
-  'defaultAgent' | 'defaultModel' | 'defaultEffort' | 'machineId'>
+export type AgentSettingsRecord = Partial<Pick<ModelOf['issue'],
+  'defaultAgent' | 'defaultModel' | 'defaultEffort'>> & { readonly machineId?: MachineId | null }
 export type AgentSettingsPatch = Partial<AgentSettingsRecord>
 
 /** Both issue configuration forms edit the same canonical field names. */

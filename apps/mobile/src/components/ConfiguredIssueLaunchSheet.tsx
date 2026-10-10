@@ -3,7 +3,7 @@ import { observer } from 'mobx-react-lite'
 import { spawnIssueAgent } from '@podium/client-core/values'
 
 import { issueDisplayRef } from '@podium/protocol'
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
 import { IssueLaunchForm } from '../lib/issue-launch-draft'
@@ -16,7 +16,11 @@ import { BottomSheet } from './BottomSheet'
 import { LaunchConfigurationFields } from './LaunchConfigurationFields'
 import { PressableScale } from './PressableScale'
 
-export const ConfiguredIssueLaunchSheet = observer(function ConfiguredIssueLaunchSheet({
+export function ConfiguredIssueLaunchSheet(props: Parameters<typeof ConfiguredIssueLaunchSheetBody>[0]) {
+  return <ConfiguredIssueLaunchSheetBody key={props.issue?.id ?? 'closed'} {...props} />
+}
+
+const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSheetBody({
   issue,
   onStarted,
   onClose,
@@ -30,12 +34,6 @@ export const ConfiguredIssueLaunchSheet = observer(function ConfiguredIssueLaunc
   const [plan, setPlan] = useState<LaunchPlan | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    setPlan(null)
-    setBusy(false)
-    setError(null)
-  }, [issue])
 
   const start = async () => {
     if (!issue || !form || !launchPlanCanSubmit(plan) || busy) return
