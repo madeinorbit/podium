@@ -99,8 +99,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
   const [threadsLoaded, setThreadsLoaded] = useState(false)
-  const history = useRef({ following: true, searching: false })
-  const { conversation, podiumSid, binding } = useThreadConversation(history.current)
+  const { conversation, podiumSid, binding } = useThreadConversation()
   const followTranscript = useCallback((following: boolean) => {
     conversation?.setFollowing(following)
   }, [conversation])

@@ -176,7 +176,7 @@ const SessionComposer = observer(function SessionComposer({
  * moved rather than rewritten.
  */
 export function SessionConversation(
-  props: Omit<Parameters<typeof SessionConversationBody>[0], 'model' | 'history' | 'pool'>,
+  props: Omit<Parameters<typeof SessionConversationBody>[0], 'model' | 'pool'>,
 ) {
   const owner = useStoreHandle<MobileTrpc>()
   const pool = useMobilePool()
@@ -186,7 +186,6 @@ export function SessionConversation(
     () => (pool ? mobileConversationPorts(pool, sessionId) : readiness),
     [pool, sessionId],
   )
-  const history = useRef({ following: true, searching: false })
   const recognized = useMemo(() => observable.box(!props.deferInitialTranscript), [sessionId])
   useLayoutEffect(
     () => action(() => recognized.set(!props.deferInitialTranscript))(),
@@ -330,7 +329,7 @@ export function SessionConversation(
   const view = useMemo(() => model && pool ? new MobileChatViewModel(model, pool) : undefined, [model, pool])
   useEffect(() => view?.open(), [view])
   return view ? (
-    <SessionConversationBody {...props} pool={pool} session={view.session ?? props.session} model={view} history={view} />
+    <SessionConversationBody {...props} pool={pool} session={view.session ?? props.session} model={view} />
   ) : (
     <TranscriptSkeleton />
   )
@@ -340,7 +339,6 @@ const SessionConversationBody = observer(function SessionConversationBody({
   pool,
   session,
   model,
-  history,
   issue,
   onOpenTerminalRef,
   findRequest = 0,
@@ -350,7 +348,6 @@ const SessionConversationBody = observer(function SessionConversationBody({
   pool: ReturnType<typeof useMobilePool>
   session: SessionView
   model: MobileChatViewModel
-  history: { following: boolean; searching: boolean }
   /** The task this session belongs to; drives task context and the plan bridge. */
   issue: IssueViewModel | undefined
   /** Where a tapped `POD-…` ref in the transcript should go when it is NOT this

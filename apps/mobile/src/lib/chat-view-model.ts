@@ -39,7 +39,7 @@ export class MobileChatViewModel {
   @lazy get offlineAsOf() { return this.service.transcript.offlineAsOf }
   @lazy get presentation() { return this.service.presentation }
   markRendered(): void { this.service.transcript.markRendered() }
-  loadOlder(): Promise<void> { return this.service.transcript.loadOlder() }
+  loadOlder(): Promise<boolean> { return this.service.transcript.loadOlder() }
 
   // Send port: record-backed bubbles come from the shared message models.
   @lazy get bubbles() { return this.service.sends.bubbles }

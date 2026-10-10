@@ -25,9 +25,7 @@ class ThreadBinding {
 const bindings = new WeakMap<object, ThreadBinding>()
 
 /** Thread identity stays stable when its first send learns the headless session. */
-export function useThreadConversation(
-  history: { following: boolean; searching: boolean },
-) {
+export function useThreadConversation() {
   const owner = useStoreHandle<MobileTrpc>()
   const pool = useMobilePool()
   let binding = bindings.get(owner)
