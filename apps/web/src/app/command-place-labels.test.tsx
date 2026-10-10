@@ -16,5 +16,7 @@ it('paints current branch and repository name on the retained launcher checkout 
     expect(screen.getByText('mainoriginal')).toBeTruthy()
     act(() => headerEntities(pool).apply([{ kind: 'repository', id: 'scan', value: { ...before, branch: 'elsewhere', originUrl: 'https://example.test/renamed.git' } }]))
     expect(screen.getByText('elsewhererenamed')).toBeTruthy()
+    act(() => headerEntities(pool).apply([{ kind: 'repository', id: 'scan', value: undefined }]))
+    expect(screen.getByText('repo')).toBeTruthy()
   } finally { cleanup(); pool.dispose() }
 })

@@ -17,7 +17,7 @@ export class LaunchTree implements WorktreeView {
     // The shared lane is authoritative when present; older scan-only catalogs
     // still describe a checkout inside their one shared repository record.
     const lane = here(this.pool.model('worktree', this.path))
-    return lane?.branch ?? (this.isMain ? this.repository.branch : this.repository.worktrees.find(tree => machinePathsEqual(tree.path, this.path))?.branch) ?? undefined
+    return lane?.branch ?? (this.isMain ? this.repository.branch : this.repository.worktrees?.find(tree => machinePathsEqual(tree.path, this.path))?.branch) ?? undefined
   }
   @lazy get repoPath() { return this.repository.path }
   @lazy get repoId() { return this.repository.repoId }
