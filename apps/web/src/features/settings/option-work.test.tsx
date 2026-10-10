@@ -1,5 +1,5 @@
 import { MobxPool } from '@podium/client-graph'
-import { attachSettingsSource } from '../../test-support/settings-source-fixture'
+import { attachSettingsSource } from '../../test-support/settings-source.test.fixture'
 import { attachPreferenceSource } from '@podium/client-graph/preference-source'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
