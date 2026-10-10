@@ -2,6 +2,7 @@ import '@/test-support/mock-core-store-handle'
 import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { ReferenceState } from '../../../../../../tests/worklist/diagnostics/reference-state'
+
 type Store = ReferenceState<import('@/app/trpc').Trpc>
 
 const storeState = {
@@ -156,8 +157,26 @@ describe('NetworkSection', () => {
   ])('shows the managed tunnel state: %s', async (state, text) => {
     storeState.trpc = {
       setup: {
-        info: { query: vi.fn().mockResolvedValue({ mode: 'server', networkOption: 'cloudflare-tunnel', publicUrl: 'https://one.trycloudflare.com', tunnelHealth: { state, url: 'https://one.trycloudflare.com', lastOkAt: 1, failedSince: 1, reportedAt: 1, lastError: null } }) },
-        provenance: { query: vi.fn().mockResolvedValue({ publicUrl: { source: 'env', envKey: 'PODIUM_PUBLIC_URL' } }) },
+        info: {
+          query: vi.fn().mockResolvedValue({
+            mode: 'server',
+            networkOption: 'cloudflare-tunnel',
+            publicUrl: 'https://one.trycloudflare.com',
+            tunnelHealth: {
+              state,
+              url: 'https://one.trycloudflare.com',
+              lastOkAt: 1,
+              failedSince: 1,
+              reportedAt: 1,
+              lastError: null,
+            },
+          }),
+        },
+        provenance: {
+          query: vi
+            .fn()
+            .mockResolvedValue({ publicUrl: { source: 'env', envKey: 'PODIUM_PUBLIC_URL' } }),
+        },
         options: { query: vi.fn().mockResolvedValue([]) },
         commandFor: { query: vi.fn().mockResolvedValue({ command: '', hint: '' }) },
       },
@@ -167,5 +186,4 @@ describe('NetworkSection', () => {
     expect(await screen.findByText((content) => content.startsWith(text))).toBeTruthy()
     expect(screen.getByText('Tunnel')).toBeTruthy()
   })
-
 })

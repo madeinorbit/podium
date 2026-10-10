@@ -2500,7 +2500,10 @@ export async function startServer(
               serverControlSocketPath({ instanceId }),
               controlSocketHandler({
                 tunnelHealth: (report) => tunnelHealth.report(report),
-                diagnostics: () => ({ connect: connectPublisher.diagnostics(), tunnelHealth: readTunnelHealth() }),
+                diagnostics: () => ({
+                  connect: connectPublisher.diagnostics(),
+                  tunnelHealth: readTunnelHealth(),
+                }),
                 publishConnect: () => connectPublisher.republish(),
                 setPublicUrl: (url, opts) => {
                   const result = applyPublicUrl(url, opts)

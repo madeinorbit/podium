@@ -1,10 +1,10 @@
 import { observer } from '@podium/client-graph/react'
-import { NetworkSettingsView } from '../network-view'
 import type { JSX } from 'react'
 import { useEffect, useMemo } from 'react'
-import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { Button } from '@/components/ui/button'
+import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { type NetworkSaveController, NetworkStep } from '@/features/setup/network-step'
+import { NetworkSettingsView } from '../network-view'
 import { forcedNotice, useForcedSetting } from '../use-forced-setting'
 import { Row, Section } from './shared'
 
@@ -87,7 +87,9 @@ export const NetworkSection = observer(function NetworkSection({
     >
       {info.networkOption === 'cloudflare-tunnel' && (
         <Row label="Tunnel">
-          <span role="status" className="text-[13.5px] text-foreground">{view.tunnelHealthLabel}</span>
+          <span role="status" className="text-[13.5px] text-foreground">
+            {view.tunnelHealthLabel}
+          </span>
         </Row>
       )}
       {forcedPublicUrl.forced ? (

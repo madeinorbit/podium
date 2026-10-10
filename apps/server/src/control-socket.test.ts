@@ -14,9 +14,9 @@ import { applyPublicUrl } from '@podium/runtime/setup'
 import { listenUserSocket, type UserSocketServer } from '@podium/runtime/user-socket'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONTROL_BODY_MAX_BYTES, controlSocketHandler } from './control-socket'
-import { TunnelHealthStore } from './tunnel-health'
 import type { CheckResult, ConnectClient, LocatorRecord } from './modules/connect/client'
 import { ConnectPublisher, TICK_MS } from './modules/connect/publisher'
+import { TunnelHealthStore } from './tunnel-health'
 
 const A = 'https://prairie-otter-lamp-nine.trycloudflare.com'
 const B = 'https://copper-hill-mango-seven.trycloudflare.com'
@@ -105,7 +105,10 @@ describe('server control socket', () => {
       socketPath,
       controlSocketHandler({
         tunnelHealth: (report) => health.report(report),
-        diagnostics: () => ({ connect: publisher.diagnostics(), tunnelHealth: health.read(loadConfig().publicUrl) }),
+        diagnostics: () => ({
+          connect: publisher.diagnostics(),
+          tunnelHealth: health.read(loadConfig().publicUrl),
+        }),
         publishConnect: () => publisher.republish(),
         setPublicUrl: (url, opts) => {
           const result = applyPublicUrl(url, opts)
@@ -184,12 +187,26 @@ describe('server control socket', () => {
 
   it('reports transient tunnel health over the local socket and rejects malformed reports', async () => {
     saveConfig({ mode: 'server', networkOption: 'cloudflare-tunnel', publicUrl: A })
-    const report = { state: 'working', url: A, lastOkAt: Date.now(), failedSince: null, lastError: null }
-    expect((await send(socketPath, { path: '/v1/tunnel-health', body: JSON.stringify(report) })).status).toBe(200)
+    const report = {
+      state: 'working',
+      url: A,
+      lastOkAt: Date.now(),
+      failedSince: null,
+      lastError: null,
+    }
+    expect(
+      (await send(socketPath, { path: '/v1/tunnel-health', body: JSON.stringify(report) })).status,
+    ).toBe(200)
     const diagnostics = await send(socketPath, { method: 'GET', path: '/v1/diagnostics' })
     expect(diagnostics.json.tunnelHealth).toMatchObject(report)
-    expect(diagnostics.json.connect).toMatchObject({ enabled: true, installationId: identity.installationId, generation: 1 })
-    expect((await send(socketPath, { path: '/v1/tunnel-health', body: '{"state":"bad"}' })).status).toBe(400)
+    expect(diagnostics.json.connect).toMatchObject({
+      enabled: true,
+      installationId: identity.installationId,
+      generation: 1,
+    })
+    expect(
+      (await send(socketPath, { path: '/v1/tunnel-health', body: '{"state":"bad"}' })).status,
+    ).toBe(400)
     expect(health.read(A)?.state).toBe('working')
   })
 

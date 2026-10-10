@@ -431,21 +431,27 @@ describe('renderTunnelUnit (POD-4640)', () => {
   })
 })
 
-
 describe('doctor unit refresh', () => {
   it('preserves a generated development profile while refreshing the instance and port', () => {
     const dir = mkdtempSync(join(tmpdir(), 'podium-doctor-unit-'))
     try {
-      expect(installSystemd('server', 23456, 'blue', {
-        hasSystemctl: () => true, hasUserSystemd: () => true, unitDir: () => dir,
-        run: () => {}, lingerEnabled: () => true,
-        renderOptions: { profile: 'dev', home: '/home/operator', repoRoot: '/src/podium' },
-      })).toEqual({ ok: true })
+      expect(
+        installSystemd('server', 23456, 'blue', {
+          hasSystemctl: () => true,
+          hasUserSystemd: () => true,
+          unitDir: () => dir,
+          run: () => {},
+          lingerEnabled: () => true,
+          renderOptions: { profile: 'dev', home: '/home/operator', repoRoot: '/src/podium' },
+        }),
+      ).toEqual({ ok: true })
       const unit = readFileSync(join(dir, 'podium-blue.service'), 'utf8')
       expect(unit).toContain('Environment=PODIUM_DEV_SOURCE_ROOT=/src/podium')
       expect(unit).toContain('Environment=HOME=/home/operator')
       expect(unit).toContain('Environment=PODIUM_PORT=23456')
       expect(unit).toContain('Environment=PODIUM_INSTANCE=blue')
-    } finally { rmSync(dir, { recursive: true, force: true }) }
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })

@@ -131,7 +131,11 @@ export class ConnectPublisher {
 
   diagnostics(): { enabled: boolean; installationId: string; generation: number } {
     const identity = this.#deps.identity()
-    return { enabled: this.#deps.enabled(), installationId: identity.installationId, generation: identity.generation }
+    return {
+      enabled: this.#deps.enabled(),
+      installationId: identity.installationId,
+      generation: identity.generation,
+    }
   }
 
   check(url: string): Promise<CheckResult> {
@@ -203,7 +207,10 @@ export class ConnectPublisher {
       if (!result.ok) return this.#fail('connect: registration failed, retrying', result.failure)
       this.#registered = true
     }
-    const due = this.#republish || this.#publishedUrl !== url || this.#now() - this.#publishedAt >= REPUBLISH_MS
+    const due =
+      this.#republish ||
+      this.#publishedUrl !== url ||
+      this.#now() - this.#publishedAt >= REPUBLISH_MS
     if (due) {
       this.#republish = false
       const record: LocatorRecord = {

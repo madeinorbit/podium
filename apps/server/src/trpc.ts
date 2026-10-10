@@ -1,10 +1,8 @@
-import type { ServerPlacement } from './modules/updates/service'
-import type { PrepareCoordinatorUpdate } from './modules/updates/installed-restart'
 import { createLogger, describeError } from '@podium/logger'
 import type { ServerReadiness } from '@podium/model'
-import { attribute } from '@podium/runtime/loop-accounting'
 import type { MobileWebIdentity, ReleaseProposal, UpdateTarget } from '@podium/protocol'
 import type { LoopAccountingHandle } from '@podium/runtime/loop-accounting'
+import { attribute } from '@podium/runtime/loop-accounting'
 import type { TelemetryEmitter } from '@podium/telemetry'
 import { initTRPC } from '@trpc/server'
 import type { CloudRuntimeProvider } from './cloud-runtime'
@@ -15,6 +13,8 @@ import type { IssueCaller } from './modules/issues/command-ctx'
 import { IssueRevisionConflict } from './modules/issues/conflict'
 import { DEPLOYMENT, perf } from './modules/perf/registry'
 import type { SuperagentService } from './modules/superagent'
+import type { PrepareCoordinatorUpdate } from './modules/updates/installed-restart'
+import type { ServerPlacement } from './modules/updates/service'
 import type { RegistryModules, SessionRegistry } from './relay'
 import type { MachineRepoDiscovery } from './repo-discovery'
 import type { RepoRegistry } from './repo-registry'
@@ -100,7 +100,8 @@ export interface Context {
   /** Podium Connect (PDM-51): `connect.check` asks the cloud whether a public URL
    *  is reachable; `publicUrlChanged` publishes a URL Settings just wrote (POD-4640).
    *  Optional: absent when Connect is not wired (tests). */
-  connect?: Pick<ConnectPublisher, 'check' | 'publicUrlChanged'> & Partial<Pick<ConnectPublisher, 'stableLink'>>
+  connect?: Pick<ConnectPublisher, 'check' | 'publicUrlChanged'> &
+    Partial<Pick<ConnectPublisher, 'stableLink'>>
   tunnelHealth?: () => import('@podium/runtime/tunnel-health').TunnelHealth | null
   /** This server process is supervised and replaced by the native desktop shell. */
   desktopSupervised?: boolean

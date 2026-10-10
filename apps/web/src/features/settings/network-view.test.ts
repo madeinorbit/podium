@@ -1,5 +1,5 @@
-import type { Trpc } from '@/app/trpc'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import type { Trpc } from '@/app/trpc'
 import { NetworkSettingsView } from './network-view'
 
 const views: NetworkSettingsView[] = []
@@ -14,7 +14,10 @@ describe('network health refresh', () => {
     vi.useFakeTimers()
     const visibility = vi.spyOn(document, 'visibilityState', 'get').mockReturnValue('visible')
     const query = vi.fn().mockResolvedValue({ mode: 'server', networkOption: 'cloudflare-tunnel' })
-    const view = new NetworkSettingsView({ setup: { info: { query } } } as unknown as Pick<Trpc, 'setup'>)
+    const view = new NetworkSettingsView({ setup: { info: { query } } } as unknown as Pick<
+      Trpc,
+      'setup'
+    >)
     views.push(view)
     view.open()
     await vi.advanceTimersByTimeAsync(15_000)

@@ -1091,10 +1091,12 @@ describe('portInUseMessage', () => {
   })
 })
 
-
 describe('doctor and restart commands', () => {
   it('routes the new local commands and their options', () => {
-    expect(plan({}, ['doctor', '--fix', '--report'])).toEqual({ kind: 'doctor', args: ['--fix', '--report'] })
+    expect(plan({}, ['doctor', '--fix', '--report'])).toEqual({
+      kind: 'doctor',
+      args: ['--fix', '--report'],
+    })
     expect(plan({}, ['restart'])).toEqual({ kind: 'restart' })
     expect(plan({}, ['doctor', '--fiz'])).toMatchObject({ kind: 'usage-error' })
     expect(plan({}, ['restart', '--now'])).toMatchObject({ kind: 'usage-error' })

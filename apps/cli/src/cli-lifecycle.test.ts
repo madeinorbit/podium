@@ -9,8 +9,8 @@ import {
   exportCrashCommand,
   humanUptime,
   logFilesFor,
-  logUnitsFor,
   logsCommand,
+  logUnitsFor,
   parseExportCrashArgs,
   parseLogsArgs,
   renderCrashBundle,
@@ -479,7 +479,10 @@ describe('statusCommand ignores a dead writer s link state (POD-3815)', () => {
     process.env.PODIUM_STATE_DIR = dir
     delete process.env.PODIUM_INSTANCE
     try {
-      writeFileSync(join(dir, 'machine.json'), `${JSON.stringify({ version: 1, machineId: 'status-test', importedFiles: {}, connectivity: record }, null, 2)}\n`)
+      writeFileSync(
+        join(dir, 'machine.json'),
+        `${JSON.stringify({ version: 1, machineId: 'status-test', importedFiles: {}, connectivity: record }, null, 2)}\n`,
+      )
       await statusCommand()
       return lines.join('\n')
     } finally {
@@ -561,36 +564,80 @@ describe('podium logs reports an unknown flag as a sentence, not a stack', () =>
   })
 })
 
-
 describe('tunnel lifecycle diagnostics', () => {
   it('selects the independent tunnel journal and scopes it to the instance', () => {
     expect(logUnitsFor(['tunnel'], 'blue')).toEqual(['podium-blue-tunnel.service'])
     expect(logUnitsFor([], 'blue')).toContain('podium-blue-tunnel.service')
-    expect(logUnitsFor(['server', 'tunnel'], 'blue')).toEqual(['podium-blue.service', 'podium-blue-server.service', 'podium-blue-tunnel.service'])
+    expect(logUnitsFor(['server', 'tunnel'], 'blue')).toEqual([
+      'podium-blue.service',
+      'podium-blue-server.service',
+      'podium-blue-tunnel.service',
+    ])
   })
   it('does not show a saved public URL as current when diagnosis says it is down', () => {
-    const output = renderStatus({ live: [], config: { mode: 'server', publicUrl: 'https://dead.trycloudflare.com' }, nowMs: T0, diagnosis: { serverHealthy: false, checks: [] } })
+    const output = renderStatus({
+      live: [],
+      config: { mode: 'server', publicUrl: 'https://dead.trycloudflare.com' },
+      nowMs: T0,
+      diagnosis: { serverHealthy: false, checks: [] },
+    })
     expect(output).not.toContain('URL:')
     expect(output).not.toContain('dead.trycloudflare.com')
   })
 })
 
-
 describe('restart', () => {
   it('restarts only this instance parent and existing tunnel units', async () => {
     const units: string[][] = []
-    await restartCommand({ config: { mode: 'server', persistence: 'systemd' }, instanceId: 'blue', restart: (names) => { units.push(names) }, wait: async () => true, tunnelExists: async (name) => { expect(name).toBe('podium-blue-tunnel.service'); return true }, out: () => {} })
+    await restartCommand({
+      config: { mode: 'server', persistence: 'systemd' },
+      instanceId: 'blue',
+      restart: (names) => {
+        units.push(names)
+      },
+      wait: async () => true,
+      tunnelExists: async (name) => {
+        expect(name).toBe('podium-blue-tunnel.service')
+        return true
+      },
+      out: () => {},
+    })
     expect(units).toEqual([['podium-blue.service'], ['podium-blue-tunnel.service']])
   })
   it('stops detached parents before children and starts the existing mode again', async () => {
     const stopped: string[] = []
     let started = false
-    await restartCommand({ config: { mode: 'server', persistence: 'detached', port: 23456 }, live: () => [rec({ role: 'server' }), rec({ role: 'parent' })], reclaim: async (role) => { stopped.push(role); return { reclaimed: true } }, start: async (mode, port) => { expect(mode).toBe('server'); expect(port).toBe(23456); expect(stopped).toEqual(['parent', 'server']); started = true; return { serverUp: true } }, tunnelExists: async () => false, out: () => {} })
+    await restartCommand({
+      config: { mode: 'server', persistence: 'detached', port: 23456 },
+      live: () => [rec({ role: 'server' }), rec({ role: 'parent' })],
+      reclaim: async (role) => {
+        stopped.push(role)
+        return { reclaimed: true }
+      },
+      start: async (mode, port) => {
+        expect(mode).toBe('server')
+        expect(port).toBe(23456)
+        expect(stopped).toEqual(['parent', 'server'])
+        started = true
+        return { serverUp: true }
+      },
+      tunnelExists: async () => false,
+      out: () => {},
+    })
     expect(started).toBe(true)
   })
   it('still restarts the tunnel if the server does not come back', async () => {
     const units: string[][] = []
-    await expect(restartCommand({ config: { mode: 'server', persistence: 'systemd' }, restart: (names) => { units.push(names) }, wait: async () => false, tunnelExists: async () => true })).rejects.toThrow('server did not answer')
+    await expect(
+      restartCommand({
+        config: { mode: 'server', persistence: 'systemd' },
+        restart: (names) => {
+          units.push(names)
+        },
+        wait: async () => false,
+        tunnelExists: async () => true,
+      }),
+    ).rejects.toThrow('server did not answer')
     expect(units.at(-1)).toEqual(['podium-tunnel.service'])
   })
 })

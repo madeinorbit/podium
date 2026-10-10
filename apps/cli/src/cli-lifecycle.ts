@@ -14,12 +14,12 @@ import {
 } from '@podium/runtime/config'
 import { type LiveConnectivity, readLiveConnectivity } from '@podium/runtime/connectivity'
 import { CRASH_MAX_EVENTS, type CrashEvent, createCrashStore } from '@podium/runtime/crash-store'
+import { instanceServiceName } from '@podium/runtime/instance'
 import { listLive, logDir, type RunRecord, RunRole, reclaim } from '@podium/runtime/run-registry'
 import { desiredParentUnit, legacyUnitNames } from '@podium/runtime/topology-migration'
-import { instanceServiceName } from '@podium/runtime/instance'
-import { diagnose, renderChecks, type Diagnosis } from './cli-doctor'
-import { restartSystemdUnits } from './cli-systemd'
 import { declareFlags, parseFlags, UnknownFlagError } from './argv'
+import { type Diagnosis, diagnose, renderChecks } from './cli-doctor'
+import { restartSystemdUnits } from './cli-systemd'
 
 /** Human "3s / 4m / 2h / 1d ago" from an ISO start time. */
 export function humanUptime(startedAtIso: string, nowMs: number): string {
@@ -163,7 +163,9 @@ export function renderStatus(view: StatusView): string {
     )
   }
   if (view.diagnosis) lines.push(renderChecks(view.diagnosis.checks))
-  const url = view.diagnosis ? view.diagnosis.currentUrl : config.publicUrl ?? localServerUrl(view.port ?? config.port ?? 18787)
+  const url = view.diagnosis
+    ? view.diagnosis.currentUrl
+    : (config.publicUrl ?? localServerUrl(view.port ?? config.port ?? 18787))
   if (url) lines.push(`  URL: ${url}`)
   if (view.stableLink) lines.push(`  Stable link: ${view.stableLink}`)
   return lines.join('\n')
@@ -275,7 +277,8 @@ export async function restartCommand(deps: RestartDeps = {}): Promise<void> {
   const config = deps.config ?? loadConfig()
   const { resolveSetting } = await import('@podium/runtime/config')
   const mode = resolveSetting('mode', config).value
-  if (!mode || mode === 'client') throw new Error('Choose a server or machine mode with podium setup first.')
+  if (!mode || mode === 'client')
+    throw new Error('Choose a server or machine mode with podium setup first.')
   const instance = deps.instanceId ?? resolveInstanceId()
   const tunnel = instanceServiceName('tunnel', instance)
   const restart = deps.restart ?? restartSystemdUnits
@@ -285,22 +288,40 @@ export async function restartCommand(deps: RestartDeps = {}): Promise<void> {
       restart([desiredParentUnit(instance)])
       if (mode === 'server' || mode === 'all-in-one') {
         const { waitForHealth } = await import('./cli-spawn')
-        if (!await (deps.wait ?? waitForHealth)(resolvePort(config), config.bindHost)) throw new Error('The server did not answer after restarting. Run podium doctor.')
+        if (!(await (deps.wait ?? waitForHealth)(resolvePort(config), config.bindHost)))
+          throw new Error('The server did not answer after restarting. Run podium doctor.')
       }
     } else {
       // Stop the parent first so it cannot recreate a child while it is being stopped.
-      const records = (deps.live ?? listLive)().sort((a, b) => Number(b.role === 'parent') - Number(a.role === 'parent'))
+      const records = (deps.live ?? listLive)().sort(
+        (a, b) => Number(b.role === 'parent') - Number(a.role === 'parent'),
+      )
       for (const rec of records) await (deps.reclaim ?? reclaim)(rec.role)
       const { startDetachedStack } = await import('./cli-spawn')
-      const result = await (deps.start ?? startDetachedStack)(mode, resolvePort(config), config.bindHost)
-      if (!result.serverUp) throw new Error('The server did not answer after restarting. Run podium doctor.')
+      const result = await (deps.start ?? startDetachedStack)(
+        mode,
+        resolvePort(config),
+        config.bindHost,
+      )
+      if (!result.serverUp)
+        throw new Error('The server did not answer after restarting. Run podium doctor.')
     }
-  } catch (error) { errors.push((error as Error).message) }
+  } catch (error) {
+    errors.push((error as Error).message)
+  }
   // The tunnel may be systemd-managed even when the backend is detached. Try it even
   // if the server failed to start, so one failure never skips the second restart.
   const { capture } = await import('./cli-doctor')
-  const tunnelExists = deps.tunnelExists ?? (async (unit) => (await capture('systemctl', ['--user', 'show', unit, '--property=LoadState', '--value'])) === 'loaded')
-  try { if (await tunnelExists(tunnel)) restart([tunnel]) } catch (error) { errors.push((error as Error).message) }
+  const tunnelExists =
+    deps.tunnelExists ??
+    (async (unit) =>
+      (await capture('systemctl', ['--user', 'show', unit, '--property=LoadState', '--value'])) ===
+      'loaded')
+  try {
+    if (await tunnelExists(tunnel)) restart([tunnel])
+  } catch (error) {
+    errors.push((error as Error).message)
+  }
   if (errors.length) throw new Error(errors.join(' '))
   ;(deps.out ?? console.log)('Podium restarted.')
 }
@@ -600,9 +621,22 @@ export function logUnitsFor(components: string[], instanceId = resolveInstanceId
   const parent = desiredParentUnit(instanceId)
   const tunnel = instanceServiceName('tunnel', instanceId)
   if (components.length === 0) return [...selectedUnits(instanceId), tunnel]
-  return [...new Set(components.flatMap((component) => component === 'tunnel' ? [tunnel]
-    : component === 'parent' || component === 'all-in-one' ? [parent]
-    : ['server', 'daemon', 'janitor'].includes(component) ? [parent, instanceServiceName(component as 'server' | 'daemon' | 'janitor', instanceId)] : []))]
+  return [
+    ...new Set(
+      components.flatMap((component) =>
+        component === 'tunnel'
+          ? [tunnel]
+          : component === 'parent' || component === 'all-in-one'
+            ? [parent]
+            : ['server', 'daemon', 'janitor'].includes(component)
+              ? [
+                  parent,
+                  instanceServiceName(component as 'server' | 'daemon' | 'janitor', instanceId),
+                ]
+              : [],
+      ),
+    ),
+  ]
 }
 
 export async function logsCommand(argv: string[]): Promise<void> {
@@ -653,40 +687,66 @@ export async function logsCommand(argv: string[]): Promise<void> {
   }
   const { follow, pretty, components } = options
   const readers: Array<{ command: string; args: string[] }> = []
-  const units = config.persistence === 'systemd'
-    ? logUnitsFor(components)
-    : components.includes('tunnel') || (components.length === 0 && config.networkOption === 'cloudflare-tunnel')
-      ? [instanceServiceName('tunnel', resolveInstanceId())]
-      : []
-  if (units.length) readers.push({ command: 'journalctl', args: ['--user', ...units.flatMap((unit) => ['-u', unit]), '-n', '200', '-o', 'cat', ...(follow ? ['-f'] : [])] })
+  const units =
+    config.persistence === 'systemd'
+      ? logUnitsFor(components)
+      : components.includes('tunnel') ||
+          (components.length === 0 && config.networkOption === 'cloudflare-tunnel')
+        ? [instanceServiceName('tunnel', resolveInstanceId())]
+        : []
+  if (units.length)
+    readers.push({
+      command: 'journalctl',
+      args: [
+        '--user',
+        ...units.flatMap((unit) => ['-u', unit]),
+        '-n',
+        '200',
+        '-o',
+        'cat',
+        ...(follow ? ['-f'] : []),
+      ],
+    })
   const fileComponents = components.filter((component) => component !== 'tunnel')
-  const files = config.persistence === 'systemd' || (components.length > 0 && fileComponents.length === 0)
-    ? [] : logFilesFor(fileComponents)
-  if (files.length) readers.push({ command: 'tail', args: [follow ? '-F' : '-n', ...(follow ? [] : ['200']), ...files] })
+  const files =
+    config.persistence === 'systemd' || (components.length > 0 && fileComponents.length === 0)
+      ? []
+      : logFilesFor(fileComponents)
+  if (files.length)
+    readers.push({
+      command: 'tail',
+      args: [follow ? '-F' : '-n', ...(follow ? [] : ['200']), ...files],
+    })
   if (!readers.length) {
     const which = components.length > 0 ? ` for ${components.join(', ')}` : ''
     console.log(`No logs yet${which} in ${logDir()}.`)
     return
   }
-  await Promise.all(readers.map(({ command, args }) => new Promise<void>((resolve) => {
-    const child = spawn(command, args, { stdio: pretty ? ['ignore', 'pipe', 'inherit'] : 'inherit' })
-    let pending = ''
-    child.stdout?.on('data', (chunk: Buffer) => {
-      pending += chunk.toString('utf8')
-      const lines = pending.split('\n')
-      pending = lines.pop() ?? ''
-      for (const line of lines) console.log(renderLogLine(line))
-    })
-    child.on('error', (error) => {
-      console.error(`podium logs: ${error.message}`)
-      process.exitCode = 1
-      resolve()
-    })
-    child.on('exit', (code) => {
-      if (pending) console.log(renderLogLine(pending))
-      if (code) process.exitCode = code
-      resolve()
-    })
-  })))
-
+  await Promise.all(
+    readers.map(
+      ({ command, args }) =>
+        new Promise<void>((resolve) => {
+          const child = spawn(command, args, {
+            stdio: pretty ? ['ignore', 'pipe', 'inherit'] : 'inherit',
+          })
+          let pending = ''
+          child.stdout?.on('data', (chunk: Buffer) => {
+            pending += chunk.toString('utf8')
+            const lines = pending.split('\n')
+            pending = lines.pop() ?? ''
+            for (const line of lines) console.log(renderLogLine(line))
+          })
+          child.on('error', (error) => {
+            console.error(`podium logs: ${error.message}`)
+            process.exitCode = 1
+            resolve()
+          })
+          child.on('exit', (code) => {
+            if (pending) console.log(renderLogLine(pending))
+            if (code) process.exitCode = code
+            resolve()
+          })
+        }),
+    ),
+  )
 }

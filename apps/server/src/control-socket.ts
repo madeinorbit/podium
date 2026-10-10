@@ -33,8 +33,8 @@
  * Every other method or path is a 404, and a body over 4 KiB a 413.
  */
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http'
-import { TunnelHealthReport } from '@podium/runtime/tunnel-health'
 import type { ApplyPublicUrlResult } from '@podium/runtime/setup'
+import { TunnelHealthReport } from '@podium/runtime/tunnel-health'
 
 export const CONTROL_BODY_MAX_BYTES = 4_096
 
@@ -129,7 +129,10 @@ export function controlSocketHandler(deps: ControlSocketDeps): RequestListener {
         return
       }
       const route = req.url
-      if (req.method !== 'POST' || !['/v1/public-url', '/v1/tunnel-health', '/v1/connect-publish'].includes(route ?? '')) {
+      if (
+        req.method !== 'POST' ||
+        !['/v1/public-url', '/v1/tunnel-health', '/v1/connect-publish'].includes(route ?? '')
+      ) {
         reply(res, 404, { ok: false, error: 'not found' })
         return
       }
@@ -137,14 +140,23 @@ export function controlSocketHandler(deps: ControlSocketDeps): RequestListener {
       if (!input) return
       if (route === '/v1/tunnel-health') {
         const report = TunnelHealthReport.safeParse(input)
-        if (!report.success) { reply(res, 400, { ok: false, error: 'Invalid tunnel health report.' }); return }
-        if (!deps.tunnelHealth) { reply(res, 503, { ok: false, error: 'Tunnel health is unavailable.' }); return }
+        if (!report.success) {
+          reply(res, 400, { ok: false, error: 'Invalid tunnel health report.' })
+          return
+        }
+        if (!deps.tunnelHealth) {
+          reply(res, 503, { ok: false, error: 'Tunnel health is unavailable.' })
+          return
+        }
         deps.tunnelHealth(report.data)
         reply(res, 200, { ok: true })
         return
       }
       if (route === '/v1/connect-publish') {
-        if (!deps.publishConnect) { reply(res, 503, { ok: false, error: 'Connect publishing is unavailable.' }); return }
+        if (!deps.publishConnect) {
+          reply(res, 503, { ok: false, error: 'Connect publishing is unavailable.' })
+          return
+        }
         deps.publishConnect()
         reply(res, 200, { ok: true })
         return

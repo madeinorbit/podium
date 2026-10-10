@@ -42,9 +42,9 @@ import {
   resolveRunRecordMode,
   resolveUpdateChannel,
   resolveUpdateFeed,
+  saveConfig,
   selectInstance,
   stateDir,
-  saveConfig,
 } from '@podium/runtime/config'
 import { ensureInstanceStateIdentity, instanceServiceName } from '@podium/runtime/instance'
 import { readOrCreateLocalMachineId } from '@podium/runtime/local-machine'
@@ -67,11 +67,11 @@ import {
   NativeMachineUpdateAdapter,
   withNativeMachineUpdates,
 } from '@podium/runtime/machine-update-native'
-import { machineTopologyReport } from './topology-reconcile'
 import { machineServiceReport } from '@podium/runtime/parent-supervisor'
 import { consumePairCode } from '@podium/runtime/setup'
 import { finalizePendingGrant } from '@podium/runtime/update-pending'
 import { declareFlags, type FlagDeclaration, tryParseFlags } from './argv'
+import { machineTopologyReport } from './topology-reconcile'
 
 /** Resolved deployment-mode inputs (mode + connection details) — the sub-plan the
  *  daemon options are computed from. Formerly the whole plan, now one field of it. */
@@ -650,7 +650,10 @@ export function resolvePlan(
       return { kind: 'approval-request', op: { kind: 'update' } }
     }
     if (argv[0] === 'restart' || (argv[0] === 'doctor' && argv.includes('--fix'))) {
-      return { kind: 'usage-error', message: `podium ${argv[0]} changes running services; run it outside a managed agent session` }
+      return {
+        kind: 'usage-error',
+        message: `podium ${argv[0]} changes running services; run it outside a managed agent session`,
+      }
     }
     if (argv[0] === 'stop') return { kind: 'approval-request', op: { kind: 'stop' } }
     // Not brokered: it puts this box on the public internet, which is the
@@ -2272,7 +2275,9 @@ export async function main(
     }
     case 'restart': {
       const { restartCommand } = await import('./cli-lifecycle')
-      try { await restartCommand() } catch (error) {
+      try {
+        await restartCommand()
+      } catch (error) {
         console.error(`podium restart: ${(error as Error).message}`)
         process.exitCode = 1
       }

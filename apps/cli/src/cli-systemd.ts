@@ -601,7 +601,10 @@ export function installSystemd(
   try {
     mkdirSync(dir, { recursive: true })
     removeLegacyUpdateTimer(dir, instanceId, runCommand)
-    writeFileSync(join(dir, parentUnit), renderParentUnit({ ...deps.renderOptions, instanceId, port }))
+    writeFileSync(
+      join(dir, parentUnit),
+      renderParentUnit({ ...deps.renderOptions, instanceId, port }),
+    )
     runCommand('systemctl', ['--user', 'daemon-reload'])
     // Linger so the units run without an active login session (headless VPS over SSH).
     const user = userInfo().username
@@ -613,7 +616,10 @@ export function installSystemd(
     }
     runCommand('systemctl', ['--user', 'enable', '--now', parentUnit])
     if (!(deps.lingerEnabled ?? lingerEnabled)(user))
-      return { ok: true, lingerRemedy: `Run \`sudo loginctl enable-linger ${user}\` once to keep it running.` }
+      return {
+        ok: true,
+        lingerRemedy: `Run \`sudo loginctl enable-linger ${user}\` once to keep it running.`,
+      }
     return { ok: true }
   } catch (e) {
     return { ok: false, reason: (e as Error).message }
