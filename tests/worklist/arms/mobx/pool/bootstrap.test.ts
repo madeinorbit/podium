@@ -105,6 +105,11 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
   off()
   const filing = filingReactions(reactions)
   const models = objectsBehind(filing)
+  const held = filing.length
+  // The census needs only scalar results after the walk. Release its graph
+  // roots before disposing the pool, rather than retaining every derivation.
+  filing.length = 0
+  reactions.clear()
   const cell = {
     rows: tracked(() => ({
       issue: pool.tables.issue.size,
@@ -120,7 +125,7 @@ function counted(arm: Arm, feed: ReturnType<typeof feedOf>) {
     models: (models['IssueModel'] ?? 0) + (models['SessionModel'] ?? 0),
     issueModels: models['IssueModel'] ?? 0,
     sessionModels: models['SessionModel'] ?? 0,
-    held: filing.length,
+    held,
     observables: Object.values(built).reduce((a, b) => a + b, 0),
     tableSlots: (built['pool.issue'] ?? 0) + (built['pool.session'] ?? 0),
     byMap: built,
@@ -144,8 +149,6 @@ describe('bootstrap in the count harness', () => {
     await Promise.resolve()
     Bun.gc(true)
     const all = counted('allResident', feed)
-    await Promise.resolve()
-    Bun.gc(true)
     // Resident = what the schema's rule keeps (POD-4665), over the corpus at the pool's clock.
     const cold = tableColdRule(
       SCHEMA,
