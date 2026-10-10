@@ -10,7 +10,7 @@ import {
   withProfileServerIdentity,
 } from '@podium/client-core/accounts'
 import { CONNECT_DEFAULT_BASE_URL, type ServerIdentity } from '@podium/protocol'
-import { locateServer } from '@podium/runtime/server-follow'
+import { locateServer } from '@podium/client-core/live-connection'
 import { createLogger } from '@podium/logger'
 import {
   parseServerOrigin,

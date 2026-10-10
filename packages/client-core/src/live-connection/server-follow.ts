@@ -29,6 +29,8 @@ import {
 import type { HubEvents } from '../socket-transport/socket-hub'
 
 export type { FollowEvent, ServerIdentity, ServerMove }
+/** Re-exported for a client's one-shot ask at a failed cold start (spec rule 4). */
+export { locateServer }
 
 export interface FollowPorts {
   loadIdentity(): ServerIdentity | undefined
