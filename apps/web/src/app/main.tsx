@@ -1,4 +1,5 @@
-import { configureDevelopmentChecks } from '@podium/mobx-helpers'
+import { configureDevelopmentChecks, setClockWakeSource } from '@podium/mobx-helpers'
+import { browserClockWakeSource } from '@/lib/clock-wake-source'
 import type { JSX } from 'react'
 import { lazy, StrictMode, Suspense, useRef, useState } from 'react'
 import { createRoot } from 'react-dom/client'
@@ -21,6 +22,8 @@ import { redirectPhoneToMobileApp } from './mobile-entry-redirect'
 import { installVitePreloadErrorRecovery } from './preload-error-recovery'
 import { ThemeProvider } from './theme'
 import { WireSkewBanner } from './WireSkewBanner'
+
+setClockWakeSource(browserClockWakeSource)
 
 const MotionDemo = lazy(() =>
   throughRestarts(() => import('@/lib/motion/MotionDemo')).then((module) => ({

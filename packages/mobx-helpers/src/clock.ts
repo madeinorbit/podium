@@ -2,17 +2,24 @@ import { autorun, createAtom, reaction, runInAction, type IAtom } from 'mobx'
 
 const MAX_DELAY = 2_147_483_647
 const HOUR = 3_600_000
-let active = true
+/** The app supplies its browser visibility or native AppState boundary. */
+export interface ClockWakeSource {
+  isActive(): boolean
+  subscribe(wake: () => void): () => void
+}
+
+let wakeSource: ClockWakeSource | undefined
 const wakeReaders = new Set<() => void>()
 let detachWake: (() => void) | undefined
 
-function awake(): boolean {
-  return active && (typeof document === 'undefined' || document.visibilityState !== 'hidden')
-}
+function awake(): boolean { return wakeSource?.isActive() ?? true }
 
-/** Phone AppState uses the same pause/resume boundary as the DOM. */
-export function setClockActive(value: boolean): void {
-  active = value
+/** Install the platform boundary; its subscription exists only while time is observed. */
+export function setClockWakeSource(source: ClockWakeSource | undefined): void {
+  if (wakeSource === source) return
+  detachWake?.(); detachWake = undefined
+  wakeSource = source
+  if (wakeReaders.size) detachWake = wakeSource?.subscribe(refreshClocks)
   refreshClocks()
 }
 
@@ -23,16 +30,7 @@ export function refreshClocks(): void {
 
 function watchWake(wake: () => void): () => void {
   wakeReaders.add(wake)
-  if (!detachWake && typeof window !== 'undefined' && typeof document !== 'undefined') {
-    window.addEventListener('focus', refreshClocks)
-    window.addEventListener('pageshow', refreshClocks)
-    document.addEventListener('visibilitychange', refreshClocks)
-    detachWake = () => {
-      window.removeEventListener('focus', refreshClocks)
-      window.removeEventListener('pageshow', refreshClocks)
-      document.removeEventListener('visibilitychange', refreshClocks)
-    }
-  }
+  if (!detachWake) detachWake = wakeSource?.subscribe(refreshClocks)
   return () => {
     wakeReaders.delete(wake)
     if (!wakeReaders.size) { detachWake?.(); detachWake = undefined }
