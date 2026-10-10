@@ -222,3 +222,5 @@ export * from './predicates/stopped-send'
 export * from './predicates/unaddressable-send'
 
 export { MessageLedgerWire } from './entities/message-ledger'
+
+export * from './entities/settings-records'

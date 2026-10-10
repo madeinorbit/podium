@@ -1,3 +1,6 @@
+import type { AccountView, MemberView, GitRepositoryWire } from '@podium/model'
+import type { MobileClientSession } from '@podium/protocol'
+import type { PodiumSettings } from '@podium/runtime'
 import type { MessagePoolRow } from './message-models'
 import type { PendingInteractionWire } from '@podium/protocol'
 import { IssueSessionFactsIndex, type IssueSessionFacts, type IssueSessionFactReader } from './shared/issue-session-facts'
@@ -236,6 +239,11 @@ export type AbsentRead = 'load' | 'mark' | 'peek' | 'summary' | 'summary-fields'
 export type Residence = 'resident' | 'loading' | 'absent'
 
 export interface PoolRows {
+  account: AccountView & Readonly<Record<string, unknown>>
+  member: MemberView & Readonly<Record<string, unknown>>
+  device: MobileClientSession & Readonly<Record<string, unknown>>
+  podiumSettings: PodiumSettings & { id: string } & Readonly<Record<string, unknown>>
+  repository: GitRepositoryWire & Readonly<Record<string, unknown>>
   messageRecord: MessagePoolRow & Readonly<Record<string, unknown>>
   pendingInteraction: PendingInteractionWire & Readonly<Record<string, unknown>>
   machine: Readonly<MachineWire & MachineProjection> & Readonly<Record<string, unknown>>

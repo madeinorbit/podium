@@ -91,6 +91,11 @@ export type ModelSchemaName =
   | 'MessageRecordWire'
   | 'MessageLedgerWire'
   | 'PendingInteractionWire'
+  | 'AccountView'
+  | 'MemberView'
+  | 'MobileClientSession'
+  | 'PodiumSettings'
+  | 'RequestRecordKey'
 
 /**
  * Where a row physically arrives from.
@@ -118,6 +123,10 @@ export type RowArrival =
   | 'replica:messageRecords'
   | 'replica:pendingInteractions'
   | 'request:messages.ledger'
+  | 'request:accounts.list'
+  | 'request:members.list'
+  | 'request:auth.mobileSessions'
+  | 'request:settings.get'
 
 /** Where one declared field's value comes from. */
 export interface FieldSource {
@@ -172,7 +181,7 @@ export interface FieldSpec {
 // Relations
 // ---------------------------------------------------------------------------
 
-export type EntityName = 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction'
+export type EntityName = 'account' | 'member' | 'device' | 'podiumSettings' | 'repository' | 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction'
 
 /**
  * Four kinds, and no more.
@@ -477,6 +486,13 @@ export { isExcluded as issueExcluded } from './predicates'
 // ---------------------------------------------------------------------------
 
 const DECLARED = defineSchema({
+  account: syncedIdentity('AccountView', 'request:accounts.list'),
+  member: syncedIdentity('MemberView', 'request:members.list'),
+  device: { ...syncedIdentity('MobileClientSession', 'request:auth.mobileSessions'), key: 'sessionId',
+    fields: { sessionId: { type: 'id', source: { schema: 'MobileClientSession', arrivesOn: 'request:auth.mobileSessions' } } } },
+  podiumSettings: syncedIdentity('RequestRecordKey', 'request:settings.get'),
+  repository: { ...syncedIdentity('GitRepositoryWire', 'engine:repos'), key: 'path',
+    fields: { path: { type: 'string', source: scan('GitRepositoryWire') } } },
   /**
    * An issue: its normalized projection joined with personal markers, checkout
    * observations and repository facts at the row-source boundary.

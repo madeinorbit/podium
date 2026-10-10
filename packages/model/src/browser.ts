@@ -41,3 +41,5 @@ export * from './user-state/issue-state'
 export * from './user-state/layout-state'
 
 export { MessageLedgerWire } from './entities/message-ledger'
+
+export * from './entities/settings-records'
