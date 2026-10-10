@@ -2294,7 +2294,6 @@ html[data-density="balanced"] .header-machine-meters > .header-readout {
    spinner runs on, which is what licenses motion here at all (DESIGN §5). */
 .cmdk-field-spinner {
   flex: none;
-  color: var(--text-dim);
 }
 .cmdk-list {
   min-height: 0;

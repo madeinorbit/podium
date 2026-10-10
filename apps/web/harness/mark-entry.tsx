@@ -92,6 +92,11 @@ function App(): JSX.Element {
               <WorkingMark size={13} />Working…
             </div>
           </Panel>
+          <Panel title="Search row">
+            <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--muted-foreground)', fontSize: 12 }}>
+              <WorkingMark size={15} className="cmdk-field-spinner" />Searching…
+            </div>
+          </Panel>
         </div>
       </div>
     </main>
