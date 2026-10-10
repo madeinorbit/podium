@@ -128,7 +128,12 @@ export function saveSupervisorState(dir: string, state: SupervisorState): void {
 
 export function loadSupervisorState(dir: string): SupervisorState {
   const machine = loadMachineState(dir)
-  return parseState(machine.supervisor ?? machine.daemon) ?? { machineId: machine.machineId }
+  // A daemon section is this machine's supervisor state only when it carries the
+  // daemon's credential. A 0.1.0 all-in-one left a token-less daemon.json naming an id
+  // nothing authenticated as (POD-5931); adopting it clashed with the root identity and
+  // the parent died at every start.
+  const daemon = machine.daemon && typeof machine.daemon.token === 'string' ? machine.daemon : undefined
+  return parseState(machine.supervisor ?? daemon) ?? { machineId: machine.machineId }
 }
 
 /**
