@@ -1,7 +1,8 @@
 import type { AccountView, MemberView, GitRepositoryWire } from '@podium/model'
 import { machinePathBasename, repoNameFromOrigin } from '@podium/model/browser'
 import type { MobileClientSession } from '@podium/protocol'
-import type { PodiumSettings } from '@podium/runtime'
+import type { PodiumClientApi } from '@podium/client-core/api'
+type PodiumSettings = Awaited<ReturnType<PodiumClientApi['settings']['get']['query']>>
 import { lazy } from '@podium/mobx-helpers'
 import { EntityModel, registerModels, type ModelHost } from './models'
 import type { EntitySpec, FieldSpec, ModelSchemaName, RowArrival } from './shared/schema'

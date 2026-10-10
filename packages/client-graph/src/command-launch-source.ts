@@ -1,3 +1,5 @@
+import './requested-models'
+import { headerEntities } from './header-entities'
 import { omitGone } from './lookup'
 import type { PodiumClientApi } from '@podium/client-core/api'
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
@@ -100,6 +102,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     }
     const machines = () => {
       if (this.disposed) return
+      this.pool.ingestLiveMachines(runtime.listIds('machines').map(id => ({ id, value: runtime.listRow('machines', id) })))
       runInAction(() =>
         this.replace(
           'commandMachine',
@@ -185,7 +188,8 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
       const groupId =
         discovery.repoId ??
         (origin || `__no_remote__:${discovery.machineId ?? ''}:${machinePathKey(discovery.path)}`)
-      scans.push([id, { ...discovery, groupId, linked: linked.has(machinePathKey(discovery.path)) }])
+      headerEntities(this.pool).apply([{ kind: 'repository', id, value: discovery }])
+      scans.push([id, { path: discovery.path, machineId: discovery.machineId, groupId, linked: linked.has(machinePathKey(discovery.path)) }])
       for (const root of [discovery.path, ...discovery.worktrees.map((tree) => tree.path)])
         add(repositoriesByRoot, root, id)
       if (linked.has(machinePathKey(discovery.path))) continue
@@ -202,11 +206,6 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
           treeId,
           {
             path: tree.path,
-            ...(tree.branch !== undefined ? { branch: tree.branch } : {}),
-            repoPath: discovery.path,
-            isMain: tree.isMain,
-            ...(discovery.machineId ? { machineId: discovery.machineId } : {}),
-            ...(discovery.repoId ? { repoId: discovery.repoId } : {}),
             repositoryId: id,
             groupId,
           },
@@ -225,6 +224,10 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     }
     this.worktreesByPath = worktreesByPath
     this.repositoriesByRoot = repositoriesByRoot
+    const scanIds = scans.map(([id]) => id)
+    const currentIds = new Set(scanIds)
+    for (const id of this.orders.get('commandRepository') ?? []) if (!currentIds.has(id)) headerEntities(this.pool).apply([{ kind: 'repository', id, value: undefined }])
+    headerEntities(this.pool).order('repository', scanIds)
     this.replace('commandRepository', scans)
     this.replace('commandRepo', groups)
     this.replace('commandWorktree', trees)

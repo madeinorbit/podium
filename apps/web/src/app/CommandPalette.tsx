@@ -360,7 +360,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     setView('workspace')
   }
 
-  const issueMenuData = useMemo(
+  const issueMenuData = (
     () =>
       paletteIssueMenuData({
         issues,
@@ -371,9 +371,8 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
         machines,
         handoffEnabled,
         repoViews,
-      }),
-    [issues, data.selectedIssue, openIssueId, selectedIssueId, selectedSessions, repos, repoViews, machines, handoffEnabled],
-  )
+      })
+  )()
 
   const focusedValue = useCommandSession(paneA && data.sessionIds.includes(paneA) ? paneA : null)
   const focused = focusedValue !== LOADING ? focusedValue : undefined

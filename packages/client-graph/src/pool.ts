@@ -1,6 +1,7 @@
 import type { AccountView, MemberView, GitRepositoryWire } from '@podium/model'
 import type { MobileClientSession } from '@podium/protocol'
-import type { PodiumSettings } from '@podium/runtime'
+import type { PodiumClientApi } from '@podium/client-core/api'
+type PodiumSettings = Awaited<ReturnType<PodiumClientApi['settings']['get']['query']>>
 import type { MessagePoolRow } from './message-models'
 import type { PendingInteractionWire } from '@podium/protocol'
 import { IssueSessionFactsIndex, type IssueSessionFacts, type IssueSessionFactReader } from './shared/issue-session-facts'

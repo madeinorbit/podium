@@ -1,3 +1,4 @@
+import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import { useSettingsOpening } from './opening-context'
 import { useOpeningView } from '@podium/client-graph/react'
 import { RecordRequest, SettingsRecordRequest } from '@podium/client-graph/requested-records'
@@ -21,11 +22,11 @@ export function useSettingsRecords<E extends Exclude<RequestedEntity, 'podiumSet
   // Public directories have no push contract yet. Refresh only while this
   // opening/document is visible; all readers see the same ingested identities.
   useEffect(() => {
-    if (!request) return
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== 'hidden') void reload()
-    }, 15_000)
-    return () => window.clearInterval(timer)
+    if (!request || (entity === 'account' && inherited && own === null && inherited.accounts.answer !== undefined)) return
+    return followVisibleRequest(() => { if (!request.loading) void reload() }, {
+      visible: () => document.visibilityState !== 'hidden',
+      subscribe: changed => { document.addEventListener('visibilitychange', changed); return () => document.removeEventListener('visibilitychange', changed) },
+    })
   }, [request, reload])
   return { request, reload }
 }
@@ -33,7 +34,13 @@ export function useSettingsRecords<E extends Exclude<RequestedEntity, 'podiumSet
 const createSettingsRecord = (pool: MobxPool) => new SettingsRecordRequest(pool)
 export function useSettingsRecord(read: () => Promise<PodiumSettings>) {
   const request = useOpeningView(useWorklistPool(), createSettingsRecord)
-  useEffect(() => { void request?.read(read) }, [request, read])
+  useEffect(() => {
+    if (!request) return
+    return followVisibleRequest(() => { if (!request.loading) void request.read(read) }, {
+      visible: () => document.visibilityState !== 'hidden',
+      subscribe: changed => { document.addEventListener('visibilitychange', changed); return () => document.removeEventListener('visibilitychange', changed) },
+    })
+  }, [request, read])
   return request
 }
 export const accountKey = (row: PoolRows['account']) => row.id

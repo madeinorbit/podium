@@ -1,3 +1,4 @@
+import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import { observer } from 'mobx-react-lite'
 import { useOpeningView } from '@podium/client-graph/react'
 import { MemberDirectory, type MemberDirectoryAnswer } from '@podium/client-graph/member-directory'
@@ -26,9 +27,10 @@ export const MembersSection = observer(function MembersSection() {
   const [notice, setNotice] = useState('')
   const [removing, setRemoving] = useState<MemberModel>()
   const reload = useCallback(() => data?.read(() => memberRequest<MemberDirectoryAnswer>(origin, 'list')), [data, origin])
-  useEffect(() => {
-    void reload()
-  }, [reload])
+  useEffect(() => followVisibleRequest(() => { if (!data?.loading) void reload() }, {
+    visible: () => document.visibilityState !== 'hidden',
+    subscribe: changed => { document.addEventListener('visibilitychange', changed); return () => document.removeEventListener('visibilitychange', changed) },
+  }), [data, reload])
   async function mutate(action: string, body: unknown) {
     setBusy(true)
     setError('')

@@ -1,5 +1,6 @@
 import './requested-models'
-import type { PodiumSettings } from '@podium/runtime'
+import type { PodiumClientApi } from '@podium/client-core/api'
+type PodiumSettings = Awaited<ReturnType<PodiumClientApi['settings']['get']['query']>>
 import { lazy } from '@podium/mobx-helpers'
 import { action, compareShallow } from 'mobx'
 import type { ModelOf } from './models'

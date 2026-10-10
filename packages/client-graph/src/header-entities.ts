@@ -1,3 +1,5 @@
+import type { PoolRows } from './pool'
+declare module './source-registry' { interface PoolSourceRows { repository: PoolRows['repository'] } }
 import type { MobxPool } from './pool'
 import type { PoolTables } from './tables'
 import { isMachineOfflineForLiveTerminal } from '@podium/model/browser'
@@ -301,6 +303,7 @@ export function createHeaderEntities(shared?: Pick<PoolTables, 'machine' | 'repo
 export function headerEntities(pool: MobxPool): ReturnType<typeof createHeaderEntities> & { dispose(): void } {
   return pool.sources.view('header.entities', () => {
     const view = createHeaderEntities(pool.tables)
+    pool.sources.register(['repository'], { read: (_entity, id) => view.get('repository', id) as PoolRows['repository'] | undefined, dispose() {} })
     return Object.assign(view, { dispose: () => view.clear() })
   })
 }

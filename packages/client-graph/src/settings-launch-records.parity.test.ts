@@ -9,7 +9,7 @@ import { RecordRequest, SettingsRecordRequest } from './requested-records'
 import { MemberDirectory } from './member-directory'
 import { headerEntities } from './header-entities'
 import { createLaunchWorkPicker } from './launch-option-views'
-import { launchOptionViews as beforeOptions, createLaunchWorkPicker as beforePicker } from './test-support/launch-option-views-before'
+import { launchOptionViews as beforeOptions, createLaunchWorkPicker as beforePicker } from './test-support/launch-option-views-before.test-helper'
 
 const account: AccountView = { id: 'managed:openai', provider: 'openai', source: 'managed', kind: 'api-key',
   identity: 'abcd…1234', status: 'connected', credentialSource: 'stored' }
@@ -46,12 +46,12 @@ it('matches every account/member/device/settings fact from the old section respo
     await other.read(async () => [{ ...account, identity: 'changed elsewhere' }])
     await directory.read(async () => ({ members: [{ ...member, displayName: 'Renamed' }], invites: [], currentMemberId: 'owner', mailAvailable: false }))
     await devices.read(async () => [{ ...device, deviceName: 'Renamed phone' }])
-    await settings.read(async () => ({ ...DEFAULT_SETTINGS, sidebar: { ...DEFAULT_SETTINGS.sidebar, repoSort: 'name' } }))
+    await settings.read(async () => ({ ...DEFAULT_SETTINGS, sidebar: { ...DEFAULT_SETTINGS.sidebar, repoSort: 'alphabetical' } }))
     expect(accounts.models[0]).toBe(a)
     expect(directory.members[0]).toBe(m)
     expect(devices.models[0]).toBe(d)
     expect(settings.model).toBe(s)
-    expect(seen.at(-1)).toContain('changed elsewhere|Renamed|Renamed phone|name')
+    expect(seen.at(-1)).toContain('changed elsewhere|Renamed|Renamed phone|alphabetical')
     stop()
     await devices.read(async () => [])
     expect(devices.answer).toEqual([])
