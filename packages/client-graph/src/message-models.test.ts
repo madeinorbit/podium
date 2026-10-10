@@ -360,8 +360,8 @@ it('matches each old ledger fact on shared models, with wrong-answer controls', 
 it('declares every stored message and interaction field against its authoritative schema', () => {
   expect(validateStructure()).toEqual([])
   expect(validateSources()).toEqual([])
-  expect(Object.keys(SCHEMA.pendingInteraction.fields).sort()).toEqual(fieldsOf('PendingInteractionWire').sort())
-  expect(Object.keys(SCHEMA.messageRecord.fields)).toEqual(expect.arrayContaining(fieldsOf('MessageRecordWire')))
+  expect(Object.keys(SCHEMA.pendingInteraction.fields).sort()).toEqual([...fieldsOf('PendingInteractionWire')].sort())
+  expect(Object.keys(SCHEMA.messageRecord.fields)).toEqual(expect.arrayContaining([...fieldsOf('MessageRecordWire')]))
   expect(Object.keys(SCHEMA.messageRecord.fields)).toEqual(expect.arrayContaining(
     fieldsOf('MessageLedgerWire').filter(field => field !== 'deliveryStatus')))
 })

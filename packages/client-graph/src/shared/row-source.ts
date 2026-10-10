@@ -945,8 +945,11 @@ export function createRowSource(
     stats.enumerations += 1
     const initial = !seededKinds.has(kind)
     seededKinds.add(kind)
+    // Message and interaction rows belong to NoticeSource; this source only
+    // enumerates its own core records when the generic pool asks for a kind.
     const rows = kind === 'repo' || kind === 'machine' || kind === 'automation' || kind === 'automationRun' ? companions(kind)
-      : kind === 'worktree' ? allLanes() : enumerate(kind, readPending())
+      : kind === 'worktree' ? allLanes()
+      : kind === 'issue' || kind === 'session' ? enumerate(kind, readPending()) : []
     return rows.map(record => {
       const key = `${record.kind}:${record.id}`
       const value = retain(key, record.value)

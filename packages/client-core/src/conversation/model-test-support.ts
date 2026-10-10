@@ -2,7 +2,7 @@
 // expose only direct observables. Each legacy transcript push enters a real log action.
 import { action, computed, observable, reaction } from 'mobx'
 import type { ConversationSendOptions, ConversationContext } from './contracts'
-import type { SessionId, SessionOffer, TranscriptItem } from '@podium/model'
+import type { MessageRecordWire, SessionId, SessionOffer, TranscriptItem } from '@podium/model'
 import type { ConversationBubble, ConversationPendingTurn } from './projection'
 import { Sends } from './sends'
 import { TranscriptLog } from './transcript-log'

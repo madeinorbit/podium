@@ -67,6 +67,20 @@ afterEach(() => {
   resetLogging()
 })
 
+it('leaves message and interaction kinds to their source without enumerating core records', () => {
+  const f = fixture()
+  f.put('issueProjections', 'issue', { id: 'issue', title: 'Issue' })
+  f.session('session', 'Session')
+  try {
+    expect(f.source.source.snapshot('issue')).toHaveLength(1)
+    expect(f.source.source.snapshot('session')).toHaveLength(1)
+    vi.mocked(f.replica.rows).mockClear()
+    expect(f.source.source.snapshot('messageRecord')).toEqual([])
+    expect(f.source.source.snapshot('pendingInteraction')).toEqual([])
+    expect(f.replica.rows).not.toHaveBeenCalled()
+  } finally { f.source.dispose() }
+})
+
 it.each([1, 4])('matches the old pending sweep through addressed edits and retirement at %sx', scale => {
   const maps = {
     sessions: new Map<string, readonly PendingOverlay[]>(),
