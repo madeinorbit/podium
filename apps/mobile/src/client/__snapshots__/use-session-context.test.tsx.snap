@@ -1083,9 +1083,113 @@ second line",
                       "class",
                       "css-view-g5y9jx",
                     ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "data-session",
+                          "synthetic-session-6",
+                        ],
+                        [
+                          "type",
+                          "button",
+                        ],
+                      ],
+                      "children": [
+                        "{"sessionId":"synthetic-session-6","title":"Synthetic agent 6","subtitle":"Codex · live · 1h ago","issueLabel":"#1006 Synthetic task 6","summary":null,"group":"idle","dotTone":"ready"}",
+                      ],
+                      "tag": "BUTTON",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+                {
+                  "attributes": [
                     [
-                      "style",
-                      "height: 0px;",
+                      "class",
+                      "css-view-g5y9jx",
+                    ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "data-session",
+                          "synthetic-session-7",
+                        ],
+                        [
+                          "type",
+                          "button",
+                        ],
+                      ],
+                      "children": [
+                        "{"sessionId":"synthetic-session-7","title":"Synthetic agent 7","subtitle":"Codex · live · 1h ago","issueLabel":"#1007 Synthetic task 7","summary":null,"group":"idle","dotTone":"ready"}",
+                      ],
+                      "tag": "BUTTON",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-view-g5y9jx",
+                    ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "data-session",
+                          "synthetic-session-8",
+                        ],
+                        [
+                          "type",
+                          "button",
+                        ],
+                      ],
+                      "children": [
+                        "{"sessionId":"synthetic-session-8","title":"Synthetic agent 8","subtitle":"Codex · live · 1h ago","issueLabel":"#1008 Synthetic task 8","summary":null,"group":"idle","dotTone":"ready"}",
+                      ],
+                      "tag": "BUTTON",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-view-g5y9jx",
+                    ],
+                  ],
+                  "children": [
+                    {
+                      "attributes": [
+                        [
+                          "data-session",
+                          "synthetic-session-9",
+                        ],
+                        [
+                          "type",
+                          "button",
+                        ],
+                      ],
+                      "children": [
+                        "{"sessionId":"synthetic-session-9","title":"Synthetic agent 9","subtitle":"Codex · live · 1h ago","issueLabel":"#1009 Synthetic task 9","summary":null,"group":"idle","dotTone":"ready"}",
+                      ],
+                      "tag": "BUTTON",
+                    },
+                  ],
+                  "tag": "DIV",
+                },
+                {
+                  "attributes": [
+                    [
+                      "class",
+                      "css-view-g5y9jx",
                     ],
                   ],
                   "children": [],

@@ -45,6 +45,11 @@ describe('the pool over the app-owned runtime', () => {
       await Promise.resolve()
       expect(tracked(() => worklistView(handle.pool).selectedId === selected)).toBe(true)
       parity()
+      // Navigation reads through the runtime's imperative bridge, and detach
+      // returns the worklist's final selection to that same runtime owner.
+      expect(ctx.engine.readLocal('selectedIssueId')).toBe(selected)
+      handle.dispose()
+      expect(ctx.engine.readLocal('selectedIssueId')).toBe(selected)
     } finally {
       handle.dispose()
       ctx.dispose()

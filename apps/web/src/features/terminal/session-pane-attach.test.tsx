@@ -201,9 +201,9 @@ it.each([
   expect(
     consoleErrors.mock.calls.filter((args) => /hooks|react error.*311/i.test(args.join(' '))),
   ).toEqual([])
-  const stats = readRuntimeStoreStats(runtime!)
-  expect(stats).toBeDefined()
-  expect(
-    Object.entries(stats?.slices ?? {}).filter(([name]) => name.startsWith('sessionPane.')),
-  ).toEqual([])
+  // 15ed5c9ebd retired the snapshot publisher that produced these stats.
+  // Late attachment must keep that publisher absent, including in StrictMode.
+  expect(runtime).not.toHaveProperty('getSnapshot')
+  expect(runtime).not.toHaveProperty('subscribe')
+  expect(readRuntimeStoreStats(runtime!)).toBeUndefined()
 })

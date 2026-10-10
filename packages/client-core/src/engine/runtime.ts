@@ -1094,7 +1094,9 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
     select(id: string | null): void
   }): () => void {
     selection.select(this.state.selectedIssueId)
-    const read = () => selection.selectedId as IssueId | null
+    // Runtime navigation and teardown are imperative readers. The worklist
+    // remains the observable owner; UI derivations read its field directly.
+    const read = () => runInAction(() => selection.selectedId as IssueId | null)
     const owner = this.state
     Object.defineProperty(this.state, 'selectedIssueId', {
       configurable: true, enumerable: true, get: read,

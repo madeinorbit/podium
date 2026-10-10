@@ -486,6 +486,13 @@ it('resolves a cold terminal reference without building either conversation cata
 
 it('renders the same six phone readers through real late attachment with no React errors', async () => {
   const enabled = await mount()
+  const roster = () => {
+    const screen = enabled.view.getByRole('heading', { name: 'Agents' }).closest('section')!
+    return [...screen.querySelectorAll('[data-session]')].map((row) => row.getAttribute('data-session'))
+  }
+  expect(roster()[0]).toBe('synthetic-session-1')
+  // 54fc47e122 enlarged the initial list batch; the snapshot now includes
+  // the full roster while the assertions keep draft recency live.
   expect(rendered(enabled.view.container)).toMatchSnapshot('last green pilot-ON session readers')
   expect(enabled.errors).toEqual([])
   expect(enabled.seen[0]).toBeNull()
@@ -496,6 +503,18 @@ it('renders the same six phone readers through real late attachment with no Reac
     initialGeometry: { cols: 80, rows: 24 },
   })
   expect(seams.nativeInputs.at(-1)).toMatchObject({ spawnPending: false, cols: 80, rows: 24 })
+  await act(async () =>
+    enabled.data.patch('session', 'synthetic-session-2', {
+      draftUpdatedAt: '2026-10-03T00:02:00Z',
+    }),
+  )
+  await waitFor(() =>
+    expect(roster().slice(0, 2)).toEqual(['synthetic-session-2', 'synthetic-session-1']),
+  )
+  await act(async () =>
+    enabled.data.patch('session', 'synthetic-session-2', { draftUpdatedAt: undefined }),
+  )
+  await waitFor(() => expect(roster()[0]).toBe('synthetic-session-1'))
 })
 
 it('updates conversation ports without a whole-record store or whole-kind reads', async () => {
