@@ -130,7 +130,7 @@ describe('SocketHub subscription seam (on/emit)', () => {
   it.each([
     undefined,
     'anna/team',
-  ])('retains workspace %s through relocation and reconnect', (workspace) => {
+  ])('retains workspace %s through a retarget and reconnect (POD-5921)', (workspace) => {
     vi.useFakeTimers()
     const sockets: FakeSocket[] = []
     const urls: string[] = []
@@ -148,13 +148,9 @@ describe('SocketHub subscription seam (on/emit)', () => {
     try {
       hub.connect()
       sockets[0]!.open()
-      sockets[0]!.recv({
-        type: 'serverRelocation',
-        transferId: '00000000-0000-4000-8000-000000000001',
-        publicUrl: 'https://target.example/path?workspace=other&token=target#fragment',
-      })
-      const expected = new URL('wss://target.example/client')
-      if (workspace) expected.searchParams.set('workspace', workspace)
+      hub.retarget('https://target.example')
+      const expected = new URL(source.toString())
+      expected.host = 'target.example'
       expect(urls).toEqual([source.toString(), expected.toString()])
       sockets[1]!.open()
       sockets[1]!.close()
@@ -166,26 +162,56 @@ describe('SocketHub subscription seam (on/emit)', () => {
     }
   })
 
-  it('delivers the promoted origin and one-time claim to the platform relocation boundary', () => {
-    const sock = new FakeSocket()
-    const relocations: Array<[string, string, string | undefined]> = []
+  it('hands the promoted origin and one-time claim to the follower, and never dials it itself', () => {
+    const sockets: FakeSocket[] = []
+    const relocations: Array<{ publicUrl: string; transferId: string; claimToken?: string }> = []
     const hub = new SocketHub({
       url: 'ws://source.example/client',
-      makeSocket: () => sock,
-      onServerRelocation: (publicUrl, transferId, claimToken) =>
-        relocations.push([publicUrl, transferId, claimToken]),
+      makeSocket: () => {
+        const socket = new FakeSocket()
+        sockets.push(socket)
+        return socket
+      },
     })
+    hub.on('serverRelocation', (move) => relocations.push(move))
     hub.connect()
-    sock.open()
-    sock.recv({
+    sockets[0]!.open()
+    sockets[0]!.recv({
       type: 'serverRelocation',
       transferId: '00000000-0000-4000-8000-000000000001',
       publicUrl: 'https://target.example',
       claimToken: 'c'.repeat(64),
     })
     expect(relocations).toEqual([
-      ['https://target.example', '00000000-0000-4000-8000-000000000001', 'c'.repeat(64)],
+      {
+        publicUrl: 'https://target.example',
+        transferId: '00000000-0000-4000-8000-000000000001',
+        claimToken: 'c'.repeat(64),
+      },
     ])
+    expect(sockets).toHaveLength(1)
+    hub.dispose()
+  })
+
+  it('without a follower, a move is logged and ignored: no unauthenticated dial', () => {
+    const sockets: FakeSocket[] = []
+    const hub = new SocketHub({
+      url: 'ws://source.example/client',
+      makeSocket: () => {
+        const socket = new FakeSocket()
+        sockets.push(socket)
+        return socket
+      },
+    })
+    hub.connect()
+    sockets[0]!.open()
+    sockets[0]!.recv({
+      type: 'serverRelocation',
+      transferId: '00000000-0000-4000-8000-000000000001',
+      publicUrl: 'https://target.example',
+    })
+    expect(sockets).toHaveLength(1)
+    hub.dispose()
   })
 
   it('carries multi-argument payloads (sessionDraft) to legacy subscribers unchanged', () => {
