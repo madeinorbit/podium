@@ -144,7 +144,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
       },
       deliver: async turn => {
         conversation.rememberPrompt(turn.text)
-        if (!conversation.ready) throw new Error('ConversationService context is loading.')
+        if (!conversation.ready) throw new Error('Conversation context is loading.')
         const composer = composerState({ session: conversation.session, headless, turnRunning: conversation.turnRunning, compact: mount.compact ?? false })
         const route = chatSendRoute({ sessionId, headless, superThread: mount.superThread, composer,
           ...(mount.superThread ? { ownThreadIds: new Set(conversation.thread ? [conversation.thread.id] : []) } : {}),
