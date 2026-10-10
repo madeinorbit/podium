@@ -34,7 +34,7 @@ export function useLaunchRepositoryPaths() {
   const picker = useLaunchWorkPicker('paths')
   const read = useCallback((pool: MobxPool) => {
     const catalog = pool.row('commandCatalog', 'catalog')
-    if (catalog === LOADING && !headerEntities(pool).orders.has('repository')) return LOADING
+    if (catalog === LOADING && !headerEntities(pool).orders.has('repository') && pool.tables.repository.size === 0) return LOADING
     if (isGone(catalog)) return catalog
     return picker?.opened ? picker.repositoryPaths : headerEntities(pool).repositoryGroupIds().flatMap(id => launchOptionViews(pool).repository(id)?.path ?? [])
   }, [picker])
