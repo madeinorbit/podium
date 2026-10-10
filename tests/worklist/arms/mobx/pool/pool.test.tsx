@@ -203,6 +203,11 @@ describe('ingest', () => {
         machine: 0,
         automation: 0,
         automationRun: 0,
+        account: 0,
+        member: 0,
+        device: 0,
+        podiumSettings: 0,
+        repository: 0,
         messageRecord: 0,
         pendingInteraction: 0,
       })
