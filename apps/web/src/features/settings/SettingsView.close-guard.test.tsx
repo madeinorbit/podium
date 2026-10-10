@@ -1,4 +1,5 @@
 import '@/test-support/mock-core-store-handle'
+import '@/test-support/mock-request-pool.test.fixture'
 import type { ReferenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import { normalizeSettings } from '@podium/runtime'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
