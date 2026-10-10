@@ -1,4 +1,5 @@
 import { launchRecords } from './launch-records'
+import { isGone } from './lookup'
 import { here } from './lookup'
 import { omitGone } from './lookup'
 import { lazy, keyedComputed } from '@podium/mobx-helpers'
@@ -161,6 +162,17 @@ export class LaunchWorkPicker {
     const paths = headerEntities(this.pool).repositoryGroupIds()
       .flatMap(id => launchOptionViews(this.pool).repository(id)?.path ?? [])
     return storedOrder(this.pathOrder, paths)
+  }
+  @lazy get repositoryAnswer() {
+    const window = this.pool.row('commandWindow', 'window')
+    const catalog = this.pool.row('commandCatalog', 'catalog')
+    if (isGone(window)) return window
+    if (isGone(catalog)) return catalog
+    if (window !== LOADING && window.reposLoaded === false) return LOADING
+    // Before a source attaches, resident scans already answer nonempty choices.
+    // An empty table answers only after authoritative membership has arrived.
+    if (catalog === LOADING && !headerEntities(this.pool).orders.has('repository') && this.pool.tables.repository.size === 0) return LOADING
+    return this.repositoryPaths
   }
   @lazy({ equals: compareShallow }) get choices() {
     const views = launchOptionViews(this.pool)

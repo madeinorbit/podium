@@ -243,7 +243,7 @@ export interface PoolRows {
   account: AccountView & Readonly<Record<string, unknown>>
   member: MemberView & Readonly<Record<string, unknown>>
   device: MobileClientSession & Readonly<Record<string, unknown>>
-  podiumSettings: PodiumSettings & { id: string } & Readonly<Record<string, unknown>>
+  podiumSettings: PodiumSettings & Readonly<Record<string, unknown>>
   repository: GitRepositoryWire & Readonly<Record<string, unknown>>
   messageRecord: MessagePoolRow & Readonly<Record<string, unknown>>
   pendingInteraction: PendingInteractionWire & Readonly<Record<string, unknown>>

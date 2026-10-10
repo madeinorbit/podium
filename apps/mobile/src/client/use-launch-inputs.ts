@@ -2,8 +2,6 @@ import { headerView } from '@podium/client-graph/header-views'
 import type { RepoView } from '@podium/client-core/values'
 import { createLaunchWorkPicker, launchOptionViews, type LaunchWorkMode } from '@podium/client-graph/launch-option-views'
 import { LOADING } from '@podium/client-graph/loading'
-import { isGone } from '@podium/client-graph/lookup'
-import { headerEntities } from '@podium/client-graph/header-entities'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { MachineWire } from '@podium/model'
 import { useCallback, useEffect, useMemo } from 'react'
@@ -32,11 +30,6 @@ export function useLaunchWorkPicker(mode: LaunchWorkMode = 'work') {
 }
 export function useLaunchRepositoryPaths() {
   const picker = useLaunchWorkPicker('paths')
-  const read = useCallback((pool: MobxPool) => {
-    const catalog = pool.row('commandCatalog', 'catalog')
-    if (catalog === LOADING && !headerEntities(pool).orders.has('repository') && pool.tables.repository.size === 0) return LOADING
-    if (isGone(catalog)) return catalog
-    return picker?.opened ? picker.repositoryPaths : headerEntities(pool).repositoryGroupIds().flatMap(id => launchOptionViews(pool).repository(id)?.path ?? [])
-  }, [picker])
+  const read = useCallback(() => picker?.repositoryAnswer ?? LOADING, [picker])
   return useMobilePoolProjection(read, LOADING)
 }
