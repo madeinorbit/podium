@@ -94,7 +94,7 @@ for pair in $PLATFORMS; do
   [ "$MANIFEST_SIG" = "$FILE_SIG" ] \
     || fail "manifest signature for $platform differs from the published $asset.sig — one of the two is from a different build"
 
-  bun scripts/verify-headless-signature.ts "$DIR/$asset" "$MANIFEST_SIG" "${PUBKEY_ARGS[@]+"${PUBKEY_ARGS[@]}"}" || exit 1
+  bun --conditions=@podium/source scripts/verify-headless-signature.ts "$DIR/$asset" "$MANIFEST_SIG" "${PUBKEY_ARGS[@]+"${PUBKEY_ARGS[@]}"}" || exit 1
 
   bash scripts/assert-headless-bundle.sh "$DIR/$asset" "$platform" \
     --source-commit "$TARGET_SOURCE" \
