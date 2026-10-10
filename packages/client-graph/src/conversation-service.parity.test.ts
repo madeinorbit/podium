@@ -13,7 +13,7 @@ const item = (id: string, text: string): TranscriptItem => ({ id, cursor: id, ro
 
 function fixture() {
   const drafts = new DraftStore({ storage: { get: () => null, set() {} }, hub: {
-    on: () => () => {}, sendDraftEdit() {}, connectionHealth: () => ({ status: 'ok', since: 0, rttMs: null }),
+    on: () => () => {}, sendDraftEdit() { return true }, connectionHealth: () => ({ status: 'ok', since: 0, rttMs: null }),
   } })
   let row = { sessionId: sid, title: 'Chat title', cwd: '/repo', status: 'live',
     lastActiveAt: '2026-10-10T10:00:00Z', agentKind: 'codex',
