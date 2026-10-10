@@ -130,13 +130,13 @@ export class ConversationService {
   @lazy get context(): ConversationContext { return this }
 
   @lazy get agentSince(): string | undefined {
-    return this.options.readContext?.().agentSince ?? this.options.readSession?.()?.agentSince ?? this.options.readSession?.()?.agentState?.since
+    return this.options.readContext ? this.options.readContext().agentSince : this.options.readSession?.()?.agentSince ?? this.options.readSession?.()?.agentState?.since
   }
   @lazy get agentPhase(): string | undefined {
-    return this.options.readContext?.().agentPhase ?? this.options.readSession?.()?.agentPhase ?? this.options.readSession?.()?.agentState?.phase
+    return this.options.readContext ? this.options.readContext().agentPhase : this.options.readSession?.()?.agentPhase ?? this.options.readSession?.()?.agentState?.phase
   }
   @lazy get agentError(): ConversationContext['agentError'] {
-    return this.options.readContext?.().agentError ?? this.options.readSession?.()?.agentError ?? this.options.readSession?.()?.agentState?.error
+    return this.options.readContext ? this.options.readContext().agentError : this.options.readSession?.()?.agentError ?? this.options.readSession?.()?.agentState?.error
   }
   @lazy get offer(): SessionOffer | null | undefined {
     return this.options.readContext ? this.options.readContext().offer : this.options.readSession?.()?.offer

@@ -12,7 +12,7 @@ import { useStoreHandle, useConversation as useOwnedConversation } from '@podium
 import { chatSendRoute, composerState, parseEnvelopeBatch, type SuperThreadRef, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { asMutationId, asSessionId, HarnessAgent, type SessionId } from '@podium/model/browser'
-import { actionBound, compareShallow, computed, observable, reaction } from 'mobx'
+import { actionBound, compareShallow, observable, reaction } from 'mobx'
 import { useCallback, useEffect, useRef } from 'react'
 import { lazy } from '@podium/mobx-helpers'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
@@ -55,6 +55,12 @@ export class WebConversation extends ConversationService {
   get retainHistory(): boolean { return [...this.views].some(view => view.retainHistory) }
   @lazy get session(): SessionModel | undefined { return here(this.pool.model('session', this.sessionId)) }
   @lazy get thread() { return this.mount.superThread ? loaded(omitGone(this.pool.row('superThread', this.mount.superThread.threadId))) : undefined }
+  @lazy({ equals: compareShallow }) get records() {
+    return loaded(omitGone(this.pool.row('chatContextReader', 'reader')))?.records(this.sessionId).records ?? []
+  }
+  @lazy({ equals: compareShallow }) get heldSends() {
+    return loaded(omitGone(this.pool.row('chatHeld', this.sessionId)))?.sends ?? []
+  }
   @lazy get hasPending(): boolean { return this.sends.bubbles.length > 0 }
   @lazy get ready(): boolean {
     const reader = loaded(omitGone(this.pool.row('chatContextReader', 'reader')))
@@ -76,15 +82,14 @@ export class WebConversation extends ConversationService {
 }
 
 export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPool, sessionId: SessionId, mount: ConversationMountOptions): WebConversation {
+  pool.bindSessionDrafts(runtime.drafts)
   const store = runtime.access
   const { hub, trpc, replica } = store
   const readSession = () => here(pool.model('session', sessionId))
-  const readReader = () => loaded(omitGone(pool.row('chatContextReader', 'reader')))
-  const recordValues = computed(() => readReader()?.records(sessionId).records ?? [], { equals: compareShallow })
-  const heldValues = computed(() => loaded(omitGone(pool.row('chatHeld', sessionId)))?.sends ?? [], { equals: compareShallow })
+  const readHeld = () => loaded(omitGone(pool.row('chatHeld', sessionId)))?.sends ?? []
   const headless = mount.superThread !== undefined || readSession()?.headless === true
   let conversation: WebConversation
-  const held: ConversationPendingTurn[] = headless ? [] : heldValues.get().map((send, index) => ({
+  const held: ConversationPendingTurn[] = headless ? [] : readHeld().map((send, index) => ({
     id: `outbox-${index}-${send.mutationId}`, deliveryId: send.mutationId,
     text: send.text, wire: send.text, at: send.queuedAt, state: send.state, kind: 'message',
     ...(send.attachments ? { attachments: send.attachments } : {}),
@@ -116,8 +121,8 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
     ...(mount.superThread ? { latestTurnFailure: () => trpc.superagent.latestTurnFailure.query({ threadId: mount.superThread!.threadId }) } : {}),
     sends: {
       ...(headless ? { reconcile: 'next-user-item' as const } : {
-        records: { getSnapshot: () => recordValues.get(), subscribe: listener => reaction(() => recordValues.get().map(record => record.row), listener, { equals: compareShallow }) },
-        outbox: { held: () => heldValues.get(), subscribe: listener => reaction(() => heldValues.get(), listener) },
+        records: { getSnapshot: () => conversation.records, subscribe: listener => reaction(() => conversation.records.map(record => record.row), listener, { equals: compareShallow }) },
+        outbox: { held: () => conversation.heldSends, subscribe: listener => reaction(() => conversation.heldSends, listener) },
         messageRecords: { read: id => here(pool.model('messageRecord', id)), ingest: records => ingestMessageRecords(pool, records, id => currentMessageRecord(pool, replica, id)) },
         lookupRecords: ids => trpc.messages.records.query({ ids: [...ids] }).then(answer => answer.records),
         retract: id => trpc.messages.cancel.mutate({ id }).then(message => message.deliveryStatus),
@@ -143,7 +148,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
         const route = chatSendRoute({ sessionId, headless, superThread: mount.superThread, composer,
           ...(mount.superThread ? { ownThreadIds: new Set(conversation.thread ? [conversation.thread.id] : []) } : {}),
         })
-        if (heldValues.get().some(send => send.mutationId === turn.deliveryId))
+        if (conversation.heldSends.some(send => send.mutationId === turn.deliveryId))
           return store.sendChat({ sessionId, text: turn.wire, wake: route.kind === 'resume' }, asMutationId(turn.deliveryId))
         if (turn.attachments?.length && route.kind !== 'session') throw new Error('file attachments require a live agent session')
         if (route.kind === 'session' || route.kind === 'resume') {
