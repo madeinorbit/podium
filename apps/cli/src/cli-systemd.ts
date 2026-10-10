@@ -538,6 +538,9 @@ export interface InstallResult {
 }
 
 export interface InstallSystemdDeps {
+  /** Preserve the profile of an existing generated unit when doctor rewrites it. */
+  renderOptions?: SystemdRenderOptions
+
   hasSystemctl?: () => boolean
   hasUserSystemd?: () => boolean
   unitDir?: () => string
@@ -598,7 +601,7 @@ export function installSystemd(
   try {
     mkdirSync(dir, { recursive: true })
     removeLegacyUpdateTimer(dir, instanceId, runCommand)
-    writeFileSync(join(dir, parentUnit), renderParentUnit({ instanceId, port }))
+    writeFileSync(join(dir, parentUnit), renderParentUnit({ ...deps.renderOptions, instanceId, port }))
     runCommand('systemctl', ['--user', 'daemon-reload'])
     // Linger so the units run without an active login session (headless VPS over SSH).
     const user = userInfo().username

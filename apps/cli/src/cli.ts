@@ -2272,7 +2272,10 @@ export async function main(
     }
     case 'restart': {
       const { restartCommand } = await import('./cli-lifecycle')
-      await restartCommand()
+      try { await restartCommand() } catch (error) {
+        console.error(`podium restart: ${(error as Error).message}`)
+        process.exitCode = 1
+      }
       return
     }
     case 'stop': {

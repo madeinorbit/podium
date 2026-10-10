@@ -13,7 +13,7 @@ import { listLive, logDir, type RunRecord } from '@podium/runtime/run-registry'
 import { httpOriginOf, resolveLocatorRecord } from '@podium/runtime/server-follow'
 import { serverControlSocketPath } from '@podium/runtime/user-socket'
 import { declareFlags, parseFlags } from './argv'
-import { installSystemd, restartSystemdUnits } from './cli-systemd'
+import { installSystemd, parentUnitRenderOptions, restartSystemdUnits, userUnitDir } from './cli-systemd'
 import { downloadCloudflared, enableTunnel, resolveCloudflared } from './tunnel-cli'
 
 export const PROBE_TIMEOUT_MS = 1_500
@@ -152,9 +152,12 @@ export async function repairLink(link: Link): Promise<string | undefined> {
   forgetConfig()
   const config = loadConfig()
   const mode = resolveSetting('mode', config).value
-  if (link === 'service') {
+  if (link === 'service' || link === 'server') {
     if (config.persistence === 'systemd') {
-      const installed = installSystemd(mode, resolvePort(config))
+      const instance = resolveInstanceId()
+      let renderOptions
+      try { renderOptions = parentUnitRenderOptions(readFileSync(join(userUnitDir(), instanceServiceName('parent', instance)), 'utf8')) } catch { /* Fresh install. */ }
+      const installed = installSystemd(mode, resolvePort(config), instance, { ...(renderOptions ? { renderOptions } : {}) })
       if (!installed.ok) throw new Error(installed.reason)
       restartSystemdUnits([instanceServiceName('parent', resolveInstanceId())])
       const { waitForHealth } = await import('./cli-spawn')
@@ -164,9 +167,6 @@ export async function repairLink(link: Link): Promise<string | undefined> {
       const { restartCommand } = await import('./cli-lifecycle')
       await restartCommand()
     }
-  } else if (link === 'server') {
-    const { restartCommand } = await import('./cli-lifecycle')
-    await restartCommand()
   } else if ((link === 'cloudflared' || link === 'tunnel' || link === 'public') && config.networkOption === 'cloudflare-tunnel') {
     if (!resolveCloudflared()) await downloadCloudflared()
     const result = enableTunnel({ config })
