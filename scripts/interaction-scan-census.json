@@ -267,23 +267,43 @@
     },
     {
       "file": "apps/mobile/src/components/ConfiguredIssueLaunchSheet.tsx",
-      "holder": "ConfiguredIssueLaunchSheet/start/callback",
-      "rule": "helper-consumer",
-      "tokens": "34f425da26e8886a820ea207d791d1441133861fc38c33b4be5dea725f18b2eb",
+      "holder": "ConfiguredIssueLaunchSheetBody/ConfiguredIssueLaunchSheetBody/start/callback",
+      "rule": "reader-summary",
+      "tokens": "248b9f1a85f01f0ca8b3106cccb525ccef12b252f0c4870a56124c4eb3d59ed8",
       "gate": [
-        "exit:then:07c36275e9f1435d155ea7ce36b6c9aa2156d82fab85de27ba75be5e325deaf1"
+        "exit:then:77100ba1355adae7c85e8ee022ed0798713c117f1347926d0422d15a21b5cf01"
       ],
       "origin": [
-        "890132426556de123bf77e63585e0dbb900ed60ff6e3f32ef95d67dc955c955c"
+        "f0e526b9fbb6507b5fb07a96f13c265cd59ac1a08b53582dfd9026173d6ed5b7"
       ],
-      "fingerprint": "a01c4e08dfee10f47e697c2fc391b2f458560153e04589249b60bb433b2b8ac8",
+      "fingerprint": "7b2544e557c984f9ad242d9a543171d698a6a15bec4e6191a1aa879fff20a72e",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of ConfiguredIssueLaunchSheet/start/callback",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "helper-consumer carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "classification": "bounded local work",
+      "owner": "POD-5875",
+      "trigger": "Start agent in the configured issue launch sheet after its touched-field draft submits.",
+      "bound": "One addressed issue ID; addSession is attempted once, with one start fallback only for an issue-not-started refusal.",
+      "reason": "The issues value is the TRPC mutation API, not issue rows. spawnIssueAgent receives only the addressed issue ID and calls two fixed API members without enumerating records.",
+      "guard": "ConfiguredIssueLaunchSheet.draft.test.tsx proves touched-only update before the addressed spawn; configured-issue-launch.test.ts retains the addSession/start fallback and refusal assertions unchanged."
+    },
+    {
+      "file": "apps/mobile/src/components/ConfiguredIssueLaunchSheet.tsx",
+      "holder": "ConfiguredIssueLaunchSheetBody/ConfiguredIssueLaunchSheetBody/start/callback",
+      "rule": "helper-consumer",
+      "tokens": "41ec08726cd58ab8318ad94df58346480a75f48057756209e3a33f0de143e5d1",
+      "gate": [
+        "exit:then:77100ba1355adae7c85e8ee022ed0798713c117f1347926d0422d15a21b5cf01"
+      ],
+      "origin": [
+        "f0e526b9fbb6507b5fb07a96f13c265cd59ac1a08b53582dfd9026173d6ed5b7"
+      ],
+      "fingerprint": "f1b58f762954eaba4d09194db3406c05534acfc46878e5b6894fd398fb05ddd8",
+      "count": 1,
+      "classification": "bounded local work",
+      "owner": "POD-5875",
+      "trigger": "Start agent in the configured issue launch sheet after its touched-field draft submits.",
+      "bound": "One addressed issue ID; addSession is attempted once, with one start fallback only for an issue-not-started refusal.",
+      "reason": "The issues value is the TRPC mutation API, not issue rows. spawnIssueAgent receives only the addressed issue ID and calls two fixed API members without enumerating records.",
+      "guard": "ConfiguredIssueLaunchSheet.draft.test.tsx proves touched-only update before the addressed spawn; configured-issue-launch.test.ts retains the addSession/start fallback and refusal assertions unchanged."
     },
     {
       "file": "apps/mobile/src/components/InboxSessionRow.tsx",
@@ -9653,21 +9673,21 @@
     },
     {
       "file": "apps/web/src/features/settings/sections/workflow.tsx",
-      "holder": "WorkflowSection/callback/issues",
+      "holder": "WorkflowSection/WorkflowSection/callback/issues",
       "rule": "spread",
       "tokens": "9798373f60b6f5632843510685755cab324c0fd544a638ff6365db849636aad7",
       "gate": [],
       "origin": [
-        "dbcbbb915566b1a762d5cb243178020b90311702f52d9823cafc0d0ae769e3a3"
+        "036f8d68779d2c3d789e9603084d4ab004f962fee87d283dbee42468d8b1f164"
       ],
-      "fingerprint": "8ce3602fa2d429e80577dd9ac93b6f52cbe161a77bdb4183ff5ea5949405a87c",
+      "fingerprint": "679e8bcea918654f70a1d3c196bdd8e589a17cf91c802b649ee76ef65763bfc9",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
-      "trigger": "Invocation of WorkflowSection/callback/issues",
+      "trigger": "Invocation of WorkflowSection/WorkflowSection/callback/issues",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "guard": "Observer wrapping changes the holder fingerprint only; the same settings.issues spread is retained. Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded collection work."
     },
     {
       "file": "apps/web/src/features/setup/ColdStartComposer.tsx",
