@@ -140,13 +140,16 @@ it('matches the registered repository prefix section on the same scan/projection
 
 it('keeps repository names live and resolves root, clone and nested launch targets from shared scans', () => {
   const p = pool(), machineId = asMachineId('host')
+  let step = 'apply'
   const repos: GitRepositoryWire[] = [
     { kind: 'repository', machineId, path: '/repo/first', originUrl: 'https://example.test/original.git', worktrees: [{ path: '/repo/first/topic', branch: 'topic' }] },
     { kind: 'repository', machineId, path: '/repo/second', originUrl: 'https://example.test/original.git', worktrees: [] },
   ]
   try {
     headerEntities(p).apply(repos.map((value, i) => ({ kind: 'repository', id: `r${i}`, value })))
+    step = 'initial lookup'
     const records = launchRecords(p), retained = records.at('/repo/first')!
+    step = 'target comparisons'
     for (const path of ['/repo/first', '/repo/first/topic', '/repo/second']) {
       const before = repos.flatMap(repo => [
         { path: repo.path, repoPath: repo.path, isMain: true, machineId: repo.machineId, branch: repo.branch },
@@ -155,10 +158,15 @@ it('keeps repository names live and resolves root, clone and nested launch targe
       const answer = records.treeAt(path, machineId)!
       expect({ path: answer.path, repoPath: answer.repoPath, isMain: answer.isMain, machineId: answer.machineId, branch: answer.branch }).toEqual(before)
     }
+    step = 'observe names'
     const seen: string[] = [], stop = autorun(() => seen.push(`${retained.path}|${retained.name}`))
+    step = 'origin update'
     headerEntities(p).apply([{ kind: 'repository', id: 'r0', value: { ...repos[0]!, originUrl: 'https://example.test/renamed.git' } }])
+    step = 'updated answer'
     expect(records.at('/repo/first')).toBe(retained)
     expect(seen.at(-1)).toBe('/repo/first|renamed')
+    step = 'stop names'
     stop()
-  } finally { p.dispose() }
+    step = 'dispose'
+  } catch (cause) { throw new Error(step, { cause }) } finally { p.dispose() }
 })
