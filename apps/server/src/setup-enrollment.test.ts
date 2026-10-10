@@ -5,7 +5,7 @@ import { asMachineId, asUserId } from '@podium/model'
 import { prepareSetupEnrollment, confirmSetupEnrollment, signMachineHello } from '@podium/runtime/setup-enrollment'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { adoptLegacyHostMachine, completePreauthorizedSetup, enrollSetupMachine, isLegacyHostMachine, readSetupEnrollment } from './setup-enrollment'
+import { adoptLegacyHostMachine, completePreauthorizedSetup, enrollSetupMachine, readSetupEnrollment } from './setup-enrollment'
 import { openTestStore } from './test-support/open-test-store'
 import type { SessionStore } from './store'
 
@@ -117,13 +117,12 @@ describe('legacy host adoption', () => {
 
   it('re-keys the existing row in place, keeping its id and owner', async () => {
     const { store, dir, request, id } = await legacyHost()
-    expect(await isLegacyHostMachine(store, id)).toBe(true)
     const receipt = await adoptLegacyHostMachine(store, 'installation-a', request)
     expect(receipt).toMatchObject({ machineId: id, publicKey: request.publicKey, actor })
     const row = await store.machines.getMachine(id)
     expect(row?.serviceAssignment).toEqual({ server: true, agentExecution: true })
     expect(await store.machines.custodian(id)).toBe(actor)
-    expect(await isLegacyHostMachine(store, id)).toBe(false)
+    expect(await store.machines.credentialIncarnation(id)).toBe(request.publicKey)
     // The host can now authenticate with the key its own state dir holds.
     confirmSetupEnrollment(request.requestId, request.publicKey, dir)
     const challenge = { type: 'machineChallenge' as const, machineId: id, installationId: 'installation-a',
@@ -148,7 +147,6 @@ describe('legacy host adoption', () => {
     expect(await keyed.store.machines.credentialIncarnation(asMachineId(keyed.request.machineId))).toBe(keyed.request.publicKey)
 
     const revoked = await legacyHost({ revoked: true })
-    expect(await isLegacyHostMachine(revoked.store, revoked.id)).toBe(false)
     expect(await adoptLegacyHostMachine(revoked.store, 'installation-a', revoked.request)).toBeUndefined()
 
     const missing = await fixture()

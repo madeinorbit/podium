@@ -71,19 +71,10 @@ export async function completePreauthorizedSetup(store: SessionStore, installati
 }
 
 /**
- * Whether this host's own row predates setup enrollment (POD-5931): a live `bearer-hash`
- * row that the local daemon used to reach with the same-host bootstrap secret. Such a
- * host has no credential the current release accepts until it is adopted below.
- */
-export async function isLegacyHostMachine(store: SessionStore, machineId: string): Promise<boolean> {
-  return store.machines.hasLegacyBearerCredential(asMachineId(machineId))
-}
-
-/**
- * Move an upgraded host's legacy row onto the key its parent just prepared.
+ * Move an upgraded host's legacy row onto the key staged for it (POD-5931).
  *
- * The request's machine id is read from the server's own state dir by the same
- * supervisor that holds the private key, so it names this host and nothing else. The
+ * The request was written by the one-shot import of a 0.1.0 host's state files, next to
+ * the private key, in the server's own state dir, so it names this host and nothing else. The
  * row keeps its id, owner, repos and sessions; only the credential and the service
  * assignment (always server, plus agents when this host runs them) change. Like setup,
  * the receipt makes a retry after a lost parent confirmation return the same answer.

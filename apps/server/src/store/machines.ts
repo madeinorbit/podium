@@ -564,12 +564,6 @@ export class MachinesRepository {
    * bearer row onto a key, never one that already carries a key. Retrying with the
    * same key after a lost acknowledgement answers true.
    */
-  async hasLegacyBearerCredential(id: MachineId): Promise<boolean> {
-    const row = await this.db.select({ revokedAt: machines.revokedAt, supersededBy: machines.supersededBy,
-      kind: machines.credentialKind, publicKey: machines.publicKey }).from(machines).where(eq(machines.id, id)).get()
-    return !!row && row.revokedAt === null && row.supersededBy === null && row.kind === 'bearer-hash' && row.publicKey === null
-  }
-
   async adoptLegacyHostCredential(id: MachineId, publicKey: string,
     assignment: MachineServiceAssignment, evidence: z.infer<typeof AssignmentEvidence>): Promise<boolean> {
     MachineServiceAssignment.parse(assignment)
