@@ -586,7 +586,7 @@ describe('IssueService event emission', () => {
     // Arm the fault only after issue.closed lands, so this test distinguishes
     // a committed close from the post-commit ready fanout that follows it.
     const origAppend = store.events.appendEvent.bind(store.events)
-    const origAllDeps = store.issues.listAllIssueDeps.bind(store.issues)
+    const origDependents = store.issues.listDependents.bind(store.issues)
     let closedEventAppended = false
     let fanoutReadFailed = false
     vi.spyOn(store.events, 'appendEvent').mockImplementation(async (event, options) => {
@@ -594,12 +594,12 @@ describe('IssueService event emission', () => {
       if (event.kind === 'issue.closed') closedEventAppended = true
       return id
     })
-    vi.spyOn(store.issues, 'listAllIssueDeps').mockImplementation(async () => {
-      if (closedEventAppended) {
+    vi.spyOn(store.issues, 'listDependents').mockImplementation(async (issueId) => {
+      if (closedEventAppended && issueId === a.id) {
         fanoutReadFailed = true
         throw new Error('fanout read failed')
       }
-      return await origAllDeps()
+      return await origDependents(issueId)
     })
 
     try {
@@ -612,6 +612,7 @@ describe('IssueService event emission', () => {
     expect(fanoutReadFailed).toBe(true)
     expect((await store.issues.getIssue(a.id))?.stage).toBe('done')
     expect((await store.events.listEventsSince(0, { kinds: ['issue.closed'] })).length).toBe(1)
+    expect(await store.events.listEventsSince(0, { kinds: ['issue.ready'] })).toEqual([])
   })
 
   it('a mid-fanout read failure reports the committed close and emits no ready events', async () => {
@@ -625,21 +626,23 @@ describe('IssueService event emission', () => {
     await svc.hierarchy.addDep(b.id, a.id, 'blocks')
     await svc.hierarchy.addDep(c.id, a.id, 'blocks')
 
-    // Both dependents share a repo identity but use different paths, so toWire's
-    // batch needs two prefix lookups. Fail the second: before this regression
-    // fix B's issue.ready had already appended and C's never did.
+    // Both clones share a repo identity, so the fanout checks both dependents'
+    // outgoing blockers. Fail the second read after the first dependent is ready:
+    // no issue.ready may append until all readiness reads have completed.
     const origAppend = store.events.appendEvent.bind(store.events)
-    const origPrefix = store.repos.prefixForPath.bind(store.repos)
+    const origIssueDeps = store.issues.listIssueDeps.bind(store.issues)
     let armed = false
-    let fanoutPrefixReads = 0
+    let fanoutDepReads = 0
     vi.spyOn(store.events, 'appendEvent').mockImplementation(async (event, options) => {
       const id = await origAppend(event, options)
       if (event.kind === 'issue.closed') armed = true
       return id
     })
-    vi.spyOn(store.repos, 'prefixForPath').mockImplementation(async (repoPath) => {
-      if (armed && ++fanoutPrefixReads === 2) throw new Error('second prefix read failed')
-      return await origPrefix(repoPath)
+    vi.spyOn(store.issues, 'listIssueDeps').mockImplementation(async (issueId) => {
+      if (armed && (issueId === b.id || issueId === c.id) && ++fanoutDepReads === 2) {
+        throw new Error('second dependency read failed')
+      }
+      return await origIssueDeps(issueId)
     })
 
     let caught: unknown
@@ -652,8 +655,8 @@ describe('IssueService event emission', () => {
     expect(caught).toBeInstanceOf(PostCommitError)
     expect((caught as PostCommitError).committed).toBe(true)
     expect((caught as PostCommitError).mechanism).toBe('follow-up')
-    expect((caught as PostCommitError).cause).toMatchObject({ message: 'second prefix read failed' })
-    expect(fanoutPrefixReads).toBe(2)
+    expect((caught as PostCommitError).cause).toMatchObject({ message: 'second dependency read failed' })
+    expect(fanoutDepReads).toBe(2)
     expect((await store.issues.getIssue(a.id))?.stage).toBe('done')
     expect((await store.events.listEventsSince(0, { kinds: ['issue.closed'] })).length).toBe(1)
     expect(await store.events.listEventsSince(0, { kinds: ['issue.ready'] })).toEqual([])
