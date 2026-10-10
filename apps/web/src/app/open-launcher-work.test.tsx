@@ -2,6 +2,7 @@
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { requireHere } from '@podium/client-graph/lookup'
 import { commandLaunchViews } from '@podium/client-graph/command-launch-views'
 import type { GitRepositoryWire } from '@podium/model/browser'
 import { asUserId } from '@podium/model/browser'
@@ -90,7 +91,7 @@ it.each(['NewPanelMenu', 'NewIssueDialog'] as const)('meters actual open %s at 1
       cells.push(await measured('machine-choice', () => fireEvent.click(screen.getByRole('menuitem', { name: 'host-one' }))))
     } else expect(screen.getByLabelText('Title')).toBeTruthy()
     cells.push(await measured('catalog', () => { repos = repos.map((repo, at) => at === 0 ? { ...repo, branch: 'updated' } : repo); return owner.access.refreshRepos() }))
-    expect(attached.row('commandRepository', JSON.stringify(['host-one', '/synthetic/project']))).toMatchObject({ branch: 'updated' })
+    expect(requireHere(attached.model('repository', JSON.stringify(['host-one', '/synthetic/project']))).branch).toBe('updated')
     cells.push(await measured('usage', () => fixture.patch('session', 'synthetic-session-0', { createdAt: '2026-10-03T00:00:00Z', lastActiveAt: '2026-10-03T00:00:00Z' })))
     cells.push(await measured('heartbeat', () => fixture.patch('session', 'synthetic-session-0', { lastActiveAt: '2026-10-04T00:00:00Z' })))
     await act(async () => { surface === 'NewPanelMenu' ? fireEvent.click(screen.getByRole('button', { name: 'New panel' })) : show(false) })

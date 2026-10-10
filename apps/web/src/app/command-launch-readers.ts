@@ -15,7 +15,7 @@ function launchOptions(pool: MobxPool) {
   return view
 }
 export const readLaunchOptions = launchOptions
-export const readLaunchOrigin = (pool: MobxPool, path: string) => launchOptions(pool)?.origin(path) ?? LOADING
+export const readLaunchOrigin = (pool: MobxPool, path: string, machineId?: string) => launchOptions(pool)?.origin(path, machineId) ?? LOADING
 export function readTargetMachines(pool: MobxPool, repo: RepoView | undefined, machines: MachineWire[], kinds: readonly string[], preferred?: Record<string, string | undefined>) {
   return Object.fromEntries(kinds.map(kind => {
     if (!repo) return [kind, undefined]

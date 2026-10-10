@@ -90,7 +90,10 @@ export function launchOptionViews(pool: MobxPool) {
     )
     const recentMachineKey = computed(() => JSON.stringify(pool.queries.latestMachineSession(JSON.parse(eligibleMachineKey.get()) as string[]) ?? null))
     const recentMachine = computed(() => JSON.parse(recentMachineKey.get()) as { machineId: string; createdAt: string } | null)
-    const origin = keyedComputed('launch.origin', (path: string) => new LaunchOrigin(pool, path))
+    const origin = keyedComputed('launch.origin', (key: string) => {
+      const [path, machineId] = JSON.parse(key) as [string, string | null]
+      return new LaunchOrigin(pool, path, machineId ?? undefined)
+    })
     return {
       workOnOpen,
       catalogOnOpen,
@@ -100,7 +103,7 @@ export function launchOptionViews(pool: MobxPool) {
       projectIsEligible,
       machines: () => machines.get(),
       recentMachine: () => recentMachine.get() ?? undefined,
-      origin: (path: string) => origin(machinePathKey(path)),
+      origin: (path: string, machineId?: string) => origin(JSON.stringify([machinePathKey(path), machineId ?? null])),
       counts,
       dispose() {
         repository.clear()
@@ -203,7 +206,12 @@ function storedOrder(order: readonly string[], paths: readonly string[]): string
 
 /** One launch opening addresses a repository by path; facts stay on models. */
 export class LaunchOrigin {
-  constructor(private readonly pool: MobxPool, readonly path: string) {}
-  @lazy get repo() { return launchRecords(this.pool).at(this.path) }
+  constructor(private readonly pool: MobxPool, readonly path: string, private readonly machineId?: string) {}
+  @lazy private get source() {
+    const handoff = headerEntities(this.pool).shippingScope(this.path, this.machineId)?.handoff
+    return handoff ? here(this.pool.model('repository', handoff.repositoryId)) : undefined
+  }
+  @lazy get repo() { return this.source ? launchRecords(this.pool).byId(this.source.id) : undefined }
+  @lazy get sourceMachineId() { return this.source?.machineId }
   @lazy get machines() { return launchOptionViews(this.pool).machines() }
 }

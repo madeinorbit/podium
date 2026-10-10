@@ -75,9 +75,9 @@ export function useCommandLaunchCatalog() {
 }
 /** A tab-strip menu draws one origin and the displayed machines. Recency is a
  * scalar per machine, so opening it never acquires session choice rows. */
-export function useCommandLaunchOrigin(path: string) {
+export function useCommandLaunchOrigin(path: string, machineId?: string) {
   const read = useMemo(() => (pool: Parameters<typeof readLaunchOrigin>[0]) =>
-    readLaunchOrigin(pool, path), [path])
+    readLaunchOrigin(pool, path, machineId), [path, machineId])
   return useWorklistPoolProjection<Loaded<ReturnType<typeof readLaunchOrigin>>>(read, LOADING)
 }
 export function useCommandTargetMachines(repo: RepoView | undefined, machines: MachineWire[], kinds: readonly string[]) {

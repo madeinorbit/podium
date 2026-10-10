@@ -153,7 +153,7 @@ export function NewPanelMenu(
 /** Closed tab-strip menus own only a trigger. Acquiring their launch projection
  * would build repository usage and session choices on every issue selection. */
 function NewPanelChoices(props: Omit<Parameters<typeof NewPanelMenuBody>[0], 'data'>): JSX.Element {
-  const data = useCommandLaunchOrigin(props.worktree.path)
+  const data = useCommandLaunchOrigin(props.worktree.path, props.worktree.machineId)
   if (!data || data === LOADING)
     return (
       <DropdownMenuContent align="end">
@@ -207,7 +207,7 @@ const NewPanelMenuBody = observer(function NewPanelMenuBody({
 
   /** Local path to use when opening an agent on machine M. */
   function cwdFor(machineId: MachineId | undefined): string {
-    if (!machineId || machineId === worktree.machineId) return worktree.path
+    if (!machineId || machineId === (worktree.machineId ?? data.sourceMachineId)) return worktree.path
     return repoView.machines.find((m) => m.machineId === machineId)?.path ?? worktree.path
   }
 

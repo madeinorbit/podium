@@ -6,8 +6,110 @@ import { autorun, observable, runInAction } from 'mobx'
 import { expect, it, vi } from 'vitest'
 import { measureWork } from '../../../tests/worklist/harness/src/work-meter'
 import { headerEntities } from './header-entities'
+import { headerView } from './header-views'
 import { createLaunchCatalogPicker, createLaunchWorkPicker, launchOptionViews } from './launch-option-views'
 import { MobxPool } from './pool'
+
+it('resolves launch hosts from every clone and linked checkout with flat work at 1x/4x', async () => {
+  const samples = []
+  for (const scale of [1, 4]) {
+    const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+    const entities = headerEntities(pool)
+    const primary: GitRepositoryWire = {
+      kind: 'repository', path: '/Users/mw/nulldisk', repoId: asRepoId('nulldisk'),
+      machineId: 'mac' as MachineWire['id'], worktrees: [],
+    }
+    const clone: GitRepositoryWire = {
+      ...primary, path: '/home/mgw/nulldisk', machineId: 'ludovico' as MachineWire['id'],
+      worktrees: [{ path: '/home/mgw/nulldisk/.worktrees/topic', branch: 'topic' }],
+    }
+    entities.apply([
+      { kind: 'repository', id: 'primary', value: primary },
+      { kind: 'repository', id: 'clone', value: clone },
+      ...Array.from({ length: 128 * scale }, (_, at) => ({
+        kind: 'repository' as const, id: `other-${at}`,
+        value: { kind: 'repository' as const, path: `/other/${at}`, worktrees: [] },
+      })),
+    ])
+    const views = launchOptionViews(pool)
+    let current: ReturnType<typeof launchRepositoryFacts>
+    let sourceMachineId: string | undefined
+    let paints = 0
+    let stop = () => {}
+    const rows = vi.spyOn(headerView(pool), 'ids')
+    try {
+      const expected = reposToViews([primary, clone])[0]
+      // The catalog's primary-path find was the old launch lookup. It loses
+      // both a non-primary clone and a linked checkout on these same fixtures.
+      expect(headerView(pool).repository(clone.path)).toBeUndefined()
+      expect(headerView(pool).repository(clone.worktrees[0]!.path)).toBeUndefined()
+      expect(launchRepositoryFacts(views.origin(primary.path).repo)).toEqual(expected)
+      expect(views.origin(primary.path).sourceMachineId).toBe('mac')
+      expect(launchRepositoryFacts(views.origin(clone.path).repo)).toEqual(expected)
+      expect(views.origin(clone.path).sourceMachineId).toBe('ludovico')
+      const first = await measureWork(async () => {
+        stop = autorun(() => {
+          const origin = views.origin(`${clone.worktrees[0]!.path}/src`, 'ludovico')
+          current = launchRepositoryFacts(origin.repo)
+          sourceMachineId = origin.sourceMachineId
+          void origin.machines
+          paints++
+        })
+      }, { pool })
+      expect(current).toEqual(expected)
+      expect(sourceMachineId).toBe('ludovico')
+      expect(current?.machines.map(host => host.machineId)).toEqual(['mac', 'ludovico'])
+      expect(views.origin(clone.path, 'mac').repo).toBeUndefined()
+      expect(views.origin('/unregistered').repo).toBeUndefined()
+      const before = paints
+      const unrelated = await measureWork(async () => entities.apply([{
+        kind: 'repository', id: 'other-17',
+        value: { kind: 'repository', path: '/other/17', branch: 'changed', worktrees: [] },
+      }]), { pool })
+      expect(paints).toBe(before)
+      const changed = await measureWork(async () => entities.apply([{
+        kind: 'repository', id: 'clone', value: { ...clone, branch: 'updated' },
+      }]), { pool })
+      expect(current?.worktrees.find(tree => tree.path === clone.path)?.branch).toBe('updated')
+      stop()
+      const closed = await measureWork(async () => entities.apply([{
+        kind: 'repository', id: 'clone', value: { ...clone, branch: 'closed' },
+      }]), { pool })
+      expect(closed.work.rows).toBe(0)
+      expect(rows).not.toHaveBeenCalled()
+      samples.push({ scale, first: first.work, unrelated: unrelated.work, changed: changed.work, closed: closed.work })
+    } finally {
+      stop()
+      rows.mockRestore()
+      pool.dispose()
+    }
+  }
+  console.info('[checkout launch lookup work1x4x]', JSON.stringify(samples))
+  for (const action of ['first', 'unrelated', 'changed', 'closed'] as const)
+    for (const counter of ['rows', 'derivations', 'elements', 'visits'] as const)
+      expect(samples[1]![action][counter], `${action}:${counter}`).toBe(samples[0]![action][counter])
+})
+
+it('keeps same-path repositories on different machines separate when opening a panel', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  const entities = headerEntities(pool)
+  entities.apply(['one', 'two'].map(machineId => ({
+    kind: 'repository' as const, id: machineId,
+    value: {
+      kind: 'repository' as const, path: '/repo', worktrees: [],
+      machineId: machineId as MachineWire['id'], repoId: asRepoId(machineId),
+    },
+  })))
+  try {
+    const views = launchOptionViews(pool)
+    expect(views.origin('/repo', 'one').repo?.repoId).toBe('one')
+    expect(views.origin('/repo', 'one').sourceMachineId).toBe('one')
+    expect(views.origin('/repo', 'two').repo?.repoId).toBe('two')
+    expect(views.origin('/repo', 'two').sourceMachineId).toBe('two')
+  } finally {
+    pool.dispose()
+  }
+})
 
 it('keeps open phone repository deltas addressed at 1x/4x and releases demand on close', async () => {
   const samples = []

@@ -3,7 +3,9 @@ import { headerView } from '@podium/client-graph/header-views'
 import { MobxPool } from '@podium/client-graph/pool'
 import { createPoolProjection } from '@podium/client-graph/runtime-pool'
 import type { GitRepositoryWire, MachineWire } from '@podium/model'
-import { act, cleanup, renderHook } from '@testing-library/react'
+import { act, cleanup, render } from '@testing-library/react'
+import { observer } from 'mobx-react-lite'
+import { launchRepositoryFacts } from '../../../../packages/client-graph/src/test-support/launch-repository-facts.test.fixture'
 import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { measureWork } from '../../../../tests/worklist/harness/src/work-meter'
@@ -19,6 +21,56 @@ vi.mock('./mobile-pool', () => ({
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+})
+
+// Product consumers are observers: the hook supplies a model, whose fields
+// are read by the consumer rather than copied into the hook's projection.
+function renderLaunchInputs(path: string) {
+  let current!: {
+    repo: ReturnType<typeof launchRepositoryFacts>
+    machines: ReturnType<typeof useLaunchInputs>['machines']
+  }
+  const Consumer = observer(({ path }: { path: string }) => {
+    const inputs = useLaunchInputs(path)
+    current = { repo: launchRepositoryFacts(inputs.repo), machines: inputs.machines }
+    return null
+  })
+  const view = render(<Consumer path={path} />)
+  return {
+    result: { get current() { return current } },
+    rerender: ({ path }: { path: string }) => view.rerender(<Consumer path={path} />),
+    unmount: () => view.unmount(),
+  }
+}
+
+it('keeps Ludovico available when a task names its non-primary clone or linked checkout', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
+  state.pool = pool
+  const primary: GitRepositoryWire = {
+    kind: 'repository', path: '/Users/mw/nulldisk', worktrees: [],
+    repoId: 'nulldisk' as GitRepositoryWire['repoId'], machineId: 'mac' as MachineWire['id'],
+  }
+  const clone: GitRepositoryWire = {
+    ...primary, path: '/home/mgw/nulldisk', machineId: 'ludovico' as MachineWire['id'],
+    worktrees: [{ path: '/home/mgw/nulldisk/topic' }],
+  }
+  headerEntities(pool).apply([
+    { kind: 'repository', id: 'primary', value: primary },
+    { kind: 'repository', id: 'clone', value: clone },
+    { kind: 'machine', id: 'ludovico', value: { id: 'ludovico', name: 'Ludovico', online: true } as MachineWire },
+  ])
+  headerEntities(pool).order('machine', ['ludovico'])
+  const view = renderLaunchInputs(clone.path)
+  try {
+    expect(view.result.current.repo?.machines.map(host => host.machineId)).toContain('ludovico')
+    view.rerender({ path: clone.worktrees[0]!.path })
+    expect(view.result.current.repo?.machines.map(host => host.machineId)).toContain('ludovico')
+    act(() => headerEntities(pool).apply([{ kind: 'repository', id: 'clone', value: undefined }]))
+    expect(view.result.current.repo).toBeUndefined()
+  } finally {
+    view.unmount()
+    pool.dispose()
+  }
 })
 
 it('the actual launch hook reads its named repository and ignores unrelated catalog changes at 1x/4x', async () => {
@@ -40,10 +92,11 @@ it('the actual launch hook reads its named repository and ignores unrelated cata
         value: { id: 'm0', name: 'Only host', online: true } as MachineWire,
       },
     ])
+    headerEntities(pool).order('machine', ['m0'])
     const ids = vi.spyOn(headerView(pool), 'ids')
     const keys = vi.spyOn(headerEntities(pool).tables.repository, 'keys')
     let view:
-      | ReturnType<typeof renderHook<ReturnType<typeof useLaunchInputs>, { path: string }>>
+      | ReturnType<typeof renderLaunchInputs>
       | undefined
     const measure = (action: () => void) =>
       measureWork(
@@ -55,9 +108,7 @@ it('the actual launch hook reads its named repository and ignores unrelated cata
       )
     try {
       const first = await measure(() => {
-        view = renderHook(({ path }) => useLaunchInputs(path), {
-          initialProps: { path: '/repo/0' },
-        })
+        view = renderLaunchInputs('/repo/0')
       })
       expect(view!.result.current.repo?.path).toBe('/repo/0')
       expect(view!.result.current.machines).toHaveLength(1)

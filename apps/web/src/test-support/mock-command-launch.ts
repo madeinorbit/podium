@@ -120,7 +120,7 @@ vi.mock('@/app/command-launch-data', async (original) => ({
     if (!picker.opened) picker.open()
     return picker.catalog()
   },
-  useCommandLaunchOrigin: (path: string) => useCommandFixture(pool => readLaunchOrigin(pool, path)),
+  useCommandLaunchOrigin: (path: string, machineId?: string) => useCommandFixture(pool => readLaunchOrigin(pool, path, machineId)),
   useCommandPaletteSnapshot: () => {
     const pool = useCommandFixture(pool => pool)
     const picker = useMemo(() => { const view = createCommandPalette(pool); view.open(); return view }, [pool])
