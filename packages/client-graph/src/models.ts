@@ -513,9 +513,9 @@ export class IssueModel extends EntityModel {
   /** This task's own visible live seat, in the dock roster's contract order:
    * the coordinator when it is one of them, else the most recently active
    * (ties keep the collapse order). Headless seats cannot be opened; a seat
-   * still loading is skipped until it lands. */
+   * still loading is skipped until it lands. Undefined without a visible seat. */
   @lazy
-  get liveSeatId(): string | null {
+  get liveSeatId(): string | undefined {
     const coordinator = this.storedField('coordinatorSessionId')
     let best: { id: string; at: string } | null = null
     for (const id of this.host.relations.subset('issue', this.id, 'pageSessions', 'unarchived')) {
@@ -532,7 +532,7 @@ export class IssueModel extends EntityModel {
         this.host.queries.orderKey(id).localeCompare(this.host.queries.orderKey(best.id)) < 0))
         best = { id, at }
     }
-    return best?.id ?? null
+    return best?.id
   }
 
   /** The nearest task up the raw parent chain, this one first, whose live seat
