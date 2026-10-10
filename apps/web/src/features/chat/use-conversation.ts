@@ -68,7 +68,7 @@ export class WebConversation extends ConversationService {
     return !!reader && !!held && reader.records(this.sessionId).pending === 0
   }
   @lazy override get canInterrupt(): boolean {
-    return this.mount.superThread
+    return this.mount.superThread !== undefined || this.session?.headless === true
       ? this.mount.superThread !== undefined && this.turnRunning
       : nativeSessionCanInterrupt(this.session?.status)
   }
