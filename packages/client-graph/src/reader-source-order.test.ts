@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { autorun } from 'mobx'
-import { expect, it, vi } from 'vitest'
+import { expect, it, vi, type MockInstance } from 'vitest'
 import { MobxPool } from './pool'
 import { createColdIndex } from './shared/cold-index'
 import { SCHEMA, type ModelSchema } from './shared/schema'
@@ -250,7 +250,7 @@ it('refreshes only changed order inputs, preserves forks, and ignores absent or 
 })
 
 it('files a simultaneous visibility and order change once in each index', () => {
-  const tracked: { visibility: ReturnType<typeof vi.spyOn>; order: ReturnType<typeof vi.spyOn> }[] = []
+  const tracked: { visibility: MockInstance<(id: string) => void>; order: MockInstance<(id: string) => void> }[] = []
   const restores: (() => void)[] = []
   const track = (q: sessionQuestions.SessionQuestions): sessionQuestions.SessionQuestions => {
     const visibility = vi.spyOn(q, 'visibilityChanged'), order = vi.spyOn(q, 'orderChanged')
