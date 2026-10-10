@@ -24,7 +24,8 @@ it('counts shared records held by companions even without model computeds', () =
 })
 
 it('counts distinct objects with identical debug names and handles graph cycles', () => {
-  const first = { name_: 'IssueModel.finished', scope_: new IssueModel(), observing_: [] as unknown[] }
+  type Node = { name_: string; scope_: object; observing_: Node[] }
+  const first: Node = { name_: 'IssueModel.finished', scope_: new IssueModel(), observing_: [] }
   const second = { name_: first.name_, scope_: new IssueModel(), observing_: [first] }
   first.observing_.push(second)
   expect(objectsBehind([second])).toEqual({ IssueModel: 2 })
