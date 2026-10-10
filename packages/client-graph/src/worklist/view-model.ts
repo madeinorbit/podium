@@ -49,7 +49,16 @@ export class Worklist {
 
   @action select(id: string | null): void {
     if (id === this.selectedId) return
-    this.selectedWasFolded = id !== null && worklistGroups(this.pool).placementOf(id)?.closed === true
+    let folded = false
+    if (id !== null) {
+      try { folded = worklistGroups(this.pool).placementOf(id)?.closed === true }
+      catch (error) {
+        // A cold command summary may not license every placement field.
+        // Its addressed load is queued; selection must still move immediately.
+        if (error !== LOADING) throw error
+      }
+    }
+    this.selectedWasFolded = folded
     this.selectedId = id
   }
 
