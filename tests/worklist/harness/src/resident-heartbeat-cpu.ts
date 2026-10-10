@@ -27,6 +27,8 @@ const heartbeats = Array.from({ length: 3000 }, (_, i) => ({ type: 'update' as c
   } } as RowRecord],
 }))
 try {
+  // Optional same-workload warmup isolates steady-state CPU from Bun's JIT.
+  if (process.env.HEARTBEAT_CPU_WARMUP === '1') for (const event of heartbeats) pool.apply(event)
   const before = pool.queries.residentUpdates
   const cpu = process.cpuUsage(), start = performance.now()
   for (const event of heartbeats) pool.apply(event)

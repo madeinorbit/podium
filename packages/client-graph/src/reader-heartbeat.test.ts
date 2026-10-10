@@ -77,15 +77,15 @@ it('matches full facet filing through resident field edits and reused addresses'
   const index = createReaderIndex({ targetSearch: false, recent: false })
   const questions: ReaderQuestion[] = [
     { kind: 'commandSessions' }, { kind: 'inboxSessions' }, { kind: 'headerOccupancy' },
-    { kind: 'referenceSessions' }, { kind: 'sessionReference', ref: 'POD-1a' },
-    { kind: 'sessionReference', ref: 'POD-2b' },
+    { kind: 'referenceSessions' }, { kind: 'sessionReference', ref: 'POD-1-A' },
+    { kind: 'sessionReference', ref: 'POD-2-B' },
     ...['one', 'two'].flatMap(issueId => [false, true].flatMap(archived => [false, true].map(includeShells =>
       ({ kind: 'commandIssueSessions' as const, issueId, archived, includeShells })))),
   ]
   const repo = { kind: 'repo', id: 'repo', value: { prefix: 'POD' } } as RowRecord
   // A slot's ID is authoritative even if a partial row omits sessionId.
   const row = { status: 'live', agentKind: 'codex', issueId: 'one', archived: false,
-    refRepoId: 'repo', refSeq: 1, refLetter: 'a' }
+    refRepoId: 'repo', refSeq: 1, refLetter: 'A' }
   index.apply({ type: 'replace', rows: [repo] })
   let previous: Readonly<Record<string, unknown>> | undefined
   const check = (next: Readonly<Record<string, unknown>> | undefined) => {
@@ -96,10 +96,11 @@ it('matches full facet filing through resident field edits and reused addresses'
     for (const question of questions) expect(index.ids(question)).toEqual(rebuilt.ids(question))
   }
   check(row)
+  expect(index.ids({ kind: 'sessionReference', ref: 'POD-1-A' })).toEqual(['active'])
   for (const patch of [
     { lastActiveAt: '2026-10-09' }, { title: 'Renamed' }, { archived: true }, { headless: true },
     { agentKind: 'shell' }, { status: 'exited' }, { issueId: 'two' }, { issueId: undefined },
-    { refSeq: 2, refLetter: 'b' }, { refRepoId: undefined },
+    { refSeq: 2, refLetter: 'B' }, { refRepoId: undefined },
   ]) { check({ ...row, ...patch }); check(row) }
   check(undefined); check(row)
 })
