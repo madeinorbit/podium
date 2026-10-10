@@ -34,7 +34,7 @@ export class LaunchRepository implements RepoNavView {
   @lazy get path() { return this.scans[0]?.path ?? '' }
   @lazy get originUrl() { return this.scans.map(scan => normalizeOriginUrl(scan.originUrl)).find(Boolean) }
   @lazy get repoId() { return this.scans.find(scan => scan.repoId !== undefined)?.repoId }
-  @lazy get name() { return repoNameFromOrigin(this.originUrl) ?? (machinePathBasename(this.path) || this.path) }
+  @lazy get name() { return (this.scans.find(scan => normalizeOriginUrl(scan.originUrl)) ?? this.scans[0])?.name ?? '' }
   @lazy({ equals: compareShallow }) get machines() {
     // Each entry is the shared scan: machineId/path are stored fields, read late.
     return this.scans.filter((scan): scan is RepositoryModel & { machineId: NonNullable<RepositoryModel['machineId']> } => scan.machineId !== undefined)

@@ -70,6 +70,6 @@ registerModels({
   }),
   podiumSettings: settings,
   repository: record('GitRepositoryWire', 'engine:repos', 'path', {
-    path: 'string', kind: 'enum', branch: 'string', originUrl: 'string', repoId: 'id', machineId: 'id', worktrees: 'object', linked: 'boolean',
-  }, ['branch', 'originUrl', 'repoId', 'machineId', 'linked']),
+    path: 'string', kind: 'enum', branch: 'string', originUrl: 'string', repoId: 'id', machineId: 'id', worktrees: 'object',
+  }, ['branch', 'originUrl', 'repoId', 'machineId']),
 }, { account: AccountModel, member: MemberModel, device: DeviceModel, podiumSettings: PodiumSettingsModel, repository: RepositoryModel })

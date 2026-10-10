@@ -2,12 +2,11 @@ import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import { useSettingsOpening } from './opening-context'
 import { useOpeningView } from '@podium/client-graph/react'
 import { RecordRequest, SettingsRecordRequest } from '@podium/client-graph/requested-records'
-import { here } from '@podium/client-graph/lookup'
 import type { MobxPool, PoolRows } from '@podium/client-graph/pool'
 import type { RequestedEntity } from '@podium/client-graph/requested-records'
 import type { PodiumSettings } from '@podium/runtime'
 import { useCallback, useEffect, useMemo } from 'react'
-import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 
 export function useSettingsRecords<E extends Exclude<RequestedEntity, 'podiumSettings'>>(
   entity: E, read: () => Promise<readonly PoolRows[E][]>, key: (row: PoolRows[E]) => string,
@@ -18,11 +17,10 @@ export function useSettingsRecords<E extends Exclude<RequestedEntity, 'podiumSet
   const own = useOpeningView(pool, create, entity !== 'account' || !inherited)
   const request = (entity === 'account' ? inherited?.accounts ?? own : own) as RecordRequest<E> | null
   const reload = useCallback(() => request?.read(read), [request, read])
-  useEffect(() => { if (request?.answer === undefined && !request.loading) void reload() }, [reload, request])
   // Public directories have no push contract yet. Refresh only while this
   // opening/document is visible; all readers see the same ingested identities.
   useEffect(() => {
-    if (!request || (entity === 'account' && inherited && own === null && inherited.accounts.answer !== undefined)) return
+    if (!request) return
     return followVisibleRequest(() => { if (!request.loading) void reload() }, {
       visible: () => document.visibilityState !== 'hidden',
       subscribe: changed => { document.addEventListener('visibilitychange', changed); return () => document.removeEventListener('visibilitychange', changed) },

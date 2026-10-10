@@ -1,3 +1,4 @@
+import type { EntityName } from './schema'
 /** Row and local channels consumed by the worklist pool. */
 import type { IssueSessionFactReader } from './issue-session-facts'
 import type { FeedDiagnostics } from './feed-diagnostics'
@@ -69,7 +70,7 @@ export interface LocalsSource<T extends SliceLocals = SliceLocals> {
 
 /** One row in the kernel's per-row change stream (spec §2). */
 export interface RowRecord {
-  kind: 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction'
+  kind: EntityName
   id: string
   /**
    * The row value, or `undefined` when the row left the replica's scope.

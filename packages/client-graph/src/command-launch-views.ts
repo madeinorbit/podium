@@ -452,7 +452,7 @@ export class CommandPaletteView {
     return this.memberIds
       .map(id => new CommandSessionRow(this.pool, id))
   }
-  @lazy({ equals: compareStructural }) get selectedSessions(): SessionView[] {
+  @lazy({ equals: compareShallow }) get selectedSessions(): SessionView[] {
     return this.selectedRows.flatMap(row => {
       const session = row.presentation
       return session && session !== LOADING ? [session] : []
@@ -475,13 +475,7 @@ export const createCommandPalette = (pool: MobxPool) => new CommandPaletteView(p
 
 /** The palette row's small live answer. Recency belongs to the open order. */
 export class CommandSessionRow {
-  private readonly openedAt: string
-  constructor(private readonly pool: MobxPool, readonly id: string) {
-    this.openedAt = runInAction(() => {
-      const session = commandLaunchViews(pool).session(id)
-      return session && session !== LOADING ? session.lastActiveAt : ''
-    })
-  }
+  constructor(private readonly pool: MobxPool, readonly id: string) {}
   @lazy({ equals: compareStructural }) get presentation(): Loaded<SessionView> {
     const row = commandLaunchViews(this.pool).session(this.id)
     if (!row || row === LOADING) return row

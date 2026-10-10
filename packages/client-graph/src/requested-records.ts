@@ -54,6 +54,9 @@ export class RecordRequest<E extends RequestedEntity> extends RequestAnswer<read
       return ids
     })
   }
+  @lazy get pending(): boolean {
+    return (this.answer ?? []).some(id => this.pool.model(this.entity, id) === LOADING)
+  }
   @lazy({ equals: compareShallow }) get models(): ModelOf[E][] {
     return (this.answer ?? []).flatMap(id => {
       const answer = this.pool.model(this.entity, id)

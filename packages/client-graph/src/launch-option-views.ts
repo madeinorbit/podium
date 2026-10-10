@@ -130,11 +130,10 @@ export class LaunchCatalogPicker {
     this.opened = true
   }
   @lazy({ equals: compareShallow }) get roots() {
-    return headerEntities(this.pool).repositoryRootIds()
-      .map(id => new LaunchCatalogRoot(this.pool, id))
+    return headerEntities(this.pool).repositoryRootIds().flatMap(id => here(this.pool.model('repository', id)) ?? [])
   }
   @lazy({ equals: compareShallow }) get repoPaths() {
-    const paths = this.roots.flatMap(root => root.path === undefined ? [] : [root.path])
+    const paths = this.roots.flatMap(root => root.kind === 'worktree' ? [] : [root.path])
     return storedOrder(this.order, paths)
   }
   @lazy get machines() { return launchOptionViews(this.pool).machines() }
@@ -185,15 +184,6 @@ export const createLaunchWorkPicker = (pool: MobxPool) => new LaunchWorkPicker(p
 function storedOrder(order: readonly string[], paths: readonly string[]): string[] {
   const present = new Set(paths), stored = new Set(order)
   return [...order.filter(path => present.has(path)), ...paths.filter(path => !stored.has(path))]
-}
-
-/** A catalog choice observes its own path, not unrelated scan metadata. */
-class LaunchCatalogRoot {
-  constructor(private readonly pool: MobxPool, private readonly id: string) {}
-  @lazy get path(): string | undefined {
-    const row = omitGone(this.pool.row('repository', this.id)) as GitRepositoryWire | undefined
-    return row && typeof row !== 'symbol' && row.kind !== 'worktree' ? row.path : undefined
-  }
 }
 
 /** One launch opening addresses a repository by path; facts stay on models. */
