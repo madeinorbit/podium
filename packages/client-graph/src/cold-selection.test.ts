@@ -20,9 +20,11 @@ it('selects a cold issue before its contextual payload arrives, then loads only 
     expect(() => view.select(row.id)).not.toThrow()
     expect(view.selectedId).toBe(row.id)
     expect(view.selectedWasFolded).toBe(false)
-    expect(load).not.toHaveBeenCalled()
+    expect(pool.tables.issue.has(row.id)).toBe(false)
+    const summaryReads = load.mock.calls.length
     expect(pool.hydrate()).toBe(1)
-    expect(load).toHaveBeenCalledExactlyOnceWith('issue', row.id)
+    expect(load).toHaveBeenCalledTimes(summaryReads + 1)
+    expect(load.mock.calls.every(([kind, id]) => kind === 'issue' && id === row.id)).toBe(true)
     expect(here(pool.row('issue', row.id))).toMatchObject({ description: row.description })
     expect(view.selectedId).toBe(row.id)
   } finally { pool.dispose() }

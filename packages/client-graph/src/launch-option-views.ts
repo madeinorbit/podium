@@ -23,7 +23,7 @@ export function launchOptionViews(pool: MobxPool) {
       counts.repositoryBuilds++
       return launchRecords(pool).group(id)
     })
-    const machines = computed(() => headerEntities(pool).orders.get('machine')?.flatMap(id => here(pool.model('machine', id)) ?? []) ?? [...pool.tables.machine.keys()].flatMap(id => here(pool.model('machine', id)) ?? []))
+    const machines = computed(() => headerEntities(pool).orders.get('machine')?.flatMap(id => here(pool.model('machine', id)) ?? []) ?? [...pool.tables.machine.keys()].flatMap(id => here(pool.model('machine', id)) ?? []), { equals: compareShallow })
     const pins = computed(() => {
       const row = omitGone(pool.row('commandWindow', 'window'))
       return row && row !== LOADING ? row.pins : EMPTY_PINS
@@ -186,7 +186,12 @@ export class LaunchWorkPicker {
   }
   @lazy get machines() { return launchOptionViews(this.pool).machines() }
   @lazy get recentMachine() { return launchOptionViews(this.pool).recentMachine() }
-  newWork() { return this }
+  newWork() {
+    // This whole-view accessor acquires launcher roster membership. Each host's
+    // fields remain on its model, read by the small host option that shows it.
+    void this.machines
+    return this
+  }
   repositoryActivity(path: string) { return this.usageAt.get(machinePathKey(path)) ?? 0 }
 }
 export const createLaunchWorkPicker = (pool: MobxPool) => new LaunchWorkPicker(pool)
