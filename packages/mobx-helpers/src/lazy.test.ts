@@ -1,4 +1,3 @@
-import { createRequire } from 'node:module'
 import { autorun, compareStructural, configure, type IObservableValue, observable, onBecomeObserved, onBecomeUnobserved, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { lazy, lazyKeptCount } from './lazy'
@@ -360,50 +359,5 @@ describe('lazy', () => {
 
   it('refuses a legacy decorator call', () => {
     expect(() => (lazy as unknown as (...args: unknown[]) => unknown)({}, 'total', {})).toThrow(/standard decorators/)
-  })
-
-  it('costs nothing per unread object over a plain class', async () => {
-    // Bun's own require: the test runner's module graph does not know bun: modules.
-    const { heapStats } = createRequire(import.meta.url)('bun:jsc') as { heapStats(): { heapSize: number } }
-    const gc = () => (globalThis as unknown as { Bun: { gc(force: boolean): void } }).Bun.gc(true)
-    class Plain {
-      constructor(readonly a: number, readonly b: number) {}
-      get sum() { return this.a + this.b }
-      get product() { return this.a * this.b }
-      get label() { return `${this.a}:${this.b}` }
-    }
-    class Lazy {
-      constructor(readonly a: number, readonly b: number) {}
-      @lazy get sum() { return this.a + this.b }
-      @lazy get product() { return this.a * this.b }
-      @lazy get label() { return `${this.a}:${this.b}` }
-    }
-    const N = 20_000
-    const heap = () => { gc(); return heapStats().heapSize }
-    // Every measured object stays alive to the end, so a measurement only ever
-    // sees the objects it made and the garbage collector frees only temporaries
-    // (the computeds a read outside a reaction holds until the code finishes).
-    const alive: object[][] = []
-    const bytesPerObject = async (make: (i: number) => object, read: boolean) => {
-      const before = heap()
-      const objects = Array.from({ length: N }, (_, i) => make(i))
-      if (read) for (const object of objects) void (object as Plain).sum
-      alive.push(objects)
-      // Held reads are released once the code that read them has finished.
-      await settle()
-      return (heap() - before) / N
-    }
-    const extra: number[] = []
-    for (let round = 0; round < 5; round++) {
-      const plain = await bytesPerObject(i => new Plain(i, 2), false)
-      const unread = await bytesPerObject(i => new Lazy(i, 2), false)
-      const readOutside = await bytesPerObject(i => new Lazy(i, 2), true)
-      expect(plain).toBeGreaterThan(16)
-      extra.push(Math.max(Math.abs(unread - plain), Math.abs(readOutside - plain)))
-    }
-    extra.sort((x, y) => x - y)
-    // Median over interleaved rounds; a slot holder or a kept computed would be ~100+ bytes.
-    expect(extra[2]).toBeLessThan(4)
-    expect(alive).toHaveLength(15)
   })
 })

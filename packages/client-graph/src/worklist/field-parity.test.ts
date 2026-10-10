@@ -111,7 +111,7 @@ for (const name of cases) describe(name, () => {
   }
 })
 
-it('keeps cold rows LOADING and unknown rows absent on both drawing paths', () => {
+it('keeps cold and unknown rows LOADING until the batch resolves on both drawing paths', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {
     load: () => undefined, schedule: () => () => {},
   })
@@ -123,8 +123,18 @@ it('keeps cold rows LOADING and unknown rows absent on both drawing paths', () =
     expect(cold.ready).toBe(LOADING)
     expect(worklistView(pool).mobileRow({ id: 'cold', kind: 'issue' })).toBe(LOADING)
     const missing = worklistView(pool).row(pool.issueObject('missing'))
+    const before = new WorklistIssueBefore(missing.issue, missing.worklist)
+    expect(missing.ready).toBe(LOADING)
+    expect(worklistView(pool).mobileRow({ id: 'missing', kind: 'issue' })).toBe(LOADING)
+    expect(before.sidebar).toBe(LOADING)
+    expect(before.mobile).toBe(LOADING)
+    // An unknown id is only gone after its batched lookup confirms no record.
+    pool.hydrate()
+    expect(pool.model('issue', 'missing')).toEqual({ kind: 'gone', reason: 'not-visible' })
     expect(missing.ready).toBeUndefined()
     expect(worklistView(pool).mobileRow({ id: 'missing', kind: 'issue' })).toBeUndefined()
+    expect(before.sidebar).toBeUndefined()
+    expect(before.mobile).toBeUndefined()
   } finally { pool.dispose() }
 })
 
