@@ -110,6 +110,10 @@ for site in web mobile; do
   }
 done
 
+# Each case gets its own PODIUM_STATE_DIR as well as its own install. A successful
+# `podium update` records a committed-but-not-yet-activated update in the state dir, and
+# the next update in that state refuses ("activation must settle before another grant")
+# before it ever reaches the signature gate CASE 2 exists to prove.
 stage_current() {
   local destination="$1"
   cp -a "$EXTRACTED" "$destination"
@@ -137,6 +141,7 @@ run_captured "$GOOD_LOG" env \
   -u PODIUM_UPDATE_FEED \
   -u PODIUM_UPDATE_SIGNING_KEY \
   PODIUM_HOME="$GOOD" \
+  PODIUM_STATE_DIR="$WORK/good-state" \
   PODIUM_UPDATE_CHANNEL="$CHANNEL" \
   PODIUM_UPDATE_TARGET=linux-x86_64 \
   "$GOOD/podium" update
@@ -184,6 +189,7 @@ run_captured "$BAD_LOG" env \
   -u PODIUM_AGENT_RELAY \
   -u PODIUM_UPDATE_SIGNING_KEY \
   PODIUM_HOME="$BAD" \
+  PODIUM_STATE_DIR="$WORK/bad-state" \
   PODIUM_UPDATE_TARGET=linux-x86_64 \
   PODIUM_UPDATE_FEED="http://127.0.0.1:$PORT" \
   "$BAD/podium" update
