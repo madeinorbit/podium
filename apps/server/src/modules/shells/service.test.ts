@@ -318,6 +318,7 @@ describe('resolveSampledShellOwners (POD-4627: one host sample, many shells)', (
     }
     sessions.push({ sessionId: shellId(9_999), agentKind: 'claude-code', status: 'live', issueId: ISSUE_BOUND })
     let reads = 0
+    let issueReads = 0
     const readIds: SessionId[] = []
     const issueForCwd = async (cwd: string) => (cwd.includes('/owned-') ? ISSUE_OPEN : null)
     // Both store shapes counted, so the per-shell arm and the batched arm are
@@ -334,15 +335,33 @@ describe('resolveSampledShellOwners (POD-4627: one host sample, many shells)', (
         return await repo.worktreesForSessions(ids)
       },
       issueForCwd,
+      // POD-5941: every key in one call, the way the issue index reads its
+      // rows once for the batch.
+      issuesForCwds: async (cwds: readonly string[]) => {
+        issueReads += 1
+        return new Map(await Promise.all(cwds.map(async (cwd) => [cwd, await issueForCwd(cwd)] as const)))
+      },
     }
     const reference = { worktreeForSession: (id: SessionId) => repo.worktreeForSession(id), issueForCwd }
-    return { deps, sessions, reference, reads: () => reads, readIds: () => readIds }
+    return { deps, sessions, reference, reads: () => reads, readIds: () => readIds, issueReads: () => issueReads }
   }
 
   it.each([10, 400])('reads the mapping a constant number of times for %i live shells', async (live) => {
     const world = await seed(live, 3 * live)
     await resolveSampledShellOwners(world.deps, world.sessions)
     expect(world.reads()).toBe(1)
+  })
+
+  it.each([10, 400])('reads the issue rows once for %i live shells (POD-5941)', async (live) => {
+    const world = await seed(live, 3 * live)
+    await resolveSampledShellOwners(world.deps, world.sessions)
+    expect(world.issueReads()).toBe(1)
+  })
+
+  it('reads no issue rows when no shell is live', async () => {
+    const world = await seed(0, 12)
+    await resolveSampledShellOwners(world.deps, world.sessions)
+    expect(world.issueReads()).toBe(0)
   })
 
   it('never reads a hibernated or exited shell', async () => {

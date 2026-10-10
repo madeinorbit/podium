@@ -213,3 +213,39 @@ it('disables the snapshot when boot quarantines a row', async () => {
   expect(point).toHaveBeenCalledOnce()
   expect(cwd).toHaveBeenCalledOnce()
 })
+
+it('orders snapshot cwd rows by repo-path bytes like SQL, and batches owners identically (POD-5941)', async () => {
+  const { store } = await setup(false)
+  // U+FF01 sorts AFTER the surrogate pair of U+1F600 in UTF-16 but BEFORE it in
+  // UTF-8 bytes (SQLite BINARY): string comparison would get this pair wrong.
+  const repos = ['/r', '/r\u{1F600}', '/r\uFF01', '/a']
+  for (const repo of repos.slice(1)) await store.repos.addRepo(repo, store.hostMachineId)
+  let n = 0
+  for (const repoPath of [...repos].reverse()) {
+    for (const seq of [13, 11, 12]) {
+      n += 1
+      await store.issues.upsertIssue(issueRow({
+        id: asIssueId(`iss_${n}`), repoPath, seq,
+        // Every row shares one worktree so the owner is decided by order alone.
+        worktreePath: seq === 12 ? '/w/deep' : '/w',
+      }))
+    }
+  }
+  const access = new DurableIssueAccessIndex(store.issues, store.grants, store.repos)
+  const cwds = ['/w', '/w/deep/x', '/w/other', '/elsewhere']
+  const before = {
+    cwd: await store.issues.listIssueCwdRows(),
+    rows: (await store.issues.listIssueRows()).map(row => row.id),
+    owners: await Promise.all(cwds.map(cwd => access.issueForCwd(cwd))),
+  }
+  await new IssueStore({ store } as IssueDeps).init()
+  const list = vi.spyOn(store.issues, 'listIssueRows')
+  const cwdList = vi.spyOn(store.issues, 'listIssueCwdRows')
+  expect(await readIssueCwdRows(store.issues)).toEqual(before.cwd)
+  expect((await readIssueRows(store.issues)).map(row => row.id)).toEqual(before.rows)
+  expect(await Promise.all(cwds.map(cwd => access.issueForCwd(cwd)))).toEqual(before.owners)
+  expect([...(await access.issuesForCwds([...cwds, '/w'])).entries()]).toEqual(cwds.map((cwd, i) => [cwd, before.owners[i]]))
+  expect(list).not.toHaveBeenCalled()
+  expect(cwdList).not.toHaveBeenCalled()
+  expect(await access.issuesForCwds([])).toEqual(new Map())
+})
