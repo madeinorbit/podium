@@ -791,6 +791,39 @@ describe('the ack and settle sets', () => {
       'already',
     )
   })
+
+  // POD-5941. With no sqlite_stat1 the planner read `delivery_status = 'confirmed'`
+  // through a delivery-status index and walked every confirmed row — nearly the
+  // whole table, ~90 ms a statement on a real database, about once a second.
+  // The recipient's own rows are the scan these readers must take. Plans are
+  // read off the statements the repository actually prepared, so a rewrite of
+  // the predicate is judged as it ships.
+  it.each([
+    ['listDeliveredUnacked', () => messages.listDeliveredUnacked(READER, 't5')],
+    ['listSettleNotifiable', () => messages.listSettleNotifiable(READER, 't5')],
+    ['pendingForSessionProof', () => messages.pendingForSessionProof(READER, 't5')],
+  ] as const)('%s reads confirmed rows through the recipient index, not a status scan', async (_name, read) => {
+    await unacked('wanted')
+    const prepared: string[] = []
+    const prepare = db.prepare.bind(db)
+    db.prepare = ((text: string) => {
+      prepared.push(text)
+      return prepare(text)
+    }) as typeof db.prepare
+    try {
+      expect((await read()).map((m) => m.id)).toEqual(['wanted'])
+    } finally {
+      db.prepare = prepare
+    }
+    const statement = prepared.find((text) => /^select /i.test(text) && text.includes('"acked_by" is null'))
+    expect(statement).toBeDefined()
+    const text = statement as string
+    const params = Array.from({ length: (text.match(/\?/g) ?? []).length }, () => null)
+    const plan = (db.prepare(`EXPLAIN QUERY PLAN ${text}`).all(...params) as { detail: string }[])
+      .map((row) => row.detail)
+    expect(plan.join('\n')).toContain('idx_messages_delivered_to')
+    expect(plan.filter((detail) => detail.includes('idx_messages_delivery_'))).toEqual([])
+  })
 })
 
 describe('alreadyCommunicated', () => {
