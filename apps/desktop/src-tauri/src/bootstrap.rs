@@ -165,6 +165,38 @@ pub struct DesktopConfig {
     pub update_channel: Option<UpdateChannel>,
     /// Manifest endpoint supplied by the attached source server for the dev channel.
     pub update_feed_endpoint: Option<String>,
+    /// The installation this shell's server is (POD-5921): the same `installationId` and
+    /// `installationPublicKey` the daemon join writes. Both or neither — see
+    /// [`ServerIdentity::from_parts`]. With it, a remote window follows its server to a new
+    /// address; without it, everything behaves exactly as before.
+    pub server_identity: Option<ServerIdentity>,
+}
+
+/// The installation identity a client stores next to its server address (POD-5921).
+#[derive(Debug, Clone, PartialEq)]
+pub struct ServerIdentity {
+    pub installation_id: String,
+    pub installation_public_key: String,
+}
+
+fn is_base64url(value: &str) -> bool {
+    value
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
+}
+
+impl ServerIdentity {
+    /// `pdm_` + 43 base64url, and `ed25519:` + 43 base64url — the shapes the server mints.
+    pub fn from_parts(id: Option<&str>, key: Option<&str>) -> Option<Self> {
+        let id = id?;
+        let key = key?;
+        let id_ok = id.len() == 47 && id.starts_with("pdm_") && is_base64url(&id[4..]);
+        let key_ok = key.len() == 51 && key.starts_with("ed25519:") && is_base64url(&key[8..]);
+        (id_ok && key_ok).then(|| Self {
+            installation_id: id.to_string(),
+            installation_public_key: key.to_string(),
+        })
+    }
 }
 
 /// What the shell should do at launch, derived purely from the config.
@@ -301,7 +333,169 @@ pub fn read_config() -> DesktopConfig {
             .and_then(|v| v.as_str())
             .filter(|v| !v.is_empty())
             .map(str::to_string),
+        server_identity: ServerIdentity::from_parts(
+            json.get("installationId").and_then(|v| v.as_str()),
+            json.get("installationPublicKey").and_then(|v| v.as_str()),
+        ),
     }
+}
+
+/// Read-modify-write config.json, preserving every field this shell does not own, through a
+/// write-then-rename so a crash cannot leave a truncated file.
+fn update_config_json(
+    edit: impl FnOnce(&mut serde_json::Map<String, serde_json::Value>) -> Result<(), String>,
+) -> Result<(), String> {
+    let path = state_dir().join("config.json");
+    let text = std::fs::read_to_string(&path)
+        .map_err(|e| format!("cannot read {}: {e}", path.display()))?;
+    let mut json: serde_json::Value =
+        serde_json::from_str(&text).map_err(|e| format!("config.json is not valid JSON: {e}"))?;
+    let obj = json
+        .as_object_mut()
+        .ok_or_else(|| "config.json is not a JSON object".to_string())?;
+    edit(obj)?;
+    let out = serde_json::to_string_pretty(&json).map_err(|e| e.to_string())?;
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, format!("{out}\n"))
+        .map_err(|e| format!("cannot write {}: {e}", tmp.display()))?;
+    std::fs::rename(&tmp, &path).map_err(|e| format!("cannot replace config.json: {e}"))
+}
+
+/// Remember the installation the window just authenticated to (POD-5921, `save_server_identity`).
+/// Overwrites: logging in to a server is the trust event, so a server reinstalled at the same
+/// address is re-learned on the next login.
+pub fn write_server_identity(installation_id: &str, installation_public_key: &str) -> Result<(), String> {
+    let identity = ServerIdentity::from_parts(Some(installation_id), Some(installation_public_key))
+        .ok_or_else(|| "not an installation identity".to_string())?;
+    update_config_json(|obj| {
+        obj.insert(
+            "installationId".to_string(),
+            serde_json::Value::String(identity.installation_id),
+        );
+        obj.insert(
+            "installationPublicKey".to_string(),
+            serde_json::Value::String(identity.installation_public_key),
+        );
+        Ok(())
+    })
+}
+
+/// The origin a window may FOLLOW its server to (POD-5921): https only, a bare origin, no
+/// userinfo. Plaintext is refused outright — following never moves a session onto it, not even
+/// to loopback, which a server that moved is never on.
+pub fn validate_move_origin(origin: &str) -> Result<Url, String> {
+    let url = Url::parse(origin).map_err(|error| format!("invalid server address: {error}"))?;
+    if url.scheme() != "https" {
+        return Err(format!("refusing to follow the server to a non-https address ({})", url.scheme()));
+    }
+    if url.host_str().filter(|host| !host.is_empty()).is_none() {
+        return Err("the new server address has no host".to_string());
+    }
+    if !url.username().is_empty() || url.password().is_some() {
+        return Err("the new server address carries credentials".to_string());
+    }
+    Url::parse(&url.origin().ascii_serialization()).map_err(|error| error.to_string())
+}
+
+/// The relay URL the config stores for an https origin: the same `wss://host` spelling
+/// `podium set-server` writes.
+pub fn server_url_for_origin(origin: &Url) -> String {
+    let serialized = origin.origin().ascii_serialization();
+    match serialized.strip_prefix("https://") {
+        Some(rest) => format!("wss://{rest}"),
+        None => serialized,
+    }
+}
+
+/// Persist the server's new address (POD-5921, `move_server`): `serverUrl` follows, and a
+/// split-hosting `uiUrl` that belonged to the old deployment is dropped. Returns the stored
+/// relay URL. A local daemon following the same server writes the same value; idempotent.
+pub fn write_moved_server(origin: &Url) -> Result<String, String> {
+    let server_url = server_url_for_origin(origin);
+    let stored = server_url.clone();
+    update_config_json(move |obj| {
+        let mode = obj.get("mode").and_then(|v| v.as_str()).unwrap_or("");
+        if !matches!(mode, "client" | "daemon" | "supervisor") {
+            return Err(format!(
+                "only a window on a remote server follows it (current mode: {})",
+                if mode.is_empty() { "unset" } else { mode }
+            ));
+        }
+        obj.insert("serverUrl".to_string(), serde_json::Value::String(stored));
+        obj.remove("uiUrl");
+        Ok(())
+    })?;
+    Ok(server_url)
+}
+
+/// Where the window goes after a move: the new origin's root, or — when a transfer frame carried
+/// a one-time claim — the claim page, which turns it into a session there. The token rides in the
+/// fragment, never in a logged request URL.
+pub fn move_target_url(origin: &Url, claim_token: Option<&str>) -> Url {
+    let mut target = origin.clone();
+    match claim_token.filter(|token| !token.is_empty()) {
+        Some(token) => {
+            target.set_path("/auth/server-transfer-claim");
+            let fragment = format!("token={}&next=%2F", form_component(token));
+            target.set_fragment(Some(&fragment));
+        }
+        None => target.set_path("/"),
+    }
+    target
+}
+
+/// `application/x-www-form-urlencoded` for one value: unreserved characters stay, everything
+/// else is percent-encoded, so the page's `URLSearchParams` reads back exactly what was sent.
+fn form_component(value: &str) -> String {
+    value
+        .bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => (b as char).to_string(),
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+/// What a remote-mode window loads at cold start (POD-5921).
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum RemoteColdStart {
+    /// The server answered: load it, exactly as before.
+    Remote,
+    /// The server did not answer and the shell knows its installation: load the bundled app,
+    /// which looks for the server and moves the window when it finds it.
+    Baked,
+}
+
+/// A dead remote origin used to leave the engine's error page (or a tunnel provider's) in the
+/// window. Only a shell that can prove where its server went falls back to the bundled app; one
+/// without an identity keeps today's behaviour exactly.
+pub fn remote_cold_start(server_answered: bool, has_identity: bool) -> RemoteColdStart {
+    if !server_answered && has_identity {
+        RemoteColdStart::Baked
+    } else {
+        RemoteColdStart::Remote
+    }
+}
+
+/// Injected next to the server address in remote modes: the stored installation identity, so
+/// the page can follow its server (POD-5921). Read-only for the page; it saves a new one
+/// through `save_server_identity`.
+pub fn server_identity_injection_script(identity: &ServerIdentity) -> String {
+    let value = serde_json::json!({
+        "installationId": identity.installation_id,
+        "installationPublicKey": identity.installation_public_key,
+    });
+    format!("window.__PODIUM_SERVER_IDENTITY__ = {value};")
+}
+
+/// The bundled-app injection for a remote window whose server did not answer at cold start.
+/// Only on the bundled origin: after the page moves the window to the server it found, this
+/// script runs again there and must not pin that page to the dead address.
+pub fn remote_unreachable_injection_script(server_url: &str) -> String {
+    format!(
+        "if (window.location.protocol === 'tauri:' || window.location.hostname === 'tauri.localhost') {{ {}\nwindow.__PODIUM_REMOTE_UNREACHABLE__ = true; }}",
+        remote_injection_script(server_url)
+    )
 }
 
 /// Config-file base dir: `$PODIUM_STATE_DIR` else `~/.podium` (same resolution as `read_config`).
@@ -2882,4 +3076,135 @@ mod tests {
         let _ = fs::remove_dir_all(&tmp);
     }
 
+    // ── POD-5921: following a moved server ─────────────────────────────────
+
+    const ID: &str = "pdm_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+    const KEY: &str = "ed25519:AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+    fn with_config<T>(json: &str, f: impl FnOnce(&std::path::Path) -> T) -> T {
+        let _g = ENV_LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        let tmp = std::env::temp_dir().join(format!(
+            "podium-cfg-follow-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&tmp).unwrap();
+        std::fs::write(tmp.join("config.json"), json).unwrap();
+        let prev = std::env::var("PODIUM_STATE_DIR").ok();
+        std::env::set_var("PODIUM_STATE_DIR", &tmp);
+        let out = f(&tmp);
+        match prev {
+            Some(v) => std::env::set_var("PODIUM_STATE_DIR", v),
+            None => std::env::remove_var("PODIUM_STATE_DIR"),
+        }
+        let _ = std::fs::remove_dir_all(&tmp);
+        out
+    }
+
+    #[test]
+    fn desktop_config_reads_the_server_identity_both_or_neither() {
+        let full = format!(
+            r#"{{"mode":"client","serverUrl":"wss://a.example","installationId":"{ID}","installationPublicKey":"{KEY}"}}"#
+        );
+        let cfg = with_config(&full, |_| read_config());
+        assert_eq!(
+            cfg.server_identity,
+            Some(ServerIdentity {
+                installation_id: ID.to_string(),
+                installation_public_key: KEY.to_string()
+            })
+        );
+        let half = format!(r#"{{"mode":"client","serverUrl":"wss://a.example","installationId":"{ID}"}}"#);
+        assert_eq!(with_config(&half, |_| read_config()).server_identity, None);
+        let bad = format!(
+            r#"{{"installationId":"{ID}","installationPublicKey":"ed25519:short"}}"#
+        );
+        assert_eq!(with_config(&bad, |_| read_config()).server_identity, None);
+    }
+
+    #[test]
+    fn save_server_identity_writes_it_and_keeps_every_other_field() {
+        let written = with_config(
+            r#"{"mode":"daemon","serverUrl":"wss://a.example","pairCode":"X","installationId":"pdm_old"}"#,
+            |dir| {
+                write_server_identity(ID, KEY).unwrap();
+                assert!(write_server_identity("pdm_nope", KEY).is_err());
+                (
+                    read_config(),
+                    serde_json::from_str::<serde_json::Value>(
+                        &std::fs::read_to_string(dir.join("config.json")).unwrap(),
+                    )
+                    .unwrap(),
+                )
+            },
+        );
+        let (cfg, raw) = written;
+        assert_eq!(cfg.server_identity.unwrap().installation_id, ID);
+        assert_eq!(raw["pairCode"], "X");
+        assert_eq!(raw["serverUrl"], "wss://a.example");
+    }
+
+    #[test]
+    fn move_server_refuses_anything_but_an_https_origin() {
+        assert!(validate_move_origin("http://new.example").is_err());
+        assert!(validate_move_origin("http://127.0.0.1:18787").is_err());
+        assert!(validate_move_origin("wss://new.example").is_err());
+        assert!(validate_move_origin("https://user:pw@new.example").is_err());
+        assert!(validate_move_origin("not a url").is_err());
+        assert_eq!(
+            validate_move_origin("https://new.example/some/path?q#f").unwrap().as_str(),
+            "https://new.example/"
+        );
+    }
+
+    #[test]
+    fn move_server_persists_the_new_address_in_remote_modes_only() {
+        let (server_url, cfg) = with_config(
+            r#"{"mode":"client","serverUrl":"wss://old.example","uiUrl":"https://ui.old.example","pairCode":"X"}"#,
+            |_| {
+                let origin = validate_move_origin("https://new-words.trycloudflare.com").unwrap();
+                (write_moved_server(&origin).unwrap(), read_config())
+            },
+        );
+        assert_eq!(server_url, "wss://new-words.trycloudflare.com");
+        assert_eq!(cfg.server_url.as_deref(), Some("wss://new-words.trycloudflare.com"));
+        assert_eq!(cfg.ui_url, None);
+        let refused = with_config(r#"{"mode":"all-in-one"}"#, |_| {
+            write_moved_server(&validate_move_origin("https://new.example").unwrap())
+        });
+        assert!(refused.is_err());
+    }
+
+    #[test]
+    fn move_target_is_the_root_or_the_claim_page_with_the_token_in_the_fragment() {
+        let origin = validate_move_origin("https://new.example").unwrap();
+        assert_eq!(move_target_url(&origin, None).as_str(), "https://new.example/");
+        let claim = move_target_url(&origin, Some("abc_DEF-123"));
+        assert_eq!(claim.path(), "/auth/server-transfer-claim");
+        assert_eq!(claim.query(), None);
+        assert_eq!(claim.fragment(), Some("token=abc_DEF-123&next=%2F"));
+    }
+
+    #[test]
+    fn a_dead_remote_at_cold_start_falls_back_to_the_bundled_app_only_with_an_identity() {
+        assert_eq!(remote_cold_start(true, true), RemoteColdStart::Remote);
+        assert_eq!(remote_cold_start(true, false), RemoteColdStart::Remote);
+        assert_eq!(remote_cold_start(false, false), RemoteColdStart::Remote);
+        assert_eq!(remote_cold_start(false, true), RemoteColdStart::Baked);
+        let script = remote_unreachable_injection_script("wss://old.example");
+        assert!(script.starts_with("if (window.location.protocol === 'tauri:'"));
+        assert!(script.contains("__PODIUM_SERVER__ = \"wss://old.example\""));
+        assert!(script.contains("__PODIUM_SKIP_SETUP__ = true"));
+        assert!(script.contains("__PODIUM_REMOTE_UNREACHABLE__ = true"));
+        let identity = ServerIdentity::from_parts(Some(ID), Some(KEY)).unwrap();
+        assert_eq!(
+            server_identity_injection_script(&identity),
+            format!(
+                r#"window.__PODIUM_SERVER_IDENTITY__ = {{"installationId":"{ID}","installationPublicKey":"{KEY}"}};"#
+            )
+        );
+    }
 }
