@@ -29,6 +29,7 @@ import type { SessionId } from '@podium/model/browser'
  */
 
 
+import type { WorktreeView } from '@podium/client-core/values'
 import type { IssueReferenceModel } from '@podium/client-core/values'
 import type { IssueModel } from '@podium/client-graph'
 import type { ComponentType } from 'react'
@@ -67,6 +68,8 @@ export interface PaletteCommand {
   issue?: IssueModel
   /** Agent identity; the row reads its live title and glyph by id. */
   sessionId?: SessionId
+  /** Checkout companion; displayed branch and repository name stay live. */
+  worktree?: WorktreeView
   /** Leading glyph for rows that have no richer identity. */
   icon?: PaletteIcon
   run: () => void | Promise<void>

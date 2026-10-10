@@ -1,3 +1,4 @@
+import { CommandPlaceTitle, CommandPlaceHint } from './command-place-labels'
 import type { SpawnTarget } from '@podium/client-core'
 import type { IssueNavigationModel } from '@podium/client-core/values'
 import {
@@ -463,6 +464,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
         add({
           id: `place:${w.path}`,
           group: 'place',
+          worktree: w,
           label: w.branch ?? (machinePathBasename(w.path) || w.path),
           keywords: [repo.name, 'worktree', 'branch', w.path],
           hint: repo.name,
@@ -1008,11 +1010,11 @@ const PaletteRow = observer(function PaletteRow({
           <span className="cmdk-row-lead" aria-hidden="true">
             {Icon ? <Icon size={15} /> : null}
           </span>
-          <span className="cmdk-row-title">{session ? sessionDisplayName(session) : cmd.label}</span>
+          <span className="cmdk-row-title">{session ? sessionDisplayName(session) : cmd.worktree ? <CommandPlaceTitle worktree={cmd.worktree} /> : cmd.label}</span>
         </>
       )}
       {session && <AgentStatusGlyph session={session} variant="row" />}
-      {cmd.hint && <span className="cmdk-row-hint">{cmd.hint}</span>}
+      {cmd.worktree ? <span className="cmdk-row-hint"><CommandPlaceHint worktree={cmd.worktree} /></span> : cmd.hint && <span className="cmdk-row-hint">{cmd.hint}</span>}
       <PaletteEnterCap />
     </button>
   )
