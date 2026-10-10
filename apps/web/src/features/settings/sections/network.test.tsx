@@ -159,7 +159,7 @@ describe('NetworkSection', () => {
         info: { query: vi.fn().mockResolvedValue({ mode: 'server', networkOption: 'cloudflare-tunnel', publicUrl: 'https://one.trycloudflare.com', tunnelHealth: { state, url: 'https://one.trycloudflare.com', lastOkAt: 1, failedSince: 1, reportedAt: 1, lastError: null } }) },
         provenance: { query: vi.fn().mockResolvedValue({ publicUrl: { source: 'env', envKey: 'PODIUM_PUBLIC_URL' } }) },
         options: { query: vi.fn().mockResolvedValue([]) },
-        commandFor: { query: vi.fn() },
+        commandFor: { query: vi.fn().mockResolvedValue({ command: '', hint: '' }) },
       },
       auth: { status: { query: vi.fn().mockResolvedValue({ hasOwnCredential: true }) } },
     } as unknown as Store['trpc']

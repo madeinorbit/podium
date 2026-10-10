@@ -142,7 +142,7 @@ export function renderStatus(view: StatusView): string {
           : config.mode === 'supervisor'
             ? ['parent']
             : (RunRole.options as RunRole[]) // unknown mode: show whatever is live
-  for (const role of roles) {
+  for (const role of view.diagnosis ? [] : roles) {
     const rec = byRole.get(role)
     if (rec) {
       const port = rec.port ? ` :${rec.port}` : ''

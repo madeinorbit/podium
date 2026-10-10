@@ -479,7 +479,7 @@ describe('statusCommand ignores a dead writer s link state (POD-3815)', () => {
     process.env.PODIUM_STATE_DIR = dir
     delete process.env.PODIUM_INSTANCE
     try {
-      writeFileSync(join(dir, 'connectivity.json'), `${JSON.stringify(record, null, 2)}\n`)
+      writeFileSync(join(dir, 'machine.json'), `${JSON.stringify({ version: 1, machineId: 'status-test', importedFiles: {}, connectivity: record }, null, 2)}\n`)
       await statusCommand()
       return lines.join('\n')
     } finally {
