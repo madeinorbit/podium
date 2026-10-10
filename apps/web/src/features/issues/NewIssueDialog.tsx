@@ -13,7 +13,6 @@ import {
   machinesForRepoOrClone,
   onlineMachinesForRepoOrClone,
 } from '@podium/model/browser'
-import { resolveRole } from '@podium/runtime'
 import { ArrowRight, ChevronDown, ChevronRight, FolderGit2, Server, X, Zap } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
 import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
@@ -250,7 +249,7 @@ const NewIssueDialogBody = observer(function NewIssueDialogBody({
   // the named product default, never a literal (POD-4737).
   const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
   const settingsRequest = useSettingsRecord(readSettings)
-  const defaultAgent = settingsRequest?.model ? resolveRole(settingsRequest.model, 'coding').harness : DEFAULT_HARNESS_AGENT
+  const defaultAgent = settingsRequest?.model?.codingHarness ?? DEFAULT_HARNESS_AGENT
   // '' = use the configured default agent (no flag).
   const [agent, setAgent] = useState('')
   // 'auto' = inherit the settings default model/effort (no per-issue override).

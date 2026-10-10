@@ -14,7 +14,6 @@ import { commandIssueReference, commandIssueSearchRef } from '@podium/client-gra
 import { machinePathBasename } from '@podium/model'
 import type { AgentKind, IssueId, SessionId } from '@podium/model/browser'
 import { isSnoozed, snoozeUntil1h, snoozeUntilTomorrow5am } from '@podium/model/browser'
-import { resolveRole } from '@podium/runtime'
 import {
   AlarmClock,
   AlarmClockOff,
@@ -328,7 +327,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   // The user's persisted default agent — same source the sidebar button reads.
   const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
   const settingsRequest = useSettingsRecord(readSettings)
-  const agentSetting = settingsRequest?.model ? resolveRole(settingsRequest.model, 'coding').harness : undefined
+  const agentSetting = settingsRequest?.model?.codingHarness
 
   const { hits: serverIssueHits, pending: searching } = useIssueSearch(query, true)
   const resting = isResting(query)
