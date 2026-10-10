@@ -652,50 +652,41 @@ export async function logsCommand(argv: string[]): Promise<void> {
     return
   }
   const { follow, pretty, components } = options
-  if (config.persistence === 'systemd' || components.includes('tunnel')) {
-    const units = config.persistence === 'systemd' ? logUnitsFor(components) : [instanceServiceName('tunnel', resolveInstanceId())]
-    if (units.length === 0) {
-      console.log('No systemd logs for these components.')
-      return
-    }
-    const child = spawn('journalctl', ['--user', ...units.flatMap((unit) => ['-u', unit]), '-n', '200', '-o', 'cat', ...(follow ? ['-f'] : [])], { stdio: 'inherit' })
-    child.on('error', (error) => { console.error(`podium logs: ${error.message}`); process.exitCode = 1 })
-    await new Promise<void>((resolve) => {
-      child.once('error', () => resolve())
-      child.once('exit', (code) => { process.exitCode = code ?? 1; resolve() })
-    })
-    return
-  }
-  const files = logFilesFor(components)
-  if (files.length === 0) {
+  const readers: Array<{ command: string; args: string[] }> = []
+  const units = config.persistence === 'systemd'
+    ? logUnitsFor(components)
+    : components.includes('tunnel') || (components.length === 0 && config.networkOption === 'cloudflare-tunnel')
+      ? [instanceServiceName('tunnel', resolveInstanceId())]
+      : []
+  if (units.length) readers.push({ command: 'journalctl', args: ['--user', ...units.flatMap((unit) => ['-u', unit]), '-n', '200', '-o', 'cat', ...(follow ? ['-f'] : [])] })
+  const fileComponents = components.filter((component) => component !== 'tunnel')
+  const files = config.persistence === 'systemd' || (components.length > 0 && fileComponents.length === 0)
+    ? [] : logFilesFor(fileComponents)
+  if (files.length) readers.push({ command: 'tail', args: [follow ? '-F' : '-n', ...(follow ? [] : ['200']), ...files] })
+  if (!readers.length) {
     const which = components.length > 0 ? ` for ${components.join(', ')}` : ''
     console.log(`No logs yet${which} in ${logDir()}.`)
     return
   }
-  // Delegate to `tail` for correct follow semantics, including `-F` across a
-  // rotation — which now happens in-process, so the live file really is
-  // replaced underneath a follower.
-  const args = [follow ? '-F' : '-n', follow ? undefined : '200', ...files].filter(
-    (a): a is string => a !== undefined,
-  )
-  if (!pretty) {
-    // Inherit stdio: the exact bytes, no decode/encode round trip.
-    const child = spawn('tail', args, { stdio: 'inherit' })
-    child.on('exit', (code) => process.exit(code ?? 0))
-    return
-  }
-  const child = spawn('tail', args, { stdio: ['ignore', 'pipe', 'inherit'] })
-  let pending = ''
-  child.stdout?.on('data', (chunk: Buffer) => {
-    // Chunks split mid-line; the tail of a chunk is held until its newline
-    // arrives so a record is never parsed in halves.
-    pending += chunk.toString('utf8')
-    const lines = pending.split('\n')
-    pending = lines.pop() ?? ''
-    for (const line of lines) console.log(renderLogLine(line))
-  })
-  child.on('exit', (code) => {
-    if (pending.length > 0) console.log(renderLogLine(pending))
-    process.exit(code ?? 0)
-  })
+  await Promise.all(readers.map(({ command, args }) => new Promise<void>((resolve) => {
+    const child = spawn(command, args, { stdio: pretty ? ['ignore', 'pipe', 'inherit'] : 'inherit' })
+    let pending = ''
+    child.stdout?.on('data', (chunk: Buffer) => {
+      pending += chunk.toString('utf8')
+      const lines = pending.split('\n')
+      pending = lines.pop() ?? ''
+      for (const line of lines) console.log(renderLogLine(line))
+    })
+    child.on('error', (error) => {
+      console.error(`podium logs: ${error.message}`)
+      process.exitCode = 1
+      resolve()
+    })
+    child.on('exit', (code) => {
+      if (pending) console.log(renderLogLine(pending))
+      if (code) process.exitCode = code
+      resolve()
+    })
+  })))
+
 }
