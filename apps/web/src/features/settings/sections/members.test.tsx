@@ -1,3 +1,4 @@
+import '@/test-support/mock-request-pool.test.fixture'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, expect, test, vi } from 'vitest'
 import { MembersSection } from './members'

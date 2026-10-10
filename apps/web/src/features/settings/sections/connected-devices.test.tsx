@@ -1,3 +1,4 @@
+import '@/test-support/mock-request-pool.test.fixture'
 import type {
   MobileClientSession,
   MobilePairStartResponse,
