@@ -18,11 +18,12 @@ import type { IssueId, SessionId } from '@podium/model'
 import { useStoreHandle } from '@podium/client-core/react'
 import { Mail as MailIcon, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import { LedgerAge } from './LedgerAge'
+import { useLedgerVisibility } from './ledger-visibility'
 import {
   type LedgerStatusTone,
 } from './message-ledger'
@@ -103,8 +104,7 @@ const LedgerRow = observer(function LedgerRow({ row }: { row: LedgerEntry }): JS
   )
 })
 
-/** The dock unmounts this view when another panel is selected. Document
- * visibility also suspends the view model's polling while the app is hidden. */
+/** Document and deck visibility both suspend polling while this view is hidden. */
 export const MessageLedgerView = observer(function MessageLedgerView({
   issueId, sessionId,
 }: { issueId?: IssueId; sessionId?: SessionId }): JSX.Element {
@@ -118,13 +118,7 @@ export const MessageLedgerView = observer(function MessageLedgerView({
     currentRecord: id => currentMessageRecord(pool, replica, id),
   }), [trpc, replica, issueId, sessionId])
   const ledger = useOpeningView(pool, createLedger)
-  useEffect(() => {
-    if (!ledger) return
-    const visible = () => ledger.setVisible(document.visibilityState !== 'hidden')
-    visible()
-    document.addEventListener('visibilitychange', visible)
-    return () => { document.removeEventListener('visibilitychange', visible); ledger.setVisible(false) }
-  }, [ledger])
+  useLedgerVisibility(ledger)
   const rows = ledger?.ids ?? null
   const error = ledger?.error
   const refresh = () => { void ledger?.refresh() }
