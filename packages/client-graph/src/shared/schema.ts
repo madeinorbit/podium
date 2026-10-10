@@ -491,8 +491,7 @@ const DECLARED = defineSchema({
   device: { ...syncedIdentity('MobileClientSession', 'request:auth.mobileSessions'), key: 'sessionId',
     fields: { sessionId: { type: 'id', source: { schema: 'MobileClientSession', arrivesOn: 'request:auth.mobileSessions' } } } },
   podiumSettings: syncedIdentity('RequestRecordKey', 'request:settings.get'),
-  repository: { ...syncedIdentity('GitRepositoryWire', 'engine:repos'), key: 'path',
-    fields: { path: { type: 'string', source: scan('GitRepositoryWire') } } },
+  repository: syncedIdentity('RequestRecordKey', 'engine:repos'),
   /**
    * An issue: its normalized projection joined with personal markers, checkout
    * observations and repository facts at the row-source boundary.

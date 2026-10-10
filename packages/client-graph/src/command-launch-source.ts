@@ -2,6 +2,7 @@ import './requested-models'
 import { headerEntities } from './header-entities'
 import { omitGone } from './lookup'
 import type { PodiumClientApi } from '@podium/client-core/api'
+import { discoveryRepoId } from '@podium/client-core/engine'
 import type { ClientRuntime, Store } from '@podium/client-core/engine'
 import { machinePathKey } from '@podium/model'
 import { normalizeOriginUrl } from '@podium/model/browser'
@@ -183,7 +184,7 @@ export class CommandLaunchSource implements PoolSource<CommandEntity> {
     const add = (index: Map<string, string[]>, key: string, value: string) =>
       index.set(key, [...(index.get(key) ?? []), value])
     for (const discovery of repos) {
-      const id = JSON.stringify([discovery.machineId ?? '', machinePathKey(discovery.path)])
+      const id = discoveryRepoId(discovery)
       const origin = normalizeOriginUrl(discovery.originUrl)
       const groupId =
         discovery.repoId ??
