@@ -259,47 +259,40 @@ export function hiddenPresenceOf(
 export function standingOf(issue: SliceIssue, facts?: Pick<Standing,
   'excluded' | 'finished' | 'awaitingMerge' | 'parentId' | 'finishedMs' | 'updatedMs' | 'formalParent' |
   'replicaActivityMs' | 'headlessStaffed'>, sessionFact?: IssueSessionFactReader): Standing {
-  const excluded = facts ? facts.excluded : isExcluded(issue)
-  const finished = facts ? facts.finished : isFinished(issue)
-  const human = issue.audience === 'human'
-  const activeHuman =
-    human &&
-    (issue.stage === 'planning' || issue.stage === 'in_progress' || issue.stage === 'review')
-  const awaitingMerge = facts ? facts.awaitingMerge : !excluded && awaitingMergeOf(issue)
-  // `issueAwaitingMerge` reads branch and git state off the composed row: the
-  // wire carries both, so the verdict is available here (it used to read as
-  // never true because no slice field spelled it).
-  const sessionless = activeHuman
-    ? 'keep'
-    : !finished
-      ? 'drop'
-      : isClosedTopLevel(issue)
-        ? 'fold'
-        : !issue.parentId || issue.audience === 'agent'
-          ? 'drop'
-          : 'decay'
-  const spinOff = issue.deps?.some((dep) => dep.type === 'discovered-from') === true
-  // No `readAt`: the cursor lives in the read-state lane
-  // (`VisibleInputs.issueRead`), so a mark-read never re-runs this.
+  // These are plain rule answers. A scalar caller reads only its question;
+  // the WorklistIssue/IssueModel @lazy getter owns caching and observation.
+  // Eagerly filling this object would observe every supplied shared fact,
+  // allocating unrelated field computeds during startup filing.
   return {
-    excluded,
-    finished,
-    agent: issue.audience === 'agent',
-    activeHuman,
-    awaitingMerge,
-    sessionless,
-    rescuable: human && !finished,
-    parentId: facts ? facts.parentId : issue.parentId || null,
-    startedBy:
-      !issue.parentId && !spinOff && issue.startedBySession ? issue.startedBySession : null,
-    draftVessel: issue.isDraftVessel === true && !issue.worktreePath,
-    finishedMs: facts ? facts.finishedMs : parseMs(issue.closedAt ?? issue.updatedAt) ?? 0,
-    updatedMs: facts ? facts.updatedMs : parseMs(issue.updatedAt),
-    replicaActivityMs: facts ? facts.replicaActivityMs : parseMs(sessionFact?.(issue.id, 'replicaActivityAt')),
-    headlessStaffed: facts ? facts.headlessStaffed : sessionFact?.(issue.id, 'headlessStaffed') === true,
-    deleted: issue.deletedAt != null,
-    pinned: issue.pinned === true,
-    formalParent: facts ? facts.formalParent : refs.issue.parent(issue),
+    get excluded() { return facts ? facts.excluded : isExcluded(issue) },
+    get finished() { return facts ? facts.finished : isFinished(issue) },
+    get agent() { return issue.audience === 'agent' },
+    get activeHuman() {
+      return issue.audience === 'human' &&
+        (issue.stage === 'planning' || issue.stage === 'in_progress' || issue.stage === 'review')
+    },
+    get awaitingMerge() { return facts ? facts.awaitingMerge : !this.excluded && awaitingMergeOf(issue) },
+    // The sessionless keep, before the clock (rows.ts:86-96). An awaiting
+    // merge is kept by flatOf before it reaches this question.
+    get sessionless() {
+      return this.activeHuman ? 'keep' : !this.finished ? 'drop'
+        : isClosedTopLevel(issue) ? 'fold'
+        : !issue.parentId || issue.audience === 'agent' ? 'drop' : 'decay'
+    },
+    get rescuable() { return issue.audience === 'human' && !this.finished },
+    get parentId() { return facts ? facts.parentId : issue.parentId || null },
+    get startedBy() {
+      return !issue.parentId && !issue.deps?.some(dep => dep.type === 'discovered-from') && issue.startedBySession
+        ? issue.startedBySession : null
+    },
+    get draftVessel() { return issue.isDraftVessel === true && !issue.worktreePath },
+    get finishedMs() { return facts ? facts.finishedMs : parseMs(issue.closedAt ?? issue.updatedAt) ?? 0 },
+    get updatedMs() { return facts ? facts.updatedMs : parseMs(issue.updatedAt) },
+    get replicaActivityMs() { return facts ? facts.replicaActivityMs : parseMs(sessionFact?.(issue.id, 'replicaActivityAt')) },
+    get headlessStaffed() { return facts ? facts.headlessStaffed : sessionFact?.(issue.id, 'headlessStaffed') === true },
+    get deleted() { return issue.deletedAt != null },
+    get pinned() { return issue.pinned === true },
+    get formalParent() { return facts ? facts.formalParent : refs.issue.parent(issue) },
   }
 }
 

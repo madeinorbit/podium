@@ -265,17 +265,18 @@ export function foldAtOf(issue: SliceIssue): string {
 export interface CloseFacts { readonly awaitingMerge: boolean; readonly finishedMs: number }
 
 export function ownPartOfRow(issue: SliceIssue, input: Pick<ViewInputs, 'passed' | 'reached'>, facts?: CloseFacts): OwnPart {
-  const closed = closedOf(issue, false, input, facts)
+  // Keep the plain rule object narrow too: reading band or repoKey must
+  // not ask the model for its independent close/finished computeds.
   return {
-    band: bandOf(issue, input),
-    repoKey: issue.repoId ?? machinePathKey(issue.repoPath),
-    closed,
-    dismissed: closed && (issueAbandoned(issue) || issue.tuckedAt != null),
-    pinned: issue.pinned === true,
-    sortKey: issue.sortKey ?? null,
-    createdAt: issue.createdAt,
-    seq: issue.seq,
-    foldAt: foldAtOf(issue),
+    get band() { return bandOf(issue, input) },
+    get repoKey() { return issue.repoId ?? machinePathKey(issue.repoPath) },
+    get closed() { return closedOf(issue, false, input, facts) },
+    get dismissed() { return this.closed && (issueAbandoned(issue) || issue.tuckedAt != null) },
+    get pinned() { return issue.pinned === true },
+    get sortKey() { return issue.sortKey ?? null },
+    get createdAt() { return issue.createdAt },
+    get seq() { return issue.seq },
+    get foldAt() { return foldAtOf(issue) },
   }
 }
 

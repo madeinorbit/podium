@@ -1,6 +1,8 @@
 import '@podium/client-graph/synced-models'
 import { omitGone, requireHere } from './lookup'
 import { autorun, runInAction } from 'mobx'
+import { lazyKeptCount } from '@podium/mobx-helpers'
+import { machinePathKey } from '@podium/model/browser'
 import { expect, it, vi } from 'vitest'
 import { MobxPool } from './pool'
 import { sidebarNested } from './worklist/sidebar'
@@ -124,6 +126,46 @@ it('resident, ordering and finished readers ignore a title change', () => {
     expect([stateRuns, finishedRuns, rankRuns, titleRuns]).toEqual([1, 1, 1, 2])
     expect(root.title).toBe('Renamed')
   } finally { for (const stop of stops) stop(); pool.dispose() }
+})
+
+// A scalar must not allocate the rest of standing/own through eager rule
+// construction. Count the existing lazy slots and guard the shared facts:
+// answer equality alone would miss both unnecessary allocations and reads.
+it.each([
+  ['activeHuman', true, 0], ['sessionless', 'keep', 0],
+  ['rescuable', true, 1], ['startedBy', null, 0], ['band', 1, 0],
+  ['repoKey', machinePathKey('/synthetic'), 0], ['foldAt', stamp, 0],
+] as const)('allocates only the demanded %s field and releases it after the last observer', async (field, expected, sharedCount) => {
+  const pool = fixture(), root = pool.worklistRow('root')!
+  const issue = root.issue
+  const guards = ['excluded', 'awaitingMerge', 'parentRef', 'finishedMs', 'updatedMs',
+    'lastActivityAt', 'headlessStaffed', ...(field === 'rescuable' ? [] : ['finished'])]
+    .map(name => vi.spyOn(issue, name as 'finished', 'get').mockImplementation(() => {
+      throw new Error(`${field} demanded unrelated ${name}`)
+    }))
+  let value: unknown, runs = 0, failure: unknown
+  expect([lazyKeptCount(root), lazyKeptCount(issue)]).toEqual([0, 0])
+  const stop = autorun(() => {
+    try { runs++; value = root[field] } catch (error) { failure = error }
+  })
+  try {
+    if (failure) throw failure
+    expect(value).toEqual(expected)
+    expect([lazyKeptCount(root), lazyKeptCount(issue)]).toEqual([1, sharedCount])
+    runInAction(() => pool.apply({ type: 'update', rows: [
+      { kind: 'issue', id: 'root', value: issueRow('root', { title: 'Renamed' }) as never },
+    ] }))
+    if (failure) throw failure
+    expect(value).toEqual(expected)
+    expect(runs).toBe(1)
+    for (const guard of guards) expect(guard).not.toHaveBeenCalled()
+  } finally {
+    stop()
+    for (const guard of guards) guard.mockRestore()
+    pool.dispose()
+  }
+  await Promise.resolve()
+  expect([lazyKeptCount(root), lazyKeptCount(issue)]).toEqual([0, 0])
 })
 
 it('roster IDs do not change when headless own presence changes', () => {
