@@ -1,5 +1,5 @@
-import { lazy } from '@podium/mobx-helpers'
 import { RequestAnswer } from '@podium/client-graph/request-answer'
+import { lazy } from '@podium/mobx-helpers'
 import type { Trpc } from '@/app/trpc'
 
 export type NetworkInfo = Awaited<ReturnType<Trpc['setup']['info']['query']>>
