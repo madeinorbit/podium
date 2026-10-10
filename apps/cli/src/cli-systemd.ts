@@ -529,6 +529,12 @@ export interface InstallResult {
   reason?: string
   /** One actionable sentence for THIS reason, so the fallback message can stay specific. */
   remedy?: string
+  /**
+   * Installed, but it will NOT survive logout or reboot, and the one command that fixes it
+   * (POD-5932): linger is off. An unprivileged SSH session usually cannot turn it on, and
+   * without it the user manager — and the server with it — stops when the user logs out.
+   */
+  lingerRemedy?: string
 }
 
 export interface InstallSystemdDeps {
@@ -536,6 +542,13 @@ export interface InstallSystemdDeps {
   hasUserSystemd?: () => boolean
   unitDir?: () => string
   run?: (cmd: string, args: string[]) => void
+  /** Whether logind will keep this user's manager running without a session. */
+  lingerEnabled?: (user: string) => boolean
+}
+
+/** logind records linger as a file per user; reading it needs no privilege and no bus. */
+function lingerEnabled(user: string): boolean {
+  return existsSync(join('/var/lib/systemd/linger', user))
 }
 
 /**
@@ -588,12 +601,16 @@ export function installSystemd(
     writeFileSync(join(dir, parentUnit), renderParentUnit({ instanceId, port }))
     runCommand('systemctl', ['--user', 'daemon-reload'])
     // Linger so the units run without an active login session (headless VPS over SSH).
+    const user = userInfo().username
     try {
-      runCommand('loginctl', ['enable-linger', userInfo().username])
+      runCommand('loginctl', ['enable-linger', user])
     } catch {
-      // non-fatal: on some hosts linger is already on or loginctl is restricted
+      // Checked below: polkit refuses an unprivileged SSH session, and saying nothing here
+      // let setup claim "survives reboot" for a server that stopped at logout (POD-5932).
     }
     runCommand('systemctl', ['--user', 'enable', '--now', parentUnit])
+    if (!(deps.lingerEnabled ?? lingerEnabled)(user))
+      return { ok: true, lingerRemedy: `Run \`sudo loginctl enable-linger ${user}\` once to keep it running.` }
     return { ok: true }
   } catch (e) {
     return { ok: false, reason: (e as Error).message }

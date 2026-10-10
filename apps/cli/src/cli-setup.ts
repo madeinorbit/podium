@@ -213,7 +213,10 @@ export async function startBackendEngine(opts: StartBackendOpts): Promise<StartB
     if (res.ok) {
       result = {
         effectivePersistence: 'systemd',
-        message: `Installed + started the ${what} as a systemd service — survives reboot.`,
+        message: res.lingerRemedy
+          ? `Installed + started the ${what} as a systemd service, but it stops when you log out ` +
+            `and does not come back after a reboot. ${res.lingerRemedy}`
+          : `Installed + started the ${what} as a systemd service — survives reboot.`,
       }
     } else {
       const { serverUp } = await startDetachedStack(mode, port, loadConfig().bindHost)
