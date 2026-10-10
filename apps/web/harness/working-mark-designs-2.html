@@ -1,0 +1,2194 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Working mark designs</title>
+<style>
+/* Working mark prototypes, rounds 2 and 3: dots only, built for 11-13 px. Performance is NOT measured
+   here. Every design is plain round dots, one moving layer each, animated from script (Web Animations)
+   with transform + opacity only. Depth is faked in flat 2D (a dot shrinks and fades as it goes
+   "behind"), so no design needs 3D transforms and all engines draw them alike. */
+:root { color-scheme: dark; --bg:#101114; --card:#191b20; --ink:#e4e4e7; --muted:#8c8e99; --line:#2c2e36; --mark:#6f9dff; --chip:#232631; }
+:root[data-theme="light"] { color-scheme: light; --bg:#f6f5f1; --card:#fff; --ink:#24242a; --muted:#74747d; --line:#dddcd5; --mark:#2a62f0; --chip:#eef0f6; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui, -apple-system, sans-serif; }
+main { max-width:1180px; margin:0 auto; padding:20px 16px 48px; }
+h1 { font-size:22px; font-weight:600; letter-spacing:-.4px; margin:0 0 4px; }
+.lede { color:var(--muted); margin:0 0 14px; max-width:800px; }
+.controls { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:8px; padding:10px 0; background:var(--bg); border-bottom:1px solid var(--line); margin-bottom:18px; }
+button, select { font:inherit; font-size:13px; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:8px; padding:6px 10px; cursor:pointer; }
+button[aria-pressed="true"] { border-color:var(--mark); color:var(--mark); }
+.seg { display:inline-flex; }
+.seg.wrap { flex-wrap:wrap; row-gap:4px; }
+.browser { margin:0 0 6px; font-size:13px; }
+.browser b { color:var(--mark); }
+.mk.stand-in { outline:1px dashed var(--muted); outline-offset:1px; }
+.seg button { border-radius:0; }
+.seg button:first-child { border-radius:8px 0 0 8px; }
+.seg button:last-child { border-radius:0 8px 8px 0; }
+.seg button + button { margin-left:-1px; }
+.seg button[aria-pressed="true"] { position:relative; }
+.seg.off button { opacity:.55; }
+h2 { font-size:15px; font-weight:600; margin:26px 0 4px; }
+h2 + p { color:var(--muted); margin:0 0 12px; font-size:13px; max-width:800px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(300px, 1fr)); gap:12px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px 14px; display:flex; flex-direction:column; gap:10px; min-width:0; }
+.card header { display:flex; align-items:baseline; gap:8px; }
+.num { font:600 12px ui-monospace, monospace; color:var(--mark); }
+.card h3 { margin:0; font-size:14px; font-weight:600; flex:1; }
+.cost { font:11px ui-monospace, monospace; color:var(--muted); background:var(--chip); border-radius:6px; padding:1px 6px; white-space:nowrap; }
+/* Cost of a design for the build and frame rate picked: 1 to 5 filled bars, lighter is fewer */
+.weight { display:flex; flex-wrap:wrap; align-items:center; gap:3px 8px; font:11px ui-monospace, monospace; color:var(--muted); }
+.meter { display:inline-flex; align-items:center; gap:2px; color:var(--ink); }
+.meter b { font-weight:600; margin-right:4px; }
+.meter i { width:5px; height:11px; border-radius:1.5px; background:var(--line); }
+.meter i.on { background:var(--ink); }
+.weight .measured { flex-basis:100%; }
+.film-name .weight { margin-top:3px; font-size:10px; }
+.real { display:flex; align-items:flex-end; justify-content:space-between; gap:8px; padding:10px 12px 6px; border-radius:9px; background:var(--bg); }
+.real figure { margin:0; display:flex; flex-direction:column; align-items:center; gap:5px; }
+.real figcaption { font:10px ui-monospace, monospace; color:var(--muted); white-space:nowrap; }
+.real .zoom { margin-left:auto; padding-left:10px; border-left:1px solid var(--line); }
+.ctx { display:flex; align-items:center; gap:7px; height:26px; padding:0 9px; border-radius:7px; background:var(--bg); min-width:0; font-size:12.5px; }
+.ctx .t { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.ctx .id { color:var(--muted); font:10.5px ui-monospace, monospace; }
+.ctx .clock { color:var(--mark); font:10.5px ui-monospace, monospace; }
+.desc { margin:0; font-size:12.5px; color:var(--ink); }
+.how { margin:0; font-size:11.5px; color:var(--muted); }
+.under { display:none; margin:0; font-size:11.5px; color:var(--mark); }
+body.show-under .under { display:block; }
+
+/* Filmstrips: ten still frames across one loop, plus the live mark */
+.film-group { font-size:14px; font-weight:600; margin:20px 0 6px; }
+.film-row { display:flex; align-items:center; gap:6px; background:var(--card); border:1px solid var(--line); border-radius:10px; padding:6px 10px; margin-bottom:4px; overflow-x:auto; }
+.film-name { width:160px; flex:none; font-size:12.5px; line-height:1.3; }
+.film-name small { display:block; color:var(--muted); font:10.5px ui-monospace, monospace; }
+.film-name .under { font-size:10.5px; }
+.film-live { width:34px; flex:none; display:flex; justify-content:center; }
+.film-frame { width:54px; height:54px; flex:none; display:flex; align-items:center; justify-content:center; background:var(--bg); border-radius:7px; }
+/* Frame rates: the shortlist at each rate, side by side */
+.rates { display:grid; grid-template-columns:150px repeat(6, minmax(86px, 1fr)); gap:4px; overflow-x:auto; }
+.rates .head { font:600 12px system-ui, sans-serif; color:var(--muted); align-self:end; padding:0 0 4px 4px; }
+.rates .name { font-size:12.5px; line-height:1.3; align-self:center; }
+.rates .name small { display:block; color:var(--muted); font:10.5px ui-monospace, monospace; }
+.rates .cell { background:var(--card); border:1px solid var(--line); border-radius:9px; padding:8px 6px 6px; display:grid; justify-items:center; gap:6px; }
+.rates .cell .pair { display:flex; align-items:center; gap:12px; height:40px; }
+.rates .cell small { color:var(--muted); font:10px ui-monospace, monospace; text-align:center; line-height:1.35; }
+.rates .cell.own { border-color:var(--mark); }
+.rates .split { grid-column:1 / -1; height:6px; }
+
+/* Crowd */
+.stressbar { display:grid; gap:6px; margin-bottom:10px; }
+.stressbar .row { display:flex; flex-wrap:wrap; gap:6px; align-items:center; }
+.stressbar .row > b { width:86px; flex:none; font-size:12px; font-weight:600; color:var(--muted); }
+.stressbar .chips { display:flex; flex-wrap:wrap; gap:4px; flex:1 1 0; min-width:0; }
+.stressbar .chips button[disabled] { opacity:.4; }
+.stressbar .chips .sep { flex-basis:100%; height:0; }
+.stressbar #crowd-designs { max-height:96px; overflow-y:auto; }
+.stressbar input { width:72px; font:13px system-ui, sans-serif; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:7px; padding:3px 6px; }
+@media (max-width:600px) { .stressbar .row > b { width:100%; } }
+body.stress-only main > :not(#view-crowd) { display:none !important; }
+body.stress-only #view-crowd > .lede { display:none; }
+.hint { color:var(--muted); font-size:12px; }
+.crowd { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:0 14px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:4px 0; }
+.crowd .ctx { background:none; border-radius:0; border-bottom:1px solid var(--line); }
+.crowd.rows .ctx { content-visibility:auto; contain-intrinsic-size:auto 26px; }
+.crowd.screen { grid-template-columns:repeat(auto-fill, minmax(46px, 1fr)); gap:0; padding:2px; }
+.crowd.screen .ctx { height:20px; padding:0 4px; gap:4px; border-bottom:0; }
+.crowd.screen .ctx .t, .crowd.screen .ctx .clock { display:none; }
+.crowd.screen .ctx .id { font-size:9px; }
+.probe { display:flex; gap:8px; align-items:center; margin:0 0 6px; font-size:13px; }
+.probe input { width:220px; font:13px system-ui, sans-serif; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:7px; padding:4px 8px; }
+
+/* ?sheet: one compact overview (for thumbnails and phones) */
+body.sheet .lede, body.sheet h2 + p { display:none; }
+body.sheet .grid { grid-template-columns:repeat(auto-fill, minmax(280px, 1fr)); gap:8px; }
+body.sheet .card > :not(header):not(.real) { display:none; }
+body.sheet .card { padding:8px 10px 10px; gap:6px; }
+body.sheet .card .cost { display:none; }
+body.sheet h2 { margin:14px 0 8px; }
+
+/* The marks: a 1em box (.66em for the tall ones); font-size sets the real size. */
+.mk { position:relative; display:inline-block; width:1em; height:1em; color:var(--mark); flex:none; vertical-align:middle; }
+.mk.tall { width:.66em; }
+.mk .dot { position:absolute; left:50%; top:50%; border-radius:50%; background:currentColor; }
+.mk .marker { position:absolute; left:0; top:0; width:1px; height:1px; }
+/* Flipbook marks: the pre-drawn sheet of frames steps behind a small clipping window. */
+.mk .clip { position:absolute; overflow:hidden; }
+.mk .sheet { position:absolute; left:0; top:0; background-repeat:no-repeat; background-size:100% 100%; }
+
+/* Points and notes for picking favourites */
+.pts { display:inline-flex; gap:4px; align-self:center; }
+.pts button { width:13px; height:13px; padding:0; border-radius:50%; border:1.5px solid var(--muted); background:none; }
+.pts button.on { background:var(--mark); border-color:var(--mark); }
+.card.fav { border-color:color-mix(in srgb, var(--mark) 60%, var(--line)); }
+.note { font:inherit; font-size:12px; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:5px 8px; width:100%; }
+.note::placeholder { color:var(--muted); }
+.film-name .pts { margin-top:4px; }
+body.fav-only .card:not(.fav), body.fav-only .film-row:not(.fav), body.fav-only .group:not(:has(.fav)) { display:none; }
+dialog { background:var(--card); color:var(--ink); border:1px solid var(--line); border-radius:12px; padding:16px; width:min(560px, calc(100vw - 32px)); }
+dialog::backdrop { background:rgb(0 0 0 / .45); }
+dialog h2 { margin:0 0 4px; }
+dialog p { margin:0 0 10px; color:var(--muted); font-size:13px; }
+dialog textarea { width:100%; height:260px; font:12px/1.5 ui-monospace, monospace; color:var(--ink); background:var(--bg); border:1px solid var(--line); border-radius:8px; padding:10px; resize:vertical; }
+dialog .row-end { display:flex; gap:8px; align-items:center; margin-top:10px; }
+dialog .row-end span { flex:1; color:var(--muted); font-size:12px; }
+
+/* ?bench: the measuring fixture */
+#bench { display:none; }
+body.bench #bench { display:block; }
+body.bench main > :not(#bench) { display:none; }
+body.bench main { max-width:780px; padding:12px; }
+#bench-label { margin:4px 0 8px; font:11px ui-monospace, monospace; color:var(--muted); }
+.roster { display:grid; grid-template-columns:repeat(2, minmax(0, 1fr)); gap:0 14px; background:var(--card); border:1px solid var(--line); border-radius:4px; }
+.roster .row { height:26px; display:flex; align-items:center; gap:9px; padding:0 12px; border-bottom:1px solid var(--line); font-size:12.5px; content-visibility:auto; contain-intrinsic-size:auto 26px; }
+.roster .row .name { flex:1; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+.roster .row .id { color:var(--muted); font:10px ui-monospace, monospace; }
+#composer { box-sizing:border-box; width:100%; height:58px; resize:none; margin-top:8px; border:1px solid var(--line); background:var(--card); color:var(--ink); border-radius:9px; padding:12px; font:14px system-ui, sans-serif; }
+body.offscreen #roster { position:absolute; top:20000px; left:20px; right:20px; }
+body.hidden #roster { display:none; }
+body.nocv .roster .row { content-visibility:visible; }
+/* More than 32 marks: every mark on screen at once, rows cut to the id and the mark. */
+body.bench.dense main { max-width:none; }
+body.dense .roster { gap:0; }
+body.dense .roster .row { gap:5px; padding:0 4px; }
+body.dense .roster .row .name, body.dense .roster .row .timer { display:none; }
+body.offscreen #composer, body.hidden #composer { margin-top:432px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Working mark designs</h1>
+  <p class="lede">Give each design up to three points with the dots on its card, add a note if you like, then press <b>Export picks</b> and paste the text into the chat. The build buttons draw the marks every way measured, each set up the cheapest way for the browser you're in (named above); <b>Best for this browser</b> is the cheapest overall. <b>Dots</b> moves each dot; <b>GPU flipbook</b>, <b>Stepped flipbook</b> and <b>Sprite</b> step pre-drawn frames; <b>Shared canvas</b> and <b>Worker canvas</b> draw them; <b>APNG</b> is built in the page; <b>WebP</b>, <b>AVIF</b>, <b>GIF</b>, <b>SVG</b> and the videos are files made for the two shortlisted designs at 12&nbsp;px (elsewhere the APNG stands in, outlined). <b>Own fps</b> runs each design at the lowest frame rate that still moves smoothly at 12&nbsp;px; <b>Shorter loop</b> runs it faster; <b>Mirror</b> draws half the frames where a design allows it; <b>Pause when idle</b> stops the marks after 5&nbsp;s without input. Each card shows what the design costs with the build and frame rate you picked: one to five filled bars, fewer is lighter. <b>Crowd</b> is the load test: up to 1000 marks, with a box that shows how fast your typing reaches the screen.</p>
+  <p class="lede">Built for the sizes the app really uses (11–13&nbsp;px), so each card shows those first; the 56&nbsp;px copy is for detail. Every design is only round dots, one moving layer per dot, with depth faked by shrinking and fading. There are no 3D transforms, so Safari, the Mac app and Chrome draw them alike. Safari 26 freezes animations that come back from <code>display:&nbsp;none</code> (this page in a hidden app tab counts) or from <code>content-visibility</code> (WebKit bug 301745), so each mark re-syncs itself when it comes back into view. Round 1 is in <code>working-mark-designs.html</code>.</p>
+  <p class="browser" id="browser"></p>
+  <nav class="controls" aria-label="Preview controls">
+    <span class="seg" role="group" aria-label="View">
+      <button type="button" data-view="cards" aria-pressed="true">Cards</button>
+      <button type="button" data-view="film" aria-pressed="false">Filmstrips</button>
+      <button type="button" data-view="crowd" aria-pressed="false">Stress test</button>
+      <button type="button" data-view="rates" aria-pressed="false">Frame rates</button>
+    </span>
+    <span class="seg wrap" role="group" aria-label="How the marks are built" id="builds">
+      <button type="button" data-variant="best" aria-pressed="true" title="The cheapest build measured for the browser you're in">Best for this browser</button>
+      <button type="button" data-variant="dots" aria-pressed="false" title="One moving layer per dot (transform and opacity)">Dots</button>
+      <button type="button" data-variant="img" aria-pressed="false" title="Every frame pre-drawn on one shared bitmap that steps behind a window: one GPU animation per mark">GPU flipbook</button>
+      <button type="button" data-variant="steps" aria-pressed="false" title="The flipbook held by steps(), one keyframe per picture: the browser redraws only when the picture changes (on WebKit's main thread)">Stepped flipbook</button>
+      <button type="button" data-variant="sprite" aria-pressed="false" title="Every frame in order on one bitmap, stepped by one animation with two keyframes per mark: the least animation memory">Sprite</button>
+      <button type="button" data-variant="canvas" aria-pressed="false" title="WebKit only: one canvas per design painted into every mark (-webkit-canvas()), redrawn only when the picture changes and only while a mark is in view">Shared canvas</button>
+      <button type="button" data-variant="worker" aria-pressed="false" title="A canvas per mark, drawn by one worker thread, only while the mark is in view">Worker canvas</button>
+      <button type="button" data-variant="apng" aria-pressed="false" title="One animated PNG per design, size and colour, built in the page from the flipbook's frames; the browser steps it itself">APNG</button>
+      <button type="button" data-variant="webp" aria-pressed="false" title="Animated WebP file (lossless, with transparency); shortlist only, 12 px">WebP</button>
+      <button type="button" data-variant="avif" aria-pressed="false" title="Animated AVIF file (AV1 with transparency); shortlist only, 12 px">AVIF</button>
+      <button type="button" data-variant="gif" aria-pressed="false" title="GIF file, matted on the card colour (GIF has only 1-bit transparency); shortlist only, 12 px">GIF</button>
+      <button type="button" data-variant="svg" aria-pressed="false" title="Animated SVG file (SMIL, the cells side by side stepped by a discrete translate); shortlist only, 12 px">SVG</button>
+      <button type="button" data-variant="mp4" aria-pressed="false" title="H.264 video, matted on the card colour (plays everywhere); shortlist only, 12 px">Video</button>
+      <button type="button" data-variant="alpha" aria-pressed="false" title="Transparent video: HEVC with alpha in WebKit, VP9 with alpha in Chrome; shortlist only, 12 px">Transparent video</button>
+    </span>
+    <span class="seg" id="fps" role="group" aria-label="Flipbook frame rate" title="Flipbook frame rate. Own: each design at the lowest rate that still moves smoothly. Picking one while on Dots switches to the flipbook.">
+      <button type="button" data-fps="auto" aria-pressed="true">Own fps</button>
+      <button type="button" data-fps="40" aria-pressed="false">40</button>
+      <button type="button" data-fps="30" aria-pressed="false">30</button>
+      <button type="button" data-fps="24" aria-pressed="false">24</button>
+      <button type="button" data-fps="20" aria-pressed="false">20</button>
+      <button type="button" data-fps="15" aria-pressed="false">15</button>
+      <button type="button" data-fps="12" aria-pressed="false">12</button>
+    </span>
+    <span class="seg" role="group" aria-label="Order of the designs">
+      <button type="button" data-order="group" aria-pressed="true">By group</button>
+      <button type="button" data-order="light" aria-pressed="false">Lightest first</button>
+    </span>
+    <button id="short" type="button" aria-pressed="false" title="Run each design on a shorter loop: the same motion, faster (wave 1.5 → 1.2 s, tetrahedron 4 → 3 s, others a fifth shorter)">Shorter loop</button>
+    <button id="mirror" type="button" aria-pressed="false" title="For designs whose second half is their first half mirrored (the tumbling tetrahedron): draw only the first half and flip the mark. Applies to the flipbooks, the sprite and the canvases">Mirror (half the frames)</button>
+    <button id="idle" type="button" aria-pressed="false" title="Stop the marks after 5 s without a key, click or pointer move, and while the window isn't focused or is hidden; they go on at the next input">Pause when idle</button>
+    <button id="fav-only" type="button" aria-pressed="false">Favourites only</button>
+    <button id="export" type="button">Export picks</button>
+    <button id="under" type="button" aria-pressed="false">What's underneath</button>
+    <button id="theme" type="button">Light theme</button>
+    <button id="slow" type="button" aria-pressed="false" title="Preview only: a changed playback rate takes Safari off the GPU path">Slow motion ¼×</button>
+    <button id="still" type="button" aria-pressed="false">Reduced motion</button>
+  </nav>
+  <div id="view-cards"></div>
+  <div id="view-film" hidden></div>
+  <div id="view-rates" hidden>
+    <p class="lede">The shortlist at each frame rate, side by side, at 12&nbsp;px and 32&nbsp;px. Pick the lowest rate that still looks smooth to you: with the sprite, the animated image and video, a lower rate means fewer redraws a second, so it costs less. The rows below each design run its loop faster and slower. Under each mark: frames per loop (memory), and the furthest a dot jumps or fades between two frames at 12&nbsp;px. The outlined cell is the design's own rate.</p>
+    <div class="rates" id="rates"></div>
+  </div>
+  <div id="view-crowd" hidden>
+    <p class="lede">The stress test: many marks at the real 12&nbsp;px size, in this browser's cheapest set-up for the build you pick. Pick a design (your two shortlisted ones are at the top), a build, a frame rate and how many marks. <b>Rows</b> lays them out like the app's lists (rows off screen are skipped, as in FlightDeck); <b>One screen</b> puts every mark on screen at once. Type in the box to feel it. <b>Copy link</b> gives a link to this exact set-up, to open in the other frontends (Safari, the Mac app, Chrome, the iPhone).</p>
+    <div class="stressbar">
+      <div class="row"><b>Design</b><span class="chips" role="group" aria-label="Design" id="crowd-designs"></span></div>
+      <div class="row"><b>Build</b><span class="chips" role="group" aria-label="How the marks are built" id="crowd-builds"></span></div>
+      <div class="row"><b>Frame rate</b><span class="chips" role="group" aria-label="Frame rate" id="crowd-fps"></span>
+        <button id="crowd-short" type="button" aria-pressed="false">Shorter loop</button></div>
+      <div class="row"><b>Marks</b><span class="chips" role="group" aria-label="How many marks">
+        <button type="button" data-count="1" aria-pressed="false">1</button>
+        <button type="button" data-count="8" aria-pressed="false">8</button>
+        <button type="button" data-count="32" aria-pressed="true">32</button>
+        <button type="button" data-count="64" aria-pressed="false">64</button>
+        <button type="button" data-count="128" aria-pressed="false">128</button>
+        <button type="button" data-count="256" aria-pressed="false">256</button>
+        <button type="button" data-count="500" aria-pressed="false">500</button>
+        <button type="button" data-count="1000" aria-pressed="false">1000</button>
+        <button type="button" data-count="2000" aria-pressed="false">2000</button>
+        <button type="button" data-count="5000" aria-pressed="false">5000</button></span>
+        <label class="hint">or <input id="crowd-n" type="number" min="1" max="20000" step="1" inputmode="numeric" placeholder="any"></label></div>
+      <div class="row"><b>Layout</b><span class="chips" role="group" aria-label="Layout">
+        <button type="button" data-layout="rows" aria-pressed="true">Rows</button>
+        <button type="button" data-layout="screen" aria-pressed="false">One screen</button></span>
+        <button id="crowd-sync" type="button" aria-pressed="true">In step</button>
+        <button id="crowd-idle" type="button" aria-pressed="false" title="Stop the marks after 5 s without a key, click or pointer move, and while the window isn't focused">Pause when idle</button>
+        <button id="crowd-focus" type="button" aria-pressed="false" title="Hide the rest of the page: only these controls and the marks">Full window</button>
+        <button id="crowd-meter" type="button" aria-pressed="false" title="Counts the page's frames each second and the longest gap between two. It runs a frame loop of its own, which costs a little (in Chrome it makes the page draw every frame), so turn it off to judge CPU">Frame meter</button>
+        <button id="crowd-link" type="button">Copy link</button></div>
+    </div>
+    <label class="probe">Type here <input id="probe" autocomplete="off" spellcheck="false" placeholder="type to feel it"> <span id="probe-out" class="hint">key to screen: —</span></label>
+    <p class="hint"><span id="crowd-meter-out"></span></p>
+    <p class="hint" id="crowd-label"></p>
+    <section id="crowd" class="crowd" aria-label="Rows with working marks"></section>
+  </div>
+  <div id="bench">
+    <p id="bench-label"></p>
+    <section id="roster" class="roster" aria-label="Working sessions"></section>
+    <textarea id="composer" aria-label="Message" placeholder="Send a message…"></textarea>
+  </div>
+</main>
+<dialog id="export-dialog" aria-labelledby="export-title">
+  <h2 id="export-title">Your picks</h2>
+  <p>Give points with the three dots on each card and add notes, then copy this and paste it into the chat. Points stay in this browser.</p>
+  <textarea id="export-text" readonly aria-label="Picks to send"></textarea>
+  <div class="row-end"><span id="copy-state"></span><button id="copy" type="button">Copy</button><button id="close-export" type="button">Close</button></div>
+</dialog>
+<script>
+if (new URLSearchParams(location.search).has('sheet')) document.body.classList.add('sheet');
+
+// ---------- a little 3D kit: x right, y down, z toward the viewer; units are em ----------
+const TAU = Math.PI * 2, DEG = Math.PI / 180;
+const GOLDEN = Math.PI * (3 - Math.sqrt(5)); // 137.5°, the golden angle
+const lerp = (a, b, t) => a + (b - a) * t;
+const clamp01 = t => Math.max(0, Math.min(1, t));
+const smooth = t => { t = clamp01(t); return t * t * (3 - 2 * t); };
+const frac = x => x - Math.floor(x);
+const easeOutBack = t => { const c1 = 1.70158; return 1 + (c1 + 1) * (t - 1) ** 3 + c1 * (t - 1) ** 2; };
+const easeInOutBack = t => { const c2 = 1.70158 * 1.525; return t < .5 ? (2 * t) ** 2 * ((c2 + 1) * 2 * t - c2) / 2 : ((2 * t - 2) ** 2 * ((c2 + 1) * (2 * t - 2) + c2) + 2) / 2; };
+const P = (x, y, z = 0) => ({ x, y, z });
+const rotX = (p, a) => { const c = Math.cos(a), s = Math.sin(a); return { ...p, y: p.y * c - p.z * s, z: p.y * s + p.z * c }; };
+const rotY = (p, a) => { const c = Math.cos(a), s = Math.sin(a); return { ...p, x: p.x * c + p.z * s, z: -p.x * s + p.z * c }; };
+const rotZ = (p, a) => { const c = Math.cos(a), s = Math.sin(a); return { ...p, x: p.x * c - p.y * s, y: p.x * s + p.y * c }; };
+const ring = (r, a) => P(r * Math.cos(a), r * Math.sin(a));
+// An orbit tilted away from the viewer by `tilt`, then turned in the picture plane by `turn`.
+const orbit = (p, tilt, turn) => rotZ(rotX(p, tilt), turn);
+// Opacity for a dot that may pass behind a central body of radius `rad`.
+const behind = (p, rad) => p.z < 0 ? 1 - .88 * (1 - smooth((Math.hypot(p.x, p.y) - rad * .6) / (rad * 1.2))) : 1;
+// Kepler's equation M = E - e sin E, solved for the eccentric anomaly E.
+const kepler = (M, e) => { let E = M + e * Math.sin(M); for (let i = 0; i < 8; i++) E -= (E - e * Math.sin(E) - M) / (1 - e * Math.cos(E)); return E; };
+
+// Today's 8-dot cell (66 x 100 viewBox) in em from its centre.
+const GY = [-.32, -.11, .11, .32];
+const GRID = [0, 1, 2, 3, 4, 5, 6, 7].map(k => P(k % 2 ? .16 : -.16, GY[k >> 1]));
+
+// ---------- shapes some designs share ----------
+const juggle = phase => ({ d: .24, at: u => {
+  // A 3-ball cascade: 6 beats per ball cycle; throws are 2 beats long, holds 1 beat.
+  const b = frac(u + phase) * 6;
+  const fly = (x0, x1, s) => P(lerp(x0, x1, s), .27 - 4 * .62 * s * (1 - s));
+  const hold = (x0, x1, s) => P(lerp(x0, x1, smooth(s)), .27 + .06 * Math.sin(Math.PI * s));
+  if (b < 2) return fly(.11, -.36, b / 2);
+  if (b < 3) return hold(-.36, -.11, b - 2);
+  if (b < 5) return fly(-.11, .36, (b - 3) / 2);
+  return hold(.36, .11, b - 5);
+} });
+const moon = (laps, turn, phase) => ({ d: .23, at: u => {
+  const p = orbit(ring(.4, TAU * (laps * u + phase)), 70 * DEG, turn * DEG);
+  return { ...p, o: behind(p, .135) };
+} });
+const TETRA = [[1, 1, 1], [1, -1, -1], [-1, 1, -1], [-1, -1, 1]].map(([x, y, z]) => P(x * .2, y * .2, z * .2));
+const RACE = [0, 2, 4, 6, 7, 5, 3, 1];
+const WAVE_DELAY = [0, 120, 210, 330, 420, 540, 630, 750];
+// The order-2 Moore curve (Hilbert's closed cousin) through a 4 x 4 grid.
+const MOORE = [[1, 0], [0, 0], [0, 1], [1, 1], [1, 2], [0, 2], [0, 3], [1, 3], [2, 3], [3, 3], [3, 2], [2, 2], [2, 1], [3, 1], [3, 0], [2, 0]]
+  .map(([gx, gy]) => P((gx - 1.5) * .26, (1.5 - gy) * .26));
+// The comet's sun sits at the ellipse's focus, placed so the whole orbit is centred in the box.
+const COMET = { e: .55, a: .32, turn: -25 * DEG };
+const COMET_SUN = rotZ(P(COMET.a * COMET.e, 0), COMET.turn);
+// The heart curve and its Fourier coefficients (computed once), so a chain of spinning arms can draw it.
+const heartCurve = t => P(16 * Math.sin(t) ** 3, -(13 * Math.cos(t) - 5 * Math.cos(2 * t) - 2 * Math.cos(3 * t) - Math.cos(4 * t)));
+const HEART = (() => {
+  const N = 256, cs = [];
+  for (let n = -4; n <= 4; n++) {
+    let re = 0, im = 0;
+    for (let j = 0; j < N; j++) { const t = TAU * j / N, z = heartCurve(t), c = Math.cos(n * t), s = Math.sin(n * t); re += z.x * c + z.y * s; im += z.y * c - z.x * s; }
+    cs.push({ n, re: re / N, im: im / N });
+  }
+  return { c0: cs.find(c => c.n === 0), arms: cs.filter(c => c.n && Math.hypot(c.re, c.im) > 1e-6).sort((a, b) => Math.hypot(b.re, b.im) - Math.hypot(a.re, a.im)) };
+})();
+const heartAt = (t, arms) => {
+  let x = HEART.c0.re, y = HEART.c0.im;
+  for (const c of HEART.arms.slice(0, arms)) { const a = c.n * t; x += c.re * Math.cos(a) - c.im * Math.sin(a); y += c.re * Math.sin(a) + c.im * Math.cos(a); }
+  return P(x * .026, (y - 2.5) * .026);
+};
+// A repeating two-wing path shaped after the Lorenz attractor: about 2.5 laps round the left wing, a
+// crossing, 2.5 laps the other way round the right wing, and a crossing back.
+const lobe = v => smooth((v - .42) / .08) - smooth((v - .92) / .08);
+const grow = v => v < .42 ? v / .42 : v < .5 ? 1 - smooth((v - .42) / .08) : v < .92 ? (v - .5) / .42 : 1 - smooth((v - .92) / .08);
+const WING = (() => {
+  // The wing angle turns one way on the left wing and the other way on the right; it leaves each wing
+  // pointing at the other one (0 at v = .42, π at v = .92) and comes back to where it started.
+  const n = 4000, K = 5 * Math.PI / .42, out = new Float64Array(n + 1);
+  out[0] = Math.PI;
+  for (let i = 0; i < n; i++) out[i + 1] = out[i] + K * (1 - 2 * lobe((i + .5) / n)) / n;
+  return out;
+})();
+const lorenz = v => {
+  const x = v * 4000, i = Math.min(3999, Math.floor(x)), a = lerp(WING[i], WING[i + 1], x - i);
+  const r = .05 + .15 * grow(v);
+  return P(lerp(-.21, .21, lobe(v)) + r * Math.cos(a), .9 * r * Math.sin(a), (lobe(v) - .5) * .24);
+};
+
+// ---------- the designs ----------
+// Each dot is { d: diameter in em, at: u in [0,1) -> {x, y, z, s?, o?}, loop?: its own ms }. `depth` is the
+// radius used to turn z into "how far behind": at z = -depth a dot is drawn at BACK.s size and BACK.o
+// opacity. `under` is the idea underneath, shown with "What's underneath".
+const designs = [
+  { g: 'ref', id: 'wave', name: 'Original wave', tall: true, loop: 1500,
+    dots: GRID.map((g, k) => ({ d: .22, at: u => {
+      const v = frac(u - WAVE_DELAY[k] / 1500);
+      const lit = v < .16 ? v / .16 : v < .44 ? 1 - (v - .16) / .28 : 0;
+      return { ...g, s: .8 + .36 * lit, o: .2 + .8 * lit };
+    } })),
+    desc: 'Your pick. The pre-September wave, rebuilt from 8 dots.', how: '8 dots, each fading and swelling on its own clock.' },
+
+  { g: 'picks', id: 'race', name: 'Racetrack', tall: true, loop: 1200,
+    dots: GRID.map((g, k) => ({ d: .22, at: u => {
+      const behindHead = frac(u - RACE.indexOf(k) / 8);
+      const lit = behindHead < .45 ? Math.pow(1 - behindHead / .45, 1.6) : 0;
+      return { ...g, x: g.x + (k % 2 ? 1 : -1) * .04 * lit, s: .72 + .32 * lit, o: .16 + .84 * lit };
+    } })),
+    desc: 'The wave turned into a lap: a bright head with a fading tail runs round the cell, and each dot pops outward as it passes.', how: '8 dots. Same shape as today\'s mark; more drive than the wave.' },
+  { g: 'picks', id: 'binary', name: 'Binary pair', loop: 1400, depth: .31,
+    dots: [
+      { d: .28, at: u => orbit(ring(.25, TAU * u), 64 * DEG, -24 * DEG) },
+      { d: .25, at: u => orbit(ring(.31, TAU * u + Math.PI), 64 * DEG, -24 * DEG) },
+    ],
+    desc: 'Two near-equal dots circling each other on a tilted orbit, no line. The far one shrinks and dims.', how: '2 dots. Inspired by LDRS "Orbit".' },
+  { g: 'picks', id: 'binary-precess', name: 'Binary pair, wobbling', loop: 4200, depth: .31,
+    dots: [
+      { d: .28, at: u => orbit(ring(.25, TAU * 3 * u), (60 + 16 * Math.sin(TAU * u)) * DEG, -TAU * u) },
+      { d: .25, at: u => orbit(ring(.31, TAU * 3 * u + Math.PI), (60 + 16 * Math.sin(TAU * u)) * DEG, -TAU * u) },
+    ],
+    desc: 'The same pair, but the orbit itself turns and rocks, so the path keeps changing: a slow rosette.', how: '2 dots. One loop is three orbits.' },
+  { g: 'picks', id: 'halo-gyre', name: 'Halo, tumbling', loop: 3600, depth: .36,
+    dots: [0, 1, 2, 3, 4, 5, 6, 7].map(j => ({ d: .19, at: u =>
+      orbit(ring(.36, TAU * (2 * u + j / 8)), (58 + 24 * Math.sin(TAU * u)) * DEG, TAU * u) })),
+    desc: 'Eight dots run round a ring while the ring turns itself and rocks from open to nearly edge-on.', how: '8 dots. Your halo with the ring moving too.' },
+  { g: 'picks', id: 'halo-flip', name: 'Halo, coin flip', loop: 2400, depth: .36,
+    dots: [0, 1, 2, 3, 4, 5, 6, 7].map(j => ({ d: .19, at: u =>
+      rotX(rotY(ring(.36, TAU * (u + j / 8)), TAU * u), 18 * DEG) })),
+    desc: 'The ring of eight flips over like a spun coin while the dots keep running round it.', how: '8 dots. Edge-on, it becomes a single column for a beat.' },
+  { g: 'picks', id: 'halo-six', name: 'Halo of six, tumbling', loop: 3000, depth: .34,
+    dots: [0, 1, 2, 3, 4, 5].map(j => ({ d: .23, at: u =>
+      orbit(ring(.34, TAU * (2 * u + j / 6)), (56 + 26 * Math.sin(TAU * u)) * DEG, -TAU * u) })),
+    desc: 'The tumbling halo with six bigger dots, for the smallest sizes.', how: '6 dots.' },
+
+  { g: 'satisfying', id: 'tusi', name: 'Rolling circle', loop: 2400,
+    dots: [0, 1, 2, 3, 4, 5].map(k => { const th = k * Math.PI / 6; return { d: .19, at: u => {
+      const m = .46 * Math.cos(TAU * u - th);
+      return P(m * Math.cos(th), m * Math.sin(th));
+    } }; }),
+    desc: 'A ring of dots rolls round inside the mark. Watch any one dot: it only ever slides back and forth on a straight line.', how: '6 dots.',
+    under: 'The Tusi couple (al-Tusi, 1247): a circle rolling inside one twice its size moves every point on it in a straight line.' },
+  { g: 'satisfying', id: 'pendulums', name: 'Pendulum wave', loop: 7200,
+    dots: [0, 1, 2, 3, 4].map(k => ({ d: .17, loop: 7200 / (6 + k), at: u => P(.3 * Math.cos(TAU * u), -.36 + .18 * k) })),
+    desc: 'Five pendulums drift out of step into waves and snakes, then all line up again.', how: '5 dots, each on its own simple swing.',
+    under: 'Pendulum k swings 6 + k times every 7.2 s, so once every 7.2 s they all realign.' },
+  { g: 'satisfying', id: 'cradle', name: 'Newton\'s cradle', loop: 1400,
+    dots: [-1, 0, 1].map(i => ({ d: .2, at: u => {
+      const a = i === 1 && u < .5 ? 30 * DEG * Math.sin(TAU * u) : i === -1 && u >= .5 ? -30 * DEG * Math.sin(TAU * (u - .5)) : 0;
+      return P(.2 * i + .55 * Math.sin(a), -.45 + .55 * Math.cos(a));
+    } })),
+    desc: 'Click, clack: the end ball swings out, falls back and knocks the far ball out, and back again.', how: '3 dots; only the two ends ever move.',
+    under: 'Momentum and energy are both conserved, so exactly one ball leaves on the far side.' },
+  { g: 'satisfying', id: 'syzygy', name: 'Syzygy', loop: 2700, depth: .42,
+    still: [{ d: .2, x: 0, y: 0 }],
+    dots: [[.17, 3, .17], [.29, 2, .19], [.42, 1, .21]].map(([r, laps, d]) => ({ d, at: u => {
+      const p = orbit(ring(r, TAU * laps * u), 62 * DEG, -12 * DEG);
+      const line = Math.max(Math.cos(TAU * 2 * u), 0) ** 30;
+      return { ...p, s: 1 + .16 * line, o: behind(p, .1) };
+    } })),
+    desc: 'Three planets round a sun, each at its own speed. Twice a loop they all line up, and swell for a beat.', how: '3 moving dots + 1 still.',
+    under: 'Orbits of 3, 2 and 1 laps per loop line up at the start and halfway through: a syzygy.' },
+  { g: 'satisfying', id: 'click', name: 'Click', loop: 2600, rest: .55,
+    dots: GRID.map((g, k) => ({ d: .22, at: u => {
+      const rs = Math.hypot(g.x, g.y), as = Math.atan2(g.y, g.x);
+      const tin = clamp01((u - k * .02) / .3), tout = clamp01((u - .74 - k * .012) / .16);
+      const placed = easeOutBack(tin) * (1 - tout * tout);
+      const snap = Math.exp(-(((u - .45) / .03) ** 2));
+      return { ...ring(lerp(.5, rs, placed), lerp(as + 2.4, as, placed)), s: 1 + .16 * snap, o: smooth(tin / .35) * (1 - smooth(tout)) };
+    } })),
+    desc: 'The eight dots swirl in and snap into today\'s mark with a tiny bounce, hold, then swirl away.', how: '8 dots.',
+    under: 'An overshoot ("back") easing curve: each dot passes its spot by a hair, then settles.' },
+  { g: 'satisfying', id: 'flip', name: 'Half-turn', loop: 2200, rest: .7,
+    dots: GRID.map(g => ({ d: .22, at: u => rotZ(g, Math.PI * easeInOutBack(clamp01(u / .42))) })),
+    desc: 'Today\'s mark winds back, spins half a turn, overshoots and settles, then rests.', how: '8 dots, moving as one.',
+    under: 'The mark looks the same upside down, so every half-turn lands exactly where it started.' },
+  { g: 'satisfying', id: 'bowl', name: 'Bowl', loop: 1800,
+    still: [-2.7, -1.8, -.9, 0, .9, 1.8, 2.7].map(t => ({ d: .07, o: .3, x: .14 * (t + Math.sin(t)), y: .31 - .14 * (1 - Math.cos(t)) })),
+    dots: [.92, -.6, .3].map(s0 => ({ d: .2, at: u => {
+      const t = 2 * Math.asin(s0 * Math.cos(TAU * u));
+      return P(.14 * (t + Math.sin(t)), .2 - .14 * (1 - Math.cos(t)));
+    } })),
+    desc: 'Three dots let go at different heights in a bowl. However high they start, they reach the bottom at the same moment.', how: '3 dots and a faint bowl.',
+    under: 'The bowl is a cycloid, the tautochrone: the time to slide to the bottom does not depend on where you start.' },
+
+  { g: 'space', id: 'moons', name: 'Planet and moons', loop: 3600, depth: .4,
+    still: [{ d: .27, x: 0, y: 0 }],
+    dots: [moon(1, -20, 0), moon(-1, 40, 1 / 3), moon(2, 100, 2 / 3)],
+    desc: 'A planet dot with three moons nearly its size on three tilted orbits at different speeds; moons pass behind it.', how: '3 moving dots + 1 still.' },
+  { g: 'space', id: 'electrons', name: 'Electron cloud', loop: 2800, depth: .34,
+    dots: [0, 1, 2].map(k => ({ d: .25, at: u => {
+      const a = TAU * (2 * u + k / 3), c = .34 * Math.cos(a), s = .34 * Math.sin(a);
+      const p = [P(c, s, 0), P(0, c, s), P(c, 0, s)][k];
+      return rotX(rotY(p, TAU * u), 30 * DEG);
+    } })),
+    desc: 'An atom without the rings: three dots on three crossing orbits, and the whole cloud slowly turning.', how: '3 dots.' },
+  { g: 'space', id: 'tetra', name: 'Tumbling tetrahedron', loop: 4000, depth: .35,
+    dots: TETRA.map(v => ({ d: .25, at: u => rotY(rotX(v, TAU * u), TAU * 2 * u) })),
+    desc: 'Four dots at the corners of an invisible pyramid, tumbling end over end.', how: '4 dots.' },
+  { g: 'space', id: 'eight', name: 'Figure-eight three-body', loop: 4500, depth: .24,
+    dots: [0, 1, 2].map(k => ({ d: .25, at: u => {
+      const v = 3 * u + k / 3;
+      return rotZ(rotY(P(.4 * Math.sin(TAU * v), .2 * Math.sin(2 * TAU * v)), 35 * DEG), -TAU * u);
+    } })),
+    desc: 'Three equal dots chasing each other round one figure-eight while the eight slowly turns.', how: '3 dots.',
+    under: 'The three-body figure-eight orbit (Moore 1993; proved by Chenciner and Montgomery, 2000).' },
+  { g: 'space', id: 'comet', name: 'Comet', loop: 3600,
+    still: [{ d: .17, x: COMET_SUN.x, y: COMET_SUN.y }],
+    dots: [3, 2, 1, 0].map(i => ({ d: [.17, .13, .1, .08][i], at: u => {
+      const E = kepler(TAU * u, COMET.e);
+      const q = rotZ(P(COMET.a * (Math.cos(E) - COMET.e), COMET.a * Math.sqrt(1 - COMET.e ** 2) * Math.sin(E)), COMET.turn);
+      const r = Math.hypot(q.x, q.y), tail = 1 + Math.min(.3, .026 / r) * i / 3 / r;
+      return { ...P(COMET_SUN.x + q.x * tail, COMET_SUN.y + q.y * tail), o: [1, .62, .4, .24][i] };
+    } })),
+    desc: 'A comet whips round the sun and drifts slowly far out; its tail always points away from the sun and grows as it gets close.', how: '4 moving dots + 1 still.',
+    under: 'Kepler\'s second law (equal areas in equal times) sets the speed; sunlight and the solar wind push the tail away from the sun.' },
+  { g: 'space', id: 'blackhole', name: 'Black hole', loop: 4000, depth: .42, back: { s: .72, o: .82 },
+    dots: [[.42, 1, 3, .2], [.265, 2, 3, .18], [.167, 4, 2, .16]].flatMap(([r, laps, n, d]) => [...Array(n).keys()].map(j => ({ d, at: u => {
+      const a = TAU * (laps * u + j / n);
+      const p = orbit(ring(r, a), 64 * DEG, -10 * DEG), q = orbit(ring(r, a + .01), 64 * DEG, -10 * DEG);
+      return { ...p, o: clamp01(.8 + .2 * (q.z - p.z) / (.01 * r)) };
+    } }))),
+    desc: 'A disc of dots round an empty middle: inner dots race, outer ones crawl, and the side coming toward you shines brighter.', how: '8 dots in three rings.',
+    under: 'Keplerian speeds (rings at 1, 2 and 4 laps sit at radius ∝ T^⅔) plus Doppler beaming, which brightens the approaching side.' },
+  { g: 'space', id: 'pulsar', name: 'Pulsar', loop: 1600, depth: .41,
+    still: [{ d: .15, x: 0, y: 0 }],
+    dots: [1, -1].flatMap(sg => [.17, .29, .41].map((r, i) => ({ d: [.15, .13, .11][i], at: u => {
+      const m = rotX(P(Math.sin(40 * DEG) * Math.cos(TAU * u), -Math.cos(40 * DEG), Math.sin(40 * DEG) * Math.sin(TAU * u)), -50 * DEG);
+      const beam = Math.max(0, sg * m.z) ** 4;
+      return { ...P(sg * m.x * r, sg * m.y * r, sg * m.z * r), s: 1 + .3 * beam, o: .5 + .5 * beam };
+    } }))),
+    desc: 'A spinning star throws two beams of dots round a cone; once a turn a beam sweeps straight at you and flashes.', how: '6 moving dots + 1 still.',
+    under: 'A pulsar\'s magnetic axis is tilted from its spin axis, so its beams sweep the sky like a lighthouse.' },
+  { g: 'space', id: 'trojans', name: 'Trojans', loop: 4000, depth: .42,
+    still: [{ d: .22, x: 0, y: 0 }],
+    dots: [
+      { d: .2, at: u => { const p = orbit(ring(.38, TAU * u), 64 * DEG, -15 * DEG); return { ...p, o: behind(p, .11) }; } },
+      ...[[60, 0], [60, .5], [-60, .25], [-60, .75]].map(([lead, ph]) => ({ d: .12, at: u => {
+        const w = TAU * (2 * u + ph);
+        const p = orbit(ring(.38 + .025 * Math.cos(w), TAU * u + lead * DEG + .22 * Math.sin(w)), 64 * DEG, -15 * DEG);
+        return { ...p, o: behind(p, .11) };
+      } })),
+    ],
+    desc: 'A planet circles its star with two little swarms riding along, one ahead and one behind, rocking back and forth.', how: '5 moving dots + 1 still.',
+    under: 'The Lagrange points L4 and L5 sit 60° ahead of and behind a planet; Jupiter\'s Trojan asteroids rock around them.' },
+  { g: 'space', id: 'tatooine', name: 'Tatooine', loop: 4800, depth: .42,
+    dots: [
+      { d: .21, at: u => orbit(ring(.09, TAU * 4 * u), 64 * DEG, -15 * DEG) },
+      { d: .17, at: u => orbit(ring(.12, TAU * 4 * u + Math.PI), 64 * DEG, -15 * DEG) },
+      { d: .17, at: u => orbit(ring(.4, TAU * u + 1), 64 * DEG, -15 * DEG) },
+    ],
+    desc: 'Two suns waltz round each other while a planet slowly circles both.', how: '3 dots.',
+    under: 'A circumbinary orbit, like Kepler-16b, the real "Tatooine".' },
+
+  { g: 'nature', id: 'firefly-sync', name: 'Fireflies in sync', loop: 6000, samples: 480,
+    dots: [[-.3, -.2, 0], [.05, -.33, .37], [.32, -.12, .71], [-.12, .05, .19], [.25, .25, .55], [-.28, .3, .86]].map(([x, y, ph], k) => ({ d: .21, at: u => {
+      const sync = Math.sin(Math.PI * u) ** 2;
+      const v = frac(8 * u + ph * (1 - sync));
+      const flash = Math.exp(-(Math.min(v, 1 - v) ** 2) / .003);
+      return { ...P(x + .03 * Math.sin(TAU * (k + 1) * u), y + .03 * Math.cos(TAU * (2 + k % 3) * u)), s: .85 + .15 * flash, o: .2 + .8 * flash };
+    } })),
+    desc: 'Six fireflies blinking on their own beats slowly fall into step, flash together, then drift apart again.', how: '6 dots.',
+    under: 'Coupled oscillators (the Kuramoto model). Fireflies in parts of Southeast Asia really do synchronise.' },
+  { g: 'nature', id: 'sunflower', name: 'Sunflower', loop: 4000,
+    dots: [...Array(10).keys()].map(k => ({ d: .21, at: u => {
+      const age = frac(u + k / 10);
+      return { ...ring(.45 * Math.sqrt(age), k * GOLDEN), s: .35 + .65 * age, o: smooth(age / .12) * (1 - smooth((age - .78) / .22)) };
+    } })),
+    desc: 'Seeds appear in the middle and drift outward, each a little turned from the last: a sunflower head growing.', how: '10 dots.',
+    under: 'Vogel\'s model of phyllotaxis: seed n sits at angle n × 137.5° (the golden angle) and radius ∝ √n.' },
+  { g: 'nature', id: 'waggle', name: 'Waggle dance', loop: 2600, samples: 260,
+    dots: [[.1, .12, .28], [.05, .14, .45], [0, .22, 1]].map(([lag, d, o]) => ({ d, at: u => {
+      const v = frac(u - lag), run = t => P(.07 * Math.sin(TAU * 4 * t), .26 - .52 * t);
+      let p;
+      if (v < .32) p = run(v / .32);
+      else if (v < .5) { const t = (v - .32) / .18; p = P(.26 * Math.sin(Math.PI * t), -.26 * Math.cos(Math.PI * t)); }
+      else if (v < .82) p = run((v - .5) / .32);
+      else { const t = (v - .82) / .18; p = P(-.26 * Math.sin(Math.PI * t), -.26 * Math.cos(Math.PI * t)); }
+      return { ...rotZ(p, 25 * DEG), o };
+    } })),
+    desc: 'A bee dances: a straight run waggling side to side, a loop back round to the right, another run, a loop back to the left. Two followers tag along.', how: '3 dots.',
+    under: 'The honeybee waggle dance: the run\'s angle from straight up gives the food\'s direction relative to the sun, and its length gives the distance.' },
+  { g: 'nature', id: 'mitosis', name: 'Mitosis', loop: 2000, rest: .7, samples: 160,
+    dots: [[-1, -1], [-1, 1], [1, -1], [1, 1]].map(([sx, sy]) => ({ d: .3, at: u => {
+      const a = easeOutBack(clamp01((u - .12) / .2)), b = easeOutBack(clamp01((u - .46) / .2)), out = smooth((u - .8) / .17);
+      // Each division first stretches the cell along its axis, then it pops apart.
+      const pull1 = Math.exp(-(((u - .11) / .045) ** 2)), pull2 = Math.exp(-(((u - .45) / .045) ** 2));
+      return { ...P(sx * (.15 * a + .14 * out), sy * (.15 * b + .14 * out)), s: 1 - .18 * a - .14 * b, sx: 1 + .35 * pull1 - .1 * pull2, sy: 1 - .1 * pull1 + .35 * pull2, o: smooth(u / .06) * (1 - out) };
+    } })),
+    desc: 'One cell stretches and pops into two, then each of those into two again; the four drift off and a new cell appears.', how: '4 dots.',
+    under: 'Cell division: 1 → 2 → 4.' },
+  { g: 'nature', id: 'murmuration', name: 'Murmuration', loop: 6000, depth: .14,
+    dots: [[0, 0, 0], [-.09, .05, .08], [-.08, -.06, -.06], [-.17, 0, .02], [-.16, .1, -.08], [.07, .04, -.04], [-.05, -.11, .1]].map(([ox, oy, oz], k) => ({ d: .17, at: u => {
+      const cx = .2 * Math.sin(TAU * u), cy = .13 * Math.sin(TAU * 2 * u);
+      const heading = Math.atan2(.26 * Math.cos(TAU * 2 * u), .2 * Math.cos(TAU * u));
+      const spread = .8 + .4 * Math.sin(TAU * 3 * u + k * .4), squash = 1 - .55 * Math.sin(TAU * 2 * u + .5) ** 2;
+      const f = rotZ(P(ox * spread * 1.7, oy * spread * squash * 1.4, oz), heading);
+      return P(cx + f.x + .015 * Math.sin(TAU * (5 + k) * u), cy + f.y + .015 * Math.cos(TAU * (4 + k) * u), f.z);
+    } })),
+    desc: 'A small flock wheeling as one, stretching and bunching as it turns.', how: '7 dots.',
+    under: 'Starlings in a murmuration each keep track of about seven nearest neighbours. There are seven dots.' },
+  { g: 'nature', id: 'drop', name: 'Drop', loop: 2200, samples: 220,
+    dots: [
+      { d: .17, at: u => { const v = frac(u + .15), t = clamp01(v / .3); return { ...P(0, -.46 + .48 * t * t), o: v < .3 ? smooth(v / .06) : 0 }; } },
+      { d: .13, at: u => { const t = (u - .19) / .3; return { ...P(0, .02 - 1.2 * clamp01(t) * (1 - clamp01(t))), o: t > 0 && t < 1 ? 1 : 0 }; } },
+      ...[0, 1, 2, 3, 4, 5].map(k => ({ d: .13, at: u => {
+        const t = clamp01((u - .15) / .72), r = .44 * (1 - (1 - t) ** 3), a = TAU * k / 6 + .3;
+        return { ...P(r * Math.cos(a), .02 + .4 * r * Math.sin(a)), o: u > .15 ? (1 - t) ** 1.3 : 0 };
+      } })),
+    ],
+    desc: 'A drop falls, a ring of ripples spreads across the surface, and a little droplet jumps back up.', how: '8 dots.',
+    under: 'The droplet that bounces up is a Worthington jet, after Arthur Worthington\'s splash studies from the 1870s on.' },
+
+  { g: 'math', id: 'knot', name: 'Knot', loop: 3600, depth: .21,
+    dots: [...Array(6).keys()].map(k => ({ d: .19, at: u => {
+      const t = TAU * (u + k / 6);
+      const p = P(.14 * (Math.sin(t) + 2 * Math.sin(2 * t)), .14 * (Math.cos(t) - 2 * Math.cos(2 * t)) + .07, -.21 * Math.sin(3 * t));
+      return rotY(p, .5 * Math.sin(TAU * u));
+    } })),
+    desc: 'Six dots running along a knotted loop, passing over and under themselves while the knot sways.', how: '6 dots.',
+    under: 'A trefoil knot, (sin t + 2 sin 2t, cos t − 2 cos 2t, −sin 3t): the simplest knot that can\'t be untied.' },
+  { g: 'math', id: 'mobius', name: 'Möbius', loop: 4000, depth: .3,
+    dots: [...Array(6).keys()].map(k => ({ d: .18, at: u => {
+      const t = 2 * TAU * (u + k / 6), w = .14 * Math.cos(t / 2);
+      return orbit(P((.3 + w) * Math.cos(t), (.3 + w) * Math.sin(t), .14 * Math.sin(t / 2)), 60 * DEG, -10 * DEG);
+    } })),
+    desc: 'Dots running along the edge of a twisted band. Follow one: it visits both edges, because there is only one.', how: '6 dots.',
+    under: 'A Möbius strip has a single edge: one loop that goes round twice.' },
+  { g: 'math', id: 'heart', name: 'Heart', loop: 3600,
+    dots: [
+      ...[1, 2, 3].map(arms => ({ d: .1, at: u => ({ ...heartAt(TAU * u, arms), o: .35 }) })),
+      ...[7, 6, 5, 4, 3, 2, 1, 0].map(j => ({ d: .2 - .013 * j, at: u => ({ ...heartAt(TAU * u - .3 * j, Infinity), o: 1 - .11 * j }) })),
+    ],
+    desc: 'A dot drawing a heart, pulled along by a chain of spinning arms.', how: '8 drawing dots + 3 faint joints.',
+    under: 'Fourier epicycles of the heart curve x = 16 sin³t, y = 13 cos t − 5 cos 2t − 2 cos 3t − cos 4t.' },
+  { g: 'math', id: 'snake', name: 'Snake', loop: 2400, samples: 320,
+    dots: [3, 2, 1, 0].map(i => ({ d: .2, at: u => {
+      const s = 16 * u - i, k = Math.floor(s), f = smooth(s - k);
+      const a = MOORE[(k % 16 + 16) % 16], b = MOORE[((k + 1) % 16 + 16) % 16];
+      return { ...P(lerp(a.x, b.x, f), lerp(a.y, b.y, f)), s: [1, .9, .8, .72][i], o: [1, .68, .45, .28][i] };
+    } })),
+    desc: 'A four-dot snake hopping cell to cell through a 4 × 4 grid, visiting every cell once before it comes round again.', how: '4 dots.',
+    under: 'The Moore curve, the closed cousin of Hilbert\'s space-filling curve.' },
+  { g: 'math', id: 'nautilus', name: 'Nautilus', loop: 3200, samples: 240,
+    dots: [...Array(8).keys()].map(k => ({ d: .22, at: u => {
+      const age = frac(u + k / 8), turn = TAU * 1.45 * age;
+      const r = .035 * Math.exp(Math.log((1 + Math.sqrt(5)) / 2) / (Math.PI / 2) * turn);
+      return { ...ring(r, turn + (k % 2) * Math.PI - TAU * u), s: .3 + .7 * Math.min(1, r / .45), o: smooth(age / .14) * (1 - smooth((age - .8) / .2)) };
+    } })),
+    desc: 'Dots unwinding from the centre along two spiral arms that widen by the same ratio every quarter turn.', how: '8 dots.',
+    under: 'A golden logarithmic spiral: r grows ×1.618 every quarter turn, so it looks the same at any zoom. (Real nautilus shells grow more slowly; the golden nautilus is a myth.)' },
+  { g: 'math', id: 'globe', name: 'Globe', loop: 5000, depth: .38,
+    dots: [...Array(12).keys()].map(i => {
+      const z = 1 - 2 * (i + .5) / 12, rr = Math.sqrt(1 - z * z), a = i * GOLDEN;
+      return { d: .15, at: u => rotX(rotY(P(.38 * rr * Math.cos(a), .38 * z, .38 * rr * Math.sin(a)), TAU * u), 20 * DEG) };
+    }),
+    desc: 'Twelve dots spread evenly over a turning ball.', how: '12 dots.',
+    under: 'A Fibonacci sphere: point i at height 1 − 2(i + ½)/n and longitude i × 137.5°.' },
+  { g: 'math', id: 'squircle', name: 'Squircle', loop: 3600,
+    dots: [...Array(8).keys()].map(k => ({ d: .19, at: u => {
+      const n = 2 * Math.pow(2.6, Math.sin(TAU * u)), t = TAU * (k / 8 + u), c = Math.cos(t), s = Math.sin(t);
+      return P(.38 * Math.sign(c) * Math.abs(c) ** (2 / n), .38 * Math.sign(s) * Math.abs(s) ** (2 / n));
+    } })),
+    desc: 'A ring of dots that keeps reshaping: circle, rounded square, circle, four-pointed star, circle.', how: '8 dots.',
+    under: 'Lamé curves |x|ⁿ + |y|ⁿ = 1: n = 2 is a circle, n ≈ 5 is Piet Hein\'s superellipse, n < 1 is a star.' },
+  { g: 'math', id: 'butterfly', name: 'Butterfly', loop: 4800, samples: 360, depth: .3,
+    dots: [8, 7, 6, 5, 4, 3, 2, 1, 0].map(j => ({ d: .21 - .012 * j, at: u => ({ ...lorenz(frac(u - .016 * j)), o: 1 - .1 * j }) })),
+    desc: 'A dot spirals round one wing, flips across to the other, spirals the other way there and flips back, its trail drawing the wings.', how: '9 dots.',
+    under: 'Shaped after the Lorenz attractor, the "butterfly effect" system, though this path repeats exactly.' },
+
+  { g: 'funky', id: 'juggle', name: 'Juggler', loop: 1500,
+    dots: [juggle(0), juggle(1 / 3), juggle(2 / 3)],
+    desc: 'Three dots juggled in a cascade, crossing in the middle: busy hands.', how: '3 dots on throw arcs. The classic three-ball pattern.' },
+  { g: 'funky', id: 'chase', name: 'Chase', loop: 1700,
+    dots: [0, 1, 2, 3, 4].map(k => ({ d: .21, at: u => {
+      const v = frac(u - k * .1);
+      return ring(.36, TAU * v - .75 * Math.sin(TAU * v) - Math.PI / 2);
+    } })),
+    desc: 'Five dots whirl round, bunching up at the top and spreading as they speed down.', how: '5 dots. After the Windows progress ring.' },
+  { g: 'funky', id: 'counter', name: 'Counter-spin', loop: 2400,
+    dots: [0, 1, 2, 3, 4, 5].map(k => ({ d: .21, at: u => {
+      const a = k < 3, breathe = .07 * Math.cos(TAU * 2 * u);
+      const p = ring(a ? .3 + breathe : .3 - breathe, (a ? 1 : -1) * TAU * (u + k / 3) + (a ? 0 : Math.PI / 3));
+      return { ...p, o: a ? 1 : .6 };
+    } })),
+    desc: 'Two triangles of dots turning opposite ways and breathing through each other.', how: '6 dots.' },
+  { g: 'funky', id: 'vortex', name: 'Vortex', loop: 2400,
+    dots: [0, 1, 2, 3, 4, 5].map(k => ({ d: .24, at: u => {
+      const v = frac(u + k / 6);
+      const p = ring(.42 * Math.pow(1 - v, .9), (k % 2) * Math.PI + TAU * 1.1 * v);
+      return { ...p, s: .45 + .55 * (1 - v), o: smooth(v / .18) * (1 - smooth((v - .7) / .3)) };
+    } })),
+    desc: 'Dots appear at the rim and spiral into the centre, two arms of them, like water down a drain.', how: '6 dots.' },
+  { g: 'funky', id: 'twist', name: 'Twist', tall: true, loop: 2400, depth: .16,
+    dots: GRID.map((g, k) => ({ d: .22, at: u => {
+      const a = TAU * u + (k >> 1) * Math.PI / 4 + (k % 2) * Math.PI;
+      return P(.16 * Math.cos(a), g.y, .16 * Math.sin(a));
+    } })),
+    desc: 'Today\'s eight dots become a turning double helix, like DNA.', how: '8 dots. Keeps the cell\'s shape.' },
+  { g: 'funky', id: 'shuffle', name: 'Shuffle', tall: true, loop: 2000, depth: .16, rest: .9,
+    dots: GRID.map((g, k) => ({ d: .22, at: u => {
+      const a = Math.PI * smooth((u - (k >> 1) * .11) / .34) + (k % 2 ? 0 : Math.PI);
+      return P(.16 * Math.cos(a), g.y, .16 * Math.sin(a));
+    } })),
+    desc: 'Row by row, the two dots swap sides, one passing in front of the other, then the mark rests.', how: '8 dots. Rests on today\'s exact mark.' },
+  { g: 'funky', id: 'fireflies', name: 'Fireflies', loop: 4800, depth: .3,
+    dots: [
+      { d: .25, at: u => P(.34 * Math.sin(TAU * 2 * u + .3), .3 * Math.sin(TAU * 3 * u), .3 * Math.cos(TAU * u)) },
+      { d: .25, at: u => P(.34 * Math.sin(TAU * 3 * u + 1.8), .3 * Math.sin(TAU * 2 * u + .6), .3 * Math.sin(TAU * 2 * u)) },
+      { d: .25, at: u => P(.34 * Math.sin(TAU * u + 3.4), .3 * Math.sin(TAU * 4 * u + 2.2), .3 * Math.cos(TAU * 3 * u + 1)) },
+    ],
+    desc: 'Three dots drifting on looping paths that never seem to repeat, swapping front and back.', how: '3 dots.',
+    under: 'Lissajous curves: each dot is two sine waves at small whole-number frequencies, one per axis.' },
+];
+
+const groups = [
+  ['ref', 'Your pick, as is', 'The original wave, for comparison.'],
+  ['picks', 'Your picks, pushed further', 'The wave, the binary pair without its line, and the halo with the ring moving too.'],
+  ['satisfying', 'Most satisfying', 'Loops built to land exactly: things lining up, snapping into place, arriving at the same instant.'],
+  ['space', 'Space', 'Orbits, planets, a comet, a black hole and a pulsar, with dots of nearly equal size.'],
+  ['nature', 'Natural phenomena', 'Each one copies something real.'],
+  ['math', 'A formula underneath', 'Each runs on a bit of maths you never have to notice. "What\'s underneath" shows it.'],
+  ['funky', 'Funky dots', 'Round 2\'s spinning, juggling and swapping.'],
+];
+
+// ---------- turn each design into keyframes once ----------
+const SAMPLES = 120;
+const BACK = { s: .6, o: .4 };
+function pose(d, dot, u) {
+  const p = dot.at(u), back = d.back ?? BACK;
+  const front = d.depth ? clamp01((p.z / d.depth + 1) / 2) : 1;
+  const s = lerp(back.s, 1, front) * (p.s ?? 1);
+  return { x: p.x, y: p.y, sx: s * (p.sx ?? 1), sy: s * (p.sy ?? 1), o: clamp01(lerp(back.o, 1, front) * (p.o ?? 1)) };
+}
+const near = (a, b, eps) => Math.abs(a - b) < eps;
+const transformOf = (f, top, stretch) => `translate(${f.x.toFixed(4)}em, ${f.y.toFixed(4)}em) ` +
+  (stretch ? `scale(${(f.sx / top).toFixed(4)}, ${(f.sy / top).toFixed(4)})` : `scale(${(f.sx / top).toFixed(4)})`);
+// A dot keeps only the keyframes its path needs. Its pose is sampled four times as finely as the design asks, and a
+// sample becomes a keyframe only where a straight blend between its neighbours would put the dot more than TOL_EM
+// off its place or size, or more than TOL_O off its opacity: 0.04 px at 12 px, 0.2 px at 56 px. WebKit keeps about
+// 2-3 KB for every keyframe of every animation, so a dot that needed 121 keyframes now needs a fraction of them.
+const FINE = 4, TOL_EM = .003, TOL_O = .01;
+function compile(d) {
+  if (d.compiled) return d.compiled;
+  const n = (d.samples ?? SAMPLES) * FINE;
+  d.compiled = d.dots.map(dot => {
+    const raw = [];
+    for (let i = 0; i <= n; i++) raw.push(pose(d, dot, i / n));
+    // Draw each dot at its largest size and only ever scale it down, so it stays sharp.
+    const top = Math.max(...raw.map(f => Math.max(f.sx, f.sy)));
+    const stretch = raw.some(f => !near(f.sx, f.sy, 1e-4));
+    // Animate only what changes: each animated property is one more animation for the GPU to run.
+    const moves = raw.some(f => !near(f.x, raw[0].x, 1e-4) || !near(f.y, raw[0].y, 1e-4) || !near(f.sx, raw[0].sx, 1e-4) || !near(f.sy, raw[0].sy, 1e-4));
+    const fades = raw.some(f => !near(f.o, raw[0].o, 1e-3));
+    let frames = null;
+    if (moves || fades) {
+      const r = dot.d / 2;
+      const fits = (a, b) => {
+        for (let k = a + 1; k < b; k++) {
+          const u = (k - a) / (b - a), A = raw[a], B = raw[b], K = raw[k];
+          if (moves && (Math.abs(lerp(A.x, B.x, u) - K.x) > TOL_EM || Math.abs(lerp(A.y, B.y, u) - K.y) > TOL_EM ||
+            r * Math.abs(lerp(A.sx, B.sx, u) - K.sx) > TOL_EM || r * Math.abs(lerp(A.sy, B.sy, u) - K.sy) > TOL_EM)) return false;
+          if (fades && Math.abs(lerp(A.o, B.o, u) - K.o) > TOL_O) return false;
+        }
+        return true;
+      };
+      const keep = [0];
+      for (let a = 0; a < n;) {
+        let b = a + 1;
+        while (b < n && fits(a, b + 1)) b++;
+        keep.push(b);
+        a = b;
+      }
+      frames = keep.map(i => {
+        const k = { offset: i / n };
+        if (moves) k.transform = transformOf(raw[i], top, stretch);
+        if (fades) k.opacity = +raw[i].o.toFixed(3);
+        return k;
+      });
+    }
+    return { dot, top, stretch, moves, fades, w: dot.d * top, loop: dot.loop ?? d.loop, base: raw[0], frames };
+  });
+  return d.compiled;
+}
+
+// ---------- flipbook: every frame pre-drawn on one sheet, stepped behind a window (one layer per mark) ----------
+const FLIP = { fps: 'auto', maxFrames: 240, margin: .16, mirror: false }, JUMP = 1e-7;
+const markColor = () => getComputedStyle(document.documentElement).getPropertyValue('--mark').trim();
+// Every dot drawn at time t (ms), in em from the mark's centre: [x, y, rx, ry, opacity].
+function dotsAt(d, t) {
+  const out = [];
+  for (const s of d.still || []) if ((s.o ?? 1) >= .01) out.push([s.x, s.y, s.d / 2, s.d / 2, s.o ?? 1]);
+  for (const c of compile(d)) {
+    const q = pose(d, c.dot, frac(t / c.loop));
+    if (q.o >= .01) out.push([q.x, q.y, c.dot.d / 2 * q.sx, c.dot.d / 2 * q.sy, q.o]);
+  }
+  return out;
+}
+// Many pictures repeat before the loop ends (six equal dots a sixth of a turn on look as they did), and the
+// flipbook only needs the frames up to the first repeat.
+function period(d) {
+  if (d.period) return d.period;
+  const alike = (a, b) => a.length === b.length && a.every(p => {
+    const i = b.findIndex(q => q && p.every((v, j) => Math.abs(v - q[j]) < (j === 4 ? .01 : .002)));
+    if (i >= 0) b[i] = null;
+    return i >= 0;
+  });
+  for (let k = 12; k > 1; k--) {
+    let same = true;
+    for (let s = 0; s < 48 && same; s++) same = alike(dotsAt(d, s / 48 * d.loop), dotsAt(d, (s / 48 + 1 / k) * d.loop));
+    if (same) return d.period = d.loop / k;
+  }
+  return d.period = d.loop;
+}
+// Some pictures come back mirrored half a period on: the tetrahedron's second second is its first, upside down. A
+// mirrored flipbook draws only the first half and flips the mark for the second ('y': upside down, 'x': left-right).
+function mirrorAxis(d) {
+  if (d.mirror !== undefined) return d.mirror;
+  const P = period(d), flips = { y: ([x, y, rx, ry, o]) => [x, -y, rx, ry, o], x: ([x, y, rx, ry, o]) => [-x, y, rx, ry, o] };
+  const alike = (a, b0) => { const b = [...b0]; return a.length === b.length && a.every(q => { const i = b.findIndex(z => z && q.every((v, j) => Math.abs(v - z[j]) < (j === 4 ? .01 : .002))); if (i >= 0) b[i] = null; return i >= 0; }); };
+  for (const [axis, f] of Object.entries(flips)) {
+    let same = true;
+    for (let s = 0; s < 48 && same; s++) same = alike(dotsAt(d, (s / 48 + .5) * P), dotsAt(d, s / 48 * P).map(f));
+    if (same) return d.mirror = axis;
+  }
+  return d.mirror = null;
+}
+// The lowest frame rate at which a design still moves smoothly at 12 px: from one frame to the next, no visible dot
+// moves (position plus size) more than STEP_PX or fades more than STEP_O. Slow designs need far fewer frames.
+const AUTO_FPS = [20, 24, 30, 40], STEP_PX = .6, STEP_O = .12;
+function autoFps(d) {
+  if (d.autoFps) return d.autoFps;
+  const P = period(d);
+  for (const fps of AUTO_FPS) {
+    const F = Math.max(2, Math.round(P / 1000 * fps));
+    let ok = true, prev = dotsAt(d, 0);
+    for (let f = 1; f <= F && ok; f++) {
+      const cur = dotsAt(d, f / F * P);
+      // Compare each dot with the nearest dot of the frame before: dots that trade places look the same.
+      ok = cur.every(([x, y, rx, ry, o]) => {
+        let best = Infinity, fade = 0;
+        for (const [x0, y0, rx0, ry0, o0] of prev) {
+          const step = Math.hypot(x - x0, y - y0) + Math.abs(Math.max(rx, ry) - Math.max(rx0, ry0));
+          if (step < best) { best = step; fade = Math.abs(o - o0); }
+        }
+        return o < .05 || (best * 12 <= STEP_PX && fade <= STEP_O);
+      });
+      prev = cur;
+    }
+    if (ok) return d.autoFps = fps;
+  }
+  return d.autoFps = 40;
+}
+const fpsOf = d => FLIP.fps === 'auto' ? autoFps(d) : FLIP.fps;
+// A picture as text, the same for frames that look the same.
+const pictureKey = dots => dots.map(([x, y, rx, ry, o]) => `${x.toFixed(3)} ${y.toFixed(3)} ${rx.toFixed(3)} ${ry.toFixed(3)} ${o.toFixed(2)}`).sort().join('|');
+// The sheet is cut into cells, one picture each. Frames that look the same share one cell, and a run of equal frames
+// is one hold, so rests and back-and-forth motions need fewer cells and keyframes. A cell is cut tight to where the
+// design ever draws, plus one device pixel for the anti-aliased edge, and rounded out to whole CSS pixels from the
+// mark's centre, so every frame lands on the same pixel grid and nothing shimmers as the sheet steps. The space
+// around a mark is layout, not pixels.
+function sheet(d, px, mirrored = FLIP.mirror) {
+  const flip = mirrored ? mirrorAxis(d) : null;
+  const fps = fpsOf(d), dpr = Math.max(1, devicePixelRatio || 1), key = `${px} ${fps} ${dpr} ${flip}`;
+  d.sheets ??= new Map();
+  if (d.sheets.has(key)) return d.sheets.get(key);
+  // A mirrored sheet holds the first half of the period; the mark flips for the second.
+  const P = period(d) / (flip ? 2 : 1), F = Math.min(FLIP.maxFrames, Math.max(2, Math.round(P / 1000 * fps)));
+  const cells = [], index = new Map();
+  const cellOf = Array.from({ length: F }, (_, f) => {
+    const pic = dotsAt(d, f / F * P), k = pictureKey(pic);
+    if (!index.has(k)) { index.set(k, cells.length); cells.push(pic); }
+    return index.get(k);
+  });
+  const cols = Math.ceil(Math.sqrt(cells.length)), rows = Math.ceil(cells.length / cols);
+  let l = Infinity, t = Infinity, r = -Infinity, b = -Infinity;
+  for (const pic of cells) for (const [x, y, rx, ry] of pic) {
+    // Flipped pictures must fit the same cell, so a mirrored sheet's bounds are symmetric about the mark's centre.
+    for (const [X, Y] of [[x, y], ...(flip === 'y' ? [[x, -y]] : flip === 'x' ? [[-x, y]] : [])]) {
+      l = Math.min(l, X - rx); t = Math.min(t, Y - ry); r = Math.max(r, X + rx); b = Math.max(b, Y + ry);
+    }
+  }
+  const left = Math.floor(l * px - 1 / dpr), top = Math.floor(t * px - 1 / dpr);
+  const cellW = Math.ceil(r * px + 1 / dpr) - left, cellH = Math.ceil(b * px + 1 / dpr) - top;
+  // Hold each picture, then jump to the next: linear keyframes (steps() would leave Safari's GPU path).
+  const frames = [], holds = [];
+  for (let f = 0; f < F; f++) {
+    if (f > 0 && cellOf[f] === cellOf[f - 1]) continue; // the hold goes on
+    let g = f;
+    while (g + 1 < F && cellOf[g + 1] === cellOf[f]) g++;
+    const c = cellOf[f], transform = `translate(${-(c % cols) * cellW}px, ${-Math.floor(c / cols) * cellH}px)`;
+    // The jump between two holds must be all but instant: while it lasts, the window shows the sheet between two
+    // cells, half of one frame and half of the next (or, at a row's end, a cell from the middle of the sheet). With
+    // 1e-4 of the loop that hit a screen refresh about once a second; 1e-7 is 0.2 µs of a 2 s loop.
+    frames.push({ offset: f / F, transform }, { offset: g === F - 1 ? 1 : (g + 1) / F - JUMP, transform });
+    holds.push({ cell: c, from: f / F, to: (g + 1) / F });
+  }
+  // The same holds for a stepped flipbook: one keyframe per hold, held by steps(1). WebKit runs a steps() animation on
+  // its main thread rather than the GPU, but wakes it only when a step comes, so the window is redrawn only when the
+  // picture changes, not at the display's full rate.
+  const at = c => `translate(${-(c % cols) * cellW}px, ${-Math.floor(c / cols) * cellH}px)`;
+  const stepped = holds.map(h => ({ offset: h.from, transform: at(h.cell), easing: 'steps(1, end)' }));
+  stepped.push({ offset: 1, transform: at(holds[holds.length - 1].cell) });
+  const out = { P, F, fps, flip, cols, rows, left, top, cellW, cellH, cells, order: cellOf, frames, holds, stepped, drawn: new Map() };
+  d.sheets.set(key, out);
+  return out;
+}
+// The sheet as an SVG background image. Each mark that shows it paints its own copy.
+function sheetSvg(sh, px, color) {
+  const key = 'svg ' + color;
+  if (sh.drawn.has(key)) return sh.drawn.get(key);
+  const n = v => v.toFixed(3); // in CSS px of the sheet
+  let body = '';
+  sh.cells.forEach((dots, i) => {
+    const ox = (i % sh.cols) * sh.cellW - sh.left, oy = Math.floor(i / sh.cols) * sh.cellH - sh.top;
+    for (const [x, y, rx, ry, o] of dots) body += (near(rx, ry, 1e-3)
+      ? `<circle cx="${n(ox + x * px)}" cy="${n(oy + y * px)}" r="${n(rx * px)}"`
+      : `<ellipse cx="${n(ox + x * px)}" cy="${n(oy + y * px)}" rx="${n(rx * px)}" ry="${n(ry * px)}"`) + (o < .999 ? ` fill-opacity="${o.toFixed(2)}"/>` : '/>');
+  });
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${sh.cols * sh.cellW} ${sh.rows * sh.cellH}" fill="${color}">${body}</svg>`;
+  const url = `url("data:image/svg+xml,${encodeURIComponent(svg)}")`;
+  sh.drawn.set(key, url);
+  return url;
+}
+// The same sheet as one bitmap (PNG) at the screen's pixel density. Every mark of the design shows the same image,
+// and WebKit hands a plain bitmap <img> to the GPU as layer contents, so the marks need not each paint a copy.
+function sheetBitmap(sh, px, color) {
+  const scale = Math.max(1, devicePixelRatio || 1), key = `png ${color} ${scale}`;
+  if (sh.drawn.has(key)) return sh.drawn.get(key);
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.round(sh.cols * sh.cellW * scale);
+  canvas.height = Math.round(sh.rows * sh.cellH * scale);
+  const g = canvas.getContext('2d');
+  g.fillStyle = color;
+  sh.cells.forEach((dots, i) => {
+    const ox = (i % sh.cols) * sh.cellW - sh.left, oy = Math.floor(i / sh.cols) * sh.cellH - sh.top;
+    for (const [x, y, rx, ry, o] of dots) {
+      g.globalAlpha = o;
+      g.beginPath();
+      g.ellipse((ox + x * px) * scale, (oy + y * px) * scale, rx * px * scale, ry * px * scale, 0, 0, TAU);
+      g.fill();
+    }
+  });
+  const url = canvas.toDataURL('image/png');
+  sh.drawn.set(key, url);
+  return url;
+}
+
+// ---------- animated image: the flipbook's holds as one APNG, for Chrome ----------
+// Chrome steps an animated image's frames off the main thread, draws only when a frame changes, and drops it when the
+// mark is hidden or skipped: in the spike, 32 marks as APNG or animated WebP cost Chrome about 15 points less than as a
+// flipbook. Safari decodes and repaints each frame on its main thread, so there the flipbook stays cheaper. One image
+// per design, size, colour and pixel density; every mark of the design shows it, so they all run on one clock.
+const CRC = Array.from({ length: 256 }, (_, n) => { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xedb88320 ^ (c >>> 1) : c >>> 1; return c >>> 0; });
+const crc32 = bytes => { let c = 0xffffffff; for (const b of bytes) c = CRC[(c ^ b) & 255] ^ (c >>> 8); return (c ^ 0xffffffff) >>> 0; };
+function pngChunks(dataUrl) {
+  const bytes = Uint8Array.from(atob(dataUrl.split(',')[1]), ch => ch.charCodeAt(0)), view = new DataView(bytes.buffer), out = [];
+  for (let i = 8; i < bytes.length;) {
+    const length = view.getUint32(i);
+    out.push({ type: String.fromCharCode(...bytes.subarray(i + 4, i + 8)), data: bytes.subarray(i + 8, i + 8 + length) });
+    i += 12 + length;
+  }
+  return out;
+}
+function chunk(type, data) {
+  const out = new Uint8Array(12 + data.length), view = new DataView(out.buffer);
+  view.setUint32(0, data.length);
+  for (let i = 0; i < 4; i++) out[4 + i] = type.charCodeAt(i);
+  out.set(data, 8);
+  view.setUint32(8 + data.length, crc32(out.subarray(4, 8 + data.length)));
+  return out;
+}
+// One cell drawn alone, at the screen's pixel density.
+function cellCanvas(sh, px, color, dots) {
+  const scale = Math.max(1, devicePixelRatio || 1), canvas = document.createElement('canvas');
+  canvas.width = Math.round(sh.cellW * scale);
+  canvas.height = Math.round(sh.cellH * scale);
+  const g = canvas.getContext('2d');
+  g.fillStyle = color;
+  for (const [x, y, rx, ry, o] of dots) {
+    g.globalAlpha = o;
+    g.beginPath();
+    g.ellipse((x * px - sh.left) * scale, (y * px - sh.top) * scale, rx * px * scale, ry * px * scale, 0, 0, TAU);
+    g.fill();
+  }
+  return canvas;
+}
+function sheetApng(sh, px, color) {
+  const key = `apng ${color} ${Math.max(1, devicePixelRatio || 1)}`;
+  if (sh.drawn.has(key)) return sh.drawn.get(key);
+  const pngs = sh.cells.map(dots => pngChunks(cellCanvas(sh, px, color, dots).toDataURL('image/png')));
+  const ihdr = pngs[0].find(c => c.type === 'IHDR').data, acTL = new Uint8Array(8), parts = [];
+  new DataView(acTL.buffer).setUint32(0, sh.holds.length); // and 0 plays: forever
+  parts.push(new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10]), chunk('IHDR', ihdr), chunk('acTL', acTL));
+  let seq = 0;
+  sh.holds.forEach((h, i) => {
+    // A hold lasts from its first frame to the next hold, in whole ms counted from the loop's start, so rounding
+    // doesn't add up over the loop. A hold is at least one frame (25 ms at 40 fps), above the 10 ms that browsers
+    // stretch to 100 ms.
+    const fcTL = new Uint8Array(26), v = new DataView(fcTL.buffer);
+    v.setUint32(0, seq++);
+    v.setUint32(4, new DataView(ihdr.buffer, ihdr.byteOffset).getUint32(0));
+    v.setUint32(8, new DataView(ihdr.buffer, ihdr.byteOffset).getUint32(4));
+    v.setUint16(20, Math.round(h.to * sh.P) - Math.round(h.from * sh.P));
+    v.setUint16(22, 1000); // dispose none, blend source: each frame replaces the last whole
+    parts.push(chunk('fcTL', fcTL));
+    for (const c of pngs[h.cell].filter(c => c.type === 'IDAT')) {
+      if (i === 0) parts.push(chunk('IDAT', c.data));
+      else {
+        const fdAT = new Uint8Array(4 + c.data.length);
+        new DataView(fdAT.buffer).setUint32(0, seq++);
+        fdAT.set(c.data, 4);
+        parts.push(chunk('fdAT', fdAT));
+      }
+    }
+  });
+  parts.push(chunk('IEND', new Uint8Array(0)));
+  const url = URL.createObjectURL(new Blob(parts, { type: 'image/png' }));
+  sh.drawn.set(key, url);
+  return url;
+}
+// The resting picture alone, for reduced motion.
+// The flipbook as a sprite: every frame of the loop in order (repeats included) on one bitmap, in one row, or in
+// rows of equal length when one row would be too wide. One animation with two keyframes steps through the row, and
+// a second pair steps the rows. WebKit keeps about 2 KB for every keyframe of every animation, so two keyframes
+// instead of two per hold keep its memory flat; steps() runs on WebKit's main thread, woken only when a step comes.
+function spriteOf(sh) {
+  if (sh.sprite) return sh.sprite;
+  const F = sh.order.length, scale = Math.max(1, devicePixelRatio || 1), fit = Math.floor(8192 / (sh.cellW * scale));
+  let cols = F;
+  if (F > fit) for (let c = fit; c >= 2; c--) if (F % c === 0) { cols = c; break; }
+  const rows = F / cols;
+  return sh.sprite = { cols, rows,
+    x: [{ offset: 0, transform: 'translateX(0px)', easing: `steps(${cols}, end)` }, { offset: 1, transform: `translateX(${-cols * sh.cellW}px)` }],
+    y: rows > 1 ? [{ offset: 0, transform: 'translateY(0px)', easing: `steps(${rows}, end)` }, { offset: 1, transform: `translateY(${-rows * sh.cellH}px)` }] : null };
+}
+function spriteBitmap(sh, px, color) {
+  const scale = Math.max(1, devicePixelRatio || 1), key = `sprite ${color} ${scale}`;
+  if (sh.drawn.has(key)) return sh.drawn.get(key);
+  const sp = spriteOf(sh), canvas = document.createElement('canvas'), w = Math.round(sh.cellW * scale), h = Math.round(sh.cellH * scale);
+  canvas.width = sp.cols * w;
+  canvas.height = sp.rows * h;
+  const g = canvas.getContext('2d'), cells = new Map();
+  sh.order.forEach((c, f) => {
+    if (!cells.has(c)) cells.set(c, cellCanvas(sh, px, color, sh.cells[c]));
+    g.drawImage(cells.get(c), (f % sp.cols) * w, Math.floor(f / sp.cols) * h);
+  });
+  const url = canvas.toDataURL('image/png');
+  sh.drawn.set(key, url);
+  return url;
+}
+function stillPng(d, sh, px, color) {
+  const key = `still ${color} ${Math.max(1, devicePixelRatio || 1)}`;
+  if (!sh.drawn.has(key)) sh.drawn.set(key, cellCanvas(sh, px, color, dotsAt(d, (d.rest ?? 0) * d.loop)).toDataURL('image/png'));
+  return sh.drawn.get(key);
+}
+
+// ---------- marks ----------
+const anims = [];
+let rate = 1, still = matchMedia('(prefers-reduced-motion: reduce)').matches, variant = 'best';
+// Safari 26 drops running animations when a mark comes back from display:none (also when the whole page
+// sits in an iframe whose pane was hidden that way) or from skipped content-visibility (WebKit bug
+// 301745). Re-seeking an animation to its own current time re-sends it to the GPU, so each mark does
+// that when it comes back into view. Each mark keeps its own animations: getAnimations() would flush
+// style, and interleaved with the re-seeks that meant one full style recalc per mark.
+// Only WebKit needs this, and Chrome must not get it: there, any IntersectionObserver on a page with running
+// animations makes the main thread render a frame on every frame (measured in Chrome 154 on macOS, also when
+// the observer watches an empty marker beside the moving parts). iOS browsers are all WebKit.
+const needsResync = /AppleWebKit/.test(navigator.userAgent) && !/Chrome\/|Chromium|Edg\//.test(navigator.userAgent);
+const markAnims = new WeakMap();
+const revive = new IntersectionObserver(entries => {
+  for (const e of entries) {
+    if (!e.isIntersecting) continue;
+    for (const x of markAnims.get(e.target) ?? []) {
+      if (x instanceof Animation) { if (x.currentTime !== null) x.currentTime = x.currentTime; } else nudge(x);
+    }
+  }
+});
+// A CSS animation is re-sent by a timing change written to its style: its delay moves by a microsecond and back on
+// the next nudge. Nothing is read, so one style update applies every nudge of the batch. Reading or setting a CSS
+// animation's currentTime instead makes WebKit update style first, once per animation: in the gallery, one
+// hide and show took 84 s that way.
+function nudge(rec) {
+  rec.nudged = !rec.nudged;
+  rec.target.style.animationDelay = (rec.delay - (rec.nudged ? .001 : 0)).toFixed(3) + 'ms';
+}
+let sentinels = false;
+function watch(el, own) {
+  if (!needsResync) return;
+  if (!sentinels) { markAnims.set(el, own); revive.observe(el); return; }
+  // An empty marker beside the moving parts, not around them.
+  const marker = document.createElement('b');
+  marker.className = 'marker';
+  el.prepend(marker);
+  markAnims.set(marker, own);
+  revive.observe(marker);
+}
+function dotEl(w) {
+  const i = document.createElement('i');
+  i.className = 'dot';
+  i.style.width = i.style.height = w + 'em';
+  i.style.margin = `${-w / 2}em 0 0 ${-w / 2}em`;
+  return i;
+}
+function shell(d, px) {
+  const el = document.createElement('span');
+  el.className = 'mk' + (d.tall ? ' tall' : '');
+  el.style.fontSize = px + 'px';
+  el.setAttribute('aria-hidden', 'true');
+  return el;
+}
+function stills(d, el) {
+  for (const s of d.still || []) {
+    const i = dotEl(s.d);
+    i.style.transform = `translate(${s.x}em, ${s.y}em)`;
+    if (s.o !== undefined) i.style.opacity = s.o;
+    el.append(i);
+  }
+}
+// The parts move by script-started Web Animations, or with css on by CSS animations. Engines drop CSS animations
+// under display:none and never start them in skipped content-visibility rows; Chrome keeps ticking script-started
+// ones there on the main thread, every frame. A CSS animation, though, wakes the page at the end of every loop
+// when anything listens for animation events, as React's root does; marks in step share those wakes.
+// Chrome: CSS animations (it drops them under display:none and doesn't tick them on its main thread for marks it
+// hasn't drawn); WebKit: script-started ones, re-synced when they come back into view.
+let css = !needsResync;
+const keyframeSheet = (() => { const s = document.createElement('style'); document.head.append(s); return s.sheet; })();
+const keyframeNames = new WeakMap();
+let keyframeCount = 0;
+function keyframesName(frames) {
+  let name = keyframeNames.get(frames);
+  if (name) return name;
+  name = 'mk' + ++keyframeCount;
+  const body = frames.map((f, i) => `${((f.offset ?? i / (frames.length - 1)) * 100).toFixed(8)}%{` + // fine enough for JUMP
+    (f.transform ? `transform:${f.transform};` : '') + (f.opacity !== undefined ? `opacity:${f.opacity};` : '') +
+    (f.easing ? `animation-timing-function:${f.easing};` : '') + '}').join('');
+  keyframeSheet.insertRule(`@keyframes ${name}{${body}}`, keyframeSheet.cssRules.length);
+  keyframeNames.set(frames, name);
+  return name;
+}
+const recsOf = new WeakMap(); // mark -> its animation records
+function play(d, el, target, frames, c, offset, own, useCss = css) {
+  const rec = useCss ? { name: keyframesName(frames), target, d, c, el, offset }
+    : { a: target.animate(frames, { duration: c.loop, iterations: Infinity, easing: 'linear' }), d, c, el, offset };
+  anims.push(rec);
+  own.push(rec.a ?? rec);
+  if (!recsOf.has(el)) recsOf.set(el, []);
+  recsOf.get(el).push(rec);
+  run(rec);
+}
+// One moving layer per dot.
+function dotsMark(d, px, offset = 0) {
+  const el = shell(d, px), own = [];
+  stills(d, el);
+  for (const c of compile(d)) {
+    const i = dotEl(c.w);
+    if (!c.moves) i.style.transform = transformOf(c.base, c.top, c.stretch);
+    if (!c.fades) i.style.opacity = +c.base.o.toFixed(3);
+    el.append(i);
+    if (c.frames) play(d, el, i, c.frames, c, offset, own);
+  }
+  watch(el, own);
+  return el;
+}
+// The flip of a mirrored sheet, on the mark itself (its centre is the design's), over the full period: held, then
+// jumped like the sheet on the GPU path, or stepped where the sheet steps on the main thread anyway.
+const FLIPS = {
+  y: { gpu: [{ offset: 0, transform: 'scale(1, 1)' }, { offset: .5 - JUMP, transform: 'scale(1, 1)' }, { offset: .5, transform: 'scale(1, -1)' }, { offset: 1, transform: 'scale(1, -1)' }],
+    steps: [{ offset: 0, transform: 'scale(1, 1)', easing: 'steps(2, end)' }, { offset: 1, transform: 'scale(1, -3)' }] },
+  x: { gpu: [{ offset: 0, transform: 'scale(1, 1)' }, { offset: .5 - JUMP, transform: 'scale(1, 1)' }, { offset: .5, transform: 'scale(-1, 1)' }, { offset: 1, transform: 'scale(-1, 1)' }],
+    steps: [{ offset: 0, transform: 'scale(1, 1)', easing: 'steps(2, end)' }, { offset: 1, transform: 'scale(-3, 1)' }] },
+};
+function flipOf(d, el, sh, offset, own, useCss, stepped) {
+  if (sh.flip) play(d, el, el, FLIPS[sh.flip][stepped ? 'steps' : 'gpu'], { loop: 2 * sh.P }, offset, own, useCss);
+}
+// One moving layer per mark, however many dots: the sheet steps behind a clipping window. The sheet is an SVG
+// background (flip) or one shared bitmap <img> (img).
+function flipMark(d, px, offset = 0, shared = false, useCss = css, stepped = false) {
+  const el = shell(d, px), own = [], sh = sheet(d, px), color = markColor();
+  const clip = document.createElement('i'), strip = document.createElement(shared ? 'img' : 'i');
+  clip.className = 'clip';
+  clip.style.width = sh.cellW + 'px';
+  clip.style.height = sh.cellH + 'px';
+  clip.style.left = `calc(50% + ${sh.left}px)`;
+  clip.style.top = `calc(50% + ${sh.top}px)`;
+  strip.className = 'sheet';
+  strip.style.width = sh.cols * sh.cellW + 'px';
+  strip.style.height = sh.rows * sh.cellH + 'px';
+  if (shared) {
+    strip.alt = '';
+    strip.draggable = false;
+    strip.src = sheetBitmap(sh, px, color);
+  } else strip.style.backgroundImage = sheetSvg(sh, px, color);
+  clip.append(strip);
+  el.append(clip);
+  play(d, el, strip, stepped ? sh.stepped : sh.frames, { loop: sh.P }, offset, own, useCss);
+  flipOf(d, el, sh, offset, own, useCss, stepped);
+  if (!stepped) watch(el, own); // a main-thread animation is restyled each step, so Safari can't freeze it
+  return el;
+}
+function spriteMark(d, px, offset = 0, useCss = css) {
+  const el = shell(d, px), own = [], sh = sheet(d, px), sp = spriteOf(sh);
+  const clip = document.createElement('i'), strip = document.createElement('img');
+  clip.className = 'clip';
+  clip.style.width = sh.cellW + 'px';
+  clip.style.height = sh.cellH + 'px';
+  clip.style.left = `calc(50% + ${sh.left}px)`;
+  clip.style.top = `calc(50% + ${sh.top}px)`;
+  strip.className = 'sheet';
+  strip.alt = '';
+  strip.draggable = false;
+  strip.style.width = sp.cols * sh.cellW + 'px';
+  strip.style.height = sp.rows * sh.cellH + 'px';
+  strip.src = spriteBitmap(sh, px, markColor());
+  const rowsEl = sp.y && document.createElement('i');
+  if (rowsEl) { rowsEl.className = 'sheet'; rowsEl.append(strip); clip.append(rowsEl); } else clip.append(strip);
+  el.append(clip);
+  if (rowsEl) play(d, el, rowsEl, sp.y, { loop: sh.P }, offset, own, useCss);
+  play(d, el, strip, sp.x, { loop: sh.P / sp.rows }, offset, own, useCss);
+  flipOf(d, el, sh, offset, own, useCss, true);
+  return el; // main-thread animations in WebKit: restyled each step, so nothing to re-sync
+}
+// WebKit only: one canvas per design, size and frame rate, painted into every mark as its background
+// (-webkit-canvas()). All marks of a design share one picture and one timer, which draws a cell only when the
+// picture changes and stops while no mark of that canvas is in view (an IntersectionObserver counts them).
+const cssCanvases = new Map();
+const canvasViews = new IntersectionObserver(entries => {
+  for (const e of entries) {
+    const st = cssCanvases.get(e.target.dataset.canvas);
+    if (!st) continue;
+    if (e.isIntersecting) st.seen.add(e.target); else st.seen.delete(e.target);
+    canvasRun(st);
+  }
+});
+let canvasPaused = false;
+function canvasRun(st) {
+  const on = st.seen.size > 0 && !canvasPaused && !still;
+  if (on === st.on) return;
+  st.on = on;
+  clearTimeout(st.timer);
+  if (on) st.tick();
+}
+function pauseCanvases(on) {
+  canvasPaused = on;
+  for (const st of cssCanvases.values()) canvasRun(st);
+}
+function canvasMark(d, px) {
+  const el = shell(d, px), sh = sheet(d, px), scale = Math.max(1, devicePixelRatio || 1), color = markColor();
+  const name = `mk-${d.id}-${d.loop}-${px}-${sh.fps}-${sh.flip}-${scale}-${color.replace(/\W/g, '')}`;
+  if (!cssCanvases.has(name)) {
+    const w = Math.round(sh.cellW * scale), h = Math.round(sh.cellH * scale), g = document.getCSSCanvasContext('2d', name, w, h);
+    const cells = sh.cells.map(dots => cellCanvas(sh, px, color, dots));
+    const st = { seen: new Set(), on: false, timer: 0, cell: -1, g, w, h };
+    st.tick = () => {
+      // A mirrored sheet draws its cells flipped in the second half of the full period (the cell is symmetric).
+      const t = performance.now(), u = t % sh.P / sh.P, flipped = sh.flip && t % (2 * sh.P) >= sh.P;
+      let i = sh.holds.findIndex(x => u < x.to);
+      if (i < 0) i = sh.holds.length - 1;
+      const c = sh.holds[i].cell + (flipped ? .5 : 0);
+      if (c !== st.cell) {
+        g.setTransform(1, 0, 0, 1, 0, 0);
+        g.clearRect(0, 0, w, h);
+        if (flipped) g.setTransform(sh.flip === 'x' ? -1 : 1, 0, 0, sh.flip === 'y' ? -1 : 1, sh.flip === 'x' ? w : 0, sh.flip === 'y' ? h : 0);
+        g.drawImage(cells[Math.floor(c)], 0, 0);
+        st.cell = c;
+      }
+      st.timer = setTimeout(st.tick, Math.max(1, (sh.holds[i].to - u) * sh.P + 1));
+    };
+    cssCanvases.set(name, st);
+  }
+  if (still) {
+    const st = cssCanvases.get(name);
+    st.g.setTransform(1, 0, 0, 1, 0, 0);
+    st.g.clearRect(0, 0, st.w, st.h);
+    st.g.drawImage(cellCanvas(sh, px, color, dotsAt(d, (d.rest ?? 0) * d.loop)), 0, 0);
+    st.cell = -1;
+  }
+  const i = document.createElement('i');
+  i.className = 'clip';
+  i.dataset.canvas = name;
+  i.style.width = sh.cellW + 'px';
+  i.style.height = sh.cellH + 'px';
+  i.style.left = `calc(50% + ${sh.left}px)`;
+  i.style.top = `calc(50% + ${sh.top}px)`;
+  i.style.background = `-webkit-canvas(${name}) 0 0 / 100% 100% no-repeat`;
+  el.append(i);
+  canvasViews.observe(i);
+  return el;
+}
+const hasCssCanvas = typeof document.getCSSCanvasContext === 'function';
+// The flipbook as one animated image (APNG) per design, size and colour: no animation for the page to run at all.
+// Every mark of a design shares the image's clock, so marks can't run out of step, and it can't run slower.
+function imageMark(d, px) {
+  const el = shell(d, px), sh = sheet(d, px, false), color = markColor(), img = new Image(); // an image can't flip
+  img.className = 'anim'; img.alt = ''; img.draggable = false;
+  img.style.cssText = `position:absolute;left:calc(50% + ${sh.left}px);top:calc(50% + ${sh.top}px);width:${sh.cellW}px;height:${sh.cellH}px`;
+  img.src = still ? stillPng(d, sh, px, color) : sheetApng(sh, px, color);
+  stillOf.set(img, [d, px]);
+  el.append(img);
+  return el;
+}
+// Every way to draw a mark, each set up the cheapest way measured for the browser it runs in
+// (docs/measurements/POD-5558-working-mark-spike.md): animations script-started and re-synced in WebKit, CSS in Chrome;
+// transparent video as HEVC in WebKit (Safari ignores VP9's alpha and draws a black box) and VP9 in Chrome. Best picks
+// a build per design from the final table (bestKind). The file builds (WebP, AVIF, GIF, SVG, video) exist for the
+// shortlist's 12 px marks; elsewhere the APNG built in the page stands in.
+const FILE_IMAGES = ['webp', 'avif', 'gif', 'svg'], FILE_VIDEOS = ['mp4', 'webm', 'mov'];
+// The shorter loop: the same motion, faster (wave 1.2 s, tetrahedron 3 s, others a fifth shorter). Only the designs
+// themselves; the frame-rate view's faster and slower rows keep their own loop.
+let shortLoop = false;
+const SHORT_LOOPS = { wave: 1200, tetra: 3000 }, shorterOf = new Map();
+const loopOf = d => {
+  if (!shortLoop || !designs.includes(d)) return d;
+  if (!shorterOf.has(d)) shorterOf.set(d, withLoop(d, SHORT_LOOPS[d.id] ?? Math.round(d.loop * .8)));
+  return shorterOf.get(d);
+};
+// What a build button draws, as the final table names it: the APNG built in the page is "image", transparent video
+// the codec this browser shows with its transparency.
+const kindOf = (d, px) => variant === 'best' ? bestKind(d, px) : { apng: 'image', alpha: needsResync ? 'mov' : 'webm' }[variant] ?? variant;
+const mark = (d0, px, offset = 0) => {
+  const d = loopOf(d0), k = kindOf(d0, px);
+  return k === 'dots' ? dotsMark(d, px, offset) : k === 'image' ? imageMark(d, px)
+    : k === 'steps' ? flipMark(d, px, offset, true, css, true)
+    : k === 'sprite' ? spriteMark(d, px, offset, css)
+    : k === 'canvas' ? (hasCssCanvas ? canvasMark(d, px) : imageMark(d, px))
+    : k === 'worker' ? workerMark(d, px)
+    : FILE_IMAGES.includes(k) ? fileImageMark(d, px, k)
+    : FILE_VIDEOS.includes(k) ? fileVideoMark(d, px, k)
+    : flipMark(d, px, offset, k !== 'flip', css);
+};
+
+// ---------- file builds: the shortlist's animated images and videos, made from the flipbook's own frames ----------
+// Files exist for the 12 px mark of the two shortlisted designs: 30, 20, 15 and 12 fps on their own loop, 30 and 15 fps
+// on the shorter one, in both themes, cut to the flipbook's tight cell. The published gallery carries them inline
+// (window.markFiles); next to the page they come from anim/. Anything else gets the APNG built in the page.
+const FILES = { wave: { 1500: [30, 20, 15, 12], 1200: [30, 15] }, tetra: { 4000: [30, 20, 15, 12], 3000: [30, 15] } };
+const TYPES = { webp: 'image/webp', avif: 'image/avif', gif: 'image/gif', svg: 'image/svg+xml', mp4: 'video/mp4', webm: 'video/webm', mov: 'video/quicktime' };
+const fileUrls = new Map();
+function fileUrl(d, ext) {
+  if (!FILES[d.id]?.[d.loop]?.includes(fpsOf(d))) return null;
+  const name = `${d.id}-${d.loop}-${fpsOf(d)}${document.documentElement.dataset.theme === 'light' ? '-light' : ''}.${ext}`;
+  if (!fileUrls.has(name)) {
+    const b64 = window.markFiles?.[name];
+    fileUrls.set(name, b64 ? URL.createObjectURL(new Blob([Uint8Array.from(atob(b64), c => c.charCodeAt(0))], { type: TYPES[ext] })) : `anim/${name}`);
+  }
+  return fileUrls.get(name);
+}
+const standIn = el => {
+  el.classList.add('stand-in');
+  el.title = 'No file for this size, frame rate or loop: the APNG built in the page stands in';
+  return el;
+};
+function fileImageMark(d, px, ext) {
+  const url = px === 12 && !still ? fileUrl(d, ext) : null;
+  if (!url) return standIn(imageMark(d, px));
+  const el = shell(d, px), sh = sheet(d, px, false), img = new Image();
+  img.alt = ''; img.draggable = false; img.width = sh.cellW; img.height = sh.cellH;
+  img.style.cssText = `position:absolute;left:calc(50% + ${sh.left}px);top:calc(50% + ${sh.top}px)`;
+  img.onerror = () => el.replaceWith(standIn(imageMark(d, px)));
+  img.src = url;
+  stillOf.set(img, [d, px]);
+  el.append(img);
+  return el;
+}
+// A muted, looping video per mark: browsers pause muted autoplay video that is out of view. Transparent video is
+// HEVC with alpha in WebKit and VP9 with alpha in Chrome; H.264 (mp4) is matted on the card colour.
+function fileVideoMark(d, px, ext) {
+  const url = px === 12 && !still ? fileUrl(d, ext) : null;
+  if (!url) return standIn(imageMark(d, px));
+  const el = shell(d, px), sh = sheet(d, px, false), v = document.createElement('video');
+  Object.assign(v, { muted: true, loop: true, autoplay: true, playsInline: true, disablePictureInPicture: true });
+  v.setAttribute('muted', ''); v.setAttribute('playsinline', '');
+  v.width = sh.cellW; v.height = sh.cellH;
+  v.style.cssText = `position:absolute;left:calc(50% + ${sh.left}px);top:calc(50% + ${sh.top}px);width:${sh.cellW}px;height:${sh.cellH}px`;
+  v.onerror = () => el.replaceWith(standIn(imageMark(d, px)));
+  v.src = url;
+  el.append(v);
+  return el;
+}
+
+// ---------- canvas drawn by a worker: one worker draws every such mark ----------
+// Each mark's canvas goes to the worker once (transferControlToOffscreen), each sheet's frames once as ImageBitmaps; an
+// IntersectionObserver tells it which marks are in view. It keeps one timer, set to the next change of picture, and
+// draws a mark only when its picture changed.
+const WORKER_SRC = `const sheets = new Map(), marks = new Map(), seen = new Set(); let timer = 0, paused = false;
+onmessage = e => {
+  const m = e.data;
+  if (m.frames) sheets.set(m.sheet, m);
+  if (m.canvas) marks.set(m.mark, { c: m.canvas, g: m.canvas.getContext('2d'), key: m.key, cell: -1 });
+  for (const id of m.on || []) seen.add(id);
+  for (const id of m.off || []) seen.delete(id);
+  for (const id of m.remove || []) { seen.delete(id); marks.delete(id); }
+  if ('paused' in m) paused = m.paused;
+  clearTimeout(timer);
+  if (!paused) tick();
+};
+function tick() {
+  const t = performance.timeOrigin + performance.now(), now = new Map();
+  let next = Infinity;
+  for (const id of seen) {
+    const mk = marks.get(id), sh = mk && sheets.get(mk.key);
+    if (!sh) continue;
+    let at = now.get(mk.key);
+    if (!at) {
+      const u = t % sh.P / sh.P, flipped = sh.flip && t % (2 * sh.P) >= sh.P;
+      let i = sh.holds.findIndex(h => u < h.to);
+      if (i < 0) i = sh.holds.length - 1;
+      now.set(mk.key, at = { cell: sh.holds[i].cell + (flipped ? .5 : 0), wait: (sh.holds[i].to - u) * sh.P });
+    }
+    next = Math.min(next, at.wait);
+    if (mk.cell === at.cell) continue;
+    mk.cell = at.cell;
+    const w = mk.c.width, h = mk.c.height, f = sh.flip;
+    mk.g.setTransform(1, 0, 0, 1, 0, 0);
+    mk.g.clearRect(0, 0, w, h);
+    if (at.cell % 1) mk.g.setTransform(f === 'x' ? -1 : 1, 0, 0, f === 'y' ? -1 : 1, f === 'x' ? w : 0, f === 'y' ? h : 0);
+    mk.g.drawImage(sh.frames[Math.floor(at.cell)], 0, 0, w, h);
+  }
+  if (next < Infinity) timer = setTimeout(tick, Math.max(1, next + 1));
+}`;
+let markWorker = null, workerNext = 0;
+const workerSheets = new Set(), workerIds = new WeakMap();
+const workerViews = new IntersectionObserver(entries => {
+  const on = [], off = [];
+  for (const e of entries) (e.isIntersecting ? on : off).push(workerIds.get(e.target));
+  markWorker.postMessage({ on, off });
+});
+function workerMark(d, px) {
+  if (still || typeof OffscreenCanvas === 'undefined') return imageMark(d, px);
+  const el = shell(d, px), sh = sheet(d, px), scale = Math.max(1, devicePixelRatio || 1), color = markColor(), c = document.createElement('canvas');
+  c.width = Math.round(sh.cellW * scale);
+  c.height = Math.round(sh.cellH * scale);
+  c.style.cssText = `position:absolute;left:calc(50% + ${sh.left}px);top:calc(50% + ${sh.top}px);width:${sh.cellW}px;height:${sh.cellH}px`;
+  el.append(c);
+  markWorker ??= new Worker(URL.createObjectURL(new Blob([WORKER_SRC], { type: 'text/javascript' })));
+  const key = `${d.id} ${d.loop} ${px} ${sh.fps} ${sh.flip} ${scale} ${color}`;
+  if (!workerSheets.has(key)) {
+    workerSheets.add(key);
+    Promise.all(sh.cells.map(dots => createImageBitmap(cellCanvas(sh, px, color, dots))))
+      .then(frames => markWorker.postMessage({ sheet: key, frames, holds: sh.holds, P: sh.P, flip: sh.flip }, frames));
+  }
+  const id = workerNext++, off = c.transferControlToOffscreen();
+  workerIds.set(c, id);
+  markWorker.postMessage({ mark: id, key, canvas: off }, [off]);
+  workerViews.observe(c);
+  return el;
+}
+
+// ---------- pause when idle ----------
+// The marks stop after a few seconds without input, when the window loses focus or the page is hidden, and go on
+// (re-synced to the shared clock) at the next input, focus or show. An animated image has no pause, so it shows its
+// still picture meanwhile. Each pause and resume is timed in idleLog.
+const idleLog = [], stillOf = new WeakMap(), pauseHooks = [];
+let idleAfter = 0, idleTimer = 0, idlePaused = false, idleArmed = false;
+function pauseMarks(on, why) {
+  if (idlePaused === on) return;
+  idlePaused = on;
+  const t0 = performance.now();
+  // WebKit keeps compositing the window at full rate for a paused GPU animation (measured: +22 points with 32 marks
+  // paused, as much as running), so there script-started animations are cancelled, and restarted on the shared clock.
+  if (on) for (const a of document.getAnimations()) needsResync && !(a instanceof CSSAnimation) ? a.cancel() : a.pause();
+  else {
+    for (const r of anims) if (r.a && r.el.isConnected && r.a.playState === 'idle') r.a.play();
+    for (const a of document.getAnimations()) if (a.playState === 'paused') a.play();
+    runAll();
+  }
+  for (const v of document.querySelectorAll('.mk video')) on ? v.pause() : v.play().catch(() => {});
+  for (const img of document.querySelectorAll('.mk img')) {
+    const it = stillOf.get(img);
+    if (!it) continue;
+    if (on) { img.dataset.anim = img.src; img.src = stillPng(it[0], sheet(it[0], it[1], false), it[1], markColor()); }
+    else if (img.dataset.anim) img.src = img.dataset.anim;
+  }
+  markWorker?.postMessage({ paused: on });
+  pauseCanvases(on);
+  for (const hook of pauseHooks) hook(on);
+  idleLog.push({ on, why, at: +t0.toFixed(1), ms: +(performance.now() - t0).toFixed(2) });
+}
+function idleArm(why) {
+  if (!idleAfter) return;
+  pauseMarks(false, why);
+  clearTimeout(idleTimer);
+  idleTimer = setTimeout(() => pauseMarks(true, 'idle'), idleAfter * 1000);
+}
+function idlePause(seconds) {
+  idleAfter = seconds;
+  if (!seconds) { clearTimeout(idleTimer); pauseMarks(false, 'off'); return; }
+  if (!idleArmed) {
+    idleArmed = true;
+    for (const type of ['keydown', 'pointerdown', 'pointermove', 'wheel']) addEventListener(type, () => idleArm(type), { capture: true, passive: true });
+    addEventListener('focus', () => idleArm('focus'));
+    addEventListener('blur', () => { if (idleAfter) { clearTimeout(idleTimer); pauseMarks(true, 'blur'); } });
+    document.addEventListener('visibilitychange', () => { if (!idleAfter) return; if (document.hidden) { clearTimeout(idleTimer); pauseMarks(true, 'hidden'); } else idleArm('shown'); });
+  }
+  idleArm('on');
+}
+// A still frame at time t (ms) into the design's loop, for the filmstrips.
+function frame(d, t, px) {
+  const el = shell(d, px);
+  stills(d, el);
+  for (const c of compile(d)) {
+    const i = dotEl(c.w), f = pose(d, c.dot, frac(t / c.loop));
+    i.style.transform = transformOf(f, c.top, c.stretch);
+    i.style.opacity = +f.o.toFixed(3);
+    el.append(i);
+  }
+  return el;
+}
+function run(rec) {
+  const { a, d, c, offset, name, target } = rec;
+  if (name) {
+    // A negative delay starts the loop where the shared clock is now, so marks made at different times stay in step.
+    const loop = c.loop / rate;
+    rec.delay = -(still ? (d.rest ?? 0) * d.loop % c.loop : ((document.timeline.currentTime ?? 0) + offset) % loop);
+    target.style.animation = `${name} ${still ? c.loop : loop}ms linear ${rec.delay.toFixed(3)}ms infinite ${still ? 'paused' : 'running'}`;
+    rec.nudged = false;
+    return;
+  }
+  // One moment of the design's loop for every part (a flipbook loop may be shorter, and wraps to the same picture).
+  if (still) { a.pause(); a.currentTime = (d.rest ?? 0) * d.loop; return; }
+  a.playbackRate = rate;
+  a.startTime = -offset; // 0 = every mark on one shared clock
+}
+const runAll = () => { for (const r of anims) if (r.el.isConnected) run(r); };
+function clear(root) {
+  for (const m of root.querySelectorAll('.mk')) revive.unobserve(m);
+  const gone = [...root.querySelectorAll('canvas')].filter(c => workerIds.has(c)).map(c => { workerViews.unobserve(c); return workerIds.get(c); });
+  if (gone.length) markWorker.postMessage({ remove: gone });
+  for (const c of root.querySelectorAll('[data-canvas]')) {
+    canvasViews.unobserve(c);
+    const st = cssCanvases.get(c.dataset.canvas);
+    if (st) { st.seen.delete(c); canvasRun(st); }
+  }
+  root.textContent = '';
+  for (let i = anims.length - 1; i >= 0; i--) if (!anims[i].el.isConnected) anims.splice(i, 1);
+}
+
+// ---------- picks: points and notes, kept in this browser, exported as text ----------
+const PICKS_KEY = 'working-mark-picks-v1';
+let picks = {};
+try { picks = JSON.parse(localStorage.getItem(PICKS_KEY) || '{}') || {}; } catch {}
+const savePicks = () => { try { localStorage.setItem(PICKS_KEY, JSON.stringify(picks)); } catch {} };
+const pointsOf = d => picks[d.id]?.p ?? 0;
+function showPicks(d) {
+  for (const el of document.querySelectorAll(`[data-design="${d.id}"]`)) {
+    el.classList.toggle('fav', pointsOf(d) > 0);
+    for (const b of el.querySelectorAll('.pts button')) b.classList.toggle('on', +b.dataset.p <= pointsOf(d));
+  }
+  const total = designs.filter(x => pointsOf(x) > 0).length;
+  document.getElementById('export').textContent = total ? `Export picks (${total})` : 'Export picks';
+}
+function pointsControl(d) {
+  const box = document.createElement('span');
+  box.className = 'pts';
+  box.setAttribute('role', 'group');
+  box.setAttribute('aria-label', 'Points for ' + d.name);
+  for (const n of [1, 2, 3]) {
+    const b = document.createElement('button');
+    b.type = 'button'; b.dataset.p = n; b.title = n === 1 ? '1 point' : n + ' points';
+    b.setAttribute('aria-label', b.title);
+    b.addEventListener('click', () => { picks[d.id] = { ...picks[d.id], p: pointsOf(d) === n ? 0 : n }; savePicks(); showPicks(d); });
+    box.append(b);
+  }
+  return box;
+}
+function noteControl(d) {
+  const input = document.createElement('input');
+  input.className = 'note'; input.type = 'text'; input.placeholder = 'Note for Claude (optional)';
+  input.value = picks[d.id]?.note ?? '';
+  input.addEventListener('input', () => { picks[d.id] = { ...picks[d.id], note: input.value }; savePicks(); });
+  return input;
+}
+function exportText() {
+  const chosen = designs.filter(d => pointsOf(d) > 0 || picks[d.id]?.note).sort((a, b) => pointsOf(b) - pointsOf(a) || designs.indexOf(a) - designs.indexOf(b));
+  const lines = chosen.map(d => {
+    const n = pointsOf(d), note = picks[d.id]?.note?.trim();
+    return `${n} point${n === 1 ? ' ' : 's'}  ${label.get(d)} ${d.name} [${d.id}]${note ? ': ' + note : ''}`;
+  });
+  return [`Working mark picks (${new Date().toISOString().slice(0, 10)})`, '', ...(lines.length ? lines : ['No points or notes yet.'])].join('\n');
+}
+
+// ---------- cards ----------
+const titles = ['Fix sidebar flicker on resume', 'Cheap animated working mark', 'Rekey sessions table', 'Mobile composer draft sync', 'Merge-lock queue view', 'Tauri update channel', 'Search ranking for issues', 'Terminal scrollback memory', 'FlightDeck row virtualisation', 'Daemon reconnect backoff', 'Offline outbox replay', 'Inbox triage shortcuts', 'Release notes generator', 'Session handoff wire', 'Worklist pilot path', 'Artifact thumbnails'];
+const label = new Map();
+{
+  let n = 0;
+  for (const [g] of groups) for (const d of designs.filter(x => x.g === g)) label.set(d, g === 'ref' ? 'R' : String(++n).padStart(2, '0'));
+}
+const count = d => d.dots.length + (d.still?.length ?? 0);
+const loopText = d => (d.loop / 1000).toFixed(1) + ' s loop';
+
+// ---------- what each design costs, for the build and frame rate picked above ----------
+// Memory per mark in Safari's page process, fitted to the spike's measurements (32 marks, a fresh page process per
+// arm; docs/measurements/POD-5558-working-mark-spike.md): a flipbook took about 17 KB per frame, about 8 KB for a
+// 16 × 16 px sheet cell at 2× and 9 KB for its two keyframes; a moving dot about 40 KB plus 3 KB per keyframe. The rest of the cost follows the same counts:
+// Safari's typing delay rose with the flipbook's frames, and Chrome's work with the dots' moving layers.
+const CELL_KB = 8, KEYFRAME_KB = 4.5, DOT_KB = 40, DOT_KEYFRAME_KB = 3, LEVELS_KB = [500, 1000, 2000, 3500];
+function costOf(d) {
+  const k = kindOf(d, 12);
+  if (k === 'dots') {
+    const moving = compile(d).filter(c => c.frames), keyframes = moving.reduce((n, c) => n + c.frames.length, 0);
+    return { kb: moving.length * DOT_KB + keyframes * DOT_KEYFRAME_KB, what: `${moving.length} moving layer${moving.length === 1 ? '' : 's'}, ${keyframes} keyframes` };
+  }
+  const sh = sheet(d, 12);
+  if (k === 'sprite') {
+    const sp = spriteOf(sh);
+    return { kb: sh.F * CELL_KB * sh.cellW * sh.cellH / 256 + (sp.y ? 4 : 2) * KEYFRAME_KB, what: `${sh.F} frames of ${sh.cellW}×${sh.cellH} px in order` };
+  }
+  return { kb: sh.cells.length * CELL_KB * sh.cellW * sh.cellH / 256 + sh.frames.length * KEYFRAME_KB, what: `${sh.cells.length} frames of ${sh.cellW}×${sh.cellH} px` };
+}
+const levelOf = kb => 1 + LEVELS_KB.filter(t => kb > t).length;
+const mb = kb => (kb / 1024).toFixed(kb < 1024 ? 2 : 1) + ' MB';
+const buildName = d => {
+  const k = kindOf(d, 12), rate = k === 'dots' ? '' : ` at ${fpsOf(loopOf(d))} fps${FLIP.fps === 'auto' ? ' (its own)' : ''}`;
+  const how = needsResync ? 'script-started, re-synced' : 'CSS animations';
+  const name = { dots: `Dots (${how})`, flip: `Flipbook, SVG sheet (${how})`, img: `GPU flipbook (${how})`, image: 'APNG', steps: `Stepped flipbook (${how})`, sprite: `Sprite (${how})`,
+    canvas: 'Shared canvas', worker: 'Worker canvas', webp: 'WebP', avif: 'AVIF', gif: 'GIF', svg: 'Animated SVG', mp4: 'Video (H.264)',
+    webm: 'Transparent video (VP9)', mov: 'Transparent video (HEVC)' }[k];
+  return (variant === 'best' ? `Best for ${needsResync ? 'WebKit' : 'this browser'}: ${name}` : name) + rate + (shortLoop ? ', shorter loop' : '')
+    + (FLIP.mirror && SHEET_KINDS.includes(k) && mirrorAxis(d) ? ', mirrored' : '');
+};
+// Measured on the Mac runner with 32 marks on screen at 40 fps (2026-10-08): Safari's typing p95 in ms, and the CPU
+// Chrome added over static marks, in % of one core across all processes.
+const MEASURED = {
+  wave: { dots: [163, 75], flip: [24, 47] }, 'binary-precess': { dots: [66, 82], flip: [76, 46] }, 'halo-six': { dots: [107, 80], flip: [93, 55] },
+  syzygy: { dots: [92, 63], flip: [44, 36] }, electrons: { dots: [83, 72], flip: [46, 35] }, tetra: { dots: [115, 88], flip: [32, 41] },
+  moons: { dots: [66, 73], flip: [67, 39] }, blackhole: { dots: [175, 102], flip: [74, 58] }, trojans: { dots: [140, 71], flip: [108, 38] },
+  tatooine: { dots: [63, 66], flip: [113, 46] }, sunflower: { dots: [224, 82], flip: [87, 34] }, mitosis: { dots: [151, 52], flip: [27, 31] },
+  knot: { dots: [122, 81], flip: [60, 33] }, mobius: { dots: [128, 65], flip: [15, 34] }, globe: { dots: [249, 88], flip: [104, 37] },
+  nautilus: { dots: [505, 89], flip: [48, 30] }, counter: { dots: [93, 44], flip: [34, 26] }, twist: { dots: [162, 52], flip: [29, 25] },
+  shuffle: { dots: [185, 56], flip: [35, 34] }, fireflies: { dots: [66, 57], flip: [108, 29] },
+};
+// The final table (docs/measurements/POD-5558-working-mark-spike.md): for the shortlist, what each way to draw costs
+// with 32 marks on the Mac runner, per browser: [CPU points added over static, page memory MB added, typing p95 ms].
+const TABLE = /* TABLE */{"safari":{"wave":{"dots":{"30":[21.5,22.3,19],"short":[21.8,32.8,15]},"img":{"30":[14.7,18.2,18],"15":[11.1,11.8,14],"12":[8.5,9.2,13],"short":[24.6,21.2,18],"20":[27.9,22.7,26]},"steps":{"30":[21.7,14.5,19],"15":[17.3,7.3,18],"12":[6.7,7.3,16],"short":[29.1,16.6,16],"20":[32.3,12.9,19]},"sprite":{"30":[18.8,10.1,16],"15":[12.0,8.0,17],"12":[8.9,6.1,15],"short":[23.7,7.6,17],"20":[25.8,1.9,26]},"canvas":{"30":[22.1,11.0,14],"15":[12.8,4.5,13],"12":[8.4,5.2,16],"short":[58.1,41.4,25],"20":[27.9,8.3,17]},"worker":{"30":[127.9,13.1,23],"15":[100.0,18.0,25],"12":[109.0,1.0,15],"short":[140.9,14.1,17],"20":[137.2,6.2,22]},"image":{"30":[19.6,15.2,14],"15":[11.2,7.1,14],"12":[8.1,21.6,14],"short":[25.1,25.1,16],"20":[17.9,33.5,15]},"webp":{"30":[20.0,17.1,16],"15":[12.5,4.8,16],"12":[10.2,11.1,14],"short":[33.5,37.5,15],"20":[22.5,6.4,14]},"avif":{"30":[17.1,21.3,14],"15":[12.0,12.9,14],"12":[10.3,8.1,15],"short":[38.6,25.8,19],"20":[18.5,6.8,14]},"gif":{"30":[19.3,15.4,13],"15":[6.3,18.5,14],"12":[12.9,8.9,13],"short":[22.9,33.4,21],"20":[24.4,24.3,14]},"svg":{"30":[45.9,58.4,14],"15":[52.1,45.8,16],"12":[30.3,29.1,16],"short":[50.6,23.5,17],"20":[40.6,21.1,20]},"mp4":{"30":[142.3,18.7,15],"15":[89.2,-3.4,16],"12":[100.8,3.4,10],"short":[265.5,20.7,17],"20":[231.5,13.0,13]},"webm":{"30":[84.1,8.4,14],"15":[76.0,13.8,14],"12":[78.5,13.9,14],"short":[224.3,41.5,13],"20":[130.5,-1.7,12]},"mov":{"30":[161.8,0.8,11],"15":[122.8,-4.3,14],"12":[160.8,2.1,13],"short":[249.8,10.0,22],"20":[196.6,-5.2,14]}},"tetra":{"dots":{"30":[19.9,35.5,34],"short":[31.5,28.4,28]},"img":{"30":[17.2,23.1,20],"15":[12.3,8.4,16],"12":[19.9,25.4,17],"short":[22.1,23.8,24],"mirror":[40.9,9.1,17],"20":[19.9,13.1,25]},"steps":{"30":[23.4,33.4,17],"15":[10.9,4.5,16],"12":[14.2,16.5,16],"short":[32.4,13.8,23],"mirror":[47.6,19.5,28],"20":[33.7,16.8,28]},"sprite":{"30":[18.1,19.2,16],"15":[18.1,18.6,20],"12":[12.4,18.6,19],"short":[20.0,9.1,17],"mirror":[31.9,18.0,33],"20":[21.7,16.2,19]},"canvas":{"30":[20.2,9.7,13],"15":[22.4,21.7,17],"12":[13.1,7.1,13],"short":[50.9,16.3,19],"mirror":[29.1,10.5,20],"20":[20.1,1.9,14]},"worker":{"30":[111.1,10.0,27],"15":[121.8,5.6,19],"12":[104.7,11.1,17],"short":[132.7,11.1,46],"mirror":[123.8,14.4,51],"20":[144.6,2.4,41]},"image":{"30":[21.4,16.8,12],"15":[13.6,5.5,15],"12":[13.7,12.1,18],"short":[26.9,15.7,23],"20":[38.7,24.1,42]},"webp":{"30":[15.8,18.9,12],"15":[11.4,2.2,13],"12":[12.7,5.7,15],"short":[26.0,32.8,21],"20":[22.1,-2.7,14]},"avif":{"30":[18.6,13.3,14],"15":[25.5,19.0,17],"12":[15.6,6.7,16],"short":[20.3,24.7,15],"20":[17.5,-2.1,18]},"gif":{"30":[17.2,14.3,14],"15":[9.4,12.3,14],"12":[21.3,36.5,16],"short":[24.8,54.4,26],"20":[32.4,-2.0,24]},"svg":{"30":[43.1,28.6,15],"15":[86.4,99.9,22],"12":[40.3,66.3,15],"short":[44.0,-5.3,52],"20":[81.8,114.2,36]},"mp4":{"30":[138.3,7.5,19],"15":[145.6,6.1,15],"12":[84.9,7.1,15],"short":[223.3,-3.6,18],"20":[186.5,-5.1,14]},"webm":{"30":[84.5,0.0,15],"15":[59.0,14.9,14],"12":[61.9,3.8,10],"short":[129.4,-2.0,16],"20":[132.9,-0.5,23]},"mov":{"30":[135.0,-3.7,12],"15":[128.5,10.1,14],"12":[72.4,-7.3,13],"short":[241.9,27.2,17],"20":[218.9,-28.5,12]}}},"chrome":{"wave":{"dots":{"30":[52.6,32.9,22],"short":[38.2,35.7,19]},"img":{"30":[26.4,12.9,17],"15":[19.0,11.1,17],"12":[20.2,9.5,18],"short":[19.1,12.5,17],"20":[18.3,10.5,16]},"steps":{"30":[20.7,10.0,18],"15":[19.6,8.2,18],"12":[17.0,7.9,16],"short":[20.8,10.4,17],"20":[18.2,9.2,18]},"sprite":{"30":[22.3,13.4,17],"15":[18.5,9.6,16],"12":[16.5,8.4,17],"short":[20.3,11.3,17],"20":[18.5,10.8,17]},"worker":{"30":[68.2,13.9,12],"15":[40.7,10.8,4],"12":[40.9,14.5,10],"short":[59.2,13.3,8],"20":[42.5,11.5,7]},"image":{"30":[20.4,13.2,16],"15":[13.7,8.3,14],"12":[14.6,5.8,14],"short":[18.3,9.2,13],"20":[17.8,7.4,14]},"webp":{"30":[20.1,2.7,14],"15":[13.7,3.1,16],"12":[13.1,3.7,14],"short":[17.6,2.8,13],"20":[18.3,2.5,15]},"avif":{"30":[20.9,5.9,16],"15":[15.3,5.7,16],"12":[14.1,5.8,14],"short":[18.3,6.4,16],"20":[17.1,5.5,16]},"gif":{"30":[20.5,3.7,16],"15":[14.4,3.9,14],"12":[13.4,3.0,15],"short":[19.2,2.8,16],"20":[20.0,2.5,14]},"svg":{"30":[20.1,9.5,15],"15":[18.3,6.8,16],"12":[16.3,6.8,15],"short":[19.8,8.9,16],"20":[19.8,7.5,16]},"mp4":{"30":[36.6,41.8,26],"15":[31.1,40.0,58],"12":[27.3,40.7,62],"short":[41.3,42.6,29],"20":[34.9,40.9,21]},"webm":{"30":[52.4,31.8,22],"15":[39.3,37.0,54],"12":[37.5,32.5,54],"short":[54.5,32.0,32],"20":[47.2,32.3,21]}},"tetra":{"dots":{"30":[36.1,32.9,18],"short":[34.2,34.1,18]},"img":{"30":[22.0,14.7,16],"15":[20.4,10.5,19],"12":[17.2,11.0,17],"short":[20.8,13.9,18],"mirror":[20.1,16.5,18],"20":[19.7,11.8,17]},"steps":{"30":[21.0,11.0,17],"15":[19.2,8.5,17],"12":[14.2,7.7,18],"short":[22.3,10.3,16],"mirror":[20.1,14.2,17],"20":[19.6,10.4,17]},"sprite":{"30":[18.9,13.3,18],"15":[19.7,10.3,17],"12":[18.7,8.7,16],"short":[19.4,11.6,17],"mirror":[19.8,14.4,16],"20":[19.4,11.3,17]},"worker":{"30":[69.8,14.9,9],"15":[40.4,11.2,7],"12":[38.7,10.4,7],"short":[52.9,13.2,17],"mirror":[54.2,12.9,2],"20":[43.9,10.9,8]},"image":{"30":[19.4,14.3,15],"15":[12.5,8.7,15],"12":[12.7,10.3,14],"short":[19.7,9.5,14],"20":[19.6,12.0,16]},"webp":{"30":[18.7,2.9,14],"15":[13.0,3.1,13],"12":[13.8,2.0,13],"short":[18.8,3.5,14],"20":[17.9,3.7,17]},"avif":{"30":[18.4,7.7,16],"15":[15.3,5.9,17],"12":[12.2,6.7,13],"short":[18.2,5.3,15],"20":[19.1,5.0,12]},"gif":{"30":[19.9,2.8,14],"15":[15.1,2.0,16],"12":[12.4,3.5,13],"short":[16.7,2.7,13],"20":[17.6,2.1,16]},"svg":{"30":[20.1,8.8,14],"15":[15.9,5.7,14],"12":[15.3,6.1,15],"short":[20.4,9.0,17],"20":[17.6,6.3,18]},"mp4":{"30":[43.9,41.4,24],"15":[26.3,41.0,58],"12":[27.6,39.6,58],"short":[39.1,42.9,31],"20":[37.5,40.7,26]},"webm":{"30":[59.3,32.8,24],"15":[40.5,31.5,59],"12":[36.5,31.2,59],"short":[52.0,33.2,21],"20":[46.4,31.5,25]}}}}/* /TABLE */;
+// The final table's cell for one build of a design with the controls as they are: [CPU points, page MB, typing p95 ms],
+// or null where the table has no such run (other frame rates, loops or browsers). With near, the nearest run stands in:
+// the nearest frame rate the build was measured at, and the shorter loop and the mirror at 30 fps for any rate. Safari's numbers stand
+// for every WebKit (the Mac app, iOS).
+const ENGINE = needsResync ? 'safari' : /Chrome\//.test(navigator.userAgent) ? 'chrome' : null;
+const SHEET_KINDS = ['img', 'steps', 'sprite', 'canvas', 'worker'], FPS_RUN = [12, 15, 20, 30];
+function cellFor(d, kind, near = false) {
+  const t = ENGINE && TABLE[ENGINE]?.[d.id]?.[kind], base = designs.find(x => x.id === d.id);
+  if (!t || (d !== base && !(shortLoop && d.loop === SHORT_LOOPS[d.id]))) return null;
+  let fps = fpsOf(loopOf(d));
+  const have = FPS_RUN.filter(f => t[f]);
+  if (near && have.length) fps = have.reduce((x, y) => Math.abs(y - fps) < Math.abs(x - fps) ? y : x);
+  if (kind === 'dots') return t[shortLoop ? 'short' : '30'] ?? null;
+  if (shortLoop) return fps === 30 || near ? t.short ?? null : null;
+  if (FLIP.mirror && SHEET_KINDS.includes(kind) && mirrorAxis(d)) return fps === 30 || near ? t.mirror ?? null : null;
+  return t[fps] ?? null;
+}
+// Best for this browser: of the builds that keep the mark transparent (GIF and the H.264 video are matted on one
+// colour) and that this browser can draw for this design at this size (the files exist for the shortlist at 12 px; the
+// shared canvas is WebKit's), the one the table measured cheapest here with these settings, averaged over the two
+// shortlisted designs (one run per cell is noisy; the designs cost about the same). Builds within NOISE points of the
+// cheapest count as equal, and of those a build that stays flat with many marks wins, then the one that adds the least
+// memory. Per-mark animations grow with the count (256 marks: Safari's GPU flipbook typing 133 ms, the sprite +50 MB in
+// Safari and +28 MB in Chrome over 32 marks); images and the shared canvas stayed flat.
+const GROWS = ['dots', 'img', 'steps', 'sprite', 'flip'];
+// AVIF is left out in WebKit: in the Mac app the tumbling tetrahedron's AVIF looked wrong to the operator (2026-10-10),
+// though Safari on the runner (a VM, software AV1 decoding) drew the same file like the WebP. WebP costs the same there.
+const LOOKS_WRONG = needsResync ? ['avif'] : [];
+const NOISE = 3, OPAQUE = ['gif', 'mp4'], PAGE_BUILT = ['dots', 'img', 'steps', 'sprite', 'canvas', 'worker', 'image'];
+const VIDEO_ALPHA = needsResync ? 'mov' : 'webm'; // Safari ignores VP9's alpha
+const bestCache = new Map();
+function cheapest(cells) {
+  cells = cells.filter(([, c]) => c);
+  if (!cells.length) return null;
+  const lo = Math.min(...cells.map(([, c]) => c[0]));
+  return cells.filter(([, c]) => c[0] <= lo + NOISE).sort((a, b) => GROWS.includes(a[0]) - GROWS.includes(b[0]) || a[1][1] - b[1][1])[0][0];
+}
+function bestKind(d, px) {
+  const key = [d.id, d.loop, px, FLIP.fps, FLIP.mirror, shortLoop, still, document.documentElement.dataset.theme].join();
+  if (bestCache.has(key)) return bestCache.get(key);
+  const shortlist = designs.filter(x => TABLE[ENGINE]?.[x.id]);
+  const drawable = k => !OPAQUE.includes(k) && !LOOKS_WRONG.includes(k) && (k !== 'canvas' || hasCssCanvas) && !(['webm', 'mov'].includes(k) && k !== VIDEO_ALPHA)
+    && (PAGE_BUILT.includes(k) || (px === 12 && !still && fileUrl(loopOf(d), k)));
+  const score = k => {
+    const cs = shortlist.map(x => cellFor(x, k, true)).filter(Boolean);
+    return cs.length ? [cs.reduce((n, c) => n + c[0], 0) / cs.length, cs.reduce((n, c) => n + c[1], 0) / cs.length] : null;
+  };
+  const kinds = [...new Set(shortlist.flatMap(x => Object.keys(TABLE[ENGINE][x.id])))].filter(drawable);
+  const k = cheapest(kinds.map(k => [k, score(k)])) ?? (needsResync ? 'img' : 'image');
+  bestCache.set(key, k);
+  return k;
+}
+function measuredHere(d) {
+  return cellFor(d, kindOf(d, 12));
+}
+function costBadge(d) {
+  const c = costOf(d), level = levelOf(c.kb), el = document.createElement('div');
+  el.className = 'weight';
+  el.title = `Cost ${level} of 5 for this build and frame rate: the memory each mark needs in Safari, from the spike's ` +
+    `measurements (about ${mb(c.kb * 32)} for 32 marks). Fewer frames and fewer moving layers also mean less work in Safari and Chrome.`;
+  el.innerHTML = `<span class="meter" role="img" aria-label="Cost ${level} of 5"><b aria-hidden="true">Cost</b>${'<i class="on"></i>'.repeat(level)}${'<i></i>'.repeat(5 - level)}</span>` +
+    `<span>${buildName(d)}: ${c.what} · ≈ ${mb(c.kb)} a mark</span>`;
+  const t = measuredHere(d), m = MEASURED[d.id]?.[kindOf(d, 12) === 'dots' ? 'dots' : 'flip'];
+  if (t) el.insertAdjacentHTML('beforeend', `<span class="measured">Measured in this browser, 32 marks: ${t[0] >= 0 ? '+' : ''}${t[0].toFixed(0)} points of a core · ${t[1] >= 0 ? '+' : ''}${t[1].toFixed(0)} MB · typing ${t[2].toFixed(0)} ms</span>`);
+  else if (m) el.insertAdjacentHTML('beforeend', `<span class="measured">Measured, 32 marks at 40 fps: Safari typing ${m[0]} ms · Chrome +${m[1]}% CPU</span>`);
+  return el;
+}
+// The designs as sections: by group, or all in one, lightest first for the build and frame rate picked above.
+let order = 'group';
+function sections() {
+  if (order === 'group') return groups.map(([g, title, sub]) => [title, sub, designs.filter(x => x.g === g)]);
+  const kb = new Map(designs.map(d => [d, costOf(d).kb]));
+  return [['All designs, lightest first', 'By the cost of the build and frame rate picked above. Change either and the order follows.',
+    [...designs].sort((a, b) => kb.get(a) - kb.get(b) || designs.indexOf(a) - designs.indexOf(b))]];
+}
+
+const cards = document.getElementById('view-cards');
+function buildCards() {
+  clear(cards);
+  unfilled.clear();
+  for (const [title, sub, list] of sections()) {
+    const group = document.createElement('section'); group.className = 'group';
+    group.innerHTML = `<h2></h2><p></p><div class="grid"></div>`;
+    group.querySelector('h2').textContent = title;
+    group.querySelector('p').textContent = sub;
+    cards.append(group);
+    for (const d of list) {
+      const idx = designs.indexOf(d);
+      const card = document.createElement('article'); card.className = 'card'; card.id = d.id; card.dataset.design = d.id;
+      card.innerHTML = `<header><span class="num">${label.get(d)}</span><h3>${d.name}</h3><span class="cost">${count(d)} dots · ${loopText(d)}</span></header>
+        <div class="real"></div>
+        <div class="ctx"><span class="slot"></span><span class="t">${titles[(idx + 3) % titles.length]}</span><span class="clock">2:41</span></div>
+        <p class="desc">${d.desc}</p><p class="how">${d.how}</p>${d.under ? `<p class="under">${d.under}</p>` : ''}`;
+      card.querySelector('header').after(costBadge(d));
+      card.querySelector('header').append(pointsControl(d));
+      card.append(noteControl(d));
+      // The marks are made when the card first comes near the screen (fillCards), so a page of 43 designs builds fast.
+      unfilled.set(card, () => {
+        const real = card.querySelector('.real');
+        for (const px of [11, 12, 13, 16, 22]) {
+          const f = document.createElement('figure'); f.append(mark(d, px));
+          const c = document.createElement('figcaption'); c.textContent = px === 11 ? '11 px' : px; f.append(c); real.append(f);
+        }
+        const z = document.createElement('figure'); z.className = 'zoom'; z.append(mark(d, 56));
+        const zc = document.createElement('figcaption'); zc.textContent = '56 px, for detail'; z.append(zc); real.append(z);
+        card.querySelector('.slot').replaceWith(mark(d, 12));
+      });
+      group.querySelector('.grid').append(card);
+      showPicks(d);
+    }
+  }
+  fillCards();
+}
+// Cards waiting for their marks, filled when they come within a screen of the window. A scroll listener rather than an
+// IntersectionObserver: in Chrome an observer makes running animations render a main-thread frame every frame.
+const unfilled = new Map();
+let fillQueued = false;
+function fillCards() {
+  fillQueued = false;
+  if (cards.hidden) return;
+  for (const [card, fill] of unfilled) {
+    const r = card.getBoundingClientRect();
+    if (r.bottom > -innerHeight && r.top < 2 * innerHeight) { unfilled.delete(card); fill(); }
+  }
+}
+for (const type of ['scroll', 'resize']) addEventListener(type, () => { if (unfilled.size && !fillQueued) { fillQueued = true; requestAnimationFrame(fillCards); } }, { passive: true });
+
+// ---------- filmstrips (built the first time they are shown) ----------
+const film = document.getElementById('view-film');
+function buildFilm() {
+  if (film.childElementCount) return;
+  for (const [title, , list] of sections()) {
+    const h = document.createElement('div'); h.className = 'film-group'; h.textContent = title; film.append(h);
+    for (const d of list) {
+      const row = document.createElement('div'); row.className = 'film-row'; row.dataset.design = d.id;
+      row.innerHTML = `<div class="film-name"><b>${label.get(d)} ${d.name}</b><small>${count(d)} dots · ${loopText(d)}</small>${d.under ? `<p class="under">${d.under}</p>` : ''}</div><span class="film-live"></span>`;
+      row.querySelector('small').after(costBadge(d));
+      row.querySelector('.film-name').append(pointsControl(d));
+      row.querySelector('.film-live').append(mark(d, 16));
+      for (let f = 0; f < 10; f++) {
+        const box = document.createElement('span'); box.className = 'film-frame';
+        box.append(frame(d, d.loop * f / 10, 40)); row.append(box);
+      }
+      film.append(row);
+      showPicks(d);
+    }
+  }
+}
+
+// ---------- frame rates: the shortlist at 40 to 12 fps, and with faster and slower loops ----------
+const rates = document.getElementById('rates'), RATES = [40, 30, 24, 20, 15, 12];
+// The same design with another loop length: every part moves on the loop's clock, so the whole motion speeds up or
+// slows down. Cached results of the original (its parts, period, sheets) don't carry over.
+const withLoop = (d, loop) => ({ ...d, loop, compiled: undefined, sheets: undefined, period: undefined, autoFps: undefined });
+// Frames per loop at fps, and the furthest any visible dot moves (position plus size, px at 12 px) or fades between two.
+function stepAt(d, fps) {
+  const P = period(d), F = Math.max(2, Math.round(P / 1000 * fps));
+  let px = 0, o = 0;
+  for (let f = 0; f < F; f++) for (const c of compile(d)) {
+    const a = pose(d, c.dot, frac(f / F * P / c.loop)), z = pose(d, c.dot, frac((f + 1) / F * P / c.loop));
+    if (Math.max(a.o, z.o) < .05) continue;
+    px = Math.max(px, (Math.hypot(z.x - a.x, z.y - a.y) + c.dot.d / 2 * Math.abs(Math.max(z.sx, z.sy) - Math.max(a.sx, a.sy))) * 12);
+    o = Math.max(o, Math.abs(z.o - a.o));
+  }
+  return { F, px, o };
+}
+function buildRates() {
+  if (rates.childElementCount) return;
+  const keep = FLIP.fps, build = variant === 'dots' ? 'sprite' : variant;
+  rates.insertAdjacentHTML('beforeend', '<div class="head"></div>' + RATES.map(f => `<div class="head">${f} fps</div>`).join(''));
+  for (const [id, loops] of [['wave', [1500, 1200, 2000]], ['tetra', [4000, 3000, 5000]]]) {
+    const base = designs.find(x => x.id === id);
+    loops.forEach((loop, i) => {
+      const d = i ? withLoop(base, loop) : base, own = autoFps(d);
+      const name = document.createElement('div'); name.className = 'name';
+      name.innerHTML = `<b>${i ? (loop < base.loop ? 'Faster' : 'Slower') : base.name}</b><small>${(loop / 1000).toFixed(1)} s loop${period(d) < loop ? `, repeats after ${(period(d) / 1000).toFixed(1)} s` : ''}</small>`;
+      rates.append(name);
+      for (const fps of RATES) {
+        FLIP.fps = fps;
+        const st = stepAt(d, fps), cell = document.createElement('div'), pair = document.createElement('div');
+        cell.className = 'cell' + (fps === own ? ' own' : '');
+        pair.className = 'pair';
+        const was = variant; variant = build;
+        pair.append(mark(d, 12), mark(d, 32));
+        variant = was;
+        cell.append(pair);
+        cell.insertAdjacentHTML('beforeend', `<small>${st.F} frames<br>${st.px.toFixed(2)} px · ${st.o.toFixed(2)} fade</small>`);
+        rates.append(cell);
+      }
+    });
+    rates.insertAdjacentHTML('beforeend', '<div class="split"></div>');
+  }
+  FLIP.fps = keep;
+}
+
+// ---------- crowd: the load test ----------
+const crowd = document.getElementById('crowd');
+let inStep = true, crowdMode = 'tetra', crowdCount = 32, crowdLayout = 'rows';
+// The stress test's own controls: every design (the shortlist first), the build and frame-rate buttons copied from the
+// controls above (they share their handlers), and the set-up in the address, so the same link opens it elsewhere.
+const FAVES = ['wave', 'tetra'];
+{
+  const box = document.getElementById('crowd-designs');
+  const chip = (id, text) => { const b = document.createElement('button'); b.type = 'button'; b.dataset.crowd = id; b.textContent = text; b.setAttribute('aria-pressed', String(id === crowdMode)); return b; };
+  for (const id of FAVES) { const d = designs.find(x => x.id === id); if (d) box.append(chip(id, '★ ' + d.name)); }
+  box.append(chip('all', 'Mix of all designs'), Object.assign(document.createElement('span'), { className: 'sep' }));
+  for (const d of designs) if (!FAVES.includes(d.id)) box.append(chip(d.id, d.name));
+  for (const [from, to] of [['builds', 'crowd-builds'], ['fps', 'crowd-fps']])
+    for (const b of document.getElementById(from).children) document.getElementById(to).append(b.cloneNode(true));
+}
+function crowdState() {
+  const q = new URLSearchParams({ d: crowdMode, n: crowdCount, b: variant, f: FLIP.fps, l: crowdLayout });
+  if (!inStep) q.set('step', 'off');
+  if (shortLoop) q.set('short', '1');
+  if (idleAfter) q.set('idle', '1');
+  if (document.body.classList.contains('stress-only')) q.set('full', '1');
+  if (document.documentElement.dataset.theme === 'light') q.set('theme', 'light');
+  return 'crowd?' + q;
+}
+const saveCrowd = () => { if (view === 'crowd') try { history.replaceState(null, '', '#' + crowdState()); } catch {} };
+function fillCrowd() {
+  clear(crowd);
+  crowd.className = 'crowd ' + crowdLayout;
+  const all = sections().flatMap(([, , l]) => l);
+  const list = crowdMode === 'all' ? Array.from({ length: crowdCount }, (_, i) => all[i % all.length]) : Array(crowdCount).fill(designs.find(x => x.id === crowdMode));
+  const rows = document.createDocumentFragment();
+  list.forEach((d, i) => {
+    const row = document.createElement('div'); row.className = 'ctx';
+    row.append(mark(d, 12, inStep ? 0 : Math.random() * d.loop));
+    const text = crowdMode === 'all' ? `${label.get(d)} ${d.name}` : titles[i % titles.length];
+    row.insertAdjacentHTML('beforeend', `<span class="t"></span><span class="id">${5400 + i}</span><span class="clock">${1 + (i * 7) % 9}:${String((i * 13) % 60).padStart(2, '0')}</span>`);
+    row.querySelector('.t').textContent = text;
+    rows.append(row);
+  });
+  crowd.append(rows);
+  document.getElementById('crowd-label').textContent = `${crowdCount} marks · ${crowdMode === 'all' ? 'mix of all designs' : list[0].name} · ${buildName(loopOf(list[0]))}`;
+  saveCrowd();
+}
+// Rows off screen are skipped (content-visibility: auto, as in FlightDeck). Chrome still runs CSS animations there
+// (finding 6), so a skipped row's marks pause, and they re-sync to the shared clock when the row comes back.
+crowd.addEventListener('contentvisibilityautostatechange', e => {
+  for (const m of e.target.querySelectorAll('.mk')) for (const rec of recsOf.get(m) ?? []) {
+    if (!e.skipped) run(rec);
+    else if (rec.a) rec.a.pause();
+    else rec.target.style.animationPlayState = 'paused';
+  }
+});
+const pressGroup = (attr, value) => { for (const x of document.querySelectorAll(`[data-${attr}]`)) x.setAttribute('aria-pressed', String(x.dataset[attr] === String(value))); };
+for (const b of document.querySelectorAll('[data-crowd]')) b.addEventListener('click', () => { crowdMode = b.dataset.crowd; pressGroup('crowd', crowdMode); fillCrowd(); });
+const setCount = n => { crowdCount = Math.max(1, Math.min(20000, Math.round(n) || 32)); pressGroup('count', crowdCount); fillCrowd(); };
+for (const b of document.querySelectorAll('[data-count]')) b.addEventListener('click', () => { document.getElementById('crowd-n').value = ''; setCount(Number(b.dataset.count)); });
+document.getElementById('crowd-n').addEventListener('change', e => { if (e.target.value) setCount(Number(e.target.value)); });
+for (const b of document.querySelectorAll('[data-layout]')) b.addEventListener('click', () => { crowdLayout = b.dataset.layout; pressGroup('layout', crowdLayout); fillCrowd(); });
+document.getElementById('crowd-sync').addEventListener('click', e => {
+  inStep = !inStep;
+  e.currentTarget.setAttribute('aria-pressed', String(inStep));
+  e.currentTarget.textContent = inStep ? 'In step' : 'Out of step';
+  fillCrowd();
+});
+// The shorter loop and pause when idle are the page's own toggles; these buttons press them.
+document.getElementById('crowd-short').addEventListener('click', () => document.getElementById('short').click());
+document.getElementById('crowd-idle').addEventListener('click', () => { document.getElementById('idle').click(); syncCrowdToggles(); saveCrowd(); });
+function syncCrowdToggles() {
+  document.getElementById('crowd-short').setAttribute('aria-pressed', String(shortLoop));
+  document.getElementById('crowd-idle').setAttribute('aria-pressed', String(!!idleAfter));
+  document.getElementById('crowd-focus').setAttribute('aria-pressed', String(document.body.classList.contains('stress-only')));
+}
+document.getElementById('crowd-focus').addEventListener('click', () => { document.body.classList.toggle('stress-only'); syncCrowdToggles(); saveCrowd(); });
+document.getElementById('crowd-link').addEventListener('click', async e => {
+  const url = location.href.split('#')[0] + '#' + crowdState(), b = e.currentTarget;
+  try { await navigator.clipboard.writeText(url); b.textContent = 'Link copied'; }
+  catch { prompt('Link to this set-up:', url); }
+  setTimeout(() => { b.textContent = 'Copy link'; }, 1500);
+});
+// Frame meter: frames drawn in the last second and the longest gap between two, from a frame loop of its own.
+let meterOn = false;
+document.getElementById('crowd-meter').addEventListener('click', e => {
+  meterOn = !meterOn;
+  e.currentTarget.setAttribute('aria-pressed', String(meterOn));
+  const out = document.getElementById('crowd-meter-out');
+  out.textContent = '';
+  if (!meterOn) return;
+  let last = performance.now(), from = last, frames = 0, worst = 0;
+  const tick = now => {
+    if (!meterOn) return;
+    frames++; worst = Math.max(worst, now - last); last = now;
+    if (now - from >= 1000) {
+      out.textContent = `frames: ${Math.round(frames * 1000 / (now - from))} a second, longest gap ${worst.toFixed(0)} ms`;
+      from = now; frames = 0; worst = 0;
+    }
+    requestAnimationFrame(tick);
+  };
+  requestAnimationFrame(tick);
+});
+// Key to screen: from the key's event time to the first timer after the next frame (a paint proxy), over the last 40 keys.
+const probeOut = document.getElementById('probe-out'), probeTimes = [];
+document.getElementById('probe').addEventListener('input', e => {
+  if (!e.isTrusted) return;
+  const t0 = e.timeStamp;
+  requestAnimationFrame(() => setTimeout(() => {
+    probeTimes.push(performance.now() - t0);
+    if (probeTimes.length > 40) probeTimes.shift();
+    const q = [...probeTimes].sort((x, y) => x - y), at = f => q[Math.min(q.length - 1, Math.floor(f * q.length))];
+    probeOut.textContent = `key to screen: median ${at(.5).toFixed(0)} ms, 95th percentile ${at(.95).toFixed(0)} ms (last ${q.length} keys)`;
+  }, 0));
+});
+
+// ---------- views ----------
+let view = 'cards';
+function setView(v) {
+  view = v;
+  for (const b of document.querySelectorAll('[data-view]')) b.setAttribute('aria-pressed', String(b.dataset.view === v));
+  for (const name of ['cards', 'film', 'crowd', 'rates']) document.getElementById('view-' + name).hidden = name !== v;
+  if (v === 'cards') fillCards();
+  if (v === 'film') buildFilm();
+  if (v === 'rates') buildRates();
+  if (v === 'crowd') { syncCrowdToggles(); if (!crowd.childElementCount) fillCrowd(); else saveCrowd(); }
+  try { history.replaceState(null, '', '#' + v); } catch {}
+}
+for (const b of document.querySelectorAll('[data-view]')) b.addEventListener('click', () => setView(b.dataset.view));
+// Rebuild every live mark, e.g. after switching between dots and flipbook.
+let sayBrowser = () => {};
+function rebuild() {
+  sayBrowser();
+  buildCards();
+  if (film.childElementCount) { clear(film); buildFilm(); }
+  if (rates.childElementCount) { clear(rates); buildRates(); }
+  if (crowd.childElementCount) fillCrowd();
+}
+
+// ---------- controls ----------
+// Buttons rather than menus: a native menu can fail to open inside the app's sandboxed preview of this page.
+const press = (attr, value) => { for (const x of document.querySelectorAll(`[data-${attr}]`)) x.setAttribute('aria-pressed', String(x.dataset[attr] === String(value))); };
+function setVariant(v) {
+  variant = v;
+  press('variant', v);
+  document.getElementById('fps').classList.toggle('off', v === 'dots'); // dots move every display frame
+}
+// Builds this browser can't run are switched off: the shared canvas needs WebKit's -webkit-canvas().
+for (const b of document.querySelectorAll('[data-variant="canvas"]')) if (!hasCssCanvas) { b.disabled = true; b.title += ' — not available in this browser'; }
+for (const b of document.querySelectorAll('[data-variant]')) b.addEventListener('click', () => { setVariant(b.dataset.variant); rebuild(); });
+for (const b of document.querySelectorAll('[data-fps]')) b.addEventListener('click', () => {
+  FLIP.fps = b.dataset.fps === 'auto' ? 'auto' : Number(b.dataset.fps);
+  press('fps', FLIP.fps);
+  for (const d of designs) d.sheets = null; // drawn for the old frame rate
+  if (variant === 'dots') setVariant('flip'); // a frame rate is the flipbook's
+  rebuild();
+});
+for (const b of document.querySelectorAll('[data-order]')) b.addEventListener('click', () => {
+  order = b.dataset.order;
+  press('order', order);
+  rebuild();
+});
+document.getElementById('short').addEventListener('click', e => {
+  shortLoop = !shortLoop;
+  e.currentTarget.setAttribute('aria-pressed', String(shortLoop));
+  syncCrowdToggles();
+  rebuild();
+});
+document.getElementById('mirror').addEventListener('click', e => {
+  FLIP.mirror = !FLIP.mirror;
+  e.currentTarget.setAttribute('aria-pressed', String(FLIP.mirror));
+  rebuild();
+});
+document.getElementById('idle').addEventListener('click', e => {
+  const on = !idleAfter;
+  e.currentTarget.setAttribute('aria-pressed', String(on));
+  idlePause(on ? 5 : 0);
+  syncCrowdToggles();
+});
+document.getElementById('slow').addEventListener('click', e => {
+  rate = rate === 1 ? .25 : 1;
+  e.currentTarget.setAttribute('aria-pressed', String(rate !== 1));
+  runAll();
+});
+const stillBtn = document.getElementById('still');
+stillBtn.setAttribute('aria-pressed', String(still));
+stillBtn.addEventListener('click', e => {
+  still = !still;
+  e.currentTarget.setAttribute('aria-pressed', String(still));
+  if (variant === 'best' || !['dots', 'img', 'steps', 'sprite', 'flip'].includes(variant)) rebuild(); // images, videos and canvases swap to their resting picture
+  else runAll();
+});
+document.getElementById('under').addEventListener('click', e => {
+  const on = document.body.classList.toggle('show-under');
+  e.currentTarget.setAttribute('aria-pressed', String(on));
+});
+document.getElementById('fav-only').addEventListener('click', e => {
+  const on = document.body.classList.toggle('fav-only');
+  e.currentTarget.setAttribute('aria-pressed', String(on));
+});
+const dialog = document.getElementById('export-dialog');
+document.getElementById('export').addEventListener('click', () => {
+  document.getElementById('export-text').value = exportText();
+  document.getElementById('copy-state').textContent = '';
+  dialog.showModal();
+  document.getElementById('export-text').select();
+});
+document.getElementById('copy').addEventListener('click', async () => {
+  const area = document.getElementById('export-text'), state = document.getElementById('copy-state');
+  try { await navigator.clipboard.writeText(area.value); state.textContent = 'Copied. Paste it into the chat.'; return; } catch {}
+  area.select();
+  // Inside the app's sandboxed preview the clipboard API can be refused; the old command still works there.
+  try { state.textContent = document.execCommand('copy') ? 'Copied. Paste it into the chat.' : 'Press ⌘C to copy the selected text.'; } catch { state.textContent = 'Press ⌘C to copy the selected text.'; }
+});
+document.getElementById('close-export').addEventListener('click', () => dialog.close());
+document.getElementById('theme').addEventListener('click', e => {
+  const light = document.documentElement.dataset.theme !== 'light';
+  document.documentElement.dataset.theme = light ? 'light' : 'dark';
+  e.currentTarget.textContent = light ? 'Dark theme' : 'Light theme';
+  if (variant !== 'dots') rebuild(); // the flipbook sheets carry their colour
+});
+
+// ---------- ?bench: the measuring fixture (32+ marks in rows and a composer), shared with working-mark-bench.py ----------
+const params = new URLSearchParams(location.search);
+if (params.has('bench')) {
+  document.body.classList.add('bench');
+  // candidate = static | <design>.<dots|flip|img|best|steps|sprite|canvas|image|worker|apng|webp|avif|svg|gif|mp4|webm|mov>[@n][+css|+waapi][+noio][+nocv][+sentinel]
+  //   [+fps<n|auto>][+loop<ms>][+mirror][+layer][+idle<s>];
+  // +loop<ms> runs the design on a loop of that length (shorter = faster), +mirror draws a mirrored design's first half
+  // and flips the mark for the second (sheet builds), +layer gives every moving element its own compositing layer.
+  // worker draws every mark into its own canvas from one worker at the frame rate, only while the mark is in view;
+  // apng, webp, avif, svg, gif, mp4, webm and mov are files, anim/<design>-<loop>-<fps>.<kind>, cut to the flipbook's
+  // tight cell and made from its frames: gif and mp4 (H.264) matted on the row colour, webm (VP9) and mov (HEVC) with
+  // alpha; +idle<s> pauses
+  // the marks after s seconds without input and resumes them on the next key or pointer event.
+  // steps is the stepped flipbook and image the animated image built in the page (both honour +fps). With @n only the
+  // first n marks move, the rest stay static; +css runs CSS animations and +waapi script-started ones instead of the
+  // engine's own choice (CSS in Chrome, script in WebKit), +noio leaves
+  // out the re-sync observer, +nocv the rows' content-visibility, +sentinel watches a marker beside the moving parts,
+  // +fps<n> sets the flipbook's frame rate (to measure what each costs).
+  const [, id, kind, moving, cssOn, waapiOn, noio, nocv, sentinel, fps, loopMs, mirrorOn, layerOn, idle] = /^([a-z0-9-]+)(?:\.(dots|flip|img|best|steps|sprite|canvas|image|worker|apng|webp|avif|svg|gif|mp4|webm|mov))?(?:@(\d+))?(\+css)?(\+waapi)?(\+noio)?(\+nocv)?(\+sentinel)?(?:\+fps(\d+|auto))?(?:\+loop(\d+))?(\+mirror)?(\+layer)?(?:\+idle(\d+))?$/.exec(params.get('candidate') || 'static') ?? [];
+  // The app's React root listens for every animation event (React attaches all the events it knows at the root).
+  // Those listeners decide whether engines wake the page at the end of each CSS animation loop, so the fixture has
+  // them too.
+  for (const type of ['animationstart', 'animationend', 'animationiteration', 'animationcancel']) document.addEventListener(type, () => {});
+  if (cssOn) css = true;
+  if (waapiOn) css = false;
+  FLIP.fps = !fps ? 40 : fps === 'auto' ? 'auto' : Number(fps); // the spike measured 40 fps
+  if (sentinel) sentinels = true;
+  if (noio) revive.observe = () => {};
+  if (nocv) document.body.classList.add('nocv');
+  const base = designs.find(d => d.id === id), design = base && loopMs ? withLoop(base, Number(loopMs)) : base;
+  if (mirrorOn) FLIP.mirror = true;
+  const mode = params.get('visibility') || 'visible';
+  const total = Math.max(32, Math.min(2000, Number(params.get('count')) || 32));
+  const IMAGES = ['apng', 'webp', 'avif', 'svg', 'gif'], VIDEOS = ['mp4', 'webm', 'mov'];
+  if (id !== 'static' && (!design || !['dots', 'flip', 'img', 'best', 'steps', 'sprite', 'canvas', 'image', 'worker', ...IMAGES, ...VIDEOS].includes(kind))) throw Error('Unknown candidate ' + params.get('candidate'));
+  const fileOf = d => `anim/${d.id}-${d.loop}-${fpsOf(d)}.${kind}`;
+  // A looping, muted video per mark (the platform pauses muted autoplay video that isn't visible).
+  const videoMark = d => {
+    const el = shell(d, 12), v = document.createElement('video'), sh = sheet(d, 12, false);
+    Object.assign(v, { muted: true, loop: true, autoplay: true, playsInline: true, disablePictureInPicture: true, src: fileOf(d) });
+    v.setAttribute('muted', ''); v.setAttribute('playsinline', '');
+    v.width = sh.cellW; v.height = sh.cellH;
+    v.style.cssText = `position:absolute;left:calc(50% + ${sh.left}px);top:calc(50% + ${sh.top}px);width:${sh.cellW}px;height:${sh.cellH}px`;
+    el.append(v);
+    return el;
+  };
+  // Every mark a canvas that one worker repaints at the frame rate, only while the mark is in view (an
+  // IntersectionObserver tells the worker which); the frames go over once as ImageBitmaps.
+  let worker = null, workerCanvases = [];
+  const workerMark = d => {
+    const el = shell(d, 12), sh = sheet(d, 12), c = document.createElement('canvas'), scale = Math.max(1, devicePixelRatio || 1);
+    c.width = Math.round(sh.cellW * scale); c.height = Math.round(sh.cellH * scale);
+    c.style.cssText = `position:absolute;left:calc(50% + ${sh.left}px);top:calc(50% + ${sh.top}px);width:${sh.cellW}px;height:${sh.cellH}px`;
+    el.append(c);
+    workerCanvases.push(c);
+    return el;
+  };
+  const startWorker = async d => {
+    const sh = sheet(d, 12), color = markColor();
+    const frames = await Promise.all(sh.cells.map(dots => createImageBitmap(cellCanvas(sh, 12, color, dots))));
+    if (!sh.holds.length) throw Error('No holds for ' + d.id);
+    // The worker keeps one timer, set to the next hold's start, and draws only marks in view whose picture changed.
+    const src = `let marks = [], frames = [], holds = [], P = 1, flip = null, seen = new Set(), timer = 0, paused = false;
+      onmessage = e => {
+        const m = e.data;
+        if (m.canvases) { marks = m.canvases.map(c => ({ c, g: c.getContext('2d'), cell: -1 })); frames = m.frames; holds = m.holds; P = m.P; flip = m.flip; }
+        if (m.seen) seen = new Set(m.seen);
+        if ('paused' in m) paused = m.paused;
+        clearTimeout(timer);
+        if (!paused) tick();
+      };
+      function tick() {
+        const t = performance.timeOrigin + performance.now(), u = t % P / P, flipped = flip && t % (2 * P) >= P;
+        let i = holds.findIndex(h => u < h.to); if (i < 0) i = holds.length - 1;
+        const cell = holds[i].cell + (flipped ? .5 : 0);
+        for (const k of seen) {
+          const mk = marks[k], w = mk.c.width, h = mk.c.height;
+          if (mk.cell === cell) continue;
+          mk.cell = cell;
+          mk.g.setTransform(1, 0, 0, 1, 0, 0);
+          mk.g.clearRect(0, 0, w, h);
+          if (flipped) mk.g.setTransform(flip === 'x' ? -1 : 1, 0, 0, flip === 'y' ? -1 : 1, flip === 'x' ? w : 0, flip === 'y' ? h : 0);
+          mk.g.drawImage(frames[Math.floor(cell)], 0, 0, w, h);
+        }
+        timer = setTimeout(tick, Math.max(1, ((holds[i].to - u) * P + 1)));
+      }`;
+    worker = new Worker(URL.createObjectURL(new Blob([src], { type: 'text/javascript' })));
+    const offscreen = workerCanvases.map(c => c.transferControlToOffscreen());
+    worker.postMessage({ canvases: offscreen, frames, holds: sh.holds, P: sh.P, flip: sh.flip }, [...offscreen, ...frames]);
+    const seen = new Set();
+    const io = new IntersectionObserver(entries => {
+      for (const e of entries) { const k = workerCanvases.indexOf(e.target); if (e.isIntersecting) seen.add(k); else seen.delete(k); }
+      worker.postMessage({ seen: [...seen] });
+    });
+    for (const c of workerCanvases) io.observe(c);
+  };
+  // With reduced motion every build shows the page-built still picture.
+  const imageMarkOf = d => imageMark(d, 12);
+  // An animated image file made from the flipbook's own frames (at 2× for 12 px), in the flipbook's tight cell.
+  const fileMark = d => {
+    const el = shell(d, 12), img = new Image(), sh = sheet(d, 12, false);
+    img.alt = ''; img.width = sh.cellW; img.height = sh.cellH; img.src = fileOf(d);
+    stillOf.set(img, [d, 12]);
+    img.style.cssText = `position:absolute;left:calc(50% + ${sh.left}px);top:calc(50% + ${sh.top}px)`;
+    el.append(img);
+    return el;
+  };
+  const animated = moving === undefined ? Infinity : Number(moving);
+  variant = kind === 'image' ? 'apng' : kind || 'dots';
+  if (params.has('reduce')) still = true;
+  document.body.classList.toggle('offscreen', mode === 'offscreen');
+  document.body.classList.toggle('hidden', mode === 'hidden');
+  const roster = document.getElementById('roster');
+  document.body.classList.toggle('dense', total > 32);
+  roster.style.gridTemplateColumns = `repeat(${Math.max(2, Math.ceil(total / 16))}, minmax(0, 1fr))`;
+  const staticMark = () => {
+    // The mark shipping today, for the baseline: exactly the static SVG.
+    const cell = document.createElement('span');
+    cell.className = 'mk tall';
+    cell.style.fontSize = '12px';
+    cell.innerHTML = '<svg viewBox="0 0 66 100" aria-hidden="true" style="position:absolute;inset:0;width:100%;height:100%;fill:currentColor">' +
+      [[17, 18], [49, 18], [17, 39], [49, 39], [17, 61], [49, 61], [17, 82], [49, 82]].map(([x, y]) => `<circle cx="${x}" cy="${y}" r="11"/>`).join('') + '</svg>';
+    return cell;
+  };
+  for (let i = 0; i < total; i++) {
+    const row = document.createElement('div'); row.className = 'row';
+    const m = id === 'static' || i >= animated ? staticMark() : still && (IMAGES.includes(kind) || VIDEOS.includes(kind) || kind === 'worker') ? imageMarkOf(design)
+      : IMAGES.includes(kind) ? fileMark(design) : VIDEOS.includes(kind) ? videoMark(design) : kind === 'worker' ? workerMark(design) : mark(design, 12);
+    m.classList.add('mark');
+    row.innerHTML = `<span class="id">${844 + i}</span><span class="name">${['Session routing', 'Transcript updates', 'Phone pairing', 'Issue search'][i % 4]}</span>`;
+    row.append(m);
+    row.insertAdjacentHTML('beforeend', '<span class="timer">4:53</span>');
+    roster.append(row);
+  }
+  if (kind === 'worker' && !still && workerCanvases.length) startWorker(design);
+  if (layerOn) for (const x of roster.querySelectorAll('.mk img, .mk video, .mk canvas, .mk .clip')) x.style.willChange = 'transform';
+  // +idle<s>: the marks stop after s seconds without input (see idlePause).
+  if (idle !== undefined && id !== 'static') {
+    pauseHooks.push(on => worker?.postMessage({ paused: on }));
+    idlePause(Number(idle));
+  }
+  const builds = { dots: 'dots', flip: 'flipbook', img: 'flipbook, shared image', best: 'best for this browser', steps: 'stepped flipbook', sprite: 'sprite', canvas: hasCssCanvas ? 'one shared canvas (-webkit-canvas)' : 'one shared canvas: not supported, animated image instead',
+    apng: kind === 'image' ? 'animated image, built in the page' : 'animated PNG', webp: 'animated WebP', avif: 'animated AVIF',
+    svg: 'animated SVG (SMIL)', gif: 'GIF', mp4: 'video (H.264)', webm: 'video (VP9 with alpha)', mov: 'video (HEVC with alpha)', worker: 'canvas drawn by a worker' };
+  document.getElementById('bench-label').textContent = `${total} working marks · ${id === 'static' ? 'static (shipping)' : `${design.name} · ${builds[variant]}${css ? ' · CSS animations' : ' · script-started'}${Number.isFinite(animated) ? ` · ${animated} moving` : ''}${loopMs ? ` · ${loopMs} ms loop` : ''}${mirrorOn ? ' · mirrored' : ''}${layerOn ? ' · own layers' : ''}${idle !== undefined ? ` · pauses after ${idle} s idle` : ''}`} · ${mode}`;
+  window.__workingMarkFixture = { candidate: params.get('candidate') || 'static', mode, count: total, reduced: still, bench: true, idleLog };
+} else {
+  // Say which browser this is and how the builds are set up for it.
+  const ua = navigator.userAgent, ver = (re) => (ua.match(re) || [])[1];
+  const name = /Edg\//.test(ua) ? `Edge ${ver(/Edg\/(\d+)/)}` : /Chrome\//.test(ua) ? `Chrome ${ver(/Chrome\/(\d+)/)}` : /Firefox\//.test(ua) ? `Firefox ${ver(/Firefox\/(\d+)/)}`
+    : /Version\/[\d.]+.*Safari/.test(ua) ? `Safari ${ver(/Version\/([\d.]+)/)}` : needsResync ? 'a WebKit app (like the Mac app)' : 'an unknown browser';
+  const how = needsResync ? 'animations script-started and re-synced when they come back into view, transparent video as HEVC (Safari ignores VP9’s alpha), and the shared canvas available.'
+    : 'animations as CSS, transparent video as VP9; the shared canvas is WebKit-only.';
+  // What Best draws for the shortlist with the settings picked, and what the table measured for it in this browser.
+  sayBrowser = () => {
+    const picks = ['wave', 'tetra'].map(id => designs.find(x => x.id === id)).map(d => {
+      const k = bestKind(d, 12), c = cellFor(d, k), name = buildName(d).replace(/^Best for [^:]+: /, '');
+      return `${d.name}: <b>${name}</b>${c ? ` (${c[0] >= 0 ? '+' : ''}${c[0].toFixed(0)} points of a core, ${c[1] >= 0 ? '+' : ''}${c[1].toFixed(0)} MB, typing ${c[2].toFixed(0)} ms with 32 marks)` : ''}`;
+    });
+    const other = bestKind(designs.find(x => !TABLE[ENGINE]?.[x.id]) ?? designs[0], 12);
+    document.getElementById('browser').innerHTML = `This browser: <b>${name}</b>${needsResync ? ' (WebKit)' : ''}. Every build below runs the cheapest way measured for it: ${how}` +
+      (ENGINE && TABLE[ENGINE] ? ` <b>Best for this browser</b> draws each design with the build the final table measured cheapest here for the frame rate and loop picked: ${picks.join('; ')}; the other designs, which have no file builds, ${{ dots: 'dots', img: 'the GPU flipbook', steps: 'the stepped flipbook', sprite: 'the sprite', canvas: 'the shared canvas', worker: 'the worker canvas', image: 'the APNG' }[other]}.` : '');
+  };
+  sayBrowser();
+  buildCards();
+  const start = location.hash.slice(1);
+  if (start === 'film' || start === 'rates') setView(start);
+  // #crowd?d=…&n=…&b=…&f=…&l=…: the stress test as a link made with Copy link (#stress also opens it).
+  else if (/^(crowd|stress)\b/.test(start)) {
+    const q = new URLSearchParams(start.split('?')[1] || '');
+    if (q.get('theme') === 'light') document.getElementById('theme').click();
+    if (designs.some(x => x.id === q.get('d')) || q.get('d') === 'all') { crowdMode = q.get('d'); pressGroup('crowd', crowdMode); }
+    if (q.get('n')) { crowdCount = Math.max(1, Math.min(20000, Number(q.get('n')) || 32)); pressGroup('count', crowdCount); if (![1, 8, 32, 64, 128, 256, 500, 1000, 2000, 5000].includes(crowdCount)) document.getElementById('crowd-n').value = crowdCount; }
+    if (q.get('l') === 'screen' || q.get('l') === 'rows') { crowdLayout = q.get('l'); pressGroup('layout', crowdLayout); }
+    if (q.get('step') === 'off') document.getElementById('crowd-sync').click();
+    const f = q.get('f');
+    if (f) document.querySelector(`#fps [data-fps="${f}"]`)?.click();
+    const b = q.get('b'), bb = b && document.querySelector(`#builds [data-variant="${b}"]`);
+    if (bb && !bb.disabled) bb.click();
+    if (q.get('short') === '1') document.getElementById('short').click();
+    if (q.get('idle') === '1') document.getElementById('idle').click();
+    if (q.get('full') === '1') document.body.classList.add('stress-only');
+    setView('crowd');
+  }
+}
+</script>
+</body>
+</html>

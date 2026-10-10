@@ -1,0 +1,18 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Animation freeze in a hidden pane</title>
+<style>
+/* The POD-5558 iframe case: like Podium's PanelDeck + HtmlFilePanel, the probe runs in a sandboxed srcdoc
+   iframe inside a pane that is hidden with display:none. Hide it, bring it back, and see which rows still
+   move (in Safari 26.6.2 every transform freezes while opacity keeps going). Serve this folder over http. */
+body { margin:0; background:#000; color:#ccc; font:12px system-ui; }
+.pane { position:absolute; left:0; top:40px; right:0; bottom:0; display:flex; }
+.pane.hidden { display:none; }
+iframe { border:0; flex:1; }
+</style></head>
+<body>
+<button type="button" style="margin:8px" onclick="const w = document.getElementById('wrap'); w.classList.add('hidden'); setTimeout(() => w.classList.remove('hidden'), 3000)">Hide the pane for 3 s</button>
+<div id="wrap" class="pane"><iframe id="f" sandbox="allow-scripts"></iframe></div>
+<script>
+fetch('safari-animation-freeze-probe.html').then(r => r.text()).then(t => { document.getElementById('f').srcdoc = t; });
+</script>
+</body></html>

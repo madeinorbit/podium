@@ -1,0 +1,385 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Working mark designs</title>
+<style>
+/* Design prototypes for the working mark. Performance is NOT measured here.
+   Every design is built only from opacity/transform animations on pre-drawn
+   elements (no masks, filters, SVG animation, var() in keyframes or steps()),
+   so each one can be made cheap; the tag says how many moving layers it needs. */
+:root { color-scheme: dark; --bg:#101114; --card:#191b20; --ink:#e4e4e7; --muted:#8c8e99; --line:#2c2e36; --mark:#6f9dff; --chip:#232631; }
+:root[data-theme="light"] { color-scheme: light; --bg:#f6f5f1; --card:#fff; --ink:#24242a; --muted:#74747d; --line:#dddcd5; --mark:#2a62f0; --chip:#eef0f6; }
+* { box-sizing: border-box; }
+body { margin:0; background:var(--bg); color:var(--ink); font:14px/1.45 system-ui, -apple-system, sans-serif; }
+main { max-width:1180px; margin:0 auto; padding:20px 16px 48px; }
+h1 { font-size:22px; font-weight:600; letter-spacing:-.4px; margin:0 0 4px; }
+.lede { color:var(--muted); margin:0 0 14px; max-width:760px; }
+.controls { position:sticky; top:0; z-index:5; display:flex; flex-wrap:wrap; gap:8px; padding:10px 0; background:var(--bg); border-bottom:1px solid var(--line); margin-bottom:18px; }
+.controls button, .controls select { font:inherit; font-size:13px; color:var(--ink); background:var(--card); border:1px solid var(--line); border-radius:8px; padding:6px 10px; cursor:pointer; }
+.controls button[aria-pressed="true"] { border-color:var(--mark); color:var(--mark); }
+h2 { font-size:15px; font-weight:600; margin:26px 0 4px; }
+h2 + p { color:var(--muted); margin:0 0 12px; font-size:13px; }
+.grid { display:grid; grid-template-columns:repeat(auto-fill, minmax(240px, 1fr)); gap:12px; }
+.card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:12px 14px 14px; display:flex; flex-direction:column; gap:10px; min-width:0; }
+.card header { display:flex; align-items:baseline; gap:8px; }
+.num { font:600 12px ui-monospace, monospace; color:var(--mark); }
+.card h3 { margin:0; font-size:14px; font-weight:600; flex:1; }
+.cost { font:11px ui-monospace, monospace; color:var(--muted); background:var(--chip); border-radius:6px; padding:1px 6px; white-space:nowrap; }
+.stage { height:104px; display:flex; align-items:center; justify-content:center; border-radius:9px; background:var(--bg); }
+.sizes { display:flex; align-items:flex-end; gap:16px; padding:0 2px; }
+.sizes figure { margin:0; display:flex; flex-direction:column; align-items:center; gap:4px; }
+.sizes figcaption { font:10px ui-monospace, monospace; color:var(--muted); }
+.ctx { display:flex; align-items:center; gap:8px; height:28px; padding:0 9px; border-radius:7px; background:var(--bg); font-size:12.5px; min-width:0; }
+.ctx .t { flex:1; min-width:0; overflow:hidden; white-space:nowrap; text-overflow:ellipsis; }
+.ctx .id { color:var(--muted); font:10.5px ui-monospace, monospace; }
+.ctx .clock { color:var(--mark); font:10.5px ui-monospace, monospace; }
+.desc { margin:0; font-size:12.5px; color:var(--ink); }
+.how { margin:0; font-size:11.5px; color:var(--muted); }
+.crowdbar { display:flex; flex-wrap:wrap; gap:8px; align-items:center; margin-bottom:10px; }
+.crowd { display:grid; grid-template-columns:repeat(auto-fill, minmax(260px, 1fr)); gap:0 14px; background:var(--card); border:1px solid var(--line); border-radius:12px; padding:4px 0; }
+.crowd .ctx { background:none; border-radius:0; border-bottom:1px solid var(--line); height:27px; }
+
+/* ?sheet: one compact overview of every design (for thumbnails and phones) */
+body.sheet .lede, body.sheet h2 + p, body.sheet #crowd-title, body.sheet #crowd-title + p, body.sheet .crowdbar, body.sheet #crowd { display:none; }
+body.sheet .grid { grid-template-columns:repeat(auto-fill, minmax(150px, 1fr)); gap:8px; }
+body.sheet .card > :not(header):not(.stage) { display:none; }
+body.sheet .card { padding:8px 10px 10px; gap:6px; }
+body.sheet .card .cost { display:none; }
+body.sheet .stage { height:88px; }
+body.sheet h2 { margin:14px 0 8px; }
+
+/* ---------- the marks: 1em box, font-size sets the real size ---------- */
+.mk { position:relative; display:inline-block; width:1em; height:1em; color:var(--mark); flex:none; vertical-align:middle; }
+.mk.tall { width:.66em; }
+.mk i, .mk span, .mk b { position:absolute; display:block; }
+.mk svg { position:absolute; inset:0; width:100%; height:100%; display:block; overflow:visible; }
+.mk .dt { width:.22em; height:.22em; border-radius:50%; background:currentColor; }
+.g0 { left:.06em; top:.07em; } .g1 { left:.38em; top:.07em; }
+.g2 { left:.06em; top:.28em; } .g3 { left:.38em; top:.28em; }
+.g4 { left:.06em; top:.50em; } .g5 { left:.38em; top:.50em; }
+.g6 { left:.06em; top:.71em; } .g7 { left:.38em; top:.71em; }
+.p3 { perspective:3em; }
+.p4 { perspective:4em; }
+.flat3d { transform-style:preserve-3d; }
+@keyframes spinZ { from { transform:rotate(0deg); } to { transform:rotate(360deg); } }
+
+/* R1 original wave, rebuilt from 8 opacity+scale dots (the pre-September motion) */
+.d-orig .dt { animation:owave 1.5s linear infinite; }
+@keyframes owave { 0% { opacity:.2; transform:scale(.8); } 16% { opacity:1; transform:scale(1.16); } 44%, 100% { opacity:.2; transform:scale(.8); } }
+.d-orig .g1 { animation-delay:-1.38s; } .d-orig .g2 { animation-delay:-1.29s; } .d-orig .g3 { animation-delay:-1.17s; }
+.d-orig .g4 { animation-delay:-1.08s; } .d-orig .g5 { animation-delay:-.96s; } .d-orig .g6 { animation-delay:-.87s; } .d-orig .g7 { animation-delay:-.75s; }
+
+/* 01 row wave: four row layers, each two dots */
+.d-rowwave .row { left:0; width:.66em; height:.22em; animation:rwave 1.4s cubic-bezier(.45,0,.55,1) infinite; }
+.d-rowwave .row .dt { top:0; }
+.d-rowwave .r0 { top:.07em; } .d-rowwave .r1 { top:.28em; animation-delay:-1.19s; }
+.d-rowwave .r2 { top:.50em; animation-delay:-.98s; } .d-rowwave .r3 { top:.71em; animation-delay:-.77s; }
+@keyframes rwave { 0% { opacity:.22; transform:scale(.84); } 18% { opacity:1; transform:scale(1.08); } 50%, 100% { opacity:.22; transform:scale(.84); } }
+
+/* 02 atom: nucleus, three tilted orbits, electrons kept facing the viewer */
+.d-atom .scene, .d-saturn .scene, .d-binary .scene, .d-halo .scene { inset:0; transform-style:preserve-3d; }
+.d-atom .nuc { left:.39em; top:.39em; width:.22em; height:.22em; border-radius:50%; background:currentColor; }
+.d-atom .orb { inset:.03em; transform-style:preserve-3d; }
+.d-atom .o1 { transform:rotate(0deg) rotateX(72deg); }
+.d-atom .o2 { transform:rotate(60deg) rotateX(72deg); }
+.d-atom .o3 { transform:rotate(120deg) rotateX(72deg); }
+.d-atom .ring { inset:0; border-radius:50%; border:.04em solid currentColor; opacity:.32; }
+.d-atom .spin { inset:0; transform-style:preserve-3d; animation:spinZ 1.5s linear infinite; }
+.d-atom .bb { left:calc(50% - .065em); top:-.065em; width:.13em; height:.13em; border-radius:50%; background:currentColor; }
+.d-atom .o1 .bb { animation:bbA0 1.5s linear infinite; }
+.d-atom .o2 .bb { animation:bbA60 1.5s linear infinite; }
+.d-atom .o3 .bb { animation:bbA120 1.5s linear infinite; }
+.d-atom .o2 .spin, .d-atom .o2 .bb { animation-delay:-.5s; }
+.d-atom .o3 .spin, .d-atom .o3 .bb { animation-delay:-1s; }
+@keyframes bbA0 { from { transform:rotate(0deg) rotateX(-72deg) rotate(0deg); } to { transform:rotate(-360deg) rotateX(-72deg) rotate(0deg); } }
+@keyframes bbA60 { from { transform:rotate(0deg) rotateX(-72deg) rotate(-60deg); } to { transform:rotate(-360deg) rotateX(-72deg) rotate(-60deg); } }
+@keyframes bbA120 { from { transform:rotate(0deg) rotateX(-72deg) rotate(-120deg); } to { transform:rotate(-360deg) rotateX(-72deg) rotate(-120deg); } }
+
+/* 03 saturn + moon: shaded planet, still ring, a moon passing behind and in front */
+.d-saturn .planet { left:.26em; top:.26em; width:.48em; height:.48em; border-radius:50%;
+  background:radial-gradient(circle at 34% 30%, color-mix(in srgb, currentColor 35%, white) 0, currentColor 46%, color-mix(in srgb, currentColor 55%, black) 100%); }
+.d-saturn .arc { left:-.02em; right:-.02em; top:.39em; height:.22em; border-radius:50%; border:.05em solid transparent; transform:rotate(-16deg); }
+.d-saturn .arc.back { border-top-color:currentColor; opacity:.45; }
+.d-saturn .arc.front { border-bottom-color:currentColor; }
+.d-saturn .orb { inset:-.04em; transform:rotate(-16deg) rotateX(76deg); transform-style:preserve-3d; }
+.d-saturn .spin { inset:0; transform-style:preserve-3d; animation:spinZ 2.6s linear infinite; }
+.d-saturn .bb { left:calc(50% - .07em); top:-.07em; width:.14em; height:.14em; border-radius:50%; background:currentColor; animation:bbSat 2.6s linear infinite; }
+@keyframes bbSat { from { transform:rotate(0deg) rotateX(-76deg) rotate(16deg); } to { transform:rotate(-360deg) rotateX(-76deg) rotate(16deg); } }
+
+/* 04 gyroscope: three nested rings turning on different axes, empty centre */
+.d-gyro .rg { border-radius:50%; border:.055em solid currentColor; }
+.d-gyro .a { inset:.04em; animation:gyY 2.4s linear infinite; }
+.d-gyro .b { inset:.15em; opacity:.8; animation:gyX 3.1s linear infinite; }
+.d-gyro .c { inset:.27em; opacity:.62; animation:gyD 2s linear infinite; }
+/* Safari 26 runs a 3D turn of more than 180deg between two keyframes on the main
+   thread (GraphicsLayerCA hasBig3DRotation), so every full 3D turn is split in thirds. */
+@keyframes gyY { 0% { transform:rotateY(0deg); } 33.333% { transform:rotateY(120deg); } 66.667% { transform:rotateY(240deg); } 100% { transform:rotateY(360deg); } }
+@keyframes gyX { 0% { transform:rotateX(0deg); } 33.333% { transform:rotateX(120deg); } 66.667% { transform:rotateX(240deg); } 100% { transform:rotateX(360deg); } }
+@keyframes gyD { 0% { transform:rotate3d(1,1,0,0deg); } 33.333% { transform:rotate3d(1,1,0,120deg); } 66.667% { transform:rotate3d(1,1,0,240deg); } 100% { transform:rotate3d(1,1,0,360deg); } }
+
+/* 05 binary: two bodies circling a shared, empty centre on a tilted orbit */
+.d-binary .orb { inset:.13em; transform:rotate(-25deg) rotateX(66deg); transform-style:preserve-3d; }
+.d-binary .ring { inset:0; border-radius:50%; border:.035em solid currentColor; opacity:.22; }
+.d-binary .spin { inset:0; transform-style:preserve-3d; animation:spinZ 1.8s linear infinite; }
+.d-binary .bb { border-radius:50%; background:currentColor; animation:bbBin 1.8s linear infinite; }
+.d-binary .top { left:calc(50% - .12em); top:-.12em; width:.24em; height:.24em; }
+.d-binary .bot { left:calc(50% - .075em); top:calc(100% - .075em); width:.15em; height:.15em; opacity:.75; }
+@keyframes bbBin { from { transform:rotate(0deg) rotateX(-66deg) rotate(25deg); } to { transform:rotate(-360deg) rotateX(-66deg) rotate(25deg); } }
+
+/* 06 halo: the eight dots become a tilted ring that turns; far dots dim */
+.d-halo .plane { inset:.05em; transform:rotate(-14deg) rotateX(68deg); transform-style:preserve-3d; }
+.d-halo .spin { inset:0; transform-style:preserve-3d; animation:spinZ 2.4s linear infinite; }
+.d-halo .bb { left:calc(50% - .065em); top:-.065em; width:.13em; height:.13em; border-radius:50%; background:currentColor; animation:bbHalo 2.4s linear infinite; }
+@keyframes bbHalo {
+  0% { transform:rotate(0deg) rotateX(-68deg) rotate(14deg); opacity:.28; }
+  25% { transform:rotate(-90deg) rotateX(-68deg) rotate(14deg); opacity:.64; }
+  50% { transform:rotate(-180deg) rotateX(-68deg) rotate(14deg); opacity:1; }
+  75% { transform:rotate(-270deg) rotateX(-68deg) rotate(14deg); opacity:.64; }
+  100% { transform:rotate(-360deg) rotateX(-68deg) rotate(14deg); opacity:.28; } }
+.d-halo .k1, .d-halo .k1 .bb { animation-delay:-.3s; } .d-halo .k2, .d-halo .k2 .bb { animation-delay:-.6s; }
+.d-halo .k3, .d-halo .k3 .bb { animation-delay:-.9s; } .d-halo .k4, .d-halo .k4 .bb { animation-delay:-1.2s; }
+.d-halo .k5, .d-halo .k5 .bb { animation-delay:-1.5s; } .d-halo .k6, .d-halo .k6 .bb { animation-delay:-1.8s; }
+.d-halo .k7, .d-halo .k7 .bb { animation-delay:-2.1s; }
+
+/* 07 braille loop: a three-dot comet runs clockwise round the eight dots */
+.d-braille .dt { animation:snake 1.2s linear infinite; }
+@keyframes snake { 0% { opacity:1; transform:scale(1.12); } 13% { opacity:.72; transform:scale(1); } 27% { opacity:.42; transform:scale(.9); } 42%, 100% { opacity:.16; transform:scale(.82); } }
+.d-braille .g6 { animation-delay:0s; } .d-braille .g4 { animation-delay:-1.05s; } .d-braille .g2 { animation-delay:-.9s; } .d-braille .g0 { animation-delay:-.75s; }
+.d-braille .g1 { animation-delay:-.6s; } .d-braille .g3 { animation-delay:-.45s; } .d-braille .g5 { animation-delay:-.3s; } .d-braille .g7 { animation-delay:-.15s; }
+
+/* 08 comet ring: one pre-drawn ring of fading dots, rotating */
+.d-comet .wheel { inset:0; animation:spinZ .95s linear infinite; }
+
+/* 09 sonar: a still core sending out two fading rings */
+.d-sonar .core { left:.39em; top:.39em; width:.22em; height:.22em; border-radius:50%; background:currentColor; }
+.d-sonar .ping { inset:.04em; border-radius:50%; border:.07em solid currentColor; animation:ping 1.8s cubic-bezier(.2,.6,.35,1) infinite; }
+.d-sonar .p2 { animation-delay:-.9s; }
+@keyframes ping { 0% { transform:scale(.26); opacity:.95; } 100% { transform:scale(1); opacity:0; } }
+
+/* 10 typing dots: three dots hop in turn */
+.d-typing .t { top:.4em; width:.2em; height:.2em; border-radius:50%; background:currentColor; animation:hop 1.1s ease-in-out infinite; }
+.d-typing .t1 { left:.08em; } .d-typing .t2 { left:.4em; animation-delay:-.95s; } .d-typing .t3 { left:.72em; animation-delay:-.8s; }
+@keyframes hop { 0%, 55%, 100% { transform:translateY(.06em); opacity:.35; } 25% { transform:translateY(-.17em); opacity:1; } }
+
+/* 11 equaliser: four bars at different tempos */
+.d-eq .bar { bottom:.1em; width:.13em; height:.8em; border-radius:.07em; background:currentColor; transform-origin:50% 100%; animation:eq .9s ease-in-out infinite alternate; }
+.d-eq .b1 { left:.1em; } .d-eq .b2 { left:.33em; animation-duration:.62s; animation-delay:-.3s; }
+.d-eq .b3 { left:.56em; animation-duration:1.1s; animation-delay:-.5s; } .d-eq .b4 { left:.79em; animation-duration:.76s; animation-delay:-.2s; }
+@keyframes eq { from { transform:scaleY(.22); } to { transform:scaleY(1); } }
+
+/* 12 token stream: three lanes of text-like dashes scrolling at different speeds */
+.d-tokens .clip { inset:.08em 0; overflow:hidden; }
+.d-tokens .lane { left:0; width:4em; height:.14em; animation:stream 2.2s linear infinite; }
+.d-tokens .l1 { top:.05em; } .d-tokens .l2 { top:.34em; animation-duration:3s; opacity:.75; } .d-tokens .l3 { top:.63em; animation-duration:1.7s; opacity:.55; }
+@keyframes stream { from { transform:translateX(0); } to { transform:translateX(-2em); } }
+
+/* 13 sparkle: a four-point star turning and breathing, a small one twinkling */
+.d-sparkle .big { left:.02em; top:.2em; width:.76em; height:.76em; animation:spark 1.8s ease-in-out infinite; }
+.d-sparkle .small { left:.64em; top:.02em; width:.32em; height:.32em; animation:twk 1.8s ease-in-out infinite; animation-delay:-.9s; }
+@keyframes spark { 0% { transform:rotate(0deg) scale(.7); } 50% { transform:rotate(45deg) scale(1); } 100% { transform:rotate(90deg) scale(.7); } }
+@keyframes twk { 0%, 100% { transform:rotate(0deg) scale(0); opacity:0; } 50% { transform:rotate(90deg) scale(1); opacity:1; } }
+
+/* 14 cube: a glassy wireframe cube on a turntable */
+.d-cube .cube { left:.25em; top:.25em; width:.5em; height:.5em; transform-style:preserve-3d; animation:cube 3.2s linear infinite; }
+.d-cube .f { inset:0; border:.045em solid currentColor; background:color-mix(in srgb, currentColor 16%, transparent); }
+.d-cube .fr { transform:translateZ(.25em); } .d-cube .bk { transform:rotateY(180deg) translateZ(.25em); }
+.d-cube .rt { transform:rotateY(90deg) translateZ(.25em); } .d-cube .lf { transform:rotateY(-90deg) translateZ(.25em); }
+.d-cube .tp { transform:rotateX(90deg) translateZ(.25em); } .d-cube .bt { transform:rotateX(-90deg) translateZ(.25em); }
+@keyframes cube { 0% { transform:rotateX(-28deg) rotateY(0deg); } 33.333% { transform:rotateX(-28deg) rotateY(120deg); } 66.667% { transform:rotateX(-28deg) rotateY(240deg); } 100% { transform:rotateX(-28deg) rotateY(360deg); } }
+
+/* 15 galaxy: a two-armed spiral of dots turning on a tilted disc */
+.d-galaxy .tilt { inset:0; transform:rotateX(42deg); }
+.d-galaxy .disc { inset:0; animation:spinZ 4s linear infinite; }
+
+/* 16 twinkle: the eight dots shimmer at unrelated tempos */
+.d-twinkle .dt { animation:twinkle 1.3s ease-in-out infinite alternate; }
+@keyframes twinkle { from { opacity:.18; transform:scale(.82); } to { opacity:1; transform:scale(1.05); } }
+.d-twinkle .g0 { animation-duration:1.3s; animation-delay:-.2s; } .d-twinkle .g1 { animation-duration:.9s; animation-delay:-.7s; }
+.d-twinkle .g2 { animation-duration:1.7s; animation-delay:-1.1s; } .d-twinkle .g3 { animation-duration:1.1s; animation-delay:-.4s; }
+.d-twinkle .g4 { animation-duration:1.5s; animation-delay:-.9s; } .d-twinkle .g5 { animation-duration:.8s; animation-delay:-.1s; }
+.d-twinkle .g6 { animation-duration:1.9s; animation-delay:-1.4s; } .d-twinkle .g7 { animation-duration:1.2s; animation-delay:-.6s; }
+
+/* Reduced motion: every design stops on its resting frame. */
+@media (prefers-reduced-motion: reduce) { .mk, .mk * { animation:none !important; } }
+body.still .mk, body.still .mk * { animation:none !important; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Working mark designs</h1>
+  <p class="lede">Sixteen motion ideas for the working mark, plus the current still mark and the original wave for reference. These prototypes are for judging the look only; nothing here has been measured yet. Each design moves only pre-drawn shapes (opacity and transform), which is the kind of animation the GPU can run without the page's main thread. The grey tag shows how many moving layers one mark needs; fewer layers is cheaper.</p>
+  <nav class="controls" aria-label="Preview controls">
+    <button id="theme" type="button">Light theme</button>
+    <button id="slow" type="button" aria-pressed="false" title="Preview only: a changed playback rate takes Safari off the GPU path">Slow motion ¼×</button>
+    <button id="still" type="button" aria-pressed="false">Reduced motion</button>
+  </nav>
+  <div id="sections"></div>
+  <h2 id="crowd-title">A crowd of them</h2>
+  <p>Thirty-two rows at the real 12&nbsp;px size, the way a busy sidebar looks. "In step" makes every mark share one clock; "Out of step" gives each its own phase.</p>
+  <div class="crowdbar">
+    <select id="crowd-pick" aria-label="Design for the crowd"></select>
+    <button id="sync" type="button" aria-pressed="true">In step</button>
+  </div>
+  <section id="crowd" class="crowd" aria-label="Rows with working marks"></section>
+</main>
+<script>
+if (new URLSearchParams(location.search).has('sheet')) document.body.classList.add('sheet');
+const G = (extra = '') => [0,1,2,3,4,5,6,7].map(k => `<i class="dt g${k}${extra}"></i>`).join('');
+const svgNS = 'viewBox="-50 -50 100 100" aria-hidden="true"';
+
+function cometSvg() {
+  let out = '';
+  for (let k = 0; k < 10; k++) {
+    const a = (-k * 27) * Math.PI / 180, R = 37;
+    const x = (Math.sin(a) * R).toFixed(2), y = (-Math.cos(a) * R).toFixed(2);
+    const r = (8.6 - k * .5).toFixed(2), o = Math.max(.1, 1 - k * .1).toFixed(2);
+    out += `<circle cx="${x}" cy="${y}" r="${r}" fill="currentColor" fill-opacity="${o}"/>`;
+  }
+  return `<svg ${svgNS}>${out}</svg>`;
+}
+function galaxySvg() {
+  let out = '<circle r="7.5" fill="currentColor"/><circle r="12" fill="currentColor" fill-opacity=".22"/>';
+  for (const arm of [0, Math.PI]) {
+    for (let i = 0; i < 8; i++) {
+      const a = arm + i * .6, R = 15 + i * 4.4;
+      const x = (Math.cos(a) * R).toFixed(2), y = (Math.sin(a) * R).toFixed(2);
+      out += `<circle cx="${x}" cy="${y}" r="${(4.4 - i * .36).toFixed(2)}" fill="currentColor" fill-opacity="${(1 - i * .1).toFixed(2)}"/>`;
+    }
+  }
+  return `<svg ${svgNS}>${out}</svg>`;
+}
+function laneSvg(seed) {
+  // Text-like dashes; the 2em pattern repeats once so the scroll loops seamlessly.
+  let x = 0, rects = '', s = seed;
+  const rnd = () => (s = (s * 9301 + 49297) % 233280) / 233280;
+  const parts = [];
+  while (x < 196) { const w = 10 + Math.round(rnd() * 34); parts.push([x, Math.min(w, 196 - x)]); x += w + 8; }
+  for (const off of [0, 200]) for (const [px, w] of parts) rects += `<rect x="${px + off}" y="0" width="${w}" height="14" rx="7" fill="currentColor"/>`;
+  return `<svg viewBox="0 0 400 14" preserveAspectRatio="none" aria-hidden="true">${rects}</svg>`;
+}
+const STAR = 'M12 0C12.7 7.3 16.7 11.3 24 12C16.7 12.7 12.7 16.7 12 24C11.3 16.7 7.3 12.7 0 12C7.3 11.3 11.3 7.3 12 0Z';
+const star = `<svg viewBox="0 0 24 24" aria-hidden="true"><path d="${STAR}" fill="currentColor"/></svg>`;
+const orb = cls => `<span class="orb ${cls}"><i class="ring"></i><span class="spin"><i class="bb"></i></span></span>`;
+
+const designs = [
+  { g:'ref', id:'static', name:'Still mark (shipping now)', tall:true, html:G(), cost:'0 moving', desc:'The eight lit dots shipped as the emergency stop.', how:'Reference.' },
+  { g:'ref', id:'orig', name:'Original wave, rebuilt', tall:true, html:G(), cost:'8 layers', desc:'The wave you had before September, dot by dot: each dot swells and brightens in turn.', how:'Same timing as the old SVG strip, but built from 8 moving dots instead of a masked image strip (the masks were what hurt Safari).' },
+  { g:'wave', id:'rowwave', name:'Row wave', tall:true, html:[0,1,2,3].map(r => `<b class="row r${r}"><i class="dt" style="left:.06em"></i><i class="dt" style="left:.38em"></i></b>`).join(''), cost:'4 layers', desc:'Light runs down the cell a row at a time, a calmer cousin of the original.', how:'Each row is one pre-drawn pair of dots; only its opacity and size change.' },
+
+  { g:'orbit', id:'atom', name:'Atom', p:'p3', html:`<span class="scene"><i class="nuc"></i>${orb('o1')}${orb('o2')}${orb('o3')}</span>`, cost:'6 layers · 3D', desc:'A nucleus with three tilted orbits; electrons pass in front of and behind it.', how:'3 spinning orbits + 3 counter-turns that keep each electron round. Cheaper variant: drop the counter-turns (electrons flatten slightly).' },
+  { g:'orbit', id:'saturn', name:'Planet and moon', p:'p3', html:`<span class="scene"><i class="arc back"></i><i class="planet"></i><i class="arc front"></i><span class="orb"><span class="spin"><i class="bb"></i></span></span></span>`, cost:'2 layers · 3D', desc:'A shaded planet with a still ring; a small moon circles it and slips behind.', how:'Planet and ring are painted once. Only the moon\'s orbit and its counter-turn move.' },
+  { g:'orbit', id:'gyro', name:'Gyroscope', p:'p3', html:'<i class="rg a"></i><i class="rg b"></i><i class="rg c"></i>', cost:'3 layers · 3D', desc:'Three nested rings turning on different axes, like a gimbal. Empty centre.', how:'Each ring is one pre-drawn circle turning in 3D. No depth sorting needed.' },
+  { g:'orbit', id:'binary', name:'Binary pair', p:'p3', html:`<span class="scene"><span class="orb"><i class="ring"></i><span class="spin"><i class="bb top"></i><i class="bb bot"></i></span></span></span>`, cost:'3 layers · 3D', desc:'A large and a small body chasing each other around an empty centre.', how:'One spinning orbit plus a counter-turn per body.' },
+  { g:'orbit', id:'halo', name:'Halo of eight', p:'p3', html:`<span class="scene"><span class="plane">${[0,1,2,3,4,5,6,7].map(k => `<span class="spin k${k}"><i class="bb"></i></span>`).join('')}</span></span>`, cost:'16 layers · 3D', desc:'The eight dots leave the grid and become a tilted ring that turns; far dots dim.', how:'Most expensive as built. Cheap variant: one turning ring of 8 dots without the dimming (1 layer).' },
+
+  { g:'more', id:'braille', name:'Braille loop', tall:true, html:G(), cost:'8 layers', desc:'A three-dot comet runs clockwise round the eight dots, like a terminal spinner.', how:'Keeps today\'s shape. Each dot fades on its own clock.' },
+  { g:'more', id:'comet', name:'Comet ring', html:`<i class="wheel" style="inset:0">${cometSvg()}</i>`, cost:'1 layer', desc:'A ring of dots fading from head to tail, turning smoothly.', how:'The cheapest real spinner: one pre-drawn picture rotating.' },
+  { g:'more', id:'sonar', name:'Sonar', html:'<i class="ping"></i><i class="ping p2"></i><i class="core"></i>', cost:'2 layers', desc:'A still core sending out soft rings, like a live signal.', how:'Two pre-drawn rings growing and fading.' },
+  { g:'more', id:'typing', name:'Typing dots', html:'<i class="t t1"></i><i class="t t2"></i><i class="t t3"></i>', cost:'3 layers', desc:'Three dots hopping in turn: someone is writing.', how:'Three dots moving up and down.' },
+  { g:'more', id:'eq', name:'Equaliser', html:'<i class="bar b1"></i><i class="bar b2"></i><i class="bar b3"></i><i class="bar b4"></i>', cost:'4 layers', desc:'Four bars bouncing at different tempos, like a level meter.', how:'Four bars stretching vertically.' },
+  { g:'more', id:'tokens', name:'Token stream', html:`<span class="clip"><i class="lane l1">${laneSvg(7)}</i><i class="lane l2">${laneSvg(31)}</i><i class="lane l3">${laneSvg(83)}</i></span>`, cost:'3 layers', desc:'Lanes of text-like dashes scrolling past: output is streaming.', how:'Three pre-drawn strips sliding sideways behind a plain rectangular clip.' },
+  { g:'more', id:'sparkle', name:'Sparkle', html:`<i class="big">${star}</i><i class="small">${star}</i>`, cost:'2 layers', desc:'A four-point star turning and breathing, with a small one twinkling beside it.', how:'Two pre-drawn stars rotating and scaling.' },
+  { g:'more', id:'cube', name:'Cube', p:'p4', html:'<span class="cube"><i class="f fr"></i><i class="f bk"></i><i class="f rt"></i><i class="f lf"></i><i class="f tp"></i><i class="f bt"></i></span>', cost:'1 layer · 3D', desc:'A small glassy wireframe cube on a turntable.', how:'Six faces drawn once; only the cube\'s rotation moves.' },
+  { g:'more', id:'galaxy', name:'Galaxy', p:'p3', html:`<i class="tilt"><i class="disc">${galaxySvg()}</i></i>`, cost:'1 layer · 3D', desc:'A two-armed spiral of dots turning on a tilted disc.', how:'One pre-drawn spiral rotating inside a still tilt.' },
+  { g:'more', id:'twinkle', name:'Twinkle', tall:true, html:G(), cost:'8 layers', desc:'The eight dots shimmer at unrelated tempos: alive, never repeating the same way.', how:'Keeps today\'s shape. Each dot fades on its own clock.' },
+];
+
+const groups = [
+  ['ref', 'For reference', 'What ships today, and the old wave rebuilt the cheap way.'],
+  ['wave', 'The wave', 'The row wave I proposed earlier.'],
+  ['orbit', 'Orbiting in 3D', 'Five orbital designs, with and without something in the centre. Real 3D transforms; the GPU handles depth and perspective.'],
+  ['more', 'Ten more', 'My own picks: three keep the eight-dot shape, the rest try new shapes.'],
+];
+
+function mark(d, px) {
+  const el = document.createElement('span');
+  el.className = `mk d-${d.id}${d.tall ? ' tall' : ''}${d.p ? ' ' + d.p : ''}`;
+  el.style.fontSize = px + 'px';
+  el.setAttribute('aria-hidden', 'true');
+  el.innerHTML = d.html;
+  return el;
+}
+
+const titles = ['Fix sidebar flicker on resume', 'Cheap animated working mark', 'Rekey sessions table', 'Mobile composer draft sync', 'Merge-lock queue view', 'Tauri update channel', 'Search ranking for issues', 'Terminal scrollback memory', 'FlightDeck row virtualisation', 'Daemon reconnect backoff', 'Offline outbox replay', 'Inbox triage shortcuts', 'Release notes generator', 'Session handoff wire', 'Worklist pilot path', 'Artifact thumbnails'];
+
+let n = 0;
+const sections = document.getElementById('sections');
+for (const [g, title, sub] of groups) {
+  const h = document.createElement('h2'); h.textContent = title; sections.append(h);
+  const p = document.createElement('p'); p.textContent = sub; sections.append(p);
+  const grid = document.createElement('div'); grid.className = 'grid'; sections.append(grid);
+  for (const d of designs.filter(x => x.g === g)) {
+    const label = g === 'ref' ? 'R' + (designs.indexOf(d) + 1) : String(++n).padStart(2, '0');
+    const card = document.createElement('article'); card.className = 'card'; card.id = d.id;
+    card.innerHTML = `<header><span class="num">${label}</span><h3>${d.name}</h3><span class="cost">${d.cost}</span></header>
+      <div class="stage"></div><div class="sizes"></div>
+      <div class="ctx"><span class="slot"></span><span class="t">${titles[(n + 3) % titles.length]}</span><span class="clock">2:41</span></div>
+      <p class="desc">${d.desc}</p><p class="how">${d.how}</p>`;
+    card.querySelector('.stage').append(mark(d, 72));
+    for (const px of [12, 16, 24]) {
+      const f = document.createElement('figure');
+      f.append(mark(d, px));
+      const c = document.createElement('figcaption'); c.textContent = px + ' px'; f.append(c);
+      card.querySelector('.sizes').append(f);
+    }
+    card.querySelector('.slot').replaceWith(mark(d, 12));
+    grid.append(card);
+  }
+}
+
+// Crowd view
+const pick = document.getElementById('crowd-pick');
+for (const d of designs) { const o = document.createElement('option'); o.value = d.id; o.textContent = d.name; pick.append(o); }
+pick.value = 'rowwave';
+const crowd = document.getElementById('crowd');
+let inStep = true;
+function phase() {
+  const now = document.timeline.currentTime || 0;
+  for (const m of crowd.querySelectorAll('.mk')) {
+    const offset = inStep ? 0 : Math.random() * 4000;
+    for (const a of m.getAnimations({ subtree: true })) a.startTime = inStep ? 0 : now - offset;
+  }
+}
+function fillCrowd() {
+  const d = designs.find(x => x.id === pick.value);
+  crowd.textContent = '';
+  for (let i = 0; i < 32; i++) {
+    const row = document.createElement('div'); row.className = 'ctx';
+    row.append(mark(d, 12));
+    row.insertAdjacentHTML('beforeend', `<span class="t">${titles[i % titles.length]}</span><span class="id">POD-${5400 + i * 7}</span><span class="clock">${1 + (i * 7) % 9}:${String((i * 13) % 60).padStart(2, '0')}</span>`);
+    crowd.append(row);
+  }
+  requestAnimationFrame(() => { phase(); applyRate(); });
+}
+pick.addEventListener('change', fillCrowd);
+document.getElementById('sync').addEventListener('click', e => {
+  inStep = !inStep;
+  e.currentTarget.setAttribute('aria-pressed', String(inStep));
+  e.currentTarget.textContent = inStep ? 'In step' : 'Out of step';
+  phase();
+});
+
+// Controls
+let rate = 1;
+function applyRate() { for (const a of document.getAnimations()) a.playbackRate = rate; }
+document.getElementById('slow').addEventListener('click', e => {
+  rate = rate === 1 ? .25 : 1;
+  e.currentTarget.setAttribute('aria-pressed', String(rate !== 1));
+  applyRate();
+});
+document.getElementById('still').addEventListener('click', e => {
+  const on = document.body.classList.toggle('still');
+  e.currentTarget.setAttribute('aria-pressed', String(on));
+  if (!on) requestAnimationFrame(() => { applyRate(); phase(); });
+});
+document.getElementById('theme').addEventListener('click', e => {
+  const light = document.documentElement.dataset.theme !== 'light';
+  document.documentElement.dataset.theme = light ? 'light' : 'dark';
+  e.currentTarget.textContent = light ? 'Dark theme' : 'Light theme';
+});
+fillCrowd();
+</script>
+</body>
+</html>

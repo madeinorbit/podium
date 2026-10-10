@@ -631,6 +631,14 @@ export const MANIFEST: Readonly<Record<string, WorkspaceTags>> = {
     platform: 'browser-safe',
     features: ['terminal-react'],
   },
+  // The animated working mark (POD-5558): designs, the frames and APNG they make, and a React component. A leaf
+  // that imports no workspace package; React is an optional peer for its ./react entry.
+  'packages/working-mark': {
+    layer: 3,
+    platform: 'browser-safe',
+    features: ['working-mark'],
+    deps: [],
+  },
 
   // L4 — app composition roots.
   'apps/cli': { layer: 4, platform: 'node-only', features: ['cli-surface'] },

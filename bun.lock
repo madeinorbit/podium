@@ -542,6 +542,25 @@
         "react-dom": ">=19",
       },
     },
+    "packages/working-mark": {
+      "name": "@podium/working-mark",
+      "version": "0.0.0",
+      "devDependencies": {
+        "@types/node": "^24.0.0",
+        "@types/react": "^19.0.0",
+        "@types/react-dom": "^19.0.0",
+        "react": "19.2.7",
+        "react-dom": "19.2.7",
+        "vite": "^8.0.16",
+        "vitest": "5.0.0-beta.6",
+      },
+      "peerDependencies": {
+        "react": ">=19",
+      },
+      "optionalPeers": [
+        "react",
+      ],
+    },
     "scripts": {
       "name": "@podium/scripts",
       "version": "0.0.0",
@@ -1457,6 +1476,8 @@
     "@podium/tsconfig": ["@podium/tsconfig@workspace:tooling/tsconfig"],
 
     "@podium/web": ["@podium/web@workspace:apps/web"],
+
+    "@podium/working-mark": ["@podium/working-mark@workspace:packages/working-mark"],
 
     "@podium/worklist-tests": ["@podium/worklist-tests@workspace:tests/worklist"],
 
@@ -3696,6 +3717,8 @@
 
     "@podium/web/typescript": ["typescript@6.0.3", "", { "bin": { "tsc": "bin/tsc", "tsserver": "bin/tsserver" } }, "sha512-y2TvuxSZPDyQakkFRPZHKFm+KKVqIisdg9/CZwm9ftvKXLP8NRWj38/ODjNbr43SsoXqNuAisEf1GdCxqWcdBw=="],
 
+    "@podium/working-mark/@types/node": ["@types/node@24.13.3", "", { "dependencies": { "undici-types": "~7.18.0" } }, "sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q=="],
+
     "@podium/worklist-tests/@types/node": ["@types/node@24.13.3", "", { "dependencies": { "undici-types": "~7.18.0" } }, "sha512-Dh8vAsV36ig5wa9OX4pXvMc9D3Veibfw2wix0CUwYODLD8nkj9UsLjASr49nPg+2eKzxhBV+v7L8pXvT4e639Q=="],
 
     "@quansync/fs/quansync": ["quansync@1.0.0", "", {}, "sha512-5xZacEEufv3HSTPQuchrvV6soaiACMFnq1H8wkVioctoH3TRha9Sz66lOxRwPK/qZj7HPiSveih9yAyh98gvqA=="],
@@ -4085,6 +4108,8 @@
     "@podium/client-graph/@types/node/undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
 
     "@podium/terminal-client-react/@types/node/undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
+
+    "@podium/working-mark/@types/node/undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
 
     "@podium/worklist-tests/@types/node/undici-types": ["undici-types@7.18.2", "", {}, "sha512-AsuCzffGHJybSaRrmr5eHr81mwJU3kjw6M+uprWvCXiNeN9SOGwQ3Jn8jb8m3Z6izVgknn1R0FTCEAP2QrLY/w=="],
 

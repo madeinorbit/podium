@@ -1,0 +1,85 @@
+<!doctype html>
+<html><head><meta charset="utf-8"><title>Animation freeze probe</title>
+<style>
+/* Reproduces the Safari 26 animation freezes found in POD-5558 (docs/measurements/POD-5558-safari-animation-freeze.md).
+   Eight rows, one per re-sync "nudge"; every row runs the same six animation shapes (script-started and CSS,
+   transform and opacity). Use the buttons to hide the rows and bring them back, then see which rows still move:
+   N0 has no re-sync, N1-N5 re-sync when you press "Nudge", N6/N7 re-sync themselves via IntersectionObserver.
+   Open safari-animation-freeze-host.html for the iframe-in-a-hidden-pane case. */
+body { margin:0; background:#000; color:#888; font:10px system-ui; }
+.bar { position:fixed; right:8px; top:8px; z-index:1; display:flex; flex-direction:column; gap:4px; }
+.bar button { font:12px system-ui; }
+section::before { content:attr(data-n); width:120px; flex:none; }
+section { display:flex; gap:6px; padding:4px 8px; height:78px; align-items:center; content-visibility:auto; contain-intrinsic-size:auto 78px; }
+.cell { position:relative; width:70px; height:70px; font-size:35px; background:#000; flex:none; }
+.dot { position:absolute; left:50%; top:50%; width:.4em; height:.4em; margin:-.2em 0 0 -.2em; border-radius:50%; background:#fff; }
+.wrap { position:absolute; inset:0; }
+.spacer { height:5000px; }
+@keyframes cssBoth { 0% { transform:translate(-.5em,0) scale(1); opacity:1; } 50% { transform:translate(.5em,0) scale(.6); opacity:.3; } 100% { transform:translate(-.5em,0) scale(1); opacity:1; } }
+@keyframes cssT { 0% { transform:translate(-.5em,0); } 50% { transform:translate(.5em,0); } 100% { transform:translate(-.5em,0); } }
+.css-both { animation:cssBoth 1.37s linear infinite; }
+.css-t { animation:cssT 1.37s linear infinite; }
+</style></head>
+<body>
+<div class="bar">
+  <button type="button" onclick="roundTrip(s => s.style.display = 'none', s => s.style.display = '')">display:none for 3 s</button>
+  <button type="button" onclick="roundTrip(s => s.style.contentVisibility = 'hidden', s => s.style.contentVisibility = '')">content-visibility:hidden for 3 s</button>
+  <button type="button" onclick="scrollTo(0, 4000); setTimeout(() => scrollTo(0, 0), 3000)">Scroll away for 3 s</button>
+  <button type="button" onclick="nudgeAll()">Nudge (N1-N5)</button>
+</div>
+<div id="secs"></div>
+<div class="spacer"></div>
+<script>
+const D = 1370;
+const T = [{ transform:'translate(-.5em,0) scale(1)' }, { transform:'translate(.5em,0) scale(.6)' }, { transform:'translate(-.5em,0) scale(1)' }];
+const O = [{ opacity:1 }, { opacity:.3 }, { opacity:1 }];
+const both = T.map((f, i) => ({ ...f, ...O[i] }));
+const opts = { duration:D, iterations:Infinity, easing:'linear' };
+const go = a => { a.startTime = 0; return a; };
+function dot(parent) { const d = document.createElement('div'); d.className = 'dot'; parent.append(d); return d; }
+const variants = {
+  'waapi-both': c => go(dot(c).animate(both, opts)),
+  'waapi-opacity': c => go(dot(c).animate(O, opts)),
+  'waapi-nested': c => { const w = document.createElement('div'); w.className = 'wrap'; c.append(w); go(w.animate(O, opts)); go(dot(w).animate(T, opts)); },
+  'waapi-rotate': c => { const w = document.createElement('div'); w.className = 'wrap'; c.append(w); const d = dot(w); d.style.transform = 'translate(.5em,0)'; go(w.animate([{ transform:'rotate(0deg)', opacity:1 }, { transform:'rotate(180deg)', opacity:.3 }, { transform:'rotate(360deg)', opacity:1 }], opts)); },
+  'css-both': c => { dot(c).className = 'dot css-both'; },
+  'css-transform': c => { dot(c).className = 'dot css-t'; },
+};
+const nudges = {
+  N0_none: a => {},
+  N1_currentTime: a => { a.currentTime = a.currentTime; },
+  N2_startTime: a => { a.startTime = a.startTime; },
+  N3_updateTiming: a => { a.effect.updateTiming({}); },
+  N4_setKeyframes: a => { a.effect.setKeyframes(a.effect.getKeyframes()); },
+  N5_pausePlay: a => { a.pause(); a.play(); },
+  N6_io_currentTime: null,
+  N7_io_updateTiming: null,
+};
+const secs = document.getElementById('secs');
+for (const nudge of Object.keys(nudges)) {
+  const s = document.createElement('section'); s.dataset.n = nudge; secs.append(s);
+  for (const [name, make] of Object.entries(variants)) {
+    const c = document.createElement('div'); c.className = 'cell'; c.dataset.v = nudge + ':' + name; s.append(c); make(c);
+  }
+}
+window.roundTrip = (hide, show) => { const all = [...document.querySelectorAll('section')]; all.forEach(hide); setTimeout(() => all.forEach(show), 3000); };
+window.nudgeAll = () => { for (const s of document.querySelectorAll('section')) { const f = nudges[s.dataset.n]; if (f) for (const a of s.getAnimations({ subtree:true })) f(a); } };
+// N6/N7: re-sync automatically whenever a cell comes back into view.
+window.ioLog = [];
+const io = new IntersectionObserver(entries => {
+  for (const e of entries) {
+    const n = e.target.closest('section').dataset.n;
+    ioLog.push([Math.round(performance.now()), e.target.dataset.v, e.isIntersecting]);
+    if (!e.isIntersecting) continue;
+    for (const a of e.target.getAnimations({ subtree:true })) {
+      if (n === 'N6_io_currentTime' && a.currentTime !== null) a.currentTime = a.currentTime;
+      if (n === 'N7_io_updateTiming') a.effect.updateTiming({});
+    }
+  }
+});
+for (const s of document.querySelectorAll('section[data-n^="N6"], section[data-n^="N7"]')) for (const c of s.querySelectorAll('.cell')) io.observe(c);
+window.cellRects = () => [...document.querySelectorAll('.cell')].map(c => { const r = c.getBoundingClientRect(); return [c.dataset.v, r.x, r.y, r.width, r.height]; });
+addEventListener('message', e => { if (e.data === 'nudge') nudgeAll(); if (e.data === 'rects') parent.postMessage({ rects: cellRects() }, '*'); });
+if (parent !== window) parent.postMessage({ rects: cellRects() }, '*');
+</script>
+</body></html>

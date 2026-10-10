@@ -1,0 +1,52 @@
+{
+  "name": "@podium/working-mark",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The animated working mark: 44 dot designs and one component that draws them the cheapest way measured for the browser it runs in (POD-5558, docs/measurements/POD-5558-working-mark-spike.md). Designs are separate named exports, so an app ships only the ones it imports.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "sideEffects": false,
+  "exports": {
+    ".": {
+      "@podium/source": "./src/index.ts",
+      "types": "./src/index.ts",
+      "import": "./src/index.ts"
+    },
+    "./designs": {
+      "@podium/source": "./src/designs.ts",
+      "types": "./src/designs.ts",
+      "import": "./src/designs.ts"
+    },
+    "./all": {
+      "@podium/source": "./src/all.ts",
+      "types": "./src/all.ts",
+      "import": "./src/all.ts"
+    },
+    "./react": {
+      "@podium/source": "./src/react.tsx",
+      "types": "./src/react.tsx",
+      "import": "./src/react.tsx"
+    }
+  },
+  "scripts": {
+    "typecheck": "bun ../../scripts/typecheck-project.ts",
+    "test": "bun ../../scripts/validation-admission.ts focused --label @podium/working-mark:test -- bun --bun ../../node_modules/vitest/vitest.mjs run --config vitest.config.ts --passWithNoTests"
+  },
+  "devDependencies": {
+    "vite": "^8.0.16",
+    "vitest": "5.0.0-beta.6",
+    "@types/react": "^19.0.0",
+    "@types/react-dom": "^19.0.0",
+    "react": "19.2.7",
+    "react-dom": "19.2.7",
+    "@types/node": "^24.0.0"
+  },
+  "peerDependencies": {
+    "react": ">=19"
+  },
+  "peerDependenciesMeta": {
+    "react": {
+      "optional": true
+    }
+  }
+}

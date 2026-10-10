@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Working mark options</title>
+  <style>
+    :root { color-scheme: dark; --bg: #101114; --card: #191b20; --ink: #e4e4e7; --muted: #8c8e99; --line: #2c2e36; --mark: #6f9dff; }
+    body { margin: 0; background: var(--bg); color: var(--ink); font: 13px system-ui, sans-serif; }
+    body.light { color-scheme: light; --bg: #f6f5f1; --card: #fff; --ink: #24242a; --muted: #74747d; --line: #dddcd5; --mark: #2a62f0; }
+    main { max-width: 1040px; margin: 0 auto; padding: 26px; }
+    h1 { margin: 0 0 8px; font-size: 24px; font-weight: 560; letter-spacing: -.6px; }
+    p { color: var(--muted); line-height: 1.5; margin: 6px 0 16px; }
+    nav { display: flex; flex-wrap: wrap; gap: 8px; margin: 18px 0; }
+    button, select { font: inherit; color: var(--ink); background: var(--card); border: 1px solid var(--line); border-radius: 7px; padding: 7px 11px; }
+    button { cursor: pointer; }
+    button[aria-pressed="true"] { border-color: var(--mark); }
+    .choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(185px, 1fr)); gap: 12px; }
+    .choice { background: var(--card); border: 1px solid var(--line); border-radius: 10px; padding: 16px; }
+    .choice h2 { margin: 0 0 6px; font-size: 14px; font-weight: 550; }
+    .choice p { font-size: 11px; min-height: 34px; margin-bottom: 15px; }
+    .example { display: flex; align-items: center; gap: 9px; min-height: 32px; }
+    .timer { font: 10px ui-monospace, monospace; color: var(--mark); }
+    .badge { display: inline-flex; align-items: center; justify-content: center; width: 28px; height: 28px; border-radius: 7px; background: #293650; color: #c9d9ff; position: relative; font: 10px ui-monospace, monospace; }
+    .badge .mark { position: absolute; top: -4px; right: -4px; background-color: var(--bg); border-radius: 3px; }
+    .tail { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line); }
+    .mark { --size: 12px; --radius: 11; position: relative; display: inline-block; flex: none; width: calc(var(--size) * .66); height: var(--size); color: var(--mark); vertical-align: middle; contain: strict; }
+    .dots, .mark img { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+    .static .dots { background: none; fill: currentColor; }
+    .dots { background: radial-gradient(circle at 25.7576% 18%, currentColor calc(var(--size) * var(--radius) / 100), transparent calc(var(--size) * var(--radius) / 100 + .15px)), radial-gradient(circle at 74.2424% 18%, currentColor calc(var(--size) * var(--radius) / 100), transparent calc(var(--size) * var(--radius) / 100 + .15px)), radial-gradient(circle at 25.7576% 39%, currentColor calc(var(--size) * var(--radius) / 100), transparent calc(var(--size) * var(--radius) / 100 + .15px)), radial-gradient(circle at 74.2424% 39%, currentColor calc(var(--size) * var(--radius) / 100), transparent calc(var(--size) * var(--radius) / 100 + .15px)), radial-gradient(circle at 25.7576% 61%, currentColor calc(var(--size) * var(--radius) / 100), transparent calc(var(--size) * var(--radius) / 100 + .15px)), radial-gradient(circle at 74.2424% 61%, currentColor calc(var(--size) * var(--radius) / 100), transparent calc(var(--size) * var(--radius) / 100 + .15px)), radial-gradient(circle at 25.7576% 82%, currentColor calc(var(--size) * var(--radius) / 100), transparent calc(var(--size) * var(--radius) / 100 + .15px)), radial-gradient(circle at 74.2424% 82%, currentColor calc(var(--size) * var(--radius) / 100), transparent calc(var(--size) * var(--radius) / 100 + .15px)); }
+    @keyframes breathe { 0%, 100% { opacity: .4; } 50% { opacity: 1; } }
+    .breathe .dots { animation: breathe 1.8s ease-in-out infinite; }
+    .signal .dots { opacity: .32; }
+    .signal::after { content: ""; position: absolute; left: calc(var(--size) * (.17 - var(--radius) / 100)); top: calc(var(--size) * (.18 - var(--radius) / 100)); width: calc(var(--size) * var(--radius) / 50); height: calc(var(--size) * var(--radius) / 50); border-radius: 50%; background: currentColor; animation: signal 1.5s steps(1, end) infinite; }
+    @keyframes signal {
+      0%, 100% { transform: translate(0, 0); }
+      12.5% { transform: translate(calc(var(--size) * .32), 0); }
+      25% { transform: translate(0, calc(var(--size) * .21)); }
+      37.5% { transform: translate(calc(var(--size) * .32), calc(var(--size) * .21)); }
+      50% { transform: translate(0, calc(var(--size) * .43)); }
+      62.5% { transform: translate(calc(var(--size) * .32), calc(var(--size) * .43)); }
+      75% { transform: translate(0, calc(var(--size) * .64)); }
+      87.5% { transform: translate(calc(var(--size) * .32), calc(var(--size) * .64)); }
+    }
+    .image .dots { display: none; }
+    .image img { object-fit: fill; }
+    /* Swap the decoded resource, not merely its visibility, for reduced motion. */
+    @media (prefers-reduced-motion: reduce) {
+      .breathe .dots, .signal::after { animation: none; }
+      .signal .dots { opacity: 1; }
+      .signal::after { display: none; }
+    }
+    body.reduce .breathe .dots, body.reduce .signal::after { animation: none; }
+    body.reduce .signal .dots { opacity: 1; }
+    body.reduce .signal::after { display: none; }
+    .roster { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 14px; background: var(--card); border: 1px solid var(--line); border-radius: 10px; }
+    .row { height: 26px; display: flex; align-items: center; gap: 9px; padding: 0 12px; border-bottom: 1px solid var(--line); content-visibility: auto; contain-intrinsic-size: auto 26px; }
+    .row:last-child, .row:nth-last-child(2) { border: 0; }
+    .row .name { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .row .id { color: var(--muted); font: 10px ui-monospace, monospace; }
+    textarea { box-sizing: border-box; width: 100%; height: 72px; resize: none; margin-top: 16px; border: 1px solid var(--line); background: var(--card); color: var(--ink); border-radius: 9px; padding: 12px; font: 14px system-ui, sans-serif; }
+    .bench main { max-width: 780px; padding: 12px; }
+    .bench h1 { font-size: 16px; }
+    .bench .choices, .bench nav, .bench #intro { display: none; }
+    .bench #bench-label { margin: 4px 0 8px; font: 11px ui-monospace, monospace; }
+    .bench .roster { border-radius: 4px; }
+    .bench textarea { height: 58px; margin-top: 8px; }
+    .offscreen #roster { position: absolute; top: 20000px; left: 20px; right: 20px; }
+    .hidden #roster { display: none; }
+    .offscreen textarea, .hidden textarea { margin-top: 432px; }
+  </style>
+</head>
+<body>
+  <main>
+    <h1>Working mark options</h1>
+    <p id="intro">The same eight dots, in the places you see them. Choose the motion after its Safari and Chrome measurements are available.</p>
+    <nav aria-label="Preview controls">
+      <button id="theme" type="button">Light theme</button>
+      <button id="reduce" type="button" aria-pressed="false">Reduced motion</button>
+      <select id="candidate" aria-label="Roster animation"></select>
+      <select id="visibility" aria-label="Roster visibility">
+        <option value="visible">Visible rows</option>
+        <option value="offscreen">Off-screen rows</option>
+        <option value="hidden">Hidden tab</option>
+      </select>
+    </nav>
+    <section id="choices" class="choices" aria-label="Candidate previews"></section>
+    <p id="bench-label"></p>
+    <section id="roster" class="roster" aria-label="Working sessions"></section>
+    <textarea id="composer" aria-label="Message" placeholder="Send a message…"></textarea>
+  </main>
+  <script>
+    // Synthetic fixture only. No visibility observers, scroll handlers or frame loops.
+    const candidates = [
+      ['static', 'Static baseline', 'The current fully lit mark.'],
+      ['breathe', 'A · Soft pulse', 'Eight dots breathe together on one opacity layer.'],
+      ['signal', 'B · Stepped signal', 'One small highlight travels through the eight dots.'],
+      ['apng', 'C · Original wave', 'The original 45-frame motion as a tiny APNG.'],
+      ['webp', 'D · WebP wave', 'The same motion encoded as animated WebP.'],
+    ];
+    const assets = /* WORKING_MARK_ASSETS */ {};
+    const params = new URLSearchParams(location.search);
+    const motion = matchMedia('(prefers-reduced-motion: reduce)');
+    const requested = params.get('candidate') || 'breathe';
+    const initial = candidates.some(([key]) => key === requested) ? requested : 'static';
+    const mode = params.get('visibility') || 'visible';
+    const count = Math.max(32, Math.min(2000, Number(params.get('count')) || 32));
+    const bench = params.has('bench');
+    if (bench) document.body.classList.add('bench');
+    if (params.has('reduce')) document.body.classList.add('reduce');
+    if (params.has('light')) document.body.classList.add('light');
+    const isReduced = () => motion.matches || document.body.classList.contains('reduce');
+    const mark = (key, size) => {
+      const cell = document.createElement('span');
+      cell.className = 'mark ' + key;
+      cell.setAttribute('aria-hidden', 'true');
+      cell.dataset.candidate = key;
+      cell.style.setProperty('--size', size + 'px');
+      cell.style.setProperty('--radius', size >= 18 ? 9.5 : size >= 14 ? 10.5 : 11);
+      const dots = key === 'static' ? document.createElementNS('http://www.w3.org/2000/svg', 'svg') : document.createElement('span');
+      dots.setAttribute('class', 'dots');
+      if (key === 'static') {
+        dots.setAttribute('viewBox', '0 0 66 100');
+        dots.setAttribute('focusable', 'false');
+        for (const [cx, cy] of [[17,18],[49,18],[17,39],[49,39],[17,61],[49,61],[17,82],[49,82]]) {
+          const circle = document.createElementNS('http://www.w3.org/2000/svg', 'circle');
+          circle.setAttribute('cx', cx); circle.setAttribute('cy', cy);
+          circle.setAttribute('r', size >= 18 ? 9.5 : size >= 14 ? 10.5 : 11);
+          dots.append(circle);
+        }
+      }
+      cell.append(dots);
+      if (key === 'apng' || key === 'webp') {
+        cell.classList.add('image');
+        const image = document.createElement('picture');
+        const source = document.createElement('source');
+        source.media = '(prefers-reduced-motion: reduce)';
+        const suffix = (size >= 18 ? 'large' : size >= 14 ? 'medium' : 'small') + '-' + (document.body.classList.contains('light') ? 'light' : 'dark');
+        source.srcset = assets['still-' + suffix] || './working-mark-assets/still-' + suffix + '.png';
+        const img = document.createElement('img');
+        img.alt = '';
+        img.src = isReduced() ? source.srcset : (assets[key + '-' + suffix] || './working-mark-assets/' + key + '-' + suffix + '.' + (key === 'apng' ? 'png' : 'webp'));
+        image.append(source, img);
+        cell.append(image);
+      }
+      return cell;
+    };
+    const candidateControl = document.getElementById('candidate');
+    for (const [key, title] of candidates) candidateControl.add(new Option(title, key));
+    candidateControl.value = initial;
+    const visibilityControl = document.getElementById('visibility');
+    visibilityControl.value = mode;
+    function render() {
+      const key = candidateControl.value;
+      document.body.classList.toggle('offscreen', visibilityControl.value === 'offscreen');
+      document.body.classList.toggle('hidden', visibilityControl.value === 'hidden');
+      const roster = document.getElementById('roster');
+      roster.replaceChildren();
+      for (let i = 0; i < count; i++) {
+        const row = document.createElement('div');
+        row.className = 'row';
+        const id = document.createElement('span');
+        id.className = 'id'; id.textContent = String(844 + i);
+        const name = document.createElement('span');
+        name.className = 'name'; name.textContent = ['Session routing', 'Transcript updates', 'Phone pairing', 'Issue search'][i % 4];
+        const timer = document.createElement('span');
+        timer.className = 'timer'; timer.textContent = '4:53';
+        row.append(id, name, mark(key, 12), timer);
+        roster.append(row);
+      }
+      document.getElementById('bench-label').textContent = count + ' working marks · ' + candidates.find(([id]) => id === key)[1] + ' · ' + visibilityControl.value;
+      const choices = document.getElementById('choices');
+      choices.replaceChildren();
+      if (!bench) for (const [id, title, description] of candidates) {
+        const article = document.createElement('article'); article.className = 'choice';
+        const h = document.createElement('h2'); h.textContent = title;
+        const p = document.createElement('p'); p.textContent = description;
+        const example = document.createElement('div'); example.className = 'example';
+        example.append(mark(id, 12), document.createTextNode('Session routing'));
+        const tab = document.createElement('div'); tab.className = 'example';
+        tab.append(mark(id, 15), document.createTextNode('POD-844 · pairing'));
+        const badgeRow = document.createElement('div'); badgeRow.className = 'example';
+        const badge = document.createElement('span'); badge.className = 'badge'; badge.textContent = '844'; badge.append(mark(id, 11));
+        badgeRow.append(badge, document.createTextNode('Working'));
+        const tail = document.createElement('div'); tail.className = 'example tail';
+        tail.append(mark(id, 24), document.createTextNode('Working'), document.createTextNode(' 1:12'));
+        article.append(h, p, example, tab, badgeRow, tail);
+        choices.append(article);
+      }
+      window.__workingMarkFixture = {candidate: key, mode: visibilityControl.value, count, reduced: isReduced(), bench};
+    }
+    candidateControl.addEventListener('change', render);
+    visibilityControl.addEventListener('change', render);
+    document.getElementById('theme').addEventListener('click', (event) => {
+      document.body.classList.toggle('light');
+      event.currentTarget.textContent = document.body.classList.contains('light') ? 'Dark theme' : 'Light theme';
+      render();
+    });
+    document.getElementById('reduce').addEventListener('click', (event) => {
+      document.body.classList.toggle('reduce');
+      event.currentTarget.setAttribute('aria-pressed', String(isReduced()));
+      render();
+    });
+    motion.addEventListener('change', render);
+    render();
+  </script>
+</body>
+</html>
