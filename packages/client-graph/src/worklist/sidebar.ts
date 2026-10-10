@@ -174,7 +174,7 @@ export class SidebarIndex {
   )
   // These projections assemble new arrays and records from the same lane facts.
   private readonly specViews = keyedViews<BandSpecs>('pool.sidebar', 'bandSpecs', compareStructural)
-  private readonly bandViews = keyedViews<SidebarBand>('pool.sidebar', 'band', compareShallow)
+  private readonly bandViews = keyedViews<SidebarBand>('pool.sidebar', 'band', sameBand)
   private readonly groupViews = keyedViews<GroupFacts>('pool.sidebar', 'group', compareStructural)
   private readonly rosterViews = keyedViews<RosterFacts>('pool.sidebar', 'rosterFacts', compareStructural)
   private get pool() { return this.view.pool }
@@ -433,6 +433,17 @@ function layoutKey(state: SidebarState): string {
     state.pinnedWorktrees ?? null,
     state.collapsed ?? null,
   ])
+}
+
+/** Specs rebuild aliases when another band changes. Compare that small layout
+ * list by value; persistent membership lists still compare by identity. */
+function sameBand(previous: SidebarBand, next: SidebarBand): boolean {
+  for (const field of Object.keys(previous) as (keyof SidebarBand)[]) {
+    if (field === 'aliases') {
+      if (!compareShallow(previous.aliases, next.aliases)) return false
+    } else if (previous[field] !== next[field]) return false
+  }
+  return true
 }
 
 /** The bands by identity (each band keeps its object while equal), the rest by value. */

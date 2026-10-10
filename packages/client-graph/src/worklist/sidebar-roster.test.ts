@@ -318,6 +318,50 @@ it('preserves snoozed-head names, roster-only bands and empty project affordance
 })
 
 
+it('keeps untouched bands stable and publishes alias and membership changes', () => {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
+  const projectA = { path: '/repo-a', repoPath: '/repo-a', repoName: 'Project A',
+    projectAliases: ['/former-a', '/repo-a'] }
+  pool.apply({ type: 'replace', rows: [
+    ...[
+      projectA,
+      { path: '/repo-b', repoPath: '/repo-b', repoName: 'Project B' },
+      { path: '/repo-a/seat', repoPath: '/repo-a', repoName: 'Roster A' },
+      { path: '/extra/seat', repoPath: '/extra', repoName: 'Extra' },
+    ].map(value => ({ kind: 'worktree' as const, id: value.path, value })),
+    ...['/repo-a/seat', '/extra/seat'].map((cwd, n) => ({ kind: 'session' as const, id: `free-${n}`,
+      value: { sessionId: `free-${n}`, cwd, issueId: null, agentKind: 'codex', status: 'live',
+        lastActiveAt: new Date(NOW).toISOString() } as never })),
+  ] })
+  let sections!: SidebarSections
+  const stop = autorun(() => { sections = sidebarView(pool).sections() })
+  try {
+    expect(sections.bands.map(band => band.key)).toEqual(['/repo-a', '/repo-b', '/extra'])
+    const activeProject = sections.bands[0]!
+    const emptyProject = sections.bands[1]!
+    expect(activeProject).toMatchObject({ aliases: ['/former-a', '/repo-a'], worktreeIds: ['/repo-a/seat'] })
+    expect(emptyProject).toMatchObject({ aliases: ['/repo-b', '/repo-b'], startFirstTask: true })
+
+    pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'free-1', value: undefined }] })
+    expect(sections.bands.map(band => band.key)).toEqual(['/repo-a', '/repo-b'])
+    expect(sections.bands[0]).toBe(activeProject)
+    expect(sections.bands[1]).toBe(emptyProject)
+
+    pool.apply({ type: 'update', rows: [{ kind: 'worktree', id: projectA.path,
+      value: { ...projectA, projectAliases: ['/repo-a', '/former-a'] } }] })
+    const changedAliases = sections.bands[0]!
+    expect(changedAliases).not.toBe(activeProject)
+    expect(changedAliases.aliases).toEqual(['/repo-a', '/former-a'])
+    expect(changedAliases.worktreeIds).toBe(activeProject.worktreeIds)
+    expect(sections.bands[1]).toBe(emptyProject)
+
+    pool.apply({ type: 'update', rows: [{ kind: 'session', id: 'free-0', value: undefined }] })
+    expect(sections.bands[0]).not.toBe(changedAliases)
+    expect(sections.bands[0]).toMatchObject({ worktreeIds: [], startFirstTask: true })
+    expect(sections.bands[1]).toBe(emptyProject)
+  } finally { stop(); pool.dispose() }
+})
+
 it('keeps demanded roster groups current across membership moves and replacement', () => {
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: NOW })
   const path = '/moving/seat'
