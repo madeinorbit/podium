@@ -24,6 +24,12 @@
       "types": "./dist/update/dev-version.d.ts",
       "import": "./dist/update/dev-version.js"
     },
+    "./server-locate": {
+      "@podium/source": "./src/server-locate.ts",
+      "types": "./dist/server-locate.d.ts",
+      "import": "./dist/server-locate.js"
+    },
+    "./server-locate-vectors": "./src/server-locate.vectors.json",
     "./update-refusal": {
       "@podium/source": "./src/update/refusal.ts",
       "types": "./dist/update/refusal.d.ts",

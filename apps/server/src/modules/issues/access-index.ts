@@ -83,12 +83,36 @@ export class DurableIssueAccessIndex implements IssueAccessIndex {
   }
 
   async issueForCwd(cwd: string): Promise<IssueId | null> {
-    let best: { id: IssueId; length: number } | undefined
-    for (const row of await readIssueCwdRows(this.issues)) {
-      if (row.deletedAt || !isMemberCwd(row.worktreePath, cwd)) continue
-      const length = row.worktreePath ? machinePathKey(row.worktreePath).length : 0
-      if (!best || length > best.length) best = { id: row.id, length }
-    }
-    return best?.id ?? null
+    return deepestOwner(await readIssueCwdRows(this.issues), cwd)
   }
+
+  /**
+   * {@link issueForCwd} for many cwds against ONE read of the issue rows
+   * (POD-5941). The host sample resolved every live shell's owner with its own
+   * `issueForCwd`, so each shell re-read the whole issue table four to six
+   * times per machine per five-second sample.
+   */
+  async issuesForCwds(cwds: Iterable<string>): Promise<Map<string, IssueId | null>> {
+    const owners = new Map<string, IssueId | null>()
+    const unique = new Set(cwds)
+    if (unique.size === 0) return owners
+    const rows = await readIssueCwdRows(this.issues)
+    for (const cwd of unique) owners.set(cwd, deepestOwner(rows, cwd))
+    return owners
+  }
+}
+
+/** The live issue whose worktree contains `cwd` most specifically; the first
+ * such row in repository order wins a tie. */
+function deepestOwner(
+  rows: ReadonlyArray<{ id: IssueId; worktreePath: string | null; deletedAt?: string | null | undefined }>,
+  cwd: string,
+): IssueId | null {
+  let best: { id: IssueId; length: number } | undefined
+  for (const row of rows) {
+    if (row.deletedAt || !isMemberCwd(row.worktreePath, cwd)) continue
+    const length = row.worktreePath ? machinePathKey(row.worktreePath).length : 0
+    if (!best || length > best.length) best = { id: row.id, length }
+  }
+  return best?.id ?? null
 }

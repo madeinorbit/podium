@@ -93,8 +93,10 @@ import type {
   RuntimeHistoryRange,
 } from '@podium/protocol/daemon'
 import { isRuntimeFineEvent } from '@podium/protocol/daemon'
+import type { AgentStateEvent } from '../../../agent-state/types.js'
 import type { ResolvedHarnessInventory } from '../../../inventory/build-inventory.js'
 import { declaredValue, supported, unsupported } from '../../../manifest.js'
+import { reduceAgentState } from '../../../observer.js'
 import { harnessAdapterFor } from '../../../registry.js'
 import {
   type AgentSessionHandle,
@@ -298,7 +300,6 @@ interface LiveTurn {
   accountId: string
   turnEpoch: number
   deliveredAs: TurnDelivery
-  startedAt: string
   /** Set by `interrupt()` (or an interrupt delivery): the rejection below is
    *  the requested fence, reported as completed/interrupted rather than failed. */
   interrupted: boolean
@@ -333,10 +334,8 @@ interface HeadlessDriverSession {
    *  per id (and re-arming only when the id changes) mirrors the legacy path:
    *  a redundant rebind per turn would restart the observation it just built. */
   boundResume?: string
-  lastVerdict?:
-    | { kind: 'done' }
-    | { kind: 'interrupted' }
-    | { kind: 'failed'; error: string; retryable: boolean }
+  /** Folded from the same causal state events the server projects. */
+  state: AgentRuntimeState
   /** Sticky session policy (POD-4386 `SessionSpec` headless defaults);
    *  per-turn `TurnInput` values win over these at dispatch. */
   sticky: {
@@ -504,13 +503,14 @@ export function createHeadlessRuntime(
     body: RuntimeEventBody,
     provenance: ObservationProvenance,
     at?: string,
+    turnEpoch = session.turnEpoch,
   ): void {
     if (session.disposed) return
     session.seq += 1
     const event = stampRuntimeEvent(body, at ?? new Date(host.now()).toISOString(), provenance, {
       cursor: driverLocalCursor(session.label, session.seq),
       observerGeneration: session.observerGeneration,
-      turnEpoch: session.turnEpoch,
+      turnEpoch,
     })
     session.log.push({ seq: session.seq, event })
     if (session.log.length > HEADLESS_EVENT_LOG_LIMIT) {
@@ -518,6 +518,22 @@ export function createHeadlessRuntime(
     }
     for (const wake of [...session.wakers]) wake()
     publish(session.sessionId, event)
+  }
+
+  function foldState(
+    session: HeadlessDriverSession,
+    change: AgentStateEvent,
+    at = new Date(host.now()).toISOString(),
+  ): void {
+    session.state = reduceAgentState(session.state, change, at)
+    emit(session, { t: 'state', change }, 'live', at)
+  }
+
+  function publishSnapshot(
+    session: HeadlessDriverSession,
+    provenance: ObservationProvenance = 'bootstrap',
+  ): void {
+    emit(session, { t: 'state', change: { kind: 'state_snapshot', state: session.state } }, provenance)
   }
 
   function summarizePermissionInput(input: unknown): string | undefined {
@@ -558,6 +574,7 @@ export function createHeadlessRuntime(
     }
     session.interactions.set(request.id, interaction)
     emit(session, { t: 'interaction', ev: { ev: 'asked', interaction } }, 'live')
+    publishPermissionState(session)
   }
 
   /** Retire every open ask when its turn stops owning the SDK callback — an
@@ -575,46 +592,18 @@ export function createHeadlessRuntime(
     }
   }
 
-  function stateFor(session: HeadlessDriverSession): AgentRuntimeState {
-    const at = new Date(host.now()).toISOString()
-    if (session.ended) {
-      return { phase: 'ended', since: at, nativeSubagentCount: 0 }
-    }
-    if (session.interactions.size > 0) {
-      const first = [...session.interactions.values()][0]
-      const summary =
-        first?.kind === 'permission' ? first.payload.toolName : (first?.kind ?? 'permission')
-      return {
-        phase: 'needs_user',
-        since: at,
-        nativeSubagentCount: 0,
-        need: {
-          kind: 'permission',
-          summary,
-          ...(first?.kind === 'permission' && first.payload.inputSummary
-            ? { ask: { toolName: first.payload.toolName, detail: first.payload.inputSummary } }
-            : {}),
-        },
-      }
-    }
-    if (session.liveTurn) {
-      return { phase: 'working', since: session.liveTurn.startedAt, nativeSubagentCount: 0 }
-    }
-    const verdict = session.lastVerdict
-    if (verdict?.kind === 'failed') {
-      return {
-        phase: 'errored',
-        since: at,
-        nativeSubagentCount: 0,
-        error: { class: 'provider-error', retryable: verdict.retryable, detail: verdict.error },
-      }
-    }
-    return {
-      phase: 'idle',
-      since: at,
-      nativeSubagentCount: 0,
-      idle: { kind: verdict?.kind === 'interrupted' ? 'interrupted' : 'done' },
-    }
+  /** Answering one ask must retain any other asks still owned by this turn. */
+  function publishPermissionState(session: HeadlessDriverSession): void {
+    const first = session.interactions.values().next().value
+    if (first?.kind !== 'permission') return
+    foldState(session, {
+      kind: 'needs_user',
+      need: 'permission',
+      summary: first.payload.toolName,
+      ...(first.payload.inputSummary
+        ? { ask: { toolName: first.payload.toolName, detail: first.payload.inputSummary } }
+        : {}),
+    })
   }
 
   function bindingFor(session: HeadlessDriverSession): SessionBinding {
@@ -663,10 +652,11 @@ export function createHeadlessRuntime(
     live: LiveTurn,
     outcome: { harnessSessionId?: string; error?: string },
   ): void {
+    if (session.disposed || session.ended) return
     // An interrupt-and-send supersedes the fenced turn before its rejection
-    // lands: the terminal event for the old epoch must still reach whoever is
-    // waiting on it (epoch-fenced, so nobody else can mistake it for theirs).
-    // Only the CURRENT turn may move the session's own state.
+    // lands. Preserve that terminal's originating epoch; only the CURRENT
+    // turn may move the session's state or transcript binding. Server admission
+    // of superseded outcomes is a separate policy (POD-5905).
     const current = session.liveTurn === live
     if (current) session.liveTurn = undefined
     // The SDK callback died with the turn: retire any ask it opened before the
@@ -674,27 +664,38 @@ export function createHeadlessRuntime(
     // Only the current turn owns the callback; a superseded epoch's late
     // rejection must not expire the replacement turn's fresh ask.
     if (current) expireOpenPermissions(session)
-    if (outcome.harnessSessionId) bindTranscript(session, outcome.harnessSessionId)
+    if (current && outcome.harnessSessionId) bindTranscript(session, outcome.harnessSessionId)
     if (outcome.error === undefined) {
-      if (current) session.lastVerdict = { kind: 'done' }
+      if (current) foldState(session, { kind: 'turn_completed', verdict: { kind: 'done' } })
       emit(
         session,
         { t: 'turn', ev: { ev: 'completed', turnEpoch: live.turnEpoch, verdict: 'done' } },
         'live',
+        undefined,
+        live.turnEpoch,
       )
       return
     }
     if (live.interrupted || outcome.error === 'turn interrupted') {
-      if (current) session.lastVerdict = { kind: 'interrupted' }
+      if (current) foldState(session, { kind: 'turn_completed', verdict: { kind: 'interrupted' } })
       emit(
         session,
         { t: 'turn', ev: { ev: 'completed', turnEpoch: live.turnEpoch, verdict: 'interrupted' } },
         'live',
+        undefined,
+        live.turnEpoch,
       )
       return
     }
     const timedOut = /timed out/i.test(outcome.error)
-    if (current) session.lastVerdict = { kind: 'failed', error: outcome.error, retryable: timedOut }
+    if (current) {
+      foldState(session, {
+        kind: 'turn_failed',
+        errorClass: timedOut ? 'timeout' : 'provider-error',
+        retryable: timedOut,
+        detail: outcome.error,
+      })
+    }
     emit(
       session,
       {
@@ -708,6 +709,8 @@ export function createHeadlessRuntime(
         },
       },
       'live',
+      undefined,
+      live.turnEpoch,
     )
   }
 
@@ -1021,7 +1024,7 @@ export function createHeadlessRuntime(
     // Defensive: the turn fence above expires open asks with the turn, so an
     // ask with no live turn is an orphan that must never be silently orphaned
     // further by dispatching over it.
-    if (session.interactions.size > 0) {
+    if (session.interactions.size > 0 && (!session.liveTurn || options.delivery !== 'interrupt')) {
       return {
         outcome: 'refused',
         refusal: refuse('needs_user', 'a permission ask is waiting for an answer'),
@@ -1029,14 +1032,6 @@ export function createHeadlessRuntime(
     }
 
     const turnEpoch = session.turnEpoch + 1
-    session.turnEpoch = turnEpoch
-    const startedAt = new Date(host.now()).toISOString()
-    emit(
-      session,
-      { t: 'turn', ev: { ev: 'started', turnEpoch, origin: options.origin } },
-      'live',
-      startedAt,
-    )
 
     const spec = buildTurnSpec(
       session,
@@ -1090,9 +1085,8 @@ export function createHeadlessRuntime(
         },
       )
     } catch (error) {
-      // Dispatch itself failed (nothing started under the label): rewind the epoch the failed dispatch claimed so the next send keeps
-      // the stream's numbering dense, and report what is true — nothing ran.
-      session.turnEpoch = turnEpoch - 1
+      // Nothing started under the label. Do not publish or consume an epoch
+      // that a refused dispatch cannot finish.
       return {
         outcome: 'refused',
         refusal: refuse('not_running', error instanceof Error ? error.message : String(error)),
@@ -1106,12 +1100,23 @@ export function createHeadlessRuntime(
       accountId,
       turnEpoch,
       deliveredAs: options.delivery,
-      startedAt,
       interrupted: false,
       handle,
       bound: false,
     }
+    // The old callback cannot retain asks once a replacement owns the turn.
+    // Expire them under the old epoch, before announcing the new one.
+    expireOpenPermissions(session)
     session.liveTurn = next
+    session.turnEpoch = turnEpoch
+    const startedAt = new Date(host.now()).toISOString()
+    emit(
+      session,
+      { t: 'turn', ev: { ev: 'started', turnEpoch, origin: options.origin } },
+      'live',
+      startedAt,
+    )
+    foldState(session, { kind: 'prompt_submitted' }, startedAt)
     // A first-turn server-minted UUID binds the transcript tail before the
     // harness reports anything (legacy `bindFirstTurn(msg.sessionUuid)`).
     if (!input.resumeValue && input.sessionUuid) bindTranscript(session, input.sessionUuid)
@@ -1152,6 +1157,10 @@ export function createHeadlessRuntime(
       session.liveTurn = undefined
     }
     session.ended = true
+    // Ending the session also works between turns, after the last epoch closed.
+    // A final snapshot is session bookkeeping, not a late update of that turn.
+    session.state = reduceAgentState(session.state, { kind: 'session_ended' }, new Date(host.now()).toISOString())
+    publishSnapshot(session, 'live')
     emit(
       session,
       {
@@ -1200,7 +1209,7 @@ export function createHeadlessRuntime(
       async snapshot(): Promise<SessionSnapshot> {
         return {
           binding: bindingFor(session),
-          state: stateFor(session),
+          state: session.state,
           cursor: driverLocalCursor(session.label, session.seq),
           observerGeneration: session.observerGeneration,
           turnEpoch: session.turnEpoch,
@@ -1342,6 +1351,11 @@ export function createHeadlessRuntime(
             detail: error instanceof Error ? error.message : String(error),
           }
         }
+        // Delivery yielded: completion, teardown or interrupt-and-send may
+        // have retired the callback while its answer was being delivered.
+        if (session.disposed || session.ended || session.liveTurn !== live || !session.interactions.has(interactionId)) {
+          return { ok: false, reason: 'delivery-failed', detail: 'the permission turn has ended' }
+        }
         session.interactions.delete(interactionId)
         session.answered.add(interactionId)
         emit(
@@ -1357,6 +1371,8 @@ export function createHeadlessRuntime(
           },
           'live',
         )
+        if (session.interactions.size > 0) publishPermissionState(session)
+        else foldState(session, { kind: 'activity' })
         return { ok: true }
       },
       async interactions(): Promise<readonly PendingInteraction[]> {
@@ -1386,7 +1402,7 @@ export function createHeadlessRuntime(
         }
       },
       async state(): Promise<AgentRuntimeState> {
-        return stateFor(session)
+        return session.state
       },
       transcript: {
         history: (
@@ -1495,6 +1511,10 @@ export function createHeadlessRuntime(
       watchers: new Map(),
       interactions: new Map(),
       answered: new Set(),
+      state: {
+        phase: 'idle', since: new Date(host.now()).toISOString(),
+        nativeSubagentCount: 0, idle: { kind: 'done' },
+      },
       sticky: {
         ...(spec.model.model !== undefined ? { model: spec.model.model } : {}),
         ...(spec.model.effort !== undefined ? { effort: spec.model.effort } : {}),
@@ -1523,14 +1543,7 @@ export function createHeadlessRuntime(
     }
     const session = openSession(sessionId, spec, null)
     const handle = register(session)
-    emit(
-      session,
-      {
-        t: 'state',
-        change: { kind: 'state_snapshot', state: stateFor(session), at: new Date(host.now()).toISOString() },
-      },
-      'bootstrap',
-    )
+    publishSnapshot(session)
     return handle
   }
 
@@ -1544,6 +1557,7 @@ export function createHeadlessRuntime(
       existing.resume = ref
       existing.bindingVersion += 1
       existing.observerGeneration += 1
+      publishSnapshot(existing)
       try {
         host.bindHeadlessSession(sessionId, existing.agentKind, existing.cwd, ref.value)
         existing.boundResume = ref.value
@@ -1562,14 +1576,7 @@ export function createHeadlessRuntime(
     } catch (error) {
       log.warn('headless resume bind failed', { err: error, sessionId })
     }
-    emit(
-      session,
-      {
-        t: 'state',
-        change: { kind: 'state_snapshot', state: stateFor(session), at: new Date(host.now()).toISOString() },
-      },
-      'bootstrap',
-    )
+    publishSnapshot(session)
     return handle
   }
 
@@ -1600,6 +1607,7 @@ export function createHeadlessRuntime(
     if (existing && !existing.disposed) {
       existing.bindingVersion += 1
       existing.observerGeneration += 1
+      publishSnapshot(existing)
       if (binding.resume) {
         existing.resume = binding.resume
         try {
@@ -1617,7 +1625,7 @@ export function createHeadlessRuntime(
       emit(
         existing,
         { t: 'process', ev: { ev: 'adopted', bindingVersion: existing.bindingVersion } },
-        'bootstrap',
+        'live',
       )
       const handle = slots.get(binding.sessionId)
       if (!handle) throw new Error(`headless session '${binding.sessionId}' lost its handle`)
@@ -1643,6 +1651,10 @@ export function createHeadlessRuntime(
       watchers: new Map(),
       interactions: new Map(),
       answered: new Set(),
+      state: {
+        phase: 'idle', since: new Date(host.now()).toISOString(),
+        nativeSubagentCount: 0, idle: { kind: 'done' },
+      },
       sticky: {},
       ended: false,
       disposed: false,
@@ -1656,10 +1668,11 @@ export function createHeadlessRuntime(
         log.warn('headless adopt rebind failed', { err: error, sessionId: session.sessionId })
       }
     }
+    publishSnapshot(session)
     emit(
       session,
       { t: 'process', ev: { ev: 'adopted', bindingVersion: session.bindingVersion } },
-      'bootstrap',
+      'live',
     )
     return handle
   }

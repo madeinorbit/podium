@@ -150,7 +150,7 @@ describe('ConnectPublisher', () => {
     expect(h.published).toHaveLength(3)
   })
 
-  it('backs off from a minute to an hour on failure and resets on success', async () => {
+  it('retries an address Connect does not have yet at least every tick, and resets on success', async () => {
     const h = harness()
     h.answers.register.push({ ok: false, failure: { kind: 'network', message: 'down' } })
     h.publisher.start()
@@ -163,17 +163,43 @@ describe('ConnectPublisher', () => {
       { ok: false, failure: { kind: 'network', message: 'down' } },
       { ok: false, failure: { kind: 'network', message: 'down' } },
       { ok: false, failure: { kind: 'network', message: 'down' } },
-      { ok: false, failure: { kind: 'network', message: 'down' } },
-      { ok: false, failure: { kind: 'network', message: 'down' } },
     )
     const delays: number[] = []
-    for (let i = 0; i < 8; i++) delays.push(await h.fire())
-    expect(delays).toEqual([
-      60_000, 120_000, 240_000, 480_000, 960_000, 1_920_000, 3_600_000, 3_600_000,
-    ])
+    for (let i = 0; i < 6; i++) delays.push(await h.fire())
+    // Joined machines that lost this server can only find it once a retry lands.
+    expect(delays).toEqual([60_000, 120_000, 240_000, TICK_MS, TICK_MS, TICK_MS])
     expect(h.publisher.state).toBe('published')
     expect(h.timers[0]?.ms).toBe(TICK_MS)
+  })
+
+  it('backs off from a minute to an hour when only the daily republish fails', async () => {
+    const h = harness()
+    h.publisher.start()
+    await h.publisher.settled
+    h.advance(REPUBLISH_MS)
+    for (let i = 0; i < 8; i++) {
+      h.answers.publish.push({ ok: false, failure: { kind: 'network', message: 'down' } })
+    }
+    await h.fire()
+    const delays: number[] = []
+    for (let i = 0; i < 7; i++) delays.push(await h.fire())
+    expect(delays).toEqual([60_000, 120_000, 240_000, 480_000, 960_000, 1_920_000, 3_600_000])
     expect(BACKOFF_MAX_MS).toBe(3_600_000)
+  })
+
+  it('a URL change that lands while a tick is running is published right after it', async () => {
+    const h = harness()
+    h.publisher.start()
+    // The reboot race: the first tick has read the old URL and is mid-request when the
+    // tunnel reports its new one.
+    h.setPublicUrl('https://new.trycloudflare.com')
+    h.publisher.publicUrlChanged()
+    await h.publisher.settled
+    await h.publisher.settled
+    expect(h.published.map((r) => r.endpoints[0]?.url)).toEqual([
+      'https://my.example',
+      'https://new.trycloudflare.com',
+    ])
   })
 
   it('stops for good on GENERATION_BEHIND and says the installation moved', async () => {
@@ -232,5 +258,29 @@ describe('ConnectPublisher', () => {
     const h = harness()
     expect(await h.publisher.check('https://x.example')).toMatchObject({ ok: true })
     expect(h.calls).toEqual(['check:https://x.example'])
+  })
+})
+
+describe('the stable link (POD-5921)', () => {
+  const make = (enabled: () => boolean, baseUrl?: string) =>
+    new ConnectPublisher({
+      client: {} as ConnectClient,
+      identity: () => identity,
+      publicUrl: () => 'https://my.example',
+      enabled,
+      log: { info: () => {}, warn: () => {} },
+      ...(baseUrl ? { baseUrl } : {}),
+    })
+
+  it('is the Connect /to link for this installation while publishing is on', () => {
+    let on = true
+    const publisher = make(() => on, 'https://connect.podium.do/')
+    expect(publisher.stableLink()).toBe(`https://connect.podium.do/to/${identity.installationId}`)
+    on = false
+    expect(publisher.stableLink()).toBeUndefined()
+  })
+
+  it('is absent without a Connect origin', () => {
+    expect(make(() => true).stableLink()).toBeUndefined()
   })
 })

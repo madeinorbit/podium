@@ -26,6 +26,14 @@ export interface ServerProfile {
   userId?: string
   /** Retain cleanup ownership after expiry, without authorising offline access. */
   signedOut?: true
+  /**
+   * The installation this profile last authenticated to (POD-5921): learned
+   * from the pairing envelope and re-read after every authenticated
+   * connection. Both or neither; absent means the profile does not follow a
+   * moved server and behaves exactly as before.
+   */
+  installationId?: string
+  installationPublicKey?: string
   createdAt: string
   updatedAt: string
 }
@@ -104,6 +112,12 @@ export interface PendingProfileCleanup {
  * A profile id is a native credential and endpoint trust boundary. Only the same
  * canonical network origin may reuse it; instanceId is public server metadata
  * and must never join cached data or credentials across origins.
+ *
+ * THE ONE EXCEPTION is {@link moveServerProfile} (POD-5921): a profile follows
+ * ITS installation to a new origin only after that origin proved it holds the
+ * installation key the profile stored (or the authenticated server itself
+ * announced the move). Same installation, proven by the key — never a match on
+ * public metadata.
  */
 export function reusableProfileAtOrigin(
   profiles: ServerProfile[],
@@ -119,7 +133,130 @@ export function reusableProfileAtOrigin(
   )
 }
 
+/** The stored installation identity, or `undefined` when the profile has none. */
+export function profileServerIdentity(
+  profile: Pick<ServerProfile, 'installationId' | 'installationPublicKey'>,
+): { installationId: string; installationPublicKey: string } | undefined {
+  return profile.installationId && profile.installationPublicKey
+    ? {
+        installationId: profile.installationId,
+        installationPublicKey: profile.installationPublicKey,
+      }
+    : undefined
+}
+
+/**
+ * MOVE A PROFILE TO WHERE ITS SERVER WENT (POD-5921). The SAME profile — same
+ * id, so the same credential handle and replica — now names `newOrigin`.
+ *
+ * Another profile already saved at `newOrigin` (for the same workspace) is
+ * `displaced` when it belongs to the same installation — a stale duplicate of
+ * this server — and the move is REFUSED (throws) when it belongs to another
+ * or cannot say, so two installations never share one saved origin. The
+ * caller removes displaced profiles and their credentials.
+ *
+ * Only an https origin: a credential never moves onto plaintext.
+ */
+export function moveServerProfile(
+  state: ServerProfileState,
+  profileId: string,
+  newOrigin: string,
+  now: string = new Date().toISOString(),
+): { state: ServerProfileState; moved: ServerProfile; displaced: ServerProfile[] } {
+  const mover = state.profiles.find((row) => row.id === profileId)
+  if (!mover) throw new Error('no such server profile')
+  let target: URL
+  try {
+    target = new URL(newOrigin)
+  } catch {
+    throw new Error('the new server address is not a URL')
+  }
+  if (target.protocol !== 'https:' || target.username || target.password) {
+    throw new Error('a server profile only moves to an https origin')
+  }
+  const origin = target.origin
+  if (origin === mover.httpOrigin) return { state, moved: mover, displaced: [] }
+  const clashing = state.profiles.filter(
+    (row) =>
+      row.id !== profileId &&
+      row.httpOrigin === origin &&
+      (row.workspaceId ?? undefined) === (mover.workspaceId ?? undefined),
+  )
+  const sameInstallation = (row: ServerProfile) =>
+    mover.installationId !== undefined && row.installationId === mover.installationId
+  const foreign = clashing.find((row) => !sameInstallation(row))
+  if (foreign) {
+    throw new Error(`another server is already saved at ${target.host}; not moving onto it`)
+  }
+  const moved: ServerProfile = {
+    ...mover,
+    httpOrigin: origin,
+    transport: classifyServerTransport(origin),
+    name:
+      mover.name === defaultProfileName(mover.httpOrigin) ? defaultProfileName(origin) : mover.name,
+    updatedAt: now,
+  }
+  const displacedIds = new Set(clashing.map((row) => row.id))
+  return {
+    state: {
+      profiles: state.profiles
+        .filter((row) => !displacedIds.has(row.id))
+        .map((row) => (row.id === profileId ? moved : row)),
+      activeProfileId: displacedIds.has(state.activeProfileId ?? '')
+        ? profileId
+        : state.activeProfileId,
+    },
+    moved,
+    displaced: clashing,
+  }
+}
+
+/**
+ * A damaged or half-written identity is NO identity (POD-5921): the profile
+ * keeps working exactly as before and simply does not follow a moved server.
+ * Never a reason to drop the profile itself.
+ */
+function withValidServerIdentity(profile: ServerProfile): ServerProfile {
+  const { installationId, installationPublicKey, ...rest } = profile
+  return typeof installationId === 'string' &&
+    INSTALLATION_ID_RE.test(installationId) &&
+    typeof installationPublicKey === 'string' &&
+    INSTALLATION_PUBLIC_KEY_RE.test(installationPublicKey)
+    ? profile
+    : rest
+}
+
+/** Record the identity of the installation a profile just authenticated to. */
+export function withProfileServerIdentity(
+  state: ServerProfileState,
+  profileId: string,
+  identity: { installationId: string; installationPublicKey: string },
+): ServerProfileState {
+  const row = state.profiles.find((profile) => profile.id === profileId)
+  if (
+    !row ||
+    (row.installationId === identity.installationId &&
+      row.installationPublicKey === identity.installationPublicKey)
+  ) {
+    return state
+  }
+  return {
+    ...state,
+    profiles: state.profiles.map((profile) =>
+      profile.id === profileId
+        ? {
+            ...profile,
+            installationId: identity.installationId,
+            installationPublicKey: identity.installationPublicKey,
+          }
+        : profile,
+    ),
+  }
+}
+
 const EMPTY_STATE: ServerProfileState = { activeProfileId: null, profiles: [] }
+const INSTALLATION_ID_RE = /^pdm_[A-Za-z0-9_-]{43}$/
+const INSTALLATION_PUBLIC_KEY_RE = /^ed25519:[A-Za-z0-9_-]{43}$/
 
 function isProfile(value: unknown, cookieTransport = false): value is ServerProfile {
   if (value === null || typeof value !== 'object') return false
@@ -207,10 +344,12 @@ export function createServerProfiles(options: ServerProfilesOptions) {
       // write failed or the process died. Never reactivate that profile or release
       // its saved bearer while local erasure is still pending.
       const profiles = Array.isArray(parsed.profiles)
-        ? parsed.profiles.filter(
-            (profile): profile is ServerProfile =>
-              isProfile(profile, options.cookieTransport) && !pendingProfileIds.has(profile.id),
-          )
+        ? parsed.profiles
+            .filter(
+              (profile): profile is ServerProfile =>
+                isProfile(profile, options.cookieTransport) && !pendingProfileIds.has(profile.id),
+            )
+            .map(withValidServerIdentity)
         : []
       const selected = profiles.some((profile) => profile.id === parsed.activeProfileId)
         ? (parsed.activeProfileId ?? null)

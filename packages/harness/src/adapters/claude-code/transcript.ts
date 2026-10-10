@@ -78,6 +78,11 @@ const IMAGE_SOURCE_MARKER_RE = /\[Image(?: #\d+)?: source: ([^\]\n]+)\]/g
  * paths: the chat folds it into the preceding user block as an inline
  * thumbnail, and the server's file-relay policy allow-lists exactly the paths
  * a transcript references. Any other isMeta content stays dropped.
+ *
+ * NOT A PROMPT ENTRY (POD-5923). Measured on 2.1.283, 2.1.286 and 2.1.295, it
+ * is the companion of the prompt record just before it (same `promptId`): the
+ * images of that prompt, written apart. Counted as an entry it was a second,
+ * unexplained prompt after every image send.
  */
 function metaImageSourceItems(
   uuid: string | undefined,
@@ -107,6 +112,7 @@ function metaImageSourceItems(
       role: 'user',
       ts,
       text: '',
+      promptEntry: false,
       toolPaths: paths,
       tags: paths.map((p) => ({
         kind: 'image' as const,
@@ -365,17 +371,36 @@ function recordedPromptText(text: string): string {
 // "[Image #1]" glued to the front of the message the feed showed (POD-1605).
 // Strip it after the source form, which also matches `[Image #N: source: …]`
 // and must get first refusal on the numbered spelling.
-function harvestImageMarkers(raw: string): { text: string; paths: string[] } {
+//
+// ONLY THE MARKERS (POD-5923). Measured on 2.1.283, 2.1.286 and 2.1.295
+// (docs/measurements/pod-5923-image-attachments), a typed image path line
+// becomes `[Image #N]` in front of the rest of the prompt, several joined by
+// one space, and the rest is kept byte for byte — trailing spaces included. So
+// a marker goes with the one space after a placeholder, the whitespace before
+// a source marker, and a line that held nothing else; every other byte stays.
+// This text is also what the send proof compares with what was typed: a
+// cleanup that removed a person's trailing spaces made it unmatchable.
+// `placeholders` counts the bare `[Image #N]` markers, which name an image the
+// record carries no block for (a queue record, POD-4905).
+function harvestImageMarkers(raw: string): { text: string; paths: string[]; placeholders: number } {
   const paths: string[] = []
-  const text = recordedPromptText(raw)
-    .replace(/\[Image(?: #\d+)?: source: ([^\]\n]+)\]/g, (_, p: string) => {
-      paths.push(p.trim())
-      return ''
+  let placeholders = 0
+  const lines = recordedPromptText(raw)
+    .split('\n')
+    .flatMap((line) => {
+      if (!/\[Image(?: #\d+)?(?:: source: [^\]\n]+)?\]/.test(line)) return [line]
+      const rest = line
+        .replace(/[ \t]*\[Image(?: #\d+)?: source: ([^\]\n]+)\]/g, (_, p: string) => {
+          paths.push(p.trim())
+          return ''
+        })
+        .replace(/\[Image #\d+\] ?/g, () => {
+          placeholders += 1
+          return ''
+        })
+      return rest.trim() === '' ? [] : [rest]
     })
-    .replace(/\[Image #\d+\]/g, '')
-    .replace(/[ \t]+\n/g, '\n')
-    .trim()
-  return { text, paths }
+  return { text: lines.join('\n').trim(), paths, placeholders }
 }
 
 function userItems(
@@ -839,22 +864,25 @@ export function claudeRecordReceipts(record: unknown): TranscriptItem[] {
   if (typeof record !== 'object' || record === null) return []
   const r = record as Record<string, unknown>
   const ts = typeof r.timestamp === 'string' ? r.timestamp : undefined
-  const receipt = (text: string, kind: 'queued' | 'dropped'): TranscriptItem[] => [
+  const receipt = (text: string, kind: 'queued' | 'dropped', images = 0): TranscriptItem[] => [
     {
       id: '',
       role: 'system',
       ...(ts ? { ts } : {}),
       text,
       promptEntry: false,
+      ...(images > 0 ? { tags: Array.from({ length: images }, () => ({ kind: 'image' as const })) } : {}),
       ...(kind === 'queued' ? { queued: true } : { dropped: true }),
     },
   ]
   // Queue-operation content carries the prompt as typed, which may itself be
   // a pasted-content envelope -- including the TRIMMED queued form (POD-5269).
-  // Unwrap with the same reader so the held text matches the send.
+  // Unwrap with the same reader so the held text matches the send. A typed
+  // image path is already an `[Image #N]` placeholder here (measured on
+  // 2.1.295, POD-5923): read like a prompt record's, it is one image.
   const unwrappedReceipt = (content: string, kind: 'queued' | 'dropped'): TranscriptItem[] => {
-    const text = recordedPromptText(content)
-    return text ? receipt(text, kind) : []
+    const { text, placeholders } = harvestImageMarkers(content)
+    return text || placeholders > 0 ? receipt(text, kind, placeholders) : []
   }
   if (r.type === 'queue-operation' && typeof r.content === 'string' && r.content.trim()) {
     if (r.operation === 'enqueue') return unwrappedReceipt(r.content, 'queued')
@@ -871,8 +899,7 @@ export function claudeRecordReceipts(record: unknown): TranscriptItem[] {
   if (r.type === 'system' && r.subtype === 'informational' && typeof r.content === 'string') {
     const prompt = blockedPrompt(r.content)
     if (prompt === undefined) return []
-    const text = recordedPromptText(prompt)
-    return text ? receipt(text, 'dropped') : []
+    return unwrappedReceipt(prompt, 'dropped')
   }
   return []
 }

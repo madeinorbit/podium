@@ -131,7 +131,7 @@ export interface CodexCallOptions {
    * first — so what the session looked like at the answer is lost by then.
    * Not called for an error answer.
    */
-  onAnswer?: () => void
+  onAnswer?: (result: unknown) => void
 }
 
 export interface CodexClient {
@@ -168,7 +168,7 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
       reject: (err: Error) => void
       method: string
       timer: unknown
-      onAnswer: (() => void) | undefined
+      onAnswer: CodexCallOptions['onAnswer']
     }
   >()
   const knownInboundMethods = new Set<string>([
@@ -260,7 +260,7 @@ export function createCodexClient(config: CodexClientConfig): CodexClient {
         )
         return
       }
-      entry.onAnswer?.()
+      entry.onAnswer?.(frame.data.result)
       entry.resolve(frame.data.result)
       return
     }

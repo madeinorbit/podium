@@ -753,6 +753,11 @@ export const BROWSER_ENTRYPOINTS: ReadonlyMap<string, string> = new Map([
   // The VPS bootstrap command builder (POD-5615): a pure string builder the
   // web first-activation screen renders into its onboarding command.
   ['@podium/runtime/vps-bootstrap', 'packages/runtime/src/vps-bootstrap.ts'],
+  // Following a moved server (POD-5921): the Connect read, the locate proof and
+  // the follower every client runs — browser, desktop window and phone alike.
+  // RN-safe on purpose (fetch, URL, crypto.getRandomValues); the Ed25519
+  // verifier is a dynamic import of @noble/curves, out of the startup bundle.
+  ['@podium/runtime/server-follow', 'packages/runtime/src/server-follow.ts'],
   // packages/harness — the static facts a bundle may have (POD-2206), and ONLY
   // those. The barrel and `./metadata` both reach `AGENT_MANIFESTS`, whose
   // closure holds the sqlite modules that evaluate `createRequire` at module

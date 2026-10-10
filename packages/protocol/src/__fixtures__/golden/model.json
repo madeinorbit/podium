@@ -1248,13 +1248,12 @@
         "model": "auto",
         "effort": "auto",
         "subagentModel": "auto",
-        "subagentStrategy": "builtin",
         "startScreen": "native",
         "seedCliTheme": true
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\",\"subagentModel\":\"auto\",\"subagentStrategy\":\"builtin\",\"startScreen\":\"native\",\"seedCliTheme\":true}"
+      "encoded": "{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\",\"subagentModel\":\"auto\",\"startScreen\":\"native\",\"seedCliTheme\":true}"
     },
     {
       "schema": "CodingRole",
@@ -1265,14 +1264,13 @@
         "effort": "effort",
         "harness": "claude-code",
         "subagentModel": "subagentModel",
-        "subagentStrategy": "builtin",
         "startScreen": "native",
         "seedCliTheme": true
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"accountId\":\"accountId\",\"model\":\"model\",\"effort\":\"effort\",\"harness\":\"claude-code\",\"subagentModel\":\"subagentModel\",\"subagentStrategy\":\"builtin\",\"startScreen\":\"native\",\"seedCliTheme\":true}"
+      "encoded": "{\"accountId\":\"accountId\",\"model\":\"model\",\"effort\":\"effort\",\"harness\":\"claude-code\",\"subagentModel\":\"subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true}"
     },
     {
       "schema": "ConversationDiagnosticWire",
@@ -7287,7 +7285,6 @@
             "model": "auto",
             "effort": "auto",
             "subagentModel": "auto",
-            "subagentStrategy": "builtin",
             "startScreen": "native",
             "seedCliTheme": true
           },
@@ -7324,7 +7321,7 @@
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\",\"subagentModel\":\"auto\",\"subagentStrategy\":\"builtin\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"},\"background\":{\"accountId\":\"\",\"model\":\"google/gemini-2.5-flash\",\"effort\":\"auto\"},\"shipwright\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"}},\"sidebar\":{\"repoSort\":\"lastUsed\",\"repoOrder\":[],\"groupByRepo\":false},\"autoContinue\":{\"enabled\":false,\"promptDismissed\":false},\"notifications\":{\"web\":true,\"ntfyTopic\":\"\",\"telegramChatId\":\"\"}}"
+      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\",\"subagentModel\":\"auto\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"},\"background\":{\"accountId\":\"\",\"model\":\"google/gemini-2.5-flash\",\"effort\":\"auto\"},\"shipwright\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"}},\"sidebar\":{\"repoSort\":\"lastUsed\",\"repoOrder\":[],\"groupByRepo\":false},\"autoContinue\":{\"enabled\":false,\"promptDismissed\":false},\"notifications\":{\"web\":true,\"ntfyTopic\":\"\",\"telegramChatId\":\"\"}}"
     },
     {
       "schema": "PersonalPreferences",
@@ -7338,7 +7335,6 @@
             "effort": "roles.coding.effort",
             "harness": "claude-code",
             "subagentModel": "roles.coding.subagentModel",
-            "subagentStrategy": "builtin",
             "startScreen": "native",
             "seedCliTheme": true
           },
@@ -7379,7 +7375,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"roles.coding.accountId\",\"model\":\"roles.coding.model\",\"effort\":\"roles.coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"roles.coding.subagentModel\",\"subagentStrategy\":\"builtin\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"roles.superagent.accountId\",\"model\":\"roles.superagent.model\",\"effort\":\"roles.superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"roles.background.accountId\",\"model\":\"roles.background.model\",\"effort\":\"roles.background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"roles.shipwright.accountId\",\"model\":\"roles.shipwright.model\",\"effort\":\"roles.shipwright.effort\",\"harness\":\"claude-code\"}},\"sidebar\":{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"sidebar.repoOrder[0]\"],\"groupByRepo\":true},\"autoContinue\":{\"enabled\":true,\"promptDismissed\":true},\"notifications\":{\"web\":true,\"ntfyTopic\":\"notifications.ntfyTopic\",\"telegramChatId\":\"notifications.telegramChatId\"}}"
+      "encoded": "{\"userId\":\"userId\",\"roles\":{\"coding\":{\"accountId\":\"roles.coding.accountId\",\"model\":\"roles.coding.model\",\"effort\":\"roles.coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"roles.coding.subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"roles.superagent.accountId\",\"model\":\"roles.superagent.model\",\"effort\":\"roles.superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"roles.background.accountId\",\"model\":\"roles.background.model\",\"effort\":\"roles.background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"roles.shipwright.accountId\",\"model\":\"roles.shipwright.model\",\"effort\":\"roles.shipwright.effort\",\"harness\":\"claude-code\"}},\"sidebar\":{\"repoSort\":\"alphabetical\",\"repoOrder\":[\"sidebar.repoOrder[0]\"],\"groupByRepo\":true},\"autoContinue\":{\"enabled\":true,\"promptDismissed\":true},\"notifications\":{\"web\":true,\"ntfyTopic\":\"notifications.ntfyTopic\",\"telegramChatId\":\"notifications.telegramChatId\"}}"
     },
     {
       "schema": "PersonalPreferenceState",
@@ -7971,7 +7967,6 @@
           "model": "auto",
           "effort": "auto",
           "subagentModel": "auto",
-          "subagentStrategy": "builtin",
           "startScreen": "native",
           "seedCliTheme": true
         },
@@ -7993,7 +7988,7 @@
       },
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"coding\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\",\"subagentModel\":\"auto\",\"subagentStrategy\":\"builtin\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"},\"background\":{\"accountId\":\"\",\"model\":\"google/gemini-2.5-flash\",\"effort\":\"auto\"},\"shipwright\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"}}"
+      "encoded": "{\"coding\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\",\"subagentModel\":\"auto\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"},\"background\":{\"accountId\":\"\",\"model\":\"google/gemini-2.5-flash\",\"effort\":\"auto\"},\"shipwright\":{\"accountId\":\"\",\"model\":\"auto\",\"effort\":\"auto\"}}"
     },
     {
       "schema": "Roles",
@@ -8005,7 +8000,6 @@
           "effort": "coding.effort",
           "harness": "claude-code",
           "subagentModel": "coding.subagentModel",
-          "subagentStrategy": "builtin",
           "startScreen": "native",
           "seedCliTheme": true
         },
@@ -8031,7 +8025,7 @@
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"coding\":{\"accountId\":\"coding.accountId\",\"model\":\"coding.model\",\"effort\":\"coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"coding.subagentModel\",\"subagentStrategy\":\"builtin\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"superagent.accountId\",\"model\":\"superagent.model\",\"effort\":\"superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"background.accountId\",\"model\":\"background.model\",\"effort\":\"background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"shipwright.accountId\",\"model\":\"shipwright.model\",\"effort\":\"shipwright.effort\",\"harness\":\"claude-code\"}}"
+      "encoded": "{\"coding\":{\"accountId\":\"coding.accountId\",\"model\":\"coding.model\",\"effort\":\"coding.effort\",\"harness\":\"claude-code\",\"subagentModel\":\"coding.subagentModel\",\"startScreen\":\"native\",\"seedCliTheme\":true},\"superagent\":{\"accountId\":\"superagent.accountId\",\"model\":\"superagent.model\",\"effort\":\"superagent.effort\",\"harness\":\"claude-code\"},\"background\":{\"accountId\":\"background.accountId\",\"model\":\"background.model\",\"effort\":\"background.effort\",\"harness\":\"claude-code\"},\"shipwright\":{\"accountId\":\"shipwright.accountId\",\"model\":\"shipwright.model\",\"effort\":\"shipwright.effort\",\"harness\":\"claude-code\"}}"
     },
     {
       "schema": "RootIntegrationReceipt",

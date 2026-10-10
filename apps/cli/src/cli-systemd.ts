@@ -6,10 +6,8 @@ import { execFileSync } from 'node:child_process'
 import { existsSync, mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import { userInfo } from 'node:os'
 import { join } from 'node:path'
-import { userUnitDir } from '@podium/runtime/topology-migration'
 import type { PodiumConfig } from '@podium/runtime/config'
 import { DAEMON_BLOCKED_EXIT_CODE } from '@podium/runtime/connectivity'
-import { CHILD_REFUSAL_EXIT_CODE } from '@podium/runtime/parent-supervisor'
 import {
   defaultInstancePorts,
   instanceCommandName,
@@ -17,6 +15,8 @@ import {
   instanceUpdateTimerName,
   resolveInstanceId,
 } from '@podium/runtime/instance'
+import { CHILD_REFUSAL_EXIT_CODE } from '@podium/runtime/parent-supervisor'
+import { userUnitDir } from '@podium/runtime/topology-migration'
 
 export type SystemdProfile = 'packaged' | 'dev'
 
@@ -359,6 +359,8 @@ export interface TunnelUnitOptions {
   origin: string
   /** The server's control socket (serverControlSocketPath). */
   socket: string
+  /** Absolute path of cloudflared. Omitted: found on the unit's PATH. */
+  cloudflared?: string
 }
 
 /** systemd ExecStart= quoting: double quotes, with `"` and `\` escaped and `%` doubled. */
@@ -380,7 +382,14 @@ function execArg(value: string): string {
  */
 export function renderTunnelUnit(opts: TunnelUnitOptions): string {
   const c = context(opts.instanceId === undefined ? {} : { instanceId: opts.instanceId })
-  const exec = [opts.binary, '--origin', opts.origin, '--socket', opts.socket]
+  const exec = [
+    opts.binary,
+    '--origin',
+    opts.origin,
+    '--socket',
+    opts.socket,
+    ...(opts.cloudflared ? ['--cloudflared', opts.cloudflared] : []),
+  ]
     .map(execArg)
     .join(' ')
   return generatedUnit(`[Unit]
@@ -391,7 +400,7 @@ Wants=network-online.target
 [Service]
 Type=simple
 Environment=PODIUM_INSTANCE=${c.instanceId}
-# cloudflared is found on this PATH.
+# cloudflared is found on this PATH, unless --cloudflared names it.
 Environment=PATH=${USER_RUNTIME_PATH}
 ExecStart=${exec}
 # podium-tunnel restarts cloudflared itself; this only covers podium-tunnel dying.
@@ -520,6 +529,12 @@ export interface InstallResult {
   reason?: string
   /** One actionable sentence for THIS reason, so the fallback message can stay specific. */
   remedy?: string
+  /**
+   * Installed, but it will NOT survive logout or reboot, and the one command that fixes it
+   * (POD-5932): linger is off. An unprivileged SSH session usually cannot turn it on, and
+   * without it the user manager — and the server with it — stops when the user logs out.
+   */
+  lingerRemedy?: string
 }
 
 export interface InstallSystemdDeps {
@@ -527,6 +542,13 @@ export interface InstallSystemdDeps {
   hasUserSystemd?: () => boolean
   unitDir?: () => string
   run?: (cmd: string, args: string[]) => void
+  /** Whether logind will keep this user's manager running without a session. */
+  lingerEnabled?: (user: string) => boolean
+}
+
+/** logind records linger as a file per user; reading it needs no privilege and no bus. */
+function lingerEnabled(user: string): boolean {
+  return existsSync(join('/var/lib/systemd/linger', user))
 }
 
 /**
@@ -579,12 +601,16 @@ export function installSystemd(
     writeFileSync(join(dir, parentUnit), renderParentUnit({ instanceId, port }))
     runCommand('systemctl', ['--user', 'daemon-reload'])
     // Linger so the units run without an active login session (headless VPS over SSH).
+    const user = userInfo().username
     try {
-      runCommand('loginctl', ['enable-linger', userInfo().username])
+      runCommand('loginctl', ['enable-linger', user])
     } catch {
-      // non-fatal: on some hosts linger is already on or loginctl is restricted
+      // Checked below: polkit refuses an unprivileged SSH session, and saying nothing here
+      // let setup claim "survives reboot" for a server that stopped at logout (POD-5932).
     }
     runCommand('systemctl', ['--user', 'enable', '--now', parentUnit])
+    if (!(deps.lingerEnabled ?? lingerEnabled)(user))
+      return { ok: true, lingerRemedy: `Run \`sudo loginctl enable-linger ${user}\` once to keep it running.` }
     return { ok: true }
   } catch (e) {
     return { ok: false, reason: (e as Error).message }
@@ -657,6 +683,12 @@ export function unmaskSystemdUnits(units: string[]): void {
 export function startSystemdUnits(units: string[]): void {
   if (units.length === 0) return
   run('systemctl', ['--user', 'start', ...units])
+}
+
+/** Start the named user units, or restart them when they already run. */
+export function restartSystemdUnits(units: string[]): void {
+  if (units.length === 0) return
+  run('systemctl', ['--user', 'restart', ...units])
 }
 
 /**

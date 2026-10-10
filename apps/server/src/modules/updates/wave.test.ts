@@ -1,7 +1,9 @@
 import { describe, expect, it } from 'vitest'
 import {
   decideWave,
+  deliveryRefusalReason,
   machineCanTakeDelivery,
+  machineRefusesDelivery,
   machineCanTakeTargetPlatform,
   machineCanUseTargetTrust,
   offeredDeliveries,
@@ -208,11 +210,30 @@ describe('compatibility-window delivery capability', () => {
       ...over,
     })
 
-  it('keeps an old daemon with absent or empty caps eligible during the window', () => {
-    expect(
-      machineCanTakeDelivery({ presenceSource: 'legacy-daemon', deliveryCaps: [] }, ['feed']),
-    ).toBe(true)
+  it('keeps an old daemon that never reported caps eligible during the window', () => {
     expect(machineCanTakeDelivery({ presenceSource: 'legacy-daemon' }, ['feed'])).toBe(true)
+  })
+
+  it('never grants a 0.1.0 desktop sidecar, whose explicit empty caps mean its shell installs it', () => {
+    // POD-5931: 0.1.0's daemon reported [] exactly when it ran inside Podium.app. Granting
+    // it was a guaranteed refusal that failed the operation for the whole fleet.
+    const mac: WaveMachine = {
+      id: 'mac-010',
+      version: '0.1.0',
+      state: 'current',
+      online: true,
+      busy: false,
+      presenceSource: 'legacy-daemon',
+      deliveryCaps: [],
+    }
+    expect(machineRefusesDelivery(mac)).toBe(true)
+    expect(deliveryRefusalReason(mac)).toBe('updates when its Podium app updates')
+    expect(machineCanTakeDelivery(mac, ['feed'])).toBe(false)
+    expect(plan([mac])).toEqual([])
+    // A 0.1.0 VPS daemon listed its deliveries and stays a normal rollout target.
+    expect(
+      machineRefusesDelivery({ ...mac, deliveryCaps: ['update.delivery.feed', 'update.delivery.bundle'] }),
+    ).toBe(false)
   })
 
   it('treats a supervisor empty cap list as an explicit inability to deliver', () => {

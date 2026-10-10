@@ -16,8 +16,11 @@ export function loadIdentity(opts: { dir?: string } = {}): DaemonIdentity {
   const machine = loadMachineState(opts.dir ?? stateDir())
   const data = machine.daemon ?? {}
   // A legacy daemon's credential names its own row; the root id may be a supervisor's
-  // or a stale machine.id. Never pair the root id with the daemon's token.
-  const machineId = typeof data.machineId === 'string' && data.machineId.trim() ? (data.machineId as MachineId) : machine.machineId
+  // or a stale machine.id. Never pair the root id with the daemon's token. Without a
+  // token the section names no row at all (a 0.1.0 all-in-one's daemon.json), and the
+  // root id is this machine (POD-5931).
+  const machineId = typeof data.token === 'string' && typeof data.machineId === 'string' && data.machineId.trim()
+    ? (data.machineId as MachineId) : machine.machineId
   return { machineId,
     ...(typeof data.token === 'string' ? { token: data.token } : {}),
     ...(typeof data.updatePubkey === 'string' ? { updatePubkey: data.updatePubkey } : {}) }

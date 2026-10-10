@@ -31,6 +31,15 @@ describe('daemon identity', () => {
     expect(loadIdentity({ dir })).toEqual({ machineId: 'live-row', token: 'rotated', updatePubkey: 'k' })
   })
 
+  it('presents the root id when daemon.json carries no credential (0.1.0 all-in-one)', () => {
+    // POD-5931: a 0.1.0 all-in-one's daemon.json named an id nothing authenticated as;
+    // its daemon was the host, machine.id.
+    const dir = trackTmp('podium-id-aio-010-')
+    writeFileSync(join(dir, 'machine.id'), 'host-row')
+    writeFileSync(join(dir, 'daemon.json'), JSON.stringify({ machineId: 'unused-id', updatePubkey: 'k' }))
+    expect(loadIdentity({ dir })).toEqual({ machineId: 'host-row', updatePubkey: 'k' })
+  })
+
   it('creates a stable uuid machineId on first load and reuses it', () => {
     const dir = trackTmp('podium-id-')
     const first = loadIdentity({ dir })

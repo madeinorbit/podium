@@ -1,0 +1,37 @@
+{
+  "label": "claude-2.1.295",
+  "program": "claude",
+  "version": "2.1.295 (Claude Code)",
+  "binary": "/home/mgw/.local/share/claude/versions/2.1.295",
+  "sha256": "4503bfe11a6c7fcc1e0b39b5e0d347c04248f750b03b0977b3ad6b531fe6f358",
+  "startedAt": "2026-10-09T14:33:50.790Z",
+  "scratch": "/dev/shm/pod5923-claude-2.1.295-avXbDL",
+  "port": 45923,
+  "env": {
+    "HOME": "/dev/shm/pod5923-claude-2.1.295-avXbDL/home",
+    "SHELL": "/bin/bash",
+    "TERM": "xterm-256color",
+    "COLORTERM": "truecolor",
+    "LANG": "C.UTF-8",
+    "XDG_CONFIG_HOME": "/dev/shm/pod5923-claude-2.1.295-avXbDL/home/.config",
+    "XDG_CACHE_HOME": "/dev/shm/pod5923-claude-2.1.295-avXbDL/home/.cache",
+    "XDG_DATA_HOME": "/dev/shm/pod5923-claude-2.1.295-avXbDL/home/.local/share",
+    "XDG_STATE_HOME": "/dev/shm/pod5923-claude-2.1.295-avXbDL/home/.local/state",
+    "CLAUDE_CONFIG_DIR": "/dev/shm/pod5923-claude-2.1.295-avXbDL/home/.claude",
+    "ANTHROPIC_API_KEY": "fake-key-for-the-local-fake-server-not-a-credential",
+    "ANTHROPIC_BASE_URL": "http://127.0.0.1:45923",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "CLAUDE_CODE_MAX_RETRIES": "0",
+    "DISABLE_AUTOUPDATER": "1",
+    "CLAUDE_CODE_GB_DISK_CACHE_WHEN_TELEMETRY_OFF": "1"
+  },
+  "argv": [
+    "--model",
+    "claude-sonnet-4-6"
+  ],
+  "attachments": {
+    "png1": "/dev/shm/pod5923-claude-2.1.295-avXbDL/home/.podium/uploads/6bdbd609-f6a8-4cc0-b6ef-b02874e34842/ce007802-a2f0-4ea0-af8d-ef1365129174.png",
+    "png2": "/dev/shm/pod5923-claude-2.1.295-avXbDL/home/.podium/uploads/6bdbd609-f6a8-4cc0-b6ef-b02874e34842/3ebbf805-1efd-4086-94cc-fafaceb8da96.png",
+    "txt1": "/dev/shm/pod5923-claude-2.1.295-avXbDL/home/.podium/uploads/6bdbd609-f6a8-4cc0-b6ef-b02874e34842/eb85aef7-3c5c-468d-8cb2-a3f0d47a0c02.txt"
+  }
+}

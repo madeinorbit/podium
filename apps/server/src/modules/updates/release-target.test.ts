@@ -494,6 +494,21 @@ describe('resolveReleaseTarget trust root', () => {
       expect(fetchImpl.mock.calls.map(([request]) => String(request))).toContain(GITHUB_OBJECT)
     })
 
+    it('ACCEPTS the hop GitHub serves releases through today (release-assets)', async () => {
+      // What github.com/<repo>/releases/download/... actually 302s to as of 2026: an
+      // install that refused this host could never resolve another release.
+      const releaseAssets =
+        'https://release-assets.githubusercontent.com/github-production-release-asset/1/x?sp=r'
+      const fetchImpl = edgeFetch(
+        () => new Response(null, { status: 302, headers: { location: releaseAssets } }),
+      )
+
+      await expect(resolveReleaseTarget('edge', { fetch: fetchImpl })).resolves.toMatchObject({
+        version: '0.4.2',
+      })
+      expect(fetchImpl.mock.calls.map(([request]) => String(request))).toContain(releaseAssets)
+    })
+
     it('REFUSES a release-channel hop to a lookalike of the object host', async () => {
       const lookalike = 'https://objects.githubusercontent.com.evil.example/x.tar.gz'
       const fetchImpl = edgeFetch(
@@ -549,6 +564,7 @@ describe('resolveReleaseTarget trust root', () => {
       expect(RELEASE_ARTIFACT_REDIRECT_HOSTS).toEqual([
         'github.com',
         'objects.githubusercontent.com',
+        'release-assets.githubusercontent.com',
       ])
       expect(releaseChannelFeed('edge')?.redirectHosts).toEqual([
         ...RELEASE_ARTIFACT_REDIRECT_HOSTS,

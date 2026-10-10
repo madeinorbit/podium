@@ -160,7 +160,16 @@ export function buildLocalRustHost(crate = RUST_HOST_CRATE): string {
         `run mise install in ${crate}`,
     )
   }
-  execFileSync('rustup', ['run', rustChannel(crate), 'cargo', 'build', '--release', '--locked'], {
+  const channel = rustChannel(crate)
+  // `rustup run` does not install a missing toolchain (rustup >= 1.28), so a fresh CI
+  // runner or dev box failed here with "toolchain '<channel>-<host>' is not installed".
+  // The cross path gets the toolchain from `rustup target add --toolchain`; this one
+  // asks for it explicitly. Idempotent when it is already installed.
+  execFileSync('rustup', ['toolchain', 'install', channel, '--profile', 'minimal'], {
+    cwd: crate,
+    stdio: 'inherit',
+  })
+  execFileSync('rustup', ['run', channel, 'cargo', 'build', '--release', '--locked'], {
     cwd: crate,
     stdio: 'inherit',
     env: { ...process.env, CARGO_TARGET_DIR: join(crate, 'target') },

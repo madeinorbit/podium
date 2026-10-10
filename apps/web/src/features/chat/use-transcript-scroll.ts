@@ -20,7 +20,14 @@ export interface PinnedBrief {
 export interface UseTranscriptScrollResult extends UseDomTranscriptScrollResult {
   syncStickyPromptPositions: () => void
   pinnedBrief: PinnedBrief | null
+  /** Scroll the feed back to the prompt the shelf is carrying, its top just
+   *  under the scroller's edge. A no-op when nothing is pinned. */
+  scrollToPinned: () => void
 }
+
+/** Breathing room above the prompt once the jump lands, so its first line is
+ *  not flush against the top of the feed. */
+const PIN_JUMP_MARGIN = 12
 
 /** Desktop shelf presentation delegates all position and intent to the shared browser controller. */
 export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTranscriptScrollResult {
@@ -64,5 +71,22 @@ export function useTranscriptScroll(opts: UseTranscriptScrollOptions): UseTransc
     setPinnedBrief(null)
   }, [sessionId])
   const scroll = useDomTranscriptScroll({ ...opts, onPositionChange: syncStickyPromptPositions })
-  return { ...scroll, syncStickyPromptPositions, pinnedBrief }
+  const { scrollToOffset } = scroll
+  const pinnedKey = pinnedBrief?.key
+  const scrollToPinned = useCallback(() => {
+    const scroller = scrollerRef.current
+    if (!scroller) return
+    let target = pinnedEl.current
+    // The row may have been re-rendered since it was pinned; find it again by key.
+    if (!target?.isConnected && pinnedKey) {
+      target =
+        [...scroller.querySelectorAll<HTMLElement>('[data-operator-prompt="true"]')].find(
+          (row) => (row.dataset.rowKey ?? row.dataset.block) === pinnedKey,
+        ) ?? null
+    }
+    if (!target?.isConnected) return
+    const top = target.getBoundingClientRect().top - scroller.getBoundingClientRect().top
+    scrollToOffset(scroller.scrollTop + top - PIN_JUMP_MARGIN)
+  }, [scrollerRef, scrollToOffset, pinnedKey])
+  return { ...scroll, syncStickyPromptPositions, pinnedBrief, scrollToPinned }
 }

@@ -1,34 +1,42 @@
-import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
-import { prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
-import { renameSync, rmSync } from 'node:fs'
+import { existsSync, renameSync, rmSync } from 'node:fs'
 import { stagePasswordForFirstBoot as realSetPassword } from '@podium/runtime/auth-store'
-import { CHECK_ERROR_SENTENCES, type CheckResult } from '@podium/runtime/connect-check'
 import {
   configPath,
-  type EnvSource,
   forgetConfig,
   inspectConfig,
   loadConfig,
+  resolvePort,
   saveConfig,
   stateDir,
 } from '@podium/runtime/config'
+import { CHECK_ERROR_SENTENCES, type CheckResult } from '@podium/runtime/connect-check'
 import { connectivityPath, readLiveConnectivity } from '@podium/runtime/connectivity'
 import { decodeJoin } from '@podium/runtime/join'
+import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import {
   assertModeWritable,
   assertPublicUrlWritable,
   commandExists,
   ephemeralTunnelWarning,
-  NETWORK_OPTIONS,
   type NetworkOption,
   networkOptionCommand,
   networkOptionTool,
   validatePublicUrl,
 } from '@podium/runtime/setup'
-import { indentExample, setConsent, shouldAskForConsent } from '@podium/telemetry'
+import { prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
 import { applyJoinToken } from './cli-join'
+import { localStableLink } from './cli-lifecycle'
 import { realCheckReachability } from './cli-reachability'
+import { hasSystemctl, hasUserSystemd } from './cli-systemd'
+import { realTailscaleDeps, type TailscaleDeps, tailscaleStep } from './setup-tailscale'
 import { isCancel, type SetupIO } from './setup-ui'
+import {
+  bundledCloudflaredPath,
+  type EnableTunnelResult,
+  downloadCloudflared as realDownloadCloudflared,
+  enableTunnel as realEnableTunnel,
+  waitForTunnelUrl as realWaitForTunnelUrl,
+} from './tunnel-cli'
 
 export type { SetupIO } from './setup-ui'
 
@@ -88,6 +96,47 @@ export interface SetupDeps {
    * test performs network I/O.
    */
   checkReachability?: (url: string) => Promise<CheckResult | undefined>
+  /**
+   * THE MANAGED QUICK TUNNEL (POD-3274). Injected for testing; the defaults download
+   * cloudflared, install the podium-tunnel user unit and read the URL the server records.
+   * No test may touch the network or systemd, so each step has a seam.
+   */
+  managedTunnel?: Partial<ManagedTunnelDeps>
+  /** Injected for testing: Tailscale's state and the commands setup runs (POD-3274). */
+  tailscale?: Partial<TailscaleDeps>
+  /** Injected for testing: fetch a tailnet-only URL from this machine (Tailscale Serve). */
+  checkInside?: (url: string) => Promise<boolean>
+}
+
+/** What the managed Cloudflare quick tunnel needs from the machine. */
+export interface ManagedTunnelDeps {
+  /** cloudflared is on PATH, or setup already downloaded it beside podium. */
+  hasCloudflared: () => boolean
+  /** A systemd user session exists to keep podium-tunnel running. */
+  canSupervise: () => boolean
+  /** Fetch Cloudflare's own cloudflared build; resolves to where it was put. */
+  download: () => Promise<string>
+  /** Install and start the podium-tunnel unit. */
+  enable: () => EnableTunnelResult
+  /** Resolve to the first quick-tunnel URL the server records that is not `previous`. */
+  waitForUrl: (previous?: string) => Promise<string | undefined>
+  /** The running server's stable Connect link, when it offers one (POD-5921). */
+  stableLink: () => Promise<string | undefined>
+}
+
+function managedTunnelDeps(
+  hasCommand: (binary: string) => boolean,
+  over: Partial<ManagedTunnelDeps> = {},
+): ManagedTunnelDeps {
+  return {
+    hasCloudflared: () => hasCommand('cloudflared') || existsSync(bundledCloudflaredPath()),
+    canSupervise: () => hasSystemctl() && hasUserSystemd(),
+    download: () => realDownloadCloudflared(),
+    enable: () => realEnableTunnel(),
+    waitForUrl: (previous) => realWaitForTunnelUrl(previous ? { previous } : {}),
+    stableLink: () => localStableLink(resolvePort(loadConfig())),
+    ...over,
+  }
 }
 
 const JOIN_CONNECT_TIMEOUT_MS = 30_000
@@ -169,7 +218,10 @@ export async function startBackendEngine(opts: StartBackendOpts): Promise<StartB
     if (res.ok) {
       result = {
         effectivePersistence: 'systemd',
-        message: `Installed + started the ${what} as a systemd service — survives reboot.`,
+        message: res.lingerRemedy
+          ? `Installed + started the ${what} as a systemd service, but it stops when you log out ` +
+            `and does not come back after a reboot. ${res.lingerRemedy}`
+          : `Installed + started the ${what} as a systemd service — survives reboot.`,
       }
     } else {
       const { serverUp } = await startDetachedStack(mode, port, loadConfig().bindHost)
@@ -214,7 +266,7 @@ export function shouldRunCliSetup(opts: {
 
 type HostMode = 'all-in-one' | 'server'
 /** What the mode menu can return. The three modes, plus the host-only quick edits. */
-type SetupChoice = HostMode | 'daemon' | 'url' | 'password' | 'telemetry'
+type SetupChoice = HostMode | 'daemon' | 'url' | 'password'
 
 /**
  * WHAT THE DEPLOYMENT OWNS, THIS COMMAND MAY NOT WRITE (PDM-26).
@@ -250,6 +302,8 @@ async function confirmUrlChange(
 ): Promise<boolean> {
   const current = loadConfig().publicUrl
   if (!current || current === next) return true
+  // A quick-tunnel address was always going to change; replacing it strands nothing new.
+  if (next === MANAGED_TUNNEL_TARGET && ephemeralTunnelWarning(current)) return true
   if (preConfirmed) return true
   io.warn(
     `This instance is already reachable at ${current}.\n` +
@@ -270,9 +324,88 @@ async function confirmUrlChange(
   return false
 }
 
-interface ReachabilityChoice {
-  publicUrl: string
-  networkOption: NetworkOption
+type ReachabilityChoice =
+  | { publicUrl: string; networkOption: NetworkOption; managedTunnel?: false }
+  /** Podium runs the quick tunnel, so the URL is not known until the server is up. */
+  | { networkOption: 'cloudflare-tunnel'; managedTunnel: true }
+
+/**
+ * THE ONE-CLICK OPTION. The Cloudflare quick tunnel is the only way to be reachable that
+ * needs no account and no sign-in, so it is the one Podium can run end to end: fetch
+ * cloudflared when it is missing, keep it running under podium-tunnel, and record each
+ * new address so joined machines can look it up. The label says Podium runs it, because
+ * that is the difference from every other row.
+ */
+/** What {@link confirmUrlChange} names as the replacement when the URL is not known yet. */
+const MANAGED_TUNNEL_TARGET = 'a Cloudflare quick tunnel'
+const MANAGED_TUNNEL_LABEL = 'Cloudflare quick tunnel, managed by Podium (easiest, no account)'
+const MANAGED_TUNNEL_NOTE =
+  'One-click setup, with nothing to install or sign up for. Cloudflare gives no uptime guarantee for quick tunnels.'
+
+/**
+ * Get cloudflared onto this machine for the managed tunnel, asking first. False means the
+ * managed tunnel cannot go ahead and the operator has been told why.
+ */
+async function ensureCloudflared(io: SetupIO, tunnel: ManagedTunnelDeps): Promise<boolean> {
+  if (tunnel.hasCloudflared()) return true
+  const tool = networkOptionTool('cloudflare-tunnel')
+  const fetchIt = await io.confirm({
+    message: `cloudflared is not installed. Download it now? (Cloudflare's own build, into ${bundledCloudflaredPath()})`,
+    initialValue: true,
+  })
+  if (isCancel(fetchIt) || !fetchIt) {
+    if (tool?.install) io.command(tool.install, 'Install it yourself, then re-run `podium setup`:')
+    return false
+  }
+  const spin = io.spinner()
+  spin.start('Downloading cloudflared')
+  try {
+    const path = await tunnel.download()
+    spin.stop(`Downloaded cloudflared to ${path}.`)
+    return true
+  } catch (e) {
+    spin.error(`Could not download cloudflared: ${(e as Error).message}`)
+    if (tool?.install) io.command(tool.install, 'Install it yourself, then re-run `podium setup`:')
+    return false
+  }
+}
+
+/**
+ * Start the managed tunnel and wait for its first address. Runs once the server is up,
+ * because podium-tunnel hands each address to the running server.
+ */
+async function startManagedTunnel(
+  io: SetupIO,
+  tunnel: ManagedTunnelDeps,
+  previous: string | undefined,
+): Promise<string | undefined> {
+  const enabled = tunnel.enable()
+  if (!enabled.ok) {
+    io.error(`Could not start the tunnel: ${enabled.reason}`)
+    return undefined
+  }
+  const spin = io.spinner()
+  spin.start('Starting the Cloudflare tunnel (can take a minute)')
+  const url = await tunnel.waitForUrl(previous)
+  if (!url) {
+    spin.error('The tunnel has not reported an address yet.')
+    io.command(`journalctl --user -u ${enabled.unit} -f`, 'See what it is doing:')
+    io.step('Podium records the address as soon as the tunnel reports one.')
+    return undefined
+  }
+  spin.stop(`The Cloudflare tunnel is up at ${url}`)
+  // ONE paragraph per line: clack wraps note text to the terminal itself, so a line broken
+  // by hand here gets broken twice and reads ragged.
+  const stableLink = await tunnel.stableLink().catch(() => undefined)
+  io.note(
+    [
+      'The address changes whenever the tunnel restarts, for example after a reboot or a dropped connection.',
+      'Joined machines and the desktop and mobile apps follow it on their own.',
+      ...(stableLink ? [`In a browser, bookmark this link instead: ${stableLink}`] : []),
+    ].join('\n'),
+    'About this address',
+  )
+  return url
 }
 
 /**
@@ -315,22 +448,42 @@ function presentReachabilityCommand(
   }
 }
 
+/** The rows of the reachability menu. Tailscale is ONE row with a nested choice. */
+type ReachabilityRow = 'tailscale' | 'cloudflare-tunnel' | 'manual'
+
 /**
- * Reachability step: pick how to expose the relay, run the command, paste the URL. Returns
- * the validated URL and exposure method, or undefined when the operator gave up. With `save`
- * (the standalone
- * "change the URL" menu edit on an already-configured box) it persists immediately; the
- * full host flow passes save:false and writes config ONCE at the end — so a Ctrl-C midway
+ * What a reverse proxy has to do for Podium — said as requirements, not as one proxy's
+ * config, because the operator who picks this row already runs a proxy of their own.
+ * "On this machine" is load-bearing: the server binds 127.0.0.1 and trusts exactly one
+ * proxy hop's X-Forwarded-Proto there (resolveTrustedProxyHops), so a proxy elsewhere
+ * cannot reach it and its HTTPS would not be believed.
+ */
+export function manualProxyRequirements(port: number): string {
+  return [
+    'Your reverse proxy needs to:',
+    '',
+    '• serve Podium over HTTPS, with a valid certificate, at the root of its own hostname (no path prefix)',
+    `• run on this machine and forward everything to http://127.0.0.1:${port}`,
+    '• pass WebSocket upgrades through, on every path, and not time out long-lived connections',
+    '• send X-Forwarded-Proto: https',
+  ].join('\n')
+}
+
+/**
+ * Reachability step: pick how this machine is reached, and get its https URL. Returns the
+ * URL and exposure method, or undefined when the operator gave up. With `save` (the
+ * standalone "change the URL" edit on a running box) it persists immediately; the full
+ * host flow passes save:false and writes config ONCE at the end — so a Ctrl-C midway
  * can't leave a configured-looking-but-passwordless box (issue #21).
  *
- * THERE IS NO WAY BACK from here, deliberately. A step that has written nothing could in
- * principle re-offer the one before it, and a version of this flow did: a row on the list,
- * and a blank answer at the URL. It read as noise. clack has no back of its own — its
- * action vocabulary is fixed at up/down/left/right/space/enter/cancel and `escape` is
- * aliased to `cancel` — so every affordance had to be invented and then explained, blank
- * ended up meaning "go back" one prompt and "run without a password" two prompts later,
- * and Escape, the key anyone actually reaches for, still aborted. One clear way out
- * (Ctrl-C, nothing saved, re-run `podium setup`) beats two unclear ones.
+ * Whether the URL actually works is checked AFTER the server is up ({@link verifyReachable}):
+ * on a fresh box there is nothing yet to answer an outside probe, which is why the check
+ * used to be skipped there without a word.
+ *
+ * THERE IS NO WAY BACK from here, deliberately. clack has no back of its own — its action
+ * vocabulary is fixed and `escape` is aliased to `cancel` — and an invented one read as
+ * noise. One clear way out (Ctrl-C, nothing saved, re-run `podium setup`) beats two
+ * unclear ones.
  */
 async function reachabilityStep(
   io: SetupIO,
@@ -340,100 +493,253 @@ async function reachabilityStep(
     save: boolean
     confirmUrlChange?: boolean
     hasCommand?: (binary: string) => boolean
-    checkReachability?: (url: string) => Promise<CheckResult | undefined>
+    managedTunnel?: Partial<ManagedTunnelDeps>
+    tailscale?: Partial<TailscaleDeps>
   } = { save: true },
 ): Promise<ReachabilityChoice | undefined> {
   const hasCommand = opts.hasCommand ?? commandExists
-  // Advisory only (POD-4534): the real probe in production, a stub in tests. Bound here so
-  // the default can show its spinner on the live IO while a stub stays output-clean.
-  const checkReachability =
-    opts.checkReachability ?? ((url: string) => realCheckReachability(url, io))
-  const opt = await io.select({
+  const row = await io.select<ReachabilityRow>({
     message: 'How can clients reach this machine over the network?',
-    options: NETWORK_OPTIONS.map((o) => {
-      const tool = networkOptionTool(o.id)
-      // Said on the ROW, not only after the choice: an operator picking the recommended
-      // option on a box without tailscale should see that before they commit to it.
-      const missing = tool !== undefined && !hasCommand(tool.binary)
-      return {
-        value: o,
-        label: missing ? `${o.label} — ${tool.binary} is not installed` : o.label,
-        hint: o.note,
-      }
-    }),
+    options: [
+      {
+        value: 'tailscale',
+        label: 'Tailscale (recommended)',
+        hint: 'A real HTTPS address with no domain and no open ports — public, or private to your tailnet.',
+      },
+      { value: 'cloudflare-tunnel', label: MANAGED_TUNNEL_LABEL, hint: MANAGED_TUNNEL_NOTE },
+      {
+        value: 'manual',
+        label: 'My own reverse proxy',
+        hint: 'You make sure clients can reach Podium on this machine over HTTPS.',
+      },
+    ],
   })
-  if (isCancel(opt) || !opt) return undefined
-  presentReachabilityCommand(io, opt.id, port, hasCommand)
-  const { hint } = networkOptionCommand(opt.id, port)
-  // A URL is re-asked by the prompt itself until it validates, so there is no attempt
-  // counter here any more: a cancelled prompt returns CANCEL rather than '' forever.
-  // The advisory probe below re-asks the same way on a declined override, so this is a
-  // loop now — and it still terminates, because every iteration either returns or
-  // consumes at least one more scripted answer before asking again.
-  let normalized: string
-  for (;;) {
-    const pasted = await io.text({
-      message: hint,
-      placeholder: 'https://…',
-      validate: (v) =>
-        v.trim() === ''
-          ? 'Paste the URL, or press Ctrl-C to give up.'
-          : validatePublicUrl(v).ok
-            ? undefined
-            : (validatePublicUrl(v) as { error: string }).error,
+  if (isCancel(row) || !row) return undefined
+
+  if (row === 'tailscale') {
+    const exposure = await io.select<'tailscale-funnel' | 'tailscale-serve'>({
+      message: 'Who should be able to reach it?',
+      options: [
+        {
+          value: 'tailscale-funnel',
+          label: 'Anyone with the link (Tailscale Funnel)',
+          hint: 'Public. Phones and laptops need nothing installed.',
+        },
+        {
+          value: 'tailscale-serve',
+          label: 'Only devices on my tailnet (Tailscale Serve)',
+          hint: 'Private. Every device you use Podium from needs Tailscale, signed in.',
+        },
+      ],
     })
-    if (isCancel(pasted)) {
-      io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
+    if (isCancel(exposure) || !exposure) return undefined
+    const url = await tailscaleStep(
+      io,
+      exposure === 'tailscale-funnel' ? 'funnel' : 'serve',
+      port,
+      { ...realTailscaleDeps, ...opts.tailscale },
+    )
+    if (!url) {
+      io.step('Nothing saved. Re-run `podium setup` when ready.')
       return undefined
     }
-    const v = validatePublicUrl(pasted)
-    if (!v.ok) {
-      io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
-      return undefined
-    }
-    // THE ADVISORY PROBE (POD-4534): what the cloud says about this URL, shown as a hint
-    // the operator can overrule — never a gate. `undefined` and CONNECT_UNAVAILABLE both
-    // mean "we could not ask" and proceed silently, exactly as the flow did before the
-    // probe existed. Anything else failed: say what is wrong in plain words, then ask a
-    // confirm that appears ONLY on failure. Its default is the safe one (no — re-ask the
-    // URL), and yes is one keypress away. No back affordance, no magic word, no blank
-    // overloading: see the note at the top of this step.
-    const verdict = await checkReachability(v.normalized)
-    if (verdict === undefined || verdict.ok || verdict.error === 'CONNECT_UNAVAILABLE') {
-      if (verdict?.ok) io.success(`Reachable — an outside probe connected to ${v.normalized}.`)
-      normalized = v.normalized
-      break
-    }
-    const detail = typeof verdict.detail === 'string' ? verdict.detail.trim() : ''
-    // The cloud's answer arrives as a cast, not a validated schema, and may know codes this
-    // CLI predates: an advisory hint must never crash setup on a newer vocabulary, so an
-    // unknown code falls back to naming itself rather than printing `undefined`.
-    const sentence =
-      (CHECK_ERROR_SENTENCES as Partial<Record<string, string>>)[verdict.error] ??
-      `The outside probe reported a problem it described as ${verdict.error}.`
-    io.warn(detail ? `${sentence} The probe reported: ${detail}` : sentence)
-    const useAnyway = await io.confirm({ message: 'Use this URL anyway?', initialValue: false })
-    if (isCancel(useAnyway)) {
-      io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
-      return undefined
-    }
-    if (useAnyway) {
-      normalized = v.normalized
-      break
-    }
+    return finishUrl(io, mode, url, exposure, opts)
   }
+
+  if (row === 'cloudflare-tunnel') {
+    const tunnel = managedTunnelDeps(hasCommand, opts.managedTunnel)
+    if (tunnel.canSupervise()) {
+      if (!(await ensureCloudflared(io, tunnel))) {
+        io.step('Nothing saved. Re-run `podium setup` when ready.')
+        return undefined
+      }
+      if (!opts.save) return { networkOption: 'cloudflare-tunnel', managedTunnel: true }
+      const previous = loadConfig().publicUrl
+      if (!(await confirmUrlChange(io, MANAGED_TUNNEL_TARGET, opts.confirmUrlChange === true)))
+        return undefined
+      const { publicUrl: _replaced, ...rest } = loadConfig()
+      saveConfig({ ...rest, mode, networkOption: 'cloudflare-tunnel' })
+      const url = await startManagedTunnel(io, tunnel, previous)
+      return url
+        ? { publicUrl: url, networkOption: 'cloudflare-tunnel' }
+        : { networkOption: 'cloudflare-tunnel', managedTunnel: true }
+    }
+    // No systemd user session to keep podium-tunnel alive: fall back to running
+    // cloudflared by hand and pasting its URL, exactly as before the managed tunnel.
+    io.warn(
+      'This machine has no systemd user session, so Podium cannot keep the tunnel running.\n' +
+        'Run cloudflared yourself instead.',
+    )
+    presentReachabilityCommand(io, 'cloudflare-tunnel', port, hasCommand)
+  } else {
+    io.note(manualProxyRequirements(port), 'Your reverse proxy')
+  }
+
+  const message =
+    row === 'manual'
+      ? 'The https:// URL your reverse proxy serves'
+      : networkOptionCommand('cloudflare-tunnel', port).hint
+  // Re-asked by the prompt itself until it validates; a cancel returns CANCEL.
+  const pasted = await io.text({
+    message,
+    placeholder: 'https://…',
+    validate: (v) =>
+      v.trim() === ''
+        ? 'Paste the URL, or press Ctrl-C to give up.'
+        : validatePublicUrl(v).ok
+          ? undefined
+          : (validatePublicUrl(v) as { error: string }).error,
+  })
+  const v = isCancel(pasted) ? undefined : validatePublicUrl(pasted)
+  if (!v?.ok) {
+    io.step('No URL — nothing saved. Re-run `podium setup` when ready.')
+    return undefined
+  }
+  return finishUrl(io, mode, v.normalized, row, opts)
+}
+
+/** Save (or announce) a URL the operator chose; shared by every row that yields one. */
+async function finishUrl(
+  io: SetupIO,
+  mode: HostMode,
+  normalized: string,
+  networkOption: NetworkOption,
+  opts: { save: boolean; confirmUrlChange?: boolean },
+): Promise<ReachabilityChoice | undefined> {
   if (opts.save) {
     if (!(await confirmUrlChange(io, normalized, opts.confirmUrlChange === true))) {
       return undefined
     }
-    saveConfig({ ...loadConfig(), mode, publicUrl: normalized, networkOption: opt.id })
-    io.success(`Saved. This instance is reachable at ${normalized}. Restart podium to apply.`)
+    saveConfig({ ...loadConfig(), mode, publicUrl: normalized, networkOption })
+    io.success(`Saved. This instance is reachable at ${normalized}.`)
   } else {
     io.step(`This instance will be reachable at ${normalized}.`)
   }
   const warning = ephemeralTunnelWarning(normalized)
   if (warning) io.warn(warning)
-  return { publicUrl: normalized, networkOption: opt.id }
+  return { publicUrl: normalized, networkOption }
+}
+
+/** How a URL is proven to work: from the internet, or — for a tailnet-only one — from here. */
+export interface ReachabilityChecks {
+  /** Ask Podium Connect to probe the URL from the outside. `undefined` = could not ask. */
+  outside: (url: string) => Promise<CheckResult | undefined>
+  /** Fetch the URL's `/version` from this machine (through the tailnet, or Cloudflare). */
+  inside: (url: string) => Promise<boolean>
+}
+
+/**
+ * Fetch `/version` from this machine, retrying for up to `budgetMs`. A brand-new address
+ * can take a while to answer — a quick tunnel's name once took over 15 s to reach both of
+ * Cloudflare's nameservers, and a lookup in that window is cached as "no such name" for a
+ * minute — so one miss right after it appears is not a verdict.
+ */
+async function realInsideCheck(url: string, budgetMs = 90_000): Promise<boolean> {
+  const deadline = Date.now() + budgetMs
+  for (;;) {
+    try {
+      const res = await fetch(`${url.replace(/\/$/, '')}/version`, {
+        signal: AbortSignal.timeout(10_000),
+      })
+      if (res.ok) return true
+    } catch {
+      // Not answering yet — try again until the budget is spent.
+    }
+    if (Date.now() + 5_000 >= deadline) return false
+    await new Promise((resolve) => setTimeout(resolve, 5_000))
+  }
+}
+
+/**
+ * THE REACHABILITY CHECK, AFTER THE SERVER IS UP (POD-4534, moved by POD-3274). A failure
+ * informs; the human decides: keep the URL (it may be meant for the inside only), or set
+ * up a different way. Tailscale Serve is private by design, so it is checked from this
+ * machine through the tailnet instead of from the internet, where it always fails.
+ */
+async function verifyReachable(
+  io: SetupIO,
+  url: string,
+  networkOption: NetworkOption,
+  checks: ReachabilityChecks,
+): Promise<'ok' | 'keep' | 'change'> {
+  // Checked from THIS machine: Serve because it is private, so an outside probe always
+  // fails; the Cloudflare tunnel because Connect's probe (a Cloudflare Worker) could not
+  // connect to trycloudflare.com addresses that answered everywhere else — measured on the
+  // lab, 2026-10-06. Either way the request leaves through the same path a client takes.
+  const via =
+    networkOption === 'tailscale-serve'
+      ? 'your tailnet'
+      : networkOption === 'cloudflare-tunnel'
+        ? 'Cloudflare'
+        : undefined
+  if (via) {
+    const spin = io.spinner()
+    spin.start(`Checking the address from this machine, through ${via} (can take a minute)`)
+    if (await checks.inside(url)) {
+      spin.stop(`Reachable — ${url} answers through ${via}.`)
+      return 'ok'
+    }
+    spin.error(`${url} did not answer from this machine through ${via}.`)
+  } else {
+    const verdict = await checks.outside(url)
+    if (verdict === undefined || (!verdict.ok && verdict.error === 'CONNECT_UNAVAILABLE')) {
+      io.step('Could not run the outside reachability check right now; skipped it.')
+      return 'ok'
+    }
+    if (verdict.ok) {
+      io.success(`Reachable — an outside probe connected to ${url}.`)
+      return 'ok'
+    }
+    const detail = typeof verdict.detail === 'string' ? verdict.detail.trim() : ''
+    // The cloud's answer arrives as a cast and may know codes this CLI predates: an
+    // unknown code names itself rather than crashing setup.
+    const sentence =
+      (CHECK_ERROR_SENTENCES as Partial<Record<string, string>>)[verdict.error] ??
+      `The outside probe reported a problem it described as ${verdict.error}.`
+    io.warn(detail ? `${sentence} The probe reported: ${detail}` : sentence)
+  }
+  const next = await io.select<'keep' | 'change'>({
+    message: 'What now?',
+    options: [
+      {
+        value: 'keep',
+        label: 'Keep this address',
+        hint: 'It may only be reachable inside my network, or will be once I finish setting it up.',
+      },
+      { value: 'change', label: 'Set up a different way to reach this machine' },
+    ],
+  })
+  return isCancel(next) || next !== 'change' ? 'keep' : 'change'
+}
+
+/**
+ * Check the URL now in config; on "change", walk the reachability step again (saving, the
+ * server is running) and check what that produced, until it works or is kept.
+ */
+async function checkAndOfferChange(
+  io: SetupIO,
+  port: number,
+  mode: HostMode,
+  first: ReachabilityChoice,
+  checks: ReachabilityChecks,
+  stepOpts: {
+    hasCommand?: (binary: string) => boolean
+    managedTunnel?: Partial<ManagedTunnelDeps>
+    tailscale?: Partial<TailscaleDeps>
+  },
+): Promise<void> {
+  let choice: ReachabilityChoice | undefined = first
+  while (choice && !choice.managedTunnel) {
+    const outcome = await verifyReachable(io, choice.publicUrl, choice.networkOption, checks)
+    if (outcome !== 'change') return
+    // The URL just checked is the one being replaced, and it does not work: replacing
+    // it strands nobody, so the "type CHANGE" question is answered.
+    choice = await reachabilityStep(io, port, mode, {
+      save: true,
+      confirmUrlChange: true,
+      ...stepOpts,
+    })
+  }
 }
 
 /**
@@ -447,16 +753,18 @@ async function passwordStep(
   io: SetupIO,
   setPassword: (password: string) => Promise<void>,
 ): Promise<boolean> {
-  io.step('Set a password to require login (recommended for a public URL).')
+  io.step(
+    'Choose the password you will log in to Podium with: in the browser, and in the desktop and mobile apps.',
+  )
   // Loops until the operator either sets a password or explicitly accepts an open box.
   // A cancel (Ctrl-C, or a scripted run out of answers) ends it — which is why there is no
   // attempt counter: CANCEL is the terminating condition readline could never report.
   for (;;) {
-    const pw = await io.password({ message: 'Password (leave blank to run without one)' })
+    const pw = await io.password({ message: 'Podium login password (leave blank for no login)' })
     if (isCancel(pw)) break
     if (pw.trim()) {
       await setPassword(pw.trim())
-      io.success('Password set — devices must log in to use this instance.')
+      io.success('Password set. The browser and the apps ask for it when they connect.')
       return true
     }
     // SP-7f2c: the no-password option must be an explicit opt-in behind a confirmed warning.
@@ -474,75 +782,6 @@ async function passwordStep(
   }
   io.error('No password chosen and no-password mode not confirmed.')
   return false
-}
-
-/**
- * The telemetry prompt's example report [spec:SP-f933]. Shown BY DEFAULT, not
- * behind a "learn more": the audience is developers, and the JSON documents
- * itself better than prose describing it (Syncthing showed the exact report and
- * got ~zero friction; Ubuntu's install-time preview got 67% yes).
- *
- * Illustrative VALUES, deliberately — it renders before consent exists, so there
- * is nothing real to show. The FIELDS are the schema's, enforced: the example
- * lives in @podium/telemetry beside `UsageReport` because `packages/*` may not
- * import `apps/*`, so an example defined here could never be drift-tested (it
- * shipped advertising a `claude` session kind that the wire has never had).
- */
-export const TELEMETRY_PROMPT_BODY = [
-  'Nothing is collected unless you turn it on. One report a day,',
-  'and this is exactly what it looks like:',
-  '',
-  indentExample(),
-  '',
-  '• Never     paths, repo names, prompts, code, any free text',
-  '• Your IP   dropped at ingest, never reaches analytics',
-  '• Opt out   anytime in Settings → Privacy, or: podium telemetry off',
-  '• Details   podium telemetry show · podium.dev/telemetry',
-].join('\n')
-
-/** Read one [y/N] answer. Anything that isn't an explicit yes is a NO — the
- *  default must never drift toward on, and stdin EOF resolves '' forever
- *  (which lands here as 'no', not as a spin). */
-function yes(answer: unknown): boolean {
-  return answer === true
-}
-
-/**
- * Telemetry step [spec:SP-f933] — the LAST step of the host flow, after the
- * machine already works.
- *
- * Placement is the whole design: steps 3-7 are all REQUIRED for a working
- * Podium; this is the only optional question, so it must not be a tollbooth on
- * the way to a working install. A Ctrl-C here leaves a fully working install
- * with telemetry absent (= off), which is the best available failure mode. It
- * also lands at the moment the user has just succeeded, which is when goodwill
- * is highest.
- *
- * Skipped entirely when DO_NOT_TRACK / PODIUM_TELEMETRY=off is set: a box that
- * has declared it does not want to be tracked must not be asked about tracking.
- * Only hosts reach here at all (D10) — the join path never calls it.
- *
- * Both questions default to N; Enter-Enter opts out of both.
- */
-export async function telemetryStep(io: SetupIO, env: EnvSource = process.env): Promise<void> {
-  if (!shouldAskForConsent(env)) return
-  io.note(TELEMETRY_PROMPT_BODY, 'Anonymous telemetry (opt-in)')
-  const usage = yes(
-    await io.confirm({ message: 'Send anonymous usage reports?', initialValue: false }),
-  )
-  const crash = yes(
-    await io.confirm({ message: 'Send crash reports (scrubbed traces)?', initialValue: false }),
-  )
-  // Written even when both are 'no': an explicit 'off' is not the same as
-  // 'absent', and recording the answer is how we know we asked (D11).
-  setConsent({ usage: usage ? 'on' : 'off', crash: crash ? 'on' : 'off' })
-  if (usage || crash) {
-    const on = [usage ? 'usage' : '', crash ? 'crash' : ''].filter(Boolean).join(' + ')
-    io.success(`Thanks — ${on} reporting is on.`)
-    io.command('podium telemetry off', 'Turn it off any time:')
-  } else {
-    io.step('Telemetry stays off. Nothing will be collected or sent.')
-  }
 }
 
 /**
@@ -615,6 +854,23 @@ export async function runJoinSetup(
   return { name, ...(warning ? { warning } : {}), result }
 }
 
+/** The checks the flow runs once the server is up: the injected ones, or the real ones. */
+function reachabilityChecks(
+  io: SetupIO,
+  options: {
+    checkReachability?: (url: string) => Promise<CheckResult | undefined>
+    checkInside?: (url: string) => Promise<boolean>
+  },
+): ReachabilityChecks {
+  return {
+    outside:
+      options.checkReachability ??
+      // The identity is minted by the server's first boot, which just happened.
+      ((url) => realCheckReachability(url, io, { waitForIdentityMs: 20_000 })),
+    inside: options.checkInside ?? realInsideCheck,
+  }
+}
+
 /**
  * Choose a host mode → collect its URL, then its password, and only THEN write config —
  * atomically at the end of the decision flow (issue #21). A Ctrl-C/EOF before the password
@@ -628,23 +884,26 @@ async function hostStep(
   setPassword: (password: string) => Promise<void>,
   startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
   options: {
-    askTelemetry?: boolean
     activateImmediately?: boolean
     /** `--confirm-url-change`: answer the "this strands joined machines" question ahead of time. */
     confirmUrlChange?: boolean
     hasCommand?: (binary: string) => boolean
     checkReachability?: (url: string) => Promise<CheckResult | undefined>
+    checkInside?: (url: string) => Promise<boolean>
+    managedTunnel?: Partial<ManagedTunnelDeps>
+    tailscale?: Partial<TailscaleDeps>
   } = {},
 ): Promise<void> {
   if (deploymentOwns(io, 'mode') || deploymentOwns(io, 'publicUrl')) return
-  const reachability = await reachabilityStep(io, port, mode, {
-    save: false,
+  const stepOpts = {
     ...(options.hasCommand ? { hasCommand: options.hasCommand } : {}),
-    ...(options.checkReachability ? { checkReachability: options.checkReachability } : {}),
-  })
+    ...(options.managedTunnel ? { managedTunnel: options.managedTunnel } : {}),
+    ...(options.tailscale ? { tailscale: options.tailscale } : {}),
+  }
+  const reachability = await reachabilityStep(io, port, mode, { save: false, ...stepOpts })
   if (!reachability) return
-  const { publicUrl, networkOption } = reachability
-  if (!(await confirmUrlChange(io, publicUrl, options.confirmUrlChange === true))) return
+  const nextUrl = reachability.managedTunnel ? MANAGED_TUNNEL_TARGET : reachability.publicUrl
+  if (!(await confirmUrlChange(io, nextUrl, options.confirmUrlChange === true))) return
   if (!(await passwordStep(io, setPassword))) {
     io.error('Nothing saved — re-run `podium setup` to start over.')
     return
@@ -652,23 +911,46 @@ async function hostStep(
   const supervisor = loadSupervisorState(stateDir())
   if (!supervisor.enrolledPublicKey && !supervisor.token)
     prepareSetupEnrollment(mode === 'all-in-one', true)
-  saveConfig({ ...loadConfig(), mode, publicUrl, networkOption })
-  io.success(`Saved. This instance is reachable at ${publicUrl}.`)
+  const previousUrl = loadConfig().publicUrl
+  if (reachability.managedTunnel) {
+    // No URL yet: the tunnel has not started. The server records it when it does.
+    const { publicUrl: _replaced, ...rest } = loadConfig()
+    saveConfig({ ...rest, mode, networkOption: reachability.networkOption })
+    io.success('Saved.')
+  } else {
+    const { publicUrl, networkOption } = reachability
+    saveConfig({ ...loadConfig(), mode, publicUrl, networkOption })
+    io.success(`Saved. This instance is reachable at ${publicUrl}.`)
+  }
   await persistenceStep(io, port, mode, startBackend, {
     activateImmediately: options.activateImmediately,
   })
-  // LAST, deliberately (step 8): the backend is already running and the install
-  // already works, so this question can be abandoned at no cost [spec:SP-f933].
-  // The backend being up first is why consent must be read fresh at flush (D9) —
-  // and that is the right behavior independently.
-  if (options.askTelemetry !== false) await telemetryStep(io)
+  let established: ReachabilityChoice | undefined = reachability
+  if (reachability.managedTunnel) {
+    const url = await startManagedTunnel(
+      io,
+      managedTunnelDeps(options.hasCommand ?? commandExists, options.managedTunnel),
+      previousUrl,
+    )
+    established = url ? { publicUrl: url, networkOption: 'cloudflare-tunnel' } : undefined
+  }
+  // The server is up now, so the URL can be proven (or not) for real.
+  if (established) {
+    await checkAndOfferChange(
+      io,
+      port,
+      mode,
+      established,
+      reachabilityChecks(io, options),
+      stepOpts,
+    )
+  }
 }
 
 /**
  * Fresh-VPS setup used by desktop onboarding. This is intentionally NOT the reconfiguration menu:
  * the machine is a new all-in-one Podium authority, so topology is already decided. Reachability,
  * login protection, and persistence remain because they are required for a safe usable server.
- * Telemetry stays in the desktop activation finish screen instead of being asked twice.
  */
 export async function runVpsSetup(io: SetupIO, port: number, deps: SetupDeps = {}): Promise<void> {
   const inspection = inspectConfig()
@@ -687,10 +969,12 @@ export async function runVpsSetup(io: SetupIO, port: number, deps: SetupDeps = {
     deps.setPassword ?? realSetPassword,
     deps.startBackend ?? startBackendEngine,
     {
-      askTelemetry: false,
       activateImmediately: true,
       ...(deps.hasCommand ? { hasCommand: deps.hasCommand } : {}),
       ...(deps.checkReachability ? { checkReachability: deps.checkReachability } : {}),
+      ...(deps.checkInside ? { checkInside: deps.checkInside } : {}),
+      ...(deps.managedTunnel ? { managedTunnel: deps.managedTunnel } : {}),
+      ...(deps.tailscale ? { tailscale: deps.tailscale } : {}),
     },
   )
 }
@@ -792,7 +1076,7 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
     {
       value: 'all-in-one',
       label: 'Run the Podium server AND agents here. (Recommended)',
-      hint: 'It will serve the web frontend and let native desktop clients connect to it.',
+      hint: 'It will serve the web frontend and let our native desktop and mobile apps connect to it.',
     },
     {
       value: 'daemon',
@@ -809,10 +1093,6 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
     menu.push(
       { value: 'url', label: 'Change how this machine is reached (its URL)', hint: '' },
       { value: 'password', label: 'Change or remove the login password', hint: '' },
-      // Host-only, same condition as the two above [spec:SP-f933]: only hosts emit, so only
-      // hosts are asked (D10). This is the entire "ask an existing install" story —
-      // no one-time card, no prompt on a bare `podium` (D11).
-      { value: 'telemetry', label: 'Change telemetry', hint: '' },
     )
   }
 
@@ -830,6 +1110,9 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
     ...(deps.confirmUrlChange ? { confirmUrlChange: true } : {}),
     ...(deps.activateImmediately ? { activateImmediately: true } : {}),
     ...(deps.checkReachability ? { checkReachability: deps.checkReachability } : {}),
+    ...(deps.checkInside ? { checkInside: deps.checkInside } : {}),
+    ...(deps.managedTunnel ? { managedTunnel: deps.managedTunnel } : {}),
+    ...(deps.tailscale ? { tailscale: deps.tailscale } : {}),
   }
   if (choice === 'all-in-one') {
     await hostStep(io, port, 'all-in-one', setPassword, startBackend, hostOptions)
@@ -840,16 +1123,30 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
     await joinStep(io, port, startBackend, waitForEnrollment)
   } else if (choice === 'url' && hostsServer) {
     if (deploymentOwns(io, 'publicUrl')) return
-    await reachabilityStep(io, port, mode === 'server' ? 'server' : 'all-in-one', {
-      save: true,
+    const hostMode = mode === 'server' ? 'server' : 'all-in-one'
+    const stepOpts = {
       ...(deps.hasCommand ? { hasCommand: deps.hasCommand } : {}),
+      ...(deps.managedTunnel ? { managedTunnel: deps.managedTunnel } : {}),
+      ...(deps.tailscale ? { tailscale: deps.tailscale } : {}),
+    }
+    const changed = await reachabilityStep(io, port, hostMode, {
+      save: true,
       ...(deps.confirmUrlChange ? { confirmUrlChange: true } : {}),
-      ...(deps.checkReachability ? { checkReachability: deps.checkReachability } : {}),
+      ...stepOpts,
     })
+    // This box already runs its server, so the new URL can be checked at once.
+    if (changed) {
+      await checkAndOfferChange(
+        io,
+        port,
+        hostMode,
+        changed,
+        reachabilityChecks(io, hostOptions),
+        stepOpts,
+      )
+    }
   } else if (choice === 'password' && hostsServer) {
     await passwordStep(io, setPassword)
-  } else if (choice === 'telemetry' && hostsServer) {
-    await telemetryStep(io)
   } else {
     io.step('Nothing changed.')
   }

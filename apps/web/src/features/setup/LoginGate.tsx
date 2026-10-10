@@ -154,6 +154,26 @@ export function CloudLoginView({
 
 type LoginState = 'empty' | 'typing' | 'busy' | 'error' | 'ok'
 
+/* Single-user bridge: the email field stays hidden and the login names the first admin
+   (`user:sole`) until multi-user ships. An invited member — or an admin who set an email —
+   reveals it once, and this browser keeps showing it after their next sign-in. */
+const WITH_EMAIL_KEY = 'podium.login.withEmail'
+
+function rememberedWithEmail(): boolean {
+  try {
+    return globalThis.localStorage?.getItem(WITH_EMAIL_KEY) === '1'
+  } catch {
+    return false
+  }
+}
+
+function rememberWithEmail(on: boolean): void {
+  try {
+    if (on) globalThis.localStorage?.setItem(WITH_EMAIL_KEY, '1')
+    else globalThis.localStorage?.removeItem(WITH_EMAIL_KEY)
+  } catch {}
+}
+
 /**
  * Full-viewport password screen (fused bar, spec 2b). On a 200 the session cookie is set
  * and `onLoggedIn` fires immediately; `leaving` then fades the layer out over the app.
@@ -167,6 +187,7 @@ export function LoginView({
   onLoggedIn: (principal: string) => void | Promise<void>
   leaving?: boolean
 }): ReactNode {
+  const [withEmail, setWithEmail] = useState(rememberedWithEmail)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -174,20 +195,23 @@ export function LoginView({
   const [error, setError] = useState<string | null>(null)
   const [shaking, setShaking] = useState(false)
   const [caps, setCaps] = useState(false)
-  const inputRef = useRef<HTMLInputElement>(null)
+  const emailRef = useRef<HTMLInputElement>(null)
+  const passwordRef = useRef<HTMLInputElement>(null)
 
-  // Focus the field on mount (login is the only thing on screen), lint-cleanly (no autoFocus).
+  // Focus the first field (login is the only thing on screen), lint-cleanly (no autoFocus).
   useEffect(() => {
-    inputRef.current?.focus()
-  }, [])
+    ;(withEmail ? emailRef : passwordRef).current?.focus()
+  }, [withEmail])
 
   const submit = async (): Promise<void> => {
-    if (!email.trim() || !password || busy || ok) return
+    if ((withEmail && !email.trim()) || !password || busy || ok) return
     setBusy(true)
     setError(null)
     try {
-      const result = await webAuth.login(httpOrigin, password, undefined, email)
+      // An empty email is sent as `user:sole`, the first admin.
+      const result = await webAuth.login(httpOrigin, password, undefined, withEmail ? email : '')
       if (result.ok && result.principal) {
+        rememberWithEmail(withEmail)
         await onLoggedIn(result.principal)
         setBusy(false)
         setOk(true)
@@ -245,7 +269,9 @@ export function LoginView({
           ? 'verifying…'
           : state === 'typing'
             ? 'press ⏎ to sign in'
-            : 'waiting on you — enter your email and password'
+            : withEmail
+              ? 'waiting on you — enter your email and password'
+              : 'waiting on you — enter your password'
   // Verifying wears the app's working mark, in the button's own ink — the gate
   // is the first thing anyone sees, and it should already speak the language.
   const btnGlyph =
@@ -327,33 +353,36 @@ export function LoginView({
           transition: 'border-color .25s, box-shadow .25s',
         }}
       >
+        {withEmail && (
+          <input
+            ref={emailRef}
+            type="text"
+            inputMode="email"
+            aria-label="Email"
+            placeholder="Email"
+            autoComplete="username"
+            autoCapitalize="none"
+            required
+            maxLength={254}
+            spellCheck={false}
+            value={email}
+            onChange={(e) => {
+              setEmail(e.target.value)
+              if (error) setError(null)
+            }}
+            style={{
+              flex: 1,
+              minWidth: 0,
+              background: 'transparent',
+              border: 0,
+              color: C.text,
+              fontFamily: MONO,
+              fontSize: 16,
+            }}
+          />
+        )}
         <input
-          ref={inputRef}
-          type="text"
-          inputMode="email"
-          aria-label="Email"
-          placeholder="Email or user:sole"
-          autoComplete="username"
-          autoCapitalize="none"
-          required
-          maxLength={254}
-          spellCheck={false}
-          value={email}
-          onChange={(e) => {
-            setEmail(e.target.value)
-            if (error) setError(null)
-          }}
-          style={{
-            flex: 1,
-            minWidth: 0,
-            background: 'transparent',
-            border: 0,
-            color: C.text,
-            fontFamily: MONO,
-            fontSize: 16,
-          }}
-        />
-        <input
+          ref={passwordRef}
           type="password"
           aria-label="Password"
           placeholder="Password"
@@ -450,6 +479,27 @@ export function LoginView({
           </span>
         )}
       </div>
+
+      {!ok && (
+        <button
+          type="button"
+          onClick={() => {
+            setWithEmail(!withEmail)
+            setError(null)
+          }}
+          style={{
+            border: 0,
+            background: 'transparent',
+            padding: 4,
+            fontFamily: MONO,
+            fontSize: 11,
+            color: C.textFaint,
+            cursor: 'pointer',
+          }}
+        >
+          {withEmail ? 'Sign in with password only' : 'Sign in with email'}
+        </button>
+      )}
     </div>
   )
 }

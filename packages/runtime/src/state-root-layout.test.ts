@@ -2,7 +2,7 @@ import { spawn } from 'node:child_process'
 import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
-import { afterEach, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import { saveConfig } from './config'
 import { writeConnectivity } from './connectivity'
 import { readMachineState, readOrCreateDaemonSecret, readOrCreateLocalMachineId } from './local-machine'
@@ -140,6 +140,58 @@ it('resolves disagreeing legacy identities by credential: supervisor, then daemo
   writeFileSync(join(dir3, 'machine.id'), 'old-id')
   writeFileSync(join(dir3, 'supervisor.json'), JSON.stringify({ machineId: 'sup-id' }))
   expect(readOrCreateLocalMachineId(dir3)).toBe('sup-id')
+})
+
+it('keeps machine.id over a daemon.json that carries no credential (0.1.0 all-in-one)', () => {
+  // A published 0.1.0 all-in-one's real state root (POD-5931): its local daemon
+  // authenticated as machine.id with the same-host secret, and daemon.json held only
+  // a different machineId and the update key. The database knows the host by
+  // machine.id; taking the daemon.json id orphaned the host from its own row.
+  const dir = mkdtempSync(join(tmpdir(), 'podium-state-aio-010-'))
+  roots.push(dir)
+  writeFileSync(join(dir, 'machine.id'), 'host-row')
+  writeFileSync(join(dir, 'daemon.json'), JSON.stringify({ machineId: 'unused-daemon-id', updatePubkey: 'k' }))
+  expect(readOrCreateLocalMachineId(dir)).toBe('host-row')
+  expect(readMachineState(dir)?.daemon).toEqual({ machineId: 'unused-daemon-id', updatePubkey: 'k' })
+
+  // With nothing else to go on, a token-less daemon.json still names the machine.
+  const dir2 = mkdtempSync(join(tmpdir(), 'podium-state-aio-010b-'))
+  roots.push(dir2)
+  writeFileSync(join(dir2, 'daemon.json'), JSON.stringify({ machineId: 'only-id' }))
+  expect(readOrCreateLocalMachineId(dir2)).toBe('only-id')
+})
+
+describe('a 0.1.0 server host stages its own re-key at import (POD-5931)', () => {
+  function legacyRoot(mode: string, daemon?: Record<string, unknown>): string {
+    const dir = mkdtempSync(join(tmpdir(), 'podium-state-legacy-host-'))
+    roots.push(dir)
+    writeFileSync(join(dir, 'config.json'), JSON.stringify({ configVersion: 2, mode }))
+    writeFileSync(join(dir, 'machine.id'), 'host-row')
+    if (daemon) writeFileSync(join(dir, 'daemon.json'), JSON.stringify(daemon))
+    return dir
+  }
+
+  it('an all-in-one asks for an agent-running key for its machine.id row, once', () => {
+    const dir = legacyRoot('all-in-one', { machineId: 'unused-id', updatePubkey: 'k' })
+    const request = loadSupervisorState(dir).setupEnrollment
+    expect(request).toMatchObject({ machineId: 'host-row', agentExecution: true, preauthorized: false })
+    expect(readFileSync(join(dir, 'machine.key'), 'utf8')).toContain(request!.publicKey.slice(-12))
+    // The import ran once; later reads see the same request rather than a new one.
+    expect(loadSupervisorState(dir).setupEnrollment).toEqual(request)
+  })
+
+  it('a hub asks for a server-only key', () => {
+    const dir = legacyRoot('server')
+    expect(loadSupervisorState(dir).setupEnrollment).toMatchObject({ machineId: 'host-row', agentExecution: false })
+  })
+
+  it('a joined machine keeps its token and stages nothing', () => {
+    const dir = legacyRoot('daemon', { machineId: 'joined-row', token: 't' })
+    const state = loadSupervisorState(dir)
+    expect(state).toMatchObject({ machineId: 'joined-row', token: 't' })
+    expect(state.setupEnrollment).toBeUndefined()
+    expect(() => readFileSync(join(dir, 'machine.key'))).toThrow()
+  })
 })
 
 it('preserves malformed legacy inputs without publishing a replacement', () => {

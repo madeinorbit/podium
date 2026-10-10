@@ -64,7 +64,6 @@ export function StoreProvider({
   createReplicaFn,
   feed,
   createOutboxFn,
-  onServerRelocation,
   makeSocket,
   children,
 }: {
@@ -86,7 +85,6 @@ export function StoreProvider({
   feed?: FeedSinkPort
   /** Kernel Outbox factory paired with the kernel replica assembly. */
   createOutboxFn?: CreateEngineOutbox
-  onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
   makeSocket?: import('@podium/client-core/socket-transport').SocketHubOptions['makeSocket']
   children: ReactNode
 }): JSX.Element {
@@ -111,7 +109,6 @@ export function StoreProvider({
       createReplicaFn={createReplicaFn}
       feed={feed}
       createOutboxFn={createOutboxFn}
-      onServerRelocation={onServerRelocation}
       makeSocket={makeSocket}
       attachRuntime={(runtime) => {
         const detachPool = attachWorklistPool(runtime, (error) => onFatalError(error.message))

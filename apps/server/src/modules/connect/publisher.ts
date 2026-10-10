@@ -16,6 +16,7 @@
  * env → config.json → default on each call, so a settings write is picked up
  * on the next tick with no hook into the settings path.
  */
+import { connectStableLink } from '@podium/protocol/server-locate'
 import type { InstallationIdentity } from '@podium/runtime/installation-identity'
 import type { CheckResult, ConnectClient, ConnectFailure, LocatorRecord } from './client'
 
@@ -41,6 +42,8 @@ export interface PublisherDeps {
   }
   /** Called once when GENERATION_BEHIND arrives: this installation moved elsewhere. */
   onTransferred?: () => void
+  /** The Connect origin, for the stable link a browser bookmarks (POD-5921). */
+  baseUrl?: string
   setTimer?: (fn: () => void, ms: number) => unknown
   clearTimer?: (handle: unknown) => void
   /** Milliseconds. */
@@ -61,6 +64,8 @@ export class ConnectPublisher {
   #publishedUrl: string | undefined
   #publishedAt = 0
   #inFlight: Promise<void> | undefined
+  /** A URL change arrived while a tick was running: run once more after it. */
+  #rerun = false
   readonly #deps: PublisherDeps
   readonly #setTimer: (fn: () => void, ms: number) => unknown
   readonly #clearTimer: (handle: unknown) => void
@@ -92,8 +97,29 @@ export class ConnectPublisher {
   /** The public URL changed: publish on the next tick rather than in a day. */
   publicUrlChanged(): void {
     if (this.#state === 'transferred' || this.#state === 'stopped') return
+    // A tick already running may have read the OLD url (a reboot: the publisher starts
+    // while the tunnel is still coming up). Joining it would leave the new one for the
+    // 5-minute timer, so ask for one more run after it instead.
+    if (this.#inFlight) {
+      this.#rerun = true
+      return
+    }
     this.#disarm()
     void this.#tick()
+  }
+
+  /**
+   * `https://connect.podium.do/to/<installationId>` (POD-5921): a bookmark that
+   * survives this server's address changing. `undefined` while publishing is
+   * off — the link would lead nowhere — or without a Connect origin.
+   */
+  stableLink(): string | undefined {
+    if (!this.#deps.baseUrl || !this.#deps.enabled()) return undefined
+    try {
+      return connectStableLink(this.#deps.identity().installationId, this.#deps.baseUrl)
+    } catch {
+      return undefined
+    }
   }
 
   check(url: string): Promise<CheckResult> {
@@ -125,6 +151,11 @@ export class ConnectPublisher {
     if (this.#inFlight) return this.#inFlight
     this.#inFlight = this.#run().finally(() => {
       this.#inFlight = undefined
+      if (this.#rerun) {
+        this.#rerun = false
+        this.#disarm()
+        void this.#tick()
+      }
     })
     return this.#inFlight
   }
@@ -192,8 +223,13 @@ export class ConnectPublisher {
 
   #fail(message: string, failure: ConnectFailure): void {
     this.#state = 'backoff'
-    this.#deps.log.warn(message, { ...this.#fields(failure), retryInMs: this.#backoffMs })
-    this.#arm(this.#backoffMs)
+    // While Connect still holds an OLD address, joined machines that lost this server
+    // can only find it once a retry lands, so never wait longer than the normal tick.
+    const pending = this.#deps.publicUrl() !== this.#publishedUrl
+    const ceiling = pending ? TICK_MS : BACKOFF_MAX_MS
+    const delay = Math.min(this.#backoffMs, ceiling)
+    this.#deps.log.warn(message, { ...this.#fields(failure), retryInMs: delay })
+    this.#arm(delay)
     this.#backoffMs = Math.min(this.#backoffMs * 2, BACKOFF_MAX_MS)
   }
 }

@@ -85,6 +85,19 @@ describe('renderStatus', () => {
     expect(out).toContain('● all-in-one  up :18787')
   })
 
+  it('prints the stable Connect link when the server offers one (POD-5921)', () => {
+    const link = `https://connect.podium.do/to/pdm_${'a'.repeat(43)}`
+    const config = {
+      mode: 'server' as const,
+      port: 18787,
+      publicUrl: 'https://w.trycloudflare.com',
+    }
+    expect(renderStatus({ live: [], config, nowMs: T0, stableLink: link })).toContain(
+      `  Stable link: ${link}`,
+    )
+    expect(renderStatus({ live: [], config, nowMs: T0 })).not.toContain('Stable link')
+  })
+
   it('shows a down component when nothing is live for the mode', () => {
     const out = renderStatus({
       live: [],

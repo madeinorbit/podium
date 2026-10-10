@@ -461,6 +461,7 @@
       "name": "@podium/runtime",
       "version": "0.0.0",
       "dependencies": {
+        "@noble/curves": "^1.9.7",
         "@podium/logger": "workspace:*",
         "@podium/model": "workspace:*",
         "@podium/protocol": "workspace:*",

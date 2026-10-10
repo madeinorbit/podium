@@ -121,6 +121,23 @@ const notOnItsWay = (handedTo?: SessionId): SQL =>
 /** Not ended: held, on its way, or lost track of. */
 const pending = (): SQL => inArray(messagesTable.deliveryStatus, [...MESSAGE_PENDING])
 
+/**
+ * CONFIRMED INTO `sessionId`, read through `idx_messages_delivered_to` (POD-5941).
+ *
+ * The database carries no `sqlite_stat1`, so the planner cannot know that
+ * `confirmed` is nearly every row. Given `delivery_status = ?` it picked
+ * `idx_messages_delivery_expiry_explicit` and walked every confirmed row — 32k
+ * of 37k on ludovico, ~90 ms a statement — for the reply-owed readers that the
+ * daemon path runs about once a second. The unary `+` takes the status term out
+ * of index selection, so the session's own delivered rows are the scan: 2 ms,
+ * 11 ms for the busiest recipient. `messages-golden.test.ts` pins the plan.
+ */
+const confirmedInto = (sessionId: SessionId): SQL =>
+  and(
+    sql`+${messagesTable.deliveryStatus} = ${'confirmed'}`,
+    eq(messagesTable.deliveredTo, sessionId),
+  ) as SQL
+
 /** The columns a move may set besides the status the move owns. */
 type MoveSet = Omit<SQLiteUpdateSetSource<typeof messagesTable>, 'deliveryStatus' | 'id'>
 
@@ -449,8 +466,7 @@ export class MessagesRepository {
             ),
           ),
           and(
-            eq(messagesTable.deliveryStatus, 'confirmed'),
-            eq(messagesTable.deliveredTo, sessionId),
+            confirmedInto(sessionId),
             isNull(messagesTable.ackedBy),
             eq(messagesTable.expectsResponse, true),
             or(isNull(messagesTable.expiresAt), gt(messagesTable.expiresAt, now)),
@@ -1400,8 +1416,7 @@ export class MessagesRepository {
   /** The shared "still owes a reply" predicate of the two ack readers. */
   private async unackedRequest(sessionId: SessionId, now: string): Promise<SQL> {
     return and(
-      eq(messagesTable.deliveryStatus, 'confirmed'),
-      eq(messagesTable.deliveredTo, sessionId),
+      confirmedInto(sessionId),
       isNull(messagesTable.ackedBy),
       eq(messagesTable.expectsResponse, true),
       or(isNull(messagesTable.expiresAt), gt(messagesTable.expiresAt, now)),

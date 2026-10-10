@@ -95,6 +95,34 @@ export function offeredDeliveries(target: {
 }
 
 /**
+ * WHETHER THIS MACHINE HAS SAID IT CANNOT TAKE A FLEET DELIVERY AT ALL.
+ *
+ * A supervisor's report is authoritative, so its empty list is a refusal. A legacy
+ * daemon's EXPLICIT empty list is one too (POD-5931): release 0.1.0's daemon reported
+ * `[]` exactly when it ran inside the desktop app, whose shell installs it, and every
+ * other daemon then and since lists at least one delivery. Granting that daemon a
+ * target is a guaranteed refusal that failed the whole update for everyone, and it
+ * hid the one path that works — the desktop page installing the app update. Only an
+ * absent list (a daemon that never reported) stays unknown, and unknown means yes.
+ */
+export function machineRefusesDelivery(
+  machine: Pick<WaveMachine, 'deliveryCaps' | 'presenceSource'>,
+): boolean {
+  if (machine.presenceSource === 'supervisor') return (machine.deliveryCaps?.length ?? 0) === 0
+  return machine.presenceSource === 'legacy-daemon' && machine.deliveryCaps?.length === 0
+}
+
+/** The sentence a refusing machine's row carries; see {@link machineRefusesDelivery}. */
+export function deliveryRefusalReason(
+  machine: Pick<WaveMachine, 'presenceSource' | 'deliveryUnavailableReason'>,
+): string {
+  if (machine.deliveryUnavailableReason) return machine.deliveryUnavailableReason
+  return machine.presenceSource === 'legacy-daemon'
+    ? 'updates when its Podium app updates'
+    : 'cannot take delivery'
+}
+
+/**
  * WHETHER THIS MACHINE COULD TAKE THIS TARGET AT ALL — asked BEFORE granting.
  *
  * The daemon already answers this for itself and reports `cannot:
@@ -135,9 +163,8 @@ export function machineCanTakeDelivery(
   machine: Pick<WaveMachine, 'deliveryCaps' | 'presenceSource'>,
   deliveries?: readonly string[],
 ): boolean {
-  if (machine.deliveryCaps === undefined || machine.deliveryCaps.length === 0) {
-    return machine.presenceSource !== 'supervisor'
-  }
+  if (machineRefusesDelivery(machine)) return false
+  if (machine.deliveryCaps === undefined || machine.deliveryCaps.length === 0) return true
   // Omitted means the caller is not asking the caps question. An empty list is
   // the opposite: a target that offers nothing, which nobody can take.
   if (deliveries === undefined) return true

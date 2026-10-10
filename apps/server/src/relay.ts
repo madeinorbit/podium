@@ -1755,7 +1755,7 @@ export class SessionRegistry {
           const ownerIssueIds = await resolveSampledShellOwners(
             {
               worktreesForSessions: (ids) => this.store.dockShells.worktreesForSessions(ids),
-              issueForCwd: (cwd) => issueAccess.issueForCwd(cwd),
+              issuesForCwds: (cwds) => issueAccess.issuesForCwds(cwds),
             },
             samples,
           )

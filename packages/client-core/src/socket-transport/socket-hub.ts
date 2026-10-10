@@ -261,8 +261,6 @@ export interface SocketHubOptions {
    * about to kill anyway.
    */
   heartbeatIntervalMs?: number
-  /** Called before this client leaves the old authority; web navigates its actual origin here. */
-  onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
 }
 
 /** The frames the v2 wire carries. Narrowed off the parsed union rather than
@@ -563,6 +561,17 @@ export interface HubEvents {
   presenceRoomState: [frame: Extract<PresenceRoomServerFrame, { type: 'presenceRoomState' }>]
   presenceRoomDelta: [frame: Extract<PresenceRoomServerFrame, { type: 'presenceRoomDelta' }>]
   presenceRoomClosed: [frame: Extract<PresenceRoomServerFrame, { type: 'presenceRoomClosed' }>]
+  /**
+   * THE LINK ITSELF, for following a moved server (POD-5921). `lost` on every
+   * dial that failed and every socket that closed without being asked to —
+   * including a FIRST dial, which the health indicator deliberately stays
+   * quiet about; `welcomed` when the server accepted this client (its
+   * `welcome`, sent only to an authenticated connection). A wake or suspend
+   * is not a loss.
+   */
+  link: [state: 'lost' | 'welcomed']
+  /** The server announced a planned move over this live socket (a transfer). */
+  serverRelocation: [move: { publicUrl: string; transferId: string; claimToken?: string }]
 }
 
 export type HubEventKind = keyof HubEvents
@@ -767,6 +776,31 @@ export class SocketHub {
   get connected(): boolean {
     return this.connectedFlag
   }
+  /** The socket URL this hub dials now. */
+  get url(): string {
+    return this.serverUrl
+  }
+
+  /**
+   * Dial another origin from now on (POD-5921): the one way a client that
+   * followed its server moves its socket. Keeps the path and the workspace
+   * query, swaps scheme and host; the current socket closes on purpose (not a
+   * `lost` link) and the new one opens at once.
+   */
+  retarget(origin: string): void {
+    const target = new URL(origin)
+    const endpoint = new URL(this.serverUrl)
+    endpoint.protocol = target.protocol === 'https:' || target.protocol === 'wss:' ? 'wss:' : 'ws:'
+    endpoint.host = target.host
+    endpoint.hash = ''
+    if (endpoint.toString() === this.serverUrl) return
+    this.serverUrl = endpoint.toString()
+    if (this.socket !== undefined) {
+      this.intentionalClose = true
+      this.forceClose({ cause: 'server-relocation' })
+    }
+    this.connectNow()
+  }
   get clientId(): string {
     return this.clientIdValue
   }
@@ -792,6 +826,7 @@ export class SocketHub {
       // A constructor throw before first contact is a config problem (bad URL) —
       // surface it; once we have connected successfully, retry like any other drop.
       log.warn('socket could not be opened', { err, everConnected: this.everConnected })
+      this.emit('link', 'lost')
       if (this.everConnected) this.scheduleReconnect()
       else this.opts.onError?.(errorMessage(err, 'WebSocket connection failed'), err)
       return
@@ -976,6 +1011,11 @@ export class SocketHub {
     this.legacyFeed?.disconnected()
     this.notifyConnections()
     if (!this.intentionalClose) this.evaluateHealth(true)
+    // A wake tears a possibly-dead socket down only to dial again at once: that
+    // is not evidence the server is gone, and must not send a client to Connect.
+    if (!this.intentionalClose && cause?.cause !== 'wake' && cause?.cause !== 'server-relocation') {
+      this.emit('link', 'lost')
+    }
     if (!this.intentionalClose) {
       const retryInMs = this.scheduleReconnect()
       // `warn`, so it forwards at the client's default threshold: a client that
@@ -1886,6 +1926,7 @@ export class SocketHub {
       this.inputBinaryAcknowledged =
         this.inputBinaryTransport && msg.caps?.includes(CAP_TERMINAL_INPUT_BINARY_V1) === true
       this.notifyConnections()
+      this.emit('link', 'welcomed')
     },
     // POD-1081: attach/requestControl refusal. Unauthorized is sticky so we do
     // not retry a principal that cannot see the session or use its machine.
@@ -1948,21 +1989,20 @@ export class SocketHub {
       this.emit('attention', { sessionId: msg.sessionId, title: msg.title, body: msg.body })
     },
     serverRelocation: (msg) => {
-      if (this.opts.onServerRelocation) {
-        this.opts.onServerRelocation(msg.publicUrl, msg.transferId, msg.claimToken)
+      // Every client follows through its one adopt (POD-5921): `followHub` listens
+      // here. There is no built-in rewrite any more — dialling the target without
+      // the client's credentials is how a phone used to lose its login.
+      if (!this.eventObservers.get('serverRelocation')?.size) {
+        log.warn('server announced a move, but nothing here follows it', {
+          transferId: msg.transferId,
+        })
         return
       }
-      const endpoint = new URL(msg.publicUrl)
-      endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:'
-      endpoint.pathname = '/client'
-      endpoint.search = ''
-      // Workspace identity survives relocation; endpoint-specific credentials do not.
-      const workspace = new URL(this.serverUrl).searchParams.get('workspace')
-      if (workspace) endpoint.searchParams.set('workspace', workspace)
-      endpoint.hash = ''
-      this.serverUrl = endpoint.toString()
-      if (this.socket !== undefined) this.forceClose({ cause: 'server-relocation' })
-      this.connectNow()
+      this.emit('serverRelocation', {
+        publicUrl: msg.publicUrl,
+        transferId: msg.transferId,
+        ...(msg.claimToken ? { claimToken: msg.claimToken } : {}),
+      })
     },
     setLogLevel: (msg) => {
       // APPLIED HERE, not emitted for an app to wire (POD-1920). Every client

@@ -553,6 +553,34 @@ export class MachinesRepository {
     return result.changes === 1 || await this.verifyMachineSignature(id, transcript, rotation.newSignature)
   }
 
+  /**
+   * Re-key the server host's own pre-enrollment row (POD-5931).
+   *
+   * Releases before setup enrollment authenticated the host's local daemon with the
+   * same-host bootstrap secret and stored its row as `bearer-hash`. That secret is no
+   * longer a machine credential, so an upgraded host would otherwise keep a row nothing
+   * can authenticate as. The caller has already proved the id is THIS host's (it comes
+   * from the server's own state dir); this CAS only ever moves a live, unsuperseded
+   * bearer row onto a key, never one that already carries a key. Retrying with the
+   * same key after a lost acknowledgement answers true.
+   */
+  async adoptLegacyHostCredential(id: MachineId, publicKey: string,
+    assignment: MachineServiceAssignment, evidence: z.infer<typeof AssignmentEvidence>): Promise<boolean> {
+    MachineServiceAssignment.parse(assignment)
+    AssignmentEvidence.parse(evidence)
+    const row = await this.db.select().from(machines).where(eq(machines.id, id)).get()
+    if (!row || row.revokedAt !== null || row.supersededBy !== null) return false
+    if (row.credentialKind === 'ed25519') return row.tokenHash === '' && row.publicKey === publicKey
+    if (row.credentialKind !== 'bearer-hash' || row.publicKey !== null) return false
+    const result = await this.committed.write(async () => this.db.update(machines)
+      .set({ credentialKind: 'ed25519', tokenHash: '', publicKey,
+        serviceAssignmentJson: JSON.stringify(assignment), assignmentEvidenceJson: JSON.stringify(evidence) })
+      .where(and(eq(machines.id, id), isNull(machines.revokedAt), isNull(machines.supersededBy),
+        eq(machines.credentialKind, 'bearer-hash'), eq(machines.tokenHash, row.tokenHash), isNull(machines.publicKey)))
+      .returning().all(), 'upsert')
+    return result.changes === 1
+  }
+
   /** Persist the operator-selected update authority for one managed machine.
    *  `null` clears the pin and returns the machine to the fleet default (POD-1882). */
   async setUpdateChannel(id: string, channel: UpdateChannelValue | null): Promise<void> {

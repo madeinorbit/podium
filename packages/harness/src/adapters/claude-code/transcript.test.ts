@@ -237,6 +237,8 @@ describe('claudeRecordToItems', () => {
         role: 'user',
         ts: '2026-06-12T10:00:01.000Z',
         text: '',
+        // The companion of the prompt it follows, never a prompt entry (POD-5923).
+        promptEntry: false,
         toolPaths: ['/home/u/.podium/uploads/s1/shot.png'],
         tags: [{ kind: 'image', label: 'shot.png' }],
       },

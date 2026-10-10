@@ -70,10 +70,18 @@ function mapGrokRecord(record: unknown, previousRecord?: unknown): TranscriptIte
         stringField(preceding, 'event_name') === 'user_prompt_submit'
         ? stringField(preceding, 'prompt_id') : undefined
       if (!text && tags.length === 0) return []
+      // A LATER CHUNK OF THE SAME PROMPT IS NOT ANOTHER ENTRY (POD-5923).
+      // Measured on 1.0.46, a paste of image paths alone is recorded as a
+      // text chunk of `[Image #N]` placeholders and then one image chunk per
+      // image, all with the prompt's `promptIndex`. The image chunks are that
+      // prompt's images; counted as entries they were unexplained prompts.
+      const companion = !text && stringField(preceding, 'sessionUpdate') === 'user_message_chunk' &&
+        promptIndexOf(preceding) !== undefined && promptIndexOf(preceding) === promptIndexOf(update)
       return [
         {
           id: SYNTHESIZED_ITEM_ID_PREFIX,
           role: 'user',
+          ...(companion ? { promptEntry: false } : {}),
           ...(ts ? { ts } : {}),
           text,
           ...(promptId ? { harnessRef: [{ kind: 'grok-prompt', id: promptId }] } : {}),
@@ -111,6 +119,12 @@ export function grokRecordEndsTurn(record: unknown): TranscriptTurnEnd | undefin
   const update = recordField(recordField(record, 'params'), 'update')
   if (stringField(update, 'sessionUpdate') !== 'turn_completed') return undefined
   return stringField(update, 'stop_reason') === 'end_turn' ? 'answered' : 'ended'
+}
+
+/** The chunk's `_meta.promptIndex`: which prompt of the session it belongs to. */
+function promptIndexOf(update: Record<string, unknown> | undefined): number | undefined {
+  const index = recordField(update, '_meta')?.promptIndex
+  return typeof index === 'number' ? index : undefined
 }
 
 /** `_meta.agentTimestampMs` as an ISO instant, or undefined. */

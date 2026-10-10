@@ -1,3 +1,4 @@
+import { addSink, createRingBufferSink } from '@podium/logger'
 import { openDatabase } from '@podium/runtime/sqlite'
 import { EventEmitter } from 'node:events'
 import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -31,6 +32,8 @@ import {
   rotateUpdateSigningKey,
 } from '@podium/runtime/update-signing-key'
 import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createPrivateKey, sign } from 'node:crypto'
+import vectors from '@podium/protocol/server-locate-vectors'
 import type { RawData } from 'ws'
 import { buildReport } from './build-report'
 import { createDaemonConnection, describeSocketError } from './connection-state'
@@ -1547,10 +1550,30 @@ it('forwards superseded observations live and replays only retained events after
 })
 
 describe('podium connect locator rescue (POD-4533)', () => {
-  const INSTALLATION_ID = `pdm_${'a'.repeat(43)}`
-  const INSTALLATION_KEY = `ed25519:${'B'.repeat(43)}`
-  const OTHER_ID = `pdm_${'z'.repeat(43)}`
-  const OTHER_KEY = `ed25519:${'C'.repeat(43)}`
+  // Real keys (the shared locate vectors), so a candidate can actually prove itself.
+  const INSTALLATION_ID = vectors.server.installationId
+  const INSTALLATION_KEY = vectors.server.installationPublicKey
+  const OTHER_ID = vectors.other.installationId
+  const OTHER_KEY = vectors.other.installationPublicKey
+  const serverKey = createPrivateKey({
+    key: Buffer.from(vectors.server.privateKeyPkcs8, 'base64'),
+    format: 'der',
+    type: 'pkcs8',
+  })
+  /** What a server that knows the locate proof answers, signing over its own origin. */
+  const proofResponse = (origin: string, body: unknown) => {
+    const { nonce } = JSON.parse(String(body)) as { nonce: string }
+    const message = Buffer.concat([
+      Buffer.from('podium-locate-v1\n'),
+      Buffer.from(nonce, 'base64url'),
+      Buffer.from(origin),
+    ])
+    return Response.json({
+      installationId: INSTALLATION_ID,
+      publicUrl: origin,
+      signature: sign(null, message, serverKey).toString('base64url'),
+    })
+  }
 
   afterEach(() => {
     vi.restoreAllMocks()
@@ -1581,6 +1604,10 @@ describe('podium connect locator rescue (POD-4533)', () => {
     recordEndpoints: Array<{ url: string; priority: number }>
     versions: Record<string, { installationId: string; installationPublicKey?: string }>
     identity?: { installationId: string; installationPublicKey: string }
+    /** Origins that answer the locate proof. Any other server is older: 404. */
+    provers?: string[]
+    /** The box has already seen its server prove itself once (spec §6). */
+    proofVerified?: boolean
   }) {
     const stateRoot = temp()
     vi.stubEnv('PODIUM_STATE_DIR', stateRoot)
@@ -1588,13 +1615,19 @@ describe('podium connect locator rescue (POD-4533)', () => {
       mode: 'daemon',
       serverUrl: 'wss://old.example',
       ...(opts.identity ?? {}),
+      ...(opts.proofVerified ? { connect: { locateProofVerified: true } } : {}),
     })
     const fetchCalls: string[] = []
     let recordEndpoints = opts.recordEndpoints
-    const fetchImpl = (async (input: string | URL | Request) => {
+    const fetchImpl = (async (input: string | URL | Request, init?: RequestInit) => {
       const url = String(input)
       fetchCalls.push(url)
       if (url.includes('/v1/installations/')) return new Response(locatorRecordBody(recordEndpoints))
+      if (url.endsWith('/.well-known/podium/locate')) {
+        const origin = url.replace(/\/\.well-known\/podium\/locate$/, '')
+        if (opts.provers?.includes(origin)) return proofResponse(origin, init?.body)
+        return new Response('down', { status: opts.versions[origin] ? 404 : 500 })
+      }
       const origin = url.replace(/\/version$/, '')
       const identity = opts.versions[origin]
       if (!identity) return new Response('down', { status: 500 })
@@ -1623,6 +1656,8 @@ describe('podium connect locator rescue (POD-4533)', () => {
         return socket
       },
       locatorFetch: fetchImpl,
+      // No jitter: every wait is exactly its schedule entry, so counts are exact.
+      random: () => 0.5,
     })
     const locatorReads = () => fetchCalls.filter((url) => url.includes('/v1/installations/'))
     const republish = (endpoints: Array<{ url: string; priority: number }>): void => {
@@ -1697,7 +1732,7 @@ describe('podium connect locator rescue (POD-4533)', () => {
     dropSocket(h.sockets[2]!)
     await flush()
     // Not one read per drop: the ask that opened this outage covers the next
-    // failures until 30 s of backoff have passed (POD-4646 re-arms after that).
+    // failures until 2 s of backoff have passed (the schedule's first step).
     expect(h.locatorReads()).toHaveLength(2)
     expect(h.timers.next(1000)).toBeDefined()
     await h.state.close()
@@ -1743,6 +1778,44 @@ describe('podium connect locator rescue (POD-4533)', () => {
     await h.state.close()
   })
 
+  it('a refused candidate is logged with its address and the reason (POD-3274)', async () => {
+    const sink = createRingBufferSink()
+    const dispose = addSink(sink)
+    try {
+      const h = rescueHarness({
+        recordEndpoints: [
+          { url: 'https://impostor.example', priority: 100 },
+          { url: 'https://down.example', priority: 50 },
+        ],
+        versions: {
+          'https://impostor.example': { installationId: OTHER_ID, installationPublicKey: OTHER_KEY },
+        },
+        identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+      })
+      void h.state.start()
+      dropSocket(h.sockets[0]!)
+      await flush()
+      const rejected = sink
+        .snapshot()
+        .filter((record) => record.msg === 'locator candidate rejected; keeping the configured server URL')
+      expect(rejected).toEqual([
+        expect.objectContaining({
+          level: 'warn',
+          candidate: 'https://impostor.example',
+          reason: `serves a different installation (${OTHER_ID})`,
+        }),
+        expect.objectContaining({
+          level: 'warn',
+          candidate: 'https://down.example',
+          reason: 'locate proof answered HTTP 500',
+        }),
+      ])
+      await h.state.close()
+    } finally {
+      dispose()
+    }
+  })
+
   it('a rotating tunnel: the record is stale at the drop, republished later, and adopted without a restart (POD-4646)', async () => {
     // THE ROTATING-TUNNEL SEQUENCE. The tunnel dies, the link drops, and the
     // record still names the url that just died — the replacement tunnel has
@@ -1776,14 +1849,42 @@ describe('podium connect locator rescue (POD-4533)', () => {
     }
     expect(loadConfig().serverUrl).toBe('wss://new.example')
     expect(h.socketUrls.at(-1)).toBe('wss://new.example/daemon')
-    // Within the re-arm window (30s of backoff), not minutes later.
-    expect(elapsedMs).toBeLessThanOrEqual(35_000)
+    // Seconds, not the half-minute a fixed 30 s re-arm took (POD-3274): the
+    // second ask comes once 2 s of backoff have passed — here 0.5 + 1 + 2 s.
+    expect(elapsedMs).toBeLessThanOrEqual(3_500)
     expect(h.locatorReads()).toHaveLength(2)
 
     h.sockets.at(-1)!.emit('open')
     h.sockets.at(-1)!.message(ok)
     await started
     expect(h.state.state).toBe('connected')
+    await h.state.close()
+  })
+
+  it('a rebooting server: an address published minutes into the outage is found within ~15 s (POD-3274)', async () => {
+    // Measured on the lab before this: a 90 s reboot published at 105 s and the
+    // joined machine came back at 137 s, because the backoff had stretched the
+    // gap between asks. The steady window bounds the lag to about one ask.
+    const h = rescueHarness({
+      recordEndpoints: [{ url: 'https://old.example', priority: 100 }],
+      versions: {
+        'https://new.example': { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+      },
+      identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+    })
+    void h.state.start()
+    dropSocket(h.sockets[0]!)
+    await flush()
+    let elapsedMs = 0
+    while (elapsedMs < 105_000) elapsedMs += await failNextDial(h)
+    h.republish([{ url: 'https://new.example', priority: 100 }])
+    const publishedAt = elapsedMs
+    while (loadConfig().serverUrl === 'wss://old.example' && elapsedMs < publishedAt + 120_000) {
+      elapsedMs += await failNextDial(h)
+    }
+    expect(loadConfig().serverUrl).toBe('wss://new.example')
+    // At most one 15 s ask interval, rounded up to the 5 s reconnect tick.
+    expect(elapsedMs - publishedAt).toBeLessThanOrEqual(20_000)
     await h.state.close()
   })
 
@@ -1813,14 +1914,16 @@ describe('podium connect locator rescue (POD-4533)', () => {
 
       expect(h.state.state).toBe('connected')
       expect(h.locatorReads()).toHaveLength(0)
-      expect(h.fetchCalls).toEqual([])
+      // Connect is never asked. The one call is the post-connect proof of the
+      // CURRENT server, made once while the legacy check is still on (§6).
+      expect(h.fetchCalls).toEqual(['https://old.example/.well-known/podium/locate'])
       await h.state.close()
     } finally {
       vi.useRealTimers()
     }
   })
 
-  it('the re-arm is bounded: a ten-minute outage resolves 21 times, not once per tick (POD-4646)', async () => {
+  it('the re-arm is bounded: ~15 s through the first ten minutes, not once per tick (POD-4646, POD-3274)', async () => {
     const h = rescueHarness({
       // The record never moves on: every resolution finds only the dead url.
       recordEndpoints: [{ url: 'https://old.example', priority: 100 }],
@@ -1838,13 +1941,74 @@ describe('podium connect locator rescue (POD-4533)', () => {
       ticks += 1
     }
     // Backoff 0.5+1+2+4 s, then 5 s a tick: 123 reconnect ticks cover ten
-    // minutes. Resolutions: one at the drop, one once 30 s of backoff has
-    // elapsed (tick 9, 32.5 s), then one every six 5 s ticks — 1 + 1 + 19.
+    // minutes. Resolutions: one at the drop, then after 2, 4 and 8 s of backoff
+    // (3.5, 7.5, 17.5 s), then every 15 s (every third 5 s tick) through the
+    // ten-minute window — 43 in all. A rebooting server is found within about
+    // one ask of publishing; after the window the asks slow to every 5 min.
     expect(ticks).toBe(123)
-    expect(h.locatorReads()).toHaveLength(21)
+    expect(h.locatorReads()).toHaveLength(43)
     // Nothing was adopted and nothing probed the dead url it keeps skipping.
     expect(loadConfig().serverUrl).toBe('wss://old.example')
     expect(h.fetchCalls.filter((url) => url.endsWith('/version'))).toEqual([])
+    await h.state.close()
+  })
+
+  it('once its server has proved itself, a candidate must prove too: /version alone is refused (POD-5921)', async () => {
+    const h = rescueHarness({
+      recordEndpoints: [{ url: 'https://new.example', priority: 100 }],
+      // Names the right installation and key on /version, but cannot sign.
+      versions: { 'https://new.example': { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY } },
+      identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+      proofVerified: true,
+    })
+    void h.state.start()
+    dropSocket(h.sockets[0]!)
+    await flush()
+    expect(h.locatorReads()).toHaveLength(1)
+    expect(loadConfig().serverUrl).toBe('wss://old.example')
+    expect(h.fetchCalls.filter((url) => url.endsWith('/version'))).toEqual([])
+    await h.state.close()
+  })
+
+  it('adopts a candidate that proves it holds the installation key (POD-5921)', async () => {
+    const h = rescueHarness({
+      recordEndpoints: [{ url: 'https://new.example', priority: 100 }],
+      versions: {},
+      provers: ['https://new.example'],
+      identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+      proofVerified: true,
+    })
+    void h.state.start()
+    dropSocket(h.sockets[0]!)
+    // The verifier is loaded on first use (a dynamic import), which can outlast a few ticks.
+    await vi.waitFor(() => expect(loadConfig().serverUrl).toBe('wss://new.example'))
+    expect(h.socketUrls.at(-1)).toBe('wss://new.example/daemon')
+    await h.state.close()
+  })
+
+  it('records the first proof from its own server, then stops asking for it (POD-5921)', async () => {
+    const h = rescueHarness({
+      recordEndpoints: [{ url: 'https://old.example', priority: 100 }],
+      versions: {},
+      provers: ['https://old.example'],
+      identity: { installationId: INSTALLATION_ID, installationPublicKey: INSTALLATION_KEY },
+    })
+    const started = h.state.start()
+    h.sockets[0]!.emit('open')
+    h.sockets[0]!.message(ok)
+    await started
+    await vi.waitFor(() => expect(loadConfig().connect?.locateProofVerified).toBe(true))
+    const proofCalls = () => h.fetchCalls.filter((url) => url.endsWith('/.well-known/podium/locate'))
+    expect(proofCalls()).toHaveLength(1)
+    // The next connection does not ask its server again.
+    h.sockets[0]!.finishClose()
+    await flush()
+    h.timers.runNext(500)
+    h.sockets.at(-1)!.emit('open')
+    h.sockets.at(-1)!.message(ok)
+    await flush()
+    expect(h.state.state).toBe('connected')
+    expect(proofCalls()).toHaveLength(1)
     await h.state.close()
   })
 })

@@ -38,6 +38,7 @@ function Harness({
   aliases,
   lookupAnchorRow,
   renderStart = 0,
+  prompts,
 }: {
   keys?: string[]
   moreAbove?: boolean
@@ -48,6 +49,7 @@ function Harness({
   aliases?: Record<string, string[]>
   lookupAnchorRow?: (key: string) => number | undefined
   renderStart?: number
+  prompts?: ReadonlySet<string>
 }) {
   const scrollerRef = useRef<HTMLDivElement | null>(null)
   api = useTranscriptScroll({
@@ -56,7 +58,7 @@ function Harness({
     active,
     blockCount: keys.length,
     renderStart,
-    stickyEnabled: false,
+    stickyEnabled: prompts !== undefined,
     moreAbove,
     loadingOlder,
     loadOlder,
@@ -79,6 +81,8 @@ function Harness({
               data-row-key={key}
               data-row-aliases={aliases?.[key] ? JSON.stringify(aliases[key]) : undefined}
               data-block={index}
+              data-operator-prompt={prompts?.has(key) ? 'true' : undefined}
+              data-pinnable={prompts?.has(key) ? 'true' : undefined}
             >
               {key}
             </div>
@@ -612,6 +616,17 @@ describe('transcript scrolling', () => {
     expect(scroller().scrollTop).toBe(320)
     act(() => api.scrollBy(-100))
     expect(scroller().scrollTop).toBe(220)
+    expect(api.atBottom).toBe(false)
+  })
+
+  it('jumps back to the pinned prompt, its top just under the edge', () => {
+    renderHarness(<Harness prompts={new Set(['row-2'])} />)
+    scrollTo(500)
+    expect(api.pinnedBrief?.key).toBe('row-2')
+    act(() => api.scrollToPinned())
+    // row-2 starts at 200; the jump leaves a 12px margin above it.
+    expect(scroller().scrollTop).toBe(188)
+    expect(api.pinnedBrief).toBeNull()
     expect(api.atBottom).toBe(false)
   })
 

@@ -133,6 +133,9 @@ fn start_tunnel(scratch: &Scratch, cloudflared: &Path, extra: &[&str]) -> Child 
             "50,100,200,400",
             "--post-backoff-ms",
             "50,100",
+            // Off unless a test turns it on with a fake nameserver: these hosts never resolve.
+            "--dns-wait-ms",
+            "0",
         ])
         .args(extra)
         .stdout(Stdio::null())
@@ -327,4 +330,93 @@ fn a_killed_service_does_not_leave_cloudflared_behind() {
     tunnel.kill().unwrap();
     tunnel.wait().unwrap();
     wait_until("cloudflared gone with its parent", Duration::from_secs(5), || !alive(pid));
+}
+
+// ---------------------------------------------------------------------------
+// Holding the URL until its name resolves (POD-3274)
+// ---------------------------------------------------------------------------
+
+/// A fake authoritative nameserver. `answer(elapsed)` decides each reply: `Some(true)` an
+/// address, `Some(false)` NXDOMAIN, `None` silence. Returns its address.
+fn fake_nameserver(answer: impl Fn(Duration) -> Option<bool> + Send + 'static) -> String {
+    let socket = std::net::UdpSocket::bind("127.0.0.1:0").unwrap();
+    let addr = socket.local_addr().unwrap().to_string();
+    let started = Instant::now();
+    thread::spawn(move || {
+        let mut buf = [0u8; 512];
+        while let Ok((len, from)) = socket.recv_from(&mut buf) {
+            let Some(resolves) = answer(started.elapsed()) else { continue };
+            let mut reply = buf[..len].to_vec();
+            reply[2] |= 0x80;
+            if resolves {
+                reply[3] = 0;
+                reply[6..8].copy_from_slice(&1u16.to_be_bytes());
+                reply.extend_from_slice(&[0xc0, 12, 0, 1, 0, 1, 0, 0, 0, 60, 0, 4, 127, 0, 0, 1]);
+            } else {
+                reply[3] = 3;
+            }
+            let _ = socket.send_to(&reply, from);
+        }
+    });
+    addr
+}
+
+fn first_post_after(server: &FakeServer, started: Instant) -> Duration {
+    wait_until("the URL posted", Duration::from_secs(10), || server.urls() == [A]);
+    started.elapsed()
+}
+
+#[test]
+fn a_url_is_posted_only_once_its_name_resolves_at_every_nameserver() {
+    let s = Scratch::new("dns-late");
+    let server = fake_server(&s.path("control.sock"), &[]);
+    // One nameserver is ready at once, the other only after 1.2 s: both must agree.
+    let quick = fake_nameserver(|_| Some(true));
+    let slow = fake_nameserver(|t| Some(t >= Duration::from_millis(1_200)));
+    let cf = fake_cloudflared(&s, &[&format!("{}; exec sleep 300", banner(A))]);
+    let started = Instant::now();
+    let mut tunnel = start_tunnel(
+        &s,
+        &cf,
+        &["--dns-wait-ms", "8000", "--dns-authority", &quick, "--dns-authority", &slow],
+    );
+    thread::sleep(Duration::from_millis(900));
+    assert!(server.urls().is_empty(), "posted before the slow nameserver had the name");
+    let after = first_post_after(&server, started);
+    assert!(after >= Duration::from_millis(1_200), "posted after {after:?}");
+    assert_eq!(terminate(&mut tunnel), 0);
+}
+
+#[test]
+fn a_name_that_never_resolves_is_posted_anyway_at_the_cap() {
+    let s = Scratch::new("dns-cap");
+    let server = fake_server(&s.path("control.sock"), &[]);
+    let never = fake_nameserver(|_| Some(false));
+    let cf = fake_cloudflared(&s, &[&format!("{}; exec sleep 300", banner(A))]);
+    let started = Instant::now();
+    let mut tunnel = start_tunnel(&s, &cf, &["--dns-wait-ms", "1500", "--dns-authority", &never]);
+    let after = first_post_after(&server, started);
+    assert!(after >= Duration::from_millis(1_000), "posted after {after:?}, before the cap");
+    assert_eq!(terminate(&mut tunnel), 0);
+}
+
+#[test]
+fn nameservers_that_never_answer_fall_back_to_a_fixed_wait() {
+    let s = Scratch::new("dns-silent");
+    let server = fake_server(&s.path("control.sock"), &[]);
+    let silent = fake_nameserver(|_| None);
+    let cf = fake_cloudflared(&s, &[&format!("{}; exec sleep 300", banner(A))]);
+    let started = Instant::now();
+    let mut tunnel = start_tunnel(
+        &s,
+        &cf,
+        &["--dns-wait-ms", "8000", "--dns-fallback-ms", "2000", "--dns-authority", &silent],
+    );
+    let after = first_post_after(&server, started);
+    // Not the 8 s cap: silence means "cannot ask", so the 2 s fallback applies.
+    assert!(after >= Duration::from_millis(2_000) && after < Duration::from_millis(6_000), "posted after {after:?}");
+    // start_tunnel names the log after how many extra arguments it was given.
+    let log = fs::read_to_string(s.path("log.6")).unwrap();
+    assert!(log.contains("cannot ask the nameservers"), "{log}");
+    assert_eq!(terminate(&mut tunnel), 0);
 }

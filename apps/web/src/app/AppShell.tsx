@@ -1,9 +1,5 @@
 import { cookieCredentials } from '@podium/client-core/accounts'
-import {
-  browserServerRelocation,
-  createSocketLogin,
-  observeLiveConnection,
-} from '@podium/client-core/live-connection'
+import { createSocketLogin, observeLiveConnection } from '@podium/client-core/live-connection'
 import {
   FLIGHT_DECK_DISPLAY_KEY,
   FLIGHT_DECK_EXPANDED_WIDTH_KEY,
@@ -22,6 +18,7 @@ import { IssueExplorerProvider } from '@/features/issues/explorer/explorer-conte
 import {
   hasActivationState,
   isActivationEligible,
+  shouldStartBrowserAtProjectIntake,
   shouldStartRemoteClientAtHandoff,
 } from '@/features/setup/activation-route'
 import { restartPodiumShell } from '@/features/setup/restart-shell'
@@ -223,6 +220,36 @@ function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
   return null
 }
 
+/**
+ * FOLLOW THE SERVER WHEN ITS ADDRESS CHANGES (POD-5921). A lost link asks
+ * Connect where the server went and moves only to an address that proves it
+ * holds the installation key; a transfer frame moves at once.
+ */
+function ServerFollowObserver(): null {
+  const hub = useRuntimeSelector((s) => s.hub)
+  useEffect(() => {
+    let stop: (() => void) | undefined
+    let cancelled = false
+    void import('./server-follow')
+      .then(({ startWebFollowing }) => {
+        if (cancelled) return
+        stop = startWebFollowing(hub, {
+          bridge: nativeDesktopBridge(),
+          location: window.location,
+          notify: (message) => toast(message),
+        })
+      })
+      .catch(() => {
+        // No follower this session: the client keeps retrying its server, as before.
+      })
+    return () => {
+      cancelled = true
+      stop?.()
+    }
+  }, [hub])
+  return null
+}
+
 function ReplicaReadyPodiumLinkHost({
   syncProgress,
   initialHref,
@@ -339,9 +366,9 @@ export function AppShell({
                 feed={kernel.assembly.feed}
                 createOutboxFn={kernel.assembly.createOutboxFn}
                 makeSocket={makeSocket}
-                onServerRelocation={browserServerRelocation(window.location)}
               >
                 <KernelWireSkewObserver httpOrigin={config.httpOrigin} />
+                <ServerFollowObserver />
                 <ReplicaReadyPodiumLinkHost
                   syncProgress={kernel.assembly.progress}
                   initialHref={pendingInitialPodiumHref.current}
@@ -444,6 +471,17 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
       hasActivationCheckpoint,
       hasVpsCheckpoint: vpsActivation.state !== null,
     })
+  const shouldStartBrowserAtIntake =
+    vpsActivation.ready &&
+    shouldStartBrowserAtProjectIntake({
+      nativeShell: nativeDesktopBridge() !== undefined,
+      loaded: reposLoaded,
+      repoCount,
+      sessionCount,
+      route: activationState.route,
+      hasActivationCheckpoint,
+      hasVpsCheckpoint: vpsActivation.state !== null,
+    })
   const activationEligible = isActivationEligible({
     loaded: reposLoaded,
     repoCount,
@@ -490,6 +528,10 @@ function AppBodyView({ syncProgress }: { syncProgress: SyncProgressStore }): JSX
   useEffect(() => {
     if (shouldContinueRemoteActivation) reconcileActivation('server-connected')
   }, [reconcileActivation, shouldContinueRemoteActivation])
+
+  useEffect(() => {
+    if (shouldStartBrowserAtIntake) reconcileActivation('local-project')
+  }, [reconcileActivation, shouldStartBrowserAtIntake])
 
   // A durable setup checkpoint may arrive after the URL; reconstruct the route it names.
   useEffect(() => {

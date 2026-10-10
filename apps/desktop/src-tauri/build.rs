@@ -18,6 +18,8 @@ fn main() {
             "check_update",
             "install_update",
             "set_update_channel",
+            "save_server_identity",
+            "move_server",
         ]),
     ))
     .expect("failed to run tauri-build");

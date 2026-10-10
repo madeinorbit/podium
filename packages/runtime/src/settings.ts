@@ -140,7 +140,6 @@ export {
  * (`ApiProvider`), not this set; the axiom note on that collision stands.
  */
 
-
 export const AgentChoice = z.enum(['auto', ...AGENT_CHOICE_HARNESS_KINDS] as const)
 export type AgentChoice = z.infer<typeof AgentChoice>
 
@@ -160,12 +159,6 @@ export const SessionDefaults = z.object({
    *  - 'chat': always start on the chat view (when capable)
    *  - 'auto': device heuristic (chat on mobile, native on desktop) */
   startScreen: z.enum(['native', 'chat', 'auto']).default('native'),
-  /** How a coding session's subagents run (SP-6454).
-   *  - 'builtin': the harness's own subagents (Task tool) — best when they share
-   *    the harness; the only wired option today.
-   *  - 'podium': spawn real Podium sessions (needed to use a different harness or
-   *    get cross-harness visibility) — COMING SOON, not yet wired. */
-  subagentStrategy: z.enum(['builtin', 'podium']).default('builtin'),
 })
 export type SessionDefaults = z.infer<typeof SessionDefaults>
 
@@ -430,7 +423,6 @@ function migrateRoles(raw: Record<string, unknown>): Roles | undefined {
       model: sd.model,
       effort: sd.effort,
       subagentModel: sd.subagentModel,
-      subagentStrategy: sd.subagentStrategy,
       startScreen: sd.startScreen,
     },
     ...(raw.superagent !== undefined

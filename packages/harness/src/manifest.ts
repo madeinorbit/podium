@@ -1390,6 +1390,11 @@ export interface TerminalEchoCorrelation {
   /** Whether a recorded text is the submitted one, within the program's
    *  measured tolerance. Absent: no order credit for this program. */
   textMatches?(submitted: string, recorded: string): boolean
+  /** Whether a recorded entry is the submitted text with every attachment
+   *  accounted for, where the program moved typed image paths out of the
+   *  text (POD-5923). Present with `textMatches`; where absent, the entry's
+   *  `typedText` is held to `textMatches`. */
+  entryMatches?(submitted: string, item: TranscriptItem): boolean
 }
 
 export interface TerminalAcceptCorrelations {

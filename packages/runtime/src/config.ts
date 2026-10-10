@@ -223,7 +223,9 @@ export const PodiumConfig = z.object({
    * `/version`). They sit beside `serverUrl`/`uiUrl` because they answer the
    * same question — "which server do I dial" — one step later: when the known
    * URL goes dark, the box resolves the locator record and only adopts a
-   * candidate whose `/version` names this same installation.
+   * candidate that proves it holds this installation's key (POD-5921,
+   * `@podium/runtime/server-follow`). The desktop shell reads the same two
+   * fields, and a desktop window rewrites them after each authenticated login.
    *
    * ABSENT on every box paired before this shipped, and absent stays a fully
    * supported state: without both halves resolution stays off and the box
@@ -450,6 +452,13 @@ export const PodiumConfig = z.object({
       enabled: z.boolean().optional(),
       baseUrl: z.string().optional(),
       trustedProbeKeys: z.array(z.string()).optional(),
+      /**
+       * A joined machine's record that its server once answered the locate
+       * proof (POD-5921). Until then a Connect candidate too old to answer it
+       * may still be accepted on its `/version`; after, only a proof moves the
+       * box. Written by the daemon, never by hand. Remove with that fallback.
+       */
+      locateProofVerified: z.boolean().optional(),
     })
     .optional(),
   telemetry: z

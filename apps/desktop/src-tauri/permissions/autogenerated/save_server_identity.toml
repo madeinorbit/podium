@@ -1,0 +1,11 @@
+# Automatically generated - DO NOT EDIT!
+
+[[permission]]
+identifier = "allow-save-server-identity"
+description = "Enables the save_server_identity command without any pre-configured scope."
+commands.allow = ["save_server_identity"]
+
+[[permission]]
+identifier = "deny-save-server-identity"
+description = "Denies the save_server_identity command without any pre-configured scope."
+commands.deny = ["save_server_identity"]

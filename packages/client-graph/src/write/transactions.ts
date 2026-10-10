@@ -1,3 +1,4 @@
+import { randomUUID } from '@podium/client-core/id'
 import { PoolSpawns, type PoolSpawnPorts } from './spawns'
 /** PoolTransactions owns client optimism and spawn placeholders over one outbox.
  * A press reduces and paints inside one MobX action before the durable enqueue.
@@ -178,7 +179,9 @@ export function createPoolTransactions(ports: PoolTransactionsPorts): PoolTransa
   // a press, and no derivation reads it.
   const now = ports.now ?? (() => Date.now())
   const schedule = ports.schedule ?? realSchedule
-  const mintId = ports.mintId ?? (() => asMutationId(crypto.randomUUID()))
+  // Not `crypto.randomUUID`: a browser on plain-HTTP LAN origins has none, and this
+  // default minter ran on every UI write there (POD-5931).
+  const mintId = ports.mintId ?? (() => asMutationId(randomUUID()))
   const reduce = ports.reduce ?? overlaysForOutboxEntry
 
   let source: RowSourceRepaint | null = null

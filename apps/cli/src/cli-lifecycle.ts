@@ -44,6 +44,9 @@ export interface StatusView {
   /** HTTP liveness is an independent truth source. A surviving server may have
    * lost its advisory run-registry record during a redeploy or signal race. */
   serverHealthy?: boolean
+  /** The Connect link that always lands on this server (POD-5921): present when
+   *  the server has an installation identity and Connect publishing is on. */
+  stableLink?: string
 }
 
 /**
@@ -157,6 +160,7 @@ export function renderStatus(view: StatusView): string {
   }
   const url = config.publicUrl ?? localServerUrl(view.port ?? config.port ?? 18787)
   lines.push(`  URL: ${url}`)
+  if (view.stableLink) lines.push(`  Stable link: ${view.stableLink}`)
   return lines.join('\n')
 }
 
@@ -190,6 +194,27 @@ async function serverHealth(port: number): Promise<boolean> {
   }
 }
 
+/**
+ * The stable Connect link the running server offers (POD-5921), read from its
+ * own `/version` — where the server says it only while it has an installation
+ * identity and Connect publishing is on. `undefined` on any failure.
+ */
+export async function localStableLink(port: number): Promise<string | undefined> {
+  try {
+    const res = await fetch(`http://127.0.0.1:${port}/version`, {
+      signal: AbortSignal.timeout(1_500),
+    })
+    if (!res.ok) return undefined
+    const body = (await res.json()) as { stableLink?: unknown }
+    return typeof body.stableLink === 'string' &&
+      /^https?:\/\/[^\s]+\/to\/pdm_[A-Za-z0-9_-]{43}$/.test(body.stableLink)
+      ? body.stableLink
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
 /** `podium status` */
 export async function statusCommand(): Promise<void> {
   const config = loadConfig()
@@ -200,6 +225,7 @@ export async function statusCommand(): Promise<void> {
   const port = resolvePort(config)
   const serverHealthy =
     config.mode === 'server' || config.mode === 'all-in-one' ? await serverHealth(port) : false
+  const stableLink = serverHealthy ? await localStableLink(port) : undefined
   console.log(
     renderStatus({
       live: listLive(),
@@ -208,6 +234,7 @@ export async function statusCommand(): Promise<void> {
       instanceId: resolveInstanceId(),
       port,
       serverHealthy,
+      ...(stableLink ? { stableLink } : {}),
       ...(connectivity ? { connectivity } : {}),
     }),
   )

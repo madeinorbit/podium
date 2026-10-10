@@ -24,6 +24,7 @@ function render(
   state: PinnedBriefState | null,
   scroller: { current: HTMLDivElement | null } | null = null,
   onBodyClick: (e: ReactMouseEvent) => void = () => {},
+  onJump: () => void = () => {},
 ): void {
   act(() => {
     root.render(
@@ -34,6 +35,7 @@ function render(
           if (scroller?.current) scroller.current.scrollTop += delta
         }}
         onBodyClick={onBodyClick}
+        onJump={onJump}
       />,
     )
   })
@@ -294,5 +296,37 @@ describe('the shelf over a feed it is not inside', () => {
       chip.dispatchEvent(new MouseEvent('click', { bubbles: true }))
     })
     expect(clicked).toEqual(['POD-86'])
+  })
+
+  it('jumps back to the prompt when the shelf itself is clicked', () => {
+    let jumps = 0
+    render(brief('7', '<p>where were we</p>'), null, undefined, () => {
+      jumps += 1
+    })
+    const text = host.querySelector('.brief-shelf-text p') as HTMLElement
+    act(() => {
+      text.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(jumps).toBe(1)
+  })
+
+  it('does not jump when the click is the toggle or a link inside the brief', () => {
+    let jumps = 0
+    render(
+      brief('7', '<p>see <a class="ref-link" data-ref="POD-86">POD-86</a></p>'),
+      null,
+      undefined,
+      () => {
+        jumps += 1
+      },
+    )
+    act(() => {
+      toggle()!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(shelf()?.dataset.open).toBe('true')
+    act(() => {
+      host.querySelector('a.ref-link')!.dispatchEvent(new MouseEvent('click', { bubbles: true }))
+    })
+    expect(jumps).toBe(0)
   })
 })

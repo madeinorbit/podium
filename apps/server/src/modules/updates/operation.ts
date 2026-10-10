@@ -36,9 +36,11 @@ import type {
 import { LIFECYCLE_EXCLUSION_GROUP } from '../operations/lifecycle'
 import type { UpdatesService } from './service'
 import {
+  deliveryRefusalReason,
   IN_FLIGHT_STATES,
   isPackagedRolloutTarget,
   machineCanTakeDelivery,
+  machineRefusesDelivery,
   machineCanTakeTargetPlatform,
   machineCanUseTargetTrust,
   offeredDeliveries,
@@ -884,9 +886,7 @@ function packWouldCoverPlatform(machine: Pick<WaveMachine, 'platform'>): boolean
  */
 function machineNeedsPack(machine: WaveMachine, target: DeliverableTarget): boolean {
   if (!machineCanUseTargetTrust(machine, target.trust)) return false
-  if (machine.presenceSource === 'supervisor' && (machine.deliveryCaps?.length ?? 0) === 0) {
-    return false
-  }
+  if (machineRefusesDelivery(machine)) return false
   if (machine.deliveryCaps === undefined && machine.presenceSource !== 'supervisor') return true
   return !machineCanTakeTargetNow(machine, target)
 }
@@ -927,12 +927,12 @@ function machineCarriedBy(
  * step's first pass.
  */
 function placeOf(machine: WaveMachine): StepPlace {
-  if (machine.presenceSource === 'supervisor' && (machine.deliveryCaps?.length ?? 0) === 0) {
+  if (machineRefusesDelivery(machine)) {
     return {
       id: machine.id,
       ...(machine.name ? { name: machine.name } : {}),
       state: 'cannot-take-delivery',
-      detail: machine.deliveryUnavailableReason ?? 'cannot take delivery',
+      detail: deliveryRefusalReason(machine),
     }
   }
   return {
@@ -1055,8 +1055,7 @@ export function planUpdateOperation(input: UpdatePlanInput): OperationPlan {
       (packable &&
         machineCanTakeDelivery(machine, [PACKED_DELIVERY]) &&
         packWouldCoverPlatform(machine)))
-  const explicitDeliveryRefusal = (machine: WaveMachine): boolean =>
-    machine.presenceSource === 'supervisor' && (machine.deliveryCaps?.length ?? 0) === 0
+  const explicitDeliveryRefusal = machineRefusesDelivery
   const core = behind.filter(
     (machine) => machine.online && (canTakeEventually(machine) || explicitDeliveryRefusal(machine)),
   )
@@ -2088,7 +2087,7 @@ export async function projectMachines(
       return {
         ...place,
         ...(machine.name ? { name: machine.name } : {}),
-        detail: machine.deliveryUnavailableReason ?? place.detail ?? 'cannot take delivery',
+        detail: machine.deliveryUnavailableReason ?? place.detail ?? deliveryRefusalReason(machine),
       }
     }
     if (

@@ -70,6 +70,9 @@ const NATIVE_WINDOW_PERMISSIONS: &[&str] = &[
     "allow-daemon-connectivity",
     "allow-begin-cloud-sign-in",
     "allow-runtime-probe-report",
+    // POD-5921: a remote window follows its server. Both commands refuse in local modes.
+    "allow-move-server",
+    "allow-save-server-identity",
     "process:allow-restart",
 ];
 
@@ -1220,6 +1223,14 @@ fn native_desktop_hook(
     let update_commands = ",\n            claimUpdateOwnership: () => window.__TAURI_INTERNALS__.invoke('claim_update_ownership'),\n            checkUpdate: (channel) => window.__TAURI_INTERNALS__.invoke('check_update', { channel }),\n            installUpdate: (channel, expectedVersion) => window.__TAURI_INTERNALS__.invoke('install_update', { channel, expectedVersion }),\n            setUpdateChannel: (channel, endpoint) => window.__TAURI_INTERNALS__.invoke('set_update_channel', { channel, endpoint }),\n            repairPayload: () => window.__TAURI_INTERNALS__.invoke('repair_payload')";
     let daemon_status =
         ",\n            daemonConnectivity: () => window.__TAURI_INTERNALS__.invoke('daemon_connectivity')";
+    // POD-5921: a window on a REMOTE server follows it when its address changes. The identity
+    // is the one the shell injected from config.json (`__PODIUM_SERVER_IDENTITY__`, before this
+    // hook), and both commands refuse in local modes anyway.
+    let follow_server = if matches!(launch_mode, "daemon" | "supervisor" | "client") {
+        ",\n            serverIdentity: window.__PODIUM_SERVER_IDENTITY__ ?? null,\n            saveServerIdentity: (identity) => window.__TAURI_INTERNALS__.invoke('save_server_identity', { installationId: identity.installationId, installationPublicKey: identity.installationPublicKey }),\n            moveServer: (origin, transferId, claimToken) => window.__TAURI_INTERNALS__.invoke('move_server', { origin, transferId: transferId ?? null, claimToken: claimToken ?? null })"
+    } else {
+        ""
+    };
     // Hand a URL to the OS browser on purpose. The injected opener shim only rescues
     // CROSS-origin links (bootstrap::opener_shim_script); a page that wants the real browser
     // for one of the server's OWN URLs — "Open in browser" on a file — has no other route,
@@ -1263,7 +1274,7 @@ fn native_desktop_hook(
             launchMode: {launch_mode_expression}{machine_id},
             minimize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|minimize', {{ label: 'main' }}),
             toggleMaximize: () => window.__TAURI_INTERNALS__.invoke('plugin:window|toggle_maximize', {{ label: 'main' }}),
-            close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }}){update_commands}{daemon_status}{open_external}{set_theme}{enable_hosting}
+            close: () => window.__TAURI_INTERNALS__.invoke('plugin:window|close', {{ label: 'main' }}){update_commands}{daemon_status}{follow_server}{open_external}{set_theme}{enable_hosting}
         }});"#
     )
 }
@@ -1395,6 +1406,82 @@ fn enable_hosting(pair_code: String) -> Result<(), String> {
     bootstrap::write_hosting_config(&pair_code)
 }
 
+/// POD-5921: remember the installation the window just authenticated to, so it can follow that
+/// server when its address changes. The page reads it from the server's `/version` after each
+/// authenticated connection; logging in is the trust event.
+#[tauri::command]
+fn save_server_identity(installation_id: String, installation_public_key: String) -> Result<(), String> {
+    bootstrap::write_server_identity(&installation_id, &installation_public_key)
+}
+
+/// POD-5921: THE DESKTOP WINDOW'S ONE WAY TO MOVE. The page found its server at a new origin —
+/// proven to hold the installation key, or announced by the authenticated server itself in a
+/// transfer frame — and asks the shell to follow. The committed-transfer path, in its order:
+/// persist the address, carry the session cookie, grant the native bridge to the new origin,
+/// then navigate (to the claim page when a transfer brought a one-time claim). Refuses a
+/// non-https origin, and refuses in local modes, where the window shows this machine's server.
+#[tauri::command]
+fn move_server(
+    app: AppHandle,
+    origin: String,
+    transfer_id: Option<String>,
+    claim_token: Option<String>,
+) -> Result<(), String> {
+    let target = bootstrap::validate_move_origin(&origin)?;
+    let before = bootstrap::read_config();
+    let source = before
+        .server_url
+        .as_deref()
+        .map(|server| bootstrap::remote_window_origin_url(server, before.ui_url.as_deref()))
+        .and_then(|url| Url::parse(&url).ok());
+    let server_url = bootstrap::write_moved_server(&target)?;
+    if let Some(source) = source.as_ref() {
+        match retarget_session_cookie(&app, source, &server_url) {
+            Ok(true) => log::info!("copied podium_session to the followed server origin"),
+            Ok(false) => log::info!("no podium_session cookie to carry to the followed server"),
+            Err(error) => log::warn!("could not carry the session to the followed server: {error}"),
+        }
+    }
+    grant_transfer_remote_capabilities(&app, &server_url)?;
+    let destination = bootstrap::move_target_url(&target, claim_token.as_deref());
+    app.get_webview_window("main")
+        .ok_or_else(|| "main window is unavailable".to_string())?
+        .navigate(destination)
+        .map_err(|error| format!("cannot navigate to the followed server: {error}"))?;
+    log::info!(
+        "window followed its server to {} ({})",
+        target.origin().ascii_serialization(),
+        transfer_id.as_deref().map(|_| "transfer").unwrap_or("connect")
+    );
+    Ok(())
+}
+
+/// POD-5921: does the configured remote server answer at all? One `/health` GET with a short
+/// timeout and no redirects, before the window is pointed at it. A dead quick tunnel is NOT a
+/// navigation error — Cloudflare answers for the dead name with its own page — so asking is the
+/// only reliable way to know.
+fn remote_server_answers(server_url: &str) -> bool {
+    let Ok(base) = bootstrap::validated_webview_http_url(server_url) else {
+        return false;
+    };
+    let Ok(health) = base.join("/health") else {
+        return false;
+    };
+    if rustls::crypto::CryptoProvider::get_default().is_none() {
+        let _ = rustls::crypto::ring::default_provider().install_default();
+    }
+    tauri::async_runtime::block_on(async move {
+        let Ok(client) = reqwest::Client::builder()
+            .timeout(std::time::Duration::from_secs(5))
+            .redirect(reqwest::redirect::Policy::none())
+            .build()
+        else {
+            return false;
+        };
+        matches!(client.get(health).send().await, Ok(response) if response.status().is_success())
+    })
+}
+
 /// URLPattern for the origin the remote-mode window actually LOADS. The window is
 /// pointed at the ws(s) relay URL mapped to http(s) (see `remote_window_target`), so
 /// the capability pattern must be derived from that mapped URL — a raw `wss://…`
@@ -1510,6 +1597,8 @@ fn repair_payload(
 
 fn grant_transfer_remote_capabilities(app: &AppHandle, server_url: &str) -> Result<(), String> {
     let pattern = remote_capability_pattern(server_url)?;
+    // Granting again for each origin a window follows its server to (POD-5921) is fine: the
+    // runtime authority merges capabilities, it does not reject a repeated identifier.
     let window = native_window_capability("transfer-window-controls", Some(pattern.clone()));
     let opener = tauri::ipc::CapabilityBuilder::new("transfer-external-link-opener")
         .window("main")
@@ -1594,7 +1683,9 @@ fn main() {
             check_update,
             install_update,
             set_update_channel,
-            repair_payload
+            repair_payload,
+            save_server_identity,
+            move_server
         ])
         .setup(move |app| {
             std::env::set_var("PODIUM_DESKTOP_VERSION", app.package_info().version.to_string());
@@ -1724,6 +1815,16 @@ fn main() {
             // window, and so is granted nothing.
             let mut remote_window_origin: Option<String> = None;
 
+            // POD-5921: a remote window knows its installation (config.json) and, at cold start,
+            // checks its server answers before pointing the window at it.
+            let follow_identity = cfg.server_identity.clone();
+            let remote_server_for_window = match &action {
+                bootstrap::LaunchAction::LocalDaemon { server_url, .. }
+                | bootstrap::LaunchAction::LocalSupervisor { server_url, .. }
+                | bootstrap::LaunchAction::ClientOnly { server_url, .. } => Some(server_url.clone()),
+                bootstrap::LaunchAction::LocalAllInOne
+                | bootstrap::LaunchAction::LocalServerOnly => None,
+            };
             let initial_action = action.clone();
 
             // Backend-bearing modes seed the complete external payload before the parent
@@ -2272,7 +2373,12 @@ fn main() {
             let runtime_probe = runtime_probe_script();
             // Remote modes already resolved webview_url + window_injection. Local modes
             // fill them after the readiness probe inside the spawn below.
-            let remote_init_injection = window_injection;
+            // POD-5921: the page of a remote window learns which installation its server is.
+            let identity_injection = follow_identity
+                .as_ref()
+                .map(bootstrap::server_identity_injection_script)
+                .unwrap_or_default();
+            let remote_init_injection = format!("{identity_injection}\n{window_injection}");
             let watchdog_shutting_down = shutting_down.clone();
             let server_transport_error_for_window = server_transport_error;
             let payload_start_error_for_window = payload_start_error;
@@ -2346,7 +2452,30 @@ fn main() {
                         (bootstrap::local_window_target(port, ready), injection)
                     }
                 } else {
-                    (webview_url, remote_init_injection)
+                    let cold_start = match remote_server_for_window.as_deref() {
+                        Some(server_url) if follow_identity.is_some() => bootstrap::remote_cold_start(
+                            remote_server_answers(server_url),
+                            true,
+                        ),
+                        _ => bootstrap::RemoteColdStart::Remote,
+                    };
+                    match (cold_start, remote_server_for_window.as_deref()) {
+                        (bootstrap::RemoteColdStart::Baked, Some(server_url)) => {
+                            // The server did not answer. The bundled app looks for it and moves
+                            // the window there — never the engine's (or a tunnel's) error page.
+                            log::warn!(
+                                "remote server {server_url} did not answer at cold start; loading the bundled app to find it"
+                            );
+                            (
+                                WebviewUrl::default(),
+                                format!(
+                                    "{identity_injection}\n{}",
+                                    bootstrap::remote_unreachable_injection_script(server_url)
+                                ),
+                            )
+                        }
+                        _ => (webview_url, remote_init_injection),
+                    }
                 };
                 // External-link shim (ALL modes): route window.open/_blank to the OS browser.
                 let init = format!(
@@ -3185,6 +3314,23 @@ mod tests {
                 hook.contains("invoke('plugin:window|set_theme', { label: 'main', value: theme })")
             );
         }
+    }
+
+    #[test]
+    fn native_hook_offers_following_the_server_only_in_remote_modes() {
+        for mode in ["daemon", "supervisor", "client"] {
+            let hook = test_native_desktop_hook(mode, None);
+            assert!(hook.contains("serverIdentity: window.__PODIUM_SERVER_IDENTITY__ ?? null"));
+            assert!(hook.contains("invoke('save_server_identity', { installationId: identity.installationId, installationPublicKey: identity.installationPublicKey })"));
+            assert!(hook.contains("invoke('move_server', { origin, transferId: transferId ?? null, claimToken: claimToken ?? null })"));
+        }
+        for mode in ["all-in-one", "server"] {
+            let hook = test_native_desktop_hook(mode, None);
+            assert!(!hook.contains("moveServer"));
+            assert!(!hook.contains("saveServerIdentity"));
+        }
+        assert!(NATIVE_WINDOW_PERMISSIONS.contains(&"allow-move-server"));
+        assert!(NATIVE_WINDOW_PERMISSIONS.contains(&"allow-save-server-identity"));
     }
 
     #[test]

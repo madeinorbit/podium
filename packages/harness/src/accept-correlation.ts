@@ -99,6 +99,78 @@ export function podiumFrameId(text: string): string | null {
 const typedForm = (item: TranscriptItem): string =>
   item.toolPaths?.length ? [...item.toolPaths, item.text].join('\n') : item.text
 
+/** The placeholder a program writes where it took an image out of the typed
+ *  text, with the one space it puts between two of them. */
+const IMAGE_PLACEHOLDER_RE = /\[Image #\d+\] ?/g
+
+/** A typed line that can be an attachment's path: absolute, POSIX or Windows.
+ *  The driver types each attachment as its path on its own line. */
+const isPathLine = (line: string): boolean => /^(?:\/|~\/|[A-Za-z]:[\\/])\S/.test(line.trim())
+
+/** Path lines are tried in combination only up to this many candidates. */
+const PATH_LINE_SEARCH_LIMIT = 12
+
+/**
+ * THE ENTRY IS THE SEND, ATTACHMENTS INCLUDED (POD-5923).
+ *
+ * The terminal driver types each attachment as its path on its own line ahead
+ * of the text. A program may take an IMAGE path line out of the text and record
+ * an image instead — measured on the real CLIs, typed through Podium's own
+ * paste (docs/measurements/pod-5923-image-attachments):
+ *
+ *   - Claude Code 2.1.283, 2.1.286, 2.1.295: every line that is an image
+ *     file's path, wherever it sits, becomes an image block plus an
+ *     `[Image #N]` placeholder; the placeholders (space-separated) go in front
+ *     of the remaining lines. The paths are written in a SEPARATE `isMeta`
+ *     record of the same prompt, which is not a prompt entry. The rest of the
+ *     text is kept byte for byte, trailing spaces included.
+ *   - Codex 0.162.0 and Grok 1.0.46: only a paste that is nothing but image
+ *     paths; the text is then just the placeholders. Otherwise the path stays
+ *     a line of the text.
+ *
+ * So an entry is the send when its text equals the typed text under the
+ * program's measured tolerance after undoing exactly that: as many typed path
+ * lines removed as the entry has images (image blocks, or placeholders left in
+ * its text), the placeholders removed from the recorded text. Where the reader
+ * lifted the paths into `toolPaths`, the removed lines are those paths, in
+ * order. Every attachment is then accounted for: as a line of the text, or as
+ * one of the entry's images. A send that was nothing but image paths is matched
+ * by an entry with no text and that many images.
+ */
+export function promptEntryMatches(
+  textMatches: (submitted: string, recorded: string) => boolean,
+  submitted: string,
+  item: TranscriptItem,
+): boolean {
+  if (textMatches(submitted, typedForm(item))) return true
+  const placeholders = item.text.match(IMAGE_PLACEHOLDER_RE)?.length ?? 0
+  const images = Math.max(placeholders, item.tags?.filter((tag) => tag.kind === 'image').length ?? 0)
+  if (images === 0) return false
+  const recorded = item.text.replace(IMAGE_PLACEHOLDER_RE, '')
+  const lifted = item.toolPaths ?? []
+  if (lifted.length > 0 && lifted.length !== images) return false
+  // Split on LF only: a CR stays where it was typed, for `textMatches` to judge.
+  const lines = submitted.split('\n')
+  const candidates = lines.flatMap((line, index) => (isPathLine(line) ? [index] : []))
+  if (candidates.length < images) return false
+  const restMatches = (removed: readonly number[]): boolean => {
+    if (lifted.length > 0 && removed.some((index, n) => lines[index]?.trim() !== lifted[n])) return false
+    const rest = lines.filter((_, index) => !removed.includes(index)).join('\n')
+    return rest.trim() === '' ? recorded.trim() === '' : textMatches(rest, recorded)
+  }
+  // The driver puts the paths first: try those lines before any combination.
+  if (restMatches(candidates.slice(0, images))) return true
+  if (candidates.length > PATH_LINE_SEARCH_LIMIT) return false
+  const choose = (from: number, picked: number[]): boolean => {
+    if (picked.length === images) return restMatches(picked)
+    for (let at = from; at <= candidates.length - (images - picked.length); at++) {
+      if (choose(at + 1, [...picked, candidates[at]!])) return true
+    }
+    return false
+  }
+  return choose(0, [])
+}
+
 /**
  * A PROMPT ENTRY OF A PROGRAM'S HISTORY, AND HOW ITS TEXT MAY DIFFER FROM WHAT
  * WAS TYPED (spec §2, §5.3, §7).
@@ -118,7 +190,13 @@ export function promptEchoCorrelation(
       item.promptEntry !== false &&
       item.queued !== true,
     typedText: typedForm,
-    ...(textMatches ? { textMatches } : {}),
+    ...(textMatches
+      ? {
+          textMatches,
+          entryMatches: (submitted: string, item: TranscriptItem) =>
+            promptEntryMatches(textMatches, submitted, item),
+        }
+      : {}),
   }
 }
 

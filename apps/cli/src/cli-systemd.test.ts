@@ -311,6 +311,7 @@ describe('installSystemd update-timer retirement', () => {
       hasUserSystemd: () => true,
       unitDir: () => dir,
       run: (cmd, args) => commands.push({ cmd, args }),
+      lingerEnabled: () => true,
     })
     expect(result).toEqual({ ok: true })
     return { dir, commands }
@@ -358,6 +359,7 @@ describe('installSystemd update-timer retirement', () => {
       hasUserSystemd: () => true,
       unitDir: () => dir,
       run: (cmd, args) => commands.push({ cmd, args }),
+      lingerEnabled: () => true,
     })
 
     expect(result).toEqual({ ok: true })
@@ -367,6 +369,29 @@ describe('installSystemd update-timer retirement', () => {
     })
     expect(readdirSync(dir)).not.toContain(fixture.timer)
     expect(readdirSync(dir)).not.toContain(fixture.service)
+  })
+})
+
+describe('installSystemd linger (POD-5932)', () => {
+  it('says how to keep the service running when linger could not be enabled', () => {
+    // A non-root user over SSH on stock Ubuntu: polkit refuses enable-linger, the user
+    // manager stops at logout and takes the server with it.
+    const dir = mkdtempSync(join(tmpdir(), 'podium-systemd-linger-'))
+    try {
+      const result = installSystemd('server', 18787, 'default', {
+        hasSystemctl: () => true,
+        hasUserSystemd: () => true,
+        unitDir: () => dir,
+        run: (cmd) => {
+          if (cmd === 'loginctl') throw new Error('Could not enable linger: Access denied')
+        },
+        lingerEnabled: () => false,
+      })
+      expect(result.ok).toBe(true)
+      expect(result.lingerRemedy).toMatch(/^Run `sudo loginctl enable-linger \S+` once/)
+    } finally {
+      rmSync(dir, { recursive: true, force: true })
+    }
   })
 })
 

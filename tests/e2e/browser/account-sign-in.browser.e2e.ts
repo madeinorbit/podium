@@ -12,7 +12,8 @@ const evidence = fileURLToPath(new URL('../../../.tmp/accounts-check', import.me
 test('web signs in through the form and reloads with its cookie', async ({ page }) => {
   mkdirSync(evidence, { recursive: true })
   await page.goto('/')
-  await page.getByLabel('Email', { exact: true }).fill('user:sole')
+  // The web form hides the email field and signs in the first admin (user:sole).
+  await expect(page.getByLabel('Email', { exact: true })).toHaveCount(0)
   await page.getByLabel('Password', { exact: true }).fill('wrong-password')
   await page.getByRole('button', { name: 'Log in', exact: true }).click()
   await expect(page.getByRole('alert')).toContainText('incorrect email or password')

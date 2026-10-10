@@ -1,16 +1,23 @@
 import {
   activateServerProfile,
+  adoptServerProfileMove,
   clearProfileIdentity,
   drainProfileCleanups,
+  profileServerIdentity,
   removeServerProfile,
   singleServerProfile,
+  withPairingIdentity,
+  withProfileServerIdentity,
 } from '@podium/client-core/accounts'
+import { locateServer } from '@podium/client-core/server-follow'
 import {
   parseServerOrigin,
-  workspaceSelectorFromLocation,
   type ServerConfig,
   type WorkspaceSelector,
+  workspaceSelectorFromLocation,
 } from '@podium/client-core/transport'
+import { createLogger } from '@podium/logger'
+import { CONNECT_DEFAULT_BASE_URL, type ServerIdentity } from '@podium/protocol/server-locate'
 import * as Haptics from 'expo-haptics'
 import { router } from 'expo-router'
 import {
@@ -23,8 +30,8 @@ import {
   useSyncExternalStore,
 } from 'react'
 import {
-  ActivityIndicator,
   AccessibilityInfo,
+  ActivityIndicator,
   Alert,
   Linking,
   Platform,
@@ -34,30 +41,30 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { PairingScanner } from '../components/PairingScanner'
+import { HostedSignInButton } from '../components/HostedSignInButton'
 import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { MembershipDeniedView } from '../components/MembershipDeniedView'
+import { PairingScanner } from '../components/PairingScanner'
 import { PressableScale } from '../components/PressableScale'
 import { setKnownPodiumOrigins } from '../lib/podium-link'
 import { color, font, radius, sans, space } from '../theme/theme'
-import { fetchAuthStatus, logout } from './auth'
 import { mobileAccountCredentials } from './account-credentials'
 import { mobileAccountEraser } from './account-data'
+import { fetchAuthStatus, logout } from './auth'
 import { mobileBrowserAccounts } from './browser-accounts'
-import { HostedSignInButton } from '../components/HostedSignInButton'
 import {
+  CredentialWriteQueue,
+  replaceCredentialForOwner,
+  StaleCredentialOwnerError,
+} from './credential-ownership'
+import {
+  type HostedReturn,
+  type HostedSession,
   HostedSignInCanceledError,
   isHostedReturn,
   parseHostedReturn,
-  type HostedReturn,
-  type HostedSession,
 } from './hosted-sign-in'
 import { hostedSignIn } from './hosted-sign-in-runtime'
-import {
-  CredentialWriteQueue,
-  StaleCredentialOwnerError,
-  replaceCredentialForOwner,
-} from './credential-ownership'
 import { LaunchReadyView } from './launch-ready'
 import {
   captureMobileHandoffUrl,
@@ -105,6 +112,35 @@ import {
   saveServerProfiles,
 } from './server-profiles'
 import { envServer, sameSiteBuildServer, setActiveServerRuntime } from './trpc'
+
+const followLog = createLogger('mobile:server-follow')
+
+/** The identity a pairing envelope named, carried on the checked server (POD-5921). */
+const pairedServerIdentity = (result: {
+  installationId?: string
+  installationPublicKey?: string
+}): { installationId?: string; installationPublicKey?: string } =>
+  result.installationId && result.installationPublicKey
+    ? { installationId: result.installationId, installationPublicKey: result.installationPublicKey }
+    : {}
+
+/**
+ * ONE ASK, AT A FAILED COLD START (POD-5921, spec rule 4). The saved address
+ * did not answer; if the profile knows its installation, ask Connect where it
+ * went and accept only an address that proves it holds the stored key.
+ * `undefined` keeps today's behaviour exactly.
+ */
+async function locateMovedServer(profile: ServerProfile): Promise<string | undefined> {
+  if (Platform.OS === 'web') return undefined
+  const identity = profileServerIdentity(profile)
+  if (!identity) return undefined
+  return locateServer({
+    identity,
+    currentOrigin: profile.httpOrigin,
+    connectBaseUrl: CONNECT_DEFAULT_BASE_URL,
+    report: (miss) => followLog.info('saved server not found elsewhere', { ...miss }),
+  })
+}
 
 // The context and its two hooks live in `./server-profile-context`, which does
 // NOT import expo-router, expo-camera or expo-crypto — see the note there.
@@ -550,9 +586,42 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
         // identity, wire support, and transport policy before SecureStore is
         // opened. A newer link restarts selection before any result or bearer
         // can publish the old active profile.
-        const result = await preflightServer(active.httpOrigin, active.workspaceId)
+        let result = await preflightServer(active.httpOrigin, active.workspaceId)
         if (!alive || setupOwnsStartup.current) return
         if (generation !== startupLinkGeneration.current) continue
+        if (!result.ok && result.kind === 'unreachable' && intent === null) {
+          const found = await locateMovedServer(active).catch(() => undefined)
+          if (!alive || setupOwnsStartup.current) return
+          if (generation !== startupLinkGeneration.current) continue
+          if (found) {
+            const movingId = active.id
+            try {
+              const { state: movedState, moved } = await profileWrites.run(() =>
+                adoptServerProfileMove({
+                  profileId: movingId,
+                  origin: found,
+                  profiles: { ...mobileServerProfiles, loadServerProfiles, saveServerProfiles },
+                  credentials: {
+                    ...mobileAccountCredentials,
+                    remove: (id) => credentialWrites.run(() => deleteProfileCredential(id)),
+                  },
+                  erasePrincipal: mobileAccountEraser.erase,
+                }),
+              )
+              followLog.info('saved server moved', {
+                profileId: moved.id,
+                origin: moved.httpOrigin,
+              })
+              startupState = { ...movedState, activeProfileId: startupState.activeProfileId }
+              active = moved
+              result = await preflightServer(active.httpOrigin, active.workspaceId)
+              if (!alive || setupOwnsStartup.current) return
+              if (generation !== startupLinkGeneration.current) continue
+            } catch (error) {
+              followLog.warn('could not move the saved server', { err: error })
+            }
+          }
+        }
         setProfileState(startupState)
         if (!result.ok) {
           if (canOpenProfileOffline(active, result.kind) && intent === null) {
@@ -657,6 +726,33 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     [profileWrites],
   )
 
+  /**
+   * MOVE A SAVED PROFILE TO WHERE ITS SERVER WENT (POD-5921): the same
+   * profile id — so the same SecureStore bearer, attached by the socket at the
+   * new origin — under a new address. Throws on a clash with another
+   * installation; the caller keeps retrying the old address.
+   */
+  const moveProfile = useCallback(
+    async (profileId: string, origin: string): Promise<ServerProfile> => {
+      const { state, moved } = await profileWrites.run(() =>
+        adoptServerProfileMove({
+          profileId,
+          origin,
+          profiles: { ...mobileServerProfiles, loadServerProfiles, saveServerProfiles },
+          credentials: {
+            ...mobileAccountCredentials,
+            remove: (id) => credentialWrites.run(() => deleteProfileCredential(id)),
+          },
+          erasePrincipal: mobileAccountEraser.erase,
+        }),
+      )
+      setProfileState(state)
+      followLog.info('saved server moved', { profileId, origin: moved.httpOrigin })
+      return moved
+    },
+    [credentialWrites, profileWrites],
+  )
+
   const finishSetup = useCallback(
     async (
       result: Extract<ServerPreflight, { ok: true }>,
@@ -694,6 +790,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
               memberId: undefined,
               httpOrigin: result.httpOrigin,
               instanceId: result.instanceId,
+              ...pairedServerIdentity(result),
               ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
               mode: result.mode,
               transport: result.transport,
@@ -705,6 +802,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
               name: defaultProfileName(result.httpOrigin),
               httpOrigin: result.httpOrigin,
               instanceId: result.instanceId,
+              ...pairedServerIdentity(result),
               ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
               mode: result.mode,
               transport: result.transport,
@@ -741,6 +839,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
                   ...durableExisting,
                   httpOrigin: result.httpOrigin,
                   instanceId: result.instanceId,
+                  ...pairedServerIdentity(result),
                   ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
                   mode: result.mode,
                   transport: result.transport,
@@ -1193,13 +1292,57 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
           setProfileState(next)
         }
       },
+      moveServer: async (origin) => {
+        if (Platform.OS === 'web' || config.override) {
+          throw new Error('this client does not move its saved server')
+        }
+        await moveProfile(profile.id, origin)
+      },
+      saveServerIdentity: async (identity: ServerIdentity) => {
+        if (Platform.OS === 'web' || config.override) return
+        const next = await profileWrites.run(async () => {
+          const current = await loadServerProfiles()
+          const row = current.profiles.find((candidate) => candidate.id === profile.id)
+          // Learned at THIS origin: never write it onto a profile that moved meanwhile.
+          if (!row || row.httpOrigin !== profile.httpOrigin) return null
+          const updated = withProfileServerIdentity(current, profile.id, identity)
+          if (updated === current) return null
+          await saveServerProfiles(updated)
+          return updated
+        })
+        if (next) {
+          setProfileState((state) => ({
+            ...state,
+            profiles: state.profiles.map((row) =>
+              row.id === profile.id
+                ? {
+                    ...row,
+                    installationId: identity.installationId,
+                    installationPublicKey: identity.installationPublicKey,
+                  }
+                : row,
+            ),
+          }))
+        }
+      },
       revalidateOfflineProfile: async () => {
         if (activation !== 'offline-cache' || revalidationInFlight.current) return
         const operation = switchOperation.current
         revalidationInFlight.current = true
         try {
-          const result = await preflightServer(profile.httpOrigin, profile.workspaceId)
+          let target = profile
+          let result = await preflightServer(profile.httpOrigin, profile.workspaceId)
           if (operation !== switchOperation.current) return
+          if (!result.ok && result.kind === 'unreachable') {
+            const found = await locateMovedServer(profile).catch(() => undefined)
+            if (operation !== switchOperation.current) return
+            if (found) {
+              target = await moveProfile(profile.id, found)
+              if (operation !== switchOperation.current) return
+              result = await preflightServer(target.httpOrigin, target.workspaceId)
+              if (operation !== switchOperation.current) return
+            }
+          }
           if (!result.ok) {
             if (result.kind !== 'unreachable') {
               setCredentialReleased(false)
@@ -1213,7 +1356,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
             return
           }
           const validated: ServerProfile = {
-            ...profile,
+            ...target,
             httpOrigin: result.httpOrigin,
             instanceId: result.instanceId,
             ...(result.workspaceId ? { workspaceId: result.workspaceId } : {}),
@@ -1242,6 +1385,7 @@ export function ServerProfileGate({ children }: { children: ReactNode }) {
     config,
     credentialOwnerRevision,
     credentialWrites,
+    moveProfile,
     persistState,
     profile,
     profileState,
@@ -1611,7 +1755,9 @@ function PairingSetup({
         return
       }
       setEnvelope(nextEnvelope)
-      setPreflight(result)
+      // The envelope names the installation (POD-5921): saved with the profile
+      // so it can follow this server when its address changes.
+      setPreflight(withPairingIdentity(result, nextEnvelope))
       setStep('confirm')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause))

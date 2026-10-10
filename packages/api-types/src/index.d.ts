@@ -204,7 +204,6 @@ declare const PodiumSettings: z.ZodObject<{
             harness: z.ZodOptional<z.ZodEnum<["claude-code", "codex", "grok", "opencode", "cursor", "pi"]>>;
         } & {
             subagentModel: z.ZodDefault<z.ZodString>;
-            subagentStrategy: z.ZodDefault<z.ZodEnum<["builtin", "podium"]>>;
             startScreen: z.ZodDefault<z.ZodEnum<["native", "chat", "auto"]>>;
             seedCliTheme: z.ZodDefault<z.ZodBoolean>;
         }, "strip", z.ZodTypeAny, {
@@ -212,7 +211,6 @@ declare const PodiumSettings: z.ZodObject<{
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
             subagentModel: string;
-            subagentStrategy: "builtin" | "podium";
             startScreen: "auto" | "native" | "chat";
             seedCliTheme: boolean;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
@@ -222,7 +220,6 @@ declare const PodiumSettings: z.ZodObject<{
             accountId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
-            subagentStrategy?: "builtin" | "podium" | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         }>>;
@@ -286,7 +283,6 @@ declare const PodiumSettings: z.ZodObject<{
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
             subagentModel: string;
-            subagentStrategy: "builtin" | "podium";
             startScreen: "auto" | "native" | "chat";
             seedCliTheme: boolean;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
@@ -316,7 +312,6 @@ declare const PodiumSettings: z.ZodObject<{
             accountId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
-            subagentStrategy?: "builtin" | "podium" | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         } | undefined;
@@ -526,7 +521,6 @@ declare const PodiumSettings: z.ZodObject<{
             effort: string;
             accountId: string & z.BRAND<"AccountId">;
             subagentModel: string;
-            subagentStrategy: "builtin" | "podium";
             startScreen: "auto" | "native" | "chat";
             seedCliTheme: boolean;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
@@ -618,7 +612,6 @@ declare const PodiumSettings: z.ZodObject<{
             accountId?: string | undefined;
             harness?: "claude-code" | "codex" | "grok" | "opencode" | "cursor" | "pi" | undefined;
             subagentModel?: string | undefined;
-            subagentStrategy?: "builtin" | "podium" | undefined;
             startScreen?: "auto" | "native" | "chat" | undefined;
             seedCliTheme?: boolean | undefined;
         } | undefined;
@@ -5702,7 +5695,6 @@ type Output_settings_get = {
             seedCliTheme: boolean;
             startScreen: "auto" | "chat" | "native";
             subagentModel: string;
-            subagentStrategy: "builtin" | "podium";
         };
         shipwright: {
             accountId: string & z.BRAND<"AccountId">;
@@ -5770,6 +5762,7 @@ type Output_setup_complete = {
     connect?: undefined | {
         baseUrl?: string | undefined;
         enabled?: boolean | undefined;
+        locateProofVerified?: boolean | undefined;
         trustedProbeKeys?: string[] | undefined;
     };
     features?: Record<string, boolean> | undefined;
@@ -5812,6 +5805,7 @@ type Output_setup_info = {
     publicUrl: null | string;
     publicUrlSource: SettingSource;
     serverUrl: null | string;
+    stableLink: null | string;
     transcriptLake: TranscriptLakeMode;
     transcriptLakeSource: SettingSource;
 };

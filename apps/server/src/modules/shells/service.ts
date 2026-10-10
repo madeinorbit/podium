@@ -266,7 +266,9 @@ export interface SampledShellOwnerDeps {
   worktreesForSessions(
     sessionIds: readonly SessionId[],
   ): Promise<ReadonlyMap<SessionId, ReadonlyArray<{ userId: UserId; worktreeKey: string }>>>
-  issueForCwd(cwd: string): Promise<IssueId | null | undefined>
+  /** {@link DockShellOwnerDeps.issueForCwd} for every key at once, answered
+   * from one read of the issue rows. */
+  issuesForCwds(cwds: readonly string[]): Promise<ReadonlyMap<string, IssueId | null | undefined>>
 }
 
 /**
@@ -282,6 +284,12 @@ export interface SampledShellOwnerDeps {
  * database, most of them for dormant shells. Every reaper pass filters
  * `status === 'live'` before it reads an owner, so a dormant shell's owner
  * was never an input to a decision; skipping it changes no verdict.
+ *
+ * ONE ISSUE READ PER CALL, too (POD-5941). Each shell's `issueForCwd` read and
+ * sorted the whole issue table; at 18 live shells and 6.8k issues that was
+ * ~0.5 s of event loop per call, four to six calls per machine per five-second
+ * sample, more work than the loop had time for. The keys are resolved together and each
+ * shell reads its answer back, so the one resolver's precedence is unchanged.
  */
 export async function resolveSampledShellOwners(
   deps: SampledShellOwnerDeps,
@@ -291,9 +299,16 @@ export async function resolveSampledShellOwners(
   const shells = [...sessions].filter((s) => s.agentKind === 'shell' && s.status === 'live')
   if (shells.length === 0) return owners
   const mapped = await deps.worktreesForSessions(shells.map((s) => s.sessionId))
+  // The same key resolveDockShellOwner reads: the mapping's first row.
+  const keys = new Set<string>()
+  for (const rows of mapped.values()) {
+    const key = rows[0]?.worktreeKey
+    if (key) keys.add(key)
+  }
+  const issueByKey = keys.size === 0 ? new Map<string, IssueId | null>() : await deps.issuesForCwds([...keys])
   const perShell: DockShellOwnerDeps = {
     worktreeForSession: async (id) => mapped.get(id) ?? [],
-    issueForCwd: (cwd) => deps.issueForCwd(cwd),
+    issueForCwd: async (cwd) => issueByKey.get(cwd) ?? null,
   }
   await Promise.all(
     shells.map(async (s) => {

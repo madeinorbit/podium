@@ -550,6 +550,19 @@ describe('operationView — the seven states', () => {
     expect(result.primary).toMatchObject({ kind: 'reload' })
   })
 
+  it('offers to restart into the new app when the app, not the page, is behind', () => {
+    // POD-5931: a 0.1.0 Podium.app joined to an upgraded server. The page is current,
+    // the operation is over, and only installing the app moves this machine.
+    const result = view(operationPayload({ state: 'done', finishedAt: NOW }), {
+      local: { behind: true, canReload: true, canInstallDesktop: true },
+      surface: 'desktop-remote',
+    })
+    expect(result.state).toBe('waiting-you')
+    expect(result.primary).toMatchObject({ kind: 'install-desktop', label: 'Restart Podium' })
+    expect(result.subtitle).toBe('Everything else is updated. This app is still on the previous build.')
+    expect(result.indicatorLabel).toBe('Restart to finish')
+  })
+
   it('renders a failure in three layers with a single Try again', () => {
     const payload = operationPayload({
       state: 'failed',

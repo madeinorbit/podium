@@ -32,10 +32,10 @@ import {
   isDurableRuntimeEvent,
   type DaemonMessage,
 } from '@podium/protocol/daemon'
-import { stateDir, loadConfig, resolveConnectBaseUrl } from '@podium/runtime/config'
+import { stateDir, loadConfig, resolveConnectBaseUrl, saveConfig } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { writeDaemonHealth } from '@podium/runtime/daemon-health'
-import { resolveServerUrl } from '@podium/runtime/connect-locator'
+import { locateDelayMs, locateServer, proveServer } from '@podium/runtime/server-follow'
 import {
   applyServerUrl,
   consumePairCode,
@@ -103,23 +103,12 @@ const PEER_HELLO_ACK_DEADLINE_MS = 10_000
 const QUEUE_DRAIN_RETRY_MS = 500
 /** Drops in a row before the link is called flapping and logged above info. */
 const FLAPPING_DROP_THRESHOLD = 3
-/**
- * Backoff an outage must sit through before the locator is asked AGAIN
- * (POD-4646). The first ask is immediate; this spaces the rest.
- *
- * Why 30 s: a rotating tunnel's replacement url does not exist at the drop.
- * The tunnel restarts, prints its url, needs a few seconds before it is
- * routable, and only then is republished — typically well inside half a
- * minute, so the second ask usually finds it. More often buys little: each
- * ask is one locator read (plus `/version` probes only for NEW urls), and a
- * fleet of stranded boxes should not hammer Connect. Less often strands a
- * box for a minute or more after its server is already reachable.
- *
- * Measured in scheduled backoff, not wall clock: each reconnect tick adds the
- * delay it armed, and real time between asks is at least that sum (dials
- * add to it, never subtract). At the 5 s backoff cap it is every sixth tick.
+/*
+ * When the locator is asked again during one outage: `locateDelayMs` in
+ * @podium/runtime/server-follow, shared with every client (POD-5921). The
+ * daemon measures it in SCHEDULED BACKOFF, not wall clock: each reconnect tick
+ * adds the delay it armed, and real time is at least that sum.
  */
-const LOCATOR_REARM_BACKOFF_MS = 30_000
 
 /**
  * How long a protocol-mismatch `podium update` may run before it is killed.
@@ -185,11 +174,13 @@ export interface DaemonConnectionDeps {
   readonly onTerminal: () => void | Promise<void>
   readonly openSocket?: (url: string) => SocketLike
   /**
-   * Fetch for the Podium Connect locator read and the candidate `/version`
-   * probes (POD-4533). Injected so tests never touch the network; production
+   * Fetch for the Podium Connect locator read and the candidates' locate
+   * proofs (POD-4533, POD-5921). Injected so tests never touch the network; production
    * uses the global fetch.
    */
   readonly locatorFetch?: typeof fetch
+  /** Jitter source for the locator schedule. Injected so tests are exact. */
+  readonly random?: () => number
   readonly restartAfterUpdate?: () => void
 }
 
@@ -289,20 +280,25 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   let closing = false
   let started = false
   /**
-   * Whether the locator was already consulted since the last successful
-   * handshake (POD-4533). The first drop of an outage asks at once — a server
+   * How many times the locator was consulted since the last successful
+   * handshake (POD-4533); it also picks the next wait in the schedule. The
+   * first drop of an outage asks at once — a server
    * transfer has already republished, so that answer is fresh. Reset on
    * `established`, so the NEXT outage asks at once again; a healthy link never
    * reaches `scheduleReconnect`, so it never resolves.
    */
-  let locatorAttemptedThisOutage = false
+  let locatorAsksThisOutage = 0
   /**
    * Backoff scheduled since the last ask in this outage (POD-4646). A rotating
-   * tunnel's new url is published AFTER the drop, so one ask is always too
-   * early: once this reaches `LOCATOR_REARM_BACKOFF_MS` the next tick asks
-   * again. Not a poll — it only advances while the link is down.
+   * tunnel's new url is published AFTER the drop, so one ask can be too early:
+   * once this reaches `locatorNextAskMs` the next tick asks again. Not a poll —
+   * it only advances while the link is down.
    */
   let locatorBackoffSinceAttemptMs = 0
+  /** How much backoff the next ask waits for; see locateDelayMs. */
+  let locatorNextAskMs = 0
+  /** Backoff scheduled since this outage began; picks fast window or slow tail. */
+  let locatorOutageMs = 0
   /** A resolution is still running; never stack a second on top of it. */
   let locatorInFlight = false
   let lastSocketError: string | undefined
@@ -497,8 +493,8 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   /**
    * THE LOCATOR RESCUE (POD-4533): find the server again through Podium
    * Connect, then dial the answer instead of the dead URL. Asked at once when
-   * an outage begins, and again after every `LOCATOR_REARM_BACKOFF_MS` of
-   * backoff while it lasts (POD-4646).
+   * an outage begins, and again on the `locateDelayMs` schedule while it
+   * lasts (POD-4646, POD-3274).
    *
    * Triggered from `scheduleReconnect` only — a failed dial on startup, or a
    * dropped link — never on a timer and never while healthy. A box paired
@@ -512,11 +508,13 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     let installationId: string | undefined
     let installationPublicKey: string | undefined
     let connectBaseUrl: string
+    let proofVerified: boolean
     try {
       const config = loadConfig()
       installationId = config.installationId
       installationPublicKey = config.installationPublicKey
       connectBaseUrl = resolveConnectBaseUrl(config, process.env)
+      proofVerified = config.connect?.locateProofVerified === true
     } catch {
       return
     }
@@ -524,12 +522,32 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     const fetchImpl = deps.locatorFetch ?? fetch
     let resolved: string | undefined
     try {
-      resolved = await resolveServerUrl({
-        installationId,
-        installationPublicKey,
+      // A candidate is adopted only once it proves it holds the installation
+      // key (POD-5921). Until this box has seen its own server answer that
+      // proof once, a server too old to know the route may still pass on its
+      // `/version` (spec §6) — the one legacy path, removed a release later.
+      resolved = await locateServer({
+        identity: { installationId, installationPublicKey },
+        currentOrigin: activeServerUrl,
         connectBaseUrl,
-        currentServerUrl: activeServerUrl,
         fetch: fetchImpl,
+        legacyVersionCheck: !proofVerified,
+        // Every address tried and refused is named, with why (POD-3274). Before,
+        // a refused candidate left no line at all, and a 60 s DNS-cache stall
+        // could only be read out of the code.
+        report: (event) => {
+          if (event.kind === 'rejected') {
+            log.warn('locator candidate rejected; keeping the configured server URL', {
+              candidate: event.url,
+              reason: event.reason,
+              serverUrl: activeServerUrl,
+            })
+          } else if (event.kind === 'no-record') {
+            log.warn('locator gave no record for this installation', { connectBaseUrl })
+          } else if (event.kind === 'no-new-address') {
+            log.info('locator still names the current server URL', { serverUrl: activeServerUrl })
+          }
+        },
       })
     } catch {
       return
@@ -558,15 +576,62 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   }
 
   /**
+   * THE END OF THE LEGACY CHECK (POD-5921, spec §6). Once per established
+   * link, until it has happened once: ask the server this box is connected to
+   * for the locate proof. The first proof that verifies is recorded as
+   * `connect.locateProofVerified`, and from then on a Connect candidate must
+   * prove itself — `/version` alone no longer moves this box. Talking to the
+   * current server only; Connect is not asked.
+   */
+  const confirmLocateProof = (): void => {
+    if (options.localLink || closing) return
+    let installationId: string | undefined
+    let installationPublicKey: string | undefined
+    try {
+      const config = loadConfig()
+      if (config.connect?.locateProofVerified === true) return
+      installationId = config.installationId
+      installationPublicKey = config.installationPublicKey
+    } catch {
+      return
+    }
+    if (!installationId || !installationPublicKey) return
+    const probed = activeServerUrl
+    void proveServer({
+      origin: probed,
+      identity: { installationId, installationPublicKey },
+      fetch: deps.locatorFetch ?? fetch,
+    })
+      .then((proof) => {
+        if (!proof.ok) {
+          log.info('server answered no locate proof yet; the legacy check stays on', {
+            serverUrl: probed,
+            reason: proof.reason,
+          })
+          return
+        }
+        const latest = loadConfig()
+        if (latest.connect?.locateProofVerified === true) return
+        saveConfig({ ...latest, connect: { ...latest.connect, locateProofVerified: true } })
+        log.info('server proved its installation key; Connect candidates must now prove it too', {
+          serverUrl: probed,
+        })
+      })
+      .catch((error) => {
+        log.warn('could not record the verified locate proof', { err: error })
+      })
+  }
+
+  /**
    * `armedDelayMs` is the backoff `scheduleReconnect` just armed. It counts
    * toward the NEXT ask, never this one: it has not elapsed yet.
    */
   const maybeResolveLocator = (armedDelayMs: number): void => {
     if (options.localLink) return
-    const due =
-      !locatorAttemptedThisOutage || locatorBackoffSinceAttemptMs >= LOCATOR_REARM_BACKOFF_MS
+    const due = locatorAsksThisOutage === 0 || locatorBackoffSinceAttemptMs >= locatorNextAskMs
     if (due && !locatorInFlight) {
-      locatorAttemptedThisOutage = true
+      locatorAsksThisOutage += 1
+      locatorNextAskMs = locateDelayMs(locatorAsksThisOutage, locatorOutageMs, deps.random)
       locatorBackoffSinceAttemptMs = 0
       locatorInFlight = true
       void attemptLocatorResolution()
@@ -578,6 +643,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
         })
     }
     locatorBackoffSinceAttemptMs += armedDelayMs
+    locatorOutageMs += armedDelayMs
   }
 
   const scheduleReconnect = (): void => {
@@ -735,8 +801,10 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     consecutiveDrops = 0
     // The outage is over: the next one resolves afresh. While this link stays
     // up `scheduleReconnect` never runs, so no resolution happens either.
-    locatorAttemptedThisOutage = false
+    locatorAsksThisOutage = 0
     locatorBackoffSinceAttemptMs = 0
+    locatorNextAskMs = 0
+    locatorOutageMs = 0
     reconnectBackoffMs = RECONNECT_MIN_MS
     lastSocketError = undefined
     log.info('daemon link established', {
@@ -753,6 +821,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       state: 'connected',
       lastHelloOkAt: new Date().toISOString(),
     })
+    confirmLocateProof()
     if (quiescedTransferId && endpointTargetUrl === activeServerUrl) {
       quiescedTransferId = undefined
       endpointTargetUrl = undefined

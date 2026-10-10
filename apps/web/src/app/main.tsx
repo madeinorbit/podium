@@ -32,6 +32,15 @@ const MotionDemo = lazy(() =>
   })),
 )
 
+// POD-5921: only a desktop window whose server did not answer at cold start shows
+// this, and that window runs the BUNDLED app, so the chunk is local — never
+// fetched from the server that is gone.
+const RemoteServerSearchPage = lazy(() =>
+  import('./RemoteServerSearchPage').then((module) => ({
+    default: module.RemoteServerSearchPage,
+  })),
+)
+
 const IterationModeFrame = import.meta.env.PODIUM_ITERATION_MODE
   ? lazy(() =>
       throughRestarts(() => import('./IterationModeFrame')).then((module) => ({
@@ -170,6 +179,10 @@ const serverTransportBlocked =
     .__PODIUM_SERVER_TRANSPORT_BLOCKED__ === true
 const serverTransportError = (globalThis as { __PODIUM_SERVER_TRANSPORT_ERROR__?: string })
   .__PODIUM_SERVER_TRANSPORT_ERROR__
+// POD-5921: the desktop shell's remote server did not answer at cold start.
+const remoteUnreachable =
+  (globalThis as { __PODIUM_REMOTE_UNREACHABLE__?: boolean }).__PODIUM_REMOTE_UNREACHABLE__ === true
+const unreachableServerUrl = (globalThis as { __PODIUM_SERVER__?: string }).__PODIUM_SERVER__
 
 // A phone reaching the desktop shell means a cached service worker beat the
 // server's redirect to it (POD-359) — send it on before mounting anything.
@@ -184,6 +197,10 @@ if (!redirectPhoneToMobileApp()) {
       <ThemeProvider>
         {serverTransportBlocked ? (
           <ServerTransportBlockedPage reason={serverTransportError} />
+        ) : remoteUnreachable && unreachableServerUrl ? (
+          <Suspense fallback={<div className="app-loading" aria-hidden="true" />}>
+            <RemoteServerSearchPage serverUrl={unreachableServerUrl} />
+          </Suspense>
         ) : payloadUnavailable ? (
           <PayloadUnavailablePage reason={payloadStartupError} />
         ) : (

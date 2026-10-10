@@ -14,8 +14,18 @@ export default defineConfig({
    * and that is a VALUE. Its only import is `./version-order`, which imports
    * nothing — two modules through the leaf, the whole wire schema through the
    * barrel.
+   *
+   * `src/server-locate.ts` (POD-5921) is the locate proof every client checks;
+   * it is its own entry and NOT in the barrel, so the follower — loaded lazily
+   * by the web app — never lands in the startup bundle through it.
    */
-  entry: ['src/index.ts', 'src/daemon.ts', 'src/update/dev-version.ts', 'src/update/refusal.ts'],
+  entry: [
+    'src/index.ts',
+    'src/daemon.ts',
+    'src/server-locate.ts',
+    'src/update/dev-version.ts',
+    'src/update/refusal.ts',
+  ],
   format: ['esm'],
   clean: true,
   sourcemap: true,

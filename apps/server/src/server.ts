@@ -1,6 +1,6 @@
 import { bootStage } from './boot-timing'
 import { readNewestTargetPromotionMetadata } from './modules/server-transfer/target-status'
-import { completePreauthorizedSetup } from './setup-enrollment'
+import { adoptLegacyHostMachine, completePreauthorizedSetup } from './setup-enrollment'
 import { requestParentEnrollment } from '@podium/runtime/parent-control'
 import { loadSupervisorState } from '@podium/runtime/machine-supervisor'
 import { readLegacyInstancePasswordHash, deleteLegacyInstancePasswordFile, hashPassword } from '@podium/runtime/auth-store'
@@ -118,7 +118,7 @@ import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './fir
 import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
 import { MobilePairingManager } from './mobile-pairing'
-import { registerMobilePairingRoutes } from './mobile-pairing-route'
+import { clientAddressForRequest, registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
 import { ConnectPublisher } from './modules/connect/publisher'
 import { controlSocketHandler } from './control-socket'
@@ -197,6 +197,7 @@ import {
   servedWebSourceDigest,
 } from './web-bundle-stamp'
 import { registerWellKnownRoute } from './well-known-route'
+import { registerLocateProofRoute } from './locate-proof-route'
 
 const log = createLogger('server:http')
 // Separate namespaces so an operator can turn the loop profiler up
@@ -340,6 +341,12 @@ export function registerVersionRoute(
      * id; an old caller passing only the id answers exactly as before.
      */
     installationPublicKey?: string
+    /**
+     * The Connect link that always lands on this server (POD-5921), while
+     * Connect publishing is on. Public like the id it is built from; `podium
+     * status` and setup print it for the operator to bookmark.
+     */
+    stableLink?: () => string | undefined
     /**
      * The grade of the visibility policy this server actually runs (POD-376).
      * ON THE PRE-BOOT PROBE, and that placement is the decision. The client must
@@ -509,6 +516,7 @@ export function registerVersionRoute(
         ? { installationPublicKey: deps.installationPublicKey }
         : {}),
       ...(deps.appUrl?.() ? { appUrl: deps.appUrl() } : {}),
+      ...(deps.stableLink?.() ? { stableLink: deps.stableLink() } : {}),
       feedScoping: deps.visibilityGrade?.() ?? 'device-unscoped',
       daemonConnected,
       components,
@@ -659,16 +667,20 @@ export async function startServer(
   // Keeps Connect's record of where this server is reachable current. Started
   // once the listener is up (below); reads PODIUM_CONNECT and the public URL
   // per tick, so both land without a restart. The base URL is a boot fact.
+  // The address this server claims: what the Connect publisher sends and what
+  // the locate proof signs over (POD-5921) — one reader, so the two never differ.
+  const claimedPublicUrl = (): string | undefined =>
+    serverMoveDataPlaneDeferred ? undefined : resolvePublicUrl(loadConfig(), process.env)
   const connectPublisher = new ConnectPublisher({
     client: connectClient({
       baseUrl: resolveConnectBaseUrl(config, process.env),
       identity: () => installation,
     }),
     identity: () => installation,
-    publicUrl: () =>
-      serverMoveDataPlaneDeferred ? undefined : resolvePublicUrl(loadConfig(), process.env),
+    publicUrl: claimedPublicUrl,
     enabled: () => store.settings.resolve('connectEnabled').value,
     log: createLogger('server:connect'),
+    baseUrl: resolveConnectBaseUrl(config, process.env),
   })
   const updateSigningKey = readOrCreateUpdateSigningKey(stateDir(), {
     allowCreate: !recoveryOnly && (await store.machines.listMachines()).length === 0,
@@ -813,6 +825,8 @@ export async function startServer(
       const stagedHash = readLegacyInstancePasswordHash()
       const passwordHash = stagedHash ?? (process.env.PODIUM_PASSWORD ? await hashPassword(process.env.PODIUM_PASSWORD) : undefined)
       const receipt = await completePreauthorizedSetup(store, installation.installationId, setupRequest, passwordHash)
+        // A host upgraded from 0.1.0 staged this request to re-key its legacy row (POD-5931).
+        ?? await adoptLegacyHostMachine(store, installation.installationId, setupRequest)
       if (receipt) {
         // Credential activation and enrollment committed together. Files and parent RPC happen afterwards.
         if (stagedHash && receipt.actor && (await store.users.credentialFor(receipt.actor))?.passwordHash === stagedHash) deleteLegacyInstancePasswordFile()
@@ -1405,6 +1419,15 @@ export async function startServer(
       ...resolveConnectProbeKeys(loadConfig(), process.env),
     ],
   })
+  // The locate proof (POD-5921): a client that found this address through
+  // Connect checks it is this installation before it reconnects here. Public,
+  // wildcard-CORS, rate-limited; beside the reachability answer, before auth.
+  registerLocateProofRoute(app, {
+    identity: () => installation,
+    publicUrl: claimedPublicUrl,
+    clientAddress: (request) =>
+      clientAddressForRequest(request, requestPeerAddresses.get(request), trustedProxyHops),
+  })
   devPublisher.registerRoute(app)
   let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined
   let syncWorker: SyncWorkerClient | undefined
@@ -1432,6 +1455,7 @@ export async function startServer(
     instanceId,
     installationId: installation.installationId,
     installationPublicKey,
+    stableLink: () => connectPublisher.stableLink(),
     appUrl: () => resolveAppUrl(loadConfig(), process.env),
     appVersion: () => appVersion,
     sourceDigest: serverBuildSourceDigest,

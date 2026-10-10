@@ -89,6 +89,23 @@ export function loadCheckIdentity(dir: string = stateDir()): InstallationIdentit
 }
 
 /**
+ * Wait (bounded) for this box's installation identity. The server mints it on its first
+ * boot, and setup checks reachability right after starting that server — so on a fresh
+ * install the identity appears a moment after the check would otherwise look for it.
+ * Resolves either way; {@link realCheckReachability} still answers "could not ask" when
+ * it never appeared.
+ */
+export async function waitForCheckIdentity(
+  timeoutMs = 20_000,
+  dir: string = stateDir(),
+): Promise<void> {
+  const deadline = Date.now() + timeoutMs
+  while (!loadCheckIdentity(dir) && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+}
+
+/**
  * Probe `url` from the outside via Podium Connect, with a spinner while the
  * request is in flight. `undefined` = no opinion (see above); anything else is
  * the cloud's verbatim answer for the flow to react to.
@@ -96,12 +113,14 @@ export function loadCheckIdentity(dir: string = stateDir()): InstallationIdentit
 export async function realCheckReachability(
   url: string,
   io: SetupIO,
+  opts: { waitForIdentityMs?: number } = {},
 ): Promise<CheckResult | undefined> {
   try {
     if (!resolveConnectEnabled()) return undefined
   } catch {
     return undefined
   }
+  if (opts.waitForIdentityMs) await waitForCheckIdentity(opts.waitForIdentityMs)
   const identity = loadCheckIdentity()
   if (!identity) return undefined
   let baseUrl: string
@@ -117,6 +136,6 @@ export async function realCheckReachability(
   } catch {
     return undefined
   } finally {
-    spin.stop()
+    spin.stop('Asked Podium Connect to reach it from the outside.')
   }
 }
