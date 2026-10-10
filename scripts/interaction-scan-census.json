@@ -2644,6 +2644,44 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work. Picker capture/reopen and 1x/4x heartbeat isolation are checked in picker-order.test.ts and CommandPalette.runtime.test.tsx; this entry retains its prior classification."
     },
     {
+      "file": "apps/web/src/app/command-launch-data.ts",
+      "holder": "useCommandSessions",
+      "rule": "reader-summary",
+      "tokens": "e7c15089040328fba37555a562637ed96dbcf69296e2c95f18d2d1c367b5f52b",
+      "gate": [],
+      "origin": [
+        "ac84224970aad63af67073a85647f6a373bf5cbfe207b934ceb0f4b3a42d0476"
+      ],
+      "fingerprint": "bd82e44e01651fd2b18db301f716670a892663275de0aefc6f4316387ee048f3",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of useCommandSessions",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "The lazy source registry makes the existing command session catalogue reader visible to the scanner. Its commandSessions membership and browsing work are unchanged; this model migration establishes no new collection bound.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/app/command-launch-readers.ts",
+      "holder": "readSessions/callback",
+      "rule": "zero-arg:sessions",
+      "tokens": "cac36c6b413dea92591f7b59d7946a72801c8fca6135ea4ee25fda1a4db214cc",
+      "gate": [
+        "then:1934f2422efcba6133960245b63718fdc5a5e68dc8914644e32bc62645562b87"
+      ],
+      "origin": [
+        "ac84224970aad63af67073a85647f6a373bf5cbfe207b934ceb0f4b3a42d0476"
+      ],
+      "fingerprint": "6ed65d0ebfff300eb1b0428783edd38cdd365baa9cbcbd885458ed16e01fd33f",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "Invocation of readSessions/callback",
+      "bound": "No proven named-demand or cardinality cap for this collection path.",
+      "reason": "The lazy source registry makes the existing command session catalogue reader visible to the scanner. Its commandSessions membership and browsing work are unchanged; this model migration establishes no new collection bound.",
+      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
       "file": "apps/web/src/app/flight-deck-waterfall.ts",
       "holder": "waterfallTimelineStart",
       "rule": "loop:for-of",
