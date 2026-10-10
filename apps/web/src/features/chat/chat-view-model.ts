@@ -56,6 +56,7 @@ export class ChatViewModel {
   @actionBound setDraft(text: string): void { this.conversation.pool.sessionObject(this.conversation.sessionId).setMessageDraft(text) }
   @lazy get preview() { return this.conversation.preview }
   @lazy get overlay() { return this.headless ? this.conversation.headless : null }
+  @lazy get overlayStatus() { return this.overlay?.status }
   @lazy get loadingOlder(): boolean { return this.conversation.transcript.loadingOlder }
   @lazy get transcriptFreshness() { return this.conversation.transcript.freshness }
   @lazy get offlineAsOf() { return this.conversation.transcript.offlineAsOf }

@@ -1,4 +1,5 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import type { SessionModel } from '@podium/client-graph/models'
 import type {
   ChatActivity,
   ChatBlock,
@@ -157,8 +158,10 @@ export function turnPosition(row: ChatRow): TurnPosition | undefined {
   return undefined
 }
 
-export function queueIsBlocked(session: SessionView | undefined): boolean {
-  return session?.agentState?.phase === 'errored' && session.agentState.error?.retryable === false
+export function queueIsBlocked(session: SessionView | SessionModel | undefined): boolean {
+  const phase = session && 'agentPhase' in session ? session.agentPhase : session?.agentState?.phase
+  const error = session && 'agentError' in session ? session.agentError : session?.agentState?.error
+  return phase === 'errored' && error?.retryable === false
 }
 export function queuePositionSuffix(position: number | undefined): string {
   return typeof position === 'number' && Number.isInteger(position) && position > 0
@@ -167,10 +170,12 @@ export function queuePositionSuffix(position: number | undefined): string {
 }
 
 export function queuedDeliveryLabel(
-  session: SessionView | undefined,
+  session: SessionView | SessionModel | undefined,
   position?: number,
 ): string {
-  const error = queueIsBlocked(session) ? session?.agentState?.error : undefined
+  const error = queueIsBlocked(session)
+    ? session && 'agentError' in session ? session.agentError : session?.agentState?.error
+    : undefined
   if (error) {
     const instruction = agentErrorRecoveryInstruction(error).replace(/\.$/, '')
     return `blocked · ${formatAgentError(error)} — ${instruction} to send${queuePositionSuffix(position)}`
@@ -797,8 +802,8 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           feed's permanent last child it avoids bottom-geometry churn. */}
         <Observer>{() => {
           const activity = props.chat?.view.activity ?? props.activity
-          const overlay = props.chat?.view.headless ? props.chat.view.overlay : props.overlay
-          const tailActivity = overlay?.status ? { tone: 'working' as const, label: overlay.status } : activity ?? null
+          const overlayStatus = props.chat ? props.chat.view.overlayStatus : props.overlay?.status
+          const tailActivity = overlayStatus ? { tone: 'working' as const, label: overlayStatus } : activity ?? null
           const session = props.chat?.view.session ?? props.session
           const lastRow = props.chat?.view?.presentation.tailRow(rows[rows.length - 1]?.row) ?? rows[rows.length - 1]?.row
           const questionOwnsAttention = (livePendingAskIndex >= 0 || pendingAskBlock !== null) && activity?.tone === 'attention'
@@ -807,7 +812,7 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           {(phase === 'ready' || tailActivity?.tone === 'working') && !questionOwnsAttention && (
             <TranscriptTail
               activity={tailActivity}
-              since={session?.agentState?.since}
+              since={props.chat ? props.chat.view.session?.agentSince : session?.agentState?.since}
               session={session}
               lastRow={lastRow}
             />

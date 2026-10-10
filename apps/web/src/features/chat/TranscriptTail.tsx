@@ -1,4 +1,6 @@
 import type { SessionView } from '@podium/client-core/session-values'
+import type { SessionModel } from '@podium/client-graph/models'
+import { observer } from 'mobx-react-lite'
 import {
   type ChatActivity,
   type ChatRow,
@@ -106,13 +108,15 @@ function dependencyKind(toolName: string | undefined): 'shell' | 'agent' | undef
  * already built and the runtime's existing subagent facts, with no parser or
  * protocol changes.
  */
+type TailSession = SessionView | SessionModel
+
 export function transcriptTailState(
   activity: ChatActivity | null,
-  session: SessionView | undefined,
+  session: TailSession | undefined,
   lastRow: ChatRow | undefined,
   since?: string | undefined,
 ): TranscriptTailState | null {
-  const fallbackSince = session?.agentState?.since ?? since
+  const fallbackSince = (session && 'agentSince' in session ? session.agentSince : session?.agentState?.since) ?? since
   // THE HAND-OFF IS ALREADY THE TURN (POD-993). The optimistic YOU bubble
   // records delivery, and this is the mark under it: the moment the operator
   // presses send, the feed shows their message and something breathing beneath
@@ -135,9 +139,8 @@ export function transcriptTailState(
       }
       if (unresolved && dependency === 'agent') {
         const count =
-          session?.agentState?.nativeSubagentCount ??
-          session?.agentState?.nativeSubagents?.length ??
-          1
+          session && 'agentNativeSubagentCount' in session ? session.agentNativeSubagentCount :
+            session?.agentState?.nativeSubagentCount ?? session?.agentState?.nativeSubagents?.length ?? 1
         return {
           mode: 'wait',
           label: count === 1 ? 'Waiting on 1 agent' : `Waiting on ${count} agents`,
@@ -200,7 +203,7 @@ function coarseElapsed(ms: number): string {
   return m < 60 ? `${m}m` : `${Math.floor(m / 60)}h ${m % 60}m`
 }
 
-export function TranscriptTail({
+export const TranscriptTail = observer(function TranscriptTail({
   activity,
   since,
   session,
@@ -211,7 +214,7 @@ export function TranscriptTail({
   /** When the agent last changed phase — the origin for every figure here. */
   since?: string | undefined
   /** Runtime detail used to name subagent dependencies without parser work. */
-  session?: SessionView | undefined
+  session?: TailSession | undefined
   /** The visible tail row supplies the active tool's own subject. */
   lastRow?: ChatRow | undefined
 }): JSX.Element | null {
@@ -289,4 +292,4 @@ export function TranscriptTail({
       <span className="feed-tail-rule" aria-hidden="true" />
     </div>
   )
-}
+})

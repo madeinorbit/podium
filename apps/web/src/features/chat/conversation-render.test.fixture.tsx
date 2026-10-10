@@ -21,6 +21,7 @@ export class WebConversation extends Conversation {
       activity: null,
       get preview() { return conversation.preview },
       get overlay() { return conversation.headless },
+      get overlayStatus() { return conversation.headless?.status },
       get pending() {
         return conversation.sends.bubbles
       },

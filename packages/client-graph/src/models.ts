@@ -796,6 +796,9 @@ export class SessionModel extends EntityModel {
   @lazy get agentSince(): string | undefined { return this.agentState?.since }
   @lazy({ equals: compareStructural }) get agentError() { return this.agentState?.error }
   @lazy({ equals: compareStructural }) get agentNeed() { return this.agentState?.need }
+  @lazy get agentNativeSubagentCount(): number {
+    return this.agentState?.nativeSubagentCount ?? this.agentState?.nativeSubagents?.length ?? 1
+  }
 
   // Stored session document, published by Draft Sync v2 rather than the meta feed.
   @lazy get messageDraft(): string { return this.host.sessionDrafts?.get(asSessionId(this.id)) ?? '' }
