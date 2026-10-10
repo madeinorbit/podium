@@ -59,7 +59,7 @@ describe('NewAutomationDialog edit mode', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
     await waitFor(() => expect(update).toHaveBeenCalledExactlyOnceWith({ id: record.id, patch: { name: 'Saved sweep' } }))
   })
-  it('prefills the exact schedule and updates the existing automation', async () => {
+  it('prefills the exact schedule and skips an unchanged save', async () => {
     const onSaved = vi.fn()
     render(
       <NewAutomationDialog
@@ -84,25 +84,8 @@ describe('NewAutomationDialog edit mode', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
 
-    await waitFor(() =>
-      expect(update).toHaveBeenCalledWith({
-        id: asAutomationId('aut_1'),
-        patch: {
-          name: 'Nightly sweep',
-          repoPath: '/repos/podium',
-          scheduleKind: 'cron',
-          cron: '*/15 * * * *',
-          runAt: null,
-          targetSessionId: null,
-          agentKind: 'codex',
-          model: 'auto',
-          effort: 'auto',
-          prompt: 'Run the suite.',
-          enabled: false,
-          sessionMode: 'resume',
-        },
-      }),
-    )
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1))
+    expect(update).not.toHaveBeenCalled()
     expect(create).not.toHaveBeenCalled()
     expect(onSaved).toHaveBeenCalledTimes(1)
   })
@@ -120,6 +103,7 @@ describe('NewAutomationDialog edit mode', () => {
       prompt: 'Continue overnight.',
       nextRunAt: runAt,
     }
+    const onSaved = vi.fn()
     render(
       <NewAutomationDialog
         trpc={
@@ -132,7 +116,7 @@ describe('NewAutomationDialog edit mode', () => {
         }
         automation={oneOff}
         onClose={vi.fn()}
-        onSaved={vi.fn()}
+        onSaved={onSaved}
       />,
     )
 
@@ -143,24 +127,8 @@ describe('NewAutomationDialog edit mode', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Save changes' }))
 
-    await waitFor(() =>
-      expect(update).toHaveBeenCalledWith({
-        id: asAutomationId('aut_once'),
-        patch: {
-          name: 'Overnight continuation',
-          repoPath: '/repos/podium',
-          scheduleKind: 'once',
-          cron: null,
-          runAt,
-          targetSessionId: asSessionId('sess_sleeping'),
-          agentKind: 'codex',
-          model: 'auto',
-          effort: 'auto',
-          prompt: 'Continue overnight.',
-          enabled: true,
-          sessionMode: 'resume',
-        },
-      }),
-    )
+    await waitFor(() => expect(onSaved).toHaveBeenCalledTimes(1))
+    expect(update).not.toHaveBeenCalled()
+    expect(create).not.toHaveBeenCalled()
   })
 })
