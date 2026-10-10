@@ -31,13 +31,13 @@ export class RepositoryModel extends EntityModel {
 export interface RepositoryModel extends Readonly<GitRepositoryWire> {}
 
 function record(schema: ModelSchemaName, arrivesOn: RowArrival, key: string,
-  fields: Readonly<Record<string, FieldSpec['type']>>, optional: readonly string[] = []): EntitySpec {
+  fields: Readonly<Record<string, FieldSpec['type']>>, optional: readonly string[] = [], nullable: readonly string[] = []): EntitySpec {
   return {
     key, components: {}, relations: {},
     cold: { kind: 'never', why: 'Only the requested working set is resident in the principal-owned pool.' },
     why: 'One shared identity for a public requested record.',
     fields: Object.fromEntries(Object.entries(fields).map(([property, type]) => [property, {
-      type, ...(optional.includes(property) ? { optional: true } : {}), source: { schema, arrivesOn },
+      type, ...(optional.includes(property) ? { optional: true } : {}), ...(nullable.includes(property) ? { nullable: true } : {}), source: { schema, arrivesOn },
     }])),
   }
 }
@@ -63,13 +63,17 @@ registerModels({
   member: record('MemberView', 'request:members.list', 'id', {
     id: 'id', displayName: 'string', email: 'string', role: 'string', accountId: 'id', avatar: 'string',
     createdAt: 'isoDate', disabledAt: 'isoDate',
-  }, ['accountId', 'avatar', 'createdAt', 'disabledAt']),
+  }, ['accountId', 'avatar', 'createdAt', 'disabledAt'], ['email', 'accountId', 'avatar', 'disabledAt']),
   device: record('MobileClientSession', 'request:auth.mobileSessions', 'sessionId', {
     sessionId: 'id', userId: 'id', label: 'string', deviceId: 'id', deviceName: 'string', platform: 'enum',
     createdAt: 'isoDate', expiresAt: 'isoDate', lastSeenAt: 'isoDate', current: 'boolean',
-  }),
+  }, [], ['lastSeenAt']),
   podiumSettings: settings,
-  repository: record('GitRepositoryWire', 'engine:repos', 'path', {
-    path: 'string', kind: 'enum', branch: 'string', originUrl: 'string', repoId: 'id', machineId: 'id', worktrees: 'object',
-  }, ['branch', 'originUrl', 'repoId', 'machineId']),
+  repository: (() => {
+    const scan = record('GitRepositoryWire', 'engine:repos', 'id', {
+      path: 'string', kind: 'enum', branch: 'string', originUrl: 'string', repoId: 'id', machineId: 'id', worktrees: 'object',
+    }, ['branch', 'originUrl', 'repoId', 'machineId'])
+    // Per-machine scans use the source's identity, independent of their path.
+    return { ...scan, fields: { ...scan.fields, id: { type: 'id', source: { schema: 'RequestRecordKey', arrivesOn: 'engine:repos' } } } }
+  })(),
 }, { account: AccountModel, member: MemberModel, device: DeviceModel, podiumSettings: PodiumSettingsModel, repository: RepositoryModel })
