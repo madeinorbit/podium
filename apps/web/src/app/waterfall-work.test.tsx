@@ -54,9 +54,11 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
+// happy-dom's layout/RAF work uses real timers; only the clock step is faked.
+const realSetTimeout = globalThis.setTimeout
 const settle = async () => {
   await act(async () => {
-    await vi.advanceTimersByTimeAsync(40)
+    await new Promise((resolve) => realSetTimeout(resolve, 40))
   })
 }
 
@@ -238,7 +240,7 @@ describe('elements waterfall viewport', () => {
         const tick = await measureWork(
           async () =>
             insideReader('waterfall.minute', async () => {
-              await act(async () => vi.advanceTimersByTimeAsync(60000))
+              await act(async () => vi.advanceTimersByTime(60000))
             }),
           { pool: f.pool },
         )
@@ -267,7 +269,7 @@ describe('elements waterfall viewport', () => {
         const pastWidth = liveLane.style.getPropertyValue('--waterfall-width')
         const pastTick = await measureWork(
           async () => {
-            await act(async () => vi.advanceTimersByTimeAsync(60000))
+            await act(async () => vi.advanceTimersByTime(60000))
           },
           { pool: f.pool },
         )
