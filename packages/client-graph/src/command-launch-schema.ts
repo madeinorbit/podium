@@ -7,9 +7,9 @@ import type { WorktreeView } from '@podium/client-core/values'
 export interface CommandLaunchRows {
   commandWindow: Pick<Store, 'paletteOpen' | 'pins' | 'selectedIssueId' | 'openIssueId' | 'selectedWorktree' | 'paneA' | 'recentFiles' | 'sidebarSettings'> & Partial<Pick<Store, 'reposLoaded'>>
   commandCatalog: { repositories: readonly string[]; repos: readonly string[]; worktrees: readonly string[]; machines: readonly string[]; issues: readonly string[]; sessions: readonly string[] }
-  commandRepository: Store['repos'][number] & { groupId: string; linked: boolean }
+  commandRepository: Pick<Store['repos'][number], 'path' | 'machineId'> & { groupId: string; linked: boolean }
   commandRepo: { id: string }
-  commandWorktree: WorktreeView & { repositoryId: string; groupId: string }
+  commandWorktree: Pick<WorktreeView, 'path'> & { repositoryId: string; groupId: string }
   commandMachine: Store['machines'][number]
   commandIssue: SliceIssue
 }
