@@ -248,6 +248,24 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
+      "file": "apps/mobile/src/client/use-session-context.ts",
+      "holder": "mobileConversationPorts/records/subscribe/callback/reaction:callback",
+      "rule": "consume:map",
+      "tokens": "510f6e687e4010a0c7f57de2c7cd23735a231fc8ed20eaa4665b790661319c0b",
+      "gate": [],
+      "origin": [
+        "3b19f43357c3b801cf8917e2dbcfc994674c4172259ebf6bce1def2e64963c67"
+      ],
+      "fingerprint": "c8e79f254816c2e0cc3a9b553da18b96b6f36372f885c141c1f824c72ff89499",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "The selected conversation observes its session message window.",
+      "bound": "One session message membership; the existing conversation feed has no newly proven cardinality cap.",
+      "reason": "Moving facts into shared models preserves the selected-session traversal and its existing collection-bound debt. The standalone fallback makes one linear pass; shipped readers use addressed pool model reads.",
+      "guard": "Exact fingerprint and multiplicity only. Sends and phone-reader parity tests verify behavior; they do not establish a new feed cardinality bound."
+    },
+    {
       "file": "apps/mobile/src/components/ConfiguredIssueLaunchSheet.tsx",
       "holder": "ConfiguredIssueLaunchSheet/start/callback",
       "rule": "helper-consumer",
@@ -876,6 +894,26 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/mobile/src/components/SessionConversation.tsx",
+      "holder": "SessionConversation/model/useConversation:callback/sends/messageRecords/ingest/callback",
+      "rule": "helper-consumer",
+      "tokens": "04548263be4e0b6f21d32790fe3109f5f2275ad5fdc736e1e8968c046e91bc23",
+      "gate": [
+        "then:986f690ce3c4f8741f4341d67936aa814b16cd92511eb5fce83f5e04a025a80b"
+      ],
+      "origin": [
+        "9a9140ec798ba5ed9accfdce3a66537d4a2e589273a5eb95b0ed545355592641"
+      ],
+      "fingerprint": "826137dae0fa9ad01e0023e12b266a0acdd3d35702fcab9166f46195b79f3f2c",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "Sends completes its addressed catch-up lookup for held local turns.",
+      "bound": "Only the returned message-record request batch is installed; no screen-specific record cache is added.",
+      "reason": "The request records enter the same message table that replica ingestion and the ledger use.",
+      "guard": "sends.test.ts and message-models.test.ts cover catch-up parity, shared identity, and current-replica precedence."
     },
     {
       "file": "apps/mobile/src/hooks/usePendingQuestion.ts",
@@ -4759,13 +4797,13 @@
         "exit:then:2a9160b19112a59c7b44e568540986db57a63545f1718707ed26b3ea3dbe9c22",
         "exit:then:7bfb3344dbaea3cdaa21f524bc923bcbd20abdf6b8811e30d62ec3214f8e6e2f",
         "exit:then:428b96db192d1298d116f9c9c4b57e996d06a4e69ae24c5435497bd0edb495c4",
-        "exit:then:ba29f097750b237e5e7f6c15767909430764e037b261f12dac5a9d97c58b3b04",
+        "exit:then:e82337a88dd2afaf4cf2be374271c7fd2142eac707299f2aefad350874c38c8b",
         "exit:then:1f514a0dff4fa91030eabaff13a4dd5cf7302b10a2151aac0ef27d498360df90"
       ],
       "origin": [
-        "61a891836489df421d8a7033b5c0f15c439c273e5e688e516fb082699530e816"
+        "b85a9adf168daeb3bdba35651551d8dcda37a4e9fc4779afbda474574df2ab60"
       ],
-      "fingerprint": "3433d3d70e882b4eaa0e118dee4155f2d2d43d92c2a00e152fbf65c2a197139b",
+      "fingerprint": "a79c9a6543b8f94f8c9185f3383ccff6ef42a16b061b5a66e67abce6f2591809",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4778,14 +4816,14 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "createWebConversation/sends/deliver/callback/composer",
       "rule": "helper-consumer",
-      "tokens": "49bf61a43fbd26d45af68c6ad69ac9587233d2a4d2f600f0d7d373f90a9e78b3",
+      "tokens": "69731a152b67fc094c1af9cc586a6a599dcb359c2ee6f1c75770e97a20e960ad",
       "gate": [
-        "exit:then:ba29f097750b237e5e7f6c15767909430764e037b261f12dac5a9d97c58b3b04"
+        "exit:then:e82337a88dd2afaf4cf2be374271c7fd2142eac707299f2aefad350874c38c8b"
       ],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "7c68f0e3d72ce07685b80f76303e015b994df167de24c65c5e189cd69ba10c05",
+      "fingerprint": "8cb8c08cce444f4545e166ce4bbb082edbe8026c494a5d7d9a8f6e083b0e15e2",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4798,12 +4836,12 @@
       "file": "apps/web/src/features/chat/use-conversation.ts",
       "holder": "useConversation/conversation/useOwnedConversation:callback",
       "rule": "reader-summary",
-      "tokens": "8ebbfd5d50c7f309f654a122d2705704c74c91c5d4f39ab5442df676ddd17a95",
+      "tokens": "449253daa56c10a81edcf46804a0226b4db623c25654ae4ad9f74199c43fb5d1",
       "gate": [],
       "origin": [
         "adfc80928fa7e8f33d73591c8c752a6ec1006cdeb81b7b8014d0d4921ac12d7c"
       ],
-      "fingerprint": "48a9b55dbddae694781dbd202e421e16447bf4a924c3ac6b557c47b2d6def59d",
+      "fingerprint": "cec908acc386d397ab1e0e27148d4eef65403317848ae5fba7c5a9f407312c52",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -4811,6 +4849,26 @@
       "bound": "One session identity is acquired; initialization may restore all held sends for that session and has no new collection cap.",
       "reason": "The web Conversation migration moves ownership and preserves existing collection-taint debt; this record makes no claim that generic context construction or delivery is bounded.",
       "guard": "Exact fingerprint and multiplicity remain enforced. conversation-renders.test.tsx and conversation-sends.optimistic.test.ts cover migrated observation and delivery behavior, not a new collection bound."
+    },
+    {
+      "file": "apps/web/src/features/chat/use-conversation.ts",
+      "holder": "createWebConversation/sends/messageRecords/ingest/callback",
+      "rule": "helper-consumer",
+      "tokens": "13011b5281c4f430ca395cfe6bb57635b0485a60c7284cc5d1286d4fc94641e4",
+      "gate": [
+        "else:b324373e6dc9a92f7b216cd4c94e835a9b0a35fb5d91fe38a7e84bd9c31844c2"
+      ],
+      "origin": [
+        "f35ca1ac5b529731036a460163188e2ea02ab9db6a795d238e8e7b30973ae32f"
+      ],
+      "fingerprint": "403f581e5dd2088896dc934c1d1c0d3e9dbd4004198fb9b9eeffc87781a5909f",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "Sends completes its addressed catch-up lookup for held local turns.",
+      "bound": "Only the returned message-record request batch is installed; no screen-specific record cache is added.",
+      "reason": "The request records enter the same message table that replica ingestion and the ledger use.",
+      "guard": "sends.test.ts and message-models.test.ts cover catch-up parity, shared identity, and current-replica precedence."
     },
     {
       "file": "apps/web/src/features/cost/task-cost-model.ts",
@@ -13318,14 +13376,14 @@
       "file": "apps/web/src/test-support/mock-command-launch.ts",
       "holder": "useCommandFixture/fixture/useMemo:callback/update",
       "rule": "helper-consumer",
-      "tokens": "b5abb735c327ce4c5bb8e9bda018e429f298a9797da58377bbc3c417b89b68fc",
+      "tokens": "1b9a4ae29257fee8996e62835efab33097d1537e85b210d194e5bf77b96949b6",
       "gate": [
         "then:eff1e4bdcf1cd7260f17e8ca3557da804e743d40432de0b2244318508856ffcd"
       ],
       "origin": [
         "cf44a3aa9ea523c1d5954e1cced32d2e05662a456e8b13721e575aedad13bd10"
       ],
-      "fingerprint": "abb02a3088c3a505335b6dc015436a0fabb1e5deea4e7c5e4c0d89d86b9c21cb",
+      "fingerprint": "268f4f6dde81e1696f173a82f0b898d17b0beef00b73dfca3690f48204f077cf",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -15677,7 +15735,7 @@
       "file": "apps/web/src/test-support/pool-fixture.ts",
       "holder": "syncPoolFixture",
       "rule": "helper-consumer",
-      "tokens": "567ca56160d17f461214668f83696c6a10e5c09f36538fcef46c1a065354ee61",
+      "tokens": "28c6080b600fce24e03ea0be1c4a286d8de6e747d9697fcc87ab8e538abf2223",
       "gate": [
         "then:06220bc81cd248fb56e99efd8bf9eecb82cdddeb1827556cfab84507c375e49f"
       ],
@@ -15685,7 +15743,7 @@
         "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
         "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd"
       ],
-      "fingerprint": "eef44c372a4720acc4ec090359cf7efcaea4ff14ef5cf025ce217d4be5e103be",
+      "fingerprint": "035fdf16d2c72b8709ad97c9e15e1c92744ec6ee20c6492f2970dc8c0ead052a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -16191,118 +16249,40 @@
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
-      "file": "packages/client-core/src/conversation/projection.ts",
-      "holder": "fromRecord",
-      "rule": "spread",
-      "tokens": "a095c760c57103c79e52197bdf387c9ceb4e29deff5272fb50bf9568f6e4247c",
+      "file": "packages/client-core/src/conversation/model-test-support.ts",
+      "holder": "createSendsFixture/messageRecords/ingest/action:callback",
+      "rule": "loop:for-of",
+      "tokens": "3cd6fae0ef527a2f2d0f56bff2cc6b5ad1e96b71fa7aa85ee874c913f42b36d3",
       "gate": [],
       "origin": [
-        "1c8b0aed19aed1434af45cc216c2bf4e3a587554aa82f0a5c27a1687d576b740"
+        "3ca918e075021d69712557ec4a329afb64fb79cbdd495ecb3e8280df5cc54861"
       ],
-      "fingerprint": "672932cd28e4a1ccdf0bc90108c2fbee7464c82ab33949c36835e69bdc01ae14",
+      "fingerprint": "b37300e4c3a559e39d1455694976c1b42460147d6a045f6ee3e3a7483f0028bd",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of fromRecord",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "Sends completes its addressed catch-up lookup for held local turns.",
+      "bound": "Only the returned message-record request batch is installed; no screen-specific record cache is added.",
+      "reason": "The request records enter the same message table that replica ingestion and the ledger use.",
+      "guard": "sends.test.ts and message-models.test.ts cover catch-up parity, shared identity, and current-replica precedence."
     },
     {
-      "file": "packages/client-core/src/conversation/projection.ts",
-      "holder": "fromRecord",
-      "rule": "spread",
-      "tokens": "bb3e9a043d1d5dbb7fc9cd27ca42da5d6b2d544bdf7baf5f4d32a76fcd2daf72",
+      "file": "packages/client-core/src/conversation/model-test-support.ts",
+      "holder": "createSendsFixture/messageRecords/read/callback",
+      "rule": "consume:find",
+      "tokens": "c12f60cb8d9cf8a16124e49aad9e7880a70e390a071f4862a97f2c3fddff71ea",
       "gate": [],
       "origin": [
-        "1c8b0aed19aed1434af45cc216c2bf4e3a587554aa82f0a5c27a1687d576b740"
+        "16ca021922302621f847e8b9a4556601e3289c4d96289a0f6ab2430ee8535c5c"
       ],
-      "fingerprint": "8cedc3a27f6597f002337b2eebde23150ffdc16e0b8d97f9d586c92520a1aeb0",
+      "fingerprint": "3ec56e19112092b80a34ed91e20deb632b686ab7697aca107babe8ee96e3ecb4",
       "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of fromRecord",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/conversation/projection.ts",
-      "holder": "fromRecord/error",
-      "rule": "reader-summary",
-      "tokens": "ccd42ec7e1f83b52e224ae102b1f1663bebd399c3d5773d68623a8748ae25475",
-      "gate": [
-        "then:4cb297acfb3c1ec13512ec57e583ddd326c39a524fe0071ba005e9ae3b39267d"
-      ],
-      "origin": [
-        "1c8b0aed19aed1434af45cc216c2bf4e3a587554aa82f0a5c27a1687d576b740"
-      ],
-      "fingerprint": "e97fefd7604f2035f78fcd3de71effd96d1e8b309bc1dfd19f772e6e5c86131f",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of fromRecord/error",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/conversation/projection.ts",
-      "holder": "fromRecord/files",
-      "rule": "consume:map",
-      "tokens": "106dc1d803aaada41e63a48322471d70da52a4ae1b85bae4f922d9af29a5cf03",
-      "gate": [
-        "then:bbbe909ce257be8fd2ec6e27abbb294f7b337a473df7dd9896b042fe888c8322"
-      ],
-      "origin": [
-        "1c8b0aed19aed1434af45cc216c2bf4e3a587554aa82f0a5c27a1687d576b740"
-      ],
-      "fingerprint": "5a1b9c41419124be5d442460fd69fe99cef67a77b2f755c30682853f698b0264",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of fromRecord/files",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/conversation/projection.ts",
-      "holder": "fromRecord/record",
-      "rule": "spread",
-      "tokens": "c08b719567482d85c26f55017e0ae1e7789761282b315d0ef92599e16edd6e10",
-      "gate": [
-        "else:f3586e20db39260ab97c26584f2912519a7a76e4e9f5f27fb335c42cd3c48824"
-      ],
-      "origin": [
-        "1c8b0aed19aed1434af45cc216c2bf4e3a587554aa82f0a5c27a1687d576b740"
-      ],
-      "fingerprint": "1f34f96223f8199e60eb15f8dd6e6ae3b580c3c9a3ad01f82480ce8670986289",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of fromRecord/record",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "spread carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/conversation/projection.ts",
-      "holder": "fromRecord/retractable",
-      "rule": "reader-summary",
-      "tokens": "5ec4e81bb881685b369b1ab0c549caff1a3caaf88ab1168eb78e001775769349",
-      "gate": [],
-      "origin": [
-        "1c8b0aed19aed1434af45cc216c2bf4e3a587554aa82f0a5c27a1687d576b740"
-      ],
-      "fingerprint": "fc5144230a63a2dc423090f0fcbf6c8529ec6c8db266cdf5bedb97f65817316d",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of fromRecord/retractable",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+      "classification": "bounded local work",
+      "owner": "POD-5869",
+      "trigger": "A hermetic Sends test fixture reads or installs its supplied records.",
+      "bound": "The explicit finite fixture record array and returned lookup batch; this helper is test support and has no shipped reader.",
+      "reason": "The fixture provides the shared-record port without modifying existing behavior assertions.",
+      "guard": "sends.test.ts exercises all existing fixture behavior unchanged."
     },
     {
       "file": "packages/client-core/src/conversation/projection.ts",
@@ -16356,26 +16336,6 @@
       "trigger": "Invocation of projectConversation/byId",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "materialize:Map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
-      "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
-    },
-    {
-      "file": "packages/client-core/src/conversation/projection.ts",
-      "holder": "retractOf",
-      "rule": "reader-summary",
-      "tokens": "5ec4e81bb881685b369b1ab0c549caff1a3caaf88ab1168eb78e001775769349",
-      "gate": [
-        "exit:then:967e98d90d268d5e4cc1f2abacc40f9ba96c44820138c815c3c2f9764b240acf"
-      ],
-      "origin": [
-        "5fa7be46b6482e5177e5cddf3c615a705995ff058557ba11dba3cdce23f9251c"
-      ],
-      "fingerprint": "54d67e48c325869436b120f71d80420475d10026f75311d2a3b2e0234ebef112",
-      "count": 1,
-      "classification": "REQUIRED REPAIR",
-      "owner": "POD-5530",
-      "trigger": "Invocation of retractOf",
-      "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
@@ -16518,6 +16478,44 @@
       "bound": "Only the addressed conversation's record snapshot and this device's held delivery ids participate. Each lookup request is capped at CATCH_UP_BATCH (100); total catch-up work follows the number of held sends.",
       "reason": "This ingests the supplied per-conversation record feed and own lookup answers; transcript membership is answered by byId.has and maintained seen-user ids.",
       "guard": "conversation/sends.test.ts preserves send, lookup and reconciliation behavior; sends.work.test.ts proves unchanged context/offer/retract/draft work at 1x/4x transcript sizes with a negative control; model-observation.test.ts guards atomic retirement and disposed actions."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/currentRecords",
+      "rule": "consume:filter",
+      "tokens": "f0fcb2223085b3234e4c48853847a3c8d98b938d046a4a2422b39c573c662042",
+      "gate": [
+        "then:45bfcc6f6ee2e713716049fe663f7a5e2c375e53ec864afd9bfe97bf6894240a"
+      ],
+      "origin": [
+        "edaebc8c5dc4a9630cc25a1c6e1d30f49b3238bacb7c6c1b18f7ff26f1478e8d"
+      ],
+      "fingerprint": "65fedce41254318a10c02ed23c76a8e150f504a997974366a2c8b24b2fc5b535",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "The selected conversation observes its session message window.",
+      "bound": "One session message membership; the existing conversation feed has no newly proven cardinality cap.",
+      "reason": "Moving facts into shared models preserves the selected-session traversal and its existing collection-bound debt. The standalone fallback makes one linear pass; shipped readers use addressed pool model reads.",
+      "guard": "Exact fingerprint and multiplicity only. Sends and phone-reader parity tests verify behavior; they do not establish a new feed cardinality bound."
+    },
+    {
+      "file": "packages/client-core/src/conversation/sends.ts",
+      "holder": "Sends/observeRecords",
+      "rule": "consume:map",
+      "tokens": "e20b99ab7120c4e029edc60dd4670a4a89bd0b6829f002800af5b931bdd6ef2d",
+      "gate": [],
+      "origin": [
+        "8c67b353d2857ce0d76b9f17107d713905703b26992fccdb9b1c82d33669d4ac"
+      ],
+      "fingerprint": "a2df03388e09e4d9ee3a696c2d32ed985cabcfb39fed493ed5e17aab6be2c6b9",
+      "count": 1,
+      "classification": "REQUIRED REPAIR",
+      "owner": "POD-5530",
+      "trigger": "The selected conversation observes its session message window.",
+      "bound": "One session message membership; the existing conversation feed has no newly proven cardinality cap.",
+      "reason": "Moving facts into shared models preserves the selected-session traversal and its existing collection-bound debt. The standalone fallback makes one linear pass; shipped readers use addressed pool model reads.",
+      "guard": "Exact fingerprint and multiplicity only. Sends and phone-reader parity tests verify behavior; they do not establish a new feed cardinality bound."
     },
     {
       "file": "packages/client-core/src/conversation/transcript-graph.ts",
@@ -33336,14 +33334,14 @@
       "file": "packages/client-graph/src/chat-context.ts",
       "holder": "chatRecords",
       "rule": "loop:for-of",
-      "tokens": "8efb57353dd733104c7b2ad80461d484dbbdfc2c744a7c84c9be760c3ac2b3fd",
+      "tokens": "f074f505f135249ceb0fc50b00ac9fa7b7d77da00d14fd70f02e8647e14cc272",
       "gate": [
         "then:5cd1c53bf072a7653b65b8219393951f6b932ab3206c5ab6667b8ad1664e2463"
       ],
       "origin": [
         "bb63b4681ff02087ae40a98960805396f267dab5048105a4197489c59a30f7d1"
       ],
-      "fingerprint": "8e3716b87f34bd3b1c6c05f0062eb4711f16ab1555221cde3f335b890f449d88",
+      "fingerprint": "459d024a7622ddeffab93c798b31a80bb9343ca8dca0667cee3e6be53bd314b5",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -34713,11 +34711,13 @@
       "holder": "reseed",
       "rule": "enumerate:keys",
       "tokens": "f1944d8a6b7eb9351886dfe535b56ae1321439244eee28ef168277d732acf447",
-      "gate": [],
-      "origin": [
-        "8a58f82eeb42c39a4109b5481624d3c370cfe6bc3636d7df077f928f2d0d4d3a"
+      "gate": [
+        "then:6fe136289cfcfd4fe07c04e7ec7534513c95855e067c3a585db76967f603d711"
       ],
-      "fingerprint": "f3c9775456c8ec862bf28c31c0a10a69cc5158ef50b238c0e2586c92fb811961",
+      "origin": [
+        "af08844ce0193436fb594e7ad57b19641525cc86ea6e201cf9c1e903a10596fb"
+      ],
+      "fingerprint": "79dfcb56019b27ad1512db64c1bf021275c083f392121e5a5ca72c066a8ce181",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5530",
@@ -34731,12 +34731,14 @@
       "holder": "reseed",
       "rule": "loop:for-of",
       "tokens": "7446130ff9edc2ed93088374e9cb1785e0054ab975e07c26ac714850498cc9c3",
-      "gate": [],
-      "origin": [
-        "077b4e741ed4f53c55c217f3c5c9361369f5827e76bd80cb3f1e91c144252ee2",
-        "8a58f82eeb42c39a4109b5481624d3c370cfe6bc3636d7df077f928f2d0d4d3a"
+      "gate": [
+        "then:6fe136289cfcfd4fe07c04e7ec7534513c95855e067c3a585db76967f603d711"
       ],
-      "fingerprint": "109d193d876a45ba12aabde9c58e3bf0efe70b003b8da23724dbf029c27d3926",
+      "origin": [
+        "72993c1bbde37d99769195a4144bff565a3756cfd8f124395b2101b2f37b4046",
+        "af08844ce0193436fb594e7ad57b19641525cc86ea6e201cf9c1e903a10596fb"
+      ],
+      "fingerprint": "b9d25e07a8499c0b3748f1cc0d42e61ac9e09ccc870115f26762a4e400dd28a6",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5530",
@@ -35961,6 +35963,181 @@
       "guard": "launcher-order.test.ts compares the frozen live-sorter oracle at 1x/4x, requires zero open usage queries, and checks reopening; web/mobile open-launcher-work tests exercise actual consumers."
     },
     {
+      "file": "packages/client-graph/src/message-ledger.ts",
+      "holder": "MessageLedger/refresh",
+      "rule": "loop",
+      "tokens": "09c8f0c7c153915401ab7e2665c8b4d90572fac79c95d0ea097b20a694c18da2",
+      "gate": [
+        "exit:then:0c78a447c0c0384e3568b23bae02d5ad1c12032cf683b5c1fa199b758832525e",
+        "exit:then:ff8e59989d868b7572df055cf826fccab1bacdf3b52d5090e9b3a4faf0a48053",
+        "then:560db57168ab09872412afb1de4f54dd0dfd41e020f416620910ef9bddac7e0f"
+      ],
+      "origin": [
+        "8be9f6acc7f29e5dbda394582fa917f462823287fd90c1a5f432b1ad59ba3d9a"
+      ],
+      "fingerprint": "99316ecd4647d3a59433c3bdaef4ea6ada566d0d12a042574e5ce98d3e891525",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "The visible message ledger opens or its 15-second deadline expires.",
+      "bound": "One explicit ledger request result; each records lookup contains at most 100 selected IDs. No reload deadline is armed while hidden or disposed.",
+      "reason": "The loop installs a requested history window into existing tables and stores only result IDs on the view.",
+      "guard": "message-models.test.ts verifies hide/reopen/dispose timing and the 100-ID batch limit."
+    },
+    {
+      "file": "packages/client-graph/src/message-ledger.ts",
+      "holder": "MessageLedger/refresh",
+      "rule": "spread",
+      "tokens": "2be96178f3d09cf32c3b424816ab2ebab3fc5706cb3ba6a364581e893f6b8e15",
+      "gate": [
+        "exit:then:0c78a447c0c0384e3568b23bae02d5ad1c12032cf683b5c1fa199b758832525e",
+        "exit:then:ff8e59989d868b7572df055cf826fccab1bacdf3b52d5090e9b3a4faf0a48053",
+        "then:560db57168ab09872412afb1de4f54dd0dfd41e020f416620910ef9bddac7e0f",
+        "loop:bc89bdc5ca754773afba7ca7bbca8614e88e0b4843395e6f0c17559b4313b83a"
+      ],
+      "origin": [
+        "8be9f6acc7f29e5dbda394582fa917f462823287fd90c1a5f432b1ad59ba3d9a"
+      ],
+      "fingerprint": "c61723138d77a7b838bae55eac1593088474b890316db3881a5d00ced96cfc4c",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "The visible message ledger opens or its 15-second deadline expires.",
+      "bound": "One explicit ledger request result; each records lookup contains at most 100 selected IDs. No reload deadline is armed while hidden or disposed.",
+      "reason": "The loop installs a requested history window into existing tables and stores only result IDs on the view.",
+      "guard": "message-models.test.ts verifies hide/reopen/dispose timing and the 100-ID batch limit."
+    },
+    {
+      "file": "packages/client-graph/src/message-models.ts",
+      "holder": "ingestLedgerMessages/rows",
+      "rule": "consume:map",
+      "tokens": "1183da4686d7ffb309df5fa788e41861731ce5a43e0e9ea4c06f6cfc4a95cead",
+      "gate": [],
+      "origin": [
+        "941a92bea6641b258fb3548bb38edde5775c9e40808a80bd8559f7b98f03d738"
+      ],
+      "fingerprint": "1ebe3725c6dd38472d7b143bd7c6316c5243b95453d102904a0bbc9e7b291cdd",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "Addressed replica records or a completed message lookup/ledger request enter the shared tables.",
+      "bound": "Returned record batch; each replacement merges only the declared fields of one addressed message. Ledger records calls are split into at most 100 IDs.",
+      "reason": "Wire facts are normalized once at ingestion; readers retain IDs and read the shared message model.",
+      "guard": "message-models.test.ts covers shared identity, late-response precedence, omitted-field replacement, and 205 IDs split into 100/100/5."
+    },
+    {
+      "file": "packages/client-graph/src/message-models.ts",
+      "holder": "ingestLedgerMessages/rows/map:callback/value",
+      "rule": "reader-summary",
+      "tokens": "20b81995d20b76417a22bd3f675acaa05993ca715ccd7137fe6bca8a94256f29",
+      "gate": [
+        "then:0bafa83631820767cb67c4fdb0b93c38edec86a9de6d4fe0967c10416ce2ed3a"
+      ],
+      "origin": [
+        "59ec6dd8313e5da8c941aed4e3c9b8ed2530e9036250410c2c682bddfcf7daaf"
+      ],
+      "fingerprint": "228d7bc0ac054d41d1a71be90b45b104c380bc976b824c4cfdfe9a7940fffeca",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "Addressed replica records or a completed message lookup/ledger request enter the shared tables.",
+      "bound": "Returned record batch; each replacement merges only the declared fields of one addressed message. Ledger records calls are split into at most 100 IDs.",
+      "reason": "Wire facts are normalized once at ingestion; readers retain IDs and read the shared message model.",
+      "guard": "message-models.test.ts covers shared identity, late-response precedence, omitted-field replacement, and 205 IDs split into 100/100/5."
+    },
+    {
+      "file": "packages/client-graph/src/message-models.ts",
+      "holder": "ingestLedgerMessages/rows/map:callback/value",
+      "rule": "helper-consumer",
+      "tokens": "4c2847fed447687455ad32cb9814859b46b42c80c2e7cbc07459beb484159499",
+      "gate": [
+        "then:0bafa83631820767cb67c4fdb0b93c38edec86a9de6d4fe0967c10416ce2ed3a"
+      ],
+      "origin": [
+        "59ec6dd8313e5da8c941aed4e3c9b8ed2530e9036250410c2c682bddfcf7daaf"
+      ],
+      "fingerprint": "ea0ef163d76d6a8a8e02e28ed9a181d7adebd667723ffb5ac3f3f1cfb19ac4d0",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "Addressed replica records or a completed message lookup/ledger request enter the shared tables.",
+      "bound": "Returned record batch; each replacement merges only the declared fields of one addressed message. Ledger records calls are split into at most 100 IDs.",
+      "reason": "Wire facts are normalized once at ingestion; readers retain IDs and read the shared message model.",
+      "guard": "message-models.test.ts covers shared identity, late-response precedence, omitted-field replacement, and 205 IDs split into 100/100/5."
+    },
+    {
+      "file": "packages/client-graph/src/message-models.ts",
+      "holder": "ingestMessageRecords/rows",
+      "rule": "consume:map",
+      "tokens": "238fa0b70726a90f356ace005ec8f09fecef35606cc61ae9c9bddcf31f066e99",
+      "gate": [],
+      "origin": [
+        "b4f389fb2fd51e16a14d49a16f879e0daaddccaa8389f2e2ac664e328cd2b9dd"
+      ],
+      "fingerprint": "4459f3b9fb5e5770a73db32d0d1387742456c85a315cbc7db4b7643efa2b7368",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "Addressed replica records or a completed message lookup/ledger request enter the shared tables.",
+      "bound": "Returned record batch; each replacement merges only the declared fields of one addressed message. Ledger records calls are split into at most 100 IDs.",
+      "reason": "Wire facts are normalized once at ingestion; readers retain IDs and read the shared message model.",
+      "guard": "message-models.test.ts covers shared identity, late-response precedence, omitted-field replacement, and 205 IDs split into 100/100/5."
+    },
+    {
+      "file": "packages/client-graph/src/message-models.ts",
+      "holder": "ingestMessageRecords/rows/map:callback/value",
+      "rule": "reader-summary",
+      "tokens": "9743cf2ae0527da47bffb1bd829ed893a87e81bbee5063a1dafb2847d56ae55b",
+      "gate": [],
+      "origin": [
+        "afc50cf37e8616068b6bb415339f312f24e6a1e60c8604c17845d4c72da1db0e"
+      ],
+      "fingerprint": "5cdd9aac8c84c44261812a7287b286176bb4bd26c0e57aeb9392befb1b6591b9",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "Addressed replica records or a completed message lookup/ledger request enter the shared tables.",
+      "bound": "Returned record batch; each replacement merges only the declared fields of one addressed message. Ledger records calls are split into at most 100 IDs.",
+      "reason": "Wire facts are normalized once at ingestion; readers retain IDs and read the shared message model.",
+      "guard": "message-models.test.ts covers shared identity, late-response precedence, omitted-field replacement, and 205 IDs split into 100/100/5."
+    },
+    {
+      "file": "packages/client-graph/src/message-models.ts",
+      "holder": "ingestMessageRecords/rows/map:callback/value",
+      "rule": "helper-consumer",
+      "tokens": "996afe7d3e52f11f2edf547dff94729bbce853e84fd98c9bc3669a83aba94f51",
+      "gate": [],
+      "origin": [
+        "afc50cf37e8616068b6bb415339f312f24e6a1e60c8604c17845d4c72da1db0e"
+      ],
+      "fingerprint": "7cd9e59a816f2f0805d5aedae2f78bd25805fbc18efa60240fbed715101d8e8f",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "Addressed replica records or a completed message lookup/ledger request enter the shared tables.",
+      "bound": "Returned record batch; each replacement merges only the declared fields of one addressed message. Ledger records calls are split into at most 100 IDs.",
+      "reason": "Wire facts are normalized once at ingestion; readers retain IDs and read the shared message model.",
+      "guard": "message-models.test.ts covers shared identity, late-response precedence, omitted-field replacement, and 205 IDs split into 100/100/5."
+    },
+    {
+      "file": "packages/client-graph/src/message-models.ts",
+      "holder": "replaceChatFields",
+      "rule": "spread",
+      "tokens": "3ff6085094892580e0c681acedb2c6b56d485433a8a001f8a01d8d4f9c101401",
+      "gate": [],
+      "origin": [
+        "7435da63cceff15a1288c660f467a38ab7f6a920f3e43db82fe506f0b54c5695"
+      ],
+      "fingerprint": "cdb1f3ce5d0fee65c169e4796f21f3b6e90315091e35f7189b948bc8b4a05825",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "Addressed replica records or a completed message lookup/ledger request enter the shared tables.",
+      "bound": "Returned record batch; each replacement merges only the declared fields of one addressed message. Ledger records calls are split into at most 100 IDs.",
+      "reason": "Wire facts are normalized once at ingestion; readers retain IDs and read the shared message model.",
+      "guard": "message-models.test.ts covers shared identity, late-response precedence, omitted-field replacement, and 205 IDs split into 100/100/5."
+    },
+    {
       "file": "packages/client-graph/src/mission-screen.ts",
       "holder": "MissionScreen/repoViews",
       "rule": "helper-consumer",
@@ -36631,6 +36808,78 @@
       "guard": "packages/client-graph/src/mobile-screens-schema.ts: the six literal MOBILE_TASK_STAGES; mobile-tasks.parity.test.ts: section parity across 1,080 option combinations and stable hierarchy, lane roots, section arrays and rows."
     },
     {
+      "file": "packages/client-graph/src/notice-source.ts",
+      "holder": "NoticeSource/seed",
+      "rule": "loop:for-of",
+      "tokens": "69c292bb8c651569e078a0dc4c087625d41d077361aa5dd5ffd6244e4111664e",
+      "gate": [],
+      "origin": [
+        "2359ad440132a8c096467ede4153f1c59fc4ce20928b228a7bc651718f2a5859"
+      ],
+      "fingerprint": "274902da580c28b06193e233de62b715e4639546e133a28e897248dd7eaba1b6",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "NoticeSource construction or an explicit replica scope replacement.",
+      "bound": "The replacement replica working set, once per bootstrap or replacement; normal publications apply addressed rows.",
+      "reason": "Ingestion diffs membership by ID without discarding shared model identities that survive the scope replacement.",
+      "guard": "notice-source.test.ts and message-models.test.ts cover addressed updates/removals and retained identity across replacement."
+    },
+    {
+      "file": "packages/client-graph/src/notice-source.ts",
+      "holder": "NoticeSource/seed/messages",
+      "rule": "collection:rows",
+      "tokens": "3021539f42281c680845f39bd25caa2b47811879f27585a3bb18402b2a811f81",
+      "gate": [],
+      "origin": [
+        "2359ad440132a8c096467ede4153f1c59fc4ce20928b228a7bc651718f2a5859"
+      ],
+      "fingerprint": "d4e776de9eea9490983039ddd2b622552d0545231d7c54ea2169f50a32d63287",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "NoticeSource construction or an explicit replica scope replacement.",
+      "bound": "The replacement replica working set, once per bootstrap or replacement; normal publications apply addressed rows.",
+      "reason": "Ingestion diffs membership by ID without discarding shared model identities that survive the scope replacement.",
+      "guard": "notice-source.test.ts and message-models.test.ts cover addressed updates/removals and retained identity across replacement."
+    },
+    {
+      "file": "packages/client-graph/src/notice-source.ts",
+      "holder": "NoticeSource/seed/retained",
+      "rule": "materialize:Set",
+      "tokens": "9d5de4a2fdd68bd7017138a62d14d666e0d7c1faf3c36cf18f7fda32fbf6982e",
+      "gate": [],
+      "origin": [
+        "2359ad440132a8c096467ede4153f1c59fc4ce20928b228a7bc651718f2a5859"
+      ],
+      "fingerprint": "bf4d7f0214af4546e3639a2c52c0d6b4e49c2a096eb6d7460778aa3e737e4511",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "NoticeSource construction or an explicit replica scope replacement.",
+      "bound": "The replacement replica working set, once per bootstrap or replacement; normal publications apply addressed rows.",
+      "reason": "Ingestion diffs membership by ID without discarding shared model identities that survive the scope replacement.",
+      "guard": "notice-source.test.ts and message-models.test.ts cover addressed updates/removals and retained identity across replacement."
+    },
+    {
+      "file": "packages/client-graph/src/notice-source.ts",
+      "holder": "NoticeSource/seed/retained",
+      "rule": "consume:map",
+      "tokens": "e763d176a53bdfc8f646c06672da3b4cd919c0df475b18318ea10be80588ddd3",
+      "gate": [],
+      "origin": [
+        "2359ad440132a8c096467ede4153f1c59fc4ce20928b228a7bc651718f2a5859"
+      ],
+      "fingerprint": "e3db9d9b40081e6f519ecc116032c55cb520cd13b5c5b7282a7978bc6bfb3a31",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-5869",
+      "trigger": "NoticeSource construction or an explicit replica scope replacement.",
+      "bound": "The replacement replica working set, once per bootstrap or replacement; normal publications apply addressed rows.",
+      "reason": "Ingestion diffs membership by ID without discarding shared model identities that survive the scope replacement.",
+      "guard": "notice-source.test.ts and message-models.test.ts cover addressed updates/removals and retained identity across replacement."
+    },
+    {
       "file": "packages/client-graph/src/notice-views.ts",
       "holder": "noticeMessages",
       "rule": "consume:slice",
@@ -36654,14 +36903,14 @@
       "file": "packages/client-graph/src/notice-views.ts",
       "holder": "noticeMessages",
       "rule": "loop:for-of",
-      "tokens": "ce7f258ee14ec66d793f31b396e1ed9f5c1a9eb4e710fa884081ca6597d63343",
+      "tokens": "afa755865db7b60f401e2a90fc928d09034a39333cc777cf1a800d5bc6a158fb",
       "gate": [
         "then:426bdf2a95d8994e939b71ed31b6d9c1761b3afd3b260dcb3acbbc1a6b76cfd9"
       ],
       "origin": [
         "cfde47bf430fd79041bedd03b37d1f0aaca786ad8a90f1f0be6097df8ece7903"
       ],
-      "fingerprint": "0c5095915e5dfc88e88a32fc1cf9e9b1cd9b333a27b407b467756903101d0753",
+      "fingerprint": "d2a90581e89652d0eeb891fd503636d0924bbcd40a05c7c1e851047e603e7402",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5648",
@@ -36674,7 +36923,7 @@
       "file": "packages/client-graph/src/pool.ts",
       "holder": "MobxPool/apply/runInAction:callback",
       "rule": "helper-consumer",
-      "tokens": "2ed9d01278c87bfb044e7c5a643186a2a24d72f2d49eba5b1bc0708d3a112192",
+      "tokens": "b0bb3c1b059089667af29877db31d0ea7d766667de297161f96dd81671d8b1b0",
       "gate": [
         "exit:then:710e5dcb43ddd346f8ec70a0b8535caaf905d83eb941188b77a28d35d5d651f3",
         "then:e50fe35f728bede0989d15da8b368643ed69caaeebaf56465528b4791dbb7492"
@@ -36683,7 +36932,7 @@
         "25d87df85be1b63cf15d1194180b8c9c8fa56849c44bdb7d45f217cf0a39e195",
         "504bbb7c265df7dfde0c66bce9a25603e624c78ebbbb6d366a326776216b3507"
       ],
-      "fingerprint": "2386956dda8ab28fe852937b1247f3e1e6c24bcd3323f66df70ee4f330b35f52",
+      "fingerprint": "a4068f99b51fcaba4369297044859ddf09853b913402482a01ba798e23a5a665",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5868",
