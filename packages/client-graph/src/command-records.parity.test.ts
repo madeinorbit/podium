@@ -1,28 +1,17 @@
 // @vitest-environment happy-dom
-import { expect, it, vi } from 'vitest'
+import { expect, it } from 'vitest'
 import { runInAction } from 'mobx'
-import { asIssueId } from '@podium/model/browser'
-import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import { startScenarioEngine } from '../../../tests/worklist/shared/src/scenarios'
 import { createRuntimeWorklistPool } from './runtime-pool'
 import { COMMAND_SUMMARIES } from './command-launch-schema'
 import { attachCommandLaunchSource } from './command-launch-source'
 import { attachHeaderSource } from './header-source'
-import { commandLaunchViews } from './command-launch-views'
+import { commandLaunchViews, createCommandPalette } from './command-launch-views'
 import { LOADING } from './loading'
-import { IssueModel, SessionModel } from './models'
 
 it('reads the existing licensed command summaries without promoting historical payloads', async () => {
   const ctx = await startScenarioEngine(1)
   const handle = createRuntimeWorklistPool(ctx.engine, { summaries: COMMAND_SUMMARIES })
-  const issueRead = IssueModel.prototype.storedField
-  const sessionRead = SessionModel.prototype.storedField
-  const issueSpy = vi.spyOn(IssueModel.prototype, 'storedField').mockImplementation(function (key) {
-    try { return issueRead.call(this, key) } catch (cause) { throw new Error(`issue ${this.id}.${key}: ${String(cause)}`, { cause }) }
-  })
-  const sessionSpy = vi.spyOn(SessionModel.prototype, 'storedField').mockImplementation(function (key) {
-    try { return sessionRead.call(this, key) } catch (cause) { throw new Error(`session ${this.id}.${key}: ${String(cause)}`, { cause }) }
-  })
   let step = 'boot'
   try {
     for (let turn = 0; turn < 32 && handle.pool.hydrate(); turn++) {}
@@ -40,33 +29,24 @@ it('reads the existing licensed command summaries without promoting historical p
     }
     step = 'hydrate after summary reads'
     expect(handle.pool.hydrate()).toBe(0)
-    step = 'cold ids'
-    const cold = handle.pool.queries.ids({ kind: 'commandIssues' }).filter(id => handle.pool.residency!.isCold('issue', id))
-    expect(cold.length).toBeGreaterThan(0)
-    step = 'reference state'
-    const state = referenceState(ctx.engine)
-    step = 'select issue'
-    state.setSelectedIssueId(asIssueId(cold[0]!))
-    step = 'selection microtask'
-    await Promise.resolve()
-    step = 'selected pending'
-    const selected = runInAction(() => commandLaunchViews(handle.pool).palette())
-    expect(selected && selected !== LOADING ? selected.pending : 0).toBeGreaterThan(0)
-    expect(handle.pool.hydrate()).toBeGreaterThan(0)
-    for (let turn = 0; turn < 32; turn++) {
-      step = `selected turn ${turn}`
-      const value = runInAction(() => commandLaunchViews(handle.pool).palette())
-      if (value && value !== LOADING) {
-        const issue = value.issues.find(issue => issue.id === cold[0])
-        if (issue) for (const key of ['unread', 'readAt', 'memberSessionIds', 'childCount', 'childDoneCount', 'gitState', 'needsHuman', 'blocked', 'stage', 'closedReason'] as const) {
-          step = `selected ${key}`
-          runInAction(() => { void issue[key] })
-        }
-      }
-      if (!handle.pool.hydrate()) break
+    const resident = handle.pool.tables.issue.size
+    const palette = createCommandPalette(handle.pool)
+    step = 'palette opening'
+    palette.open()
+    const opened = runInAction(() => palette.palette())
+    expect(opened && opened !== LOADING).toBeTruthy()
+    if (!opened || opened === LOADING) throw new Error('No open palette')
+    expect(opened.issues.map(issue => issue.id)).toEqual(data.issues.map(issue => issue.id))
+    for (const issue of opened.issues) for (const key of COMMAND_SUMMARIES.issue) {
+      step = `open issue ${issue.id}.${key}`
+      runInAction(() => { void issue[key] })
     }
+    step = 'hydrate after captured summary reads'
+    expect(handle.pool.hydrate()).toBe(0)
+    expect(handle.pool.tables.issue.size).toBe(resident)
+    palette.close()
     detach()
   } catch (cause) {
     throw new Error(`${step}: ${String(cause)}`, { cause })
-  } finally { issueSpy.mockRestore(); sessionSpy.mockRestore(); handle.dispose(); ctx.dispose() }
+  } finally { handle.dispose(); ctx.dispose() }
 }, 120_000)
