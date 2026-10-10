@@ -906,7 +906,10 @@ function computeView(input: OperationViewInput): UpdatePanelView {
         ...base,
         state: 'waiting-you',
         title: version ? `Podium ${version} is ready here` : 'The update is ready here',
-        subtitle: 'Everything else is updated. This page is still on the previous build.',
+        subtitle:
+          primary?.kind === 'install-desktop'
+            ? 'Everything else is updated. This app is still on the previous build.'
+            : 'Everything else is updated. This page is still on the previous build.',
         ...(primary ? { primary } : {}),
         indicator: 'attention',
         indicatorLabel:
