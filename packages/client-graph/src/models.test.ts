@@ -45,8 +45,8 @@ const sessionRow = (patch: object = {}) => ({
   status: 'live', lastActiveAt: stamp, archived: false,
   agentState: { phase: 'working', since: stamp }, ...patch,
 })
-function fixture() {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) })
+function fixture(worklist: 'held' | 'demand' = 'held') {
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, { worklist })
   pool.apply({ type: 'replace', rows: [
     { kind: 'issue', id: 'root', value: issueRow('root') as never },
     { kind: 'issue', id: 'child', value: issueRow('child', { parentId: 'root' }) as never },
@@ -136,7 +136,7 @@ it.each([
   ['rescuable', true, 1], ['startedBy', null, 0], ['band', 1, 0],
   ['repoKey', machinePathKey('/synthetic'), 0], ['foldAt', stamp, 0],
 ] as const)('allocates only the demanded %s field and releases it after the last observer', async (field, expected, sharedCount) => {
-  const pool = fixture(), root = pool.worklistRow('root')!
+  const pool = fixture('demand'), root = pool.worklistRow('root')!
   const issue = root.issue
   const guards = ['excluded', 'awaitingMerge', 'parentRef', 'finishedMs', 'updatedMs',
     'lastActivityAt', 'headlessStaffed', ...(field === 'rescuable' ? [] : ['finished'])]
