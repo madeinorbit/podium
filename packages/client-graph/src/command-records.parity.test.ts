@@ -31,9 +31,14 @@ it('reads the existing licensed command summaries without promoting historical p
     }
     step = 'hydrate after summary reads'
     expect(handle.pool.hydrate()).toBe(0)
+    step = 'cold ids'
     const cold = handle.pool.queries.ids({ kind: 'commandIssues' }).filter(id => handle.pool.residency!.isCold('issue', id))
     expect(cold.length).toBeGreaterThan(0)
-    referenceState(ctx.engine).setSelectedIssueId(asIssueId(cold[0]!))
+    step = 'reference state'
+    const state = referenceState(ctx.engine)
+    step = 'select issue'
+    state.setSelectedIssueId(asIssueId(cold[0]!))
+    step = 'selection microtask'
     await Promise.resolve()
     step = 'selected pending'
     const selected = runInAction(() => commandLaunchViews(handle.pool).palette())
