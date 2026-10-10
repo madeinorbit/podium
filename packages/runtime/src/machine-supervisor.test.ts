@@ -77,6 +77,21 @@ describe('supervisor credential ownership', () => {
   })
 })
 
+describe('a 0.1.0 all-in-one state root (POD-5931)', () => {
+  it('ignores a token-less daemon.json and can save supervisor state for the host', () => {
+    // 0.1.0 wrote daemon.json with an unused machineId and no token; the host's row is
+    // machine.id. Falling back to that section made every saveSupervisorState conflict.
+    const dir = stateDir()
+    writeFileSync(join(dir, 'machine.id'), 'host-row')
+    writeFileSync(join(dir, 'daemon.json'), JSON.stringify({ machineId: 'unused-id', updatePubkey: 'k' }))
+
+    const state = loadSupervisorState(dir)
+    expect(state).toEqual({ machineId: 'host-row' })
+    saveSupervisorState(dir, { ...state, generation: 1 })
+    expect(loadSupervisorState(dir)).toEqual({ machineId: 'host-row', generation: 1 })
+  })
+})
+
 describe('supervisor service assignment', () => {
   it('preserves every supported local startup topology as the no-cache fallback', () => {
     expect(fallbackAssignment('server')).toEqual({ server: true, agentExecution: false })
