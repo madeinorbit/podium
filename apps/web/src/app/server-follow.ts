@@ -18,7 +18,9 @@
  */
 import {
   browserFollowAdopt,
+  type FollowableHub,
   type FollowEvent,
+  followHub,
   type FollowPorts,
   locateServer,
   proveServer,
@@ -87,6 +89,18 @@ export function webFollowPorts(context: WebFollowContext): FollowPorts {
     },
     adopt: adoptInBrowser,
   }
+}
+
+/**
+ * Start following for one runtime's hub. Loaded as its own chunk, right after
+ * the shell mounts — while the server is still there to serve it — so the
+ * follower costs the startup bundle nothing.
+ */
+export function startWebFollowing(
+  hub: FollowableHub,
+  context: WebFollowContext & { connectBaseUrl: string },
+): () => void {
+  return followHub(hub, webFollowPorts(context), { connectBaseUrl: () => context.connectBaseUrl })
 }
 
 /**

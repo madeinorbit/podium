@@ -1,9 +1,5 @@
 import { cookieCredentials } from '@podium/client-core/accounts'
-import {
-  createSocketLogin,
-  followHub,
-  observeLiveConnection,
-} from '@podium/client-core/live-connection'
+import { createSocketLogin, observeLiveConnection } from '@podium/client-core/live-connection'
 import {
   FLIGHT_DECK_DISPLAY_KEY,
   FLIGHT_DECK_EXPANDED_WIDTH_KEY,
@@ -83,7 +79,6 @@ import { RightRail } from './RightRail'
 import { MainViewOutlet } from './routes'
 import { StatusStrip } from './StatusStrip'
 import { SyncLoader, WarmSyncStatus } from './SyncLoader'
-import { webFollowPorts } from './server-follow'
 import { useShellActions, useShellChrome } from './shell-data'
 import {
   CLOSE_RIGHT_PANEL,
@@ -229,19 +224,27 @@ function KernelWireSkewObserver({ httpOrigin }: { httpOrigin: string }): null {
  */
 function ServerFollowObserver(): null {
   const hub = useRuntimeSelector((s) => s.hub)
-  useEffect(
-    () =>
-      followHub(
-        hub,
-        webFollowPorts({
+  useEffect(() => {
+    let stop: (() => void) | undefined
+    let cancelled = false
+    void import('./server-follow')
+      .then(({ startWebFollowing }) => {
+        if (cancelled) return
+        stop = startWebFollowing(hub, {
           bridge: nativeDesktopBridge(),
           location: window.location,
           notify: (message) => toast(message),
-        }),
-        { connectBaseUrl: () => CONNECT_DEFAULT_BASE_URL },
-      ),
-    [hub],
-  )
+          connectBaseUrl: CONNECT_DEFAULT_BASE_URL,
+        })
+      })
+      .catch(() => {
+        // No follower this session: the client keeps retrying its server, as before.
+      })
+    return () => {
+      cancelled = true
+      stop?.()
+    }
+  }, [hub])
   return null
 }
 
