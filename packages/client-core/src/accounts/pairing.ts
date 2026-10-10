@@ -129,6 +129,10 @@ export type ServerPreflight =
       httpOrigin: string
       workspaceId?: string
       instanceId: string
+      /** The installation identity from the pairing envelope (POD-5921), never
+       *  from the unauthenticated `/version`: see {@link withPairingIdentity}. */
+      installationId?: string
+      installationPublicKey?: string
       appVersion: string
       mode: 'open' | 'protected'
       transport: ServerTransport
@@ -379,6 +383,25 @@ function bytesToBase64Url(bytes: Uint8Array): string {
 
 function bytesToHex(bytes: Uint8Array): string {
   return Array.from(bytes, (byte) => byte.toString(16).padStart(2, '0')).join('')
+}
+
+/**
+ * Carry the installation identity a pairing envelope names onto the checked
+ * server (POD-5921), so the profile saved from it can follow that server when
+ * its address changes. Absent from older servers' envelopes, and from a
+ * manual address: such a profile learns it at its first authenticated
+ * connection instead.
+ */
+export function withPairingIdentity<T extends Extract<ServerPreflight, { ok: true }>>(
+  result: T,
+  envelope: MobilePairingEnvelope | null,
+): T {
+  if (!envelope?.installationId || !envelope.installationPublicKey) return result
+  return {
+    ...result,
+    installationId: envelope.installationId,
+    installationPublicKey: envelope.installationPublicKey,
+  }
 }
 
 export interface PairingClaim {
