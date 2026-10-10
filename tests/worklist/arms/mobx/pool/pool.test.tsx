@@ -392,16 +392,15 @@ describe('locals', () => {
     try {
       let crossings = pool.clock.crossings
       all.resetRuns()
-      r.locals.set({ coarseNow: corpus.fixedNow + 60_000 })
-      r.locals.flush()
+      // Time is owned by the shared DeadlineClock, not published through locals.
+      pool.clock.advance(corpus.fixedNow + 60_000)
       // Every redrawn row is a crossing (a row reading two deadlines may
       // cross both, so crossings bound the redrawn rows from above).
       expect(all.rerun.size).toBeLessThanOrEqual(pool.clock.crossings - crossings)
       const beforeGrace = new Map(all.views)
       crossings = pool.clock.crossings
       all.resetRuns()
-      r.locals.set({ coarseNow: corpus.fixedNow + 60_000 + FINISHED_GRACE_MS })
-      r.locals.flush()
+      pool.clock.advance(corpus.fixedNow + 60_000 + FINISHED_GRACE_MS)
       const changed = [...all.views].filter(
         ([id, view]) => !isDeepStrictEqual(beforeGrace.get(id), view),
       ).length
