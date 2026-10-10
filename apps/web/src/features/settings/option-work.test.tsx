@@ -16,6 +16,7 @@ const seam = vi.hoisted(() => ({
   projects: [] as any[],
 }))
 vi.mock('@/app/store-worklist-pool', () => ({
+  useWorklistPool: () => seam.pool,
   useWorklistPoolProjection: <T,>(read: (pool: MobxPool) => T) => {
     const projection = useMemo(() => createPoolProjection(seam.pool!, read), [read])
     return useSyncExternalStore(projection.subscribe, projection.getSnapshot)

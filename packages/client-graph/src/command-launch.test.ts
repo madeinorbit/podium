@@ -340,7 +340,8 @@ describe('declared command and launch targets', () => {
         fieldRuns.files++
       }),
       autorun(() => {
-        views.sessions()
+        const sessions = views.sessions()
+        if (sessions && sessions !== LOADING) for (const session of sessions) void session.readAt
         fieldRuns.sessions++
       }),
     ]
