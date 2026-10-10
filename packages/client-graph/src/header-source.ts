@@ -1,3 +1,4 @@
+import { ingestSettings } from './requested-records'
 import { omitGone } from './lookup'
 import { headerEntities } from './header-entities'
 import type { PodiumClientApi } from '@podium/client-core/api'
@@ -100,6 +101,7 @@ export function attachHeaderSource<TApi extends PodiumClientApi>(
       } else {
         const settings = runtime.headerInputs.read('lifecycle')
         if (!settings) return
+        ingestSettings(pool, settings)
         replace('lifecycle', [['hosts', settings]])
         headerEntities(pool).received.lifecycle = settings
       }

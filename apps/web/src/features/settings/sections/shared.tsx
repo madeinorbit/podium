@@ -94,37 +94,8 @@ export function Row({
 }
 
 /** One row from `accounts.list` — a native CLI login or a managed API key. */
-export interface AccountView {
-  id: string
-  provider: string
-  source: 'native' | 'managed'
-  kind?: 'api-key' | 'oauth'
-  harness?: HarnessAgent
-  identity?: string
-  machines?: string[]
-  identityFingerprint?: string
-  status: 'connected' | 'not-configured' | 'unknown'
-  /**
-   * Native Codex only (POD-4750): the machine whose login the viewer's server
-   * AI runs on. Absent when no login is usable for the viewer.
-   *
-   * `lastError` is the background role's last refusal text (POD-4805). It is
-   * present even when no machine could be picked, so Settings says why the
-   * server AI is failing instead of looking fine.
-   */
-  serverAi?: { machineId?: MachineId; machineName?: string; lastError?: string }
-  /** Managed only: 'stored' = the accounts table (Podium injects it, and can drop
-   *  it again); 'legacy' = a pre-hub Settings → API keys value the server has no
-   *  row for, so it cannot be disconnected from here. */
-  credentialSource?: 'stored' | 'legacy'
-  loginRequired?: boolean
-  loginMachines?: { id: MachineId; name: string }[]
-  loginAttempt?: Pick<SessionView, 'sessionId'> &
-    Required<Pick<SessionView, 'machineId' | 'machineName'>> & {
-      status: 'running' | 'refreshing' | 'succeeded' | 'failed'
-      error?: string
-    }
-}
+export type { AccountView } from '@podium/model'
+import type { AccountView } from '@podium/model'
 
 export function providerLabel(p: ApiProvider): string {
   switch (p) {

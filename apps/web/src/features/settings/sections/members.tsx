@@ -1,3 +1,8 @@
+import { observer } from 'mobx-react-lite'
+import { useOpeningView } from '@podium/client-graph/react'
+import { MemberDirectory, type MemberDirectoryAnswer } from '@podium/client-graph/member-directory'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import { useCallback } from 'react'
 import { useEffect, useState } from 'react'
 import { serverConfig } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
@@ -5,24 +10,12 @@ import { Input } from '@/components/ui/input'
 import { memberRequest } from '@/features/setup/member-api'
 import { Section } from './shared'
 
-type Member = { id: string; displayName: string; email: string | null; role: string }
-type Invite = {
-  id: string
-  memberId: string | null
-  email: string | null
-  role: string
-  expiresAt: string
-}
-type Members = {
-  members: Member[]
-  invites: Invite[]
-  mailAvailable: boolean
-  currentMemberId: string
-}
+import type { MemberModel } from '@podium/client-graph/requested-models'
+const createDirectory = (pool: import('@podium/client-graph/pool').MobxPool) => new MemberDirectory(pool)
 
-export function MembersSection() {
+export const MembersSection = observer(function MembersSection() {
   const origin = serverConfig(window.location).httpOrigin
-  const [data, setData] = useState<Members>()
+  const data = useOpeningView(useWorklistPool(), createDirectory)
   const [email, setEmail] = useState('')
   const [memberId, setMemberId] = useState('')
   const [role, setRole] = useState('member')
@@ -31,11 +24,11 @@ export function MembersSection() {
   const [error, setError] = useState('')
   const [link, setLink] = useState('')
   const [notice, setNotice] = useState('')
-  const [removing, setRemoving] = useState<Member>()
-  const reload = async () => setData(await memberRequest<Members>(origin, 'list'))
+  const [removing, setRemoving] = useState<MemberModel>()
+  const reload = useCallback(() => data?.read(() => memberRequest<MemberDirectoryAnswer>(origin, 'list')), [data, origin])
   useEffect(() => {
-    void reload().catch((error: Error) => setError(error.message))
-  }, [origin])
+    void reload()
+  }, [reload])
   async function mutate(action: string, body: unknown) {
     setBusy(true)
     setError('')
@@ -65,7 +58,7 @@ export function MembersSection() {
       title="Members"
       hint="Invite people to this workspace. Copy a link to share it with them."
     >
-      {error && <p role="alert">{error}</p>}
+      {(error || data?.error) && <p role="alert">{error || data?.error}</p>}
       {data && (
         <div className="space-y-6">
           <ul className="space-y-3">
@@ -220,4 +213,4 @@ export function MembersSection() {
       )}
     </Section>
   )
-}
+})

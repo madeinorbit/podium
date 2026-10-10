@@ -15,40 +15,8 @@ import type { MachineRecord } from './store/types'
 
 /** A row in the Accounts hub. Native rows are observed from the machine catalog;
  * managed rows reflect what Podium stores. */
-export interface AccountView {
-  /** Stable id, e.g. "native:claude-code" or "native:claude-code:<fingerprint>". */
-  id: string
-  provider: string
-  source: 'native' | 'managed'
-  /** Managed only: how the credential would be injected. */
-  kind?: 'api-key' | 'oauth'
-  /** Native only: which harness login this is. */
-  harness?: HarnessAgent
-  /** Observed, human-facing: an email/plan, a masked key, or a hint. */
-  identity?: string
-  /** Native identities may be present on several machines. */
-  machines?: string[]
-  /** Non-secret identity fingerprint used to distinguish multiple native logins. */
-  identityFingerprint?: string
-  status: 'connected' | 'not-configured' | 'unknown'
-  /**
-   * Native Codex only: the machine whose login the server AI runs on, resolved
-   * by the same scoped picker as the one-shot transport (POD-4750). Absent
-   * when no login is usable for the viewer — the row still lists every
-   * machine that reports the login via `machines`.
-   *
-   * `lastError` is the background role's last refusal text (POD-4805), when
-   * the issue assistant has recorded one. It is present even when no machine
-   * could be picked, so Settings says why the server AI is failing instead of
-   * looking fine.
-   */
-  serverAi?: { machineId?: MachineId; machineName?: string; lastError?: string }
-  /** Managed only: where the credential actually lives. */
-  credentialSource?: 'stored' | 'legacy'
-  loginRequired?: boolean
-  loginAttempt?: import('./modules/accounts/native-login').NativeLoginAttempt
-  loginMachines?: { id: MachineId; name: string }[]
-}
+export type { AccountView } from '@podium/model'
+import type { AccountView } from '@podium/model'
 
 /** Display-only preview of a secret. The full value never leaves the server. */
 export function maskCredential(secret: string): string {

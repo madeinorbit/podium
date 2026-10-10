@@ -1,3 +1,6 @@
+import { observer } from 'mobx-react-lite'
+import { deviceKey, useSettingsRecords } from '../record-readers'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 import { workspaceFetch } from '@/lib/workspace-request'
 import { relativeTime } from '@podium/client-core/focus'
 import {
@@ -545,42 +548,27 @@ function ClaimRequest({
   )
 }
 
-function MobileSessions({
+const MobileSessions = observer(function MobileSessions({
   api,
   refreshKey,
 }: {
   api: MobilePairingApi
   refreshKey: number
 }): JSX.Element {
-  const [sessions, setSessions] = useState<MobileSessionView[] | null>(null)
-  const [loadError, setLoadError] = useState(false)
+  const pool = useWorklistPool()
+  const readDevices = useCallback(() => api.auth.mobileSessions.query(), [api])
+  const { request, reload } = useSettingsRecords('device', readDevices, deviceKey)
+  const sessions = request?.answer === undefined ? null : request.models
+  const loadError = Boolean(request?.error)
   const [confirming, setConfirming] = useState<string | null>(null)
   const [revoking, setRevoking] = useState<string | null>(null)
   const [revokeError, setRevokeError] = useState<string | null>(null)
   const [now, setNow] = useState(() => Date.now())
-  const loadGeneration = useRef(0)
   const confirmationRef = useRef<HTMLDivElement>(null)
   const sessionsRegionRef = useRef<HTMLDivElement>(null)
 
-  const load = useCallback((): void => {
-    const generation = ++loadGeneration.current
-    setLoadError(false)
-    api.auth.mobileSessions
-      .query()
-      .then((nextSessions) => {
-        if (generation === loadGeneration.current) setSessions(nextSessions)
-      })
-      .catch(() => {
-        if (generation === loadGeneration.current) setLoadError(true)
-      })
-  }, [api])
-
-  useEffect(() => {
-    load()
-    return () => {
-      loadGeneration.current += 1
-    }
-  }, [load, refreshKey])
+  const load = useCallback(() => { void reload() }, [reload])
+  useEffect(() => { if (refreshKey > 0) load() }, [load, refreshKey])
   useEffect(() => {
     const id = window.setInterval(() => setNow(Date.now()), 60_000)
     return () => window.clearInterval(id)
@@ -594,8 +582,8 @@ function MobileSessions({
     setRevokeError(null)
     try {
       await api.auth.revokeMobileSession.mutate({ sessionId: session.sessionId })
-      loadGeneration.current += 1
-      setSessions((current) => current?.filter((row) => row.sessionId !== session.sessionId) ?? [])
+      request?.cancel()
+      if (pool) pool.apply({ type: 'update', rows: [{ kind: 'device', id: session.sessionId, value: undefined }] })
       setConfirming(null)
       window.setTimeout(() => sessionsRegionRef.current?.focus(), 0)
     } catch {
@@ -729,7 +717,7 @@ function MobileSessions({
       </div>
     </Subsection>
   )
-}
+})
 
 /** Settings → Connected devices: mint, approve, and revoke mobile access. */
 export function ConnectedDevicesSection({

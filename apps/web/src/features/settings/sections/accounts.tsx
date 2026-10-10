@@ -1,3 +1,5 @@
+import { observer } from 'mobx-react-lite'
+import { accountKey, useSettingsRecords } from '../record-readers'
 import type { HarnessAgent } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
@@ -54,14 +56,14 @@ function StatusUnknown(): JSX.Element {
   )
 }
 
-function AccountStatus({ account }: { account: AccountView }): JSX.Element {
+const AccountStatus = observer(function AccountStatus({ account }: { account: AccountView }): JSX.Element {
   if (account.status === 'connected') {
     return <StatusConnected identity={account.identity ?? 'connected'} />
   }
   return account.status === 'unknown' ? <StatusUnknown /> : <StatusDisconnected />
-}
+})
 
-function NativeAccountRow({
+const NativeAccountRow = observer(function NativeAccountRow({
   account,
   onChanged,
 }: {
@@ -169,7 +171,7 @@ function NativeAccountRow({
       )}
     </div>
   )
-}
+})
 
  /** A carved panel grouping one class of accounts: a machine-voice mono label over
  *  a bordered Panel-Navy surface whose rows self-divide by hairline seams. Groups
@@ -204,7 +206,7 @@ function AccountGroup({
  * field, posted once, and cleared from component state; `accounts.list` only ever
  * hands back the masked `identity`, so there is nothing to round-trip.
  */
-function ManagedAccountRow({
+const ManagedAccountRow = observer(function ManagedAccountRow({
   account,
   onChanged,
 }: {
@@ -360,7 +362,7 @@ function ManagedAccountRow({
       {error && <p className="max-w-[62ch] pb-2.5 settings-prose text-destructive">{error}</p>}
     </div>
   )
-}
+})
 
 /** Accounts & Keys hub (SP-6454 stream B2; managed credentials #216): native CLI
  *  logins on this machine (observed read-only — each CLI's own `login` on the
@@ -368,19 +370,12 @@ function ManagedAccountRow({
  *  agent spawns. Managed rows are connectable here: paste a provider API key, or
  *  a `claude setup-token` subscription token. The credential goes straight to the
  *  server's accounts table; the hub only ever reads back a masked identity. */
-export function AccountsSection(): JSX.Element {
+export const AccountsSection = observer(function AccountsSection(): JSX.Element {
   const trpc = useSettingsTrpc()
-  const [accounts, setAccounts] = useState<AccountView[] | null>(null)
-
-  // The one loader: connect/disconnect refetch through this, so a row flips state
-  // only once the server has confirmed it (no optimistic local truth for secrets).
-  const refresh = useCallback(() => {
-    trpc.accounts.list
-      .query()
-      .then((a) => setAccounts(a as AccountView[]))
-      .catch(() => setAccounts([]))
-  }, [trpc])
-  useEffect(() => refresh(), [refresh])
+  const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
+  const { request, reload } = useSettingsRecords('account', readAccounts, accountKey)
+  const accounts = request?.models
+  const refresh = useCallback(() => { void reload() }, [reload])
 
   const native = (accounts ?? []).filter((a) => a.source === 'native')
   const managed = (accounts ?? []).filter((a) => a.source === 'managed')
@@ -407,4 +402,4 @@ export function AccountsSection(): JSX.Element {
       </p>
     </Section>
   )
-}
+})

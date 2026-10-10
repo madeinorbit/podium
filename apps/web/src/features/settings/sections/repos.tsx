@@ -1,3 +1,8 @@
+import { observer } from 'mobx-react-lite'
+import { useOpeningView } from '@podium/client-graph/react'
+import { SettingsRepositories, type SettingsRepository } from '@podium/client-graph/settings-repositories'
+import type { MobxPool } from '@podium/client-graph/pool'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 /**
  * Repos — the registered repos with their human-facing ref prefixes (#474).
  * Shows every row from `repos.listDetailed` and lets the user edit a repo's
@@ -9,49 +14,25 @@ import type { MachineId, RepoId } from '@podium/model'
 import { machinePathBasename } from '@podium/model/browser'
 import { isValidPrefix } from '@podium/protocol'
 import type { JSX } from 'react'
-import { useEffect, useState } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useSettingsTrpc } from '@/features/settings/stable-access'
 import { REF_PREFIXES_CHANGED_EVENT } from '@/lib/ref-activation'
 import { Section } from './shared'
 
-/** One row from `repos.listDetailed`. */
-export interface RepoDetailRow {
-  machineId: MachineId
-  path: string
-  originUrl?: string
-  repoId?: RepoId
-  prefix: string | null
-}
+const createRepositories = (pool: MobxPool) => new SettingsRepositories(pool)
 
-export function ReposSection(): JSX.Element {
+export const ReposSection = observer(function ReposSection(): JSX.Element {
   const trpc = useSettingsTrpc()
-  const [rows, setRows] = useState<RepoDetailRow[] | null>(null)
-  const [loadError, setLoadError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    trpc.repos.listDetailed
-      .query()
-      .then((r) => {
-        if (!cancelled) setRows(r as RepoDetailRow[])
-      })
-      .catch((e) => {
-        if (!cancelled) setLoadError(e instanceof Error ? e.message : String(e))
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [trpc])
-
-  const save = async (row: RepoDetailRow, prefix: string): Promise<void> => {
-    const updated = (await trpc.repos.setPrefix.mutate({
+  const view = useOpeningView(useWorklistPool(), createRepositories)
+  const rows = view?.rows
+  const save = async (row: SettingsRepository, prefix: string): Promise<void> => {
+    await trpc.repos.setPrefix.mutate({
       path: row.path,
       prefix,
       machineId: row.machineId,
-    })) as RepoDetailRow[]
-    setRows(updated)
+    })
     // Tell the linkifiers' prefix sync to refetch — old refs stop resolving now.
     window.dispatchEvent(new Event(REF_PREFIXES_CHANGED_EVENT))
   }
@@ -61,9 +42,8 @@ export function ReposSection(): JSX.Element {
       title="Repositories"
       hint="Each registered repo has a short uppercase prefix used in human-facing ids like POD-13. Prefixes are unique across the server."
     >
-      {loadError && <p className="py-1 settings-prose text-destructive">{loadError}</p>}
       {!rows ? (
-        !loadError && <p className="settings-prose py-1">Loading repos…</p>
+        <p className="settings-prose py-1">Loading repos…</p>
       ) : rows.length === 0 ? (
         <p className="settings-prose py-1">No repositories registered.</p>
       ) : (
@@ -75,14 +55,14 @@ export function ReposSection(): JSX.Element {
       )}
     </Section>
   )
-}
+})
 
-function RepoPrefixRow({
+const RepoPrefixRow = observer(function RepoPrefixRow({
   row,
   onSave,
 }: {
-  row: RepoDetailRow
-  onSave: (row: RepoDetailRow, prefix: string) => Promise<void>
+  row: SettingsRepository
+  onSave: (row: SettingsRepository, prefix: string) => Promise<void>
 }): JSX.Element {
   const [editing, setEditing] = useState(false)
   const [draft, setDraft] = useState('')
@@ -185,4 +165,4 @@ function RepoPrefixRow({
       )}
     </div>
   )
-}
+})

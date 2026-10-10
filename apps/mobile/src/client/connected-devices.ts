@@ -1,6 +1,8 @@
 import type { MobileClientSession } from '@podium/protocol'
+import { RecordRequest } from '@podium/client-graph/requested-records'
 import { useFocusEffect } from 'expo-router'
-import { useCallback, useRef, useState } from 'react'
+import { useCallback, useMemo } from 'react'
+import { useMobilePool, useMobilePoolProjection } from './mobile-pool'
 import { readConnectedDevices } from './connected-devices-api'
 import { DEMO_MOBILE_SESSIONS, demoEnabled } from './demoData'
 import { useServerProfile } from './ServerProfileGate'
@@ -12,72 +14,24 @@ export interface ConnectedDevicesFeed {
   failed: boolean
   reload: () => void
 }
-
-/**
- * Focus-owned and profile-owned. No module cache is used: a device inventory is
- * small, security-sensitive, and belongs to exactly the active server profile.
- * Switching profiles invalidates the render immediately, before the new request
- * resolves, so another server's device names never flash on screen.
- */
+/** The active principal owns the pool. Profile changes create a new request
+ * opening, fence its predecessor, and cannot show another server's devices. */
 export function useConnectedDevices(): ConnectedDevicesFeed {
   const { profile, bearer } = useServerProfile()
+  const pool = useMobilePool()
   const key = serverProfileRequestKey(profile)
   const demo = demoEnabled()
-  const [answer, setAnswer] = useState<{
-    key: string
-    sessions: MobileClientSession[] | null
-    loading: boolean
-    failed: boolean
-  }>(() => ({ key, sessions: null, loading: !demo, failed: false }))
-  const loadRef = useRef<() => void>(() => {})
-  const reload = useCallback(() => loadRef.current(), [])
-
-  useFocusEffect(
-    useCallback(() => {
-      if (demo) return
-      let cancelled = false
-      let generation = 0
-      const load = (): void => {
-        const request = ++generation
-        setAnswer((current) => ({
-          key,
-          sessions: current.key === key ? current.sessions : null,
-          loading: true,
-          failed: false,
-        }))
-        void readConnectedDevices(profile.httpOrigin, bearer).then(
-          (sessions) => {
-            if (!cancelled && request === generation) {
-              setAnswer({ key, sessions, loading: false, failed: false })
-            }
-          },
-          () => {
-            if (!cancelled && request === generation) {
-              setAnswer((current) => ({
-                key,
-                sessions: current.key === key ? current.sessions : null,
-                loading: false,
-                failed: true,
-              }))
-            }
-          },
-        )
-      }
-      loadRef.current = load
-      load()
-      return () => {
-        cancelled = true
-        generation += 1
-        loadRef.current = () => {}
-      }
-    }, [bearer, demo, key, profile.httpOrigin]),
-  )
-
-  if (demo) {
-    return { sessions: DEMO_MOBILE_SESSIONS, loading: false, failed: false, reload }
-  }
-  if (answer.key !== key) {
-    return { sessions: null, loading: true, failed: false, reload }
-  }
-  return { sessions: answer.sessions, loading: answer.loading, failed: answer.failed, reload }
+  const request = useMemo(() => pool ? new RecordRequest(pool, 'device', row => row.sessionId) : null, [pool, key])
+  const reload = useCallback(() => {
+    if (request && !demo) void request.read(() => readConnectedDevices(profile.httpOrigin, bearer))
+  }, [request, demo, profile.httpOrigin, bearer])
+  useFocusEffect(useCallback(() => { reload(); return () => request?.close() }, [reload, request]))
+  const read = useCallback(() => ({
+    sessions: request?.answer === undefined ? null : request.models,
+    loading: request?.loading ?? true,
+    failed: Boolean(request?.error),
+    reload,
+  }), [request, reload])
+  const result = useMobilePoolProjection(read, { sessions: null, loading: true, failed: false, reload })
+  return demo ? { sessions: DEMO_MOBILE_SESSIONS, loading: false, failed: false, reload } : result
 }

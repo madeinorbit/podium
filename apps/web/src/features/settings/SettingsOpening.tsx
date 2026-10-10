@@ -1,3 +1,4 @@
+import { RecordRequest } from '@podium/client-graph/requested-records'
 import { createSettingsViews } from '@podium/client-graph/settings-views'
 import type { MobxPool } from '@podium/client-graph'
 import { useOpeningView } from '@podium/client-graph/react'
@@ -8,12 +9,15 @@ import { createSettingsMachineReaders } from './settings-machine-readers'
 
 export function createWebSettingsView(pool: MobxPool) {
   const settings = createSettingsViews(pool)
+  const accounts = new RecordRequest(pool, 'account', row => row.id)
   const machines = createSettingsMachineReaders(pool)
   return {
     settings,
+    accounts,
     machines,
     dispose() {
       settings.dispose()
+      accounts.dispose()
       machines.dispose()
     },
   }

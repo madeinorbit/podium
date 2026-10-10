@@ -1,3 +1,8 @@
+import { observer } from 'mobx-react-lite'
+import { here } from '@podium/client-graph/lookup'
+import { ingestSettings } from '@podium/client-graph/requested-records'
+import { useWorklistPool } from '@/app/store-worklist-pool'
+import { accountKey, useSettingsRecord, useSettingsRecords } from './record-readers'
 import { SettingsOpening } from './SettingsOpening'
 import type { SettingsWriteRefusal } from '@podium/commands/settings-write-plan'
 import type { ServerSecretKey } from '@podium/model/browser'
@@ -274,7 +279,7 @@ export function SettingsView(props: { onClose: () => void }): JSX.Element {
   )
 }
 
-function SettingsViewBody({ onClose }: { onClose: () => void }): JSX.Element {
+const SettingsViewBody = observer(function SettingsViewBody({ onClose }: { onClose: () => void }): JSX.Element {
   const { trpc, setSettingsTab } = useSettingsClient()
   const settingsTab = useSettingsTab()
   const notificationsEnabled = useFeature('notifications')
@@ -283,11 +288,17 @@ function SettingsViewBody({ onClose }: { onClose: () => void }): JSX.Element {
   const settingsTabs = SETTINGS_TABS.filter(
     (tab) => tab.key !== 'notifications' || notificationsEnabled,
   )
-  const [settings, setSettings] = useState<PodiumSettings | null>(null)
-  // The last server-confirmed blob: the dirty bar shows iff `settings` diverges
-  // from it, and Discard restores it (POD-127 F4).
-  const [lastSaved, setLastSaved] = useState<PodiumSettings | null>(null)
-  const [accounts, setAccounts] = useState<AccountView[]>([])
+  const pool = useWorklistPool()
+  const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
+  const record = useSettingsRecord(readSettings)
+  const lastSaved = record ? here(record.row) as PodiumSettings | undefined : undefined
+  // Existing form draft remains local until the dedicated settings draft change.
+  // The canonical saved record is never copied into component state.
+  const [edited, setSettings] = useState<PodiumSettings | null>(null)
+  const settings = edited ?? lastSaved ?? null
+  const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
+  const { request: accountRequest } = useSettingsRecords('account', readAccounts, accountKey)
+  const accounts = accountRequest?.models ?? []
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   /** What the last save could NOT write, and why — POD-420's surfaced refusal.
@@ -348,23 +359,6 @@ function SettingsViewBody({ onClose }: { onClose: () => void }): JSX.Element {
 
   useEffect(() => {
     let cancelled = false
-    trpc.settings.get
-      .query()
-      .then((s) => {
-        if (!cancelled) {
-          setSettings(s)
-          setLastSaved(s)
-        }
-      })
-      .catch((e) => {
-        if (!cancelled) setError(e instanceof Error ? e.message : String(e))
-      })
-    trpc.accounts.list
-      .query()
-      .then((a) => {
-        if (!cancelled) setAccounts(a as AccountView[])
-      })
-      .catch(() => {})
     trpc.settings.viewer
       .query()
       .then((v) => {
@@ -407,8 +401,8 @@ function SettingsViewBody({ onClose }: { onClose: () => void }): JSX.Element {
         })
         if (cancelled) return
         if (result.status === 'connected') {
-          setSettings(result.settings)
-          setLastSaved(result.settings)
+          if (pool) ingestSettings(pool, result.settings)
+          setSettings(null)
           setSavedAt(Date.now())
           setTelegramSetup({
             status: 'connected',
@@ -547,9 +541,9 @@ function SettingsViewBody({ onClose }: { onClose: () => void }): JSX.Element {
         lastSaved ?? settings,
         settings,
       )
-      setLastSaved(saved)
+      if (pool) ingestSettings(pool, saved)
       setRefusals(refusals)
-      if (refusals.length === 0) setSettings(saved)
+      if (refusals.length === 0) setSettings(null)
       // Refresh feature gates so useFeature sees the saved experimental toggles
       // [spec:SP-f4b9].
       invalidateFeatures(trpc)
@@ -563,10 +557,10 @@ function SettingsViewBody({ onClose }: { onClose: () => void }): JSX.Element {
     }
   }
 
-  const patch = (p: Partial<PodiumSettings>) => setSettings((s) => (s ? { ...s, ...p } : s))
+  const patch = (p: Partial<PodiumSettings>) => setSettings((s) => settings ? { ...(s ?? settings), ...p } : null)
   const dirty =
     settings !== null &&
-    lastSaved !== null &&
+    lastSaved !== undefined &&
     JSON.stringify(settings) !== JSON.stringify(lastSaved)
   // The saved flash keeps the bar visible for a beat after a successful save.
   const [, forceTick] = useState(0)
@@ -618,7 +612,7 @@ function SettingsViewBody({ onClose }: { onClose: () => void }): JSX.Element {
   const discard = () => {
     if (networkSaveActive) networkSaveActive.discard()
     else {
-      setSettings(lastSaved)
+      setSettings(null)
       setError(null)
       setRefusals([])
     }
@@ -894,4 +888,4 @@ function SettingsViewBody({ onClose }: { onClose: () => void }): JSX.Element {
       </div>
     </AppSheet>
   )
-}
+})
