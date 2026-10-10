@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-import { expect, it } from 'vitest'
+import { expect, it, vi } from 'vitest'
 import { runInAction } from 'mobx'
 import { asIssueId } from '@podium/model/browser'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
@@ -10,10 +10,19 @@ import { attachCommandLaunchSource } from './command-launch-source'
 import { attachHeaderSource } from './header-source'
 import { commandLaunchViews } from './command-launch-views'
 import { LOADING } from './loading'
+import { IssueModel, SessionModel } from './models'
 
 it('reads the existing licensed command summaries without promoting historical payloads', async () => {
   const ctx = await startScenarioEngine(1)
   const handle = createRuntimeWorklistPool(ctx.engine, { summaries: COMMAND_SUMMARIES })
+  const issueRead = IssueModel.prototype.storedField
+  const sessionRead = SessionModel.prototype.storedField
+  const issueSpy = vi.spyOn(IssueModel.prototype, 'storedField').mockImplementation(function (key) {
+    try { return issueRead.call(this, key) } catch (cause) { throw new Error(`issue ${this.id}.${key}: ${String(cause)}`, { cause }) }
+  })
+  const sessionSpy = vi.spyOn(SessionModel.prototype, 'storedField').mockImplementation(function (key) {
+    try { return sessionRead.call(this, key) } catch (cause) { throw new Error(`session ${this.id}.${key}: ${String(cause)}`, { cause }) }
+  })
   let step = 'boot'
   try {
     for (let turn = 0; turn < 32 && handle.pool.hydrate(); turn++) {}
@@ -59,5 +68,5 @@ it('reads the existing licensed command summaries without promoting historical p
     detach()
   } catch (cause) {
     throw new Error(`${step}: ${String(cause)}`, { cause })
-  } finally { handle.dispose(); ctx.dispose() }
+  } finally { issueSpy.mockRestore(); sessionSpy.mockRestore(); handle.dispose(); ctx.dispose() }
 }, 120_000)
