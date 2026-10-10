@@ -28,9 +28,12 @@ it('keeps each phone reader independent while sharing its session draft and stre
   try {
     await service.start()
     first.setFollowing(false); first.setSearching(true); first.setBackendModel('picked', 'codex')
+    first.find.setQuery('first reader'); first.find.setCursor(2)
     expect(second.following).toBe(true)
     expect(second.searching).toBe(false)
     expect(second.backendPick).toEqual({})
+    expect(second.find.query).toBe('')
+    expect(second.find.cursor).toBe(0)
     expect(first.activity).toEqual(chatActivity(row as never, false))
     await service.sends.sendOffer('continue', row.offer.createdAt)
     const { offer: _offer, ...answered } = row // The original phone answer on a plain fixture.

@@ -914,6 +914,7 @@ export const TranscriptList = observer(function TranscriptList({
   items: suppliedItems,
   transcript,
   presentation,
+  find: suppliedFind,
   transcriptQuestion,
   liveItem,
   live,
@@ -948,6 +949,7 @@ export const TranscriptList = observer(function TranscriptList({
   items?: TranscriptItem[]
   transcript?: Pick<TranscriptLog, 'ids' | 'byId' | 'items'>
   presentation?: MobileConversationPresentation
+  find?: MobileTranscriptSearch
   /** Source-owned raw-order answer; every host supplies its addressed fact. */
   transcriptQuestion: TranscriptItem | null
   /** In-progress assistant prose, kept outside the stable settled item array. */
@@ -1027,7 +1029,8 @@ export const TranscriptList = observer(function TranscriptList({
   )
   const reduceMotion = useReduceMotion()
   const [findOpen, setFindOpen] = useState(false)
-  const find = useMemo(() => presentation ? new MobileTranscriptSearch(presentation) : undefined, [presentation])
+  const localFind = useMemo(() => !suppliedFind && presentation ? new MobileTranscriptSearch(presentation) : undefined, [presentation, suppliedFind])
+  const find = suppliedFind ?? localFind
   const [legacyQuery, setLegacyQuery] = useState('')
   const query = find?.query ?? legacyQuery
   const setQuery = find?.setQuery ?? setLegacyQuery

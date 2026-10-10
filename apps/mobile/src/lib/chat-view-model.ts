@@ -9,16 +9,20 @@ import { superagentState } from '@podium/client-graph/superagent'
 import { applySuperagentModelPick, resolveSuperagentBackend, type SuperagentBackendPick } from './superagent-backend'
 import { liveTranscriptItem } from './superagent-transcript'
 import type { MobileConversation } from './mobile-conversation'
+import { MobileTranscriptSearch } from './conversation-presentation'
 
 /** One phone reader. The warm service owns the stream, never the reader's choices. */
 export class MobileChatViewModel {
+  readonly find: MobileTranscriptSearch
   @observable accessor following = true
   @observable accessor searching = false
   @observableRef accessor backendPick: SuperagentBackendPick = {}
   @lazy({ equals: compareStructural }) get backend() { return resolveSuperagentBackend(superagentState(this.pool).active, this.backendPick) }
   @actionBound setBackendModel(model: string, agentKind?: string): void { this.backendPick = applySuperagentModelPick(this.backendPick, model, agentKind) }
   @actionBound setBackendEffort(effort: string): void { this.backendPick = { ...this.backendPick, effort } }
-  constructor(private readonly service: MobileConversation, private readonly pool: MobxPool) {}
+  constructor(private readonly service: MobileConversation, private readonly pool: MobxPool) {
+    this.find = new MobileTranscriptSearch(service.presentation)
+  }
 
   @lazy get session() { return here(this.pool.model('session', this.service.sessionId)) }
   @lazy get draft(): string { return this.pool.sessionObject(this.service.sessionId).messageDraft }

@@ -307,6 +307,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
                 moreAbove={transcript?.hasMoreOlder}
                 loadingOlder={transcript?.loadingOlder}
                 onFollowChange={followTranscript}
+                find={conversation?.find}
                 onSearchChange={searchTranscript}
                 refreshControl={refreshControl}
                 refreshAccessibilityProps={refreshAccessibilityProps}

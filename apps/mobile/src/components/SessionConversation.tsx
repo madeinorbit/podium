@@ -732,6 +732,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
               moreAbove={transcript.hasMoreOlder}
               loadingOlder={transcript.loadingOlder}
               onFollowChange={followTranscript}
+              find={model.find}
               onSearchChange={searchTranscript}
               onRefPress={setRequestedRef}
               footer={footerNode}
