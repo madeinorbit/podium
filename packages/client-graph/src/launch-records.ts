@@ -1,7 +1,7 @@
 import './requested-models'
 import type { RepoNavView, WorktreeView } from '@podium/client-core/values'
 import { lazy, companion } from '@podium/mobx-helpers'
-import { machinePathKey, machinePathsEqual, normalizeOriginUrl, repoNameFromOrigin, machinePathBasename } from '@podium/model/browser'
+import { machinePathsEqual, normalizeOriginUrl } from '@podium/model/browser'
 import { compareShallow } from 'mobx'
 import { headerEntities } from './header-entities'
 import { here, omitGone } from './lookup'
@@ -27,7 +27,8 @@ export class LaunchTree implements WorktreeView {
   readonly issues = []
 }
 export class LaunchRepository implements RepoNavView {
-  constructor(readonly id: string, private readonly pool: MobxPool, private readonly projectOnly = false) {}
+  constructor(readonly repository: RepositoryModel, private readonly pool: MobxPool, private readonly projectOnly = false) {}
+  @lazy get id() { return headerEntities(this.pool).repositoryGroupId(this.repository.id) ?? this.repository.id }
   @lazy({ equals: compareShallow }) get scans(): RepositoryModel[] {
     return headerEntities(this.pool).repositoryGroupRoots(this.id).flatMap(id => here(this.pool.model('repository', id)) ?? [])
   }
@@ -50,14 +51,8 @@ export class LaunchRepository implements RepoNavView {
 /** Pool view registry holds companions, never a second catalogue of records. */
 export function launchRecords(pool: MobxPool) {
   return pool.sources.view('launch.records', () => {
-    const repository = companion((scan: RepositoryModel) => {
-      const id = headerEntities(pool).repositoryGroupIds().find(group => headerEntities(pool).repositoryGroupRoots(group).includes(scan.id))
-      return new LaunchRepository(id ?? scan.id, pool)
-    })
-    const project = companion((scan: RepositoryModel) => {
-      const id = headerEntities(pool).repositoryGroupIds().find(group => headerEntities(pool).repositoryGroupRoots(group).includes(scan.id))
-      return new LaunchRepository(id ?? scan.id, pool, true)
-    })
+    const repository = companion((scan: RepositoryModel) => new LaunchRepository(scan, pool))
+    const project = companion((scan: RepositoryModel) => new LaunchRepository(scan, pool, true))
     const group = (id: string, projects = false) => {
       const first = headerEntities(pool).repositoryGroupRoots(id)[0]
       const scan = first ? here(pool.model('repository', first)) : undefined
@@ -69,6 +64,12 @@ export function launchRecords(pool: MobxPool) {
         const ids = headerEntities(pool).repositoryGroup(path)
         const scan = ids[0] ? here(pool.model('repository', ids[0])) : undefined
         return scan ? repository(scan) : undefined
+      },
+      treeAt(path: string, machineId?: string) {
+        const handoff = headerEntities(pool).shippingScope(path, machineId)?.handoff
+        const scan = handoff ? here(pool.model('repository', handoff.repositoryId)) : undefined
+        return scan ? repository(scan).worktrees.find(tree => machinePathsEqual(tree.path, path) &&
+          (machineId === undefined || tree.machineId === machineId)) : undefined
       },
       dispose() {},
     }

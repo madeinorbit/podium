@@ -21,10 +21,11 @@ export function useSettingsRecords<E extends Exclude<RequestedEntity, 'podiumSet
   // opening/document is visible; all readers see the same ingested identities.
   useEffect(() => {
     if (!request || (!follow && inherited && entity === 'account')) return
-    return followVisibleRequest(() => { if (!request.loading) void reload() }, {
+    const stop = followVisibleRequest(() => { if (!request.loading) void reload() }, {
       visible: () => document.visibilityState !== 'hidden',
       subscribe: changed => { document.addEventListener('visibilitychange', changed); return () => document.removeEventListener('visibilitychange', changed) },
     })
+    return () => { stop(); request.cancel() }
   }, [request, reload, follow, inherited, entity])
   return { request, reload }
 }

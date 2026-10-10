@@ -177,6 +177,7 @@ export function createHeaderEntities(shared?: Pick<PoolTables, 'machine' | 'repo
     repositoryRootIds: () => repositories.rootIds(),
     repositoryGroupIds: () => repositories.groupIds(),
     repositoryGroupRoots: (id: string) => repositories.groupRoots(id),
+    repositoryGroupId: (id: string) => repositories.groupId(id),
     shippingScope: (cwd: string, machineId?: string) => repositories.shippingScope(cwd, machineId),
     offlineMachineIds: function* (now: number): Generator<string> {
       let value = offlineOrder.firstBounded(-now, 'atMost')

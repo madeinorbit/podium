@@ -422,9 +422,7 @@ export class CommandPaletteView {
   }
   @lazy({ equals: compareShallow }) get spawnTargets(): SpawnTarget[] {
     return this.spawnOrder.flatMap(target => {
-      const repo = launchRecords(this.pool).at(target.path)
-      const tree = repo?.worktrees.find(tree => machinePathsEqual(tree.path, target.path) &&
-        (target.machineId === undefined || tree.machineId === target.machineId))
+      const tree = launchRecords(this.pool).treeAt(target.path, target.machineId)
       return tree ? [tree] : []
     })
   }

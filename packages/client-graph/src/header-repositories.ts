@@ -189,6 +189,7 @@ export function createHeaderRepositoryRelations() {
     rootIds: () => rootIds.get(),
     groupIds: () => groupIds.get(),
     groupRoots: (id: string) => roots.get(id)?.map(root => root.id) ?? EMPTY,
+    groupId: (id: string) => facts.get(id)?.group,
     flush,
     shippingScope(
       cwd: string,
