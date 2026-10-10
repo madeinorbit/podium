@@ -1,4 +1,4 @@
-import { DeadlineClock, setClockWakeSource } from '@podium/mobx-helpers'
+import { DeadlineClock, now, setClockWakeSource } from '@podium/mobx-helpers'
 import { autorun } from 'mobx'
 import { afterEach, expect, it, vi } from 'vitest'
 import { browserClockWakeSource } from './clock-wake-source'
@@ -14,17 +14,21 @@ it('rechecks deadlines on visibilitychange, focus and pageshow and removes liste
   setClockWakeSource(browserClockWakeSource)
   const removeDoc = vi.spyOn(doc, 'removeEventListener')
   const removeWin = vi.spyOn(win, 'removeEventListener')
-  const clock = new DeadlineClock(), values: boolean[] = []
+  const clock = new DeadlineClock(), values: boolean[] = [], times: number[] = []
   const stop = autorun(() => values.push(clock.reached(1500)))
+  const stopLabel = autorun(() => times.push(now(1000)))
   try {
     visibility = 'hidden'; doc.dispatchEvent(new Event('visibilitychange'))
     expect(vi.getTimerCount()).toBe(0)
     vi.setSystemTime(2000)
     visibility = 'visible'; doc.dispatchEvent(new Event('visibilitychange'))
     expect(values).toEqual([false, true])
-    win.dispatchEvent(new Event('focus')); win.dispatchEvent(new Event('pageshow'))
+    vi.setSystemTime(2500); win.dispatchEvent(new Event('focus'))
+    expect(times.at(-1)).toBe(2500)
+    vi.setSystemTime(3000); win.dispatchEvent(new Event('pageshow'))
+    expect(times.at(-1)).toBe(3000)
     expect(values).toEqual([false, true])
-  } finally { stop(); clock.clear(); setClockWakeSource(undefined); vi.unstubAllGlobals() }
+  } finally { stop(); stopLabel(); clock.clear(); setClockWakeSource(undefined); vi.unstubAllGlobals() }
   expect(vi.getTimerCount()).toBe(0)
   expect(removeDoc).toHaveBeenCalledTimes(1)
   expect(removeWin).toHaveBeenCalledTimes(2)
