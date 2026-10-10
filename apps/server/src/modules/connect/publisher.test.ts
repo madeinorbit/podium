@@ -260,3 +260,27 @@ describe('ConnectPublisher', () => {
     expect(h.calls).toEqual(['check:https://x.example'])
   })
 })
+
+describe('the stable link (POD-5921)', () => {
+  const make = (enabled: () => boolean, baseUrl?: string) =>
+    new ConnectPublisher({
+      client: {} as ConnectClient,
+      identity: () => identity,
+      publicUrl: () => 'https://my.example',
+      enabled,
+      log: { info: () => {}, warn: () => {} },
+      ...(baseUrl ? { baseUrl } : {}),
+    })
+
+  it('is the Connect /to link for this installation while publishing is on', () => {
+    let on = true
+    const publisher = make(() => on, 'https://connect.podium.do/')
+    expect(publisher.stableLink()).toBe(`https://connect.podium.do/to/${identity.installationId}`)
+    on = false
+    expect(publisher.stableLink()).toBeUndefined()
+  })
+
+  it('is absent without a Connect origin', () => {
+    expect(make(() => true).stableLink()).toBeUndefined()
+  })
+})
