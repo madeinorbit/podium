@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 /**
  * MESSAGES THAT DID NOT ARRIVE (POD-4764) — the header chip and its list.
  *
@@ -26,7 +27,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from '@/components/ui/tooltip
 import { cn } from '@/lib/utils'
 import { usePoolMessageNoticeCount, usePoolMessageNotices } from './use-pool-notices'
 
-function NoticeRow({ notice, onOpen }: { notice: MessageNotice; onOpen: () => void }): JSX.Element {
+const NoticeRow = observer(function NoticeRow({ notice, onOpen }: { notice: MessageNotice; onOpen: () => void }): JSX.Element {
   const { trpc, openSessionTab } = useStoreHandle<Trpc>().access
   const [error, setError] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
@@ -67,7 +68,7 @@ function NoticeRow({ notice, onOpen }: { notice: MessageNotice; onOpen: () => vo
       </div>
     </li>
   )
-}
+})
 
 export function MessageNoticeIndicator({ compact }: { compact?: boolean }): JSX.Element | null {
   const count = usePoolMessageNoticeCount()

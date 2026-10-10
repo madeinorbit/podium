@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 import { useStoreHandle } from '@podium/client-core/react'
 import type { PendingInteractionCard } from '@podium/client-core/values'
 import type { SessionId } from '@podium/model/browser'
@@ -44,7 +45,7 @@ export function PendingInteractionBar({ sessionId, compact }: BarProps): JSX.Ele
   const cards = usePoolInteractionCards(sessionId)
   return <InteractionBarBody cards={cards} compact={compact} />
 }
-function InteractionBarBody({
+const InteractionBarBody = observer(function InteractionBarBody({
   cards,
   compact,
 }: {
@@ -146,4 +147,4 @@ function InteractionBarBody({
       )}
     </div>
   )
-}
+})

@@ -39,7 +39,8 @@ export function checkNotices(
       rows: messages.notices.map((row) => ({
         id: row.messageId,
         pending: messages.pendingIds.includes(row.messageId),
-        fields: { ...row },
+        fields: { messageId: row.messageId, sessionId: row.sessionId, sessionLabel: row.sessionLabel,
+          excerpt: row.excerpt, status: row.status, createdAt: row.createdAt, line: row.line },
       })),
     },
   ]
@@ -58,7 +59,9 @@ export function checkNotices(
     actual.push({
       key: `asks:${sessionId}`,
       fields: {},
-      rows: asks.cards.map((row) => ({ id: row.id, fields: { ...row } })),
+      rows: asks.cards.map((row) => ({ id: row.id, fields: { id: row.id, sessionId: row.sessionId,
+        kind: row.kind, title: row.title, detail: row.detail, actions: row.actions, surface: row.surface,
+        ...(row.note !== undefined ? { note: row.note } : {}) } })),
     })
   }
   expected.push({

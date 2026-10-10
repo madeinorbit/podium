@@ -1,3 +1,4 @@
+import type { MessageModel } from '@podium/client-graph/message-models'
 import {
   deadLetterDeliveryLine,
   isMessageOnItsWay,
@@ -50,7 +51,7 @@ export interface ClampSummary {
 
 /** Requested-vs-effective axes when the clamp matrix downgraded a send.
  *  Null when the message went out exactly as requested. */
-export function clampSummary(m: LedgerMessage): ClampSummary | null {
+export function clampSummary(m: LedgerMessage | MessageModel): ClampSummary | null {
   if (!m.clampedFrom) return null
   let requested: { urgency?: string; lifecycle?: string; reasons?: string[] }
   try {
@@ -88,28 +89,29 @@ export function ledgerStatusTone(status: MessageDeliveryStatus): LedgerStatusTon
 /** One-line delivery story: "delivered to s1 · acked" / "read by s1" /
  *  "queued (expires …)" / "handed to s1" / "dead-lettered" / "expired
  *  undelivered" [POD-834]. */
-export function deliveryLine(m: LedgerMessage): string {
+export function deliveryLine(m: LedgerMessage | MessageModel): string {
+  const status = 'status' in m ? m.status : m.deliveryStatus
   const acked = m.ackedBy ? ` · acked by ${m.ackedBy}` : ''
-  if (m.deliveryStatus === 'confirmed' && m.readAt) {
+  if (status === 'confirmed' && m.readAt) {
     const to = m.deliveredTo ? ` by ${m.deliveredTo}` : ''
     return `read${to}${acked}`
   }
-  if (m.deliveryStatus === 'confirmed') {
+  if (status === 'confirmed') {
     const to = m.deliveredTo ? ` to ${m.deliveredTo}` : ''
     return `delivered${to}${acked}`
   }
-  if (m.deliveryStatus === 'unknown') return 'not confirmed · it may or may not have arrived'
+  if (status === 'unknown') return 'not confirmed · it may or may not have arrived'
   // The agent program has it, its history not yet (POD-4885): still on its way.
-  if (m.deliveryStatus === 'accepted') {
+  if (status === 'accepted') {
     const where = m.deliveredTo ? ` in ${m.deliveredTo}` : ''
     return `${MESSAGE_ACCEPTED_LINE}${where} · not yet in its history`
   }
-  if (isMessageOnItsWay(m.deliveryStatus)) {
+  if (isMessageOnItsWay(status)) {
     const to = m.deliveredTo ? ` to ${m.deliveredTo}` : ''
-    const stage = m.deliveryStatus === 'typed' ? 'typed' : 'handed on'
+    const stage = status === 'typed' ? 'typed' : 'handed on'
     return `${stage}${to} · not yet confirmed`
   }
-  if (m.deliveryStatus === 'stored') {
+  if (status === 'stored') {
     const position =
       typeof m.queuePosition === 'number' &&
       Number.isInteger(m.queuePosition) &&
@@ -120,7 +122,7 @@ export function deliveryLine(m: LedgerMessage): string {
   }
   // A dead letter says WHY when the daemon told us why [POD-2132, POD-2202]: the
   // drain gave up, so this row is terminal rather than waiting on anything.
-  if (m.deliveryStatus === 'failed') return deadLetterDeliveryLine(m.deliveryDeferredReason)
-  if (m.deliveryStatus === 'expired') return 'expired undelivered'
-  return m.deliveryStatus
+  if (status === 'failed') return deadLetterDeliveryLine(m.deliveryDeferredReason)
+  if (status === 'expired') return 'expired undelivered'
+  return status
 }

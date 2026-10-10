@@ -1,3 +1,8 @@
+import { MessageLedger } from '@podium/client-graph/message-ledger'
+import type { MessageModel } from '@podium/client-graph/message-models'
+import { LOADING, isGone } from '@podium/client-graph'
+import { observer } from 'mobx-react-lite'
+import { useWorklistPool } from '@/app/store-worklist-pool'
 /**
  * The message ledger panel (#237) [spec:SP-34d7 web]: who sent what to whom,
  * when, with the full delivery story — queued/delivered/expired/cancelled,
@@ -11,14 +16,13 @@ import { relativeTime } from '@podium/client-core/focus'
 import { useStoreHandle } from '@podium/client-core/react'
 import { Mail as MailIcon, RefreshCw } from 'lucide-react'
 import type { JSX } from 'react'
-import { useCallback, useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { Trpc } from '@/app/trpc'
 import { Button } from '@/components/ui/button'
 import { cn } from '@/lib/utils'
 import {
   clampSummary,
   deliveryLine,
-  type LedgerMessage,
   type LedgerStatusTone,
   ledgerStatusTone,
 } from './message-ledger'
@@ -29,7 +33,7 @@ const STATUS_CHIP: Record<LedgerStatusTone, string> = {
   dead: 'bg-muted text-muted-foreground line-through',
 }
 
-function LedgerRow({ m, now }: { m: LedgerMessage; now: number }): JSX.Element {
+const LedgerRow = observer(function LedgerRow({ m, now }: { m: MessageModel; now: number }): JSX.Element {
   const [open, setOpen] = useState(false)
   const clamp = clampSummary(m)
   return (
@@ -50,10 +54,10 @@ function LedgerRow({ m, now }: { m: LedgerMessage; now: number }): JSX.Element {
         <span
           className={cn(
             'rounded-full px-1.5 shell-type-micro font-semibold uppercase tracking-wide',
-            STATUS_CHIP[ledgerStatusTone(m.deliveryStatus)],
+            STATUS_CHIP[ledgerStatusTone(m.status)],
           )}
         >
-          {m.deliveryStatus}
+          {m.status}
         </span>
         {m.ackedBy && (
           <span className="rounded-full bg-success/15 px-1.5 shell-type-micro font-semibold uppercase tracking-wide text-success">
@@ -78,7 +82,7 @@ function LedgerRow({ m, now }: { m: LedgerMessage; now: number }): JSX.Element {
             clamped: {clamp.parts.join(', ')}
           </span>
         )}
-        {m.hop > 0 && <span>hop {m.hop}</span>}
+        {(m.hop ?? 0) > 0 && <span>hop {m.hop}</span>}
         <span className="ml-auto font-mono shell-type-micro text-muted-foreground/50">{m.id}</span>
       </div>
       {open && (
@@ -96,45 +100,31 @@ function LedgerRow({ m, now }: { m: LedgerMessage; now: number }): JSX.Element {
       )}
     </div>
   )
-}
+})
 
-/** Fetch + render the ledger for a session and/or issue scope. Poll every 15s
- *  while mounted (matches the dock's other lazy readers). */
-export function MessageLedgerView({
-  issueId,
-  sessionId,
-}: {
-  issueId?: IssueId
-  sessionId?: SessionId
-}): JSX.Element {
+/** The dock unmounts this view when another panel is selected. Document
+ * visibility also suspends the view model's polling while the app is hidden. */
+export const MessageLedgerView = observer(function MessageLedgerView({
+  issueId, sessionId,
+}: { issueId?: IssueId; sessionId?: SessionId }): JSX.Element {
   const trpc = useStoreHandle<Trpc>().access.trpc
-  const [rows, setRows] = useState<LedgerMessage[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const refresh = useCallback(() => {
-    if (!issueId && !sessionId) {
-      setRows([])
-      return
-    }
-    Promise.resolve()
-      .then(() =>
-        trpc.messages.ledger.query({
-          ...(issueId ? { issueId } : {}),
-          ...(sessionId ? { sessionId } : {}),
-        }),
-      )
-      .then((r) => {
-        setRows(r as LedgerMessage[])
-        setError(null)
-      })
-      .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : String(e))
-      })
-  }, [trpc, issueId, sessionId])
+  const pool = useWorklistPool()
+  const ledger = useMemo(() => pool ? new MessageLedger(pool, {
+    ledger: () => issueId || sessionId ? trpc.messages.ledger.query({
+      ...(issueId ? { issueId } : {}), ...(sessionId ? { sessionId } : {}),
+    }) : Promise.resolve([]),
+    records: ids => trpc.messages.records.query({ ids: [...ids] }).then(answer => answer.records),
+  }) : null, [pool, trpc, issueId, sessionId])
   useEffect(() => {
-    refresh()
-    const t = setInterval(refresh, 15_000)
-    return () => clearInterval(t)
-  }, [refresh])
+    if (!ledger) return
+    const visible = () => ledger.setVisible(document.visibilityState !== 'hidden')
+    visible()
+    document.addEventListener('visibilitychange', visible)
+    return () => { document.removeEventListener('visibilitychange', visible); ledger.dispose() }
+  }, [ledger])
+  const rows = ledger?.ids ?? null
+  const error = ledger?.error
+  const refresh = () => { void ledger?.refresh() }
   const now = Date.now()
   return (
     <div
@@ -163,11 +153,16 @@ export function MessageLedgerView({
         </div>
       ) : (
         <div className="flex flex-col gap-1.5">
-          {rows.map((m) => (
-            <LedgerRow key={m.id} m={m} now={now} />
-          ))}
+          {rows.map(id => <PooledLedgerRow key={id} ledger={ledger!} id={id} now={now} />)}
         </div>
       )}
     </div>
   )
-}
+})
+
+const PooledLedgerRow = observer(function PooledLedgerRow({ ledger, id, now }: { ledger: MessageLedger; id: string; now: number }) {
+  const message = ledger.pool.model('message', id)
+  if (message === LOADING) return <div className="text-xs">Loading…</div>
+  if (isGone(message)) return null
+  return <LedgerRow m={message} now={now} />
+})
