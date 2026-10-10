@@ -376,7 +376,7 @@ export class CommandPaletteView {
       if (snapshot && snapshot !== LOADING) {
         this.repoOrder = snapshot.repos.map(repo => (repo as RepositoryModel).id)
         this.repoChoiceOrder = snapshot.repoChoices.map(repo => (repo as RepositoryModel).id)
-        this.repoViewOrder = snapshot.repoViews.map(repo => (repo as LaunchRepository).id)
+        this.repoViewOrder = snapshot.repoViews.map(repo => (repo as LaunchRepository).repository.id)
         this.spawnOrder = snapshot.spawnTargets.map(target => ({ path: target.path, ...(target.machineId ? { machineId: target.machineId } : {}) }))
         this.openingUsage = snapshot.usage
         this.initialRepoPath = snapshot.initialRepoPath
@@ -441,7 +441,7 @@ export class CommandPaletteView {
     return { ...window, issues, pending,
       repos: this.repoOrder.flatMap(id => here(this.pool.model('repository', id)) ?? []),
       repoChoices: this.repoChoiceOrder.flatMap(id => here(this.pool.model('repository', id)) ?? []),
-      repoViews: this.repoViewOrder.flatMap(id => launchRecords(this.pool).group(id) ?? []),
+      repoViews: this.repoViewOrder.flatMap(id => launchRecords(this.pool).byId(id) ?? []),
       machines: commandLaunchViews(this.pool).machines(),
       sessionIds: this.sessionOrder, spawnTargets: this.spawnTargets,
       usage: this.openingUsage, initialRepoPath: this.initialRepoPath,

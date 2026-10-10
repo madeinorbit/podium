@@ -60,6 +60,10 @@ export function launchRecords(pool: MobxPool) {
     }
     return {
       group,
+      byId(id: string) {
+        const scan = here(pool.model('repository', id))
+        return scan ? repository(scan) : undefined
+      },
       at(path: string) {
         const ids = headerEntities(pool).repositoryGroup(path)
         const scan = ids[0] ? here(pool.model('repository', ids[0])) : undefined
