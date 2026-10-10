@@ -1,5 +1,5 @@
 import { applySettingsPatch, changedSettingsLeaves } from '@podium/commands/settings-write-plan'
-import { SETTINGS_CLASSIFICATION } from '@podium/model/browser'
+import { SETTINGS_PATH_TIERS } from '@podium/model/browser'
 import { draft, lazy } from '@podium/mobx-helpers'
 import type { PodiumSettings } from '@podium/runtime'
 import { action, runInAction } from 'mobx'
@@ -58,10 +58,10 @@ export class SettingsEditDraft {
   readonly settings: PodiumSettings
   private readonly submission
   constructor(readonly record: PodiumSettings, save: (previous: PodiumSettings, next: PodiumSettings) => Promise<SaveSettingsResult>) {
-    this.tree = node(() => record as unknown as Branch, SETTINGS_CLASSIFICATION.map(field => field.path))
+    this.tree = node(() => record as unknown as Branch, SETTINGS_PATH_TIERS.map(field => field.path))
     this.settings = this.tree.value as PodiumSettings
     // The root draft submits one command plan; leaf drafts own the touched fields.
-    this.submission = draft(record, { fields: [...new Set(SETTINGS_CLASSIFICATION.map(field => field.path.split('.')[0]!))] as (keyof PodiumSettings & string)[], save: async () => {
+    this.submission = draft(record, { fields: [...new Set(SETTINGS_PATH_TIERS.map(field => field.path.split('.')[0]!))] as (keyof PodiumSettings & string)[], save: async () => {
       const sent: Branch = {}
       this.tree.collect('', sent)
       const previous = Object.fromEntries(Object.keys(this.settings).map(key => [key, record[key as keyof PodiumSettings]])) as PodiumSettings

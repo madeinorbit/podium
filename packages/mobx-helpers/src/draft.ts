@@ -1,5 +1,8 @@
 import { action, compareDefault, computed, makeObservable, observable, type ObservableMap } from 'mobx'
 
+/** The source remains available when a record itself has an editable `model`. */
+export const DRAFT_SOURCE = Symbol('draft.source')
+
 export interface DraftOptions<T, K extends keyof T, R> {
   /** The editable keys: each becomes a get/set property of the draft. */
   fields: readonly K[]
@@ -9,6 +12,7 @@ export interface DraftOptions<T, K extends keyof T, R> {
 
 /** The draft's own members, as mobx-utils `createViewModel` names them. */
 export interface DraftState<T, K extends keyof T, R> {
+  readonly [DRAFT_SOURCE]: T
   /** The source the draft edits. */
   readonly model: T
   /** True while any field holds a local value. */
@@ -24,7 +28,8 @@ export interface DraftState<T, K extends keyof T, R> {
   submit(): R | undefined
 }
 
-export type Draft<T, K extends keyof T, R = unknown> = { -readonly [P in K]: T[P] } & DraftState<T, K, R>
+export type Draft<T, K extends keyof T, R = unknown> = { -readonly [P in K]: T[P] } &
+  Omit<DraftState<T, K, R>, 'model'> & ('model' extends K ? object : { readonly model: T })
 
 /**
  * An edit draft over an existing record: mobx-utils `createViewModel`'s
@@ -47,11 +52,16 @@ export function draft<T extends object, K extends keyof T & string, R = unknown>
 }
 
 class EditDraft<T extends object, K extends keyof T & string, R> implements DraftState<T, K, R> {
+  declare readonly model: T
+  readonly [DRAFT_SOURCE]: T
   // Shallow: an edited array or object is the caller's value, not converted.
   readonly #local: ObservableMap<K, T[K]> = observable.map(undefined, { deep: false, name: 'draft' })
   readonly #save: (changes: Partial<Pick<T, K>>) => R
 
-  constructor(readonly model: T, { fields, save }: DraftOptions<T, K, R>) {
+  constructor(model: T, { fields, save }: DraftOptions<T, K, R>) {
+    this[DRAFT_SOURCE] = model
+    if (!fields.some(field => field === 'model'))
+      Object.defineProperty(this, 'model', { value: model })
     this.#save = save
     makeObservable<EditDraft<T, K, R>>(this, { isDirty: computed, reset: action, resetProperty: action, submit: action })
     const local = this.#local

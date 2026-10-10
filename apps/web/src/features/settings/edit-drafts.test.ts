@@ -1,6 +1,6 @@
 import { asAutomationId, type AutomationWire } from '@podium/model'
 import { agentSettingsDraft } from '@podium/client-graph/write/agent-settings-draft'
-import { DEFAULT_SETTINGS, normalizeSettings } from '@podium/runtime'
+import { DEFAULT_SETTINGS, normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { changedSettingsLeaves } from '@podium/commands/settings-write-plan'
 import { observable, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
@@ -40,7 +40,7 @@ describe('standard edit draft parity before removing form copies', () => {
     const record = observable(normalizeSettings(DEFAULT_SETTINGS))
     const patch = { hibernation: { ...record.hibernation, enabled: false } }
     const oldNext = { ...record, ...patch }
-    const save = vi.fn(async (previous, next) => ({ saved: next, refusals: [] }))
+    const save = vi.fn(async (previous: PodiumSettings, next: PodiumSettings) => ({ saved: next, refusals: [] }))
     const edits = new SettingsEditDraft(record, save)
     expect(changedSettingsLeaves(record, edits.settings)).toEqual([])
     edits.patch(patch)
@@ -89,14 +89,14 @@ describe('open form live fields, discard and touched-only submission', () => {
   })
   it('follows live settings siblings within a touched group and discards to live', async () => {
     const record = observable(normalizeSettings(DEFAULT_SETTINGS))
-    const save = vi.fn(async (previous, next) => ({ saved: next, refusals: [] }))
+    const save = vi.fn(async (previous: PodiumSettings, next: PodiumSettings) => ({ saved: next, refusals: [] }))
     const edits = new SettingsEditDraft(record, save)
     edits.patch({ notifications: { ...edits.settings.notifications, web: false } })
     runInAction(() => { record.notifications = { ...record.notifications, ntfyTopic: 'remote-topic' }; record.hibernation = { ...record.hibernation, memoryPct: 90 } })
     expect(edits.settings.notifications.ntfyTopic).toBe('remote-topic')
     expect(edits.settings.hibernation.memoryPct).toBe(90)
     await edits.submit()
-    expect(changedSettingsLeaves(...save.mock.calls[0]!)).toEqual([{ path: 'notifications.web', value: false, tier: 'personal' }])
+    expect(changedSettingsLeaves(...save.mock.calls[0]!)).toEqual([{ path: 'notifications.web', value: false, tier: 'personal-preference' }])
     edits.patch({ notifications: { ...edits.settings.notifications, web: false } })
     edits.reset()
     expect(edits.settings.notifications).toEqual(record.notifications)

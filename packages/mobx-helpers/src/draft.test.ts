@@ -1,6 +1,6 @@
 import { autorun, configure, observable, runInAction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { draft } from './draft'
+import { draft, DRAFT_SOURCE } from './draft'
 
 interface Row { title: string; stage: string; owner: string }
 
@@ -25,6 +25,19 @@ function fixture() {
 afterEach(() => configure({ enforceActions: 'never' }))
 
 describe('draft', () => {
+  it('edits a record field named model without losing its source', () => {
+    const source = observable({ model: 'auto', effort: 'auto' })
+    const save = vi.fn()
+    const d = draft(source, { fields: ['model', 'effort'], save })
+    expect(d[DRAFT_SOURCE]).toBe(source)
+    expect(d.model).toBe('auto')
+    d.model = 'gpt-6.1-sol'
+    runInAction(() => { source.effort = 'high' })
+    expect(d.effort).toBe('high')
+    d.submit()
+    expect(save).toHaveBeenCalledExactlyOnceWith({ model: 'gpt-6.1-sol' })
+    expect(d.model).toBe('auto')
+  })
   it('reads the live source for an untouched field and the local value for an edited one', () => {
     const { d, change } = fixture()
     expect([d.title, d.stage]).toEqual(['Fix login', 'backlog'])
