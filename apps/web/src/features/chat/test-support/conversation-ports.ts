@@ -1,7 +1,7 @@
 import { omitGone } from '@podium/client-graph/lookup'
-import type { ConversationOutbox, ConversationRecords } from '@podium/client-core/conversation'
+import type { ConversationMessage, ConversationOutbox, ConversationRecords } from '@podium/client-core/conversation'
 import type { OutboxChatSend } from '@podium/client-core/engine'
-import type { MessageRecordWire, SessionId } from '@podium/model'
+import type { SessionId } from '@podium/model'
 import type { MobxPool } from '@podium/client-graph'
 import { useCallback, useLayoutEffect, useMemo, useRef } from 'react'
 import { useWorklistPoolProjection } from '@/app/store-worklist-pool'
@@ -16,7 +16,7 @@ type Ports = {
   held: (id: SessionId) => readonly OutboxChatSend[]
 }
 const EMPTY_INPUT = {
-  records: [] as readonly MessageRecordWire[],
+  records: [] as readonly ConversationMessage[],
   sends: [] as readonly OutboxChatSend[],
   ready: false,
   draft: '',
@@ -47,7 +47,7 @@ export function useChatConversationPorts(
   if (data.ready && initial.current?.id !== id) initial.current = { id, draft: data.draft }
   // biome-ignore lint/correctness/useExhaustiveDependencies: One bridge per addressed conversation; layout updates its borrowed rows without replacing listener ownership.
   const bridge = useMemo(() => {
-    let records: readonly MessageRecordWire[] = data.records,
+    let records: readonly ConversationMessage[] = data.records,
       sends = data.sends
     const recordListeners = new Set<() => void>(),
       heldListeners = new Set<() => void>()
