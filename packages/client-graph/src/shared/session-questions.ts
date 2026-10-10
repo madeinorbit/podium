@@ -60,6 +60,7 @@ interface Seed {
   replacement: number
 }
 export interface SessionQuestions {
+  readonly updates: Readonly<Record<'close' | 'setupCount' | 'setupAgent' | 'reference' | 'triage' | 'recent' | 'machine' | 'activity', number>>
   readonly visits: number
   readonly activityVisits: number
   readonly activityPathsBuilt: number
@@ -140,6 +141,7 @@ export function createSessionQuestions(
   let setupCount = seed?.setupCount ?? 0
   let version = seed?.version ?? 0, replacement = seed?.replacement ?? 0
   let visits = 0, activityVisits = 0, activityPathsBuilt = 0
+  const updates = { close: 0, setupCount: 0, setupAgent: 0, reference: 0, triage: 0, recent: 0, machine: 0, activity: 0 }
   let building = false
   let builders: (() => unknown)[] = []
   function newAnswer<T>(compare?: (a: T, b: T) => number, point?: (value: T) => number): KeyedAnswer<T> {
@@ -150,6 +152,7 @@ export function createSessionQuestions(
   }
   const touch = (key: string) => revisions.set(key, key, ++version)
   function fileSetup(id: string, value: SessionQuestionFacts | undefined) {
+    updates.setupCount++
     const visible = value !== undefined && !collapsed(id)
     if (setupMembers.has(id) !== visible) {
       if (visible) { setupMembers.set(id, id, true); setupCount++ }
@@ -158,6 +161,7 @@ export function createSessionQuestions(
     }
     const next = visible && value.agentKind !== 'shell' && !value.headless
       ? { id, at: value.activity, setupOrder: value.setupOrder, agentKind: value.agentKind } : undefined
+    updates.setupAgent++
     const before = setupAgents.get(id)
     if (before && next && compareSetupAgent(before, next) === 0 && before.agentKind === next.agentKind) return
     if (before === next) return
@@ -174,6 +178,7 @@ export function createSessionQuestions(
     return value.agentKind === 'shell' ? keys : [...keys, ...cwdPaths.map(path => `agentActivity:${path}`)]
   }
   function fileClose(id: string, value: SessionQuestionFacts | undefined) {
+    updates.close++
     const previous = closeMembers.get(id)
     const next = value?.issueId && !collapsed(id) && (value.closeOffers || value.closeWorking)
       ? { issueId: value.issueId, offers: Number(value.closeOffers), working: Number(value.closeWorking) }
@@ -205,8 +210,10 @@ export function createSessionQuestions(
     fileClose(value.id, value)
     fileSetup(value.id, value)
     const visible = !collapsed(value.id)
+    updates.reference++
     if (value.referenceKey) bucket(references, `ref:${value.referenceKey}`, value.id,
       visible ? { id: value.id, order: value.order } : undefined, compareReference)
+    updates.triage++
     const next = value.rank === null || !visible ? undefined : {
       id: value.id, rank: value.rank, createdAt: value.createdAt, at: value.at,
     }
@@ -221,6 +228,7 @@ export function createSessionQuestions(
       if (next) triage.set(value.id, '', next)
       else triage.delete(value.id)
     }
+    updates.recent++
     const recency = value.archived ? undefined : { id: value.id, at: value.activity }
     const beforeRecent = recent.get(value.id)
     if (beforeRecent !== recency && !(beforeRecent && recency && compareRecent(beforeRecent, recency) === 0)) {
@@ -228,9 +236,11 @@ export function createSessionQuestions(
       else recent.delete(value.id)
       touch('recent')
     }
+    updates.machine++
     if (value.machineId) bucket(machines, `machine:${value.machineId}`, value.id,
       visible ? { id: value.id, machineId: value.machineId, createdAt: value.createdAt, order: value.order } : undefined,
       compareMachineSessions)
+    updates.activity++
     for (const path of value.activityPaths) bucket(activities, path, value.id,
       visible ? { id: value.id, at: Date.parse(value.activity) || 0 } : undefined, compareActivity)
   }
@@ -264,6 +274,7 @@ export function createSessionQuestions(
     file(filed)
   }
   const api: SessionQuestions = {
+    updates,
     hasWithin: path => activities.get(`activity:within:${machinePathKey(path)}`)?.answer.first() !== undefined,
     present(id) {
       return setupMembers.has(id)

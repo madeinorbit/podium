@@ -99,6 +99,7 @@ export function matchIssueTitleRef(
  * The phone target question answers its declared order/text predicate here;
  * other questions narrow the reader's scalar and ancestor checks. */
 export function createReaderIndex(options: { targetSearch?: boolean; recent?: boolean } = {}) {
+  const updates = { sessionFacets: 0 }
   const changes = new Map<string, Set<string>>()
   let changeReaders = 0
   let changedId = ''
@@ -224,6 +225,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
         out.add(`issue:root:${machinePathKey(worktreePath)}`)
       }
     } else if (kind === 'session') {
+      updates.sessionFacets++
       const { archived, headless, agentKind, status, issueId } = row
       if (!archived) out.add('session:unarchived')
       if (!archived && !headless && agentKind !== 'shell') out.add('session:inbox')
@@ -429,6 +431,7 @@ export function createReaderIndex(options: { targetSearch?: boolean; recent?: bo
       }
     },
     changes,
+    updates,
     watchChanges(): () => void {
       changeReaders++
       return () => {

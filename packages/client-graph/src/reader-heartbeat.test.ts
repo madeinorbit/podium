@@ -5,7 +5,73 @@ import { MobxPool } from './pool'
 import { createColdIndex } from './shared/cold-index'
 import { createReaderIndex, questionEntity, type ReaderQuestion } from './shared/reader-questions'
 import { SCHEMA } from './shared/schema'
+import { createSessionQuestions } from './shared/session-questions'
 import type { RowRecord, RowSourceEvent } from './shared/source'
+
+it.each([false, true])('evaluates only activity-reading resident questions on a heartbeat (external: %s)', external => {
+  const source = createColdIndex(SCHEMA)
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 }, undefined, {
+    ...(external ? { cold: () => source } : {}), load: () => undefined, schedule: () => () => {},
+  })
+  const row = { sessionId: 'active', cwd: '/repo/nested', issueId: 'one', agentKind: 'codex',
+    status: 'live', archived: false, headless: false, machineId: 'machine',
+    refRepoId: 'repo', refSeq: 1, refLetter: 'a', createdAt: '2026-10-01', lastActiveAt: '2026-10-01' }
+  const apply = (value: object) => {
+    const event: RowSourceEvent = { type: 'update', rows: [{ kind: 'session', id: 'active', value } as RowRecord] }
+    if (external) source.apply(event)
+    pool.apply(event)
+  }
+  try {
+    apply(row)
+    const before = pool.queries.residentUpdates
+    apply({ ...row, lastActiveAt: '2026-10-09' })
+    const delta = Object.fromEntries(Object.entries(pool.queries.residentUpdates)
+      .map(([key, count]) => [key, count - before[key as keyof typeof before]]))
+    console.info('[resident heartbeat questions]', JSON.stringify({ external, delta }))
+    expect(delta).toEqual({ sessionFacets: 0, close: 0, setupCount: 0, setupAgent: 1,
+      reference: 0, triage: 1, recent: 1, machine: 0, activity: 1 })
+    expect(pool.queries.activity({ kind: 'commandRootActivity', roots: ['/repo'] })).toBe(Date.parse('2026-10-09'))
+    expect(pool.queries.ids({ kind: 'headerRecentSession' })).toEqual(['active'])
+  } finally { pool.dispose() }
+})
+
+it('matches complete question rebuilds across individual field edits, visibility and removal', () => {
+  const collapsed = new Set<string>()
+  const order = (id: string) => id === 'active' ? 'a' : 'b'
+  const questions = createSessionQuestions(id => collapsed.has(id), order)
+  const row = { sessionId: 'active', cwd: '/repo/nested', issueId: 'one', agentKind: 'codex',
+    status: 'live', archived: false, headless: false, machineId: 'machine',
+    refRepoId: 'repo', refSeq: 1, refLetter: 'a', createdAt: '2026-10-01', lastActiveAt: '2026-10-01' }
+  const other = { ...row, sessionId: 'other', lastActiveAt: '2026-10-02' }
+  const read = (index: ReturnType<typeof createSessionQuestions>) => ({
+    facts: index.fact('active'), recent: index.recent(), next: index.next(undefined, Date.parse('2026-10-08')),
+    later: index.next(undefined, Date.parse('2026-11-08')), machine: index.latest(['machine', 'other-machine']),
+    closes: ['one', 'two'].map(id => index.issueCloseCounts(id)),
+    refs: ['["repo",1,"a"]', '["repo",2,"b"]', '["repo","draft",3]'].map(ref => index.referenceId(ref)),
+    setup: [index.setupAgent(), index.setupCount(), index.present('active')],
+    activity: ['/repo', '/repo/nested', '/elsewhere'].flatMap(root => [false, true].map(agentsOnly =>
+      index.activity({ kind: 'commandRootActivity', roots: [root], agentsOnly }))),
+  })
+  questions.set('other', other)
+  const check = (next: Readonly<Record<string, unknown>> | undefined) => {
+    questions.set('active', next)
+    const rebuilt = createSessionQuestions(id => collapsed.has(id), order)
+    rebuilt.replace([['other', other], ['active', next]])
+    expect(read(questions)).toEqual(read(rebuilt))
+  }
+  check(row)
+  for (const patch of [
+    { lastActiveAt: '2026-10-09' }, { draftUpdatedAt: '2026-10-10' }, { title: 'Renamed' },
+    { archived: true }, { headless: true }, { agentKind: 'shell', busy: true }, { agentKind: 'claude-code' },
+    { status: 'exited' }, { agentState: { phase: 'needs_user' } }, { offer: { message: 'Decide' } },
+    { cwd: '/elsewhere' }, { issueId: 'two' }, { machineId: 'other-machine' }, { machineId: undefined },
+    { createdAt: '2026-10-03' }, { snoozedUntil: '2026-11-01' },
+    { refSeq: 2, refLetter: 'b' }, { refSeq: undefined, refDraft: 3 }, { refRepoId: undefined },
+  ]) { check({ ...row, ...patch }); check(row) }
+  collapsed.add('active'); questions.visibilityChanged('active'); check(row)
+  collapsed.delete('active'); questions.visibilityChanged('active'); check(row)
+  check(undefined); check(row)
+})
 
 it.each([1, 4])('matches the old observed query walk and records heartbeat bookkeeping at %sx', scale => {
   const rows = new Map<string, RowRecord>()

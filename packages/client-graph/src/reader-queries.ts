@@ -120,6 +120,10 @@ export class ReaderQueries {
   }
   private readonly stopTables: (() => void)[] = []
   readonly counts = { questions: 0, returnedIds: 0, scalarVisits: 0, revisionChecks: 0, membershipChecks: 0 }
+  /** Question evaluations at the resident write boundary, before equality barriers. */
+  get residentUpdates() {
+    return { ...this.residents.updates, ...this.sessionQuestions().updates }
+  }
   constructor(
     private readonly pool: MobxPool,
     _schema: ModelSchema,
