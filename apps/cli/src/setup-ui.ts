@@ -30,6 +30,8 @@ export interface TextOptions {
   message: string
   placeholder?: string
   defaultValue?: string
+  /** Pre-filled and editable, e.g. an address to correct. */
+  initialValue?: string
   validate?: (value: string) => string | undefined
 }
 export interface PasswordOptions {
@@ -102,6 +104,7 @@ export function clackIO(): SetupIO {
           message: o.message,
           ...(o.placeholder ? { placeholder: o.placeholder } : {}),
           ...(o.defaultValue ? { defaultValue: o.defaultValue } : {}),
+          ...(o.initialValue ? { initialValue: o.initialValue } : {}),
           ...(o.validate ? { validate: (v: string | undefined) => o.validate?.(v ?? '') } : {}),
         }),
       ),

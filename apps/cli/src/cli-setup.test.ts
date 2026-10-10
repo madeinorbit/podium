@@ -21,6 +21,7 @@ import { openDatabase } from '@podium/runtime/sqlite'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { loadCheckIdentity, realCheckReachability } from './cli-reachability'
 import {
+  recordPublicUrlNow,
   repairConfig,
   runCliSetup,
   runJoinSetup,
@@ -37,11 +38,13 @@ const priorStateDir = process.env.PODIUM_STATE_DIR!
  *  with a nested Funnel/Serve choice, and is walked by its own tests below). */
 const MANUAL = 'manual'
 const CLOUDFLARE_ROW = 'cloudflare-tunnel'
-/** Every flow checks its URL once the server is up; by default, hermetically: "could not
- *  ask", which prints one line and changes nothing. Tests about the check override it. */
+/** Every flow checks its URL right after setting it; by default, hermetically: Connect
+ *  "could not ask", and this machine reaches it. Tests about the check override both. */
 const HERMETIC = {
   checkReachability: async (): Promise<CheckResult | undefined> => undefined,
   checkInside: async () => true,
+  // Never the real control socket: the address goes straight into config.
+  recordPublicUrl: async (url: string) => saveConfig({ ...loadConfig(), publicUrl: url }),
 }
 /** A backend stub that never spawns a process and echoes the persistence it was asked for. */
 const echoBackend = async (o: { persistence: 'systemd' | 'detached' }) => ({
@@ -113,7 +116,7 @@ describe('runCliSetup', () => {
       'all-in-one',
       'server',
     ] as const)('persists the %s setup request and key before starting the backend', async (mode) => {
-      const { io } = scriptedIO([mode, MANUAL, 'https://hub.example', 's3cret', true])
+      const { io } = scriptedIO([mode, 's3cret', true, MANUAL, 'https://hub.example'])
       const startBackend = vi.fn(async (options: { persistence: 'systemd' | 'detached' }) => {
         const state = loadSupervisorState(dir)
         expect(state.setupEnrollment).toMatchObject({
@@ -142,7 +145,7 @@ describe('runCliSetup', () => {
         effectivePersistence: 'systemd' as const,
         message: 'started',
       }))
-      const { io, prompts } = scriptedIO([MANUAL, 'https://vps.ts.net', 's3cret', true])
+      const { io, prompts } = scriptedIO(['s3cret', true, MANUAL, 'https://vps.ts.net'])
 
       await runVpsSetup(io, 18787, {
         ...HERMETIC,
@@ -172,7 +175,7 @@ describe('runCliSetup', () => {
         .mockResolvedValueOnce({ effectivePersistence: 'detached', message: 'fallback' })
         .mockResolvedValueOnce({ effectivePersistence: 'detached', message: 'ready' })
 
-      const { io } = scriptedIO([MANUAL, 'https://vps.ts.net', 's3cret', true])
+      const { io } = scriptedIO(['s3cret', true, MANUAL, 'https://vps.ts.net'])
       await runVpsSetup(io, 18787, {
         ...HERMETIC,
         hasCommand: () => true,
@@ -209,7 +212,7 @@ describe('runCliSetup', () => {
         persistenceAtBoot = loadConfig().persistence
         return { effectivePersistence: o.persistence, message: 'started' }
       })
-      const { io } = scriptedIO(['all-in-one', MANUAL, 'https://hub.example', 's3cret', true])
+      const { io } = scriptedIO(['all-in-one', 's3cret', true, MANUAL, 'https://hub.example'])
       await runCliSetup(io, 18787, {
         ...HERMETIC,
         hasCommand: () => true,
@@ -226,7 +229,7 @@ describe('runCliSetup', () => {
         persistenceAtBoot = loadConfig().persistence
         return { effectivePersistence: o.persistence, message: 'started' }
       })
-      const { io } = scriptedIO(['all-in-one', MANUAL, 'https://hub.example', 's3cret', true])
+      const { io } = scriptedIO(['all-in-one', 's3cret', true, MANUAL, 'https://hub.example'])
       await runCliSetup(io, 18787, {
         ...HERMETIC,
         hasCommand: () => true,
@@ -236,9 +239,9 @@ describe('runCliSetup', () => {
       expect(persistenceAtBoot).toBeUndefined()
     })
 
-    it('host a server here (all-in-one) → set URL then password', async () => {
+    it('host a server here (all-in-one) → password, start, then the URL', async () => {
       const setPw = vi.fn(async () => {})
-      await run(['all-in-one', MANUAL, 'https://box.ts.net', 's3cret', false], setPw)
+      await run(['all-in-one', 's3cret', false, MANUAL, 'https://box.ts.net'], setPw)
       expect(loadConfig().mode).toBe('all-in-one')
       expect(loadConfig().publicUrl).toBe('https://box.ts.net')
       expect(loadConfig().networkOption).toBe('manual')
@@ -247,7 +250,7 @@ describe('runCliSetup', () => {
     })
 
     it('host the relay only (server) persists mode=server', async () => {
-      await run(['server', MANUAL, 'https://relay.ts.net', '', true, true])
+      await run(['server', '', true, true, MANUAL, 'https://relay.ts.net'])
       expect(loadConfig().mode).toBe('server')
       expect(loadConfig().publicUrl).toBe('https://relay.ts.net')
       expect(loadConfig().networkOption).toBe('manual')
@@ -256,7 +259,7 @@ describe('runCliSetup', () => {
 
     it('a blank password leaves the host open only after explicit confirmation', async () => {
       const setPw = vi.fn(async () => {})
-      await run(['all-in-one', MANUAL, 'https://box.ts.net', '', true, false], setPw)
+      await run(['all-in-one', '', true, false, MANUAL, 'https://box.ts.net'], setPw)
       expect(setPw).not.toHaveBeenCalled()
     })
 
@@ -267,7 +270,7 @@ describe('runCliSetup', () => {
       }))
       // `undefined` = the operator pressed Enter without choosing, so the confirm's
       // initialValue (systemd, the recommended option) stands.
-      const { io } = scriptedIO(['all-in-one', MANUAL, 'https://box.ts.net', 's3cret', undefined])
+      const { io } = scriptedIO(['all-in-one', 's3cret', undefined, MANUAL, 'https://box.ts.net'])
       await runCliSetup(io, 18787, {
         ...HERMETIC,
         hasCommand: () => true,
@@ -292,7 +295,7 @@ describe('runCliSetup', () => {
         message: 'ok',
       }))
       // Queue ends before the persistence confirm — the scripted stand-in for Ctrl-C.
-      const { io } = scriptedIO(['all-in-one', MANUAL, 'https://box.ts.net', 's3cret'])
+      const { io } = scriptedIO(['all-in-one', 's3cret'])
       await runCliSetup(io, 18787, {
         ...HERMETIC,
         hasCommand: () => true,
@@ -309,7 +312,7 @@ describe('runCliSetup', () => {
     })
 
     it('labels blank password as the no-password confirmation path', async () => {
-      const { prompts, done } = start(['all-in-one', MANUAL, 'https://box.ts.net', '', true, false])
+      const { prompts, done } = start(['all-in-one', '', true, false, MANUAL, 'https://box.ts.net'])
       await done
       expect(prompts).toContain('Podium login password (leave blank for no login)')
       expect(prompts).toContain('Run without a password?')
@@ -317,7 +320,7 @@ describe('runCliSetup', () => {
 
     it('re-prompts for a password when no-password confirmation is not typed', async () => {
       const setPw = vi.fn(async () => {})
-      await run(['all-in-one', MANUAL, 'https://box.ts.net', '', false, 's3cret', false], setPw)
+      await run(['all-in-one', '', false, 's3cret', false, MANUAL, 'https://box.ts.net'], setPw)
       expect(setPw).toHaveBeenCalledWith('s3cret')
     })
 
@@ -360,37 +363,20 @@ describe('runCliSetup', () => {
     })
 
     it('re-prompts on an invalid URL', async () => {
-      await run(['all-in-one', MANUAL, 'nope', 'https://box.ts.net', 'pw', false])
+      await run(['all-in-one', 'pw', false, MANUAL, 'nope', 'https://box.ts.net'])
       expect(loadConfig().publicUrl).toBe('https://box.ts.net')
     })
 
     it('Ctrl-C/EOF during the password step leaves the box UNCONFIGURED (#21)', async () => {
-      // URL was pasted, then stdin only ever yields '' (EOF): no password, no explicit
-      // "open" ack → the flow must abort WITHOUT writing mode/publicUrl.
-      await run(['all-in-one', MANUAL, 'https://box.ts.net'])
+      // stdin only ever yields '' (EOF) at the password: no password, no explicit
+      // "open" ack → the flow must abort WITHOUT writing anything.
+      await run(['all-in-one'])
       expect(loadConfig()).toEqual({})
     })
 
     it('declining the no-password ack repeatedly aborts without saving (#21)', async () => {
       const setPw = vi.fn(async () => {})
-      await run(
-        [
-          'all-in-one',
-          MANUAL,
-          'https://box.ts.net',
-          '',
-          false,
-          '',
-          false,
-          '',
-          false,
-          '',
-          false,
-          '',
-          false,
-        ],
-        setPw,
-      )
+      await run(['all-in-one', '', false, '', false, '', false, '', false, '', false], setPw)
       expect(setPw).not.toHaveBeenCalled()
       expect(loadConfig()).toEqual({})
     })
@@ -399,10 +385,37 @@ describe('runCliSetup', () => {
       // Pick all-in-one and a network option, then never paste a URL. The queue drains,
       // which is the scripted stand-in for Ctrl-C, and the flow must END rather than spin —
       // the condition readline could only report as '' forever.
-      const { output, done } = start(['all-in-one', MANUAL, '', '', ''])
+      const { output, done } = start(['all-in-one', 's3cret', false, MANUAL, '', '', ''])
       await done
       expect(loadConfig().publicUrl).toBeUndefined()
-      expect(output.join('\n')).toContain('nothing saved')
+      // The protected server keeps running on this machine; the address can come later.
+      expect(loadConfig().mode).toBe('all-in-one')
+      expect(output.join('\n')).toContain('without a public address yet')
+    })
+
+    it('sets the password and starts the server BEFORE asking how it is reached', async () => {
+      const events: string[] = []
+      const s = scriptedIO(['all-in-one', 's3cret', false, MANUAL, 'https://box.ts.net'])
+      await runCliSetup(s.io, 18787, {
+        ...HERMETIC,
+        hasCommand: () => true,
+        setPassword: vi.fn(async () => {
+          events.push('password')
+        }),
+        startBackend: async (o) => {
+          events.push('backend')
+          return { effectivePersistence: o.persistence, message: '' }
+        },
+        waitForEnrollment: async () => {},
+        recordPublicUrl: async (url) => {
+          events.push(`url ${url}`)
+        },
+        checkInside: async () => {
+          events.push('check')
+          return true
+        },
+      })
+      expect(events).toEqual(['password', 'backend', 'url https://box.ts.net', 'check'])
     })
   })
 
@@ -463,7 +476,7 @@ describe('runCliSetup', () => {
     it('ready and this user is the operator: setup turns Funnel on itself, in the background, and reads the address', async () => {
       const { deps, runs } = fakeTailscale([READY('mgw')])
       const { prompts, done } = runTailscale(
-        ['all-in-one', 'tailscale', 'tailscale-funnel', 's3cret', false],
+        ['all-in-one', 's3cret', false, 'tailscale', 'tailscale-funnel'],
         deps,
       )
       await done
@@ -480,7 +493,7 @@ describe('runCliSetup', () => {
     it('root runs it too, whoever the operator is', async () => {
       const { deps, runs } = fakeTailscale([READY('alice')], { isRoot: () => true })
       const { done } = runTailscale(
-        ['all-in-one', 'tailscale', 'tailscale-serve', 's3cret', false],
+        ['all-in-one', 's3cret', false, 'tailscale', 'tailscale-serve'],
         deps,
       )
       await done
@@ -491,7 +504,7 @@ describe('runCliSetup', () => {
     it('not installed: boxes install, start and sign-in in that order, then carries on once it is ready', async () => {
       const { deps, runs } = fakeTailscale([{ kind: 'missing' }, READY('mgw')])
       const { commands, done } = runTailscale(
-        ['all-in-one', 'tailscale', 'tailscale-funnel', true, 's3cret', false],
+        ['all-in-one', 's3cret', false, 'tailscale', 'tailscale-funnel', true],
         deps,
       )
       await done
@@ -507,7 +520,7 @@ describe('runCliSetup', () => {
     it('signed out: boxes only the sign-in, not the install', async () => {
       const { deps } = fakeTailscale([{ kind: 'signed-out' }, READY('mgw')])
       const { commands, done } = runTailscale(
-        ['all-in-one', 'tailscale', 'tailscale-funnel', true, 's3cret', false],
+        ['all-in-one', 's3cret', false, 'tailscale', 'tailscale-funnel', true],
         deps,
       )
       await done
@@ -515,17 +528,21 @@ describe('runCliSetup', () => {
       expect(commands).not.toContain('curl -fsSL https://tailscale.com/install.sh | sh')
     })
 
-    it('giving up before Tailscale is ready saves nothing', async () => {
+    it('giving up before Tailscale is ready records no address', async () => {
       const { deps } = fakeTailscale([{ kind: 'stopped' }])
-      const { done } = runTailscale(['all-in-one', 'tailscale', 'tailscale-funnel', false], deps)
+      const { output, done } = runTailscale(
+        ['all-in-one', 's3cret', false, 'tailscale', 'tailscale-funnel', false],
+        deps,
+      )
       await done
-      expect(loadConfig().mode).toBeUndefined()
+      expect(loadConfig().publicUrl).toBeUndefined()
+      expect(output.join('\n')).toContain('without a public address yet')
     })
 
     it('no operator yet: asks, makes this user the operator, then turns Funnel on', async () => {
       const { deps, runs } = fakeTailscale([READY(undefined)])
       const { prompts, done } = runTailscale(
-        ['all-in-one', 'tailscale', 'tailscale-funnel', true, 's3cret', false],
+        ['all-in-one', 's3cret', false, 'tailscale', 'tailscale-funnel', true],
         deps,
       )
       await done
@@ -538,7 +555,7 @@ describe('runCliSetup', () => {
     it('someone else is the operator: leaves it alone and boxes the one sudo command', async () => {
       const { deps, runs } = fakeTailscale([READY('alice')])
       const { commands, output, done } = runTailscale(
-        ['all-in-one', 'tailscale', 'tailscale-funnel', true, 's3cret', false],
+        ['all-in-one', 's3cret', false, 'tailscale', 'tailscale-funnel', true],
         deps,
       )
       await done
@@ -552,7 +569,7 @@ describe('runCliSetup', () => {
     it('an operator it cannot read is never replaced: boxes the sudo command instead', async () => {
       const { deps, runs } = fakeTailscale([READY(undefined, false)])
       const { prompts, commands, output, done } = runTailscale(
-        ['all-in-one', 'tailscale', 'tailscale-funnel', true, 's3cret', false],
+        ['all-in-one', 's3cret', false, 'tailscale', 'tailscale-funnel', true],
         deps,
       )
       await done
@@ -567,7 +584,7 @@ describe('runCliSetup', () => {
       const outside = vi.fn(async (): Promise<CheckResult | undefined> => undefined)
       const inside = vi.fn(async () => true)
       const { output, done } = runTailscale(
-        ['all-in-one', 'tailscale', 'tailscale-serve', 's3cret', false],
+        ['all-in-one', 's3cret', false, 'tailscale', 'tailscale-serve'],
         deps,
         { checkReachability: outside, checkInside: inside },
       )
@@ -580,7 +597,7 @@ describe('runCliSetup', () => {
 
   describe('my own reverse proxy', () => {
     it('says what the proxy has to do, names no proxy, and runs no command', async () => {
-      const s = scriptedIO(['all-in-one', MANUAL, 'https://proxy.example', 's3cret', false])
+      const s = scriptedIO(['all-in-one', 's3cret', false, MANUAL, 'https://proxy.example'])
       await runCliSetup(s.io, 18787, {
         ...HERMETIC,
         hasCommand: () => false,
@@ -659,10 +676,10 @@ describe('runCliSetup', () => {
       }
     }
 
-    it('runs once the server is up, and a failure kept leaves the URL and completes the flow', async () => {
+    it('runs right after the URL is set, and a failure kept leaves the URL and completes the flow', async () => {
       const setPw = vi.fn(async () => {})
       const { output, prompts, done } = probeRun(
-        ['all-in-one', MANUAL, 'https://box.ts.net', 's3cret', false, 'keep'],
+        ['all-in-one', 's3cret', false, MANUAL, 'https://box.ts.net', 'keep'],
         failWith('PORT_NOT_REACHABLE'),
         setPw,
       )
@@ -678,10 +695,10 @@ describe('runCliSetup', () => {
       expect(output.join('\n')).toContain('Nothing is listening on that port from the outside')
       expect(output.join('\n')).toContain('The probe reported: probe detail')
       expect(prompts).toContain('What now?')
-      // AFTER the backend started: on a fresh box nothing could answer before that.
-      expect(
-        output.indexOf('Saved. This instance is reachable at https://box.ts.net.'),
-      ).toBeLessThan(output.findIndex((line) => line.includes('Nothing is listening on that port')))
+      // Right after the address was saved, while the answer can still be acted on.
+      expect(output.indexOf("Saved https://box.ts.net as this instance's address.")).toBeLessThan(
+        output.findIndex((line) => line.includes('Nothing is listening on that port')),
+      )
     })
 
     it('a failure answered "change" walks the reachability step again and checks the new URL', async () => {
@@ -692,10 +709,10 @@ describe('runCliSetup', () => {
       const { output, prompts, done } = probeRun(
         [
           'all-in-one',
-          MANUAL,
-          'https://bad.example',
           'pw',
           false,
+          MANUAL,
+          'https://bad.example',
           'change',
           MANUAL,
           'https://good.ts.net',
@@ -703,7 +720,7 @@ describe('runCliSetup', () => {
         checkReachability,
       )
       await done
-      // The declined URL was never saved; the re-asked one was, and the flow completed.
+      // The re-asked URL replaced the one that failed, and the flow completed.
       expect(loadConfig().publicUrl).toBe('https://good.ts.net')
       expect(loadConfig().mode).toBe('all-in-one')
       expect(loadConfig().persistence).toBe('detached')
@@ -740,16 +757,102 @@ describe('runCliSetup', () => {
       }
     })
 
-    it('CONNECT_UNAVAILABLE and no-opinion are byte-identical to the flow that never asked', async () => {
-      const answers = ['all-in-one', MANUAL, 'https://box.ts.net', 's3cret', false]
+    it('CONNECT_UNAVAILABLE and no-opinion both fall back to a check from this machine', async () => {
+      const answers = ['all-in-one', 's3cret', false, MANUAL, 'https://box.ts.net']
       const base = await runFresh(answers, { checkReachability: noOpinion })
       const down = await runFresh(answers, { checkReachability: unavailable })
       expect(down.prompts).toEqual(base.prompts)
       expect(down.output).toEqual(base.output)
       expect(down.transcript).toEqual(base.transcript)
-      expect(base.output).toContain(
-        'Could not run the outside reachability check right now; skipped it.',
+      expect(base.output).toContain('Reachable from this machine — https://box.ts.net answers.')
+    })
+
+    it('when neither Connect nor this machine reaches it, the operator decides at once', async () => {
+      const inside = vi.fn(async () => false)
+      const s = scriptedIO(['all-in-one', 's3cret', false, MANUAL, 'https://typo.example', 'keep'])
+      await runCliSetup(s.io, 18787, {
+        ...HERMETIC,
+        setPassword: vi.fn(async () => {}),
+        startBackend: echoBackend,
+        waitForEnrollment: async () => {},
+        hasCommand: () => true,
+        checkReachability: noOpinion,
+        checkInside: inside,
+      })
+      // A short try, not the 90 s a brand-new tunnel name gets.
+      expect(inside).toHaveBeenCalledWith('https://typo.example', 20_000)
+      expect(s.output.join('\n')).toContain(
+        'https://typo.example did not answer from this machine.',
       )
+      expect(s.prompts).toContain('What now?')
+      expect(loadConfig().publicUrl).toBe('https://typo.example')
+    })
+
+    it('a failed check offers to correct the typed address, then checks the corrected one', async () => {
+      const checked: string[] = []
+      const checkReachability = async (url: string): Promise<CheckResult | undefined> => {
+        checked.push(url)
+        return url === 'https://good.example'
+          ? { ok: true, url, resolvedTo: [] }
+          : { ok: false, error: 'DNS_FAILED', detail: '' }
+      }
+      const { prompts, done } = probeRun(
+        ['all-in-one', 'pw', false, MANUAL, 'https://gdoo.example', 'fix', 'https://good.example'],
+        checkReachability,
+      )
+      await done
+      expect(prompts).toContain('The correct https:// URL')
+      expect(checked).toEqual(['https://gdoo.example', 'https://good.example'])
+      expect(loadConfig().publicUrl).toBe('https://good.example')
+      // Replacing an address that just failed strands nobody: no question about it.
+      expect(prompts.some((p) => p.startsWith('Replace it with'))).toBe(false)
+    })
+
+    it('"check again" checks the same address again', async () => {
+      let calls = 0
+      const checkReachability = async (url: string): Promise<CheckResult | undefined> =>
+        ++calls === 1
+          ? { ok: false, error: 'PORT_NOT_REACHABLE', detail: '' }
+          : { ok: true, url, resolvedTo: [] }
+      const { output, done } = probeRun(
+        ['all-in-one', 'pw', false, MANUAL, 'https://box.ts.net', 'again'],
+        checkReachability,
+      )
+      await done
+      expect(calls).toBe(2)
+      expect(output.join('\n')).toContain(
+        'Reachable — an outside probe connected to https://box.ts.net.',
+      )
+    })
+
+    it('only a typed address offers "Correct the address"', async () => {
+      const { deps } = {
+        deps: {
+          probe: () => ({
+            kind: 'ready' as const,
+            dnsName: 'box.tail1234.ts.net',
+            operator: 'mgw',
+            operatorKnown: true,
+          }),
+          run: () => true,
+          forwards: () => true,
+          user: () => 'mgw',
+          isRoot: () => false,
+        },
+      }
+      const s = scriptedIO(['all-in-one', 's3cret', false, 'tailscale', 'tailscale-serve', 'keep'])
+      await runCliSetup(s.io, 18787, {
+        ...HERMETIC,
+        setPassword: vi.fn(async () => {}),
+        startBackend: echoBackend,
+        waitForEnrollment: async () => {},
+        hasCommand: () => true,
+        checkInside: async () => false,
+        tailscale: deps,
+      })
+      expect(s.prompts).toContain('What now?')
+      expect(s.prompts).not.toContain('Correct the address')
+      expect(s.prompts.some((p) => p.startsWith('Check again'))).toBe(true)
     })
 
     it('a cloud answer the CLI predates still asks instead of crashing', async () => {
@@ -758,7 +861,7 @@ describe('runCliSetup', () => {
       const future = async (): Promise<CheckResult> =>
         ({ ok: false, error: 'SOME_FUTURE_CODE', detail: undefined }) as unknown as CheckResult
       const { output, prompts, done } = probeRun(
-        ['all-in-one', MANUAL, 'https://box.ts.net', 's3cret', false, 'keep'],
+        ['all-in-one', 's3cret', false, MANUAL, 'https://box.ts.net', 'keep'],
         future,
       )
       await done
@@ -769,7 +872,7 @@ describe('runCliSetup', () => {
 
     it('a reachable URL is acknowledged in one line and the flow carries on', async () => {
       const { output, done } = probeRun(
-        ['all-in-one', MANUAL, 'https://box.ts.net', 's3cret', false],
+        ['all-in-one', 's3cret', false, MANUAL, 'https://box.ts.net'],
         succeed,
       )
       await done
@@ -884,6 +987,56 @@ describe('runCliSetup', () => {
       } finally {
         vi.unstubAllGlobals()
       }
+    })
+
+    it('waits while Connect does not know the installation yet, then checks (POD-3274)', async () => {
+      seedIdentity(dir)
+      let calls = 0
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          ++calls < 3
+            ? Response.json(
+                { error: 'UNKNOWN_INSTALLATION', message: 'no such installation' },
+                { status: 404 },
+              )
+            : Response.json({ ok: true, url: 'https://box.ts.net', resolvedTo: [] }),
+        ),
+      )
+      try {
+        const { io } = scriptedIO([])
+        const result = await realCheckReachability('https://box.ts.net', io, {
+          registrationWaitMs: 10_000,
+        })
+        expect(result).toMatchObject({ ok: true })
+        expect(calls).toBe(3)
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('a server that never registers is "Connect unavailable" once the wait is spent', async () => {
+      seedIdentity(dir)
+      vi.stubGlobal(
+        'fetch',
+        vi.fn(async () =>
+          Response.json({ error: 'UNKNOWN_INSTALLATION', message: 'no' }, { status: 404 }),
+        ),
+      )
+      try {
+        const { io } = scriptedIO([])
+        expect(
+          await realCheckReachability('https://box.ts.net', io, { registrationWaitMs: 0 }),
+        ).toMatchObject({ ok: false, error: 'CONNECT_UNAVAILABLE', detail: 'UNKNOWN_INSTALLATION' })
+      } finally {
+        vi.unstubAllGlobals()
+      }
+    })
+
+    it('with no server on the control socket, the address goes straight into config', async () => {
+      saveConfig({ mode: 'all-in-one' })
+      await recordPublicUrlNow('https://box.ts.net')
+      expect(loadConfig()).toMatchObject({ mode: 'all-in-one', publicUrl: 'https://box.ts.net' })
     })
 
     /** Minimal podium.db carrying just an installation identity for the default-probe tests. */
@@ -1009,10 +1162,9 @@ describe('runCliSetup', () => {
 
     it('change the reachable URL only (option 4), leaving the mode + password', async () => {
       const setPw = vi.fn(async () => {})
-      // The trailing CHANGE is the confirmation a REPLACEMENT now asks for: this
-      // box already has a URL, and every machine that joined at it is about to be
-      // stranded (PDM-26).
-      await run(['url', MANUAL, 'https://new.ts.net', 'CHANGE'], setPw)
+      // No confirmation: with Podium Connect on, everything that joined at the old URL
+      // finds the new one (PDM-26, POD-5921).
+      await run(['url', MANUAL, 'https://new.ts.net'], setPw)
       expect(loadConfig().publicUrl).toBe('https://new.ts.net')
       expect(loadConfig().networkOption).toBe('manual')
       expect(loadConfig().mode).toBe('all-in-one')
@@ -1036,7 +1188,7 @@ describe('runCliSetup', () => {
   // Telemetry is not asked in setup at all: it is a setting (Settings → Privacy, or
   // `podium telemetry`), never a question on the way to a working install.
   it('never asks about telemetry, on any path, and writes no consent', async () => {
-    const host = start(['all-in-one', MANUAL, 'https://box.ts.net', 's3cret', false])
+    const host = start(['all-in-one', 's3cret', false, MANUAL, 'https://box.ts.net'])
     await host.done
     expect(host.prompts.some((p) => /telemetry|usage reports|crash reports/i.test(p))).toBe(false)
     expect(loadConfig().mode).toBe('all-in-one')
@@ -1096,24 +1248,35 @@ describe('runCliSetup under a deployment that owns the answers', () => {
     expect(loadConfig().publicUrl).toBe('https://a.example')
   })
 
-  it('asks before replacing a live public URL, and leaves it alone on a refusal', async () => {
+  it('with Podium Connect on, replacing a live URL asks nothing and says who follows', async () => {
     saveConfig({ mode: 'server', publicUrl: 'https://a.example' })
-    // menu 4 → network option 4 (manual) → the new URL → the confirmation word
-    // A blank confirmation is a refusal: the prompt says "leave blank to keep".
-    const { out, done } = run(['url', MANUAL, 'https://b.example', ''])
+    const { out, done } = run(['url', MANUAL, 'https://b.example'])
     await done
-    expect(out.join('\n')).toMatch(/strands every machine that joined at the old URL/)
+    expect(out.join('\n')).toContain(
+      'Machines and apps that joined at https://a.example find the new address through Podium Connect.',
+    )
+    expect(loadConfig().publicUrl).toBe('https://b.example')
+  })
+
+  it('with Connect off, asks before replacing a live public URL, and leaves it alone on a no', async () => {
+    vi.stubEnv('PODIUM_CONNECT', 'off')
+    saveConfig({ mode: 'server', publicUrl: 'https://a.example' })
+    const { out, done } = run(['url', MANUAL, 'https://b.example', false])
+    await done
+    expect(out.join('\n')).toMatch(/Podium Connect is off, so machines and apps that joined/)
     expect(loadConfig().publicUrl).toBe('https://a.example')
   })
 
-  it('replaces it when the operator types the word', async () => {
+  it('with Connect off, replaces it on a yes', async () => {
+    vi.stubEnv('PODIUM_CONNECT', 'off')
     saveConfig({ mode: 'server', publicUrl: 'https://a.example' })
-    const { done } = run(['url', MANUAL, 'https://b.example', 'CHANGE'])
+    const { done } = run(['url', MANUAL, 'https://b.example', true])
     await done
     expect(loadConfig().publicUrl).toBe('https://b.example')
   })
 
   it('--confirm-url-change answers the question ahead of a prompt that cannot be shown', async () => {
+    vi.stubEnv('PODIUM_CONNECT', 'off')
     saveConfig({ mode: 'server', publicUrl: 'https://a.example' })
     const { done } = run(['url', MANUAL, 'https://b.example'], { confirmUrlChange: true })
     await done
@@ -1121,10 +1284,11 @@ describe('runCliSetup under a deployment that owns the answers', () => {
   })
 
   it('re-pasting the SAME URL is never a change and is never questioned', async () => {
+    vi.stubEnv('PODIUM_CONNECT', 'off')
     saveConfig({ mode: 'server', publicUrl: 'https://a.example' })
     const { out, done } = run(['url', MANUAL, 'https://a.example'])
     await done
-    expect(out.join('\n')).not.toMatch(/strands every machine/)
+    expect(out.join('\n')).not.toMatch(/Podium Connect is off/)
     expect(loadConfig().publicUrl).toBe('https://a.example')
   })
 })
@@ -1282,7 +1446,7 @@ describe('runCliSetup: Cloudflare quick tunnel managed by Podium', () => {
 
   it('says who follows the address, and offers the stable link to bookmark (POD-5921)', async () => {
     const link = `https://connect.podium.do/to/pdm_${'a'.repeat(43)}`
-    const { output, done } = runTunnel(['all-in-one', CLOUDFLARE, 's3cret', true], {
+    const { output, done } = runTunnel(['all-in-one', 's3cret', true, CLOUDFLARE], {
       stableLink: async () => link,
     })
     await done
@@ -1295,7 +1459,7 @@ describe('runCliSetup: Cloudflare quick tunnel managed by Podium', () => {
   })
 
   it('asks for no URL, starts the tunnel AFTER the server, and shows the address it got', async () => {
-    const { prompts, output, events, done } = runTunnel(['all-in-one', CLOUDFLARE, 's3cret', true])
+    const { prompts, output, events, done } = runTunnel(['all-in-one', 's3cret', true, CLOUDFLARE])
     await done
     expect(prompts.some((p) => p.includes('trycloudflare.com URL'))).toBe(false)
     expect(events).toEqual(['password', 'backend', 'enable'])
@@ -1308,7 +1472,7 @@ describe('runCliSetup: Cloudflare quick tunnel managed by Podium', () => {
   it('checks the tunnel address from this machine, through Cloudflare, not with the outside probe', async () => {
     const outside = vi.fn(async (): Promise<CheckResult | undefined> => undefined)
     const inside = vi.fn(async () => true)
-    const s = scriptedIO(['all-in-one', CLOUDFLARE, 's3cret', true])
+    const s = scriptedIO(['all-in-one', 's3cret', true, CLOUDFLARE])
     await runCliSetup(s.io, 18787, {
       hasCommand: () => true,
       setPassword: vi.fn(async () => {}),
@@ -1330,7 +1494,7 @@ describe('runCliSetup: Cloudflare quick tunnel managed by Podium', () => {
   })
 
   it('labels the row as managed by Podium, never as "not installed"', async () => {
-    const { prompts, done } = runTunnel(['all-in-one'])
+    const { prompts, done } = runTunnel(['all-in-one', 's3cret', true])
     await done
     expect(prompts.some((p) => p.startsWith('Cloudflare quick tunnel, managed by Podium'))).toBe(
       true,
@@ -1338,42 +1502,46 @@ describe('runCliSetup: Cloudflare quick tunnel managed by Podium', () => {
     expect(prompts.some((p) => p.includes('cloudflared is not installed —'))).toBe(false)
   })
 
-  it('downloads cloudflared when missing — after asking, and before the password', async () => {
-    const { prompts, events, done } = runTunnel(['all-in-one', CLOUDFLARE, true, 's3cret', true], {
+  it('downloads cloudflared when missing — after asking, once the server runs', async () => {
+    const { prompts, events, done } = runTunnel(['all-in-one', 's3cret', true, CLOUDFLARE, true], {
       hasCloudflared: () => false,
     })
     await done
     expect(
       prompts.some((p) => p.startsWith('cloudflared is not installed. Download it now?')),
     ).toBe(true)
-    expect(events).toEqual(['download', 'password', 'backend', 'enable'])
+    expect(events).toEqual(['password', 'backend', 'download', 'enable'])
   })
 
-  it('declining the download saves nothing and boxes the install command instead', async () => {
-    const { commands, events, done } = runTunnel(['all-in-one', CLOUDFLARE, false], {
-      hasCloudflared: () => false,
-    })
+  it('declining the download records no address and boxes the install command instead', async () => {
+    const { commands, events, done } = runTunnel(
+      ['all-in-one', 's3cret', true, CLOUDFLARE, false],
+      {
+        hasCloudflared: () => false,
+      },
+    )
     await done
-    expect(events).toEqual([])
+    expect(events).toEqual(['password', 'backend'])
     expect(commands.some((c) => c.includes('cloudflared-linux-'))).toBe(true)
-    expect(loadConfig().mode).toBeUndefined()
+    expect(loadConfig().publicUrl).toBeUndefined()
+    expect(loadConfig().networkOption).toBeUndefined()
   })
 
-  it('a failed download saves nothing and says why', async () => {
-    const { output, events, done } = runTunnel(['all-in-one', CLOUDFLARE, true], {
+  it('a failed download records no address and says why', async () => {
+    const { output, events, done } = runTunnel(['all-in-one', 's3cret', true, CLOUDFLARE, true], {
       hasCloudflared: () => false,
       download: async () => {
         throw new Error('download failed: 404 Not Found')
       },
     })
     await done
-    expect(events).toEqual([])
+    expect(events).toEqual(['password', 'backend'])
     expect(output.join('\n')).toContain('Could not download cloudflared: download failed: 404')
-    expect(loadConfig().mode).toBeUndefined()
+    expect(loadConfig().publicUrl).toBeUndefined()
   })
 
   it('no address in time: says where to look, and the setup itself still stands', async () => {
-    const { commands, done } = runTunnel(['all-in-one', CLOUDFLARE, 's3cret', true], {
+    const { commands, done } = runTunnel(['all-in-one', 's3cret', true, CLOUDFLARE], {
       waitForUrl: async () => undefined,
     })
     await done
@@ -1383,7 +1551,7 @@ describe('runCliSetup: Cloudflare quick tunnel managed by Podium', () => {
 
   it('without a systemd user session, falls back to running cloudflared by hand and pasting', async () => {
     const { commands, events, done } = runTunnel(
-      ['all-in-one', CLOUDFLARE, TUNNEL_URL, 's3cret', true],
+      ['all-in-one', 's3cret', true, CLOUDFLARE, TUNNEL_URL],
       { canSupervise: () => false },
     )
     await done
@@ -1392,20 +1560,30 @@ describe('runCliSetup: Cloudflare quick tunnel managed by Podium', () => {
     expect(loadConfig().publicUrl).toBe(TUNNEL_URL)
   })
 
-  it('replacing an earlier quick-tunnel address does not demand CHANGE', async () => {
-    saveConfig({ ...loadConfig(), publicUrl: 'https://old-one.trycloudflare.com' })
-    const { prompts, events, done } = runTunnel(['all-in-one', CLOUDFLARE, 's3cret', true])
-    await done
-    expect(prompts.some((p) => p.startsWith('Type CHANGE'))).toBe(false)
-    expect(events).toContain('enable')
+  it('replacing an earlier quick-tunnel address asks nothing, even with Connect off', async () => {
+    vi.stubEnv('PODIUM_CONNECT', 'off')
+    try {
+      saveConfig({ ...loadConfig(), publicUrl: 'https://old-one.trycloudflare.com' })
+      const { prompts, events, done } = runTunnel(['all-in-one', 's3cret', true, CLOUDFLARE])
+      await done
+      expect(prompts.some((p) => p.startsWith('Replace it with'))).toBe(false)
+      expect(events).toContain('enable')
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 
-  it('replacing a durable address still asks first', async () => {
-    saveConfig({ ...loadConfig(), publicUrl: 'https://box.ts.net' })
-    const { prompts, events, done } = runTunnel(['all-in-one', CLOUDFLARE, ''])
-    await done
-    expect(prompts).toContain('Type CHANGE to replace it with a Cloudflare quick tunnel')
-    expect(events).toEqual([])
-    expect(loadConfig().publicUrl).toBe('https://box.ts.net')
+  it('with Connect off, replacing a durable address asks first', async () => {
+    vi.stubEnv('PODIUM_CONNECT', 'off')
+    try {
+      saveConfig({ ...loadConfig(), publicUrl: 'https://box.ts.net' })
+      const { prompts, events, done } = runTunnel(['all-in-one', 's3cret', true, CLOUDFLARE, false])
+      await done
+      expect(prompts).toContain('Replace it with a Cloudflare quick tunnel?')
+      expect(events).toEqual(['password', 'backend'])
+      expect(loadConfig().publicUrl).toBe('https://box.ts.net')
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })
