@@ -1952,11 +1952,12 @@ export async function startServer(
     if (bundle) log.warn(bundle, { webDir })
   }
 
-  // If we're reachable off-box but no login password is set, the data plane is wide open
-  // to anyone who can route to this host. Surface that loudly rather than failing silently.
+  // Reachable off-box with no login password: open mode serves this machine only
+  // (isHostLocalRequest), so every other device is refused. Say so, rather than leave an
+  // operator wondering why nothing else can log in.
   if (!isLoopbackHost(host) && !(await credentialsRequired())) {
     log.warn(
-      'server is network-reachable with NO login required — anyone who can reach this host can control your agents and shell; set a password in setup, or bind to 127.0.0.1',
+      'server is network-reachable but has no login password, so only this machine can use it; set one with `podium setup`',
       { host },
     )
   }
@@ -2498,6 +2499,28 @@ export async function startServer(
                   const result = applyPublicUrl(url, opts)
                   if (result.ok && result.changed) connectPublisher.publicUrlChanged()
                   return result
+                },
+                // `podium setup` sets the first admin's password on the running server
+                // (POD-3274): auth.json is only read by a first boot.
+                loginPassword: {
+                  isSet: async () => {
+                    const admin = await store.users.earliestAdmin()
+                    if (!admin) return false
+                    const credential = await store.users.credentialFor(asUserId(admin.id))
+                    return credential?.source === 'per-user-scrypt' && !!credential.passwordHash
+                  },
+                  set: async (password) => {
+                    const admin = await store.users.earliestAdmin()
+                    if (!admin) return { ok: false, error: 'this instance has no admin account' }
+                    const userId = asUserId(admin.id)
+                    await store.users.setPasswordHash(
+                      userId,
+                      await hashPassword(password),
+                      new Date().toISOString(),
+                    )
+                    await registry.modules.machines.grantHostMachineIfUnowned(userId)
+                    return { ok: true }
+                  },
                 },
               }),
               'server control socket',

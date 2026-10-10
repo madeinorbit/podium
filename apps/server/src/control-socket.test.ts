@@ -190,3 +190,60 @@ describe('server control socket', () => {
     expect(loadConfig().publicUrl).toBeUndefined()
   })
 })
+
+describe('server control socket: the login password (POD-3274)', () => {
+  let dir: string
+  let socket: UserSocketServer
+  let socketPath: string
+  let stored: string | undefined
+  let hasAdmin: boolean
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'podium-control-pw-'))
+    stored = undefined
+    hasAdmin = true
+    socketPath = join(dir, 'run', 'control.sock')
+    socket = await listenUserSocket(
+      socketPath,
+      controlSocketHandler({
+        setPublicUrl: () => ({ ok: false, reason: 'refused', error: 'not under test' }),
+        loginPassword: {
+          isSet: async () => stored !== undefined,
+          set: async (password) => {
+            if (!hasAdmin) return { ok: false, error: 'this instance has no admin account' }
+            stored = password
+            return { ok: true }
+          },
+        },
+      }),
+      'server control socket',
+    )
+  })
+
+  afterEach(async () => {
+    await socket.close()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  const path = '/v1/login-password'
+
+  it('reports whether a password is set, and sets it exactly as typed', async () => {
+    expect((await send(socketPath, { method: 'GET', path })).json).toEqual({ ok: true, set: false })
+    const res = await send(socketPath, { path, body: JSON.stringify({ password: ' two words ' }) })
+    expect(res).toEqual({ status: 200, json: { ok: true } })
+    // Never trimmed: what the browser login checks is the string as typed (POD-1148).
+    expect(stored).toBe(' two words ')
+    expect((await send(socketPath, { method: 'GET', path })).json).toEqual({ ok: true, set: true })
+  })
+
+  it('refuses an empty password, a non-JSON body, and an instance with no admin', async () => {
+    expect(
+      (await send(socketPath, { path, body: JSON.stringify({ password: '  ' }) })).status,
+    ).toBe(400)
+    expect((await send(socketPath, { path, body: 'nope' })).status).toBe(400)
+    hasAdmin = false
+    const refused = await send(socketPath, { path, body: JSON.stringify({ password: 'pw' }) })
+    expect(refused.status).toBe(409)
+    expect(stored).toBeUndefined()
+  })
+})
