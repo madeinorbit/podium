@@ -12,12 +12,12 @@ import { LOADING } from './worklist/rollup'
  * payloads enter the notice indexes; a missing summary returns pending while
  * the pool coalesces its loads. Recovery never consults its target. */
 function messageNotice(pool: MobxPool, id: string): { notice?: NoticeMessage; pending: number; labelPending?: boolean } {
-  const message = omitGone(pool.model('message', id))
+  const message = omitGone(pool.model('messageRecord', id))
   if (message === LOADING) return { pending: 1 }
   if (!message || !isMessageRecordAttention(message.status)) return { pending: 0 }
   const notice = noticeCompanions(pool).message(message)
-  const row = pool.row('session', notice.sessionId, 'summary-fields')
-  return { notice, pending: row === LOADING ? 1 : 0, labelPending: row === LOADING }
+  const labelPending = !pool.sessionObject(notice.sessionId).known && pool.row('session', notice.sessionId, 'summary-fields') === LOADING
+  return { notice, pending: labelPending ? 1 : 0, labelPending }
 }
 
 export function noticeMessageCount(pool: MobxPool): number {

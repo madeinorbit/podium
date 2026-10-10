@@ -1037,7 +1037,7 @@ export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority'>>,
 }
 
 export type ModelOf = {
-  message: MessageModel
+  messageRecord: MessageModel
   pendingInteraction: PendingInteractionModel
   machine: MachineModel
   automation: AutomationModel

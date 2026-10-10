@@ -234,7 +234,7 @@ export type AbsentRead = 'load' | 'mark' | 'peek' | 'summary' | 'summary-fields'
 export type Residence = 'resident' | 'loading' | 'absent'
 
 export interface PoolRows {
-  message: MessagePoolRow & Readonly<Record<string, unknown>>
+  messageRecord: MessagePoolRow & Readonly<Record<string, unknown>>
   pendingInteraction: PendingInteractionWire & Readonly<Record<string, unknown>>
   machine: Readonly<MachineWire & MachineProjection> & Readonly<Record<string, unknown>>
   automation: Readonly<AutomationWire> & Readonly<Record<string, unknown>>

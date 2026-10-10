@@ -172,7 +172,7 @@ export interface FieldSpec {
 // Relations
 // ---------------------------------------------------------------------------
 
-export type EntityName = 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'message' | 'pendingInteraction'
+export type EntityName = 'issue' | 'session' | 'worktree' | 'repo' | 'machine' | 'automation' | 'automationRun' | 'messageRecord' | 'pendingInteraction'
 
 /**
  * Four kinds, and no more.
@@ -990,7 +990,7 @@ const DECLARED = defineSchema({
     },
     cold: { kind: 'never', why: 'One row per repo: a handful. Always resident.' },
   },
-  message: syncedIdentity('MessageRecordWire', 'replica:messageRecords'),
+  messageRecord: syncedIdentity('MessageRecordWire', 'replica:messageRecords'),
   pendingInteraction: syncedIdentity('PendingInteractionWire', 'replica:pendingInteractions'),
   machine: syncedIdentity('MachineProjection', 'replica:machines'),
   automation: syncedIdentity('AutomationWire', 'replica:automations'),

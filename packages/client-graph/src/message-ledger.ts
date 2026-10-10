@@ -13,7 +13,7 @@ export interface LedgerRequest {
 /** A fresh model per opening. The request selects IDs; record facts join the
  * existing tables. Polling has visible demand only, pending server push. */
 export class MessageLedger {
-  readonly row = companion((message: MessageModel) => new LedgerEntry(message))
+  readonly row = companion((messageRecord: MessageModel) => new LedgerEntry(message))
   @observableRef accessor ids: readonly string[] | null = null
   @observable accessor error: string | null = null
   @observable accessor loading = false

@@ -100,7 +100,7 @@ export class NoticeSource {
   attach(pool: MobxPool): void {
     if (pool === this.pool) return
     const rows: RowRecord[] = []
-    for (const [entity, kind] of [['messageRecord', 'message'], ['pendingInteraction', 'pendingInteraction']] as const)
+    for (const [entity, kind] of [['messageRecord', 'messageRecord'], ['pendingInteraction', 'pendingInteraction']] as const)
       for (const id of this.identities[entity].keys())
         rows.push({ kind, id, value: omitGone(this.pool.row(kind, id)) as RowRecord['value'] })
     pool.apply({ type: 'update', rows })
@@ -128,9 +128,9 @@ export class NoticeSource {
       this.schedule()
       return LOADING
     }
-    if (entity === 'message' || entity === 'messageRecord' || entity === 'pendingInteraction') {
+    if (entity === 'messageRecord' || entity === 'pendingInteraction') {
       this.counts.payloadReads++
-      return omitGone(this.pool.row(entity === 'messageRecord' ? 'message' : entity, id)) as Loaded<NoticeRows[NoticeEntity]>
+      return omitGone(this.pool.row(entity === 'messageRecord' ? 'messageRecord' : entity, id)) as Loaded<NoticeRows[NoticeEntity]>
     }
     if (entity === 'noticeSession') {
       const members = this.sessions.get(id)
@@ -160,7 +160,7 @@ export class NoticeSource {
 
   private seed(): void {
     const removed: RowRecord[] = []
-    for (const [entity, kind] of [['messageRecord', 'message'], ['pendingInteraction', 'pendingInteraction']] as const)
+    for (const [entity, kind] of [['messageRecord', 'messageRecord'], ['pendingInteraction', 'pendingInteraction']] as const)
       for (const id of this.identities[entity].keys()) removed.push({ kind, id, value: undefined })
     this.pool.apply({ type: 'update', rows: removed })
     this.identities.messageRecord.clear(); this.identities.pendingInteraction.clear(); this.sessions.clear()
@@ -174,7 +174,7 @@ export class NoticeSource {
 
   private change(entity: RecordEntity, id: string, next: object | undefined): void {
     if (entity === 'messageRecord' && next) ingestMessageRecords(this.pool, [next as MessageRecordWire])
-    else this.pool.apply({ type: 'update', rows: [{ kind: entity === 'messageRecord' ? 'message' : entity, id, value: next as RowRecord['value'] }] })
+    else this.pool.apply({ type: 'update', rows: [{ kind: entity === 'messageRecord' ? 'messageRecord' : entity, id, value: next as RowRecord['value'] }] })
     const identities = this.identities[entity], previous = identities.get(id)
     if (!next && !previous) return
     const relation = NOTICE_RELATIONS.find(relation => relation.from === entity)!

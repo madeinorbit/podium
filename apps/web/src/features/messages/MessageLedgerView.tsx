@@ -162,7 +162,7 @@ export const MessageLedgerView = observer(function MessageLedgerView({
 })
 
 const PooledLedgerRow = observer(function PooledLedgerRow({ ledger, id, now }: { ledger: MessageLedger; id: string; now: number }) {
-  const message = ledger.pool.model('message', id)
+  const message = ledger.pool.model('messageRecord', id)
   if (message === LOADING) return <div className="text-xs">Loading…</div>
   if (isGone(message)) return null
   return <LedgerRow row={ledger.row(message)} now={now} />

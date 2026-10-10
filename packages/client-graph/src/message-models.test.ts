@@ -91,8 +91,8 @@ it('matches old Sends facts for every status, retract and transcript confirmatio
   }
   ingestMessageRecords(f.pool, [current])
   const old = new BeforeSends(options)
-  const next = new Sends({ ...options, records: { ...options.records, getSnapshot: () => [here(f.pool.model('message', 'message'))!] },
-    messageRecords: { read: id => here(f.pool.model('message', id)), ingest: rows => ingestMessageRecords(f.pool, rows) } })
+  const next = new Sends({ ...options, records: { ...options.records, getSnapshot: () => [here(f.pool.model('messageRecord', 'message'))!] },
+    messageRecords: { read: id => here(f.pool.model('messageRecord', id)), ingest: rows => ingestMessageRecords(f.pool, rows) } })
   const answer = (sends: Sends | BeforeSends) => sends.bubbles.map(({ record: row, ...bubble }) => ({
     ...bubble, record: row && { id: row.id, body: row.body, status: row.status, reason: row.reason,
       createdAt: row.createdAt, attachments: row.attachments, transcriptItem: row.transcriptItem, retractRequestedAt: row.retractRequestedAt },
@@ -118,21 +118,21 @@ it('a pushed server record updates Sends, notices and a ledger holding the same 
     readContext: () => ({ canInterrupt: false }), createDeliveryId: () => 'local', deliver: async () => {},
     records: { getSnapshot: () => chatRecords(f.pool, 'seat').records,
       subscribe: listener => reaction(() => chatRecords(f.pool, 'seat').records.map(row => row.row), listener) },
-    messageRecords: { read: id => here(f.pool.model('message', id)), ingest: rows => ingestMessageRecords(f.pool, rows) },
+    messageRecords: { read: id => here(f.pool.model('messageRecord', id)), ingest: rows => ingestMessageRecords(f.pool, rows) },
   })
   const ledger = new MessageLedger(f.pool, { ledger: async () => [ledgerRow()] })
   const stop = autorun(() => { noticeMessages(f.pool) })
   try {
     await settle(); sends.start(); await ledger.refresh()
-    const model = here(f.pool.model('message', 'message'))!
+    const model = here(f.pool.model('messageRecord', 'message'))!
     expect(chatRecords(f.pool, 'seat').records[0]).toBe(model)
     expect(noticeMessages(f.pool).notices[0]?.message).toBe(model)
-    expect(here(f.pool.model('message', ledger.ids![0]!))).toBe(model)
+    expect(here(f.pool.model('messageRecord', ledger.ids![0]!))).toBe(model)
     f.update(record({ body: 'updated on the server', status: 'unknown' }))
     expect(sends.bubbles[0]).toMatchObject({ text: 'updated on the server', state: 'unknown' })
     expect(sends.bubbles[0]?.record).toBe(model)
     expect(noticeMessages(f.pool).notices[0]).toMatchObject({ excerpt: 'updated on the server', status: 'unknown' })
-    expect(here(f.pool.model('message', ledger.ids![0]!))).toMatchObject({ body: 'updated on the server', status: 'unknown', from: 'user' })
+    expect(here(f.pool.model('messageRecord', ledger.ids![0]!))).toMatchObject({ body: 'updated on the server', status: 'unknown', from: 'user' })
   } finally { stop(); ledger.dispose(); sends.dispose(); transcript.dispose(); f.pool.dispose() }
 })
 
@@ -140,9 +140,9 @@ it('lookup records absent from sync join the same table and preserve ledger meta
   const f = fixture([])
   try {
     ingestLedgerMessages(f.pool, [ledgerRow()])
-    const model = here(f.pool.model('message', 'message'))!
+    const model = here(f.pool.model('messageRecord', 'message'))!
     ingestMessageRecords(f.pool, [record()])
-    expect(here(f.pool.model('message', 'message'))).toBe(model)
+    expect(here(f.pool.model('messageRecord', 'message'))).toBe(model)
     expect(model).toMatchObject({ sessionId: 'seat', status: 'failed', from: 'user' })
     ingestMessageRecords(f.pool, [record({ status: 'confirmed', transcriptItem: { id: 'entry', cursor: 'c' } })])
     ingestMessageRecords(f.pool, [record({ status: 'stored' })])
@@ -172,6 +172,6 @@ it('polls every 15 seconds only while visible, and ignores answers after closing
     const closed = new MessageLedger(pool, { ledger: () => new Promise(yes => { resolve = yes }) })
     const pending = closed.refresh(); closed.dispose(); resolve([ledgerRow({ id: 'late' })]); await pending
     expect(closed.ids).toBeNull()
-    expect(here(pool.model('message', 'late'))).toBeUndefined()
+    expect(here(pool.model('messageRecord', 'late'))).toBeUndefined()
   } finally { ledger.dispose(); pool.dispose() }
 })

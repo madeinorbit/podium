@@ -1,4 +1,3 @@
-import type { MessagePoolRow } from './message-models'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { OutboxDeadLetterEntry } from '@podium/client-core/outbox'
 import type { MessageRecordWire } from '@podium/model'
@@ -7,7 +6,6 @@ import type { PendingInteractionWire } from '@podium/protocol'
 export type NoticeSessionSummary = Partial<Pick<SessionView, 'name' | 'title' | 'cwd' | 'agentKind'>>
 
 export interface NoticeRows {
-  message: MessagePoolRow
   messageRecord: MessageRecordWire
   pendingInteraction: PendingInteractionWire
   outboxDeadLetter: OutboxDeadLetterEntry
@@ -19,7 +17,7 @@ export interface NoticeRows {
 }
 declare module './source-registry' { interface PoolSourceRows extends NoticeRows {} }
 export type NoticeEntity = keyof NoticeRows
-export const NOTICE_ENTITIES = ['message', 'messageRecord', 'pendingInteraction', 'outboxDeadLetter', 'noticeCatalog',
+export const NOTICE_ENTITIES = ['messageRecord', 'pendingInteraction', 'outboxDeadLetter', 'noticeCatalog',
   'noticeMessageCatalog', 'noticeAttention', 'noticeRecoveryCatalog', 'noticeSession'] as const
 
 /** Session identity/order is declared at attachment and maintained at addressed

@@ -1,3 +1,4 @@
+import { lazy } from '@podium/mobx-helpers'
 import type { MessageRecordWire } from '@podium/model'
 import type { MessageLedgerWire } from '@podium/model'
 import type { PendingInteractionWire } from '@podium/protocol'
@@ -10,7 +11,8 @@ export type MessagePoolRow = Partial<Omit<MessageLedgerWire, 'deliveryStatus'>> 
   id: string; body: string; createdAt: string; status: MessageRecordWire['status']
 }
 export class MessageModel extends EntityModel {
-  constructor(id: string, host: ModelHost) { super('message', id, host) }
+  @lazy override get row() { return super.row }
+  constructor(id: string, host: ModelHost) { super('messageRecord', id, host) }
 }
 export interface MessageModel extends Readonly<MessagePoolRow> {}
 
@@ -25,7 +27,7 @@ function fields(schema: 'MessageRecordWire' | 'MessageLedgerWire' | 'PendingInte
   return Object.fromEntries(Object.entries(definitions).map(([name, type]) => [name, { type, source: { schema, arrivesOn } }]))
 }
 const schema = {
-  message: {
+  messageRecord: {
     key: 'id', why: 'One message shared by chat, notices and requested ledger windows.',
     components: {
       record: { schema: 'MessageRecordWire', arrivesOn: 'replica:messageRecords', joinKey: 'id', precedence: 1, why: 'Current chat delivery projection.' },
@@ -60,24 +62,24 @@ const schema = {
       }),
     }, relations: {}, cold: { kind: 'never', why: 'The synced pending ask set stays resident.' },
   },
-} satisfies Pick<ModelSchema, 'message' | 'pendingInteraction'>
-registerModels(schema, { message: MessageModel, pendingInteraction: InteractionModel })
+} satisfies Pick<ModelSchema, 'messageRecord' | 'pendingInteraction'>
+registerModels(schema, { messageRecord: MessageModel, pendingInteraction: InteractionModel })
 
 /** Request and replica records enter the same existing tables. No request cache.
  * A record projection replaces optional chat fields too, so stale confirmation
  * references cannot survive a new server answer. Ledger metadata is preserved. */
 export function ingestMessageRecords(pool: MobxPool, records: readonly MessageRecordWire[]): void {
   pool.apply({ type: 'update', rows: records.map(record => {
-    const row = (pool.tables.message.get(record.id) as MessagePoolRow | undefined) ?? {}
-    return { kind: 'message', id: record.id, value: { ...row,
+    const row = (pool.tables.messageRecord.get(record.id) as MessagePoolRow | undefined) ?? {}
+    return { kind: 'messageRecord', id: record.id, value: { ...row,
       attachments: undefined, reason: undefined, transcriptItem: undefined,
       retractRequestedAt: undefined, noticeDismissedAt: undefined, ...record } }
   }) })
 }
 export function ingestLedgerMessages(pool: MobxPool, records: readonly MessageLedgerWire[]): void {
   pool.apply({ type: 'update', rows: records.map(({ deliveryStatus, ...record }) => {
-    const previous = pool.tables.message.get(record.id) as MessagePoolRow | undefined
-    return { kind: 'message', id: record.id, value: {
+    const previous = pool.tables.messageRecord.get(record.id) as MessagePoolRow | undefined
+    return { kind: 'messageRecord', id: record.id, value: {
       ...previous, ...record,
       status: deliveryStatus,
     } }
