@@ -1,3 +1,4 @@
+import { useAgeNow } from '@/lib/clock-hooks'
 import { observer } from 'mobx-react-lite'
 import { deviceKey, useSettingsRecords } from '../record-readers'
 import { useWorklistPool } from '@/app/store-worklist-pool'
@@ -263,7 +264,6 @@ function PairingCode({
   cancelError?: string | null
   onCancel?: () => void
 }): JSX.Element {
-  const [now, setNow] = useState(() => Date.now())
   const [feedback, setFeedback] = useState<string | null>(null)
 
   useEffect(() => {
@@ -563,27 +563,24 @@ const MobileSessions = observer(function MobileSessions({
   const [confirming, setConfirming] = useState<string | null>(null)
   const [revoking, setRevoking] = useState<string | null>(null)
   const [revokeError, setRevokeError] = useState<string | null>(null)
-  const [now, setNow] = useState(() => Date.now())
   const confirmationRef = useRef<HTMLDivElement>(null)
   const sessionsRegionRef = useRef<HTMLDivElement>(null)
 
   const load = useCallback(() => { void reload() }, [reload])
   useEffect(() => { if (refreshKey > 0) load() }, [load, refreshKey])
   useEffect(() => {
-    const id = window.setInterval(() => setNow(Date.now()), 60_000)
-    return () => window.clearInterval(id)
-  }, [])
-  useEffect(() => {
     if (confirming) confirmationRef.current?.focus()
   }, [confirming])
 
-  const revoke = async (session: MobileSessionView): Promise<void> => {
-    setRevoking(session.sessionId)
+  const confirm = useCallback((id: string | null) => { setConfirming(id); setRevokeError(null) }, [])
+  const revoke = useCallback(async (session: MobileSessionView): Promise<void> => {
+    const id = session.sessionId
+    setRevoking(id)
     setRevokeError(null)
     try {
-      await api.auth.revokeMobileSession.mutate({ sessionId: session.sessionId })
+      await api.auth.revokeMobileSession.mutate({ sessionId: id })
       request?.cancel()
-      if (pool) pool.apply({ type: 'update', rows: [{ kind: 'device', id: session.sessionId, value: undefined }] })
+      if (pool) pool.apply({ type: 'update', rows: [{ kind: 'device', id, value: undefined }] })
       setConfirming(null)
       window.setTimeout(() => sessionsRegionRef.current?.focus(), 0)
     } catch {
@@ -591,7 +588,7 @@ const MobileSessions = observer(function MobileSessions({
     } finally {
       setRevoking(null)
     }
-  }
+  }, [api, request, pool])
 
   return (
     <Subsection
@@ -622,10 +619,32 @@ const MobileSessions = observer(function MobileSessions({
         )}
         {sessions && sessions.length > 0 && (
           <div className="divide-y divide-hairline-soft/70 border-y border-hairline-soft/70">
-            {sessions.map((session) => {
-              const isConfirming = confirming === session.sessionId
-              return (
-                <div key={session.sessionId} className="py-3.5">
+            {sessions.map(session => <MobileDeviceRow key={session.sessionId} session={session}
+              confirming={confirming} revoking={revoking} revokeError={revokeError}
+              confirmationRef={confirmationRef} confirm={confirm} revoke={revoke} />)}
+          </div>
+        )}
+      </div>
+    </Subsection>
+  )
+})
+
+const MobileDeviceActivity = observer(function MobileDeviceActivity({ session }: { session: MobileSessionView }) {
+  const now = useAgeNow(session.lastSeenAt ?? session.createdAt, 0, session.lastSeenAt !== null)
+  return <>{formatActivity(session.lastSeenAt, now)}</>
+})
+const MobileDeviceRow = observer(function MobileDeviceRow({ session, confirming, revoking, revokeError, confirmationRef, confirm, revoke }: {
+  session: MobileSessionView
+  confirming: string | null
+  revoking: string | null
+  revokeError: string | null
+  confirmationRef: import('react').RefObject<HTMLDivElement | null>
+  confirm(id: string | null): void
+  revoke(session: MobileSessionView): Promise<void>
+}) {
+  const isConfirming = confirming === session.sessionId
+  return (
+                <div className="py-3.5">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
                     <div className="flex min-w-0 items-start gap-3">
                       <Smartphone
@@ -645,7 +664,7 @@ const MobileSessions = observer(function MobileSessions({
                         </div>
                         <p className="settings-micro mt-1">
                           {displayPlatform(session.platform)} · Last active{' '}
-                          {formatActivity(session.lastSeenAt, now)}
+                          <MobileDeviceActivity session={session} />
                         </p>
                       </div>
                     </div>
@@ -656,8 +675,7 @@ const MobileSessions = observer(function MobileSessions({
                         variant="destructive"
                         className="self-start sm:self-auto"
                         onClick={() => {
-                          setConfirming(session.sessionId)
-                          setRevokeError(null)
+                          confirm(session.sessionId)
                         }}
                       >
                         Revoke
@@ -695,8 +713,7 @@ const MobileSessions = observer(function MobileSessions({
                           variant="outline"
                           disabled={revoking !== null}
                           onClick={() => {
-                            setConfirming(null)
-                            setRevokeError(null)
+                            confirm(null)
                           }}
                         >
                           Cancel
@@ -710,12 +727,6 @@ const MobileSessions = observer(function MobileSessions({
                     </div>
                   )}
                 </div>
-              )
-            })}
-          </div>
-        )}
-      </div>
-    </Subsection>
   )
 })
 

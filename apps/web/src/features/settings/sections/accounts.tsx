@@ -1,3 +1,4 @@
+import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import { observer } from 'mobx-react-lite'
 import { accountKey, useSettingsRecords } from '../record-readers'
 import type { HarnessAgent } from '@podium/runtime'
@@ -68,7 +69,7 @@ const NativeAccountRow = observer(function NativeAccountRow({
   onChanged,
 }: {
   account: AccountView
-  onChanged: () => void
+  onChanged: (automatic?: boolean) => void
 }): JSX.Element {
   const { trpc, navigateToSession } = useSettingsClient()
   const [machineId, setMachineId] = useState(account.loginMachines?.[0]?.id ?? '')
@@ -78,11 +79,19 @@ const NativeAccountRow = observer(function NativeAccountRow({
   const sessionPresent = useSettingsSessionPresent(pendingSessionId)
   const attempt = account.loginAttempt
 
+  const attemptStatus = attempt?.status
   useEffect(() => {
-    if (!attempt || (attempt.status !== 'running' && attempt.status !== 'refreshing')) return
-    const timer = window.setInterval(onChanged, 1_000)
-    return () => window.clearInterval(timer)
-  }, [attempt, onChanged])
+    if (attemptStatus !== 'running' && attemptStatus !== 'refreshing') return
+    let initial = true
+    return followVisibleRequest(() => {
+      // The opening already requested this directory; subsequent visible ticks refresh it.
+      if (initial) { initial = false; return }
+      onChanged(true)
+    }, {
+      visible: () => document.visibilityState !== 'hidden',
+      subscribe: changed => { document.addEventListener('visibilitychange', changed); return () => document.removeEventListener('visibilitychange', changed) },
+    }, 1_000)
+  }, [attemptStatus, onChanged])
 
   useEffect(() => {
     if (!pendingSessionId || !sessionPresent)
@@ -375,7 +384,7 @@ export const AccountsSection = observer(function AccountsSection(): JSX.Element 
   const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
   const { request, reload } = useSettingsRecords('account', readAccounts, accountKey, false)
   const accounts = request?.models
-  const refresh = useCallback(() => { void reload() }, [reload])
+  const refresh = useCallback((automatic = false) => { if (!automatic || !request?.loading) void reload() }, [request, reload])
 
   const native = (accounts ?? []).filter((a) => a.source === 'native')
   const managed = (accounts ?? []).filter((a) => a.source === 'managed')

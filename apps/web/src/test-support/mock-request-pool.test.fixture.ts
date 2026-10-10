@@ -4,6 +4,8 @@ import { useMemo, useSyncExternalStore } from 'react'
 import { afterEach, vi } from 'vitest'
 import { useRuntimeSelector } from '@/app/store'
 
+type SessionsFixture = { sessions?: readonly import('@podium/client-core/session-values').SessionView[] }
+const selectFixture = useRuntimeSelector as unknown as <T>(read: (state: SessionsFixture) => T) => T
 let current: MobxPool | undefined
 function pool() { return current ??= new MobxPool({ selectedIssueId: null, coarseNow: 0 }) }
 afterEach(() => { current?.dispose(); current = undefined })
@@ -13,7 +15,7 @@ vi.mock('@/app/store-worklist-pool', () => ({
   useWorklistPool: pool,
   useWorklistPoolProjection<T>(read: (pool: MobxPool) => T) {
     const shared = pool()
-    const sessions = useRuntimeSelector(state => state.sessions)
+    const sessions = selectFixture(state => state.sessions)
     useMemo(() => shared.apply({ type: 'replace', rows: (sessions ?? []).map(value => ({
       kind: 'session', id: value.sessionId, value: value as unknown as Readonly<Record<string, unknown>>,
     })) }), [shared, sessions])
