@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'
@@ -13,7 +14,7 @@ import { clampInt, clampNumber, Row, Section, Subsection } from './shared'
 
 /** Auto-hibernation thresholds for idle sessions under resource pressure, plus
  *  worktree GC (POD-564 / POD-563). */
-export function HibernationSection({
+export const HibernationSection = observer(function HibernationSection({
   settings,
   patch,
   idleCapUnmet = 0,
@@ -231,4 +232,4 @@ export function HibernationSection({
       </Subsection>
     </Section>
   )
-}
+})

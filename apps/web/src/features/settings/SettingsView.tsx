@@ -1,5 +1,4 @@
 import { observer } from 'mobx-react-lite'
-import { here } from '@podium/client-graph/lookup'
 import { ingestSettings } from '@podium/client-graph/requested-records'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 import { accountKey, useSettingsRecord, useSettingsRecords } from './record-readers'
@@ -8,7 +7,7 @@ import type { SettingsWriteRefusal } from '@podium/commands/settings-write-plan'
 import type { ServerSecretKey } from '@podium/model/browser'
 import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppSheet } from '@/app/AppSheet'
 import { usePoolIdleCapUnmetCount } from '@/app/header-data'
 import type { Trpc } from '@/app/trpc'
@@ -20,6 +19,7 @@ import { invalidateFeatures, useFeature } from '@/lib/use-feature'
 import { cn } from '@/lib/utils'
 import { useSettingsTab } from './readers'
 import { refusalMessage, saveSettingsAsCommands } from './save-settings'
+import { SettingsEditDraft } from './settings-edit-draft'
 import { AccountsSection } from './sections/accounts'
 import { AppearanceSection } from './sections/appearance'
 import { ExperimentalSection } from './sections/experimental'
@@ -265,9 +265,9 @@ function HibernationSettingsSection({
 
 /**
  * Settings — a full main-content surface (not a modal), split into sections via a
- * side nav. Loads the whole blob, edits a local copy, saves it whole — no
- * per-field mutations, so the form can never half-apply even though only one
- * section is on screen at a time. Each tab's section lives in ./sections/<tab>
+ * side nav. Edits the shared settings record through touched-field drafts and
+ * submits its changed leaves through the settings command plan.
+ * Each tab's section lives in ./sections/<tab>
  * and renders through the SECTION_VIEWS lookup. The Telegram connect flow's
  * state (and its poll) stays here so it survives switching tabs.
  */
@@ -295,11 +295,12 @@ const SettingsViewBody = observer(function SettingsViewBody({ onClose, settingsT
   const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
   const settingsRequest = useSettingsRecord(readSettings)
   const record = settingsRequest?.model
-  const lastSaved = record ? here(record.row) as PodiumSettings | undefined : undefined
-  // Existing form draft remains local until the dedicated settings draft change.
-  // The canonical saved record is never copied into component state.
-  const [edited, setSettings] = useState<PodiumSettings | null>(null)
-  const settings = edited ?? record ?? null
+  const edits = useMemo(() => record ? new SettingsEditDraft(record, async (previous, next) => {
+    const result = await saveSettingsAsCommands(trpc, previous, next)
+    if (pool) ingestSettings(pool, result.saved)
+    return result
+  }) : null, [record, trpc, pool])
+  const settings = edits?.settings ?? null
   const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
   const { request: accountRequest } = useSettingsRecords('account', readAccounts, accountKey)
   const accounts = accountRequest?.models ?? []
@@ -406,7 +407,6 @@ const SettingsViewBody = observer(function SettingsViewBody({ onClose, settingsT
         if (cancelled) return
         if (result.status === 'connected') {
           if (pool) ingestSettings(pool, result.settings)
-          setSettings(null)
           setSavedAt(Date.now())
           setTelegramSetup({
             status: 'connected',
@@ -536,19 +536,14 @@ const SettingsViewBody = observer(function SettingsViewBody({ onClose, settingsT
    * stays exactly as the user typed it rather than being reverted under them.
    */
   const save = async () => {
-    const settings = edited ?? lastSaved
-    if (!settings) return
+    if (!edits?.isDirty || saving) return
     setSaving(true)
     setError(null)
     try {
-      const { saved, refusals } = await saveSettingsAsCommands(
-        trpc,
-        lastSaved ?? settings,
-        settings,
-      )
-      if (pool) ingestSettings(pool, saved)
+      const result = await edits.submit()
+      if (!result) return
+      const { refusals } = result
       setRefusals(refusals)
-      if (refusals.length === 0) setSettings(null)
       // Refresh feature gates so useFeature sees the saved experimental toggles
       // [spec:SP-f4b9].
       invalidateFeatures(trpc)
@@ -562,11 +557,8 @@ const SettingsViewBody = observer(function SettingsViewBody({ onClose, settingsT
     }
   }
 
-  const patch = (p: Partial<PodiumSettings>) => setSettings((s) => lastSaved ? { ...(s ?? lastSaved), ...p } : null)
-  const dirty =
-    edited !== null &&
-    lastSaved !== undefined &&
-    JSON.stringify(edited) !== JSON.stringify(lastSaved)
+  const patch = (p: Partial<PodiumSettings>) => edits?.patch(p)
+  const dirty = edits?.isDirty ?? false
   // The saved flash keeps the bar visible for a beat after a successful save.
   const [, forceTick] = useState(0)
   const savedFlash = savedAt > 0 && Date.now() - savedAt < 1500
@@ -617,7 +609,7 @@ const SettingsViewBody = observer(function SettingsViewBody({ onClose, settingsT
   const discard = () => {
     if (networkSaveActive) networkSaveActive.discard()
     else {
-      setSettings(null)
+      edits?.reset()
       setError(null)
       setRefusals([])
     }
@@ -791,7 +783,7 @@ const SettingsViewBody = observer(function SettingsViewBody({ onClose, settingsT
                     startTelegramSetup: () => void startTelegramSetup(),
                     resetTelegramSetup: () => setTelegramSetup({ status: 'idle' }),
                     openNetworkSettings: () => setSettingsTab('network'),
-                    resetToDefaults: () => setSettings(DEFAULT_SETTINGS),
+                    resetToDefaults: () => edits?.patch(DEFAULT_SETTINGS),
                     secrets,
                     canManageSecrets: permitted['settings.setSecret'] === true,
                     secretBusy,

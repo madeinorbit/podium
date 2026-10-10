@@ -6,7 +6,7 @@ import { observable, runInAction } from 'mobx'
 import { describe, expect, it, vi } from 'vitest'
 import { AutomationEditDraft } from '../automations/automation-edit-draft'
 import { automationInput, GLOBAL_TARGET } from '../automations/automation-form'
-import { initialState } from '../automations/NewAutomationDialog'
+import { initialState } from '../automations/automation-state.test.fixture'
 import { SettingsEditDraft } from './settings-edit-draft'
 
 function automation(overrides: Partial<AutomationWire> = {}): AutomationWire {

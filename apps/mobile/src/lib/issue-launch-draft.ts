@@ -1,4 +1,6 @@
 import { agentSettingsDraft, type AgentSettingsPatch, type AgentSettingsRecord } from '@podium/client-graph/write/agent-settings-draft'
+import { lazy } from '@podium/mobx-helpers'
+import { compareShallow } from 'mobx'
 import { launchConfigurationForIssue, launchConfigurationPatch, type LaunchConfiguration } from './launch-configuration'
 
 export function issueLaunchDraft(record: AgentSettingsRecord, save: (patch: AgentSettingsPatch) => Promise<unknown>) {
@@ -7,6 +9,16 @@ export function issueLaunchDraft(record: AgentSettingsRecord, save: (patch: Agen
     throw error
   }))
   return edits
+}
+
+/** Stable picker input while unrelated sheet state (plan/error/busy) changes. */
+export class IssueLaunchForm {
+  readonly edits
+  constructor(record: AgentSettingsRecord, save: (patch: AgentSettingsPatch) => Promise<unknown>) {
+    this.edits = issueLaunchDraft(record, save)
+  }
+  @lazy({ equals: compareShallow }) get configuration() { return launchConfigurationForIssue(this.edits) }
+  patch(next: LaunchConfiguration) { patchIssueLaunchDraft(this.edits, next) }
 }
 
 /** The picker returns a complete value. Compare it with the current display so

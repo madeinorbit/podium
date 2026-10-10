@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { Input } from '@/components/ui/input'
@@ -12,7 +13,7 @@ import { Switch } from '@/components/ui/switch'
 import { Row, Section } from './shared'
 
 /** Git workflow defaults (parent branch, merge style, rebase) + issue assistant. */
-export function WorkflowSection({
+export const WorkflowSection = observer(function WorkflowSection({
   settings,
   patch,
 }: {
@@ -87,4 +88,4 @@ export function WorkflowSection({
       </Row>
     </Section>
   )
-}
+})

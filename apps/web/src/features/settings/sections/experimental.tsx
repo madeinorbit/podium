@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 /**
  * Settings → Experimental [spec:SP-f4b9]: listed feature flags with user
  * toggles. Enablement edits patch the settings blob and ride Save.
@@ -21,7 +22,7 @@ function isDevOnlyListed(flag: FeatureFlagWire, channel: 'stable' | 'edge'): boo
   return true
 }
 
-export function ExperimentalSection({
+export const ExperimentalSection = observer(function ExperimentalSection({
   settings,
   patch,
   onReset,
@@ -122,4 +123,4 @@ export function ExperimentalSection({
       </Subsection>
     </Section>
   )
-}
+})

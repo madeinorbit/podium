@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 import { CUE_SOUNDS, play, SOUNDS_ENABLED_KEY } from '@podium/client-core/sound'
 import type { PodiumSettings } from '@podium/runtime'
 import { CheckCircle2, ExternalLink, Loader2 } from 'lucide-react'
@@ -31,7 +32,7 @@ export type TelegramSetupState =
   | { status: 'failed'; message: string }
 
 /** Web + push notification targets, including the guided Telegram setup. */
-export function NotificationsSection({
+export const NotificationsSection = observer(function NotificationsSection({
   settings,
   patch,
   telegramSetup,
@@ -158,7 +159,7 @@ export function NotificationsSection({
       </div>
     </Section>
   )
-}
+})
 
 function formatTelegramSetupRemaining(expiresAt: string, now: number): string {
   const seconds = Math.max(0, Math.ceil((Date.parse(expiresAt) - now) / 1000))
@@ -266,7 +267,7 @@ function useNotificationPermission(): {
   }
 }
 
-function WebNotificationsRow({
+const WebNotificationsRow = observer(function WebNotificationsRow({
   settings,
   patch,
 }: {
@@ -300,4 +301,4 @@ function WebNotificationsRow({
       />
     </Row>
   )
-}
+})

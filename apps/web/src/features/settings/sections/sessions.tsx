@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import type { JSX } from 'react'
 import {
@@ -13,7 +14,7 @@ import { type AccountView, RoleBackendEditor, Row, Section } from './shared'
 
 /** New-session defaults (which account/model/effort coding agents start with,
  *  subagent model, start screen) + the auto-continue toggle. */
-export function SessionsSection({
+export const SessionsSection = observer(function SessionsSection({
   settings,
   accounts,
   patch,
@@ -131,4 +132,4 @@ export function SessionsSection({
       </Section>
     </>
   )
-}
+})

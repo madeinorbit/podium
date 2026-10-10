@@ -1,7 +1,9 @@
 import { AutomationOpening } from '@/app/automation-readers'
 import type { AutomationSessionMode, MachineId } from '@podium/model/browser'
 import type { JSX } from 'react'
-import { memo, useState } from 'react'
+import { memo, useMemo, useState } from 'react'
+import { observer } from 'mobx-react-lite'
+import { AutomationEditDraft, localDateTimeValue } from './automation-edit-draft'
 import {
   useAutomationTarget,
   useAutomationTargetForPath,
@@ -55,35 +57,25 @@ import {
 } from './automation-form'
 import type { Frequency } from './cron-format'
 
-const localDateTimeValue = (iso?: string | null): string => {
-  const fallback = new Date(Date.now() + 60 * 60_000)
-  fallback.setSeconds(0, 0)
-  const date = iso ? new Date(iso) : fallback
-  if (Number.isNaN(date.getTime())) return ''
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
-  return local.toISOString().slice(0, 16)
-}
 
-export function initialState(automation: Automation | null, defaultTarget: string): AutomationFormState {
+function initialState(defaultTarget: string): AutomationFormState {
   return {
-    name: automation?.name ?? '',
+    name: '',
     kind: 'schedule',
-    // Existing recurring schedules open as custom cron so their exact expression
-    // is preserved.
-    freq: automation ? (automation.scheduleKind === 'once' ? 'once' : 'cron') : 'daily',
+    freq: 'daily',
     time: '09:00',
     weekday: 1, // Monday
-    rawCron: automation?.cron ?? '',
-    runAt: localDateTimeValue(automation?.runAt),
+    rawCron: '',
+    runAt: localDateTimeValue(),
     reactive: 'merge-main',
     glob: '',
-    target: automation ? (automation.repoPath ?? GLOBAL_TARGET) : defaultTarget,
-    prompt: automation?.prompt ?? '',
-    agent: issueDefaultAgentKind(automation?.agentKind),
-    model: automation?.model ?? AUTO,
-    effort: automation?.effort ?? AUTO,
-    enabled: automation?.enabled ?? true,
-    sessionMode: automation?.sessionMode ?? 'fresh',
+    target: defaultTarget,
+    prompt: '',
+    agent: issueDefaultAgentKind(undefined),
+    model: AUTO,
+    effort: AUTO,
+    enabled: true,
+    sessionMode: 'fresh',
   }
 }
 
@@ -109,7 +101,7 @@ export function NewAutomationDialog(
   )
 }
 
-export function NewAutomationDialogBody({
+export const NewAutomationDialogBody = observer(function NewAutomationDialogBody({
   trpc,
   automation,
   onClose,
@@ -141,6 +133,7 @@ export function NewAutomationDialogBody({
     )
   return (
     <AutomationForm
+      key={automation?.id ?? 'new'}
       trpc={trpc}
       automation={automation}
       onClose={onClose}
@@ -148,9 +141,9 @@ export function NewAutomationDialogBody({
       targets={targets}
     />
   )
-}
+})
 
-function AutomationForm({
+const AutomationForm = observer(function AutomationForm({
   trpc,
   automation,
   onClose,
@@ -168,16 +161,22 @@ function AutomationForm({
   const editing = automation !== null
   const ctx: AutomationFormContext = { targets: [], excluded }
 
-  const [state, setState] = useState<AutomationFormState>(() =>
-    initialState(automation, firstTarget?.value ?? GLOBAL_TARGET),
+  const [newState, setNewState] = useState<AutomationFormState>(() =>
+    initialState(firstTarget?.value ?? GLOBAL_TARGET),
   )
+  const edits = useMemo(() => automation ? new AutomationEditDraft(automation, patch =>
+    trpc.automations.update.mutate({ id: automation.id, patch }),
+  ) : null, [automation, trpc])
+  const state = edits ?? newState
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const targetMachineId = useAutomationTargetMachine(state.target)
   const selectedTarget = useAutomationTargetForPath(state.target, automation?.repoPath ?? null)
 
-  const patch = (next: Partial<AutomationFormState>): void =>
-    setState((prev) => ({ ...prev, ...next }))
+  const patch = (next: Partial<AutomationFormState>): void => {
+    if (edits) edits.patch(next)
+    else setNewState(prev => ({ ...prev, ...next }))
+  }
 
   // One rights evaluation, the same predicate the automation cards use.
   const right = automationRight(editing ? 'edit' : 'create', NEW_AUTOMATION_RIGHTS(ids.length > 0))
@@ -236,10 +235,9 @@ function AutomationForm({
     if (!canSave) return
     setSaving(true)
     setError('')
-    const input = automationInput(state, automation)
-    const request = automation
-      ? trpc.automations.update.mutate({ id: automation.id, patch: input })
-      : trpc.automations.create.mutate(input)
+    const request = edits
+      ? Promise.resolve(edits.submit())
+      : trpc.automations.create.mutate(automationInput(state, null))
     request
       .then(() => onSaved())
       // A denial is surfaced and the dialog stays exactly as the user left it —
@@ -304,6 +302,11 @@ function AutomationForm({
         </div>
 
         <DialogFooter>
+          {edits?.isDirty && (
+            <Button type="button" variant="ghost" disabled={saving} onClick={() => { edits.reset(); setError('') }}>
+              Discard
+            </Button>
+          )}
           <Button type="button" variant="ghost" onClick={onClose}>
             Cancel
           </Button>
@@ -314,11 +317,11 @@ function AutomationForm({
       </DialogContent>
     </Dialog>
   )
-}
+})
 
 /** One config entry, rendered. The only place in this feature that knows which
  *  control kind maps to which component. */
-function AutomationField({
+const AutomationField = observer(function AutomationField({
   field,
   state,
   ctx,
@@ -478,7 +481,7 @@ function AutomationField({
       {hint && <span className="text-[11px] text-muted-foreground">{hint}</span>}
     </div>
   )
-}
+})
 
 const AutomationTargetOption = memo(function AutomationTargetOption({
   id,
@@ -493,7 +496,7 @@ const AutomationTargetOption = memo(function AutomationTargetOption({
   ) : null
 })
 
-function SelectField({
+const SelectField = observer(function SelectField({
   field,
   state,
   ctx,
@@ -522,7 +525,7 @@ function SelectField({
       </SelectContent>
     </Select>
   )
-}
+})
 
 /** Select values arrive as strings; `weekday` is the one numeric binding. */
 function coerce(key: keyof AutomationFormState, value: string): Partial<AutomationFormState> {

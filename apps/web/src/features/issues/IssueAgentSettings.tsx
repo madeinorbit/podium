@@ -1,8 +1,10 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssueUpdatePatch } from '@podium/commands'
-import { asMachineId, HOST_REPOS, type MachineId } from '@podium/model/browser'
+import { agentSettingsDraft } from '@podium/client-graph/write/agent-settings-draft'
+import { observer } from 'mobx-react-lite'
+import { asMachineId, HOST_REPOS } from '@podium/model/browser'
 import { Check, ChevronDown, LoaderCircle } from 'lucide-react'
-import { type JSX, useEffect, useRef, useState } from 'react'
+import { type JSX, useEffect, useMemo, useState } from 'react'
 import { useRuntimeSelector } from '@/app/store'
 import { Button } from '@/components/ui/button'
 import { DropdownMenuOwner } from '@/components/ui/dropdown-menu'
@@ -24,12 +26,6 @@ type SettingsPatch = Pick<
   IssueUpdatePatch,
   'defaultAgent' | 'defaultModel' | 'defaultEffort' | 'machineId'
 >
-type Selection = {
-  defaultAgent: string
-  defaultModel: string
-  defaultEffort: string
-  machineId: MachineId | null
-}
 
 const ISSUE_HOME_COPY = {
   action: 'hold this issue',
@@ -38,7 +34,7 @@ const ISSUE_HOME_COPY = {
 }
 
 /** The persisted plan for an issue's next agent, shared by every issue viewer. */
-export function IssueAgentSettings({
+export const IssueAgentSettings = observer(function IssueAgentSettings({
   issue,
   machines,
   disabled = false,
@@ -54,23 +50,9 @@ export function IssueAgentSettings({
   onSavingChange?: (saving: boolean) => void
 }): JSX.Element {
   const updateIssue = useRuntimeSelector((s) => s.updateIssue)
-  const defaultAgent = issue.defaultAgent ?? issueDefaultAgentKind(undefined)
-  const defaultModel = issue.defaultModel || 'auto'
-  const defaultEffort = issue.defaultEffort || 'auto'
-  const machineId = issue.machineId ?? null
-  const [selected, setSelected] = useState<Selection>({
-    defaultAgent,
-    defaultModel,
-    defaultEffort,
-    machineId,
-  })
+  const selected = useMemo(() => agentSettingsDraft(issue, patch => updateIssue(issue.id, patch)), [issue, updateIssue])
   const [state, setState] = useState<'idle' | 'saving' | 'saved'>('idle')
   const [error, setError] = useState('')
-  const pending = useRef(false)
-
-  useEffect(() => {
-    setSelected({ defaultAgent, defaultModel, defaultEffort, machineId })
-  }, [defaultAgent, defaultModel, defaultEffort, machineId])
   useEffect(() => {
     onSavingChange?.(state === 'saving')
     return () => onSavingChange?.(false)
@@ -82,22 +64,19 @@ export function IssueAgentSettings({
   }, [state])
 
   const save = (patch: SettingsPatch): void => {
-    if (disabled || pending.current) return
-    const previous = selected
-    pending.current = true
-    setSelected({ ...selected, ...patch })
+    if (disabled || state === 'saving') return
+    Object.assign(selected, patch)
+    if (!selected.isDirty) return
     setState('saving')
     setError('')
     void (async () => {
       try {
-        await updateIssue(issue.id, patch)
+        await selected.submit()
         setState('saved')
       } catch (cause) {
-        setSelected(previous)
+        selected.reset()
         setState('idle')
         setError(cause instanceof Error ? cause.message : String(cause))
-      } finally {
-        pending.current = false
       }
     })()
   }
@@ -180,7 +159,7 @@ export function IssueAgentSettings({
               agentKind={agentKind}
               {...catalogMachine}
               disabled={busy}
-              value={selected.defaultModel}
+              value={selected.defaultModel || 'auto'}
               onChange={(value) => {
                 if (value !== selected.defaultModel)
                   save({ defaultModel: value, defaultEffort: 'auto' })
@@ -192,8 +171,8 @@ export function IssueAgentSettings({
               agentKind={agentKind}
               {...catalogMachine}
               disabled={busy}
-              model={selected.defaultModel}
-              value={selected.defaultEffort}
+              model={selected.defaultModel || 'auto'}
+              value={selected.defaultEffort || 'auto'}
               onChange={(value) => {
                 if (value !== selected.defaultEffort) save({ defaultEffort: value })
               }}
@@ -238,4 +217,4 @@ export function IssueAgentSettings({
       </div>
     </DropdownMenuOwner>
   )
-}
+})

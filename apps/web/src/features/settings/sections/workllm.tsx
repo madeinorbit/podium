@@ -1,10 +1,11 @@
+import { observer } from 'mobx-react-lite'
 import { bundledDescriptorFor, effectiveCatalogModel } from '@podium/harness/browser'
 import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import type { JSX } from 'react'
 import { type AccountView, RoleBackendEditor, Section } from './shared'
 
 /** Backend for the cheap background work LLM (summaries, naming, status). */
-export function WorkLlmSection({
+export const WorkLlmSection = observer(function WorkLlmSection({
   settings,
   accounts,
   patch,
@@ -50,4 +51,4 @@ export function WorkLlmSection({
       />
     </Section>
   )
-}
+})

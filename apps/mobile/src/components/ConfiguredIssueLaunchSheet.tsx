@@ -1,15 +1,14 @@
 import type { IssueViewModel } from '@podium/client-core/replica'
+import { observer } from 'mobx-react-lite'
+import { spawnIssueAgent } from '@podium/client-core/values'
 
 import { issueDisplayRef } from '@podium/protocol'
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { StyleSheet, Text, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
-import { issueDefaultAgentKind } from '../lib/agent-models'
-import { startConfiguredIssue } from '../lib/configured-issue-launch'
+import { IssueLaunchForm } from '../lib/issue-launch-draft'
 import {
-  type LaunchConfiguration,
   type LaunchPlan,
-  launchConfigurationForIssue,
   launchPlanCanSubmit,
 } from '../lib/launch-configuration'
 import { color, font, radius, sans, space } from '../theme/theme'
@@ -17,19 +16,7 @@ import { BottomSheet } from './BottomSheet'
 import { LaunchConfigurationFields } from './LaunchConfigurationFields'
 import { PressableScale } from './PressableScale'
 
-/**
- * Sheet default before the issue's own configuration loads (POD-4737): the
- * named default harness (the registry's first row), never a literal scattered
- * in the app. `launchConfigurationForIssue` replaces it per issue.
- */
-const DEFAULT_CONFIGURATION: LaunchConfiguration = {
-  agentKind: issueDefaultAgentKind(undefined),
-  modelPick: 'auto',
-  effort: 'auto',
-  machineId: '',
-}
-
-export function ConfiguredIssueLaunchSheet({
+export const ConfiguredIssueLaunchSheet = observer(function ConfiguredIssueLaunchSheet({
   issue,
   onStarted,
   onClose,
@@ -39,26 +26,25 @@ export function ConfiguredIssueLaunchSheet({
   onClose: () => void
 }) {
   const trpc = useTrpc()
-  const [configuration, setConfiguration] = useState(() =>
-    issue ? launchConfigurationForIssue(issue) : DEFAULT_CONFIGURATION,
-  )
+  const form = useMemo(() => issue ? new IssueLaunchForm(issue, patch => trpc.issues.update.mutate({ id: issue.id, patch })) : null, [issue, trpc])
   const [plan, setPlan] = useState<LaunchPlan | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   useEffect(() => {
-    if (issue) setConfiguration(launchConfigurationForIssue(issue))
     setPlan(null)
     setBusy(false)
     setError(null)
   }, [issue])
 
   const start = async () => {
-    if (!issue || !launchPlanCanSubmit(plan) || busy) return
+    if (!issue || !form || !launchPlanCanSubmit(plan) || busy) return
     setBusy(true)
     setError(null)
     try {
-      await startConfiguredIssue(trpc.issues, issue.id, plan)
+      form.patch(plan.configuration)
+      await form.edits.submit()
+      await spawnIssueAgent(trpc.issues, { id: issue.id })
       onClose()
       onStarted?.()
     } catch (cause) {
@@ -107,13 +93,13 @@ export function ConfiguredIssueLaunchSheet({
       }
     >
       <View style={styles.body}>
-        {issue ? (
+        {issue && form ? (
           <LaunchConfigurationFields
             repoPath={issue.repoPath}
-            value={configuration}
+            value={form.configuration}
             onChange={(next) => {
               setPlan(null)
-              setConfiguration(next)
+              form.patch(next)
             }}
             onPlan={setPlan}
           />
@@ -126,7 +112,7 @@ export function ConfiguredIssueLaunchSheet({
       </View>
     </BottomSheet>
   )
-}
+})
 
 const styles = StyleSheet.create({
   head: { gap: 3, paddingHorizontal: space.lg, paddingBottom: space.md },

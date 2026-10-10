@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 /**
  * Settings → Privacy [spec:SP-f933] — the web half of `podium telemetry`.
  *
@@ -54,7 +55,7 @@ const TIERS: { key: 'usage' | 'crash'; name: string; description: string }[] = [
   },
 ]
 
-export function PrivacySection({
+export const PrivacySection = observer(function PrivacySection({
   settings,
   patch,
 }: {
@@ -222,7 +223,7 @@ export function PrivacySection({
       <DiagnosticLoggingSubsection />
     </Section>
   )
-}
+})
 
 /**
  * WHETHER THIS SERVER KEEPS A COPY OF WHAT THE AGENTS SAID (PDM-26).

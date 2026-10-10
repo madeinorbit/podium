@@ -1,3 +1,4 @@
+import { observer } from 'mobx-react-lite'
 import type { PodiumSettings } from '@podium/runtime'
 import type { JSX } from 'react'
 import { useState } from 'react'
@@ -7,7 +8,7 @@ import { useFeature } from '@/lib/use-feature'
 import { type AccountView, RoleBackendEditor, Section } from './shared'
 
 /** The orchestrator's backend (account/model/effort) + the restart escape hatch. */
-export function SuperagentSection({
+export const SuperagentSection = observer(function SuperagentSection({
   settings,
   accounts,
   patch,
@@ -54,7 +55,7 @@ export function SuperagentSection({
       )}
     </Section>
   )
-}
+})
 
 /** Reset the global superagent's harness session — the next message starts a
  *  fresh one (#199). Escape hatch for a wedged/stale orchestrator harness. */
