@@ -556,6 +556,9 @@ describe('MobX pool tracking objects (POD-4748)', () => {
     const match = /^(POD-\d+):\s*(.{10,})$/.exec(UPDATE ?? '')
     if (match === null)
       throw new Error('POD_TRACKING_COUNTS_UPDATE="POD-<n>: <reason of 10+ chars>"')
+    expect(Object.keys(reports).sort(), 'all six cells completed before replacing the baseline').toEqual(
+      ['pool', ...WRITE_VARIANTS].flatMap(variant => [1, 4].map(scale => keyOf(variant as Variant, scale as FixtureScale))).sort(),
+    )
     const [, updatedBy = '', reason = ''] = match
     const sorted = Object.fromEntries(
       Object.entries(measured).sort(([a], [b]) => a.localeCompare(b)),

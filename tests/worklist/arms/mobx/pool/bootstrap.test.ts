@@ -131,75 +131,73 @@ function quantile(sorted: readonly number[], q: number): number {
 describe('bootstrap in the count harness', () => {
   for (const scale of SCALES) it(`counts at ${scale}x (and walls when asked)`, async () => {
     const cells = []
-    {
-      const feed = feedOf(scale)
-      const lazy = counted('lazy', feed)
-      // Release @lazy's synchronous-read temporaries from the disposed arm.
-      await Promise.resolve()
-      const all = counted('allResident', feed)
-      // Resident = what the schema's rule keeps (POD-4665), over the corpus at the pool's clock.
-      const cold = tableColdRule(
-        SCHEMA,
-        (entity) =>
-          entity === 'issue'
-            ? new Map(feed.corpus.sliceIssues.map((issue) => [issue.id, issue]))
-            : entity === 'session'
-              ? new Map(feed.corpus.sliceSessions.map((session) => [session.sessionId, session]))
-              : entity === 'worktree'
-                ? new Map(feed.corpus.sliceWorktrees.map((lane) => [lane.path, lane]))
-                : undefined,
-        feed.corpus.fixedNow,
-      )
-      const coldIssues = feed.corpus.sliceIssues.filter((issue) => cold('issue', issue.id)).length
-      expect(lazy.rows.issue).toBe(feed.corpus.sliceIssues.length - coldIssues)
-      expect(lazy.rows.issue + lazy.cold.issue).toBe(all.rows.issue)
-      expect(lazy.rows.session + lazy.cold.session).toBe(all.rows.session)
-      // One filing reaction per issue in memory; one object per issue read
-      // (those, and the cold ones their walks reach), and the sessions those read.
-      expect(lazy.held).toBe(lazy.rows.issue)
-      expect(lazy.issueModels).toBeGreaterThanOrEqual(lazy.held)
-      expect(lazy.models).toBe(lazy.issueModels + lazy.sessionModels)
-      expect(lazy.observables).toBeLessThan(all.observables)
-      const cell: Record<string, unknown> = { scale, counts: { lazy, allResident: all } }
-      if (WALLS) {
-        const samples: Record<Arm, number[]> = { lazy: [], allResident: [] }
-        const loads: number[] = []
-        for (let round = 0; round < ROUNDS; round += 1) {
-          const order: Arm[] = round % 2 === 0 ? ['lazy', 'allResident'] : ['allResident', 'lazy']
-          for (const arm of order) {
-            loads.push(loadavg()[0] as number)
-            const start = performance.now()
-            const pool = boot(arm, feed)
-            samples[arm].push(performance.now() - start)
-            pool.dispose()
-          }
-        }
-        const maxLoad = Math.max(...loads)
-        const failed = maxLoad > LOAD_LIMIT
-        cell['walls'] = {
-          rounds: ROUNDS,
-          loads,
-          maxLoad,
-          status: failed ? `FAILED: load ${maxLoad.toFixed(2)} > ${LOAD_LIMIT}` : 'ok',
-          ...(failed
-            ? {}
-            : Object.fromEntries(
-                (['lazy', 'allResident'] as const).map((arm) => {
-                  const sorted = [...samples[arm]].sort((a, b) => a - b)
-                  return [
-                    arm,
-                    {
-                      p50: quantile(sorted, 0.5),
-                      p90: quantile(sorted, 0.9),
-                      samples: samples[arm],
-                    },
-                  ]
-                }),
-              )),
+    const feed = feedOf(scale)
+    const lazy = counted('lazy', feed)
+    // Release @lazy's synchronous-read temporaries from the disposed arm.
+    await Promise.resolve()
+    const all = counted('allResident', feed)
+    // Resident = what the schema's rule keeps (POD-4665), over the corpus at the pool's clock.
+    const cold = tableColdRule(
+      SCHEMA,
+      (entity) =>
+        entity === 'issue'
+          ? new Map(feed.corpus.sliceIssues.map((issue) => [issue.id, issue]))
+          : entity === 'session'
+            ? new Map(feed.corpus.sliceSessions.map((session) => [session.sessionId, session]))
+            : entity === 'worktree'
+              ? new Map(feed.corpus.sliceWorktrees.map((lane) => [lane.path, lane]))
+              : undefined,
+      feed.corpus.fixedNow,
+    )
+    const coldIssues = feed.corpus.sliceIssues.filter((issue) => cold('issue', issue.id)).length
+    expect(lazy.rows.issue).toBe(feed.corpus.sliceIssues.length - coldIssues)
+    expect(lazy.rows.issue + lazy.cold.issue).toBe(all.rows.issue)
+    expect(lazy.rows.session + lazy.cold.session).toBe(all.rows.session)
+    // One filing reaction per issue in memory; one object per issue read
+    // (those, and the cold ones their walks reach), and the sessions those read.
+    expect(lazy.held).toBe(lazy.rows.issue)
+    expect(lazy.issueModels).toBeGreaterThanOrEqual(lazy.held)
+    expect(lazy.models).toBe(lazy.issueModels + lazy.sessionModels)
+    expect(lazy.observables).toBeLessThan(all.observables)
+    const cell: Record<string, unknown> = { scale, counts: { lazy, allResident: all } }
+    if (WALLS) {
+      const samples: Record<Arm, number[]> = { lazy: [], allResident: [] }
+      const loads: number[] = []
+      for (let round = 0; round < ROUNDS; round += 1) {
+        const order: Arm[] = round % 2 === 0 ? ['lazy', 'allResident'] : ['allResident', 'lazy']
+        for (const arm of order) {
+          loads.push(loadavg()[0] as number)
+          const start = performance.now()
+          const pool = boot(arm, feed)
+          samples[arm].push(performance.now() - start)
+          pool.dispose()
         }
       }
-      cells.push(cell)
+      const maxLoad = Math.max(...loads)
+      const failed = maxLoad > LOAD_LIMIT
+      cell['walls'] = {
+        rounds: ROUNDS,
+        loads,
+        maxLoad,
+        status: failed ? `FAILED: load ${maxLoad.toFixed(2)} > ${LOAD_LIMIT}` : 'ok',
+        ...(failed
+          ? {}
+          : Object.fromEntries(
+              (['lazy', 'allResident'] as const).map((arm) => {
+                const sorted = [...samples[arm]].sort((a, b) => a - b)
+                return [
+                  arm,
+                  {
+                    p50: quantile(sorted, 0.5),
+                    p90: quantile(sorted, 0.9),
+                    samples: samples[arm],
+                  },
+                ]
+              }),
+            )),
+      }
     }
+    cells.push(cell)
     writeResult(`mobx-pool-bootstrap-${WALLS ? 'walls' : 'counts'}-${scale}x`, { cells })
   }, 600_000)
 })
