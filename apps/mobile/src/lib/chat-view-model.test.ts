@@ -11,7 +11,7 @@ import { MobileChatViewModel } from './chat-view-model'
 it('keeps each phone reader independent while sharing its session draft and stream', async () => {
   const sid = asSessionId('phone-view')
   const drafts = new DraftStore({ storage: { get: () => null, set() {} }, hub: {
-    on: () => () => {}, sendDraftEdit() {}, connectionHealth: () => ({ status: 'ok', since: 0, rttMs: null }),
+    on: () => () => {}, sendDraftEdit() { return true }, connectionHealth: () => ({ status: 'ok', since: 0, rttMs: null }),
   } })
   const pool = new MobxPool({ selectedIssueId: null })
   pool.bindSessionDrafts(drafts)
