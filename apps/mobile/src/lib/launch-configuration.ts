@@ -105,7 +105,7 @@ export function selectLaunchMachine(
   return { ...value, machineId, modelPick: AUTO, effort: AUTO }
 }
 
-export function launchConfigurationForIssue(issue: IssueViewModel): LaunchConfiguration {
+export function launchConfigurationForIssue(issue: Pick<IssueViewModel, 'defaultAgent' | 'defaultModel' | 'defaultEffort' | 'machineId'>): LaunchConfiguration {
   const agentKind = issueAgentKind(issue.defaultAgent) ?? issueDefaultAgentKind(undefined)
   return {
     inheritAgent: false,

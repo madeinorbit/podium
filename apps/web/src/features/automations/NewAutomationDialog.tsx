@@ -64,7 +64,7 @@ const localDateTimeValue = (iso?: string | null): string => {
   return local.toISOString().slice(0, 16)
 }
 
-function initialState(automation: Automation | null, defaultTarget: string): AutomationFormState {
+export function initialState(automation: Automation | null, defaultTarget: string): AutomationFormState {
   return {
     name: automation?.name ?? '',
     kind: 'schedule',
