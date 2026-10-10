@@ -1,6 +1,5 @@
 import { cookieCredentials } from '@podium/client-core/accounts'
 import {
-  browserServerRelocation,
   createSocketLogin,
   followHub,
   observeLiveConnection,
@@ -362,7 +361,6 @@ export function AppShell({
                 feed={kernel.assembly.feed}
                 createOutboxFn={kernel.assembly.createOutboxFn}
                 makeSocket={makeSocket}
-                onServerRelocation={browserServerRelocation(window.location)}
               >
                 <KernelWireSkewObserver httpOrigin={config.httpOrigin} />
                 <ServerFollowObserver />

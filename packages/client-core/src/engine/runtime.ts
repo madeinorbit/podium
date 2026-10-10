@@ -259,8 +259,6 @@ export interface ClientRuntimeInit<TApi extends PodiumClientApi> {
   heartbeatIntervalMs?: number
   /** Login carriage supplied by the authenticated platform owner. */
   makeSocket?: import('../socket-transport').SocketHubOptions['makeSocket']
-  /** Platform-owned persistence/navigation for a promoted server endpoint. */
-  onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
   /** Open the local runtime without contacting the configured authority. */
   networkEnabled?: boolean
   /** Test seam: overrides SPAWN_CONFIRM_GRACE_MS (#263 review finding 4). */
@@ -451,7 +449,6 @@ export class ClientRuntime<TApi extends PodiumClientApi = PodiumClientApi> {
       createHub: init.createHub,
       makeSocket: init.makeSocket,
       feed: init.feed,
-      ...(init.onServerRelocation ? { onServerRelocation: init.onServerRelocation } : {}),
       ...(init.heartbeatIntervalMs !== undefined
         ? { heartbeatIntervalMs: init.heartbeatIntervalMs }
         : {}),

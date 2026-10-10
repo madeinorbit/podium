@@ -261,8 +261,6 @@ export interface SocketHubOptions {
    * about to kill anyway.
    */
   heartbeatIntervalMs?: number
-  /** Called before this client leaves the old authority; web navigates its actual origin here. */
-  onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
 }
 
 /** The frames the v2 wire carries. Narrowed off the parsed union rather than
@@ -1991,30 +1989,20 @@ export class SocketHub {
       this.emit('attention', { sessionId: msg.sessionId, title: msg.title, body: msg.body })
     },
     serverRelocation: (msg) => {
-      // A client that follows its server (POD-5921) moves through its one adopt.
-      if (this.eventObservers.get('serverRelocation')?.size) {
-        this.emit('serverRelocation', {
-          publicUrl: msg.publicUrl,
+      // Every client follows through its one adopt (POD-5921): `followHub` listens
+      // here. There is no built-in rewrite any more — dialling the target without
+      // the client's credentials is how a phone used to lose its login.
+      if (!this.eventObservers.get('serverRelocation')?.size) {
+        log.warn('server announced a move, but nothing here follows it', {
           transferId: msg.transferId,
-          ...(msg.claimToken ? { claimToken: msg.claimToken } : {}),
         })
         return
       }
-      if (this.opts.onServerRelocation) {
-        this.opts.onServerRelocation(msg.publicUrl, msg.transferId, msg.claimToken)
-        return
-      }
-      const endpoint = new URL(msg.publicUrl)
-      endpoint.protocol = endpoint.protocol === 'https:' ? 'wss:' : 'ws:'
-      endpoint.pathname = '/client'
-      endpoint.search = ''
-      // Workspace identity survives relocation; endpoint-specific credentials do not.
-      const workspace = new URL(this.serverUrl).searchParams.get('workspace')
-      if (workspace) endpoint.searchParams.set('workspace', workspace)
-      endpoint.hash = ''
-      this.serverUrl = endpoint.toString()
-      if (this.socket !== undefined) this.forceClose({ cause: 'server-relocation' })
-      this.connectNow()
+      this.emit('serverRelocation', {
+        publicUrl: msg.publicUrl,
+        transferId: msg.transferId,
+        ...(msg.claimToken ? { claimToken: msg.claimToken } : {}),
+      })
     },
     setLogLevel: (msg) => {
       // APPLIED HERE, not emitted for an app to wire (POD-1920). Every client

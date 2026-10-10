@@ -43,7 +43,6 @@
     "./connect-check": "./src/connect-check.ts",
     "./connect-client": "./src/connect-client.ts",
     "./connect-keys": "./src/connect-keys.ts",
-    "./connect-locator": "./src/connect-locator.ts",
     "./server-follow": "./src/server-follow.ts",
     "./auth-store": "./src/auth-store.ts",
     "./session-mint": "./src/session-mint.ts",

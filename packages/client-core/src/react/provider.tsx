@@ -167,8 +167,6 @@ export interface StoreProviderProps<TApi extends PodiumClientApi> {
   isOnline?: () => boolean
   heartbeatIntervalMs?: number
   makeSocket?: import('../socket-transport').SocketHubOptions['makeSocket']
-  /** Platform-owned persistence/navigation for a promoted server endpoint. */
-  onServerRelocation?: (publicUrl: string, transferId: string, claimToken?: string) => void
   /** False for a trusted local-only boot whose remote identity has not yet been
    *  revalidated. The runtime opens the replica but starts no socket, boot read,
    *  or outbox drain until its replacement provider enables networking. */
@@ -203,7 +201,6 @@ export function StoreProvider<TApi extends PodiumClientApi>({
   isOnline,
   heartbeatIntervalMs,
   makeSocket,
-  onServerRelocation,
   networkEnabled,
   routerWindow,
   engineOverrides,
@@ -281,7 +278,6 @@ export function StoreProvider<TApi extends PodiumClientApi>({
         isOnline,
         heartbeatIntervalMs,
         makeSocket,
-        onServerRelocation,
         networkEnabled,
         routerWindow,
         ...engineOverrides,
