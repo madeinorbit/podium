@@ -3,8 +3,9 @@ import { linkSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSyn
 import { join } from 'node:path'
 import { isDeepStrictEqual } from 'node:util'
 import type { MachineId } from '@podium/model'
-import { stateDir } from './config'
+import { inspectConfig, resolveMode, stateDir } from './config'
 import { fsyncPath } from './fsync'
+import { createMachineCredential, machinePublicKeyWire } from './machine-credential'
 
 export { stateDir }
 export const MACHINE_STATE_FILE = 'machine.json'
@@ -175,6 +176,14 @@ export function loadMachineState(
       ...(legacy ? { legacy } : {}),
       importedFiles,
     }
+    // A RELEASE-0.1.0 HOST NEEDS A MACHINE KEY (POD-5931). Its own daemon logged in with
+    // the same-host bootstrap secret, which is no longer a machine credential, and an
+    // upgrade never runs setup. This import runs once, on the new release's first start,
+    // so it is where the host asks to have its existing row re-keyed: it stages the same
+    // setup request setup would, and the server's setup-enrollment step at boot moves the
+    // legacy row onto that key. Nothing else at boot exists for the migration.
+    const host = legacyHostEnrollment(dir, machineId, legacy, sections)
+    if (host) candidate.supervisor = host
     let published = false
     try {
       persist(dir, candidate, true)
@@ -210,6 +219,36 @@ export function updateMachineState(
   if (state.machineId !== id) throw new Error('machine identity is immutable')
   persist(dir, state, false)
   return state
+}
+
+/**
+ * The setup request for a legacy server host's own row, or nothing. Only a host whose
+ * identity is its bare `machine.id` (no supervisor, no daemon token) and that runs the
+ * server — all-in-one, or a hub — qualifies; a joined machine keeps its token.
+ */
+function legacyHostEnrollment(
+  dir: string,
+  machineId: MachineId,
+  legacy: MachineState['legacy'],
+  sections: Partial<Pick<MachineState, 'daemon' | 'supervisor'>>,
+): MachineState['supervisor'] | undefined {
+  if (!legacy || legacy.machineId !== machineId || sections.supervisor) return undefined
+  if (typeof sections.daemon?.token === 'string') return undefined
+  const inspection = inspectConfig(join(dir, 'config.json'))
+  if (inspection.state !== 'ok') return undefined
+  const mode = resolveMode(inspection.config, process.env)
+  if (mode !== 'all-in-one' && mode !== 'server') return undefined
+  const key = createMachineCredential(dir)
+  return {
+    machineId,
+    setupEnrollment: {
+      requestId: randomUUID(),
+      machineId,
+      publicKey: machinePublicKeyWire(key),
+      agentExecution: mode === 'all-in-one',
+      preauthorized: false,
+    },
+  }
 }
 
 export function readOrCreateLocalMachineId(dir: string = stateDir()): MachineId {
