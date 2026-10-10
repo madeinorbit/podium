@@ -160,8 +160,9 @@ export function turnPosition(row: ChatRow): TurnPosition | undefined {
 
 export function queueIsBlocked(session: SessionView | SessionModel | undefined): boolean {
   const phase = session && 'agentPhase' in session ? session.agentPhase : session?.agentState?.phase
+  if (phase !== 'errored') return false
   const error = session && 'agentError' in session ? session.agentError : session?.agentState?.error
-  return phase === 'errored' && error?.retryable === false
+  return error?.retryable === false
 }
 export function queuePositionSuffix(position: number | undefined): string {
   return typeof position === 'number' && Number.isInteger(position) && position > 0
