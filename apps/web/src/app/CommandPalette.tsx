@@ -384,7 +384,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     focused ? [focused] : [],
   )
   // biome-ignore lint/correctness/useExhaustiveDependencies: run closures capture stable store actions
-  const commands = useMemo((): PaletteCandidate[] => {
+  const commands = ((): PaletteCandidate[] => {
     const out: PaletteCandidate[] = []
     const add = (...commands: PaletteCommand[]) => out.push(...commands.map(command => ({
       id: command.id, group: command.group, search: () => command, build: () => command,
@@ -725,27 +725,7 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
     }
 
     return out
-  }, [
-    recent,
-    sessions,
-    repos,
-    repoViews,
-    issues,
-    serverIssueHits,
-    pins,
-    focused,
-    spawnTargets,
-    defaultAgent,
-    workflowsEnabled,
-    specsEnabled,
-    automationsEnabled,
-    notificationsEnabled,
-    gitPanelEnabled,
-    messagesPanelEnabled,
-    mergeQueueEnabled,
-    handoffEnabled,
-    issueMenuData,
-  ])
+  })()
 
   const indexed = (command: PaletteCandidate) => command.group === 'recent' || command.group === 'task' ||
     command.group === 'agent' || command.group === 'place'
