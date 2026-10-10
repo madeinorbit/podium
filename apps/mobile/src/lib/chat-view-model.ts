@@ -1,6 +1,8 @@
 import { here } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph'
 import type { ConversationSendInput } from '@podium/client-core/conversation'
+import { chatActivity, composerState } from '@podium/client-core/values'
+import { isAgentComputing } from '@podium/model'
 import { lazy } from '@podium/mobx-helpers'
 import { actionBound, observable, observableRef, compareStructural } from 'mobx'
 import { superagentState } from '@podium/client-graph/superagent'
@@ -45,6 +47,9 @@ export class MobileChatViewModel {
   @lazy get offer() { return this.service.sends.offer }
   @lazy get canInterrupt() { return this.service.sends.canInterrupt }
   @lazy get interruptError() { return this.service.sends.interruptError }
+  @lazy({ equals: compareStructural }) get activity() { return chatActivity(this.session, this.justSent, this.offer) }
+  @lazy({ equals: compareStructural }) get composer() { return composerState({ session: this.session, headless: false, turnRunning: false, compact: false }) }
+  @lazy get turnActive(): boolean { return (this.session !== undefined && isAgentComputing(this.session)) || this.justSent }
   @lazy get justSent() { return this.service.sends.justSent }
   @lazy get turnRunning() { return this.service.turnRunning }
   @lazy get turnError() { return this.service.turnError }

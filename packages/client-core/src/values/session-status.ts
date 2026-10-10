@@ -156,14 +156,14 @@ export interface AgentBadge {
 
 /** Map harness-observed runtime state to the little badge on a session row.
  *  Null = nothing to show (uninstrumented agent kinds stay clean). */
-export function agentBadge(meta: SessionView, issue?: Pick<IssueProjection, 'stage' | 'closedReason'>): AgentBadge | null {
+export function agentBadge(meta: SessionView, issue?: Pick<IssueProjection, 'stage' | 'closedReason'>, offer = meta.offer): AgentBadge | null {
   // An offer is an explicit pending decision even when the turn that produced
   // it has already classified as idle/done. Keep every status surface (session
   // dot, sidebar meta, chat activity) amber until that offer is cleared —
   // except on a finished issue, where the close retired the decision (POD-290).
   const issueFinished =
     issue !== undefined && (isFinished(issue))
-  if (meta.offer && !issueFinished) {
+  if (offer && !issueFinished) {
     return { label: 'waiting on decision', tone: 'attention', showContinue: false }
   }
   const s = meta.agentState
@@ -312,11 +312,12 @@ export function sessionWaking(meta: SessionView | undefined, justSent = false): 
 export function chatActivity(
   meta: SessionView | undefined,
   justSent: boolean,
+  offer = meta?.offer,
 ): ChatActivity | null {
   if (!meta) return null
   if (sessionWaking(meta, justSent)) return { label: 'Waking the agent…', tone: 'working' }
   const parked = meta.status === 'hibernated' || meta.status === 'exited'
-  const badge = agentBadge(meta)
+  const badge = agentBadge(meta, undefined, offer)
   if (badge?.tone === 'working' && !parked) {
     return { label: badge.label === 'compacting' ? 'Compacting…' : 'Working…', tone: 'working' }
   }

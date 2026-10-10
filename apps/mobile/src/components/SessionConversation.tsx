@@ -12,7 +12,6 @@ import { useConversation, useStoreHandle } from '@podium/client-core/react'
 import { REPLICA_TRANSCRIPT_ITEM_CAP, type IssueViewModel } from '@podium/client-core/replica'
 import type { SessionView } from '@podium/client-core/session-values'
 import {
-  chatActivity,
   composerState,
   defaultChatCapable,
   matchesQuestionInteraction,
@@ -21,7 +20,6 @@ import {
 } from '@podium/client-core/values'
 import {
   asMutationId,
-  isAgentComputing,
   isMachineOfflineForLiveTerminal,
   type MessageDeliveryStatus,
 } from '@podium/model'
@@ -69,13 +67,6 @@ import { WORKING_MARK_DOTS, workingMarkRadius } from './WorkingMark.shared'
  * detail of sending. Keeping it here means a retry re-sends what was refused
  * instead of reconstructing it.
  */
-
-/** The session as the operator has just left it — the answered offer removed,
- *  so every derivation over it agrees with what is on screen. */
-function withoutOffer(session: SessionView): SessionView {
-  const { offer: _answered, ...rest } = session
-  return rest as SessionView
-}
 
 /** The working mark's dot grid at rest, drawn as SVG so device fonts cannot
  * replace the braille glyph with a missing-character box. */
@@ -435,7 +426,6 @@ const SessionConversationBody = observer(function SessionConversationBody({
     () => conversation.bubbles.map(pendingTurnOf),
     [conversation.bubbles],
   )
-  const justSent = conversation.justSent
   const pendingSeedSession = useRef<SessionView['sessionId'] | null>(
     initialPendingText ? sessionId : null,
   )
@@ -539,7 +529,6 @@ const SessionConversationBody = observer(function SessionConversationBody({
    */
   // `!= null`, not `!== undefined`: a cleared offer arrives as an explicit null,
   // and reaching for `.createdAt` through it throws.
-  const answered = session.offer != null && conversation.offer === null
   const offer = conversation.offer
   // THE SHARED READING OF "JUST SENT", not a local one: `chatActivity` already
   // knows that a fresh send means "Sending" on a live session and "Waking the
@@ -552,14 +541,14 @@ const SessionConversationBody = observer(function SessionConversationBody({
   // decision". Leaving it would put the transcript's last line back on the
   // question the operator just answered, which is the same stale claim the
   // hidden card was.
-  const activity = chatActivity(answered ? withoutOffer(session) : session, justSent)
+  const activity = conversation.activity
   // A newly spawned process is working before its first agent-state frame.
   const warming = session.status === 'starting' || activity?.tone === 'working'
   // A parked or ended session is present but has no process. It gets the
   // recovery banner; when there is also no conversation to show, the banner is
   // the WHOLE screen rather than a header over an empty transcript [POD-1758].
   const hasTranscript = session.transcriptAvailable ?? defaultChatCapable(session.agentKind)
-  const composer = composerState({ session, headless: false, turnRunning: false, compact: false })
+  const composer = conversation.composer
   const readOnly = session.status === 'hibernated' || session.status === 'exited'
   /**
    * THE STOP CONTROL, ON THE DESKTOP'S TERMS [POD-4645]. Drawn while a turn is
@@ -573,7 +562,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
    * The draft is read at press time inside the composer leaf, so this flag and
    * the interrupt capability stay stable across keystrokes (this issue).
    */
-  const turnActive = isAgentComputing(session) || justSent
+  const turnActive = conversation.turnActive
   // "Not stopped", not "Not sent": what failed is that the agent is STILL
   // running, and the phone has no other place that would say so.
   const composerCaption = conversation.interruptError
@@ -583,8 +572,8 @@ const SessionConversationBody = observer(function SessionConversationBody({
   // channel carries it from the moment the dialog opens, the transcript only
   // once the call resolves (POD-1273). The transcript stays the better source
   // the instant it has one, so this is consulted only while it has none.
-  const need = session.agentState?.need
-  const phase = session.agentState?.phase
+  const need = conversation.session?.agentNeed
+  const phase = conversation.session?.agentPhase
   const transcriptQuestion = transcript.pendingQuestion
   const pendingAsk = useMemo(
     () =>
@@ -597,7 +586,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
     session.status === 'live' ||
     session.status === 'starting' ||
     session.status === 'reconnecting'
-  const pendingAskedAt = pendingQuestion?.ts ?? session.agentState?.since
+  const pendingAskedAt = pendingQuestion?.ts ?? conversation.session?.agentSince
   useEffect(() => {
     if (!pendingQuestion) setAskHeight(0)
   }, [pendingQuestion])
@@ -659,14 +648,14 @@ const SessionConversationBody = observer(function SessionConversationBody({
   )
   const tailState = useMemo(
     () => ({
-      label: activity?.label ?? (session.agentState?.phase === 'idle' ? 'Idle' : session.status),
+      label: activity?.label ?? (conversation.session?.agentPhase === 'idle' ? 'Idle' : session.status),
       tone: (activity?.tone === 'attention' ? 'attention' : activity ? 'working' : 'idle') as
         | 'working'
         | 'attention'
         | 'idle',
-      since: session.agentState?.since,
+      since: conversation.session?.agentSince,
     }),
-    [activity, session.agentState?.phase, session.agentState?.since, session.status],
+    [activity, conversation.session?.agentPhase, conversation.session?.agentSince, session.status],
   )
   const streamingActive = activity?.tone === 'working'
   const emptyState = useMemo(
