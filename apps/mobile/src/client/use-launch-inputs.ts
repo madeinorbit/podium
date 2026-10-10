@@ -2,7 +2,7 @@ import { headerView } from '@podium/client-graph/header-views'
 import type { RepoView } from '@podium/client-core/values'
 import { createLaunchWorkPicker, launchOptionViews, type LaunchWorkMode } from '@podium/client-graph/launch-option-views'
 import { LOADING } from '@podium/client-graph/loading'
-import { here, isGone } from '@podium/client-graph/lookup'
+import { isGone } from '@podium/client-graph/lookup'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { MachineWire } from '@podium/model'
@@ -30,7 +30,6 @@ export function useLaunchWorkPicker(mode: LaunchWorkMode = 'work') {
   useEffect(() => { picker?.open(mode) }, [picker, mode])
   return picker
 }
-const NO_REPOSITORIES: string[] = []
 export function useLaunchRepositoryPaths() {
   const picker = useLaunchWorkPicker('paths')
   const read = useCallback((pool: MobxPool) => {

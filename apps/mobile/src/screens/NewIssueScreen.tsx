@@ -1,14 +1,15 @@
 import { observer } from 'mobx-react-lite'
 import { LOADING } from '@podium/client-graph/loading'
-import { isGone, here } from '@podium/client-graph/lookup'
+import { isGone } from '@podium/client-graph/lookup'
 import { SettingsRecordRequest } from '@podium/client-graph/requested-records'
 import { useMobilePool } from '../client/mobile-pool'
+import { followVisibleRequest } from '@podium/client-graph/visible-request'
 import { useMemo } from 'react'
 import { codingRoleHarness, ISSUE_STAGE_LABELS } from '@podium/client-core/values'
 import { HUMAN_SETTABLE_ISSUE_STAGES, type IssueStage, machinePathBasename } from '@podium/model'
 import { useRouter } from 'expo-router'
 import { useEffect, useState } from 'react'
-import { ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
+import { AppState, ScrollView, StyleSheet, Switch, Text, TextInput, View } from 'react-native'
 import { useTrpc } from '../client/hooks'
 import { useLaunchRepositoryPaths } from '../client/use-launch-inputs'
 import { LaunchConfigurationFields } from '../components/LaunchConfigurationFields'
@@ -63,7 +64,13 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => { void settingsRequest?.read(() => trpc.settings.get.query()); return () => settingsRequest?.close() }, [settingsRequest, trpc])
+  useEffect(() => {
+    const stop = followVisibleRequest(() => { if (settingsRequest && !settingsRequest.loading) void settingsRequest.read(() => trpc.settings.get.query()) }, {
+      visible: () => AppState.currentState === 'active' || AppState.currentState == null,
+      subscribe: changed => { const subscription = AppState.addEventListener('change', changed); return () => subscription.remove() },
+    })
+    return () => { stop(); settingsRequest?.close() }
+  }, [settingsRequest, trpc])
   const configuredAgent = settingsRequest?.model ? issueAgentKind(codingRoleHarness(settingsRequest.model)) : undefined
   useEffect(() => {
     if (configuredAgent) setLaunch(current => current.inheritAgent ? { ...current, agentKind: configuredAgent } : current)

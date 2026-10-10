@@ -7,6 +7,7 @@ import {
   resolveDefaultAgent,
 } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
+import { useSettingsRecord } from '@/features/settings/record-readers'
 import { IssueModel } from '@podium/client-graph/models'
 import { commandIssueReference, commandIssueSearchRef } from '@podium/client-graph/command-launch-views'
 import { machinePathBasename } from '@podium/model'
@@ -41,7 +42,7 @@ import {
   Workflow,
 } from 'lucide-react'
 import type { JSX } from 'react'
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { toast } from 'sonner'
 import { observer } from 'mobx-react-lite'
 import { openAddProject } from '@/app/desktop-menu'
@@ -324,19 +325,9 @@ const PaletteDialogBody = observer(function PaletteDialogBody({
   const scrollOnHighlight = useRef(false)
 
   // The user's persisted default agent — same source the sidebar button reads.
-  const [agentSetting, setAgentSetting] = useState<string | undefined>(undefined)
-  useEffect(() => {
-    let alive = true
-    void trpc.settings.get
-      .query()
-      .then((s) => {
-        if (alive) setAgentSetting(resolveRole(s, 'coding').harness)
-      })
-      .catch(() => {})
-    return () => {
-      alive = false
-    }
-  }, [trpc])
+  const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
+  const settingsRequest = useSettingsRecord(readSettings)
+  const agentSetting = settingsRequest?.model ? resolveRole(settingsRequest.model, 'coding').harness : undefined
 
   const { hits: serverIssueHits, pending: searching } = useIssueSearch(query, true)
   const resting = isResting(query)

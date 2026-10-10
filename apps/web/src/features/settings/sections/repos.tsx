@@ -5,7 +5,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 /**
  * Repos — the registered repos with their human-facing ref prefixes (#474).
- * Shows every row from `repos.listDetailed` and lets the user edit a repo's
+ * Reads the shared per-machine repository models and lets the user edit a repo's
  * prefix inline (repos.setPrefix). Server-side validation (^[A-Z]{2,5}$ +
  * server-wide uniqueness) errors surface next to the editor; changing an
  * existing prefix warns that previously written refs stop resolving.

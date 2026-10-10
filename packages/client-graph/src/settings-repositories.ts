@@ -19,7 +19,7 @@ export class SettingsRepositories {
   readonly row = companion((repository: RepositoryModel) => new SettingsRepository(repository, this.pool))
   constructor(private readonly pool: MobxPool) {}
   @lazy({ equals: compareShallow }) get rows() {
-    return headerEntities(this.pool).repositoryRootIds().flatMap(id => {
+    return (headerEntities(this.pool).orders.get('repository') ?? [...this.pool.tables.repository.keys()]).flatMap(id => {
       const model = here(this.pool.model('repository', id))
       return model ? [this.row(model)] : []
     })

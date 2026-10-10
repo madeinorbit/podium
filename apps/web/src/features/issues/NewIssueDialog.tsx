@@ -1,3 +1,4 @@
+import { useSettingsRecord } from '@/features/settings/record-readers'
 import { observer } from 'mobx-react-lite'
 import type { RepoView } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
@@ -15,7 +16,7 @@ import {
 import { resolveRole } from '@podium/runtime'
 import { ArrowRight, ChevronDown, ChevronRight, FolderGit2, Server, X, Zap } from 'lucide-react'
 import type { ComponentProps, JSX, ReactNode } from 'react'
-import { forwardRef, useEffect, useMemo, useRef, useState } from 'react'
+import { forwardRef, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useCommandLaunchActions, useCommandLaunchCatalog, useCommandLaunchOrigin, useCommandTargetMachines } from '@/app/command-launch-data'
 import { Button } from '@/components/ui/button'
 import { Checkbox } from '@/components/ui/checkbox'
@@ -247,7 +248,9 @@ const NewIssueDialogBody = observer(function NewIssueDialogBody({
   const [repoPath, setRepoPath] = useState(() => data.initialRepoPath)
   // Placeholder until settings load (line ~258 resolves the coding role):
   // the named product default, never a literal (POD-4737).
-  const [defaultAgent, setDefaultAgent] = useState(DEFAULT_HARNESS_AGENT)
+  const readSettings = useCallback(() => trpc.settings.get.query(), [trpc])
+  const settingsRequest = useSettingsRecord(readSettings)
+  const defaultAgent = settingsRequest?.model ? resolveRole(settingsRequest.model, 'coding').harness : DEFAULT_HARNESS_AGENT
   // '' = use the configured default agent (no flag).
   const [agent, setAgent] = useState('')
   // 'auto' = inherit the settings default model/effort (no per-issue override).
@@ -259,22 +262,6 @@ const NewIssueDialogBody = observer(function NewIssueDialogBody({
   const [createMore, setCreateMore] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
-
-  useEffect(() => {
-    let cancelled = false
-    trpc.settings.get
-      .query()
-      .then((settings) => {
-        if (cancelled) return
-        setDefaultAgent(resolveRole(settings, 'coding').harness)
-      })
-      .catch(() => {
-        // Best-effort: creation still works with the server defaults.
-      })
-    return () => {
-      cancelled = true
-    }
-  }, [trpc])
 
   // Most-recently-used repos first — matches the sidebar's New-agent menu.
   const repoOptions = useMemo<PropertyOption[]>(() => data.repoPaths.map(path => ({
