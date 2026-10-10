@@ -6,7 +6,7 @@ import { openFenceFeeds } from '../../../harness/src/fence-scenarios'
 import { harnessMobxPoolArm } from '../../../harness/src/adapters/mobx-pool'
 import { startCensus } from '../../../harness/src/mobx-census'
 import { installMobxWarnTrap } from '../../../harness/src/mobx-trap'
-import { DISABLED_READ_FENCE } from '../../../shared/src/instrument/reads'
+import { createReadFence } from '../../../shared/src/instrument/reads'
 import { startScenarioEngine } from '../../../shared/src/scenarios'
 
 installMobxWarnTrap()
@@ -14,8 +14,9 @@ installMobxWarnTrap()
 it.each([false, true])('fills the same first-paint window with census=%s', async (measured) => {
   const ctx = await startScenarioEngine(1)
   const feeds = openFenceFeeds(ctx, 'pooled')
+  const reads = createReadFence({ enabled: true })
   const census = measured ? startCensus() : null
-  const handle = harnessMobxPoolArm.create(feeds.rows.source, feeds.locals.source, DISABLED_READ_FENCE, {
+  const handle = harnessMobxPoolArm.create(reads.wrapSource(feeds.rows.source), feeds.locals.source, reads, {
     schedule: () => () => {},
   })
   let stop: (() => void) | undefined
