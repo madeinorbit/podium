@@ -31,10 +31,8 @@ import { useRefreshableList } from '../hooks/useRefreshableTab'
 import { useTabBarInset } from '../hooks/useTabBarInset'
 import { humanizeSendFailure } from '../lib/send-failure'
 import {
-  applySuperagentModelPick,
   resolveSuperagentBackend,
   superagentTurnChoice,
-  type SuperagentBackendPick,
 } from '../lib/superagent-backend'
 import { color, font, sans, space } from '../theme/theme'
 
@@ -109,11 +107,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   const searchTranscript = useCallback((searching: boolean) => {
     conversation?.setSearching(searching)
   }, [conversation])
-  const [backendPick, setBackendPick] = useState<SuperagentBackendPick>({})
-  const backend = useMemo(
-    () => resolveSuperagentBackend(superagent.active, backendPick),
-    [superagent.active, backendPick],
-  )
+  const backend = conversation?.backend ?? resolveSuperagentBackend(superagent.active, {})
   const transcript = conversation
   const transcriptLoaded = transcript?.initialLoaded ?? false
   const itemCount = transcript?.ids.length ?? 0
@@ -364,9 +358,9 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
                 backend={backend}
                 modelCatalog={modelCatalog}
                 onModelChange={(model, agentKind) =>
-                  setBackendPick((pick) => applySuperagentModelPick(pick, model, agentKind))
+                  conversation?.setBackendModel(model, agentKind)
                 }
-                onEffortChange={(effort) => setBackendPick((pick) => ({ ...pick, effort }))}
+                onEffortChange={(effort) => conversation?.setBackendEffort(effort)}
               />
             }
           />

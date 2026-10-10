@@ -2,7 +2,9 @@ import { here } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph'
 import type { ConversationSendInput } from '@podium/client-core/conversation'
 import { lazy } from '@podium/mobx-helpers'
-import { actionBound, observable } from 'mobx'
+import { actionBound, observable, observableRef, compareStructural } from 'mobx'
+import { superagentState } from '@podium/client-graph/superagent'
+import { applySuperagentModelPick, resolveSuperagentBackend, type SuperagentBackendPick } from './superagent-backend'
 import { liveTranscriptItem } from './superagent-transcript'
 import type { MobileConversation } from './mobile-conversation'
 
@@ -10,6 +12,10 @@ import type { MobileConversation } from './mobile-conversation'
 export class MobileChatViewModel {
   @observable accessor following = true
   @observable accessor searching = false
+  @observableRef accessor backendPick: SuperagentBackendPick = {}
+  @lazy({ equals: compareStructural }) get backend() { return resolveSuperagentBackend(superagentState(this.pool).active, this.backendPick) }
+  @actionBound setBackendModel(model: string, agentKind?: string): void { this.backendPick = applySuperagentModelPick(this.backendPick, model, agentKind) }
+  @actionBound setBackendEffort(effort: string): void { this.backendPick = { ...this.backendPick, effort } }
   constructor(private readonly service: MobileConversation, private readonly pool: MobxPool) {}
 
   @lazy get session() { return here(this.pool.model('session', this.service.sessionId)) }

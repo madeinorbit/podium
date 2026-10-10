@@ -33,7 +33,7 @@ function fixture() {
   const session = here(pool.model('session', sid))!
   const options = { sessionId: sid, drafts,
     transcript: { source: { read: async () => ({ items: [item('a', 'settled'), item('b', 'first token')], hasMore: false }), subscribe: () => () => {} } },
-    sends: { createDeliveryId: () => 'send', deliver: async () => ({ state: 'sent' as const }) },
+    sends: { clock: { now: () => 100, setTimeout: () => null, clearTimeout() {} }, createDeliveryId: () => 'send', deliver: async () => ({ state: 'sent' as const }) },
   }
   const before = new Before({ ...options, readSession: () => previous.get() })
   const after = new ConversationService({ ...options, readSession: () => session,
@@ -64,8 +64,10 @@ it('matches the previous answers for every moved session fact and synced message
     }
   }
   parity()
-  f.session.setMessageDraft('typed on the web'); parity()
   f.drafts.adoptRemote(sid, { text: 'typed on the phone', rev: 2 }); parity()
+  expect(f.session.messageDraft).toBe('typed on the phone')
+  f.session.setMessageDraft('typed on the web'); parity()
+  expect(f.drafts.get(sid)).toBe('typed on the web')
   f.publish({ title: 'Renamed', status: 'hibernated', agentState: {
     phase: 'errored', since: '2026-10-10T10:01:00Z', error: { class: 'provider', retryable: false, detail: 'refused' },
   } as never, offer: { createdAt: '2026-10-10T10:01:00Z', message: 'Ready', actions: [] } as never })

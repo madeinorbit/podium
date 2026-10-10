@@ -52,8 +52,8 @@ export class ChatViewModel {
     this.stickyPrompts = stickyPrompts
   }
   @lazy get session(): SessionModel | undefined { return this.conversation.session }
-  @lazy get draft(): string { return this.session?.messageDraft ?? '' }
-  @actionBound setDraft(text: string): void { this.session?.setMessageDraft(text) }
+  @lazy get draft(): string { return this.conversation.pool.sessionObject(this.conversation.sessionId).messageDraft }
+  @actionBound setDraft(text: string): void { this.conversation.pool.sessionObject(this.conversation.sessionId).setMessageDraft(text) }
   @lazy get preview() { return this.conversation.preview }
   @lazy get overlay() { return this.headless ? this.conversation.headless : null }
   @lazy get loadingOlder(): boolean { return this.conversation.transcript.loadingOlder }

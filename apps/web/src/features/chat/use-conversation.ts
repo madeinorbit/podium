@@ -9,7 +9,6 @@ import type { ClientRuntime } from '@podium/client-core/engine'
 import { randomUUID } from '@podium/client-core/id'
 import { REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
 import { useStoreHandle, useConversation as useOwnedConversation } from '@podium/client-core/react'
-import type { SessionView } from '@podium/client-core/session-values'
 import { chatSendRoute, composerState, parseEnvelopeBatch, type SuperThreadRef, OPTIMISTIC_SEND_CEILING_MS } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { asMutationId, asSessionId, HarnessAgent, type SessionId } from '@podium/model/browser'
@@ -63,7 +62,7 @@ export class WebConversation extends ConversationService {
     return !!reader && !!held && reader.records(this.sessionId).pending === 0
   }
   @lazy override get canInterrupt(): boolean {
-    return this.mount.superThread || this.mount.initialTurnRunning !== undefined
+    return this.mount.superThread
       ? this.mount.superThread !== undefined && this.turnRunning
       : nativeSessionCanInterrupt(this.session?.status)
   }
@@ -97,7 +96,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
     reconcile: 'next-user-item' as const,
   }, ...held] : held
   conversation = new WebConversation({
-    sessionId, drafts: runtime.drafts, ...(typeof hub.on === 'function' ? { hub } : {}), headless,
+    sessionId, drafts: { get: id => pool.sessionObject(id).messageDraft, set: (id, text) => pool.sessionObject(id).setMessageDraft(text) }, ...(typeof hub.on === 'function' ? { hub } : {}), headless,
     initialTurnRunning: mount.initialTurnRunning,
     readSession,
     ...(mount.superThread ? { readTurnRunning: () => conversation.thread?.turnRunning } : {}),
