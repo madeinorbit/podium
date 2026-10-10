@@ -283,10 +283,11 @@ function staleClockControl(rebuildToo: boolean): (ctx: ScenarioEngine) => Checka
       create(source, locals, reads) {
         const handle = arm.create(source, locals, reads)
         const frozen = locals.get()
+        const frozenNow = frozen.coarseNow ?? referenceState(ctx.engine).coarseNow
         const stale = (): SliceSnapshot =>
           snapshotFromStore(referenceState(ctx.engine), {
             selectedIssueId: null,
-            coarseNow: frozen.coarseNow,
+            coarseNow: frozenNow,
           })
         return { ...handle, snapshot: stale, ...(rebuildToo ? { rebuildFromScratch: stale } : {}) }
       },

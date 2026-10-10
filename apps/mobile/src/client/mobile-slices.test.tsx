@@ -5,7 +5,8 @@ import type { IssueViewModel } from '@podium/client-core/replica'
  * The literal counts, titles, paths, shared clock and machine refusals are
  * unchanged. The real provider owns the replica and all mutation handles. */
 
-import { useStoreHandle } from '@podium/client-core/react'
+import { deadlineClock } from '@podium/mobx-helpers'
+import { useClock } from '../lib/clock-hooks'
 import { machineViewsFromWire, resolveSpawnTargetMachine } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph/pool'
 import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
@@ -76,8 +77,8 @@ function session(
 /** A probe that reads exactly what a ported screen reads. */
 function WorklistProbe() {
   const rows = useMobilePoolProjection(readRows, '')
-  const now = useMobilePoolProjection(readNow, 0)
-  const store = useStoreHandle().access
+  const now = useClock(1000)
+  const sharedClock = useMobilePoolProjection(readSharedClock, false)
   const { repo } = useLaunchInputs(REPO.path)
   const sessions = useSessions()
   const issues = useIssues()
@@ -89,7 +90,7 @@ function WorklistProbe() {
       <span data-testid="counts">{`${sessions.length}/${issues.length}`}</span>
       <span data-testid="worktrees">{paths.join('|')}</span>
       <span data-testid="now">{String(now)}</span>
-      <span data-testid="store-now">{String(store.coarseNow)}</span>
+      <span data-testid="shared-clock">{String(sharedClock)}</span>
       <span data-testid="connected">{String(connected)}</span>
     </div>
   )
@@ -106,12 +107,7 @@ function readRows(pool: MobxPool) {
     )
     .join('|')
 }
-function readNow(pool: MobxPool) {
-  const now = pool.clock.current
-  pool.clock.reached(now)
-  pool.clock.reached(now + 1)
-  return now
-}
+function readSharedClock(pool: MobxPool) { return pool.clock === deadlineClock }
 
 describe('mobile reads the resident pool worklist', () => {
   it('paints the accepted rows and paths through the pool', async () => {
@@ -138,7 +134,8 @@ describe('mobile reads the resident pool worklist', () => {
 
   it('uses the provider shared clock for the pool', async () => {
     await renderWithMobileStore(<WorklistProbe />, { repos: [REPO] })
-    expect(screen.getByTestId('now').textContent).toBe(screen.getByTestId('store-now').textContent)
+    expect(screen.getByTestId('shared-clock').textContent).toBe('true')
+    expect(Number(screen.getByTestId('now').textContent)).toBeGreaterThan(0)
   })
 })
 

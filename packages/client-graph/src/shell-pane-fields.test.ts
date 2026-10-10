@@ -182,7 +182,7 @@ function legacyDock(pool: MobxPool, views: ReturnType<typeof shellViews>) {
     issues: [],
     shipOrders: [],
     shipLanes: [],
-    coarseNow: state.coarseNow,
+    coarseNow: pool.clock.peekNow(),
     shipping: headerEntities(pool).shippingCounts(scope?.repoId ?? null),
   }
 }

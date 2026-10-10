@@ -1,6 +1,6 @@
 import { autorun, runInAction } from 'mobx'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { clockStore, DeadlineClock, nextUp, now, nowForAge, refreshClocks, setClockActive } from './clock'
+import { clockStore, DeadlineClock, nextUp, now, nowForAge, refreshClocks, setClockWakeSource } from './clock'
 
 describe('DeadlineClock', () => {
   it('wakes only readers whose deadline is crossed', () => {
@@ -46,7 +46,7 @@ describe('DeadlineClock', () => {
   })
 })
 
-afterEach(() => { setClockActive(true); vi.useRealTimers() })
+afterEach(() => { setClockWakeSource(undefined); vi.useRealTimers() })
 
 describe('on-demand clock', () => {
   it('does zero clock work over an idle minute and shares one timer per observed precision', () => {
@@ -106,17 +106,23 @@ describe('on-demand clock', () => {
     } finally { a(); b(); clock.clear() }
   })
 
-  it('rechecks native and document wake boundaries immediately after suspension', () => {
+  it('rechecks injected wake boundaries immediately after suspension', () => {
     vi.useFakeTimers(); vi.setSystemTime(1000)
+    let active = true
+    let wake: (() => void) | undefined
+    setClockWakeSource({ isActive: () => active, subscribe: callback => {
+      wake = callback
+      return () => { wake = undefined }
+    } })
     const clock = new DeadlineClock(), values: boolean[] = [], times: number[] = []
     const a = autorun(() => values.push(clock.reached(1500)))
     const b = autorun(() => times.push(now(1000)))
     try {
-      setClockActive(false)
+      active = false; wake!()
       expect(vi.getTimerCount()).toBe(0)
       vi.setSystemTime(2000)
       expect(values).toEqual([false])
-      setClockActive(true)
+      active = true; wake!()
       expect(values).toEqual([false, true])
       expect(times.at(-1)).toBe(2000)
       vi.setSystemTime(3000); refreshClocks()
@@ -154,22 +160,19 @@ describe('on-demand clock', () => {
   })
 })
 
-it('rechecks deadlines on visibilitychange, focus and pageshow and removes listeners', () => {
+it('shares one injected subscription and releases it with the last time reader', () => {
   vi.useFakeTimers(); vi.setSystemTime(1000)
-  const doc = new EventTarget(), win = new EventTarget()
-  let visibility = 'visible'
-  Object.defineProperty(doc, 'visibilityState', { get: () => visibility })
-  vi.stubGlobal('document', doc); vi.stubGlobal('window', win)
-  const clock = new DeadlineClock(), values: boolean[] = []
-  const stop = autorun(() => values.push(clock.reached(1500)))
+  const detach = vi.fn(), subscribe = vi.fn(() => detach)
+  setClockWakeSource({ isActive: () => true, subscribe })
+  now(1000)
+  expect(subscribe).not.toHaveBeenCalled()
+  const clock = new DeadlineClock()
+  const a = autorun(() => clock.reached(1500))
+  const b = autorun(() => now(1000))
   try {
-    visibility = 'hidden'; doc.dispatchEvent(new Event('visibilitychange'))
+    expect(subscribe).toHaveBeenCalledTimes(1)
+    a(); expect(detach).not.toHaveBeenCalled()
+    b(); expect(detach).toHaveBeenCalledTimes(1)
     expect(vi.getTimerCount()).toBe(0)
-    vi.setSystemTime(2000)
-    visibility = 'visible'; doc.dispatchEvent(new Event('visibilitychange'))
-    expect(values).toEqual([false, true])
-    win.dispatchEvent(new Event('focus')); win.dispatchEvent(new Event('pageshow'))
-    expect(values).toEqual([false, true])
-  } finally { stop(); clock.clear(); vi.unstubAllGlobals() }
-  expect(vi.getTimerCount()).toBe(0)
+  } finally { a(); b(); clock.clear() }
 })

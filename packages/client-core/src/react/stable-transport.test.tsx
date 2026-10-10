@@ -22,7 +22,7 @@ afterEach(() => { cleanup(); storeStats.enable(false); storeStats.reset() })
 it('acquires every shared transport without legacy subscriptions or derivations', async () => {
   const api = {} as PodiumClientApi
   const owner = { start() {}, dispose() {}, destroy() {} }
-  const snapshot = { trpc: api, hub: undefined, coarseNow: 0 } as unknown as Store
+  const snapshot = { trpc: api, hub: undefined, outboxSize: 0 } as unknown as Store
   const store = createSubscriptionStore(snapshot, undefined, owner)
   const subscribe = vi.fn(store.subscribe)
   fixture.handle = withKeyedInputs(Object.assign(owner, store, { subscribe }))
@@ -44,8 +44,8 @@ it('acquires every shared transport without legacy subscriptions or derivations'
   expect(subscribe).not.toHaveBeenCalled()
   storeStats.enable()
   act(() => {
-    for (let coarseNow = 1; coarseNow <= 20; coarseNow++) {
-      store.publish({ ...snapshot, coarseNow }, new Set(['coarseNow']))
+    for (let outboxSize = 1; outboxSize <= 20; outboxSize++) {
+      store.publish({ ...snapshot, outboxSize }, new Set(['outboxSize']))
     }
   })
   expect(storeStats.snapshot().runtimes).toHaveLength(1)

@@ -149,7 +149,7 @@ it('preserves discovery list order and responds to changed, added and removed id
   render(<Machines />)
   expect(screen.getByTestId('machines').textContent).toBe('A|B')
   const before = renders
-  act(() => inputs.emit(new Set(['coarseNow'])))
+  act(() => pool.clock.advance(60_000))
   expect(renders).toBe(before)
   act(() => {
     state.machines = [

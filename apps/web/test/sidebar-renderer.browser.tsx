@@ -1,3 +1,5 @@
+import { deadlineClock, setClockWakeSource } from '@podium/mobx-helpers'
+import { browserClockWakeSource } from '../src/lib/clock-wake-source'
 import { referenceState } from '../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { storeStats } from '@podium/client-core/perf'
@@ -19,6 +21,7 @@ import { ConfirmProvider } from '../src/lib/hooks/use-confirm'
 import { createSidebarFixture } from './sidebar-fixture'
 import '../src/index.css'
 import '../src/styles.css'
+setClockWakeSource(browserClockWakeSource)
 document.documentElement.classList.add('dark')
 document.documentElement.dataset.theme = 'podium'
 const count = Number(new URLSearchParams(location.search).get('rows') ?? 18)
@@ -108,7 +111,7 @@ const fixture = {
     selected: runtime?.access.selectedIssueId,
     pane: runtime?.access.paneA,
     projectOrder: runtime?.access.sidebarSettings.repoOrder,
-    coarseNow: runtime?.access.coarseNow,
+    coarseNow: deadlineClock.peekNow(),
   }),
   stats: (): {
     enabled: boolean

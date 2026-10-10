@@ -7,7 +7,7 @@ import { createHash } from 'node:crypto'
 import { describe, expect, it, vi } from 'vitest'
 import { createWorklistPool } from '../../../shared/src/clock-fixture-pool'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { createEngineLocals } from '../../../harness/src/engine-locals'
+import { createEngineLocals, localsOfEngine } from '../../../harness/src/engine-locals'
 import { settableLocals } from '@podium/client-graph/shared/locals-source'
 import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { MOBILE_ROW_FIELDS } from '@podium/client-graph/worklist/mobile-row'
@@ -31,7 +31,7 @@ async function mobileRun(corpus = genCorpus()) {
   let now = () => corpus.fixedNow
   vi.spyOn(Date, 'now').mockImplementation(() => now())
   const run = await startGenRun({ corpus, feedMode: 'pooled' })
-  now = () => run.ctx.engine.readLocal('coarseNow')
+  now = () => localsOfEngine(run.ctx.engine).coarseNow
   return run
 }
 
@@ -46,7 +46,7 @@ function settle(pool: MobxPool, state: MobileWorkState = {}): void {
 describe('mobile pool values', () => {
   for (const scale of [1, 4] as const) it(`corpus and methodology changes at ${scale}x`, async () => {
     const ctx = await startScenarioEngine(scale)
-    vi.spyOn(Date, 'now').mockImplementation(() => ctx.engine.readLocal('coarseNow'))
+    vi.spyOn(Date, 'now').mockImplementation(() => localsOfEngine(ctx.engine).coarseNow)
     const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
     feeds.attachPool(handle.pool)

@@ -526,7 +526,8 @@ function rebuild(
   const repoRecords = untracked(() => source.snapshot('repo'))
   for (const record of repoRecords) ingestRecord(target, record, out)
 
-  const { coarseNow, selectedIssueId } = locals.get()
+  const { selectedIssueId } = locals.get()
+  const coarseNow = locals.get().coarseNow ?? Date.now()
   // POD-5754: the feed carries normalized join keys only (POD-5485 derives
   // companion fields on read): an issue holds `repoId`, its `repoPath` comes
   // from the repo row, exactly as the live pool's `joinedFields` reads it

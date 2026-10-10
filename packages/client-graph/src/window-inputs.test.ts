@@ -99,7 +99,6 @@ describe('declared window input readers', () => {
       superOpen: false,
       paletteOpen: false,
       autoContinuePromptSessionId: null,
-      coarseNow: 60_000,
       fileTabs: [],
       outboxSize: 1,
       pins: ['one'] as never,

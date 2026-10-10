@@ -1,3 +1,4 @@
+import { localsOfEngine } from './engine-locals'
 import { MobileSearchSections, type MobileWorkSection } from '../../../../apps/mobile/src/lib/work-sections'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { reaction } from 'mobx'
@@ -31,7 +32,7 @@ function settle(pool: MobxPool, state: MobileWorkState = {}): void {
 describe('shared worklist phone parity', () => {
   for (const scale of [1, 4] as const) it(`matches the base phone fixture at ${scale}x`, async () => {
     const ctx = await startScenarioEngine(scale)
-    vi.spyOn(Date, 'now').mockImplementation(() => ctx.engine.readLocal('coarseNow'))
+    vi.spyOn(Date, 'now').mockImplementation(() => localsOfEngine(ctx.engine).coarseNow)
     const feeds = openFenceFeeds(ctx, 'pooled')
     const handle = createWorklistPool(feeds.rows.source, feeds.locals.source)
     feeds.attachPool(handle.pool)
