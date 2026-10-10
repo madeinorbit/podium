@@ -1,5 +1,5 @@
 import type { SessionId, TranscriptItem } from '@podium/model'
-import { action, makeObservable, observable, observableRef, observableShallow } from 'mobx'
+import { action, observable, observableRef } from 'mobx'
 import { isAskUserQuestion } from '../values/ask-question'
 import { MACHINE_CONTEXT_RE } from '../values/chat'
 import type { HandoffTranscriptPair } from '../values/handoff'
@@ -51,22 +51,22 @@ export class TranscriptLog {
   private snapshotItems: TranscriptItem[] | undefined
   /** Prefix pages shift ranks without re-indexing every retained item. */
   private positionOffset = 0
-  latestOperatorPrompt: string | null = null
-  pendingQuestion: TranscriptItem | null = null
+  @observable accessor latestOperatorPrompt: string | null = null
+  @observableRef accessor pendingQuestion: TranscriptItem | null = null
   /** Latest operator prompt with its final answer, maintained per ingested
    *  item (POD-5652). Readers observe this fact; nothing re-scans held rows. */
-  latestHandoffPair: HandoffTranscriptPair | null = null
-  latestRecordedAt: number | null = null
+  @observableRef accessor latestHandoffPair: HandoffTranscriptPair | null = null
+  @observable accessor latestRecordedAt: number | null = null
   latestUserId: string | null = null
-  head: string | undefined = undefined
-  tail: string | undefined = undefined
-  hasMoreOlder = true
-  loadingOlder = false
-  initialLoaded = false
-  subscriptionHealthy = false
-  freshness: TranscriptFreshness = null
-  offlineAsOf: number | null = null
-  offlineMachineName: string | null = null
+  @observable accessor head: string | undefined = undefined
+  @observable accessor tail: string | undefined = undefined
+  @observable accessor hasMoreOlder = true
+  @observable accessor loadingOlder = false
+  @observable accessor initialLoaded = false
+  @observable accessor subscriptionHealthy = false
+  @observable accessor freshness: TranscriptFreshness = null
+  @observable accessor offlineAsOf: number | null = null
+  @observable accessor offlineMachineName: string | null = null
   private readonly initialLimit: number
   private readonly pageLimit: number
   private started = false
@@ -121,28 +121,7 @@ export class TranscriptLog {
     this.pageLimit = options.pageLimit ?? 400
     this.trackEchoes = options.questions?.includes('userEcho') ?? true
     this.trackRecordedTime = options.questions?.includes('latestRecordedAt') ?? true
-    makeObservable<this, 'patch' | 'prepend' | 'applyFrame'>(this, {
-      ids: observableShallow,
-      byId: observableShallow,
-      latestOperatorPrompt: observable,
-      pendingQuestion: observableRef,
-      latestHandoffPair: observableRef,
-      latestRecordedAt: observable,
-      head: observable,
-      tail: observable,
-      hasMoreOlder: observable,
-      loadingOlder: observable,
-      initialLoaded: observable,
-      subscriptionHealthy: observable,
-      freshness: observable,
-      offlineAsOf: observable,
-      offlineMachineName: observable,
-      merge: action,
-      patch: action,
-      prepend: action,
-      applyFrame: action,
-      markRendered: action,
-    })
+
     // Seed before start() and before any network read or first render.
     const cached = options.cache?.read(options.sessionId)
     if (cached?.items.length) this.patch({ items: cached.items, freshness: 'checking' })
@@ -422,7 +401,7 @@ export class TranscriptLog {
     }
   }
 
-  markRendered(): void {
+  @action markRendered(): void {
     if (this.freshness === 'rendering') this.patch({ freshness: null })
   }
 
@@ -546,7 +525,7 @@ export class TranscriptLog {
     )
   }
 
-  merge(frame: TranscriptItem[], meta: { reset: boolean } = { reset: false }): void {
+  @action merge(frame: TranscriptItem[], meta: { reset: boolean } = { reset: false }): void {
     if (this.disposed) return
     if (meta.reset) {
       this.windowEpoch += 1
@@ -570,7 +549,7 @@ export class TranscriptLog {
     this.applyFrame(frame)
   }
 
-  private applyFrame(frame: readonly TranscriptItem[], status?: Partial<TranscriptState>): void {
+  @action private applyFrame(frame: readonly TranscriptItem[], status?: Partial<TranscriptState>): void {
     const changed: TranscriptItem[] = []
     const added: TranscriptItem[] = []
     const insertions: TranscriptGraphInsertion[] = []
@@ -754,7 +733,7 @@ export class TranscriptLog {
     }
   }
 
-  private prepend(fresh: TranscriptItem[], status: Partial<TranscriptState>): void {
+  @action private prepend(fresh: TranscriptItem[], status: Partial<TranscriptState>): void {
     const before = this.ids[0]
     this.positionOffset += fresh.length
     this.orderedItems.unshift(...fresh)
@@ -784,7 +763,7 @@ export class TranscriptLog {
     return { items: tail, paging: { head: tail[0].cursor, hasMoreOlder: true } }
   }
 
-  private patch(patch: Partial<TranscriptState>): void {
+  @action private patch(patch: Partial<TranscriptState>): void {
     const next = patch.items
     let change: TranscriptChange | undefined
     if (next && next !== this.orderedItems) {

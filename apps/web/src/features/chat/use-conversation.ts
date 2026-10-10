@@ -1,9 +1,9 @@
 import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
 import { here } from '@podium/client-graph/lookup'
 import { omitGone } from '@podium/client-graph/lookup'
-import { loadedPaneSession } from '@podium/client-graph/session-pane'
+import type { SessionModel } from '@podium/client-graph/models'
 import {
-  Conversation, type ConversationPendingTurn, type ConversationOptions, hubConnection, nativeSessionCanInterrupt,
+  ConversationService, type ConversationPendingTurn, type ConversationOptions, hubConnection, nativeSessionCanInterrupt,
 } from '@podium/client-core/conversation'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { randomUUID } from '@podium/client-core/id'
@@ -33,7 +33,7 @@ type Loaded<T> = Exclude<T, symbol>
 const loaded = <T,>(row: T): Loaded<T> | undefined => typeof row === 'symbol' ? undefined : row as Loaded<T>
 
 /** Web ports and worker presentation; the inherited model owns every live state. */
-export class WebConversation extends Conversation {
+export class WebConversation extends ConversationService {
   /** Mounted reader registry; removing a reader drops all of its UI state. */
   private readonly views = new Set<ConversationPresentation>()
   @observable accessor lastSubmittedPrompt: string | null = null
@@ -54,13 +54,22 @@ export class WebConversation extends Conversation {
     for (const view of this.views) view.changed(change)
   }
   get retainHistory(): boolean { return [...this.views].some(view => view.retainHistory) }
-  @lazy get session(): SessionView | undefined { return loadedPaneSession(this.pool, this.sessionId) }
+  @lazy get session(): SessionModel | undefined { return here(this.pool.model('session', this.sessionId)) }
   @lazy get thread() { return this.mount.superThread ? loaded(omitGone(this.pool.row('superThread', this.mount.superThread.threadId))) : undefined }
   @lazy get hasPending(): boolean { return this.sends.bubbles.length > 0 }
   @lazy get ready(): boolean {
     const reader = loaded(omitGone(this.pool.row('chatContextReader', 'reader')))
     const held = loaded(omitGone(this.pool.row('chatHeld', this.sessionId)))
     return !!reader && !!held && reader.records(this.sessionId).pending === 0
+  }
+  @lazy override get canInterrupt(): boolean {
+    return this.mount.superThread || this.mount.initialTurnRunning !== undefined
+      ? this.mount.superThread !== undefined && this.turnRunning
+      : nativeSessionCanInterrupt(this.session?.status)
+  }
+  @lazy override get latestOperatorPrompt(): string | null {
+    const prompt = this.lastSubmittedPrompt ?? this.transcript.latestOperatorPrompt
+    return prompt ? parseEnvelopeBatch(prompt)?.operatorText ?? prompt : null
   }
   @actionBound rememberPrompt(text: string): void { this.lastSubmittedPrompt = text || null }
   override dispose(): void { for (const view of this.views) view.dispose(); this.views.clear(); super.dispose() }
@@ -70,7 +79,7 @@ export class WebConversation extends Conversation {
 export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPool, sessionId: SessionId, mount: ConversationMountOptions): WebConversation {
   const store = runtime.access
   const { hub, trpc, replica } = store
-  const readSession = () => loadedPaneSession(pool, sessionId)
+  const readSession = () => here(pool.model('session', sessionId))
   const readReader = () => loaded(omitGone(pool.row('chatContextReader', 'reader')))
   const recordValues = computed(() => readReader()?.records(sessionId).records ?? [], { equals: compareShallow })
   const heldValues = computed(() => loaded(omitGone(pool.row('chatHeld', sessionId)))?.sends ?? [], { equals: compareShallow })
@@ -92,14 +101,6 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
     initialTurnRunning: mount.initialTurnRunning,
     readSession,
     ...(mount.superThread ? { readTurnRunning: () => conversation.thread?.turnRunning } : {}),
-    readContext: () => {
-      const session = readSession()
-      const prompt = conversation.lastSubmittedPrompt ?? conversation.transcript.latestOperatorPrompt
-      return { agentSince: session?.agentState?.since, agentPhase: session?.agentState?.phase,
-        agentError: session?.agentState?.error, offer: session?.offer,
-        canInterrupt: headless ? mount.superThread !== undefined && conversation.turnRunning : nativeSessionCanInterrupt(session?.status),
-        latestOperatorPrompt: prompt ? parseEnvelopeBatch(prompt)?.operatorText ?? prompt : null }
-    },
     ...(typeof hub.connectionHealth === 'function' && typeof hub.on === 'function' ? { connection: hubConnection(hub) } : {}),
     transcript: {
       initialLimit: INITIAL_LIMIT, pageLimit: PAGE_LIMIT,
@@ -138,7 +139,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
       },
       deliver: async turn => {
         conversation.rememberPrompt(turn.text)
-        if (!conversation.ready) throw new Error('Conversation context is loading.')
+        if (!conversation.ready) throw new Error('ConversationService context is loading.')
         const composer = composerState({ session: conversation.session, headless, turnRunning: conversation.turnRunning, compact: mount.compact ?? false })
         const route = chatSendRoute({ sessionId, headless, superThread: mount.superThread, composer,
           ...(mount.superThread ? { ownThreadIds: new Set(conversation.thread ? [conversation.thread.id] : []) } : {}),

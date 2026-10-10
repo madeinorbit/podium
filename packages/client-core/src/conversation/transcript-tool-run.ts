@@ -1,4 +1,5 @@
-import { action, computed, makeObservable, observable } from 'mobx'
+import { lazy } from '@podium/mobx-helpers'
+import { action, observable } from 'mobx'
 import { toolBatchTitleFromClauses, toolCategory, toolSubject, toolVerdict, toolRunElapsedMs, type ChatBlock, type ToolTitleClause } from '../values/chat'
 
 interface Category {
@@ -15,41 +16,38 @@ export class TranscriptToolRun {
   private readonly categoryOrder = observable.array<string>([], { deep: false })
   private readonly entries = new Map<string, { category: string; subject: string | undefined }>()
   private readonly failed = new Set<string>()
-  private failedCount = 0
+  @observable private accessor failedCount = 0
   private readonly durations = new Map<string, number>()
-  durationMs = 0
+  @observable accessor durationMs = 0
 
   constructor(readonly ids: readonly string[], private readonly readBlock: (id: string) => ChatBlock | undefined,
     private readonly rankOf: (id: string) => number) {
-    makeObservable<this, 'failedCount'>(this, {
-      durationMs: observable, failedCount: observable, failures: computed, title: computed, count: computed,
-      blocks: computed, firstBlock: computed, lastBlock: computed, update: action, remove: action,
-    })
+
     for (const id of ids) {
       const block = readBlock(id)
       if (block) this.update(id, block)
     }
   }
 
-  get count(): number { return this.ids.length }
-  get failures(): number { return this.failedCount }
-  get firstBlock(): ChatBlock | undefined {
+  @lazy get count(): number { return this.ids.length }
+  @lazy get failures(): number { return this.failedCount }
+  @lazy get firstBlock(): ChatBlock | undefined {
     const id = this.ids[0]
     return id === undefined ? undefined : this.readBlock(id)
   }
-  get lastBlock(): ChatBlock | undefined {
+  @lazy get lastBlock(): ChatBlock | undefined {
     const id = this.ids.at(-1)
     return id === undefined ? undefined : this.readBlock(id)
   }
   /** Only an unfolded run or a complete snapshot demands all children. */
-  get blocks(): ChatBlock[] { return this.ids.map(id => this.readBlock(id)!) }
-  get title(): string { return toolBatchTitleFromClauses(this.clauses()) }
+  @lazy get blocks(): ChatBlock[] { return this.ids.map(id => this.readBlock(id)!) }
+  @lazy get title(): string { return toolBatchTitleFromClauses(this.clauses()) }
   elapsed(now?: number): number | undefined {
     const first = this.firstBlock, last = this.lastBlock
     return first && last ? toolRunElapsedMs([first, last], now) : undefined
   }
 
-  update(id: string, block: ChatBlock): void {
+  @action update(id: string, block: ChatBlock): void {
     const duration = block.item.durationMs ?? 0
     this.durationMs += duration - (this.durations.get(id) ?? 0)
     this.durations.set(id, duration)
@@ -83,7 +81,7 @@ export class TranscriptToolRun {
     this.entries.set(id, { category: key, subject })
   }
 
-  remove(id: string): void {
+  @action remove(id: string): void {
     this.durationMs -= this.durations.get(id) ?? 0
     this.durations.delete(id)
     const previous = this.entries.get(id)

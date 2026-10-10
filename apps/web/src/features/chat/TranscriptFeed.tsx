@@ -688,8 +688,8 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
         })}</>
         }}</Observer>
         <Observer>{() => {
-          const turnPreview = props.chat?.conversation.preview ?? props.turnPreview
-          const overlay = props.chat?.view.headless ? props.chat.conversation.headless : props.overlay
+          const turnPreview = props.chat?.view.preview ?? props.turnPreview
+          const overlay = props.chat?.view.headless ? props.chat.view.overlay : props.overlay
           const previewHasText = turnPreview?.items.some(item => item.kind === 'text') === true
           const lastRow = props.chat?.view?.presentation.tailRow(rows[rows.length - 1]?.row) ?? rows[rows.length - 1]?.row
           return <>
@@ -797,7 +797,7 @@ export const TranscriptFeed = observer(function TranscriptFeed(props: Transcript
           feed's permanent last child it avoids bottom-geometry churn. */}
         <Observer>{() => {
           const activity = props.chat?.view.activity ?? props.activity
-          const overlay = props.chat?.view.headless ? props.chat.conversation.headless : props.overlay
+          const overlay = props.chat?.view.headless ? props.chat.view.overlay : props.overlay
           const tailActivity = overlay?.status ? { tone: 'working' as const, label: overlay.status } : activity ?? null
           const session = props.chat?.view.session ?? props.session
           const lastRow = props.chat?.view?.presentation.tailRow(rows[rows.length - 1]?.row) ?? rows[rows.length - 1]?.row

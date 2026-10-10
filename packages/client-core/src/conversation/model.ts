@@ -1,9 +1,8 @@
+import { lazy } from '@podium/mobx-helpers'
 import type { SessionId, SessionOffer } from '@podium/model'
 import type { HeadlessActivityEvent, TurnPreviewItem, TurnPreviewMessage } from '@podium/protocol'
 import {
   action,
-  computed,
-  makeObservable,
   observable,
   observableRef,
   reaction,
@@ -39,6 +38,9 @@ export interface HeadlessOverlay {
 /** The addressed pool row. Reading this function in a reaction tracks its fields. */
 export interface ConversationSession {
   status?: string
+  agentPhase?: string
+  agentSince?: string
+  agentError?: ConversationContext['agentError']
   lastActiveAt?: string | null
   busy?: boolean | null
   agentState?: { phase?: string; since?: string; error?: ConversationContext['agentError'] } | null
@@ -65,17 +67,17 @@ export interface ConversationOptions {
   onTranscriptChange?: (change: TranscriptChange) => void
 }
 
-/** One session or superagent thread, shared across screens for one principal. */
-export class Conversation {
+/** Live transcript, stream and send machinery; record facts belong to the pool. */
+export class ConversationService {
   readonly sessionId: SessionId
   readonly transcript: TranscriptLog
   readonly graph: TranscriptGraph
   readonly sends: Sends
-  preview: TurnPreview | null = null
-  headless: HeadlessOverlay | null = null
-  turnRunning: boolean
-  turnError: string | null = null
-  restoredFailure: SuperagentTurnFailure | null = null
+  @observableRef accessor preview: TurnPreview | null = null
+  @observableRef accessor headless: HeadlessOverlay | null = null
+  @observable accessor turnRunning: boolean
+  @observable accessor turnError: string | null = null
+  @observableRef accessor restoredFailure: SuperagentTurnFailure | null = null
   private readonly frames: ConversationFrameScheduler
   private readonly stops: (() => void)[] = []
   private started = false
@@ -92,28 +94,7 @@ export class Conversation {
     this.sessionId = options.sessionId
     this.turnRunning = options.initialTurnRunning === true
     this.frames = new ConversationFrameScheduler(options.scheduler)
-    makeObservable<this, 'applyPreview' | 'applyHeadless' | 'clearPreview' | 'transcriptChanged'>(
-      this,
-      {
-        preview: observableRef,
-        headless: observableRef,
-        turnRunning: observable,
-        turnError: observable,
-        restoredFailure: observableRef,
-        draft: computed,
-        status: computed,
-        context: computed,
-        visibleFailure: computed,
-        applyPreview: action,
-        applyHeadless: action,
-        clearPreview: action,
-        transcriptChanged: action,
-        setTurnError: action,
-        finishTurn: action,
-        clear: action,
-        clearTurnFailure: action,
-      },
-    )
+
     this.transcript = new TranscriptLog({
       ...options.transcript,
       sessionId: options.sessionId,
@@ -137,31 +118,37 @@ export class Conversation {
     })
   }
 
-  get draft(): string {
+  @lazy get draft(): string {
     return this.options.drafts.get(this.sessionId)
   }
   set draft(text: string) {
     this.options.drafts.set(this.sessionId, text)
   }
-  get status(): string | undefined {
+  @lazy get status(): string | undefined {
     return this.options.readSession?.()?.status
   }
-  get context(): ConversationContext {
-    if (this.options.readContext) return this.options.readContext()
-    const session = this.options.readSession?.()
-    return {
-      agentSince: session?.agentState?.since,
-      agentPhase: session?.agentState?.phase,
-      agentError: session?.agentState?.error,
-      offer: session?.offer,
-      canInterrupt: this.options.headless
-        ? this.turnRunning
-        : nativeSessionCanInterrupt(session?.status),
-      latestOperatorPrompt: this.transcript.latestOperatorPrompt,
-    }
+  @lazy get context(): ConversationContext { return this }
+
+  @lazy get agentSince(): string | undefined {
+    return this.options.readContext?.().agentSince ?? this.options.readSession?.()?.agentSince ?? this.options.readSession?.()?.agentState?.since
+  }
+  @lazy get agentPhase(): string | undefined {
+    return this.options.readContext?.().agentPhase ?? this.options.readSession?.()?.agentPhase ?? this.options.readSession?.()?.agentState?.phase
+  }
+  @lazy get agentError(): ConversationContext['agentError'] {
+    return this.options.readContext?.().agentError ?? this.options.readSession?.()?.agentError ?? this.options.readSession?.()?.agentState?.error
+  }
+  @lazy get offer(): SessionOffer | null | undefined {
+    return this.options.readContext ? this.options.readContext().offer : this.options.readSession?.()?.offer
+  }
+  @lazy get canInterrupt(): boolean {
+    return this.options.readContext ? this.options.readContext().canInterrupt : this.options.headless ? this.turnRunning : nativeSessionCanInterrupt(this.status)
+  }
+  @lazy get latestOperatorPrompt(): string | null | undefined {
+    return this.options.readContext ? this.options.readContext().latestOperatorPrompt : this.transcript.latestOperatorPrompt
   }
 
-  get visibleFailure(): SuperagentTurnFailure | null {
+  @lazy get visibleFailure(): SuperagentTurnFailure | null {
     if (!this.options.headless || this.turnRunning || !this.restoredFailure) return null
     const failureAt = Date.parse(this.restoredFailure.at)
     return Number.isFinite(failureAt) && (this.transcript.latestRecordedAt ?? -Infinity) > failureAt
@@ -277,14 +264,14 @@ export class Conversation {
     }
   }
 
-  clear(): void {
+  @action clear(): void {
     this.clearTurnFailure()
     this.finishTurn()
     this.transcript.merge([], { reset: true })
     this.sends.clear()
   }
 
-  finishTurn(error: string | null = null): void {
+  @action finishTurn(error: string | null = null): void {
     if (this.disposed) return
     this.turnRunning = false
     this.headless = null
@@ -292,10 +279,10 @@ export class Conversation {
     this.sends.finishTurn(error)
   }
 
-  setTurnError(message: string | null): void {
+  @action setTurnError(message: string | null): void {
     if (!this.disposed) this.turnError = message
   }
-  clearTurnFailure(): void {
+  @action clearTurnFailure(): void {
     this.activityVersion++
     this.restoredFailure = null
     this.turnError = null
@@ -312,7 +299,7 @@ export class Conversation {
     this.graph.dispose()
   }
 
-  private transcriptChanged(change: TranscriptChange): void {
+  @action private transcriptChanged(change: TranscriptChange): void {
     // Cache hydration precedes graph construction. Later updates reach both
     // addressed graph cells and sends inside the transcript's owning action.
     if (this.graph) {
@@ -329,7 +316,7 @@ export class Conversation {
     }
   }
 
-  private applyPreview(frame: TurnPreviewMessage): void {
+  @action private applyPreview(frame: TurnPreviewMessage): void {
     if (this.disposed || frame.turnEpoch <= this.previewDoneEpoch) return
     const seen = this.seenPreview
     if (frame.done) {
@@ -353,7 +340,7 @@ export class Conversation {
       : null
   }
 
-  private applyHeadless(event: HeadlessActivityEvent): void {
+  @action private applyHeadless(event: HeadlessActivityEvent): void {
     if (this.disposed) return
     this.clearTurnFailure()
     switch (event.kind) {
@@ -383,7 +370,7 @@ export class Conversation {
     }
   }
 
-  private clearPreview(): void {
+  @action private clearPreview(): void {
     this.disarmPreview()
     this.seenPreview = null
     this.preview = null
@@ -393,3 +380,6 @@ export class Conversation {
     this.previewTimer = undefined
   }
 }
+
+/** Compatibility import for existing hosts; this is a service, never a record model. */
+export { ConversationService as Conversation }

@@ -1,16 +1,16 @@
 import type { SessionId } from '@podium/model'
-import type { Conversation } from './model'
+import type { ConversationService } from './model'
 
 export const DESKTOP_WARM_CONVERSATIONS = 3
 export const PHONE_WARM_CONVERSATIONS = 2
 
 export interface ConversationCacheOptions {
-  create: (sessionId: SessionId) => Conversation
+  create: (sessionId: SessionId) => ConversationService
   warmLimit?: number
 }
 
 interface Entry {
-  conversation: Conversation
+  conversation: ConversationService
   refs: number
 }
 
@@ -23,7 +23,7 @@ export class ConversationCache {
 
   constructor(private readonly options: ConversationCacheOptions) {}
 
-  acquire(sessionId: SessionId): { conversation: Conversation; release: () => void } {
+  acquire(sessionId: SessionId): { conversation: ConversationService; release: () => void } {
     if (this.disposed) throw new Error('The conversation owner has been disposed')
     let entry = this.entries.get(sessionId)
     if (!entry) {

@@ -757,6 +757,7 @@ const DECLARED = defineSchema({
       status: { type: 'string', optional: true, nullable: true, source: meta() },
       archived: { type: 'boolean', optional: true, source: meta(), note: 'Read-side filter (L1b), NOT a membership filter: the unread rollup must see the same seats (arms/hand/indexes.ts:26).' },
       lastActiveAt: { type: 'isoDate', source: meta() },
+      messageDraft: { type: 'string', optional: true, source: meta(), note: 'SessionMeta.messageDraft; joined from the session Draft Sync v2 document, never copied into conversation machinery.' },
       draftUpdatedAt: { type: 'isoDate', optional: true, source: meta() },
       lastInputAt: { type: 'isoDate', optional: true, source: meta() },
       transcriptAvailable: { type: 'boolean', optional: true, source: meta() },

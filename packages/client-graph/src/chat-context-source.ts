@@ -51,6 +51,7 @@ export class ChatContextSource {
     >,
     pool: MobxPool,
   ) {
+    pool.bindSessionDrafts(owner.drafts)
     if (!owner.replica.row || !owner.replica.subscribeAddressedBatch)
       throw new Error('Chat context requires the existing addressed replica')
     this.reader = createChatContextReader(pool)

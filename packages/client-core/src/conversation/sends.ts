@@ -1,3 +1,4 @@
+import { lazy } from '@podium/mobx-helpers'
 import type {
   MessageRecordWire,
   SessionId,
@@ -17,12 +18,10 @@ import {
 import {
   action,
   actionBound,
-  computed,
-  makeObservable,
   observable,
   observableRef,
-  observableShallow,
   reaction,
+  compareStructural,
   runInAction,
 } from 'mobx'
 import type {
@@ -62,20 +61,18 @@ function errorText(error: unknown): string {
 
 export class Sends {
   readonly pending = observable.array<ConversationPendingTurn>([], { deep: false })
-  offer: SessionOffer | null = null
-  dismissedOfferAt: string | null = null
-  justSent = false
-  interruptError: string | null = null
-  interruptMessageId: string | null = null
+  @observable accessor dismissedOfferAt: string | null = null
+  @observable accessor justSent = false
+  @observable accessor interruptError: string | null = null
+  @observable accessor interruptMessageId: string | null = null
   private readonly clock: ConversationClock
   private disposed = false
-  private started = false
+  @observable private accessor started = false
   private stoppedBubbles: ConversationBubble[] = []
-  private feedIds: readonly string[] = []
+  @observableRef private accessor feedIds: readonly string[] = []
   private pendingSeq = 0
   private sendSeq = 0
   private openSend: OpenSend | null = null
-  private authoritativeOffer: SessionOffer | null = null
   private readonly seenUserIds = observable.set<string>([], { deep: false })
   private seenUserTailId: string | null = null
   private userBaselineReady = false
@@ -127,54 +124,18 @@ export class Sends {
     }
     runInAction(() => this.pending.replace(pending.map(freezePlain)))
     this.justSent = options.initialJustSent === true
-    makeObservable<
-      this,
-      | 'started'
-      | 'feedIds'
-      | 'patch'
-      | 'observeRecords'
-      | 'observeOutbox'
-      | 'observeContext'
-      | 'settleFromLookup'
-    >(this, {
-      pending: observableShallow,
-      offer: observableRef,
-      dismissedOfferAt: observable,
-      justSent: observable,
-      interruptError: observable,
-      interruptMessageId: observable,
-      started: observable,
-      feedIds: observableRef,
-      context: computed,
-      canInterrupt: computed,
-      bubbles: computed,
-      start: action,
-      stop: action,
-      reconcile: action,
-      submit: action,
-      sendOffer: action,
-      retry: action,
-      discard: action,
-      sendAgain: action,
-      retract: action,
-      dismissOffer: action,
-      interrupt: action,
-      markInterrupted: action,
-      finishTurn: action,
-      clear: action,
-      patch: action,
-      observeRecords: actionBound,
-      observeOutbox: actionBound,
-      observeContext: actionBound,
-      settleFromLookup: action,
-    })
+
     this.observeRecords(false)
   }
 
-  get context(): ConversationContext {
+  @lazy get context(): ConversationContext {
     return this.options.readContext()
   }
-  get canInterrupt(): boolean {
+  @lazy get offer(): SessionOffer | null {
+    const offer = this.context.offer
+    return !offer || offer.createdAt === this.dismissedOfferAt ? null : offer
+  }
+  @lazy get canInterrupt(): boolean {
     return this.context.canInterrupt
   }
   get draft(): string {
@@ -184,7 +145,7 @@ export class Sends {
     if (!this.disposed) this.options.drafts.set(this.options.sessionId, text)
   }
 
-  get bubbles(): ConversationBubble[] {
+  @lazy get bubbles(): ConversationBubble[] {
     if (!this.started) return this.stoppedBubbles
     return projectConversation({
       turns: this.pending,
@@ -197,15 +158,16 @@ export class Sends {
     })
   }
 
-  start(): void {
+  @action start(): void {
     if (this.started || this.disposed) return
     this.started = true
     this.reconcile({ changed: this.options.transcript.items, added: [], rebuild: true }, true)
     this.unsubscribes.push(
       reaction(
-        () => this.context,
-        (context) => this.observeContext(context),
-        { fireImmediately: true },
+        () => [this.context.agentSince, this.context.agentPhase, this.context.agentError,
+          this.context.offer, this.context.canInterrupt],
+        () => this.observeContext(this.context),
+        { fireImmediately: true, equals: compareStructural },
       ),
     )
     if (this.options.records) {
@@ -236,17 +198,8 @@ export class Sends {
     this.armSendTimer()
   }
 
-  private observeContext(context: ConversationContext): void {
-    this.authoritativeOffer = context.offer ?? null
-    if (!this.authoritativeOffer || this.authoritativeOffer.createdAt !== this.dismissedOfferAt) {
-      this.dismissedOfferAt = null
-    }
-    const offer =
-      this.authoritativeOffer?.createdAt === this.dismissedOfferAt ? null : this.authoritativeOffer
-    this.patch({
-      offer: offer ? freezePlain(offer) : null,
-      dismissedOfferAt: this.dismissedOfferAt,
-    })
+  @actionBound private observeContext(context: ConversationContext): void {
+    if (!context.offer || context.offer.createdAt !== this.dismissedOfferAt) this.dismissedOfferAt = null
     this.applyTerminalAgentError(context)
     this.reconcileOpenSend()
   }
@@ -273,13 +226,13 @@ export class Sends {
     if (changed) this.patch({ pending })
   }
 
-  clear(): void {
+  @action clear(): void {
     this.endOpenSend()
     this.pending.clear()
   }
 
   /** An accepted headless turn can fail after the send request has resolved. */
-  finishTurn(error: string | null): void {
+  @action finishTurn(error: string | null): void {
     this.endOpenSend()
     if (!error) return
     this.pending.replace(
@@ -289,7 +242,7 @@ export class Sends {
     )
   }
 
-  async submit(input: ConversationSendInput): Promise<ConversationPendingTurn | null> {
+  @action async submit(input: ConversationSendInput): Promise<ConversationPendingTurn | null> {
     const turn = this.createTurn(input, 'message')
     if (!turn) return null
     this.setDraft('')
@@ -298,18 +251,18 @@ export class Sends {
     return turn
   }
 
-  async sendOffer(prompt: string, offerCreatedAt: string): Promise<ConversationPendingTurn | null> {
+  @action async sendOffer(prompt: string, offerCreatedAt: string): Promise<ConversationPendingTurn | null> {
     const turn = this.createTurn({ text: prompt, wire: prompt }, 'offer')
     if (!turn) return null
     this.dismissedOfferAt = offerCreatedAt
-    this.patch({ offer: null, dismissedOfferAt: offerCreatedAt })
+    this.patch({ dismissedOfferAt: offerCreatedAt })
     await this.dispatch(turn, offerCreatedAt, true)
     return turn
   }
 
   /** Send again a message this device never got through: the SAME message,
    *  under its own id (POD-4762). */
-  async retry(id: string): Promise<void> {
+  @action async retry(id: string): Promise<void> {
     if (this.disposed) return
     const bubble = this.bubble(id)
     if (!bubble || bubble.state !== 'failed' || bubble.notice !== undefined) return
@@ -328,7 +281,7 @@ export class Sends {
    * says did not (or may not have) arrived: its notice is dismissed on every
    * device.
    */
-  async discard(id: string): Promise<void> {
+  @action async discard(id: string): Promise<void> {
     if (this.disposed) return
     const bubble = this.bubble(id)
     if (!bubble) return
@@ -351,7 +304,7 @@ export class Sends {
    * under a new id — by choice. The old notice is dismissed. For an `unknown`
    * message the surface must say it may already have arrived.
    */
-  async sendAgain(id: string): Promise<void> {
+  @action async sendAgain(id: string): Promise<void> {
     if (this.disposed) return
     const bubble = this.bubble(id)
     if (!bubble || bubble.notice === undefined) return
@@ -367,7 +320,7 @@ export class Sends {
    * late" once the machine had started typing it. A request that fails says so
    * on the bubble; it never vanishes silently.
    */
-  async retract(id: string): Promise<void> {
+  @action async retract(id: string): Promise<void> {
     if (this.disposed) return
     const bubble = this.bubble(id)
     if (!bubble?.retractable) return
@@ -431,7 +384,7 @@ export class Sends {
     })
   }
 
-  async dismissOffer(offerCreatedAt: string): Promise<void> {
+  @action async dismissOffer(offerCreatedAt: string): Promise<void> {
     if (this.disposed) return
     if (!this.options.dismissOffer) return
     if (this.options.optimisticDismissOffer === false) {
@@ -439,18 +392,18 @@ export class Sends {
       return
     }
     this.dismissedOfferAt = offerCreatedAt
-    this.patch({ offer: null, dismissedOfferAt: offerCreatedAt })
+    this.patch({ dismissedOfferAt: offerCreatedAt })
     try {
       await this.options.dismissOffer(offerCreatedAt)
     } catch (error) {
       if (this.dismissedOfferAt === offerCreatedAt) {
-        this.patch({ offer: this.authoritativeOffer, dismissedOfferAt: null })
+        this.patch({ dismissedOfferAt: null })
       }
       throw error
     }
   }
 
-  async interrupt(draft = this.draft): Promise<boolean> {
+  @action async interrupt(draft = this.draft): Promise<boolean> {
     if (this.disposed) return false
     if (!this.context.canInterrupt || !this.options.interrupt) return false
     this.patch({ interruptError: null })
@@ -473,7 +426,7 @@ export class Sends {
 
   /** Mark the named message — or the newest one still on its way before
    *  `interruptedAt` — interrupted. */
-  markInterrupted(deliveryId?: string, interruptedAt?: number): void {
+  @action markInterrupted(deliveryId?: string, interruptedAt?: number): void {
     if (this.disposed) return
     const beforeInterrupt = (at: number): boolean =>
       interruptedAt === undefined || at <= interruptedAt
@@ -508,7 +461,7 @@ export class Sends {
   }
 
   /** Release live resources while keeping the controller restartable by an adapter effect. */
-  stop(): void {
+  @action stop(): void {
     if (!this.started) return
     this.stoppedBubbles = this.bubbles
     this.started = false
@@ -593,7 +546,7 @@ export class Sends {
     } catch (error) {
       this.clearOpenSend(sendSeq)
       if (retiredOfferAt && this.dismissedOfferAt === retiredOfferAt) {
-        this.patch({ offer: this.authoritativeOffer, dismissedOfferAt: null })
+        this.patch({ dismissedOfferAt: null })
       }
       if (rethrow) throw error
     }
@@ -654,10 +607,10 @@ export class Sends {
   }
 
   private retireOffer(): string | null {
-    const offer = this.authoritativeOffer
+    const offer = this.context.offer
     if (!offer || this.dismissedOfferAt === offer.createdAt) return null
     this.dismissedOfferAt = offer.createdAt
-    this.patch({ offer: null, dismissedOfferAt: offer.createdAt })
+    this.patch({ dismissedOfferAt: offer.createdAt })
     return offer.createdAt
   }
 
@@ -734,7 +687,7 @@ export class Sends {
       })
   }
 
-  private settleFromLookup(
+  @action private settleFromLookup(
     asked: ReadonlyMap<string, ConversationPendingTurn['state']>,
     answer: readonly MessageRecordWire[],
   ): void {
@@ -780,7 +733,7 @@ export class Sends {
    * cancelled, or dismissed — so it goes. One whose record never arrived yet
    * stays as it is: the feed may simply be behind the send's answer.
    */
-  private observeRecords(notify = true): void {
+  @actionBound private observeRecords(notify = true): void {
     const records = this.options.records?.getSnapshot() ?? []
     this.feedIds = records.map(record => record.id)
     const present = new Map<string, ConversationMessage>()
@@ -829,7 +782,7 @@ export class Sends {
    * or discarded it, and the bubble goes with it. Once the server stores it,
    * its record drives the bubble like any other.
    */
-  private observeOutbox(): void {
+  @actionBound private observeOutbox(): void {
     const outbox = this.options.outbox
     if (!outbox) return
     const held = new Map(outbox.held().map((send) => [send.mutationId as string, send]))
@@ -864,7 +817,7 @@ export class Sends {
 
   /** Called by TranscriptLog inside the append/read action, never by a reaction.
    * A delta examines only its changed entries; reads/resets may establish a baseline. */
-  reconcile(change: TranscriptChange, baseline = false): void {
+  @action reconcile(change: TranscriptChange, baseline = false): void {
     const completed = this.consumeConfirmedTranscript()
     const retained = this.pending.filter(
       (turn) => turn.state === 'retracted' || !completed.has(turn.deliveryId),
@@ -998,10 +951,9 @@ export class Sends {
     this.sendTimer = null
   }
 
-  private patch(
+  @action private patch(
     patch: Partial<{
       pending: ConversationPendingTurn[]
-      offer: SessionOffer | null
       dismissedOfferAt: string | null
       justSent: boolean
       interruptError: string | null

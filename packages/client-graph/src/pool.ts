@@ -70,6 +70,8 @@ import {
   type IObservableArray,
   type ObservableMap,
   observable,
+  observableRef,
+  action,
   observe,
   runInAction,
   untracked,
@@ -252,6 +254,12 @@ export interface LazyMembers {
 }
 
 export class MobxPool {
+  @observableRef accessor sessionDrafts: import('./models').SessionDrafts | undefined = undefined
+  @action bindSessionDrafts(drafts: import('./models').SessionDrafts): void {
+    if (this.sessionDrafts && this.sessionDrafts !== drafts) throw new Error('Session drafts already have an owner')
+    this.sessionDrafts = drafts
+  }
+
   /** Failure counters and replacement recovery status for this principal. */
   readonly diagnostics: FeedDiagnostics
   readonly issueSessionFact: IssueSessionFactReader

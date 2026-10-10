@@ -1,4 +1,5 @@
-import { action, createAtom, makeObservable, observable } from 'mobx'
+import { createDemandAtoms } from '@podium/mobx-helpers'
+import { action, observable } from 'mobx'
 
 /** Normalized source text stays resident; postings exist only for watched search. */
 export class TranscriptSearchIndex {
@@ -6,17 +7,15 @@ export class TranscriptSearchIndex {
   private readonly postings = observable.map<string, Set<string>>(undefined, { deep: false })
   private readonly gramsById = new Map<string, Set<string>>()
   private indexed = false
-  private readonly searchDemand = createAtom('TranscriptSearchIndex.search', undefined,
-    () => this.releasePostings())
+  private readonly searchDemand = createDemandAtoms<string>(() => 'TranscriptSearchIndex.search', {
+    onUnobserved: () => this.releasePostings(),
+  })
 
   constructor(private readonly positionOf: (id: string) => number) {
-    makeObservable<this, 'buildPostings' | 'releasePostings'>(this, {
-      set: action, remove: action, clear: action,
-      buildPostings: action, releasePostings: action,
-    })
+
   }
 
-  set(id: string, text: string): void {
+  @action set(id: string, text: string): void {
     const normalized = text.toLowerCase()
     if (this.texts.get(id) === normalized) return
     if (this.indexed) this.updatePostings(id, normalized)
@@ -39,24 +38,24 @@ export class TranscriptSearchIndex {
     this.gramsById.set(id, next)
   }
 
-  remove(id: string): void {
+  @action remove(id: string): void {
     for (const gram of this.gramsById.get(id) ?? []) this.removePosting(gram, id)
     this.gramsById.delete(id)
     this.texts.delete(id)
   }
 
-  clear(): void {
+  @action clear(): void {
     this.releasePostings()
     this.texts.clear()
   }
 
-  private releasePostings(): void {
+  @action private releasePostings(): void {
     this.indexed = false
     this.postings.clear()
     this.gramsById.clear()
   }
 
-  private buildPostings(): void {
+  @action private buildPostings(): void {
     for (const [id, text] of this.texts) this.updatePostings(id, text)
     this.indexed = true
   }
@@ -66,7 +65,7 @@ export class TranscriptSearchIndex {
     if (!normalized) return []
     // A snapshot search has no lifetime in which to retain an index. Watched
     // searches keep their incremental buckets until the last reader leaves.
-    if (!this.searchDemand.reportObserved() && !this.indexed)
+    if (!this.searchDemand.observe('search') && !this.indexed)
       return [...this.texts].filter(([,text]) => text.includes(normalized))
         .map(([id]) => id).sort((a,b) => this.positionOf(a)-this.positionOf(b))
     if (!this.indexed) this.buildPostings()

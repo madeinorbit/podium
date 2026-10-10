@@ -1,9 +1,9 @@
-import { Conversation, type ConversationOptions } from '@podium/client-core/conversation'
+import { ConversationService, type ConversationOptions } from '@podium/client-core/conversation'
 import { MobileConversationPresentation } from './conversation-presentation'
 import { shapeMobileChatRow } from './transcript-feed'
 
 /** The conversation owns phone row membership in the same source action. */
-export class MobileConversation extends Conversation {
+export class MobileConversation extends ConversationService {
   private readonly readers: Set<() => boolean>
   readonly presentation: MobileConversationPresentation
 

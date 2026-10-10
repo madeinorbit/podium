@@ -1,13 +1,13 @@
 import type { SessionId } from '@podium/model'
 import { useLayoutEffect, useRef, useState } from 'react'
-import { Conversation, type ConversationOptions } from '../conversation/model'
+import { ConversationService, type ConversationOptions } from '../conversation/model'
 import type { DraftStore } from '../conversation/draft-store'
 import { useStoreHandle } from './provider'
 
-const factories = new WeakMap<object, Map<SessionId, () => Conversation>>()
+const factories = new WeakMap<object, Map<SessionId, () => ConversationService>>()
 
 /** A single principal owns live conversations and the bounded warm cache. */
-export function useConversation<T extends Conversation = Conversation>(
+export function useConversation<T extends ConversationService = ConversationService>(
   sessionId: SessionId | undefined,
   createOptions: (drafts: DraftStore) => ConversationOptions | T,
   options: { warmLimit?: number; enabled?: boolean } = {},
@@ -17,7 +17,7 @@ export function useConversation<T extends Conversation = Conversation>(
   const [held, setHeld] = useState<{
     owner: typeof owner
     id: SessionId
-    conversation: Conversation
+    conversation: ConversationService
   }>()
   useLayoutEffect(() => {
     create.current = createOptions
@@ -29,7 +29,7 @@ export function useConversation<T extends Conversation = Conversation>(
     if (!byId) factories.set(owner, (byId = new Map()))
     const factory = () => {
       const value = create.current(owner.drafts)
-      return value instanceof Conversation ? value : new Conversation(value)
+      return value instanceof ConversationService ? value : new ConversationService(value)
     }
     byId.set(sessionId, factory)
     const registered = byId

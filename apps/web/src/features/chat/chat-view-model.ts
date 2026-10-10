@@ -1,5 +1,5 @@
 import { here, omitGone } from '@podium/client-graph/lookup'
-import type { SessionView } from '@podium/client-core/session-values'
+import type { SessionModel } from '@podium/client-graph/models'
 import {
   chatActivityState,
   chatSessionReference,
@@ -51,13 +51,18 @@ export class ChatViewModel {
     this.active = active
     this.stickyPrompts = stickyPrompts
   }
-  @lazy get session(): SessionView | undefined {
-    const pool = this.conversation.pool
-    const row = omitGone(pool.row('session', this.conversation.sessionId))
-    return !row || typeof row === 'symbol'
-      ? undefined
-      : (here(pool.model('session', this.conversation.sessionId)) as unknown as SessionView)
-  }
+  @lazy get session(): SessionModel | undefined { return this.conversation.session }
+  @lazy get draft(): string { return this.session?.messageDraft ?? '' }
+  @actionBound setDraft(text: string): void { this.session?.setMessageDraft(text) }
+  @lazy get preview() { return this.conversation.preview }
+  @lazy get overlay() { return this.headless ? this.conversation.headless : null }
+  @lazy get loadingOlder(): boolean { return this.conversation.transcript.loadingOlder }
+  @lazy get transcriptFreshness() { return this.conversation.transcript.freshness }
+  @lazy get offlineAsOf() { return this.conversation.transcript.offlineAsOf }
+  @lazy get offlineMachineName() { return this.conversation.transcript.offlineMachineName }
+  @lazy get canInterrupt(): boolean { return this.conversation.sends.canInterrupt }
+  @lazy get interruptError() { return this.conversation.sends.interruptError }
+  @lazy get superagent(): boolean { return this.superThread !== undefined }
   @lazy get reference() {
     const row = omitGone(this.conversation.pool.row('sessionExit', this.conversation.sessionId))
     const exit = row && typeof row !== 'symbol' ? row.kind : undefined
@@ -101,9 +106,9 @@ export class ChatViewModel {
   }
   @lazy({ equals: compareStructural }) get pendingAskBlock() {
     return pendingAskFromState(
-      this.session?.agentState?.need,
+      this.session?.agentNeed,
       this.session?.status,
-      this.session?.agentState?.phase,
+      this.session?.agentPhase,
       this.livePendingAskIndex >= 0,
     )
   }

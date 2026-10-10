@@ -15,7 +15,7 @@ import { motionPhase as sessionMotion } from '@podium/client-core/values'
 /** One shared object per server record. Schema fields and relations are installed
  * once; derived entity facts use @lazy. Views own their per-record companions. */
 
-import { compareShallow, compareStructural, observable, runInAction } from 'mobx'
+import { compareShallow, compareStructural, observable, runInAction, action } from 'mobx'
 import { lazy } from '@podium/mobx-helpers'
 import type { Residence } from './pool'
 import type { SeatRelation } from './session-seats'
@@ -43,7 +43,14 @@ const ISSUE_PAINT_FIELDS: ReadonlySet<string> = new Set([
 ])
 
 /** What a model reads from its pool. */
+/** Borrow the session document's existing sync/arbitration owner; never copy its text. */
+export interface SessionDrafts {
+  get(sessionId: import('@podium/model').SessionId): string
+  set(sessionId: import('@podium/model').SessionId, text: string): void
+}
 export interface ModelHost {
+  readonly sessionDrafts?: SessionDrafts
+
   readonly issueSessionFact: IssueSessionFactReader
   /** The pool's one row reader (`MobxPool.row`): pending edits overlaid, `LOADING` when not in memory. */
   row(entity: EntityName, id: string, absent?: 'mark' | 'summary' | 'summary-fields'): Lookup<object>
@@ -158,11 +165,11 @@ function installFields(
       return this.storedField(property)
     }
     // Only direct paint readers need another scalar equality boundary.
-    const get = answered ?? (entity === 'issue' && ISSUE_PAINT_FIELDS.has(field) ? lazy(stored, {
+    const get = answered ?? ((entity === 'session' || entity === 'issue' && ISSUE_PAINT_FIELDS.has(field)) ? lazy(stored, {
       kind: 'getter', name: field, static: false, private: false,
       access: { has: target => field in target, get: target => stored.call(target) },
       addInitializer() {}, metadata: {},
-    }) : stored)
+    }, entity === 'session' && spec.fields[field]?.type === 'object' ? { equals: compareStructural } : undefined) : stored)
     Object.defineProperty(prototype, field, {
       configurable: false,
       enumerable: false,
@@ -776,11 +783,23 @@ export class IssueModel extends EntityModel {
 
 /** THE session: its row, and what its issues read of it. */
 export class SessionModel extends EntityModel {
-  static override readonly answers = new Set(['archived', 'unread', 'cwd', 'issueId', 'machineId', 'status', 'geometry'])
+  static override readonly answers = new Set(['archived', 'unread', 'cwd', 'issueId', 'machineId', 'status', 'geometry', 'messageDraft'])
 
   constructor(id: string, host: ModelHost) {
     super('session', id, host)
   }
+
+  // Chat facts: each reader observes only the field it shows.
+  @lazy get agentPhase() {
+    return this.agentState?.phase
+  }
+  @lazy get agentSince(): string | undefined { return this.agentState?.since }
+  @lazy({ equals: compareStructural }) get agentError() { return this.agentState?.error }
+  @lazy({ equals: compareStructural }) get agentNeed() { return this.agentState?.need }
+
+  // Stored session document, published by Draft Sync v2 rather than the meta feed.
+  @lazy get messageDraft(): string { return this.host.sessionDrafts?.get(asSessionId(this.id)) ?? '' }
+  @action setMessageDraft(text: string): void { this.host.sessionDrafts?.set(asSessionId(this.id), text) }
 
   // Placement and lifecycle: one scalar per question. A heartbeat replaces the
   // row with only activity changed; these answers stay equal, so their readers
@@ -1029,7 +1048,7 @@ interface IssueEdits {
  */
 // Schema-installed session fields are typed by their wire contract. Derived
 // presence fields above keep their scalar types, and no row is stored here.
-export interface SessionModel extends Readonly<Omit<SessionView, 'archived' | 'condition'>>, RelationGetters<'session'> {}
+export interface SessionModel extends Readonly<Omit<SessionView, 'archived' | 'condition' | 'messageDraft'>>, RelationGetters<'session'> {}
 
 export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority'>>, Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'notes' | 'gitState'>>, IssueEdits, RelationGetters<'issue'> {
   /** The stored projection uses the full wire contract; summaries only gate loading. */

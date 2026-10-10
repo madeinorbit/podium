@@ -472,6 +472,9 @@ export const SessionMetaEntity = z.object({
    *  by when its prompt was last edited (a draft edit is recent user intent on
    *  that session). Absent = no draft (or an empty one). */
   draftUpdatedAt: z.string().optional(),
+  /** Stored composer document. Clients join Draft Sync v2's versioned channel;
+   * the meta feed does not repeat its text on every activity frame. */
+  messageDraft: z.string().optional(),
   /** Draft Sync v2 (POD-859): true when the session's daemon runs the composer
    *  scrape/inject engine. A client uses it to retire its own native sampler +
    *  chat→native flush (the daemon owns that now). Absent/false = legacy path. */

@@ -111,7 +111,7 @@ export function useChatLayout(opts: UseChatLayoutOptions): ChatSurface {
 
   const attachments = useAttachments({ sessionId, trpc })
   const sends = conversation.sends
-  const setDraft = useCallback((text: string) => { conversation.draft = text }, [conversation])
+  const setDraft = view.setDraft
   const submitDraft = useCallback((draft: string) => {
     const text = draft.trim()
     const { paths, legacyPaths, refs, tags } = attachments.ready()

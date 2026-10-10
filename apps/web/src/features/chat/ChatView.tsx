@@ -51,7 +51,7 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
   chat: ChatSurface
   quoteDraftRef: QuoteDraftRef
 }): JSX.Element {
-  const draft = chat.conversation.draft
+  const draft = chat.view.draft
   const setDraft = chat.setDraft
   const voice = useVoiceInput((text) => setDraft(draft ? `${draft} ${text}` : text))
   quoteDraftRef.current = (markdown) => {
@@ -74,16 +74,16 @@ const ScopedChatComposer = observer(function ScopedChatComposer({
       voice={voice}
       attachments={chat.attachments}
       turnRunning={chat.view.turnActive}
-      canInterrupt={chat.conversation.sends.canInterrupt}
+      canInterrupt={chat.view.canInterrupt}
       onInterrupt={interrupt}
-      interruptError={chat.conversation.sends.interruptError}
+      interruptError={chat.view.interruptError}
       offer={chat.view.offer}
       onOfferAction={chat.sendOfferPrompt}
       onOfferDismiss={chat.dismissOffer}
       session={chat.view.session}
       turnError={chat.view.turnError}
-      transcriptFreshness={chat.conversation.transcript.freshness}
-      offlineAsOf={chat.conversation.transcript.offlineAsOf}
+      transcriptFreshness={chat.view.transcriptFreshness}
+      offlineAsOf={chat.view.offlineAsOf}
       attached={chat.view.attached}
       autoFocusKey={sessionId}
       transcriptSettled={chat.view.phase !== 'loading'}
@@ -346,7 +346,7 @@ const ConversationTranscript = observer(function ConversationTranscript({ chat, 
             onScroll={chat.scroll.onScroll}
             onPointerUp={chat.scroll.onPointerUp}
             compact={chat.view.compact}
-            superagent={chat.conversation.mount.superThread !== undefined}
+            superagent={chat.view.superagent}
             phase={chat.view.phase}
             rows={chat.view.rowsToRender}
             blockCount={chat.view.presentation.blockCount}
@@ -354,7 +354,7 @@ const ConversationTranscript = observer(function ConversationTranscript({ chat, 
             search={chat.view.presentation.search}
             revealedRow={chat.revealedRow}
             moreAbove={chat.view.moreAbove}
-            loadingOlder={chat.conversation.transcript.loadingOlder}
+            loadingOlder={chat.view.loadingOlder}
             loadOlder={chat.scroll.loadOlder}
             sessionId={sessionId}
             cwd={chat.view.cwd}
@@ -374,7 +374,7 @@ const ConversationTranscript = observer(function ConversationTranscript({ chat, 
             onDiscardPending={chat.discardPending}
             onSendAgain={chat.sendAgain}
             onRetractQueued={chat.retractQueuedMessage}
-            offlineMachineName={chat.conversation.transcript.offlineMachineName}
+            offlineMachineName={chat.view.offlineMachineName}
             presenceOfflineMachineName={chat.view.presenceOfflineMachineName}
             attribution={chat.view.attribution}
             expandRuns={false}

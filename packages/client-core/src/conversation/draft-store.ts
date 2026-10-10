@@ -1,5 +1,5 @@
 import type { SessionId } from '@podium/model'
-import { action, actionBound, makeObservable, observable, observableShallow } from 'mobx'
+import { action, actionBound, observable } from 'mobx'
 import { createLogger } from '@podium/logger'
 import { createDraftLedger, type DraftLedgerSnapshot } from '../drafts/draft-ledger'
 import type { SocketHub } from '../socket-transport/socket-hub'
@@ -32,11 +32,7 @@ export class DraftStore {
   private disposed = false
 
   constructor(private readonly options: DraftStoreOptions) {
-    makeObservable(this, {
-      values: observableShallow,
-      set: actionBound,
-      adoptRemote: actionBound,
-    })
+
     // Hydrate synchronously: the very first composer read sees its durable text.
     try {
       const stored = options.storage.get(DRAFTS_UI_KEY)
@@ -55,7 +51,7 @@ export class DraftStore {
     return this.values.get(sessionId) ?? ''
   }
 
-  set(sessionId: SessionId, text: string): void {
+  @actionBound set(sessionId: SessionId, text: string): void {
     if (this.disposed) return
     this.ledger.localEdit(sessionId, text, Date.now())
     if (this.get(sessionId) !== text || !this.values.has(sessionId)) {
@@ -66,7 +62,7 @@ export class DraftStore {
     this.schedulePersist()
   }
 
-  adoptRemote(sessionId: SessionId, incoming: { text: string; rev?: number }): void {
+  @actionBound adoptRemote(sessionId: SessionId, incoming: { text: string; rev?: number }): void {
     if (this.disposed) return
     const previous = this.ledger.get(sessionId)
     const outcome = this.ledger.adoptRemote(sessionId, incoming)
