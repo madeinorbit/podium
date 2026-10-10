@@ -15,7 +15,11 @@ export function launchRepositoryFacts(repo: RepoView | undefined, project = fals
       ...(tree.branch !== undefined ? { branch: tree.branch } : {}),
       ...(tree.machineId !== undefined ? { machineId: tree.machineId } : {}),
       ...(tree.repoId !== undefined ? { repoId: tree.repoId } : {}),
-      ...(project ? { repoName: tree.repoName, sessions: tree.sessions, issues: tree.issues } : {}),
+      ...(project ? {
+        repoName: 'repoName' in tree ? tree.repoName : undefined,
+        sessions: 'sessions' in tree ? tree.sessions : undefined,
+        issues: 'issues' in tree ? tree.issues : undefined,
+      } : {}),
     })),
   }
 }
