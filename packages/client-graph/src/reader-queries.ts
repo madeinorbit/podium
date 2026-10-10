@@ -132,7 +132,8 @@ export class ReaderQueries {
     for (const entity of ['issue', 'session'] as const)
       this.stopTables.push(
         observe(pool.tables[entity], (change) => {
-          this.updateResident(entity, change.name, change.type === 'update' ? change.oldValue : undefined)
+          this.updateResident(entity, change.name, change.type === 'update'
+            ? change.oldValue as Readonly<Record<string, unknown>> : undefined)
           this.correctCount(entity, change.name)
           if (!this.publishing) this.publishQueries()
         }),
@@ -225,7 +226,7 @@ export class ReaderQueries {
     // Index stored fields, including painted edits, from the resident slot.
     // A display facade would evaluate companion joins during hydration.
     // untracked-read: reader-resident-maintenance
-    const row = present ? untracked(() => this.pool.tables[entity].get(id)) : undefined
+    const row = present ? untracked(() => this.pool.tables[entity].get(id)) as Readonly<Record<string, unknown>> | undefined : undefined
     if (entity === 'session') this.residents.updateSession(id, row, previous)
     else this.residents.apply({
       type: 'update',
