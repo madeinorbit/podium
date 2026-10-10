@@ -222,6 +222,14 @@ export const sharedVitestConfig = {
         find: /^@podium\/protocol\/daemon$/,
         replacement: fileURLToPath(new URL('./packages/protocol/src/daemon.ts', import.meta.url)),
       },
+      // The locate proof (POD-5921): its own entry, outside the barrel, for the
+      // same reason as daemon.ts — anchored so it never falls to the unbuilt dist.
+      {
+        find: /^@podium\/protocol\/server-locate$/,
+        replacement: fileURLToPath(
+          new URL('./packages/protocol/src/server-locate.ts', import.meta.url),
+        ),
+      },
       // ANCHORED, and added by POD-736 after it cost a real defect. `@podium/sync`
       // was absent from this list, so a `scripts/` test importing it took the
       // walk-up described above and resolved the MAIN checkout's copy — which

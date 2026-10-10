@@ -326,6 +326,13 @@ export default defineConfig(({ command, mode }) => {
         '@podium/protocol/update-dev-version': fileURLToPath(
           new URL('../../packages/protocol/src/update/dev-version.ts', import.meta.url),
         ),
+        /**
+         * Same door again (POD-5921): the locate proof is its own entry so the
+         * lazily loaded follower reaches it without the barrel.
+         */
+        '@podium/protocol/server-locate': fileURLToPath(
+          new URL('../../packages/protocol/src/server-locate.ts', import.meta.url),
+        ),
         '@podium/protocol': fileURLToPath(
           new URL('../../packages/protocol/src/index.ts', import.meta.url),
         ),
