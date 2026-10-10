@@ -6,7 +6,7 @@ import { referenceState } from '../../diagnostics/reference-state'
 import { LOADING } from '@podium/client-graph'
 import { createRuntimeWorklistPool } from '@podium/client-graph/runtime-pool'
 import * as engineLocals from '@podium/client-graph/shared/engine-locals'
-import { localsOfEngine } from '@podium/client-graph/shared/engine-locals'
+import { localsOfEngine } from './engine-locals'
 import * as rowSource from '@podium/client-graph/shared/row-source'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {

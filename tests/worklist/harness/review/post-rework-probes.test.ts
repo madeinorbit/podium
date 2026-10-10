@@ -361,10 +361,7 @@ describe('POD-4942 post-rework probes', () => {
         census.enter('quietTick')
         // One millisecond: no deadline is that close (retention and grace are minutes and days).
         const locals = feeds.locals.source.get()
-        handle.pool.applyLocals(
-          { ...locals, coarseNow: locals.coarseNow + 1 },
-          new Set(['coarseNow'] as const),
-        )
+        handle.pool.clock.advance(locals.coarseNow + 1)
         census.exit()
         const work = census.snapshot().phases['quietTick']
         console.log(
@@ -373,10 +370,7 @@ describe('POD-4942 post-rework probes', () => {
         // Control: the same census sees a day's advance (grace crossings).
         census.enter('dayTick')
         const later = feeds.locals.source.get()
-        handle.pool.applyLocals(
-          { ...later, coarseNow: later.coarseNow + 24 * 60 * 60 * 1000 },
-          new Set(['coarseNow'] as const),
-        )
+        handle.pool.clock.advance(later.coarseNow + 24 * 60 * 60 * 1000)
         census.exit()
         const day = census.snapshot().phases['dayTick']
         console.log(`[probe] idle-control ${JSON.stringify({ dayTick: day })}`)

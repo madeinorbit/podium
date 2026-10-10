@@ -13,14 +13,14 @@ import { dedupeSessions } from '../../../diagnostics/reference-state'
 import type { ReferenceState as Store } from '../../../diagnostics/reference-state'
 import { createKernelReplica, createSideCache, memoryStorage, type Replica } from '@podium/client-core/replica'
 import { allIssueViewModels } from '../../../diagnostics/reference/issue-view-models'
-import { createWorklistPool } from '@podium/client-graph/create'
+import { createWorklistPool } from '../../../shared/src/clock-fixture-pool'
 import {
   checkSidebar,
   poolSidebarSnapshot,
   type SidebarDifference,
 } from '../../../diagnostics/sidebar-check'
 import { MISSION_SUMMARIES } from '@podium/client-graph/mission-schema'
-import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
+import { createEngineLocals } from '../engine-locals'
 import { createRowSource } from '../../../shared/src/row-source'
 import { runInAction } from 'mobx'
 import { seedCacheFromCorpus } from '../../../shared/src/scenarios'

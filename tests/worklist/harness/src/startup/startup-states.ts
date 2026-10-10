@@ -14,7 +14,7 @@
  * Later issues add their own states (markers, active-first stream) and feed
  * them to the same check.
  */
-import { createWorklistPool } from '@podium/client-graph/create'
+import { createWorklistPool } from '../../../shared/src/clock-fixture-pool'
 import { ISSUE_BOARD_SUMMARIES } from '@podium/client-graph/issue-board-schema'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import { MobxPool } from '@podium/client-graph/pool'

@@ -228,7 +228,7 @@ export function openFenceFeeds(ctx: ScenarioEngine, mode: FenceFeedMode): FenceF
           },
         }),
   }
-  const localsSource: LocalsSource = {
+  const localsSource: LocalsSource<SliceLocals> = {
     get: () => rawLocals.source.get(),
     subscribe: (listener) =>
       rawLocals.source.subscribe((changed) => insideArm(() => listener(changed))),

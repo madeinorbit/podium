@@ -187,8 +187,8 @@ export function referenceArmFor(
   return {
     create(_source, channel: LocalsSource): CheckableArmHandle {
       const stats = zeroStats()
-      const deafTo = plant?.kind === 'deaf' ? channel.get() : null
-      const localsNow = (): SliceLocals => deafTo ?? channel.get()
+      const deafTo = plant?.kind === 'deaf' ? (channel.get() as SliceLocals) : null
+      const localsNow = (): SliceLocals => deafTo ?? (channel.get() as SliceLocals)
       let state = stateOf(engine, localsNow(), null, plant)
       const listeners = new Set<() => void>()
       const refresh = (): void => {

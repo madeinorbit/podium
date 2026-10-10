@@ -1,7 +1,7 @@
 import { worklistGroups } from '@podium/client-graph/worklist/groups'
 import { referenceState } from '../../../diagnostics/reference-state'
 import { NAVIGATION_SUMMARIES } from '@podium/client-graph/navigation-schema'
-import { createWorklistPool } from '@podium/client-graph/create'
+import { createWorklistPool } from '../../../shared/src/clock-fixture-pool'
 import {
   compareSidebarSnapshots,
   poolSidebarSnapshot,
@@ -9,7 +9,7 @@ import {
   type SidebarSnapshot,
 } from '../../../diagnostics/sidebar-check'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
+import { createEngineLocals } from '../engine-locals'
 import { createRowSource } from '../../../shared/src/row-source'
 import type { SidebarState } from '@podium/client-graph/worklist/sidebar'
 import { reaction } from 'mobx'

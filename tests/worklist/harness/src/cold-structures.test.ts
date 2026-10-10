@@ -29,7 +29,7 @@ import { worklistGroups } from '@podium/client-graph/worklist/groups'
 
 import { createWorklistPool, type MobxPool } from '@podium/client-graph'
 
-import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
+import { createEngineLocals } from './engine-locals'
 import { createRowSource } from '../../shared/src/row-source'
 import { reaction, runInAction } from 'mobx'
 import { describe, expect, it } from 'vitest'

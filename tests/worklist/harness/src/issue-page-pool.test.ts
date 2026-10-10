@@ -330,15 +330,9 @@ describe('declared issue page', () => {
     )
     const payload = tracked(() => omitGone(ctx.pool.row('issue', 'root')))
     try {
-      ctx.pool.applyLocals(
-        { selectedIssueId: null, coarseNow: NOW + 999 },
-        new Set(['coarseNow'] as const),
-      )
+      ctx.pool.clock.advance(NOW + 999)
       expect(values).toEqual([[true, false]])
-      ctx.pool.applyLocals(
-        { selectedIssueId: null, coarseNow: NOW + 1000 },
-        new Set(['coarseNow'] as const),
-      )
+      ctx.pool.clock.advance(NOW + 1000)
       expect(values).toEqual([
         [true, false],
         [false, true],

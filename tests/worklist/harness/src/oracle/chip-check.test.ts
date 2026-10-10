@@ -1,6 +1,6 @@
 import { referenceView } from '@podium/client-graph/issue-reference'
 import { LOADING } from '@podium/client-graph'
-import { createWorklistPool } from '@podium/client-graph/create'
+import { createWorklistPool } from '../../../shared/src/clock-fixture-pool'
 import { knownIds } from '@podium/client-graph/enumerate'
 import { describe, expect, it } from 'vitest'
 import {

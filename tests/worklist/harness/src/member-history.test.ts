@@ -168,10 +168,7 @@ async function run(scale: number) {
     )
     // Correctness beyond the counted steps: a decay deadline, a revival, a join.
     runInAction(() =>
-      pool.applyLocals(
-        { selectedIssueId: null, coarseNow: NOW + 30 * 24 * HOUR },
-        new Set(['coarseNow']),
-      ),
+      pool.clock.advance(NOW + 30 * 24 * HOUR),
     )
     parity.push(answers(pool))
     publish([

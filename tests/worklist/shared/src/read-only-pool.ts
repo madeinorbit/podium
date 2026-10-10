@@ -1,6 +1,6 @@
 /** Read-only fixture composition. Production always owns its transaction writer. */
-import { createWorklistPool } from '@podium/client-graph/create'
-import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
+import { createWorklistPool } from './clock-fixture-pool'
+import { createEngineLocals } from '../../harness/src/engine-locals'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
 import type { WorklistRuntime } from '@podium/client-graph/runtime-pool'
 import type { PoolSummaryFields } from '@podium/client-graph/source-registry'

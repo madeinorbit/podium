@@ -14,7 +14,7 @@ import {
 import { createMemoryRouterWindow } from '@podium/client-core/router'
 import type { SessionView } from '@podium/client-core/session-values'
 import type { SocketHub } from '@podium/client-core/socket-transport'
-import { createWorklistPool } from '@podium/client-graph/create'
+import { createWorklistPool } from '../../../shared/src/clock-fixture-pool'
 import { cachedGroup } from '@podium/client-graph/cached'
 import {
   legacyDerivationFromStore,
@@ -22,7 +22,7 @@ import {
 } from '../../../diagnostics/legacy'
 import { legacySidebarRow, legacySidebarSections } from '../../../diagnostics/oracle'
 import { checkSidebar, poolSidebarSnapshot } from '../../../diagnostics/sidebar-check'
-import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
+import { createEngineLocals } from '../../../harness/src/engine-locals'
 import { createRowSource } from '../../../shared/src/row-source'
 import { WorklistIssue } from '@podium/client-graph/worklist/issue'
 import { LOADING, NO_UNITS, unitsOf, type UnitOwn, type Units } from '@podium/client-graph/worklist/rollup'

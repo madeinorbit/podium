@@ -372,11 +372,11 @@ export function probeReferenceArmFor(
       const relations = graph.reader()
       reads.wrapRelations(relations)
       const guard = new Set<string>()
-      let state = nextState(engine, channel.get(), null, 'boot', plant, guard)
+      let state = nextState(engine, (channel.get() as SliceLocals), null, 'boot', plant, guard)
       const listeners = new Set<() => void>()
       const refresh = (trigger: Trigger): void => {
         stats.notifications += 1
-        state = nextState(engine, channel.get(), state, trigger, plant, guard)
+        state = nextState(engine, (channel.get() as SliceLocals), state, trigger, plant, guard)
         for (const listener of [...listeners]) listener()
       }
       const offFeed = source.subscribe((event: RowSourceEvent) => {
@@ -407,7 +407,7 @@ export function probeReferenceArmFor(
         rebuildFromScratch(): SliceSnapshot {
           return snapshotFromStore(referenceState(engine), {
             selectedIssueId: null,
-            coarseNow: channel.get().coarseNow!,
+            coarseNow: (channel.get() as SliceLocals).coarseNow!,
           })
         },
         dispose(): void {

@@ -10,11 +10,11 @@ import {
   sessionOwnershipStats,
 } from '@podium/client-core/values'
 import { LOADING } from '@podium/client-graph'
-import { createWorklistPool } from '@podium/client-graph/create'
+import { createWorklistPool } from '../../../shared/src/clock-fixture-pool'
 import { opening, poolMissionViewSnapshot, poolWorkspaceMission } from '../../../diagnostics/mission-view-check'
 import { MISSION_VIEW_SUMMARIES } from '@podium/client-graph/mission-view-schema'
 import type { MobxPool } from '@podium/client-graph/pool'
-import { createEngineLocals } from '@podium/client-graph/shared/engine-locals'
+import { createEngineLocals } from '../engine-locals'
 import type { SliceIssue } from '@podium/client-graph/shared/slice-types'
 import { autorun, reaction, runInAction } from 'mobx'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
