@@ -450,6 +450,13 @@ export const PodiumConfig = z.object({
       enabled: z.boolean().optional(),
       baseUrl: z.string().optional(),
       trustedProbeKeys: z.array(z.string()).optional(),
+      /**
+       * A joined machine's record that its server once answered the locate
+       * proof (POD-5921). Until then a Connect candidate too old to answer it
+       * may still be accepted on its `/version`; after, only a proof moves the
+       * box. Written by the daemon, never by hand. Remove with that fallback.
+       */
+      locateProofVerified: z.boolean().optional(),
     })
     .optional(),
   telemetry: z

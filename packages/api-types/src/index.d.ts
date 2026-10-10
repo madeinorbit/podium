@@ -5759,6 +5759,7 @@ type Output_setup_complete = {
     connect?: undefined | {
         baseUrl?: string | undefined;
         enabled?: boolean | undefined;
+        locateProofVerified?: boolean | undefined;
         trustedProbeKeys?: string[] | undefined;
     };
     features?: Record<string, boolean> | undefined;

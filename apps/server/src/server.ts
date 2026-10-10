@@ -118,7 +118,7 @@ import { adoptStagedFirstAdminPassword, applyEnvFirstAdminPassword } from './fir
 import { IssueToolProvider } from './issue-mcp'
 import { registerMcpRoute } from './mcp-route'
 import { MobilePairingManager } from './mobile-pairing'
-import { registerMobilePairingRoutes } from './mobile-pairing-route'
+import { clientAddressForRequest, registerMobilePairingRoutes } from './mobile-pairing-route'
 import { connectClient } from './modules/connect/client'
 import { ConnectPublisher } from './modules/connect/publisher'
 import { controlSocketHandler } from './control-socket'
@@ -197,6 +197,7 @@ import {
   servedWebSourceDigest,
 } from './web-bundle-stamp'
 import { registerWellKnownRoute } from './well-known-route'
+import { registerLocateProofRoute } from './locate-proof-route'
 
 const log = createLogger('server:http')
 // Separate namespaces so an operator can turn the loop profiler up
@@ -659,14 +660,17 @@ export async function startServer(
   // Keeps Connect's record of where this server is reachable current. Started
   // once the listener is up (below); reads PODIUM_CONNECT and the public URL
   // per tick, so both land without a restart. The base URL is a boot fact.
+  // The address this server claims: what the Connect publisher sends and what
+  // the locate proof signs over (POD-5921) — one reader, so the two never differ.
+  const claimedPublicUrl = (): string | undefined =>
+    serverMoveDataPlaneDeferred ? undefined : resolvePublicUrl(loadConfig(), process.env)
   const connectPublisher = new ConnectPublisher({
     client: connectClient({
       baseUrl: resolveConnectBaseUrl(config, process.env),
       identity: () => installation,
     }),
     identity: () => installation,
-    publicUrl: () =>
-      serverMoveDataPlaneDeferred ? undefined : resolvePublicUrl(loadConfig(), process.env),
+    publicUrl: claimedPublicUrl,
     enabled: () => store.settings.resolve('connectEnabled').value,
     log: createLogger('server:connect'),
   })
@@ -1404,6 +1408,15 @@ export async function startServer(
       ...PODIUM_CONNECT_PROBE_KEYS,
       ...resolveConnectProbeKeys(loadConfig(), process.env),
     ],
+  })
+  // The locate proof (POD-5921): a client that found this address through
+  // Connect checks it is this installation before it reconnects here. Public,
+  // wildcard-CORS, rate-limited; beside the reachability answer, before auth.
+  registerLocateProofRoute(app, {
+    identity: () => installation,
+    publicUrl: claimedPublicUrl,
+    clientAddress: (request) =>
+      clientAddressForRequest(request, requestPeerAddresses.get(request), trustedProxyHops),
   })
   devPublisher.registerRoute(app)
   let janitorHost: Awaited<ReturnType<typeof import('./janitor-host').startJanitorHost>> | undefined

@@ -32,10 +32,10 @@ import {
   isDurableRuntimeEvent,
   type DaemonMessage,
 } from '@podium/protocol/daemon'
-import { stateDir, loadConfig, resolveConnectBaseUrl } from '@podium/runtime/config'
+import { stateDir, loadConfig, resolveConnectBaseUrl, saveConfig } from '@podium/runtime/config'
 import { writeConnectivity } from '@podium/runtime/connectivity'
 import { writeDaemonHealth } from '@podium/runtime/daemon-health'
-import { resolveServerUrl } from '@podium/runtime/connect-locator'
+import { locateDelayMs, locateServer, proveServer } from '@podium/runtime/server-follow'
 import {
   applyServerUrl,
   consumePairCode,
@@ -103,46 +103,12 @@ const PEER_HELLO_ACK_DEADLINE_MS = 10_000
 const QUEUE_DRAIN_RETRY_MS = 500
 /** Drops in a row before the link is called flapping and logged above info. */
 const FLAPPING_DROP_THRESHOLD = 3
-/**
- * When the locator is asked again during one outage (POD-4646, reshaped by
- * POD-3274). The first ask is immediate; the next three come after 2, 4 and
- * 8 s of backoff; then every `LOCATOR_ASK_STEADY_MS` until the outage has
- * lasted `LOCATOR_FAST_WINDOW_MS`; then every `LOCATOR_ASK_MAX_MS`.
- *
- * FAST FIRST: a crashed or restarted tunnel publishes its new address a few
- * seconds after the drop (podium-tunnel holds it until the name resolves).
- *
- * STEADY THROUGH A REBOOT: a rebooting server publishes minutes into the
- * outage. A backoff that kept doubling found it one whole gap late — measured
- * on the lab, a 90 s reboot was followed 31 s after the address was out.
- * Asking every ~15 s for ten minutes bounds that lag to about one ask.
- *
- * THEN SLOW: a server that is simply off settles at one ask per five minutes.
- * Every wait is jittered ±50%, so a fleet stranded by the same outage does
- * not ask in lockstep when Connect or the server returns.
- *
- * Measured in scheduled backoff, not wall clock: each reconnect tick adds the
- * delay it armed, and real time is at least that sum.
+/*
+ * When the locator is asked again during one outage: `locateDelayMs` in
+ * @podium/runtime/server-follow, shared with every client (POD-5921). The
+ * daemon measures it in SCHEDULED BACKOFF, not wall clock: each reconnect tick
+ * adds the delay it armed, and real time is at least that sum.
  */
-const LOCATOR_ASK_FIRST_MS = [2_000, 4_000, 8_000] as const
-const LOCATOR_ASK_STEADY_MS = 15_000
-const LOCATOR_FAST_WINDOW_MS = 10 * 60_000
-const LOCATOR_ASK_MAX_MS = 300_000
-
-/**
- * The backoff to sit through before the next ask, jittered ±50%. `asked` is how
- * many asks this outage has made; `outageMs` the backoff it has scheduled so far.
- */
-export function locatorAskDelayMs(
-  asked: number,
-  outageMs: number,
-  random: () => number = Math.random,
-): number {
-  const base =
-    LOCATOR_ASK_FIRST_MS[asked - 1] ??
-    (outageMs < LOCATOR_FAST_WINDOW_MS ? LOCATOR_ASK_STEADY_MS : LOCATOR_ASK_MAX_MS)
-  return Math.round(base * (0.5 + random()))
-}
 
 /**
  * How long a protocol-mismatch `podium update` may run before it is killed.
@@ -208,8 +174,8 @@ export interface DaemonConnectionDeps {
   readonly onTerminal: () => void | Promise<void>
   readonly openSocket?: (url: string) => SocketLike
   /**
-   * Fetch for the Podium Connect locator read and the candidate `/version`
-   * probes (POD-4533). Injected so tests never touch the network; production
+   * Fetch for the Podium Connect locator read and the candidates' locate
+   * proofs (POD-4533, POD-5921). Injected so tests never touch the network; production
    * uses the global fetch.
    */
   readonly locatorFetch?: typeof fetch
@@ -329,7 +295,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
    * it only advances while the link is down.
    */
   let locatorBackoffSinceAttemptMs = 0
-  /** How much backoff the next ask waits for; see locatorAskDelayMs. */
+  /** How much backoff the next ask waits for; see locateDelayMs. */
   let locatorNextAskMs = 0
   /** Backoff scheduled since this outage began; picks fast window or slow tail. */
   let locatorOutageMs = 0
@@ -527,7 +493,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   /**
    * THE LOCATOR RESCUE (POD-4533): find the server again through Podium
    * Connect, then dial the answer instead of the dead URL. Asked at once when
-   * an outage begins, and again on the `locatorAskDelayMs` schedule while it
+   * an outage begins, and again on the `locateDelayMs` schedule while it
    * lasts (POD-4646, POD-3274).
    *
    * Triggered from `scheduleReconnect` only — a failed dial on startup, or a
@@ -542,11 +508,13 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     let installationId: string | undefined
     let installationPublicKey: string | undefined
     let connectBaseUrl: string
+    let proofVerified: boolean
     try {
       const config = loadConfig()
       installationId = config.installationId
       installationPublicKey = config.installationPublicKey
       connectBaseUrl = resolveConnectBaseUrl(config, process.env)
+      proofVerified = config.connect?.locateProofVerified === true
     } catch {
       return
     }
@@ -554,12 +522,16 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     const fetchImpl = deps.locatorFetch ?? fetch
     let resolved: string | undefined
     try {
-      resolved = await resolveServerUrl({
-        installationId,
-        installationPublicKey,
+      // A candidate is adopted only once it proves it holds the installation
+      // key (POD-5921). Until this box has seen its own server answer that
+      // proof once, a server too old to know the route may still pass on its
+      // `/version` (spec §6) — the one legacy path, removed a release later.
+      resolved = await locateServer({
+        identity: { installationId, installationPublicKey },
+        currentOrigin: activeServerUrl,
         connectBaseUrl,
-        currentServerUrl: activeServerUrl,
         fetch: fetchImpl,
+        legacyVersionCheck: !proofVerified,
         // Every address tried and refused is named, with why (POD-3274). Before,
         // a refused candidate left no line at all, and a 60 s DNS-cache stall
         // could only be read out of the code.
@@ -572,7 +544,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
             })
           } else if (event.kind === 'no-record') {
             log.warn('locator gave no record for this installation', { connectBaseUrl })
-          } else {
+          } else if (event.kind === 'no-new-address') {
             log.info('locator still names the current server URL', { serverUrl: activeServerUrl })
           }
         },
@@ -604,6 +576,53 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
   }
 
   /**
+   * THE END OF THE LEGACY CHECK (POD-5921, spec §6). Once per established
+   * link, until it has happened once: ask the server this box is connected to
+   * for the locate proof. The first proof that verifies is recorded as
+   * `connect.locateProofVerified`, and from then on a Connect candidate must
+   * prove itself — `/version` alone no longer moves this box. Talking to the
+   * current server only; Connect is not asked.
+   */
+  const confirmLocateProof = (): void => {
+    if (options.localLink || closing) return
+    let installationId: string | undefined
+    let installationPublicKey: string | undefined
+    try {
+      const config = loadConfig()
+      if (config.connect?.locateProofVerified === true) return
+      installationId = config.installationId
+      installationPublicKey = config.installationPublicKey
+    } catch {
+      return
+    }
+    if (!installationId || !installationPublicKey) return
+    const probed = activeServerUrl
+    void proveServer({
+      origin: probed,
+      identity: { installationId, installationPublicKey },
+      fetch: deps.locatorFetch ?? fetch,
+    })
+      .then((proof) => {
+        if (!proof.ok) {
+          log.info('server answered no locate proof yet; the legacy check stays on', {
+            serverUrl: probed,
+            reason: proof.reason,
+          })
+          return
+        }
+        const latest = loadConfig()
+        if (latest.connect?.locateProofVerified === true) return
+        saveConfig({ ...latest, connect: { ...latest.connect, locateProofVerified: true } })
+        log.info('server proved its installation key; Connect candidates must now prove it too', {
+          serverUrl: probed,
+        })
+      })
+      .catch((error) => {
+        log.warn('could not record the verified locate proof', { err: error })
+      })
+  }
+
+  /**
    * `armedDelayMs` is the backoff `scheduleReconnect` just armed. It counts
    * toward the NEXT ask, never this one: it has not elapsed yet.
    */
@@ -612,7 +631,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
     const due = locatorAsksThisOutage === 0 || locatorBackoffSinceAttemptMs >= locatorNextAskMs
     if (due && !locatorInFlight) {
       locatorAsksThisOutage += 1
-      locatorNextAskMs = locatorAskDelayMs(locatorAsksThisOutage, locatorOutageMs, deps.random)
+      locatorNextAskMs = locateDelayMs(locatorAsksThisOutage, locatorOutageMs, deps.random)
       locatorBackoffSinceAttemptMs = 0
       locatorInFlight = true
       void attemptLocatorResolution()
@@ -802,6 +821,7 @@ export function createDaemonConnection(deps: DaemonConnectionDeps): DaemonConnec
       state: 'connected',
       lastHelloOkAt: new Date().toISOString(),
     })
+    confirmLocateProof()
     if (quiescedTransferId && endpointTargetUrl === activeServerUrl) {
       quiescedTransferId = undefined
       endpointTargetUrl = undefined
