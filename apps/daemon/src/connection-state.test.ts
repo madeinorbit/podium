@@ -1980,8 +1980,8 @@ describe('podium connect locator rescue (POD-4533)', () => {
     })
     void h.state.start()
     dropSocket(h.sockets[0]!)
-    await flush()
-    expect(loadConfig().serverUrl).toBe('wss://new.example')
+    // The verifier is loaded on first use (a dynamic import), which can outlast a few ticks.
+    await vi.waitFor(() => expect(loadConfig().serverUrl).toBe('wss://new.example'))
     expect(h.socketUrls.at(-1)).toBe('wss://new.example/daemon')
     await h.state.close()
   })
@@ -1997,8 +1997,7 @@ describe('podium connect locator rescue (POD-4533)', () => {
     h.sockets[0]!.emit('open')
     h.sockets[0]!.message(ok)
     await started
-    await flush()
-    expect(loadConfig().connect?.locateProofVerified).toBe(true)
+    await vi.waitFor(() => expect(loadConfig().connect?.locateProofVerified).toBe(true))
     const proofCalls = () => h.fetchCalls.filter((url) => url.endsWith('/.well-known/podium/locate'))
     expect(proofCalls()).toHaveLength(1)
     // The next connection does not ask its server again.
