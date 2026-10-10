@@ -3,6 +3,7 @@ import { act, cleanup, fireEvent, render, waitFor } from '@testing-library/react
 import { useRef, useSyncExternalStore } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { refreshClocks } from '@podium/mobx-helpers'
 import { insideReader, measureWork } from '../../../../tests/worklist/harness/src/work-meter'
 import { FlightDeckWaterfall } from './FlightDeckWaterfall'
 import { NOW, waterfallFixture } from './waterfall-view.test.fixture'
@@ -54,17 +55,23 @@ afterEach(() => {
   vi.restoreAllMocks()
 })
 
-// happy-dom's layout/RAF work uses real timers; only the clock step is faked.
-const realSetTimeout = globalThis.setTimeout
 const settle = async () => {
   await act(async () => {
-    await new Promise((resolve) => realSetTimeout(resolve, 40))
+    await new Promise((resolve) => setTimeout(resolve, 40))
   })
+}
+
+async function minuteStep() {
+  // Reschedule at the unchanged wall time so the real timer carries the measured
+  // reader's context. Advancing Date alone must not repaint the leaf.
+  refreshClocks()
+  vi.setSystemTime(Date.now() + 60000)
+  await new Promise((resolve) => setTimeout(resolve, 1100))
 }
 
 async function mount(count: number) {
   const f = await waterfallFixture(count)
-  vi.useFakeTimers({ toFake: ['Date', 'setTimeout', 'clearTimeout'] })
+  vi.useFakeTimers({ toFake: ['Date'] })
   vi.setSystemTime(NOW)
   state.pool = f.pool
   const history = vi.fn(async ({ sessionIds }: { sessionIds: string[] }) => ({
@@ -240,7 +247,7 @@ describe('elements waterfall viewport', () => {
         const tick = await measureWork(
           async () =>
             insideReader('waterfall.minute', async () => {
-              await act(async () => vi.advanceTimersByTime(60000))
+              await act(minuteStep)
             }),
           { pool: f.pool },
         )
@@ -269,7 +276,7 @@ describe('elements waterfall viewport', () => {
         const pastWidth = liveLane.style.getPropertyValue('--waterfall-width')
         const pastTick = await measureWork(
           async () => {
-            await act(async () => vi.advanceTimersByTime(60000))
+            await act(minuteStep)
           },
           { pool: f.pool },
         )
