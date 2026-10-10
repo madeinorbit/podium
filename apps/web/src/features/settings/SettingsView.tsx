@@ -272,16 +272,19 @@ function HibernationSettingsSection({
  * state (and its poll) stays here so it survives switching tabs.
  */
 export function SettingsView(props: { onClose: () => void }): JSX.Element {
+  const settingsTab = useSettingsTab()
   return (
     <SettingsOpening>
-      <SettingsViewBody {...props} />
+      <SettingsViewBody {...props} settingsTab={settingsTab} />
     </SettingsOpening>
   )
 }
 
-const SettingsViewBody = observer(function SettingsViewBody({ onClose }: { onClose: () => void }): JSX.Element {
+const SettingsViewBody = observer(function SettingsViewBody({ onClose, settingsTab }: {
+  onClose: () => void
+  settingsTab: ReturnType<typeof useSettingsTab>
+}): JSX.Element {
   const { trpc, setSettingsTab } = useSettingsClient()
-  const settingsTab = useSettingsTab()
   const notificationsEnabled = useFeature('notifications')
   // The nav filter is experimental (off by default) — Settings → Experimental.
   const searchEnabled = useFeature('settings-search')
