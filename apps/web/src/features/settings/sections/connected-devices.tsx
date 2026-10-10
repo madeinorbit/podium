@@ -264,6 +264,7 @@ function PairingCode({
   cancelError?: string | null
   onCancel?: () => void
 }): JSX.Element {
+  const [now, setNow] = useState(() => Date.now())
   const [feedback, setFeedback] = useState<string | null>(null)
 
   useEffect(() => {
