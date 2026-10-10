@@ -86,9 +86,7 @@ const SettingsScreenBody = observer(function SettingsScreenBody() {
       demo ? visibleFleetOperations({ machines: DEMO_MACHINES, hosts: DEMO_HOST_METRICS }) : null,
     [demo],
   )
-  const devices = [...(deviceFeed.sessions ?? [])].sort((a, b) =>
-    a.current !== b.current ? (a.current ? -1 : 1)
-      : (b.lastSeenAt ?? b.createdAt).localeCompare(a.lastSeenAt ?? a.createdAt))
+  const devices = deviceFeed.sessions ?? []
 
   const finishLocalLogout = async () => {
     await eraseLocalData()
