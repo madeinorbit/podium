@@ -88,6 +88,7 @@ it('matches old Sends facts for every status, retract and transcript confirmatio
     initialPending: [{ id: 'pending', deliveryId: 'message', text: 'first line\nsecond line', wire: 'first line\nsecond line', at: 1, state: 'sent' as const, kind: 'message' as const }],
     records: { getSnapshot: () => [current], subscribe: (listener: () => void) => { listeners.add(listener); return () => { listeners.delete(listener) } } },
   }
+  ingestMessageRecords(f.pool, [current])
   const old = new BeforeSends(options)
   const next = new Sends({ ...options, records: { ...options.records, getSnapshot: () => [here(f.pool.model('message', 'message'))!] },
     messageRecords: { read: id => here(f.pool.model('message', id)), ingest: rows => ingestMessageRecords(f.pool, rows) } })

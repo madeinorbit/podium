@@ -116,7 +116,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
     ...(mount.superThread ? { latestTurnFailure: () => trpc.superagent.latestTurnFailure.query({ threadId: mount.superThread!.threadId }) } : {}),
     sends: {
       ...(headless ? { reconcile: 'next-user-item' as const } : {
-        records: { getSnapshot: () => recordValues.get(), subscribe: listener => reaction(() => recordValues.get(), listener) },
+        records: { getSnapshot: () => recordValues.get(), subscribe: listener => reaction(() => recordValues.get().map(record => record.row), listener, { equals: compareShallow }) },
         outbox: { held: () => heldValues.get(), subscribe: listener => reaction(() => heldValues.get(), listener) },
         messageRecords: { read: id => here(pool.model('message', id)), ingest: records => ingestMessageRecords(pool, records) },
         lookupRecords: ids => trpc.messages.records.query({ ids: [...ids] }).then(answer => answer.records),
