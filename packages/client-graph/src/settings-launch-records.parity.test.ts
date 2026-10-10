@@ -11,6 +11,7 @@ import { headerEntities } from './header-entities'
 import { SettingsRepositories } from './settings-repositories'
 import { asMachineId, asRepoId } from '@podium/model/browser'
 import { createLaunchWorkPicker } from './launch-option-views'
+import { launchRecords } from './launch-records'
 import { createLaunchWorkPicker as beforePicker } from './test-support/launch-option-views-before.test.fixture'
 
 const account: AccountView = { id: 'managed:openai', provider: 'openai', source: 'managed', kind: 'api-key',
@@ -133,6 +134,31 @@ it('matches the registered repository prefix section on the same scan/projection
     p.apply({ type: 'update', rows: [{ kind: 'repo', id: repoId, value: { id: repoId, prefix: 'NEW', path: '/repo' } as never }] })
     expect(seen.at(-1)).toBe('NEW')
     expect(section.rows[0]).toBe(retained)
+    stop()
+  } finally { p.dispose() }
+})
+
+it('keeps repository names live and resolves root, clone and nested launch targets from shared scans', () => {
+  const p = pool(), machineId = asMachineId('host')
+  const repos: GitRepositoryWire[] = [
+    { kind: 'repository', machineId, path: '/repo/first', originUrl: 'https://example.test/original.git', worktrees: [{ path: '/repo/first/topic', branch: 'topic' }] },
+    { kind: 'repository', machineId, path: '/repo/second', originUrl: 'https://example.test/original.git', worktrees: [] },
+  ]
+  try {
+    headerEntities(p).apply(repos.map((value, i) => ({ kind: 'repository', id: `r${i}`, value })))
+    const records = launchRecords(p), retained = records.at('/repo/first')!
+    for (const path of ['/repo/first', '/repo/first/topic', '/repo/second']) {
+      const before = repos.flatMap(repo => [
+        { path: repo.path, repoPath: repo.path, isMain: true, machineId: repo.machineId, branch: repo.branch },
+        ...repo.worktrees.map(tree => ({ path: tree.path, repoPath: repo.path, isMain: false, machineId: repo.machineId, branch: tree.branch })),
+      ]).find(tree => tree.path === path)!
+      const answer = records.treeAt(path, machineId)!
+      expect({ path: answer.path, repoPath: answer.repoPath, isMain: answer.isMain, machineId: answer.machineId, branch: answer.branch }).toEqual(before)
+    }
+    const seen: string[] = [], stop = autorun(() => seen.push(`${retained.path}|${retained.name}`))
+    headerEntities(p).apply([{ kind: 'repository', id: 'r0', value: { ...repos[0]!, originUrl: 'https://example.test/renamed.git' } }])
+    expect(records.at('/repo/first')).toBe(retained)
+    expect(seen.at(-1)).toBe('/repo/first|renamed')
     stop()
   } finally { p.dispose() }
 })
