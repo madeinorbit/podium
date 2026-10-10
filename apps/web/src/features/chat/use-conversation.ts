@@ -86,6 +86,7 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
   const store = runtime.access
   const { hub, trpc, replica } = store
   const readSession = () => here(pool.model('session', sessionId))
+  const readRecords = () => loaded(omitGone(pool.row('chatContextReader', 'reader')))?.records(sessionId).records ?? []
   const readHeld = () => loaded(omitGone(pool.row('chatHeld', sessionId)))?.sends ?? []
   const headless = mount.superThread !== undefined || readSession()?.headless === true
   let conversation: WebConversation
@@ -121,8 +122,8 @@ export function createWebConversation(runtime: ClientRuntime<Trpc>, pool: MobxPo
     ...(mount.superThread ? { latestTurnFailure: () => trpc.superagent.latestTurnFailure.query({ threadId: mount.superThread!.threadId }) } : {}),
     sends: {
       ...(headless ? { reconcile: 'next-user-item' as const } : {
-        records: { getSnapshot: () => conversation.records, subscribe: listener => reaction(() => conversation.records.map(record => record.row), listener, { equals: compareShallow }) },
-        outbox: { held: () => conversation.heldSends, subscribe: listener => reaction(() => conversation.heldSends, listener) },
+        records: { getSnapshot: () => conversation?.records ?? readRecords(), subscribe: listener => reaction(() => conversation.records.map(record => record.row), listener, { equals: compareShallow }) },
+        outbox: { held: () => conversation?.heldSends ?? readHeld(), subscribe: listener => reaction(() => conversation.heldSends, listener) },
         messageRecords: { read: id => here(pool.model('messageRecord', id)), ingest: records => ingestMessageRecords(pool, records, id => currentMessageRecord(pool, replica, id)) },
         lookupRecords: ids => trpc.messages.records.query({ ids: [...ids] }).then(answer => answer.records),
         retract: id => trpc.messages.cancel.mutate({ id }).then(message => message.deliveryStatus),
