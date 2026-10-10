@@ -1,5 +1,7 @@
 import type { MobileClientSession } from '@podium/protocol'
 import { RecordRequest } from '@podium/client-graph/requested-records'
+import { followVisibleRequest } from '@podium/client-graph/visible-request'
+import { AppState } from 'react-native'
 import { useFocusEffect } from 'expo-router'
 import { useCallback, useMemo } from 'react'
 import { useMobilePool, useMobilePoolProjection } from './mobile-pool'
@@ -25,7 +27,13 @@ export function useConnectedDevices(): ConnectedDevicesFeed {
   const reload = useCallback(() => {
     if (request && !demo) void request.read(() => readConnectedDevices(profile.httpOrigin, bearer))
   }, [request, demo, profile.httpOrigin, bearer])
-  useFocusEffect(useCallback(() => { reload(); return () => request?.close() }, [reload, request]))
+  useFocusEffect(useCallback(() => {
+    const stop = followVisibleRequest(() => { if (!request?.loading) reload() }, {
+      visible: () => AppState.currentState === 'active' || AppState.currentState == null,
+      subscribe: changed => { const subscription = AppState.addEventListener('change', changed); return () => subscription.remove() },
+    })
+    return () => { stop(); request?.close() }
+  }, [reload, request]))
   const read = useCallback(() => ({
     sessions: request?.answer === undefined ? null : request.models,
     loading: request?.loading ?? true,

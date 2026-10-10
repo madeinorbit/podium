@@ -43,7 +43,8 @@
     "react-native-web": "0.21.2",
     "typescript": "^7.0.2",
     "vite": "^8.0.16",
-    "vitest": "5.0.0-beta.6"
+    "vitest": "5.0.0-beta.6",
+    "@podium/runtime": "workspace:*"
   },
   "peerDependencies": {
     "react": ">=19"

@@ -1,4 +1,5 @@
-import { launchRecords } from './launch-records'
+import { launchRecords, type LaunchRepository } from './launch-records'
+import type { RepositoryModel } from './requested-models'
 import { launchOptionViews } from './launch-option-views'
 import { here, omitGone } from './lookup'
 import type { SpawnTarget } from '@podium/client-core'
@@ -347,6 +348,12 @@ export function commandIssueReference(issue: IssueModel | (Pick<IssueViewModel, 
 export class CommandPaletteView {
   @observableRef accessor openingIds: readonly string[] | typeof LOADING = LOADING
   @observableRef accessor sessionOrder: readonly string[] = []
+  // Stored on open: choice order and recency stay still; labels stay live.
+  @observableRef accessor repoOrder: readonly string[] = []
+  @observableRef accessor repoChoiceOrder: readonly string[] = []
+  @observableRef accessor repoViewOrder: readonly string[] = []
+  @observableRef accessor openingUsage: Readonly<Record<string, number>> = {}
+  @observable accessor initialRepoPath = '' 
   @observableRef accessor recent: RecentCommand[] = []
   // Stored on open: membership and recency, never copied labels or references.
   @observableRef accessor issuePositions = new Map<string, number>()
@@ -365,6 +372,13 @@ export class CommandPaletteView {
       this.openingIds = snapshot && snapshot !== LOADING ? snapshot.issues.map(issue => issue.id) : LOADING
       this.issuePositions = new Map(snapshot && snapshot !== LOADING
         ? snapshot.issues.map((issue, position) => [issue.id, position]) : [])
+      if (snapshot && snapshot !== LOADING) {
+        this.repoOrder = snapshot.repos.map(repo => (repo as RepositoryModel).id)
+        this.repoChoiceOrder = snapshot.repoChoices.map(repo => (repo as RepositoryModel).id)
+        this.repoViewOrder = snapshot.repoViews.map(repo => (repo as LaunchRepository).id)
+        this.openingUsage = snapshot.usage
+        this.initialRepoPath = snapshot.initialRepoPath
+      }
       const ids = views.sessionIds()
       this.sessionOrder = ids && ids !== LOADING ? ids : []
       this.defaultAgent = resolveDefaultAgent(undefined, this.sessions)
@@ -408,7 +422,13 @@ export class CommandPaletteView {
     if (this.openingIds === LOADING) return LOADING
     const live = commandLaunchViews(this.pool).opening()
     if (!live || live === LOADING) return live
-    return { ...live, issues: this.openingIds.flatMap(id => here(this.pool.model('issue', id)) as unknown as IssueViewModel ?? []) }
+    return { ...live,
+      issues: this.openingIds.flatMap(id => here(this.pool.model('issue', id)) as unknown as IssueViewModel ?? []),
+      repos: this.repoOrder.flatMap(id => here(this.pool.model('repository', id)) ?? []),
+      repoChoices: this.repoChoiceOrder.flatMap(id => here(this.pool.model('repository', id)) ?? []),
+      repoViews: this.repoViewOrder.flatMap(id => launchRecords(this.pool).group(id) ?? []),
+      usage: this.openingUsage, initialRepoPath: this.initialRepoPath,
+    }
   }
   @lazy get contextIssueId() {
     const views = commandLaunchViews(this.pool)
@@ -421,7 +441,7 @@ export class CommandPaletteView {
     const views = commandLaunchViews(this.pool)
     const id = this.contextIssueId
     const position = id ? this.issuePositions.get(id) : undefined
-    const issue = position === undefined ? undefined : this.snapshot.issues[position]
+    const issue = position === undefined || !id ? undefined : here(this.pool.model('issue', id)) as unknown as IssueViewModel
     return views.selected({ ...this.snapshot, issues: issue ? [issue] : [] }, this.memberIds)
   }
   @lazy({ equals: compareShallow }) get memberIds(): string[] {
@@ -465,6 +485,11 @@ export class CommandPaletteView {
     this.stopLoading = undefined
     this.openingIds = LOADING
     this.sessionOrder = []
+    this.repoOrder = []
+    this.repoChoiceOrder = []
+    this.repoViewOrder = []
+    this.openingUsage = {}
+    this.initialRepoPath = ''
     this.recent = []
     this.issuePositions = new Map()
     this.memberOrder = []

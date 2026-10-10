@@ -1,5 +1,9 @@
 import { SettingsOpening } from './settings-opening'
-import { connectedDeviceViews, visibleFleetOperations } from '@podium/client-core/values'
+import { devicePlatformLabel, visibleFleetOperations } from '@podium/client-core/values'
+import { observer } from 'mobx-react-lite'
+import type { MobileClientSession } from '@podium/protocol'
+import { relativeTime } from '@podium/client-core/focus'
+import { useAgeNow } from '../lib/clock-hooks'
 import { useRouter } from 'expo-router'
 import { useMemo, useState } from 'react'
 import { Alert, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native'
@@ -40,7 +44,7 @@ export function SettingsScreen() {
   )
 }
 
-function SettingsScreenBody() {
+const SettingsScreenBody = observer(function SettingsScreenBody() {
   const router = useRouter()
   // The modal sheet reaches the physical bottom edge, so the last row still has
   // to clear the home indicator (the hook is the plain safe-area inset here).
@@ -82,10 +86,9 @@ function SettingsScreenBody() {
       demo ? visibleFleetOperations({ machines: DEMO_MACHINES, hosts: DEMO_HOST_METRICS }) : null,
     [demo],
   )
-  const devices = useMemo(
-    () => connectedDeviceViews(deviceFeed.sessions ?? [], Date.now()),
-    [deviceFeed.sessions],
-  )
+  const devices = [...(deviceFeed.sessions ?? [])].sort((a, b) =>
+    a.current !== b.current ? (a.current ? -1 : 1)
+      : (b.lastSeenAt ?? b.createdAt).localeCompare(a.lastSeenAt ?? a.createdAt))
 
   const finishLocalLogout = async () => {
     await eraseLocalData()
@@ -254,19 +257,7 @@ function SettingsScreenBody() {
           ) : devices.length === 0 ? (
             <Row label="Devices" value="none" />
           ) : (
-            devices.map((device) => (
-              <View key={device.sessionId} style={styles.deviceRow}>
-                <View style={styles.deviceIdentity}>
-                  <Text style={styles.deviceName} numberOfLines={1}>
-                    {device.name}
-                  </Text>
-                  <Text style={styles.deviceDetail} numberOfLines={1}>
-                    {device.platform} · {device.activityLabel}
-                  </Text>
-                </View>
-                {device.current ? <Text style={styles.currentDevice}>CURRENT</Text> : null}
-              </View>
-            ))
+            devices.map(device => <ConnectedDeviceRow key={device.sessionId} device={device} />)
           )}
           {deviceFeed.failed && devices.length > 0 ? (
             <Row label="Refresh" value="failed · showing prior list" />
@@ -391,7 +382,20 @@ function SettingsScreenBody() {
       </ScrollView>
     </Screen>
   )
-}
+})
+
+const ConnectedDeviceRow = observer(function ConnectedDeviceRow({ device }: { device: MobileClientSession }) {
+  const now = useAgeNow(device.lastSeenAt ?? device.createdAt, 0, !device.current && !!device.lastSeenAt)
+  const activity = device.current ? 'This device · active now' : device.lastSeenAt
+    ? `Active ${relativeTime(device.lastSeenAt, now)}` : 'No activity reported'
+  return <View style={styles.deviceRow}>
+    <View style={styles.deviceIdentity}>
+      <Text style={styles.deviceName} numberOfLines={1}>{device.deviceName}</Text>
+      <Text style={styles.deviceDetail} numberOfLines={1}>{devicePlatformLabel(device.platform)} · {activity}</Text>
+    </View>
+    {device.current ? <Text style={styles.currentDevice}>CURRENT</Text> : null}
+  </View>
+})
 
 function SettingsMachineRow({ id }: { id: string }) {
   const machine = useSettingsMachineStatus(id)

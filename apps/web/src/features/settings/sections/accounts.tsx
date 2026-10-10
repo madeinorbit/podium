@@ -373,7 +373,7 @@ const ManagedAccountRow = observer(function ManagedAccountRow({
 export const AccountsSection = observer(function AccountsSection(): JSX.Element {
   const trpc = useSettingsTrpc()
   const readAccounts = useCallback(() => trpc.accounts.list.query(), [trpc])
-  const { request, reload } = useSettingsRecords('account', readAccounts, accountKey)
+  const { request, reload } = useSettingsRecords('account', readAccounts, accountKey, false)
   const accounts = request?.models
   const refresh = useCallback(() => { void reload() }, [reload])
 

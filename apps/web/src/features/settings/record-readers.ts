@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo } from 'react'
 import { useWorklistPool } from '@/app/store-worklist-pool'
 
 export function useSettingsRecords<E extends Exclude<RequestedEntity, 'podiumSettings'>>(
-  entity: E, read: () => Promise<readonly PoolRows[E][]>, key: (row: PoolRows[E]) => string,
+  entity: E, read: () => Promise<readonly PoolRows[E][]>, key: (row: PoolRows[E]) => string, follow = true,
 ) {
   const pool = useWorklistPool()
   const create = useMemo(() => (pool: MobxPool) => new RecordRequest(pool, entity, key), [entity, key])
@@ -20,12 +20,12 @@ export function useSettingsRecords<E extends Exclude<RequestedEntity, 'podiumSet
   // Public directories have no push contract yet. Refresh only while this
   // opening/document is visible; all readers see the same ingested identities.
   useEffect(() => {
-    if (!request) return
+    if (!request || (!follow && inherited && entity === 'account')) return
     return followVisibleRequest(() => { if (!request.loading) void reload() }, {
       visible: () => document.visibilityState !== 'hidden',
       subscribe: changed => { document.addEventListener('visibilitychange', changed); return () => document.removeEventListener('visibilitychange', changed) },
     })
-  }, [request, reload])
+  }, [request, reload, follow, inherited, entity])
   return { request, reload }
 }
 
