@@ -563,7 +563,7 @@ describe('MobX pool tracking objects (POD-4748)', () => {
     const sorted = Object.fromEntries(
       Object.entries(measured).sort(([a], [b]) => a.localeCompare(b)),
     )
-    const baseline: Baseline = { updatedBy, reason, counts: sorted }
+    const baseline: Baseline = { ...readBaseline(), updatedBy, reason, counts: sorted }
     writeFileSync(BASELINE_PATH, `${JSON.stringify(baseline, null, 2)}\n`)
   })
 })

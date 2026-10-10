@@ -131,11 +131,15 @@ function quantile(sorted: readonly number[], q: number): number {
 describe('bootstrap in the count harness', () => {
   for (const scale of SCALES) it(`counts at ${scale}x (and walls when asked)`, async () => {
     const cells = []
+    Bun.gc(true)
     const feed = feedOf(scale)
     const lazy = counted('lazy', feed)
     // Release @lazy's synchronous-read temporaries from the disposed arm.
     await Promise.resolve()
+    Bun.gc(true)
     const all = counted('allResident', feed)
+    await Promise.resolve()
+    Bun.gc(true)
     // Resident = what the schema's rule keeps (POD-4665), over the corpus at the pool's clock.
     const cold = tableColdRule(
       SCHEMA,
