@@ -82,7 +82,7 @@ export interface ModelHost {
   /** The addressed model: here, loading, or gone. */
   model<E extends EntityName>(entity: E, id: string): Lookup<ModelOf[E]>
   /** Where a row stands; a cold one answers `loading` and is queued (first access). */
-  resident(entity: EntityName, id: string): Residence
+  resident(entity: EntityName, id: string, absent?: 'load' | 'summary-fields'): Residence
   /** Resident fallback seats; cold rows are requested from a declared lane summary. */
   rosterCandidates(path: string): Iterable<string>
 }
@@ -436,6 +436,8 @@ export class IssueModel extends EntityModel {
   }
 
   @lazy get inMemory(): boolean { return this.host.resident('issue', this.id) === 'resident' }
+  /** Availability of the declared summary, without promoting a historical payload. */
+  @lazy get summaryResidence(): Residence { return this.host.resident('issue', this.id, 'summary-fields') }
   @lazy get finished(): boolean | undefined {
     const row = this.readFacts()
     return row === undefined ? undefined : isFinished(row)

@@ -426,22 +426,34 @@ export class CommandPaletteView {
       return tree ? [tree] : []
     })
   }
+  @lazy({ equals: compareShallow }) get issues(): IssueViewModel[] {
+    if (this.openingIds === LOADING) return []
+    return this.openingIds.flatMap(id => {
+      const model = this.pool.issueObject(id)
+      return model.summaryResidence === 'resident' ? [model as unknown as IssueViewModel] : []
+    })
+  }
+  @lazy get pending() {
+    return this.openingIds === LOADING ? 0 : this.openingIds.filter(id =>
+      this.pool.issueObject(id).summaryResidence === 'loading').length
+  }
+  @lazy({ equals: compareShallow }) get repos() {
+    return this.repoOrder.flatMap(id => here(this.pool.model('repository', id)) ?? [])
+  }
+  @lazy({ equals: compareShallow }) get repoChoices() {
+    return this.repoChoiceOrder.flatMap(id => here(this.pool.model('repository', id)) ?? [])
+  }
+  @lazy({ equals: compareShallow }) get repoViews() {
+    return this.repoViewOrder.flatMap(id => launchRecords(this.pool).byId(id) ?? [])
+  }
   @lazy get snapshot(): Loaded<CommandLaunchData> {
     if (this.openingIds === LOADING) return LOADING
     const window = omitGone(this.pool.row('commandWindow', 'window'))
     if (!window || window === LOADING) return window
-    let pending = 0
-    const issues = this.openingIds.flatMap(id => {
-      const summary = omitGone(this.pool.row('commandIssue', id))
-      if (summary === LOADING) { pending++; return [] }
-      return summary ? [this.pool.issueObject(id) as unknown as IssueViewModel] : []
-    })
-    // Captured IDs retain this opening's order; each reader owns live facts.
-    // No catalog or usage question runs again while the menu is open.
-    return { ...window, issues, pending,
-      repos: this.repoOrder.flatMap(id => here(this.pool.model('repository', id)) ?? []),
-      repoChoices: this.repoChoiceOrder.flatMap(id => here(this.pool.model('repository', id)) ?? []),
-      repoViews: this.repoViewOrder.flatMap(id => launchRecords(this.pool).byId(id) ?? []),
+    // Each list has its own membership dependency. A window/selection change
+    // reads stable model lists rather than replaying the opening catalogue.
+    return { ...window, issues: this.issues, pending: this.pending,
+      repos: this.repos, repoChoices: this.repoChoices, repoViews: this.repoViews,
       machines: commandLaunchViews(this.pool).machines(),
       sessionIds: this.sessionOrder, spawnTargets: this.spawnTargets,
       usage: this.openingUsage, initialRepoPath: this.initialRepoPath,
