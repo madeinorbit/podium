@@ -6,6 +6,6 @@ import { observer } from 'mobx-react-lite'
 export const CommandPlaceTitle = observer(function CommandPlaceTitle({ worktree }: { worktree: WorktreeView }) {
   return <>{worktree.branch ?? (machinePathBasename(worktree.path) || worktree.path)}</>
 })
-export const CommandPlaceHint = observer(function CommandPlaceHint({ worktree }: { worktree: WorktreeView }) {
+export const CommandPlaceHint = observer(function CommandPlaceHint({ worktree }: { worktree: WorktreeView & { readonly repoName?: string } }) {
   return <>{worktree.repoName}</>
 })
