@@ -13675,12 +13675,12 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "fixtureSidebarSections",
       "rule": "loop:for-of",
-      "tokens": "efaa117cb36f2a3ee6e552dcf0fd203f5f7fb0d8d1bc4c70914e5e30b1f160b8",
+      "tokens": "7dc04b31be2ce5e92a2262ae4a8d2cf14b2e08c5e925490c9f178f0d86497300",
       "gate": [],
       "origin": [
         "4bed1838542c1263d86af04d8f60231a7891b8bcb42ec58e87a88aef7c00c3a7"
       ],
-      "fingerprint": "d6768b302952d4858e5a5f4735006b153e7b1a1833f7dc04e7f958416aa19523",
+      "fingerprint": "6f9c18cc3d55049c4aef05ec5df8ffd53ec2fdae65222f6b6691e3209642c48f",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -15097,13 +15097,13 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/pool/sidebar/sections/callback",
       "rule": "helper-consumer",
-      "tokens": "86e7eac067010845922e4465718743e24e726bca576cd4d38fc7220a9a5aa840",
+      "tokens": "d4ebcfb4c16e96f85afc528af39ebc8b0d7f65f3376f9eb4d8b1726dd3b92703",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25"
       ],
-      "fingerprint": "f2705f90f0abfed29350b6c1cf79774254ff2667f6adb6d8f2bd3dcdb4de47e6",
+      "fingerprint": "075946d00f5f9088579d5738e8ecdf00347f80fd1b93d75a3ba157a271839635",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",

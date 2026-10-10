@@ -46,7 +46,8 @@ const sessionRow = (patch: object = {}) => ({
   agentState: { phase: 'working', since: stamp }, ...patch,
 })
 function fixture(worklist: 'held' | 'demand' = 'held') {
-  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, { worklist })
+  const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, worklist === 'demand'
+    ? { worklist, load: () => undefined, schedule: () => () => {} } : undefined)
   pool.apply({ type: 'replace', rows: [
     { kind: 'issue', id: 'root', value: issueRow('root') as never },
     { kind: 'issue', id: 'child', value: issueRow('child', { parentId: 'root' }) as never },
