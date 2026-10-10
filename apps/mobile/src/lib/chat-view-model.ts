@@ -1,0 +1,60 @@
+import { here } from '@podium/client-graph/lookup'
+import type { MobxPool } from '@podium/client-graph'
+import type { ConversationSendInput } from '@podium/client-core/conversation'
+import { lazy } from '@podium/mobx-helpers'
+import { actionBound, observable } from 'mobx'
+import { liveTranscriptItem } from './superagent-transcript'
+import type { MobileConversation } from './mobile-conversation'
+
+/** One phone reader. The warm service owns the stream, never the reader's choices. */
+export class MobileChatViewModel {
+  @observable accessor following = true
+  @observable accessor searching = false
+  constructor(private readonly service: MobileConversation, private readonly pool: MobxPool) {}
+
+  @lazy get session() { return here(this.pool.model('session', this.service.sessionId)) }
+  @lazy get draft(): string { return this.pool.sessionObject(this.service.sessionId).messageDraft }
+  @actionBound setDraft(text: string): void { this.pool.sessionObject(this.service.sessionId).setMessageDraft(text) }
+  @actionBound setFollowing(value: boolean): void { this.following = value }
+  @actionBound setSearching(value: boolean): void { this.searching = value }
+  open(): () => void { return this.service.addReader(() => !this.following || this.searching) }
+
+  // Transcript port: screens and rows read this view, never the warm log.
+  @lazy get ids() { return this.service.transcript.ids }
+  @lazy get byId() { return this.service.transcript.byId }
+  get items() { return this.service.transcript.items }
+  @lazy get initialLoaded() { return this.service.transcript.initialLoaded }
+  @lazy get hasMoreOlder() { return this.service.transcript.hasMoreOlder }
+  @lazy get loadingOlder() { return this.service.transcript.loadingOlder }
+  @lazy get pendingQuestion() { return this.service.transcript.pendingQuestion }
+  @lazy get freshness() { return this.service.transcript.freshness }
+  @lazy get offlineAsOf() { return this.service.transcript.offlineAsOf }
+  @lazy get presentation() { return this.service.presentation }
+  markRendered(): void { this.service.transcript.markRendered() }
+  loadOlder(): Promise<void> { return this.service.transcript.loadOlder() }
+
+  // Send port: record-backed bubbles come from the shared message models.
+  @lazy get bubbles() { return this.service.sends.bubbles }
+  @lazy get pending() { return this.service.sends.pending }
+  @lazy get offer() { return this.service.sends.offer }
+  @lazy get canInterrupt() { return this.service.sends.canInterrupt }
+  @lazy get interruptError() { return this.service.sends.interruptError }
+  @lazy get justSent() { return this.service.sends.justSent }
+  @lazy get turnRunning() { return this.service.turnRunning }
+  @lazy get turnError() { return this.service.turnError }
+  @lazy get visibleFailure() { return this.service.visibleFailure }
+  @lazy get overlayLabel() { return this.service.headless?.label }
+  @lazy get hasStreamingText(): boolean { return this.turnRunning && !!this.service.headless?.text }
+  @lazy get liveItem() { return liveTranscriptItem(this.service.headless?.text ?? '', this.turnRunning) }
+  submit(input: ConversationSendInput) { return this.service.sends.submit(input) }
+  retry(id: string) { return this.service.sends.retry(id) }
+  sendAgain(id: string) { return this.service.sends.sendAgain(id) }
+  discard(id: string) { return this.service.sends.discard(id) }
+  retract(id: string) { return this.service.sends.retract(id) }
+  sendOffer(prompt: string, at: string) { return this.service.sends.sendOffer(prompt, at) }
+  dismissOffer(at: string) { return this.service.sends.dismissOffer(at) }
+  interrupt(draft = this.draft) { return this.service.sends.interrupt(draft) }
+  finishTurn(): void { this.service.finishTurn() }
+  clear(): void { this.service.clear() }
+  setTurnError(error: string): void { this.service.setTurnError(error) }
+}

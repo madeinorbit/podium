@@ -49,7 +49,7 @@ export interface ConversationSession {
 
 export interface ConversationOptions {
   sessionId: SessionId
-  drafts: DraftStore
+  drafts: Pick<DraftStore, 'get' | 'set'>
   transcript: Omit<TranscriptLogOptions, 'sessionId' | 'enqueueFrame' | 'onChange' | 'connection'>
   sends: Omit<SendsOptions, 'sessionId' | 'transcript' | 'drafts' | 'connection' | 'readContext'>
   readSession?: () => ConversationSession | undefined

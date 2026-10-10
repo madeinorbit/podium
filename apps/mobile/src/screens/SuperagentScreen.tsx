@@ -1,6 +1,6 @@
 import { loadedPaneSession } from '@podium/client-graph/session-pane'
 import { useModelCatalog } from '@podium/client-core/react'
-import type { Conversation } from '@podium/client-core/conversation'
+import type { MobileChatViewModel } from '../lib/chat-view-model'
 import type { SuperagentSliceValue } from '@podium/client-core/values'
 import { buildImagePrompt, matchesQuestionInteraction } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
@@ -36,7 +36,6 @@ import {
   superagentTurnChoice,
   type SuperagentBackendPick,
 } from '../lib/superagent-backend'
-import { liveTranscriptItem } from '../lib/superagent-transcript'
 import { color, font, sans, space } from '../theme/theme'
 
 /**
@@ -102,26 +101,26 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   const { connected, onRefresh, refreshing, refreshControl, refreshAccessibilityProps } =
     useRefreshableList()
   const [threadsLoaded, setThreadsLoaded] = useState(false)
+  const history = useRef({ following: true, searching: false })
+  const { conversation, podiumSid, binding } = useThreadConversation(history.current)
   const followTranscript = useCallback((following: boolean) => {
-    history.current.following = following
-  }, [])
+    conversation?.setFollowing(following)
+  }, [conversation])
   const searchTranscript = useCallback((searching: boolean) => {
-    history.current.searching = searching
-  }, [])
+    conversation?.setSearching(searching)
+  }, [conversation])
   const [backendPick, setBackendPick] = useState<SuperagentBackendPick>({})
   const backend = useMemo(
     () => resolveSuperagentBackend(superagent.active, backendPick),
     [superagent.active, backendPick],
   )
-  const history = useRef({ following: true, searching: false })
-  const { conversation, podiumSid, binding } = useThreadConversation(history.current)
-  const transcript = conversation?.transcript
+  const transcript = conversation
   const transcriptLoaded = transcript?.initialLoaded ?? false
   const itemCount = transcript?.ids.length ?? 0
   const running = conversation?.turnRunning ?? false
-  const justSent = conversation?.sends.justSent ?? false
+  const justSent = conversation?.justSent ?? false
   const working = running || justSent
-  const statusLabel = conversation?.headless?.label
+  const statusLabel = conversation?.overlayLabel
   const error = conversation?.turnError ?? null
   const currentQuestion = usePoolQuestion(podiumSid)
   const transcriptSession = usePoolTranscriptSession(podiumSid)
@@ -159,9 +158,9 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
     }
   }, [refreshSuperThreads])
 
-  const pendingTurns = conversation?.sends.bubbles.map(pendingTurnOf) ?? []
+  const pendingTurns = conversation?.bubbles.map(pendingTurnOf) ?? []
   const loadOlder = useCallback(() => {
-    void conversation?.transcript.loadOlder()
+    void conversation?.loadOlder()
   }, [conversation])
   const send = useCallback(
     (text: string, files?: readonly SentAttachment[]) => {
@@ -169,7 +168,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
         attached = files ?? []
       if (!conversation || (!trimmed && attached.length === 0)) return
       setPinRequest((count) => count + 1)
-      void conversation.sends.submit({
+      void conversation.submit({
         text: trimmed,
         backend: superagentTurnChoice(backend),
         wire: buildImagePrompt(
@@ -191,13 +190,13 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
         return
       }
       setPinRequest((count) => count + 1)
-      void conversation.sends.retry(turn.id)
+      void conversation.retry(turn.id)
     },
     [conversation, send],
   )
   const interrupt = useCallback(async () => {
     if (!conversation) return
-    await conversation.sends.interrupt(conversation.draft)
+    await conversation.interrupt(conversation.draft)
     conversation.finishTurn()
   }, [conversation])
 
@@ -219,10 +218,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
     }
   }, [attachments.clear, binding, conversation, podiumSid, refreshSuperThreads, trpc])
 
-  const liveItem = useMemo(
-    () => liveTranscriptItem(conversation?.headless?.text ?? '', running),
-    [conversation?.headless?.text, running],
-  )
+  const hasStreamingText = conversation?.hasStreamingText ?? false
   const visibleRestoredFailure =
     pendingTurns.length === 0 && !working ? conversation?.visibleFailure : null
   const restoredRow = useMemo((): LocalPendingTurn | null => {
@@ -242,13 +238,13 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   // POD-332 retired `MobileClientValue` (and with it `client.sessionById`): every
   // screen reads the same store and the same published slices as the web.
   const transcriptResolved = podiumSid
-    ? transcriptLoaded || itemCount > 0 || liveItem !== undefined
+    ? transcriptLoaded || itemCount > 0 || hasStreamingText
     : threadsLoaded
   const resolved = !booting && transcriptResolved
   const empty =
     resolved &&
     itemCount === 0 &&
-    liveItem === undefined &&
+    !hasStreamingText &&
     visiblePendingTurns.length === 0 &&
     !working
 
@@ -285,11 +281,11 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
               refreshing={refreshing}
               onRefresh={onRefresh}
             >
-              <TranscriptList
+              <ThreadTranscript
+                chat={conversation}
                 transcript={transcript}
                 presentation={conversation?.presentation}
                 transcriptQuestion={transcript?.pendingQuestion ?? null}
-                liveItem={liveItem}
                 live={working}
                 collapseContext
                 assetContext={
@@ -305,7 +301,7 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
                 pinRequest={pinRequest}
                 onRetryPending={retry}
                 onQuote={(text) => setDraftInsertion({ id: insertionSeq.current++, text })}
-                streaming={liveItem !== undefined}
+                streaming={hasStreamingText}
                 tail={{
                   label: working
                     ? justSent && !running
@@ -380,16 +376,20 @@ export const SuperagentScreen = observer(function SuperagentScreen() {
   )
 })
 
+const ThreadTranscript = observer(function ThreadTranscript({ chat, ...props }: React.ComponentProps<typeof TranscriptList> & { chat?: MobileChatViewModel }) {
+  return <TranscriptList {...props} liveItem={chat?.liveItem} />
+})
+
 const ThreadComposer = observer(function ThreadComposer({
   conversation,
   ...props
-}: React.ComponentProps<typeof Composer> & { conversation?: Conversation }) {
+}: React.ComponentProps<typeof Composer> & { conversation?: MobileChatViewModel }) {
   return (
     <Composer
       {...props}
       value={conversation?.draft ?? ''}
       onChangeText={(text) => {
-        if (conversation) conversation.draft = text
+        if (conversation) conversation.setDraft(text)
       }}
     />
   )

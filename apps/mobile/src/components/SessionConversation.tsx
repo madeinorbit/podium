@@ -1,9 +1,8 @@
 import { MobileConversation } from '../lib/mobile-conversation'
-import { loadedPaneSession } from '@podium/client-graph/session-pane'
+import { MobileChatViewModel } from '../lib/chat-view-model'
 import { currentMessageRecord, ingestMessageRecords } from '@podium/client-graph/message-models'
 import { here } from '@podium/client-graph/lookup'
 import {
-  type Conversation,
   PHONE_WARM_CONVERSATIONS,
   type ConversationPendingTurn,
   hubConnection,
@@ -128,7 +127,7 @@ const SessionComposer = observer(function SessionComposer({
   turnActive,
   canInterrupt,
 }: {
-  conversation: Conversation
+  conversation: MobileChatViewModel
   placeholder: string
   onSend: (text: string, files?: readonly SentAttachment[]) => void
   caption?: string | null
@@ -143,12 +142,12 @@ const SessionComposer = observer(function SessionComposer({
   const draft = conversation.draft
   const setDraft = useCallback(
     (text: string) => {
-      conversation.draft = text
+      conversation.setDraft(text)
     },
     [conversation],
   )
   const handleStop = useCallback(() => {
-    void conversation.sends.interrupt(conversation.draft)
+    void conversation.interrupt(conversation.draft)
   }, [conversation])
   const onStop = turnActive && canInterrupt ? handleStop : undefined
   return (
@@ -206,8 +205,8 @@ export function SessionConversation(
     sessionId,
     (drafts) => new MobileConversation({
       sessionId,
-      drafts,
-      readSession: () => (pool ? loadedPaneSession(pool, sessionId) : undefined),
+      drafts: { get: id => pool!.sessionObject(id).messageDraft, set: (id, text) => pool!.sessionObject(id).setMessageDraft(text) },
+      readSession: () => (pool ? here(pool.model('session', sessionId)) : undefined),
       hub: owner.hub,
       connection: hubConnection(owner.hub),
       scheduler: {
@@ -298,7 +297,7 @@ export function SessionConversation(
             .then((answer) => answer.records),
         deliver: async (turn) => {
           try {
-            const session = (pool ? loadedPaneSession(pool, sessionId) : undefined)
+            const session = (pool ? here(pool.model('session', sessionId)) : undefined)
             const composer = composerState({
               session: session ?? props.session,
               headless: false,
@@ -337,9 +336,10 @@ export function SessionConversation(
     }, { hidePendingQuestion: true }),
     { warmLimit: PHONE_WARM_CONVERSATIONS, enabled: pool !== null && readiness.ready },
   )
-  useEffect(() => model?.addReader(() => !history.current.following || history.current.searching), [model])
-  return model ? (
-    <SessionConversationBody {...props} pool={pool} model={model} history={history.current} />
+  const view = useMemo(() => model && pool ? new MobileChatViewModel(model, pool) : undefined, [model, pool])
+  useEffect(() => view?.open(), [view])
+  return view ? (
+    <SessionConversationBody {...props} pool={pool} session={view.session ?? props.session} model={view} history={view} />
   ) : (
     <TranscriptSkeleton />
   )
@@ -358,7 +358,7 @@ const SessionConversationBody = observer(function SessionConversationBody({
 }: {
   pool: ReturnType<typeof useMobilePool>
   session: SessionView
-  model: MobileConversation
+  model: MobileChatViewModel
   history: { following: boolean; searching: boolean }
   /** The task this session belongs to; drives task context and the plan bridge. */
   issue: IssueViewModel | undefined
@@ -425,16 +425,10 @@ const SessionConversationBody = observer(function SessionConversationBody({
     useRefreshableList()
   const keyboardLift = useKeyboardLift()
 
-  const followTranscript = useCallback(
-    (following: boolean) => (history.following = following),
-    [history],
-  )
-  const searchTranscript = useCallback(
-    (searching: boolean) => (history.searching = searching),
-    [history],
-  )
-  const transcript = model.transcript
-  const conversation = model.sends
+  const followTranscript = model.setFollowing
+  const searchTranscript = model.setSearching
+  const transcript = model
+  const conversation = model
   const loaded = transcript.initialLoaded
   const itemCount = transcript.ids.length
   const pendingTurns = useMemo<LocalPendingTurn[]>(

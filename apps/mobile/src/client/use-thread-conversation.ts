@@ -1,5 +1,6 @@
 import { MobileConversation } from '../lib/mobile-conversation'
-import { loadedPaneSession } from '@podium/client-graph/session-pane'
+import { here } from '@podium/client-graph/lookup'
+import { MobileChatViewModel } from '../lib/chat-view-model'
 import { hubConnection, PHONE_WARM_CONVERSATIONS } from '@podium/client-core/conversation'
 import { randomUUID } from '@podium/client-core/id'
 import { REPLICA_TRANSCRIPT_ITEM_CAP } from '@podium/client-core/replica'
@@ -7,7 +8,7 @@ import { useConversation, useStoreHandle } from '@podium/client-core/react'
 import { superagentState } from '@podium/client-graph/superagent'
 import { asSessionId, asThreadId, type SessionId } from '@podium/model'
 import { action, observable, reaction } from 'mobx'
-import { useEffect } from 'react'
+import { useEffect, useMemo } from 'react'
 import { AppState } from 'react-native'
 import { humanizeSendFailure } from '../lib/send-failure'
 import { superagentTurnChoice, resolveSuperagentBackend } from '../lib/superagent-backend'
@@ -40,10 +41,10 @@ export function useThreadConversation(
     CONVERSATION_ID,
     (drafts) => new MobileConversation({
       sessionId: CONVERSATION_ID,
-      drafts,
+      drafts: { get: id => pool!.sessionObject(id).messageDraft, set: (id, text) => pool!.sessionObject(id).setMessageDraft(text) },
       headless: true,
       streamSessionId: readSid,
-      readSession: () => (pool ? loadedPaneSession(pool, readSid()) : undefined),
+      readSession: () => (pool && readSid() ? here(pool.model('session', readSid()!)) : undefined),
       readTurnRunning: () => (pool ? superagentState(pool).active?.turnRunning : undefined),
       initialTurnRunning: pool ? superagentState(pool).active?.turnRunning : false,
       hub: owner.hub,
@@ -148,7 +149,8 @@ export function useThreadConversation(
       enabled: pool !== null && !superagentState(pool).loading,
     },
   )
-  useEffect(() => conversation?.addReader(() => !history.following || history.searching), [conversation, history])
+  const view = useMemo(() => conversation && pool ? new MobileChatViewModel(conversation, pool) : undefined, [conversation, pool])
+  useEffect(() => view?.open(), [view])
   const podiumSid = readSid()
-  return { conversation, podiumSid, binding: thread }
+  return { conversation: view, podiumSid, binding: thread }
 }

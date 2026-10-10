@@ -19,6 +19,8 @@ export class WebConversation extends Conversation {
       ctxSeq: null,
       session: undefined,
       activity: null,
+      get preview() { return conversation.preview },
+      get overlay() { return conversation.headless },
       get pending() {
         return conversation.sends.bubbles
       },

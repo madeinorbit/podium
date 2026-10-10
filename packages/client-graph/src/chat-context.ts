@@ -45,10 +45,11 @@ export function chatIssue(pool: MobxPool, id: string): Loaded<IssueViewModel> {
   const repoId = pool.relations.one('issue', id, 'repo')
   const repo = repoId ? (omitGone(pool.row('repo', repoId)) as { prefix?: string } | undefined) : undefined
   return {
-    ...row,
+    id: row.id, seq: row.seq, title: row.title, linearIdentifier: row.linearIdentifier,
+    archived: row.archived, deletedAt: row.deletedAt, updatedAt: row.updatedAt, repoId: row.repoId,
     prefix: repo?.prefix,
     displayRef: repo?.prefix ? `${repo.prefix}-${row.seq}` : `#${row.seq}`,
-  }
+  } as IssueViewModel
 }
 export function chatMentionIssues(pool: MobxPool, counts = readerCounts(pool)) {
   if (counts) counts.mentionBuilds++
@@ -194,9 +195,8 @@ class ReferenceSessionSummary {
     if (!row || loading(row)) return row
     // Reference cards name their fields; the phone roster preserves the
     // richer declared summary and resident metadata it already consumed.
-    const projected = this.fields
-      ? Object.fromEntries(this.fields.map(key => [key, this.model.storedField(key)])) as unknown as SessionView
-      : { ...row }
+    const projected = Object.fromEntries((this.fields ?? CHAT_CONTEXT_SUMMARIES.session)
+      .map(key => [key, this.model.storedField(key)])) as unknown as SessionView
     if (projected.resume)
       projected.resume = { kind: projected.resume.kind, value: projected.resume.value }
     return projected

@@ -165,11 +165,11 @@ function installFields(
       return this.storedField(property)
     }
     // Only direct paint readers need another scalar equality boundary.
-    const get = answered ?? ((entity === 'session' || entity === 'issue' && ISSUE_PAINT_FIELDS.has(field)) ? lazy(stored, {
+    const get = answered ?? ((entity === 'session' || entity === 'issue' && ISSUE_PAINT_FIELDS.has(field)) ? (entity === 'session' && spec.fields[field]?.type === 'object' ? lazy({ equals: compareStructural }) : lazy)(stored, {
       kind: 'getter', name: field, static: false, private: false,
       access: { has: target => field in target, get: target => stored.call(target) },
       addInitializer() {}, metadata: {},
-    }, entity === 'session' && spec.fields[field]?.type === 'object' ? { equals: compareStructural } : undefined) : stored)
+    }) : stored)
     Object.defineProperty(prototype, field, {
       configurable: false,
       enumerable: false,

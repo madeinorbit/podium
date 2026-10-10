@@ -400,7 +400,7 @@ function FeedRowFrame({
   children,
 }: {
   row: Row
-  transcript?: TranscriptLog
+  transcript?: Pick<TranscriptLog, 'ids' | 'byId' | 'items'>
   collapseContext?: boolean
   sourceIds?: readonly string[]
   arrived: boolean
@@ -483,7 +483,7 @@ function StreamingCaret({ reduceMotion }: { reduceMotion: boolean }) {
 
 interface TranscriptFeedRowProps {
   row: Row
-  transcript?: TranscriptLog
+  transcript?: Pick<TranscriptLog, 'ids' | 'byId' | 'items'>
   collapseContext?: boolean
   sourceIds?: readonly string[]
   arrived: boolean
@@ -946,7 +946,7 @@ export const TranscriptList = observer(function TranscriptList({
   pinRequest = 0,
 }: {
   items?: TranscriptItem[]
-  transcript?: TranscriptLog
+  transcript?: Pick<TranscriptLog, 'ids' | 'byId' | 'items'>
   presentation?: MobileConversationPresentation
   /** Source-owned raw-order answer; every host supplies its addressed fact. */
   transcriptQuestion: TranscriptItem | null
