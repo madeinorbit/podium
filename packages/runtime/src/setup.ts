@@ -603,12 +603,24 @@ export function applySetup(input: {
     // headless-managed (the desktop sidecar, a container running the binary
     // directly). Writing `systemd` over that answer tells the box something untrue
     // about itself. `prev.mode` unset is the only moment nobody has answered yet.
-    ...(prev.mode === undefined && prev.persistence === undefined
-      ? { persistence: 'systemd' as const }
-      : {}),
+    ...(prev.mode === undefined && prev.persistence === undefined ? unansweredPersistence() : {}),
   }
   saveConfig(cfg)
   return cfg
+}
+
+/**
+ * The `persistence` a setup records when nothing has answered yet: `systemd`, but only
+ * for a headless Linux box. The desktop shell owns its backend's process, and its join
+ * wrote `systemd` into a Mac's config (POD-5983); no other platform has a systemd.
+ */
+function unansweredPersistence(
+  env: EnvSource = process.env,
+  platform: NodeJS.Platform = process.platform,
+): { persistence?: 'systemd' } {
+  return platform === 'linux' && env.PODIUM_DESKTOP_SUPERVISED !== '1'
+    ? { persistence: 'systemd' }
+    : {}
 }
 
 /** The answer {@link applyPublicUrl} gives a local caller: never a throw. */
@@ -707,7 +719,7 @@ export function applyJoin(
           // See applySetup: web/join-config surfaces can't start the backend themselves,
           // so they record the CHOICE and the next `podium` invocation brings it up.
           // CLI setup overwrites it right after with the effective result.
-          ...(prev.persistence ? {} : { persistence: 'systemd' as const }),
+          ...(prev.persistence ? {} : unansweredPersistence()),
         },
         uiUrl,
       ),

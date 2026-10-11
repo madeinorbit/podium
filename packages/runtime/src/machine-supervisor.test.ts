@@ -22,8 +22,11 @@ import {
   saveSupervisorState,
   targetTransferRecovery,
   PARENT_GENERATION_ENV,
+  readRoleOrigin,
   TRANSFER_ASSIGNMENT_FILE,
 } from './machine-supervisor'
+import { writeConnectivity } from './connectivity'
+import { confirmSetupEnrollment, prepareSetupEnrollment } from './setup-enrollment'
 import { loadConfig, saveConfig } from './config'
 import { readConnectivityForTest } from './connectivity'
 import { createMachineCredential, readMachineCredential, machinePublicKeyWire, verifyWithMachineKey } from './machine-credential'
@@ -143,7 +146,10 @@ describe('supervisor service assignment', () => {
     // Same bytes in a later setup are not the transfer's atomic config write.
     saveConfig(config, join(dir, 'config.json'))
     expect(reconcileSupervisorAssignment(state, config, dir)).toEqual(intentional)
-    expect(reconcileSupervisorAssignment(state, { mode: 'daemon' }, dir)).toEqual(intentional)
+    // A later setup's own mode is its topology; no backup adds the server to it.
+    expect(reconcileSupervisorAssignment(state, { mode: 'daemon' }, dir)).toEqual(
+      fallbackAssignment('daemon'),
+    )
   })
 
   it('retains target recovery only until acknowledgement or endpoint finalization', () => {
@@ -184,6 +190,143 @@ describe('supervisor service assignment', () => {
         agentExecutionLockout: false,
       }),
     ).toEqual({ server: false, agentExecution: false })
+  })
+})
+
+describe('a setup that changes the role outside a transfer (POD-5983)', () => {
+  const VPS = 'pdm_' + 'v'.repeat(43)
+  const OTHER = 'pdm_' + 'o'.repeat(43)
+  const joined = { mode: 'daemon' as const, serverUrl: 'wss://vps.example', installationId: VPS }
+
+  /** The desktop's first launch: all-in-one, enrolled with its own server. */
+  function firstLocalLaunch(dir: string) {
+    const request = prepareSetupEnrollment(true, true, dir)
+    confirmSetupEnrollment(request.requestId, request.publicKey, dir)
+    const state = loadSupervisorState(dir)
+    state.updatePubkey = 'local-update-key'
+    state.workspaceId = 'local-workspace'
+    // What the parent persists at every start (b8f91e6ae1).
+    state.assignment = reconcileSupervisorAssignment(state, { mode: 'all-in-one' }, dir)
+    expect(state.assignment).toEqual({ server: true, agentExecution: true })
+    saveSupervisorState(dir, state)
+    writeConnectivity(
+      { serverUrl: 'ws://localhost:18787', processId: 1, appVersion: 't', state: 'connected' },
+      dir,
+    )
+    return state
+  }
+
+  it('takes the joined role and drops the local server credential', () => {
+    const dir = stateDir()
+    firstLocalLaunch(dir)
+    const state = loadSupervisorState(dir)
+    expect(state.enrolledPublicKey).toBeDefined()
+
+    expect(reconcileSupervisorAssignment(state, joined, dir)).toEqual({
+      server: false,
+      agentExecution: true,
+    })
+    for (const view of [state, loadSupervisorState(dir)]) {
+      expect(view.assignment).toEqual({ server: false, agentExecution: true })
+      expect(view.enrolledPublicKey).toBeUndefined()
+      expect(view.setupEnrollment).toBeUndefined()
+      expect(view.token).toBeUndefined()
+      expect(view.updatePubkey).toBeUndefined()
+      expect(view.workspaceId).toBeUndefined()
+    }
+    expect(JSON.parse(readFileSync(join(dir, 'machine.json'), 'utf8')).connectivity).toBeUndefined()
+    expect(readRoleOrigin(dir)).toEqual({ mode: 'daemon', coordinator: VPS })
+    // The machine keeps its identity and key: the pair code enrolls that key.
+    expect(state.machineId).toBe(loadSupervisorState(dir).machineId)
+    expect(readMachineCredential(dir)).toBeDefined()
+  })
+
+  it('repairs a box an older build left holding the local role under a joined config', () => {
+    const dir = stateDir()
+    firstLocalLaunch(dir)
+    // No origin on disk: what every box set up before this change looks like.
+    const raw = JSON.parse(readFileSync(join(dir, 'machine.json'), 'utf8'))
+    delete raw.role
+    writeFileSync(join(dir, 'machine.json'), JSON.stringify(raw))
+    const state = loadSupervisorState(dir)
+    expect(reconcileSupervisorAssignment(state, { ...joined, pairCode: 'ABCD-EFGH' }, dir)).toEqual({
+      server: false,
+      agentExecution: true,
+    })
+    expect(loadSupervisorState(dir).enrolledPublicKey).toBeUndefined()
+  })
+
+  it('keeps the pairing and a narrowed role across restarts and a URL rotation', () => {
+    const dir = stateDir()
+    const state = loadSupervisorState(dir)
+    state.token = 'vps-token'
+    state.assignment = { server: false, agentExecution: false }
+    expect(reconcileSupervisorAssignment(state, joined, dir)).toEqual(state.assignment)
+    const restarted = loadSupervisorState(dir)
+    expect(reconcileSupervisorAssignment(restarted, joined, dir)).toEqual({
+      server: false,
+      agentExecution: false,
+    })
+    // `podium set-server` with a rotated tunnel URL that was never probed.
+    const rotated = { mode: 'daemon' as const, serverUrl: 'wss://rotated.example' }
+    expect(reconcileSupervisorAssignment(restarted, rotated, dir)).toEqual({
+      server: false,
+      agentExecution: false,
+    })
+    expect(loadSupervisorState(dir).token).toBe('vps-token')
+    expect(readRoleOrigin(dir)).toEqual({ mode: 'daemon', coordinator: VPS })
+  })
+
+  it("follows the desktop's client to daemon switch on the same server", () => {
+    const dir = stateDir()
+    const state = loadSupervisorState(dir)
+    const client = { mode: 'client' as const, serverUrl: joined.serverUrl, installationId: VPS }
+    state.assignment = reconcileSupervisorAssignment(state, client, dir)
+    expect(state.assignment).toEqual({ server: false, agentExecution: false })
+    state.token = 'vps-token'
+    saveSupervisorState(dir, state)
+    expect(reconcileSupervisorAssignment(loadSupervisorState(dir), joined, dir)).toEqual({
+      server: false,
+      agentExecution: true,
+    })
+    expect(loadSupervisorState(dir).token).toBe('vps-token')
+  })
+
+  it('drops the credential when the machine joins a different server', () => {
+    const dir = stateDir()
+    const state = loadSupervisorState(dir)
+    state.token = 'vps-token'
+    reconcileSupervisorAssignment(state, joined, dir)
+    saveSupervisorState(dir, state)
+    const other = { ...joined, serverUrl: 'wss://other.example', installationId: OTHER }
+    reconcileSupervisorAssignment(state, other, dir)
+    expect(loadSupervisorState(dir).token).toBeUndefined()
+    expect(readRoleOrigin(dir)).toEqual({ mode: 'daemon', coordinator: OTHER })
+  })
+
+  it('keeps the credential through a server transfer cutover', () => {
+    const dir = stateDir()
+    const state = firstLocalLaunch(dir)
+    state.token = 'transferred-row-token'
+    saveSupervisorState(dir, state)
+    const prepared = join(dir, 'prepared.json')
+    saveConfig(joined, prepared)
+    const config = loadConfig(prepared)
+    prepareTransferAssignment(config, prepared, dir)
+    renameSync(prepared, join(dir, 'config.json'))
+    expect(reconcileSupervisorAssignment(state, config, dir)).toEqual({
+      server: false,
+      agentExecution: true,
+    })
+    expect(loadSupervisorState(dir).token).toBe('transferred-row-token')
+    expect(loadSupervisorState(dir).enrolledPublicKey).toBeDefined()
+    expect(readRoleOrigin(dir)).toEqual({ mode: 'daemon', coordinator: VPS })
+    // ...and the next start does not mistake the cutover for a new setup.
+    expect(reconcileSupervisorAssignment(loadSupervisorState(dir), config, dir)).toEqual({
+      server: false,
+      agentExecution: true,
+    })
+    expect(loadSupervisorState(dir).token).toBe('transferred-row-token')
   })
 })
 

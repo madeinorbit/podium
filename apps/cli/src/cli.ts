@@ -1837,10 +1837,14 @@ export async function main(
         },
         onTopology: (desired) => {
           topologyConfig = loadConfig()
-          configuredAssignment = reconcileSupervisorAssignment(
-            loadSupervisorState(stateDir()),
-            topologyConfig,
-          )
+          const reconciled = loadSupervisorState(stateDir())
+          configuredAssignment = reconcileSupervisorAssignment(reconciled, topologyConfig)
+          // Take the reconciled state whole: a role change can drop a credential, and
+          // this process's copy must not write it back (POD-5983).
+          const held: Partial<typeof supervisorState> = supervisorState
+          for (const key of Object.keys(held) as Array<keyof typeof held>)
+            if (!(key in reconciled)) delete held[key]
+          Object.assign(supervisorState, reconciled)
           supervisorState.assignment = configuredAssignment
           saveSupervisorState(stateDir(), supervisorState)
           runningAssignment = {

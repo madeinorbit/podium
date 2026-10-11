@@ -28,6 +28,8 @@ export interface MachineState {
   daemon?: Record<string, unknown>
   supervisor?: Record<string, unknown>
   connectivity?: Record<string, unknown>
+  /** Which setup the supervisor's role and credential belong to (POD-5983). */
+  role?: Record<string, unknown>
   /** The bare pre-consolidation `machine.id` literal, kept verbatim like every section. */
   legacy?: { machineId: string }
   /** Exact legacy inputs committed with the replacement; cleanup can resume after a crash. */

@@ -125,6 +125,27 @@ describe('setup core', () => {
       persistence: 'systemd',
     })
   })
+  it("applyJoin leaves the desktop's process owner alone (POD-5983)", () => {
+    // The desktop's add-machine join runs in its own sidecar server; it wrote
+    // `systemd` into a Mac's config, which has no systemd and is not headless.
+    const token = encodeJoin({ v: 1, serverUrl: 'wss://relay', pairCode: 'P1' })
+    vi.stubEnv('PODIUM_DESKTOP_SUPERVISED', '1')
+    try {
+      applyJoin(token)
+    } finally {
+      vi.unstubAllEnvs()
+    }
+    expect(loadConfig().persistence).toBeUndefined()
+    const platform = Object.getOwnPropertyDescriptor(process, 'platform')!
+    Object.defineProperty(process, 'platform', { value: 'darwin' })
+    try {
+      saveConfig({})
+      applyJoin(token)
+    } finally {
+      Object.defineProperty(process, 'platform', platform)
+    }
+    expect(loadConfig().persistence).toBeUndefined()
+  })
   it('applyJoin persists shared mode from the join token', () => {
     const token = encodeJoin({
       v: 1,

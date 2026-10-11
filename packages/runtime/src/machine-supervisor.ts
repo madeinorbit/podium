@@ -20,10 +20,10 @@ import {
   type PeerCredential,
   type PeerHello,
 } from '@podium/protocol'
-import { type PodiumConfig, stateDir } from './config'
+import { type PodiumConfig, PodiumMode, stateDir } from './config'
 import { writeConnectivity } from './connectivity'
 import { fsyncPath } from './fsync'
-import { loadMachineState, updateMachineState } from './local-machine'
+import { loadMachineState, readMachineState, updateMachineState } from './local-machine'
 import {
   acknowledgeMachineCredentialRotation,
   createMachineCredential,
@@ -236,6 +236,126 @@ export function targetTransferRecovery(
   }
 }
 
+/**
+ * THE SETUP A STORED ROLE AND CREDENTIAL BELONG TO (POD-5983).
+ *
+ * The stored assignment outranks `config.mode` at every start, because a coordinator
+ * may have narrowed it and a server transfer commits it ahead of its topology request.
+ * That precedence is only sound while the config still names the setup the assignment
+ * was decided under. A setup flow that chooses something else — joining another
+ * Podium, connecting as a client, the desktop's client → daemon switch — rewrites
+ * config.json and nothing more, and several of those writers (the web setup, the
+ * desktop shell in Rust) cannot reach this state at all. Recording the origin lets
+ * the next start see the change for itself, whoever made it.
+ */
+export interface SupervisorRoleOrigin {
+  mode: NonNullable<PodiumConfig['mode']>
+  /**
+   * `local` for a box that hosts its own server. Else the joined server's
+   * installation id, or `remote` when it was never probed.
+   */
+  coordinator: string
+}
+
+function hostsServer(mode: SupervisorRoleOrigin['mode']): boolean {
+  return mode === 'all-in-one' || mode === 'server'
+}
+
+export function configuredRoleOrigin(config: PodiumConfig): SupervisorRoleOrigin {
+  const mode = config.mode ?? 'all-in-one'
+  return {
+    mode,
+    coordinator: hostsServer(mode) ? 'local' : (config.installationId ?? 'remote'),
+  }
+}
+
+function sameCoordinator(a: string, b: string): boolean {
+  if (a === b) return true
+  if (a === 'local' || b === 'local') return false
+  // An unprobed remote is not evidence of another server: `podium set-server` rotates
+  // a tunnel URL without an identity, and must keep the pairing (issue #19).
+  return a === 'remote' || b === 'remote'
+}
+
+export function readRoleOrigin(dir = stateDir()): SupervisorRoleOrigin | undefined {
+  const role = readMachineState(dir)?.role
+  const mode = PodiumMode.safeParse(role?.mode)
+  return mode.success && typeof role?.coordinator === 'string'
+    ? { mode: mode.data, coordinator: role.coordinator }
+    : undefined
+}
+
+/** The supervisor section and its origin travel in ONE machine.json write. */
+function saveSupervisorRole(
+  dir: string,
+  state: SupervisorState,
+  origin: SupervisorRoleOrigin,
+  dropConnectivity = false,
+): void {
+  updateMachineState(
+    dir,
+    (machine) => {
+      if (machine.machineId !== state.machineId)
+        throw new Error('supervisor machine identity conflict')
+      machine.supervisor = { ...state }
+      machine.role = { ...origin }
+      if (dropConnectivity) delete machine.connectivity
+    },
+    state.machineId,
+  )
+}
+
+/**
+ * Before the origin was recorded, the one way a joined box came to hold the server
+ * role was the first local launch's own enrollment that this repairs: the server
+ * role otherwise moves only through a transfer, and a transfer target is `server`.
+ */
+function legacyRoleOrigin(
+  state: SupervisorState,
+  configured: SupervisorRoleOrigin,
+): SupervisorRoleOrigin {
+  return state.assignment?.server && !hostsServer(configured.mode)
+    ? { mode: 'all-in-one', coordinator: 'local' }
+    : configured
+}
+
+/**
+ * Follow a setup that changed this machine's role outside a server transfer: the
+ * new mode's own topology, and — when it names another server — none of the old
+ * server's credential, so the joined server's pair code is what this machine
+ * presents. A local all-in-one's enrollment means nothing to a VPS, and it outranks
+ * the pair code in every hello.
+ */
+function adoptConfiguredRole(state: SupervisorState, config: PodiumConfig, dir: string): void {
+  const configured = configuredRoleOrigin(config)
+  const recorded = readRoleOrigin(dir)
+  const origin = recorded ?? legacyRoleOrigin(state, configured)
+  const sameServer = sameCoordinator(origin.coordinator, configured.coordinator)
+  if (origin.mode === configured.mode && sameServer) {
+    // An unprobed URL keeps the server identity already known.
+    const next = configured.coordinator === 'remote' ? origin : configured
+    if (!isDeepStrictEqual(recorded, next)) saveSupervisorRole(dir, state, next)
+    return
+  }
+  state.assignment = fallbackAssignment(configured.mode)
+  if (!sameServer) {
+    delete state.token
+    delete state.enrolledPublicKey
+    delete state.setupEnrollment
+    delete state.updatePubkey
+    if (config.workspaceId) state.workspaceId = config.workspaceId
+    else delete state.workspaceId
+  }
+  saveSupervisorRole(dir, state, configured, !sameServer)
+  syncFile(join(dir, STATE_FILE))
+  syncFile(dir)
+  log.info('machine role follows a new setup', {
+    from: origin,
+    to: configured,
+    credentialDropped: !sameServer,
+  })
+}
+
 export function reconcileSupervisorAssignment(
   state: SupervisorState,
   config: PodiumConfig,
@@ -253,12 +373,18 @@ export function reconcileSupervisorAssignment(
     pending.configIdentity === configIdentity(join(dir, 'config.json')) &&
     isDeepStrictEqual(pending.config, config)
   ) {
+    // A transfer keeps this machine's credential: the new server imported its row.
     state.assignment = fallbackAssignment(config.mode ?? 'all-in-one')
-    saveSupervisorState(dir, state)
+    saveSupervisorRole(dir, state, configuredRoleOrigin(config))
     syncFile(join(dir, STATE_FILE))
     syncFile(dir)
     unlinkSync(path)
     syncFile(dir)
+  } else if (targetTransferRecovery(state, config, dir)) {
+    // The previous target writer left no record; its promotion evidence is the transfer.
+    saveSupervisorRole(dir, state, configuredRoleOrigin(config))
+  } else {
+    adoptConfiguredRole(state, config, dir)
   }
   // A mismatch may be observed before the prepared config rename. Leave it alone;
   // only that exact file incarnation can consume this record, even if a future
