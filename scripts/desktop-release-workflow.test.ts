@@ -612,7 +612,10 @@ describe('desktop release workflow', () => {
     )
     expect(parsed.jobs.validate.outputs.build_matrix).toBe('${{ steps.matrix.outputs.include }}')
     const choose = parsed.jobs.validate.steps.find((step) => step.id === 'matrix')
-    expect(choose?.run).toContain('bun scripts/desktop-build-legs.ts --channel "$CHANNEL"')
+    // Read from the run's own commit, so a stable re-promotion of an older tag can still
+    // build a platform switched back on since (POD-5969).
+    expect(choose?.run).toContain('git show "$WORKFLOW_SHA:scripts/desktop-build-legs.ts"')
+    expect(choose?.run).toContain('bun "$RUNNER_TEMP/desktop-build-legs.ts" --channel "$CHANNEL"')
   })
 
   it('does not install the tools a Windows build never uses', () => {

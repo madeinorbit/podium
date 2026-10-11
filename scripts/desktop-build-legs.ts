@@ -37,13 +37,13 @@ export interface DesktopBuildLeg {
 }
 
 /**
- * Whether ANY channel builds the macOS Intel app. Off for the 0.2.0 stable cut (POD-5969): the
- * Intel leg takes 26-33 min and nobody could wait for it. With it off, stable publishes without
- * an Intel app — Intel Macs still get the server update (the headless half builds darwin-x64
- * itself) but keep their current app — and the Intel app can be added to that release later
- * with a desktop-release dispatch once this is back on.
+ * Whether ANY channel builds the macOS Intel app. Switched off for the 0.2.0 stable cut
+ * (POD-5969) so it did not wait 26-33 min for this leg, and back on to add the Intel app to that
+ * release with a desktop-release dispatch. With it off, stable publishes without an Intel app:
+ * Intel Macs still get the server update (the headless half builds darwin-x64 itself) but keep
+ * their current app.
  */
-export const INTEL_MAC_APP_BUILT = false
+export const INTEL_MAC_APP_BUILT = true
 
 export const DESKTOP_BUILD_LEGS: readonly DesktopBuildLeg[] = [
   {

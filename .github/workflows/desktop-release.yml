@@ -104,7 +104,17 @@ jobs:
         id: matrix
         env:
           CHANNEL: ${{ steps.resolve.outputs.channel }}
-        run: echo "include=$(bun scripts/desktop-build-legs.ts --channel "$CHANNEL")" >> "$GITHUB_OUTPUT"
+          WORKFLOW_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          # Which platforms to build is this workflow run's decision, read from the commit that
+          # pushed or dispatched it, not from the checked-out release source. For a stable
+          # re-promotion that source is the immutable tag, which may predate a platform being
+          # switched back on (the Intel Mac app added to 0.2.0 by dispatch, POD-5969). On a tag
+          # push the two are the same commit. The legs file imports nothing, so it runs alone.
+          git fetch --quiet --no-tags --depth=1 origin "$WORKFLOW_SHA"
+          git show "$WORKFLOW_SHA:scripts/desktop-build-legs.ts" >"$RUNNER_TEMP/desktop-build-legs.ts"
+          echo "include=$(bun "$RUNNER_TEMP/desktop-build-legs.ts" --channel "$CHANNEL")" >>"$GITHUB_OUTPUT"
       - name: Validate release selection
         id: validate
         env:
