@@ -35,7 +35,7 @@ import {
   type PackagedHeadlessBundle,
   packageHeadlessForFreshClients,
 } from './build-bun'
-import { extractRelease } from './changelog'
+import { releaseNotesFor } from './changelog'
 import {
   assertNoCallerSuppliedClientRootDigest,
   CLIENT_ROOT_DIGEST_FILE,
@@ -613,7 +613,7 @@ export function publishPreparedHeadless(p: {
   if (p.channel === 'stable' && !p.tag) throw new Error('stable release needs --tag vX.Y.Z')
   const { version, prepared } = loadPreparedHeadless(p.dir, p.requiredTargets)
   const manifestName = 'podium-update.json'
-  const notes = extractRelease(readFileSync(p.changelogPath ?? 'CHANGELOG.md', 'utf8'), version)
+  const notes = releaseNotesFor(readFileSync(p.changelogPath ?? 'CHANGELOG.md', 'utf8'), version)
   writeFileSync(
     join(p.dir, manifestName),
     `${JSON.stringify(
@@ -690,6 +690,8 @@ export function publishPreparedHeadless(p: {
   if (notice) console.log(notice)
 
   const assets = [...releaseFiles.map((file) => join(p.dir, file)), checksums, 'install.sh']
+  // The page body names the build and carries the same notes the update prompt shows.
+  const rollingBody = `Rolling ${p.channel} build ${version}${notes ? `\n\n${notes.summary}` : ''}`
   if (isRollingChannel(p.channel)) {
     // The tag IS the channel name here, and every reference below goes through it so a
     // rolling channel added later cannot half-publish onto `edge`.
@@ -719,7 +721,7 @@ export function publishPreparedHeadless(p: {
         '--title',
         `${rollingTag} (${version})`,
         '--notes',
-        `Rolling ${p.channel} build ${version}`,
+        rollingBody,
       ])
       execFileSync('gh', ['release', 'upload', rollingTag, ...assets, '--clobber'])
     } else {
@@ -733,7 +735,7 @@ export function publishPreparedHeadless(p: {
         '--title',
         `${rollingTag} (${version})`,
         '--notes',
-        `Rolling ${p.channel} build ${version}`,
+        rollingBody,
         ...assets,
       ])
     }

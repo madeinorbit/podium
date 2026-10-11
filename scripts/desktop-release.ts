@@ -14,7 +14,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { basename, join } from 'node:path'
-import { extractRelease } from './changelog'
+import { releaseNotesFor } from './changelog'
 
 export const NATIVE_DESKTOP_BRIDGE_VERSION = 1
 
@@ -441,7 +441,7 @@ export function resolveNotes(
 ): string | undefined {
   if (explicit) return explicit
   try {
-    return extractRelease(readFileSync(changelogPath, 'utf8'), version)?.summary
+    return releaseNotesFor(readFileSync(changelogPath, 'utf8'), version)?.summary
   } catch {
     // A missing changelog is not a reason to fail a release that is otherwise sound.
     return undefined

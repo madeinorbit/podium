@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { extractRelease } from './changelog'
+import { extractRelease, releaseNotesFor } from './changelog'
 
 const CHANGELOG = `# Changelog
 
@@ -62,14 +62,35 @@ describe('extractRelease', () => {
   })
 
   it('tolerates a heading without brackets', () => {
-    expect(
-      extractRelease('## 0.4.2 - 2026-08-04\n\n- A thing.\n', '0.4.2')?.summary,
-    ).toContain('A thing')
+    expect(extractRelease('## 0.4.2 - 2026-08-04\n\n- A thing.\n', '0.4.2')?.summary).toContain(
+      'A thing',
+    )
   })
 
   it('does not match a version that is a prefix of another', () => {
     const cl = '## [0.4.20]\n\n- Twenty.\n\n## [0.4.2]\n\n- Two.\n'
     expect(extractRelease(cl, '0.4.2')?.summary).toContain('Two')
     expect(extractRelease(cl, '0.4.2')?.summary).not.toContain('Twenty')
+  })
+})
+
+describe('releaseNotesFor', () => {
+  it('gives an edge build the Unreleased notes, since that is what it previews', () => {
+    expect(releaseNotesFor(CHANGELOG, '0.5.0-edge.3')?.summary).toContain('not yet released')
+  })
+
+  it('prefers an edge version’s own section when one exists', () => {
+    const own = CHANGELOG.replace('## [0.4.2]', '## [0.5.0-edge.3]\n\n- Edge only.\n\n## [0.4.2]')
+    expect(releaseNotesFor(own, '0.5.0-edge.3')?.summary).toBe('- Edge only.')
+  })
+
+  it('never gives a stable release the Unreleased notes', () => {
+    expect(releaseNotesFor(CHANGELOG, '0.4.2')?.summary).toContain('Faster reconnects')
+    expect(releaseNotesFor(CHANGELOG, '0.5.0')).toBeNull()
+  })
+
+  it('has nothing for an edge build when Unreleased is empty', () => {
+    const empty = CHANGELOG.replace('### Added\n\n- Something not yet released.\n\n', '')
+    expect(releaseNotesFor(empty, '0.5.0-edge.3')).toBeNull()
   })
 })
