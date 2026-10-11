@@ -13,7 +13,16 @@
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { createHash } from 'node:crypto'
-import { cpSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from 'node:fs'
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  writeFileSync,
+} from 'node:fs'
+import { tmpdir } from 'node:os'
 import { basename, isAbsolute, join } from 'node:path'
 // Imported from source, not the `@podium/protocol` entry point: that entry resolves to
 // `dist/`, which the release workflow never builds (`bun install --ignore-scripts`), so a
@@ -599,6 +608,15 @@ export function legacyPairingNotice(p: {
   )
 }
 
+/**
+ * How a stable release's GitHub page gets its text (POD-5969). It used to be GitHub's generated
+ * list of changes, a leftover from before release notes moved into CHANGELOG.md; the update
+ * prompt already read the changelog, so the page and the prompt disagreed.
+ */
+export function stableReleasePageNotesArgs(notesFile: string | undefined): string[] {
+  return notesFile ? ['--notes-file', notesFile] : ['--generate-notes']
+}
+
 export function publishPreparedHeadless(p: {
   channel: PublishChannel
   tag: string
@@ -740,7 +758,19 @@ export function publishPreparedHeadless(p: {
       ])
     }
   } else {
-    execFileSync('gh', ['release', 'create', p.tag, '--latest', '--generate-notes', ...assets])
+    // The page shows the same changelog notes the update prompt does; a version with no
+    // changelog section falls back to GitHub's generated list rather than an empty page.
+    const notesDir = mkdtempSync(join(tmpdir(), 'podium-release-notes-'))
+    const notesFile = join(notesDir, 'notes.md')
+    if (notes) writeFileSync(notesFile, `${notes.summary}\n`)
+    execFileSync('gh', [
+      'release',
+      'create',
+      p.tag,
+      '--latest',
+      ...stableReleasePageNotesArgs(notes ? notesFile : undefined),
+      ...assets,
+    ])
   }
   console.log(`[release] published ${version} → ${p.channel}`)
 }

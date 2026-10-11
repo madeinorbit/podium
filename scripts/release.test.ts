@@ -10,6 +10,7 @@ import {
   parseArtifactOverrides,
   parseReleaseArgs,
   readDefinedMigrations,
+  stableReleasePageNotesArgs,
   writeClientBuildRecord,
 } from './release'
 
@@ -317,5 +318,15 @@ describe('the client half of the build ledger', () => {
     const args = parseReleaseArgs(['--prepare-cross', '--record', '/var/state/builds/b1'])
     expect(args.value('--record')).toBe('/var/state/builds/b1')
     expect(parseReleaseArgs(['--prepare-cross']).value('--record')).toBeUndefined()
+  })
+})
+
+describe('stableReleasePageNotesArgs', () => {
+  it('gives the stable release page the changelog notes the update prompt shows', () => {
+    expect(stableReleasePageNotesArgs('/tmp/notes.md')).toEqual(['--notes-file', '/tmp/notes.md'])
+  })
+
+  it("falls back to GitHub's generated list only when the version has no notes", () => {
+    expect(stableReleasePageNotesArgs(undefined)).toEqual(['--generate-notes'])
   })
 })
