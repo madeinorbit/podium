@@ -7,44 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Upgrading a self-hosted installation
+**A much more reliable chat, a much faster Podium, and safer updates.**
 
-This release rekeys every machine and session principal and imports the machine ledger
-into the database. Read this before you update.
+### What's new
 
-- **Back up first, automatically.** Before the new version runs its migrations, the running
-  server writes a snapshot beside the database named
-  `~/.podium/podium.db.backup-vupdate-<from>-to-<to>-<timestamp>`. Rolling back is restoring
-  that file: stop Podium, replace `podium.db` with the snapshot, remove any stale
-  `podium.db-wal` / `podium.db-shm`, and start the previous version again. Podium keeps the
-  newest three verified snapshots.
-- **Every client bootstraps once.** The import rewrites the feed epoch, so every web, desktop
-  and phone client discards its local replica and loads everything again the first time it
-  connects after the update. This is expected, happens once per client, and loses nothing on
-  the server.
-- **If a machine vanishes or shows `inventory pending`.** The import maps each machine to the
-  member who enrolled it. A machine whose ledger record names an owner that no longer exists
-  makes the import refuse and the server stop before it changes anything; the log names the
-  machine and the record, and starting again after the record is corrected completes the
-  upgrade. A machine whose record explicitly has no owner is imported as *unowned*: it stays
-  visible, nobody can use it, and an admin adopts it from Settings → Machines, or with
-  `podium machines adopt <machine> [--for <member>]`. Nothing is guessed on your behalf: an
-  unowned machine stays unowned until an admin adopts it.
-- **Podium Connect is on by default.** A server with a public URL now publishes its
-  installation id and that URL to `connect.podium.do` so clients can find it after a URL
-  change or a server transfer. Nothing else is sent. To opt out, set `PODIUM_CONNECT=off`
-  or `connect.enabled: false` in the config file; `off` also clears the published record.
-- **Update order across the wire bump.** This release raises the daemon wire version. A
-  daemon that updates before its coordinator is refused by the still-old server and reports
-  offline until the coordinator has updated; it does not lose state, and it reconnects on its
-  own once the server is current. Let the managed update finish rather than restarting
-  daemons by hand while the coordinator is still on the old version.
+- **Stability.** The chat view in sessions is much more reliable. Messages now reach the agent in most sessions, and messages sent between agents have been improved too.
+- **Speed.** The client and the server are both much faster, especially on large workspaces.
+- **Cost per task.** See what each task costs, on the task header and the usage sheet.
+- **Pi.** The Pi agent is now fully supported.
+- **Mobile app.** The mobile app has been much improved.
+- **Windows and Linux desktop.** Experimental builds are available.
+- **Safer updates.** Updates show live progress, and a failed one rolls back instead of stranding machines.
+- **And more.** Many smaller UX improvements and new features.
 
-### Changed
+### Upgrading from 0.1.0
 
-- After this update, a chat scrolled to an older point may lose its saved position once
-  and load the default message window because the way positions are recorded has changed.
-  No messages are lost, and this reset does not recur for positions saved after the update.
+- Podium backs up your database automatically before migrating. Rolling back means restoring `~/.podium/podium.db.backup-vupdate-*`.
+- Every client reloads once on first connect. Nothing is lost.
+- **Sessions that are running during the upgrade keep running.** Until they end, they stay on the old terminal host and have some limits. A reopened terminal may not fully repaint until the agent next redraws, and delivery confirmation for messages to them may be less definite. Hibernating and resuming a session moves it to the new host, and so does starting a new one.
 
 ## [0.1.1-edge.4] - 2026-08-31
 
