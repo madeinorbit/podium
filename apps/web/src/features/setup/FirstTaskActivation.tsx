@@ -9,7 +9,6 @@ import {
 import type { HarnessAgent, SessionId } from '@podium/model'
 import { HOST_REPOS, machinesFor } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
-import { EXAMPLE_USAGE_REPORT_DISPLAY as TELEMETRY_EXAMPLE } from '@podium/telemetry/example'
 import {
   ArrowLeft,
   ArrowRight,
@@ -64,54 +63,6 @@ function setupHint(
   return activationReadinessCopy(readiness, label)
 }
 
-interface TelemetryStateWire {
-  usage: 'absent' | 'on' | 'off'
-  crash: 'absent' | 'on' | 'off'
-  suppressedBy?: string
-}
-
-function TelemetryChoice({
-  checked,
-  onChange,
-  title,
-  detail,
-}: {
-  checked: boolean
-  onChange: (checked: boolean) => void
-  title: string
-  detail: string
-}): JSX.Element {
-  return (
-    <label className="flex cursor-pointer items-start gap-3.5 border-t border-[#272b33] px-[22px] py-4 hover:bg-white/[0.02]">
-      <input
-        type="checkbox"
-        checked={checked}
-        onChange={(event) => onChange(event.currentTarget.checked)}
-        className="sr-only"
-      />
-      <span
-        className={cn(
-          'mt-px flex size-5 flex-none items-center justify-center rounded-md',
-          checked
-            ? 'bg-[#d9b477] text-[#191308]'
-            : 'bg-[#22262d] shadow-[inset_0_0_0_1.5px_#454b56]',
-        )}
-        aria-hidden="true"
-      >
-        {checked && <Check size={15} />}
-      </span>
-      <span className="min-w-0">
-        <span
-          className={`block text-[14.5px] leading-none font-semibold ${checked ? 'text-[#f2f3f5]' : 'text-[#e6e8ec]'}`}
-        >
-          {title}
-        </span>
-        <span className="mt-[5px] block text-[13px] leading-[1.5] text-[#9ba1ab]">{detail}</span>
-      </span>
-    </label>
-  )
-}
-
 export function FirstTaskActivation({
   route,
   onRouteChange,
@@ -133,12 +84,6 @@ export function FirstTaskActivation({
   const [loginBusyAgent, setLoginBusyAgent] = useState<IssueAgentKind | null>(null)
   const [loginSessionId, setLoginSessionId] = useState<SessionId | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const [telemetryState, setTelemetryState] = useState<TelemetryStateWire | null>(null)
-  const [telemetryUnavailable, setTelemetryUnavailable] = useState(false)
-  const [usageTelemetry, setUsageTelemetry] = useState(false)
-  const [crashTelemetry, setCrashTelemetry] = useState(false)
-  const [finishBusy, setFinishBusy] = useState(false)
-  const [finishError, setFinishError] = useState<string | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -159,26 +104,6 @@ export function FirstTaskActivation({
       cancelled = true
     }
   }, [trpc])
-
-  useEffect(() => {
-    if (route !== 'first-task' || telemetryState || telemetryUnavailable) return
-    let cancelled = false
-    void trpc.telemetry.state.query().then(
-      (state) => {
-        if (cancelled) return
-        const next = state as TelemetryStateWire
-        setTelemetryState(next)
-        setUsageTelemetry(next.usage === 'on' || next.usage === 'absent')
-        setCrashTelemetry(next.crash === 'on')
-      },
-      () => {
-        if (!cancelled) setTelemetryUnavailable(true)
-      },
-    )
-    return () => {
-      cancelled = true
-    }
-  }, [route, telemetryState, telemetryUnavailable, trpc])
 
   const selectedRepo = repoChoices.find((repo) => repo.path === draft.repoPath) ?? repoChoices[0]
   useEffect(() => {
@@ -245,105 +170,19 @@ export function FirstTaskActivation({
   const descriptors = useResolvedDescriptors([selectedMachine?.id])
 
   if (route === 'first-task') {
-    const finish = async (): Promise<void> => {
-      if (finishBusy) return
-      setFinishBusy(true)
-      setFinishError(null)
-      try {
-        if (telemetryState && !telemetryState.suppressedBy) {
-          await trpc.telemetry.set.mutate({
-            usage: usageTelemetry ? 'on' : 'off',
-            crash: crashTelemetry ? 'on' : 'off',
-          })
-        }
-        onComplete()
-      } catch (cause) {
-        setFinishError(cause instanceof Error ? cause.message : String(cause))
-        setFinishBusy(false)
-      }
-    }
-
     return (
       <ActivationShell
         eyebrow="Set up Podium · Ready"
         title="Podium is good to go."
-        description="Your project and agents are set up. One optional privacy choice is left, then you can start working."
+        description="Your project and agents are set up. You can start working."
         icon={<Check aria-hidden="true" />}
         contentClassName="mt-8"
-        frameClassName="min-h-[1000px] lg:pt-14 lg:pb-11 [&>div:first-child]:bg-[#2a2418] [&>div:first-child]:shadow-[inset_0_0_0_1px_#4a4331]"
+        frameClassName="lg:pt-14 lg:pb-11 [&>div:first-child]:bg-[#2a2418] [&>div:first-child]:shadow-[inset_0_0_0_1px_#4a4331]"
       >
-        <section className="overflow-hidden rounded-[13px] bg-[#1b1e24] shadow-[inset_0_0_0_1px_#2f343d]">
-          <div className="px-[22px] pt-5 pb-[18px]">
-            <h2 className="text-[16px] leading-none font-semibold text-[#f2f3f5]">
-              Help improve Podium with anonymous telemetry
-            </h2>
-            <p className="mt-2 max-w-[800px] text-[13.5px] leading-[1.6] text-[#9ba1ab] text-wrap-pretty">
-              Nothing is sent unless you opt in. Podium never includes paths, repository names,
-              prompts, code, or other free text, and IP addresses are dropped at ingest.
-            </p>
-          </div>
-
-          {telemetryState?.suppressedBy ? (
-            <div className="border-t border-[#272b33] px-[22px] py-4 text-[13px] text-[#9ba1ab]">
-              Telemetry is disabled by {telemetryState.suppressedBy}; no choice is needed here.
-            </div>
-          ) : telemetryUnavailable ? (
-            <div className="border-t border-[#272b33] px-[22px] py-4 text-[13px] text-[#9ba1ab]">
-              Telemetry preferences are unavailable right now. You can change them later in Settings
-              › Privacy.
-            </div>
-          ) : telemetryState ? (
-            <>
-              <TelemetryChoice
-                checked={usageTelemetry}
-                onChange={setUsageTelemetry}
-                title="Send anonymous usage reports"
-                detail="One compact report per day about versions, feature counts, and reliability."
-              />
-              <TelemetryChoice
-                checked={crashTelemetry}
-                onChange={setCrashTelemetry}
-                title="Send scrubbed crash reports"
-                detail="Error type and Podium source lines only; error messages and outside frames are dropped."
-              />
-              <div className="border-t border-[#272b33] bg-[#191c21] px-[22px] pt-[18px] pb-5">
-                <div className="flex items-center gap-2.5">
-                  <p className="text-[13px] leading-none font-semibold text-[#a8adb6]">
-                    Exactly what one usage report contains
-                  </p>
-                  <span className="h-px flex-1 bg-[#272b33]" aria-hidden="true" />
-                </div>
-                <pre className="mt-3 max-w-full overflow-x-auto rounded-[10px] bg-[#121417] px-[18px] py-4 font-mono text-[12.5px] leading-[1.85] text-[#b9bec6] shadow-[inset_0_0_0_1px_#272b33]">
-                  {TELEMETRY_EXAMPLE}
-                </pre>
-                <p className="mt-3 text-[13px] leading-[1.5] text-[#8a9099]">
-                  Change this anytime in Settings › Privacy, or with{' '}
-                  <code className="font-mono text-[12px] text-[#b9bec6]">podium telemetry off</code>
-                  .
-                </p>
-              </div>
-            </>
-          ) : (
-            <div
-              className="border-t border-[#272b33] px-[22px] py-4 font-mono text-[12px] text-[#9ba1ab]"
-              role="status"
-            >
-              Loading privacy choices…
-            </div>
-          )}
-        </section>
-
-        {finishError && (
-          <div className="mt-3">
-            <SetupError>{finishError}</SetupError>
-          </div>
-        )}
-
-        <div className="mt-[22px] flex items-center gap-3.5">
+        <div className="flex items-center gap-3.5">
           <button
             type="button"
             data-pressable
-            disabled={finishBusy}
             onClick={() => onRouteChange('agent')}
             className="inline-flex items-center gap-2 text-[13px] leading-none text-[#a8adb6] hover:text-[#f2f3f5] disabled:opacity-50"
           >
@@ -354,18 +193,11 @@ export function FirstTaskActivation({
           <button
             type="button"
             data-pressable
-            disabled={finishBusy || (!telemetryState && !telemetryUnavailable)}
-            onClick={() => void finish()}
+            onClick={onComplete}
             className="inline-flex h-[38px] items-center gap-2 rounded-[9px] bg-[#d9b477] px-[18px] text-[13.5px] leading-none font-semibold text-[#191308] hover:bg-[#e8ca97] disabled:cursor-not-allowed disabled:opacity-50"
           >
-            {finishBusy ? (
-              <LoaderCircle size={17} className="animate-spin" aria-hidden="true" />
-            ) : (
-              <>
-                <span>Finish setup</span>
-                <ArrowRight size={17} aria-hidden="true" />
-              </>
-            )}
+            <span>Finish setup</span>
+            <ArrowRight size={17} aria-hidden="true" />
           </button>
         </div>
       </ActivationShell>

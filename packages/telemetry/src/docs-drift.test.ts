@@ -124,8 +124,9 @@ describe('docs/TELEMETRY.md states the promises the code enforces', () => {
     expect(doc).toMatch(/PODIUM_TELEMETRY=off/)
   })
 
-  it('states that the default is off', () => {
-    expect(doc.toLowerCase()).toMatch(/sends nothing unless you turn it on/)
+  it('states the defaults: usage opt-out, crash opt-in (POD-5922)', () => {
+    expect(doc.toLowerCase()).toMatch(/usage reports are on unless you turn them off/)
+    expect(doc.toLowerCase()).toMatch(/crash reports are off unless you turn them on/)
   })
 
   it('states that error messages are dropped', () => {

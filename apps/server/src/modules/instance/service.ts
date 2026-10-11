@@ -701,8 +701,7 @@ export class InstanceService {
 
   /** The example report the Privacy page shows — rendered from the REAL emitter
    *  where one exists, so what the user is shown cannot drift from what is sent;
-   *  null before anyone has opted in (there is no real report to show until
-   *  then, by design). */
+   *  null while there is no install id (every tier off, or a kill switch set). */
   previewReport() {
     return this.deps.emitter?.buildUsageReport() ?? null
   }

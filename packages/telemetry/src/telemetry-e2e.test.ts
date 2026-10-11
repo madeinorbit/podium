@@ -152,8 +152,8 @@ describe('opt in → flush → the wire', () => {
 })
 
 describe('the negative case, end to end', () => {
-  it('a flush with no consent puts NOTHING on the wire', async () => {
-    saveConfig({ mode: 'all-in-one' })
+  it('a flush with every tier off puts NOTHING on the wire', async () => {
+    saveConfig({ mode: 'all-in-one', telemetry: { usage: 'off', crash: 'off' } })
     process.env.PODIUM_TELEMETRY_ENDPOINT = relay.url
     const e = emitter()
     e.recordSession('claude-code')

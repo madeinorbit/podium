@@ -41,8 +41,9 @@ export const TELEMETRY_USAGE = [
   '  show                  Print the exact pending + last-sent payloads',
   '  reset-id              Mint a new random install id',
   '',
-  'Nothing is ever sent unless a tier is explicitly on. DO_NOT_TRACK=1 or',
-  'PODIUM_TELEMETRY=off disable everything regardless of these settings.',
+  'Usage reports are on unless turned off; crash reports are off unless turned',
+  'on. DO_NOT_TRACK=1 or PODIUM_TELEMETRY=off disable everything regardless of',
+  'these settings.',
   'Details: docs/TELEMETRY.md · https://podium.dev/telemetry',
 ].join('\n')
 
@@ -86,8 +87,8 @@ export function statusText(state: TelemetryState): string {
 
 /** `podium telemetry show` — the literal pending + last-sent bytes.
  *
- *  When there is nothing real yet — the common case, since the setup prompt
- *  points here and telemetry is off by default — it falls back to the example.
+ *  When there is nothing real yet — a fresh install, or one with usage turned
+ *  off — it falls back to the example.
  *  Answering "what would you send me?" is the whole reason this command exists,
  *  and "(nothing queued)" answers it for nobody. The example is labelled as an
  *  example every time it appears: a preview must never be mistakable for a
@@ -110,8 +111,8 @@ export function showText(dir: string = stateDir()): string {
   if (!pending.length && !lastSent) {
     lines.push(
       '',
-      'EXAMPLE — not real data, nothing has been collected. If you turned',
-      'usage reporting on, one report a day would look like this:',
+      'EXAMPLE — not real data, nothing has been collected yet. With usage',
+      'reports on, one report a day looks like this:',
       '',
       indentExample(),
     )

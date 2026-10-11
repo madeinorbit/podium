@@ -423,19 +423,18 @@ export const PodiumConfig = z.object({
     })
     .optional(),
   /**
-   * Opt-in telemetry consent + identity [spec:SP-f933]. Lives HERE rather than
-   * in the settings blob so `podium telemetry off` works whether or not the
-   * server is running — and so a user can turn it off with a text editor.
+   * Telemetry consent + identity operator overrides [spec:SP-f933]. Here so
+   * `podium telemetry off` works whether or not the server is running — and so
+   * a user can turn it off with a text editor.
    *
-   * Each tier is TRI-state: `on` | `off` | ABSENT. Absent and `off` both send
-   * nothing; absent additionally means "never asked", which is what lets
-   * `podium setup` know to ask. Nothing is ever sent unless a tier is
-   * explicitly `on` — and DO_NOT_TRACK=1 / PODIUM_TELEMETRY=off override even
-   * that (env kill switches, resolved in @podium/telemetry's consent.ts, which
-   * is also the only writer of this key).
+   * Each tier is TRI-state: `on` | `off` | ABSENT. Absent takes the tier's
+   * default (POD-5922): usage counts as on, crash as off. An explicit `off`
+   * always wins, and DO_NOT_TRACK=1 / PODIUM_TELEMETRY=off override everything
+   * (env kill switches, resolved in @podium/telemetry's consent.ts, which is
+   * also the only writer of this key).
    *
-   * `installId` + `since` are minted on the first OPT-IN, never at install and
-   * never by an opt-out: a user who says no never gets an identifier. The
+   * `installId` + `since` are minted once a tier is on, never by an opt-out:
+   * a box with every tier off never gets an identifier. The
    * `endpoint` override is the config layer of the relay-URL precedence
    * (PODIUM_TELEMETRY_ENDPOINT → here → signed update manifest → baked-in).
    */

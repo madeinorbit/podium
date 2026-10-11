@@ -862,10 +862,13 @@ export async function startServer(
   // parked, not discarded: `reportParkedUpstreamMutations` is the operator-visible
   // half of that (ADR 5 D8: "silent discard of poison/pending work is forbidden").
   if (!recoveryOnly) await reportParkedUpstreamMutations(store.sync, store.events)
-  // Opt-in telemetry [spec:SP-f933]. The server is the sole emitter (D10).
-  // Wiring is unconditional and consent is read fresh per record/flush (D4/D9),
-  // so this collects NOTHING until a tier is explicitly on — and takes effect
-  // without a restart when it is.
+  // Telemetry [spec:SP-f933]. The server is the sole emitter (D10). Usage is on
+  // unless turned off, crash is off unless turned on (POD-5922). Wiring is
+  // unconditional and consent is read fresh per record/flush (D4/D9), so a tier
+  // that is off collects NOTHING, and a change takes effect without a restart.
+  // The install id is minted here, once, when a tier is on by default (never on
+  // a query-only recovery boot); a failure must never stop the server booting.
+  if (!recoveryOnly) await store.settings.ensureTelemetryIdentity().catch(() => false)
   let telemetryMachineCount = (await registry.modules.machines.listMachines()).length
   const refreshTelemetryMachineCount = (): void => {
     void registry.modules.machines

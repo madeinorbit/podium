@@ -30,9 +30,11 @@
  * trusting its caller.
  */
 
+import { randomUUID } from 'node:crypto'
 import { applySettingsPatch, changedSettingsLeaves, readSettingsLeaf } from '@podium/commands'
 import { asUserId, type MachineId, type UserId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
+import { allTiersOff } from '@podium/telemetry'
 import { applyAfterCommit } from './executor'
 import {
   resolveSetting,
@@ -64,24 +66,35 @@ export class SettingsRepository {
     }
   }
 
-  resolve<K extends LayeredKey>(key: K, config: PodiumConfig = loadConfig()) {
-    return resolveSetting(key, config, process.env, this.layeredSettings())
+  resolve<K extends LayeredKey>(
+    key: K,
+    config: PodiumConfig = loadConfig(),
+    layered: LayeredSettings = this.layeredSettings(),
+  ) {
+    return resolveSetting(key, config, process.env, layered)
   }
 
-  telemetryConfig() {
+  telemetryConfig(layered: LayeredSettings = this.layeredSettings()) {
     const config = loadConfig()
-    const usage = this.resolve('telemetryUsage', config).value
-    const crash = this.resolve('telemetryCrash', config).value
+    const usage = this.resolve('telemetryUsage', config, layered).value
+    const crash = this.resolve('telemetryCrash', config, layered).value
     return {
       ...config,
       telemetry: {
         ...config.telemetry,
         usage: usage === 'absent' ? undefined : usage,
         crash: crash === 'absent' ? undefined : crash,
-        installId: this.resolve('telemetryInstallId', config).value,
-        since: this.resolve('telemetrySince', config).value,
+        installId: this.resolve('telemetryInstallId', config, layered).value,
+        since: this.resolve('telemetrySince', config, layered).value,
       },
     }
+  }
+
+  /** True when these deployment values leave a tier effectively on (env, file
+   *  and tier defaults applied) and no layer supplies an install id yet. */
+  private needsTelemetryIdentity(deployment: PodiumSettings['deployment']): boolean {
+    const config = this.telemetryConfig({ ...this.layeredSettings(), ...deployment })
+    return !config.telemetry.installId && !allTiersOff(config)
   }
 
   async updateDeployment(
@@ -91,15 +104,26 @@ export class SettingsRepository {
     await this.createOrJoinTransaction(async () => {
       const current = await this.getSettings()
       const deployment = { ...current.deployment, ...values }
-      if (
-        firstConsentIdentity &&
-        !deployment.telemetryInstallId &&
-        (deployment.telemetryUsage === 'on' || deployment.telemetryCrash === 'on')
-      ) {
+      if (firstConsentIdentity && this.needsTelemetryIdentity(deployment)) {
         deployment.telemetryInstallId = firstConsentIdentity.installId
         deployment.telemetrySince = firstConsentIdentity.since
       }
       await this.setSettings({ ...current, deployment })
+    })
+  }
+
+  /**
+   * Usage reports are on by default (POD-5922), so a server can be effectively
+   * on without anyone ever pressing a switch — and the emitter builds nothing
+   * without an install id. Mint and persist one, once, at boot. A box with every
+   * tier off (or a kill switch set) gets no identifier. Returns whether it wrote.
+   */
+  async ensureTelemetryIdentity(now: number = Date.now()): Promise<boolean> {
+    return await this.createOrJoinTransaction(async () => {
+      const current = await this.getSettings()
+      if (!this.needsTelemetryIdentity(current.deployment)) return false
+      await this.updateDeployment({}, { installId: randomUUID(), since: now })
+      return true
     })
   }
 

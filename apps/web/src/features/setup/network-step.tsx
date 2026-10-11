@@ -128,8 +128,8 @@ interface NetworkStepProps {
   /** Which host mode this box is; sent to setup.complete. Omitted (embedded) preserves it. */
   mode?: 'all-in-one' | 'server'
   /** When set, this step does NOT commit: it hands the collected payload up so a
-   *  later sub-step (telemetry) can commit the whole wizard in one call
-   *  [spec:SP-f933]. Absent = commit immediately (the embedded Settings use). */
+   *  later step can commit the whole wizard in one call. Absent = commit
+   *  immediately (the embedded Settings use). */
   onCollected?: (payload: SetupCompleteInput) => void
   /** Settings owns the shared save bar. When supplied, the embedded form reports
    *  its draft here and omits its private save controls. */
@@ -316,8 +316,8 @@ function NetworkStepForm({
         setBusy(true)
         if (force) setReach(null)
       }
-      // Deferred commit: hand the payload to the telemetry sub-step, which sends
-      // ONE setup.complete for the whole wizard. Nothing is written yet.
+      // Deferred commit: hand the payload to the caller, which sends ONE
+      // setup.complete for the whole wizard. Nothing is written yet.
       if (onCollected) {
         setBusy(false)
         onCollected(payload)

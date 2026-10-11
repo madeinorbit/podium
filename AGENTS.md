@@ -198,6 +198,13 @@ cache-key gap is known, document it and use `--uncached-because="<missing input>
 explicit exception while filing the gap; the normal cached gate remains the contract. A checkout
 without usable `node_modules/@podium` links is refused.
 
+## Legacy code with a removal date
+
+Code kept only for old installs carries one header line:
+`// LEGACY(remove-after: YYYY-MM): <what it is for; what removing it drops>`.
+`git grep -n "LEGACY(remove-after:"` lists them. The date is a year and month. Once it has
+passed, delete the code, or move the date and say why in the same commit.
+
 ## Reference docs for agents
 
 - [docs/agents/frontend-data.md](docs/agents/frontend-data.md) — how client screens get and derive data from the MobX pool: models, `@lazy`, view models, companions.

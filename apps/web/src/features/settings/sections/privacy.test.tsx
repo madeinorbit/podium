@@ -7,7 +7,7 @@ import { DEFAULT_SETTINGS, type PodiumSettings } from '@podium/runtime'
  * forget), a kill switch disables it WITH the reason, and the page shows the
  * real report rather than marketing copy.
  */
-import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 const trpcMock = vi.hoisted(() => ({
@@ -73,11 +73,19 @@ const renderSection = async (patch: (p: Partial<PodiumSettings>) => void = () =>
 }
 
 describe('PrivacySection', () => {
-  it('shows both tiers off on a fresh install', async () => {
+  it('shows usage ON and crash OFF on a fresh install — the effective state (POD-5922)', async () => {
+    const view = await renderSection()
+    expect(view.getByTestId('telemetry-usage').getAttribute('aria-checked')).toBe('true')
+    expect(view.getByTestId('telemetry-crash').getAttribute('aria-checked')).toBe('false')
+    expect(view.queryByText(/never enabled/i)).toBeNull()
+    expect(view.queryByText(/\(default\)/i)).toBeNull()
+  })
+
+  it('shows an explicit usage off as off, and an explicit crash on as on', async () => {
+    trpcMock.state.mockResolvedValue({ ...OFF, usage: 'off', crash: 'on' })
     const view = await renderSection()
     expect(view.getByTestId('telemetry-usage').getAttribute('aria-checked')).toBe('false')
-    expect(view.getByTestId('telemetry-crash').getAttribute('aria-checked')).toBe('false')
-    expect(view.getAllByText(/never enabled/i).length).toBe(2)
+    expect(view.getByTestId('telemetry-crash').getAttribute('aria-checked')).toBe('true')
   })
 
   it('persists a toggle IMMEDIATELY — there is no Save button to forget', async () => {
@@ -87,7 +95,8 @@ describe('PrivacySection', () => {
       fireEvent.click(view.getByTestId('telemetry-usage'))
       await flush()
     })
-    expect(trpcMock.set).toHaveBeenCalledWith({ usage: 'on' })
+    expect(trpcMock.set).toHaveBeenCalledWith({ usage: 'off' })
+    expect(view.getByTestId('telemetry-usage').getAttribute('aria-checked')).toBe('false')
   })
 
   it('toggles each tier independently', async () => {
@@ -109,7 +118,7 @@ describe('PrivacySection', () => {
       fireEvent.click(view.getByTestId('telemetry-usage'))
       await flush()
     })
-    expect(view.getByTestId('telemetry-usage').getAttribute('aria-checked')).toBe('false')
+    expect(view.getByTestId('telemetry-usage').getAttribute('aria-checked')).toBe('true')
     expect(view.getByRole('alert').textContent).toContain('disk full')
   })
 
@@ -118,11 +127,14 @@ describe('PrivacySection', () => {
     const view = await renderSection()
     expect(view.getByTestId('telemetry-suppressed').textContent).toContain('DO_NOT_TRACK')
     expect(view.getByTestId('telemetry-usage').hasAttribute('data-disabled')).toBe(true)
+    expect(view.getByTestId('telemetry-usage').getAttribute('aria-checked')).toBe('false')
   })
 
-  it('shows the example report before anyone opts in', async () => {
+  it('shows the example report before there is a real one', async () => {
     const view = await renderSection()
-    expect(view.getByTestId('telemetry-report').textContent).toContain('"installAge": "1-7d"')
+    await waitFor(() =>
+      expect(view.getByTestId('telemetry-report').textContent).toContain('"installAge": "1-7d"'),
+    )
     expect(view.getByText(/what a report looks like/i)).toBeTruthy()
   })
 

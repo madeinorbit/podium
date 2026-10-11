@@ -746,7 +746,7 @@ export function resolvePlan(
   if (argv[0] === 'update-key') return { kind: 'update-key', args: argv.slice(1) }
   // `podium channel [stable|edge]`: show or switch the self-update channel.
   if (argv[0] === 'channel') return { kind: 'channel', target: argv[1] }
-  // `podium telemetry [...]`: read/change opt-in telemetry consent [spec:SP-f933].
+  // `podium telemetry [...]`: read/change telemetry consent [spec:SP-f933].
   // Deliberately NOT an approval-brokered op: it only touches config.json, and a
   // user (or their agent) must always be able to turn it off without asking anyone.
   if (argv[0] === 'telemetry') return { kind: 'telemetry', args: argv.slice(1) }
@@ -1041,7 +1041,7 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '                        Show or switch the update channel',
     '',
     'Privacy:',
-    '  telemetry             Show telemetry state (opt-in; off unless you turned it on)',
+    '  telemetry             Show telemetry state (usage on unless off; crash off unless on)',
     '  telemetry on|off [--usage] [--crash]',
     '                        Turn anonymous reporting on or off',
     '  telemetry show        Print the exact pending + last-sent payloads',
@@ -1679,7 +1679,7 @@ export async function main(
       }
       return
     }
-    // `podium telemetry <command>`: opt-in telemetry consent + audit [spec:SP-f933].
+    // `podium telemetry <command>`: telemetry consent + audit [spec:SP-f933].
     case 'telemetry': {
       const { telemetryCliMain } = await import('./telemetry-cli')
       const code = telemetryCliMain(plan.args)

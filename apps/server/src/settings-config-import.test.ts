@@ -58,12 +58,13 @@ describe('one-time config settings import', () => {
         authOpenMode: true,
         connectEnabled: false,
         telemetryUsage: 'on',
-        telemetryCrash: 'off',
         telemetryInstallId: '2b170e96-009a-4adb-8ff9-65dbf5b243fe',
         telemetrySince: 123,
       },
       transcripts: { mirror: false },
     })
+    // Only telemetry 'on' values are imported (POD-5922).
+    expect(settings(db).deployment).not.toHaveProperty('telemetryCrash')
     expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({
       mode: 'server',
       port: 19991,
@@ -163,6 +164,143 @@ describe('one-time config settings import', () => {
       store = await openTestStore(join(root, 'podium.db'))
       expect(store.settings.resolve('updateChannel')).toEqual({ value: 'edge', source: 'settings' })
       expect(store.settings.telemetryConfig().telemetry.usage).toBe('on')
+    } finally {
+      await store.close()
+    }
+  })
+})
+
+/**
+ * POD-5922: the one-time import takes telemetry `on` values and the install
+ * identity only. Later choices are never touched.
+ */
+describe('telemetry on the one-time import', () => {
+  const ID = '2b170e96-009a-4adb-8ff9-65dbf5b243fe'
+
+  it("imports 'on' and the identity only, and a second open changes nothing", () => {
+    const { root, db, path } = fixture()
+    writeFileSync(
+      path,
+      JSON.stringify({
+        mode: 'server',
+        telemetry: { usage: 'off', crash: 'on', installId: ID, since: 123 },
+      }),
+    )
+    importConfigSettings(db, root)
+    const imported = settings(db)
+    expect(imported.deployment).not.toHaveProperty('telemetryUsage')
+    expect(imported.deployment).toMatchObject({
+      telemetryCrash: 'on',
+      telemetryInstallId: ID,
+      telemetrySince: 123,
+    })
+    // The cleanup still moves every telemetry choice out of config.json.
+    expect(JSON.parse(readFileSync(path, 'utf8'))).toEqual({ mode: 'server', telemetry: {} })
+
+    // A later operator 'off' in config.json is an override, never re-imported.
+    writeFileSync(path, JSON.stringify({ mode: 'server', telemetry: { usage: 'off' } }))
+    importConfigSettings(db, root)
+    expect(settings(db)).toEqual(imported)
+  })
+
+  it("an 'off' chosen after the import survives a restart", async () => {
+    const { root, path } = fixture()
+    writeFileSync(path, JSON.stringify({ mode: 'server', telemetry: { usage: 'off' } }))
+    vi.stubEnv('PODIUM_STATE_DIR', root)
+    vi.stubEnv('DO_NOT_TRACK', '')
+    vi.stubEnv('PODIUM_TELEMETRY', '')
+    let store = await openTestStore(join(root, 'podium.db'))
+    try {
+      forgetConfig(path)
+      // No usage value was imported: usage takes its default.
+      expect(store.settings.telemetryConfig().telemetry.usage).toBeUndefined()
+      const service = new InstanceService({ settings: store.settings })
+      expect(service.telemetryState().usage).toBe('absent')
+      await service.setConsent({ usage: 'off' })
+      await store.close()
+      store = await openTestStore(join(root, 'podium.db'))
+      forgetConfig(path)
+      expect(store.settings.telemetryConfig().telemetry.usage).toBe('off')
+      expect(new InstanceService({ settings: store.settings }).telemetryState().usage).toBe('off')
+    } finally {
+      await store.close()
+    }
+  })
+})
+
+/**
+ * POD-5922: usage is on by default, so the server must mint the install id
+ * itself — the emitter builds nothing without one — exactly once, and never
+ * for a box with every tier off or a kill switch set.
+ */
+describe('ensureTelemetryIdentity', () => {
+  const open = async (config: object, env: Record<string, string> = {}) => {
+    const { root, path } = fixture()
+    writeFileSync(path, JSON.stringify({ mode: 'server', ...config }))
+    vi.stubEnv('PODIUM_STATE_DIR', root)
+    vi.stubEnv('DO_NOT_TRACK', env.DO_NOT_TRACK ?? '')
+    vi.stubEnv('PODIUM_TELEMETRY', env.PODIUM_TELEMETRY ?? '')
+    forgetConfig(path)
+    const store = await openTestStore(join(root, 'podium.db'))
+    forgetConfig(path)
+    return { root, path, store }
+  }
+
+  it('mints and persists an id once when usage is on by default', async () => {
+    const { root, store } = await open({})
+    let reopened: Awaited<ReturnType<typeof openTestStore>> | undefined
+    try {
+      expect(store.settings.telemetryConfig().telemetry.installId).toBeUndefined()
+      expect(await store.settings.ensureTelemetryIdentity(1_700_000_000_000)).toBe(true)
+      const { deployment } = await store.settings.getSettings()
+      expect(deployment.telemetryInstallId).toMatch(/^[0-9a-f-]{36}$/)
+      expect(deployment.telemetrySince).toBe(1_700_000_000_000)
+      // Nothing about consent was written: usage stays "never chosen".
+      expect(deployment.telemetryUsage).toBeUndefined()
+      expect(await store.settings.ensureTelemetryIdentity()).toBe(false)
+      await store.close()
+      reopened = await openTestStore(join(root, 'podium.db'))
+      expect(await reopened.settings.ensureTelemetryIdentity()).toBe(false)
+      expect(reopened.settings.telemetryConfig().telemetry.installId).toBe(
+        deployment.telemetryInstallId,
+      )
+    } finally {
+      await (reopened ?? store).close()
+    }
+  })
+
+  it('mints nothing while every tier is off', async () => {
+    const { store } = await open({})
+    try {
+      await new InstanceService({ settings: store.settings }).setConsent({ usage: 'off' })
+      expect(await store.settings.ensureTelemetryIdentity()).toBe(false)
+      expect((await store.settings.getSettings()).deployment.telemetryInstallId).toBeUndefined()
+    } finally {
+      await store.close()
+    }
+  })
+
+  it('mints nothing under a kill switch', async () => {
+    const envs: Record<string, string>[] = [{ DO_NOT_TRACK: '1' }, { PODIUM_TELEMETRY: 'off' }]
+    for (const env of envs) {
+      const { store } = await open({}, env)
+      try {
+        expect(await store.settings.ensureTelemetryIdentity()).toBe(false)
+        expect((await store.settings.getSettings()).deployment.telemetryInstallId).toBeUndefined()
+      } finally {
+        await store.close()
+      }
+    }
+  })
+
+  it('turning usage back on after an off mints through the consent write', async () => {
+    const { store } = await open({})
+    try {
+      const service = new InstanceService({ settings: store.settings })
+      await service.setConsent({ usage: 'off' })
+      expect(service.telemetryState().installId).toBeUndefined()
+      await service.setConsent({ usage: 'on' })
+      expect(service.telemetryState().installId).toMatch(/^[0-9a-f-]{36}$/)
     } finally {
       await store.close()
     }

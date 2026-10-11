@@ -34,7 +34,7 @@ export type TelemetryTier = z.infer<typeof TelemetryTier>
 // Primitive value domains — every one closed by construction
 // ---------------------------------------------------------------------------
 
-/** Random UUIDv4, minted on first opt-in, resettable (`podium telemetry reset-id`).
+/** Random UUIDv4, minted once a tier is on, resettable (`podium telemetry reset-id`).
  *  Not derived from hostname/user/mac — nothing about the machine is recoverable. */
 export const InstallId = z.string().uuid()
 
@@ -52,7 +52,7 @@ export const TelemetryArch = z.enum(['x64', 'arm64', 'other'])
 export type TelemetryArch = z.infer<typeof TelemetryArch>
 
 /** Pre-bucketed install age — the RAW age never exists in the payload, so a
- *  precise opt-in timestamp can't be used to single an install out. */
+ *  precise start timestamp can't be used to single an install out. */
 export const InstallAgeBucket = z.enum(['0d', '1-7d', '8-30d', '31-90d', '90d+'])
 export type InstallAgeBucket = z.infer<typeof InstallAgeBucket>
 

@@ -51,6 +51,8 @@ function store() {
         if (value === null) uiValues.delete(key)
         else uiValues.set(key, value)
       },
+      // The pool fixture attaches a preference source, which subscribes.
+      subscribe: () => () => {},
     },
     trpc: {
       settings: {
@@ -146,18 +148,19 @@ describe('FirstTaskActivation', () => {
     expect(screen.getByRole('heading', { name: 'Podium is good to go.' })).toBeTruthy()
   })
 
-  it('combines the ready handoff with explicit telemetry consent', async () => {
+  it('finishes without a telemetry question — it is a setting, not a setup step (POD-5922)', async () => {
     const onComplete = vi.fn()
     render(
       <FirstTaskActivation route="first-task" onRouteChange={vi.fn()} onComplete={onComplete} />,
     )
 
     expect(screen.getByRole('heading', { name: 'Podium is good to go.' })).toBeTruthy()
-    const usage = await screen.findByRole('checkbox', { name: /Send anonymous usage reports/ })
-    expect((usage as HTMLInputElement).checked).toBe(true)
+    expect(screen.queryByText(/telemetry|usage reports|crash reports/i)).toBeNull()
+    expect(screen.queryByRole('checkbox')).toBeNull()
     fireEvent.click(screen.getByRole('button', { name: 'Finish setup' }))
 
-    await waitFor(() => expect(telemetrySet).toHaveBeenCalledWith({ usage: 'on', crash: 'off' }))
-    expect(onComplete).toHaveBeenCalledOnce()
+    await waitFor(() => expect(onComplete).toHaveBeenCalledOnce())
+    expect(telemetryState).not.toHaveBeenCalled()
+    expect(telemetrySet).not.toHaveBeenCalled()
   })
 })

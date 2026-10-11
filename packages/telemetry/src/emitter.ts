@@ -8,9 +8,9 @@
  *
  * Three rules this file exists to enforce:
  *
- *  - **Nothing is collected before consent** (D4). The counters short-circuit
- *    on a fresh consent read, so a tier that is off (or absent, or killed by
- *    DO_NOT_TRACK) accumulates NOTHING — there is no local-collect mode to
+ *  - **Nothing is collected while a tier is off** (D4). The counters
+ *    short-circuit on a fresh consent read, so a tier that is off (explicitly,
+ *    by its default, or killed by DO_NOT_TRACK) accumulates NOTHING — there is no local-collect mode to
  *    later turn into a backlog.
  *  - **Consent is read fresh at flush** (D9), never cached at boot, so
  *    `podium telemetry off` takes effect on a running server with no restart —
@@ -194,7 +194,8 @@ export class TelemetryEmitter {
   }
 
   /** The identity fields both reports share, or undefined when we have no
-   *  installId — which means nobody has ever opted in, so nothing may be built. */
+   *  installId — the server mints one once a tier is on, so none means nothing
+   *  may be built. */
   private identity():
     | {
         installId: string

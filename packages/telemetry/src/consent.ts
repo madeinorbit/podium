@@ -2,12 +2,12 @@
  * Consent: the tri-state, its kill switches, and the only writer of
  * `config.telemetry` [spec:SP-f933].
  *
- * Tri-state per tier (D2): `on` | `off` | ABSENT. Absent and `off` both send
- * nothing; the distinction exists so `podium setup` knows whether it has ever
- * asked. Absent ≠ off ≠ on — collapsing absent into off would lose the "never
- * asked" fact, and collapsing it into on would be the thing this whole feature
- * exists not to do.
- *
+ * Tri-state per tier (D2): `on` | `off` | ABSENT. Absent takes the tier's
+ * default (POD-5922, 0.2.0): usage reports are OPT-OUT, so absent usage counts
+ * as on; crash reports stay OPT-IN, so absent crash counts as off. An explicit
+ * `off` is always off. The stored value keeps the distinction so "never chose"
+ * stays visible to `podium telemetry` and Settings → Privacy.
+
  * State lives in config.json, not the settings blob (D8), so `podium telemetry
  * off` works whether or not the server is running — and so a user can turn this
  * off with a text editor and no daemon at all.
@@ -26,8 +26,11 @@ import { TELEMETRY_TIERS } from './schema'
 /** The baked-in default relay endpoint (D7 — first-party, IP-dropping). */
 export const DEFAULT_TELEMETRY_ENDPOINT = 'https://pulse.podium.do/v1/u'
 
-/** A tier's resolved consent. 'absent' = never asked. */
+/** A tier's stored consent. 'absent' = never chosen; see {@link TIER_DEFAULTS}. */
 export type ConsentState = 'on' | 'off' | 'absent'
+
+/** What an ABSENT tier means: usage is opt-out, crash is opt-in (POD-5922). */
+export const TIER_DEFAULTS: Record<TelemetryTier, 'on' | 'off'> = { usage: 'on', crash: 'off' }
 
 /** Why telemetry is force-disabled, for UI that must explain itself. */
 export type SuppressionReason = 'DO_NOT_TRACK' | 'PODIUM_TELEMETRY'
@@ -35,9 +38,9 @@ export type SuppressionReason = 'DO_NOT_TRACK' | 'PODIUM_TELEMETRY'
 export interface TelemetryState {
   usage: ConsentState
   crash: ConsentState
-  /** Present once the user has opted into anything (minted on first opt-in, not at install). */
+  /** Present once any tier has been on (the server mints it then; never by an opt-out). */
   installId?: string
-  /** Epoch ms the clock started — set with installId on first opt-in (D5). */
+  /** Epoch ms the clock started — set with installId (D5). */
   since?: number
   /** Set ⇒ both tiers are forced off regardless of the stored values. */
   suppressedBy?: SuppressionReason
@@ -107,7 +110,7 @@ export function isTierOn(
   env: EnvSource = process.env,
 ): boolean {
   if (telemetrySuppressedBy(env)) return false
-  return config.telemetry?.[tier] === 'on'
+  return (config.telemetry?.[tier] ?? TIER_DEFAULTS[tier]) === 'on'
 }
 
 /** True when NOTHING may be sent — the cheap check the emitter takes first. */
@@ -119,7 +122,7 @@ export function allTiersOff(
 }
 
 /**
- * Whether `podium setup` should ask (D11). A kill switch suppresses the PROMPT,
+ * Whether a setup surface may show telemetry at all (D11). A kill switch suppresses the PROMPT,
  * not just the sending — asking a DO_NOT_TRACK box would be exactly the
  * repeating-notice mistake Homebrew got complaints for.
  *
@@ -132,9 +135,10 @@ export function shouldAskForConsent(env: EnvSource = process.env): boolean {
 }
 
 /**
- * Write one tier's consent. Minting rules (D5): the installId and its clock are
- * created on the first OPT-IN — not at install, and never by an opt-out — so a
- * user who says no never gets an identifier at all.
+ * Write one tier's operator override in config.json. Minting rules (D5): this
+ * path creates the installId and its clock only on an explicit `on` — never by
+ * an opt-out. The server mints the DB identity when a tier is effectively on
+ * by default (POD-5922); see SettingsRepository.ensureTelemetryIdentity.
  *
  * Returns the resulting state. Callers write through this rather than
  * hand-patching config.json so the minting rule has exactly one home.

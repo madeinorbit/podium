@@ -1,10 +1,14 @@
 # Telemetry
 
-**Podium sends nothing unless you turn it on.** There is no telemetry by default, no "anonymous
-usage statistics are enabled to help us improve the product" that you have to go find and switch
-off, and nothing is collected locally while it is off either.
+**Usage reports are on unless you turn them off. Crash reports are off unless you turn them on.**
 
-If you never touch this page, nothing about your machine ever leaves it.
+A Podium host sends one small usage report a day: counts and buckets, never paths, names, prompts
+or code. Every field it can contain is in the table below. One switch turns it off: Settings →
+Privacy, or `podium telemetry off`. Crash reports carry Podium source lines, so they are sent only
+if you turn them on. Nothing is collected while a report type is off, not even locally.
+
+`DO_NOT_TRACK=1` or `PODIUM_TELEMETRY=off` in the server's environment turns everything off,
+whatever the settings say.
 
 Operational diagnostics in Podium's local event log are separate from telemetry. A delivery
 contradiction records message and session ids, the program and its observed version, the failure
@@ -19,13 +23,13 @@ from what actually ships.
 
 | | |
 | --- | --- |
-| **Default** | Off. Both tiers. Always. |
-| **Asked** | Once, at the end of `podium setup`, after your install already works. |
+| **Default** | Usage reports on. Crash reports off. |
+| **Asked** | Never during setup. It is a setting, not a question. |
 | **Where** | `Settings → Privacy`, or `podium telemetry` from a terminal. |
 | **How much** | One report a day, ~400 bytes. |
 | **Your IP** | Dropped at ingest. Never reaches the analytics vendor. |
 | **Vendor** | PostHog Cloud, behind a Podium-operated relay (named below, on purpose). |
-| **Kill switch** | `DO_NOT_TRACK=1` or `PODIUM_TELEMETRY=off` — disables everything, including the prompt. |
+| **Kill switch** | `DO_NOT_TRACK=1` or `PODIUM_TELEMETRY=off` — disables everything. |
 
 ## Turning it off (and on)
 
@@ -33,7 +37,7 @@ from what actually ships.
 podium telemetry                 # local operator overrides; Settings shows effective choices
 podium telemetry off             # both tiers off
 podium telemetry off --usage     # just one tier
-podium telemetry on --crash      # opt into one tier
+podium telemetry on --crash      # turn crash reports on
 podium telemetry show            # the exact pending + last-sent payloads
 podium telemetry reset-id        # new random install id
 ```
@@ -55,8 +59,8 @@ You can also just edit the file:
 }
 ```
 
-Absent, `"off"`, and a kill switch all send nothing. The only difference is that *absent* means
-"never asked", which is how `podium setup` knows whether to ask.
+An absent value takes the default: absent `usage` counts as on, absent `crash` counts as off. An
+explicit `"off"` stays off, and a kill switch beats everything.
 
 ## What is sent
 
@@ -81,7 +85,7 @@ Two tiers, consented independently. You can enable one and not the other.
 | Field | Type | Notes |
 | --- | --- | --- |
 | `schema` | `1` | Wire version. |
-| `installId` | random UUIDv4 | Minted when you opt in — **not** at install, and never if you decline. Not derived from your hostname, username, MAC, or anything else about your machine. Reset it any time with `podium telemetry reset-id`. |
+| `installId` | random UUIDv4 | Minted by the host the first time a report type is on — on a new install that is its first start, since usage reports are on by default. Never minted while every tier is off or a kill switch is set. Not derived from your hostname, username, MAC, or anything else about your machine. Reset it any time with `podium telemetry reset-id`. |
 | `version` | e.g. `1.4.2`, or `dev` | Which Podium build. |
 | `os` | `linux` \| `darwin` \| `win32` \| `other` | |
 | `arch` | `x64` \| `arm64` \| `other` | |
@@ -167,14 +171,13 @@ PODIUM_TELEMETRY_ENDPOINT=https://my-collector.example podium
 ```
 
 Resolution order is `PODIUM_TELEMETRY_ENDPOINT` → `config.telemetry.endpoint` → the signed update
-manifest → the built-in default. Note that an endpoint override does **not** imply consent: it only
-says where reports would go if you turned any on.
+manifest → the built-in default. An endpoint override never turns a report type on: it only says
+where reports go.
 
 ## Who sends
 
-Only a **host** (an `all-in-one` or `server` install) ever sends, and only a host is ever asked.
-Machines that joined your Podium never emit and are never prompted — they are covered by the
-decision you made on the hub.
+Only a **host** (an `all-in-one` or `server` install) ever sends. Machines that joined your Podium
+never emit — they are covered by the setting on the hub.
 
 ## Failure
 
@@ -183,12 +186,14 @@ Telemetry never affects Podium. If the relay is unreachable, reports queue (capp
 that pesters an air-gapped install. If anything in the telemetry path throws, it is swallowed: a
 telemetry problem you can see would be a worse bug than no telemetry at all.
 
-## Why we ask at all
+## Why usage reports are on by default
 
 Podium is self-hosted, which means we are otherwise blind: we cannot tell whether a feature is used
-by everyone or no one, and a crash on your machine is invisible to us unless you file it. The
-alternative to a small opt-in signal isn't a better signal — it's guessing.
+by everyone or no one. A signal that only a few installs opt into tells us about those few
+installs, not about Podium. So the daily usage report is on by default, and it is kept small
+enough that you can read every field it can contain on this page.
 
-We would rather have a low opt-in rate on a payload you're comfortable with than a high one you'd
-be annoyed to discover. If you'd rather not, `podium telemetry off` (or just never turning it on)
-is a completely legitimate answer, and nothing in Podium will nag you about it again.
+Crash reports carry Podium source lines from your machine, so they stay off until you turn them on.
+
+If you would rather send nothing, `podium telemetry off` is a completely legitimate answer. It
+takes effect at once, and nothing in Podium will ask you to turn it back on.

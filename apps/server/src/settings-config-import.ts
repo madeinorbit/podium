@@ -1,3 +1,4 @@
+// LEGACY(remove-after: 2027-01): one-time import of pre-2026-09-18 config.json settings into the DB; removing it ends direct upgrades from 0.1.x
 import { readFileSync, renameSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { PodiumSettings } from '@podium/runtime'
@@ -8,7 +9,9 @@ import type { SqlDatabase } from '@podium/runtime/sqlite'
 export const SETTINGS_CONFIG_IMPORT = 'settings_config_import_v1'
 
 /** Exclusive migration lane only. The receipt and imported settings commit together.
- * Cleanup resumes from that receipt; later operator overrides are never imported. */
+ * Cleanup resumes from that receipt; later operator overrides are never imported.
+ *
+ * Telemetry: only `on` values and the install identity are imported (POD-5922). */
 export function importConfigSettings(db: SqlDatabase, directory?: string): void {
   const read = (key: string) =>
     (db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined)
@@ -34,8 +37,8 @@ export function importConfigSettings(db: SqlDatabase, directory?: string): void 
       authOpenMode: config.auth?.openMode,
       updateChannel: config.updateChannel,
       connectEnabled: config.connect?.enabled,
-      telemetryUsage: config.telemetry?.usage,
-      telemetryCrash: config.telemetry?.crash,
+      telemetryUsage: config.telemetry?.usage === 'on' ? 'on' : undefined,
+      telemetryCrash: config.telemetry?.crash === 'on' ? 'on' : undefined,
       telemetryInstallId: config.telemetry?.installId,
       telemetrySince: config.telemetry?.since,
     }

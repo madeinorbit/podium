@@ -1,7 +1,7 @@
 /**
  * Server telemetry wiring tests [spec:SP-f933].
  *
- * The load-bearing claim here is negative: with no consent, driving the bus
+ * The load-bearing claim here is negative: with usage off, driving the bus
  * hard produces NOTHING on disk. The second claim is that a telemetry failure
  * cannot reach a user-visible path — the bus isolates listeners, so a thrown
  * emitter must not break the session spawn that emitted the event.
@@ -31,8 +31,8 @@ const wire = (bus: EventBus) =>
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
-describe('no consent = no collection, however hard the bus is driven', () => {
-  it('records nothing when telemetry was never asked about', () => {
+describe('off = no collection, however hard the bus is driven', () => {
+  it('counts by default when usage was never chosen (opt-out, POD-5922)', () => {
     saveConfig({ mode: 'all-in-one' })
     const bus = new EventBus()
     const t = wire(bus)
@@ -40,7 +40,7 @@ describe('no consent = no collection, however hard the bus is driven', () => {
       bus.emit('session.created', { sessionId: asSessionId(`s${i}`), agentKind: 'claude-code' })
       bus.emit('issue.updated', { issue: { id: `i${i}` } as never })
     }
-    expect(readWindow(dir)).toBeUndefined()
+    expect(readWindow(dir)).toMatchObject({ sessions: { 'claude-code': 50 }, features: ['issues'] })
     expect(readQueue(dir)).toEqual([])
     t.stop()
   })

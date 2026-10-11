@@ -12,13 +12,8 @@ import { observer } from 'mobx-react-lite'
  * the reason, mirroring how experimental.tsx renders config-locked flags: a
  * toggle that silently refuses to move is a bug report waiting to happen.
  */
-// The example report — literally the same string the CLI prompt and setup
-// wizard show, not a copy. It WAS a copy, and had already drifted. The
-// `/example` subpath is the one browser-safe entry (zero runtime imports);
-// the bare `@podium/telemetry` specifier pulls the emitter and node:fs.
 
 import type { PodiumSettings } from '@podium/runtime'
-import { EXAMPLE_USAGE_REPORT_DISPLAY as EXAMPLE_REPORT } from '@podium/telemetry/example'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
 import { useSettingsTrpc } from '@/features/settings/stable-access'
@@ -120,13 +115,24 @@ export const PrivacySection = observer(function PrivacySection({
     }
   }
 
+  // The example report — literally the same string `podium telemetry show`
+  // prints, not a copy. The `/example` subpath is the one browser-safe entry
+  // (the bare specifier pulls the emitter and node:fs). Loaded on demand: it is
+  // shown only until a real report exists, and inlining it would push the
+  // settings chunk past its size budget.
+  const [example, setExample] = useState('')
+  useEffect(() => {
+    if (!preview)
+      import('@podium/telemetry/example').then((m) => setExample(m.EXAMPLE_USAGE_REPORT_DISPLAY))
+  }, [preview])
+
   const suppressed = state?.suppressedBy
-  const shown = preview ? JSON.stringify(preview, null, 2) : EXAMPLE_REPORT
+  const shown = preview ? JSON.stringify(preview, null, 2) : example
 
   return (
     <Section
       title="Privacy"
-      hint="Podium sends nothing unless you turn it on here. Opt-in, per report type, and reversible at any time."
+      hint="Usage reports are on unless you turn them off; crash reports are off unless you turn them on."
     >
       {!state && !error && <p className="settings-prose">Loading…</p>}
 
@@ -149,14 +155,19 @@ export const PrivacySection = observer(function PrivacySection({
               {forced[tier.key].forced && (
                 <p className="settings-micro mt-1">{forcedNotice(forced[tier.key])}</p>
               )}
-              {state[tier.key] === 'absent' && <p className="settings-micro mt-1">Never enabled</p>}
             </div>
             <div className="settings-control">
               <Switch
                 aria-label={tier.name}
                 data-testid={`telemetry-${tier.key}`}
                 className="flex-none"
-                checked={state[tier.key] === 'on'}
+                // The EFFECTIVE state (POD-5922), as the server's TIER_DEFAULTS
+                // resolve it: usage is on unless off, crash off unless on, and
+                // a kill switch turns both off.
+                checked={
+                  !suppressed &&
+                  (tier.key === 'usage' ? state.usage !== 'off' : state.crash === 'on')
+                }
                 disabled={busy || Boolean(suppressed) || forced[tier.key].forced}
                 onCheckedChange={(next) => void setTier(tier.key, next === true)}
               />
@@ -190,7 +201,7 @@ export const PrivacySection = observer(function PrivacySection({
         <div className="mt-2 flex flex-wrap items-center gap-2 text-[13px]">
           <span className="text-muted-foreground">Install id</span>
           <code className="rounded bg-muted px-1.5 py-0.5 text-[12px]">
-            {state.installId ?? '(none — created only when you opt in)'}
+            {state.installId ?? '(none — created when a report type is on)'}
           </code>
           {(forcedIdentity.forced || forcedSince.forced) && (
             <p className="settings-micro">

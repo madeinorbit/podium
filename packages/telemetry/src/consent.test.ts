@@ -1,7 +1,8 @@
 /**
  * Consent tests [spec:SP-f933]. The tri-state and the kill switches are the
- * feature's load-bearing promises — "absent ≠ off ≠ on" and "DO_NOT_TRACK
- * suppresses the prompt too" are the ones a reviewer should be able to find.
+ * feature's load-bearing promises — "absent usage is on, absent crash is off,
+ * explicit off is off" (POD-5922) and "DO_NOT_TRACK beats everything" are the
+ * ones a reviewer should be able to find.
  */
 import { mkdtempSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
@@ -17,6 +18,7 @@ import {
   resolveTelemetryEndpoint,
   setConsent,
   shouldAskForConsent,
+  TIER_DEFAULTS,
   telemetrySuppressedBy,
 } from './consent'
 
@@ -32,17 +34,33 @@ afterEach(() => {
 
 const priorStateDir = process.env.PODIUM_STATE_DIR!
 
-describe('tri-state: absent ≠ off ≠ on', () => {
-  it('absent means never asked, and sends nothing', () => {
+describe('tri-state: absent takes the tier default (POD-5922)', () => {
+  it('absent usage counts as ON; absent crash counts as OFF', () => {
     saveConfig({ mode: 'all-in-one' })
     const state = readTelemetryState(loadConfig(), {})
     expect(state.usage).toBe('absent')
     expect(state.crash).toBe('absent')
+    expect(TIER_DEFAULTS).toEqual({ usage: 'on', crash: 'off' })
+    expect(isTierOn('usage', loadConfig(), {})).toBe(true)
+    expect(isTierOn('crash', loadConfig(), {})).toBe(false)
+    expect(allTiersOff(loadConfig(), {})).toBe(false)
+  })
+
+  it('explicit off on both tiers sends nothing', () => {
+    saveConfig({ mode: 'all-in-one', telemetry: { usage: 'off', crash: 'off' } })
     expect(isTierOn('usage', loadConfig(), {})).toBe(false)
+    expect(isTierOn('crash', loadConfig(), {})).toBe(false)
     expect(allTiersOff(loadConfig(), {})).toBe(true)
   })
 
-  it('off is distinguishable from absent, and also sends nothing', () => {
+  it('a kill switch turns the default-on usage tier off', () => {
+    saveConfig({ mode: 'all-in-one' })
+    expect(isTierOn('usage', loadConfig(), { DO_NOT_TRACK: '1' })).toBe(false)
+    expect(isTierOn('usage', loadConfig(), { PODIUM_TELEMETRY: 'off' })).toBe(false)
+    expect(allTiersOff(loadConfig(), { DO_NOT_TRACK: '1' })).toBe(true)
+  })
+
+  it('explicit off is distinguishable from absent, and sends nothing', () => {
     saveConfig({ mode: 'all-in-one', telemetry: { usage: 'off' } })
     const state = readTelemetryState(loadConfig(), {})
     expect(state.usage).toBe('off')
@@ -208,6 +226,6 @@ describe('endpoint precedence', () => {
   it('an endpoint override never implies consent', () => {
     // Subordinate to the toggles: pointing at a relay does not turn anything on.
     saveConfig({ mode: 'all-in-one', telemetry: { endpoint: 'http://localhost:9999' } })
-    expect(isTierOn('usage', loadConfig(), {})).toBe(false)
+    expect(isTierOn('crash', loadConfig(), {})).toBe(false)
   })
 })

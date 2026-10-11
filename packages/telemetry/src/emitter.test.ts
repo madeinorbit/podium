@@ -2,7 +2,7 @@
  * Emitter tests [spec:SP-f933].
  *
  * The behaviors under test are the promises, not the plumbing: nothing is
- * collected before consent, consent is re-read at flush (so `podium telemetry
+ * collected while a tier is off, consent is re-read at flush (so `podium telemetry
  * off` lands without a restart), and every failure mode is silent.
  */
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
@@ -72,8 +72,22 @@ const onBoth: PodiumConfig = {
   },
 }
 
-describe('no collection before consent (D4)', () => {
-  it('counts NOTHING while usage is absent', async () => {
+describe('no collection while a tier is off (D4)', () => {
+  it('absent usage counts as ON (POD-5922): reported once an install id exists', async () => {
+    const h = harness({ telemetry: { installId: INSTALL_ID, since: 1_700_000_000_000 } })
+    h.emitter.recordSession('codex')
+    // A crash with a Podium frame — it WOULD be reported if the tier were on.
+    const err = new TypeError('x')
+    err.stack = ['TypeError: x', `    at run (${INSTALL}/apps/server/src/router.ts:9:1)`].join('\n')
+    h.emitter.recordCrash(err)
+    await h.emitter.flush()
+    // Absent crash is still OFF: only the usage report went out.
+    expect(h.posted).toEqual([
+      expect.objectContaining({ installId: INSTALL_ID, sessions: { codex: 1 } }),
+    ])
+  })
+
+  it('sends NOTHING while there is no install id, even with usage on by default', async () => {
     const h = harness({})
     h.emitter.recordSession('claude-code')
     h.emitter.recordSession('codex')
@@ -113,10 +127,10 @@ describe('no collection before consent (D4)', () => {
     void config
   })
 
-  it('there is no backlog to send when a user opts in later — the window starts empty', async () => {
+  it('there is no backlog to send when a user turns usage back on — the window starts empty', async () => {
     // The explicit rejection of Go's local-collect default: turning telemetry on
     // must not ship what happened while it was off.
-    const h = harness({})
+    const h = harness({ telemetry: { usage: 'off' } })
     h.emitter.recordSession('claude-code')
     h.emitter.recordSession('codex')
     h.setConfig(onUsage)
@@ -164,7 +178,7 @@ describe('usage report', () => {
     expect(readLastSent(dir)?.report).toMatchObject({ sessions: { codex: 1 } })
   })
 
-  it('cannot build a report without an installId (nobody opted in)', () => {
+  it('cannot build a report without an installId', () => {
     const h = harness({ telemetry: { usage: 'on' } })
     expect(h.emitter.buildUsageReport()).toBeUndefined()
   })

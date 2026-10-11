@@ -112,7 +112,7 @@ export const authFamilyProcedures = (): AuthProcedures =>
     queries: AUTH_QUERIES,
   })
 
-/** Opt-in telemetry [spec:SP-f933] — Settings → Privacy's backing surface.
+/** Telemetry [spec:SP-f933] — Settings → Privacy's backing surface.
  *  Reads/writes config.json (D8), NOT the settings blob, so the web toggles and
  *  `podium telemetry off` are the same switch. */
 export const telemetryFamilyProcedures = (): TelemetryProcedures =>
