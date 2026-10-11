@@ -15,6 +15,7 @@
 import { realpathSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { dirname } from 'node:path'
+import { afterEach, beforeEach, type MockInstance, vi } from 'vitest'
 
 const require = createRequire(import.meta.url)
 
@@ -55,3 +56,19 @@ assertOneReact(
   reactSeenBy('react-dom'),
   reactSeenBy('react-native-web'),
 )
+
+// happy-dom cannot rasterize the shared working mark. Keep the real renderer
+// and APNG assembler; supply a valid PNG only at the canvas boundary. Browser
+// captures exercise real pixels. Keep this mock local to the mobile graph.
+const PNG = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR4nGNgAAIAAAUAAXpeqz8AAAAASUVORK5CYII='
+let canvasContext: MockInstance | undefined
+let canvasPng: MockInstance | undefined
+beforeEach(() => {
+  if (typeof HTMLCanvasElement === 'undefined') return
+  canvasContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockReturnValue(null)
+  canvasPng = vi.spyOn(HTMLCanvasElement.prototype, 'toDataURL').mockReturnValue(PNG)
+})
+afterEach(() => {
+  canvasContext?.mockRestore()
+  canvasPng?.mockRestore()
+})
