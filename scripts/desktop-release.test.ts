@@ -293,6 +293,44 @@ describe('desktop release manifest', () => {
     ])
   })
 
+  /** Edge does not build the Intel Mac app; stable must still have it (POD-5969). */
+  function bundleWithoutIntel(): { bundleDir: string; outputDir: string } {
+    const root = mkdtempSync(join(tmpdir(), 'podium-desktop-release-no-intel-'))
+    scratch.push(root)
+    const bundleDir = join(root, 'bundle')
+    const linuxDir = join(bundleDir, 'linux')
+    const macUpdaterDir = join(bundleDir, 'aarch64-apple-darwin', 'macos')
+    const macDmgDir = join(bundleDir, 'aarch64-apple-darwin', 'dmg')
+    for (const dir of [linuxDir, macUpdaterDir, macDmgDir]) mkdirSync(dir, { recursive: true })
+    writeFileSync(join(linuxDir, 'Podium_0.2.1_amd64.AppImage'), 'APPIMAGE')
+    writeFileSync(join(linuxDir, 'Podium_0.2.1_amd64.AppImage.sig'), '  LINUX-SIGNATURE\n')
+    writeFileSync(join(macUpdaterDir, 'Podium.app.tar.gz'), 'MAC-UPDATER')
+    writeFileSync(join(macUpdaterDir, 'Podium.app.tar.gz.sig'), '  MAC-SIGNATURE\n')
+    writeFileSync(join(macDmgDir, 'Podium_0.2.1_aarch64.dmg'), 'DMG')
+    return { bundleDir, outputDir: join(root, 'out') }
+  }
+
+  it('publishes an edge app without the Intel Mac build edge no longer makes', () => {
+    const result = prepareDesktopRelease({
+      version: '0.2.1-edge.1',
+      channel: 'edge',
+      ...bundleWithoutIntel(),
+    })
+    const manifest = JSON.parse(readFileSync(result.manifestPath, 'utf8'))
+    expect(Object.keys(manifest.platforms).sort()).toEqual(['darwin-aarch64', 'linux-x86_64'])
+  })
+
+  it('still refuses a stable app without the Intel Mac build', () => {
+    expect(() =>
+      prepareDesktopRelease({
+        version: '0.2.1',
+        channel: 'stable',
+        stableTag: 'v0.2.1',
+        ...bundleWithoutIntel(),
+      }),
+    ).toThrow(/darwin-x86_64/)
+  })
+
   /**
    * Optional must mean "absent is fine", never "anything goes": two candidate installers is a
    * packaging mistake whichever platform produced it, and skipping it silently would publish a

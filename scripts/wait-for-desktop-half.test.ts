@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs'
 import { join } from 'node:path'
 import { describe, expect, it } from 'vitest'
+import { DESKTOP_BUILD_LEGS } from './desktop-build-legs'
 import {
   type DesktopJob,
   desktopHalfVerdict,
@@ -108,13 +109,6 @@ describe('pairedDesktopRun', () => {
 
 describe('the release workflows', () => {
   const root = join(__dirname, '..')
-  const desktop = Bun.YAML.parse(
-    readFileSync(join(root, '.github/workflows/desktop-release.yml'), 'utf8'),
-  ) as {
-    jobs: {
-      build: { strategy: { matrix: { include: { target: string; experimental?: boolean }[] } } }
-    }
-  }
   const headless = Bun.YAML.parse(
     readFileSync(join(root, '.github/workflows/release.yml'), 'utf8'),
   ) as {
@@ -122,10 +116,10 @@ describe('the release workflows', () => {
     jobs: { publish: { steps: { name?: string; run?: string }[] } }
   }
 
-  it('treats exactly the workflow’s experimental legs as experimental', () => {
-    const flagged = desktop.jobs.build.strategy.matrix.include
-      .filter((leg) => leg.experimental === true)
-      .map((leg) => leg.target)
+  it('treats exactly the experimental desktop legs as experimental', () => {
+    const flagged = DESKTOP_BUILD_LEGS.filter((leg) => leg.experimental === true).map(
+      (leg) => leg.target,
+    )
     expect([...EXPERIMENTAL_DESKTOP_TARGETS].sort()).toEqual(flagged.sort())
   })
 

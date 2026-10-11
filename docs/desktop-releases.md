@@ -56,6 +56,11 @@ first and skips all platform builders when the standing shell already has that h
 mint, it waits for the release the headless half creates rather than discarding a notarized build
 over a few seconds of ordering.
 
+Which platforms a release builds is listed in `scripts/desktop-build-legs.ts`. Edge and dev
+skip the macOS Intel leg, the slowest by far (26-33 min against about 17 for Apple Silicon), so
+an edge release is live in about 20 minutes; Intel Macs on edge keep the app they have until the
+next stable, which builds and requires every platform.
+
 When a tag mints a new app, the headless half does not go live ahead of it
 (`scripts/wait-for-desktop-half.ts`). On edge it waits until the app is published, so the app
 lands first and the server last. On stable it waits until every required app build has

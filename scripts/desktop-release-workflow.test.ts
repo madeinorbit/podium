@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { DESKTOP_BUILD_LEGS, desktopBuildMatrix } from './desktop-build-legs'
 import { tagMessage } from './release-cut'
 
 const repoRoot = join(__dirname, '..')
@@ -16,6 +17,11 @@ const carryForwardSource = readFileSync(
   join(repoRoot, 'scripts/carry-forward-desktop-manifest.ts'),
   'utf8',
 )
+const leg = (target: string) => {
+  const found = DESKTOP_BUILD_LEGS.find((candidate) => candidate.target === target)
+  if (!found) throw new Error(`no desktop build leg for ${target}`)
+  return found
+}
 const macSigningVerifier = readFileSync(
   join(repoRoot, 'apps/desktop/scripts/verify-macos-signing.sh'),
   'utf8',
@@ -517,17 +523,16 @@ describe('desktop release workflow', () => {
   it('builds both macOS architectures with the same signing pipeline', () => {
     // Every darwin leg — not just Apple Silicon — must sign, notarize, and verify; a target
     // check that names one architecture silently ships the other unsigned.
-    expect(desktopWorkflow).toContain('target: darwin-x86_64')
-    expect(desktopWorkflow).toContain('runner: macos-15-intel')
-    expect(desktopWorkflow).toContain('--target x86_64-apple-darwin')
+    expect(leg('darwin-x86_64').runner).toBe('macos-15-intel')
+    expect(leg('darwin-x86_64').build_args).toContain('--target x86_64-apple-darwin')
     expect(desktopWorkflow).not.toContain("matrix.target == 'darwin-aarch64'")
     expect(desktopWorkflow).toContain("startsWith(matrix.target, 'darwin-')")
     // notarize-dmg.sh and verify-macos-signing.sh default to the aarch64 bundle dir; each darwin
     // leg must pass its own.
     expect(desktopWorkflow).toContain('notarize-dmg.sh "${{ matrix.bundle_dir }}"')
     expect(desktopWorkflow).toContain('verify-macos-signing.sh "${{ matrix.bundle_dir }}"')
-    expect(desktopWorkflow).toContain(
-      'bundle_dir: apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle',
+    expect(leg('darwin-x86_64').bundle_dir).toBe(
+      'apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle',
     )
   })
 
@@ -557,19 +562,18 @@ describe('desktop release workflow', () => {
   })
 
   it('builds Windows without letting it hold back or slow down the other platforms', () => {
-    type Leg = { target: string; experimental?: boolean; timeout_minutes?: number }
     const parsed = Bun.YAML.parse(desktopWorkflow) as {
       jobs: {
         build: {
           'continue-on-error'?: string
           'timeout-minutes'?: string
-          strategy: { 'fail-fast'?: boolean; matrix: { include: Leg[] } }
+          strategy: { 'fail-fast'?: boolean; matrix: { include: unknown } }
         }
       }
     }
     const build = parsed.jobs.build
-    const legs = build.strategy.matrix.include
-    const windows = legs.find((leg) => leg.target === 'windows-x86_64')
+    const legs = DESKTOP_BUILD_LEGS
+    const windows = legs.find((candidate) => candidate.target === 'windows-x86_64')
     expect(windows?.experimental).toBe(true)
     // Beside the ~26 min macOS Intel leg, a cap near it bounds what Windows can add.
     expect(windows?.timeout_minutes).toBeLessThanOrEqual(30)
@@ -584,12 +588,36 @@ describe('desktop release workflow', () => {
     }
   })
 
+  it('builds every platform for stable and leaves the slow Intel Mac leg out of edge', () => {
+    // Edge used to wait 26-33 min for macOS Intel on every release (POD-5969).
+    const targets = (channel: 'stable' | 'edge' | 'dev') =>
+      desktopBuildMatrix(channel).map((candidate) => candidate.target)
+    expect(targets('stable')).toEqual(
+      expect.arrayContaining(['linux-x86_64', 'windows-x86_64', 'darwin-aarch64', 'darwin-x86_64']),
+    )
+    expect(targets('edge')).not.toContain('darwin-x86_64')
+    expect(targets('dev')).not.toContain('darwin-x86_64')
+    expect(targets('edge')).toEqual(expect.arrayContaining(['linux-x86_64', 'darwin-aarch64']))
+    // The workflow takes its legs from that list, chosen per channel by validate.
+    const parsed = Bun.YAML.parse(desktopWorkflow) as {
+      jobs: {
+        validate: { outputs: Record<string, string>; steps: { id?: string; run?: string }[] }
+        build: { strategy: { matrix: { include: unknown } } }
+      }
+    }
+    expect(parsed.jobs.build.strategy.matrix.include).toBe(
+      '${{ fromJSON(needs.validate.outputs.build_matrix) }}',
+    )
+    expect(parsed.jobs.validate.outputs.build_matrix).toBe('${{ steps.matrix.outputs.include }}')
+    const choose = parsed.jobs.validate.steps.find((step) => step.id === 'matrix')
+    expect(choose?.run).toContain('bun scripts/desktop-build-legs.ts --channel "$CHANNEL"')
+  })
+
   it('builds and publishes the updater-signed Windows NSIS installer', () => {
-    expect(desktopWorkflow).toContain('target: windows-x86_64')
-    expect(desktopWorkflow).toContain('runner: windows-latest')
-    expect(desktopWorkflow).toContain('--bundles nsis')
-    expect(desktopWorkflow).toContain('bundle/nsis/*-setup.exe')
-    expect(desktopWorkflow).toContain('bundle/nsis/*-setup.exe.sig')
+    expect(leg('windows-x86_64').runner).toBe('windows-latest')
+    expect(leg('windows-x86_64').build_args).toContain('--bundles nsis')
+    expect(leg('windows-x86_64').artifact_paths).toContain('bundle/nsis/*-setup.exe')
+    expect(leg('windows-x86_64').artifact_paths).toContain('bundle/nsis/*-setup.exe.sig')
   })
 
   it('builds Linux and Apple Silicon macOS with signing before an atomic upload', () => {
@@ -600,9 +628,8 @@ describe('desktop release workflow', () => {
       'PODIUM_DESKTOP_RELEASE_CHANNEL: ${{ needs.validate.outputs.channel }}',
     )
     expect(desktopWorkflow).toContain('libwebkit2gtk-4.1-dev')
-    expect(desktopWorkflow).toContain('runner: macos-15\n')
-    expect(desktopWorkflow).toContain('target: darwin-aarch64')
-    expect(desktopWorkflow).toContain('--target aarch64-apple-darwin')
+    expect(leg('darwin-aarch64').runner).toBe('macos-15')
+    expect(leg('darwin-aarch64').build_args).toContain('--target aarch64-apple-darwin')
     expect(desktopWorkflow).toContain('APPLE_SIGNING_IDENTITY:')
     // Ad-hoc signing shipped Gatekeeper warnings to every macOS user. The release identity is a
     // real Developer ID, and the credentials below are what make Tauri notarize rather than only
@@ -616,8 +643,8 @@ describe('desktop release workflow', () => {
     expect(desktopWorkflow).toContain('secrets.APPLE_API_ISSUER')
     expect(desktopWorkflow).toContain('secrets.APPLE_API_KEY_CONTENT')
     expect(desktopWorkflow).toContain('APPLE_API_KEY_PATH=')
-    expect(desktopWorkflow).toContain('*.dmg')
-    expect(desktopWorkflow).toContain('*.app.tar.gz')
+    expect(leg('darwin-aarch64').artifact_paths).toContain('*.dmg')
+    expect(leg('darwin-aarch64').artifact_paths).toContain('*.app.tar.gz')
     expect(desktopWorkflow).toContain('actions/upload-artifact@v4')
     expect(desktopWorkflow).toContain('actions/download-artifact@v4')
     const validation = desktopWorkflow.indexOf('--validate-only')

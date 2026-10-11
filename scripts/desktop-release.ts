@@ -15,6 +15,7 @@ import {
 } from 'node:fs'
 import { basename, join } from 'node:path'
 import { releaseNotesFor } from './changelog'
+import { optionalDesktopTargets } from './desktop-build-legs'
 
 export const NATIVE_DESKTOP_BRIDGE_VERSION = 1
 
@@ -332,13 +333,15 @@ export function prepareDesktopRelease(input: {
   const signatureSources: Array<{ source: string; name: string }> = []
   const downloadSources: string[] = []
 
+  // Off stable, a channel does not build every platform (scripts/desktop-build-legs.ts).
+  const notBuiltHere = new Set(optionalDesktopTargets(input.channel))
   for (const bundle of targetBundles) {
     const bundleFiles = files.filter((path) => bundle.matches?.(path) ?? true)
     // An optional target contributes nothing when it did not build. Checked before
     // `exactlyOne` so that "absent" stays distinct from "ambiguous": two candidate
     // installers is still a packaging mistake and must still fail, optional or not.
     if (
-      bundle.optional &&
+      (bundle.optional || notBuiltHere.has(bundle.target)) &&
       !bundleFiles.some((path) => !path.endsWith('.sig') && path.endsWith(bundle.updaterSuffix))
     ) {
       continue

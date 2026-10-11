@@ -57,6 +57,7 @@ jobs:
       target_tag: ${{ steps.validate.outputs.target_tag }}
       build_shell: ${{ steps.shell.outputs.build_shell }}
       shell_input_hash: ${{ steps.shell.outputs.shell_input_hash }}
+      build_matrix: ${{ steps.matrix.outputs.include }}
     steps:
       - name: Resolve channel and ref
         id: resolve
@@ -99,6 +100,11 @@ jobs:
       - uses: jdx/mise-action@v2
         with:
           install_args: bun
+      - name: Choose the desktop builds for this channel
+        id: matrix
+        env:
+          CHANNEL: ${{ steps.resolve.outputs.channel }}
+        run: echo "include=$(bun scripts/desktop-build-legs.ts --channel "$CHANNEL")" >> "$GITHUB_OUTPUT"
       - name: Validate release selection
         id: validate
         env:
@@ -178,53 +184,10 @@ jobs:
     if: needs.validate.outputs.build_shell == 'true'
     strategy:
       fail-fast: false
+      # The legs live in scripts/desktop-build-legs.ts, chosen per channel by `validate`:
+      # edge and dev skip the slow macOS Intel leg, stable builds every platform (POD-5969).
       matrix:
-        include:
-          - target: linux-x86_64
-            runner: ubuntu-latest
-            build_args: ""
-            artifact_paths: |
-              apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
-              apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage.sig
-          # Windows is experimental: it is built and published when it succeeds, and it can never
-          # hold the release back. `experimental` turns on the job's continue-on-error, so a red
-          # or timed-out Windows leg leaves `build` successful and `publish` ships the legs that
-          # passed with no Windows entry in the manifest. Without it, one failed leg fails
-          # `build` and `publish` (which needs it) is skipped for every platform.
-          #
-          # It runs beside the macOS legs, so it only lengthens a release when it outlasts the
-          # slowest of them (macOS Intel, ~26 min); `timeout_minutes` caps that.
-          #
-          # Bun's global store is `links/` inside its install cache, which defaults to the C:
-          # profile while the checkout is on D:; every store symlink would cross a volume and
-          # Bun falls back to a copyfile that fails ENOENT. The pin step below puts the cache
-          # beside the workspace, the same pin windows-smoke.yml uses.
-          - target: windows-x86_64
-            runner: windows-latest
-            experimental: true
-            timeout_minutes: 30
-            build_args: "-- --bundles nsis"
-            artifact_paths: |
-              apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
-              apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe.sig
-          - target: darwin-aarch64
-            runner: macos-15
-            build_args: "-- --target aarch64-apple-darwin"
-            bundle_dir: apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle
-            artifact_paths: |
-              apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
-              apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz
-              apps/desktop/src-tauri/target/aarch64-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
-          # Intel macs build natively on GitHub's Intel runner. Cross-compiling from arm64 would
-          # also need an x64 Bun sidecar, an x64 Rust process host, neither of which build-bun plumbs through on a Mac.
-          - target: darwin-x86_64
-            runner: macos-15-intel
-            build_args: "-- --target x86_64-apple-darwin"
-            bundle_dir: apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle
-            artifact_paths: |
-              apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
-              apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz
-              apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
+        include: ${{ fromJSON(needs.validate.outputs.build_matrix) }}
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.experimental == true }}
     timeout-minutes: ${{ matrix.timeout_minutes || 360 }}
