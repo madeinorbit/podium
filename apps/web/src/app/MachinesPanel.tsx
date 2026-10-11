@@ -2,8 +2,8 @@ import { type FailureReason, MachineFailureReason } from '@/features/updates/Mac
 // This app-level surface composes settings, setup, and machine capabilities.
 
 import { relativeTime } from '@podium/client-core/focus'
-import { observer } from '@podium/client-graph/react'
 import type { MachineModel } from '@podium/client-graph'
+import { observer } from '@podium/client-graph/react'
 import { asMachineId } from '@podium/model'
 import type { MachineWire, UpdateChannel } from '@podium/model/browser'
 import type { Operation } from '@podium/protocol'
@@ -38,9 +38,9 @@ import {
   startServerMove,
   useServerMoveOperations,
 } from '@/features/machines/server-move'
+import { useSettingsMachine, useSettingsMachines } from '@/features/settings/readers'
 import { sourceUnavailableProse } from '@/features/settings/sections/updates-view'
 import { useSettingsClient } from '@/features/settings/stable-access'
-import { useSettingsMachine, useSettingsMachines } from '@/features/settings/readers'
 import { NetworkStep } from '@/features/setup/network-step'
 import { RepoScanFlow } from '@/features/setup/RepoScanFlow'
 import { errorMessage } from '@/features/updates/operations-client'
@@ -107,6 +107,20 @@ const CONVERGENCE_POLL_MS = 1_000
  * already running before this page loaded. One read on mount answers "is
  * anything converging right now?"; polling continues only while something is.
  */
+
+/**
+ * Whether the Machines panel offers to move the server: "Recommended: make this the server"
+ * when adding a machine (and the guided VPS "Move the Podium server here after pairing"), and
+ * each row's "Make server". Off until server transfer has been tested end to end (POD-5969). A
+ * transfer already in progress stays reviewable.
+ */
+export const SERVER_MOVE_OFFERED = false
+
+/** Adding a machine to a one-machine fleet pre-ticks moving the server there, when offered. */
+export function offerServerMoveWhenPairing(machineCount: number): boolean {
+  return SERVER_MOVE_OFFERED && machineCount === 1
+}
+
 function useFleetConvergence(trpc: Store['trpc']): {
   rows: ReadonlyMap<string, MachineConvergence>
   refresh: () => void
@@ -226,7 +240,7 @@ function MachinesPanelView({
   }, [])
 
   const openAddMachine = (): void => {
-    const shouldRecommendServer = machines.length === 1
+    const shouldRecommendServer = offerServerMoveWhenPairing(machines.length)
     pairing.watchForNewMachine()
     setRecommendServer(shouldRecommendServer)
     setMakeServerAfterPair(shouldRecommendServer)
@@ -371,9 +385,13 @@ function MachinesPanelView({
                   trpc={trpc}
                   isThisMachine={m.id === thisMachineId}
                   onMoveServer={
-                    eligibleTransferTargets.has(m.id) ? () => setServerMoveTargetId(m.id) : null
+                    SERVER_MOVE_OFFERED && eligibleTransferTargets.has(m.id)
+                      ? () => setServerMoveTargetId(m.id)
+                      : null
                   }
-                  serverMoveUnsupported={unsupportedTransferTargets.has(m.id)}
+                  serverMoveUnsupported={
+                    SERVER_MOVE_OFFERED && unsupportedTransferTargets.has(m.id)
+                  }
                   showOwnershipTransfer={showOwnershipTransfer}
                   // Inline "Enable": only on this device's own row, only while it is offline
                   // (online means the daemon is already running) [spec:SP-3701].
