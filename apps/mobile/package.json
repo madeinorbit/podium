@@ -56,7 +56,8 @@
     "react-native-web": "^0.21.2",
     "react-native-worklets": "0.10.0",
     "mobx": "7.0.3",
-    "mobx-react-lite": "5.0.3"
+    "mobx-react-lite": "5.0.3",
+    "@podium/working-mark": "workspace:*"
   },
   "devDependencies": {
     "mobx": "7.0.3",

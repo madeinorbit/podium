@@ -1,11 +1,8 @@
 import { StyleSheet, Text, View } from 'react-native'
 import { color, mono, monoLabel } from '../theme/theme'
 
-/* The braille SPINNER used to live here — a mono glyph stepping through ten
-   frames, on its own shared clock. It is gone: "an agent is computing" is now
-   said by the working mark (./WorkingMark), the same held-still cell lit by a
-   travelling wave that the web uses, so a phone and a desktop describe one
-   working session with one shape. */
+/* An agent computing is shown by ./WorkingMark: the same tumbling tetrahedron
+   as the web, in the phone's reserved working colour. */
 
 /** Bisque numbered pill — "N things waiting on you". */
 export function CountPill({ count, size = 16 }: { count: number; size?: number }) {

@@ -1,29 +1,18 @@
+import { memo } from 'react'
+import { tetra } from '@podium/working-mark/designs'
+import { WorkingMark as AnimatedWorkingMark } from '@podium/working-mark/react'
 import { color } from '../theme/theme'
-import { WORKING_MARK_DOTS, type WorkingMarkProps, workingMarkRadius } from './WorkingMark.shared'
-import './WorkingMark.web.css'
+import type { WorkingMarkProps } from './WorkingMark.shared'
 
-/** The same fully lit, still status cell on mobile web. */
-export function WorkingMark({
+/** Fit the shared tetra into the existing phone cell without changing row layout. */
+export const WorkingMark = memo(function WorkingMark({
   size = 12,
   tint = color.workingText,
-  label = 'Working',
 }: WorkingMarkProps) {
-  const radius = workingMarkRadius(size)
+  const width = Math.round(size * 0.66)
   return (
-    <svg
-      aria-hidden={label === null ? true : undefined}
-      aria-label={label ?? undefined}
-      role={label === null ? undefined : 'progressbar'}
-      focusable="false"
-      data-testid="working-mark"
-      viewBox="0 0 66 100"
-      width={Math.round(size * 0.66)}
-      height={size}
-      className="podium-mobile-working-mark"
-    >
-      {WORKING_MARK_DOTS.map(([cx, cy]) => (
-        <circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={radius} fill={tint} />
-      ))}
-    </svg>
+    <span aria-hidden="true" style={{ display: 'inline-flex', flex: 'none', alignItems: 'center', width, height: size }}>
+      <AnimatedWorkingMark design={tetra} size={width} color={tint} />
+    </span>
   )
-}
+})

@@ -38,3 +38,9 @@ paused marks cost what static marks cost. `setWorkingMarksPaused(on)` does it by
 
 **Colour.** The colour is baked into the image. A theme switch through `<html>`'s `class`, `data-theme` or `style`, or
 the system colour scheme, redraws the marks on its own; after any other change call `refreshWorkingMarks()`.
+
+**React Native.** The DOM methods and `/react` component need browser APIs. Import `tetra` from `/designs`
+and `dotsAt` / `restingPicture` from `/frames` for a native renderer; this entry has no DOM dependencies.
+The phone app uses native SVG, one shared 15 fps clock, screen focus, AppState and a 5 s touch-idle pause.
+It uses the resting picture under the app's reduced-motion provider. Its web export uses `/react` and
+`pauseWorkingMarksWhenIdle`, with the same caller gates, colour and cell dimensions.

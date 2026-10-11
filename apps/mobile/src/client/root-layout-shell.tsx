@@ -4,6 +4,7 @@ import { StatusBar } from 'expo-status-bar'
 import type { ComponentType, ReactNode } from 'react'
 import { Platform, StyleSheet, useColorScheme } from 'react-native'
 import { GestureHandlerRootView } from 'react-native-gesture-handler'
+import { noteWorkingMarkInput, useWorkingMarkMotion } from '../components/working-mark-motion'
 import { AgentOutcomeHaptics } from '../components/AgentOutcomeHaptics'
 import { KeyboardRoot } from '../components/KeyboardRoot'
 import { MessageNoticeBanner } from '../components/MessageNoticeBanner'
@@ -86,6 +87,7 @@ function ConnectedApp({ children }: { children: ReactNode }) {
 }
 
 function RootLayoutContent({ Navigation }: { Navigation: ComponentType<RootNavigationProps> }) {
+  useWorkingMarkMotion()
   const fontsReady = useLaunchFontsReady()
   const reduceMotion = useReduceMotion()
   const colorScheme = useColorScheme()
@@ -94,7 +96,11 @@ function RootLayoutContent({ Navigation }: { Navigation: ComponentType<RootNavig
       <VisualViewportRoot>
         {/* Gesture roots are cheap on native and mandatory on web, where RNGH
             installs its pointer listeners on this element [POD-402]. */}
-        <GestureHandlerRootView style={styles.fill}>
+        <GestureHandlerRootView
+          style={styles.fill}
+          onTouchStart={noteWorkingMarkInput}
+          onTouchMove={noteWorkingMarkInput}
+        >
           <KeyboardRoot>
             <ThemeProvider value={colorScheme === 'dark' ? podiumDarkTheme : podiumLightTheme}>
               <ServerProfileGate>

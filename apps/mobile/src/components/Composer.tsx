@@ -312,6 +312,7 @@ export function Composer({
   const voiceStatus = composerVoiceStatus(voice)
 
   const changeText = (next: string) => {
+    noteWorkingMarkInput()
     if (voice.session || voice.starting || voice.listening || voice.error) voice.clear()
     writeText(next)
   }

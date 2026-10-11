@@ -1,26 +1,50 @@
-import Svg, { Circle } from 'react-native-svg'
+import { memo, useCallback, useRef } from 'react'
+import { useFocusEffect } from 'expo-router'
+import Svg, { Ellipse } from 'react-native-svg'
+import { restingPicture } from '@podium/working-mark/frames'
+import { tetra } from '@podium/working-mark/designs'
+import type { Picture } from '@podium/working-mark'
+import { useReduceMotion } from '../hooks/useReduceMotion'
 import { color } from '../theme/theme'
-import { WORKING_MARK_DOTS, type WorkingMarkProps, workingMarkRadius } from './WorkingMark.shared'
+import type { WorkingMarkProps } from './WorkingMark.shared'
+import { subscribeWorkingMark } from './working-mark-motion.native'
 
-/** A fully lit native status cell; it owns no UI-runtime clock or animation. */
-export function WorkingMark({
+const rest = restingPicture(tetra)
+
+/** Native SVG uses the package's tetra pictures, without loading its DOM renderer. */
+export const WorkingMark = memo(function WorkingMark({
   size = 12,
   tint = color.workingText,
-  label = 'Working',
 }: WorkingMarkProps) {
-  const radius = workingMarkRadius(size)
+  const dots = useRef<(Ellipse | null)[]>([])
+  const reduceMotion = useReduceMotion()
+  const paint = useCallback((picture: Picture) => {
+    picture.forEach(([cx, cy, rx, ry, opacity], index) => {
+      dots.current[index]?.setNativeProps({ cx, cy, rx, ry, opacity })
+    })
+  }, [])
+  useFocusEffect(useCallback(() => {
+    paint(rest)
+    if (!reduceMotion) return subscribeWorkingMark(paint)
+  }, [paint, reduceMotion]))
 
   return (
     <Svg
-      accessibilityRole={label === null ? 'none' : 'progressbar'}
-      accessibilityLabel={label ?? undefined}
-      viewBox="0 0 66 100"
+      testID="working-mark"
+      accessible={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      viewBox="-0.5 -0.5 1 1"
       width={Math.round(size * 0.66)}
       height={size}
     >
-      {WORKING_MARK_DOTS.map(([cx, cy]) => (
-        <Circle key={`${cx}-${cy}`} cx={cx} cy={cy} r={radius} fill={tint} />
+      {rest.map(([cx, cy, rx, ry, opacity], index) => (
+        <Ellipse
+          key={index}
+          ref={dot => { dots.current[index] = dot }}
+          cx={cx} cy={cy} rx={rx} ry={ry} opacity={opacity} fill={tint}
+        />
       ))}
     </Svg>
   )
-}
+})

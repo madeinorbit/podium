@@ -1,4 +1,4 @@
-/** Braille-cell geometry shared by the native and web marks. */
+/** The non-working empty transcript keeps its quiet braille cell. */
 export const WORKING_MARK_DOTS: readonly (readonly [number, number])[] = [
   [17, 18],
   [49, 18],
@@ -18,6 +18,6 @@ export interface WorkingMarkProps {
   /** Cell height in px; width follows the 66:100 cell. */
   size?: number
   tint?: string
-  /** Set null where adjacent text already announces the working state. */
+  /** Legacy caller hint; the working mark is always decorative. */
   label?: string | null
 }

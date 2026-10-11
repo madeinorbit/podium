@@ -26,6 +26,11 @@
       "@podium/source": "./src/react.tsx",
       "types": "./src/react.tsx",
       "import": "./src/react.tsx"
+    },
+    "./frames": {
+      "@podium/source": "./src/frames.ts",
+      "types": "./src/frames.ts",
+      "import": "./src/frames.ts"
     }
   },
   "scripts": {

@@ -169,6 +169,7 @@ export default defineConfig({
     setupFiles: [
       ...sharedSetupFiles,
       fileURLToPath(new URL('./test/one-react.ts', import.meta.url)),
+      fileURLToPath(new URL('./test/canvas-png.ts', import.meta.url)),
     ],
     environment: 'happy-dom',
     include: ['src/**/*.test.{ts,tsx}', 'scripts/**/*.test.ts', 'plugins/**/*.test.ts'],
