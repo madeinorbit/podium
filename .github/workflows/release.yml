@@ -20,6 +20,8 @@ on:
           - dev
 permissions:
   contents: write
+  # Read the desktop half's run of the same tag (scripts/wait-for-desktop-half.ts).
+  actions: read
 # An -edge. prerelease tag publishes to the rolling `edge` release rather than minting a stable
 # one, so the same tag drives the headless and desktop halves of one release to the same channel.
 # Edge assets always live under the fixed `edge` tag — that URL is baked into shipped updaters.
@@ -196,6 +198,15 @@ jobs:
       # for every shell already installed, while the run reports success. The script
       # asks what the standing release holds and lets only a clean 404 mean "nothing to
       # carry"; every other answer fails this step and the publish below never runs.
+      # ONE RELEASE, NOT TWO HALVES (POD-5969). When this tag builds a new desktop app, the
+      # server half must not go live ahead of it: on edge it waits for the app to be published
+      # (so the carry-forward below reads the NEW latest.json), on stable for every required app
+      # build to succeed (the app then uploads into the release this job creates). A failed
+      # required build fails here and nothing is published. No new app: returns at once.
+      - name: Wait for the desktop half of this tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun scripts/wait-for-desktop-half.ts
       - name: Carry forward the standing desktop shell reference
         env:
           GH_TOKEN: ${{ github.token }}

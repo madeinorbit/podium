@@ -407,12 +407,13 @@ jobs:
             fi
           fi
           # The same tag push starts the headless release workflow, which is what CREATES this
-          # release. Desktop builds far longer than headless, so the release is normally already
-          # there — but "normally" is not a guarantee, and failing here would throw away a
-          # notarized build over a few seconds of ordering.
-          for attempt in $(seq 1 60); do
+          # release. On stable it now creates it only AFTER these builds succeed and its own
+          # stable-candidate proof has run (scripts/wait-for-desktop-half.ts, POD-5969), so this
+          # wait is a normal part of a stable cut, not a race — and failing here would throw
+          # away a notarized build. Up to an hour.
+          for attempt in $(seq 1 120); do
             if gh release view "$target_tag" >/dev/null 2>&1; then break; fi
-            echo "waiting for release $target_tag to exist (attempt $attempt/60)"
+            echo "waiting for release $target_tag to exist (attempt $attempt/120)"
             sleep 30
           done
           gh release view "$target_tag" >/dev/null

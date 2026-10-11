@@ -56,6 +56,14 @@ first and skips all platform builders when the standing shell already has that h
 mint, it waits for the release the headless half creates rather than discarding a notarized build
 over a few seconds of ordering.
 
+When a tag mints a new app, the headless half does not go live ahead of it
+(`scripts/wait-for-desktop-half.ts`). On edge it waits until the app is published, so the app
+lands first and the server last. On stable it waits until every required app build has
+succeeded and then creates the release; the app uploads into it about a minute later (waiting for
+the app publish there would deadlock, since that upload needs the release). A failed required
+build fails the headless publish too, so a channel never advertises half a release. A tag with
+no new app is unaffected.
+
 ## Version and signing prerequisites
 
 A shell’s version is the version baked into that shell artifact and reported by the native
