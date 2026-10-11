@@ -106,7 +106,11 @@ export function OnboardingWizard({
       <ActivationShell
         eyebrow="Set up Podium · Connected"
         title="Podium runs on your server now."
-        description="This app talks to it instead of running anything here. Agents keep going after you close this window, and you can reach them from any device."
+        description={
+          nativeDesktopBridge()?.launchMode === 'daemon'
+            ? 'This computer joined it as a machine, so agents can run here as well as there. Work keeps going after you close this window, and you can reach it from any device.'
+            : 'This app talks to it instead of running anything here. Agents keep going after you close this window, and you can reach them from any device.'
+        }
         icon={<Server aria-hidden="true" />}
       >
         <div className="max-w-[760px] space-y-4">

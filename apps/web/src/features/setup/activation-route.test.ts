@@ -133,6 +133,8 @@ describe('activation route persistence', () => {
     expect(shouldStartRemoteClientAtHandoff({ ...freshClient, launchMode: 'all-in-one' })).toBe(
       false,
     )
+    // A machine that joined the server shows it too, and has answered the same question.
+    expect(shouldStartRemoteClientAtHandoff({ ...freshClient, launchMode: 'daemon' })).toBe(true)
     expect(shouldStartRemoteClientAtHandoff({ ...freshClient, repoCount: 1 })).toBe(false)
     expect(
       shouldStartRemoteClientAtHandoff({ ...freshClient, hasActivationCheckpoint: true }),
@@ -170,6 +172,7 @@ describe('activation route persistence', () => {
   // Closing project intake used to rewind every setup screen at once (POD-1323).
   it('closes project intake to the step that is actually behind it', () => {
     expect(projectIntakeReturnRoute('client')).toBe('server-connected')
+    expect(projectIntakeReturnRoute('daemon')).toBe('server-connected')
     expect(projectIntakeReturnRoute('all-in-one')).toBe('welcome')
     expect(projectIntakeReturnRoute(undefined)).toBe('welcome')
   })

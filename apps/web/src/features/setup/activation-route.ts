@@ -101,6 +101,15 @@ export function isActivationEligible({
  * says the connection worked and project intake has something behind it to close back to
  * (POD-1323).
  */
+/**
+ * Whether this desktop's window shows a REMOTE server: a client, or a machine that joined one
+ * (POD-5983). Either way the topology question is answered — a joined machine landing on "Where
+ * should Podium run?" again was offered to set the server up a second time.
+ */
+export function showsRemoteServer(launchMode: string | undefined): boolean {
+  return launchMode === 'client' || launchMode === 'daemon'
+}
+
 export function shouldStartRemoteClientAtHandoff({
   launchMode,
   loaded,
@@ -119,7 +128,7 @@ export function shouldStartRemoteClientAtHandoff({
   hasVpsCheckpoint: boolean
 }): boolean {
   return (
-    launchMode === 'client' &&
+    showsRemoteServer(launchMode) &&
     loaded &&
     repoCount === 0 &&
     sessionCount === 0 &&
@@ -171,7 +180,7 @@ export function shouldStartBrowserAtProjectIntake({
  * and returning to it read as the whole wizard rewinding (POD-1323).
  */
 export function projectIntakeReturnRoute(launchMode: string | undefined): ActivationRoute {
-  return launchMode === 'client' ? 'server-connected' : 'welcome'
+  return showsRemoteServer(launchMode) ? 'server-connected' : 'welcome'
 }
 
 /**

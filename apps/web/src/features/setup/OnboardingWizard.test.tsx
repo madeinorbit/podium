@@ -181,6 +181,25 @@ describe('OnboardingWizard setup routes', () => {
     expect(onRouteChange).not.toHaveBeenCalledWith('welcome')
   })
 
+  // POD-5983: a joined machine runs agents here, which the client sentence denies.
+  it('tells a joined machine that agents can run on it too', () => {
+    desktop.launchMode = 'daemon'
+    render(
+      <OnboardingWizard
+        route="server-connected"
+        onRouteChange={vi.fn()}
+        onComplete={() => {}}
+        onConnectionConfigured={vi.fn()}
+        onEnterVps={vi.fn().mockResolvedValue(undefined)}
+        trpc={trpc()}
+        vps={vpsController()}
+      />,
+    )
+
+    expect(screen.getByText(/joined it as a machine/)).toBeTruthy()
+    expect(screen.queryByText(/instead of running anything here/)).toBeNull()
+  })
+
   it('reports the server the restart connected to, and leads on to a project', () => {
     const onRouteChange = vi.fn()
     render(
