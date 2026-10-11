@@ -76,6 +76,41 @@ function fromClack<T>(v: T | symbol): Cancellable<T> {
   return p.isCancel(v) ? CANCEL : (v as T)
 }
 
+/** Set once a handler from `onInterrupt` took a Ctrl-C; it owns the exit from then on. */
+let interruptTaken = false
+
+/**
+ * Ctrl-C while no prompt is open: SIGINT, once. The handler owns the exit (it may undo
+ * first), so a spinner's fallback exit stands back.
+ */
+export function onInterrupt(handler: () => void): () => void {
+  const take = () => {
+    interruptTaken = true
+    handler()
+  }
+  process.once('SIGINT', take)
+  return () => process.off('SIGINT', take)
+}
+
+/**
+ * clack's spinner puts the terminal in raw mode and answers Ctrl-C with `process.exit(0)`:
+ * a success exit that no SIGINT handler sees, so setup could not undo what it had started.
+ * While a spinner runs, give Ctrl-C back to the terminal so it arrives as SIGINT. A handler
+ * from `onInterrupt` then decides; without one, exit 130 here (clack's own SIGINT listener
+ * only draws "Canceled", so the process would otherwise hang).
+ */
+function interruptibleWhileSpinning(): () => void {
+  interruptTaken = false
+  if (process.stdin.isTTY) process.stdin.setRawMode(false)
+  const fallback = () => {
+    setImmediate(() => {
+      if (!interruptTaken) process.exit(130)
+    })
+  }
+  process.on('SIGINT', fallback)
+  return () => process.off('SIGINT', fallback)
+}
+
 export function clackIO(): SetupIO {
   return {
     intro: (title) => p.intro(title),
@@ -124,10 +159,24 @@ export function clackIO(): SetupIO {
       ),
     spinner: () => {
       const s = p.spinner()
+      let release: (() => void) | undefined
+      const settle = () => {
+        release?.()
+        release = undefined
+      }
       return {
-        start: (message) => s.start(message),
-        stop: (message) => s.stop(message),
-        error: (message) => s.error(message),
+        start: (message) => {
+          s.start(message)
+          release = interruptibleWhileSpinning()
+        },
+        stop: (message) => {
+          settle()
+          s.stop(message)
+        },
+        error: (message) => {
+          settle()
+          s.error(message)
+        },
       }
     },
   }

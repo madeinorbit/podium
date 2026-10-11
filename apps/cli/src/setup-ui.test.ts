@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { isCancel, scriptedIO } from './setup-ui'
+import { describe, expect, it, vi } from 'vitest'
+import { clackIO, isCancel, onInterrupt, scriptedIO } from './setup-ui'
 
 describe('scriptedIO (the test double every setup flow is driven through)', () => {
   it('serves ONE ordered queue across mixed widget kinds', async () => {
@@ -75,5 +75,52 @@ describe('scriptedIO (the test double every setup flow is driven through)', () =
       .map((l) => l.trim())
     expect(lines).toContain('podium status')
     expect(lines).toContain('podium stop')
+  })
+})
+
+describe('clackIO spinner and Ctrl-C (POD-3274)', () => {
+  // clack's spinner answers Ctrl-C in raw mode with process.exit(0), which no SIGINT handler
+  // sees. The wrapper hands Ctrl-C back as SIGINT; these call the listeners it adds directly,
+  // so the test runner never receives a real signal.
+  const sigintAddedBy = (start: () => void): (() => void)[] => {
+    const before = new Set(process.listeners('SIGINT'))
+    start()
+    return process.listeners('SIGINT').filter((l) => !before.has(l)) as (() => void)[]
+  }
+  const nextTurn = () => new Promise((resolve) => setImmediate(resolve))
+
+  it('exits 130 on Ctrl-C during a spinner when nothing else handles it', async () => {
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
+    const spin = clackIO().spinner()
+    const added = sigintAddedBy(() => spin.start('waiting'))
+    try {
+      for (const listener of added) listener()
+      await nextTurn()
+      expect(exit).toHaveBeenCalledWith(130)
+    } finally {
+      spin.stop()
+      exit.mockRestore()
+    }
+    expect(process.listeners('SIGINT').filter((l) => added.includes(l as () => void))).toEqual([])
+  })
+
+  it('leaves the exit to a setup interrupt handler, which runs first', async () => {
+    const exit = vi.spyOn(process, 'exit').mockImplementation((() => undefined) as never)
+    const taken: string[] = []
+    const unregister = onInterrupt(() => taken.push('undo'))
+    const spin = clackIO().spinner()
+    const owner = process.listeners('SIGINT').at(-1) as () => void
+    const added = sigintAddedBy(() => spin.start('waiting'))
+    try {
+      owner()
+      for (const listener of added) listener()
+      await nextTurn()
+      expect(taken).toEqual(['undo'])
+      expect(exit).not.toHaveBeenCalled()
+    } finally {
+      spin.stop()
+      unregister()
+      exit.mockRestore()
+    }
   })
 })

@@ -30,7 +30,7 @@ import { localStableLink, stopBackend } from './cli-lifecycle'
 import { realCheckReachability } from './cli-reachability'
 import { hasSystemctl, hasUserSystemd } from './cli-systemd'
 import { realTailscaleDeps, type TailscaleDeps, tailscaleStep } from './setup-tailscale'
-import { isCancel, type SetupIO } from './setup-ui'
+import { isCancel, onInterrupt, type SetupIO } from './setup-ui'
 import {
   bundledCloudflaredPath,
   type EnableTunnelResult,
@@ -1039,12 +1039,6 @@ interface HostStepOptions extends UrlStepOpts {
   onInterrupt?: (handler: () => void) => () => void
 }
 
-/** Ctrl-C while no prompt is open (a spinner runs): SIGINT, once. */
-function onSigint(handler: () => void): () => void {
-  process.once('SIGINT', handler)
-  return () => process.off('SIGINT', handler)
-}
-
 /** config.json exactly as it is, so a stopped setup can put it back. */
 function snapshotConfig(): () => void {
   const path = configPath()
@@ -1098,7 +1092,7 @@ async function hostStep(
     restoreConfig()
     io.step('Stopped. Nothing was saved. Run `podium setup` to start over.')
   }
-  const unregister = (options.onInterrupt ?? onSigint)(() => {
+  const unregister = (options.onInterrupt ?? onInterrupt)(() => {
     void undo().finally(() => process.exit(130))
   })
   try {
