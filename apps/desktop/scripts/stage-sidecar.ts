@@ -19,7 +19,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import { fileURLToPath } from 'node:url'
-import { RUST_HOST_BINARY } from '../../../packages/pty/src/host-bin.js'
+import { hostBinaryName, RUST_HOST_BINARY } from '../../../packages/pty/src/host-bin.js'
 import { bundleNames } from '../../../scripts/build-bun.js'
 import { TUNNEL_BINARY } from '../../../scripts/tunnel-cross.js'
 
@@ -68,9 +68,10 @@ const podiumDst = `${payloadDst}/${bundleNames().cli}`
 chmodSync(podiumDst, 0o755)
 // The Rust process host is the only durable host the payload has; the shell's first-run
 // seed without it could start no session. build-bun refuses to package without one, so
-// this is the staging-side statement of the same layout. Windows runs ConPTY, no host.
-const hostDst = `${payloadDst}/${RUST_HOST_BINARY}`
-if (process.platform !== 'win32' && !existsSync(hostDst))
+// this is the staging-side statement of the same layout — on Windows too, where the
+// host runs ConPTY and ships as podium-host.exe (POD-5748).
+const hostDst = `${payloadDst}/${hostBinaryName()}`
+if (!existsSync(hostDst))
   throw new Error(`missing ${hostDst} — package:headless did not ship the Rust process host`)
 
 // 2b. macOS: code-sign the staged sidecar BEFORE `tauri build` seals the .app.

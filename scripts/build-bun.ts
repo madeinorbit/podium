@@ -558,7 +558,7 @@ export function packageHeadlessForFreshClients(
         },
         (): string | undefined => {
           if (!hostSupported(spec?.nodePlatform ?? process.platform)) {
-            console.log(`[build-bun] ${RUST_HOST_BINARY}: none for this target (ConPTY, no host)`)
+            console.log(`[build-bun] ${RUST_HOST_BINARY}: none for this platform (no host port)`)
             return undefined
           }
           const built = spec ? crossBuildRustHost(spec.platform, { root }) : buildLocalRustHost()
