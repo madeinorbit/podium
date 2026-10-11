@@ -615,6 +615,15 @@ describe('desktop release workflow', () => {
     expect(choose?.run).toContain('bun scripts/desktop-build-legs.ts --channel "$CHANNEL"')
   })
 
+  it('does not install the tools a Windows build never uses', () => {
+    const parsed = Bun.YAML.parse(desktopWorkflow) as {
+      jobs: { build: { env?: Record<string, string> } }
+    }
+    expect(parsed.jobs.build.env?.MISE_DISABLE_TOOLS).toBe(
+      "${{ matrix.target == 'windows-x86_64' && 'zig,rcodesign,pigz' || '' }}",
+    )
+  })
+
   it('builds and publishes the updater-signed Windows NSIS installer', () => {
     expect(leg('windows-x86_64').runner).toBe('windows-latest')
     expect(leg('windows-x86_64').build_args).toContain('--bundles nsis')

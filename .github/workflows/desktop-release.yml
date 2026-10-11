@@ -190,6 +190,12 @@ jobs:
         include: ${{ fromJSON(needs.validate.outputs.build_matrix) }}
     runs-on: ${{ matrix.runner }}
     continue-on-error: ${{ matrix.experimental == true }}
+    env:
+      # A Windows build never uses zig or rcodesign (its process host builds with MSVC, it ships
+      # no quick-tunnel helper, rcodesign signs only Mach-Os) or pigz (Windows archives with
+      # gzip). Not installing them removes a download that has failed the leg on its own
+      # (ziglang.org 404 for the Windows zig tarball, 0.2.0 attempt 1, POD-5969).
+      MISE_DISABLE_TOOLS: ${{ matrix.target == 'windows-x86_64' && 'zig,rcodesign,pigz' || '' }}
     timeout-minutes: ${{ matrix.timeout_minutes || 360 }}
     steps:
       - uses: actions/checkout@v4
