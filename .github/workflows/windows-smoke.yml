@@ -148,7 +148,7 @@ jobs:
       - name: Build Windows NSIS installer
         shell: bash
         run: |
-          bun run --cwd apps/desktop exec tauri bundle --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
+          bun run --cwd apps/desktop tauri bundle --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - uses: actions/upload-artifact@v4
         with:
