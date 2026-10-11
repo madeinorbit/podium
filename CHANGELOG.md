@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Running agents on your Mac with a VPS server.** A desktop app connected to a Podium on another machine now pairs as a machine and runs agents, instead of starting its own local server again.
+- **Windows desktop.** The installer builds again; an experimental Windows build is available.
+- **Desktop version.** The desktop app reports its real version in its logs and to the server.
+
 ## [0.2.0] - 2026-10-11
 
 **A much more reliable chat, a much faster Podium, and safer updates.**
