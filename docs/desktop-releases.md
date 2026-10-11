@@ -97,9 +97,17 @@ The headless release does not build a Windows server bundle yet. A Windows deskt
 therefore runs the server its installer seeded and cannot update that server; shell updates
 still arrive through the updater. The same
 installer is the Tauri updater payload, with its detached `.sig` included in `latest.json` under
-`windows-x86_64`. The regular Windows smoke compiles the Tauri executable without making an
-installer, launches it against a real local Podium server, and fails if native setup or the
-WebView2 window cannot stay alive.
+`windows-x86_64`. The dispatch-only Windows smoke compiles the Tauri executable, launches it
+against a real local Podium server, checks exported mobile asset references, and packages an
+NSIS installer as a workflow artifact. It disables updater signing for this unpublished
+installer and fails if native setup or the WebView2 window cannot stay alive.
+
+Keep Bun's install cache on the checkout volume in both Windows workflows. Metro must watch
+that store to resolve dependencies, but exported asset URLs must not include its filesystem
+hierarchy. The mobile asset plugin assigns content-hash directories before Expo generates
+JavaScript URLs and copies assets, preserving the `/mobile` base URL and every image scale.
+Desktop staging refuses Windows resource paths at or above 260 characters before compiling
+Tauri, since copying a resource successfully does not mean NSIS can open it.
 
 The Tauri updater signature verifies Podium updates, but it is not a Windows Authenticode
 signature. Until an Authenticode certificate is provisioned, Windows may show a publisher or

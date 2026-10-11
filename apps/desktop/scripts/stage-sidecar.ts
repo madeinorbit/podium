@@ -15,9 +15,11 @@ import {
   existsSync,
   mkdirSync,
   readFileSync,
+  readdirSync,
   rmSync,
   writeFileSync,
 } from 'node:fs'
+import { join } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { hostBinaryName, RUST_HOST_BINARY } from '../../../packages/pty/src/host-bin.js'
 import { bundleNames } from '../../../scripts/build-bun.js'
@@ -64,6 +66,19 @@ if (!existsSync(payloadSrc))
   throw new Error(`missing ${payloadSrc} — package:headless did not produce it`)
 rmSync(payloadDst, { recursive: true, force: true })
 cpSync(payloadSrc, payloadDst, { recursive: true })
+// NSIS opens resources through Windows's MAX_PATH-limited file API. Catch this
+// before compiling Tauri; a successful copy does not prove makensis can open it.
+if (process.platform === 'win32') {
+  for (const relative of readdirSync(payloadDst, { recursive: true })) {
+    const resourcePath = join(payloadDst, relative)
+    if (resourcePath.length >= 260) {
+      throw new Error(
+        `NSIS resource path exceeds MAX_PATH (${resourcePath.length} characters): ${resourcePath}. ` +
+          'Keep exported asset URLs independent of dependency store paths.',
+      )
+    }
+  }
+}
 const podiumDst = `${payloadDst}/${bundleNames().cli}`
 chmodSync(podiumDst, 0o755)
 // The Rust process host is the only durable host the payload has; the shell's first-run

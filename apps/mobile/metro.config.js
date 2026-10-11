@@ -52,6 +52,12 @@ config.resolver.unstable_conditionsByPlatform = {
 // before the chunk loads. The reasons live in the module [POD-5370].
 config.transformer.asyncRequireModulePath = require.resolve('./src/lib/async-require-load-first.js')
 
+// Export URLs must be independent of the symlink topology we watch above.
+config.transformer.assetPlugins = [
+  ...(config.transformer.assetPlugins || []),
+  require.resolve('./scripts/metro-export-asset-path'),
+]
+
 // Point the web build at a gesture handler that actually handles gestures; the
 // rule and the reasons live in ./scripts/metro-gesture-handler-web.js [POD-402].
 const baseResolveRequest = config.resolver.resolveRequest
