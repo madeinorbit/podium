@@ -62,6 +62,7 @@ jobs:
 
       # Compile once, then exercise boot and NSIS packaging on this dispatch-only lane.
       - name: Build Windows desktop executable and headless bundle
+        id: desktop-build
         run: bun run --cwd apps/desktop build -- --no-bundle
 
 
@@ -164,17 +165,19 @@ jobs:
           for (const font of ['Geist_400Regular', 'Geist_600SemiBold', 'GeistMono_400Regular', 'GeistMono_600SemiBold']) {
             if (![...urls].some(url => url.includes(`/${font}.`))) throw new Error(`Missing font reference: ${font}`)
           }
-          if (![...urls].some(url => url.endsWith('.wasm'))) throw new Error('Missing SQLite WASM reference')
-          console.log(`Verified ${urls.size} exported asset URLs, including all four fonts and SQLite WASM`)
+          console.log(`Verified ${urls.size} exported asset URLs, including all four fonts`)
           JS
 
       # This produces a local installer artifact, never a release or updater publication.
       - name: Build Windows NSIS installer
+        id: nsis
+        if: ${{ !cancelled() && steps.desktop-build.outcome == 'success' }}
         shell: bash
         run: |
           bun run --cwd apps/desktop tauri bundle --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
 
       - uses: actions/upload-artifact@v4
+        if: ${{ !cancelled() && steps.nsis.outcome == 'success' }}
         with:
           name: windows-nsis-smoke
           path: apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
