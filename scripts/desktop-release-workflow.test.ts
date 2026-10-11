@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
-import { DESKTOP_BUILD_LEGS, desktopBuildMatrix } from './desktop-build-legs'
+import { DESKTOP_BUILD_LEGS, desktopBuildMatrix, INTEL_MAC_APP_BUILT } from './desktop-build-legs'
 import { tagMessage } from './release-cut'
 
 const repoRoot = join(__dirname, '..')
@@ -593,8 +593,10 @@ describe('desktop release workflow', () => {
     const targets = (channel: 'stable' | 'edge' | 'dev') =>
       desktopBuildMatrix(channel).map((candidate) => candidate.target)
     expect(targets('stable')).toEqual(
-      expect.arrayContaining(['linux-x86_64', 'windows-x86_64', 'darwin-aarch64', 'darwin-x86_64']),
+      expect.arrayContaining(['linux-x86_64', 'windows-x86_64', 'darwin-aarch64']),
     )
+    // Intel is built for stable only while INTEL_MAC_APP_BUILT is on (off for 0.2.0, POD-5969).
+    expect(targets('stable').includes('darwin-x86_64')).toBe(INTEL_MAC_APP_BUILT)
     expect(targets('edge')).not.toContain('darwin-x86_64')
     expect(targets('dev')).not.toContain('darwin-x86_64')
     expect(targets('edge')).toEqual(expect.arrayContaining(['linux-x86_64', 'darwin-aarch64']))

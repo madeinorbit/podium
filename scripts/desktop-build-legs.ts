@@ -36,6 +36,15 @@ export interface DesktopBuildLeg {
   stable_only?: true
 }
 
+/**
+ * Whether ANY channel builds the macOS Intel app. Off for the 0.2.0 stable cut (POD-5969): the
+ * Intel leg takes 26-33 min and nobody could wait for it. With it off, stable publishes without
+ * an Intel app — Intel Macs still get the server update (the headless half builds darwin-x64
+ * itself) but keep their current app — and the Intel app can be added to that release later
+ * with a desktop-release dispatch once this is back on.
+ */
+export const INTEL_MAC_APP_BUILT = false
+
 export const DESKTOP_BUILD_LEGS: readonly DesktopBuildLeg[] = [
   {
     target: 'linux-x86_64',
@@ -94,13 +103,20 @@ export const DESKTOP_BUILD_LEGS: readonly DesktopBuildLeg[] = [
 
 /** The legs a release on `channel` builds. */
 export function desktopBuildMatrix(channel: DesktopChannel): DesktopBuildLeg[] {
-  return DESKTOP_BUILD_LEGS.filter((leg) => channel === 'stable' || leg.stable_only !== true)
+  return DESKTOP_BUILD_LEGS.filter(
+    (leg) =>
+      (channel === 'stable' || leg.stable_only !== true) &&
+      (INTEL_MAC_APP_BUILT || leg.target !== 'darwin-x86_64'),
+  )
 }
 
 /** Targets a release on `channel` may publish without (experimental or not built there). */
 export function optionalDesktopTargets(channel: DesktopChannel): string[] {
   return DESKTOP_BUILD_LEGS.filter(
-    (leg) => leg.experimental === true || (channel !== 'stable' && leg.stable_only === true),
+    (leg) =>
+      leg.experimental === true ||
+      (channel !== 'stable' && leg.stable_only === true) ||
+      (!INTEL_MAC_APP_BUILT && leg.target === 'darwin-x86_64'),
   ).map((leg) => leg.target)
 }
 

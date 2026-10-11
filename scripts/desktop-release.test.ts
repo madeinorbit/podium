@@ -2,6 +2,7 @@ import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'nod
 import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { afterEach, describe, expect, it } from 'vitest'
+import { INTEL_MAC_APP_BUILT } from './desktop-build-legs'
 import {
   buildDesktopManifest,
   desktopReleaseTag,
@@ -320,15 +321,16 @@ describe('desktop release manifest', () => {
     expect(Object.keys(manifest.platforms).sort()).toEqual(['darwin-aarch64', 'linux-x86_64'])
   })
 
-  it('still refuses a stable app without the Intel Mac build', () => {
-    expect(() =>
+  it('requires the Intel Mac build for stable exactly while it is built', () => {
+    const prepare = () =>
       prepareDesktopRelease({
         version: '0.2.1',
         channel: 'stable',
         stableTag: 'v0.2.1',
         ...bundleWithoutIntel(),
-      }),
-    ).toThrow(/darwin-x86_64/)
+      })
+    if (INTEL_MAC_APP_BUILT) expect(prepare).toThrow(/darwin-x86_64/)
+    else expect(prepare).not.toThrow()
   })
 
   /**

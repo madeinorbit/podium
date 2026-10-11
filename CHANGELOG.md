@@ -7,13 +7,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-### Fixed
-
-- **Running agents on your Mac with a VPS server.** A desktop app connected to a Podium on another machine now pairs as a machine and runs agents, instead of starting its own local server again.
-- **Windows desktop.** The installer builds again; an experimental Windows build is available.
-- **Desktop version.** The desktop app reports its real version in its logs and to the server.
-
-## [0.2.0] - 2026-10-11
+## [0.2.0] - 2026-10-12
 
 **A much more reliable chat, a much faster Podium, and safer updates.**
 
@@ -24,7 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cost per task.** See what each task costs, on the task header and the usage sheet.
 - **Pi.** The Pi agent is now fully supported.
 - **Mobile app.** The mobile app has been much improved.
-- **Linux desktop.** An experimental build is available. Windows follows in a later release.
+- **Windows and Linux desktop.** Experimental builds are available.
 - **Safer updates.** Updates show live progress, and a failed one rolls back instead of stranding machines.
 - **And more.** Many smaller UX improvements and new features.
 
