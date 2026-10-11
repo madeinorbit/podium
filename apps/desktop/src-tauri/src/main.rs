@@ -1751,8 +1751,7 @@ fn main() {
             // Only the server URL can stop the launch.
             let server_transport_error = match &action {
                 bootstrap::LaunchAction::LocalDaemon { server_url, .. }
-                | bootstrap::LaunchAction::LocalSupervisor { server_url, .. }
-                | bootstrap::LaunchAction::ClientOnly { server_url, .. } => {
+                | bootstrap::LaunchAction::LocalSupervisor { server_url, .. } => {
                     bootstrap::validate_server_transport(server_url).err()
                 }
                 bootstrap::LaunchAction::LocalAllInOne
@@ -1763,17 +1762,11 @@ fn main() {
             }
             // Resolved-mode tag exposed to the web UI (bridge.launchMode) and used to gate the
             // hosting toggle [spec:SP-3701].
-            let launch_mode_tag = match &action {
-                bootstrap::LaunchAction::LocalAllInOne => "all-in-one",
-                bootstrap::LaunchAction::LocalServerOnly => "server",
-                bootstrap::LaunchAction::LocalDaemon { .. } => "daemon",
-                bootstrap::LaunchAction::LocalSupervisor { .. } => "supervisor",
-                bootstrap::LaunchAction::ClientOnly { .. } => "client",
-            };
+            let launch_mode_tag = bootstrap::page_launch_mode(&action);
 
             // FIX 2: shared shutting-down flag — set true in exit handlers so the supervision
             // monitor thread does not attempt to respawn the child during a deliberate quit.
-            // (Always managed so the exit handlers have it, even in ClientOnly with no child.)
+            // (Always managed so the exit handlers have it, even when nothing was spawned.)
             let shutting_down = Arc::new(AtomicBool::new(false));
             app.manage(shutting_down.clone());
 
@@ -1783,7 +1776,7 @@ fn main() {
             updater::start_supervisor_recovery(app.handle().clone(), shutting_down.clone());
 
             // Child slot is always managed so the window-event / exit handlers can reap whatever
-            // (if anything) we spawned. ClientOnly leaves it None.
+            // (if anything) we spawned.
             let child_state: Arc<Mutex<Option<std::process::Child>>> = Arc::new(Mutex::new(None));
             app.manage(child_state.clone());
             let shutdown_file = supervisor_shutdown_file();
@@ -1820,20 +1813,17 @@ fn main() {
             let follow_identity = cfg.server_identity.clone();
             let remote_server_for_window = match &action {
                 bootstrap::LaunchAction::LocalDaemon { server_url, .. }
-                | bootstrap::LaunchAction::LocalSupervisor { server_url, .. }
-                | bootstrap::LaunchAction::ClientOnly { server_url, .. } => Some(server_url.clone()),
+                | bootstrap::LaunchAction::LocalSupervisor { server_url, .. } => Some(server_url.clone()),
                 bootstrap::LaunchAction::LocalAllInOne
                 | bootstrap::LaunchAction::LocalServerOnly => None,
             };
             let initial_action = action.clone();
 
-            // Backend-bearing modes seed the complete external payload before the parent
-            // starts. Client-only shells install no payload at all. Presence of the install
+            // Every mode seeds the complete external payload before the parent starts — a
+            // client too, since its supervisor runs from it (POD-3431). Presence of the install
             // directory is the sole seed decision; after this point the fleet updater owns it.
             let mut payload_start_error: Option<String> = None;
-            let payload_install = if matches!(&action, bootstrap::LaunchAction::ClientOnly { .. }) {
-                None
-            } else {
+            let payload_install = {
                 let seed = app
                     .path()
                     .resolve("resources/payload", BaseDirectory::Resource)?;
@@ -2032,21 +2022,6 @@ fn main() {
                     }
 
                     if server_transport_error.is_none() {
-                        remote_window_origin = Some(bootstrap::remote_window_origin_url(
-                            &server_url,
-                            ui_url.as_deref(),
-                        ));
-                        (webview_url, window_injection) =
-                            bootstrap::remote_window_target(&server_url, ui_url.as_deref())
-                                .expect("the validated remote server URL remains valid");
-                    }
-                    wait_local_port = None;
-                }
-
-                bootstrap::LaunchAction::ClientOnly { server_url, ui_url } => {
-                    // No backend, no monitor — just point the window at the remote server.
-                    if server_transport_error.is_none() {
-                        log::info!("client mode → {server_url} (no local backend)");
                         remote_window_origin = Some(bootstrap::remote_window_origin_url(
                             &server_url,
                             ui_url.as_deref(),
@@ -3185,6 +3160,8 @@ mod tests {
                 "allow-daemon-connectivity",
                 "allow-begin-cloud-sign-in",
                 "allow-runtime-probe-report",
+                "allow-move-server",
+                "allow-save-server-identity",
                 "process:allow-restart",
             ]
         );

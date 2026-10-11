@@ -504,6 +504,34 @@ describe('UpdatesSection', () => {
   })
 
   /**
+   * POD-5973. A VPS-connected desktop is a `client` to the page, and since POD-3431 it runs its
+   * supervisor from a local payload — the row stays. Only a shell with no payload at all (a
+   * 0.1.0 client: no `repairPayload`) leaves it out.
+   */
+  it.each([
+    { label: 'a client shell that owns a payload', repairPayload: true, shown: true },
+    { label: 'a client shell with no payload', repairPayload: false, shown: false },
+  ])('offers payload repair to $label: $shown', async ({ repairPayload, shown }) => {
+    ;(globalThis as { __PODIUM_DESKTOP__?: NativeDesktopBridge }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      launchMode: 'client',
+      minimize: vi.fn(async () => {}),
+      toggleMaximize: vi.fn(async () => {}),
+      close: vi.fn(async () => {}),
+      ...(repairPayload ? { repairPayload: vi.fn(async () => {}) } : {}),
+    }
+    trpc.setup.channel.query.mockResolvedValue({ channel: 'stable', envForced: false })
+    trpc.setup.info.query.mockResolvedValue({ appVersion: '0.4.1' })
+    quietHistory()
+    trpc.updates.fleet.query.mockResolvedValue(emptyFleet)
+
+    render(<UpdatesSection />)
+    await screen.findByRole('button', { name: 'Stable' })
+
+    expect(screen.queryByRole('button', { name: 'Repair payload' }) !== null).toBe(shown)
+  })
+
+  /**
    * POD-1882. The fleet-default selector is ordinary operation, so it is always
    * here; only Development is gated. These four cases are the whole contract.
    */

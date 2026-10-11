@@ -28,3 +28,20 @@ describe('pageSurface without a desktop bridge', () => {
     expect(pageSurface()).toBe('mobile')
   })
 })
+
+describe('pageSurface with a desktop bridge', () => {
+  afterEach(() => {
+    delete (globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__
+  })
+
+  // A VPS-connected desktop is a `client` (POD-5973), remote even on the bundled tauri:// page
+  // the shell loads when its server did not answer at cold start.
+  it.each(['client', 'daemon'] as const)('is remote for a %s window', (mode) => {
+    vi.stubGlobal('location', { pathname: '/', protocol: 'tauri:', hostname: 'localhost' })
+    ;(globalThis as { __PODIUM_DESKTOP__?: unknown }).__PODIUM_DESKTOP__ = {
+      platform: 'macos',
+      launchMode: mode,
+    }
+    expect(pageSurface()).toBe('desktop-remote')
+  })
+})

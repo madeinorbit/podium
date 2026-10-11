@@ -1,12 +1,10 @@
-import { MachineFailureReason, type FailureReason } from '@/features/updates/MachineFailureReason'
 import { observer } from '@podium/client-graph/react'
 import type { Operation, ReleaseProposal } from '@podium/protocol'
 import { parseOperation, ReleaseProposal as ReleaseProposalSchema } from '@podium/protocol'
 import type { JSX } from 'react'
 import { useCallback, useEffect, useState } from 'react'
-import { useSettingsTrpc } from '../stable-access'
-import { useSettingsMachineIds, useSettingsMachine, useSettingsMachineTargets } from '../readers'
 import { Button } from '@/components/ui/button'
+import { type FailureReason, MachineFailureReason } from '@/features/updates/MachineFailureReason'
 import { copyToClipboard } from '@/lib/clipboard'
 import { pageBuildDigest, pageBuildVersion } from '@/lib/logging/build-version'
 import {
@@ -17,6 +15,8 @@ import {
 import { nativeDesktopBridge, persistNativeDesktopUpdateChannel } from '@/lib/nativeDesktop'
 import { uiSource } from '@/lib/ui-source'
 import { useFeature } from '@/lib/use-feature'
+import { useSettingsMachine, useSettingsMachineIds, useSettingsMachineTargets } from '../readers'
+import { useSettingsTrpc } from '../stable-access'
 import { Row, Section } from './shared'
 import {
   CHANNEL_LABELS,
@@ -641,7 +641,9 @@ export function UpdatesSection(): JSX.Element {
         </div>
       </Row>
 
-      {desktop && desktop.launchMode !== 'client' && (
+      {/* Every desktop runs its supervisor from a local payload since POD-3431, a client too.
+          Only a client shell without `repairPayload` (0.1.0) has none to repair (POD-5973). */}
+      {desktop && (desktop.launchMode !== 'client' || desktop.repairPayload !== undefined) && (
         <Row
           label="Repair payload"
           description="Re-download the current server, daemon, and web payload through the normal fleet update path."

@@ -221,13 +221,10 @@ pub enum LaunchAction {
         /// origin follow it; the daemon still dials `server_url`.
         ui_url: Option<String>,
     },
+    /// Run only the supervisor (no server, no daemon); the window points at the remote
+    /// server. A `client` config resolves here since POD-3431: every install runs the
+    /// supervisor, which is what takes its updates.
     LocalSupervisor { server_url: String, ui_url: Option<String> },
-    /// Spawn nothing; the window points at the remote server (or, under split hosting,
-    /// at `ui_url` — see [`LaunchAction::LocalDaemon`]).
-    ClientOnly {
-        server_url: String,
-        ui_url: Option<String>,
-    },
 }
 
 /// What a desktop supervisor should do when its locally-hosted backend exits.
@@ -949,6 +946,23 @@ pub fn resolve_launch(
         },
         (Some("server"), _) => LaunchAction::LocalServerOnly,
         _ => LaunchAction::LocalAllInOne,
+    }
+}
+
+/// The mode the PAGE is told (`window.__PODIUM_DESKTOP__.launchMode`): what this device was
+/// set up as, `all-in-one | server | daemon | client` (POD-5973).
+///
+/// Every install runs the supervisor since POD-3431, so the supervisor never names the label.
+/// `LocalSupervisor` is the device that runs nothing else — its server is elsewhere and it
+/// runs no agents — which the page calls `client`: that is what continues first-run setup
+/// after connecting to a VPS and what offers hosting agents here [spec:SP-3701]. Labelling it
+/// after the supervisor told every VPS-connected page `supervisor`, a value it never handled.
+pub fn page_launch_mode(action: &LaunchAction) -> &'static str {
+    match action {
+        LaunchAction::LocalAllInOne => "all-in-one",
+        LaunchAction::LocalServerOnly => "server",
+        LaunchAction::LocalDaemon { .. } => "daemon",
+        LaunchAction::LocalSupervisor { .. } => "client",
     }
 }
 
@@ -2194,6 +2208,24 @@ mod tests {
     fn remote_window_target_rejects_an_invalid_or_insecure_url() {
         assert!(remote_window_target("not a url", None).is_err());
         assert!(remote_window_target("http://podium.example", None).is_err());
+    }
+
+    #[test]
+    fn page_launch_mode_keeps_a_client_config_a_client_for_the_page() {
+        // Every install runs the supervisor (POD-3431), so it never names the label. A desktop
+        // whose server is elsewhere and which runs no agents is a client to the page, whether
+        // its config says client or supervisor (POD-5973).
+        for mode in ["client", "supervisor"] {
+            let remote_only = resolve_launch(Some(mode), Some("wss://vps.example"), None);
+            assert_eq!(page_launch_mode(&remote_only), "client", "config mode {mode}");
+        }
+        let daemon = resolve_launch(Some("daemon"), Some("wss://vps.example"), None);
+        assert_eq!(page_launch_mode(&daemon), "daemon");
+        let local = resolve_launch(Some("all-in-one"), None, None);
+        assert_eq!(page_launch_mode(&local), "all-in-one");
+        assert_eq!(page_launch_mode(&resolve_launch(None, None, None)), "all-in-one");
+        let server = resolve_launch(Some("server"), None, None);
+        assert_eq!(page_launch_mode(&server), "server");
     }
 
     #[test]
