@@ -16,7 +16,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Cost per task.** See what each task costs, on the task header and the usage sheet.
 - **Pi.** The Pi agent is now fully supported.
 - **Mobile app.** The mobile app has been much improved.
-- **Windows and Linux desktop.** Experimental builds are available.
+- **Linux desktop.** An experimental build is available. Windows follows in a later release.
 - **Safer updates.** Updates show live progress, and a failed one rolls back instead of stranding machines.
 - **And more.** Many smaller UX improvements and new features.
 
