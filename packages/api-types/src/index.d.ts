@@ -1,6 +1,6 @@
 // Generated from apps/server/src/router.ts. Run bun run api:types. Do not edit.
 import * as _podium_model from '@podium/model';
-import { MachineId, UserId, SessionId, IssueId, ArtifactId, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase, SessionMeta, MachineProjection, HarnessAgent } from '@podium/model';
+import { MachineId, UserId, SessionId, IssueId, ArtifactId, UpdateChannel, MachinePresenceSource, GitRepositoryWire, GitDiscoveryDiagnosticWire, TranscriptItem, AgentKind, AccountId, AgentPhase } from '@podium/model';
 import { z } from 'zod';
 import * as Protocol from '@podium/protocol';
 import { ModelChoiceWire, ConvergenceState, MobileWebIdentity, FeatureState, FeatureVisibility } from '@podium/protocol';
@@ -1123,11 +1123,6 @@ interface AgentConcurrencyHistoryResult {
 }
 
 type NativeLoginAttemptStatus = 'running' | 'refreshing' | 'succeeded' | 'failed';
-type NativeLoginAttempt = Pick<SessionMeta, 'sessionId'> & Required<Pick<SessionMeta, 'machineId'>> & {
-    machineName: MachineProjection['name'];
-    status: NativeLoginAttemptStatus;
-    error?: string;
-};
 
 type ReclaimDiskEstimateState = {
     status: 'unknown';
@@ -1413,50 +1408,6 @@ interface CloudRuntime {
     updatedAt: string;
     previewBaseUrl?: string | undefined;
     metadata?: Record<string, unknown> | undefined;
-}
-
-/** A row in the Accounts hub. Native rows are observed from the machine catalog;
- * managed rows reflect what Podium stores. */
-interface AccountView {
-    /** Stable id, e.g. "native:claude-code" or "native:claude-code:<fingerprint>". */
-    id: string;
-    provider: string;
-    source: 'native' | 'managed';
-    /** Managed only: how the credential would be injected. */
-    kind?: 'api-key' | 'oauth';
-    /** Native only: which harness login this is. */
-    harness?: HarnessAgent;
-    /** Observed, human-facing: an email/plan, a masked key, or a hint. */
-    identity?: string;
-    /** Native identities may be present on several machines. */
-    machines?: string[];
-    /** Non-secret identity fingerprint used to distinguish multiple native logins. */
-    identityFingerprint?: string;
-    status: 'connected' | 'not-configured' | 'unknown';
-    /**
-     * Native Codex only: the machine whose login the server AI runs on, resolved
-     * by the same scoped picker as the one-shot transport (POD-4750). Absent
-     * when no login is usable for the viewer — the row still lists every
-     * machine that reports the login via `machines`.
-     *
-     * `lastError` is the background role's last refusal text (POD-4805), when
-     * the issue assistant has recorded one. It is present even when no machine
-     * could be picked, so Settings says why the server AI is failing instead of
-     * looking fine.
-     */
-    serverAi?: {
-        machineId?: MachineId;
-        machineName?: string;
-        lastError?: string;
-    };
-    /** Managed only: where the credential actually lives. */
-    credentialSource?: 'stored' | 'legacy';
-    loginRequired?: boolean;
-    loginAttempt?: NativeLoginAttempt;
-    loginMachines?: {
-        id: MachineId;
-        name: string;
-    }[];
 }
 
 /** Transient reports from the local tunnel supervisor; no credentials or persisted state. */
@@ -2324,6 +2275,7 @@ type Output_accounts_login = Pick<{
     lastActiveAt: string;
     lastInputAt?: string | undefined;
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
+    messageDraft?: string | undefined;
     model?: string | undefined;
     name?: string | undefined;
     nameSource?: "agent" | "user" | undefined;
@@ -2494,6 +2446,7 @@ type Output_accounts_login = Pick<{
     lastActiveAt: string;
     lastInputAt?: string | undefined;
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
+    messageDraft?: string | undefined;
     model?: string | undefined;
     name?: string | undefined;
     nameSource?: "agent" | "user" | undefined;
@@ -4649,6 +4602,7 @@ type Output_issues_get = (null) | ({
         lastActiveAt: string;
         lastInputAt?: string | undefined;
         machineId?: (string & z.BRAND<"MachineId">) | undefined;
+        messageDraft?: string | undefined;
         model?: string | undefined;
         name?: string | undefined;
         nameSource?: "agent" | "user" | undefined;
@@ -6291,7 +6245,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: (undefined) | ({
                 [k: string]: unknown;
             } & {});
-            output: Array<AccountView>;
+            output: Array<_podium_model.AccountView>;
             meta: unknown;
         }>;
         "login": TRPC.TRPCMutationProcedure<{
