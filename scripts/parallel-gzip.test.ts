@@ -13,6 +13,11 @@ afterEach(() => {
 })
 
 describe('resolvePigz', () => {
+  it('uses gzip on Windows, whose tar cannot hand the stream to pigz with arguments', () => {
+    expect(resolvePigz({ probe: () => true, platform: 'win32' })).toBeUndefined()
+    expect(resolvePigz({ probe: () => true, platform: 'linux' })).toBe('pigz')
+  })
+
   it('prefers a WORKING PODIUM_PIGZ over anything on PATH', () => {
     process.env.PODIUM_PIGZ = '/somewhere/else/pigz'
     expect(resolvePigz({ probe: (candidate) => candidate === '/somewhere/else/pigz' })).toBe(

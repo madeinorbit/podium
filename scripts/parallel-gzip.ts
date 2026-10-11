@@ -37,7 +37,7 @@ const PIGZ_FALLBACK_PATHS = [
 ]
 
 /** Injectable seam: does `candidate` actually RUN? Replaced in tests to simulate a host without pigz. */
-export type PigzDeps = { probe: (candidate: string) => boolean }
+export type PigzDeps = { probe: (candidate: string) => boolean; platform?: NodeJS.Platform }
 
 const defaultDeps: PigzDeps = {
   probe: (candidate) => spawnSync(candidate, ['--version'], { stdio: 'ignore' }).status === 0,
@@ -57,6 +57,9 @@ const defaultDeps: PigzDeps = {
  * that exists but does not execute must fall through to gzip.
  */
 export function resolvePigz(deps: PigzDeps = defaultDeps): string | undefined {
+  // Windows' tar is bsdtar, which runs --use-compress-program as one program name and fails
+  // with "Can't launch external program: pigz -n -p2" even where pigz itself runs.
+  if ((deps.platform ?? process.platform) === 'win32') return undefined
   const configured = process.env.PODIUM_PIGZ?.trim()
   for (const candidate of [...(configured ? [configured] : []), 'pigz', ...PIGZ_FALLBACK_PATHS]) {
     if (deps.probe(candidate)) return candidate
