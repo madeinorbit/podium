@@ -556,6 +556,34 @@ describe('desktop release workflow', () => {
     expect(macSigningVerifier).not.toContain('$granted/podium-cli')
   })
 
+  it('builds Windows without letting it hold back or slow down the other platforms', () => {
+    type Leg = { target: string; experimental?: boolean; timeout_minutes?: number }
+    const parsed = Bun.YAML.parse(desktopWorkflow) as {
+      jobs: {
+        build: {
+          'continue-on-error'?: string
+          'timeout-minutes'?: string
+          strategy: { 'fail-fast'?: boolean; matrix: { include: Leg[] } }
+        }
+      }
+    }
+    const build = parsed.jobs.build
+    const legs = build.strategy.matrix.include
+    const windows = legs.find((leg) => leg.target === 'windows-x86_64')
+    expect(windows?.experimental).toBe(true)
+    // Beside the ~26 min macOS Intel leg, a cap near it bounds what Windows can add.
+    expect(windows?.timeout_minutes).toBeLessThanOrEqual(30)
+    // A failed leg fails `build`, and `publish` needs `build`: only continue-on-error keyed
+    // to the experimental flag lets the release ship without Windows.
+    expect(build['continue-on-error']).toBe('${{ matrix.experimental == true }}')
+    expect(build['timeout-minutes']).toBe('${{ matrix.timeout_minutes || 360 }}')
+    expect(build.strategy['fail-fast']).toBe(false)
+    // The shipped platforms must keep blocking: a broken macOS or Linux build is a failed release.
+    for (const leg of legs.filter((candidate) => candidate.target !== 'windows-x86_64')) {
+      expect(leg.experimental, leg.target).toBeUndefined()
+    }
+  })
+
   it('builds and publishes the updater-signed Windows NSIS installer', () => {
     expect(desktopWorkflow).toContain('target: windows-x86_64')
     expect(desktopWorkflow).toContain('runner: windows-latest')

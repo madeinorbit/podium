@@ -71,10 +71,9 @@ const targetBundles: TargetBundle[] = [
     target: 'windows-x86_64',
     updaterSuffix: '-setup.exe',
     requiredDownloadSuffixes: [],
-    // Windows is experimental and is not in the desktop-release build matrix, so no run
-    // produces this bundle right now. Kept in the table rather than deleted so the asset
-    // suffixes below still prune stale installers, and so re-adding the matrix leg is all
-    // it takes to publish Windows again.
+    // Windows is experimental: its build leg may fail or time out without holding the
+    // release back (`experimental` in desktop-release.yml), so a run can legitimately arrive
+    // here without this bundle and must still publish the platforms that did build.
     optional: true,
   },
   {

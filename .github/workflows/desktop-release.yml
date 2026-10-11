@@ -186,27 +186,27 @@ jobs:
             artifact_paths: |
               apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage
               apps/desktop/src-tauri/target/release/bundle/appimage/*.AppImage.sig
-          # Windows is experimental and is deliberately NOT built by default. A red leg here does
-          # not withhold the release — `publish` runs on the legs that succeeded, so a Windows
-          # failure only ever produced a manifest without Windows in it — but it does spend a
-          # runner and put a failure on every release, which reads as a broken release when it is
-          # a platform we are not shipping yet. Re-add this entry to build it:
+          # Windows is experimental: it is built and published when it succeeds, and it can never
+          # hold the release back. `experimental` turns on the job's continue-on-error, so a red
+          # or timed-out Windows leg leaves `build` successful and `publish` ships the legs that
+          # passed with no Windows entry in the manifest. Without it, one failed leg fails
+          # `build` and `publish` (which needs it) is skipped for every platform.
           #
-          #   - target: windows-x86_64
-          #     runner: windows-latest
-          #     build_args: "-- --bundles nsis"
-          #     artifact_paths: |
-          #       apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
-          #       apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe.sig
+          # It runs beside the macOS legs, so it only lengthens a release when it outlasts the
+          # slowest of them (macOS Intel, ~26 min); `timeout_minutes` caps that.
           #
-          # Re-adding it now installs cleanly: the windows-latest `bun install` failure under
-          # bunfig's isolated linker was the global store's location, not the linker. The store
-          # is `links/` inside Bun's install cache, which defaulted to the C: profile while the
-          # checkout is on D:, so every store symlink crossed a volume and Bun fell back to a
-          # copyfile that failed ENOENT. windows-smoke.yml pins BUN_INSTALL_CACHE_DIR beside the
-          # workspace so cache and store share the checkout's volume; a Windows row here needs
-          # the same pin. The compile error past that point is already fixed
-          # (`exit_status_details` in src-tauri/src/main.rs).
+          # Bun's global store is `links/` inside its install cache, which defaults to the C:
+          # profile while the checkout is on D:; every store symlink would cross a volume and
+          # Bun falls back to a copyfile that fails ENOENT. The pin step below puts the cache
+          # beside the workspace, the same pin windows-smoke.yml uses.
+          - target: windows-x86_64
+            runner: windows-latest
+            experimental: true
+            timeout_minutes: 30
+            build_args: "-- --bundles nsis"
+            artifact_paths: |
+              apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+              apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe.sig
           - target: darwin-aarch64
             runner: macos-15
             build_args: "-- --target aarch64-apple-darwin"
@@ -226,6 +226,8 @@ jobs:
               apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz
               apps/desktop/src-tauri/target/x86_64-apple-darwin/release/bundle/macos/*.app.tar.gz.sig
     runs-on: ${{ matrix.runner }}
+    continue-on-error: ${{ matrix.experimental == true }}
+    timeout-minutes: ${{ matrix.timeout_minutes || 360 }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -233,6 +235,13 @@ jobs:
       - uses: jdx/mise-action@v2
         with:
           install_args: bun
+      - name: Pin Bun's install cache (and its global store) to the checkout volume
+        if: matrix.target == 'windows-x86_64'
+        shell: pwsh
+        run: |
+          $cache = Join-Path (Split-Path -Parent (Split-Path -Parent $env:GITHUB_WORKSPACE)) 'bun-install-cache'
+          New-Item -ItemType Directory -Force -Path $cache | Out-Null
+          "BUN_INSTALL_CACHE_DIR=$cache" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
       - name: Install Linux desktop build dependencies
         if: matrix.target == 'linux-x86_64'
         run: |
@@ -242,8 +251,7 @@ jobs:
             librsvg2-dev libayatana-appindicator3-dev libxdo-dev libssl-dev
       - uses: actions/cache@v4
         with:
-          path: |
-            ~/.bun/install/cache
+          path: ${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}
           key: desktop-build-${{ matrix.target }}-${{ hashFiles('bun.lock', 'apps/desktop/src-tauri/Cargo.lock') }}
       - run: bun install --frozen-lockfile --ignore-scripts
       # The Developer ID lives in a throwaway keychain rather than being handed to Tauri via

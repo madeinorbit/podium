@@ -75,7 +75,14 @@ GitHub Actions must contain `TAURI_SIGNING_PRIVATE_KEY` and
 
 ### Windows installer
 
-The Windows x86_64 leg runs on `windows-latest` and builds an NSIS `-setup.exe`. The same
+The Windows x86_64 leg runs on `windows-latest` and builds an NSIS `-setup.exe`. It is
+experimental: it can fail or hit its 30-minute cap without holding the release back, and the
+release then ships the other platforms with no Windows entry in `latest.json`. It runs beside the
+macOS legs, so it only lengthens a release when it outlasts the slowest of them.
+
+The headless release does not build a Windows server bundle yet. A Windows desktop install
+therefore runs the server its installer seeded and cannot update that server; shell updates
+still arrive through the updater. The same
 installer is the Tauri updater payload, with its detached `.sig` included in `latest.json` under
 `windows-x86_64`. The regular Windows smoke compiles the Tauri executable without making an
 installer, launches it against a real local Podium server, and fails if native setup or the
