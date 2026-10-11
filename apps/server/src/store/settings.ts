@@ -34,7 +34,7 @@ import { randomUUID } from 'node:crypto'
 import { applySettingsPatch, changedSettingsLeaves, readSettingsLeaf } from '@podium/commands'
 import { asUserId, type MachineId, type UserId } from '@podium/model'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
-import { allTiersOff } from '@podium/telemetry'
+import { TIER_DEFAULTS } from '@podium/telemetry'
 import { applyAfterCommit } from './executor'
 import {
   resolveSetting,
@@ -48,6 +48,31 @@ import { meta } from '../migrations/schema'
 import type { StoreQueries, StoreDrizzle, TransactionRunner } from './executor/sync-drizzle'
 import { currentTransaction } from './executor/sync-drizzle'
 import { isPersonalPreferenceKey, UserPreferencesRepository } from './user-preferences'
+
+/** What the environment and config.json say about telemetry; `undefined` = no say. */
+interface TelemetryAboveDatabase {
+  usage: 'on' | 'off' | 'absent' | undefined
+  crash: 'on' | 'off' | 'absent' | undefined
+  installId: string | undefined
+}
+
+/**
+ * Whether these deployment values, under `above`, leave a tier effectively on
+ * with no install id from any layer. Pure: it runs inside a transaction.
+ * Layer order matches resolveSetting: env, then config.json, then the database,
+ * then the tier default.
+ */
+function needsTelemetryIdentity(
+  deployment: PodiumSettings['deployment'],
+  above: TelemetryAboveDatabase,
+): boolean {
+  if (above.installId ?? deployment.telemetryInstallId) return false
+  const on = (tier: 'usage' | 'crash', stored: 'on' | 'off' | undefined): boolean => {
+    const chosen = above[tier] ?? stored
+    return (chosen === undefined || chosen === 'absent' ? TIER_DEFAULTS[tier] : chosen) === 'on'
+  }
+  return on('usage', deployment.telemetryUsage) || on('crash', deployment.telemetryCrash)
+}
 
 export class SettingsRepository {
   private committed = normalizeSettings(undefined)
@@ -90,26 +115,49 @@ export class SettingsRepository {
     }
   }
 
-  /** True when these deployment values leave a tier effectively on (env, file
-   *  and tier defaults applied) and no layer supplies an install id yet. */
-  private needsTelemetryIdentity(deployment: PodiumSettings['deployment']): boolean {
-    const config = this.telemetryConfig({ ...this.layeredSettings(), ...deployment })
-    return !config.telemetry.installId && !allTiersOff(config)
+  /**
+   * The telemetry layers that sit ABOVE the database: the environment (kill
+   * switches included) and config.json. Read BEFORE a transaction opens, since a
+   * transaction body may not touch the filesystem or the environment
+   * (lint:span-effects, spec §6 rule 19).
+   */
+  private telemetryAboveDatabase(): TelemetryAboveDatabase {
+    const config = loadConfig()
+    const above = <K extends 'telemetryUsage' | 'telemetryCrash' | 'telemetryInstallId'>(
+      key: K,
+    ) => {
+      const resolved = this.resolve(key, config, {})
+      return resolved.source === 'env' || resolved.source === 'file' ? resolved.value : undefined
+    }
+    return {
+      usage: above('telemetryUsage'),
+      crash: above('telemetryCrash'),
+      installId: above('telemetryInstallId'),
+    }
   }
 
   async updateDeployment(
     values: Partial<PodiumSettings['deployment']>,
     firstConsentIdentity?: { installId: string; since: number },
   ): Promise<void> {
+    const above = firstConsentIdentity ? this.telemetryAboveDatabase() : undefined
     await this.createOrJoinTransaction(async () => {
-      const current = await this.getSettings()
-      const deployment = { ...current.deployment, ...values }
-      if (firstConsentIdentity && this.needsTelemetryIdentity(deployment)) {
-        deployment.telemetryInstallId = firstConsentIdentity.installId
-        deployment.telemetrySince = firstConsentIdentity.since
-      }
-      await this.setSettings({ ...current, deployment })
+      await this.writeDeployment(values, firstConsentIdentity, above)
     })
+  }
+
+  private async writeDeployment(
+    values: Partial<PodiumSettings['deployment']>,
+    firstConsentIdentity: { installId: string; since: number } | undefined,
+    above: TelemetryAboveDatabase | undefined,
+  ): Promise<void> {
+    const current = await this.getSettings()
+    const deployment = { ...current.deployment, ...values }
+    if (firstConsentIdentity && above && needsTelemetryIdentity(deployment, above)) {
+      deployment.telemetryInstallId = firstConsentIdentity.installId
+      deployment.telemetrySince = firstConsentIdentity.since
+    }
+    await this.setSettings({ ...current, deployment })
   }
 
   /**
@@ -119,10 +167,11 @@ export class SettingsRepository {
    * tier off (or a kill switch set) gets no identifier. Returns whether it wrote.
    */
   async ensureTelemetryIdentity(now: number = Date.now()): Promise<boolean> {
+    const above = this.telemetryAboveDatabase()
     return await this.createOrJoinTransaction(async () => {
       const current = await this.getSettings()
-      if (!this.needsTelemetryIdentity(current.deployment)) return false
-      await this.updateDeployment({}, { installId: randomUUID(), since: now })
+      if (!needsTelemetryIdentity(current.deployment, above)) return false
+      await this.writeDeployment({}, { installId: randomUUID(), since: now }, above)
       return true
     })
   }
