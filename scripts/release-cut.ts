@@ -17,6 +17,8 @@
  *   bun run release:cut 0.2.0-edge.1     # edge
  *   bun run release:cut 0.2.0 --dry-run  # print what would happen, change nothing
  *   bun run release:cut 0.2.0 --no-push  # commit and tag locally, push by hand
+ *   bun run release:cut 0.2.0-edge.2 --rebuild-desktop  # build a new desktop app even if its
+ *                                                       # inputs did not change
  */
 import { execFileSync, spawnSync } from 'node:child_process'
 import { readFileSync, writeFileSync } from 'node:fs'
@@ -94,6 +96,22 @@ export function promoteUnreleased(
   return { markdown: rewritten, notes }
 }
 
+/**
+ * The line in an annotated tag's message that makes the desktop release workflow build a new
+ * shell even when the shell inputs match the channel's standing one. The workflow greps for this
+ * exact line, so the two must not drift.
+ */
+export const REBUILD_DESKTOP_TRAILER = 'Rebuild-Desktop: yes'
+
+/**
+ * The annotated tag message. A carried-forward shell seeds a fresh install with the headless
+ * bundle it was built beside, so testing a fresh install of THIS build needs a new shell — and a
+ * tag push has no inputs, so the request travels in the tag itself.
+ */
+export function tagMessage(version: string, rebuildDesktop: boolean): string {
+  return rebuildDesktop ? `Release ${version}\n\n${REBUILD_DESKTOP_TRAILER}` : `Release ${version}`
+}
+
 function git(args: string[], cwd = REPO_ROOT): string {
   return execFileSync('git', args, { cwd, encoding: 'utf8' }).trim()
 }
@@ -107,9 +125,10 @@ function run(): void {
   const args = process.argv.slice(2)
   const dryRun = args.includes('--dry-run')
   const noPush = args.includes('--no-push')
+  const rebuildDesktop = args.includes('--rebuild-desktop')
   const version = args.find((a) => !a.startsWith('--'))
   if (!version) {
-    fail('usage: bun run release:cut <version> [--dry-run] [--no-push]')
+    fail('usage: bun run release:cut <version> [--dry-run] [--no-push] [--rebuild-desktop]')
   }
 
   const channel = channelForVersion(version)
@@ -150,6 +169,9 @@ function run(): void {
   const { markdown, notes } = promoteUnreleased(readFileSync(changelogPath, 'utf8'), version, date)
 
   console.log(`[release:cut] ${current} -> ${version} (${channel})`)
+  if (rebuildDesktop) {
+    console.log('[release:cut] the desktop app is rebuilt even if its inputs did not change.')
+  }
   console.log(
     notes
       ? `[release:cut] notes:\n${notes.replace(/^/gm, '    ')}`
@@ -175,7 +197,7 @@ function run(): void {
 
   git(['add', 'package.json', 'CHANGELOG.md'])
   git(['commit', '--message', `Release ${version}`])
-  git(['tag', '--annotate', `v${version}`, '--message', `Release ${version}`])
+  git(['tag', '--annotate', `v${version}`, '--message', tagMessage(version, rebuildDesktop)])
   console.log(`[release:cut] committed and tagged v${version}`)
 
   if (noPush) {

@@ -3,6 +3,7 @@ import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync 
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
+import { tagMessage } from './release-cut'
 
 const repoRoot = join(__dirname, '..')
 const desktopWorkflow = readFileSync(
@@ -291,6 +292,147 @@ describe('desktop release publication', () => {
   })
 })
 
+/**
+ * Runs the `Compare desktop shell inputs` step in a real git repository with only `gh` stubbed,
+ * and returns whether it decided to build a shell.
+ *
+ * The rebuild request travels in an annotated tag's message, which the step has to fetch and
+ * read with real git: a stubbed git would only prove the step calls the commands this test
+ * expects, not that a tag made by `release:cut` actually turns the build on.
+ */
+function runCompare(input: {
+  tag?: { message: string; annotated: boolean }
+  rebuildInput?: string
+  standingMatches: boolean
+}): string {
+  const parsed = Bun.YAML.parse(desktopWorkflow) as {
+    jobs: { validate: { steps: Array<{ id?: string; run?: string }> } }
+  }
+  const step = parsed.jobs.validate.steps.find((candidate) => candidate.id === 'shell')
+  if (!step?.run) throw new Error('the validate job has no `shell` step to run')
+
+  const dir = mkdtempSync(join(tmpdir(), 'desktop-compare-'))
+  scratch.push(dir)
+  const repo = join(dir, 'repo')
+  const bin = join(dir, 'bin')
+  const runnerTemp = join(dir, 'runner')
+  const output = join(dir, 'github_output')
+  for (const path of [join(repo, 'apps/desktop/src-tauri'), bin, runnerTemp]) {
+    mkdirSync(path, { recursive: true })
+  }
+  writeFileSync(output, '')
+  const git = (...args: string[]): string =>
+    execFileSync('git', ['-c', 'user.name=t', '-c', 'user.email=t@t', ...args], {
+      cwd: repo,
+      encoding: 'utf8',
+    }).trim()
+  git('init', '--quiet')
+  writeFileSync(join(repo, 'apps/desktop/src-tauri/main.rs'), 'fn main() {}\n')
+  git('add', '.')
+  git(
+    'commit',
+    '--quiet',
+    '--message',
+    input.tag && !input.tag.annotated ? input.tag.message : 'shell',
+  )
+  // The workflow fetches the tag from `origin`; pointing origin at this same repository keeps
+  // that fetch real without a network.
+  git('remote', 'add', 'origin', `file://${repo}`)
+  const tagName = 'v0.2.0-edge.7'
+  if (input.tag?.annotated) git('tag', '--annotate', tagName, '--message', input.tag.message)
+  else if (input.tag) git('tag', tagName)
+
+  const hash = execFileSync(
+    'bash',
+    [
+      '-c',
+      'git ls-files -s apps/desktop/src-tauri apps/desktop/scripts/stage-sidecar.ts | sha256sum | cut -d " " -f 1',
+    ],
+    { cwd: repo, encoding: 'utf8' },
+  ).trim()
+  const standing = input.standingMatches ? hash : 'a-different-shell'
+  // `gh release download … --dir <dir>` is the only gh call: it hands back the standing hash.
+  writeFileSync(
+    join(bin, 'gh'),
+    `#!/bin/bash
+out=""
+while [ $# -gt 0 ]; do [ "$1" = --dir ] && out="$2"; shift; done
+echo "${standing}" > "$out/desktop-shell-input.sha256"
+`,
+  )
+  chmodSync(join(bin, 'gh'), 0o755)
+
+  const script = join(dir, 'compare.sh')
+  writeFileSync(script, step.run)
+  const result = spawnSync('bash', [script], {
+    cwd: repo,
+    encoding: 'utf8',
+    env: {
+      PATH: `${bin}:${process.env.PATH ?? ''}`,
+      HOME: dir,
+      GITHUB_OUTPUT: output,
+      RUNNER_TEMP: runnerTemp,
+      CHANNEL: 'edge',
+      TARGET_TAG: 'edge',
+      INPUT_REBUILD_DESKTOP: input.rebuildInput ?? '',
+      TAG_NAME: input.tag ? tagName : '',
+    },
+  })
+  if (result.status !== 0) {
+    throw new Error(`compare step failed (${result.status}): ${result.stderr}`)
+  }
+  const line = readFileSync(output, 'utf8')
+    .split('\n')
+    .find((entry) => entry.startsWith('build_shell='))
+  return line?.slice('build_shell='.length) ?? ''
+}
+
+describe('desktop shell rebuild switch', () => {
+  it('carries the standing shell when its inputs did not change and nobody asked', () => {
+    expect(
+      runCompare({
+        tag: { message: tagMessage('0.2.0-edge.7', false), annotated: true },
+        standingMatches: true,
+      }),
+    ).toBe('false')
+  })
+
+  it('builds a new shell when the tag release:cut --rebuild-desktop makes asks for one', () => {
+    expect(
+      runCompare({
+        tag: { message: tagMessage('0.2.0-edge.7', true), annotated: true },
+        standingMatches: true,
+      }),
+    ).toBe('true')
+  })
+
+  it('builds a new shell when a dispatch asks for one', () => {
+    expect(runCompare({ rebuildInput: 'true', standingMatches: true })).toBe('true')
+    expect(runCompare({ rebuildInput: 'false', standingMatches: true })).toBe('false')
+  })
+
+  it("ignores the request line in a lightweight tag's commit message", () => {
+    // A lightweight tag has no message of its own, so for-each-ref would read the commit's.
+    // Only a deliberate annotated tag may ask for a notarized build.
+    expect(
+      runCompare({
+        tag: { message: tagMessage('0.2.0-edge.7', true), annotated: false },
+        standingMatches: true,
+      }),
+    ).toBe('false')
+  })
+
+  it('still builds when the inputs changed, with or without a request', () => {
+    expect(runCompare({ standingMatches: false })).toBe('true')
+    expect(
+      runCompare({
+        tag: { message: tagMessage('0.2.0-edge.7', true), annotated: true },
+        standingMatches: false,
+      }),
+    ).toBe('true')
+  })
+})
+
 describe('desktop release workflow', () => {
   it('parses as a GitHub workflow triggered by version tags and dispatch', () => {
     const parsed = Bun.YAML.parse(desktopWorkflow) as {
@@ -393,9 +535,13 @@ describe('desktop release workflow', () => {
     // The seed is the real first-run boundary this runner can prove: main.rs execs
     // `podium-cli` out of the copy in Application Support, so the copy — quarantine-stripped
     // exactly as the shell does it — is what must verify and run.
-    expect(macSigningVerifier).toContain('cp -R "$APP/Contents/Resources/resources/payload" "$seeded"')
+    expect(macSigningVerifier).toContain(
+      'cp -R "$APP/Contents/Resources/resources/payload" "$seeded"',
+    )
     expect(macSigningVerifier).toContain('xattr -dr com.apple.quarantine "$seeded"')
-    expect(macSigningVerifier).toContain('codesign --verify --strict --verbose=2 "$seeded/podium-cli"')
+    expect(macSigningVerifier).toContain(
+      'codesign --verify --strict --verbose=2 "$seeded/podium-cli"',
+    )
     expect(macSigningVerifier).toContain('"$seeded/podium-cli" --version')
     // The in-bundle sidecar still has to carry the JIT entitlement — the seed is a copy of it.
     expect(macSigningVerifier).toContain("grep -q 'allow-jit'")
@@ -404,7 +550,9 @@ describe('desktop release workflow', () => {
     // rcodesign pass, and the tarball is never uploaded by any job in this workflow. Verifying
     // it blocks every darwin release on a byproduct no user receives. The bytes a grant really
     // installs are cross-built in release.yml and gated by assert-headless-bundle.sh there.
-    expect(macSigningVerifier).not.toContain("find dist-bun -maxdepth 1 -name 'podium-headless-*.tar.gz'")
+    expect(macSigningVerifier).not.toContain(
+      "find dist-bun -maxdepth 1 -name 'podium-headless-*.tar.gz'",
+    )
     expect(macSigningVerifier).not.toContain('$granted/podium-cli')
   })
 

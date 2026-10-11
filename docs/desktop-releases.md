@@ -183,6 +183,22 @@ installer, macOS DMGs, updater files, signatures, and manifest), and publish the
 hash did not change, those jobs are skipped and the headless publisher re-uploads the standing
 manifest reference instead.
 
+### Rebuilding the desktop app on purpose
+
+A carried-forward shell is not only an older app. It also seeds a fresh install with the
+headless bundle it was built beside, so a new user who downloads it starts on that older server
+and updates from there. To test a fresh install of the build being released, ask for a new shell
+even though its inputs did not change:
+
+```bash
+bun run release:cut 0.3.0-edge.2 --rebuild-desktop
+```
+
+This adds a `Rebuild-Desktop: yes` line to the annotated tag's message, and the desktop workflow
+builds when it finds that exact line. Only an annotated tag counts. A hand-dispatched promotion
+has the same switch as the `rebuild_desktop` input. The rebuilt shell gets the release's version
+and publishes like any other mint, including pruning the old edge assets.
+
 `latest.json` carries `bridgeVersion`, and a headless manifest may raise
 `minRequired.desktopBridge` (or `minRequired.desktop` for a shell-version floor). The resolver and
 page enforce those explicit floors; headless and shell versions otherwise do not have to match.
@@ -204,6 +220,7 @@ long form, if you need to deviate:
 # edit package.json version, move the CHANGELOG Unreleased section under a version heading
 git commit -am "Release 0.3.0"
 git tag -a v0.3.0 -m "Release 0.3.0" && git push origin main && git push origin v0.3.0
+# to also rebuild the desktop app: git tag -a v0.3.0 -m "Release 0.3.0" -m "Rebuild-Desktop: yes"
 ```
 
 ## Release notes

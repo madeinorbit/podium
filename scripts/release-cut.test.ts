@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { channelForVersion, compareVersions, promoteUnreleased } from './release-cut'
+import {
+  channelForVersion,
+  compareVersions,
+  promoteUnreleased,
+  REBUILD_DESKTOP_TRAILER,
+  tagMessage,
+} from './release-cut'
 
 describe('channelForVersion', () => {
   it('routes the two shapes the release workflow understands', () => {
@@ -92,5 +98,19 @@ describe('promoteUnreleased', () => {
     expect(() =>
       promoteUnreleased('# Changelog\n\n## [0.1.3]\n\n- Old.\n', '0.1.4', '2026-08-13'),
     ).toThrow(/no "## \[Unreleased\]" heading/)
+  })
+})
+
+describe('tagMessage', () => {
+  it('names the release and asks for nothing by default', () => {
+    expect(tagMessage('0.2.0', false)).toBe('Release 0.2.0')
+    expect(tagMessage('0.2.0', false)).not.toContain(REBUILD_DESKTOP_TRAILER)
+  })
+
+  it('carries the rebuild request as its own line the workflow can match exactly', () => {
+    // The desktop workflow greps for the whole line, so it must stand alone, not trail the title.
+    const lines = tagMessage('0.2.0-edge.7', true).split('\n')
+    expect(lines[0]).toBe('Release 0.2.0-edge.7')
+    expect(lines).toContain(REBUILD_DESKTOP_TRAILER)
   })
 })

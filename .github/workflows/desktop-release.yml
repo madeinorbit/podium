@@ -30,6 +30,11 @@ on:
         description: "Optional updater notes shown in the update prompt (cannot force an update)"
         required: false
         type: string
+      rebuild_desktop:
+        description: Build a new desktop shell even if its inputs match the channel's standing shell
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -125,8 +130,26 @@ jobs:
           GH_TOKEN: ${{ github.token }}
           CHANNEL: ${{ steps.resolve.outputs.channel }}
           TARGET_TAG: ${{ steps.validate.outputs.target_tag }}
+          INPUT_REBUILD_DESKTOP: ${{ inputs.rebuild_desktop }}
+          TAG_NAME: ${{ github.event_name == 'push' && github.ref_name || '' }}
         run: |
           set -euo pipefail
+          # A shell whose inputs did not change is normally carried forward, but the shell also
+          # seeds a fresh install with the headless bundle it was built beside, so a carried
+          # shell installs an older server first. Testing a fresh install of THIS build needs a
+          # new shell: a dispatch asks with `rebuild_desktop`, a tag push with a
+          # `Rebuild-Desktop: yes` line in the annotated tag message (`release:cut --rebuild-desktop`).
+          rebuild_requested=false
+          if [ "$INPUT_REBUILD_DESKTOP" = true ]; then rebuild_requested=true; fi
+          if [ -n "$TAG_NAME" ]; then
+            # The checkout may hold only the commit, not the annotated tag object carrying the message.
+            git fetch --quiet --no-tags --depth=1 origin "+refs/tags/$TAG_NAME:refs/tags/$TAG_NAME"
+            # Only an annotated tag's own message counts; a lightweight tag would read the commit's.
+            if [ "$(git cat-file -t "refs/tags/$TAG_NAME")" = tag ] &&
+              git for-each-ref --format='%(contents)' "refs/tags/$TAG_NAME" | grep -qx 'Rebuild-Desktop: yes'; then
+              rebuild_requested=true
+            fi
+          fi
           shell_input_hash="$(git ls-files -s apps/desktop/src-tauri apps/desktop/scripts/stage-sidecar.ts | sha256sum | cut -d " " -f 1)"
           mkdir -p "$RUNNER_TEMP/standing-shell"
           # A moving channel compares against the shell standing on its OWN release. Reading
@@ -142,9 +165,13 @@ jobs:
             standing="$(tr -d "[:space:]" < "$RUNNER_TEMP/standing-shell/desktop-shell-input.sha256")"
           fi
           if [ "$standing" = "$shell_input_hash" ]; then build_shell=false; else build_shell=true; fi
+          echo "desktop shell inputs changed: $build_shell"
+          if [ "$rebuild_requested" = true ] && [ "$build_shell" = false ]; then
+            build_shell=true
+            echo "desktop shell rebuild requested: building despite unchanged inputs"
+          fi
           echo "build_shell=$build_shell" >> "$GITHUB_OUTPUT"
           echo "shell_input_hash=$shell_input_hash" >> "$GITHUB_OUTPUT"
-          echo "desktop shell inputs changed: $build_shell"
 
   build:
     needs: validate
