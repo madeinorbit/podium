@@ -12,15 +12,16 @@
  *   3. resize() doesn't throw,
  *   4. `exit` terminates the session with code 0 and onExit fires.
  *
- * Cross-platform on purpose: cmd.exe on Windows, sh -i on POSIX — CI runs it on
- * windows-latest as the ConPTY proof; POSIX runs keep the script itself honest.
+ * Cross-platform on purpose: the production Windows shell (PowerShell, else cmd.exe), sh -i
+ * on POSIX — CI runs it on windows-latest as the ConPTY proof; POSIX runs keep the script
+ * itself honest.
  */
 import { agentLaunchCommand } from '../packages/harness/src/launch.js'
 import { spawnAgent } from '../packages/pty/src/session.js'
 
 const isWin = process.platform === 'win32'
 // Windows resolves through the PRODUCTION shell-launch path (agentLaunchCommand →
-// SHELL || COMSPEC || cmd.exe) so the smoke green-lights the shell the daemon
+// SHELL || PowerShell || COMSPEC) so the smoke green-lights the shell the daemon
 // actually spawns. POSIX pins plain `sh -i` instead — that leg only keeps the
 // script itself honest, and the user's login shell may not speak the probe syntax.
 const { cmd: shell, args } = isWin
@@ -28,7 +29,15 @@ const { cmd: shell, args } = isWin
   : { cmd: 'sh', args: ['-i'] }
 // The command's OUTPUT (543656) never appears in what we type, so seeing it proves
 // the shell executed the command — not merely that the PTY echoed our input.
-const probe = isWin ? 'set /a 271828*2\r' : 'echo $((271828*2))\r'
+// Each shell needs its own spelling: PowerShell prints a bare expression's value, cmd.exe
+// only computes through `set /a`, and neither understands the other's.
+function probeFor(shellPath: string): string {
+  const name = shellPath.split(/[\\/]/).pop()?.toLowerCase() ?? ''
+  if (name === 'pwsh.exe' || name === 'powershell.exe') return '271828*2\r'
+  if (isWin) return 'set /a 271828*2\r'
+  return 'echo $((271828*2))\r'
+}
+const probe = probeFor(shell)
 const expected = '543656'
 
 const STEP_TIMEOUT_MS = 30_000
