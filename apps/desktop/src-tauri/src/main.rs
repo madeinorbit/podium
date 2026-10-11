@@ -336,11 +336,7 @@ fn local_host_sidecar_command(
             mobile_web_dir.to_string_lossy().to_string(),
         )
         .env(DESKTOP_SUPERVISED_ENV, "1")
-        .env(
-            "PODIUM_DESKTOP_VERSION",
-            std::env::var("PODIUM_DESKTOP_VERSION")
-                .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string()),
-        )
+        .env("PODIUM_DESKTOP_VERSION", version::APP_VERSION)
         .env(
             "PODIUM_DESKTOP_ARTIFACT_DIGEST",
             crate::updater::native_installed_digest().unwrap_or_default(),
@@ -368,11 +364,7 @@ fn remote_parent_command(runnable: &Path, shutdown_file: &Path) -> Command {
                 .join(".desktop-successor-pid"),
         )
         .env(DESKTOP_SUPERVISED_ENV, "1")
-        .env(
-            "PODIUM_DESKTOP_VERSION",
-            std::env::var("PODIUM_DESKTOP_VERSION")
-                .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string()),
-        )
+        .env("PODIUM_DESKTOP_VERSION", version::APP_VERSION)
         .env(
             "PODIUM_DESKTOP_ARTIFACT_DIGEST",
             crate::updater::native_installed_digest().unwrap_or_default(),
@@ -1637,8 +1629,8 @@ fn main() {
     // hook installed here is what turns a panic during plugin registration or
     // window setup — the failures that leave a user with a shell that never
     // appeared — into a durable record instead of a line on a stderr nobody is
-    // reading. `CARGO_PKG_VERSION` rather than `app.package_info()` because the
-    // app does not exist yet; they are the same string.
+    // reading. build.rs stamps the merged Tauri config's app version, so the
+    // first log and panic have app.package_info()'s version before the app exists.
     logging::init();
     let native_open_queue = Arc::new(NativeOpenQueue::default());
     let mut builder = tauri::Builder::default();
@@ -1689,7 +1681,6 @@ fn main() {
             move_server
         ])
         .setup(move |app| {
-            std::env::set_var("PODIUM_DESKTOP_VERSION", app.package_info().version.to_string());
             app.manage(native_open_queue.clone());
             #[cfg(target_os = "linux")]
             if let Err(error) = app.deep_link().register_all() {

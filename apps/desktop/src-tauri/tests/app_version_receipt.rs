@@ -2,7 +2,8 @@
 
 #[test]
 fn app_version_accepts_only_this_shells_installed_receipt() {
-    let state = std::env::temp_dir().join(format!("podium-app-version-receipt-{}", std::process::id()));
+    let state =
+        std::env::temp_dir().join(format!("podium-app-version-receipt-{}", std::process::id()));
     std::env::set_var("PODIUM_STATE_DIR", &state);
     std::env::remove_var("PODIUM_DESKTOP_VERSION");
     std::fs::create_dir_all(state.join("runtime")).unwrap();

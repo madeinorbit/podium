@@ -23,4 +23,16 @@ fn main() {
         ]),
     ))
     .expect("failed to run tauri-build");
+
+    // tauri-build sets TAURI_ENV_TARGET_TRIPLE for codegen, even under direct cargo
+    // cross-builds. Read afterwards with the same loader as generate_context!:
+    // platform config and TAURI_CONFIG overrides preserve prerelease/build metadata.
+    // Stamping it makes the real app version available to the FIRST log and panic
+    // hook, before an app handle (or even the generated context) exists.
+    let (config, _) = tauri_codegen::get_config(std::path::Path::new("tauri.conf.json"))
+        .expect("failed to read desktop app config");
+    let version = config
+        .version
+        .expect("desktop app version must be configured in tauri.conf.json");
+    println!("cargo:rustc-env=PODIUM_DESKTOP_APP_VERSION={version}");
 }

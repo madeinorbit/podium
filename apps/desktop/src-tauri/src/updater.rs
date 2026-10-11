@@ -778,10 +778,7 @@ pub fn native_installed_digest() -> Option<String> {
         &std::fs::read(crate::bootstrap::state_dir().join("runtime/native-installed.json")).ok()?,
     )
     .ok()?;
-    if value["version"].as_str()?
-        != std::env::var("PODIUM_DESKTOP_VERSION")
-            .unwrap_or_else(|_| env!("CARGO_PKG_VERSION").to_string())
-    {
+    if value["version"].as_str()? != crate::version::APP_VERSION {
         return None;
     }
     value["digest"].as_str().map(str::to_string)

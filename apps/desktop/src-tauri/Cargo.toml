@@ -26,6 +26,7 @@ path = "src/lib.rs"
 
 [build-dependencies]
 tauri-build = { version = "2", features = [] }
+tauri-codegen = "2"
 
 [dependencies]
 # WKWebView is opaque by default. Tauri's macOS private-API feature is the
