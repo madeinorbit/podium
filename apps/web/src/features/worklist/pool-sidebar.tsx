@@ -1,22 +1,28 @@
-import { here, omitGone } from '@podium/client-graph/lookup'
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import type { SessionView } from '@podium/client-core/session-values'
 import { relativeTime } from '@podium/client-core/focus'
 import type { Store } from '@podium/client-core/react'
+import type { SessionView } from '@podium/client-core/session-values'
 import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   type IssueNavigationModel,
-  issueClosedFoldAt,
   isSessionWorking,
+  issueClosedFoldAt,
   planReorderKeys,
 } from '@podium/client-core/values'
 import type { MobxPool } from '@podium/client-graph'
 import { LOADING } from '@podium/client-graph/loading'
-import { compareStructural, computed, observer, WorklistProvider, useWorklistModel } from '@podium/client-graph/react'
-import { worklistView } from '@podium/client-graph/worklist/view-model'
+import { here, omitGone } from '@podium/client-graph/lookup'
+import {
+  compareStructural,
+  computed,
+  observer,
+  useWorklistModel,
+  WorklistProvider,
+} from '@podium/client-graph/react'
 import type { SliceWorktree } from '@podium/client-graph/shared/slice-types'
 import type { SidebarSections, SidebarState } from '@podium/client-graph/worklist/sidebar'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
 import type { SidebarRowValues } from '@podium/client-graph/worklist/sidebar-row'
+import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { asIssueId, machinePathKey, machinePathsEqual, type SessionId } from '@podium/model/browser'
 import * as m from 'motion/react-m'
 import {
@@ -37,10 +43,11 @@ import {
   useRef,
   useState,
 } from 'react'
-import { useRuntimeSelector } from '@/app/store'
 import { usePanelVisible } from '@/app/panel-visible'
+import { useRuntimeSelector } from '@/app/store'
 import { useWorklistPool, useWorklistPoolProjection } from '@/app/store-worklist-pool'
 import { MobilePromoCard } from '@/features/mobile-handoff/MobilePromoCard'
+import { PHONE_APP_IN_STORES } from '@/features/mobile-handoff/mobile-handoff'
 import { issueColorHex } from '@/lib/issueColors'
 import { type RowTransitionItem, type RowTransitionTarget, useRowTransitions } from '@/lib/motion'
 import type { ContextMenuAnchor } from '@/lib/session-context-menu'
@@ -53,11 +60,11 @@ import { AddRepositoryButton, NewTaskRow, StartFirstTaskRow } from './new-task-r
 import {
   navigationIssue,
   poolIssueDisplay,
-  worklistIssueHaystack,
-  sidebarExitSnapshot,
   poolIssueRow,
   poolSessionPaint,
   poolWorktreeRow,
+  sidebarExitSnapshot,
+  worklistIssueHaystack,
 } from './pool-row-data'
 import { MAX_ROW_SHORTCUTS, useRowShortcuts } from './row-shortcuts'
 import { PanelRow, useCollapsedKeys } from './sidebar-common'
@@ -70,7 +77,6 @@ import { normalizeWorkQuery } from './work-filter'
 import {
   ClosedIssueFold,
   FoldedWorkRow,
-  WorklistFoldedRow,
   FoldPanel,
   foldedMarker,
   PinnedSectionLabel,
@@ -78,6 +84,7 @@ import {
   ROW_LAYOUT_TRANSITION,
   SECTION_GAP_CLASS,
   SnoozedIssueFold,
+  WorklistFoldedRow,
 } from './work-folds'
 import {
   useWorkFilterState,
@@ -111,7 +118,10 @@ export function usePoolLayoutState(): SidebarState {
   return useMemo(() => layout, [layout])
 }
 
-function slotsFor(sections: SidebarSections, orderByScope?: Map<string, readonly string[]>): RowTransitionTarget<Slot>[] {
+function slotsFor(
+  sections: SidebarSections,
+  orderByScope?: Map<string, readonly string[]>,
+): RowTransitionTarget<Slot>[] {
   const slots: RowTransitionTarget<Slot>[] = []
   const add = (
     id: string,
@@ -142,7 +152,10 @@ function matches(pool: MobxPool, slot: Slot, needle: string): boolean {
     const value = sidebarView(pool).row(slot.id)
     return value !== undefined && value !== LOADING && worklistIssueHaystack(value).includes(needle)
   }
-  const value = omitGone(pool.row('worktree', slot.id)) as SliceWorktree | typeof LOADING | undefined
+  const value = omitGone(pool.row('worktree', slot.id)) as
+    | SliceWorktree
+    | typeof LOADING
+    | undefined
   return (
     value !== undefined &&
     value !== LOADING &&
@@ -164,7 +177,9 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
   const pool = useWorklistPool()
   const state = usePoolLayoutState()
   const model = pool ? worklistView(pool) : null
-  useEffect(() => { model?.setLayout(state) }, [model, state])
+  useEffect(() => {
+    model?.setLayout(state)
+  }, [model, state])
   const input = useWorkFilterState()
   const needle = normalizeWorkQuery(input.deferredQuery)
   const count = useMemo(
@@ -206,7 +221,7 @@ export const PoolSidebarUnified = observer(function PoolSidebarUnified(): JSX.El
       >
         <PoolWorkSections query={input.deferredQuery} scrollRef={scrollRef} />
       </div>
-      <MobilePromoCard />
+      {PHONE_APP_IN_STORES && <MobilePromoCard />}
     </WorklistProvider>
   )
 })
@@ -293,8 +308,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
     const selected = slotById.get(selectedId)
     if (!selected) return
     revealedSelection.current = selectedId
-    const key =
-      selected.lane === 'pinned' ? PINNED_FOLD_KEY : projectFoldKey(selected.groupKey)
+    const key = selected.lane === 'pinned' ? PINNED_FOLD_KEY : projectFoldKey(selected.groupKey)
     if (collapsed.has(key)) toggle(key)
     // Selection is the reveal request; folding the current selection stays folded.
   }, [selectedId, slotById, collapsed, toggle])
@@ -579,7 +593,12 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
                       issueForRow={(item) => {
                         const value = issue(item.value.id)
                         return value
-                          ? { kind: 'issue', issue: value.issue as unknown as IssueNavigationModel, sessions: value.sessions as unknown as SessionView[], activityAt: value.visibleActivityAt }
+                          ? {
+                              kind: 'issue',
+                              issue: value.issue as unknown as IssueNavigationModel,
+                              sessions: value.sessions as unknown as SessionView[],
+                              activityAt: value.visibleActivityAt,
+                            }
                           : {
                               kind: 'issue',
                               issue: {
@@ -697,13 +716,21 @@ const PoolMotionRow = observer(function PoolMotionRow({
   })
   const snapshot = fresh === undefined && item.phase === 'exiting' ? previous.current : undefined
   const draftOnly = fresh && fresh !== LOADING ? fresh.sessionOnlyDraft : snapshot?.draftAgentOnly
-  const firstSessionId = fresh && fresh !== LOADING ? fresh.firstSessionId : snapshot?.firstSessionId
-  const draftPane = useRuntimeSelector(s => visible && draftOnly === true && s.paneA === firstSessionId)
+  const firstSessionId =
+    fresh && fresh !== LOADING ? fresh.firstSessionId : snapshot?.firstSessionId
+  const draftPane = useRuntimeSelector(
+    (s) => visible && draftOnly === true && s.paneA === firstSessionId,
+  )
   const active = visible && companion?.selected === true
   const arriving = animate && item.phase === 'entering'
   const exiting = item.phase === 'exiting'
-  const draggable = kind === 'issue' && !exiting && !filtering && fresh !== undefined &&
-    fresh !== LOADING && !fresh.issue.deferred
+  const draggable =
+    kind === 'issue' &&
+    !exiting &&
+    !filtering &&
+    fresh !== undefined &&
+    fresh !== LOADING &&
+    !fresh.issue.deferred
   const select = useCallback(() => actions.selectIssue(id), [actions, id])
   const tuck = useCallback(() => {
     void actions.setIssueTucked(id, true)
@@ -725,30 +752,61 @@ const PoolMotionRow = observer(function PoolMotionRow({
   const row = snapshot ? poolIssueRow(snapshot) : undefined
   const display = snapshot ? poolIssueDisplay(snapshot) : undefined
   if (kind === 'issue' && fresh === undefined && snapshot === undefined) return null
-  const inner = kind === 'worktree' ? (
-    <PoolWorktreeRow pool={pool} path={id} actions={actions} />
-  ) : fresh === LOADING ? (
-    <div data-testid="pool-row-loading" aria-busy="true" className="min-h-12" />
-  ) : folded && fresh ? (
-    <WorklistFoldedRow model={fresh} lane={lane as 'closed' | 'snoozed'} now={now}
-      active={active} onSelect={select} onContextMenu={lane === 'closed' ? contextMenu : undefined} />
-  ) : folded && snapshot ? (
-    <MemoFoldedWorkRow issue={navigationIssue(snapshot.issue)} lane={lane as 'closed' | 'snoozed'}
-      now={now} active={active} onSelect={select} onContextMenu={lane === 'closed' ? contextMenu : undefined} />
-  ) : fresh ? (
-    <WorklistIssueRow model={fresh} now={now} active={active && (!fresh.sessionOnlyDraft || draftPane)}
-      shortcutDigit={digit} resolveMenuData={menuData} onSelectIssue={selectIssue}
-      onSelectPanelForIssue={selectPanel} onOpenIssue={actions.openIssuePage}
-      onRenameIssue={actions.renameIssue} onGripDown={draggable ? grip : undefined}
-      onTuck={fresh.canTuck ? tuck : undefined} />
-  ) : snapshot ? (
-    <UnifiedIssueRow row={row!} display={display} now={now} displayTitle={snapshot.title}
-      progress={snapshot.progress} origin={snapshot.originTick as Parameters<typeof UnifiedIssueRow>[0]['origin']}
-      active={active && (!snapshot.draftAgentOnly || draftPane)} shortcutDigit={digit}
-      resolveMenuData={menuData} onSelectIssue={selectIssue} onSelectPanelForIssue={selectPanel}
-      onOpenIssue={actions.openIssuePage} onRenameIssue={actions.renameIssue}
-      onTuck={snapshot.awaitsTuck ? tuck : undefined} />
-  ) : null
+  const inner =
+    kind === 'worktree' ? (
+      <PoolWorktreeRow pool={pool} path={id} actions={actions} />
+    ) : fresh === LOADING ? (
+      <div data-testid="pool-row-loading" aria-busy="true" className="min-h-12" />
+    ) : folded && fresh ? (
+      <WorklistFoldedRow
+        model={fresh}
+        lane={lane as 'closed' | 'snoozed'}
+        now={now}
+        active={active}
+        onSelect={select}
+        onContextMenu={lane === 'closed' ? contextMenu : undefined}
+      />
+    ) : folded && snapshot ? (
+      <MemoFoldedWorkRow
+        issue={navigationIssue(snapshot.issue)}
+        lane={lane as 'closed' | 'snoozed'}
+        now={now}
+        active={active}
+        onSelect={select}
+        onContextMenu={lane === 'closed' ? contextMenu : undefined}
+      />
+    ) : fresh ? (
+      <WorklistIssueRow
+        model={fresh}
+        now={now}
+        active={active && (!fresh.sessionOnlyDraft || draftPane)}
+        shortcutDigit={digit}
+        resolveMenuData={menuData}
+        onSelectIssue={selectIssue}
+        onSelectPanelForIssue={selectPanel}
+        onOpenIssue={actions.openIssuePage}
+        onRenameIssue={actions.renameIssue}
+        onGripDown={draggable ? grip : undefined}
+        onTuck={fresh.canTuck ? tuck : undefined}
+      />
+    ) : snapshot ? (
+      <UnifiedIssueRow
+        row={row!}
+        display={display}
+        now={now}
+        displayTitle={snapshot.title}
+        progress={snapshot.progress}
+        origin={snapshot.originTick as Parameters<typeof UnifiedIssueRow>[0]['origin']}
+        active={active && (!snapshot.draftAgentOnly || draftPane)}
+        shortcutDigit={digit}
+        resolveMenuData={menuData}
+        onSelectIssue={selectIssue}
+        onSelectPanelForIssue={selectPanel}
+        onOpenIssue={actions.openIssuePage}
+        onRenameIssue={actions.renameIssue}
+        onTuck={snapshot.awaitsTuck ? tuck : undefined}
+      />
+    ) : null
   return (
     <m.div
       layout="position"
@@ -822,7 +880,11 @@ const PoolWorktreeRow = observer(function PoolWorktreeRow({
 }) {
   const visible = usePanelVisible()
   const state = useRuntimeSelector((s) => {
-    const active = visible && s.selectedIssueId === null && s.selectedWorktree != null && machinePathsEqual(s.selectedWorktree, path)
+    const active =
+      visible &&
+      s.selectedIssueId === null &&
+      s.selectedWorktree != null &&
+      machinePathsEqual(s.selectedWorktree, path)
     return { selectedWorktree: active ? path : null, paneA: active ? s.paneA : null }
   }, shallowEqual)
   const entity = here(pool.model('worktree', path))
@@ -878,13 +940,16 @@ const PoolPanelRow = observer(function PoolPanelRow({
   const visible = usePanelVisible()
   const projection = useMemo(
     () =>
-      computed(() => omitGone(pool.row('session', id)) as SessionView | typeof LOADING | undefined, {
-        equals: (a, b) =>
-          compareStructural(
-            a !== undefined && a !== LOADING ? poolSessionPaint(a) : a,
-            b !== undefined && b !== LOADING ? poolSessionPaint(b) : b,
-          ),
-      }),
+      computed(
+        () => omitGone(pool.row('session', id)) as SessionView | typeof LOADING | undefined,
+        {
+          equals: (a, b) =>
+            compareStructural(
+              a !== undefined && a !== LOADING ? poolSessionPaint(a) : a,
+              b !== undefined && b !== LOADING ? poolSessionPaint(b) : b,
+            ),
+        },
+      ),
     [pool, id],
   )
   const read = useCallback(() => projection.get(), [projection])

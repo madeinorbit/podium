@@ -47,6 +47,15 @@ const INSTANCE_ID_PATTERN = /^[a-z][a-z0-9-]{0,31}$/
  * own the address grammar; this feature only adds the server scope the phone
  * must verify before opening.
  */
+/**
+ * Whether the phone app these surfaces hand off to can be installed from a store yet: the sidebar
+ * banner and the status-strip "On your phone" chip are both hidden until it can. Their QR
+ * is a `podium:` link only that app opens; until it ships, a phone that scans it gets nothing.
+ * The phone web app at `<server>/mobile` needs no link of this kind — Settings → Connected
+ * devices already offers it. Flip this when the app is published (POD-5969).
+ */
+export const PHONE_APP_IN_STORES = false
+
 export function mobileHandoffUrl(
   origin: string,
   instanceId: string,

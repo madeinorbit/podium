@@ -95,6 +95,9 @@ vi.mock('@/features/machines/ConnectionIndicator', () => ({
   useStableConnection: () => ({ health: 'healthy', visible: false }),
 }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
+vi.mock('@/features/mobile-handoff/MobileHandoffChip', () => ({
+  MobileHandoffChip: () => <div data-testid="mobile-handoff-marker" />,
+}))
 
 import { resetUsageCache } from '@/features/usage/useUsageFeed'
 import { rollingBurnRate } from './StatusPerformanceStats'
@@ -113,6 +116,14 @@ afterEach(() => {
   fixture.query.mockClear()
   fixture.usageQuery.mockClear()
   vi.restoreAllMocks()
+})
+
+describe('StatusStrip phone handoff', () => {
+  it('offers no phone-app handoff while the app is not in the stores', () => {
+    // Its QR is a `podium:` link only the store app opens (POD-5969); none is published yet.
+    render(<StatusStrip />)
+    expect(screen.queryByTestId('mobile-handoff-marker')).toBeNull()
+  })
 })
 
 describe('StatusStrip issue reference', () => {

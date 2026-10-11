@@ -1,11 +1,9 @@
-import { refreshClocks } from '@podium/mobx-helpers'
-import { sidebarView } from '@podium/client-graph/worklist/sidebar'
-import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { beginSwitch } from '@podium/client-core/perf'
 import { asClientPrincipal } from '@podium/client-core/principal'
 import { StoreProvider, useStoreHandle } from '@podium/client-core/react'
-import { worklistSlice } from '../../../../../tests/worklist/diagnostics/reference/worklist'
+import { sidebarView } from '@podium/client-graph/worklist/sidebar'
+import { refreshClocks } from '@podium/mobx-helpers'
 import { sessionUserStateRowId } from '@podium/model'
 import {
   asIssueId,
@@ -19,6 +17,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { CommandPalette } from '@/app/CommandPalette'
 import { attachWorklistPool, useWorklistPool } from '@/app/store-worklist-pool'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
+import { worklistSlice } from '../../../../../tests/worklist/diagnostics/reference/worklist'
+import { referenceState } from '../../../../../tests/worklist/diagnostics/reference-state'
 import { expectPoolOutput } from '../../../../../tests/worklist/harness/src/oracle/pool-output'
 import { createSidebarFixture } from '../../../test/sidebar-fixture'
 import { SidebarRail } from './SidebarRail'
@@ -60,13 +60,16 @@ vi.mock('./UnifiedWorktreeRow', async (importOriginal) => {
 vi.mock('./WorkRowShell', async (importOriginal) => {
   const original = await importOriginal<typeof import('./WorkRowShell')>()
   const { useLayoutEffect } = await import('react')
-  return { ...original, WorkRowShell: (props: Parameters<typeof original.WorkRowShell>[0]) => {
-    const id = props.domMark
-    useLayoutEffect(() => {
-      if (id) mode.commits.set(id, (mode.commits.get(id) ?? 0) + 1)
-    })
-    return <original.WorkRowShell {...props} />
-  } }
+  return {
+    ...original,
+    WorkRowShell: (props: Parameters<typeof original.WorkRowShell>[0]) => {
+      const id = props.domMark
+      useLayoutEffect(() => {
+        if (id) mode.commits.set(id, (mode.commits.get(id) ?? 0) + 1)
+      })
+      return <original.WorkRowShell {...props} />
+    },
+  }
 })
 vi.mock('./sidebar-common', async (importOriginal) => {
   const original = await importOriginal<typeof import('./sidebar-common')>()
@@ -99,7 +102,9 @@ vi.mock('./work-folds', async (importOriginal) => {
   }
   return { ...original, FoldedWorkRow: CountedFolded, WorklistFoldedRow: observer(CountedFolded) }
 })
-vi.mock('@/features/mobile-handoff/MobilePromoCard', () => ({ MobilePromoCard: () => null }))
+vi.mock('@/features/mobile-handoff/MobilePromoCard', () => ({
+  MobilePromoCard: () => <div data-testid="mobile-promo-marker" />,
+}))
 
 let runtime: ClientRuntime
 let pool: ReturnType<typeof useWorklistPool> = null
@@ -198,6 +203,12 @@ afterEach(() => {
 })
 
 describe('real sidebar pool cutover', () => {
+  it('offers no phone-app banner while the app is not in the stores', async () => {
+    // Its QR is a `podium:` link only the store app opens (POD-5969); none is published yet.
+    await mount('pool')
+    expect(screen.queryByTestId('mobile-promo-marker')).toBeNull()
+  })
+
   it('retires collapsed group rows and reveals current data on expansion', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
