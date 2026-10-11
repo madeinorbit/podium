@@ -60,11 +60,7 @@ jobs:
       - name: ConPTY runtime smoke (spawn → write/exec → resize → exit)
         run: bun --conditions=@podium/source scripts/conpty-smoke.ts
 
-      # This compiles and boots the desktop executable but deliberately does not make an
-      # installer on every main push. Installers remain an explicit desktop release action.
-      # KNOWN RED (POD-3203), and a different failure from the install one that used to mask it:
-      # @podium/mobile#build fails here because Metro cannot resolve react/jsx-runtime through
-      # the isolated linker's symlinked node_modules. The install itself is green.
+      # Compile once, then exercise boot and NSIS packaging on this dispatch-only lane.
       - name: Build Windows desktop executable and headless bundle
         run: bun run --cwd apps/desktop build -- --no-bundle
 
@@ -135,3 +131,28 @@ jobs:
           # Kill the TREE: $proc is the cmd.exe launcher; podium-cli.exe is its child
           # and would otherwise keep holding :18787.
           taskkill /PID $proc.Id /T /F 2>$null; exit 0
+
+      - name: Inspect exported mobile asset paths
+        if: always()
+        shell: pwsh
+        run: |
+          $font = 'apps/mobile/node_modules/@expo-google-fonts/geist-mono/400Regular/GeistMono_400Regular.ttf'
+          bun -e "console.log(require('node:fs').realpathSync(process.argv[1]))" $font
+          $payload = Join-Path $env:GITHUB_WORKSPACE 'apps/desktop/src-tauri/resources/payload'
+          Get-ChildItem -Path (Join-Path $payload 'mobile/assets') -File -Recurse |
+            Sort-Object { $_.FullName.Length } -Descending |
+            Select-Object -First 10 @{Name='Length';Expression={$_.FullName.Length}}, FullName |
+            Format-List
+
+      # This produces a local installer artifact, never a release or updater publication.
+      - name: Build Windows NSIS installer
+        shell: bash
+        run: |
+          bun run --cwd apps/desktop exec tauri bundle --bundles nsis --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: windows-nsis-smoke
+          path: apps/desktop/src-tauri/target/release/bundle/nsis/*-setup.exe
+          if-no-files-found: error
+          retention-days: 3
