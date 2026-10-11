@@ -946,14 +946,18 @@ describe('test lane configuration', () => {
         const fs = require('node:fs')
         const vm = require('node:vm')
         const module_ = { exports: {} }
+        const stubRequire = (id) => {
+          if (id === 'expo/metro-config') {
+            return { getDefaultConfig: () => ({ resolver: {}, transformer: {} }) }
+          }
+          if (id === './scripts/metro-gesture-handler-web') return { redirectGestureHandler: () => null }
+          if (id === 'node:os') return { homedir: () => ${JSON.stringify(home)} }
+          return require(id)
+        }
+        // The config resolves its own module paths; the probe only reads watchFolders.
+        stubRequire.resolve = (id) => id
         vm.runInNewContext(fs.readFileSync('metro.config.js', 'utf8'), {
-          __dirname, module: module_, process,
-          require(id) {
-            if (id === 'expo/metro-config') return { getDefaultConfig: () => ({ resolver: {} }) }
-            if (id === './scripts/metro-gesture-handler-web') return { redirectGestureHandler: () => null }
-            if (id === 'node:os') return { homedir: () => ${JSON.stringify(home)} }
-            return require(id)
-          },
+          __dirname, module: module_, process, require: stubRequire,
         })
         fs.writeFileSync('result.json', JSON.stringify({
           watchFolders: module_.exports.watchFolders,
