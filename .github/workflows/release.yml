@@ -26,6 +26,12 @@ permissions:
 # one, so the same tag drives the headless and desktop halves of one release to the same channel.
 # Edge assets always live under the fixed `edge` tag — that URL is baked into shipped updaters.
 env:
+  # THE STABLE BRIDGE PROOF IS OFF (POD-5969). It installs the published v0.1.0 and lets its own
+  # updater take the candidate, which requires the candidate's latest.json to name the new
+  # version; for a stable release that also ships a new app, the headless half only has the
+  # previous release's latest.json at that point, so the proof cannot pass. Set this back to
+  # 'on' once the candidate carries the new app manifest (POD-5984).
+  PODIUM_STABLE_BRIDGE_PROOF: 'off'
   # Pin the build caches back inside the checkout so actions/cache can name them as a
   # `path`. The defaults are durable and outside the checkout (POD-3162), which is what a
   # developer box and a /tmp release worktree need and what an ephemeral runner cannot use.
@@ -178,10 +184,10 @@ jobs:
       - name: Install the release toolchain's own dependencies
         run: bun install --frozen-lockfile --ignore-scripts
       - name: Ensure the real-release base image is available
-        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable' && env.PODIUM_STABLE_BRIDGE_PROOF == 'on'
         run: docker pull ubuntu:24.04
       - name: Build the locked desktop signature verifier
-        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable' && env.PODIUM_STABLE_BRIDGE_PROOF == 'on'
         run: >-
           cargo build --release --locked
           --manifest-path scripts/stable-candidate-minisign/Cargo.toml
@@ -227,7 +233,7 @@ jobs:
             --dir dist-bun/release --write "$snapshot"
           echo "PODIUM_RELEASE_CANDIDATE_SNAPSHOT=$snapshot" >>"$GITHUB_ENV"
       - name: Prove the stable candidate from published v0.1.0
-        if: env.PODIUM_RELEASE_CHANNEL == 'stable'
+        if: env.PODIUM_RELEASE_CHANNEL == 'stable' && env.PODIUM_STABLE_BRIDGE_PROOF == 'on'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -239,7 +245,7 @@ jobs:
           PODIUM_UPDATE_E2E_OUTPUT_DIR="$RUNNER_TEMP/stable-bridge-evidence" \
             bash scripts/docker-update-e2e.sh
       - name: Preserve stable bridge proof evidence
-        if: always() && env.PODIUM_RELEASE_CHANNEL == 'stable'
+        if: always() && env.PODIUM_RELEASE_CHANNEL == 'stable' && env.PODIUM_STABLE_BRIDGE_PROOF == 'on'
         uses: actions/upload-artifact@v4
         with:
           name: stable-bridge-proof

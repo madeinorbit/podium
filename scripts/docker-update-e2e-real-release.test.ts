@@ -4,10 +4,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { promisify } from 'node:util'
-import {
-  desiredParentUnit,
-  legacyUnitNames,
-} from '@podium/runtime/topology-migration'
+import { desiredParentUnit, legacyUnitNames } from '@podium/runtime/topology-migration'
 import { afterAll, describe, expect, it } from 'vitest'
 import { coupleDesktopPairing } from './docker-update-e2e/couple-desktop-pairing'
 import { snapshotCandidate, verifyCandidateSnapshot } from './release-candidate-snapshot'
@@ -90,10 +87,7 @@ describe('real-release row expectations still match the code they describe', () 
     // so it is the one whose field names rot against THIS checkout instead of
     // against a tag. `unavailable` is how the silent stranding was recorded, so
     // the row's whole claim is that the status stays `ok`.
-    const service = readFileSync(
-      join(root, 'apps/server/src/modules/updates/service.ts'),
-      'utf8',
-    )
+    const service = readFileSync(join(root, 'apps/server/src/modules/updates/service.ts'), 'utf8')
     expect(service).toContain("{ status: 'ok' } | { status: 'unavailable'; reason: string }")
     expect(lane).toContain('.outcome.status // ""')
     expect(lane).toContain('real_headless_only_is_offered')
@@ -143,7 +137,9 @@ describe('real-release row expectations still match the code they describe', () 
     // `container_exec` runs `docker exec` directly, so `bun` is not on PATH
     // without `-l`; and `/work/source` holds whatever ref the run selected,
     // which is not necessarily the copy this control was written against.
-    expect(lane).toMatch(/docker cp "\$ROOT\/scripts\/docker-update-e2e\/couple-desktop-pairing\.ts"/)
+    expect(lane).toMatch(
+      /docker cp "\$ROOT\/scripts\/docker-update-e2e\/couple-desktop-pairing\.ts"/,
+    )
     expect(lane).toContain('bash -lc \\\n')
     expect(lane).not.toContain('/work/source/scripts/docker-update-e2e/couple-desktop-pairing.ts')
   })
@@ -156,7 +152,9 @@ describe('real-release row expectations still match the code they describe', () 
     // failure -- reddening a row that had done its job and skipping the row the
     // control was actually arming.
     expect(lane).toContain('if [[ "$PROVE_FAILURE" == real-release-migration &&')
-    expect(lane).not.toMatch(/if \[\[ -n "\$PROVE_FAILURE" && "\$\{RESULT\[real-release-converged\]/)
+    expect(lane).not.toMatch(
+      /if \[\[ -n "\$PROVE_FAILURE" && "\$\{RESULT\[real-release-converged\]/,
+    )
     // …and the pairing control names its own row rather than borrowing that one.
     expect(lane).toContain('[[ "$PROVE_FAILURE" == real-release-pairing-coupled ]] || return 1')
   })
@@ -272,6 +270,24 @@ describe('real-release row expectations still match the code they describe', () 
     expect(lane).toContain('No private key enters this')
   })
 
+  it('keeps the stable bridge proof switched off until the candidate carries the new app manifest', () => {
+    // POD-5969: with a new app, the candidate's latest.json still names the previous release,
+    // so the proof's matching-pair check can never pass. Every step that only serves the
+    // proof is gated on the switch; preparing and sealing the candidate still run.
+    expect(releaseWorkflow).toContain("PODIUM_STABLE_BRIDGE_PROOF: 'off'")
+    for (const name of [
+      'Ensure the real-release base image is available',
+      'Build the locked desktop signature verifier',
+      'Prove the stable candidate from published v0.1.0',
+      'Preserve stable bridge proof evidence',
+    ]) {
+      const step = releaseWorkflow.slice(releaseWorkflow.indexOf(`- name: ${name}`))
+      expect(step.slice(0, step.indexOf('\n      - '))).toContain(
+        "env.PODIUM_STABLE_BRIDGE_PROOF == 'on'",
+      )
+    }
+  })
+
   it('proves and seals the complete candidate before the named publish boundary', () => {
     const prepare = releaseWorkflow.indexOf('Prepare the complete stable candidate')
     const seal = releaseWorkflow.indexOf('Seal the stable candidate bytes')
@@ -288,19 +304,24 @@ describe('real-release row expectations still match the code they describe', () 
     expect(harness).toContain('"$REAL_TARGET_DIR:$REAL_CANDIDATE_ROOT:ro"')
     const bootstrap = lane.slice(
       lane.indexOf('prepare_real_release_bootstrap()'),
-      lane.indexOf('# ---------------------------------------------------------------------------\n# 3.'),
+      lane.indexOf(
+        '# ---------------------------------------------------------------------------\n# 3.',
+      ),
     )
     expect(bootstrap).toContain('REAL_PRODUCTION_CANDIDATE == 1')
-    expect(bootstrap).toContain('kept the published $REAL_RELEASE_TAG installer and binary bytes unchanged')
-    const install = lane.slice(lane.indexOf('install_real_release()'), lane.indexOf('real_release_setup()'))
+    expect(bootstrap).toContain(
+      'kept the published $REAL_RELEASE_TAG installer and binary bytes unchanged',
+    )
+    const install = lane.slice(
+      lane.indexOf('install_real_release()'),
+      lane.indexOf('real_release_setup()'),
+    )
     const productionBranch = install.slice(
       install.indexOf('REAL_PRODUCTION_CANDIDATE == 1'),
       install.indexOf('else'),
     )
     expect(productionBranch).not.toContain('PODIUM_INSTALL_PUBKEY')
-    expect(harness).toContain(
-      '( "$ONLY" == real-release && "$REAL_PRODUCTION_CANDIDATE" == 0 )',
-    )
+    expect(harness).toContain('( "$ONLY" == real-release && "$REAL_PRODUCTION_CANDIDATE" == 0 )')
   })
 })
 
