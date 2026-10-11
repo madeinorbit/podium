@@ -531,10 +531,12 @@ describe('setup core', () => {
       expect(() => applyServerUrl('not a url')).toThrow(/not a server URL or join code/)
       expect(loadConfig().serverUrl).toBe('wss://old.example')
     })
-    it('warns when the new URL is a rotating trycloudflare quick tunnel', () => {
+    it('does not warn about a quick-tunnel server: its podium-tunnel publishes each new URL', () => {
+      // A server reached through a Cloudflare quick tunnel runs podium-tunnel, which records
+      // every new URL with Podium Connect; a connected machine follows it (POD-5969).
       saveConfig({ mode: 'daemon', serverUrl: 'wss://old.example' })
       const res = applyServerUrl('wss://rand.trycloudflare.com')
-      expect(res.warning).toMatch(/quick tunnel/i)
+      expect(res.warning).toBeUndefined()
     })
   })
 
@@ -576,9 +578,9 @@ describe('setup core', () => {
       expect(ephemeralTunnelWarning('https://nottrycloudflare.com')).toBeUndefined()
       expect(ephemeralTunnelWarning('garbage')).toBeUndefined()
     })
-    it('applyJoin surfaces the warning for a quick-tunnel join code', () => {
+    it('applyJoin does not warn for a quick-tunnel join code (POD-5969)', () => {
       const token = encodeJoin({ v: 1, serverUrl: 'wss://x.trycloudflare.com', pairCode: 'P1' })
-      expect(applyJoin(token).warning).toMatch(/quick tunnel/i)
+      expect(applyJoin(token).warning).toBeUndefined()
     })
   })
 
@@ -705,9 +707,16 @@ describe('the deployment owns mode and public URL (PDM-26)', () => {
     })
 
     it('never turns a daemon, a client or an unconfigured box into a host', () => {
-      for (const config of [{ mode: 'daemon' as const, serverUrl: 'wss://x' }, { mode: 'client' as const, serverUrl: 'wss://x' }, {}]) {
+      for (const config of [
+        { mode: 'daemon' as const, serverUrl: 'wss://x' },
+        { mode: 'client' as const, serverUrl: 'wss://x' },
+        {},
+      ]) {
         saveConfig(config)
-        expect(applyPublicUrl(A, { confirmUrlChange: true })).toMatchObject({ ok: false, reason: 'refused' })
+        expect(applyPublicUrl(A, { confirmUrlChange: true })).toMatchObject({
+          ok: false,
+          reason: 'refused',
+        })
         expect(loadConfig().publicUrl).toBeUndefined()
       }
     })

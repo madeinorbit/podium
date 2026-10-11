@@ -474,12 +474,13 @@ export function applyServerUrl(
       identity,
     ),
   )
-  const warning = ephemeralTunnelWarning(serverUrl)
+  // No quick-tunnel warning here: a server reached through a Cloudflare quick tunnel runs
+  // podium-tunnel, which records each new URL with Podium Connect, and this machine follows it
+  // (POD-4640, POD-5921, POD-5969). The warning is for the server's own operator, in setup.
   return {
     serverUrl,
     ...(pairCode ? { pairCode } : {}),
     ...(workspaceId ? { workspaceId } : {}),
-    ...(warning ? { warning } : {}),
   }
 }
 
@@ -713,8 +714,8 @@ export function applyJoin(
       identity,
     ),
   )
-  const warning = ephemeralTunnelWarning(p.serverUrl)
-  return { name: p.name ?? 'this machine', ...(warning ? { warning } : {}) }
+  // No quick-tunnel warning for the joining machine; see applyServerUrl (POD-5969).
+  return { name: p.name ?? 'this machine' }
 }
 
 /**
