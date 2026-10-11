@@ -9,6 +9,7 @@ mod bootstrap;
 mod handoff;
 mod logging;
 mod updater;
+mod version;
 
 use std::collections::{HashMap, VecDeque};
 use std::path::{Path, PathBuf};
@@ -1638,7 +1639,7 @@ fn main() {
     // appeared — into a durable record instead of a line on a stderr nobody is
     // reading. `CARGO_PKG_VERSION` rather than `app.package_info()` because the
     // app does not exist yet; they are the same string.
-    logging::init(env!("CARGO_PKG_VERSION"));
+    logging::init();
     let native_open_queue = Arc::new(NativeOpenQueue::default());
     let mut builder = tauri::Builder::default();
     // FIX 1: single-instance guard — if a 2nd instance is launched, focus the existing
@@ -3053,6 +3054,53 @@ mod tests {
             !pause.is_active(),
             "a wedged restart cannot suppress fallback forever"
         );
+    }
+
+    fn configured_app_version() -> String {
+        let context: tauri::Context<tauri::Wry> = tauri::generate_context!();
+        context.package_info().version.to_string()
+    }
+
+    fn assert_app_version_environment(make_command: impl Fn() -> Command) {
+        // These run serially: the shell must report its baked version even before setup,
+        // and an inherited predecessor's version must not describe this executable.
+        let previous = std::env::var_os("PODIUM_DESKTOP_VERSION");
+        std::env::remove_var("PODIUM_DESKTOP_VERSION");
+        let without_environment = make_command();
+        std::env::set_var("PODIUM_DESKTOP_VERSION", "0.1.0-stale");
+        let with_stale_environment = make_command();
+        match previous {
+            Some(value) => std::env::set_var("PODIUM_DESKTOP_VERSION", value),
+            None => std::env::remove_var("PODIUM_DESKTOP_VERSION"),
+        }
+        let expected = configured_app_version();
+        for command in [&without_environment, &with_stale_environment] {
+            assert_eq!(
+                command_env(command, "PODIUM_DESKTOP_VERSION").as_deref(),
+                Some(expected.as_str()),
+            );
+        }
+    }
+
+    #[test]
+    fn app_version_local_sidecar_matches_tauri_package_info() {
+        assert_app_version_environment(|| {
+            local_host_sidecar_command(
+                Path::new("podium"),
+                &["parent".to_string(), "--takeover".to_string()],
+                18787,
+                Path::new("web"),
+                Path::new("mobile"),
+                Path::new("desktop.shutdown"),
+            )
+        });
+    }
+
+    #[test]
+    fn app_version_remote_parent_matches_tauri_package_info() {
+        assert_app_version_environment(|| {
+            remote_parent_command(Path::new("podium"), Path::new("desktop.shutdown"))
+        });
     }
 
     #[test]

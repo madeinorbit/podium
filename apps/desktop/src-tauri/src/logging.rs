@@ -434,7 +434,8 @@ static PANIC_HOOK_INSTALLED: AtomicBool = AtomicBool::new(false);
 
 /// Install the NDJSON backend and the panic hook. Idempotent, and never fatal:
 /// a shell that cannot install a logger still has to start.
-pub fn init(version: &str) {
+pub fn init() {
+    let version = crate::version::APP_VERSION;
     let logger = LOGGER.get_or_init(|| NdjsonLogger {
         version: version.to_string(),
         path: live_log_path(),
