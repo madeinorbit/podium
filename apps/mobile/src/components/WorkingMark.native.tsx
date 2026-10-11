@@ -1,6 +1,7 @@
 import { memo, useCallback, useRef } from 'react'
 import { useFocusEffect } from 'expo-router'
 import Svg, { Ellipse } from 'react-native-svg'
+import type NativeEllipse from 'react-native-svg/lib/typescript/elements/Ellipse'
 import { restingPicture } from '@podium/working-mark/frames'
 import { tetra } from '@podium/working-mark/designs'
 import type { Picture } from '@podium/working-mark'
@@ -16,7 +17,9 @@ export const WorkingMark = memo(function WorkingMark({
   size = 12,
   tint = color.workingText,
 }: WorkingMarkProps) {
-  const dots = useRef<(Ellipse | null)[]>([])
+  // moduleSuffixes selects SVG's web declarations even for this native file.
+  // Native Shape.setNativeProps accepts ellipse props directly (web uses style).
+  const dots = useRef<(NativeEllipse | null)[]>([])
   const reduceMotion = useReduceMotion()
   const paint = useCallback((picture: Picture) => {
     picture.forEach(([cx, cy, rx, ry, opacity], index) => {
@@ -41,7 +44,7 @@ export const WorkingMark = memo(function WorkingMark({
       {rest.map(([cx, cy, rx, ry, opacity], index) => (
         <Ellipse
           key={index}
-          ref={dot => { dots.current[index] = dot }}
+          ref={dot => { dots.current[index] = dot as unknown as NativeEllipse | null }}
           cx={cx} cy={cy} rx={rx} ry={ry} opacity={opacity} fill={tint}
         />
       ))}
