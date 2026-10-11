@@ -1459,6 +1459,32 @@ interface AccountView {
     }[];
 }
 
+/** Transient reports from the local tunnel supervisor; no credentials or persisted state. */
+
+declare const TunnelHealthReport: z.ZodObject<{
+    state: z.ZodEnum<["starting", "working", "unhealthy", "restarting", "stopped"]>;
+    url: z.ZodNullable<z.ZodString>;
+    lastOkAt: z.ZodNullable<z.ZodNumber>;
+    failedSince: z.ZodNullable<z.ZodNumber>;
+    lastError: z.ZodNullable<z.ZodString>;
+}, "strip", z.ZodTypeAny, {
+    state: "starting" | "working" | "stopped" | "restarting" | "unhealthy";
+    url: string | null;
+    lastError: string | null;
+    lastOkAt: number | null;
+    failedSince: number | null;
+}, {
+    state: "starting" | "working" | "stopped" | "restarting" | "unhealthy";
+    url: string | null;
+    lastError: string | null;
+    lastOkAt: number | null;
+    failedSince: number | null;
+}>;
+type TunnelHealthReport = z.infer<typeof TunnelHealthReport>;
+type TunnelHealth = TunnelHealthReport & {
+    reportedAt: number;
+};
+
 /**
  * THE REACHABILITY VOCABULARY (POD-4534). `connect.check` asks Podium Connect to
  * probe a public URL from the outside and say precisely why it does not work;
@@ -5808,6 +5834,7 @@ type Output_setup_info = {
     stableLink: null | string;
     transcriptLake: TranscriptLakeMode;
     transcriptLakeSource: SettingSource;
+    tunnelHealth?: TunnelHealth | null | undefined;
 };
 type Output_setup_provenance = {
     agentHome: {

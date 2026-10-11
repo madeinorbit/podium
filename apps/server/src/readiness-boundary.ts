@@ -85,12 +85,26 @@ function isLoopbackHost(host: string | undefined): boolean {
   }
 }
 
+/**
+ * Headers only a proxy adds. Their presence alone makes a request remote (POD-3274).
+ *
+ * A reverse proxy on this machine connects from 127.0.0.1, and nginx's plain
+ * `proxy_pass http://127.0.0.1:<port>` also rewrites Host to 127.0.0.1 and adds no
+ * X-Forwarded-For. A scripted request sends no Origin. Every other check below then
+ * passed, and a stranger on the internet counted as this machine: free setup on an
+ * unconfigured server, full access in no-password mode. Podium's proxy requirements
+ * ask for X-Forwarded-Proto, so a proxy set up as asked is caught here even when it
+ * rewrites everything else.
+ */
+const PROXY_ONLY_HEADERS = ['forwarded', 'x-forwarded-proto', 'x-real-ip'] as const
+
 /** The native boundary overwrites x-podium-peer-address from Bun.requestIP, so
  * callers cannot nominate themselves as local. Host/origin/forwarding checks
  * prevent a local reverse proxy from turning a remote browser into bootstrap. */
 export function isHostLocalRequest(request: Request): boolean {
   if (!isLoopbackAddress(request.headers.get('x-podium-peer-address') ?? undefined)) return false
   if (!isLoopbackHost(new URL(request.url).host)) return false
+  if (PROXY_ONLY_HEADERS.some((name) => request.headers.has(name))) return false
 
   const origin = request.headers.get('origin')
   if (origin) {
@@ -123,7 +137,8 @@ export function readinessBoundary(opts: {
     if (c.req.method === 'OPTIONS') return await next()
     const readiness = opts.readiness()
     if (readiness.dataPlane === 'available') return await next()
-    if (isHostSetupBootstrap(readiness, c.req.path, c.req.raw, opts.isHostLocal)) return await next()
+    if (isHostSetupBootstrap(readiness, c.req.path, c.req.raw, opts.isHostLocal))
+      return await next()
     // The restart, from anywhere, once the state says the instance may be talked
     // to about itself. The login guard downstream is what keeps it authenticated.
     if (controlPlaneAvailable(readiness) && isControlPlanePath(c.req.path)) return await next()
@@ -161,7 +176,8 @@ export function authReadinessBoundary(readiness: () => ServerReadiness): Middlew
     if (c.req.method === 'OPTIONS' || c.req.path === '/auth/status') return await next()
     const status = readiness()
     if (status.dataPlane === 'available') return await next()
-    if (controlPlaneAvailable(status) && CONTROL_PLANE_AUTH_PATHS.has(c.req.path)) return await next()
+    if (controlPlaneAvailable(status) && CONTROL_PLANE_AUTH_PATHS.has(c.req.path))
+      return await next()
     return c.json({ error: 'server_not_ready', readiness: status }, 503)
   }
 }

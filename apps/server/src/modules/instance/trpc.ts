@@ -28,6 +28,7 @@ const instanceService = (state: {
   readiness?: (() => ServerReadiness) | undefined
   requestCoordinatorRestart?: (() => void | Promise<void>) | undefined
   caller: { userId: UserId }
+  tunnelHealth?: (() => import('@podium/runtime/tunnel-health').TunnelHealth | null) | undefined
   connect?: { publicUrlChanged(): void; stableLink?(): string | undefined } | undefined
   modules?:
     | {
@@ -63,6 +64,7 @@ const instanceService = (state: {
     // POD-4640: a URL written from Settings reaches Connect now, not in 5 minutes.
     onPublicUrlChanged: state.connect ? () => state.connect?.publicUrlChanged() : undefined,
     // POD-5921: Settings → Network shows the bookmarkable link beside the address.
+    tunnelHealth: state.tunnelHealth,
     stableLink: state.connect?.stableLink ? () => state.connect?.stableLink?.() : undefined,
     // POD-4179: setup.complete records the host machine's grantee.
     grantHostMachine: state.modules

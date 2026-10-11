@@ -150,6 +150,23 @@ describe('ConnectPublisher', () => {
     expect(h.published).toHaveLength(3)
   })
 
+  it('retries a forced repair of the same address until publishing succeeds', async () => {
+    const h = harness()
+    h.publisher.start()
+    await h.publisher.settled
+    h.answers.publish.push({ ok: false, failure: { kind: 'network', message: 'down' } })
+    h.publisher.republish()
+    await h.publisher.settled
+    expect(h.published).toHaveLength(2)
+    expect(h.publisher.state).toBe('backoff')
+    await h.fire()
+    expect(h.published).toHaveLength(3)
+    expect(h.published[2]?.endpoints[0]?.url).toBe('https://my.example')
+    expect(h.publisher.state).toBe('published')
+    await h.fire()
+    expect(h.published).toHaveLength(3)
+  })
+
   it('retries an address Connect does not have yet at least every tick, and resets on success', async () => {
     const h = harness()
     h.answers.register.push({ ok: false, failure: { kind: 'network', message: 'down' } })

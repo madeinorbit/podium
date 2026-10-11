@@ -66,6 +66,7 @@ export class ConnectPublisher {
   #inFlight: Promise<void> | undefined
   /** A URL change arrived while a tick was running: run once more after it. */
   #rerun = false
+  #republish = false
   readonly #deps: PublisherDeps
   readonly #setTimer: (fn: () => void, ms: number) => unknown
   readonly #clearTimer: (handle: unknown) => void
@@ -119,6 +120,21 @@ export class ConnectPublisher {
       return connectStableLink(this.#deps.identity().installationId, this.#deps.baseUrl)
     } catch {
       return undefined
+    }
+  }
+
+  /** A local doctor requests a fresh write even when the last publish succeeded. */
+  republish(): void {
+    this.#republish = true
+    this.publicUrlChanged()
+  }
+
+  diagnostics(): { enabled: boolean; installationId: string; generation: number } {
+    const identity = this.#deps.identity()
+    return {
+      enabled: this.#deps.enabled(),
+      installationId: identity.installationId,
+      generation: identity.generation,
     }
   }
 
@@ -191,8 +207,12 @@ export class ConnectPublisher {
       if (!result.ok) return this.#fail('connect: registration failed, retrying', result.failure)
       this.#registered = true
     }
-    const due = this.#publishedUrl !== url || this.#now() - this.#publishedAt >= REPUBLISH_MS
+    const due =
+      this.#republish ||
+      this.#publishedUrl !== url ||
+      this.#now() - this.#publishedAt >= REPUBLISH_MS
     if (due) {
+      this.#republish = false
       const record: LocatorRecord = {
         generation: this.#deps.identity().generation,
         issuedAt: new Date(this.#now()).toISOString(),
@@ -210,6 +230,9 @@ export class ConnectPublisher {
           this.#deps.onTransferred?.()
           return
         }
+        // A forced repair may target the same URL before the daily refresh is due.
+        // Keep it pending so the retry timer actually sends the failed write again.
+        this.#republish = true
         return this.#fail('connect: publish failed, retrying', result.failure)
       }
       this.#publishedUrl = url

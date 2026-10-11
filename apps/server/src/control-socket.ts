@@ -17,16 +17,38 @@
  *                                        box is not a server, or a different live
  *                                        URL without confirmUrlChange
  *
+ *   GET  /v1/login-password
+ *       Whether this instance's first admin has a login password yet.
+ *       200 {"ok":true,"set":bool}
+ *
+ *   POST /v1/login-password   {"password": "..."}
+ *       Set the first admin's login password on the RUNNING server (POD-3274).
+ *       `podium setup` calls it: a password staged in auth.json is only read by
+ *       a first boot, so it could neither be set while setup checks the address
+ *       nor changed later. Stored as typed, never trimmed (POD-1148).
+ *       200 {"ok":true}
+ *       400 {"ok":false,"error":"..."}   empty, or not JSON
+ *       409 {"ok":false,"error":"..."}   no admin account to hold it
+ *
  * Every other method or path is a 404, and a body over 4 KiB a 413.
  */
 import type { IncomingMessage, RequestListener, ServerResponse } from 'node:http'
 import type { ApplyPublicUrlResult } from '@podium/runtime/setup'
+import { TunnelHealthReport } from '@podium/runtime/tunnel-health'
 
 export const CONTROL_BODY_MAX_BYTES = 4_096
 
 export interface ControlSocketDeps {
   /** Write the public URL; the caller prods the Connect publisher when it changed. */
+  tunnelHealth?: (report: TunnelHealthReport) => void
+  diagnostics?: () => unknown
+  publishConnect?: () => void
   setPublicUrl(url: string, opts: { confirmUrlChange: boolean }): ApplyPublicUrlResult
+  /** The first admin's login password: whether one is set, and setting it. */
+  loginPassword?: {
+    isSet(): Promise<boolean>
+    set(password: string): Promise<{ ok: true } | { ok: false; error: string }>
+  }
 }
 
 function reply(res: ServerResponse, status: number, body: unknown): void {
@@ -58,26 +80,88 @@ function readBody(req: IncomingMessage): Promise<string | 'too-large'> {
   })
 }
 
+async function readJson(
+  req: IncomingMessage,
+  res: ServerResponse,
+): Promise<Record<string, unknown> | undefined> {
+  const body = await readBody(req)
+  if (body === 'too-large') {
+    reply(res, 413, { ok: false, error: `body over ${CONTROL_BODY_MAX_BYTES} bytes` })
+    return undefined
+  }
+  let input: unknown
+  try {
+    input = JSON.parse(body)
+  } catch {
+    reply(res, 400, { ok: false, error: 'body is not JSON' })
+    return undefined
+  }
+  if (typeof input !== 'object' || input === null) {
+    reply(res, 400, { ok: false, error: 'expected a JSON object' })
+    return undefined
+  }
+  return input as Record<string, unknown>
+}
+
 export function controlSocketHandler(deps: ControlSocketDeps): RequestListener {
   return (req, res) => {
     void (async () => {
-      if (req.method !== 'POST' || req.url !== '/v1/public-url') {
+      if (req.url === '/v1/login-password' && deps.loginPassword) {
+        if (req.method === 'GET') {
+          reply(res, 200, { ok: true, set: await deps.loginPassword.isSet() })
+          return
+        }
+        if (req.method === 'POST') {
+          const input = await readJson(req, res)
+          if (!input) return
+          if (typeof input.password !== 'string' || input.password.trim() === '') {
+            reply(res, 400, { ok: false, error: 'expected {"password": non-empty string}' })
+            return
+          }
+          const result = await deps.loginPassword.set(input.password)
+          if (result.ok) reply(res, 200, { ok: true })
+          else reply(res, 409, { ok: false, error: result.error })
+          return
+        }
+      }
+      if (req.method === 'GET' && req.url === '/v1/diagnostics' && deps.diagnostics) {
+        reply(res, 200, deps.diagnostics())
+        return
+      }
+      const route = req.url
+      if (
+        req.method !== 'POST' ||
+        !['/v1/public-url', '/v1/tunnel-health', '/v1/connect-publish'].includes(route ?? '')
+      ) {
         reply(res, 404, { ok: false, error: 'not found' })
         return
       }
-      const body = await readBody(req)
-      if (body === 'too-large') {
-        reply(res, 413, { ok: false, error: `body over ${CONTROL_BODY_MAX_BYTES} bytes` })
+      const input = await readJson(req, res)
+      if (!input) return
+      if (route === '/v1/tunnel-health') {
+        const report = TunnelHealthReport.safeParse(input)
+        if (!report.success) {
+          reply(res, 400, { ok: false, error: 'Invalid tunnel health report.' })
+          return
+        }
+        if (!deps.tunnelHealth) {
+          reply(res, 503, { ok: false, error: 'Tunnel health is unavailable.' })
+          return
+        }
+        deps.tunnelHealth(report.data)
+        reply(res, 200, { ok: true })
         return
       }
-      let input: { url?: unknown; confirmUrlChange?: unknown }
-      try {
-        input = JSON.parse(body) as typeof input
-      } catch {
-        reply(res, 400, { ok: false, error: 'body is not JSON' })
+      if (route === '/v1/connect-publish') {
+        if (!deps.publishConnect) {
+          reply(res, 503, { ok: false, error: 'Connect publishing is unavailable.' })
+          return
+        }
+        deps.publishConnect()
+        reply(res, 200, { ok: true })
         return
       }
-      if (typeof input !== 'object' || input === null || typeof input.url !== 'string') {
+      if (typeof input.url !== 'string') {
         reply(res, 400, { ok: false, error: 'expected {"url": string}' })
         return
       }

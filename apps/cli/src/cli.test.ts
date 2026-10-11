@@ -1090,3 +1090,21 @@ describe('portInUseMessage', () => {
     expect(msg).toContain('http://localhost:18787')
   })
 })
+
+describe('doctor and restart commands', () => {
+  it('routes the new local commands and their options', () => {
+    expect(plan({}, ['doctor', '--fix', '--report'])).toEqual({
+      kind: 'doctor',
+      args: ['--fix', '--report'],
+    })
+    expect(plan({}, ['restart'])).toEqual({ kind: 'restart' })
+    expect(plan({}, ['doctor', '--fiz'])).toMatchObject({ kind: 'usage-error' })
+    expect(plan({}, ['restart', '--now'])).toMatchObject({ kind: 'usage-error' })
+  })
+  it('keeps read-only diagnostics available in agent sessions and guards service mutations', () => {
+    const agent = { PODIUM_AGENT_RELAY: 'http://127.0.0.1:1/agent/s1' }
+    expect(plan({}, ['doctor', '--report'], agent)).toEqual({ kind: 'doctor', args: ['--report'] })
+    expect(plan({}, ['doctor', '--fix'], agent)).toMatchObject({ kind: 'usage-error' })
+    expect(plan({}, ['restart'], agent)).toMatchObject({ kind: 'usage-error' })
+  })
+})

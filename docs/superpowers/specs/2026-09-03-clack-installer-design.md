@@ -166,7 +166,7 @@ nothing else, so a drag-select is exactly what you run. It is the single impleme
 | `Choose 1-4` over `NETWORK_OPTIONS` | `select` |
 | `Run this, then come back:\n\n    tailscale funnel 18787` | `command()` box |
 | paste-URL loop, ten attempts | `text` with inline `validatePublicUrl` |
-| `Password (blank starts…)`, `Type "open"` | `password`, then a `confirm` defaulting to No |
+| `Password (blank starts…)`, `Type "open"` | `password`, typed twice; required, no "run without a password" (POD-3274) |
 | `Type CHANGE to replace it` | a `confirm` defaulting to No, asked only when Podium Connect is off: with it on, everything that joined finds the new address (POD-3274) |
 | `[Y/n]` systemd | `confirm`, default yes |
 | telemetry example, two `[y/N]` | removed: telemetry is a setting, not a setup question (POD-3274) |
@@ -177,9 +177,20 @@ Cancellation improves for free: clack returns a cancel symbol on Ctrl-C, so ever
 it and leaves through one "Nothing saved" path. That replaces the `MAX_ATTEMPTS` counters, which
 exist only because readline resolves `''` forever on EOF.
 
+**The host flow's order (POD-3274)** is the order a person thinks in: what this machine does →
+how it is reached → its address, checked at once → the login password → keep it running. The
+check needs Podium answering at the address, so setup makes sure a server runs before the first
+address (one already running is used as it is). With no password yet that server serves this
+machine only, so it is reachable before the password without exposing anything. The password is
+set on the running server over its control socket (`POST /v1/login-password`); a password staged
+in `auth.json` is read only by a server's first boot. Stopping before the end (Ctrl-C in a
+prompt, or SIGINT while a spinner runs) stops the server setup started, removes a tunnel it
+added, and puts `config.json` back byte for byte.
+
 SP-7f2c requires that "every setup surface must make the no-password option an explicit opt-in
-with a confirmed warning". The `confirm` defaulting to No, behind a warning `note`, satisfies
-it; the typed-word ceremony was never the requirement.
+with a confirmed warning". The terminal flow no longer offers it at all: open mode serves this
+machine only (`isHostLocalRequest`), so on a server set up to be reached from elsewhere it meant
+a box nobody else could use, behind a warning that claimed the opposite.
 
 ### Trust boundary
 

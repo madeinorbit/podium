@@ -64,11 +64,14 @@ fn fake_cloudflared(scratch: &Scratch, runs: &[&str]) -> PathBuf {
 /// (200 once the script runs out) and records the posted URLs.
 struct FakeServer {
     urls: Arc<Mutex<Vec<String>>>,
+    health: Arc<Mutex<Vec<String>>>,
 }
 
 fn fake_server(socket: &Path, statuses: &[u16]) -> FakeServer {
     let listener = UnixListener::bind(socket).unwrap();
     let urls = Arc::new(Mutex::new(Vec::new()));
+    let health = Arc::new(Mutex::new(Vec::new()));
+    let reports = health.clone();
     let script = Arc::new(Mutex::new(statuses.iter().copied().collect::<VecDeque<u16>>()));
     let seen = urls.clone();
     thread::spawn(move || {
@@ -76,11 +79,13 @@ fn fake_server(socket: &Path, statuses: &[u16]) -> FakeServer {
             let Ok(mut stream) = stream else { return };
             let mut reader = BufReader::new(stream.try_clone().unwrap());
             let mut length = 0usize;
+            let mut health_request = false;
             loop {
                 let mut line = String::new();
                 if reader.read_line(&mut line).unwrap_or(0) == 0 {
                     break;
                 }
+                if line.starts_with("POST /v1/tunnel-health ") { health_request = true; }
                 let lower = line.to_ascii_lowercase();
                 if let Some(v) = lower.strip_prefix("content-length:") {
                     length = v.trim().parse().unwrap_or(0);
@@ -92,10 +97,15 @@ fn fake_server(socket: &Path, statuses: &[u16]) -> FakeServer {
             let mut body = vec![0u8; length];
             reader.read_exact(&mut body).unwrap();
             let body = String::from_utf8(body).unwrap();
-            assert!(body.contains("\"confirmUrlChange\":true"), "{body}");
-            let url = body.split("\"url\":\"").nth(1).unwrap().split('"').next().unwrap().to_string();
-            seen.lock().unwrap().push(url);
-            let status = script.lock().unwrap().pop_front().unwrap_or(200);
+            let status = if health_request {
+                reports.lock().unwrap().push(body);
+                200
+            } else {
+                assert!(body.contains("\"confirmUrlChange\":true"), "{body}");
+                let url = body.split("\"url\":\"").nth(1).unwrap().split('"').next().unwrap().to_string();
+                seen.lock().unwrap().push(url);
+                script.lock().unwrap().pop_front().unwrap_or(200)
+            };
             let reply = format!("{{\"ok\":{}}}", status == 200);
             let _ = write!(
                 stream,
@@ -104,7 +114,7 @@ fn fake_server(socket: &Path, statuses: &[u16]) -> FakeServer {
             );
         }
     });
-    FakeServer { urls }
+    FakeServer { urls, health }
 }
 
 impl FakeServer {
@@ -419,4 +429,45 @@ fn nameservers_that_never_answer_fall_back_to_a_fixed_wait() {
     let log = fs::read_to_string(s.path("log.6")).unwrap();
     assert!(log.contains("cannot ask the nameservers"), "{log}");
     assert_eq!(terminate(&mut tunnel), 0);
+}
+
+#[test]
+fn public_probe_waits_then_restarts_a_child_that_is_alive_but_not_answering() {
+    use std::net::TcpListener;
+    let scratch = Scratch::new("public-probe");
+    let server = fake_server(&scratch.path("control.sock"), &[]);
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let origin = format!("http://{}", listener.local_addr().unwrap());
+    let probes = Arc::new(Mutex::new(0usize));
+    let seen = probes.clone();
+    // Three failed probes, then a working address for the replacement run.
+    let worker = thread::spawn(move || {
+        for mut stream in listener.incoming().take(4).flatten() {
+            let mut buf = [0u8; 1024];
+            stream.read(&mut buf).unwrap();
+            let mut count = seen.lock().unwrap();
+            *count += 1;
+            let status = if *count <= 3 { 503 } else { 200 };
+            let body = r#"{"wireVersion":1,"appVersion":"dev"}"#;
+            let _ = write!(stream, "HTTP/1.1 {status} X\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        }
+    });
+    let cloudflared = fake_cloudflared(&scratch, &[&format!("{}; exec sleep 60", banner(A)), &format!("{}; exec sleep 60", banner(B))]);
+    let mut tunnel = start_tunnel(&scratch, &cloudflared, &["--probe-url", &origin, "--probe-grace-ms", "700", "--probe-interval-ms", "40", "--probe-timeout-ms", "300"]);
+    wait_until("first URL", Duration::from_secs(2), || server.urls() == [A]);
+    let first_pid = read_pid(&scratch, "pid.1");
+    thread::sleep(Duration::from_millis(250));
+    assert_eq!(*probes.lock().unwrap(), 0, "must not look up a newly assigned hostname");
+    wait_until("replacement URL", Duration::from_secs(5), || server.urls().contains(&B.to_string()));
+    assert!(!alive(first_pid), "the unhealthy child is reaped before replacement");
+    wait_until("working report", Duration::from_secs(3), || server.health.lock().unwrap().iter().any(|body| body.contains("\"state\":\"working\"") && body.contains(B)));
+    let health = server.health.lock().unwrap();
+    assert!(health.iter().any(|body| body.contains("\"state\":\"unhealthy\"")));
+    assert!(health.iter().any(|body| body.contains("\"state\":\"restarting\"")));
+    drop(health);
+    let log = fs::read_to_string(scratch.path("log.8")).unwrap();
+    assert!(log.contains("failed three checks; restarting cloudflared"));
+    assert_eq!(log.matches("public address is not answering:").count(), 3);
+    terminate(&mut tunnel);
+    worker.join().unwrap();
 }

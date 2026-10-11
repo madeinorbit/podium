@@ -1,5 +1,4 @@
-import { existsSync, renameSync, rmSync } from 'node:fs'
-import { stagePasswordForFirstBoot as realSetPassword } from '@podium/runtime/auth-store'
+import { existsSync, readFileSync, renameSync, rmSync, writeFileSync } from 'node:fs'
 import {
   configPath,
   forgetConfig,
@@ -27,7 +26,7 @@ import {
 import { prepareSetupEnrollment } from '@podium/runtime/setup-enrollment'
 import { serverControlSocketPath } from '@podium/runtime/user-socket'
 import { applyJoinToken } from './cli-join'
-import { localStableLink } from './cli-lifecycle'
+import { localStableLink, stopBackend } from './cli-lifecycle'
 import { realCheckReachability } from './cli-reachability'
 import { hasSystemctl, hasUserSystemd } from './cli-systemd'
 import { realTailscaleDeps, type TailscaleDeps, tailscaleStep } from './setup-tailscale'
@@ -35,6 +34,7 @@ import { isCancel, type SetupIO } from './setup-ui'
 import {
   bundledCloudflaredPath,
   type EnableTunnelResult,
+  disableTunnel as realDisableTunnel,
   downloadCloudflared as realDownloadCloudflared,
   enableTunnel as realEnableTunnel,
   waitForTunnelUrl as realWaitForTunnelUrl,
@@ -55,8 +55,22 @@ export interface StartBackendResult {
 }
 
 export interface SetupDeps {
-  /** Injected for testing; defaults to the real scrypt-backed password store. */
+  /** Injected for testing; defaults to setting it on the running server ({@link setLoginPasswordNow}). */
   setPassword?: (password: string) => Promise<void>
+  /** Injected for testing; defaults to asking the running server ({@link loginPasswordIsSet}). */
+  passwordIsSet?: () => Promise<boolean>
+  /**
+   * Injected for testing; defaults to {@link ensureServerForSetup}: make sure a Podium server
+   * answers on this machine before the address is checked, starting one when none does.
+   */
+  ensureServer?: (mode: HostMode, port: number) => Promise<EnsureServerResult>
+  /** Injected for testing; defaults to stopping the backend setup started (`stopBackend`). */
+  stopServer?: () => Promise<void>
+  /**
+   * Injected for testing; defaults to SIGINT. Ctrl-C outside a prompt (while a spinner
+   * runs) must still undo what setup started. Returns the function that unregisters it.
+   */
+  onInterrupt?: (handler: () => void) => () => void
   /** Injected for testing; defaults to real systemd-install / detached-spawn. */
   startBackend?: (opts: StartBackendOpts) => Promise<StartBackendResult>
   /** Injected for testing; defaults to observing the daemon cross-process connectivity. */
@@ -122,6 +136,8 @@ export interface ManagedTunnelDeps {
   download: () => Promise<string>
   /** Install and start the podium-tunnel unit. */
   enable: () => EnableTunnelResult
+  /** Stop and remove it again: setup undoing a tunnel it started. */
+  disable: () => void
   /** Resolve to the first quick-tunnel URL the server records that is not `previous`. */
   waitForUrl: (previous?: string) => Promise<string | undefined>
   /** The running server's stable Connect link, when it offers one (POD-5921). */
@@ -137,6 +153,7 @@ function managedTunnelDeps(
     canSupervise: () => hasSystemctl() && hasUserSystemd(),
     download: () => realDownloadCloudflared(),
     enable: () => realEnableTunnel(),
+    disable: () => void realDisableTunnel(),
     waitForUrl: (previous) => realWaitForTunnelUrl(previous ? { previous } : {}),
     stableLink: () => localStableLink(resolvePort(loadConfig())),
     ...over,
@@ -469,7 +486,10 @@ type ReachabilityRow = 'tailscale' | 'cloudflare-tunnel' | 'manual'
  * config, because the operator who picks this row already runs a proxy of their own.
  * "On this machine" is load-bearing: the server binds 127.0.0.1 and trusts exactly one
  * proxy hop's X-Forwarded-Proto there (resolveTrustedProxyHops), so a proxy elsewhere
- * cannot reach it and its HTTPS would not be believed.
+ * cannot reach it and its HTTPS would not be believed. The Host and X-Forwarded-Proto
+ * headers are also how the server tells a proxied stranger from this machine itself
+ * (isHostLocalRequest): a proxy that rewrites Host to 127.0.0.1 and sends neither would
+ * look local.
  */
 export function manualProxyRequirements(port: number): string {
   return [
@@ -478,7 +498,7 @@ export function manualProxyRequirements(port: number): string {
     '• serve Podium over HTTPS, with a valid certificate, at the root of its own hostname (no path prefix)',
     `• run on this machine and forward everything to http://127.0.0.1:${port}`,
     '• pass WebSocket upgrades through, on every path, and not time out long-lived connections',
-    '• send X-Forwarded-Proto: https',
+    '• pass on the Host header the browser sent, and send X-Forwarded-Proto: https',
   ].join('\n')
 }
 
@@ -629,6 +649,24 @@ async function recordUrl(
   return { publicUrl: url, networkOption }
 }
 
+/** One request to the running server's control socket. Throws when nothing answers. */
+async function controlRequest(
+  method: 'GET' | 'POST',
+  path: string,
+  body?: unknown,
+): Promise<{ status: number; json: Record<string, unknown> }> {
+  const res = await fetch(`http://podium${path}`, {
+    method,
+    ...(body === undefined
+      ? {}
+      : { headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) }),
+    unix: serverControlSocketPath(),
+    signal: AbortSignal.timeout(5_000),
+  } as RequestInit & { unix: string })
+  const json = (await res.json().catch(() => ({}))) as Record<string, unknown>
+  return { status: res.status, json }
+}
+
 /**
  * Hand the running server its new address over its control socket, the same way
  * podium-tunnel does: the server writes it and tells Podium Connect at once, so the outside
@@ -637,18 +675,75 @@ async function recordUrl(
  */
 export async function recordPublicUrlNow(url: string): Promise<void> {
   try {
-    const res = await fetch('http://podium/v1/public-url', {
-      method: 'POST',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ url, confirmUrlChange: true }),
-      unix: serverControlSocketPath(),
-      signal: AbortSignal.timeout(5_000),
-    } as RequestInit & { unix: string })
-    if (res.ok) return
+    const res = await controlRequest('POST', '/v1/public-url', { url, confirmUrlChange: true })
+    if (res.status === 200) return
   } catch {
     // No server on the socket: the direct write below.
   }
   saveConfig({ ...loadConfig(), publicUrl: url })
+}
+
+const NOT_RUNNING =
+  'Podium is not running, so the password cannot be set. Start it with `podium`, then run `podium setup` again.'
+
+/**
+ * Set the login password on the running server (POD-3274). A password staged in auth.json
+ * is read only by a server's FIRST boot, so it could not take on a server setup had already
+ * started, and a change on a configured box was silently thrown away.
+ */
+export async function setLoginPasswordNow(password: string): Promise<void> {
+  let res: Awaited<ReturnType<typeof controlRequest>>
+  try {
+    res = await controlRequest('POST', '/v1/login-password', { password })
+  } catch {
+    throw new Error(NOT_RUNNING)
+  }
+  if (res.status === 200) return
+  if (res.status === 404) {
+    throw new Error('The running Podium is too old to take a password from here. Update it first.')
+  }
+  throw new Error(`Podium refused the password: ${String(res.json.error ?? res.status)}`)
+}
+
+/** Whether the running server's admin has a login password. Unknown counts as no. */
+export async function loginPasswordIsSet(): Promise<boolean> {
+  try {
+    const res = await controlRequest('GET', '/v1/login-password')
+    return res.status === 200 && res.json.set === true
+  } catch {
+    return false
+  }
+}
+
+/** What {@link ensureServerForSetup} found or did. */
+export interface EnsureServerResult {
+  /** A server answers on this machine now. */
+  up: boolean
+  /** Setup started it, so undoing setup stops it again. */
+  started: boolean
+}
+
+/**
+ * Make sure a Podium server answers before the address is checked (POD-3274): podium-tunnel
+ * and Tailscale hand their address to a running server, and only a running server can
+ * answer a check. One that already runs is used as it is. Otherwise setup starts one,
+ * detached, until the end of setup starts it for good. Nobody else can use it meanwhile:
+ * with no login password yet it serves this machine only (isHostLocalRequest).
+ */
+export async function ensureServerForSetup(
+  mode: HostMode,
+  port: number,
+): Promise<EnsureServerResult> {
+  const answers = await controlRequest('GET', '/v1/login-password').then(
+    () => true,
+    () => false,
+  )
+  if (answers) return { up: true, started: false }
+  const { startDetachedStack } = await import('./cli-spawn')
+  // Whatever runs now is not a server (a joined machine's daemon, a crashed parent).
+  await stopBackend()
+  const { serverUp } = await startDetachedStack(mode, port, loadConfig().bindHost)
+  return { up: serverUp, started: true }
 }
 
 /** How a URL is proven to work: from the internet, or — for a tailnet-only one — from here. */
@@ -684,7 +779,7 @@ async function realInsideCheck(url: string, budgetMs = 90_000): Promise<boolean>
 /** How long this machine tries a URL when Connect could not check it from the outside. */
 const FALLBACK_INSIDE_CHECK_MS = 20_000
 
-type CheckOutcome = 'ok' | 'keep' | 'fix' | 'again' | 'change'
+type CheckOutcome = 'ok' | 'keep' | 'fix' | 'again' | 'change' | 'cancel'
 
 /**
  * THE REACHABILITY CHECK, right after an address is recorded (POD-4534, moved by POD-3274).
@@ -742,7 +837,7 @@ async function verifyReachable(
       io.warn(detail ? `${sentence} The probe reported: ${detail}` : sentence)
     }
   }
-  const next = await io.select<Exclude<CheckOutcome, 'ok'>>({
+  const next = await io.select<Exclude<CheckOutcome, 'ok' | 'cancel'>>({
     message: 'What now?',
     options: [
       // Only a typed address can be mistyped; Tailscale and the tunnel name their own.
@@ -758,13 +853,14 @@ async function verifyReachable(
       { value: 'change', label: 'Set up a different way to reach this machine' },
     ],
   })
-  return isCancel(next) || !next ? 'keep' : next
+  return isCancel(next) || !next ? 'cancel' : next
 }
 
 /**
  * Set up how this machine is reached and prove it, until it works or the operator keeps it.
  * Each address is checked right after it is recorded, and a failed check offers the way
- * forward at once ({@link verifyReachable}).
+ * forward at once ({@link verifyReachable}). `'cancelled'` = the operator stopped (Ctrl-C),
+ * or no address could be set up and they were told how to get what is missing.
  */
 async function reachLoop(
   io: SetupIO,
@@ -772,21 +868,15 @@ async function reachLoop(
   mode: HostMode,
   checks: ReachabilityChecks,
   opts: UrlStepOpts,
-): Promise<void> {
+): Promise<'done' | 'cancelled'> {
   let choice = await reachabilityStep(io, port, mode, opts)
   for (;;) {
-    if (!choice) {
-      if (!loadConfig().publicUrl) {
-        io.step(
-          'Podium runs on this machine, without a public address yet. Give it one with `podium setup`.',
-        )
-      }
-      return
-    }
+    if (!choice) return 'cancelled'
     // The tunnel has not reported an address yet; startManagedTunnel said what to watch.
-    if (choice.managedTunnel) return
+    if (choice.managedTunnel) return 'done'
     const outcome = await verifyReachable(io, choice.publicUrl, choice.networkOption, checks)
-    if (outcome === 'ok' || outcome === 'keep') return
+    if (outcome === 'ok' || outcome === 'keep') return 'done'
+    if (outcome === 'cancel') return 'cancelled'
     if (outcome === 'again') continue
     // The address just checked does not work, so replacing it strands nobody.
     const next = { ...opts, confirmUrlChange: true }
@@ -800,45 +890,55 @@ async function reachLoop(
 }
 
 /**
- * Password step: a reachable instance should require login, so strongly encourage a
- * password. Blank = run open only after an explicit confirmation word — the CLI's
- * equivalent of the web flow's `acknowledgeNoPassword`. Returns false when neither a
- * password nor the explicit no-password ack was given, so the host flow ABORTS instead
- * of quietly configuring an open box (issue #21).
+ * Password step: every server that setup makes reachable has a login password (POD-3274).
+ *
+ * There is no "run without a password" any more. That mode only ever let THIS machine in
+ * (open mode is loopback-only: isHostLocalRequest), so on a server whose point is to be
+ * reached from elsewhere it was a box nobody else could use, behind a warning that said
+ * the opposite. The password is set on the RUNNING server, so it holds at once and a
+ * change on a configured box actually takes. Returns false on a cancel or a failed set.
  */
 async function passwordStep(
   io: SetupIO,
   setPassword: (password: string) => Promise<void>,
+  opts: { offerKeep: boolean },
 ): Promise<boolean> {
-  io.step(
-    'Choose the password you will log in to Podium with: in the browser, and in the desktop and mobile apps.',
-  )
-  // Loops until the operator either sets a password or explicitly accepts an open box.
-  // A cancel (Ctrl-C, or a scripted run out of answers) ends it — which is why there is no
-  // attempt counter: CANCEL is the terminating condition readline could never report.
-  for (;;) {
-    const pw = await io.password({ message: 'Podium login password (leave blank for no login)' })
-    if (isCancel(pw)) break
-    if (pw.trim()) {
-      await setPassword(pw.trim())
-      io.success('Password set. The browser and the apps ask for it when they connect.')
-      return true
-    }
-    // SP-7f2c: the no-password option must be an explicit opt-in behind a confirmed warning.
-    io.warn('No password means anyone who can reach this URL can use this instance.')
-    const open = await io.confirm({
-      message: 'Run without a password?',
-      initialValue: false,
+  if (opts.offerKeep) {
+    const keep = await io.confirm({
+      message: 'Keep the current login password?',
+      initialValue: true,
     })
-    if (isCancel(open)) break
-    if (open) {
-      io.warn('No password set — anyone who can reach this URL can use this instance.')
-      return true
-    }
-    io.step('No-password mode was not confirmed.')
+    if (isCancel(keep)) return false
+    if (keep) return true
+  } else {
+    io.step(
+      'Choose the password you will log in to Podium with: in the browser, and in the desktop and mobile apps.',
+    )
   }
-  io.error('No password chosen and no-password mode not confirmed.')
-  return false
+  for (;;) {
+    // Stored exactly as typed, like every other place a password is set (POD-1148): a
+    // trimmed copy would be a password its owner could never type into the browser.
+    const pw = await io.password({
+      message: 'Podium login password',
+      validate: (v) =>
+        v.trim() === '' ? 'Choose a password, or press Ctrl-C to stop.' : undefined,
+    })
+    if (isCancel(pw)) return false
+    const again = await io.password({ message: 'Type it again' })
+    if (isCancel(again)) return false
+    if (again !== pw) {
+      io.warn('The two did not match. Choose it again.')
+      continue
+    }
+    try {
+      await setPassword(pw)
+    } catch (e) {
+      io.error((e as Error).message)
+      return false
+    }
+    io.success('Password set. The browser and the apps ask for it when they connect.')
+    return true
+  }
 }
 
 /**
@@ -928,16 +1028,46 @@ function reachabilityChecks(
   }
 }
 
+/** What {@link hostStep} needs besides the IO; every field is a test seam or a flag. */
+interface HostStepOptions extends UrlStepOpts {
+  activateImmediately?: boolean
+  checkReachability?: (url: string) => Promise<CheckResult | undefined>
+  checkInside?: (url: string, budgetMs?: number) => Promise<boolean>
+  passwordIsSet?: () => Promise<boolean>
+  ensureServer?: (mode: HostMode, port: number) => Promise<EnsureServerResult>
+  stopServer?: () => Promise<void>
+  onInterrupt?: (handler: () => void) => () => void
+}
+
+/** Ctrl-C while no prompt is open (a spinner runs): SIGINT, once. */
+function onSigint(handler: () => void): () => void {
+  process.once('SIGINT', handler)
+  return () => process.off('SIGINT', handler)
+}
+
+/** config.json exactly as it is, so a stopped setup can put it back. */
+function snapshotConfig(): () => void {
+  const path = configPath()
+  const before = existsSync(path) ? readFileSync(path) : undefined
+  return () => {
+    if (before === undefined) rmSync(path, { force: true })
+    else writeFileSync(path, before)
+    forgetConfig()
+  }
+}
+
 /**
- * Choose a host mode → set its password → start it → make it reachable, proving each
- * address as it is set (POD-3274).
+ * Choose a host mode → make it reachable, checking each address as it is set → set its
+ * login password → keep it running (POD-3274).
  *
- * The password comes FIRST and nothing is written before it (issue #21): a Ctrl-C or EOF
- * before a password choice leaves the box exactly as unconfigured as before, never a saved
- * mode that is open to anyone who can reach it. The address comes LAST, with the server
- * running, because only then can a check reach this Podium — and a check that fails right
- * after the address was typed is one the operator can still act on. A Ctrl-C there leaves a
- * protected server reachable from this machine only; `podium setup` sets the address later.
+ * The order a person thinks in. The check needs Podium answering at the address, so setup
+ * makes sure a server runs first ({@link ensureServerForSetup}); with no password yet it
+ * serves this machine only, so being reachable before the password exposes nothing. The
+ * password is set on that running server, and the last step starts Podium for good.
+ *
+ * STOPPING SAVES NOTHING. A Ctrl-C (in a prompt or while a spinner runs) before the end
+ * stops what setup started, removes a tunnel it added, and puts config.json back exactly
+ * as it was, so `podium setup` starts over cleanly.
  */
 async function hostStep(
   io: SetupIO,
@@ -945,31 +1075,67 @@ async function hostStep(
   mode: HostMode,
   setPassword: (password: string) => Promise<void>,
   startBackend: (opts: StartBackendOpts) => Promise<StartBackendResult>,
-  options: {
-    activateImmediately?: boolean
-    /** `--confirm-url-change`: answer the "replace the live URL" question ahead of time. */
-    confirmUrlChange?: boolean
-    hasCommand?: (binary: string) => boolean
-    checkReachability?: (url: string) => Promise<CheckResult | undefined>
-    checkInside?: (url: string, budgetMs?: number) => Promise<boolean>
-    managedTunnel?: Partial<ManagedTunnelDeps>
-    tailscale?: Partial<TailscaleDeps>
-    recordPublicUrl?: (url: string) => Promise<void>
-  } = {},
+  options: HostStepOptions = {},
 ): Promise<void> {
   if (deploymentOwns(io, 'mode') || deploymentOwns(io, 'publicUrl')) return
-  if (!(await passwordStep(io, setPassword))) {
-    io.error('Nothing saved. Run `podium setup` to start over.')
-    return
+  const restoreConfig = snapshotConfig()
+  const hadTunnel = loadConfig().networkOption === 'cloudflare-tunnel'
+  const tunnel = managedTunnelDeps(options.hasCommand ?? commandExists, options.managedTunnel)
+  let started = false
+  let undone = false
+  const undo = async () => {
+    if (undone) return
+    undone = true
+    // Ours to remove only when setup added it; one that ran before keeps running.
+    if (!hadTunnel && loadConfig().networkOption === 'cloudflare-tunnel') {
+      try {
+        tunnel.disable()
+      } catch {
+        // Nothing to remove.
+      }
+    }
+    if (started) await (options.stopServer ?? stopBackend)()
+    restoreConfig()
+    io.step('Stopped. Nothing was saved. Run `podium setup` to start over.')
   }
-  const supervisor = loadSupervisorState(stateDir())
-  if (!supervisor.enrolledPublicKey && !supervisor.token)
-    prepareSetupEnrollment(mode === 'all-in-one', true)
-  saveConfig({ ...loadConfig(), mode })
-  await persistenceStep(io, port, mode, startBackend, {
-    activateImmediately: options.activateImmediately,
+  const unregister = (options.onInterrupt ?? onSigint)(() => {
+    void undo().finally(() => process.exit(130))
   })
-  await reachLoop(io, port, mode, reachabilityChecks(io, options), urlStepOpts(options))
+  try {
+    const supervisor = loadSupervisorState(stateDir())
+    if (!supervisor.enrolledPublicKey && !supervisor.token)
+      prepareSetupEnrollment(mode === 'all-in-one', true)
+    saveConfig({ ...loadConfig(), mode })
+
+    const spin = io.spinner()
+    spin.start('Starting Podium on this machine, so the address can be checked')
+    const server = await (options.ensureServer ?? ensureServerForSetup)(mode, port)
+    started = server.started
+    if (!server.up) {
+      spin.error('Podium did not start. See what went wrong with `podium logs`.')
+      await undo()
+      return
+    }
+    spin.stop('Podium is running. Until it has a password, only this machine can use it.')
+
+    if (
+      (await reachLoop(io, port, mode, reachabilityChecks(io, options), urlStepOpts(options))) ===
+      'cancelled'
+    ) {
+      await undo()
+      return
+    }
+    const offerKeep = await (options.passwordIsSet ?? loginPasswordIsSet)()
+    if (!(await passwordStep(io, setPassword, { offerKeep }))) {
+      await undo()
+      return
+    }
+    await persistenceStep(io, port, mode, startBackend, {
+      activateImmediately: options.activateImmediately,
+    })
+  } finally {
+    unregister()
+  }
 }
 
 /** The {@link UrlStepOpts} a set of setup options carries. */
@@ -1002,18 +1168,28 @@ export async function runVpsSetup(io: SetupIO, port: number, deps: SetupDeps = {
     io,
     port,
     'all-in-one',
-    deps.setPassword ?? realSetPassword,
+    deps.setPassword ?? setLoginPasswordNow,
     deps.startBackend ?? startBackendEngine,
-    {
-      activateImmediately: true,
-      ...(deps.hasCommand ? { hasCommand: deps.hasCommand } : {}),
-      ...(deps.checkReachability ? { checkReachability: deps.checkReachability } : {}),
-      ...(deps.checkInside ? { checkInside: deps.checkInside } : {}),
-      ...(deps.managedTunnel ? { managedTunnel: deps.managedTunnel } : {}),
-      ...(deps.tailscale ? { tailscale: deps.tailscale } : {}),
-      ...(deps.recordPublicUrl ? { recordPublicUrl: deps.recordPublicUrl } : {}),
-    },
+    { ...hostStepOptions(deps), activateImmediately: true },
   )
+}
+
+/** The {@link HostStepOptions} a set of {@link SetupDeps} carries. */
+function hostStepOptions(deps: SetupDeps): HostStepOptions {
+  return {
+    ...(deps.hasCommand ? { hasCommand: deps.hasCommand } : {}),
+    ...(deps.confirmUrlChange ? { confirmUrlChange: true } : {}),
+    ...(deps.activateImmediately ? { activateImmediately: true } : {}),
+    ...(deps.checkReachability ? { checkReachability: deps.checkReachability } : {}),
+    ...(deps.checkInside ? { checkInside: deps.checkInside } : {}),
+    ...(deps.managedTunnel ? { managedTunnel: deps.managedTunnel } : {}),
+    ...(deps.tailscale ? { tailscale: deps.tailscale } : {}),
+    ...(deps.recordPublicUrl ? { recordPublicUrl: deps.recordPublicUrl } : {}),
+    ...(deps.passwordIsSet ? { passwordIsSet: deps.passwordIsSet } : {}),
+    ...(deps.ensureServer ? { ensureServer: deps.ensureServer } : {}),
+    ...(deps.stopServer ? { stopServer: deps.stopServer } : {}),
+    ...(deps.onInterrupt ? { onInterrupt: deps.onInterrupt } : {}),
+  }
 }
 
 /** Daemon mode: paste the one-line join code (it carries the server URL + pairing code), then
@@ -1103,7 +1279,7 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
     )
     return
   }
-  const setPassword = deps.setPassword ?? realSetPassword
+  const setPassword = deps.setPassword ?? setLoginPasswordNow
   const startBackend = deps.startBackend ?? startBackendEngine
   const waitForEnrollment = deps.waitForEnrollment ?? waitForDaemonEnrollment
   const mode = loadConfig().mode
@@ -1129,7 +1305,7 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
   if (hostsServer) {
     menu.push(
       { value: 'url', label: 'Change how this machine is reached (its URL)', hint: '' },
-      { value: 'password', label: 'Change or remove the login password', hint: '' },
+      { value: 'password', label: 'Change the login password', hint: '' },
     )
   }
 
@@ -1142,16 +1318,7 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
     })),
   })
 
-  const hostOptions = {
-    ...(deps.hasCommand ? { hasCommand: deps.hasCommand } : {}),
-    ...(deps.confirmUrlChange ? { confirmUrlChange: true } : {}),
-    ...(deps.activateImmediately ? { activateImmediately: true } : {}),
-    ...(deps.checkReachability ? { checkReachability: deps.checkReachability } : {}),
-    ...(deps.checkInside ? { checkInside: deps.checkInside } : {}),
-    ...(deps.managedTunnel ? { managedTunnel: deps.managedTunnel } : {}),
-    ...(deps.tailscale ? { tailscale: deps.tailscale } : {}),
-    ...(deps.recordPublicUrl ? { recordPublicUrl: deps.recordPublicUrl } : {}),
-  }
+  const hostOptions = hostStepOptions(deps)
   if (choice === 'all-in-one') {
     await hostStep(io, port, 'all-in-one', setPassword, startBackend, hostOptions)
   } else if (choice === 'server') {
@@ -1171,7 +1338,7 @@ export async function runCliSetup(io: SetupIO, port: number, deps: SetupDeps = {
       urlStepOpts(hostOptions),
     )
   } else if (choice === 'password' && hostsServer) {
-    await passwordStep(io, setPassword)
+    await passwordStep(io, setPassword, { offerKeep: false })
   } else {
     io.step('Nothing changed.')
   }

@@ -342,7 +342,10 @@ export async function waitForTunnelUrl(
   }
 }
 
-function disable(io: TunnelCliIo, deps: TunnelCliDeps): number {
+/** Stop and remove the tunnel unit: `podium tunnel disable`, and setup undoing itself. */
+export function disableTunnel(
+  deps: Omit<TunnelCliDeps, 'io'> = {},
+): { ok: true; unit: string } | { ok: false; unit: string; reason: string } {
   const unit = instanceServiceName('tunnel', resolveInstanceId(deps.env ?? process.env))
   try {
     ;(
@@ -358,7 +361,16 @@ function disable(io: TunnelCliIo, deps: TunnelCliDeps): number {
       })
     )(unit)
   } catch (error) {
-    io.err(`podium tunnel: could not disable ${unit}: ${(error as Error).message}`)
+    return { ok: false, unit, reason: (error as Error).message }
+  }
+  return { ok: true, unit }
+}
+
+function disable(io: TunnelCliIo, deps: TunnelCliDeps): number {
+  const result = disableTunnel(deps)
+  const { unit } = result
+  if (!result.ok) {
+    io.err(`podium tunnel: could not disable ${unit}: ${result.reason}`)
     return 1
   }
   io.out(

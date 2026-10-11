@@ -135,6 +135,11 @@ describe('server readiness boundary', () => {
     expect(isHostLocalRequest(local({ origin: 'https://podium.example' }))).toBe(false)
     expect(isHostLocalRequest(local({ 'x-forwarded-host': 'podium.example' }))).toBe(false)
     expect(isHostLocalRequest(local({ 'x-forwarded-for': '203.0.113.8' }))).toBe(false)
+    // A proxy on this machine that rewrites Host to 127.0.0.1 and adds no X-Forwarded-For
+    // (nginx's plain proxy_pass) still marks itself with any of these (POD-3274).
+    expect(isHostLocalRequest(local({ 'x-forwarded-proto': 'https' }))).toBe(false)
+    expect(isHostLocalRequest(local({ forwarded: 'for=203.0.113.8;proto=https' }))).toBe(false)
+    expect(isHostLocalRequest(local({ 'x-real-ip': '203.0.113.8' }))).toBe(false)
     expect(
       isHostLocalRequest(
         new Request('https://podium.example/trpc/setup.complete', {

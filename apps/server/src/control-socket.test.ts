@@ -16,6 +16,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { CONTROL_BODY_MAX_BYTES, controlSocketHandler } from './control-socket'
 import type { CheckResult, ConnectClient, LocatorRecord } from './modules/connect/client'
 import { ConnectPublisher, TICK_MS } from './modules/connect/publisher'
+import { TunnelHealthStore } from './tunnel-health'
 
 const A = 'https://prairie-otter-lamp-nine.trycloudflare.com'
 const B = 'https://copper-hill-mango-seven.trycloudflare.com'
@@ -62,6 +63,7 @@ describe('server control socket', () => {
   let publisherTimers: { fn: () => void; ms: number }[]
   let publisher: ConnectPublisher
   let socketPath: string
+  let health: TunnelHealthStore
 
   beforeEach(async () => {
     dir = mkdtempSync(join(tmpdir(), 'podium-control-'))
@@ -96,11 +98,18 @@ describe('server control socket', () => {
         if (i >= 0) publisherTimers.splice(i, 1)
       },
     })
+    health = new TunnelHealthStore()
     // The same composition server.ts does.
     socketPath = join(dir, 'run', 'control.sock')
     socket = await listenUserSocket(
       socketPath,
       controlSocketHandler({
+        tunnelHealth: (report) => health.report(report),
+        diagnostics: () => ({
+          connect: publisher.diagnostics(),
+          tunnelHealth: health.read(loadConfig().publicUrl),
+        }),
+        publishConnect: () => publisher.republish(),
         setPublicUrl: (url, opts) => {
           const result = applyPublicUrl(url, opts)
           if (result.ok && result.changed) publisher.publicUrlChanged()
@@ -176,6 +185,41 @@ describe('server control socket', () => {
     expect(loadConfig().publicUrl).toBe(A)
   })
 
+  it('reports transient tunnel health over the local socket and rejects malformed reports', async () => {
+    saveConfig({ mode: 'server', networkOption: 'cloudflare-tunnel', publicUrl: A })
+    const report = {
+      state: 'working',
+      url: A,
+      lastOkAt: Date.now(),
+      failedSince: null,
+      lastError: null,
+    }
+    expect(
+      (await send(socketPath, { path: '/v1/tunnel-health', body: JSON.stringify(report) })).status,
+    ).toBe(200)
+    const diagnostics = await send(socketPath, { method: 'GET', path: '/v1/diagnostics' })
+    expect(diagnostics.json.tunnelHealth).toMatchObject(report)
+    expect(diagnostics.json.connect).toMatchObject({
+      enabled: true,
+      installationId: identity.installationId,
+      generation: 1,
+    })
+    expect(
+      (await send(socketPath, { path: '/v1/tunnel-health', body: '{"state":"bad"}' })).status,
+    ).toBe(400)
+    expect(health.read(A)?.state).toBe('working')
+  })
+
+  it('doctor republishes even when the same address was already published', async () => {
+    saveConfig({ mode: 'server', publicUrl: A })
+    publisher.start()
+    await publisher.settled
+    expect(published).toEqual([A])
+    expect((await send(socketPath, { path: '/v1/connect-publish', body: '{}' })).status).toBe(200)
+    await publisher.settled
+    expect(published).toEqual([A, A])
+  })
+
   it('400 for a body that is not JSON or not a URL; 404 elsewhere; 413 when oversized', async () => {
     saveConfig({ mode: 'server' })
     expect((await send(socketPath, { body: 'nope' })).status).toBe(400)
@@ -188,5 +232,62 @@ describe('server control socket', () => {
     const huge = JSON.stringify({ url: A, pad: 'x'.repeat(CONTROL_BODY_MAX_BYTES) })
     expect((await send(socketPath, { body: huge })).status).toBe(413)
     expect(loadConfig().publicUrl).toBeUndefined()
+  })
+})
+
+describe('server control socket: the login password (POD-3274)', () => {
+  let dir: string
+  let socket: UserSocketServer
+  let socketPath: string
+  let stored: string | undefined
+  let hasAdmin: boolean
+
+  beforeEach(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'podium-control-pw-'))
+    stored = undefined
+    hasAdmin = true
+    socketPath = join(dir, 'run', 'control.sock')
+    socket = await listenUserSocket(
+      socketPath,
+      controlSocketHandler({
+        setPublicUrl: () => ({ ok: false, reason: 'refused', error: 'not under test' }),
+        loginPassword: {
+          isSet: async () => stored !== undefined,
+          set: async (password) => {
+            if (!hasAdmin) return { ok: false, error: 'this instance has no admin account' }
+            stored = password
+            return { ok: true }
+          },
+        },
+      }),
+      'server control socket',
+    )
+  })
+
+  afterEach(async () => {
+    await socket.close()
+    rmSync(dir, { recursive: true, force: true })
+  })
+
+  const path = '/v1/login-password'
+
+  it('reports whether a password is set, and sets it exactly as typed', async () => {
+    expect((await send(socketPath, { method: 'GET', path })).json).toEqual({ ok: true, set: false })
+    const res = await send(socketPath, { path, body: JSON.stringify({ password: ' two words ' }) })
+    expect(res).toEqual({ status: 200, json: { ok: true } })
+    // Never trimmed: what the browser login checks is the string as typed (POD-1148).
+    expect(stored).toBe(' two words ')
+    expect((await send(socketPath, { method: 'GET', path })).json).toEqual({ ok: true, set: true })
+  })
+
+  it('refuses an empty password, a non-JSON body, and an instance with no admin', async () => {
+    expect(
+      (await send(socketPath, { path, body: JSON.stringify({ password: '  ' }) })).status,
+    ).toBe(400)
+    expect((await send(socketPath, { path, body: 'nope' })).status).toBe(400)
+    hasAdmin = false
+    const refused = await send(socketPath, { path, body: JSON.stringify({ password: 'pw' }) })
+    expect(refused.status).toBe(409)
+    expect(stored).toBeUndefined()
   })
 })

@@ -14,9 +14,12 @@ import {
 } from '@podium/runtime/config'
 import { type LiveConnectivity, readLiveConnectivity } from '@podium/runtime/connectivity'
 import { CRASH_MAX_EVENTS, type CrashEvent, createCrashStore } from '@podium/runtime/crash-store'
+import { instanceServiceName } from '@podium/runtime/instance'
 import { listLive, logDir, type RunRecord, RunRole, reclaim } from '@podium/runtime/run-registry'
 import { desiredParentUnit, legacyUnitNames } from '@podium/runtime/topology-migration'
 import { declareFlags, parseFlags, UnknownFlagError } from './argv'
+import { type Diagnosis, diagnose, renderChecks } from './cli-doctor'
+import { restartSystemdUnits } from './cli-systemd'
 
 /** Human "3s / 4m / 2h / 1d ago" from an ISO start time. */
 export function humanUptime(startedAtIso: string, nowMs: number): string {
@@ -47,6 +50,7 @@ export interface StatusView {
   /** The Connect link that always lands on this server (POD-5921): present when
    *  the server has an installation identity and Connect publishing is on. */
   stableLink?: string
+  diagnosis?: Diagnosis
 }
 
 /**
@@ -138,7 +142,7 @@ export function renderStatus(view: StatusView): string {
           : config.mode === 'supervisor'
             ? ['parent']
             : (RunRole.options as RunRole[]) // unknown mode: show whatever is live
-  for (const role of roles) {
+  for (const role of view.diagnosis ? [] : roles) {
     const rec = byRole.get(role)
     if (rec) {
       const port = rec.port ? ` :${rec.port}` : ''
@@ -158,8 +162,11 @@ export function renderStatus(view: StatusView): string {
       ...renderFenceCaveat(view.connectivity),
     )
   }
-  const url = config.publicUrl ?? localServerUrl(view.port ?? config.port ?? 18787)
-  lines.push(`  URL: ${url}`)
+  if (view.diagnosis) lines.push(renderChecks(view.diagnosis.checks))
+  const url = view.diagnosis
+    ? view.diagnosis.currentUrl
+    : (config.publicUrl ?? localServerUrl(view.port ?? config.port ?? 18787))
+  if (url) lines.push(`  URL: ${url}`)
   if (view.stableLink) lines.push(`  Stable link: ${view.stableLink}`)
   return lines.join('\n')
 }
@@ -178,17 +185,6 @@ function hasSystemctl(): boolean {
   try {
     execFileSync('systemctl', ['--version'], { stdio: 'ignore' })
     return true
-  } catch {
-    return false
-  }
-}
-
-async function serverHealth(port: number): Promise<boolean> {
-  try {
-    const res = await fetch(`http://127.0.0.1:${port}/health`, {
-      signal: AbortSignal.timeout(1_500),
-    })
-    return res.ok
   } catch {
     return false
   }
@@ -223,9 +219,8 @@ export async function statusCommand(): Promise<void> {
   // permanent phantom outage after an update (POD-3815).
   const connectivity = readLiveConnectivity()
   const port = resolvePort(config)
-  const serverHealthy =
-    config.mode === 'server' || config.mode === 'all-in-one' ? await serverHealth(port) : false
-  const stableLink = serverHealthy ? await localStableLink(port) : undefined
+  const diagnosis = await diagnose({ config })
+  const { serverHealthy, stableLink } = diagnosis
   console.log(
     renderStatus({
       live: listLive(),
@@ -234,6 +229,7 @@ export async function statusCommand(): Promise<void> {
       instanceId: resolveInstanceId(),
       port,
       serverHealthy,
+      diagnosis,
       ...(stableLink ? { stableLink } : {}),
       ...(connectivity ? { connectivity } : {}),
     }),
@@ -262,6 +258,72 @@ export async function stopCommand(): Promise<void> {
     await reclaim(rec.role)
     console.log(`Stopped ${rec.role} (pid ${rec.pid}).`)
   }
+}
+
+export interface RestartDeps {
+  config?: PodiumConfig
+  instanceId?: string
+  live?: () => RunRecord[]
+  reclaim?: typeof reclaim
+  restart?: typeof restartSystemdUnits
+  start?: typeof import('./cli-spawn').startDetachedStack
+  wait?: typeof import('./cli-spawn').waitForHealth
+  tunnelExists?: (unit: string) => Promise<boolean>
+  out?: (line: string) => void
+}
+
+/** Restart the selected instance using its existing supervisor. */
+export async function restartCommand(deps: RestartDeps = {}): Promise<void> {
+  const config = deps.config ?? loadConfig()
+  const { resolveSetting } = await import('@podium/runtime/config')
+  const mode = resolveSetting('mode', config).value
+  if (!mode || mode === 'client')
+    throw new Error('Choose a server or machine mode with podium setup first.')
+  const instance = deps.instanceId ?? resolveInstanceId()
+  const tunnel = instanceServiceName('tunnel', instance)
+  const restart = deps.restart ?? restartSystemdUnits
+  const errors: string[] = []
+  try {
+    if (config.persistence === 'systemd') {
+      restart([desiredParentUnit(instance)])
+      if (mode === 'server' || mode === 'all-in-one') {
+        const { waitForHealth } = await import('./cli-spawn')
+        if (!(await (deps.wait ?? waitForHealth)(resolvePort(config), config.bindHost)))
+          throw new Error('The server did not answer after restarting. Run podium doctor.')
+      }
+    } else {
+      // Stop the parent first so it cannot recreate a child while it is being stopped.
+      const records = (deps.live ?? listLive)().sort(
+        (a, b) => Number(b.role === 'parent') - Number(a.role === 'parent'),
+      )
+      for (const rec of records) await (deps.reclaim ?? reclaim)(rec.role)
+      const { startDetachedStack } = await import('./cli-spawn')
+      const result = await (deps.start ?? startDetachedStack)(
+        mode,
+        resolvePort(config),
+        config.bindHost,
+      )
+      if (!result.serverUp)
+        throw new Error('The server did not answer after restarting. Run podium doctor.')
+    }
+  } catch (error) {
+    errors.push((error as Error).message)
+  }
+  // The tunnel may be systemd-managed even when the backend is detached. Try it even
+  // if the server failed to start, so one failure never skips the second restart.
+  const { capture } = await import('./cli-doctor')
+  const tunnelExists =
+    deps.tunnelExists ??
+    (async (unit) =>
+      (await capture('systemctl', ['--user', 'show', unit, '--property=LoadState', '--value'])) ===
+      'loaded')
+  try {
+    if (await tunnelExists(tunnel)) restart([tunnel])
+  } catch (error) {
+    errors.push((error as Error).message)
+  }
+  if (errors.length) throw new Error(errors.join(' '))
+  ;(deps.out ?? console.log)('Podium restarted.')
 }
 
 /**
@@ -301,6 +363,7 @@ const LOG_COMPONENTS = [
   'daemon',
   'all-in-one',
   'cli',
+  'tunnel',
   // The desktop shell's NATIVE half (apps/desktop/src-tauri/src/logging.rs) —
   // the supervisor process, its panics, and the update path. It writes the same
   // NDJSON shape into the same directory, so it costs one name here to be
@@ -553,6 +616,29 @@ export function logsHelpText(): string {
   ].join('\n')
 }
 
+/** The parent owns child logs; the tunnel is an independent unit. */
+export function logUnitsFor(components: string[], instanceId = resolveInstanceId()): string[] {
+  const parent = desiredParentUnit(instanceId)
+  const tunnel = instanceServiceName('tunnel', instanceId)
+  if (components.length === 0) return [...selectedUnits(instanceId), tunnel]
+  return [
+    ...new Set(
+      components.flatMap((component) =>
+        component === 'tunnel'
+          ? [tunnel]
+          : component === 'parent' || component === 'all-in-one'
+            ? [parent]
+            : ['server', 'daemon', 'janitor'].includes(component)
+              ? [
+                  parent,
+                  instanceServiceName(component as 'server' | 'daemon' | 'janitor', instanceId),
+                ]
+              : [],
+      ),
+    ),
+  ]
+}
+
 export async function logsCommand(argv: string[]): Promise<void> {
   // `export-crash` is a subcommand of `logs` rather than a sibling verb: it is
   // the same data under the same directory, and a support instruction that says
@@ -600,48 +686,67 @@ export async function logsCommand(argv: string[]): Promise<void> {
     return
   }
   const { follow, pretty, components } = options
-  if (config.persistence === 'systemd') {
-    const units = selectedUnits()
-    const unitFlags = units.map((u) => `-u ${u}`).join(' ')
-    const parentOrServer = units[0]
-    console.log(
-      'Under systemd — view logs with:\n' +
-        `  journalctl --user ${unitFlags} -f\n` +
-        '\nRecords are NDJSON, one object per line. To read them as a table:\n' +
-        `  journalctl --user -u ${parentOrServer} -o cat | jq -r '"\\(.ts) \\(.level) \\(.ns) \\(.msg)"'`,
-    )
-    return
-  }
-  const files = logFilesFor(components)
-  if (files.length === 0) {
+  const readers: Array<{ command: string; args: string[] }> = []
+  const units =
+    config.persistence === 'systemd'
+      ? logUnitsFor(components)
+      : components.includes('tunnel') ||
+          (components.length === 0 && config.networkOption === 'cloudflare-tunnel')
+        ? [instanceServiceName('tunnel', resolveInstanceId())]
+        : []
+  if (units.length)
+    readers.push({
+      command: 'journalctl',
+      args: [
+        '--user',
+        ...units.flatMap((unit) => ['-u', unit]),
+        '-n',
+        '200',
+        '-o',
+        'cat',
+        ...(follow ? ['-f'] : []),
+      ],
+    })
+  const fileComponents = components.filter((component) => component !== 'tunnel')
+  const files =
+    config.persistence === 'systemd' || (components.length > 0 && fileComponents.length === 0)
+      ? []
+      : logFilesFor(fileComponents)
+  if (files.length)
+    readers.push({
+      command: 'tail',
+      args: [follow ? '-F' : '-n', ...(follow ? [] : ['200']), ...files],
+    })
+  if (!readers.length) {
     const which = components.length > 0 ? ` for ${components.join(', ')}` : ''
     console.log(`No logs yet${which} in ${logDir()}.`)
     return
   }
-  // Delegate to `tail` for correct follow semantics, including `-F` across a
-  // rotation — which now happens in-process, so the live file really is
-  // replaced underneath a follower.
-  const args = [follow ? '-F' : '-n', follow ? undefined : '200', ...files].filter(
-    (a): a is string => a !== undefined,
+  await Promise.all(
+    readers.map(
+      ({ command, args }) =>
+        new Promise<void>((resolve) => {
+          const child = spawn(command, args, {
+            stdio: pretty ? ['ignore', 'pipe', 'inherit'] : 'inherit',
+          })
+          let pending = ''
+          child.stdout?.on('data', (chunk: Buffer) => {
+            pending += chunk.toString('utf8')
+            const lines = pending.split('\n')
+            pending = lines.pop() ?? ''
+            for (const line of lines) console.log(renderLogLine(line))
+          })
+          child.on('error', (error) => {
+            console.error(`podium logs: ${error.message}`)
+            process.exitCode = 1
+            resolve()
+          })
+          child.on('exit', (code) => {
+            if (pending) console.log(renderLogLine(pending))
+            if (code) process.exitCode = code
+            resolve()
+          })
+        }),
+    ),
   )
-  if (!pretty) {
-    // Inherit stdio: the exact bytes, no decode/encode round trip.
-    const child = spawn('tail', args, { stdio: 'inherit' })
-    child.on('exit', (code) => process.exit(code ?? 0))
-    return
-  }
-  const child = spawn('tail', args, { stdio: ['ignore', 'pipe', 'inherit'] })
-  let pending = ''
-  child.stdout?.on('data', (chunk: Buffer) => {
-    // Chunks split mid-line; the tail of a chunk is held until its newline
-    // arrives so a record is never parsed in halves.
-    pending += chunk.toString('utf8')
-    const lines = pending.split('\n')
-    pending = lines.pop() ?? ''
-    for (const line of lines) console.log(renderLogLine(line))
-  })
-  child.on('exit', (code) => {
-    if (pending.length > 0) console.log(renderLogLine(pending))
-    process.exit(code ?? 0)
-  })
 }
