@@ -144,6 +144,30 @@ jobs:
             Select-Object -First 10 @{Name='Length';Expression={$_.FullName.Length}}, FullName |
             Format-List
 
+      - name: Verify exported mobile asset references
+        shell: bash
+        run: |
+          bun - <<'JS'
+          const fs = require('node:fs')
+          const path = require('node:path')
+          const root = 'apps/mobile/dist'
+          const urls = new Set()
+          for (const name of fs.readdirSync(root, { recursive: true })) {
+            if (!name.endsWith('.js')) continue
+            const source = fs.readFileSync(path.join(root, name), 'utf8')
+            for (const match of source.matchAll(/["'](\/mobile\/assets\/[^"'?#]+)["']/g)) urls.add(match[1])
+          }
+          if (!urls.size) throw new Error('No exported mobile asset references found')
+          for (const url of urls) {
+            if (!fs.existsSync(path.join(root, url.slice('/mobile/'.length)))) throw new Error(`Missing exported asset: ${url}`)
+          }
+          for (const font of ['Geist_400Regular', 'Geist_600SemiBold', 'GeistMono_400Regular', 'GeistMono_600SemiBold']) {
+            if (![...urls].some(url => url.includes(`/${font}.`))) throw new Error(`Missing font reference: ${font}`)
+          }
+          if (![...urls].some(url => url.endsWith('.wasm'))) throw new Error('Missing SQLite WASM reference')
+          console.log(`Verified ${urls.size} exported asset URLs, including all four fonts and SQLite WASM`)
+          JS
+
       # This produces a local installer artifact, never a release or updater publication.
       - name: Build Windows NSIS installer
         shell: bash
