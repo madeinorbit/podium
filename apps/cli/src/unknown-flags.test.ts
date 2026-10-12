@@ -18,6 +18,7 @@ import { runQuotaCli } from './quota-cli'
 import { runSessionCli } from './session-cli'
 import { runSpecCli } from './spec-cli'
 import { telemetryCliMain } from './telemetry-cli'
+import { tunnelCliMain } from './tunnel-cli'
 import { updateKeyCliMain } from './update-key-cli'
 import { runWorkflowCli } from './workflow-cli'
 import { runWorkspaceCli } from './workspace-cli'
@@ -123,6 +124,8 @@ const EVERY_SUBCOMMAND: ReadonlyArray<readonly [string, () => Promise<string>]> 
   ['interactions', () => failureOf(() => runInteractionsCommand(['list', BOGUS], noopClient))],
   ['auth', () => failureOf(() => authCliMain(['sessions', BOGUS], ioRecorder().io))],
   ['machine', () => failureOf(() => runMachineCli(['list', BOGUS], noopClient))],
+  // `machines` dispatches to the same sub-CLI as `machine`.
+  ['machines', () => failureOf(() => runMachineCli(['list', BOGUS], noopClient))],
   ['quota', () => failureOf(() => runQuotaCli([BOGUS], noopClient))],
   [
     'telemetry',
@@ -151,6 +154,16 @@ const EVERY_SUBCOMMAND: ReadonlyArray<readonly [string, () => Promise<string>]> 
   ['channel', async () => JSON.stringify(plan(['channel', 'edge', BOGUS]))],
   ['status', async () => JSON.stringify(plan(['status', BOGUS]))],
   ['stop', async () => JSON.stringify(plan(['stop', BOGUS]))],
+  ['restart', async () => JSON.stringify(plan(['restart', BOGUS]))],
+  ['doctor', async () => JSON.stringify(plan(['doctor', BOGUS]))],
+  [
+    'tunnel',
+    async () => {
+      const rec = ioRecorder()
+      tunnelCliMain(['enable', BOGUS], { io: { out: rec.io.print, err: rec.io.error } })
+      return rec.text()
+    },
+  ],
   ['set-server', async () => JSON.stringify(plan(['set-server', 'wss://h', BOGUS]))],
   ['join-config', async () => JSON.stringify(plan(['join-config', 'TOKEN', BOGUS]))],
   [

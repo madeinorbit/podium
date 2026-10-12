@@ -70,7 +70,9 @@ describe('server transfer role reconciliation', () => {
 
     expect(result.stopped).toEqual(['server', 'janitor'])
     expect(disabled).toEqual(['podium-server.service', 'podium-janitor.service'])
-    expect(result.started).toEqual(['daemon'])
+    // Daemon mode now includes its supervising parent (POD-2505), in startup order.
+    expect(result.started).toEqual(['parent', 'daemon'])
+    expect(started).toEqual(['parent', 'daemon'])
   })
 
   it('fails closed when a managed server unit cannot be disabled', async () => {
@@ -222,7 +224,7 @@ describe('server transfer role reconciliation', () => {
     expect(stopRole).not.toHaveBeenCalled()
   })
 
-  it('reconciles a systemd source through its daemon unit instead of foreground ownership', async () => {
+  it('reconciles a systemd source through its parent service instead of foreground ownership', async () => {
     saveConfig({ mode: 'daemon', serverUrl: 'wss://target.example', persistence: 'systemd' })
     const present = new Set<RunRole>(['server', 'janitor'])
     const stopped: RunRole[] = []
@@ -247,10 +249,10 @@ describe('server transfer role reconciliation', () => {
     await expect(prepareForegroundDaemon({ supervisor, env: {} })).resolves.toEqual({
       owner: 'systemd',
       stopped: ['server', 'janitor'],
-      started: ['daemon'],
+      started: ['parent', 'daemon'],
     })
     expect(stopped).toEqual(['server', 'janitor'])
-    expect(started).toEqual(['daemon'])
+    expect(started).toEqual(['parent', 'daemon'])
   })
 
   it('renders only instance-scoped fixed units', () => {
