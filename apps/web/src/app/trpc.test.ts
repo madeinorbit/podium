@@ -47,6 +47,22 @@ describe('trpcProcedurePath', () => {
 })
 
 describe('reportingFetch', () => {
+  it('omits an undefined harness clear from the real settings HTTP request', async () => {
+    const base = vi.fn().mockResolvedValue(
+      new Response('[{"result":{"data":{}}}]', { status: 200 }),
+    )
+    const trpc = makeTrpc('https://relay.test', { fetch: base as typeof fetch })
+    await trpc.settings.updatePersonal.mutate({
+      values: { 'roles.superagent.harness': undefined, 'roles.superagent.model': 'saved-model' },
+    })
+
+    expect(base).toHaveBeenCalledTimes(1)
+    expect(base.mock.calls[0]?.[0]).toContain('/trpc/settings.updatePersonal')
+    const received = JSON.parse(base.mock.calls[0]?.[1]?.body as string)
+    expect(received['0'].values).toEqual({ 'roles.superagent.model': 'saved-model' })
+    expect(received['0'].values).not.toHaveProperty('roles.superagent.harness')
+  })
+
   it('logs a warn naming the procedure and status when the server refuses', async () => {
     const base = vi.fn().mockResolvedValue(new Response('{"error":{}}', { status: 500 }))
     const response = await reportingFetch(base)('https://relay.test/trpc/issues.markRead?batch=1', {
