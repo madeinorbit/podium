@@ -45,8 +45,7 @@ import { SettingsService } from './service'
  * second copy of the very logic under test, which would agree with itself no
  * matter what the shipped one did.
  */
-function makeStore(): SettingsRepository {
-  const db = openMigratedTestDatabase()
+function makeStore(db: ReturnType<typeof openMigratedTestDatabase>): SettingsRepository {
   const stage = createBunStoreExecutor({ database: db }).queries
   if (!stage) throw new Error('the test database is not bun-backed')
   return new SettingsRepository(stage)
@@ -86,12 +85,14 @@ function makeSecrets() {
 const FINGERPRINT_KEY = Buffer.from('c'.repeat(64), 'hex')
 
 let store: ReturnType<typeof makeStore>
+let db: ReturnType<typeof openMigratedTestDatabase>
 let secrets: ReturnType<typeof makeSecrets>
 let bus: EventBus
 let service: SettingsService
 
 beforeEach(() => {
-  store = makeStore()
+  db = openMigratedTestDatabase()
+  store = makeStore(db)
   secrets = makeSecrets()
   bus = new EventBus()
   service = new SettingsService(store, secrets, bus, {
@@ -106,6 +107,55 @@ beforeEach(() => {
     fingerprintKey: () => FINGERPRINT_KEY,
     now: () => Date.parse('2026-07-30T12:00:00.000Z'),
     modelProbe: { list: vi.fn(async () => []) } as never,
+  })
+})
+
+describe('optional role harness saves stay loadable', () => {
+  it('saving without a harness clears an earlier choice and round-trips as absent', async () => {
+    await service.updatePreferences(USER, { 'roles.superagent.harness': 'codex' })
+    const current = await service.getSettingsFor(USER)
+    const saved = await service.setSettingsFor(USER, {
+      ...current,
+      roles: {
+        ...current.roles,
+        superagent: {
+          accountId: current.roles.superagent.accountId,
+          model: 'saved-model',
+          effort: 'auto',
+        },
+      },
+    })
+
+    expect(saved.roles.superagent).not.toHaveProperty('harness')
+    expect((await service.getSettingsFor(USER)).roles.superagent).toEqual(saved.roles.superagent)
+    expect(saved.roles.superagent.model).toBe('saved-model')
+    expect(await store.userPreferences.keysFor(USER)).not.toContain('roles.superagent.harness')
+  })
+
+  it('a preference patch can unset a harness without poisoning later settings reads', async () => {
+    await service.updatePreferences(USER, { 'roles.superagent.harness': 'codex' })
+    const saved = await service.updatePreferences(USER, { 'roles.superagent.harness': undefined })
+    expect(saved.roles.superagent).not.toHaveProperty('harness')
+    expect((await service.getSettingsFor(USER)).roles.superagent).not.toHaveProperty('harness')
+    expect(await store.userPreferences.keysFor(USER)).not.toContain('roles.superagent.harness')
+  })
+
+  it('loads settings with an older stored harness null and can save again', async () => {
+    db.prepare(
+      'INSERT INTO user_preferences (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)',
+    ).run(USER, 'roles.superagent.harness', 'null', '2026-07-30T12:00:00.000Z')
+    await store.userPreferences.set(USER, 'roles.superagent.model', 'saved-model', '2026-07-30T12:00:00.000Z')
+
+    const current = await service.getSettingsFor(USER)
+    expect(current.roles.superagent).not.toHaveProperty('harness')
+    expect(current.roles.superagent.model).toBe('saved-model')
+    const saved = await service.setSettingsFor(USER, {
+      ...current,
+      sidebar: { ...current.sidebar, repoSort: 'alphabetical' },
+    })
+    expect(saved.roles.superagent).not.toHaveProperty('harness')
+    expect(saved.roles.superagent.model).toBe('saved-model')
+    expect(saved.sidebar.repoSort).toBe('alphabetical')
   })
 })
 

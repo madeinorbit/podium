@@ -48,6 +48,37 @@ describe('settings harness choices', () => {
   })
 })
 
+describe('optional role harness persistence', () => {
+  it('an absent harness survives a JSON round trip', () => {
+    const settings = normalizeSettings({
+      roles: { superagent: { accountId: nativeAccountId('codex'), model: 'saved-model' } },
+    })
+    const saved = JSON.parse(JSON.stringify(settings))
+    expect(saved.roles.superagent).not.toHaveProperty('harness')
+    expect(normalizeSettings(saved).roles.superagent).toEqual(settings.roles.superagent)
+  })
+
+  it.each(['coding', 'superagent', 'background', 'shipwright'] as const)(
+    'reads an older %s harness null as absent without losing other settings',
+    (role) => {
+      const raw = {
+        roles: { [role]: { accountId: nativeAccountId('codex'), harness: null, model: 'saved-model' } },
+        sidebar: { repoSort: 'alphabetical' },
+      }
+      const settings = normalizeSettings(raw)
+      expect(settings.roles[role]).not.toHaveProperty('harness')
+      expect(settings.roles[role].accountId).toBe(nativeAccountId('codex'))
+      expect(settings.roles[role].model).toBe('saved-model')
+      expect(settings.sidebar.repoSort).toBe('alphabetical')
+      expect(raw.roles[role].harness).toBeNull()
+    },
+  )
+
+  it('still rejects a non-null invalid harness', () => {
+    expect(() => normalizeSettings({ roles: { superagent: { harness: 'invalid-harness' } } })).toThrow()
+  })
+})
+
 describe('resolveRole harness precedence', () => {
   it('uses a native account harness over a stale explicit harness', () => {
     const settings = normalizeSettings({

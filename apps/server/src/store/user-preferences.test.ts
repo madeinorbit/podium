@@ -169,6 +169,43 @@ describe('the instance tier stays shared — this moved 24 leaves, not the blob'
 })
 
 describe('absence is the row being absent', () => {
+  it('writing undefined removes an optional preference instead of storing null', async () => {
+    await settings.userPreferences.set(ALICE, 'roles.superagent.harness', 'codex', AT)
+    await settings.userPreferences.set(BOB, 'roles.superagent.harness', 'grok', AT)
+    await settings.userPreferences.set(ALICE, 'roles.superagent.harness', undefined, AT)
+    expect(await settings.userPreferences.keysFor(ALICE)).not.toContain('roles.superagent.harness')
+    expect(await settings.userPreferences.get(ALICE, 'roles.superagent.harness')).toBeUndefined()
+    expect((await settings.getSettingsFor(ALICE)).roles.superagent).not.toHaveProperty('harness')
+    expect((await settings.getSettingsFor(BOB)).roles.superagent.harness).toBe('grok')
+  })
+
+  it('a stored harness null reads as absent while other preferences still load', async () => {
+    db.prepare(
+      'INSERT INTO user_preferences (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)',
+    ).run(ALICE, 'roles.superagent.harness', 'null', AT)
+    await settings.userPreferences.set(ALICE, 'roles.superagent.model', 'saved-model', AT)
+    await settings.userPreferences.set(ALICE, 'sidebar.repoSort', 'alphabetical', AT)
+
+    const loaded = await settings.getSettingsFor(ALICE)
+    expect(loaded.roles.superagent).not.toHaveProperty('harness')
+    expect(loaded.roles.superagent.model).toBe('saved-model')
+    expect(loaded.sidebar.repoSort).toBe('alphabetical')
+  })
+
+  it('a legacy blob harness null does not discard the rest of the stored settings', async () => {
+    db.prepare('INSERT INTO meta (key, value) VALUES (?, ?)').run(
+      'settings',
+      JSON.stringify({
+        roles: { superagent: { harness: null, model: 'saved-model' } },
+        gitWorkflow: { mergeStyle: 'pr' },
+      }),
+    )
+    const loaded = await settings.getSettingsFor(ALICE)
+    expect(loaded.roles.superagent).not.toHaveProperty('harness')
+    expect(loaded.roles.superagent.model).toBe('saved-model')
+    expect(loaded.gitWorkflow.mergeStyle).toBe('pr')
+  })
+
   it('an unset preference resolves to the blob’s value, and a set one overrides it', async () => {
     // The fallback direction. `getSettingsFor` must not zero out what nobody has
     // chosen — that would be a different way to lose every preference.

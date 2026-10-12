@@ -464,11 +464,31 @@ function migrateIdleShellMinutes(
   return { ...policy, idleShellMinutes: policy.idleShellHours * 60 }
 }
 
+/** JSON null can spell an unset optional harness in preference rows or patches.
+ *  Normalize it to absence, preserving the rest of every role and leaving
+ *  other invalid values for the settings schema to reject. */
+function normalizeRoleHarnessAbsence(raw: Record<string, unknown>): Record<string, unknown> | undefined {
+  if (!raw.roles || typeof raw.roles !== 'object' || Array.isArray(raw.roles)) return undefined
+  const roles = { ...(raw.roles as Record<string, unknown>) }
+  let changed = false
+  for (const role of Object.keys(Roles.shape)) {
+    const backend = roles[role]
+    if (!backend || typeof backend !== 'object' || Array.isArray(backend)) continue
+    const fields = backend as Record<string, unknown>
+    if (fields.harness !== null) continue
+    const next = { ...fields }
+    delete next.harness
+    roles[role] = next
+    changed = true
+  }
+  return changed ? roles : undefined
+}
+
 /** Parse a stored/transmitted blob, migrating the legacy backend fields onto
  *  `roles` and filling anything missing with defaults. */
 export function normalizeSettings(raw: unknown): PodiumSettings {
   const obj = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>
-  const roles = migrateRoles(obj)
+  const roles = migrateRoles(obj) ?? normalizeRoleHarnessAbsence(obj)
   const experimental = migrateDraftSyncFlag(obj)
   const hibernation = migrateIdleShellMinutes(obj)
   return PodiumSettings.parse({

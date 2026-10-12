@@ -136,14 +136,19 @@ export class UserPreferencesRepository {
         `'${key}' is not a personal preference (POD-418 classification), so it has no per-user row`,
       )
     }
+    // An optional leaf being unset is absence, never a JSON null. This also
+    // clears an earlier choice when a whole-settings save omits that leaf.
+    if (value === undefined) {
+      await this.clear(userId, key)
+      return
+    }
     // `INSERT OR REPLACE` -> `onConflictDoUpdate` on the composite primary key.
     // One uniqueness constraint on this table and all four columns named, so the
-    // forms agree (POD-3403). `value` is `JSON.stringify(value ?? null)`, which
-    // is the string "null" and never `undefined`, so nothing binds undefined.
+    // forms agree (POD-3403). Undefined values were handled as absence above.
     const values = {
       userId,
       key,
-      value: JSON.stringify(value ?? null),
+      value: JSON.stringify(value),
       updatedAt,
     }
     ;await (this.db
