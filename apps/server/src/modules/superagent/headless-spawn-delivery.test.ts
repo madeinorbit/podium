@@ -537,6 +537,50 @@ describe('superagent first turn past the binding gate (POD-4827)', () => {
     expect(ack.podiumSessionId).toBe(thread?.podiumSessionId)
   })
 
+  it('a thread bound to a pre-account headless row mints a fresh accounted session', async () => {
+    // Rows minted before the account fix carry no account. Reusing one sends a
+    // turn with no accountId, which the daemon refuses every time ("headless
+    // result identity mismatch" in the chat) — the thread could never recover.
+    const h = await onlineHarness()
+    await h.sa.ensureSession({ ownerUserId: firstAdminMemberId(), threadId: asThreadId('global') })
+    const legacy = await h.registry.modules.sessions.headless.createHeadlessSession({
+      agentKind: 'codex',
+      cwd: '/r',
+      ownerUserId: firstAdminMemberId(),
+    })
+    expect(h.registry.modules.sessions.headless.headlessSession(legacy.sessionId)?.accountId).toBeUndefined()
+    await h.registry.sessionStore.superagent.updateSuperagentThreadBinding('global', {
+      agentKind: 'codex',
+      podiumSessionId: legacy.sessionId,
+      harnessSessionId: 'harness-old',
+    })
+
+    const ack = await h.sa.sendTurn({
+      ownerUserId: firstAdminMemberId(),
+      threadId: asThreadId('global'),
+      text: 'hello again',
+      agentKind: 'codex',
+    })
+    expect(ack.podiumSessionId).not.toBe(legacy.sessionId)
+    await waitFor(
+      () =>
+        h.frames.some(
+          (m) =>
+            (m.type === 'runtimeSendRequest' || m.type === 'runtimeDurableSendRequest') &&
+            m.sessionId === ack.podiumSessionId,
+        ),
+      'the server emitting the turn on the fresh session',
+    )
+    const turn = h.frames.find(
+      (m) =>
+        (m.type === 'runtimeSendRequest' || m.type === 'runtimeDurableSendRequest') &&
+        m.sessionId === ack.podiumSessionId,
+    ) as unknown as { accountId?: string; resumeValue?: string }
+    expect(turn.accountId).toBe('native:codex:FP1')
+    // The harness conversation carries over: only the Podium row is replaced.
+    expect(turn.resumeValue).toBe('harness-old')
+  })
+
   it('the shared account rule keeps matching ids and falls back cross-harness ones', async () => {
     // The selection table both paths call (selectHarnessAccountId): a native
     // id for another harness must never be spent silently, while matching,

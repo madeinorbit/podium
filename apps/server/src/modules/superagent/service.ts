@@ -773,7 +773,12 @@ export class SuperagentService {
    *  client needs one to keep rendering the thread's transcript. */
   private async ensureHeadlessSession(thread: SuperagentThreadRow): Promise<SessionId> {
     const bound = thread.podiumSessionId
-    if (bound && (await this.sessionById(bound))) return bound
+    // A row minted before the account fence below has no account, and the
+    // account is launch identity, so it cannot be set later. Reusing it sends
+    // every turn without one and the daemon refuses them all. Mint a new row
+    // instead: the harness conversation stays on the thread
+    // (`harnessSessionId`), so the next turn resumes it.
+    if (bound && (await this.sessionById(bound))?.accountId) return bound
     const agent = HarnessAgent.safeParse(thread.agentKind)
     const settings = await this.store.settings.getSettingsFor(thread.ownerUserId)
     const harness = agent.success ? agent.data : superagentHarnessAgent(settings)
