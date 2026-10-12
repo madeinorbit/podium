@@ -20,14 +20,27 @@ describe('approval broker relay e2e (#410)', () => {
   let registry: SessionRegistry
   let sA: string
   let daemonInbox: ControlMessage[]
+  let relayReplies: Map<string, (reply: RelayResult) => void>
 
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
     machineId = registry.sessionStore.hostMachineId
     daemonInbox = []
+    relayReplies = new Map()
     // Enroll a reporting machine and finish its inventory handshake before placement.
-    await attachHostDaemon(registry, (msg) => daemonInbox.push(msg), { repos: ['/r'] })
+    await attachHostDaemon(
+      registry,
+      (msg) => {
+        daemonInbox.push(msg)
+        if (msg.type === 'agentRelayResult') {
+          const resolve = relayReplies.get(msg.requestId)
+          relayReplies.delete(msg.requestId)
+          resolve?.(msg)
+        }
+      },
+      { repos: ['/r'] },
+    )
     await registry.modules.machines.recordInventory(machineId, fixtureInventory())
     const A = await registry.issues.crud.create({ repoPath: '/r', title: 'epic', startNow: false })
     await registry.issues.crud.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
@@ -39,29 +52,21 @@ describe('approval broker relay e2e (#410)', () => {
     for (const r of registries.splice(0)) await r.dispose()
   })
 
-  const relay = async (proc: string, input: unknown): Promise<RelayResult> => {
-    const before = daemonInbox.length
-    registry.gateway.routeDaemonFrame(machineId, {
-      type: 'agentRelayRequest',
-      requestId: `ir${before}`,
-      sessionId: asSessionId(sA),
-      router: 'approvals',
-      proc,
-      input,
+  const relay = (proc: string, input: unknown): Promise<RelayResult> => {
+    const requestId = `ir${daemonInbox.length}`
+    // The agent relay port dispatches without returning its handler promise.
+    // Register before dispatch and resolve only from the correlated daemon reply.
+    return new Promise((resolve) => {
+      relayReplies.set(requestId, resolve)
+      void registry.gateway.routeDaemonFrame(machineId, {
+        type: 'agentRelayRequest',
+        requestId,
+        sessionId: asSessionId(sA),
+        router: 'approvals',
+        proc,
+        input,
+      })
     })
-    // the gate replies asynchronously (await inside run()); flush microtasks
-    for (
-      let i = 0;
-      i < 10 && !daemonInbox.slice(before).some((m) => m.type === 'agentRelayResult');
-      i++
-    ) {
-      await new Promise((r) => setTimeout(r, 1))
-    }
-    const reply = daemonInbox.find(
-      (m): m is RelayResult => m.type === 'agentRelayResult' && m.requestId === `ir${before}`,
-    )
-    if (!reply) throw new Error('no relay reply')
-    return reply
   }
 
   it('request → pending → approve → daemon exec → result → succeeded', async () => {
@@ -74,7 +79,8 @@ describe('approval broker relay e2e (#410)', () => {
     const exec = daemonInbox.find((m) => m.type === 'approvalExecRequest')
     expect(exec).toMatchObject({ requestId: id, op: { kind: 'update' } })
 
-    registry.gateway.routeDaemonFrame(machineId, {
+    // Await the real handler completion: routing alone does not finish the store write.
+    await registry.gateway.routeDaemonFrame(machineId, {
       type: 'approvalExecResult',
       requestId: id,
       ok: true,
