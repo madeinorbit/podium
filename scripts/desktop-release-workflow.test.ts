@@ -1,5 +1,13 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -627,13 +635,30 @@ describe('desktop release workflow', () => {
     )
   })
 
-  it('installs Windows from a cold Bun store instead of a restored cache', () => {
+  it('caches Bun packages through the shared action, never the global store', () => {
     const parsed = Bun.YAML.parse(desktopWorkflow) as {
-      jobs: { build: { steps: Array<{ uses?: string; if?: string }> } }
+      jobs: { build: { steps: Array<{ uses?: string }> } }
     }
-    const caches = parsed.jobs.build.steps.filter((step) => step.uses?.startsWith('actions/cache'))
-    expect(caches.length).toBeGreaterThan(0)
-    for (const cache of caches) expect(cache.if).toBe("matrix.target != 'windows-x86_64'")
+    const uses = parsed.jobs.build.steps.map((step) => step.uses ?? '')
+    expect(uses).toContain('./.github/actions/bun-cache')
+    expect(uses.filter((u) => u.startsWith('actions/cache'))).toEqual([])
+    const action = Bun.YAML.parse(
+      readFileSync(join(repoRoot, '.github/actions/bun-cache/action.yml'), 'utf8'),
+    ) as { runs: { steps: Array<{ with: { path: string; key: string } }> } }
+    const [cache] = action.runs.steps
+    expect(cache?.with.path).toContain(
+      "!${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}/links",
+    )
+    expect(cache?.with.key.startsWith('pkgs-')).toBe(true)
+  })
+
+  it('no workflow caches the Bun install directory except through the shared action', () => {
+    for (const file of readdirSync(join(repoRoot, '.github/workflows'))) {
+      const text = readFileSync(join(repoRoot, '.github/workflows', file), 'utf8')
+      expect(text, file).not.toMatch(
+        /path: ~\/\.bun\/install\/cache|path: \$\{\{ env\.BUN_INSTALL_CACHE_DIR/,
+      )
+    }
   })
 
   it('builds and publishes the updater-signed Windows NSIS installer', () => {

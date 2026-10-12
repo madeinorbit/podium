@@ -1,0 +1,28 @@
+# Restore and save Bun's package cache for `bun install`, without Bun's global virtual store.
+#
+# bunfig.toml turns on `globalStore`, which keeps the store as `links/` INSIDE the install cache:
+# entries named <pkg>@<version>-<closure hash>, linked to each other by relative directory
+# symlinks. Bun treats a published entry as complete and never re-checks it. Archiving that
+# tree and unpacking it on another runner does not reliably bring the links back: on Windows,
+# tar must create each link before knowing whether its target is a directory, and the restored
+# store is left with broken links that `bun install` keeps (0.2.1-edge.2's Windows leg: 1670
+# dangling links, refused by the install census; reproduced on a boat Windows sandbox, POD-6005).
+#
+# The downloaded packages are what costs time to fetch; the store is derived from them and Bun
+# rebuilds it locally on the next install. So cache the packages and leave `links/` out. The
+# key carries `pkgs-` so a runner never restores an older archive that still holds a store.
+name: Bun package cache
+description: Cache Bun's downloaded packages (not the global store) under the given key
+inputs:
+  key:
+    description: Cache key, normally `<lane>-${{ hashFiles('bun.lock') }}`
+    required: true
+runs:
+  using: composite
+  steps:
+    - uses: actions/cache@v4
+      with:
+        path: |
+          ${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}
+          !${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}/links
+        key: pkgs-${{ inputs.key }}

@@ -19,9 +19,8 @@ jobs:
       - uses: jdx/mise-action@v2
         with:
           install_args: bun
-      - uses: actions/cache@v4
+      - uses: ./.github/actions/bun-cache
         with:
-          path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile --ignore-scripts
       # Non-blocking for now: ~1292 pre-existing biome errors are being burned down
@@ -213,9 +212,8 @@ jobs:
       - uses: jdx/mise-action@v2
         with:
           install_args: bun
-      - uses: actions/cache@v4
+      - uses: ./.github/actions/bun-cache
         with:
-          path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: no raw NUL bytes in TypeScript sources or docs
@@ -230,9 +228,8 @@ jobs:
       - uses: jdx/mise-action@v2
         with:
           install_args: bun
-      - uses: actions/cache@v4
+      - uses: ./.github/actions/bun-cache
         with:
-          path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - uses: actions/cache@v4
         with:
@@ -256,9 +253,8 @@ jobs:
       - uses: jdx/mise-action@v2
         with:
           install_args: bun
-      - uses: actions/cache@v4
+      - uses: ./.github/actions/bun-cache
         with:
-          path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: signed headless update verifier
@@ -277,9 +273,8 @@ jobs:
       - uses: jdx/mise-action@v2
         with:
           install_args: bun
-      - uses: actions/cache@v4
+      - uses: ./.github/actions/bun-cache
         with:
-          path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile --ignore-scripts
       # NO turbo cache on this job, deliberately. Every other build lane shares
@@ -304,9 +299,8 @@ jobs:
       - uses: jdx/mise-action@v2
         with:
           install_args: bun
-      - uses: actions/cache@v4
+      - uses: ./.github/actions/bun-cache
         with:
-          path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - run: bun install --frozen-lockfile --ignore-scripts
       - name: drizzle-kit check (cross-branch migration conflicts)
@@ -381,9 +375,8 @@ jobs:
       - uses: jdx/mise-action@v2
         with:
           install_args: bun
-      - uses: actions/cache@v4
+      - uses: ./.github/actions/bun-cache
         with:
-          path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       - uses: actions/cache@v4
         with:
@@ -438,9 +431,8 @@ jobs:
       - uses: jdx/mise-action@v2
         with:
           install_args: bun
-      - uses: actions/cache@v4
+      - uses: ./.github/actions/bun-cache
         with:
-          path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       # Podium builds its Rust process host on first use.
       - run: bun install --frozen-lockfile --ignore-scripts
@@ -484,9 +476,8 @@ jobs:
       - uses: jdx/mise-action@v2
         with:
           install_args: bun
-      - uses: actions/cache@v4
+      - uses: ./.github/actions/bun-cache
         with:
-          path: ~/.bun/install/cache
           key: bun-${{ runner.os }}-${{ hashFiles('bun.lock') }}
       # The harness relay builds Podium's Rust process host on first use.
       - run: bun install --frozen-lockfile --ignore-scripts
