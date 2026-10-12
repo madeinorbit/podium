@@ -292,3 +292,14 @@ describe('managed pairing reads descriptor.provider', () => {
     expect(providerLabel('codex')).toBe('Codex (ChatGPT)')
   })
 })
+
+
+it('accepts a typed default model in Settings when no live list is reported', async () => {
+  const onChange = vi.fn()
+  // biome-ignore lint/a11y/useValidAriaRole: backend role, not an ARIA attribute
+  render(<RoleBackendEditor role="coding" backend={{ accountId: nativeAccountId('codex'), model: 'auto', effort: 'auto' }} accounts={[]} onChange={onChange} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+  fireEvent.change(await screen.findByPlaceholderText('Model name…'), { target: { value: 'managed-custom-model' } })
+  fireEvent.click(screen.getByRole('menuitem', { name: /Use “managed-custom-model”/ }))
+  expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ model: 'managed-custom-model', effort: 'auto' }))
+})

@@ -132,3 +132,12 @@ describe('NewAutomationDialog edit mode', () => {
     expect(create).not.toHaveBeenCalled()
   })
 })
+
+
+it('offers no Use option in the automation launch menu', async () => {
+  render(<NewAutomationDialog trpc={{ automations: { create: { mutate: create }, update: { mutate: update } } } as never}
+    automation={automation} onClose={vi.fn()} onSaved={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+  fireEvent.change(await screen.findByPlaceholderText('Filter…'), { target: { value: 'my-custom-model' } })
+  expect(screen.queryByRole('menuitem', { name: /Use / })).toBeNull()
+})

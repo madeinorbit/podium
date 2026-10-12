@@ -10,7 +10,7 @@ import { Textarea } from '@/components/ui/textarea'
 import { AtMentionMenu } from '@/lib/at-mention/AtMentionMenu'
 import { useAtMenu, useAtTrigger } from '@/lib/at-mention/useAtMention'
 import { useFileMentions } from '@/lib/at-mention/useFileMentions'
-import { issueAgentKind } from '@/lib/issue-agents'
+import { issueAgentKind, issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import { AllConnectorsModelPicker, EffortPicker } from '@/lib/ModelEffortPicker'
 import { usePromptAutoGrow } from '@/lib/use-prompt-auto-grow'
 import { useNativeDraftText } from '@/lib/use-native-draft-text'
@@ -823,16 +823,14 @@ function BackendRail({
         onChange={(pick) => onModelChange(pick.model, pick.agentKind)}
         variant="pill"
       />
-      {agentKind ? (
-        <EffortPicker
-          agentKind={agentKind}
-          machineId={machineId}
-          model={backend.model}
-          value={backend.effort}
-          onChange={onEffortChange}
-          variant="pill"
-        />
-      ) : null}
+      <EffortPicker
+        agentKind={agentKind ?? issueDefaultAgentKind(undefined)}
+        machineId={machineId}
+        model={agentKind ? backend.model : 'auto'}
+        value={backend.effort}
+        onChange={onEffortChange}
+        variant="pill"
+      />
     </div>
   )
 }

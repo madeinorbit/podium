@@ -12,13 +12,14 @@ import { LaunchConfigurationFields } from './LaunchConfigurationFields'
 const state = vi.hoisted(() => ({
   repos: [] as GitRepositoryWire[],
   machines: [] as MachineWire[],
+  catalog: {} as Record<string, Array<{ value: string; label: string; efforts?: string[] }>>,
 }))
 vi.mock('../client/use-launch-inputs', () => ({
   useLaunchInputs: () => ({ repo: reposToViews(state.repos)[0], machines: state.machines }),
 }))
 vi.mock('@podium/client-core/react', async (importOriginal) => ({
   ...(await importOriginal<typeof import('@podium/client-core/react')>()),
-  useModelCatalogState: () => ({ catalog: {}, status: 'offline' }),
+  useModelCatalogState: () => ({ catalog: state.catalog, status: Object.keys(state.catalog).length ? 'ready' : 'unavailable' }),
   useHarnessDescriptors: () => ({ served: undefined }),
 }))
 vi.mock('react-native-safe-area-context', () => ({
@@ -30,6 +31,7 @@ afterEach(() => {
   vi.restoreAllMocks()
   state.repos = []
   state.machines = []
+  state.catalog = {}
 })
 
 it('requests no fallback menu while closed at 1x/4x and builds only the opened picker', async () => {
@@ -117,4 +119,24 @@ it('requests no fallback menu while closed at 1x/4x and builds only the opened p
       })
     }
   }
+})
+
+
+it('offers only Auto and live models, with no Use option in the task launch picker', () => {
+  state.catalog = { codex: [{ value: 'gpt-current', label: 'Current', efforts: ['high'] }] }
+  const sheet = vi.spyOn(sheets, 'ActionSheet').mockImplementation(() => <></>)
+  render(<LaunchConfigurationFields repoPath="/synthetic" value={{ agentKind: 'codex', modelPick: AUTO, effort: AUTO, machineId: '' }} onChange={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Model, Auto' }))
+  expect(sheet.mock.lastCall?.[0].actions.map((action) => action.label)).toEqual(['Auto', 'Current'])
+  expect(sheet.mock.lastCall?.[0].actions.some((action) => action.label.startsWith('Use '))).toBe(false)
+  expect(screen.queryByRole('textbox')).toBeNull()
+})
+
+it('shows stored effort inert while the concrete model list is unavailable', () => {
+  const sheet = vi.spyOn(sheets, 'ActionSheet').mockImplementation(() => <></>)
+  render(<LaunchConfigurationFields repoPath="/synthetic" value={{ agentKind: 'codex', modelPick: 'codex:stored', effort: 'high', machineId: '' }} onChange={vi.fn()} />)
+  const pill = screen.getByLabelText('Effort, High')
+  expect(pill.getAttribute('role')).not.toBe('button')
+  fireEvent.click(pill)
+  expect(sheet).not.toHaveBeenCalled()
 })

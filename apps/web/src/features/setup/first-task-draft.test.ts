@@ -41,4 +41,3 @@ describe('first-task activation draft', () => {
     })
   })
 })
-

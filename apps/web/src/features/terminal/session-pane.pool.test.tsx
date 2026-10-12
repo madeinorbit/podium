@@ -1,3 +1,4 @@
+import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
 import { omitGone } from '@podium/client-graph/lookup'
 import { observer } from '@podium/client-graph/react'
 import { headerEntities } from '@podium/client-graph/header-entities'
@@ -139,18 +140,14 @@ vi.mock('@/features/chat/ChatView', () => ({
 }))
 vi.mock('./SessionWatchers', () => ({ SessionWatchers: () => null }))
 vi.mock('@/components/GitStamp', () => ({ GitStamp: () => null }))
-vi.mock('@/lib/ModelEffortPicker', () => ({
-  ModelPicker: ({ value }: { value: string }) => (
-    <button type="button" data-model={value}>
-      {value}
-    </button>
-  ),
-  EffortPicker: ({ value }: { value: string }) => (
-    <button type="button" data-effort={value}>
-      {value}
-    </button>
-  ),
-}))
+const pickerFixture = vi.hoisted(() => ({ real: false }))
+vi.mock('@/lib/ModelEffortPicker', async (original) => {
+  const actual = await original<typeof import('@/lib/ModelEffortPicker')>()
+  return {
+    ModelPicker: (props: Parameters<typeof actual.ModelPicker>[0]) => pickerFixture.real ? <actual.ModelPicker {...props} /> : <button type="button" data-model={props.value}>{props.value}</button>,
+    EffortPicker: (props: Parameters<typeof actual.EffortPicker>[0]) => pickerFixture.real ? <actual.EffortPicker {...props} /> : <button type="button" data-effort={props.value}>{props.value}</button>,
+  }
+})
 vi.mock('@/lib/SnoozeControl', () => ({
   SnoozeControl: () => <button type="button">Snooze</button>,
 }))
@@ -259,6 +256,8 @@ beforeEach(() => {
 })
 afterEach(() => {
   cleanup()
+  pickerFixture.real = false
+  modelCatalogFixture.current = {}
   paneConversations?.dispose()
   paneConversations = undefined
   paneTransactions.dispose()
@@ -523,4 +522,15 @@ it('uses pool facts in the real chat header while leaving transcript reads on th
       name.startsWith('sessionPane.'),
     ),
   ).toEqual([])
+})
+
+
+it('offers no Use option in the session model menu', async () => {
+  pickerFixture.real = true
+  const row = sessions.find((session) => session.configureFields?.includes('model'))!
+  expect(row).toBeDefined()
+  const panel = render(<AgentPanel sessionId={row.sessionId} />)
+  fireEvent.click(panel.getAllByRole('button', { name: 'Model' })[0]!)
+  fireEvent.change(await panel.findByPlaceholderText('Filter…'), { target: { value: 'my-custom-model' } })
+  expect(panel.queryByRole('menuitem', { name: /Use / })).toBeNull()
 })

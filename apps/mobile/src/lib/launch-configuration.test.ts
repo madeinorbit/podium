@@ -100,16 +100,16 @@ describe('normalizeLaunchConfiguration', () => {
     })
   })
 
-  it('fails closed to Auto when the selected agent catalog is empty', () => {
+  it('keeps stored choices until this agent reports a model list', () => {
     const plan = normalizeLaunchConfiguration(selected, {}, [{ value: 'host-a', label: 'Host A' }])
-    expect(plan.configuration).toMatchObject({ modelPick: AUTO, effort: AUTO })
+    expect(plan.configuration).toMatchObject({ modelPick: selected.modelPick, effort: selected.effort })
     expect(launchConfigurationPatch(plan.configuration)).toMatchObject({
-      defaultModel: AUTO,
-      defaultEffort: AUTO,
+      defaultModel: 'gpt-current',
+      defaultEffort: 'high',
     })
   })
 
-  it('does not expose explicit picks when a ready catalog only knows another agent', () => {
+  it('offers no choices for an unreported agent but preserves its stored pills', () => {
     const otherAgentCatalog = {
       'claude-code': [{ value: 'sonnet', label: 'Sonnet', efforts: ['high'] }],
     }
@@ -121,23 +121,23 @@ describe('normalizeLaunchConfiguration', () => {
         [{ value: 'host-a', label: 'Host A' }],
         'ready',
       ).configuration,
-    ).toMatchObject({ modelPick: AUTO, effort: AUTO })
+    ).toMatchObject({ modelPick: selected.modelPick, effort: selected.effort })
   })
 
   it.each([
     'loading',
     'unavailable',
-  ] as const)('fails closed to Auto while the catalog is %s', (status) => {
+  ] as const)('preserves stored choices while the catalog is %s', (status) => {
     const plan = normalizeLaunchConfiguration(
       selected,
       catalog,
       [{ value: 'host-a', label: 'Host A' }],
       status,
     )
-    expect(plan.configuration).toMatchObject({ modelPick: AUTO, effort: AUTO })
+    expect(plan.configuration).toMatchObject({ modelPick: selected.modelPick, effort: selected.effort })
     expect(launchConfigurationPatch(plan.configuration)).toMatchObject({
-      defaultModel: AUTO,
-      defaultEffort: AUTO,
+      defaultModel: 'gpt-current',
+      defaultEffort: 'high',
     })
   })
 
@@ -156,17 +156,13 @@ describe('normalizeLaunchConfiguration', () => {
     ).toBe(AUTO)
   })
 
-  it('clears remembered model and effort when the agent or machine changes', () => {
+  it('clears choices on agent change and preserves them on machine change', () => {
     expect(selectLaunchAgent(selected, 'claude-code')).toMatchObject({
       agentKind: 'claude-code',
       modelPick: AUTO,
       effort: AUTO,
     })
-    expect(selectLaunchMachine(selected, 'host-b')).toMatchObject({
-      machineId: 'host-b',
-      modelPick: AUTO,
-      effort: AUTO,
-    })
+    expect(selectLaunchMachine(selected, 'host-b')).toEqual({ ...selected, machineId: 'host-b' })
   })
 
   it('omits the agent override while the configured coding role remains inherited', () => {
@@ -207,5 +203,15 @@ describe('normalizeLaunchConfiguration', () => {
       defaultAgent: 'codex',
       defaultEffort: 'high',
     })
+  })
+})
+
+
+it('resets effort against the concrete model, not a different model in the same catalog', () => {
+  expect(normalizeLaunchConfiguration(selected, { codex: [
+    { value: 'gpt-current', label: 'Current', efforts: [] },
+    { value: 'other', label: 'Other', efforts: ['high'] },
+  ] }, [{ value: 'host-a', label: 'Host A' }]).configuration).toMatchObject({
+    modelPick: selected.modelPick, effort: AUTO,
   })
 })

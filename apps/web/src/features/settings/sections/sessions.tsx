@@ -1,3 +1,4 @@
+import { AUTO } from '@podium/client-core/agent-models'
 import { observer } from 'mobx-react-lite'
 import { type PodiumSettings, resolveRole } from '@podium/runtime'
 import type { JSX } from 'react'
@@ -50,7 +51,7 @@ export const SessionsSection = observer(function SessionsSection({
             allowFreeText
             variant="field"
             agentKind={codingHarness}
-            value={settings.roles.coding.subagentModel}
+            value={settings.roles.coding.subagentModel || AUTO}
             onChange={(subagentModel) =>
               patch({
                 roles: {

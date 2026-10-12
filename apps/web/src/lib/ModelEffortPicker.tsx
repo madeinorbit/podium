@@ -5,7 +5,6 @@ import { forwardRef } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   AUTO,
-  agentSupportsEffort,
   allConnectorModelLabel,
   allConnectorModelOptions,
   decodeModelPick,
@@ -227,13 +226,12 @@ export function EffortPicker({
   const live = useModelCatalog(machineId)[agentKind]
   const { served } = useHarnessDescriptors(machineId)
   // Effort is offered only for a concrete model whose levels the live catalog
-  // lists (POD-3911). Otherwise the pill stays and reads Auto: the row keeps its
+  // lists (POD-3911). Otherwise the pill stays and reads the stored value: the row keeps its
   // shape across model changes, and the operator can see effort is the agent's
   // call rather than wonder where the control went. A harness with no effort
-  // flag at all (Cursor) has nothing to show.
+  // flag likewise offers no choices.
   const options = effortOptionsForModel(agentKind, model, live, served)
   if (options.length === 0) {
-    if (!agentSupportsEffort(agentKind, served)) return null
     return (
       <PickerTrigger
         variant={variant}

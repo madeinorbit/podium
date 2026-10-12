@@ -1,3 +1,4 @@
+import { NEW_WORK_MODEL_KEY, NEW_WORK_EFFORT_KEY } from '@podium/client-core/ui-state'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { headerView } from '@podium/client-graph/header-views'
 /**
@@ -14,7 +15,7 @@ import type { MobxPool } from '@podium/client-graph/pool'
 import type { GitRepositoryWire, MachineWire, SessionMeta } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 import type { ReactNode } from 'react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { useMobilePool } from '../client/mobile-pool'
 import { renderWithMobileStore } from '../client/test-support'
 
@@ -53,6 +54,14 @@ vi.mock('expo-router', () => ({
   usePathname: () => '/work',
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
 }))
+
+const catalogFixture = vi.hoisted(() => ({ byMachine: {} as Record<string, Record<string, Array<{ value: string; label: string; efforts?: string[] }>>> }))
+const LIVE = { 'claude-code': [{ value: 'reported-opus', label: 'Reported Opus', efforts: ['low', 'high'] }] }
+vi.mock('@podium/client-core/react', async (original) => ({
+  ...(await original<typeof import('@podium/client-core/react')>()),
+  useModelCatalog: (machineId?: string) => catalogFixture.byMachine[machineId ?? 'mine'] ?? {},
+}))
+beforeEach(() => { catalogFixture.byMachine = { mine: LIVE, remote: LIVE } })
 
 const { NewWorkButton } = await import('./NewWorkButton')
 
@@ -345,7 +354,7 @@ describe('the phone launch sheet', () => {
   })
 
   it('starts an agent with the written first prompt', async () => {
-    const create = vi.fn(async () => ({ sessionId: 'created' }))
+    const create = vi.fn(async (_request: unknown) => ({ sessionId: 'created' }))
     await renderWithMobileStore(<NewWorkButton />, {
       repos: [repo('/home/dev/podium')],
       machines: READY,
@@ -404,7 +413,7 @@ describe('the phone launch sheet', () => {
    */
   describe('harness readiness on the target machine', () => {
     it('starts Auto on a harness that is ready there when the default is signed out', async () => {
-      const create = vi.fn(async () => ({ sessionId: 'created' }))
+      const create = vi.fn(async (_request: unknown) => ({ sessionId: 'created' }))
       await renderWithMobileStore(<NewWorkButton />, {
         repos: [repo('/home/dev/podium')],
         machines: [machine({ 'claude-code': 'out', opencode: 'in' })],
@@ -421,7 +430,7 @@ describe('the phone launch sheet', () => {
     })
 
     it('keeps the default harness when it is ready', async () => {
-      const create = vi.fn(async () => ({ sessionId: 'created' }))
+      const create = vi.fn(async (_request: unknown) => ({ sessionId: 'created' }))
       await renderWithMobileStore(<NewWorkButton />, {
         repos: [repo('/home/dev/podium')],
         machines: READY,
@@ -434,11 +443,11 @@ describe('the phone launch sheet', () => {
       expect(create).toHaveBeenCalledWith(expect.objectContaining({ agentKind: 'claude-code' }))
     })
 
-    it('refuses with the desktop message when no harness is ready there', async () => {
-      const create = vi.fn(async () => ({ sessionId: 'created' }))
+    it('refuses with the desktop message when no harness is installed there', async () => {
+      const create = vi.fn(async (_request: unknown) => ({ sessionId: 'created' }))
       await renderWithMobileStore(<NewWorkButton />, {
         repos: [repo('/home/dev/podium')],
-        machines: [machine({ 'claude-code': 'out' })],
+        machines: [machine({})],
         api: { sessions: { create: { mutate: create } } },
       })
       fireEvent.click(screen.getByLabelText('New work'))
@@ -454,7 +463,7 @@ describe('the phone launch sheet', () => {
     it('judges the harness on the machine the launch lands on, not on any machine', async () => {
       // Claude is signed in on a second host, but the project lives on Studio,
       // where it is signed out: Auto must still step over it.
-      const create = vi.fn(async () => ({ sessionId: 'created' }))
+      const create = vi.fn(async (_request: unknown) => ({ sessionId: 'created' }))
       await renderWithMobileStore(<NewWorkButton />, {
         repos: [repo('/home/dev/podium')],
         machines: [
@@ -471,8 +480,8 @@ describe('the phone launch sheet', () => {
       expect(create).toHaveBeenCalledWith(expect.objectContaining({ agentKind: 'opencode' }))
     })
 
-    it('refuses an explicitly picked harness that is signed out, rather than swapping it', async () => {
-      const create = vi.fn(async () => ({ sessionId: 'created' }))
+    it('launches an explicitly picked signed-out harness headed with the desktop sign-in sentence', async () => {
+      const create = vi.fn(async (_request: unknown) => ({ sessionId: 'created' }))
       await renderWithMobileStore(<NewWorkButton />, {
         repos: [repo('/home/dev/podium')],
         machines: [machine({ 'claude-code': 'out', opencode: 'in' })],
@@ -481,13 +490,76 @@ describe('the phone launch sheet', () => {
       fireEvent.click(screen.getByLabelText('New work'))
       fireEvent.click(screen.getByLabelText(/^Model, Auto/))
       pickFirstClaudeModel()
-
-      expect(await screen.findByText(NOT_READY)).toBeTruthy()
+      expect(await screen.findByText('Claude Code is not signed in on Studio. It opens in its terminal, where you can sign in.')).toBeTruthy()
       const start = screen.getByLabelText('Start in podium')
-      expect(start.getAttribute('aria-disabled')).toBe('true')
+      expect(start.getAttribute('aria-disabled')).not.toBe('true')
       fireEvent.click(start)
-      await Promise.resolve()
-      expect(create).not.toHaveBeenCalled()
+      await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+      const request = create.mock.calls[0]?.[0] as unknown as Record<string, unknown>
+      expect(request).toMatchObject({ agentKind: 'claude-code', model: 'reported-opus' })
+      // sessions.create's absent driver override is explicitly the headed default.
+      expect(request).not.toHaveProperty('requestedDriverId')
+      expect(request).not.toHaveProperty('headless')
     })
+  })
+})
+
+
+describe('phone picker parity', () => {
+  it('resets a retired remembered model and its effort visibly and before submitting', async () => {
+    const create = vi.fn(async (_request: unknown) => ({ sessionId: 'created' }))
+    const { runtime } = await renderWithMobileStore(<NewWorkButton />, {
+      repos: [repo('/home/dev/podium')], machines: READY,
+      api: { sessions: { create: { mutate: create } } },
+    })
+    act(() => {
+      runtime.access.uiState.set(NEW_WORK_MODEL_KEY, 'claude-code:retired')
+      runtime.access.uiState.set(NEW_WORK_EFFORT_KEY, 'high')
+    })
+    fireEvent.click(screen.getByLabelText('New work'))
+    expect(await screen.findByLabelText('Model, Auto')).toBeTruthy()
+    expect(screen.getByLabelText('Effort, Auto').getAttribute('role')).not.toBe('button')
+    expect(runtime.access.uiState.get(NEW_WORK_MODEL_KEY)).toBe('auto')
+    expect(runtime.access.uiState.get(NEW_WORK_EFFORT_KEY)).toBe('auto')
+    fireEvent.click(screen.getByLabelText('Start in podium'))
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('model')
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('effort')
+  })
+
+  it('keeps model and effort when switching projects and machines that report the same list', async () => {
+    const create = vi.fn(async (_request: unknown) => ({ sessionId: 'created' }))
+    const projects = [repo('/home/dev/podium'), repo('/home/dev/shared')]
+    await renderWithMobileStore(<NewWorkButton />, {
+      repos: [...projects, ...projects.map((project) => ({ ...project, machineId: 'remote' }) as GitRepositoryWire)],
+      machines: [...READY, machine({ 'claude-code': 'in' }, 'remote', 'Remote')],
+      api: { sessions: { create: { mutate: create } } },
+    })
+    fireEvent.click(screen.getByLabelText('New work'))
+    fireEvent.click(screen.getByLabelText('Model, Auto'))
+    pickFirstClaudeModel()
+    fireEvent.click(screen.getByLabelText('Effort, Auto'))
+    fireEvent.click(screen.getByLabelText('High'))
+    fireEvent.click(screen.getByLabelText('Project, podium'))
+    fireEvent.click(screen.getByLabelText('shared'))
+    expect(await screen.findByLabelText('Model, Claude Code · Reported Opus')).toBeTruthy()
+    expect(screen.getByLabelText('Effort, High')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Machine, Studio'))
+    fireEvent.click(screen.getByLabelText('Remote'))
+    expect(await screen.findByLabelText('Model, Claude Code · Reported Opus')).toBeTruthy()
+    expect(screen.getByLabelText('Effort, High')).toBeTruthy()
+    fireEvent.click(screen.getByLabelText('Start in shared'))
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(create.mock.calls[0]?.[0]).toMatchObject({ machineId: 'remote', model: 'reported-opus', effort: 'high' })
+  })
+
+  it('offers no Use option for a typed model name', async () => {
+    catalogFixture.byMachine.mine = { 'claude-code': Array.from({ length: 9 }, (_, n) => ({ value: `model-${n}`, label: `Model ${n}` })) }
+    await renderWithMobileStore(<NewWorkButton />, { repos: [repo('/home/dev/podium')], machines: READY })
+    fireEvent.click(screen.getByLabelText('New work'))
+    fireEvent.click(screen.getByLabelText('Model, Auto'))
+    fireEvent.change(screen.getByPlaceholderText(/Filter/), { target: { value: 'my-custom-model' } })
+    expect(screen.queryByLabelText(/Use.*my-custom-model/)).toBeNull()
+    expect(screen.queryByText(/Use.*my-custom-model/)).toBeNull()
   })
 })

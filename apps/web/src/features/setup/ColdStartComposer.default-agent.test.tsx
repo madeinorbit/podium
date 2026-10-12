@@ -156,10 +156,14 @@ vi.mock('@/lib/use-feature', () => ({
   useFeature: () => feature.enabled,
 }))
 
-vi.mock('@/lib/ModelEffortPicker', () => ({
-  ModelPicker: () => null,
-  EffortPicker: () => null,
-}))
+const pickerFixture = vi.hoisted(() => ({ real: false }))
+vi.mock('@/lib/ModelEffortPicker', async (original) => {
+  const actual = await original<typeof import('@/lib/ModelEffortPicker')>()
+  return {
+    ModelPicker: (props: Parameters<typeof actual.ModelPicker>[0]) => pickerFixture.real ? <actual.ModelPicker {...props} /> : null,
+    EffortPicker: (props: Parameters<typeof actual.EffortPicker>[0]) => pickerFixture.real ? <actual.EffortPicker {...props} /> : null,
+  }
+})
 
 afterEach(() => {
   cleanup()
@@ -170,6 +174,7 @@ afterEach(() => {
   state.installed = ['claude-code', 'codex', 'grok']
   state.runtimeDrivers = []
   feature.enabled = false
+  pickerFixture.real = false
   store.spawnDraftAgent.mockClear()
   updatePersonal.mockClear()
 })
@@ -416,4 +421,14 @@ describe('the agent chip wears its harness', () => {
     expect(project.querySelector('.bg-claude')).toBeNull()
     expect(project.querySelector('.cold-start-project-mark')).toBeNull()
   })
+})
+
+
+it('offers no Use option in the new-task model menu', async () => {
+  pickerFixture.real = true
+  render(<ColdStartComposer first={false} />)
+  await waitFor(() => expect(chip().textContent).toContain('Claude Code'))
+  fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+  fireEvent.change(await screen.findByPlaceholderText('Filter…'), { target: { value: 'my-custom-model' } })
+  expect(screen.queryByRole('menuitem', { name: /Use / })).toBeNull()
 })

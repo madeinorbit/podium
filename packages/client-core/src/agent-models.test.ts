@@ -6,6 +6,9 @@ import {
   filterCatalogOptions,
   groupedCatalogOptions,
   issueDefaultAgentKind,
+  agentDescriptors,
+  issueAgentOptions,
+  issueAgentLabel,
   spawnSelection,
   agentSupportsEffort,
   allConnectorModelLabel,
@@ -302,4 +305,27 @@ describe('the pills follow the machine\'s model list (POD-3911)', () => {
     expect(draftForReportedModels(draft('gpt-4-retired', 'high'), undefined)).toBeUndefined()
     expect(draftForReportedModels(draft('gpt-4-retired', 'high'), [])).toBeUndefined()
   })
+})
+
+
+it('returns the same live-only model and concrete-model effort contract for every harness', () => {
+  for (const descriptor of agentDescriptors(undefined)) {
+    const live = [
+      { value: 'reported', label: 'Reported', efforts: ['high'] },
+      { value: 'no-levels', label: 'No levels', efforts: [] },
+      { value: 'unknown-levels', label: 'Unknown levels' },
+    ]
+    expect(modelOptions(descriptor.kind, live).map(option => option.value)).toEqual(['auto', 'reported', 'no-levels', 'unknown-levels'])
+    for (const model of ['auto', 'no-levels', 'unknown-levels', 'stored']) {
+      expect(effortOptionsForModel(descriptor.kind, model, live)).toEqual([])
+      expect(effortLabel(descriptor.kind, 'high')).toBe('High')
+    }
+    expect(effortOptionsForModel(descriptor.kind, 'reported', live).map(option => option.value)).toEqual(descriptor.capabilities.effort ? ['auto', 'high'] : [])
+  }
+})
+
+it('shares default harness labels and option ordering independently of registry order', () => {
+  expect(issueAgentLabel(undefined)).toBe('Claude Code')
+  expect(issueAgentOptions(undefined)[0]).toEqual({ value: '', label: 'Claude Code (default)' })
+  expect(issueAgentOptions('codex').filter(option => option.value === 'codex')).toEqual([])
 })

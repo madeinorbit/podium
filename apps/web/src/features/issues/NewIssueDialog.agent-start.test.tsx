@@ -312,3 +312,11 @@ it('offers the online name instead of stale offline rows in the new-task picker'
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ machineId: 'fresh' })),
   )
 })
+
+
+it('offers no Use option in the new-issue launch menu', async () => {
+  render(<NewIssueDialog onClose={vi.fn()} />)
+  fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+  fireEvent.change(await screen.findByPlaceholderText('Filter…'), { target: { value: 'my-custom-model' } })
+  expect(screen.queryByRole('menuitem', { name: /Use / })).toBeNull()
+})

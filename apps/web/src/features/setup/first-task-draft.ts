@@ -111,4 +111,3 @@ export function persistFirstTaskDraft(uiState: Pick<UiState, 'set'>, draft: Firs
 export function clearFirstTaskDraft(uiState: Pick<UiState, 'set'>): void {
   uiState.set(FIRST_TASK_ACTIVATION_DRAFT_KEY, null)
 }
-

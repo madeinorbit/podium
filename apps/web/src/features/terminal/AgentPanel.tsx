@@ -55,7 +55,7 @@ import { OfferDismissalContext, useOfferDismissalHost } from '@/features/chat/of
 import { OfferLiftContext, useOfferLiftHost } from '@/features/chat/offer-lift'
 import { agentBrandDot } from '@/lib/agent-tone'
 import { useSessionGuard } from '@/lib/hooks/use-session-guard'
-import { issueAgentKind } from '@/lib/issue-agents'
+import { issueAgentKind } from '@podium/client-core/agent-models'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import { isKnownRefPrefix } from '@/lib/markdown-references'
 import { activateRef } from '@/lib/ref-activation'

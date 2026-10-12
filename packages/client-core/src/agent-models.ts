@@ -166,10 +166,10 @@ export function modelLabel(
 }
 
 /**
- * Would this harness accept this effort? The per-KIND ladder is the floor,
+ * Would this harness accept this effort? The per-KIND ladder is the fallback,
  * but a single model may carry rungs the kind's generic list does not (codex
- * frontier models have `max`/`ultra`), and once a live catalog is in hand its
- * per-model `efforts` are the authority.
+ * frontier models have `max`/`ultra`), and a live catalog can add per-model rungs. Launch drafts use
+ * `draftForReportedModels` to validate against the selected model itself.
  */
 export function isEffortValid(
   kind: IssueAgentKind | string,

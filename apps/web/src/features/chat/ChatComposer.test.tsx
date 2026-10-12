@@ -1,3 +1,4 @@
+import { fireEvent, screen } from '@testing-library/react'
 import { createDraftLedger } from '@podium/client-core'
 import { asSessionId } from '@podium/model/browser'
 import type { useVoiceInput } from '@podium/terminal-client-react'
@@ -86,6 +87,7 @@ async function mount(
     deliverable?: boolean
     autoFocusKey?: string
     fromRuntime?: boolean
+    backend?: ComponentProps<typeof ChatComposer>['backend']
   } = { compact: true },
 ): Promise<{ ta: HTMLTextAreaElement }> {
   const taRef = createRef<HTMLTextAreaElement>()
@@ -117,6 +119,9 @@ async function mount(
           offlineAsOf={null}
           autoFocusKey={opts.autoFocusKey ?? 's1'}
           transcriptSettled
+          backend={opts.backend}
+          onBackendModelChange={() => {}}
+          onBackendEffortChange={() => {}}
         />
       </PanelVisible>,
     )
@@ -787,4 +792,15 @@ describe('native composer sizing', () => {
     expect(measure).not.toHaveBeenCalled()
     expect(container.querySelector('textarea')?.className).toContain('[field-sizing:content]')
   })
+})
+
+
+it('offers no Use option in the chat backend menu and preserves an inert stored effort', async () => {
+  await mount({ compact: true, backend: { agentKind: undefined, model: 'auto', effort: 'high' } })
+  const effort = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
+  expect(effort.disabled).toBe(true)
+  expect(effort.textContent).toContain('High')
+  fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+  fireEvent.change(await screen.findByPlaceholderText('Filter…'), { target: { value: 'my-custom-model' } })
+  expect(screen.queryByRole('menuitem', { name: /Use / })).toBeNull()
 })

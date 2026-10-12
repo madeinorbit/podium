@@ -65,7 +65,7 @@ describe('ModelPicker without typed models (POD-3911)', () => {
   })
 
   it('still offers it where free text is on', async () => {
-    render(<ModelPicker agentKind="grok" value="auto" onChange={vi.fn()} />)
+    render(<ModelPicker agentKind="grok" value="auto" onChange={vi.fn()} allowFreeText />)
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
     fireEvent.change(await screen.findByPlaceholderText('Model name…'), {
       target: { value: 'my-custom-model' },
@@ -115,9 +115,9 @@ describe('EffortPicker follows the selected model', () => {
     expect(pill.disabled).toBe(true)
   })
 
-  it('is absent for a harness with no effort flag at all', () => {
+  it('shows stored effort inert for a harness with no effort flag at all', () => {
     render(<EffortPicker agentKind="cursor" model="auto" value="auto" onChange={vi.fn()} />)
-    expect(screen.queryByRole('button', { name: 'Effort' })).toBeNull()
+    expect((screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement).disabled).toBe(true)
   })
 })
 
@@ -132,4 +132,12 @@ describe('AllConnectorsModelPicker', () => {
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Opus 4.8' }))
     expect(onChange).toHaveBeenCalledWith({ agentKind: 'claude-code', model: 'claude-opus-4-8' })
   })
+})
+
+
+it('shows a stored effort inert when the live model has no levels', () => {
+  render(<EffortPicker agentKind="claude-code" model="claude-haiku-4-5" value="high" onChange={vi.fn()} />)
+  const pill = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
+  expect(pill.disabled).toBe(true)
+  expect(pill.textContent).toContain('High')
 })
