@@ -68,6 +68,20 @@ it to `click X Y`, which needs the app's current layout.
 and write normal PowerShell inside. A failing command makes `win` exit non-zero (boat
 reports every failure as exit code 1).
 
+Long jobs (a cold `bun install` takes ~6–10 min in the guest) need two things:
+
+- **`win` returns its output only when the command ends**, and a dropped SSH call loses it.
+  Write progress to a log file in the guest and read it back with a short `win` call.
+- **A process started from a `win` session dies when that session closes**, `Start-Process`
+  included. To leave a job running, write the script to the guest and run it as a scheduled
+  task: `schtasks /create /f /tn job /ru SYSTEM /sc once /st 23:59 /tr 'powershell -NoProfile
+  -ExecutionPolicy Bypass -File C:\job.ps1'`, then `schtasks /run /tn job`. As SYSTEM,
+  `$env:LOCALAPPDATA` is not the `podium` user's: spell Bun's path out
+  (`C:\Users\podium\AppData\Local\mise\installs\bun\1.4.2\bin`). Check the job is alive
+  before you leave it.
+- **Windows PowerShell 5** treats a native command's stderr as an error: keep
+  `$ErrorActionPreference = 'Continue'` around `bun` and `tar` calls.
+
 On Windows the Shell panel opens PowerShell (7 if installed, else Windows PowerShell);
 agent sessions run under the Windows podium-host (ConPTY, owner-only named pipes) and
 survive a daemon restart like on macOS. Claude Code's native installer does not add
