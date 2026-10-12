@@ -365,7 +365,9 @@ describe('resolveLaunchSelection — independent field precedence', () => {
     })
   }
 
-  const missingCatalogs = [null, { ...catalog, byAgent: {} }, { ...catalog, byAgent: { codex: [] } }]
+  const missingCatalogs: Array<ModelCatalogSnapshot | null | undefined> = [
+    undefined, null, { ...catalog, byAgent: {} }, { ...catalog, byAgent: { codex: [] } },
+  ]
   for (const field of ['model', 'effort'] as const) {
     for (const source of ['explicit', 'issue', 'settings'] as const) {
       it.each(missingCatalogs)(`${field}: ${source} is kept unchecked with absent/empty catalog %j`, (absent) => {
