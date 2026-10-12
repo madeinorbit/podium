@@ -305,9 +305,9 @@ describe('RepoScanFlow machine selection', () => {
 
     const onDone = vi.fn()
     const restored = render(<RepoScanFlow onboarding onClose={() => {}} onDone={onDone} />)
-    expect(((await screen.findByLabelText('Machine')) as HTMLSelectElement).value).toBe('vmi34')
     fireEvent.click(await screen.findByRole('button', { name: 'Add 1 · Remove 1' }))
     await waitFor(() => expect(onDone).toHaveBeenCalledWith(2))
+    expect(addMany).toHaveBeenCalledWith({ paths: ['/home/vmi34/fresh'], machineId: 'vmi34' })
     expect(scanMachine).not.toHaveBeenCalled()
     expect(uiValues.has('podium.localProjectIntake.draft')).toBe(false)
 
