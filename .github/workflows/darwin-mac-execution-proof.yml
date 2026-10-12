@@ -28,9 +28,8 @@ jobs:
     timeout-minutes: 45
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/cache@v4
+      - uses: ./.github/actions/bun-cache
         with:
-          path: ~/.bun/install/cache
           key: bun-${{ hashFiles('bun.lock') }}
       # zig + rcodesign versions come from mise.toml — the one pin site dev machines share.
       - uses: jdx/mise-action@v2

@@ -86,9 +86,8 @@ jobs:
         with:
           path: dist-bun/rust-host-cache
           key: rust-host-cross-${{ hashFiles('mise.toml', 'scripts/rust-host-cross.ts', 'packages/pty/vendor/podium-host/**') }}
-      - uses: actions/cache@v4
+      - uses: ./.github/actions/bun-cache
         with:
-          path: ~/.bun/install/cache
           key: headless-cross-${{ hashFiles('bun.lock') }}
       # The client build cache (POD-3053). `release:prepare` builds web and mobile ONCE
       # for the whole platform set through scripts/build-clients.ts; with this restored,

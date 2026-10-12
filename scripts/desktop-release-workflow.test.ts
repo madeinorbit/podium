@@ -1,5 +1,13 @@
 import { execFileSync, spawnSync } from 'node:child_process'
-import { chmodSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  readdirSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterAll, describe, expect, it } from 'vitest'
@@ -625,6 +633,40 @@ describe('desktop release workflow', () => {
     expect(parsed.jobs.build.env?.MISE_DISABLE_TOOLS).toBe(
       "${{ matrix.target == 'windows-x86_64' && 'zig,rcodesign,pigz' || '' }}",
     )
+  })
+
+  it('caches Bun packages through the shared action, never the global store', () => {
+    const parsed = Bun.YAML.parse(desktopWorkflow) as {
+      jobs: { build: { steps: Array<{ uses?: string }> } }
+    }
+    const uses = parsed.jobs.build.steps.map((step) => step.uses ?? '')
+    expect(uses).toContain('./.github/actions/bun-cache')
+    expect(uses.filter((u) => u.startsWith('actions/cache'))).toEqual([])
+    const action = Bun.YAML.parse(
+      readFileSync(join(repoRoot, '.github/actions/bun-cache/action.yml'), 'utf8'),
+    ) as { runs: { steps: Array<{ with: { path: string; key: string } }> } }
+    const [cache] = action.runs.steps
+    expect(cache?.with.path).toContain(
+      "${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}/*",
+    )
+    expect(cache?.with.path).toContain(
+      "!${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}/links",
+    )
+    expect(cache?.with.key.startsWith('bun-packages-')).toBe(true)
+    // GitHub evaluates expressions even in an input's description; one there fails the load.
+    const meta = readFileSync(join(repoRoot, '.github/actions/bun-cache/action.yml'), 'utf8')
+      .split('runs:')[0]
+      ?.replace(/^#.*$/gm, '')
+    expect(meta).not.toContain('${{')
+  })
+
+  it('no workflow caches the Bun install directory except through the shared action', () => {
+    for (const file of readdirSync(join(repoRoot, '.github/workflows'))) {
+      const text = readFileSync(join(repoRoot, '.github/workflows', file), 'utf8')
+      expect(text, file).not.toMatch(
+        /path: ~\/\.bun\/install\/cache|path: \$\{\{ env\.BUN_INSTALL_CACHE_DIR/,
+      )
+    }
   })
 
   it('builds and publishes the updater-signed Windows NSIS installer', () => {
