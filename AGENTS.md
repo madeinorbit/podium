@@ -21,6 +21,10 @@ backend, so cross-origin, cookie and sidecar-spawn behavior only reproduce there
 **[docs/agents/driving-desktop.md](docs/agents/driving-desktop.md)** — including the
 isolation this needs, since the shell spawns its sidecar with `--takeover`.
 
+Windows behavior (the desktop app, ConPTY, installers, CI's Windows legs) is built and driven on
+a boat.dev Windows sandbox, about a cent an hour: see
+**[docs/agents/boat-windows.md](docs/agents/boat-windows.md)**.
+
 ## Frontend data
 
 Before changing how any client screen (web, desktop, phone) gets or derives data, including
@@ -211,6 +215,7 @@ passed, delete the code, or move the date and say why in the same commit.
 - [docs/agents/multi-instance.md](docs/agents/multi-instance.md) — operate and test fully independent instances on one machine.
 - [docs/agents/driving-podium.md](docs/agents/driving-podium.md) — drive the Podium UI with Playwright to verify features at runtime.
 - [docs/agents/driving-desktop.md](docs/agents/driving-desktop.md) — run the Tauri desktop shell headlessly, for the few properties only the real webview answers (cross-origin, cookies, sidecar spawn).
+- [docs/agents/boat-windows.md](docs/agents/boat-windows.md) — fork, sync, build and drive a Windows sandbox on boat.dev (`scripts/boat-windows/boat-win.sh`).
 - [docs/agents/agent-state-classification.md](docs/agents/agent-state-classification.md) — how agent run-state is classified from transcripts.
 - [docs/agents/podium-issues.md](docs/agents/podium-issues.md) — use the `podium issue` CLI to track work from inside a session.
 - [docs/agents/delegating.md](docs/agents/delegating.md) — spawn other agents: placement, naming, concurrency, advisory locks.

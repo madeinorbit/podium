@@ -218,6 +218,11 @@ for s in json.load(sys.stdin)["sandboxes"]:
     start_windows "$1"
     wait_windows "$1"
     ;;
+  extend)
+    need_id "${1:-}"
+    boat extend "$1" --ttl "$(( ${2:-30} * 60 ))" >/dev/null
+    echo "boat-win: $1 now stops ${2:-30} min from now"
+    ;;
   rm)
     need_id "${1:-}"; boat delete "$1" --yes ;;
   compact)
