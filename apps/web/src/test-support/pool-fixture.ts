@@ -1,3 +1,4 @@
+import { observable, runInAction } from 'mobx'
 import { worklistView } from '@podium/client-graph/worklist/view-model'
 import { referenceView } from '@podium/client-graph/issue-reference'
 import { headerEntities } from '@podium/client-graph/header-entities'
@@ -29,6 +30,7 @@ let seededIssues: readonly unknown[] = []
 let headerFixture = false
 let stopHeader: (() => void) | undefined
 let fixtureState: Store
+const fixtureExits = observable.map<string, 'evicted'>()
 let previousRows = new Map<string, RowSourceEvent['rows'][number]>()
 const headerListeners = new Set<() => void>()
 
@@ -45,6 +47,7 @@ afterEach(() => {
   signature = undefined
   seededIssues = []
   previousRows.clear()
+  runInAction(() => fixtureExits.clear())
 })
 
 /** Historical page tests supplied their fixture row as a prop. */
@@ -106,7 +109,7 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
     pool.sources.register(ISSUE_BOARD_ENTITIES, createIssueBoardSource(pool))
     // POD-3911: the fixture authority supplies the same exit evidence as the live source.
     pool.sources.register(['issueExit'], {
-      read: (_entity, id) => ({ kind: fixtureState.replica?.exitKind?.('issueProjection', id) }),
+      read: (_entity, id) => ({ kind: fixtureState.replica?.exitKind?.('issueProjection', id) ?? fixtureExits.get(id) }),
       dispose() {},
     })
   }
@@ -158,6 +161,12 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
         .map((value) => ({ kind: 'worktree' as const, id: value.path, value })),
     ]
     const nextRows = new Map(rows.map((row) => [JSON.stringify([row.kind, row.id]), row]))
+    // POD-3911: a removed fixture row models an unshare, with explicit eviction evidence.
+    runInAction(() => {
+      for (const row of rows) if (row.kind === 'issue') fixtureExits.delete(row.id)
+      for (const [key, row] of previousRows)
+        if (row.kind === 'issue' && !nextRows.has(key)) fixtureExits.set(row.id, 'evicted')
+    })
     pool.apply({
       type: 'update',
       rows: [

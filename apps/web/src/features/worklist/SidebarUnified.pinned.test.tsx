@@ -2,7 +2,7 @@ import '@/test-support/mock-core-store-handle'
 // POD-3911: exercise the real pool after the provider-free action fixture.
 import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { publishPoolFixture } from '@/test-support/pool-fixture'
 import { SidebarUnified, WorkSections } from './SidebarUnified'
@@ -205,7 +205,7 @@ afterEach(() => {
 })
 
 describe('SidebarUnified PINNED section (POD-166, R3)', () => {
-  it('pinned issues MOVE into one PINNED section above all project groups', () => {
+  it('pinned issues MOVE into one PINNED section above all project groups', async () => {
     render(<SidebarUnified />)
     const section = screen.getByTestId('pinned-section')
     // The pinned row lives inside the PINNED section…
@@ -220,7 +220,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(section.compareDocumentPosition(group) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 
-  it('keeps folded live rows as direct drag-scope children and starts the gesture', () => {
+  it('keeps folded live rows as direct drag-scope children and starts the gesture', async () => {
     render(<SidebarUnified />)
     const group = screen.getByTestId('project-group')
     // POD-3911: windowing owns the scope and its direct draggable children.
@@ -261,7 +261,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(group.style.zIndex).toBe('')
   })
 
-  it('a coloured, unselected row is hover-tintable via the var-driven background (§7 fix)', () => {
+  it('a coloured, unselected row is hover-tintable via the var-driven background (§7 fix)', async () => {
     render(<SidebarUnified />)
     const row = rowButton('Pinned issue').closest('[class*="group/row"]') as HTMLElement
     // Backgrounds ride CSS vars so hover: can win over the resting tint —
@@ -284,7 +284,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(screen.queryByText('Closed result unseen')).toBeNull()
     expect(screen.getByText('Closed result selected')).toBeTruthy()
 
-    fireEvent.click(toggle)
+    await act(async () => { fireEvent.click(toggle) })
 
     expect(toggle.getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByText('Closed alpha')).toBeTruthy()
@@ -294,7 +294,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
       'opacity-50',
     )
 
-    fireEvent.click(toggle)
+    await act(async () => { fireEvent.click(toggle) })
     // A SHUT FOLD IS NOT AN INSTANT UNMOUNT ANY MORE (POD-1253). The disclosure
     // clips its own height away and the rows leave with it, so they are still in
     // the DOM for the length of that exit — `waitFor` is asserting the same
@@ -303,7 +303,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     await waitFor(() => expect(screen.queryByText('Closed alpha')).toBeNull())
   })
 
-  it('keeps the selected open closure in standalone work sections too', () => {
+  it('keeps the selected open closure in standalone work sections too', async () => {
     render(<WorkSections />)
 
     expect(screen.getByRole('button', { name: '3 closed' })).toBeTruthy()
@@ -316,7 +316,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     const { rerender } = render(<SidebarUnified />)
     expect(screen.getByRole('button', { name: '3 closed' })).toBeTruthy()
 
-    fireEvent.click(rowButton('Plain issue'))
+    await act(async () => { fireEvent.click(rowButton('Plain issue')) })
 
     expect(selection.issueId).toBe('plain')
     // The click lands in the mocked store; republish so the memo'd pool
@@ -329,12 +329,12 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
 
   it('keeps a closure clicked in Closed folded, and forgets that latch after focus moves', async () => {
     const { rerender } = render(<SidebarUnified />)
-    fireEvent.click(screen.getByRole('button', { name: '3 closed' }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '3 closed' })) })
     // The click lands on a folded row: declare the gesture context the pool
     // would learn from the action, then republish so the memo'd pool
     // components re-read the fixture.
     selection.wasFolded = true
-    fireEvent.click(rowButton('Closed alpha'))
+    await act(async () => { fireEvent.click(rowButton('Closed alpha')) })
     publishPoolFixture()
     rerender(<SidebarUnified />)
 
@@ -343,12 +343,12 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(rowButton('Closed alpha').getAttribute('data-selected')).toBe('true')
     expect(rowButton('Closed alpha').getAttribute('data-lane')).toBe('closed')
 
-    fireEvent.click(toggle)
+    await act(async () => { fireEvent.click(toggle) })
     await waitFor(() => expect(screen.queryByText('Closed alpha')).toBeNull())
-    fireEvent.click(toggle)
+    await act(async () => { fireEvent.click(toggle) })
     expect(rowButton('Closed alpha').getAttribute('data-lane')).toBe('closed')
 
-    fireEvent.click(rowButton('Plain issue'))
+    await act(async () => { fireEvent.click(rowButton('Plain issue')) })
     publishPoolFixture()
     rerender(<SidebarUnified />)
     // Navigation from outside the sidebar has no folded-click latch. The
@@ -364,7 +364,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     )
   })
 
-  it('honors an explicit tuck even while the finished row is selected', () => {
+  it('honors an explicit tuck even while the finished row is selected', async () => {
     selection.tuckedAt = '2026-06-11T00:00:00.000Z'
     render(<SidebarUnified />)
 
@@ -400,7 +400,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(band.getAttribute('aria-expanded')).toBe('true')
     expect(screen.getByText('Pinned issue')).toBeTruthy()
 
-    fireEvent.click(band)
+    await act(async () => { fireEvent.click(band) })
 
     expect(band.getAttribute('aria-expanded')).toBe('false')
     expect(band.getAttribute('data-collapsed')).toBe('true')
@@ -412,7 +412,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(screen.getByText('Plain issue')).toBeTruthy()
     expect(ui.get('podium:sidebar:pinned-fold')).toBe('true')
 
-    fireEvent.click(band)
+    await act(async () => { fireEvent.click(band) })
     expect(screen.getByText('Plain issue')).toBeTruthy()
     expect(screen.getByText('Pinned issue')).toBeTruthy()
     // Back to default = the key is CLEARED, not written 'false': an absent key
@@ -432,7 +432,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     const band = screen.getByTestId('project-group-label')
     expect(screen.getByTestId('closed-fold-toggle')).toBeTruthy()
 
-    fireEvent.click(band)
+    await act(async () => { fireEvent.click(band) })
 
     expect(group.getAttribute('data-collapsed')).toBe('true')
     // A shut band keeps its visited rows mounted for revisit (FoldPanel
@@ -453,7 +453,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(screen.getByText('Pinned issue')).toBeTruthy()
     expect(ui.get(`podium:sidebar:project-fold:${groupKey}`)).toBe('true')
 
-    fireEvent.click(band)
+    await act(async () => { fireEvent.click(band) })
     expect(screen.getByText('Plain issue')).toBeTruthy()
     expect(screen.getByTestId('closed-fold-toggle')).toBeTruthy()
   })

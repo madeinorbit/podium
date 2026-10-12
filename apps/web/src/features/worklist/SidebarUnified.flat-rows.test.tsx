@@ -36,7 +36,7 @@ import { SidebarUnified } from './SidebarUnified'
 const ui = vi.hoisted(() => {
   const rows = new Map<string, string>()
   const listeners = new Set<(keys: ReadonlySet<string>) => void>()
-  const notify = (): void => {
+  const notify = (key: string): void => {
     for (const listener of listeners) listener(new Set([key]))
   }
   return {
@@ -44,7 +44,7 @@ const ui = vi.hoisted(() => {
     set: (key: string, value: string | null): void => {
       if (value === null) rows.delete(key)
       else rows.set(key, value)
-      notify()
+      notify(key)
     },
     subscribe: (callback: (keys: ReadonlySet<string>) => void): (() => void) => {
       listeners.add(callback)
@@ -55,7 +55,7 @@ const ui = vi.hoisted(() => {
     /** The replica landing late. */
     hydrate: (key: string, value: string): void => {
       rows.set(key, value)
-      notify()
+      notify(key)
     },
     reset: (): void => rows.clear(),
   }
@@ -224,7 +224,7 @@ const missionRow = (): HTMLElement =>
   screen.getByText('Operator workspace').closest('[data-testid="unified-issue-row"]') as HTMLElement
 
 describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
-  it('renders mission roots only — no child issues, sessions or native subagents', () => {
+  it('renders mission roots only — no child issues, sessions or native subagents', async () => {
     render(<SidebarUnified />)
     // Two live rows: the mission and the standalone task. The mission's child,
     // grandchild and every session belong to the Flight Deck, not here.
@@ -249,7 +249,7 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     expect(screen.queryByTestId('mission-subtree-progress')).toBeNull()
   })
 
-  it('gives no row a disclosure of its own', () => {
+  it('gives no row a disclosure of its own', async () => {
     render(<SidebarUnified />)
     const rowToggles = screen
       .getAllByRole('button')
@@ -258,7 +258,7 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     expect(rowToggles).toEqual([])
   })
 
-  it('keeps descendant attention separate from the child-derived task status', () => {
+  it('keeps descendant attention separate from the child-derived task status', async () => {
     render(<SidebarUnified />)
     // A grandchild session is asking, so the row keeps its attention colour.
     // Its words describe the task tree instead of adopting the session state.
@@ -282,7 +282,7 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     ).not.toBe('var(--attention)')
   })
 
-  it('stacks real harness kinds with the agent total and the native-child count', () => {
+  it('stacks real harness kinds with the agent total and the native-child count', async () => {
     render(<SidebarUnified />)
     const fleet = missionRow().querySelector('[data-testid="issue-fleet-summary"]') as HTMLElement
     // KINDS, not agents: five sessions across three harnesses is three tiles.
@@ -298,7 +298,7 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     expect(fleet.getAttribute('title')).toBe('5 agents · 3 native children')
   })
 
-  it('keeps a PARKED agent on its issue, ghosted (POD-756)', () => {
+  it('keeps a PARKED agent on its issue, ghosted (POD-756)', async () => {
     render(<SidebarUnified />)
     // `solo`'s only agent is hibernated: Podium stopped its process to reclaim
     // memory, which says nothing about who is on the task. The row used to drop
@@ -320,7 +320,7 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
     expect(fleet.getAttribute('title')).toBe('1 agent · 1 parked')
   })
 
-  it('ends the column with the tucked-away fold, and folds only bands', () => {
+  it('ends the column with the tucked-away fold, and folds only bands', async () => {
     render(<SidebarUnified />)
     const closed = screen.getByTestId('closed-fold-toggle')
     // The tail fold leads with the QUANTITY (POD-1057): what you are deciding
@@ -358,13 +358,13 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
    * "the proposal itself is nowhere", including as an ordinary row leaking back
    * in through some other path.
    */
-  it('shows no proposed work anywhere in the column', () => {
+  it('shows no proposed work anywhere in the column', async () => {
     render(<SidebarUnified />)
     expect(screen.queryByTestId('proposed-fold-toggle')).toBeNull()
     expect(screen.queryByTestId('proposed-issue-fold')).toBeNull()
     expect(screen.queryByText('Review captures')).toBeNull()
     // Not hiding in the two folds that remain, either.
-    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    await act(async () => { fireEvent.click(screen.getByTestId('closed-fold-toggle')) })
     expect(screen.queryByText('Review captures')).toBeNull()
     expect(screen.queryByTestId('snoozed-fold-toggle')).toBeNull()
   })
@@ -376,20 +376,20 @@ describe('the worklist is one flat row per mission (POD-516 §1.1)', () => {
   // ran again — so every fold in this column came back closed on reload however
   // you left it. Now that the group folds are the ONLY foldable things here,
   // that bug is the whole of the column's memory.
-  it('restores a fold from replicated layout state that lands after mount', () => {
+  it('restores a fold from replicated layout state that lands after mount', async () => {
     render(<SidebarUnified />)
     const toggle = () => screen.getByTestId('closed-fold-toggle')
     expect(toggle().getAttribute('aria-expanded')).toBe('false')
 
-    act(() => ui.hydrate(closedFoldKey('/repo'), 'false'))
+    await act(async () => ui.hydrate(closedFoldKey('/repo'), 'false'))
 
     expect(toggle().getAttribute('aria-expanded')).toBe('true')
     expect(screen.getAllByTestId('closed-fold-row')).toHaveLength(1)
   })
 
-  it('writes a fold through the store rather than holding it in local state', () => {
+  it('writes a fold through the store rather than holding it in local state', async () => {
     render(<SidebarUnified />)
-    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    await act(async () => { fireEvent.click(screen.getByTestId('closed-fold-toggle')) })
     // The press wrote; the value came back through the subscription. One source
     // of truth, so the rendered fold and the stored row cannot diverge.
     expect(ui.get(closedFoldKey('/repo'))).toBe('false')

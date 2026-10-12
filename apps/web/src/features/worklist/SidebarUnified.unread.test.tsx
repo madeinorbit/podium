@@ -2,7 +2,7 @@ import '@/test-support/mock-core-store-handle'
 // POD-3911: exercise the real pool after the provider-free action fixture.
 import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -185,7 +185,7 @@ afterEach(() => {
 })
 
 describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
-  it('renders an unread issue row at semibold with a title dot, not on the fleet tile', () => {
+  it('renders an unread issue row at semibold with a title dot, not on the fleet tile', async () => {
     render(<SidebarUnified />)
     expect(screen.getByText('Unread issue').className).toContain('font-semibold')
     expect(screen.getByText('Read issue').className).not.toContain('font-semibold')
@@ -199,9 +199,9 @@ describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
     expect(readRow.querySelector('[data-testid="row-unread-dot"]')).toBeNull()
   })
 
-  it('marks the issue read when its row is opened', () => {
+  it('marks the issue read when its row is opened', async () => {
     render(<SidebarUnified />)
-    fireEvent.click(screen.getByText('Unread issue'))
+    await act(async () => { fireEvent.click(screen.getByText('Unread issue')) })
     expect(markIssueRead).toHaveBeenCalledWith('u1')
   })
 
@@ -210,31 +210,31 @@ describe('SidebarUnified unread emphasis + mark-read-on-open', () => {
   it('right-clicking a READ issue offers "Mark as unread" and calls markIssueUnread (#138)', async () => {
     render(<SidebarUnified />)
     fireEvent.contextMenu(screen.getByText('Read issue'))
-    fireEvent.click(await screen.findByText('Mark as unread'))
+    await act(async () => { fireEvent.click(await screen.findByText('Mark as unread')) })
     expect(markIssueUnread).toHaveBeenCalledWith('r1')
   })
 
   it('right-clicking an UNREAD issue offers "Mark as read" and calls markIssueRead (#138)', async () => {
     render(<SidebarUnified />)
     fireEvent.contextMenu(screen.getByText('Unread issue'))
-    fireEvent.click(await screen.findByText('Mark as read'))
+    await act(async () => { fireEvent.click(await screen.findByText('Mark as read')) })
     expect(markIssueRead).toHaveBeenCalledWith('u1')
   })
 
-  it('opening an unsnoozed issue clears its "Unsnoozed" tag via defer(null) (#138 FIX C)', () => {
+  it('opening an unsnoozed issue clears its "Unsnoozed" tag via defer(null) (#138 FIX C)', async () => {
     render(<SidebarUnified />)
     // The tag renders while deferUntil is in the past. It is a mono word on
     // line 2 now rather than a boxed badge on line 1 (POD-1057) — line 1 is a
     // title and a time, and every other mark moved down into the machine voice.
     expect(screen.getByText('unsnoozed')).toBeTruthy()
-    fireEvent.click(screen.getByText('Unsnoozed issue'))
+    await act(async () => { fireEvent.click(screen.getByText('Unsnoozed issue')) })
     // …and opening the issue nulls deferUntil so the tag source is gone.
     expect(deferIssue).toHaveBeenCalledWith('d1', null)
   })
 
-  it('shows a suspended row as one dim line with its snooze marker (#133, POD-293)', () => {
+  it('shows a suspended row as one dim line with its snooze marker (#133, POD-293)', async () => {
     render(<SidebarUnified />)
-    fireEvent.click(screen.getByRole('button', { name: '1 snoozed' }))
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '1 snoozed' })) })
     // Suspended work is out of triage: one dim line, no chrome — the alarm icon
     // and full row give way to the fold's own "snoozed …" marker (POD-293).
     const row = screen

@@ -7,7 +7,7 @@ import '@/test-support/mock-pool-fixture'
  * and the list, its ⌘F chord, and what the column does when a query matches
  * nothing.
  */
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { modChord } from '@/lib/mod-chord'
 import { SidebarUnified } from './SidebarUnified'
@@ -229,7 +229,7 @@ describe('SidebarUnified inline filter (POD-1078)', () => {
     render(<SidebarUnified />)
     type('lander')
     await expectTitles(['Alpha lander'])
-    fireEvent.click(screen.getByTestId('work-search-clear'))
+    await act(async () => { fireEvent.click(screen.getByTestId('work-search-clear')) })
     expect(document.activeElement).toBe(field())
     expect(field().value).toBe('')
     await waitFor(() => expect(titles()).toHaveLength(3))
@@ -240,7 +240,7 @@ describe('SidebarUnified inline filter (POD-1078)', () => {
     await waitFor(() => expect(titles()).toHaveLength(3))
   })
 
-  it('focuses and selects the field on ⌘F, and on Ctrl+F off the Mac', () => {
+  it('focuses and selects the field on ⌘F, and on Ctrl+F off the Mac', async () => {
     render(<SidebarUnified />)
     type('lander')
     field().blur()
@@ -256,7 +256,7 @@ describe('SidebarUnified inline filter (POD-1078)', () => {
     expect(document.activeElement).toBe(field())
   })
 
-  it('leaves the chord alone when it carries another modifier', () => {
+  it('leaves the chord alone when it carries another modifier', async () => {
     render(<SidebarUnified />)
     field().blur()
     fireEvent.keyDown(window, { key: 'f', metaKey: true, shiftKey: true })
@@ -273,11 +273,11 @@ describe('SidebarUnified inline filter (POD-1078)', () => {
     // renumber the sample and scatter everything it could not see.
     type('rocket')
     await waitFor(() => expect(document.querySelectorAll('[data-drag-scope] > [data-drag-key]')).toHaveLength(0))
-    fireEvent.click(screen.getByTestId('work-search-clear'))
+    await act(async () => { fireEvent.click(screen.getByTestId('work-search-clear')) })
     await waitFor(() => expect(document.querySelectorAll('[data-drag-scope] > [data-drag-key]')).toHaveLength(3))
   })
 
-  it('gaps every section but the first (the design’s 14px)', () => {
+  it('gaps every section but the first (the design’s 14px)', async () => {
     render(<SidebarUnified />)
     // Pinned opens the column, flush under the search field; the project group
     // under it takes the gap.

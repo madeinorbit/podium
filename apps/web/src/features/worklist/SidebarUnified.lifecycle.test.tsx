@@ -2,7 +2,7 @@ import '@/test-support/mock-core-store-handle'
 // POD-3911: exercise the real pool after the provider-free action fixture.
 import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -166,7 +166,7 @@ afterEach(() => {
   archiveIssue.mockClear()
 })
 describe('closed issue fold lifecycle', () => {
-  it('folds snoozed rows with arrival motion and removes every drag target', () => {
+  it('folds snoozed rows with arrival motion and removes every drag target', async () => {
     render(<SidebarUnified />)
 
     const toggle = screen.getByRole('button', { name: '1 snoozed' })
@@ -179,7 +179,7 @@ describe('closed issue fold lifecycle', () => {
       returned.closest('[data-testid=unified-issue-row]')?.querySelector('[data-testid=row-grip]'),
     ).toBeTruthy()
 
-    fireEvent.click(toggle)
+    await act(async () => { fireEvent.click(toggle) })
     const foldedRow = screen.getByTestId('snoozed-fold-row')
     expect(screen.getByText('Snoozed issue')).toBeTruthy()
     expect(foldedRow.className).toContain('row-arrive')
@@ -187,18 +187,18 @@ describe('closed issue fold lifecycle', () => {
     expect(foldedRow.querySelector('[data-testid=row-grip]')).toBeNull()
 
     fireEvent.animationEnd(foldedRow, { animationName: 'podium-arrive-wash' })
-    fireEvent.click(toggle)
-    fireEvent.click(toggle)
+    await act(async () => { fireEvent.click(toggle) })
+    await act(async () => { fireEvent.click(toggle) })
     expect(screen.getByTestId('snoozed-fold-row').className).toContain('row-arrive')
   })
 
-  it('archives a closed issue from its hover/focus action', () => {
+  it('archives a closed issue from its hover/focus action', async () => {
     render(<SidebarUnified />)
-    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+    await act(async () => { fireEvent.click(screen.getByTestId('closed-fold-toggle')) })
     const archiveButton = screen.getByRole('button', {
       name: 'Archive POD-42',
     })
-    fireEvent.click(archiveButton)
+    await act(async () => { fireEvent.click(archiveButton) })
     expect(archiveIssue).toHaveBeenCalledWith('closed')
     expect(archiveMutate).not.toHaveBeenCalled()
     // NO in-flight state to assert any more (POD-781). This used to check that
@@ -208,14 +208,14 @@ describe('closed issue fold lifecycle', () => {
     // wait that no longer happens is not a control.
   })
 
-  it('archives every closed issue from the action under the list', () => {
+  it('archives every closed issue from the action under the list', async () => {
     render(<SidebarUnified />)
     // The bulk action lives at the FOOT of the open list (POD-1458), not in the
     // fold's title row: a shut fold offers no way to archive rows nobody can see.
     expect(screen.queryByRole('button', { name: 'Archive all 2 closed issues' })).toBeNull()
 
-    fireEvent.click(screen.getByTestId('closed-fold-toggle'))
-    fireEvent.click(screen.getByRole('button', { name: 'Archive all 2 closed issues' }))
+    await act(async () => { fireEvent.click(screen.getByTestId('closed-fold-toggle')) })
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: 'Archive all 2 closed issues' })) })
 
     expect(archiveIssue).toHaveBeenCalledTimes(2)
     expect(archiveIssue).toHaveBeenCalledWith('closed')

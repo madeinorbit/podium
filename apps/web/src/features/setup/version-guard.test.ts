@@ -28,6 +28,14 @@ let unregister: ReturnType<typeof vi.fn>
 let cacheDelete: ReturnType<typeof vi.fn>
 let store: Map<string, string>
 
+// POD-3911: Bun's happy-dom window and global location must observe the same
+// navigation; recovery calls window.location.replace while the guard reads the global.
+function stubLocation(origin: string, pathname = '/'): void {
+  const location = { reload, replace: reload, origin, protocol: new URL(origin).protocol, href: `${origin}${pathname}`, pathname }
+  vi.stubGlobal('location', location)
+  vi.spyOn(window, 'location', 'get').mockReturnValue(location as unknown as Location)
+}
+
 /** A minimal `/version` fetch Response stub. */
 function versionResponse(body: unknown): {
   ok: boolean
@@ -52,7 +60,7 @@ beforeEach(() => {
     delete: cacheDelete,
   })
   // POD-3911: browsers replace the document via the network-only recovery entry.
-  vi.stubGlobal('location', { reload: vi.fn(), replace: reload, origin: ORIGIN, protocol: 'https:', href: `${ORIGIN}/`, pathname: '/' })
+  stubLocation(ORIGIN)
   vi.stubGlobal('sessionStorage', {
     getItem: (k: string) => store.get(k) ?? null,
     setItem: (k: string, v: string) => {
@@ -685,28 +693,28 @@ describe('checkServedAssets and pages this server did not serve', () => {
   }
 
   it('stays quiet for a desktop shell running its own baked bundle', async () => {
-    vi.stubGlobal('location', { reload, origin: 'tauri://localhost', pathname: '/' })
+    stubLocation('tauri://localhost', '/')
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(servingDesktop)))
     expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('unknown')
     expect(currentSkew()).toBeNull()
   })
 
   it('stays quiet for an iteration-mode page served from source', async () => {
-    vi.stubGlobal('location', { reload, origin: 'http://localhost:5173', pathname: '/' })
+    stubLocation('http://localhost:5173', '/')
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(servingDesktop)))
     expect(await checkServedAssets(ORIGIN, 'bundle+Bw5YMffE')).toBe('unknown')
     expect(currentSkew()).toBeNull()
   })
 
   it('measures a phone page against the phone export, which it matches', async () => {
-    vi.stubGlobal('location', { reload, origin: ORIGIN, pathname: '/mobile/sessions' })
+    stubLocation(ORIGIN, '/mobile/sessions')
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(servingDesktop)))
     expect(await checkServedAssets(ORIGIN, 'bundle+a833d1a61f7a6d85a8c7fe49922500f0')).toBe('ok')
     expect(currentSkew()).toBeNull()
   })
 
   it('still tells a phone page when the phone export itself was replaced', async () => {
-    vi.stubGlobal('location', { reload, origin: ORIGIN, pathname: '/mobile/sessions' })
+    stubLocation(ORIGIN, '/mobile/sessions')
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(versionResponse(servingDesktop)))
     expect(await checkServedAssets(ORIGIN, 'bundle+0000000000000000000000000000000f')).toBe(
       'replaced',
@@ -789,7 +797,7 @@ describe('unsupported bundled desktop client', () => {
     'https://tauri.localhost',
   ])('shows an update state without reload loops at %s', async (origin) => {
     resetSkewNotice()
-    vi.stubGlobal('location', { reload, origin, pathname: '/' })
+    stubLocation(origin)
     vi.stubGlobal(
       'fetch',
       vi.fn().mockResolvedValue(

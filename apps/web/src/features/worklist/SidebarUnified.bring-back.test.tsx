@@ -12,7 +12,7 @@ import '@/test-support/mock-pool-fixture'
 //  - POD-43 closed weeks ago and was never tucked. The finished-grace backstop
 //    folds it whether anyone tucked it or not, so clearing a tuck it does not
 //    have would move nothing — the item says so instead of lying.
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { SidebarUnified } from './SidebarUnified'
 
@@ -161,8 +161,8 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 }))
 
 /** Open the Closed fold and hand back the folded row carrying `title`. */
-function foldedRow(title: string): HTMLElement {
-  fireEvent.click(screen.getByTestId('closed-fold-toggle'))
+async function foldedRow(title: string): Promise<HTMLElement> {
+  await act(async () => { fireEvent.click(screen.getByTestId('closed-fold-toggle')) })
   const row = screen.getByText(title).closest('[data-testid=folded-work-row]')
   if (!(row instanceof HTMLElement)) throw new Error(`no folded row for "${title}"`)
   return row
@@ -175,9 +175,9 @@ afterEach(() => {
 })
 
 describe('bring a tucked row back out of the fold (POD-1188)', () => {
-  it('offers Bring back on a tucked row and clears the tuck through the store action', () => {
+  it('offers Bring back on a tucked row and clears the tuck through the store action', async () => {
     render(<SidebarUnified />)
-    const row = foldedRow('Tucked by mistake')
+    const row = await foldedRow('Tucked by mistake')
 
     // A right-click must not also select the row: the menu is the gesture.
     fireEvent.contextMenu(row)
@@ -185,7 +185,7 @@ describe('bring a tucked row back out of the fold (POD-1188)', () => {
     // The panel names the row it acts on, like every other menu in this column.
     expect(screen.getByText('POD-42')).toBeTruthy()
 
-    fireEvent.click(screen.getByTestId('bring-back'))
+    await act(async () => { fireEvent.click(screen.getByTestId('bring-back')) })
 
     // The same outboxed store action the Tuck chip uses, with the flag flipped —
     // NOT a second mechanism, and not a local set of ids (POD-333).
@@ -194,23 +194,23 @@ describe('bring a tucked row back out of the fold (POD-1188)', () => {
     expect(screen.queryByRole('menu', { name: 'Folded task actions' })).toBeNull()
   })
 
-  it('states its case on a row the grace backstop holds down, and sends nothing', () => {
+  it('states its case on a row the grace backstop holds down, and sends nothing', async () => {
     render(<SidebarUnified />)
 
-    fireEvent.contextMenu(foldedRow('Old closure'))
+    fireEvent.contextMenu(await foldedRow('Old closure'))
 
     // Offered and disabled with the reason, never silently absent (POD-821):
     // clearing a tuck this row never had would leave it exactly where it is.
     expect(screen.queryByTestId('bring-back')).toBeNull()
     const blocked = screen.getByTestId('bring-back-blocked')
     expect(blocked.textContent).toContain('The fold keeps closures older than a day')
-    fireEvent.click(blocked)
+    await act(async () => { fireEvent.click(blocked) })
     expect(setIssueTucked).not.toHaveBeenCalled()
   })
 
-  it('does not open on a SUSPENDED row, whose inverse is Unsnooze', () => {
+  it('does not open on a SUSPENDED row, whose inverse is Unsnooze', async () => {
     render(<SidebarUnified />)
-    fireEvent.click(screen.getByTestId('snoozed-fold-toggle'))
+    await act(async () => { fireEvent.click(screen.getByTestId('snoozed-fold-toggle')) })
     const row = screen.getByText('Suspended work').closest('[data-testid=folded-work-row]')
     expect(row).toBeTruthy()
     expect((row as HTMLElement).getAttribute('data-lane')).toBe('snoozed')
