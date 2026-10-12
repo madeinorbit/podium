@@ -1,5 +1,7 @@
 import { observer } from 'mobx-react-lite'
 import type { LaunchWorkPicker } from '@podium/client-graph/launch-option-views'
+import { omitGone } from '@podium/client-graph/lookup'
+import type { MobxPool } from '@podium/client-graph/pool'
 import { relativeTime } from '@podium/client-core/focus'
 import { useHarnessDescriptors, useModelCatalog } from '@podium/client-core/react'
 import {
@@ -7,7 +9,6 @@ import {
   NEW_WORK_MACHINE_KEY,
   NEW_WORK_MODEL_KEY,
   NEW_WORK_REPO_KEY,
-  NEW_WORK_HARNESS_KEY,
   LAST_LAUNCH_PICK_KEY,
 } from '@podium/client-core/ui-state'
 import {
@@ -51,8 +52,6 @@ import {
   type LaunchPickContext,
   effortLabel,
   issueAgentLabel,
-  issueAgentKind,
-  issueAgentOptions,
   issueDefaultAgentKind,
   spawnSelection,
 } from '@podium/client-core/agent-models'
@@ -67,7 +66,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search } from './icons'
 import { PressableScale } from './PressableScale'
 import { HeaderButton } from './Screen'
 
-type PickerStep = 'launch' | 'harness' | 'model' | 'effort' | 'machine' | 'repo' | null
+type PickerStep = 'launch' | 'model' | 'effort' | 'machine' | 'repo' | null
 
 const EMPTY_INPUTS = {
   machines: [] as MachineWire[],
@@ -99,6 +98,14 @@ const SEARCH_THRESHOLD = 8
 
 const readString = (raw: string | null): string | null => (raw && raw.length > 0 ? raw : null)
 const writeString = (value: string | null): string | null => value
+
+/** Do not restore a preference over a draft whose own fields are still loading. */
+function launchDraftReady(pool: MobxPool): boolean {
+  return [NEW_WORK_MODEL_KEY, NEW_WORK_EFFORT_KEY, NEW_WORK_MACHINE_KEY, NEW_WORK_REPO_KEY].every((key) => {
+    const row = omitGone(pool.row('preference', key))
+    return typeof row === 'object' && row !== null
+  })
+}
 
 /**
  * Pocket launch sheet: everything the spawn needs on ONE screen, with the
@@ -176,8 +183,8 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
     readString,
     writeString,
   )
-  const [harnessPick, setHarnessPick] = usePersistedUiState(NEW_WORK_HARNESS_KEY, readString, writeString)
   const [lastLaunchPicks] = usePersistedUiState(LAST_LAUNCH_PICK_KEY, readLastLaunchPicks, JSON.stringify)
+  const draftReady = useMobilePoolProjection(launchDraftReady, false)
   const previousLaunchContext = useRef<LaunchPickContext | undefined>(undefined)
   const model = modelPick ?? AUTO
   const effort = effortPick ?? AUTO
@@ -288,7 +295,7 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   const harness: AgentKind = isShell
     ? 'shell'
     : launchAgentKind({
-        picked: picked.agentKind ?? issueAgentKind(harnessPick),
+        picked: picked.agentKind,
         preferred: defaultHarness,
         candidates: ISSUE_AGENT_KINDS,
         readiness: readinessOf,
@@ -297,7 +304,7 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   const launchContext = selectedTarget?.machineId ?? machineId
   const context = launchContext ? { machineId: launchContext, harness } : undefined
   const storedDraft = { model: picked.model, effort, launchPickTouched: modelPick !== null || effortPick !== null }
-  const restoredDraft = !isShell && context
+  const restoredDraft = draftReady && !isShell && context
     ? draftForLaunchContext(storedDraft, previousLaunchContext.current, context, lastLaunchPicks)
     : storedDraft
   // Remembered choices are restored BEFORE the machine's catalog validation.
@@ -305,12 +312,16 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   const effectiveModel = isShell ? SHELL_PICK : effectiveDraft.model === AUTO ? AUTO : encodeModelPick(harness, effectiveDraft.model)
   const effectiveEffort = effectiveDraft.effort
   useLayoutEffect(() => {
-    if (!context) return
-    previousLaunchContext.current = context
-    if (!isShell && picked.agentKind && harnessPick !== harness) setHarnessPick(harness)
+    if (!draftReady || !context) return
+    // Auto returns to the sheet's default harness. That normalization is part
+    // of this restoration, not another user harness change to restore again.
+    const nextHarness = effectiveModel === AUTO ? launchAgentKind({
+      preferred: defaultHarness, candidates: ISSUE_AGENT_KINDS, readiness: readinessOf,
+    }) : harness
+    previousLaunchContext.current = { ...context, harness: nextHarness }
     if (effectiveModel !== model) setModelPick(effectiveModel)
     if (effectiveEffort !== effort) setEffortPick(effectiveEffort)
-  }, [context?.machineId, harness, harnessPick, isShell, picked.agentKind, effectiveModel, effectiveEffort, model, effort, setHarnessPick, setModelPick, setEffortPick])
+  }, [draftReady, context?.machineId, harness, effectiveModel, effectiveEffort, model, effort, setModelPick, setEffortPick])
   const decoded = decodeModelPick(effectiveModel)
   const readiness = harness === 'shell' ? undefined : readinessOf(harness as IssueAgentKind)
   // spawnDraftAgent sends sessions.create without requestedDriverId: the
@@ -351,21 +362,12 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
       return
     }
     const picked = decodeModelPick(value)
-    const kind = picked.agentKind ?? issueAgentKind(harnessPick) ?? pickHarness
-    setHarnessPick(kind)
+    const kind = picked.agentKind ?? launchAgentKind({
+      preferred: defaultHarness, candidates: ISSUE_AGENT_KINDS, readiness: readinessOf,
+    })
     // A model picked from the combined list is an explicit draft choice even
-    // when it also names another harness. The separate harness field restores.
+    // when it also names another harness.
     if (launchContext) previousLaunchContext.current = { machineId: launchContext, harness: kind }
-    setStep('launch')
-  }
-
-  const applyHarness = (value: string) => {
-    const kind = issueAgentKind(value) ?? defaultHarness
-    setHarnessPick(kind)
-    if (kind !== harness) {
-      setModelPick(AUTO)
-      setEffortPick(AUTO)
-    }
     setStep('launch')
   }
 
@@ -389,12 +391,10 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
       ? []
       : effortOptionsForModel(pickHarness, decoded.model, catalog[pickHarness], served)
   const machineOk = !showMachine || selectedMachine?.availability === 'available'
-  const canStart = machineOk && selectedRepo !== null && harnessReady
+  const canStart = draftReady && machineOk && selectedRepo !== null && harnessReady
 
   const title =
-    step === 'harness'
-      ? 'Harness'
-      : step === 'model'
+    step === 'model'
       ? 'Model'
       : step === 'effort'
         ? 'Effort'
@@ -464,17 +464,6 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
               />
             </View>
           ) : null}
-
-          {!isShell ? <FieldSelect
-            label="Harness"
-            value={issueAgentLabel(harness, served)}
-            onPress={() => setStep('harness')}
-            picker={{
-              options: issueAgentOptions(defaultHarness, served),
-              selected: harness === defaultHarness ? '' : harness,
-              onSelect: applyHarness,
-            }}
-          /> : null}
 
           <FieldSelect
             label="Model"
@@ -567,11 +556,6 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
             <Text style={styles.none}>{signInInTerminalCopy(readiness, issueAgentLabel(harness, served))}</Text>
           ) : null}
         </>
-      ) : null}
-
-      {step === 'harness' ? (
-        <OptionList groups={[{ options: issueAgentOptions(defaultHarness, served) }]}
-          selected={harness === defaultHarness ? '' : harness} onPick={applyHarness} />
       ) : null}
 
       {step === 'model' ? (

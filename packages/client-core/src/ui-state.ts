@@ -259,7 +259,6 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   'podium.newWork.effort',
   'podium.newWork.machine',
   'podium.newWork.repo',
-  'podium.newWork.harness',
   /** Flight Deck view (`full` | `active` | `needs-you`) and the set of folded
    *  branches. The artifact's ledger classes both as DISPLAY PREFERENCE for this
    *  screen: they change what column 2 shows and never touch issue stage or
@@ -327,7 +326,6 @@ export const NEW_WORK_MODEL_KEY = 'podium.newWork.model'
 export const NEW_WORK_EFFORT_KEY = 'podium.newWork.effort'
 export const NEW_WORK_MACHINE_KEY = 'podium.newWork.machine'
 export const NEW_WORK_REPO_KEY = 'podium.newWork.repo'
-export const NEW_WORK_HARNESS_KEY = 'podium.newWork.harness'
 export const FLIGHT_DECK_MODE_KEY = 'podium.flightDeck.mode'
 export const FLIGHT_DECK_FOLDS_KEY = 'podium.flightDeck.folds'
 export const FLIGHT_DECK_BRIEF_CUTOFF_KEY = 'podium.flightDeck.briefCutoff'

@@ -75,7 +75,7 @@ async function choosePill(pill: string, choice: string) {
 }
 async function expectPair(model: string, effort: string) {
   await waitFor(() => expect(draft()).toMatchObject({ model, effort }))
-  expect(screen.getByRole('button', { name: 'Model' }).textContent).toContain(model === 'auto' ? 'Auto' : model === 'gpt' ? 'GPT' : model === 'opus' ? 'Opus' : 'Sonnet')
+  expect(screen.getByRole('button', { name: 'Model' }).textContent?.toLowerCase()).toContain(model)
 }
 
 describe('desktop last launched pair', () => {
@@ -104,7 +104,7 @@ describe('desktop last launched pair', () => {
     render(<ColdStartComposer first={false} />)
     await expectPair('opus', 'high')
     fireEvent.click(screen.getByRole('button', { name: /^Project:/ }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: /Other/ }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: /other/ }))
     await expectPair('sonnet', 'low')
     expect(draft().machineId).toBe(b)
   })

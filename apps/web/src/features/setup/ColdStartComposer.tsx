@@ -21,7 +21,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AttachmentStrip } from '@/features/chat/AttachmentStrip'
 import { useAttachments } from '@/features/chat/use-attachments'
 import { chordLabel, useComposerChord } from '@/features/chat/use-composer-chord'
-import { useSettingsPersistedUiState as usePersistedUiState, useSettingsCatalog, useSettingsSetupSummary } from '@/features/settings/readers'
+import { useSettingsPersistedUiState as usePersistedUiState, useSettingsCatalog, useSettingsSetupSummary, useSettingsDraftSeed } from '@/features/settings/readers'
 import { useSettingsClient } from '@/features/settings/stable-access'
 import {
   agentFleetStatus,
@@ -229,6 +229,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
   const [lastLaunchPicks] = usePersistedUiState(
     LAST_LAUNCH_PICK_KEY, readLastLaunchPicks, JSON.stringify,
   )
+  const { loading: draftLoading } = useSettingsDraftSeed(FIRST_TASK_ACTIVATION_DRAFT_KEY, readFirstTaskDraft)
   const previousLaunchContext = useRef<LaunchPickContext | undefined>(undefined)
   /**
    * The operator's harness, as `roles.coding` answers it — the same read the
@@ -581,7 +582,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * machine — `checkoutForMachine` reads it back as `prefer`.
    */
   useEffect(() => {
-    if (!selectedRepo) return
+    if (!selectedRepo || draftLoading) return
     const aliases = [selectedRepo.path, ...(selectedRepo.machines ?? []).map(({ path }) => path)]
     const repoChanged = !aliases.includes(draft.repoPath)
     const machineChanged = selectedMachine && draft.machineId !== selectedMachine.id
@@ -619,7 +620,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     }
     if (repoChanged || machineChanged || agentChanged || next.model !== draft.model ||
       next.effort !== draft.effort || next.launchPickTouched !== draft.launchPickTouched) setDraft(next)
-  }, [agent, agentSetting, busy, draft, lastLaunchPicks, reportedModels, selectedMachine, selectedRepo, setDraft])
+  }, [agent, agentSetting, busy, draft, draftLoading, lastLaunchPicks, reportedModels, selectedMachine, selectedRepo, setDraft])
 
   const selectRepo = (repoPath: string): void => {
     const repo = repoChoices.find((candidate) => candidate.path === repoPath)
@@ -895,7 +896,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
 
   const hasPrompt = draft.title.trim().length > 0
   const launchBlocked =
-    busy ||
+    busy || draftLoading ||
     // A launch that outran its uploads would create the mission with a brief
     // naming files that are still in flight.
     attachments.uploading ||

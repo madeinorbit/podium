@@ -1,4 +1,4 @@
-import { NEW_WORK_MODEL_KEY, NEW_WORK_EFFORT_KEY, LAST_LAUNCH_PICK_KEY } from '@podium/client-core/ui-state'
+import { NEW_WORK_MODEL_KEY, NEW_WORK_EFFORT_KEY, NEW_WORK_REPO_KEY, LAST_LAUNCH_PICK_KEY } from '@podium/client-core/ui-state'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { headerView } from '@podium/client-graph/header-views'
 /**
@@ -601,19 +601,24 @@ describe('phone last launched pair', () => {
     act(() => runtime.access.uiState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
     fireEvent.click(screen.getByLabelText('New work'))
     await expectPair('Claude Code · Reported Opus', 'High')
-    await choose('Harness', 'Codex')
+    await choose('Model', 'Codex Reported GPT')
+    await expectPair('Codex · Reported GPT', 'Auto')
+    await choose('Machine', 'Remote')
+    await expectPair('Codex · Reported GPT', 'High')
+    await choose('Machine', 'Studio')
     await expectPair('Codex · Reported GPT', 'Low')
     await choose('Machine', 'Remote')
     await expectPair('Codex · Reported GPT', 'High')
-    await choose('Harness', 'Claude Code (default)')
-    await expectPair('Claude Code · Reported Sonnet', 'Low')
+    await choose('Model', 'Claude Code Reported Sonnet')
+    await expectPair('Claude Code · Reported Sonnet', 'Auto')
     await choose('Machine', 'Studio')
     await expectPair('Claude Code · Reported Opus', 'High')
+    await choose('Machine', 'Remote')
+    await expectPair('Claude Code · Reported Sonnet', 'Low')
     act(() => runtime.access.uiState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify({ mine: picks.mine })))
+    await choose('Machine', 'Studio')
     await choose('Machine', 'Remote')
     await expectPair('Auto', 'Auto')
-    await choose('Harness', 'Grok')
-    await expectPair('Auto · Grok', 'Auto')
   })
 
   it('choosing menus writes no preference, while Start writes the launched pair including Auto', async () => {
@@ -654,17 +659,17 @@ describe('phone last launched pair', () => {
     await choose('Model', 'Auto')
     fireEvent.click(screen.getByLabelText('Dismiss launcher'))
     fireEvent.click(screen.getByLabelText('New work'))
-    await expectPair('Auto · Codex', 'Auto')
+    await expectPair('Auto', 'Auto')
   })
 
   it('resets a restored stale model after the selected machine list arrives', async () => {
-    const { runtime, rerender } = await setup()
+    const { runtime } = await setup()
     catalogFixture.byMachine.mine = {}
     act(() => runtime.access.uiState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
     fireEvent.click(screen.getByLabelText('New work'))
     await expectPair('Claude Code · reported-opus', 'High')
     catalogFixture.byMachine.mine = { 'claude-code': [{ value: 'replacement', label: 'Replacement', efforts: ['high'] }] }
-    rerender(<NewWorkButton />)
+    act(() => runtime.access.uiState.set(NEW_WORK_REPO_KEY, '/home/dev/podium'))
     await expectPair('Auto', 'Auto')
     expect(JSON.parse(runtime.access.uiState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual(picks)
   })
