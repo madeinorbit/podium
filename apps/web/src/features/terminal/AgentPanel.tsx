@@ -974,19 +974,18 @@ export function AgentPanel({
                   className="hidden flex-none lg:inline-flex"
                   machineId={session.machineId}
                 />
-                {canConfigureRuntimeEffort && (
-                  <EffortPicker
-                    agentKind={runtimeAgentKind}
-                    model={runtimeModel}
-                    value={runtimeEffort}
-                    onChange={(effort) => {
-                      void configureRuntime({ effort })
-                    }}
-                    variant="pill"
-                    className="hidden flex-none lg:inline-flex"
-                    machineId={session.machineId}
-                  />
-                )}
+                <EffortPicker
+                  disabled={!canConfigureRuntimeEffort}
+                  agentKind={runtimeAgentKind}
+                  model={runtimeModel}
+                  value={runtimeEffort}
+                  onChange={(effort) => {
+                    void configureRuntime({ effort })
+                  }}
+                  variant="pill"
+                  className="hidden flex-none lg:inline-flex"
+                  machineId={session.machineId}
+                />
               </>
             )}
             {/* Mode switch [POD-121, replaces #20's toggle]: one two-segment
@@ -1156,19 +1155,18 @@ export function AgentPanel({
             className="min-w-0 max-w-[min(14rem,58vw)] flex-1 truncate"
             machineId={session.machineId}
           />
-          {canConfigureRuntimeEffort && (
-            <EffortPicker
-              agentKind={runtimeAgentKind}
-              model={runtimeModel}
-              value={runtimeEffort}
-              onChange={(effort) => {
-                void configureRuntime({ effort })
-              }}
-              variant="pill"
-              className="min-w-0 max-w-[8rem] flex-1 truncate"
-              machineId={session.machineId}
-            />
-          )}
+          <EffortPicker
+            disabled={!canConfigureRuntimeEffort}
+            agentKind={runtimeAgentKind}
+            model={runtimeModel}
+            value={runtimeEffort}
+            onChange={(effort) => {
+              void configureRuntime({ effort })
+            }}
+            variant="pill"
+            className="min-w-0 max-w-[8rem] flex-1 truncate"
+            machineId={session.machineId}
+          />
         </div>
       )}
       {session?.condition === 'logged-out' && (

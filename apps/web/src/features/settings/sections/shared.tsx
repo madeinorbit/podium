@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import type { HarnessDescriptorWire } from '@podium/protocol'
-import { agentSupportsEffort } from '@podium/client-core/agent-models'
+import { AUTO } from '@podium/client-core/agent-models'
 import { issueAgentDescriptors, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { managedCodingHarnesses as managedCodingHarnessesFromDescriptors } from '@/lib/managed-harness-pairing'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
@@ -312,7 +312,7 @@ export const RoleBackendEditor = observer(function RoleBackendEditor({
   // The row shows whenever the harness takes an effort at all; with no levels to
   // offer (an Auto model, or one the catalog does not describe) the picker reads
   // Auto and is inert, the same as in the composer (POD-3911).
-  const showModelEffort = agentKind !== undefined && agentSupportsEffort(agentKind)
+  const showModelEffort = agentKind !== undefined
 
   /** The `harness` a given account persists for this role: the superagent pins its
    *  native harness, a coding managed account pins the CLI its credential drives,
@@ -435,7 +435,7 @@ export const RoleBackendEditor = observer(function RoleBackendEditor({
             variant="field"
             agentKind={agentKind}
             value={backend.model}
-            onChange={(model) => updateBackend({ model, effort: 'auto' })}
+            onChange={(model) => updateBackend({ model, effort: AUTO })}
           />
         ) : (
           <Input

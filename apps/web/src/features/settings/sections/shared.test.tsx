@@ -303,3 +303,12 @@ it('accepts a typed default model in Settings when no live list is reported', as
   fireEvent.click(screen.getByRole('menuitem', { name: /Use “managed-custom-model”/ }))
   expect(onChange).toHaveBeenCalledWith(expect.objectContaining({ model: 'managed-custom-model', effort: 'auto' }))
 })
+
+
+it('shows stored effort inert for a Settings harness with no reported levels', () => {
+  // biome-ignore lint/a11y/useValidAriaRole: backend role, not an ARIA attribute
+  render(<RoleBackendEditor role="coding" backend={{ accountId: nativeAccountId('cursor'), model: 'stored', effort: 'high' }} accounts={[]} onChange={vi.fn()} />)
+  const pill = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
+  expect(pill.disabled).toBe(true)
+  expect(pill.textContent).toContain('High')
+})
