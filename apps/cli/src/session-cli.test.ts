@@ -71,7 +71,7 @@ const ASK = {
 }
 
 function client(
-  result: { ok: boolean; queued?: boolean; reason?: string } = { ok: true },
+  result: { ok: boolean; queued?: boolean; reason?: string; wakeSelection?: { model: string; effort: string } } = { ok: true },
   ask: unknown = ASK,
   title: { ok: boolean; name?: string; reason?: string } = { ok: true, name: 'Named thing' },
   status: unknown = STATUS,
@@ -216,6 +216,30 @@ describe('podium session CLI', () => {
       sessionId: 's1', text: 'hello', mutationId: MESSAGE_ID,
       model: 'gpt-5.6', effort: 'high', forceUnknownModel: true,
     })
+  })
+
+  it.each([['send', '--wake'], ['resume-and-send']])('%s prints the selection the server applied', async (...command) => {
+    const out = await runSessionCli([...command, 's1', '--text', 'hello', '--model', 'gpt-5.6',
+      '--effort', 'high'], client({ ok: true, wakeSelection: { model: 'gpt-5.6', effort: 'high' } }))
+    expect(out).toContain('wake selection: model=gpt-5.6 effort=high')
+    expect(out).not.toContain('Warning:')
+  })
+
+  it.each([['send', '--wake'], ['resume-and-send']])('%s warns when an older server does not echo the selection', async (...command) => {
+    const out = await runSessionCli([...command, 's1', '--text', 'hello', '--model', 'gpt-5.6'], client())
+    expect(out).toContain('Warning: the server did not confirm the wake selection')
+    expect(out).toContain('an older server may have ignored --model/--effort')
+  })
+
+  it('includes the confirmed selection or missing-echo warning in JSON', async () => {
+    const argv = ['resume-and-send', 's1', '--text', 'hello', '--model', 'gpt-5.6', '--json']
+    const confirmed = JSON.parse(await runSessionCli(argv, client({
+      ok: true, wakeSelection: { model: 'gpt-5.6', effort: 'auto' },
+    })))
+    expect(confirmed.wakeSelection).toEqual({ model: 'gpt-5.6', effort: 'auto' })
+    expect(confirmed.warning).toBeUndefined()
+    expect(JSON.parse(await runSessionCli(argv, client())).warning)
+      .toContain('an older server may have ignored --model/--effort')
   })
 
   it('continue uses the phase-gated session operation', async () => {

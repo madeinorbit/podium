@@ -73,14 +73,34 @@ describe('restart selection and explicit wake flags (POD-3911)', () => {
   it.each([['send', '--wake'], ['resume-and-send']])('%s carries overrides through the server wake and persists the requested pair', async (...command) => {
     const { o, sessionId, client } = await setup('settings')
     await park(o, sessionId)
-    await runSessionCli([...command, sessionId, '--text', 'hello',
+    const out = await runSessionCli([...command, sessionId, '--text', 'hello',
       '--model', 'gpt-5.6', '--effort', 'high'], client)
+    expect(out).toContain('wake selection: model=gpt-5.6 effort=high')
+    expect(out).not.toContain('Warning:')
     expect(spawns(o)).toHaveLength(1)
     expect(spawns(o)[0]).toMatchObject({ sessionId, model: 'gpt-5.6', effort: 'high' })
     expect(await o.store.sessions.getSession(sessionId)).toMatchObject({
       requestedModel: 'gpt-5.6', requestedEffort: 'high',
     })
     expect(await o.store.sync.listQueuedMessages(sessionId)).toHaveLength(1)
+  })
+
+  it('a later ordinary restart does not replay the requested wake selection', async () => {
+    const { o, sessionId } = await setup('settings')
+    await park(o, sessionId)
+    const result = await o.call.sessions.resumeAndSend({
+      sessionId, text: 'hello', model: 'gpt-5.6', effort: 'high',
+    })
+    expect(result.wakeSelection).toEqual({ model: 'gpt-5.6', effort: 'high' })
+    await o.reg.gateway.routeDaemonFrame(o.store.hostMachineId, {
+      type: 'bind', sessionId, cmd: 'codex', cwd: '/p', agentKind: 'codex',
+      geometry: { cols: 80, rows: 24 },
+    })
+    await park(o, sessionId)
+    expect(await o.call.sessions.resurrect({ sessionId })).toEqual({ ok: true })
+    expect(spawns(o)).toHaveLength(1)
+    expect(Object.hasOwn(spawns(o)[0]!, 'model')).toBe(false)
+    expect(Object.hasOwn(spawns(o)[0]!, 'effort')).toBe(false)
   })
 
   it('refuses an unknown explicit model before wake side effects with a suggestion', async () => {

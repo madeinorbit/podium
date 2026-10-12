@@ -774,7 +774,7 @@ export class SessionLifecycle {
       forceUnknownModel?: boolean
     },
     issues: SessionIssueWorkflowPort,
-  ): Promise<{ ok: boolean; reason?: string }> {
+  ): ReturnType<SessionRevival['resurrectSession']> {
     return await this.sessionRevival.resurrectSession(input, issues)
   }
   private sessionRemovalSpecs(sessionId: SessionId): EntityChangeSpec[] {

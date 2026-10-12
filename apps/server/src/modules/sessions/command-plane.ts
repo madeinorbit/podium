@@ -448,6 +448,7 @@ export interface SubstrateOutcome {
   reason?: string
   position?: number
   disposition: SendDisposition
+  wakeSelection?: { model: string; effort: string }
 }
 
 /**
@@ -578,6 +579,7 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
       lifecycle === 'wait' && (target.status === 'exited' || target.status === 'hibernated')
         ? 'wake'
         : lifecycle
+    let wakeSelection: SubstrateOutcome['wakeSelection']
     if (input.model !== undefined || input.effort !== undefined || input.forceUnknownModel) {
       if (target.status !== 'exited' && target.status !== 'hibernated') {
         return {
@@ -596,8 +598,10 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
         forceUnknownModel: input.forceUnknownModel,
       })
       if (!woke.ok) return { ok: false, reason: woke.reason, disposition: 'dead_letter' }
+      wakeSelection = woke.wakeSelection
     }
-    return await substrateSend(ctx, input, effectiveLifecycle)
+    const result = await substrateSend(ctx, input, effectiveLifecycle)
+    return wakeSelection ? { ...result, wakeSelection } : result
   }
 }
 

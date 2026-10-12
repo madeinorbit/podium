@@ -19,7 +19,13 @@ import { localServerUrl, resolveAgentRelay, resolvePort } from '@podium/runtime/
 import { declareFlags, flagTable, parseFlags, withUnknownFlagAs } from './argv'
 import { makeOperatorIssueClient } from './operator-client'
 
-type SessionResult = { ok: boolean; queued?: boolean; reason?: string; disposition?: string }
+type SessionResult = {
+  ok: boolean
+  queued?: boolean
+  reason?: string
+  disposition?: string
+  wakeSelection?: { model: string; effort: string }
+}
 type SessionProc = { mutate(input: Record<string, unknown>): Promise<SessionResult> }
 type SessionQuery = { query(input: Record<string, unknown>): Promise<unknown> }
 
@@ -464,6 +470,13 @@ export async function runSessionCli(
     pending && messageId !== undefined
       ? `${outcome} as ${messageId}; ${pendingSendNote(messageId)}`
       : outcome
+  const selectionFlags = args.model !== undefined || args.effort !== undefined || args['force-unknown-model'] === true
+  const warning = selectionFlags && !result.wakeSelection
+    ? 'Warning: the server did not confirm the wake selection; an older server may have ignored --model/--effort. Check session status.'
+    : undefined
+  const selectionNote = result.wakeSelection
+    ? `wake selection: model=${result.wakeSelection.model} effort=${result.wakeSelection.effort}`
+    : undefined
   return args.json === true
     ? JSON.stringify({
         command: action,
@@ -471,8 +484,10 @@ export async function runSessionCli(
         sessionId,
         queued: result.queued === true,
         ...(result.disposition ? { disposition: result.disposition } : {}),
+        ...(result.wakeSelection ? { wakeSelection: result.wakeSelection } : {}),
+        ...(warning ? { warning } : {}),
       })
-    : text
+    : [text, selectionNote, warning].filter(Boolean).join('\n')
 }
 
 export async function sessionCliMain(argv: string[]): Promise<void> {

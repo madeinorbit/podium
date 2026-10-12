@@ -91,7 +91,12 @@ export interface SessionRevivalPorts {
   onWorktreesChanged(repoPath: string, machineId?: MachineId): void
 }
 
-type ResurrectionResult = { ok: boolean; reason?: string }
+type ResurrectionResult = {
+  ok: boolean
+  reason?: string
+  /** The pair applied to this wake, echoed so an older server cannot ignore flags silently. */
+  wakeSelection?: { model: string; effort: string }
+}
 
 export class SessionRevival {
   /** ONE coordinator for the life of this owner — its single-flight map is the
@@ -292,7 +297,7 @@ export class SessionRevival {
       forceUnknownModel?: boolean
     },
     issues: SessionIssueWorkflowPort,
-  ): Promise<{ ok: boolean; reason?: string }> {
+  ): Promise<ResurrectionResult> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return await Promise.resolve({ ok: false, reason: 'unknown session' })
     if (session.archived) return await Promise.resolve({ ok: false, reason: 'session is archived' })
@@ -400,7 +405,7 @@ export class SessionRevival {
     ensured: { ok: boolean; reason?: string; cwd?: string },
     adoptedBinding?: SessionBindingAdoptLaunchInstruction,
     selection?: ResolvedLaunchSelection,
-  ): Promise<{ ok: boolean; reason?: string }> {
+  ): Promise<ResurrectionResult> {
     const sessionId = session.sessionId
     // `ensureSessionWorktree` may be asynchronous. Re-check the retirement
     // boundary after it resolves so an archive racing the ensure cannot spawn.
@@ -503,6 +508,9 @@ export class SessionRevival {
       })
     }
     this.ports.broadcastSessions()
-    return { ok: true }
+    return {
+      ok: true,
+      ...(selection ? { wakeSelection: { model: selection.model, effort: selection.effort } } : {}),
+    }
   }
 }
