@@ -635,29 +635,35 @@ describe('desktop release workflow', () => {
     )
   })
 
-  it('caches Bun packages through the shared action, never the global store', () => {
+  it('caches Bun through the shared action, without the global store only on Windows', () => {
     const parsed = Bun.YAML.parse(desktopWorkflow) as {
       jobs: { build: { steps: Array<{ uses?: string }> } }
     }
     const uses = parsed.jobs.build.steps.map((step) => step.uses ?? '')
     expect(uses).toContain('./.github/actions/bun-cache')
     expect(uses.filter((u) => u.startsWith('actions/cache'))).toEqual([])
-    const action = Bun.YAML.parse(
-      readFileSync(join(repoRoot, '.github/actions/bun-cache/action.yml'), 'utf8'),
-    ) as { runs: { steps: Array<{ with: { path: string; key: string } }> } }
-    const [cache] = action.runs.steps
-    expect(cache?.with.path).toContain(
+    const source = readFileSync(join(repoRoot, '.github/actions/bun-cache/action.yml'), 'utf8')
+    const action = Bun.YAML.parse(source) as {
+      runs: { steps: Array<{ if?: string; with?: { path: string; key: string } }> }
+    }
+    const cache = action.runs.steps.filter((step) => step.with?.key)
+    const unix = cache.find((step) => step.if === "runner.os != 'Windows'")
+    const windows = cache.find((step) => step.if === "runner.os == 'Windows'")
+    // Linux and macOS keep the whole cache, store included, under the lane's own key.
+    expect(unix?.with).toEqual({
+      path: "${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}",
+      key: '${{ inputs.key }}',
+    })
+    // Windows caches the packages but not links/, which a restore there leaves broken.
+    expect(windows?.with?.path).toContain(
       "${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}/*",
     )
-    expect(cache?.with.path).toContain(
+    expect(windows?.with?.path).toContain(
       "!${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}/links",
     )
-    expect(cache?.with.key.startsWith('bun-packages-')).toBe(true)
+    expect(windows?.with?.key).toBe('bun-packages-${{ inputs.key }}')
     // GitHub evaluates expressions even in an input's description; one there fails the load.
-    const meta = readFileSync(join(repoRoot, '.github/actions/bun-cache/action.yml'), 'utf8')
-      .split('runs:')[0]
-      ?.replace(/^#.*$/gm, '')
-    expect(meta).not.toContain('${{')
+    expect(source.split('runs:')[0]?.replace(/^#.*$/gm, '')).not.toContain('${{')
   })
 
   it('no workflow caches the Bun install directory except through the shared action', () => {

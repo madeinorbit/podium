@@ -1,18 +1,22 @@
-# Restore and save Bun's package cache for `bun install`, without Bun's global virtual store.
+# Restore and save Bun's install cache for `bun install`.
 #
-# bunfig.toml turns on `globalStore`, which keeps the store as `links/` INSIDE the install cache:
-# entries named <pkg>@<version>-<closure hash>, linked to each other by relative directory
-# symlinks. Bun treats a published entry as complete and never re-checks it. Archiving that
-# tree and unpacking it on another runner does not reliably bring the links back: on Windows,
-# tar must create each link before knowing whether its target is a directory, and the restored
-# store is left with broken links that `bun install` keeps (0.2.1-edge.2's Windows leg: 1670
+# bunfig.toml turns on `globalStore`, which keeps Bun's global virtual store as `links/` INSIDE
+# the install cache: entries named <pkg>@<version>-<closure hash>, linked to each other by
+# relative directory symlinks. Bun treats a published entry as complete and never re-checks it.
+#
+# Linux and macOS: cache the whole directory, store included. The key is the lockfile hash and
+# an entry's name hashes its exact dependency closure, so a restored store is the one a fresh
+# install would build; tar there restores the symlinks as they were, and a warm install then
+# relinks nothing (57 packages in ~0.7 s on 0.2.1-edge.2).
+#
+# Windows: cache the downloaded packages and leave `links/` out. Unpacking the store there does
+# not bring its links back: tar must create each link before knowing whether its target is a
+# directory, and `bun install` keeps the broken entries (0.2.1-edge.2's Windows leg: 1670
 # dangling links, refused by the install census; reproduced on a boat Windows sandbox, POD-6005).
-#
-# The downloaded packages are what costs time to fetch; the store is derived from them and Bun
-# rebuilds it locally on the next install. So cache the packages and leave `links/` out. The
-# key carries `bun-packages-` so a runner never restores an older archive that still holds a store.
-name: Bun package cache
-description: Cache Bun's downloaded packages (not the global store) under the given key
+# Bun rebuilds the store from the packages on install (12.6 s warm on windows-latest). Its key
+# carries `bun-packages-` so a Windows runner never restores an older archive with a store in it.
+name: Bun install cache
+description: Cache Bun's install cache under the given key, without the global store on Windows
 inputs:
   key:
     description: Cache key, normally the lane name plus a hash of bun.lock
@@ -21,7 +25,13 @@ runs:
   using: composite
   steps:
     - uses: actions/cache@v4
-      id: restore
+      if: runner.os != 'Windows'
+      with:
+        path: ${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}
+        key: ${{ inputs.key }}
+    - uses: actions/cache@v4
+      if: runner.os == 'Windows'
+      id: windows
       with:
         # `<cache>/*`, not `<cache>`: actions/cache expands paths without descending into them,
         # so a bare directory is archived whole and the `!` exclusion never applies.
@@ -29,10 +39,10 @@ runs:
           ${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}/*
           !${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}/links
         key: bun-packages-${{ inputs.key }}
-    # A restored store is the failure this action exists to prevent; say so here rather than
-    # as dangling links three steps later.
+    # A restored store is the failure the Windows cache exists to prevent; say so here rather
+    # than as dangling links three steps later.
     - name: Refuse a restored Bun store
-      if: steps.restore.outputs.cache-hit == 'true'
+      if: runner.os == 'Windows' && steps.windows.outputs.cache-hit == 'true'
       shell: bash
       run: |
         cache="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
