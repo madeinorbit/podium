@@ -627,6 +627,15 @@ describe('desktop release workflow', () => {
     )
   })
 
+  it('installs Windows from a cold Bun store instead of a restored cache', () => {
+    const parsed = Bun.YAML.parse(desktopWorkflow) as {
+      jobs: { build: { steps: Array<{ uses?: string; if?: string }> } }
+    }
+    const caches = parsed.jobs.build.steps.filter((step) => step.uses?.startsWith('actions/cache'))
+    expect(caches.length).toBeGreaterThan(0)
+    for (const cache of caches) expect(cache.if).toBe("matrix.target != 'windows-x86_64'")
+  })
+
   it('builds and publishes the updater-signed Windows NSIS installer', () => {
     expect(leg('windows-x86_64').runner).toBe('windows-latest')
     expect(leg('windows-x86_64').build_args).toContain('--bundles nsis')
