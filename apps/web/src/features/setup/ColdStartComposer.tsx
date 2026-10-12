@@ -1240,11 +1240,12 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   placeholder="Choose a driver…"
                   onSelect={setDriverChoice}
                 />
-              ) : driverUnavailable ? (
+              ) : null}
+              {driverUnavailable && (
                 <span role="status" className="text-[11px] text-danger">
                   {driverChoice} unavailable
                 </span>
-              ) : null}
+              )}
               {/* The clip sits with the machine picker rather than beside Launch:
                   both name WHAT the mission is given, and the auto-margined group
                   to its right is reserved for the act of launching it. */}
