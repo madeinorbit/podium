@@ -1430,6 +1430,7 @@
         "src/modules/sessions/view.narrow.test.ts",
         "src/modules/sessions/view.projection-pass.test.ts",
         "src/modules/sessions/view.ts",
+        "src/modules/sessions/wake-model-selection.test.ts",
         "src/modules/sessions/workspace.ts",
         "src/modules/settings/audit.ts",
         "src/modules/settings/authz.test.ts",
