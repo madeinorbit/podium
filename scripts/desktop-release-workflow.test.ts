@@ -647,9 +647,12 @@ describe('desktop release workflow', () => {
     ) as { runs: { steps: Array<{ with: { path: string; key: string } }> } }
     const [cache] = action.runs.steps
     expect(cache?.with.path).toContain(
+      "${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}/*",
+    )
+    expect(cache?.with.path).toContain(
       "!${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}/links",
     )
-    expect(cache?.with.key.startsWith('pkgs-')).toBe(true)
+    expect(cache?.with.key.startsWith('bun-packages-')).toBe(true)
     // GitHub evaluates expressions even in an input's description; one there fails the load.
     const meta = readFileSync(join(repoRoot, '.github/actions/bun-cache/action.yml'), 'utf8')
       .split('runs:')[0]

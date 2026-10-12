@@ -10,7 +10,7 @@
 #
 # The downloaded packages are what costs time to fetch; the store is derived from them and Bun
 # rebuilds it locally on the next install. So cache the packages and leave `links/` out. The
-# key carries `pkgs-` so a runner never restores an older archive that still holds a store.
+# key carries `bun-packages-` so a runner never restores an older archive that still holds a store.
 name: Bun package cache
 description: Cache Bun's downloaded packages (not the global store) under the given key
 inputs:
@@ -22,7 +22,9 @@ runs:
   steps:
     - uses: actions/cache@v4
       with:
+        # `<cache>/*`, not `<cache>`: actions/cache expands paths without descending into them,
+        # so a bare directory is archived whole and the `!` exclusion never applies.
         path: |
-          ${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}
+          ${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}/*
           !${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}/links
-        key: pkgs-${{ inputs.key }}
+        key: bun-packages-${{ inputs.key }}
