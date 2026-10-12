@@ -20,7 +20,7 @@ export const ISSUE_PAGE_FIELDS = {
   intentOrigin: field('string', false), asked: field('object'),
   supersededBy: field('id'), duplicateOf: field('id'),
   linearIdentifier: field('string'), linearUrl: field('string'),
-  owner: field('id', false), createdBy: field('object', false),
+  owner: field('id', false), visibility: field('string', false), createdBy: field('object', false),
   lastLifecycleActor: field('object'),
 } as const
 

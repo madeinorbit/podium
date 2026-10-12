@@ -56,6 +56,23 @@ function fixture(worklist: 'held' | 'demand' = 'held') {
   return pool
 }
 
+it('reads live issue visibility from the row and leaves missing visibility unknown', () => {
+  const pool = fixture(), issue = pool.issueObject('root')
+  const seen: Array<string | undefined> = []
+  const stop = autorun(() => { seen.push(issue.visibility) })
+  try {
+    expect(issue.visibility).toBeUndefined()
+    for (const visibility of ['personal', 'secret', undefined] as const) {
+      runInAction(() => pool.apply({ type: 'update', rows: [
+        { kind: 'issue', id: 'root', value: issueRow('root', { visibility }) as never },
+      ] }))
+      expect(pool.issueObject('root')).toBe(issue)
+      expect(issue.visibility).toBe(visibility)
+    }
+    expect(seen).toEqual([undefined, 'personal', 'secret', undefined])
+  } finally { stop(); pool.dispose() }
+})
+
 it.each([true, false])('a cold reference uses only declared identity (%s) without requesting its payload', declared => {
   const schedule = vi.fn(() => () => {})
   const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(stamp) }, undefined, {

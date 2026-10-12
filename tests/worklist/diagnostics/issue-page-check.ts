@@ -22,7 +22,7 @@ export const ISSUE_PAGE_CHECK_FIELDS = [
   'closedReason', 'closedAt', 'deletedAt', 'archived', 'priority', 'type', 'assignee',
   'labels', 'estimateMin', 'dueAt', 'deferUntil', 'color', 'parentId', 'parentBranch',
   'branch', 'worktreePath', 'machineId', 'defaultAgent', 'defaultModel', 'defaultEffort',
-  'needsHuman', 'asked', 'isDraftVessel', 'intentOrigin', 'audience', 'owner',
+  'needsHuman', 'asked', 'isDraftVessel', 'intentOrigin', 'audience', 'owner', 'visibility',
   'createdBy', 'lastLifecycleActor', 'createdAt', 'updatedAt', 'panel',
   'linearIdentifier', 'linearUrl', 'pinned', 'readAt', 'tuckedAt', 'gitState',
   'deps', 'dependents', 'childIds', 'childCount', 'childDoneCount', 'memberSessionIds',

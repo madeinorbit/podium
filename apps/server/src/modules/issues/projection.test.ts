@@ -1,4 +1,4 @@
-import { asRepoId } from '@podium/model'
+import { asRepoId, VISIBILITY_CLASSES } from '@podium/model'
 import { describe, expect, it } from 'vitest'
 import type { IssueRow } from '../../store/types'
 import { captureLogs } from '../../test-support/capture-logs'
@@ -33,6 +33,11 @@ import {
 const NO_LABELS: string[] = []
 
 describe('issueRowToProjection [POD-796]', () => {
+  it.each(VISIBILITY_CLASSES)('carries the stored visibility class %s', (visibility) => {
+    const projected = issueRowToProjection(row({ visibility }), NO_LABELS)
+    expect(projected.visibility).toBe(visibility)
+  })
+
   it.each([
     null,
     '2026-07-02T00:00:00.000Z',

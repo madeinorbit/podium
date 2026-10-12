@@ -211,6 +211,16 @@ function expectSummaryReadsOnly(
 }
 
 describe('declared issue page', () => {
+  it('compares the stored visibility class in the page parity diagnostic', () => {
+    const ctx = open([task('root', { visibility: 'personal' })])
+    expect(ctx.check()).toMatchObject({ differences: 0, pending: 0 })
+    const wrongVisibility = ctx.world().map((row) => ({ ...row, visibility: 'secret' as const }))
+    expect(tracked(() => checkIssuePages(ctx.pool, wrongVisibility, ctx.visible()))).toMatchObject({
+      differences: 1,
+      first: { field: 'fields.visibility' },
+    })
+  })
+
   it('reads cold menu fields without computing presence bounds', () => {
     const ctx = open(
       Array.from({ length: 1024 }, (_, index) =>
