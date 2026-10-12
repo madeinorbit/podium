@@ -313,7 +313,7 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
     // Auto returns to the sheet's default harness. That normalization is part
     // of this restoration, not another user harness change to restore again.
     const nextHarness = effectiveModel === AUTO ? launchAgentKind({
-      preferred: defaultHarness, candidates: ISSUE_AGENT_KINDS, readiness: readinessOf,
+      picked: undefined, preferred: defaultHarness, candidates: ISSUE_AGENT_KINDS, readiness: readinessOf,
     }) : harness
     previousLaunchContext.current = { ...context, harness: nextHarness }
     if (effectiveModel !== model) setModelPick(effectiveModel)
@@ -360,7 +360,7 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
     }
     const picked = decodeModelPick(value)
     const kind = picked.agentKind ?? launchAgentKind({
-      preferred: defaultHarness, candidates: ISSUE_AGENT_KINDS, readiness: readinessOf,
+      picked: undefined, preferred: defaultHarness, candidates: ISSUE_AGENT_KINDS, readiness: readinessOf,
     })
     // A model picked from the combined list is an explicit draft choice even
     // when it also names another harness.

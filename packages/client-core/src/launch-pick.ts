@@ -16,6 +16,7 @@ export function readLastLaunchPicks(raw: string | null): LastLaunchPicks {
       if (!harnesses || typeof harnesses !== 'object' || Array.isArray(harnesses)) return []
       const pairs = Object.entries(harnesses).flatMap(([harness, pick]) => {
         if (!pick || typeof pick !== 'object' ||
+          !('model' in pick) || !('effort' in pick) ||
           typeof pick.model !== 'string' || !pick.model ||
           typeof pick.effort !== 'string' || !pick.effort) return []
         return [[harness, { model: pick.model, effort: pick.effort }]]

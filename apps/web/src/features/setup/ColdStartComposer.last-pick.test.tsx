@@ -128,7 +128,7 @@ describe('desktop last launched pair', () => {
     await expectPair('opus', 'high')
     expect(pairWrites()).toHaveLength(0)
     fireEvent.click(screen.getByTestId('cold-start-launch'))
-    expect(JSON.parse(uiValues.get(LAST_LAUNCH_PICK_KEY)!)).toEqual({ [a]: { 'claude-code': pairs[a]['claude-code'] } })
+    expect(JSON.parse(uiValues.get(LAST_LAUNCH_PICK_KEY)!)).toEqual({ [a]: { 'claude-code': pairs[a]!['claude-code'] } })
     expect(store.spawnDraftAgent).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'opus', effort: 'high' }))
     await choosePill('Model', 'Auto')
     await expectPair('auto', 'auto')
