@@ -45,7 +45,7 @@ import { SettingsService } from './service'
  * second copy of the very logic under test, which would agree with itself no
  * matter what the shipped one did.
  */
-function makeStore(db: ReturnType<typeof openMigratedTestDatabase>): SettingsRepository {
+function makeStore(db: ReturnType<typeof openMigratedTestDatabase> = openMigratedTestDatabase()): SettingsRepository {
   const stage = createBunStoreExecutor({ database: db }).queries
   if (!stage) throw new Error('the test database is not bun-backed')
   return new SettingsRepository(stage)
