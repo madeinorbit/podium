@@ -269,39 +269,31 @@ describe('vetLaunchSelection — a default never blocks a launch (POD-3911)', ()
 describe('spawn-time Settings defaults (POD-3911)', () => {
   // The model/effort responsibility moved out of SessionLaunchConfig. Observe
   // the actual spawn frame, retaining the original behavioral assertions.
-  const launchConfig = (coding: { model: string; effort: string }) => ({
-    async modelDefaults(agentKind: AgentKind, explicit?: { model?: string; effort?: string }) {
-      const { reg, machineMessaging } = await launchHarness(coding)
-      await reg.modules.sessions.createSession({
-        agentKind, cwd: '/proj', ...explicit,
-        // This old case represents a caller's already-accepted deliberate model.
-        ...(explicit ? { forceUnknownModel: true } : {}),
-      })
-      return machineMessaging.mock.calls.at(-1)?.[0] as Extract<ControlMessage, { type: 'spawn' }>
-    },
-  })
+  const launchFrame = async (
+    coding: { model: string; effort: string },
+    explicit?: { model?: string; effort?: string },
+  ) => {
+    const { reg, machineMessaging } = await launchHarness(coding)
+    await reg.modules.sessions.createSession({
+      agentKind: 'claude-code', cwd: '/proj', ...explicit,
+      // This old case represents a caller's already-accepted deliberate model.
+      ...(explicit ? { forceUnknownModel: true } : {}),
+    })
+    return machineMessaging.mock.calls.at(-1)?.[0] as Extract<ControlMessage, { type: 'spawn' }>
+  }
 
   it('never hands a bogus Settings model to the CLI', async () => {
-    const launch = await launchConfig({ model: 'Codex', effort: 'auto' }).modelDefaults(
-      'claude-code',
-      undefined,
-    )
+    const launch = await launchFrame({ model: 'Codex', effort: 'auto' })
     expect(launch.model).toBeUndefined()
   })
 
   it('keeps a Settings model and effort the machine knows', async () => {
-    const launch = await launchConfig({ model: 'claude-opus-4-8', effort: 'high' }).modelDefaults(
-      'claude-code',
-      undefined,
-    )
+    const launch = await launchFrame({ model: 'claude-opus-4-8', effort: 'high' })
     expect(launch).toEqual(expect.objectContaining({ model: 'claude-opus-4-8', effort: 'high' }))
   })
 
   it("passes the caller's own values through untouched", async () => {
-    const launch = await launchConfig({ model: 'Codex', effort: 'auto' }).modelDefaults(
-      'claude-code',
-      { model: 'claude-opus-9-preview' },
-    )
+    const launch = await launchFrame({ model: 'Codex', effort: 'auto' }, { model: 'claude-opus-9-preview' })
     expect(launch.model).toBe('claude-opus-9-preview')
   })
 })
@@ -419,6 +411,15 @@ describe('resolveLaunchSelection — independent field precedence', () => {
       issueProfile: { agentKind: 'claude-code', effort: source === 'issue' ? 'high' : 'auto' },
       settings: settingsFor({ effort: source === 'settings' ? 'high' : 'auto' }, 'claude-code'),
     })).toEqual({ model: 'claude-haiku-4-5', effort: 'auto', forced: false, dropped: ['effort'], source: { model: 'explicit', effort: 'auto' } })
+  })
+
+  it.each(['issue', 'settings'] as const)('force keeps unknown %s model but still drops its unknown effort', (source) => {
+    const values = { model: 'gpt-preview', effort: 'banana' }
+    expect(resolveLaunchSelection({
+      agentKind: 'codex', catalog, force: true,
+      issueProfile: source === 'issue' ? { agentKind: 'codex', ...values } : undefined,
+      settings: settingsFor(source === 'settings' ? values : {}),
+    })).toEqual({ model: 'gpt-preview', effort: 'auto', forced: true, dropped: ['effort'], source: { model: source, effort: 'auto' } })
   })
 
   it('refuses an unknown effort even beside a forced unlisted model', () => {

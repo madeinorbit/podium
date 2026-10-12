@@ -346,11 +346,16 @@ export function resolveLaunchSelection(input: {
   })
   // A forced unlisted model cannot establish an effort ladder of its own.
   // Force still cannot bypass the harness's authoritative effort vocabulary.
-  if (vetted.forced && isExplicit(input.explicit?.effort)) {
-    assertModelSelectionValid(input.catalog, {
+  if (vetted.forced && isExplicit(vetted.effort)) {
+    const effort = validateModelSelection(input.catalog, {
       agentKind: input.agentKind,
-      effort: input.explicit.effort,
+      effort: vetted.effort,
     })
+    if (!effort.ok) {
+      if (source.effort === 'explicit') throw new ModelValidationError(effort.problem)
+      vetted.effort = 'auto'
+      vetted.dropped.push('effort')
+    }
   }
   for (const field of vetted.dropped) source[field] = 'auto'
   return { ...vetted, source }

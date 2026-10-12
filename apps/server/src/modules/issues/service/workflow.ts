@@ -295,10 +295,8 @@ export class IssueGitWorkflowModule {
       force: opts?.forceUnknownModel,
     })
     const selection = vetted
-    // Accepted — the selection is what gets committed to the issue. `--model`/`--effort`
-    // PERSIST (documented as such in `start --help`), matching `--agent`: the issue's
-    // profile is what add-session and every later respawn read, so a launch-only
-    // override would give one issue two answers to "what does this run at".
+    // Accepted explicit picks persist onto the issue. Inherited Settings remain
+    // launch-only, so later sessions use the Settings current at their own start.
     //
     // Held as VALUES rather than assigned to `row` here, because the worktree phase
     // below awaits and the draft in hand does not outlive it.
