@@ -30,9 +30,11 @@ const world = vi.hoisted(() => ({
 }))
 
 vi.mock('@/app/store', () => {
+  // POD-3911: history openings retain a stable API, as the real runtime does.
+  let api: unknown
   const state = () =>
     ({
-      trpc: {
+      trpc: (api ??= {
         settings: { get: { query: vi.fn(async () => ({})) } },
         issues: {
           events: { query: vi.fn(async () => []) },
@@ -41,7 +43,7 @@ vi.mock('@/app/store', () => {
           update: { mutate: vi.fn() },
           clearNeedsHuman: { mutate: vi.fn() },
         },
-      },
+      }),
       hub: { onIssues: () => () => {} },
       repos: [],
       machines: [],

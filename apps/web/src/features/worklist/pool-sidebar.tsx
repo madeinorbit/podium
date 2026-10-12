@@ -475,6 +475,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
           (row) => row.value.groupKey === item.value.groupKey && row.value.lane === 'closed',
         ),
       })
+  // A filtered viewport is not a complete reorder scope.
   const windowRows = (
     rows: readonly Item[],
     render = renderRow,
@@ -488,7 +489,7 @@ const ObservedPoolWorkSections = observer(function ObservedPoolWorkSections({
       scrollRef={scrollRef}
       selectedKey={selectedId ? `issue:${selectedId}` : null}
       draggingKey={draggedId ? `issue:${draggedId}` : null}
-      dragScope={dragScope}
+      dragScope={filtering ? undefined : dragScope}
       dragId={itemDragId}
       estimateSize={estimateSize}
     />

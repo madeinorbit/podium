@@ -35,9 +35,11 @@ const CHILD_ARCHIVED = makeIssue({
 let mockIssues = [PARENT, CHILD_LIVE, CHILD_ARCHIVED]
 
 vi.mock('@/app/store', () => {
+  // POD-3911: history openings retain a stable API, as the real runtime does.
+  let api: unknown
   const state = () =>
     ({
-      trpc: {
+      trpc: (api ??= {
         settings: {
           get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) },
         },
@@ -49,7 +51,7 @@ vi.mock('@/app/store', () => {
           update: { mutate: vi.fn() },
           addComment: { mutate: vi.fn() },
         },
-      },
+      }),
       hub: { onIssues: () => () => {} },
       repos: [],
       machines: [],

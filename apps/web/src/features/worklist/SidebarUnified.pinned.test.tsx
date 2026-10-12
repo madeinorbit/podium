@@ -255,9 +255,10 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     fireEvent.pointerUp(window, { pointerId: 7, clientY: 10 })
     expect(row.style.position).toBe('')
     expect(panel.style.overflow).toBe('')
-    expect(panel.style.contain).toBe('layout paint')
+    // POD-3911: the virtual scope restores its own empty inline contain value.
+    expect(panel.style.contain).toBe('')
     expect(pinnedPanel.style.overflow).toBe('')
-    expect(pinnedPanel.style.contain).toBe('layout paint')
+    expect(pinnedPanel.style.contain).toBe('')
     expect(group.style.zIndex).toBe('')
   })
 

@@ -5,6 +5,7 @@ import { IndexedDbSyncStore } from '@podium/sync/adapters/indexeddb'
 import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { currentSkew, reportSkew, resetSkewNotice } from '@/app/skew-notice'
+import { registerReloadPreparation } from '@/lib/reload-preparation'
 import { reloadBudgetSpent } from '@/lib/reload-budget'
 import { freshInterfaceUrl } from '@/lib/reload-route'
 import {
@@ -27,6 +28,12 @@ let reload: ReturnType<typeof vi.fn>
 let unregister: ReturnType<typeof vi.fn>
 let cacheDelete: ReturnType<typeof vi.fn>
 let store: Map<string, string>
+let releaseDocument: (() => void) | undefined
+// POD-3911: a successful navigation ends a document; each new one gets a fresh latch.
+function nextDocument(): void {
+  releaseDocument?.()
+  releaseDocument = registerReloadPreparation(async () => {})
+}
 
 // POD-3911: Bun's happy-dom window and global location must observe the same
 // navigation; recovery calls window.location.replace while the guard reads the global.
@@ -47,6 +54,7 @@ function versionResponse(body: unknown): {
 
 beforeEach(() => {
   resetWireSkewRecovery()
+  nextDocument()
   reload = vi.fn()
   unregister = vi.fn().mockResolvedValue(true)
   cacheDelete = vi.fn().mockResolvedValue(true)
@@ -73,6 +81,8 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  releaseDocument?.()
+  releaseDocument = undefined
   vi.unstubAllGlobals()
   vi.restoreAllMocks()
 })
@@ -766,6 +776,7 @@ describe('HTTP cutover preserves queued work', () => {
     )
     vi.stubGlobal('fetch', fetch)
     expect(await checkServerVersion(ORIGIN)).toBe('reloaded')
+    nextDocument()
     expect(await checkServerVersion(ORIGIN)).toBe('reloaded')
     expect(await checkServerVersion(ORIGIN)).toBe('blocked')
     expect(reload).toHaveBeenCalledTimes(2)

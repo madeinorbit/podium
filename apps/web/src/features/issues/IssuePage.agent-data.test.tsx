@@ -31,9 +31,11 @@ const mailInbox = vi.fn(async () => [
 ])
 
 vi.mock('@/app/store', () => {
+  // POD-3911: history openings retain a stable API, as the real runtime does.
+  let api: unknown
   const state = () =>
     ({
-      trpc: {
+      trpc: (api ??= {
         settings: {
           get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) },
         },
@@ -48,7 +50,7 @@ vi.mock('@/app/store', () => {
           start: { mutate: vi.fn() },
           addComment: { mutate: vi.fn() },
         },
-      },
+      }),
       hub: { onIssues: () => () => {} },
       httpOrigin: 'http://podium.test',
       repos: [],

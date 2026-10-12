@@ -75,9 +75,11 @@ const COMMENTS = [
 const commentsQuery = vi.fn(async (_input?: unknown) => COMMENTS)
 
 vi.mock('@/app/store', () => {
+  // POD-3911: history openings retain a stable API, as the real runtime does.
+  let api: unknown
   const state = () =>
     ({
-      trpc: {
+      trpc: (api ??= {
         settings: {
           get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) },
         },
@@ -90,7 +92,7 @@ vi.mock('@/app/store', () => {
           update: { mutate: vi.fn() },
           addComment: { mutate: vi.fn() },
         },
-      },
+      }),
       hub: { onIssues: () => () => {} },
       repos: [],
       machines: [],

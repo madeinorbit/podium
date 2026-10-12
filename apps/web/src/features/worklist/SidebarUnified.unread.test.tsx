@@ -123,7 +123,8 @@ vi.mock('@/app/store', () => {
     setPinned: vi.fn(),
     issues: [
       issue('u1', 'Unread issue', { unread: true }),
-      issue('r1', 'Read issue', { unread: false }),
+      // POD-3911: the read cursor must cover attached-session activity, not just the issue row.
+      issue('r1', 'Read issue', { unread: false, readAt: '2026-07-06T12:00:00.000Z' }),
       // A returned-from-defer issue: deferUntil in the PAST (undefer backdated it),
       // so it reads as "Unsnoozed" until opened (FIX C).
       issue('d1', 'Unsnoozed issue', {
