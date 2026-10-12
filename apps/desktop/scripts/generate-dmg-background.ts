@@ -60,14 +60,22 @@ const MIN_CONTRAST = 4.2
 
 /**
  * Where Finder draws a label, relative to its icon's centre (Tauri's bundle_dmg
- * fixes the icon size at 128 and the label size at 16pt): a line ~70-88pt
- * below the centre, as wide as the name in SF 16pt ("Podium" ~57pt,
- * "Applications" ~92pt) plus a few points of slack for Finder's own metrics.
+ * fixes the icon size at 128 and the label size at 16pt), measured from a
+ * macOS 26 screenshot of the real DMG: capitals start ~76pt below the centre,
+ * the baseline sits at ~90pt and descenders reach ~94pt. "Podium.app" (what
+ * Finder shows when "Show all filename extensions" is on) is ~86pt wide and
+ * "Applications" ~89pt; the band adds a little slack on every side.
  */
-const LABEL_BAND = { top: 70, bottom: 88, halfWidth: { app: 34, applications: 52 } }
+const LABEL_BAND = { top: 74, bottom: 96, halfWidth: { app: 46, applications: 48 } }
 
-/** Title bar height of a toolbar-less Finder window: the window frame includes it. */
-const TITLE_BAR = 28
+/**
+ * Title bar height of a toolbar-less Finder window on macOS 26 (28pt before
+ * it): the window frame tauri.conf.json sets includes it, so the image shows
+ * from below it. Finder's path bar and status bar, both per-viewer View
+ * settings, crop another 28pt each from the bottom.
+ */
+const TITLE_BAR = 32
+const FINDER_BAR = 28
 
 const DESKTOP = join(import.meta.dir, '..')
 const TAURI = join(DESKTOP, 'src-tauri')
@@ -350,9 +358,16 @@ const FOLDER = `
   <rect x="10" y="36" width="108" height="78" rx="7" fill="url(#ff)"/>
   <path d="M64 52 L48 98 M64 52 L80 98 M54 82 H74" stroke="#3a8fe0" stroke-opacity="0.55" stroke-width="5" stroke-linecap="round" fill="none"/>`
 
-function finderMock(v: Variant, background: Buffer, appearance: 'light' | 'dark'): Buffer {
+/** `bars` adds Finder's path and status bars, the worst crop of the image a viewer can set up. */
+function finderMock(
+  v: Variant,
+  background: Buffer,
+  appearance: 'light' | 'dark',
+  bars: boolean,
+): Buffer {
   const pad = 36
-  const contentH = H - TITLE_BAR
+  const barsH = bars ? FINDER_BAR * 2 : 0
+  const contentH = H - TITLE_BAR - barsH
   const dark = appearance === 'dark'
   const chrome = dark ? '#323232' : '#e9e7e5'
   const titleInk = dark ? '#dcdcdc' : '#4b4b4b'
@@ -361,7 +376,7 @@ function finderMock(v: Variant, background: Buffer, appearance: 'light' | 'dark'
   const icon = (at: Point, body: string) =>
     `<g transform="translate(${at.x - 64} ${at.y - 64 + TITLE_BAR})">${body}</g>`
   const text = (at: Point, s: string) =>
-    `<text x="${at.x}" y="${at.y + 83 + TITLE_BAR}" text-anchor="middle" font-family="Geist" font-size="16" fill="${label}">${s}</text>`
+    `<text x="${at.x}" y="${at.y + 90 + TITLE_BAR}" text-anchor="middle" font-family="Geist" font-size="16" fill="${label}">${s}</text>`
   const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${W + pad * 2}" height="${H + pad * 2}">
     <defs>
       <clipPath id="win"><rect width="${W}" height="${H}" rx="12"/></clipPath>
@@ -380,7 +395,8 @@ function finderMock(v: Variant, background: Buffer, appearance: 'light' | 'dark'
         <text x="${W / 2}" y="18.5" text-anchor="middle" font-family="Geist" font-weight="600" font-size="13" fill="${titleInk}">${conf.productName}</text>
         ${icon(v.app, `<image href="data:image/png;base64,${APP_ICON}" width="128" height="128"/>`)}
         ${icon(v.applications, FOLDER)}
-        ${text(v.app, conf.productName)}
+        ${bars ? `<rect y="${H - barsH}" width="${W}" height="${barsH}" fill="${chrome}"/><path d="M0 ${H - FINDER_BAR + 0.5} H${W}" stroke="${titleInk}" stroke-opacity="0.2"/><text x="24" y="${H - FINDER_BAR - 9}" font-family="Geist" font-size="12" fill="${titleInk}">${conf.productName}</text><text x="${W / 2}" y="${H - 9}" text-anchor="middle" font-family="Geist" font-size="12" fill="${titleInk}">2 items</text>` : ''}
+        ${text(v.app, bars ? `${conf.productName}.app` : conf.productName)}
         ${text(v.applications, 'Applications')}
       </g>
       <rect width="${W}" height="${H}" rx="12" fill="none" stroke="${dark ? '#ffffff' : '#000000'}" stroke-opacity="${dark ? 0.14 : 0.12}"/>
@@ -401,7 +417,10 @@ async function writePreviews(dir: string, rendered: Map<Variant, Raster>) {
       .toBuffer()
     let col = 0
     for (const appearance of ['light', 'dark'] as const) {
-      const mock = await sharp(finderMock(v, png, appearance), { density: 144 })
+      // Light with the path and status bars and extensions shown; dark with neither.
+      const mock = await sharp(finderMock(v, png, appearance, appearance === 'light'), {
+        density: 144,
+      })
         .png()
         .toBuffer()
       writeFileSync(join(dir, `${v.name}-${appearance}.png`), mock)

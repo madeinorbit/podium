@@ -31,7 +31,7 @@
       "minimumSystemVersion": "11.0",
       "dmg": {
         "background": "dmg/background.tiff",
-        "windowSize": { "width": 660, "height": 440 },
+        "windowSize": { "width": 660, "height": 480 },
         "windowPosition": { "x": 400, "y": 220 },
         "appPosition": { "x": 170, "y": 190 },
         "applicationFolderPosition": { "x": 490, "y": 190 }

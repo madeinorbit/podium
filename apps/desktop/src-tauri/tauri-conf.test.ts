@@ -119,7 +119,9 @@ describe('tauri desktop config', () => {
       expect(at.x - 64).toBeGreaterThan(0)
       expect(at.x + 64).toBeLessThan(dmg.windowSize.width)
       expect(at.y - 64).toBeGreaterThan(0)
-      expect(at.y + 92).toBeLessThan(dmg.windowSize.height - 28)
+      // Labels end ~96pt below the icon centre; the frame also holds a 32pt title bar and may
+      // lose two 28pt Finder bars, and the labels must still show then.
+      expect(at.y + 96).toBeLessThan(dmg.windowSize.height - 32 - 56)
     }
     expect(dmg.appPosition.x + 128).toBeLessThan(dmg.applicationFolderPosition.x)
     // Finder picks the Retina image from a multi-image TIFF; count the IFD chain.
