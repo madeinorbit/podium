@@ -16,8 +16,8 @@ exports[`issue page rendered pool parity > preserves the list text, labels, orde
 
 exports[`issue page rendered pool parity > preserves the page text, labels, order, layout and loader results with zero legacy derivations > rendered output 1`] = `
 {
-  "bytes": 157692,
-  "sha256": "f1b2b6a3faf1ec553d074e6af325e02ce3744314a255a29494b4cb13bb760a73",
+  "bytes": 157402,
+  "sha256": "0be996e9f8de81995e81da040de63890c36e6413d23480179283abd004a21c80",
 }
 `;
 

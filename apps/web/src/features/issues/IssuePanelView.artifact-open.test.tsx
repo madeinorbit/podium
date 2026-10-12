@@ -46,7 +46,7 @@ vi.mock('@/app/store', () => {
       httpOrigin: 'http://h',
       openFileInWorktree,
       openArtifact,
-      uiState: { get: () => null, set: vi.fn() },
+      uiState: { get: () => null, set: vi.fn(), subscribe: () => () => {} },
       issues: [ISSUE],
       sessions: [],
       machines: [],
