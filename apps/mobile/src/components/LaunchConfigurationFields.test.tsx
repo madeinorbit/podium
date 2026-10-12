@@ -1,8 +1,10 @@
 import { asMachineId, type GitRepositoryWire, type MachineWire } from '@podium/model'
 import { act, cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
-import { useCallback, useState } from 'react'
+import { observer } from 'mobx-react-lite'
+import { useCallback, useLayoutEffect, useState } from 'react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
+import { useLaunchInputs } from '../client/use-launch-inputs'
 import { AUTO, encodeModelPick } from '@podium/client-core/agent-models'
 import type { LaunchConfiguration, LaunchPlan } from '../lib/launch-configuration'
 import { LaunchConfigurationFields } from './LaunchConfigurationFields'
@@ -93,6 +95,75 @@ it('publishes one unchanged plan even when its parent rebuilds the configuration
   expect(published).toHaveBeenCalledTimes(1)
   act(redraw)
   expect(published).toHaveBeenCalledTimes(1)
+})
+
+it('publishes the correct plan when switching repositories away and back', async () => {
+  const fixture = launchFixture()
+  const otherRepo: GitRepositoryWire = {
+    path: '/other-repository', kind: 'repository', worktrees: [],
+    machineId: asMachineId('other-host'),
+  }
+  fixture.repos.push(otherRepo)
+  const configuration = { ...value, machineId: fixture.machine.id }
+  const published = vi.fn()
+  const changed = vi.fn()
+  function Form() {
+    const [repoPath, setRepoPath] = useState('/synthetic')
+    const [plan, setPlan] = useState<LaunchPlan | null>(null)
+    const onPlan = useCallback((next: LaunchPlan) => {
+      published(next)
+      setPlan(next)
+    }, [])
+    return <>
+      <button onClick={() => setRepoPath(otherRepo.path)}>Other repository</button>
+      <button onClick={() => setRepoPath('/synthetic')}>Original repository</button>
+      <LaunchConfigurationFields repoPath={repoPath} value={{ ...configuration }} onChange={changed} onPlan={onPlan} />
+      <output>{plan?.refusal ?? 'Ready'}</output>
+    </>
+  }
+  await renderWithMobileStore(<Form />, fixture)
+  await waitFor(() => expect(published).toHaveBeenLastCalledWith({ configuration }))
+  published.mockClear()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Other repository' }))
+  const refusal = 'The selected machine is no longer available for this repository.'
+  await waitFor(() => expect(published).toHaveBeenLastCalledWith({ configuration, refusal }))
+  expect(screen.getByRole('status').textContent).toBe(refusal)
+  published.mockClear()
+
+  fireEvent.click(screen.getByRole('button', { name: 'Original repository' }))
+  await waitFor(() => expect(published).toHaveBeenLastCalledWith({ configuration }))
+  expect(screen.getByRole('status').textContent).toBe('Ready')
+  expect(changed).not.toHaveBeenCalled()
+})
+
+it('publishes an offline refusal before paint without changing the selected configuration', async () => {
+  const fixture = launchFixture()
+  const configuration = { ...value, machineId: fixture.machine.id }
+  let plan: LaunchPlan | undefined
+  const published = vi.fn((next: LaunchPlan) => { plan = next })
+  const changed = vi.fn()
+  const beforePaint = vi.fn()
+  const Form = observer(function Form() {
+    const inputs = useLaunchInputs('/synthetic')
+    const online = inputs.machines.find((machine) => machine.id === configuration.machineId)?.online
+    // Child layout effects run before this parent's layout effect. A passive
+    // publication would leave the previous valid plan visible at this boundary.
+    useLayoutEffect(() => { beforePaint(online, plan) }, [online])
+    return <LaunchConfigurationFields repoPath="/synthetic" value={configuration} onChange={changed} onPlan={published} />
+  })
+  const app = await renderWithMobileStore(<Form />, fixture)
+  await waitFor(() => expect(beforePaint).toHaveBeenLastCalledWith(true, { configuration }))
+  published.mockClear()
+  beforePaint.mockClear()
+
+  await publishMachines(app, fixture, [{ ...fixture.machine, online: false }])
+  const refused = { configuration, refusal: 'Launch host is offline.' }
+  const offlineCommits = beforePaint.mock.calls.filter(([online]) => online === false)
+  expect(offlineCommits.length).toBeGreaterThan(0)
+  for (const [, committedPlan] of offlineCommits) expect(committedPlan).toEqual(refused)
+  expect(published).toHaveBeenLastCalledWith(refused)
+  expect(changed).not.toHaveBeenCalled()
 })
 
 it('keeps new-task submission usable on equal selections and responds to live invalidation', async () => {
