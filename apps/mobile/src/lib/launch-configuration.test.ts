@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { AUTO, encodeModelPick } from './agent-models'
+import { AUTO, encodeModelPick } from '@podium/client-core/agent-models'
 import {
   autoLaunchMachineOption,
   type LaunchConfiguration,

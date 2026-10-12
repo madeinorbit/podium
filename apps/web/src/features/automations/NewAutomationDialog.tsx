@@ -31,7 +31,7 @@ import {
 import { Switch } from '@/components/ui/switch'
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { Textarea } from '@/components/ui/textarea'
-import { AUTO } from '@/lib/agent-models'
+import { AUTO } from '@podium/client-core/agent-models'
 import { ISSUE_AGENT_KINDS, issueAgentLabel, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
 import type { Automation } from './AutomationsView'

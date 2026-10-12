@@ -3,7 +3,7 @@ import { panelLabel } from '@podium/client-core/values'
 import { machinePathSegments, machinePathSeparator } from '@podium/model'
 
 import type { JSX } from 'react'
-import { modelLabel } from '@/lib/agent-models'
+import { modelLabel } from '@podium/client-core/agent-models'
 import { agentIconFor } from '@/lib/agent-tone'
 
 /**

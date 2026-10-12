@@ -6,10 +6,10 @@ import {
   decodeModelPick,
   encodeModelPick,
   type IssueAgentKind,
-  isEffortValid,
+  draftForReportedModels,
   issueAgentKind,
   issueDefaultAgentKind,
-} from './agent-models'
+} from '@podium/client-core/agent-models'
 
 export interface LaunchConfiguration {
   /** False/absent pins agentKind; true leaves the configured coding role authoritative. */
@@ -102,7 +102,7 @@ export function selectLaunchMachine(
   value: LaunchConfiguration,
   machineId: string,
 ): LaunchConfiguration {
-  return { ...value, machineId, modelPick: AUTO, effort: AUTO }
+  return { ...value, machineId }
 }
 
 export function launchConfigurationForIssue(issue: Partial<Pick<IssueViewModel, 'defaultAgent' | 'defaultModel' | 'defaultEffort'>> & { machineId?: MachineId | null }): LaunchConfiguration {
@@ -140,21 +140,14 @@ export function normalizeLaunchConfiguration(
       : undefined
 
   const decoded = decodeModelPick(value.modelPick)
-  const live = catalog[value.agentKind] ?? []
-  const retiredModel =
-    value.modelPick !== AUTO &&
-    (catalogStatus !== 'ready' ||
-      decoded.agentKind !== value.agentKind ||
-      !live.some((model) => model.value === decoded.model))
-  const modelPick = retiredModel ? AUTO : value.modelPick
-  const model = decodeModelPick(modelPick).model
-  const effort =
-    catalogStatus !== 'ready' ||
-    retiredModel ||
-    (value.effort !== AUTO && live.length === 0) ||
-    !isEffortValid(value.agentKind, value.effort, catalog[value.agentKind])
-      ? AUTO
-      : value.effort
+  // Catalog arrival, not a repository/machine selection event, governs the
+  // pills. Preserve concrete choices while loading or no list is reported.
+  const draft = { model: decoded.model, effort: value.effort }
+  const normalized = decoded.agentKind && decoded.agentKind !== value.agentKind
+    ? { model: AUTO, effort: AUTO }
+    : draftForReportedModels(draft, catalogStatus === 'ready' ? catalog[value.agentKind] : undefined) ?? draft
+  const modelPick = normalized.model === AUTO ? AUTO : value.modelPick
+  const effort = normalized.effort
 
   return {
     configuration: { ...value, modelPick, effort },

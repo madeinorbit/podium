@@ -10,7 +10,8 @@ import {
 } from '@podium/client-core/ui-state'
 import {
   AGENT_NOT_READY_COPY,
-  activationAgentIsReady,
+  agentCanLaunch,
+  signInInTerminalCopy,
   agentReadinessOnMachines,
   launchAgentKind,
   machineViewsFromWire,
@@ -22,7 +23,7 @@ import {
 import type { AgentKind, MachineId, MachineWire } from '@podium/model'
 import { machinePathsEqual } from '@podium/model/browser'
 import { usePathname, useRouter } from 'expo-router'
-import { type Dispatch, type SetStateAction, useCallback, useMemo, useState } from 'react'
+import { type Dispatch, type SetStateAction, useCallback, useMemo, useState, useLayoutEffect } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useStoreActions } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
@@ -40,11 +41,12 @@ import {
   groupedCatalogOptions,
   ISSUE_AGENT_KINDS,
   type IssueAgentKind,
-  isEffortValid,
+  draftForReportedModels,
+  effortLabel,
   issueAgentLabel,
   issueDefaultAgentKind,
   spawnSelection,
-} from '../lib/agent-models'
+} from '@podium/client-core/agent-models'
 import { reposOnMachine } from '../lib/new-work'
 import { sessionHref } from '../lib/session-route'
 import { alpha } from '../theme/mix'
@@ -107,9 +109,8 @@ const writeString = (value: string | null): string | null => value
  * runs Opus on high re-chose it every time — the reference launchers all
  * remember, because the last launch is by far the best prediction of the next.
  *
- * Model choices come from the machine's own installed harnesses via
- * {@link useModelCatalog}; the compiled-in table is only the cold-start
- * fallback. Tracked tasks are still created from the Tasks tab — this sheet only
+ * Model choices come only from the machine's own installed harnesses via
+ * {@link useModelCatalog}; until reported, the menu offers Auto. Tracked tasks are still created from the Tasks tab — this sheet only
  * starts an agent.
  */
 export function NewWorkButton({ size = 28 }: { size?: 28 | 32 | 34 }) {
@@ -242,8 +243,24 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
     setQuery('')
   }
 
-  const decoded = decodeModelPick(model)
   const isShell = model === SHELL_PICK
+  const picked = decodeModelPick(model)
+  const pickHarness = picked.agentKind ?? issueDefaultAgentKind(undefined)
+  const storedDraft = { model: picked.model, effort }
+  const adjustedDraft = isShell
+    ? undefined
+    : draftForReportedModels(storedDraft, catalog[pickHarness])
+  const effectiveDraft = adjustedDraft ?? storedDraft
+  const effectiveModel = effectiveDraft.model === AUTO ? AUTO : model
+  const effectiveEffort = effectiveDraft.effort
+  // Paint and submit the same normalized values; keep them in the remembered
+  // choices too, so a later switch cannot resurrect a retired model/effort.
+  useLayoutEffect(() => {
+    if (!adjustedDraft) return
+    if (effectiveModel !== model) setModelPick(effectiveModel)
+    if (effectiveEffort !== effort) setEffortPick(effectiveEffort)
+  }, [adjustedDraft, effectiveModel, effectiveEffort, model, effort, setModelPick, setEffortPick])
+  const decoded = decodeModelPick(effectiveModel)
 
   /**
    * The checkout this launch lands in, resolved ONCE so that the harness is
@@ -281,14 +298,16 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
         candidates: ISSUE_AGENT_KINDS,
         readiness: readinessOf,
       })
-  const harnessReady =
-    harness === 'shell' || activationAgentIsReady(readinessOf(harness as IssueAgentKind))
+  const readiness = harness === 'shell' ? undefined : readinessOf(harness as IssueAgentKind)
+  // spawnDraftAgent sends sessions.create without requestedDriverId: the
+  // command contract and daemon resolver define that as the headed terminal.
+  const harnessReady = !readiness || agentCanLaunch(readiness, { headed: true })
 
   const start = (repo: RepoNavView, explicit?: MachineId) => {
     if (!harnessReady) return
     const worktree = launchTarget(repo, explicit)
     if (worktree === null) return
-    const selection = isShell ? {} : spawnSelection(effectiveModel, effort)
+    const selection = isShell ? {} : spawnSelection(effectiveModel, effectiveEffort)
     const firstPrompt = prompt.trim()
     setRepoPick(repo.path)
     const launch = spawnDraftAgent({
@@ -316,9 +335,8 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
     }
     const picked = decodeModelPick(value)
     const kind = (picked.agentKind ?? issueDefaultAgentKind(undefined)) as IssueAgentKind
-    const options = effortOptionsForModel(kind, picked.model, catalog[kind], served)
-    if (options.length === 0 || !isEffortValid(kind, effort, catalog[kind], served))
-      setEffortPick(AUTO)
+    const adjusted = draftForReportedModels({ model: picked.model, effort }, catalog[kind])
+    if (adjusted) setEffortPick(adjusted.effort)
     setStep('launch')
   }
 
@@ -328,31 +346,13 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
     ...allConnectorModelOptions(catalog, served),
     { value: SHELL_PICK, label: 'Shell', group: 'No agent' },
   ], [catalog, served])
-  /**
-   * A REMEMBERED PICK THE MACHINE NO LONGER OFFERS FALLS BACK TO AUTO.
-   *
-   * Only once the live catalog has actually answered for this harness, which is
-   * the whole precision of the check: with an empty catalog the static fallback
-   * is in play and a model that exists on the machine but not in the compiled
-   * table would be discarded for no reason. With a live answer in hand, a pick
-   * that is missing from it is a model this machine cannot run — starting on it
-   * would fail at the daemon, several taps later, with nothing on screen that
-   * explained why.
-   */
-  const pickHarness = (decoded.agentKind ?? issueDefaultAgentKind(undefined)) as IssueAgentKind
-  const retired =
-    !isShell &&
-    model !== AUTO &&
-    (catalog[pickHarness]?.length ?? 0) > 0 &&
-    !catalog[pickHarness]?.some((choice) => choice.value === decoded.model)
-  const effectiveModel = retired ? AUTO : model
   // Auto names its harness once it is not the default one, so the operator can
   // see that the signed-out default was stepped over rather than guess.
   const autoValue =
     harness === defaultHarness ? 'Auto' : `Auto · ${issueAgentLabel(harness, served)}`
   const modelValue = isShell
     ? 'Shell'
-    : retired || effectiveModel === AUTO
+    : effectiveModel === AUTO
       ? autoValue
       : allConnectorModelLabel(decoded.agentKind, decoded.model, catalog, served)
   const effortChoices =
@@ -445,12 +445,14 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
             }}
           />
 
-          {effortChoices.length > 0 ? (
+          {!isShell ? (
             <FieldSelect
               label="Effort"
-              value={effortChoices.find((option) => option.value === effort)?.label ?? 'Auto'}
-              onPress={() => setStep('effort')}
-              picker={{ options: effortChoices, selected: effort, onSelect: applyEffort }}
+              value={effortLabel(pickHarness, effectiveEffort)}
+              {...(effortChoices.length > 0 ? {
+                onPress: () => setStep('effort'),
+                picker: { options: effortChoices, selected: effectiveEffort, onSelect: applyEffort },
+              } : {})}
             />
           ) : null}
 
@@ -519,6 +521,8 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
             <Text style={styles.none}>No repositories are available on this account.</Text>
           ) : machineOk && !harnessReady ? (
             <Text style={styles.none}>{AGENT_NOT_READY_COPY}</Text>
+          ) : readiness?.state === 'logged-out' ? (
+            <Text style={styles.none}>{signInInTerminalCopy(readiness, issueAgentLabel(harness, served))}</Text>
           ) : null}
         </>
       ) : null}
@@ -534,7 +538,7 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
       ) : null}
 
       {step === 'effort' ? (
-        <OptionList groups={[{ options: effortChoices }]} selected={effort} onPick={applyEffort} />
+        <OptionList groups={[{ options: effortChoices }]} selected={effectiveEffort} onPick={applyEffort} />
       ) : null}
 
       {step === 'machine' ? (

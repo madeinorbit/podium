@@ -229,6 +229,11 @@
       "@podium/source": "./test-support/replica.ts",
       "types": "./test-support/replica.ts",
       "import": "./test-support/replica.ts"
+    },
+    "./agent-models": {
+      "@podium/source": "./src/agent-models.ts",
+      "types": "./src/agent-models.ts",
+      "import": "./src/agent-models.ts"
     }
   },
   "scripts": {

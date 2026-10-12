@@ -1,4 +1,4 @@
-import { type IssueAgentKind, issueAgentKind } from './agent-models'
+import { type IssueAgentKind, issueAgentKind } from '@podium/client-core/agent-models'
 
 /**
  * Superagent prompt-box backend — the same resolve + payload the desktop

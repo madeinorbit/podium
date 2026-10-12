@@ -47,6 +47,7 @@ export const SessionsSection = observer(function SessionsSection({
           description="Applied when the selected harness supports a native subagent-model override."
         >
           <ModelPicker
+            allowFreeText
             variant="field"
             agentKind={codingHarness}
             value={settings.roles.coding.subagentModel}

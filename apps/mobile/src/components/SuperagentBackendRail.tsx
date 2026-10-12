@@ -8,10 +8,11 @@ import {
   type CatalogOption,
   decodeModelPick,
   effortOptionsForModel,
+  effortLabel as storedEffortLabel,
   encodeModelPick,
   groupedCatalogOptions,
   issueAgentKind,
-} from '../lib/agent-models'
+} from '@podium/client-core/agent-models'
 import type { SuperagentBackend } from '../lib/superagent-backend'
 import { alpha } from '../theme/mix'
 import { color, font, mono, monoLabel, radius, sans, space } from '../theme/theme'
@@ -55,8 +56,7 @@ export function SuperagentBackendRail({
     ? effortOptionsForModel(agentKind, backend.model, modelCatalog[agentKind])
     : []
   const modelLabel = allConnectorModelLabel(agentKind ?? undefined, backend.model, modelCatalog)
-  const effortLabel =
-    effortChoices.find((option) => option.value === backend.effort)?.label ?? 'Auto'
+  const effortLabel = storedEffortLabel(agentKind ?? '', backend.effort)
 
   const title = step === 'effort' ? 'Effort' : 'Model'
 
@@ -111,7 +111,9 @@ export function SuperagentBackendRail({
               />
             )}
           </NativePicker>
-        ) : null}
+        ) : (
+          <Pill icon={Gauge} label={effortLabel} quiet={backend.effort === AUTO} accessibilityLabel="Effort" />
+        )}
       </View>
       <BottomSheet
         visible={step !== null}
@@ -172,7 +174,9 @@ function Pill({
 }) {
   return (
     <PressableScale
-      accessibilityRole="button"
+      accessibilityRole={onPress ? 'button' : undefined}
+      accessibilityState={{ disabled: !onPress }}
+      disabled={!onPress}
       accessibilityLabel={accessibilityLabel}
       onPress={onPress}
       hitSlop={6}

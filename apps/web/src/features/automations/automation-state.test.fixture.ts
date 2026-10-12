@@ -3,7 +3,7 @@ import type { AutomationFormState } from './automation-form'
 import { GLOBAL_TARGET } from './automation-form'
 import { localDateTimeValue } from './automation-edit-draft'
 import { issueDefaultAgentKind } from '@/lib/issue-agents'
-import { AUTO } from '@/lib/agent-models'
+import { AUTO } from '@podium/client-core/agent-models'
 
 /** Frozen pre-migration oracle; production editors never snapshot records. */
 export function initialState(automation: Automation | null, defaultTarget: string): AutomationFormState {

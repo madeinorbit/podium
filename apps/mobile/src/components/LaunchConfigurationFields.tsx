@@ -18,10 +18,11 @@ import {
   encodeModelPick,
   decodeModelPick,
   effortOptionsForModel,
-  ISSUE_AGENT_KINDS,
+  agentDescriptors,
+  effortLabel,
   issueAgentKind,
   issueAgentLabel,
-} from '../lib/agent-models'
+} from '@podium/client-core/agent-models'
 import {
   autoLaunchMachineOption,
   hasAuthoritativeLaunchCatalog,
@@ -118,9 +119,9 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
       : machineOptions
   const agentOptions: NativePickerOption[] = [
     ...(allowInheritedAgent ? [{ value: '', label: 'Auto' }] : []),
-    ...ISSUE_AGENT_KINDS.map((kind) => ({
-      value: kind,
-      label: issueAgentLabel(kind, served),
+    ...agentDescriptors(served).filter((descriptor) => descriptor.kind !== 'shell').map((descriptor) => ({
+      value: descriptor.kind,
+      label: descriptor.label,
     })),
   ]
   const liveModels = catalog[effective.agentKind]
@@ -172,19 +173,14 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
       valueLabel: allConnectorModelLabel(decoded.agentKind, decoded.model, catalog),
       select: (modelPick) => onChange(selectLaunchModel(value, modelPick)),
     },
-    ...(effortOptions.length > 0
-      ? [
-          {
-            key: 'effort' as const,
-            label: 'Effort',
-            selected: effective.effort,
-            options: effortOptions,
-            valueLabel:
-              effortOptions.find((option) => option.value === effective.effort)?.label ?? 'Auto',
-            select: (effort: string) => onChange(selectLaunchEffort(value, effort)),
-          },
-        ]
-      : []),
+    {
+      key: 'effort',
+      label: 'Effort',
+      selected: effective.effort,
+      options: effortOptions,
+      valueLabel: effortLabel(effective.agentKind, effective.effort),
+      select: (effort: string) => onChange(selectLaunchEffort(value, effort)),
+    },
     {
       key: 'machine',
       label: 'Machine',
@@ -200,7 +196,12 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
     <>
       <View style={styles.group}>
         {rows.map((row) => (
-          <NativePicker
+          row.options.length === 0 ? (
+            <View key={row.key} accessibilityLabel={`${row.label}, ${row.valueLabel}`} style={styles.row}>
+              <Text style={styles.label}>{row.label}</Text>
+              <Text style={styles.value}>{row.valueLabel}</Text>
+            </View>
+          ) : <NativePicker
             key={row.key}
             label={row.label}
             options={row.options}

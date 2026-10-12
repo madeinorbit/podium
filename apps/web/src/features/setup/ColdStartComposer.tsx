@@ -28,7 +28,7 @@ import {
   CapabilityAgentMenu,
   candidateFromAvailability,
 } from '@/lib/agent-capability'
-import { AUTO } from '@/lib/agent-models'
+import { AUTO, draftForReportedModels } from '@podium/client-core/agent-models'
 import {
   ISSUE_AGENT_KINDS,
   type IssueAgentKind,
@@ -50,7 +50,6 @@ import { useNativeDraftText } from '@/lib/use-native-draft-text'
 import { useColdStartPromptAutoGrow } from './cold-start-prompt-height'
 import {
   clearFirstTaskDraft,
-  draftForReportedModels,
   type FirstTaskDraft,
   readFirstTaskDraft,
   serializeFirstTaskDraft,

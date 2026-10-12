@@ -17,7 +17,7 @@ import { PressableScale } from '../components/PressableScale'
 import { Screen } from '../components/Screen'
 import { SectionHeader } from '../components/ui'
 import { useContentBottomInset } from '../hooks/useContentBottomInset'
-import { AUTO, issueAgentKind, issueDefaultAgentKind } from '../lib/agent-models'
+import { AUTO, issueAgentKind, issueDefaultAgentKind } from '@podium/client-core/agent-models'
 import {
   type LaunchConfiguration,
   type LaunchPlan,

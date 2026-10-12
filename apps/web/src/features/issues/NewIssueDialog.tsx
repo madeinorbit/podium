@@ -38,7 +38,7 @@ import {
   capabilityReason,
   SIGNED_OUT_HINT,
 } from '@/lib/agent-capability'
-import { AUTO } from '@/lib/agent-models'
+import { AUTO } from '@podium/client-core/agent-models'
 import { useIsMobile } from '@/lib/hooks/use-is-mobile'
 import {
   issueAgentIcon,

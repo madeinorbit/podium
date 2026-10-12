@@ -1,7 +1,7 @@
 import { cleanup, screen } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { renderWithMobileStore } from '../client/test-support'
-import { AUTO } from '../lib/agent-models'
+import { AUTO } from '@podium/client-core/agent-models'
 import type { LaunchPlan } from '../lib/launch-configuration'
 import { LaunchConfigurationFields } from './LaunchConfigurationFields'
 

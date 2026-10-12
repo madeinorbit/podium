@@ -1,5 +1,5 @@
 import type { IssueType, MachineId } from '@podium/model'
-import { AUTO } from './agent-models'
+import { AUTO } from '@podium/client-core/agent-models'
 
 export interface NewTaskInput {
   repoPath: string

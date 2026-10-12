@@ -14,7 +14,7 @@ import {
   encodeModelPick,
   modelLabel,
   modelOptions,
-} from './agent-models'
+} from '@podium/client-core/agent-models'
 import type { IssueAgentKind } from './issue-agents'
 import { PropertyMenu } from './PropertyMenu'
 import { useModelCatalog, useModelCatalogState } from './use-model-catalog'
@@ -108,7 +108,7 @@ export function ModelPicker({
   className,
   machineId,
   disabled = false,
-  allowFreeText = true,
+  allowFreeText = false,
 }: {
   agentKind: IssueAgentKind
   value: string
@@ -194,21 +194,10 @@ export function AllConnectorsModelPicker({
       }
       options={allConnectorModelOptions(live, served)}
       selectedValue={selected}
-      allowFreeText
-      placeholder="Model name…"
+      allowFreeText={false}
+      placeholder="Filter…"
       onSelect={(next) => {
-        const decoded = decodeModelPick(next)
-        if (decoded.agentKind || decoded.model === AUTO) {
-          onChange(decoded)
-          return
-        }
-        // Free-text slug: keep the current connector if one is selected.
-        // Auto stays Auto — the slug rides the Settings default harness,
-        // rather than silently pinning Claude.
-        onChange({
-          ...(agentKind ? { agentKind } : {}),
-          model: decoded.model,
-        })
+        onChange(decodeModelPick(next))
       }}
     />
   )

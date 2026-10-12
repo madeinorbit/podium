@@ -20,7 +20,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import type { HarnessDescriptorWire } from '@podium/protocol'
-import { agentSupportsEffort } from '@/lib/agent-models'
+import { agentSupportsEffort } from '@podium/client-core/agent-models'
 import { issueAgentDescriptors, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { managedCodingHarnesses as managedCodingHarnessesFromDescriptors } from '@/lib/managed-harness-pairing'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
@@ -431,6 +431,7 @@ export const RoleBackendEditor = observer(function RoleBackendEditor({
       <Row label={asDefault ? 'Default model' : 'Model'}>
         {agentKind ? (
           <ModelPicker
+            allowFreeText
             variant="field"
             agentKind={agentKind}
             value={backend.model}
