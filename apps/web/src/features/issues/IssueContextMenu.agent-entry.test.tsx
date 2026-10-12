@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ConfirmProvider } from '@/lib/hooks/use-confirm'
@@ -12,7 +13,9 @@ const addSessionMutate = vi.fn(async () => ({}))
 
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({
+  // POD-3911: the menu reads owner.access, not getSnapshot directly.
+  useStoreHandle: () => withKeyedInputs({
+    subscribe: () => () => {},
     getSnapshot: () => ({
       trpc: {
         issues: { start: { mutate: startMutate }, addSession: { mutate: addSessionMutate } },

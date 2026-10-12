@@ -1,5 +1,6 @@
-import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
+// POD-3911: exercise the real pool after the provider-free action fixture.
+import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
 /**
  * THE INLINE FILTER (POD-1078, the 3b sidebar): the field between the spawn row
@@ -13,15 +14,15 @@ import { SidebarUnified } from './SidebarUnified'
 
 const ui = vi.hoisted(() => {
   const rows = new Map<string, string>()
-  const listeners = new Set<() => void>()
+  const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   return {
     get: (key: string): string | null => rows.get(key) ?? null,
     set: (key: string, value: string | null): void => {
       if (value === null) rows.delete(key)
       else rows.set(key, value)
-      for (const listener of listeners) listener()
+      for (const listener of listeners) listener(new Set([key]))
     },
-    subscribe: (callback: () => void): (() => void) => {
+    subscribe: (callback: (keys: ReadonlySet<string>) => void): (() => void) => {
       listeners.add(callback)
       return () => {
         listeners.delete(callback)
@@ -264,16 +265,16 @@ describe('SidebarUnified inline filter (POD-1078)', () => {
 
   it('withdraws the reorder grips while a query is narrowing the column (POD-1102)', async () => {
     render(<SidebarUnified />)
-    expect(document.querySelectorAll('[data-drag-key]')).toHaveLength(3)
+    expect(document.querySelectorAll('[data-drag-scope] > [data-drag-key]')).toHaveLength(3)
     // A filtered column is a VIEW, not the scope. The drop reads the new order
     // back out of `data-drag-key`, so leaving grips on a narrowed list plans a
     // sortKey write against a sample of the siblings — the hidden rows between
     // the visible ones are invisible to the plan, and the backfill path would
     // renumber the sample and scatter everything it could not see.
     type('rocket')
-    await waitFor(() => expect(document.querySelectorAll('[data-drag-key]')).toHaveLength(0))
+    await waitFor(() => expect(document.querySelectorAll('[data-drag-scope] > [data-drag-key]')).toHaveLength(0))
     fireEvent.click(screen.getByTestId('work-search-clear'))
-    await waitFor(() => expect(document.querySelectorAll('[data-drag-key]')).toHaveLength(3))
+    await waitFor(() => expect(document.querySelectorAll('[data-drag-scope] > [data-drag-key]')).toHaveLength(3))
   })
 
   it('gaps every section but the first (the design’s 14px)', () => {

@@ -1,9 +1,10 @@
-import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
+// POD-3911: exercise the real pool after the provider-free action fixture.
+import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { publishScreenPoolFixture } from '@/test-support/mock-screen-pool'
+import { publishPoolFixture } from '@/test-support/pool-fixture'
 import { SidebarUnified, WorkSections } from './SidebarUnified'
 
 const selection = vi.hoisted(() => ({
@@ -222,9 +223,10 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
   it('keeps folded live rows as direct drag-scope children and starts the gesture', () => {
     render(<SidebarUnified />)
     const group = screen.getByTestId('project-group')
-    const panel = screen.getByTestId('project-group-rows')
-    const pinnedPanel = screen.getByTestId('pinned-section-rows')
-    const row = rowButton('Plain issue').closest<HTMLElement>('[data-drag-key="plain"]')
+    // POD-3911: windowing owns the scope and its direct draggable children.
+    const panel = screen.getByTestId('project-group-rows').querySelector<HTMLElement>('[data-drag-scope]')!
+    const pinnedPanel = screen.getByTestId('pinned-section-rows').querySelector<HTMLElement>('[data-drag-scope]')!
+    const row = rowButton('Plain issue').closest<HTMLElement>('[data-window-row]')
     const grip = row?.querySelector<HTMLElement>('[data-testid="row-grip"]')
     if (!row || !grip) throw new Error('plain issue is missing its draggable row contract')
 
@@ -319,7 +321,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(selection.issueId).toBe('plain')
     // The click lands in the mocked store; republish so the memo'd pool
     // components re-read the fixture, as an eviction publish does.
-    publishScreenPoolFixture()
+    publishPoolFixture()
     rerender(<SidebarUnified />)
     await waitFor(() => expect(screen.getByRole('button', { name: '4 closed' })).toBeTruthy())
     await waitFor(() => expect(screen.queryByText('Closed result selected')).toBeNull())
@@ -333,7 +335,7 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     // components re-read the fixture.
     selection.wasFolded = true
     fireEvent.click(rowButton('Closed alpha'))
-    publishScreenPoolFixture()
+    publishPoolFixture()
     rerender(<SidebarUnified />)
 
     expect(selection.issueId).toBe('closed-a')
@@ -347,13 +349,13 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     expect(rowButton('Closed alpha').getAttribute('data-lane')).toBe('closed')
 
     fireEvent.click(rowButton('Plain issue'))
-    publishScreenPoolFixture()
+    publishPoolFixture()
     rerender(<SidebarUnified />)
     // Navigation from outside the sidebar has no folded-click latch. The
     // previous click must not keep this new selection in the closed lane.
     selection.issueId = 'closed-a'
     selection.wasFolded = false
-    publishScreenPoolFixture()
+    publishPoolFixture()
     rerender(<SidebarUnified />)
 
     await waitFor(() => expect(screen.getByRole('button', { name: '3 closed' })).toBeTruthy())
@@ -424,7 +426,8 @@ describe('SidebarUnified PINNED section (POD-166, R3)', () => {
     const group = screen.getByTestId('project-group')
     const groupKey = screen
       .getByTestId('project-group-rows')
-      .getAttribute('data-drag-scope')
+      .querySelector('[data-drag-scope]')
+      ?.getAttribute('data-drag-scope')
       ?.replace(/^group:/, '')
     const band = screen.getByTestId('project-group-label')
     expect(screen.getByTestId('closed-fold-toggle')).toBeTruthy()

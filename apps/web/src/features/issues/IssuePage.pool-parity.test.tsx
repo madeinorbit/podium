@@ -476,6 +476,7 @@ describe('issue page rendered pool parity', () => {
     const next = await arm(surface)
     if (process.env.PODIUM_DETAIL_PARITY_CAPTURE)
       writeFileSync(`${process.env.PODIUM_DETAIL_PARITY_CAPTURE}.${surface}.json`, JSON.stringify({ main: next.main, expanded: next.expanded }, null, 2))
+    // POD-3911: freeze the reported-model catalog UI, replacing baked model/effort menus.
     expectPoolOutput({ main: next.main, expanded: next.expanded }, 'rendered output')
     expect(next.reads).toBe(0)
     expect(
@@ -523,6 +524,7 @@ describe('issue page rendered pool parity', () => {
     )
     const next = await arm('panel')
     expect(next.text).toContain('Work continued in SYN-24')
+    // POD-3911: freeze the reported-model catalog UI, replacing baked model/effort menus.
     expectPoolOutput({ main: next.main, expanded: next.expanded }, 'rendered output')
     expect(next.reads).toBe(0)
   })

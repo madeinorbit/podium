@@ -1,4 +1,6 @@
 import '@/test-support/mock-core-store-handle'
+// POD-3911: exercise the real pool after the provider-free action fixture.
+import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
 /**
  * THE COLLAPSED RAIL, REDRAWN (POD-1178, design "ADE Sidebar 3b — Closed").

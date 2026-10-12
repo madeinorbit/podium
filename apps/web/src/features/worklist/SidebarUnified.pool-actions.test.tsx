@@ -1148,7 +1148,9 @@ describe('real pool row mutations and receipts', () => {
       }
     })
     await waitFor(() => expect(referenceState(runtime).selectedIssueId).toBeNull())
-    expect(sidebarView(pool!).row(TARGET)).toBeUndefined()
+    // POD-3911: the row projection is loading while its evicted membership is absent.
+    expect(sidebarView(pool!).row(TARGET)).toBe(LOADING)
+    expect(pool!.row('issue', TARGET, 'mark')).toBeUndefined()
     expect(requests).toHaveLength(0)
     await parity()
     await act(async () => {

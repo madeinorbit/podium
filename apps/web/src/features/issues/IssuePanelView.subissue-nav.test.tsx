@@ -1,5 +1,6 @@
-import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
+// POD-3911: exercise the real pool after the provider-free action fixture.
+import '@/test-support/mock-pool-fixture'
 import '@/test-support/model-catalog-mock'
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, within } from '@testing-library/react'

@@ -1,5 +1,6 @@
-import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
+// POD-3911: exercise the real pool after the provider-free action fixture.
+import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render } from '@testing-library/react'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -12,15 +13,15 @@ import { SidebarUnified } from './SidebarUnified'
 
 const ui = vi.hoisted(() => {
   const rows = new Map<string, string>()
-  const listeners = new Set<() => void>()
+  const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   return {
     get: (key: string): string | null => rows.get(key) ?? null,
     set: (key: string, value: string | null): void => {
       if (value === null) rows.delete(key)
       else rows.set(key, value)
-      for (const listener of listeners) listener()
+      for (const listener of listeners) listener(new Set([key]))
     },
-    subscribe: (callback: () => void): (() => void) => {
+    subscribe: (callback: (keys: ReadonlySet<string>) => void): (() => void) => {
       listeners.add(callback)
       return () => {
         listeners.delete(callback)

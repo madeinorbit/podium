@@ -1,3 +1,6 @@
+import '@/test-support/mock-core-store-handle'
+// POD-3911: retain the app owner used by row motion preferences.
+import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
 import type { UnifiedIssueRow as UnifiedIssueRowView } from '@podium/client-core/values'
 import { issueDisplayRef } from '@podium/protocol'
@@ -5,6 +8,10 @@ import { cleanup, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { UnifiedIssueRow } from './UnifiedIssueRow'
+
+vi.mock('@/app/store', () => ({
+  useRuntimeSelector: <T,>(read: (state: object) => T) => read({}),
+}))
 
 afterEach(cleanup)
 

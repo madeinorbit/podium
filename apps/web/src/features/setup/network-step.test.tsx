@@ -35,6 +35,8 @@ function fakeTrpc(
       options: {
         query: vi.fn().mockResolvedValue([
           { id: 'tailscale-funnel', label: 'Tailscale Funnel', note: 'Reachable anywhere.' },
+          // POD-3911: a saved Serve configuration is also in the authority's option catalog.
+          { id: 'tailscale-serve', label: 'Tailscale Serve', note: 'Reachable on your tailnet.' },
           { id: 'manual', label: 'Manual reverse proxy', note: 'Paste the https URL.' },
         ]),
       },

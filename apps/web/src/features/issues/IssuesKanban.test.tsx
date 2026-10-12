@@ -285,9 +285,16 @@ describe('IssuesKanban large-board render boundary', () => {
     // Five seconds at 60 pointer samples per second. Each sample moves the DOM
     // proxy immediately; each frame hit-tests once and republishes no state
     // because {stage,index} remains identical.
-    for (let sample = 1; sample <= 300; sample++) {
+    // POD-3911: measure the first target publication and retention pin separately
+    // from the steady pointer stream; retiring the pin is another lifecycle commit.
+    fireEvent(window, pointer('pointermove', 21, 31))
+    act(() => flushFrame(1000 / 60))
+    const startCommits = commits
+    expect(startCommits).toBeLessThanOrEqual(3)
+    for (let sample = 2; sample <= 300; sample++) {
       fireEvent(window, pointer('pointermove', 20 + sample, 30 + sample))
       act(() => flushFrame(sample * (1000 / 60)))
+      expect(commits).toBe(startCommits)
     }
 
     const proxy = document.querySelector('.will-change-transform') as HTMLElement
@@ -301,7 +308,8 @@ describe('IssuesKanban large-board render boundary', () => {
     )
     // Windowing adds one lifecycle commit while the active drag source becomes
     // a retention pin. Pointer samples themselves still add zero commits.
-    expect(commits).toBeLessThanOrEqual(4)
+    expect(commits - startCommits).toBeLessThanOrEqual(2)
+    expect(commits).toBeLessThanOrEqual(5)
     expect(props.onMoveIssue).toHaveBeenCalledWith(sourceId, 'review')
   }, 15_000)
 })

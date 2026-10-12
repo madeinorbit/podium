@@ -7,7 +7,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
  *  subscription so the value it reads back is the value it wrote. */
 const store = vi.hoisted(() => {
   const values = new Map<string, string>()
-  const listeners = new Set<() => void>()
+  const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   return {
     values,
     uiState: {
@@ -15,9 +15,9 @@ const store = vi.hoisted(() => {
       set: (key: string, value: string | null): void => {
         if (value === null) values.delete(key)
         else values.set(key, value)
-        for (const listener of listeners) listener()
+        for (const listener of listeners) listener(new Set([key]))
       },
-      subscribe: (listener: () => void): (() => void) => {
+      subscribe: (listener: (keys: ReadonlySet<string>) => void): (() => void) => {
         listeners.add(listener)
         return () => listeners.delete(listener)
       },

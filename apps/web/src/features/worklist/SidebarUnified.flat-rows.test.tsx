@@ -1,5 +1,6 @@
-import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
+// POD-3911: exercise the real pool after the provider-free action fixture.
+import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
 /**
  * THE WORKLIST IS FLAT (POD-516 §1.1).
@@ -34,9 +35,9 @@ import { SidebarUnified } from './SidebarUnified'
  */
 const ui = vi.hoisted(() => {
   const rows = new Map<string, string>()
-  const listeners = new Set<() => void>()
+  const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   const notify = (): void => {
-    for (const listener of listeners) listener()
+    for (const listener of listeners) listener(new Set([key]))
   }
   return {
     get: (key: string): string | null => rows.get(key) ?? null,
@@ -45,7 +46,7 @@ const ui = vi.hoisted(() => {
       else rows.set(key, value)
       notify()
     },
-    subscribe: (callback: () => void): (() => void) => {
+    subscribe: (callback: (keys: ReadonlySet<string>) => void): (() => void) => {
       listeners.add(callback)
       return () => {
         listeners.delete(callback)

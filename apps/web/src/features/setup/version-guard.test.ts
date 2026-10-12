@@ -6,6 +6,7 @@ import { IDBFactory } from 'fake-indexeddb'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { currentSkew, reportSkew, resetSkewNotice } from '@/app/skew-notice'
 import { reloadBudgetSpent } from '@/lib/reload-budget'
+import { freshInterfaceUrl } from '@/lib/reload-route'
 import {
   checkServedAssets,
   checkServerVersion,
@@ -50,7 +51,8 @@ beforeEach(() => {
     keys: vi.fn().mockResolvedValue(['podium-precache', 'podium-runtime']),
     delete: cacheDelete,
   })
-  vi.stubGlobal('location', { reload, origin: ORIGIN, pathname: '/' })
+  // POD-3911: browsers replace the document via the network-only recovery entry.
+  vi.stubGlobal('location', { reload: vi.fn(), replace: reload, origin: ORIGIN, protocol: 'https:', href: `${ORIGIN}/`, pathname: '/' })
   vi.stubGlobal('sessionStorage', {
     getItem: (k: string) => store.get(k) ?? null,
     setItem: (k: string, v: string) => {
@@ -73,6 +75,7 @@ describe('forceReload', () => {
     expect(unregister).toHaveBeenCalledTimes(1)
     expect(cacheDelete).toHaveBeenCalledTimes(2)
     expect(reload).toHaveBeenCalledTimes(1)
+    expect(reload).toHaveBeenCalledWith(freshInterfaceUrl(`${ORIGIN}/`))
   })
 
   it('still reloads when the service-worker + caches APIs are unavailable', async () => {

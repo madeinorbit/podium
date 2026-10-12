@@ -72,6 +72,7 @@ export function publishPoolFixture() {
 export function syncPoolFixture(input: import("@podium/client-core/engine").Store, sidebarGesture = false) {
   const state = input as unknown as Store & {
     issues?: readonly unknown[]
+    selectedIssueWasFolded?: boolean
     hostMetrics?: import('@podium/model/browser').HostMetricsWire[]
   }
   fixtureState = fixtureStoreSnapshot({
@@ -92,6 +93,7 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
     state.repos,
     state.machines,
     state.selectedIssueId,
+    state.selectedIssueWasFolded,
     state.coarseNow,
     state.hostMetrics,
   ])
@@ -102,7 +104,11 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
     })
     if (state.uiState) attachPreferenceSource(pool, state.uiState as RoutedUiState)
     pool.sources.register(ISSUE_BOARD_ENTITIES, createIssueBoardSource(pool))
-    pool.sources.register(['issueExit'], { read: () => ({ kind: undefined }), dispose() {} })
+    // POD-3911: the fixture authority supplies the same exit evidence as the live source.
+    pool.sources.register(['issueExit'], {
+      read: (_entity, id) => ({ kind: fixtureState.replica?.exitKind?.('issueProjection', id) }),
+      dispose() {},
+    })
   }
   if (signature !== nextSignature) {
     signature = nextSignature
@@ -169,14 +175,16 @@ export function syncPoolFixture(input: import("@podium/client-core/engine").Stor
       {
         selectedIssueId: state.selectedIssueId ?? null,
         coarseNow: state.coarseNow ?? Date.now(),
-        selectedIssueWasFolded: sidebarGesture ? undefined : false,
+        selectedIssueWasFolded: sidebarGesture ? undefined : state.selectedIssueWasFolded ?? false,
       },
       new Set(
         selectionChanged
           ? sidebarGesture
             ? ['selectedIssueId', 'coarseNow']
             : ['selectedIssueId', 'selectedIssueWasFolded', 'coarseNow']
-          : ['coarseNow'],
+          : typeof state.selectedIssueWasFolded === 'boolean'
+            ? ['selectedIssueWasFolded', 'coarseNow']
+            : ['coarseNow'],
       ),
     )
     headerEntities(pool).apply(

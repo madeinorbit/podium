@@ -1,3 +1,6 @@
+import '@/test-support/mock-core-store-handle'
+// POD-3911: mount the current pool boundary, not an absent StoreProvider.
+import '@/test-support/mock-pool-fixture'
 /**
  * CROSS-BOUNDARY EDGES, RENDERED (POD-646).
  *
@@ -53,6 +56,7 @@ let replicaAnswersExits = true
 vi.mock('@/app/store', () => ({
   useRuntimeSelector: (sel: (s: unknown) => unknown) =>
     sel({
+      issues: [VISIBLE, ARCHIVED],
       replica: replicaAnswersExits
         ? {
             exitKind: (entity: string, id: string) =>

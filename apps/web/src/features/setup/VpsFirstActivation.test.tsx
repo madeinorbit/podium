@@ -18,16 +18,16 @@ import { vpsIntroState } from './vps-activation'
 const VPS_COMMAND = /--channel \w+ --agents \S+ --vps$/
 
 const uiValues = new Map<string, string>()
-const uiListeners = new Set<() => void>()
+const uiListeners = new Set<(keys: ReadonlySet<string>) => void>()
 const uiSet = vi.fn((key: string, value: string | null) => {
   if (value === null) uiValues.delete(key)
   else uiValues.set(key, value)
-  for (const wake of uiListeners) wake()
+  for (const wake of uiListeners) wake(new Set([key]))
 })
 const uiState = {
   get: (key: string) => uiValues.get(key) ?? null,
   set: uiSet,
-  subscribe: (wake: () => void) => {
+  subscribe: (wake: (keys: ReadonlySet<string>) => void) => {
     uiListeners.add(wake)
     return () => {
       uiListeners.delete(wake)

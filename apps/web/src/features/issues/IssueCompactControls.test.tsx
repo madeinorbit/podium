@@ -261,7 +261,8 @@ describe('IssueCompactControls', () => {
       // Models are per-agent ([spec:SP-7ff1]) — the write that changes the
       // harness clears the model and effort with it, so the optimistic row never
       // shows the previous agent's model.
-      render(<IssueCompactControls issue={unstarted()} />)
+      // POD-3911: seed agent-specific overrides so both resets change a field.
+      render(<IssueCompactControls issue={unstarted({ defaultModel: 'old-model', defaultEffort: 'high' })} />)
 
       fireEvent.click(screen.getByLabelText('Agent'))
       fireEvent.click(await screen.findByText('Codex'))

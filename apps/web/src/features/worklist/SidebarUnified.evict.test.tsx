@@ -1,5 +1,6 @@
-import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
+// POD-3911: exercise the real pool after the provider-free action fixture.
+import '@/test-support/mock-pool-fixture'
 // @vitest-environment happy-dom
 /**
  * EVICT: A ROW LEAVES WITHOUT A DELETION (POD-407, readiness §3.1 item 2 /
@@ -24,7 +25,6 @@ import '@/test-support/mock-core-store-handle'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { publishPoolFixture } from '@/test-support/pool-fixture'
-import { publishScreenPoolFixture } from '@/test-support/mock-screen-pool'
 import { SidebarUnified } from './SidebarUnified'
 
 const { setSelectedIssueId, issueGet } = vi.hoisted(() => ({
@@ -144,7 +144,6 @@ describe('an evicted issue leaves the sidebar without a deletion', () => {
     // Unshared: it is simply not in this principal's slice any more.
     currentIssues = []
     publishPoolFixture()
-    publishScreenPoolFixture()
     rerender(<SidebarUnified />)
 
     await waitFor(() => expect(setSelectedIssueId).toHaveBeenCalledWith(null))
@@ -167,7 +166,6 @@ describe('an evicted issue leaves the sidebar without a deletion', () => {
 
     currentIssues = []
     publishPoolFixture()
-    publishScreenPoolFixture()
     rerender(<SidebarUnified />)
     await waitFor(() => expect(setSelectedIssueId).toHaveBeenCalledWith(null))
 
@@ -183,11 +181,10 @@ describe('an evicted issue leaves the sidebar without a deletion', () => {
     currentSelected = null
     const { rerender } = render(<SidebarUnified />)
     await screen.findByText('Shared with me')
-    expect(document.querySelectorAll('[data-drag-key]')).toHaveLength(2)
+    expect(document.querySelectorAll('[data-drag-scope] > [data-drag-key]')).toHaveLength(2)
 
     currentIssues = [issue('iss_stays', 'Still here')]
     publishPoolFixture()
-    publishScreenPoolFixture()
     rerender(<SidebarUnified />)
 
     // The row is RETAINED on screen for the length of its exit, which is right —
@@ -196,7 +193,7 @@ describe('an evicted issue leaves the sidebar without a deletion', () => {
     // row left in it plans a sortKey write against work that is already gone,
     // and mints the moved row's key against a neighbour nobody can point at.
     await waitFor(() => expect(screen.queryByText('Shared with me')).toBeTruthy())
-    expect(document.querySelectorAll('[data-drag-key]')).toHaveLength(1)
+    expect(document.querySelectorAll('[data-drag-scope] > [data-drag-key]')).toHaveLength(1)
     expect(document.querySelector('[data-drag-key="iss_shared"]')).toBeNull()
   })
 

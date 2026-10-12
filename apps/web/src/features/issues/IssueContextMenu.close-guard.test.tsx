@@ -1,3 +1,4 @@
+import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asSessionId, type IssueCloseReason } from '@podium/model/browser'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
@@ -14,7 +15,9 @@ const state: { sessions: SessionView[] } = { sessions: [] }
 
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
-  useStoreHandle: () => ({
+  // POD-3911: the menu reads owner.access, not getSnapshot directly.
+  useStoreHandle: () => withKeyedInputs({
+    subscribe: () => () => {},
     getSnapshot: () => ({
       trpc: { issues: { start: { mutate: vi.fn() } } },
       markIssueRead: vi.fn(),

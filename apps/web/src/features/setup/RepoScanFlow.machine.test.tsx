@@ -36,6 +36,8 @@ const createFolder = vi.fn(async () => ({ path: '/home/vmi34/projects' }))
 const renameFolder = vi.fn(async () => ({ path: '/home/vmi34/renamed' }))
 const refreshRepos = vi.fn(async () => undefined)
 const uiValues = new Map<string, string>()
+// POD-3911: publish the actual routed preference keys to the pool.
+const uiListeners = new Set<(keys: ReadonlySet<string>) => void>()
 
 const store = {
   machines: [
@@ -78,6 +80,11 @@ const store = {
     set: (key: string, value: string | null) => {
       if (value === null) uiValues.delete(key)
       else uiValues.set(key, value)
+      for (const listener of uiListeners) listener(new Set([key]))
+    },
+    subscribe: (listener: (keys: ReadonlySet<string>) => void) => {
+      uiListeners.add(listener)
+      return () => { uiListeners.delete(listener) }
     },
   },
 }

@@ -1,5 +1,6 @@
-import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
+// POD-3911: exercise the real pool after the provider-free action fixture.
+import '@/test-support/mock-pool-fixture'
 /**
  * TRANSIENT STATE DOES NOT SURVIVE AN ISSUE SWITCH (POD-646).
  *

@@ -1,3 +1,6 @@
+import '@/test-support/mock-core-store-handle'
+// POD-3911: mount the current pool boundary, not an absent StoreProvider.
+import '@/test-support/mock-pool-fixture'
 import type { SessionView } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
 
@@ -13,7 +16,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
 import { IssueDetailHeader } from './IssueDetailHeader'
 
-vi.mock('@/app/store', () => ({ }))
+vi.mock('@/app/store', () => ({ useRuntimeSelector: <T,>(read: (state: object) => T) => read({}) }))
 
 const working = (id: string): SessionView =>
   ({

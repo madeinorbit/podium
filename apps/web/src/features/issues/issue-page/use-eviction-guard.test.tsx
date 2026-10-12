@@ -1,3 +1,6 @@
+import '@/test-support/mock-core-store-handle'
+// POD-3911: mount the current pool boundary, not an absent StoreProvider.
+import '@/test-support/mock-pool-fixture'
 /**
  * EVICT IS NOT A DELETION — the guard, and its three failure modes (POD-646).
  *
@@ -28,6 +31,7 @@ const ISSUE = makeIssue({ id: 'i-open', seq: 3, title: 'Open issue' })
 let rows: IssueViewModel[] = []
 
 vi.mock('@/app/store', () => ({
+  useRuntimeSelector: <T,>(read: (state: { issues: IssueViewModel[] }) => T) => read({ issues: rows }),
 }))
 
 function Guarded({ onLeave }: { onLeave: () => void }) {

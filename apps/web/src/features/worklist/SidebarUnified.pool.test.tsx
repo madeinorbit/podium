@@ -27,6 +27,7 @@ import { SidebarUnified } from './SidebarUnified'
 const mode = vi.hoisted(() => ({
   reads: 0,
   commits: new Map<string, number>(),
+  ageCommits: new Map<number, number>(),
   worktrees: new Map<
     string,
     { onSelect: () => void; onSelectPanel: (id: SessionId) => void; commits: number }
@@ -84,6 +85,22 @@ vi.mock('./sidebar-common', async (importOriginal) => {
   }
   return { ...original, PanelRow: CountedPanelRow }
 })
+// POD-3911: shared clocks repaint the age leaf while leaving the row body cold.
+vi.mock('./time-indicators', async (importOriginal) => {
+  const original = await importOriginal<typeof import('./time-indicators')>()
+  const { Profiler } = await import('react')
+  return {
+    ...original,
+    AgoStamp: (props: Parameters<typeof original.AgoStamp>[0]) => (
+      <Profiler id={`age:${props.atMs}`} onRender={() => {
+        mode.ageCommits.set(props.atMs, (mode.ageCommits.get(props.atMs) ?? 0) + 1)
+      }}>
+        <original.AgoStamp {...props} />
+      </Profiler>
+    ),
+  }
+})
+
 vi.mock('./work-folds', async (importOriginal) => {
   const original = await importOriginal<typeof import('./work-folds')>()
   const { useLayoutEffect } = await import('react')
@@ -336,7 +353,7 @@ describe('real sidebar pool cutover', () => {
     expect(mode.reads).toBe(0)
   })
 
-  it('redraws only the folded pool row whose displayed age crosses an hour boundary', async () => {
+  it('updates only the folded age leaf at its clock ticks and leaves row bodies cold', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(NOW)
     const fixture = await mount('pool')
@@ -354,14 +371,21 @@ describe('real sidebar pool cutover', () => {
     })
     expect(screen.getByTestId('folded-work-row').textContent).toContain('2h ago')
     mode.commits.clear()
+    mode.ageCommits.clear()
     await advanceClock(60_000)
     expect(Object.fromEntries(mode.commits)).toEqual({})
+    expect(Object.fromEntries(mode.ageCommits)).toEqual({ [Date.parse(stamp)]: 1 })
+    expect(screen.getByTestId('folded-work-row').textContent).toContain('2h ago')
+    mode.ageCommits.clear()
     await advanceClock(60_000)
-    expect(Object.fromEntries(mode.commits)).toEqual({ 'synthetic-5': 1 })
+    expect(Object.fromEntries(mode.commits)).toEqual({})
+    expect(Object.fromEntries(mode.ageCommits)).toEqual({ [Date.parse(stamp)]: 1 })
     expect(screen.getByTestId('folded-work-row').textContent).toContain('3h ago')
     mode.commits.clear()
+    mode.ageCommits.clear()
     await advanceClock(60_000)
     expect(Object.fromEntries(mode.commits)).toEqual({})
+    expect(Object.fromEntries(mode.ageCommits)).toEqual({ [Date.parse(stamp)]: 1 })
     expect(mode.reads).toBe(0)
   })
 

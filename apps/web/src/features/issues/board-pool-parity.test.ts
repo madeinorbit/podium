@@ -42,6 +42,7 @@ function expectBoard(
   })
   if (!value || value === LOADING) throw new Error('Board fixture is loading')
   expect(unread).toEqual([])
+  // POD-3911: freeze current shared-model values after retiring the legacy projection.
   expectPoolOutput(value, JSON.stringify(options))
 }
 function expectExplorer(

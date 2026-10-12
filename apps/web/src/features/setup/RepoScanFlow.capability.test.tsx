@@ -69,7 +69,8 @@ const store: { machines: unknown[]; trpc: unknown; refreshRepos: unknown; uiStat
     discovery: { scanMachine: { mutate: vi.fn() } },
   },
   refreshRepos,
-  uiState: { get: () => null, set: () => {} },
+  // POD-3911: the routed preference source retains a subscription.
+  uiState: { get: () => null, set: () => {}, subscribe: () => () => {} },
 }
 
 vi.mock('@/app/store', () => {

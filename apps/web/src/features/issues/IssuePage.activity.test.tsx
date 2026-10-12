@@ -1,5 +1,6 @@
-import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
+// POD-3911: exercise the real pool after the provider-free action fixture.
+import '@/test-support/mock-pool-fixture'
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { IssueEvent } from '@podium/client-core/values'
 import { cleanup, render, screen, waitFor } from '@testing-library/react'
