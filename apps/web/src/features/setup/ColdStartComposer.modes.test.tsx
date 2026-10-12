@@ -1,3 +1,4 @@
+import '@/test-support/model-catalog-mock'
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /**
@@ -52,7 +53,7 @@ const setView = vi.fn()
 const create = vi.fn()
 const start = vi.fn()
 const uiValues = new Map<string, string>()
-const uiListeners = new Set<() => void>()
+const uiListeners = new Set<(keys: ReadonlySet<string>) => void>()
 
 const store = {
   repos: [
@@ -88,9 +89,9 @@ const store = {
     set: (key: string, value: string | null) => {
       if (value === null) uiValues.delete(key)
       else uiValues.set(key, value)
-      for (const listener of uiListeners) listener()
+      for (const listener of uiListeners) listener(new Set([key]))
     },
-    subscribe: (listener: () => void) => {
+    subscribe: (listener: (keys: ReadonlySet<string>) => void) => {
       uiListeners.add(listener)
       return () => uiListeners.delete(listener)
     },
@@ -274,7 +275,7 @@ describe('the seed a sidebar button writes', () => {
 
     // Exactly what `startNewTask` does: rewrite the key from outside.
     seedDraft({ title: '' })
-    for (const listener of uiListeners) listener()
+    for (const listener of uiListeners) listener(new Set([FIRST_TASK_ACTIVATION_DRAFT_KEY]))
 
     await waitFor(() => expect(field().value).toBe(''))
     // The PROSE is what a new task discards. The fold is the operator's own
@@ -286,7 +287,7 @@ describe('the seed a sidebar button writes', () => {
   it('carries the project the button named', async () => {
     render(<ColdStartComposer first={false} />)
     seedDraft({ repoPath: '/work/podium', title: '' })
-    for (const listener of uiListeners) listener()
+    for (const listener of uiListeners) listener(new Set([FIRST_TASK_ACTIVATION_DRAFT_KEY]))
 
     await waitFor(() =>
       expect(

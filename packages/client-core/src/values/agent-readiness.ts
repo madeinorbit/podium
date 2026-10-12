@@ -83,6 +83,29 @@ export function activationAgentIsReady(readiness: ActivationAgentReadiness): boo
   return readiness.state === 'ready' || readiness.state === 'login-unknown'
 }
 
+/**
+ * WHETHER A LAUNCH MAY GO AHEAD (POD-3911).
+ *
+ * Ready is always enough. A harness the machine reports as signed out may still
+ * start HEADED: its own terminal is where the operator signs in, and until Podium
+ * manages logins that terminal is the only place they can, so refusing the
+ * launch leaves them no way forward. A headless launch has no screen to sign in
+ * on and stays refused. Nothing else is loosened: missing, offline, unauthorized
+ * and still-checking harnesses are refused exactly as before.
+ */
+export function agentCanLaunch(
+  readiness: ActivationAgentReadiness,
+  launch: { headed: boolean },
+): boolean {
+  return activationAgentIsReady(readiness) || (launch.headed && readiness.state === 'logged-out')
+}
+
+/** What a launch surface says when it lets a signed-out harness start headed. */
+export function signInInTerminalCopy(readiness: ActivationAgentReadiness, agentLabel: string): string {
+  const machine = readiness.machine?.name ?? 'this machine'
+  return `${agentLabel} is not signed in on ${machine}. It opens in its terminal, where you can sign in.`
+}
+
 /** What a launch surface says when it refuses a harness that is not ready.
  *  One sentence, so the desktop composer and the phone sheet cannot drift. */
 export const AGENT_NOT_READY_COPY =

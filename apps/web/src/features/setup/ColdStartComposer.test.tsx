@@ -1,3 +1,4 @@
+import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { readFileSync } from 'node:fs'
@@ -38,7 +39,7 @@ const spawnIssueAgent = vi.fn((_args: Record<string, unknown>) => ({
 }))
 const uploadImage = vi.fn()
 const uiValues = new Map<string, string>()
-const uiListeners = new Set<() => void>()
+const uiListeners = new Set<(keys: ReadonlySet<string>) => void>()
 const machineId = asMachineId('machine-a')
 const initialRepo = {
   path: '/work/podium',
@@ -79,9 +80,9 @@ const store = {
     set: (key: string, value: string | null) => {
       if (value === null) uiValues.delete(key)
       else uiValues.set(key, value)
-      for (const listener of uiListeners) listener()
+      for (const listener of uiListeners) listener(new Set([key]))
     },
-    subscribe: (listener: () => void) => {
+    subscribe: (listener: (keys: ReadonlySet<string>) => void) => {
       uiListeners.add(listener)
       return () => uiListeners.delete(listener)
     },
@@ -569,6 +570,124 @@ describe('ColdStartComposer', () => {
     // …and the draft session is created in the checkout the prompt named, not in
     // whichever clone the scan happened to list first.
     expect(input.target).toEqual(expect.objectContaining({ repoPath: '/srv/podium' }))
+  })
+
+  /* POD-3911. Model and effort belong to the harness, not the project: picking
+   * another repository used to put both back to Auto, so every project switch
+   * silently undid the operator's choice. Only the harness and model pickers
+   * reset them now. */
+  it('keeps model and effort when the operator picks another project', async () => {
+    store.repos.splice(
+      0,
+      store.repos.length,
+      {
+        path: '/work/alpha',
+        name: 'alpha',
+        kind: 'repository',
+        branch: 'main',
+        worktrees: [],
+        machineId,
+        originUrl: 'https://example.com/acme/alpha.git',
+      } as GitRepositoryWire,
+      {
+        path: '/work/beta',
+        name: 'beta',
+        kind: 'repository',
+        branch: 'main',
+        worktrees: [],
+        machineId,
+        originUrl: 'https://example.com/acme/beta.git',
+      } as GitRepositoryWire,
+    )
+    uiValues.set(
+      'podium.firstTaskActivation.draft',
+      JSON.stringify({
+        repoPath: '/work/alpha',
+        machineId,
+        agent: 'codex',
+        model: 'gpt-5.6-sol',
+        effort: 'high',
+        title: 'Ship it',
+      }),
+    )
+
+    render(<ColdStartComposer first={false} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Project: alpha' }))
+    fireEvent.click(screen.getByRole('menuitem', { name: 'beta' }))
+    await waitFor(() =>
+      expect(screen.getByRole('button', { name: 'Project: beta' })).toBeTruthy(),
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+
+    await waitFor(() => expect(spawnDraftAgent).toHaveBeenCalled())
+    const input = spawnDraftAgent.mock.calls[0]?.[0]
+    if (!input) throw new Error('launch was not dispatched')
+    expect(input.target).toEqual(expect.objectContaining({ repoPath: '/work/beta' }))
+    expect(input.model).toBe('gpt-5.6-sol')
+    expect(input.effort).toBe('high')
+  })
+
+  /* POD-3911. A pill can outlive the machine that offered it: a saved draft, or a
+   * project switch onto another host. The server refuses a chosen model it
+   * cannot find, so the box puts the pill back to Auto first, and the launch
+   * goes out without it instead of into that refusal. */
+  it('launches on Auto when the machine no longer lists the draft model', async () => {
+    modelCatalogFixture.current = { codex: [{ value: 'gpt-5.5', label: 'GPT-5.5', efforts: ['high'] }] }
+    try {
+      uiValues.set(
+        'podium.firstTaskActivation.draft',
+        JSON.stringify({
+          repoPath: '/work/podium',
+          machineId,
+          agent: 'codex',
+          model: 'gpt-4-retired',
+          effort: 'high',
+          title: 'Ship it',
+        }),
+      )
+      render(<ColdStartComposer first={false} />)
+      await waitFor(() =>
+        expect(JSON.parse(uiValues.get('podium.firstTaskActivation.draft') ?? '{}').model).toBe(
+          'auto',
+        ),
+      )
+      fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+
+      await waitFor(() => expect(spawnDraftAgent).toHaveBeenCalled())
+      const input = spawnDraftAgent.mock.calls[0]?.[0]
+      if (!input) throw new Error('launch was not dispatched')
+      expect(input.model).toBeUndefined()
+      expect(input.effort).toBeUndefined()
+    } finally {
+      modelCatalogFixture.current = {}
+    }
+  })
+
+  it('keeps a model and effort the machine lists', async () => {
+    modelCatalogFixture.current = { codex: [{ value: 'gpt-5.5', label: 'GPT-5.5', efforts: ['high'] }] }
+    try {
+      uiValues.set(
+        'podium.firstTaskActivation.draft',
+        JSON.stringify({
+          repoPath: '/work/podium',
+          machineId,
+          agent: 'codex',
+          model: 'gpt-5.5',
+          effort: 'high',
+          title: 'Ship it',
+        }),
+      )
+      render(<ColdStartComposer first={false} />)
+      fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+
+      await waitFor(() => expect(spawnDraftAgent).toHaveBeenCalled())
+      const input = spawnDraftAgent.mock.calls[0]?.[0]
+      if (!input) throw new Error('launch was not dispatched')
+      expect(input.model).toBe('gpt-5.5')
+      expect(input.effort).toBe('high')
+    } finally {
+      modelCatalogFixture.current = {}
+    }
   })
 
   /* POD-1169. The instrument strip clips its own contents (`overflow-hidden`)

@@ -111,3 +111,45 @@ export function persistFirstTaskDraft(uiState: Pick<UiState, 'set'>, draft: Firs
 export function clearFirstTaskDraft(uiState: Pick<UiState, 'set'>): void {
   uiState.set(FIRST_TASK_ACTIVATION_DRAFT_KEY, null)
 }
+
+/** One reported model, as the live catalog carries it. */
+export interface ReportedModel {
+  value: string
+  efforts?: readonly string[]
+}
+
+/**
+ * THE BOX ONLY LAUNCHES WHAT THE MACHINE SAYS IT CAN RUN (POD-3911).
+ *
+ * The model and effort pills are the operator's own choice, so the server
+ * refuses an unknown one rather than guessing. A pill can still go stale under
+ * them: a draft saved weeks ago, or a project switch that moved the launch to a
+ * machine with a different model list. Without this the launch was refused for
+ * a value the operator never chose on this machine.
+ *
+ * So once the selected machine has REPORTED its models for this harness, the
+ * draft is brought into line with that list, visibly, in the pills:
+ *  - a model the list does not contain goes back to Auto, and its effort with it;
+ *  - an effort goes back to Auto unless the model is concrete AND the list names
+ *    that effort for it — the only case the effort pill offers a choice.
+ *
+ * Nothing changes while the list is still loading or was never reported: then
+ * the server cannot check the value either, and it passes. Returns `undefined`
+ * when the draft already agrees, so the caller can skip the write.
+ */
+export function draftForReportedModels(
+  draft: FirstTaskDraft,
+  reported: readonly ReportedModel[] | undefined,
+): FirstTaskDraft | undefined {
+  const known = reported !== undefined && reported.length > 0
+  const model = draft.model || 'auto'
+  const effort = draft.effort || 'auto'
+  if (model === 'auto') {
+    return effort === 'auto' ? undefined : { ...draft, effort: 'auto' }
+  }
+  if (!known) return undefined
+  const entry = reported.find((candidate) => candidate.value === model)
+  if (!entry) return { ...draft, model: 'auto', effort: 'auto' }
+  if (effort !== 'auto' && !entry.efforts?.includes(effort)) return { ...draft, effort: 'auto' }
+  return undefined
+}

@@ -6,7 +6,6 @@ import {
   allConnectorModelOptions,
   decodeModelPick,
   effortLabel,
-  effortOptions,
   effortOptionsForModel,
   encodeModelPick,
   isEffortValid,
@@ -14,62 +13,44 @@ import {
   modelOptions,
 } from './agent-models'
 
+const liveClaude = [
+  { value: 'claude-opus-4-8', label: 'Opus 4.8', efforts: ['low', 'high', 'xhigh', 'max'] },
+  { value: 'claude-haiku-4-5', label: 'Haiku 4.5', efforts: [] },
+]
+
+/**
+ * A PICKER KNOWS THE MACHINE'S MODELS OR OFFERS ONLY AUTO (POD-3911).
+ *
+ * The bundled catalog used to fill the menu whenever the live list was missing,
+ * so a loading or failed probe looked exactly like the machine saying
+ * "Opus / Sonnet / Haiku". Nothing but the live list is offered now.
+ */
 describe('agent-models catalog', () => {
-  it('lists Auto first for every agent (model + effort)', () => {
+  it('offers only Auto for every harness until the machine reports its models', () => {
     for (const kind of ['claude-code', 'codex', 'grok', 'opencode', 'cursor', 'pi'] as const) {
-      expect(modelOptions(kind)[0]).toEqual({ value: AUTO, label: 'Auto' })
-      // Cursor has no effort flag: no picker at all (not even Auto).
-      if (kind === 'cursor') {
-        expect(effortOptions(kind)).toEqual([])
-      } else {
-        expect(effortOptions(kind)[0]).toEqual({ value: AUTO, label: 'Auto' })
-      }
+      expect(modelOptions(kind)).toEqual([{ value: AUTO, label: 'Auto' }])
+      expect(modelOptions(kind, [])).toEqual([{ value: AUTO, label: 'Auto' }])
     }
   })
 
-  it('exposes real per-agent models beyond auto', () => {
-    expect(modelOptions('claude-code').map((o) => o.value)).toContain('opus')
-    expect(modelOptions('codex').map((o) => o.value)).toContain('gpt-5.6-sol')
-  })
-
-  it('scopes effort ladders per agent', () => {
-    expect(effortOptions('claude-code').map((o) => o.value)).toEqual([
+  it('offers the live list, Auto first, when the machine has reported it', () => {
+    expect(modelOptions('claude-code', liveClaude).map((o) => o.value)).toEqual([
       'auto',
-      'low',
-      'medium',
-      'high',
-      'xhigh',
-      'max',
-    ])
-    // Codex effort (verified via `codex debug models`): low → xhigh, no minimal.
-    expect(effortOptions('codex').map((o) => o.value)).toEqual([
-      'auto',
-      'low',
-      'medium',
-      'high',
-      'xhigh',
-    ])
-    // opencode --variant: minimal → max.
-    expect(effortOptions('opencode').map((o) => o.value)).toEqual([
-      'auto',
-      'minimal',
-      'low',
-      'medium',
-      'high',
-      'max',
+      'claude-opus-4-8',
+      'claude-haiku-4-5',
     ])
   })
 
   it('cursor has no effort flag', () => {
     expect(agentSupportsEffort('cursor')).toBe(false)
     expect(agentSupportsEffort('claude-code')).toBe(true)
-    // No effort flag means no picker at all (POD-4475 unifies effortOptions
-    // with effortOptionsForModel, which already returned [] here).
-    expect(effortOptions('cursor')).toEqual([])
   })
 
-  it('labels known values, falls back to raw for custom, Auto for the sentinel', () => {
-    expect(modelLabel('claude-code', 'opus')).toBe('Opus')
+  it('labels live values, falls back to the raw value, Auto for the sentinel', () => {
+    expect(modelLabel('claude-code', 'claude-opus-4-8', liveClaude)).toBe('Opus 4.8')
+    // No live list: the stored value is shown as itself, never relabelled from a
+    // bundled table the machine never confirmed.
+    expect(modelLabel('claude-code', 'opus')).toBe('opus')
     expect(modelLabel('claude-code', 'auto')).toBe('Auto')
     expect(modelLabel('claude-code', '')).toBe('Auto')
     expect(modelLabel('claude-code', 'some/custom-model')).toBe('some/custom-model')
@@ -89,66 +70,29 @@ describe('agent-models catalog', () => {
   })
 })
 
-describe('effortOptionsForModel — effort follows the selected model', () => {
-  it('auto model → the full agent effort ladder', () => {
-    expect(effortOptionsForModel('claude-code', 'auto').map((o) => o.value)).toEqual([
-      'auto',
-      'low',
-      'medium',
-      'high',
-      'xhigh',
-      'max',
-    ])
-    expect(effortOptionsForModel('codex', '').map((o) => o.value)).toEqual([
-      'auto',
-      'low',
-      'medium',
-      'high',
-      'xhigh',
-    ])
+describe('effortOptionsForModel — effort exists only for a model the catalog describes', () => {
+  it('offers no effort under an Auto model: nobody knows which model will run', () => {
+    expect(effortOptionsForModel('claude-code', 'auto', liveClaude)).toEqual([])
+    expect(effortOptionsForModel('codex', '')).toEqual([])
     expect(effortOptionsForModel('cursor', 'auto')).toEqual([])
   })
 
-  it("uses the live model's authoritative per-model efforts", () => {
-    const live = [
-      { value: 'claude-opus-4-8', label: 'Opus', efforts: ['low', 'high', 'xhigh', 'max'] },
-      { value: 'claude-haiku-4-5', label: 'Haiku', efforts: [] },
-    ]
+  it("uses the live model's own levels", () => {
     expect(
-      effortOptionsForModel('claude-code', 'claude-opus-4-8', live).map((o) => o.value),
+      effortOptionsForModel('claude-code', 'claude-opus-4-8', liveClaude).map((o) => o.value),
     ).toEqual(['auto', 'low', 'high', 'xhigh', 'max'])
-    // A no-effort model (efforts: []) → nothing to pick → hidden.
-    expect(effortOptionsForModel('claude-code', 'claude-haiku-4-5', live)).toEqual([])
+    // A no-effort model (efforts: []) → nothing to pick.
+    expect(effortOptionsForModel('claude-code', 'claude-haiku-4-5', liveClaude)).toEqual([])
   })
 
-  it('keeps current Codex reasoning levels in the offline fallback', () => {
-    expect(effortOptionsForModel('codex', 'gpt-5.6-sol').map((o) => o.value)).toEqual([
-      'auto',
-      'low',
-      'medium',
-      'high',
-      'xhigh',
-      'max',
-      'ultra',
-    ])
-  })
-
-  it('falls back to the verified agent ladder when per-model data is unavailable', () => {
+  it('guesses no ladder for a model the live catalog lists without levels, or not at all', () => {
     expect(
       effortOptionsForModel('grok', 'grok-composer-2.5-fast', [
         { value: 'grok-composer-2.5-fast', label: 'x' },
-      ]).map((o) => o.value),
-    ).toEqual(['auto', 'low', 'medium', 'high', 'xhigh', 'max'])
-    expect(
-      effortOptionsForModel('cursor', 'composer-2.5', [{ value: 'composer-2.5', label: 'x' }]),
+      ]),
     ).toEqual([])
-    expect(effortOptionsForModel('codex', 'gpt-5.5', []).map((o) => o.value)).toEqual([
-      'auto',
-      'low',
-      'medium',
-      'high',
-      'xhigh',
-    ])
+    expect(effortOptionsForModel('codex', 'gpt-5.6-sol')).toEqual([])
+    expect(effortOptionsForModel('codex', 'gpt-5.5', [])).toEqual([])
   })
 })
 
@@ -166,18 +110,24 @@ describe('cross-connector model picks', () => {
     expect(decodeModelPick('bare-slug')).toEqual({ model: 'bare-slug' })
   })
 
-  it('lists every connector under its own group, Auto first', () => {
-    const options = allConnectorModelOptions()
+  it('lists only reported models, each under its connector, Auto first', () => {
+    expect(allConnectorModelOptions()).toEqual([{ value: AUTO, label: 'Auto' }])
+    const options = allConnectorModelOptions({
+      'claude-code': liveClaude,
+      grok: [{ value: 'grok-9', label: 'Grok 9' }],
+    })
     expect(options[0]).toEqual({ value: AUTO, label: 'Auto' })
-    expect(options.some((o) => o.value === 'claude-code:opus' && o.group === 'Claude Code')).toBe(
-      true,
-    )
-    expect(options.some((o) => o.value === 'codex:gpt-5.6-sol' && o.group === 'Codex')).toBe(true)
-    expect(options.some((o) => o.value === 'grok:grok-4.5' && o.group === 'Grok')).toBe(true)
+    expect(
+      options.some((o) => o.value === 'claude-code:claude-opus-4-8' && o.group === 'Claude Code'),
+    ).toBe(true)
+    expect(options.some((o) => o.value === 'grok:grok-9' && o.group === 'Grok')).toBe(true)
+    expect(options.some((o) => o.group === 'Codex')).toBe(false)
   })
 
   it('labels a pick with the connector so Opus is not anonymous', () => {
-    expect(allConnectorModelLabel('claude-code', 'opus')).toBe('Claude Code · Opus')
+    expect(allConnectorModelLabel('claude-code', 'claude-opus-4-8', { 'claude-code': liveClaude })).toBe(
+      'Claude Code · Opus 4.8',
+    )
     expect(allConnectorModelLabel(undefined, AUTO)).toBe('Auto')
   })
 })

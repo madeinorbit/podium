@@ -19,7 +19,7 @@ import { resolveRole } from '@podium/runtime'
 import { type CommandPrincipal, systemPrincipal } from '../../../command-principal'
 import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
-import { assertModelSelectionValid } from '../../../model-validation'
+import { vetLaunchSelection } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
 import { afterCommit } from '../../../store/executor/executor'
 import {
@@ -234,16 +234,14 @@ export class IssueGitWorkflowModule {
    * the INHERITED coding-role default when the spawn is on a different harness, since
    * one harness's slug is meaningless on another.
    *
-   * `override` is an explicit per-launch choice (`issue start --model/--effort`,
-   * POD-1545) and bypasses the sanitizer entirely: an explicit value was not inherited
-   * from anything, so there is nothing to sanitize, and dropping it would be the
-   * parsed-then-silently-ignored failure this exists to avoid. Precedence, therefore:
-   * explicit flag > issue's stored value > `auto`.
+   * Explicit per-launch values (`issue start --model/--effort`, POD-1545) are not
+   * merged here: they go to `vetLaunchSelection` as EXPLICIT, beside this result as
+   * INHERITED, so a bad flag is refused while a bad stored value only falls back to
+   * `auto` (POD-3911). Precedence is unchanged: explicit flag > stored value > `auto`.
    */
   private async selectionFor(
     agentKind: string,
     stored: { agent: string; model: string; effort: string },
-    override?: { model?: string; effort?: string },
   ): Promise<{ model: string; effort: string }> {
     const settings = await this.store.d.getSettings()
     const coding = resolveRole(settings, 'coding')
@@ -251,8 +249,8 @@ export class IssueGitWorkflowModule {
     const inherited = (value: string, roleValue: string): string =>
       usesIssueProfile && (agentKind === coding.harness || value !== roleValue) ? value : 'auto'
     return {
-      model: override?.model ?? inherited(stored.model, settings.roles.coding.model),
-      effort: override?.effort ?? inherited(stored.effort, settings.roles.coding.effort),
+      model: inherited(stored.model, settings.roles.coding.model),
+      effort: inherited(stored.effort, settings.roles.coding.effort),
     }
   }
 
@@ -308,27 +306,27 @@ export class IssueGitWorkflowModule {
       model: switching ? 'auto' : row.defaultModel,
       effort: switching ? 'auto' : row.defaultEffort,
     }
-    const selection = await this.selectionFor(agent, stored, {
-      ...(opts?.model ? { model: opts.model } : {}),
-      ...(opts?.effort ? { effort: opts.effort } : {}),
-    })
-    // Reject an unavailable model/effort BEFORE mutating any start state (worktree,
-    // branch, stage, and the issue's own profile) [spec:SP-cc60]. Resolving the whole
-    // selection above rather than writing it to `row` first is what makes that true of
-    // the PROFILE too: a refused `--model` must not be left sitting on the issue for
-    // the next start to inherit silently.
+    // Refuse an unavailable EXPLICIT model/effort BEFORE mutating any start state
+    // (worktree, branch, stage, and the issue's own profile) [spec:SP-cc60]. A
+    // refused `--model` must not be left on the issue for the next start to inherit.
+    // An inherited value the catalog does not know falls back to `auto` instead —
+    // a stale default never blocks a start (POD-3911).
     // Catalog is machine-keyed (POD-1123): validate against the issue's host.
-    assertModelSelectionValid(
+    const vetted = vetLaunchSelection(
       await this.store.d.store.settings.getModelCatalog(
         row.machineId ?? this.store.d.store.hostMachineId,
       ),
       {
         agentKind: agent,
-        ...(selection.model ? { model: selection.model } : {}),
-        ...(selection.effort ? { effort: selection.effort } : {}),
+        explicit: {
+          ...(opts?.model ? { model: opts.model } : {}),
+          ...(opts?.effort ? { effort: opts.effort } : {}),
+        },
+        inherited: await this.selectionFor(agent, stored),
         ...(opts?.forceUnknownModel ? { force: true } : {}),
       },
     )
+    const selection = { model: vetted.model, effort: vetted.effort }
     // Accepted — the selection is what gets committed to the issue. `--model`/`--effort`
     // PERSIST (documented as such in `start --help`), matching `--agent`: the issue's
     // profile is what add-session and every later respawn read, so a launch-only
@@ -338,8 +336,10 @@ export class IssueGitWorkflowModule {
     // below awaits and the draft in hand does not outlive it.
     const profile = {
       defaultAgent: agent,
-      defaultModel: opts?.model ?? stored.model,
-      defaultEffort: opts?.effort ?? stored.effort,
+      // A stored value that was dropped is cleared from the profile too, so the
+      // issue shows what it actually runs and the next spawn does not re-check it.
+      defaultModel: opts?.model ?? (vetted.dropped.includes('model') ? 'auto' : stored.model),
+      defaultEffort: opts?.effort ?? (vetted.dropped.includes('effort') ? 'auto' : stored.effort),
     }
 
     // Branch preserved after free/archive (worktreePath null, branch set): attach the
@@ -1542,21 +1542,21 @@ export class IssueGitWorkflowModule {
     }
     if (!row.worktreePath) throw new IssueRefusal('issue not started')
     const kind = agentKind ?? row.defaultAgent
-    const selection = await this.selectionFor(kind, {
-      agent: row.defaultAgent,
-      model: row.defaultModel,
-      effort: row.defaultEffort,
-    })
-    // Reject an unavailable model/effort before spawning [spec:SP-cc60]. A 'shell'
-    // session carries no model (addShell), so validation is a no-op there.
-    assertModelSelectionValid(
+    // Everything here is inherited from the issue's profile, so nothing here can
+    // refuse the spawn: a value the catalog does not know falls back to `auto`
+    // (POD-3911). `--force-unknown-model` keeps an unknown stored model as before.
+    // A 'shell' session carries no model (addShell), so this is a no-op there.
+    const selection = vetLaunchSelection(
       await this.store.d.store.settings.getModelCatalog(
         row.machineId ?? this.store.d.store.hostMachineId,
       ),
       {
         agentKind: kind,
-        ...(selection.model ? { model: selection.model } : {}),
-        ...(selection.effort ? { effort: selection.effort } : {}),
+        inherited: await this.selectionFor(kind, {
+          agent: row.defaultAgent,
+          model: row.defaultModel,
+          effort: row.defaultEffort,
+        }),
         ...(opts?.forceUnknownModel ? { force: true } : {}),
       },
     )

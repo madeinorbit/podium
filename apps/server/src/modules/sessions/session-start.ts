@@ -470,6 +470,7 @@ export class SessionStart {
       input.model !== undefined || input.effort !== undefined
         ? { model: input.model, effort: input.effort }
         : undefined,
+      machineId,
     )
     const inheritedAccountId =
       input.agentKind === 'shell'

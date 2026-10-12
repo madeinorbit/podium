@@ -31,7 +31,10 @@ vi.mock('@/app/store', () => ({
 }))
 vi.mock('../worklist/use-sidebar-projects', () => ({ useSidebarProjects: () => seam.projects }))
 vi.mock('@/lib/use-feature', () => ({ useFeature: () => false, invalidateFeatures() {} }))
-vi.mock('@/lib/use-model-catalog', () => ({ useModelCatalog: () => ({}) }))
+vi.mock('@/lib/use-model-catalog', () => ({
+  useModelCatalog: () => ({}),
+  useModelCatalogState: () => ({ catalog: {}, status: 'unavailable' }),
+}))
 vi.mock('@/lib/use-harness-descriptors', () => ({
   useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' }),
 }))

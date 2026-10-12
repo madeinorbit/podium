@@ -2,10 +2,11 @@ import { randomUUID } from '@podium/client-core/id'
 import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
 import {
   AGENT_NOT_READY_COPY,
-  activationAgentIsReady,
+  agentCanLaunch,
   activationAgentReadiness,
   indexedRepoUsageAt,
   launchAgentKind,
+  signInInTerminalCopy,
   machineViewsFromWire,
   type RepoView,
   reposToViews,
@@ -44,10 +45,12 @@ import {
   terminalRuntimeDriver,
 } from '@/lib/runtime-driver-options'
 import { useFeature } from '@/lib/use-feature'
+import { useModelCatalog } from '@/lib/use-model-catalog'
 import { useNativeDraftText } from '@/lib/use-native-draft-text'
 import { useColdStartPromptAutoGrow } from './cold-start-prompt-height'
 import {
   clearFirstTaskDraft,
+  draftForReportedModels,
   type FirstTaskDraft,
   readFirstTaskDraft,
   serializeFirstTaskDraft,
@@ -385,7 +388,21 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     selectedMachine ? [selectedMachine] : machines,
     agent,
   )
-  const ready = activationAgentIsReady(readiness)
+  // What the selected machine reported for this harness; `undefined` until the
+  // list arrives, or if it never does. See `draftForReportedModels`.
+  const reportedModels = useModelCatalog(selectedMachine?.id)[agent]
+  /**
+   * SIGNED OUT IS NOT A DEAD END FOR A HEADED LAUNCH (POD-3911).
+   *
+   * A headed session runs the harness in its own terminal, and that terminal is
+   * where the operator signs in — until Podium manages logins, the only place
+   * they can. Refusing the launch left them with no way forward from here. A
+   * headless driver has no screen to sign in on, so it stays refused; the
+   * headless driver list already drops signed-out drivers.
+   */
+  const headedLaunch = !runtimeDriversEnabled || driverChoice === HEADED_DRIVER
+  const ready = agentCanLaunch(readiness, { headed: headedLaunch })
+  const signInFirst = ready && readiness.state === 'logged-out'
   const availableHeadedDriver = runtimeDriversEnabled
     ? terminalRuntimeDriver(selectedMachine, agent)
     : undefined
@@ -547,8 +564,11 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * against `selectedRepo.path` alone then read that alias as a repo SWITCH, so
    * the first render after such a draft loaded rewrote it with `model: AUTO,
    * effort: AUTO` and the operator's choices were gone before they touched
-   * anything. Model and effort reset when the project actually changes, which
-   * is what `selectRepo` does explicitly.
+   * anything.
+   *
+   * Model and effort no longer reset on a project change at all (POD-3911).
+   * They belong to the harness, not the repository: the harness picker resets
+   * them, and the model picker resets effort. A repo switch carries both over.
    *
    * The alias is also kept rather than canonicalised, because it is the only
    * record of WHICH checkout the operator meant when one origin has two on a
@@ -582,9 +602,24 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       repoPath: repoChanged ? selectedRepo.path : draft.repoPath,
       machineId: selectedMachine?.id ?? '',
       ...(agentChanged ? { agent } : {}),
-      ...(repoChanged ? { model: AUTO, effort: AUTO } : {}),
     })
   }, [agent, agentSetting, draft, selectedMachine, selectedRepo, setDraft])
+
+  /**
+   * THE PILLS FOLLOW THE MACHINE'S MODEL LIST (POD-3911).
+   *
+   * Model and effort now survive a project switch, and a draft survives between
+   * visits, so a pill can name a model the selected machine does not run. The
+   * server refuses a chosen value it cannot find; this puts the pill back to
+   * Auto first, where the operator can see it, so the box never launches into
+   * that refusal. Left alone while a launch owns the draft: rewriting it then
+   * would race the retry identities that launch reserved.
+   */
+  useEffect(() => {
+    if (busy || draft.pendingIssueId || draft.createIssueId) return
+    const next = draftForReportedModels(draft, reportedModels)
+    if (next) setDraft(next)
+  }, [busy, draft, reportedModels, setDraft])
 
   const selectRepo = (repoPath: string): void => {
     const repo = repoChoices.find((candidate) => candidate.path === repoPath)
@@ -603,8 +638,6 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       ...draft,
       repoPath,
       machineId: machine?.id ?? '',
-      model: AUTO,
-      effort: AUTO,
       pendingIssueId: '',
       createIssueId: '',
       createSessionId: '',
@@ -849,7 +882,9 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
       })
       setSelectedIssueId(started.issueId)
       setSelectedWorktree(selectedCheckout.path)
-      setPanelMode(started.sessionId, 'chat')
+      // A signed-out harness opens on its terminal: the sign-in screen is the
+      // first thing it shows, and the chat view has nothing to show until then.
+      setPanelMode(started.sessionId, signInFirst ? 'native' : 'chat')
       setPane('A', started.sessionId)
       setView('workspace')
     } catch (cause) {
@@ -1135,6 +1170,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                 <span className="w-px bg-hairline-bar" aria-hidden="true" />
                 <ModelPicker
                   variant="composer"
+                  allowFreeText={false}
                   agentKind={agent}
                   machineId={selectedMachine?.id}
                   value={draft.model}
@@ -1303,6 +1339,10 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
             <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
               You do not have access to run work on this machine. Ask its owner for access, or pick
               another machine.
+            </p>
+          ) : signInFirst ? (
+            <p className="mt-3 font-mono text-[10.5px] leading-5 text-text-faint">
+              {signInInTerminalCopy(readiness, issueAgentLabel(agent))}
             </p>
           ) : (
             !ready &&

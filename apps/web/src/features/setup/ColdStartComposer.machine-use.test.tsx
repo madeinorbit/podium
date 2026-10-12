@@ -1,3 +1,4 @@
+import '@/test-support/model-catalog-mock'
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /**
@@ -34,7 +35,7 @@ const spawnDraftAgent = vi.fn(() => ({ sessionId: 'session-new', issueId: 'issue
 const create = vi.fn()
 const start = vi.fn()
 const uiValues = new Map<string, string>()
-const uiListeners = new Set<() => void>()
+const uiListeners = new Set<(keys: ReadonlySet<string>) => void>()
 
 function machine(id: string, over: Record<string, unknown>) {
   return {
@@ -69,9 +70,9 @@ const store = {
     set: (key: string, value: string | null) => {
       if (value === null) uiValues.delete(key)
       else uiValues.set(key, value)
-      for (const listener of uiListeners) listener()
+      for (const listener of uiListeners) listener(new Set([key]))
     },
-    subscribe: (listener: () => void) => {
+    subscribe: (listener: (keys: ReadonlySet<string>) => void) => {
       uiListeners.add(listener)
       return () => uiListeners.delete(listener)
     },

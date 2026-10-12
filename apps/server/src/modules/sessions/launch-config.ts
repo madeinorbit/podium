@@ -32,9 +32,10 @@
  */
 
 import { harnessCapabilitiesFor, harnessSupportsEffort } from '../../harness-manifest'
-import type { AgentKind, UserId, AccountId } from '@podium/model'
+import type { AccountId, AgentKind, MachineId, UserId } from '@podium/model'
 import { resolveRole } from '@podium/runtime'
 import type { SessionStore } from '../../store'
+import { vetLaunchSelection } from '../../model-validation'
 import { resolveAccountEnv } from './account-env'
 
 export interface LaunchConfigPorts {
@@ -53,27 +54,41 @@ export interface LaunchModelDefaults {
 export class SessionLaunchConfig {
   constructor(private readonly ports: LaunchConfigPorts) {}
 
+  /**
+   * The model/effort a spawn runs with: the caller's values, else the coding
+   * role's Settings defaults when the spawn is on that role's harness.
+   *
+   * The caller's values were already accepted by the entry point that took them
+   * and pass through untouched. The Settings defaults are INHERITED: with a
+   * `machineId` they are checked against that machine's catalog, and one it does
+   * not know is dropped to `auto` rather than handed to the CLI as `--model`
+   * (POD-3911). Without a `machineId` nothing is checked, as before.
+   */
   async modelDefaults(
     agentKind: AgentKind,
     override?: { model?: string; effort?: string },
+    machineId?: MachineId,
   ): Promise<LaunchModelDefaults> {
     const settings = await this.ports.store.settings.getSettingsFor((await this.ports.settingsViewer()))
     const coding = settings.roles.coding
     const useCodingDefaults = agentKind === resolveRole(settings, 'coding').harness
-    const explicitModel = override?.model
-    const explicitEffort = override?.effort
-    const model =
-      explicitModel !== undefined && explicitModel !== 'auto'
-        ? explicitModel
-        : useCodingDefaults
-          ? coding.model
-          : 'auto'
-    const effort =
-      explicitEffort !== undefined && explicitEffort !== 'auto'
-        ? explicitEffort
-        : useCodingDefaults
-          ? coding.effort
-          : 'auto'
+    const given = (value: string | undefined): value is string =>
+      value !== undefined && value !== 'auto'
+    const fromSettings = {
+      ...(useCodingDefaults && !given(override?.model) ? { model: coding.model } : {}),
+      ...(useCodingDefaults && !given(override?.effort) ? { effort: coding.effort } : {}),
+    }
+    const vetted = vetLaunchSelection(
+      machineId !== undefined && (fromSettings.model || fromSettings.effort)
+        ? await this.ports.store.settings.getModelCatalog(machineId)
+        : null,
+      // A Settings effort beside a caller's model is checked against the
+      // harness's efforts as a whole, not that one model's: the caller's model
+      // is not this function's to re-check.
+      { agentKind, inherited: fromSettings },
+    )
+    const model = given(override?.model) ? override.model : vetted.model
+    const effort = given(override?.effort) ? override.effort : vetted.effort
     const subagentModel = coding.subagentModel
     return {
       ...(model !== 'auto' && agentKind !== 'shell' ? { model } : {}),

@@ -431,7 +431,7 @@ export class SessionRevival {
         ? { instructions: preparedInstructions.instructions }
         : {}),
       geometry: session.terminal.geometry,
-      ...await this.ports.launchConfig.modelDefaults(session.agentKind),
+      ...await this.ports.launchConfig.modelDefaults(session.agentKind, undefined, session.machineId),
       ...await this.ports.launchConfig.accountEnv(session.agentKind, session.accountId),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })

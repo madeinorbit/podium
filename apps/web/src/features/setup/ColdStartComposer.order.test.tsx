@@ -1,3 +1,4 @@
+import '@/test-support/model-catalog-mock'
 import { indexedRepoUsageAt, reposToViews } from '@podium/client-core/values'
 import { machinePathKey, type GitRepositoryWire } from '@podium/model/browser'
 import { act, cleanup, renderHook } from '@testing-library/react'

@@ -1576,25 +1576,92 @@ describe('IssueService.start', () => {
     expect(onWorktreesChanged).not.toHaveBeenCalled()
   })
 
-  it('rejects an unavailable model BEFORE mutating start state [spec:SP-cc60]', async () => {
+  /* POD-3911, POD-3218. A STORED model is inherited, not chosen for this start:
+   * one the catalog does not know falls back to Auto and the start goes ahead,
+   * and the profile is cleared so the issue shows what it actually runs. Only an
+   * explicit `--model` is refused (see "refuses a nonsense model" below). */
+  it('starts on Auto when the stored model is one the catalog does not know', async () => {
     const { svc, deps, store } = await harness()
     await store.settings.setModelCatalog({
       machineId: store.hostMachineId,
       version: MODEL_CATALOG_VERSION,
       fetchedAt: 1_000_000,
-      byAgent: { 'claude-code': [{ value: 'claude-opus-4-8', label: 'Opus 4.8' }] },
+      byAgent: {
+        'claude-code': [{ value: 'claude-opus-4-8', label: 'Opus 4.8', efforts: ['low', 'high'] }],
+      },
     })
     const created = await svc.crud.create({
       repoPath: '/r',
       title: 'Typo model',
       startNow: false,
       defaultModel: 'claude-opus-4.8', // dot, not dash
+      defaultEffort: 'banana',
     })
-    await expect(svc.gitWorkflow.start(created.id)).rejects.toThrow(/Did you mean "claude-opus-4-8"/)
-    // No worktree add, no spawn, and the issue stays in backlog (start state untouched).
-    expect(deps.repoOp).not.toHaveBeenCalled()
-    expect(deps.spawnSession).not.toHaveBeenCalled()
-    expect((await svc.reports.get(created.id))?.stage).toBe('backlog')
+    await svc.gitWorkflow.start(created.id)
+    expect(deps.spawnSession).toHaveBeenCalledWith(
+      expect.objectContaining({ model: 'auto', effort: 'auto' }),
+    )
+    const after = await svc.reports.get(created.id)
+    expect(after?.stage).not.toBe('backlog')
+    expect(after?.defaultModel).toBe('auto')
+    expect(after?.defaultEffort).toBe('auto')
+  })
+
+  /* The reported failure: Settings → Model held the text "Codex", issue create
+   * copied it onto every new task, and every start was refused with
+   * `unknown model "Codex"` whichever harness or pill the operator chose. */
+  it('never lets a bogus Settings default model block a new task', async () => {
+    const { svc, deps, store } = await harness()
+    deps.getSettings = async () =>
+      normalizeSettings({
+        roles: { coding: { accountId: 'native:claude-code', model: 'Codex', effort: 'auto' } },
+      })
+    await store.settings.setModelCatalog({
+      machineId: store.hostMachineId,
+      version: MODEL_CATALOG_VERSION,
+      fetchedAt: 1_000_000,
+      byAgent: { 'claude-code': [{ value: 'claude-opus-4-8', label: 'Opus 4.8' }] },
+    })
+    const created = await svc.crud.create({ repoPath: '/r', title: 'First task', startNow: false })
+    await svc.gitWorkflow.start(created.id)
+    expect(deps.spawnSession).toHaveBeenCalledWith(expect.objectContaining({ model: 'auto' }))
+    await svc.gitWorkflow.addSession(created.id)
+    expect(deps.spawnSession).toHaveBeenLastCalledWith(expect.objectContaining({ model: 'auto' }))
+  })
+
+  it('keeps an inherited effort the chosen model takes, drops one it does not', async () => {
+    const { svc, deps, store } = await harness()
+    await store.settings.setModelCatalog({
+      machineId: store.hostMachineId,
+      version: MODEL_CATALOG_VERSION,
+      fetchedAt: 1_000_000,
+      byAgent: {
+        'claude-code': [
+          { value: 'claude-opus-4-8', label: 'Opus 4.8', efforts: ['low', 'high'] },
+          { value: 'claude-haiku-4-5', label: 'Haiku 4.5', efforts: [] },
+        ],
+      },
+    })
+    const keeps = await svc.crud.create({
+      repoPath: '/r',
+      title: 'Keeps',
+      startNow: false,
+      defaultEffort: 'high',
+    })
+    await svc.gitWorkflow.start(keeps.id, undefined, { model: 'claude-opus-4-8' })
+    expect(deps.spawnSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ model: 'claude-opus-4-8', effort: 'high' }),
+    )
+    const drops = await svc.crud.create({
+      repoPath: '/r',
+      title: 'Drops',
+      startNow: false,
+      defaultEffort: 'high',
+    })
+    await svc.gitWorkflow.start(drops.id, undefined, { model: 'claude-haiku-4-5' })
+    expect(deps.spawnSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ model: 'claude-haiku-4-5', effort: 'auto' }),
+    )
   })
 
   it('force lets an unlisted issue model start [spec:SP-cc60]', async () => {

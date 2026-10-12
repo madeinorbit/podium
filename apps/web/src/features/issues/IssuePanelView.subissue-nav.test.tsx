@@ -79,7 +79,10 @@ const FINISHED = makeIssue({
 // The task head's launch box carries model + effort segments, and those read
 // the live catalog through a hook that hangs off the REAL store provider rather
 // than the mock below.
-vi.mock('@/lib/use-model-catalog', () => ({ useModelCatalog: () => ({}) }))
+vi.mock('@/lib/use-model-catalog', () => ({
+  useModelCatalog: () => ({}),
+  useModelCatalogState: () => ({ catalog: {}, status: 'unavailable' }),
+}))
 
 // A provider retains one API object; history view dependencies do too.
 const trpc = {

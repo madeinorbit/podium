@@ -5,6 +5,7 @@ import { forwardRef } from 'react'
 import { Button } from '@/components/ui/button'
 import {
   AUTO,
+  agentSupportsEffort,
   allConnectorModelLabel,
   allConnectorModelOptions,
   decodeModelPick,
@@ -16,7 +17,7 @@ import {
 } from './agent-models'
 import type { IssueAgentKind } from './issue-agents'
 import { PropertyMenu } from './PropertyMenu'
-import { useModelCatalog } from './use-model-catalog'
+import { useModelCatalog, useModelCatalogState } from './use-model-catalog'
 import { useHarnessDescriptors } from './use-harness-descriptors'
 import { cn } from './utils'
 
@@ -107,6 +108,7 @@ export function ModelPicker({
   className,
   machineId,
   disabled = false,
+  allowFreeText = true,
 }: {
   agentKind: IssueAgentKind
   value: string
@@ -117,13 +119,25 @@ export function ModelPicker({
   /** Machine whose installed harness answers the catalog. */
   machineId?: MachineId
   disabled?: boolean
+  /** Offer "Use “…”" for a typed model name. Off where the menu must hold only
+   *  what the machine reported — the new-task box (POD-3911). Settings keeps it
+   *  for managed accounts, which report no list. */
+  allowFreeText?: boolean
 }): JSX.Element {
-  // Live models from the agent's own CLI (grok/cursor/opencode), fetched + cached by
-  // the server; falls back to the static catalog for claude/codex or before it loads.
-  const live = useModelCatalog(machineId)[agentKind]
-  // Served harness descriptors (POD-4475): the picker renders names, models
-  // and effort support from the machine's report, bundled fallback offline.
+  // Live models as the machine's own harness reports them, fetched and cached by
+  // the server. Nothing else is offered (POD-3911): until the list arrives, or if
+  // it never does, the menu is Auto plus a line saying why — Auto always launches.
+  const { catalog, status } = useModelCatalogState(machineId)
+  const live = catalog[agentKind]
+  // Served harness descriptors (POD-4475): names and effort support from the
+  // machine's report, bundled fallback offline.
   const { served } = useHarnessDescriptors(machineId)
+  const footnote =
+    live && live.length > 0
+      ? undefined
+      : status === 'loading'
+        ? 'Loading models from this machine…'
+        : 'This machine has not reported its models. Auto lets the agent choose.'
   return (
     <PropertyMenu
       trigger={
@@ -138,8 +152,9 @@ export function ModelPicker({
       }
       options={modelOptions(agentKind, live, served)}
       selectedValue={value || 'auto'}
-      allowFreeText
-      placeholder="Model name…"
+      allowFreeText={allowFreeText}
+      placeholder={allowFreeText ? 'Model name…' : 'Filter…'}
+      {...(footnote ? { footnote } : {})}
       onSelect={onChange}
     />
   )
@@ -222,10 +237,32 @@ export function EffortPicker({
 }): JSX.Element | null {
   const live = useModelCatalog(machineId)[agentKind]
   const { served } = useHarnessDescriptors(machineId)
-  // Auto model uses the agent's effort ladder; a concrete model can narrow it or
-  // explicitly report no effort support (e.g. Claude Haiku).
+  // Effort is offered only for a concrete model whose levels the live catalog
+  // lists (POD-3911). Otherwise the pill stays and reads Auto: the row keeps its
+  // shape across model changes, and the operator can see effort is the agent's
+  // call rather than wonder where the control went. A harness with no effort
+  // flag at all (Cursor) has nothing to show.
   const options = effortOptionsForModel(agentKind, model, live, served)
-  if (options.length === 0) return null
+  if (options.length === 0) {
+    if (!agentSupportsEffort(agentKind, served)) return null
+    return (
+      <PickerTrigger
+        variant={variant}
+        icon={gaugeIcon}
+        // The stored value, not a hard "Auto": a saved level the picker cannot
+        // offer still rides the launch, and the pill must not hide that.
+        label={effortLabel(agentKind, value)}
+        aria-label="Effort"
+        title={
+          !model || model === AUTO
+            ? 'Pick a model to choose its effort'
+            : 'This model reports no effort levels'
+        }
+        disabled
+        {...(className ? { className } : {})}
+      />
+    )
+  }
   return (
     <PropertyMenu
       trigger={

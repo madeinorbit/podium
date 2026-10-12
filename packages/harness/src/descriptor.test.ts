@@ -62,15 +62,22 @@ describe('unknown harness renders from the served descriptor', () => {
     expect(found?.label).toBe('Future CLI')
     expect(found?.shortLabel).toBe('Future')
     expect(found?.icon.d).toBe('M12 2v20')
-    expect(modelOptionsForDescriptor(found as ResolvedDescriptor)).toEqual([
+    // A picker offers only what the machine reported (POD-3911): the served
+    // descriptor's bundled models are not offered on their own.
+    const descriptor = found as ResolvedDescriptor
+    expect(modelOptionsForDescriptor(descriptor)).toEqual([{ value: 'auto', label: 'Auto' }])
+    const live = descriptor.catalog.models
+    expect(modelOptionsForDescriptor(descriptor, live)).toEqual([
       { value: 'auto', label: 'Auto' },
       { value: 'f1', label: 'F1', efforts: ['low'] },
     ])
-    // Effort supported per served capabilities: the picker shows the ladder.
-    expect(effortOptionsForDescriptor(found as ResolvedDescriptor, undefined)).toEqual([
+    // Effort exists only for a concrete model the live catalog describes; under
+    // an Auto model there is no ladder to guess from.
+    expect(effortOptionsForDescriptor(descriptor, undefined, live)).toEqual([])
+    expect(effortOptionsForDescriptor(descriptor, 'f1')).toEqual([])
+    expect(effortOptionsForDescriptor(descriptor, 'f1', live)).toEqual([
       { value: 'auto', label: 'Auto' },
       { value: 'low', label: 'Low' },
-      { value: 'high', label: 'High' },
     ])
   })
 

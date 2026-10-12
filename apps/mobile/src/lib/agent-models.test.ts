@@ -56,48 +56,50 @@ describe('cross-harness model picks', () => {
     expect(decodeModelPick('auto')).toEqual({ model: 'auto' })
   })
 
-  it('lists every harness model under its connector, Auto first', () => {
-    const options = allConnectorModelOptions()
+  // A picker offers what the machine reported, or only Auto (POD-3911): the
+  // bundled lists are not offered, so a loading or failed probe no longer
+  // looks like the machine saying "Opus / Sonnet / Haiku".
+  const live = {
+    'claude-code': [
+      { value: 'claude-opus-4-8', label: 'Opus 4.8', efforts: ['low', 'high', 'max'] },
+      { value: 'claude-haiku-4-5', label: 'Haiku 4.5', efforts: [] },
+    ],
+    codex: [{ value: 'gpt-5.5', label: 'GPT-5.5', efforts: ['low', 'high'] }],
+    opencode: [{ value: 'anthropic/claude-opus-4-8', label: 'Claude Opus 4.8' }],
+  }
+
+  it('offers only Auto when no machine has reported models', () => {
+    expect(allConnectorModelOptions()).toEqual([{ value: 'auto', label: 'Auto' }])
+  })
+
+  it('lists every reported model under its connector, Auto first', () => {
+    const options = allConnectorModelOptions(live)
     expect(options[0]).toEqual({ value: 'auto', label: 'Auto' })
-    expect(options.some((o) => o.value === 'claude-code:opus' && o.group === 'Claude Code')).toBe(
-      true,
-    )
-    expect(options.some((o) => o.value === 'codex:gpt-5.6-sol' && o.group === 'Codex')).toBe(true)
-    expect(options.some((o) => o.value === 'grok:grok-4.5' && o.group === 'Grok')).toBe(true)
+    expect(
+      options.some((o) => o.value === 'claude-code:claude-opus-4-8' && o.group === 'Claude Code'),
+    ).toBe(true)
+    expect(options.some((o) => o.value === 'codex:gpt-5.5' && o.group === 'Codex')).toBe(true)
+    expect(options.some((o) => o.group === 'Grok')).toBe(false)
   })
 
   it('groups catalog options so a select can render section headers', () => {
-    const groups = groupedCatalogOptions(allConnectorModelOptions())
+    const groups = groupedCatalogOptions(allConnectorModelOptions(live))
     expect(groups[0]).toEqual({ options: [{ value: 'auto', label: 'Auto' }] })
     expect(groups.find((g) => g.label === 'Claude Code')?.options.map((o) => o.label)).toEqual([
-      'Opus',
-      'Sonnet',
-      'Haiku',
+      'Opus 4.8',
+      'Haiku 4.5',
     ])
   })
 
-  it('hides effort for haiku and keeps the Claude ladder for opus', () => {
-    expect(effortOptionsForModel('claude-code', 'haiku')).toEqual([])
-    expect(effortOptionsForModel('claude-code', 'opus').map((o) => o.value)).toEqual([
-      'auto',
-      'low',
-      'medium',
-      'high',
-      'xhigh',
-      'max',
-    ])
-  })
-
-  it('keeps current Codex reasoning levels in the offline fallback', () => {
-    expect(effortOptionsForModel('codex', 'gpt-5.6-sol').map((o) => o.value)).toEqual([
-      'auto',
-      'low',
-      'medium',
-      'high',
-      'xhigh',
-      'max',
-      'ultra',
-    ])
+  it("offers a model's own effort levels, and none for Auto or an undescribed model", () => {
+    expect(effortOptionsForModel('claude-code', 'claude-haiku-4-5', live['claude-code'])).toEqual([])
+    expect(
+      effortOptionsForModel('claude-code', 'claude-opus-4-8', live['claude-code']).map(
+        (o) => o.value,
+      ),
+    ).toEqual(['auto', 'low', 'high', 'max'])
+    expect(effortOptionsForModel('claude-code', 'auto', live['claude-code'])).toEqual([])
+    expect(effortOptionsForModel('codex', 'gpt-5.6-sol')).toEqual([])
   })
 
   it('omits auto sentinels from the spawn payload', () => {
@@ -109,29 +111,29 @@ describe('cross-harness model picks', () => {
     })
   })
 
-  it('lets the LIVE catalog replace a harness list rather than merge with it', () => {
+  it('offers exactly the LIVE list, never merged with the bundled one', () => {
     // The whole point of the probe: a machine that installed a model after this
     // bundle was built must be able to offer it, and one that dropped a model
     // must stop offering it.
-    const live = { grok: [{ value: 'grok-9', label: 'Grok 9' }] }
-    const options = allConnectorModelOptions(live)
+    const grokOnly = { grok: [{ value: 'grok-9', label: 'Grok 9' }] }
+    const options = allConnectorModelOptions(grokOnly)
     expect(options.some((o) => o.value === 'grok:grok-9')).toBe(true)
     expect(options.some((o) => o.value === 'grok:grok-4.5')).toBe(false)
-    expect(allConnectorModelLabel('grok', 'grok-9', live)).toBe('Grok · Grok 9')
+    expect(allConnectorModelLabel('grok', 'grok-9', grokOnly)).toBe('Grok · Grok 9')
   })
 
   it('accepts an effort a live model declares even when the harness table omits it', () => {
-    const live = { grok: [{ value: 'grok-9', label: 'Grok 9', efforts: ['ultra'] }] }
+    const grok = [{ value: 'grok-9', label: 'Grok 9', efforts: ['ultra'] }]
     expect(isEffortValid('grok', 'ultra')).toBe(false)
-    expect(isEffortValid('grok', 'ultra', live.grok)).toBe(true)
+    expect(isEffortValid('grok', 'ultra', grok)).toBe(true)
   })
 
   it('filters on the harness name as well as the model, ignoring separators', () => {
-    const options = allConnectorModelOptions()
+    const options = allConnectorModelOptions(live)
     // "claude" is a harness name for one group and a model name inside another,
     // and both are what someone typing it is looking for.
     const claude = filterCatalogOptions(options, 'claude').map((o) => o.value)
-    expect(claude).toContain('claude-code:opus')
+    expect(claude).toContain('claude-code:claude-opus-4-8')
     expect(claude).toContain('opencode:anthropic/claude-opus-4-8')
     expect(claude).not.toContain('codex:gpt-5.5')
     // Nobody types the hyphens on a phone keyboard.

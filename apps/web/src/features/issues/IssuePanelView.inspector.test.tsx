@@ -113,7 +113,10 @@ const eventsQuery = vi.fn(async (input?: unknown) => {
 // The task head's launch box carries model + effort segments, and those read
 // the live catalog through a hook that hangs off the REAL store provider rather
 // than the mock below.
-vi.mock('@/lib/use-model-catalog', () => ({ useModelCatalog: () => ({}) }))
+vi.mock('@/lib/use-model-catalog', () => ({
+  useModelCatalog: () => ({}),
+  useModelCatalogState: () => ({ catalog: {}, status: 'unavailable' }),
+}))
 
 vi.mock('@/app/store', () => {
   // The real owner retains its transport across snapshot reads. Recreating it

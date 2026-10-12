@@ -4,7 +4,7 @@ import type { HarnessDescriptorWire } from '@podium/protocol'
 import { nativeAccountId } from '@podium/runtime'
 import { cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import '@/test-support/model-catalog-mock'
+import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
 import { accountOptions, managedCodingHarnesses, providerLabel, RoleBackendEditor } from './shared'
 
 vi.mock('@/app/store', () => {
@@ -15,10 +15,22 @@ vi.mock('@/app/store', () => {
   }
 })
 
-afterEach(cleanup)
+afterEach(() => {
+  cleanup()
+  modelCatalogFixture.current = {}
+})
+
+const LIVE_CODEX = {
+  codex: [
+    { value: 'gpt-5.5', label: 'GPT-5.5', efforts: ['low', 'medium', 'high', 'xhigh'] },
+    { value: 'gpt-5.4', label: 'GPT-5.4', efforts: ['low', 'medium', 'high', 'xhigh'] },
+  ],
+}
 
 describe('RoleBackendEditor', () => {
-  it('allows effort selection while the model is automatic', () => {
+  // POD-3911: effort is chosen for a concrete model the machine describes. Under
+  // an Auto model the pill reads Auto and offers nothing to pick.
+  it('offers no effort while the model is automatic', () => {
     render(
       // Biome mistakes this component prop for an ARIA role attribute.
       // biome-ignore lint/a11y/useValidAriaRole: this selects the Podium backend role
@@ -35,11 +47,13 @@ describe('RoleBackendEditor', () => {
     // note below the row, not in a second display string.
     expect(screen.getByRole('combobox').textContent).toContain('Codex')
     expect(screen.getByRole('combobox').textContent).not.toContain('ChatGPT')
-    fireEvent.click(screen.getByRole('button', { name: 'Effort' }))
-    expect(screen.getByRole('menuitem', { name: 'Extra high' })).toBeTruthy()
+    const effort = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
+    expect(effort.textContent).toContain('Auto')
+    expect(effort.disabled).toBe(true)
   })
 
   it('uses the shared Codex model and effort dropdowns and persists the harness', () => {
+    modelCatalogFixture.current = LIVE_CODEX
     const onChange = vi.fn()
     render(
       // Biome mistakes this component prop for an ARIA role attribute.

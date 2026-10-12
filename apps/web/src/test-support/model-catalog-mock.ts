@@ -20,10 +20,19 @@ export const modelCatalogFixture = {
   },
 }
 
-vi.mock('@/lib/use-model-catalog', () => ({
-  useModelCatalog: () =>
-    (globalThis as FixtureGlobal).__podiumModelCatalogFixture?.current ?? {},
-}))
+vi.mock('@/lib/use-model-catalog', () => {
+  const current = (): Catalog =>
+    (globalThis as FixtureGlobal).__podiumModelCatalogFixture?.current ?? {}
+  return {
+    useModelCatalog: current,
+    // A fixture with models reads as a probe that answered; an empty one as a
+    // machine that has not reported (POD-3911: the picker then offers Auto only).
+    useModelCatalogState: () => {
+      const catalog = current()
+      return { catalog, status: Object.keys(catalog).length > 0 ? 'ready' : 'unavailable' }
+    },
+  }
+})
 
 /**
  * Served harness descriptors fixture (POD-4475): provider-free tests render

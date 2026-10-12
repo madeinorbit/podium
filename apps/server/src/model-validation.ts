@@ -208,3 +208,95 @@ export function assertModelSelectionValid(
   if (!result.ok) throw new ModelValidationError(result.problem)
   return { forced: result.forced }
 }
+
+/** One half of a launch selection, as the caller holds it. */
+export interface SelectionValues {
+  model?: string
+  effort?: string
+}
+
+export interface VettedSelection {
+  /** The model to launch with; `'auto'` when none survives. */
+  model: string
+  /** The effort to launch with; `'auto'` when none survives. */
+  effort: string
+  /** True when a force actually let an unknown explicit model through. */
+  forced: boolean
+  /** Inherited values the catalog did not know, dropped to `'auto'`. */
+  dropped: Array<'model' | 'effort'>
+}
+
+/**
+ * A DEFAULT NEVER BLOCKS A LAUNCH (POD-3911, POD-3218).
+ *
+ * A launch carries two kinds of model and effort. EXPLICIT values were chosen
+ * for this launch — a CLI flag, a picker — and are checked exactly as before: an
+ * unknown one refuses the launch with a "did you mean", because the person who
+ * typed it is right there to fix it. INHERITED values came from somewhere else —
+ * the issue's stored profile, the Settings default — possibly weeks ago, possibly
+ * written by an agent. When the catalog does not know one, it is dropped to
+ * `'auto'` and the launch goes ahead: the harness then picks its own default.
+ *
+ * Before this, both kinds went through one assert, so a stale `Codex` sitting in
+ * Settings → Model refused every new task, from every surface, with no control
+ * on screen that showed it.
+ *
+ * Model first, then effort against the model that survived: an inherited effort
+ * that the chosen model does not take is dropped too. An explicit value wins over
+ * an inherited one of the same kind. `force` keeps an unknown model of either
+ * kind, matching `--force-unknown-model`; it never keeps an unknown effort.
+ */
+export function vetLaunchSelection(
+  catalog: ModelCatalogSnapshot | null | undefined,
+  input: {
+    agentKind: string
+    explicit?: SelectionValues
+    inherited?: SelectionValues
+    force?: boolean
+  },
+): VettedSelection {
+  const pick = (kind: keyof SelectionValues): { value?: string; explicit: boolean } => {
+    const explicit = input.explicit?.[kind]
+    if (isExplicit(explicit)) return { value: explicit, explicit: true }
+    const inherited = input.inherited?.[kind]
+    return isExplicit(inherited) ? { value: inherited, explicit: false } : { explicit: false }
+  }
+  const dropped: VettedSelection['dropped'] = []
+  const force = input.force === true
+
+  const model = pick('model')
+  let modelValue = model.value
+  let forced = false
+  if (modelValue !== undefined) {
+    const result = validateModelSelection(catalog, {
+      agentKind: input.agentKind,
+      model: modelValue,
+      force,
+    })
+    if (!result.ok) {
+      if (model.explicit) throw new ModelValidationError(result.problem)
+      modelValue = undefined
+      dropped.push('model')
+    } else {
+      forced = result.forced
+    }
+  }
+
+  const effort = pick('effort')
+  let effortValue = effort.value
+  if (effortValue !== undefined) {
+    const result = validateModelSelection(catalog, {
+      agentKind: input.agentKind,
+      ...(modelValue !== undefined ? { model: modelValue } : {}),
+      effort: effortValue,
+      force,
+    })
+    if (!result.ok) {
+      if (effort.explicit) throw new ModelValidationError(result.problem)
+      effortValue = undefined
+      dropped.push('effort')
+    }
+  }
+
+  return { model: modelValue ?? 'auto', effort: effortValue ?? 'auto', forced, dropped }
+}

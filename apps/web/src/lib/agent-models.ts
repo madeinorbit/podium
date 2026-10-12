@@ -1,7 +1,6 @@
 import {
   BUNDLED_DESCRIPTORS,
   DESCRIPTOR_AUTO,
-  descriptorModels,
   effortLevelLabel,
   effortOptionsForDescriptor,
   isEffortValidForDescriptor,
@@ -74,22 +73,10 @@ export function modelOptions(
   return [...modelOptionsForDescriptor(descriptor, live as readonly ModelChoiceWire[] | undefined)]
 }
 
-/** Effort options for a `PropertyMenu`/`Select`, with the `auto` default first. */
-export function effortOptions(
-  kind: IssueAgentKind | string,
-  descriptors?: readonly HarnessDescriptorWire[],
-): PropertyOption[] {
-  const descriptor = descriptorFor(kind, descriptors)
-  if (!descriptor) return []
-  return [...effortOptionsForDescriptor(descriptor)]
-}
-
 /**
- * Effort options for the selected model. Automatic model selection still accepts an
- * explicit harness effort, so it uses the harness ladder. When the live
- * catalog reports model-specific levels, those are authoritative: a model with
- * `[]` offers no effort. Models without such metadata fall back to the
- * harness ladder. Empty result = hide the effort picker.
+ * Effort options for the selected model: Auto plus the levels the live catalog
+ * lists for that concrete model. Empty (show Auto, offer nothing) for an Auto
+ * model or one the catalog does not describe — see `effortOptionsForDescriptor`.
  */
 export function effortOptionsForModel(
   kind: IssueAgentKind | string,
@@ -176,10 +163,9 @@ export function allConnectorModelOptions(
   for (const descriptor of issueAgentDescriptors(descriptors)) {
     if (descriptor.kind === 'shell') continue
     const group = descriptor.label
-    for (const model of descriptorModels(
-      descriptor,
-      catalog?.[descriptor.kind] as readonly ModelChoiceWire[] | undefined,
-    )) {
+    // Live only (POD-3911): a harness the machine has not reported models for
+    // contributes nothing here — Auto above still launches it.
+    for (const model of catalog?.[descriptor.kind] ?? []) {
       options.push({
         value: encodeModelPick(descriptor.kind, model.value),
         label: model.label,

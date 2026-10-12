@@ -1,3 +1,4 @@
+import '@/test-support/model-catalog-mock'
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 /**
@@ -37,7 +38,7 @@ function inventory() {
 }
 
 const uiValues = new Map<string, string>()
-const uiListeners = new Set<() => void>()
+const uiListeners = new Set<(keys: ReadonlySet<string>) => void>()
 
 const store = {
   repos: [
@@ -67,9 +68,9 @@ const store = {
     set: (key: string, value: string | null) => {
       if (value === null) uiValues.delete(key)
       else uiValues.set(key, value)
-      for (const listener of uiListeners) listener()
+      for (const listener of uiListeners) listener(new Set([key]))
     },
-    subscribe: (listener: () => void) => {
+    subscribe: (listener: (keys: ReadonlySet<string>) => void) => {
       uiListeners.add(listener)
       return () => uiListeners.delete(listener)
     },
@@ -150,6 +151,36 @@ describe('the empty-state agent menu greys what it cannot start', () => {
     expect(grok.getAttribute('data-refused')).toBeNull()
     fireEvent.click(grok)
     expect(chip().textContent).toContain('Grok')
+  })
+})
+
+/* POD-3911. A signed-out harness used to make Launch dead, and the only way to
+ * sign in was a terminal outside Podium. A headed session IS a terminal, so it
+ * starts, says why, and opens on the terminal view where the sign-in screen is. */
+describe('a signed-out harness still starts headed', () => {
+  it('launches into the terminal view and says where to sign in', async () => {
+    store.spawnDraftAgent.mockImplementation((input: { issueId?: string; sessionId?: string }) => ({
+      issueId: input.issueId ?? 'iss_signed-out',
+      sessionId: input.sessionId ?? 'signed-out-session',
+      mutationId: 'signed-out-mutation',
+      settled: new Promise(() => {}),
+    }))
+    render(<ColdStartComposer first={false} />)
+    await openMenu()
+    fireEvent.click(row('Grok'))
+
+    expect(screen.getByText(/Grok is not signed in on Studio Mac\. It opens in its terminal/)).toBeTruthy()
+    expect(screen.queryByText(/Open Settings → Agents/)).toBeNull()
+
+    fireEvent.change(screen.getByLabelText('What do you want to work on?'), {
+      target: { value: 'Sign in, then do the thing' },
+    })
+    fireEvent.click(screen.getByRole('button', { name: 'Start work' }))
+
+    expect(store.spawnDraftAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ agentKind: 'grok' }),
+    )
+    expect(store.setPanelMode).toHaveBeenLastCalledWith(expect.anything(), 'native')
   })
 })
 

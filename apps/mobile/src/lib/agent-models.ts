@@ -1,7 +1,6 @@
 import {
   BUNDLED_DESCRIPTORS,
   DESCRIPTOR_AUTO,
-  descriptorModels,
   effortLevelLabel,
   effortOptionsForDescriptor,
   isEffortValidForDescriptor,
@@ -102,33 +101,7 @@ export function agentSupportsEffort(
   return descriptorFor(kind, descriptors)?.capabilities.effort ?? false
 }
 
-function withAuto(choices: { value: string; label: string }[]): CatalogOption[] {
-  return [{ value: AUTO, label: 'Auto' }, ...choices]
-}
-
-function agentModels(
-  kind: IssueAgentKind | string,
-  live: readonly ModelChoice[] | undefined,
-  descriptors: readonly HarnessDescriptorWire[] | undefined,
-): readonly ModelChoice[] {
-  const descriptor = descriptorFor(kind, descriptors)
-  if (!descriptor) return []
-  return descriptorModels(
-    descriptor,
-    live as readonly ModelChoiceWire[] | undefined,
-  ) as readonly ModelChoice[]
-}
-
 export { effortLevelLabel }
-
-export function effortOptions(
-  kind: IssueAgentKind | string,
-  descriptors?: readonly HarnessDescriptorWire[],
-): CatalogOption[] {
-  const descriptor = descriptorFor(kind, descriptors)
-  if (!descriptor) return []
-  return [...effortOptionsForDescriptor(descriptor)]
-}
 
 export function effortOptionsForModel(
   kind: IssueAgentKind | string,
@@ -219,10 +192,9 @@ export function allConnectorModelOptions(
   for (const descriptor of agentDescriptors(descriptors)) {
     if (descriptor.kind === 'shell') continue
     const group = descriptor.label
-    for (const model of descriptorModels(
-      descriptor,
-      catalog?.[descriptor.kind] as readonly ModelChoiceWire[] | undefined,
-    )) {
+    // Live only (POD-3911): a harness the machine has not reported models for
+    // contributes nothing here — Auto above still launches it.
+    for (const model of catalog?.[descriptor.kind] ?? []) {
       options.push({
         value: encodeModelPick(descriptor.kind, model.value),
         label: model.label,

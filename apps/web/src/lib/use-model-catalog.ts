@@ -1,1 +1,1 @@
-export { useModelCatalog } from '@podium/client-core/react'
+export { useModelCatalog, useModelCatalogState } from '@podium/client-core/react'

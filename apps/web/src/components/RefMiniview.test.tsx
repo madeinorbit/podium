@@ -1,7 +1,7 @@
 import type { SessionMeta } from '@podium/model'
 import type { SessionView } from '@podium/client-core/session-values'
 import { fireEvent, screen, waitFor } from '@testing-library/react'
-import '@/test-support/model-catalog-mock'
+import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
 import { asIssueId, asRepoId, asSessionId, asUserId } from '@podium/model'
 import { parseAnyRef } from '@podium/protocol'
 import { act } from 'react'
@@ -607,7 +607,13 @@ describe('RefCard proposal decisions', () => {
 describe('RefCard planned agent settings', () => {
   let container: HTMLDivElement
   let root: Root
+  // Pickers offer only what the machine reported (POD-3911), so the card's
+  // harness has a live list here; effort needs a concrete model from it.
+  const withModel = { defaultModel: 'sonnet' }
   beforeEach(() => {
+    modelCatalogFixture.current = {
+      'claude-code': [{ value: 'sonnet', label: 'Sonnet', efforts: ['low', 'high'] }],
+    }
     hostStore.updateIssue.mockReset()
     hostStore.updateIssue.mockResolvedValue(undefined)
     container = document.createElement('div')
@@ -617,6 +623,7 @@ describe('RefCard planned agent settings', () => {
   afterEach(() => {
     act(() => root.unmount())
     container.remove()
+    modelCatalogFixture.current = {}
   })
 
   function show(
@@ -645,16 +652,16 @@ describe('RefCard planned agent settings', () => {
       { defaultAgent: 'codex', defaultModel: 'auto', defaultEffort: 'auto' },
     ],
     ['Model', 'Sonnet', { defaultModel: 'sonnet', defaultEffort: 'auto' }],
-    ['Effort', 'High', { defaultEffort: 'high' }],
+    ['Effort', 'High', { defaultEffort: 'high' }, withModel],
     ['Machine', 'Workstation', { machineId: 'machine-1' }],
-  ])('saves %s on the issue and reads it back when reopened', async (name, option, patch) => {
-    show()
+  ])('saves %s on the issue and reads it back when reopened', async (name, option, patch, base: Partial<RefIssueLike> = {}) => {
+    show({ ...rich, stage: 'backlog', ...base } as RefIssueLike)
     fireEvent.click(screen.getByRole('button', { name }))
     fireEvent.click(await screen.findByRole('menuitem', { name: option }))
     await waitFor(() => expect(hostStore.updateIssue).toHaveBeenCalledWith('iss_1', patch))
     await waitFor(() => expect(container.textContent).toContain('Saved'))
     act(() => root.render(null))
-    show({ ...rich, stage: 'backlog', ...patch } as RefIssueLike)
+    show({ ...rich, stage: 'backlog', ...base, ...patch } as RefIssueLike)
     expect(screen.getByRole('button', { name }).textContent).toContain(option)
   })
 
@@ -683,7 +690,7 @@ describe('RefCard planned agent settings', () => {
         }),
     )
     const onStart = vi.fn(async () => ({}))
-    show(undefined, undefined, onStart)
+    show({ ...rich, stage: 'backlog', ...withModel } as RefIssueLike, undefined, onStart)
     fireEvent.click(screen.getByRole('button', { name: 'Effort' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'High' }))
     expect(screen.getByRole<HTMLButtonElement>('button', { name: 'Run now' }).disabled).toBe(true)

@@ -41,11 +41,49 @@ describe('ModelPicker live catalog', () => {
   })
 })
 
+describe('ModelPicker without a live catalog (POD-3911)', () => {
+  it('offers only Auto and says the machine has not reported its models', async () => {
+    modelCatalogFixture.current = {}
+    render(<ModelPicker agentKind="claude-code" value="auto" onChange={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    expect(await screen.findByRole('menuitem', { name: 'Auto' })).toBeTruthy()
+    expect(screen.queryByRole('menuitem', { name: 'Opus' })).toBeNull()
+    expect(screen.getByText(/has not reported its models/)).toBeTruthy()
+  })
+})
+
+describe('ModelPicker without typed models (POD-3911)', () => {
+  it('offers no "Use …" entry for a typed name when free text is off', async () => {
+    render(
+      <ModelPicker agentKind="grok" value="auto" onChange={vi.fn()} allowFreeText={false} />,
+    )
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    fireEvent.change(await screen.findByPlaceholderText('Filter…'), {
+      target: { value: 'my-custom-model' },
+    })
+    expect(screen.queryByRole('menuitem', { name: /Use “my-custom-model”/ })).toBeNull()
+  })
+
+  it('still offers it where free text is on', async () => {
+    render(<ModelPicker agentKind="grok" value="auto" onChange={vi.fn()} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    fireEvent.change(await screen.findByPlaceholderText('Model name…'), {
+      target: { value: 'my-custom-model' },
+    })
+    expect(screen.getByRole('menuitem', { name: /Use “my-custom-model”/ })).toBeTruthy()
+  })
+})
+
 describe('EffortPicker follows the selected model', () => {
-  it('shows the agent effort ladder when the model is auto', async () => {
+  // POD-3911: under an Auto model nobody knows which model will run, so nobody
+  // knows its efforts. The pill stays, reads Auto, and offers nothing.
+  it('reads Auto and offers no ladder while the model is auto', () => {
     render(<EffortPicker agentKind="claude-code" model="auto" value="auto" onChange={vi.fn()} />)
-    fireEvent.click(screen.getByRole('button', { name: 'Effort' }))
-    expect(screen.getByRole('menuitem', { name: 'Max' })).toBeTruthy()
+    const pill = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
+    expect(pill.textContent).toContain('Auto')
+    expect(pill.disabled).toBe(true)
+    fireEvent.click(pill)
+    expect(screen.queryByRole('menuitem', { name: 'Max' })).toBeNull()
   })
 
   it("shows the selected model's per-model effort levels", async () => {
@@ -63,7 +101,7 @@ describe('EffortPicker follows the selected model', () => {
     expect(screen.queryByRole('menuitem', { name: 'Max' })).toBeNull()
   })
 
-  it('hides for a model that supports no effort (efforts: [])', async () => {
+  it('reads Auto, inert, for a model that supports no effort (efforts: [])', () => {
     render(
       <EffortPicker
         agentKind="claude-code"
@@ -72,6 +110,13 @@ describe('EffortPicker follows the selected model', () => {
         onChange={vi.fn()}
       />,
     )
+    const pill = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
+    expect(pill.textContent).toContain('Auto')
+    expect(pill.disabled).toBe(true)
+  })
+
+  it('is absent for a harness with no effort flag at all', () => {
+    render(<EffortPicker agentKind="cursor" model="auto" value="auto" onChange={vi.fn()} />)
     expect(screen.queryByRole('button', { name: 'Effort' })).toBeNull()
   })
 })
@@ -82,7 +127,8 @@ describe('AllConnectorsModelPicker', () => {
     render(<AllConnectorsModelPicker agentKind={undefined} value="auto" onChange={onChange} />)
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
     expect(await screen.findByText('Claude Code')).toBeTruthy()
-    expect(screen.getByText('Codex')).toBeTruthy()
+    // Only harnesses the machine reported models for (POD-3911): no Codex here.
+    expect(screen.queryByText('Codex')).toBeNull()
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Opus 4.8' }))
     expect(onChange).toHaveBeenCalledWith({ agentKind: 'claude-code', model: 'claude-opus-4-8' })
   })

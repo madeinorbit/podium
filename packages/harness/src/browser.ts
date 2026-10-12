@@ -405,12 +405,24 @@ export function descriptorModels(
   return live && live.length > 0 ? live : descriptor.catalog.models
 }
 
-/** Model options with the `auto` default first. */
+/**
+ * WHAT A PICKER OFFERS: AUTO, PLUS WHAT THE MACHINE REPORTED — NOTHING ELSE
+ * (POD-3911).
+ *
+ * The bundled catalog is not offered. It was a second answer that nobody keeps
+ * current, and it looked exactly as authoritative as the live one: before the
+ * probe answered, or after it failed, the picker showed "Opus / Sonnet / Haiku"
+ * as if the machine had said so. A picker now either knows the machine's models
+ * or offers only Auto, which always launches. `descriptorModels` keeps its
+ * static fallback for the paths that MUST name a slug (`effectiveCatalogModel`).
+ *
+ * `descriptor` stays in the signature so a picker keeps asking per harness.
+ */
 export function modelOptionsForDescriptor(
-  descriptor: HarnessDescriptorWire,
+  _descriptor: HarnessDescriptorWire,
   live?: readonly ModelChoiceWire[],
 ): DescriptorChoice[] {
-  return [{ value: DESCRIPTOR_AUTO, label: 'Auto' }, ...descriptorModels(descriptor, live)]
+  return [{ value: DESCRIPTOR_AUTO, label: 'Auto' }, ...(live ?? [])]
 }
 
 /**
@@ -450,35 +462,39 @@ export function effortLevelLabel(level: string): string {
   return EFFORT_LEVEL_LABELS[level] ?? level
 }
 
-/** Effort options for the harness ladder, with the `auto` default first. */
+/**
+ * Effort options for ONE concrete model, as the machine reported them
+ * (POD-3911): Auto first, then that model's own levels.
+ *
+ * Empty — no effort choice — when the model is Auto, when the live catalog does
+ * not list the model, or when it lists no levels for it. There is no harness-wide
+ * ladder fallback any more: under an Auto model nobody knows which model will
+ * run, so nobody knows which efforts it takes, and a guessed ladder is how a
+ * launch ends up asking a model for an effort it refuses. Either the catalog
+ * says, or the effort is Auto.
+ */
 export function effortOptionsForDescriptor(
-  descriptor: HarnessDescriptorWire,
+  _descriptor: HarnessDescriptorWire,
   modelValue?: string | null,
   live?: readonly ModelChoiceWire[],
 ): DescriptorChoice[] {
-  const withAuto = (levels: readonly string[]): DescriptorChoice[] => [
+  if (!modelValue || modelValue === DESCRIPTOR_AUTO) return []
+  const efforts = live?.find((m) => m.value === modelValue)?.efforts
+  if (!efforts || efforts.length === 0) return []
+  return [
     { value: DESCRIPTOR_AUTO, label: 'Auto' },
-    ...levels.map((level) => ({ value: level, label: effortLevelLabel(level) })),
+    ...efforts.map((level) => ({ value: level, label: effortLevelLabel(level) })),
   ]
-  if (!modelValue || modelValue === DESCRIPTOR_AUTO) {
-    return descriptor.capabilities.effort ? withAuto(descriptor.catalog.efforts) : []
-  }
-  const efforts = descriptorModels(descriptor, live).find((m) => m.value === modelValue)?.efforts
-  if (efforts !== undefined) {
-    if (efforts.length === 0) return []
-    return withAuto(efforts)
-  }
-  return descriptor.capabilities.effort ? withAuto(descriptor.catalog.efforts) : []
 }
 
 /** Display label for a stored model value; falls back to the raw value. */
 export function modelLabelForDescriptor(
-  descriptor: HarnessDescriptorWire,
+  _descriptor: HarnessDescriptorWire,
   value: string | null | undefined,
   live?: readonly ModelChoiceWire[],
 ): string {
   if (!value || value === DESCRIPTOR_AUTO) return 'Auto'
-  return descriptorModels(descriptor, live).find((m) => m.value === value)?.label ?? value
+  return live?.find((m) => m.value === value)?.label ?? value
 }
 
 /** Whether an effort value is offered for this harness (ladder or live). */

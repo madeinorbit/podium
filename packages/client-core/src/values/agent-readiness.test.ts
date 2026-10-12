@@ -5,6 +5,7 @@ import {
   activationAgentIsInstalled,
   activationAgentIsReady,
   activationAgentReadiness,
+  agentCanLaunch,
   agentReadinessOnMachines,
   launchAgentKind,
 } from './agent-readiness'
@@ -119,5 +120,37 @@ describe('the harness a launch starts on (POD-4639)', () => {
 
   it('never swaps a harness the operator picked', () => {
     expect(pick({ 'claude-code': 'out', opencode: 'in' }, 'claude-code')).toBe('claude-code')
+  })
+})
+
+describe('whether a launch may go ahead (POD-3911)', () => {
+  const on = (agent: Parameters<typeof machine>[0]) =>
+    activationAgentReadiness(repo, [machine(agent)], 'codex')
+
+  it('lets a signed-out harness start headed, where its terminal can sign it in', () => {
+    const signedOut = on({ installed: true, login: 'out' })
+    expect(signedOut.state).toBe('logged-out')
+    expect(agentCanLaunch(signedOut, { headed: true })).toBe(true)
+  })
+
+  it('still refuses a signed-out harness headless, which has no screen to sign in on', () => {
+    expect(agentCanLaunch(on({ installed: true, login: 'out' }), { headed: false })).toBe(false)
+  })
+
+  it('loosens nothing else: a missing or still-checking harness is refused either way', () => {
+    const inventoryless = machine(null)
+    delete inventoryless.inventory
+    const checking = activationAgentReadiness(repo, [inventoryless], 'codex')
+    expect(checking.state).toBe('checking')
+    for (const headed of [true, false]) {
+      expect(agentCanLaunch(on({ installed: false, login: 'unknown' }), { headed })).toBe(false)
+      expect(agentCanLaunch(checking, { headed })).toBe(false)
+    }
+  })
+
+  it('lets a ready harness start either way', () => {
+    const ready = on({ installed: true, login: 'in' })
+    expect(agentCanLaunch(ready, { headed: true })).toBe(true)
+    expect(agentCanLaunch(ready, { headed: false })).toBe(true)
   })
 })

@@ -20,11 +20,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import type { HarnessDescriptorWire } from '@podium/protocol'
-import { effortOptionsForModel } from '@/lib/agent-models'
+import { agentSupportsEffort } from '@/lib/agent-models'
 import { issueAgentDescriptors, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { managedCodingHarnesses as managedCodingHarnessesFromDescriptors } from '@/lib/managed-harness-pairing'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
-import { useModelCatalog } from '@/lib/use-model-catalog'
 
 export function Section({
   title,
@@ -282,7 +281,6 @@ export const RoleBackendEditor = observer(function RoleBackendEditor({
    */
   fallbackAccountId?: AccountId
 }): JSX.Element {
-  const modelCatalog = useModelCatalog()
   const options = accountOptions(role, accounts, descriptors)
   const accountId = options.some((option) => option.id === backend.accountId)
     ? backend.accountId
@@ -311,8 +309,10 @@ export const RoleBackendEditor = observer(function RoleBackendEditor({
       : undefined
   const harness = nativeHarness ?? managedHarness
   const agentKind = harness ? issueDefaultAgentKind(harness) : undefined
-  const showModelEffort =
-    agentKind && effortOptionsForModel(agentKind, backend.model, modelCatalog[agentKind]).length > 0
+  // The row shows whenever the harness takes an effort at all; with no levels to
+  // offer (an Auto model, or one the catalog does not describe) the picker reads
+  // Auto and is inert, the same as in the composer (POD-3911).
+  const showModelEffort = agentKind !== undefined && agentSupportsEffort(agentKind)
 
   /** The `harness` a given account persists for this role: the superagent pins its
    *  native harness, a coding managed account pins the CLI its credential drives,

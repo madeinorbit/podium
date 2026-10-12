@@ -34,6 +34,10 @@ vi.mock('./BottomSheet', () => ({
 
 const { SuperagentBackendRail } = await import('./SuperagentBackendRail')
 
+// The rail offers only what a machine reported (POD-3911); these tests hand it
+// a live Claude list rather than relying on the bundled one.
+const LIVE = { 'claude-code': [{ value: 'opus', label: 'Opus', efforts: ['low', 'high'] }] }
+
 describe('SuperagentBackendRail', () => {
   it('is quiet Auto and hides effort until a connector is pinned', () => {
     render(
@@ -52,6 +56,7 @@ describe('SuperagentBackendRail', () => {
     render(
       <SuperagentBackendRail
         backend={{ agentKind: 'claude-code', model: 'opus', effort: 'high' }}
+        modelCatalog={LIVE}
         onModelChange={() => {}}
         onEffortChange={() => {}}
       />,
@@ -65,6 +70,7 @@ describe('SuperagentBackendRail', () => {
     render(
       <SuperagentBackendRail
         backend={{ agentKind: undefined, model: 'auto', effort: 'auto' }}
+        modelCatalog={LIVE}
         onModelChange={onModelChange}
         onEffortChange={() => {}}
       />,
