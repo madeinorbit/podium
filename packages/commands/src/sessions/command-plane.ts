@@ -91,6 +91,10 @@ const sendInput = z
      * stores the message under it and the daemon types it under it, so it is
      * checked for a message id's shape here, where it enters. */
     mutationId: MessageId.optional(),
+    /** Explicit wake overrides only; refused if this send will not respawn. */
+    model: z.string().min(1).optional(),
+    effort: z.string().min(1).optional(),
+    forceUnknownModel: z.boolean().optional(),
   })
   .superRefine((input, ctx) => {
     if (input.text.length > 0 || input.attachments?.length) return

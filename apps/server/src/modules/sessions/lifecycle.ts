@@ -769,6 +769,9 @@ export class SessionLifecycle {
     input: {
       sessionId: SessionId
       adoptedBinding?: SessionBindingAdoptLaunchInstruction
+      model?: string
+      effort?: string
+      forceUnknownModel?: boolean
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: boolean; reason?: string }> {

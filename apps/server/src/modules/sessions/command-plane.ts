@@ -578,6 +578,25 @@ function sendHandler(lifecycle: 'wait' | 'wake', proc: string) {
       lifecycle === 'wait' && (target.status === 'exited' || target.status === 'hibernated')
         ? 'wake'
         : lifecycle
+    if (input.model !== undefined || input.effort !== undefined || input.forceUnknownModel) {
+      if (target.status !== 'exited' && target.status !== 'hibernated') {
+        return {
+          ok: false,
+          reason: '--model/--effort apply only when the session is woken; this session is already running and will not respawn.',
+          disposition: 'dead_letter',
+        }
+      }
+      // The target and machine-use gates above authorize this wake just like
+      // sessions.resurrect. Validate and finish the explicit launch before mail
+      // dispatch: an invalid selection must not queue input or start a process.
+      const woke = await ctx.sessions.resurrectSession({
+        sessionId: target.sessionId,
+        model: input.model,
+        effort: input.effort,
+        forceUnknownModel: input.forceUnknownModel,
+      })
+      if (!woke.ok) return { ok: false, reason: woke.reason, disposition: 'dead_letter' }
+    }
     return await substrateSend(ctx, input, effectiveLifecycle)
   }
 }

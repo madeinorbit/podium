@@ -194,8 +194,8 @@ export class SessionCliError extends Error {}
 const SESSION_FLAGS = flagTable(
   declareFlags({ known: [], booleans: ['json', 'outside-scope', 'help'] }),
   {
-    send: { known: ['text'], booleans: ['wake'] },
-    'resume-and-send': { known: ['text'] },
+    send: { known: ['text', 'model', 'effort'], booleans: ['wake', 'force-unknown-model'] },
+    'resume-and-send': { known: ['text', 'model', 'effort'], booleans: ['force-unknown-model'] },
     continue: {},
     status: {},
     read: { known: ['turns', 'cursor'] },
@@ -228,10 +228,13 @@ function helpText(): string {
   return [
     'podium session <command> [arguments]',
     '',
-    '  send <session-id> --text <message> [--wake] [--outside-scope]',
+    '  send <session-id> --text <message> [--wake] [--model <slug>] [--effort <level>] [--force-unknown-model] [--outside-scope]',
     '      Submit a real user turn. --wake durably queues it and resumes a parked session.',
-    '  resume-and-send <session-id> --text <message> [--outside-scope]',
+    '  resume-and-send <session-id> --text <message> [--model <slug>] [--effort <level>] [--force-unknown-model] [--outside-scope]',
     '      Explicit spelling of send --wake.',
+    '      Both commands: --model/--effort apply only when the session is woken.',
+    '      Omit them to keep the harness resume behaviour. --force-unknown-model allows',
+    '      an unlisted model; it never allows an unknown effort.',
     '  continue <session-id> [--outside-scope]',
     '      Type continue only when the running session is in an errored phase.',
     '  status <session-id|#issue> [--outside-scope]',
@@ -423,7 +426,14 @@ export async function runSessionCli(
     // The mutationId IS the message id (POD-4763): one for every attempt, so a
     // repeat after a relay timeout is the same message.
     messageId = newMessageId()
-    const request = { sessionId, text, mutationId: messageId }
+    const request = {
+      sessionId,
+      text,
+      mutationId: messageId,
+      ...(typeof args.model === 'string' ? { model: args.model } : {}),
+      ...(typeof args.effort === 'string' ? { effort: args.effort } : {}),
+      ...(args['force-unknown-model'] === true ? { forceUnknownModel: true } : {}),
+    }
     const proc = wake ? client.sessions.resumeAndSend : client.sessions.sendText
     result = await repeatUntilAnswered(() => proc.mutate(request))
     action = wake ? 'resume-and-send' : 'send'

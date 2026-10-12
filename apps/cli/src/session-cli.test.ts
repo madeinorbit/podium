@@ -205,6 +205,19 @@ describe('podium session CLI', () => {
     })
   })
 
+  it.each([
+    ['send', '--wake'],
+    ['resume-and-send'],
+  ])('passes explicit wake flags through %s', async (...command) => {
+    const c = client({ ok: true, queued: true })
+    await runSessionCli([...command, 's1', '--text', 'hello', '--model', 'gpt-5.6',
+      '--effort', 'high', '--force-unknown-model'], c)
+    expect(c.sessions.resumeAndSend.mutate).toHaveBeenCalledWith({
+      sessionId: 's1', text: 'hello', mutationId: MESSAGE_ID,
+      model: 'gpt-5.6', effort: 'high', forceUnknownModel: true,
+    })
+  })
+
   it('continue uses the phase-gated session operation', async () => {
     const c = client()
     await expect(runSessionCli(['continue', 's1'], c)).resolves.toBe('continued')
@@ -225,6 +238,13 @@ describe('podium session CLI', () => {
     expect(out).toContain('send <session-id>')
     expect(out).toContain('resume-and-send')
     expect(out).toContain('continue <session-id>')
+    for (const command of ['send', 'resume-and-send']) {
+      const usage = out.split('\n').find((line) => line.startsWith(`  ${command} `))
+      expect(usage).toContain('--model <slug>')
+      expect(usage).toContain('--effort <level>')
+      expect(usage).toContain('--force-unknown-model')
+    }
+    expect(out).toContain('apply only when the session is woken')
   })
 })
 

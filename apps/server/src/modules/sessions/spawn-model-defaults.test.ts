@@ -157,8 +157,8 @@ it('omits configured defaults when resurrecting another harness', async () => {
   expect(Object.hasOwn(frame, 'effort')).toBe(false)
 })
 
-it('restores configured defaults when resurrecting the configured harness', async () => {
+it('omits configured defaults when resurrecting the configured harness', async () => {
   const frame = await resurrectFrame('claude-code')
-  expect(frame.model).toBe('claude-opus-4-8')
-  expect(frame.effort).toBe('xhigh')
+  expect(Object.hasOwn(frame, 'model')).toBe(false)
+  expect(Object.hasOwn(frame, 'effort')).toBe(false)
 })

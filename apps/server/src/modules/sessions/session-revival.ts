@@ -42,6 +42,7 @@ import type { SessionBindingAdoptLaunchInstruction } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import type { AutoContinueController } from '../../auto-continue'
 import type { SessionStore } from '../../store'
+import { resolveLaunchSelection, type ResolvedLaunchSelection } from '../../model-validation'
 import type { DurableIssueAccessIndex } from '../issues/access-index'
 import type { DaemonRpcService } from '../machines/rpc'
 import type { MachinesService, MachineUseResolver } from '../machines/service'
@@ -280,21 +281,33 @@ export class SessionRevival {
     {
       sessionId,
       adoptedBinding,
+      model,
+      effort,
+      forceUnknownModel,
     }: {
       sessionId: SessionId
       adoptedBinding?: SessionBindingAdoptLaunchInstruction
+      model?: string
+      effort?: string
+      forceUnknownModel?: boolean
     },
     issues: SessionIssueWorkflowPort,
   ): Promise<{ ok: boolean; reason?: string }> {
     const session = this.ports.sessions.get(sessionId)
     if (!session) return await Promise.resolve({ ok: false, reason: 'unknown session' })
     if (session.archived) return await Promise.resolve({ ok: false, reason: 'session is archived' })
+    const explicitWake = model !== undefined || effort !== undefined || forceUnknownModel === true
+    const noOverride = {
+      ok: false,
+      reason: '--model/--effort apply only when the session is woken; this session is already running or being woken and will not respawn with these flags.',
+    }
     const pending = this.pendingResurrections.get(sessionId)
-    if (pending) return pending
+    if (pending) return explicitWake ? noOverride : pending
     // Hibernated (parked on purpose) and exited (process died or was killed
     // externally) are the same situation here: no process, but the row and the
     // resume ref are intact — both come back with one spawn.
     if (session.status !== 'hibernated' && session.status !== 'exited') {
+      if (explicitWake) return noOverride
       // The banner may be based on an older client snapshot than this
       // authoritative row. A previous click can already have moved the row to
       // `starting`, or a daemon reattach can have made it `live`; in either
@@ -333,6 +346,35 @@ export class SessionRevival {
       return await Promise.resolve({ ok: false, reason: 'no resume ref' })
     }
 
+    let selection: ResolvedLaunchSelection | undefined
+    if (explicitWake) {
+      const [settings, catalog] = await Promise.all([
+        this.ports.store.settings.getSettingsFor(session.ownerUserId),
+        this.ports.store.settings.getModelCatalog(session.machineId),
+      ])
+      // Wake overrides are explicit launches, but restart never inherits a
+      // Settings, start, requested or observed model/effort (POD-3911).
+      selection = resolveLaunchSelection({
+        agentKind: session.agentKind,
+        explicit: { model, effort },
+        settings: {
+          ...settings,
+          roles: {
+            ...settings.roles,
+            coding: { ...settings.roles.coding, model: 'auto', effort: 'auto' },
+          },
+        },
+        catalog,
+        force: forceUnknownModel,
+      })
+      // Catalog/settings reads suspend. Another wake may have claimed this
+      // session meanwhile; never silently discard a caller's explicit choice.
+      if (
+        this.pendingResurrections.has(sessionId) ||
+        (session.status !== 'hibernated' && session.status !== 'exited')
+      ) return noOverride
+    }
+
     // Recreate a worktree freed by stop (or deleted out-of-band) before spawn
     // so the agent has a real cwd. Transcript inspection does not need this.
     // Queue-driven wakes may run in the background, but this promise covers
@@ -345,7 +387,7 @@ export class SessionRevival {
       ? Promise.resolve({ ok: true, cwd: session.cwd })
       : Promise.resolve(this.ports.workspace.ensureSessionWorktree(session, issues))
     const resurrection = ensured
-      .then(async (result) => await this.finishResurrect(session, result, adoptedBinding))
+      .then(async (result) => await this.finishResurrect(session, result, adoptedBinding, selection))
       .finally(() => {
         this.pendingResurrections.delete(sessionId)
       })
@@ -357,6 +399,7 @@ export class SessionRevival {
     session: Session,
     ensured: { ok: boolean; reason?: string; cwd?: string },
     adoptedBinding?: SessionBindingAdoptLaunchInstruction,
+    selection?: ResolvedLaunchSelection,
   ): Promise<{ ok: boolean; reason?: string }> {
     const sessionId = session.sessionId
     // `ensureSessionWorktree` may be asynchronous. Re-check the retirement
@@ -369,6 +412,10 @@ export class SessionRevival {
     // produced it may have been AWAITED, so hoisting it is what keeps the draft
     // from having to span that suspension (spec rule 26).
     const cwd = ensured.cwd || session.cwd
+    // Name the allowed companions so model defaults can never leak into a
+    // restart frame, even if the launch-config API later grows new fields.
+    const { subagentModel, seedCliTheme } =
+      await this.ports.launchConfig.modelDefaults(session.agentKind)
 
     const preparedInstructions = await this.ports.instructionsForStart({
       sessionId,
@@ -381,6 +428,7 @@ export class SessionRevival {
       draft.cwd = cwd
       draft.status = 'starting'
       draft.exitCode = undefined
+      if (selection) session.setRequestedModel(selection, draft)
       // Waking a session resets its hibernation idle timer — otherwise a stale
       // lastActiveAt makes it immediately eligible to be parked again.
       session.markResumed(draft)
@@ -431,11 +479,29 @@ export class SessionRevival {
         ? { instructions: preparedInstructions.instructions }
         : {}),
       geometry: session.terminal.geometry,
-      ...await this.ports.launchConfig.modelDefaults(session.agentKind, undefined, session.machineId),
+      ...(subagentModel !== undefined ? { subagentModel } : {}),
+      ...(seedCliTheme !== undefined ? { seedCliTheme } : {}),
+      // Omission is intentional: the harness owns resume behaviour. Only a
+      // selection supplied on this wake may set model or effort.
+      ...(selection && selection.model !== 'auto' ? { model: selection.model } : {}),
+      ...(selection && selection.effort !== 'auto' ? { effort: selection.effort } : {}),
       ...await this.ports.launchConfig.accountEnv(session.agentKind, session.accountId),
       ...(this.ports.state.draftSyncEnabled() ? { draftSync: true } : {}),
     })
     await preparedInstructions.commit()
+    if (selection?.forced) {
+      await this.ports.store.events.appendEvent({
+        ts: new Date().toISOString(),
+        kind: 'agent.model_forced',
+        subject: sessionId,
+        payload: {
+          sessionId,
+          harness: session.agentKind,
+          model: selection.model,
+          ...(session.issueId ? { issueId: session.issueId } : {}),
+        },
+      })
+    }
     this.ports.broadcastSessions()
     return { ok: true }
   }
