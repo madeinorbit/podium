@@ -21,6 +21,7 @@ runs:
   using: composite
   steps:
     - uses: actions/cache@v4
+      id: restore
       with:
         # `<cache>/*`, not `<cache>`: actions/cache expands paths without descending into them,
         # so a bare directory is archived whole and the `!` exclusion never applies.
@@ -28,3 +29,15 @@ runs:
           ${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}/*
           !${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}/links
         key: bun-packages-${{ inputs.key }}
+    # A restored store is the failure this action exists to prevent; say so here rather than
+    # as dangling links three steps later.
+    - name: Refuse a restored Bun store
+      if: steps.restore.outputs.cache-hit == 'true'
+      shell: bash
+      run: |
+        cache="${BUN_INSTALL_CACHE_DIR:-$HOME/.bun/install/cache}"
+        if [ -e "$cache/links" ]; then
+          echo "::error::the restored Bun cache carries the global store ($cache/links)"
+          exit 1
+        fi
+        echo "restored $(ls -A "$cache" | wc -l) package-cache entries, no global store"
