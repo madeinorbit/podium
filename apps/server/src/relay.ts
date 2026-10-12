@@ -1986,7 +1986,10 @@ export class SessionRegistry {
           ...(o.issueId ? { issueId: o.issueId } : {}),
           ...(o.model !== undefined ? { model: o.model } : {}),
           ...(o.effort !== undefined ? { effort: o.effort } : {}),
-          ...(o.launchSelection ? { launchSelection: o.launchSelection } : {}),
+          // Issue workflow already resolved both fields, including deliberate auto.
+          ...(o.model !== undefined && o.effort !== undefined
+            ? { launchSelection: { model: o.model, effort: o.effort, forced: o.forceUnknownModel === true } }
+            : {}),
           ...(o.forceUnknownModel ? { forceUnknownModel: true } : {}),
           ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
           ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),

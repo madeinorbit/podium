@@ -215,7 +215,7 @@ export class SessionStart {
     accountId?: AccountId
     forceUnknownModel?: boolean
     /** Server-internal issue launch answer, already vetted before workflow mutations. */
-    launchSelection?: ResolvedLaunchSelection
+    launchSelection?: Pick<ResolvedLaunchSelection, 'model' | 'effort' | 'forced'>
     spawnedBy?: string
     workflowRunId?: string
     workflowStepId?: string
@@ -431,7 +431,7 @@ export class SessionStart {
     instructions?: AgentInstruction[]
     model?: string
     effort?: string
-    launchSelection?: ResolvedLaunchSelection
+    launchSelection?: Pick<ResolvedLaunchSelection, 'model' | 'effort' | 'forced'>
     accountId?: AccountId
     spawnedBy?: string
     workflowRunId?: string

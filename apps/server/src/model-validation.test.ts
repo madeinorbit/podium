@@ -449,7 +449,13 @@ describe('launch selection travels in the spawn call — no machine round trip',
     const deps: IssueDeps = {
       store, ...sessionReadPorts(() => []),
       getSettings: () => store.settings.getSettingsFor(firstAdminMemberId()),
-      spawnSession: (input) => reg.modules.sessions.createSession({ ...input, agentKind: input.agentKind as AgentKind }),
+      spawnSession: (input) => reg.modules.sessions.createSession({
+        ...input, agentKind: input.agentKind as AgentKind,
+        launchSelection: {
+          model: input.model ?? 'auto', effort: input.effort ?? 'auto',
+          forced: input.forceUnknownModel === true,
+        },
+      }),
       // Worktree I/O is unrelated to selection; no daemon transport is needed.
       repoOp: async () => ({ ok: true, output: '' }),
       resolveMachine: async () => store.hostMachineId,

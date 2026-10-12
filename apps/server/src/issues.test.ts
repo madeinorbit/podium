@@ -1530,8 +1530,6 @@ describe('IssueService.start', () => {
       agentKind: 'claude-code',
       model: 'auto',
       effort: 'auto',
-      // The resolved answer travels with the original spawn pair.
-      launchSelection: { model: 'auto', effort: 'auto', forced: false, dropped: [], source: { model: 'auto', effort: 'auto' } },
       initialPrompt: 'do the thing',
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${created.id}`,
@@ -2220,8 +2218,6 @@ describe('IssueService.start', () => {
       agentKind: 'codex',
       model: 'auto',
       effort: 'auto',
-      // The resolved answer travels with the original spawn pair.
-      launchSelection: { model: 'auto', effort: 'auto', forced: false, dropped: [], source: { model: 'auto', effort: 'auto' } },
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${a.id}`,
       machineId: store.hostMachineId,
@@ -2284,8 +2280,6 @@ describe('IssueService.start', () => {
       agentKind: 'claude-code',
       model: 'opus',
       effort: 'high',
-      // The resolved answer travels with the original spawn pair.
-      launchSelection: { model: 'opus', effort: 'high', forced: false, dropped: [], source: { model: 'issue', effort: 'issue' } },
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${a.id}`,
       machineId: store.hostMachineId,
@@ -2512,8 +2506,6 @@ describe('IssueService.start', () => {
       agentKind: 'codex',
       model: 'auto',
       effort: 'auto',
-      // The resolved answer travels with the original spawn pair.
-      launchSelection: { model: 'auto', effort: 'auto', forced: false, dropped: [], source: { model: 'auto', effort: 'auto' } },
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${a.id}`,
       machineId: store.hostMachineId,
