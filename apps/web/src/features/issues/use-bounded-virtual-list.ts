@@ -222,9 +222,27 @@ export function useBoundedVirtualList({
     const resize =
       typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(publishViewport)
     resize?.observe(scroll)
-    if (containerRef?.current) resize?.observe(containerRef.current)
+    const container = containerRef?.current
+    let sections: MutationObserver | null = null
+    if (container && container !== scroll) {
+      resize?.observe(container)
+      // A nested window's viewport also depends on where it sits in the
+      // scroller, and that moves without a scroll, a resize of either element
+      // or a React commit here: a fold above it animating shut moves it up
+      // frame by frame (POD-6052). Anything above it lives in some direct
+      // child of the scroller, so watching those children catches every move.
+      const observeSections = () => {
+        for (const child of scroll.children) resize?.observe(child)
+      }
+      observeSections()
+      if (resize && typeof MutationObserver !== 'undefined') {
+        sections = new MutationObserver(observeSections)
+        sections.observe(scroll, { childList: true })
+      }
+    }
     return () => {
       scroll.removeEventListener('scroll', publishViewport)
+      sections?.disconnect()
       resize?.disconnect()
       if (viewportFrameRef.current !== null) {
         window.cancelAnimationFrame(viewportFrameRef.current)

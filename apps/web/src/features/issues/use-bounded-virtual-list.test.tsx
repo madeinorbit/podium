@@ -1,6 +1,6 @@
 // @vitest-environment happy-dom
 import { act, cleanup, fireEvent, render } from '@testing-library/react'
-import { Profiler, type JSX, useState } from 'react'
+import { Profiler, type JSX, useRef, useState } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ISSUE_VIRTUAL_MAX_ITEMS, useBoundedVirtualList } from './use-bounded-virtual-list'
 
@@ -66,9 +66,57 @@ function NestedWindowHarness({ keys = KEYS }: { keys?: string[] }): JSX.Element 
   )
 }
 
+/** Stable refs, as WorklistWindow passes them: no render re-subscribes. */
+function SectionedWindowHarness({ late = false }: { late?: boolean }): JSX.Element {
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const containerRef = useRef<HTMLDivElement | null>(null)
+  const virtual = useBoundedVirtualList({ keys: KEYS, scrollRef, containerRef, estimateSize: 40 })
+  return (
+    <div ref={scrollRef} data-testid="sectioned-scroll">
+      {late ? <div data-testid="late-section" /> : null}
+      <div data-testid="preceding-section" />
+      <div>
+        <div ref={containerRef} data-testid="sectioned-container">
+          {virtual.items.map((item) => (
+            <div key={item.key} data-testid="sectioned-row">
+              {item.key}
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/** Delivers resize entries only for elements a hook actually observes. */
+class RecordingResizeObserver {
+  static all = new Set<RecordingResizeObserver>()
+  readonly targets = new Set<Element>()
+  constructor(private readonly callback: ResizeObserverCallback) {
+    RecordingResizeObserver.all.add(this)
+  }
+  observe(target: Element) {
+    this.targets.add(target)
+  }
+  unobserve(target: Element) {
+    this.targets.delete(target)
+  }
+  disconnect() {
+    this.targets.clear()
+    RecordingResizeObserver.all.delete(this)
+  }
+  static resize(target: Element) {
+    for (const observer of [...RecordingResizeObserver.all])
+      if (observer.targets.has(target))
+        observer.callback([{ target } as ResizeObserverEntry], observer as never)
+  }
+}
+
 afterEach(() => {
   cleanup()
   vi.restoreAllMocks()
+  vi.unstubAllGlobals()
+  RecordingResizeObserver.all.clear()
 })
 
 function flushViewport(): void {
@@ -269,5 +317,52 @@ describe('bounded variable-height issue window', () => {
     fireEvent.scroll(scroll)
     flushViewport()
     expect(view.getAllByTestId('nested-row').map(node => node.textContent)).toEqual(KEYS.slice(0, 8))
+  })
+
+  it('mounts rows when a preceding section shrinks and scrolls this one into view', () => {
+    // POD-6052: collapsing the Pinned fold animates its height to zero after
+    // the last React commit. Nothing scrolls and no window resizes, so only
+    // the shrinking section itself can report that this window moved up.
+    vi.useFakeTimers()
+    vi.stubGlobal('ResizeObserver', RecordingResizeObserver)
+    const view = render(<SectionedWindowHarness />)
+    const scroll = view.getByTestId('sectioned-scroll')
+    const preceding = view.getByTestId('preceding-section')
+    const container = view.getByTestId('sectioned-container')
+    sizeViewport(scroll, 320)
+    let precedingHeight = 2_000
+    Object.defineProperty(container, 'offsetParent', { configurable: true, value: scroll })
+    vi.spyOn(container, 'offsetTop', 'get').mockImplementation(() => precedingHeight)
+    RecordingResizeObserver.resize(scroll)
+    flushViewport()
+    expect(view.queryAllByTestId('sectioned-row')).toEqual([])
+    precedingHeight = 0
+    RecordingResizeObserver.resize(preceding)
+    flushViewport()
+    const rows = view.getAllByTestId('sectioned-row').map((node) => node.textContent)
+    expect(rows.slice(0, 8)).toEqual(KEYS.slice(0, 8))
+  })
+
+  it('follows a section inserted above the window after it mounted', async () => {
+    vi.useFakeTimers()
+    vi.stubGlobal('ResizeObserver', RecordingResizeObserver)
+    const view = render(<SectionedWindowHarness />)
+    const scroll = view.getByTestId('sectioned-scroll')
+    const container = view.getByTestId('sectioned-container')
+    sizeViewport(scroll, 320)
+    let precedingHeight = 2_000
+    Object.defineProperty(container, 'offsetParent', { configurable: true, value: scroll })
+    vi.spyOn(container, 'offsetTop', 'get').mockImplementation(() => precedingHeight)
+    RecordingResizeObserver.resize(scroll)
+    flushViewport()
+    view.rerender(<SectionedWindowHarness late />)
+    // Mutation records arrive as a microtask after the commit.
+    await act(async () => {})
+    flushViewport()
+    expect(view.queryAllByTestId('sectioned-row')).toEqual([])
+    precedingHeight = 0
+    RecordingResizeObserver.resize(view.getByTestId('late-section'))
+    flushViewport()
+    expect(view.getAllByTestId('sectioned-row')[0]?.textContent).toBe(KEYS[0])
   })
 })
