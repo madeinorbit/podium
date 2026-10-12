@@ -27,16 +27,16 @@ type TranscriptLakeMode = 'on' | 'off';
  */
 type SettingSource = 'env' | 'file' | 'settings' | 'default';
 
-/** A tier's resolved consent. 'absent' = never asked. */
+/** A tier's stored consent. 'absent' = never chosen; see {@link TIER_DEFAULTS}. */
 type ConsentState = 'on' | 'off' | 'absent';
 /** Why telemetry is force-disabled, for UI that must explain itself. */
 type SuppressionReason = 'DO_NOT_TRACK' | 'PODIUM_TELEMETRY';
 interface TelemetryState {
     usage: ConsentState;
     crash: ConsentState;
-    /** Present once the user has opted into anything (minted on first opt-in, not at install). */
+    /** Present once any tier has been on (the server mints it then; never by an opt-out). */
     installId?: string;
-    /** Epoch ms the clock started — set with installId on first opt-in (D5). */
+    /** Epoch ms the clock started — set with installId (D5). */
     since?: number;
     /** Set ⇒ both tiers are forced off regardless of the stored values. */
     suppressedBy?: SuppressionReason;
@@ -1382,6 +1382,10 @@ interface SubstrateOutcome {
     reason?: string;
     position?: number;
     disposition: SendDisposition;
+    wakeSelection?: {
+        model: string;
+        effort: string;
+    };
 }
 
 type CloudRuntimeKind = 'cloud-machine' | 'cloud-agent';
@@ -2020,6 +2024,9 @@ type Input_sessions_resumeAndSend = {
         mediaType: string;
         path: string;
     }[];
+    effort?: string | undefined;
+    forceUnknownModel?: boolean | undefined;
+    model?: string | undefined;
     mutationId?: string | undefined;
     sessionId: string;
     text: string;
@@ -5583,6 +5590,17 @@ type Output_sessions_interrupt = ({
     readonly ok: true;
     readonly requested: "retraction";
 });
+type Output_sessions_resurrect = ({
+    ok: boolean;
+    reason: string;
+}) | ({
+    ok: boolean;
+    reason?: string;
+    wakeSelection?: {
+        effort: string;
+        model: string;
+    };
+});
 type Output_sessions_stop = ({
     deferredKill?: boolean;
     ok: boolean;
@@ -7976,10 +7994,7 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             input: {
                 sessionId: string;
             };
-            output: {
-                ok: boolean;
-                reason?: string;
-            };
+            output: Output_sessions_resurrect;
             meta: unknown;
         }>;
         "sendText": TRPC.TRPCMutationProcedure<{
