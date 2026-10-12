@@ -108,7 +108,8 @@ describe('IssuePage agent start controls', () => {
   // choice governs the CLI, the board and the next session — and the action
   // button then starts plainly, with no agent argument of its own.
   it('writes the chosen agent to the issue and starts with it', async () => {
-    const issue = unstarted()
+    // POD-3911: seed overrides so changed-field writes prove the model/effort reset.
+    const issue = unstarted({ defaultModel: 'reported-sonnet', defaultEffort: 'high' })
     render(
       <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
     )
@@ -161,7 +162,8 @@ describe('IssuePage agent start controls', () => {
   it('picks a model for the ticket and persists it via issues.update', async () => {
     // POD-3911: no static model list; select a machine-reported model.
     modelCatalogFixture.current = liveCatalog
-    const issue = unstarted()
+    // POD-3911: seed an effort override so its reset is a changed-field write.
+    const issue = unstarted({ defaultEffort: 'high' })
     render(
       <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
     )
