@@ -192,18 +192,24 @@ export function useConversation(sessionId: SessionId, options: ConversationMount
     () => createWebConversation(runtime, pool!, sessionId, options),
     { enabled: !!pool && gate.current.ready && !options.deferInitialTranscript }) ?? null
   const active = options.active !== false && !options.deferInitialTranscript
-  const activation = useRef({ runtime, cacheId, active })
+  const activation = useRef({ runtime, cacheId, active, conversation })
   useEffect(() => {
     const previous = activation.current
     if (previous.runtime !== runtime || previous.cacheId !== cacheId) {
-      activation.current = { runtime, cacheId, active }
+      activation.current = { runtime, cacheId, active, conversation }
       return
     }
     if (!active) previous.active = false
-    else if (!previous.active && conversation) {
+    else if (conversation) {
+      // First acquisition already starts the shared owner's newest-window read.
+      // Only a return to a conversation this view held needs an activation heal,
+      // including when its original read is still pending.
+      const reactivating = !previous.active && previous.conversation === conversation
       previous.active = true
-      void conversation.transcript.refresh({ disclose: true }).catch(() => {})
+      if (reactivating) void conversation.transcript.refresh({ disclose: true }).catch(() => {})
     }
+    // Deferral releases this reader, but the owner may keep its conversation warm.
+    if (conversation) previous.conversation = conversation
   }, [runtime, cacheId, active, conversation])
   const onInitialPendingSettled = options.onInitialPendingSettled ?? conversation?.mount.onInitialPendingSettled
   useEffect(() => {
