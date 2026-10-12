@@ -70,7 +70,7 @@ describe('optional role harness persistence', () => {
       expect(settings.roles[role].accountId).toBe(nativeAccountId('codex'))
       expect(settings.roles[role].model).toBe('saved-model')
       expect(settings.sidebar.repoSort).toBe('alphabetical')
-      expect(raw.roles[role].harness).toBeNull()
+      expect(raw.roles[role]?.harness).toBeNull()
     },
   )
 
