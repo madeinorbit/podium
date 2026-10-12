@@ -16,6 +16,7 @@ import { type IssueDeps, IssueService } from './modules/issues/service'
 import { issueTestPlumbing } from './modules/issues/service/test-plumbing'
 import { SessionRegistry } from './relay'
 import { attachHostDaemon } from './test-support/host-daemon'
+import { fixtureInventory } from './test-support/daemon-inventory'
 import { openTestStore } from './test-support/open-test-store'
 import { sessionReadPorts } from './test-support/session-facts'
 import type { ControlMessage } from '@podium/protocol/daemon'
@@ -315,6 +316,7 @@ async function launchHarness(coding: { model: string; effort: string }) {
   registries.push(reg)
   const machineMessaging = vi.fn<(message: ControlMessage) => void>()
   await attachHostDaemon(reg, machineMessaging, { repos: ['/r'] })
+  await reg.modules.machines.recordInventory(store.hostMachineId, fixtureInventory())
   machineMessaging.mockClear()
   return { reg, store, machineMessaging }
 }
