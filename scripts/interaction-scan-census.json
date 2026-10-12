@@ -11170,7 +11170,7 @@
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
       "rule": "consume:map",
-      "tokens": "3871b7daa02c19d5436c29e5b9c59a38461813918e0e8e17cdaf70ee227a339c",
+      "tokens": "6bb304e93d974436ef2d6f8e5f99d0514c5bf0632ca61c2a49f2ac5a721fa5de",
       "gate": [
         "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
         "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c"
@@ -11178,7 +11178,7 @@
       "origin": [
         "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
       ],
-      "fingerprint": "1b5065b4eaf20a126c2bc8b40ac0741a0d9694ed3be57cb38d699f8da0f58bb1",
+      "fingerprint": "1ccc53eb555e775472d36a495b6db5645304b7e1727bd5a8335dce8cb06e4eb0",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -11211,7 +11211,7 @@
       "file": "apps/web/src/features/worklist/pool-sidebar.tsx",
       "holder": "ObservedPoolWorkSections/ObservedPoolWorkSections",
       "rule": "helper-consumer",
-      "tokens": "c8025bc211e37d473dfc300354924eecb2f151d21f5386d27d705b364f35a1b4",
+      "tokens": "e61acc7359530e8ece9ec514c32d39da9f69601a307a1ae4d3982e109cc38bfd",
       "gate": [
         "exit:then:c1e3d1143ee70675ad2df3f937e746912e734d54f0b8e9f4bf94caff9f8f4e11",
         "exit:then:d176ccc98ba79ffb9a6ecec0d8eb44226eceddc563eb2197b2ee84cc1248f90c",
@@ -11220,7 +11220,7 @@
       "origin": [
         "263287d055fdad254a3c751f4e42ff06e7abccb74e258db08b4938008da25df4"
       ],
-      "fingerprint": "1cf2bfbc470bd33d5dc6a24293da3165f0d7dd54b248ecc3bb7834d610352163",
+      "fingerprint": "d833ebf4544937e5f226b9dc5a3e5febb0c71b0fb7373fbedd48aa22e5a3d90a",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
@@ -13408,14 +13408,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useLayoutEffect:callback",
       "rule": "helper-consumer",
-      "tokens": "ebd514270b285539caed178ed9f283d4069813ee3bd56b08ab54bca11ea0fb72",
+      "tokens": "ab5c55309cc03d952d8908006c76bd149ae544e6816e53d76aefaf8074215fcb",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "7a50c4131e012d873e39d2fbdbac90a8c04a6cda985536ef39e9c0ce2129deb0",
+      "fingerprint": "7e66e99925a84584c7eefdf16bb8f39e551ea77f22a6cb66f444654ecfd5ca2f",
       "count": 1,
       "classification": "bounded local work",
       "owner": "POD-5872",
@@ -15052,14 +15052,14 @@
       "file": "apps/web/src/test-support/mock-screen-pool.ts",
       "holder": "useFixturePool/useMemo:callback/records/callback",
       "rule": "helper-consumer",
-      "tokens": "375406841155d039777fe64114d5c205df5c6b5cbc7eef7a9fd289a83fb886e0",
+      "tokens": "e03bc7037ed237aea4035e19d40fbc59645a2d01457f296eb677adff49bb1875",
       "gate": [],
       "origin": [
         "5641f8f84581485a31d010b99e085652ec205d16df8e17343cb00db585a2e662",
         "a835815122562d1d0dd22a71ddbd055fbfba7f823cba8712a4b31941ff575f25",
         "df5d4d9b95f08f3976065b4dd41d521ab013d5a12a6cca867792e569bf18a0db"
       ],
-      "fingerprint": "38ab1d91107415bae086d68786c902644708074a79cdd2173eb1fe8f912f8e1c",
+      "fingerprint": "b0203631fc0ea511803aaf14219896d14344dd20c9b94b645614730361df36ee",
       "count": 1,
       "classification": "ingest",
       "owner": "POD-5888",
@@ -15573,6 +15573,48 @@
       "bound": "No proven named-demand or cardinality cap for this collection path.",
       "reason": "consume:map carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
+    },
+    {
+      "file": "apps/web/src/test-support/pool-fixture.ts",
+      "holder": "syncPoolFixture/runInAction:callback",
+      "rule": "loop:for-of",
+      "tokens": "909f404e47af34e104ea6add8eb5dcef644ebb9ccc06043bdd85e1944a50d822",
+      "gate": [
+        "then:06220bc81cd248fb56e99efd8bf9eecb82cdddeb1827556cfab84507c375e49f"
+      ],
+      "origin": [
+        "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
+        "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd"
+      ],
+      "fingerprint": "873704bf35da44944ddddd8613d538c5cdd61aa03ab52115797bcdc09615e84a",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-6045",
+      "trigger": "A provider-free component test publishes a changed synthetic snapshot.",
+      "bound": "At most the incoming synthetic fixture rows for this publication.",
+      "reason": "A resident fixture issue clears its old fake exit marker so readmission follows the authority boundary. This module imports Vitest and has no production caller.",
+      "guard": "SidebarUnified.evict and use-eviction-guard exercise departure and readmission. The production build excludes this fixture; exact fingerprint and multiplicity remain enforced."
+    },
+    {
+      "file": "apps/web/src/test-support/pool-fixture.ts",
+      "holder": "syncPoolFixture/runInAction:callback",
+      "rule": "loop:for-of",
+      "tokens": "8a1e31195c2b8ea0bf94480f711e0db7dc0b375fa4568da654c2da6bfda62b90",
+      "gate": [
+        "then:06220bc81cd248fb56e99efd8bf9eecb82cdddeb1827556cfab84507c375e49f"
+      ],
+      "origin": [
+        "1fc626feccb53ee2b2b821f5e6e8279424c0631fe987ccda5bf4a1814b63214e",
+        "c77b0b5df1a56c21e04e74a107655690b236422a60b5f219909ed19cf4e82dcd"
+      ],
+      "fingerprint": "0dc8611118389628a9e14ce2fd28efe54148230223aeb926319a5aade96695de",
+      "count": 1,
+      "classification": "ingest",
+      "owner": "POD-6045",
+      "trigger": "A provider-free component test publishes a changed synthetic snapshot.",
+      "bound": "At most the previous synthetic fixture rows for this publication.",
+      "reason": "A missing issue from the fake authority snapshot publishes eviction evidence; cold references are never mistaken for unsharing. This module imports Vitest and has no production caller.",
+      "guard": "SidebarUnified.evict and use-eviction-guard exercise departure and readmission. The production build excludes this fixture; exact fingerprint and multiplicity remain enforced."
     },
     {
       "file": "apps/web/src/test-support/pool-issue-fixture.ts",
