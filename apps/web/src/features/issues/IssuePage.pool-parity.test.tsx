@@ -358,6 +358,12 @@ function seed(
  * before assigning accessibility IDs so its removal has no visible oracle cost. */
 function rendered(root: Element): unknown {
   const ids = new Map<string, string>()
+  // POD-3911: generated working-mark object URLs are document-local, like accessibility IDs.
+  const images = new Map<string, string>()
+  const image = (value: string) => {
+    if (!images.has(value)) images.set(value, `blob:image-${images.size}`)
+    return images.get(value)!
+  }
   const id = (value: string) => {
     if (!ids.has(value)) ids.set(value, `id-${ids.size}`)
     return ids.get(value)!
@@ -373,7 +379,9 @@ function rendered(root: Element): unknown {
           attr.name,
         )
           ? attr.value.split(' ').map(id).join(' ')
-          : attr.value,
+          : attr.name === 'src' && attr.value.startsWith('blob:')
+            ? image(attr.value)
+            : attr.value,
       ]),
     )
     return {

@@ -84,8 +84,10 @@ vi.mock('@/lib/use-model-catalog', () => ({
 }))
 
 vi.mock('@/app/store', () => {
+  // POD-3911: a history opening retains the runtime's API identity.
+  let api: unknown
   const state = () => ({
-    trpc: {
+    trpc: (api ??= {
       issues: {
         comments: { query: vi.fn(async () => []) },
         events: { query: vi.fn(async () => []) },
@@ -96,11 +98,11 @@ vi.mock('@/app/store', () => {
         panelApply: { mutate: vi.fn(async () => ({})) },
       },
       sessions: { sendText: { mutate: sendText } },
-    },
+    }),
     httpOrigin: '',
     openFileInWorktree: vi.fn(),
     openArtifact: vi.fn(),
-    uiState: { get: () => null, set: vi.fn() },
+    uiState: { get: () => null, set: vi.fn(), subscribe: () => () => {} },
     issues: mockIssues,
     sessions: mockSessions,
     repos: [],
