@@ -1,3 +1,4 @@
+import { MobxPool } from '@podium/client-graph'
 import { withKeyedInputs } from '@podium/client-core/test-support/keyed-inputs'
 import type { SessionView } from '@podium/client-core/session-values'
 import { asSessionId, type IssueCloseReason } from '@podium/model/browser'
@@ -12,6 +13,20 @@ vi.mock('@/lib/use-feature', () => ({ useFeature: () => false }))
 
 const closeIssue = vi.fn(async () => {})
 const state: { sessions: SessionView[] } = { sessions: [] }
+let pool: MobxPool
+
+// POD-3911: close concerns come from the addressed pool, while store-slice reads stay forbidden.
+vi.mock('@/app/store-worklist-pool', async () => {
+  const { createPoolProjection } = await import('@podium/client-graph/runtime-pool')
+  const { useMemo, useSyncExternalStore } = await import('react')
+  return {
+    useWorklistPool: () => pool,
+    useWorklistPoolProjection<T>(read: (pool: MobxPool) => T) {
+      const source = useMemo(() => createPoolProjection(pool, read), [read])
+      return useSyncExternalStore(source.subscribe, source.getSnapshot)
+    },
+  }
+})
 
 vi.mock('@podium/client-core/react', async (original) => ({
   ...(await original<typeof import('@podium/client-core/react')>()),
@@ -44,6 +59,8 @@ vi.mock('@/app/store', () => ({
 const working = (): SessionView =>
   ({
     sessionId: asSessionId('agent'),
+    // POD-3911: normalized membership is the session's issueId, not a copied member list.
+    issueId: 'i',
     agentKind: 'claude-code',
     title: 'POD-1113-A',
     cwd: '/r/wt',
@@ -59,7 +76,12 @@ function open(over: { onRequestClose?: (reason: IssueCloseReason) => void } = {}
   onClose: ReturnType<typeof vi.fn>
 } {
   const onClose = vi.fn()
-  const issue = makeIssue({ memberSessionIds: ['agent'] })
+  const issue = makeIssue({ memberSessionIds: state.sessions.map((session) => session.sessionId) })
+  pool = new MobxPool()
+  pool.apply({ type: 'replace', rows: [
+    { kind: 'issue', id: issue.id, value: issue },
+    ...state.sessions.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
+  ] })
   render(
     // POD-1077: the menu's cascade confirms read the ConfirmProvider context
     // AppShell supplies in the real tree.
@@ -92,6 +114,7 @@ const pickStatus = (label: RegExp): void => {
 
 afterEach(() => {
   cleanup()
+  pool?.dispose()
   closeIssue.mockClear()
   state.sessions = []
 })
