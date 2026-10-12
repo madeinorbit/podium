@@ -118,18 +118,25 @@ describe('approval broker relay e2e (#410)', () => {
   })
 
   it('[POD-1107] a fresh schedule with no agent gets the configured default, not codex', async () => {
-    await registry.modules.settings.setSettingsFor(firstAdminMemberId(), {
-      ...await registry.modules.settings.getSettings(),
+    const owner = firstAdminMemberId()
+    // Enrollment seeds a personal superagent choice. Round-trip the owner's
+    // resolved settings, or instance defaults remove that unrelated choice.
+    const settings = await registry.modules.settings.getSettingsFor(owner)
+    expect(settings.roles.superagent.harness).toBeDefined()
+    expect((await registry.modules.settings.getSettings()).roles.superagent.harness).toBeUndefined()
+    const saved = await registry.modules.settings.setSettingsFor(owner, {
+      ...settings,
       roles: {
-        ...(await registry.modules.settings.getSettings()).roles,
+        ...settings.roles,
         coding: {
-          ...(await registry.modules.settings.getSettings()).roles.coding,
+          ...settings.roles.coding,
           accountId: nativeAccountId('grok'),
           model: 'grok-4',
           effort: 'high',
         },
       },
     })
+    expect(saved.roles.superagent).toEqual(settings.roles.superagent)
     const runAt = '2099-07-17T02:00:00.000Z'
     const r = await relay('request', {
       op: {
