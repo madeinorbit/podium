@@ -11,6 +11,7 @@ mod fullscreen_escape;
 mod handoff;
 mod logging;
 mod payload_startup;
+mod relaunch;
 mod updater;
 mod version;
 
@@ -1636,8 +1637,10 @@ fn repair_payload(
     repair.busy.store(false, Ordering::Release);
     if result.is_ok() {
         // An initial spawn failure has no live supervisor to restart the restored payload.
-        // Restart the signed frame so setup retries from the newly installed bytes.
-        app.restart();
+        // Restart the signed frame so setup retries from the newly installed bytes. This
+        // command runs on the main thread, where `restart()` would spawn directly and skip
+        // the event loop's relaunch; `request_restart()` goes through it.
+        app.request_restart();
     }
     result
 }
@@ -2773,7 +2776,17 @@ fn main() {
         .build(tauri::generate_context!())
         .expect("error while building Podium");
 
-    app.run(|app_handle, event| {
+    let pending_restart = relaunch::PendingRestart::default();
+    app.run(move |app_handle, event| {
+        // Every restart (the page's, the updater's, the payload repair's) is requested through
+        // the event loop, so it shows up here while the window is still live (see relaunch.rs).
+        if let tauri::RunEvent::ExitRequested {
+            code: Some(tauri::RESTART_EXIT_CODE),
+            ..
+        } = &event
+        {
+            pending_restart.note(app_handle);
+        }
         // Dock-icon click with the window hidden (hide-on-close): reshow it, matching
         // normal macOS app behavior without inventing a separate menu-bar mode.
         #[cfg(target_os = "macos")]
@@ -2795,6 +2808,14 @@ fn main() {
                     }
                 }
                 reap_tracked_successor(app_handle);
+            }
+            // Start the restarted shell before Tauri's cleanup hides the window, so it comes
+            // back in front; when that cannot be done, Tauri's own restart still runs.
+            if let Some(foreground) = pending_restart.take() {
+                if relaunch::start_next(app_handle, foreground) {
+                    app_handle.cleanup_before_exit();
+                    std::process::exit(0);
+                }
             }
         }
     });
