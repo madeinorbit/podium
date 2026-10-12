@@ -1,3 +1,5 @@
+import { createPanePoolFixture } from './test-support/pane-pool-fixture'
+import { useRuntimeSelector } from '@/app/store'
 // @vitest-environment happy-dom
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
 import { act } from 'react'
@@ -56,7 +58,7 @@ const mountSessionMock = vi.fn((el: unknown, _opts: { active?: boolean }) => {
 // The presence seam [POD-1535]: the header's watcher strip reads the hub off
 // the client-core StoreProvider, which these focused renders don't mount.
 vi.mock('@podium/client-core/react', async () =>
-  (await import('./test-support/presence-mock')).presenceSeamStub(),
+  (await import('./test-support/presence-mock')).presenceSeamStub(paneFixture.owner as never),
 )
 
 vi.mock('@podium/terminal-client/session-mount', () => ({
@@ -74,18 +76,6 @@ vi.mock('@/lib/voice', () => ({
 let storeSessions: SessionMeta[] = []
 let storePanelMode: Record<string, 'chat' | 'native'> = {}
 let storeDrafts: Record<string, string> = {}
-
-vi.mock('./use-session-pane-inputs', () => ({
-  usePaneSession: (id: string | undefined) =>
-    storeSessions.find((session) => session.sessionId === id),
-  usePaneMachines: () => [],
-  usePanePanelModes: () => storePanelMode,
-  usePaneSpawnConfirmed: () => true,
-  usePaneSelectedIssueId: () => null,
-  usePaneIssueHex: () => undefined,
-  usePaneStampIssue: () => undefined,
-  usePaneReferenceStages: () => ({ beginPaint: () => {}, endPaint: () => {}, resolveStage: () => null, subscribe: () => () => {} }),
-}))
 
 const fakeHub = {
   subscribeTranscript: (_s: string, _since: string | undefined, _cb: unknown): (() => void) => {
@@ -142,6 +132,14 @@ vi.mock('@/app/store', () => {
   }
 })
 
+const paneFixture = createPanePoolFixture(() => useRuntimeSelector(state => state) as never)
+vi.mock('@/app/store-worklist-pool', () => paneFixture.hooks)
+
+function renderPanel(...args: Parameters<Root['render']>) {
+  paneFixture.sync()
+  root.render(...args)
+}
+
 const { AgentPanel } = await import('./AgentPanel')
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
@@ -188,6 +186,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  paneFixture.dispose()
   vi.clearAllMocks()
   vi.useRealTimers()
 })
@@ -212,7 +211,7 @@ describe('AgentPanel chat→native draft flush re-arm (warm toggle)', () => {
   it('re-injects a chat-authored draft into the native composer on a later chat→native toggle', async () => {
     // Start native (mounts the terminal once, warm across toggles).
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await settle()
     tickPoll()
@@ -223,7 +222,7 @@ describe('AgentPanel chat→native draft flush re-arm (warm toggle)', () => {
     // Switch native→chat (terminal stays mounted, hidden).
     storePanelMode = { s1: 'chat' }
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await settle()
 
@@ -235,7 +234,7 @@ describe('AgentPanel chat→native draft flush re-arm (warm toggle)', () => {
     })
     storePanelMode = { s1: 'native' }
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await settle()
     tickPoll()

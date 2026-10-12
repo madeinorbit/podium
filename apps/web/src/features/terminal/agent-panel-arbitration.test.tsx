@@ -1,3 +1,6 @@
+import { ConversationService } from '@podium/client-core/conversation'
+import { createPanePoolFixture } from './test-support/pane-pool-fixture'
+import { useRuntimeSelector } from '@/app/store'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
 import { asSessionId } from '@podium/model'
@@ -50,7 +53,7 @@ const mountSessionMock = vi.fn((_el: unknown, _opts: { active?: boolean }) => ({
 // The presence seam [POD-1535]: the header's watcher strip reads the hub off
 // the client-core StoreProvider, which these focused renders don't mount.
 vi.mock('@podium/client-core/react', async () =>
-  (await import('./test-support/presence-mock')).presenceSeamStub(),
+  (await import('./test-support/presence-mock')).presenceSeamStub(paneFixture.owner as never),
 )
 
 vi.mock('@podium/terminal-client/session-mount', () => ({
@@ -138,6 +141,14 @@ vi.mock('@/app/store', () => {
   }
 })
 
+const paneFixture = createPanePoolFixture(() => useRuntimeSelector(state => state) as never)
+vi.mock('@/app/store-worklist-pool', () => paneFixture.hooks)
+
+function renderPanel(...args: Parameters<Root['render']>) {
+  paneFixture.sync()
+  root.render(...args)
+}
+
 const { AgentPanel } = await import('./AgentPanel')
 
 const OFFER = {
@@ -187,6 +198,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  paneFixture.dispose()
 })
 
 async function flush(): Promise<void> {
@@ -198,7 +210,7 @@ async function flush(): Promise<void> {
 
 async function render(props: { active: boolean }): Promise<void> {
   await act(async () => {
-    root.render(<AgentPanel sessionId={asSessionId('s1')} active={props.active} />)
+    renderPanel(<AgentPanel sessionId={asSessionId('s1')} active={props.active} />)
   })
   await flush()
 }
@@ -398,35 +410,44 @@ describe('AgentPanel mount gating', () => {
   })
 
   it('starts the transcript exactly once after an optimistic spawn is confirmed', async () => {
-    const prompt = 'Keep the optimistic first turn visible.'
-    storePanelMode = { s1: 'chat' }
-    storeSessions = [meta({ status: 'starting', driverFamily: 'server' })]
-    storePendingSpawnIds = new Set(['s1'])
-    storePendingSpawnPrompts = new Map([['s1', prompt]])
+    const starts = vi.spyOn(ConversationService.prototype, 'start')
+    try {
+      const prompt = 'Keep the optimistic first turn visible.'
+      storePanelMode = { s1: 'chat' }
+      storeSessions = [meta({ status: 'starting', driverFamily: 'server' })]
+      storePendingSpawnIds = new Set(['s1'])
+      storePendingSpawnPrompts = new Map([['s1', prompt]])
 
-    await render({ active: true })
+      await render({ active: true })
 
-    expect(transcriptRead).not.toHaveBeenCalled()
-    // AgentPanel's terminal file-link index observes all transcript deltas from
-    // mount. The window subscription is the one anchored to the read's tail.
-    expect(
-      subscribeTranscript.mock.calls.filter(([, since]) => since === 'confirmed-tail'),
-    ).toEqual([])
-    expect(container.textContent).toContain(prompt)
+      expect(starts).not.toHaveBeenCalled()
+      expect(transcriptRead).not.toHaveBeenCalled()
+      // AgentPanel's terminal file-link index observes all transcript deltas from
+      // mount. The window subscription is the one anchored to the read's tail.
+      expect(
+        subscribeTranscript.mock.calls.filter(([, since]) => since === 'confirmed-tail'),
+      ).toEqual([])
+      expect(container.textContent).toContain(prompt)
 
-    // One store publication installs the authoritative terminal row and retires
-    // both optimistic maps. AgentPanel must re-arm the read-then-subscribe
-    // effect, while ChatView's local first-turn state bridges that transition.
-    storeSessions = [meta({ status: 'exited', exitCode: 0 })]
-    storePendingSpawnIds = new Set<string>()
-    storePendingSpawnPrompts = new Map<string, string>()
-    await render({ active: true })
+      // One store publication installs the authoritative terminal row and retires
+      // both optimistic maps. AgentPanel must re-arm the read-then-subscribe
+      // effect, while ChatView's local first-turn state bridges that transition.
+      storeSessions = [meta({ status: 'exited', exitCode: 0 })]
+      storePendingSpawnIds = new Set<string>()
+      storePendingSpawnPrompts = new Map<string, string>()
+      await render({ active: true })
 
-    expect(transcriptRead).toHaveBeenCalledTimes(1)
-    expect(
-      subscribeTranscript.mock.calls.filter(([, since]) => since === 'confirmed-tail'),
-    ).toHaveLength(1)
-    expect(container.textContent).toContain(prompt)
+      expect(starts).toHaveBeenCalledTimes(1)
+      // Starting the shared owner and activating its chat reader each read history;
+      // the controller's read serial admits only the winning live subscription.
+      expect(transcriptRead).toHaveBeenCalledTimes(2)
+      expect(
+        subscribeTranscript.mock.calls.filter(([, since]) => since === 'confirmed-tail'),
+      ).toHaveLength(1)
+      expect(container.textContent).toContain(prompt)
+    } finally {
+      starts.mockRestore()
+    }
   })
 
   it('tears the terminal down, and offers no mode switch, once the session is in transit', async () => {

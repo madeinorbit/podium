@@ -1,3 +1,5 @@
+import { createPanePoolFixture } from './test-support/pane-pool-fixture'
+import { useRuntimeSelector } from '@/app/store'
 import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
 // @vitest-environment happy-dom
 import { asSessionId, type SessionMeta, type SessionMetaInput } from '@podium/model'
@@ -59,7 +61,7 @@ vi.mock('@/lib/hooks/use-session-guard', () => ({
 // stub still renders the strip, so "the panel calls the seam at all" stays
 // assertable below.
 vi.mock('@podium/client-core/react', async () =>
-  (await import('./test-support/presence-mock')).presenceSeamStub(),
+  (await import('./test-support/presence-mock')).presenceSeamStub(paneFixture.owner as never),
 )
 
 // Voice touches browser speech APIs that are flaky under happy-dom — stub it.
@@ -146,6 +148,14 @@ vi.mock('@/app/store', () => {
   }
 })
 
+const paneFixture = createPanePoolFixture(() => useRuntimeSelector(state => state) as never)
+vi.mock('@/app/store-worklist-pool', () => paneFixture.hooks)
+
+function renderPanel(...args: Parameters<Root['render']>) {
+  paneFixture.sync()
+  root.render(...args)
+}
+
 const { AgentPanel } = await import('./AgentPanel')
 
 function meta(over: Partial<SessionMetaInput>): SessionMeta {
@@ -196,6 +206,7 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  paneFixture.dispose()
   vi.clearAllMocks()
 })
 
@@ -229,7 +240,7 @@ describe('AgentPanel active wiring', () => {
     selectedIssueId = 'iss-normalized'
     storeSessions = [meta({ issueId: storeIssues[0]!.id })]
     const world = poolFixtureStore({ issues: storeIssues, sessions: storeSessions })
-    await act(async () => root.render(<AgentPanel sessionId={asSessionId('s1')} active />))
+    await act(async () => renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />))
     await flush()
     const stamp = container.querySelector('[data-testid="git-stamp"]')
     expect(stamp?.textContent).toContain('issue/1')
@@ -239,7 +250,7 @@ describe('AgentPanel active wiring', () => {
 
   it('focuses the native CLI prompt and toggles the focused panel to Chat', async () => {
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active focused />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active focused />)
     })
     await flush()
     terminalFocus.mockClear()
@@ -255,7 +266,7 @@ describe('AgentPanel active wiring', () => {
   it('focuses the transcript chat prompt', async () => {
     storePanelMode = { s1: 'chat' }
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active focused />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active focused />)
     })
     await flush()
     const textarea = container.querySelector<HTMLTextAreaElement>('textarea:not(:disabled)')
@@ -269,7 +280,7 @@ describe('AgentPanel active wiring', () => {
 
   it('leaves desktop session commands to the focused split pane', async () => {
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active focused={false} />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active focused={false} />)
     })
     await flush()
     terminalFocus.mockClear()
@@ -288,7 +299,7 @@ describe('AgentPanel active wiring', () => {
     storeSessions = [meta({ status: 'hibernated', controllerId: null })]
     stableStoreFns.resurrectSession.mockRejectedValueOnce(new Error('wake rejected'))
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     const button = [...container.querySelectorAll('button')].find(
@@ -308,7 +319,7 @@ describe('AgentPanel active wiring', () => {
 
   it('keeps Take control reachable (via the header overflow menu) and requests terminal control', async () => {
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     // Take control lives in the header's ⋯ overflow menu [POD-121] — open it first.
@@ -329,7 +340,7 @@ describe('AgentPanel active wiring', () => {
     // silently never appears. This pins the with-resume-ref branch open.
     storeSessions = [meta({ resume: { kind: 'claude-session', value: 'abc-123' } })]
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     const trigger = container.querySelector<HTMLButtonElement>('[data-testid="header-menu"]')
@@ -343,7 +354,7 @@ describe('AgentPanel active wiring', () => {
 
   it('passes initial active to mountSession for a live native panel', async () => {
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     expect(mountSessionMock).toHaveBeenCalled()
@@ -353,7 +364,7 @@ describe('AgentPanel active wiring', () => {
 
   it('passes active:false to mountSession when the panel mounts inactive', async () => {
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active={false} />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active={false} />)
     })
     await flush()
     const opts = mountSessionMock.mock.calls[0]?.[1] as { active?: boolean } | undefined
@@ -362,12 +373,12 @@ describe('AgentPanel active wiring', () => {
 
   it('calls setActive(false) when the panel is backgrounded (active -> false)', async () => {
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     setActive.mockClear()
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active={false} />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active={false} />)
     })
     await flush()
     expect(setActive).toHaveBeenCalledWith(false)
@@ -377,12 +388,12 @@ describe('AgentPanel active wiring', () => {
 
   it('calls setActive(true) again when an inactive panel becomes active', async () => {
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active={false} />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active={false} />)
     })
     await flush()
     setActive.mockClear()
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     expect(setActive).toHaveBeenCalledWith(true)
@@ -391,7 +402,7 @@ describe('AgentPanel active wiring', () => {
   it('does not load or mount the terminal for an initial chat surface', async () => {
     storePanelMode = { s1: 'chat' }
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     expect(mountSessionMock).not.toHaveBeenCalled()
@@ -401,7 +412,7 @@ describe('AgentPanel active wiring', () => {
     storePanelMode = {}
     storeStartScreen = 'chat'
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     expect(mountSessionMock).not.toHaveBeenCalled()
@@ -415,21 +426,21 @@ describe('AgentPanel active wiring', () => {
   it('loads on the first chat-to-native switch, then keeps that terminal warm', async () => {
     storePanelMode = { s1: 'chat' }
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     expect(mountSessionMock).not.toHaveBeenCalled()
 
     storePanelMode = { s1: 'native' }
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
 
     storePanelMode = { s1: 'chat' }
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     expect(setActive).toHaveBeenCalledWith(false)
@@ -443,7 +454,7 @@ describe('AgentPanel active wiring', () => {
     // flips setActive(false) on hide and setActive(true) on re-show so the hidden
     // terminal stops/starts driving the PTY size.
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
@@ -453,7 +464,7 @@ describe('AgentPanel active wiring', () => {
     setActive.mockClear()
     storePanelMode = { s1: 'chat' }
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     expect(setActive).toHaveBeenCalledWith(false)
@@ -462,25 +473,23 @@ describe('AgentPanel active wiring', () => {
     setActive.mockClear()
     storePanelMode = { s1: 'native' }
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     expect(setActive).toHaveBeenCalledWith(true)
 
-    // The whole cycle reused ONE terminal: no second mount, no dispose. Chat's
-    // transcript controller owns its own listener while that surface is mounted,
-    // then stop() releases it on the return to native. The terminal path index is
-    // the one listener left alive across the whole panel lifetime.
+    // The whole cycle reuses one terminal and one shared conversation stream.
+    // Chat and the terminal path index borrow that same live transcript owner.
     expect(mountSessionMock).toHaveBeenCalledTimes(1)
     expect(dispose).not.toHaveBeenCalled()
-    expect(subscribeTranscript).toHaveBeenCalledTimes(2)
-    expect(unsubscribeTranscript).toHaveBeenCalledTimes(1)
+    expect(subscribeTranscript).toHaveBeenCalledTimes(1)
+    expect(unsubscribeTranscript).not.toHaveBeenCalled()
     expect(subscribeTranscript.mock.calls.length - unsubscribeTranscript.mock.calls.length).toBe(1)
   })
 
   it('balances terminal and transcript resources through a StrictMode probe cycle', async () => {
     await act(async () => {
-      root.render(
+      renderPanel(
         <StrictMode>
           <AgentPanel sessionId={asSessionId('s1')} active />
         </StrictMode>,
@@ -491,7 +500,9 @@ describe('AgentPanel active wiring', () => {
     expect(mountSessionMock.mock.calls.length - dispose.mock.calls.length).toBe(1)
     expect(subscribeTranscript.mock.calls.length - unsubscribeTranscript.mock.calls.length).toBe(1)
 
-    act(() => root.unmount())
+    // The principal's warm cache outlives a pane; disposing that owner releases
+    // the final transcript lease as well as the panel's terminal resources.
+    act(() => { root.unmount(); paneFixture.dispose() })
     expect(dispose).toHaveBeenCalledTimes(mountSessionMock.mock.calls.length)
     expect(unsubscribeTranscript).toHaveBeenCalledTimes(subscribeTranscript.mock.calls.length)
     // Keep the shared afterEach cleanup valid after the explicit lifecycle assertion.
@@ -504,7 +515,7 @@ describe('AgentPanel active wiring', () => {
   // is what goes red.
   it('renders the presence strip in the session header', async () => {
     await act(async () => {
-      root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+      renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
     })
     await flush()
     const header = container.querySelector('[data-testid="agent-panel-header"]')

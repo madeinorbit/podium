@@ -82,7 +82,7 @@ export async function createChatContextFixture(resumeTwins = false) {
   const pool = new MobxPool({ coarseNow: Date.parse('2026-10-01T13:00:00Z'), selectedIssueId: null }, undefined,
     { summaries: CHAT_CONTEXT_SUMMARIES, load: (entity, id) => (entity === 'issue' ? issues : rawSessions).find(row => ('id' in row ? row.id : row.sessionId) === id) as never, schedule: () => () => {} })
   pool.apply({ type: 'replace', rows: [
-    { kind: 'worktree', id: 'chat-repo', value: { id: 'chat-repo', repoPath: '/synthetic/project', prefix: 'SYN' } as never },
+    { kind: 'repo', id: 'chat-repo', value: { id: 'chat-repo', repoPath: '/synthetic/project', prefix: 'SYN' } as never },
     ...issues.map(row => ({ kind: 'issue' as const, id: row.id, value: row as never })),
     ...rawSessions.map(row => ({ kind: 'session' as const, id: row.sessionId, value: row as never })),
   ] })

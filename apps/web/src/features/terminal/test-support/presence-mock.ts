@@ -32,18 +32,21 @@ const paneOwner = withKeyedInputs({
 })
 
 Object.defineProperties(paneOwner, { drafts: { get: () => fakeStoreHandle.drafts }, ownConversations: { value: fakeStoreHandle.ownConversations } })
+let fixtureOwner: typeof paneOwner | undefined
 vi.mock('../../../../../../packages/client-core/src/react/provider', async (importOriginal) => ({
   ...(await importOriginal<typeof import('../../../../../../packages/client-core/src/react/provider')>()),
-  useStoreHandle: () => paneOwner,
+  useStoreHandle: () => fixtureOwner ?? paneOwner,
 }))
 
-export function presenceSeamStub(): Record<string, unknown> {
+export function presenceSeamStub(owner?: typeof paneOwner): Record<string, unknown> {
+  fixtureOwner = owner
   return {
     useConversation,
     usePresenceRoom: () => ({ status: 'unknown' as const }),
     useCurrentPrincipal: () => null,
-    useStoreHandle: () => paneOwner,
+    useStoreHandle: () => fixtureOwner ?? paneOwner,
     useModelCatalog: () => ({}),
+    useModelCatalogState: () => ({ catalog: {}, status: 'unavailable' as const }),
     // Served harness descriptors (POD-4475): provider-free suites render
     // against the bundled copy.
     useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),

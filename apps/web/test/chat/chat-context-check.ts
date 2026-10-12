@@ -84,13 +84,13 @@ export function checkChatContext(
     compare(
       `pending:${id}`,
       { blocked: mine.length > 0, question: mine.find((row) => row.kind === 'question') },
-      { blocked: asks.blocked, question: asks.question },
+      { blocked: asks.blocked, question: asks.question?.row },
       asks.pending > 0,
     )
     compare(
       `records:${id}`,
       (state.messageRecords ?? []).filter((row) => row.sessionId === id),
-      records.records,
+      records.records.map(record => record.row),
       records.pending > 0,
     )
     const serialSends = (

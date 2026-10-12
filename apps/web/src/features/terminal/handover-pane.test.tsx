@@ -1,3 +1,5 @@
+import { createPanePoolFixture } from './test-support/pane-pool-fixture'
+import { useRuntimeSelector } from '@/app/store'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
 import { asSessionId } from '@podium/model'
@@ -13,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 // The presence seam [POD-1535]: the header's watcher strip reads the hub off
 // the client-core StoreProvider, which these focused renders don't mount.
 vi.mock('@podium/client-core/react', async () =>
-  (await import('./test-support/presence-mock')).presenceSeamStub(),
+  (await import('./test-support/presence-mock')).presenceSeamStub(paneFixture.owner as never),
 )
 
 vi.mock('@podium/terminal-client/session-mount', () => ({
@@ -96,6 +98,14 @@ vi.mock('@/app/store', () => {
   }
 })
 
+const paneFixture = createPanePoolFixture(() => useRuntimeSelector(state => state) as never)
+vi.mock('@/app/store-worklist-pool', () => paneFixture.hooks)
+
+function renderPanel(...args: Parameters<Root['render']>) {
+  paneFixture.sync()
+  root.render(...args)
+}
+
 const { AgentPanel } = await import('./AgentPanel')
 const { HANDOVER_ARRIVED_HOLD_MS, formatHandoverElapsed } = await import('./HandoverPane')
 
@@ -137,12 +147,13 @@ beforeEach(() => {
 afterEach(() => {
   act(() => root.unmount())
   container.remove()
+  paneFixture.dispose()
   vi.clearAllMocks()
 })
 
 async function render(): Promise<void> {
   await act(async () => {
-    root.render(<AgentPanel sessionId={asSessionId('s1')} active />)
+    renderPanel(<AgentPanel sessionId={asSessionId('s1')} active />)
   })
   await act(async () => {
     await Promise.resolve()

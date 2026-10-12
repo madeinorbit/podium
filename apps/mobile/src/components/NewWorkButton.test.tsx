@@ -1,6 +1,6 @@
 import { NEW_WORK_MODEL_KEY, NEW_WORK_EFFORT_KEY, NEW_WORK_REPO_KEY, LAST_LAUNCH_PICK_KEY } from '@podium/client-core/ui-state'
 import { headerEntities } from '@podium/client-graph/header-entities'
-import { headerView } from '@podium/client-graph/header-views'
+import { launchOptionViews } from '@podium/client-graph/launch-option-views'
 /**
  * THE LAUNCH SHEET AFTER THE WIZARD [POD-1354].
  *
@@ -136,38 +136,47 @@ function pickFirstClaudeModel() {
 }
 
 describe('phone launch demand bounds', () => {
-  it.each([1, 4])('reads only root scan rows at %sx linked-worktree history', async (scale) => {
-    let pool: MobxPool | null = null
-    function Capture() {
-      pool = useMobilePool()
-      return null
+  it('reads only root scan rows with flat demand at 1x/4x linked-worktree history', async () => {
+    const readsByScale: number[] = []
+    for (const scale of [1, 4]) {
+      let pool: MobxPool | null = null
+      function Capture() {
+        pool = useMobilePool()
+        return null
+      }
+      const path = '/home/dev/podium'
+      const root = {
+        ...repo(path),
+        worktrees: Array.from({ length: 32 * scale }, (_, n) => ({ path: `${path}/wt-${n}` })),
+      }
+      const linked = root.worktrees.map((tree) => ({ ...repo(tree.path), worktrees: [] }))
+      await renderWithMobileStore(
+        <><Capture /><NewWorkButton /></>,
+        { repos: [root, ...linked], machines: READY },
+      )
+      const attached = pool as MobxPool | null
+      if (!attached) throw new Error('Pool did not attach')
+      const rows = vi.spyOn(attached, 'row')
+      fireEvent.click(screen.getByLabelText('New work'))
+      await screen.findByLabelText('Start in podium')
+      // Shared models read the root again for each stored field. Count addresses
+      // separately from those scalar reads, and bound both size and growth.
+      const rootReads = rows.mock.calls.filter(([kind]) => String(kind) === 'repository')
+      expect(rootReads.length).toBeGreaterThan(0)
+      expect(rootReads).toHaveLength(33)
+      readsByScale.push(rootReads.length)
+      expect(new Set(rootReads.map(([, id]) => id))).toEqual(new Set([JSON.stringify(['mine', path])]))
+      rows.mockClear()
+      await act(async () => {
+        headerEntities(attached).apply([{ kind: 'repository', id: JSON.stringify(['mine', linked[0]!.path]),
+          value: { ...linked[0]!, branch: 'unshown' } }])
+      })
+      expect(rows.mock.calls.filter(([kind]) => String(kind) === 'repository')).toHaveLength(0)
+      expect(screen.getByLabelText('Start in podium')).toBeDefined()
+      cleanup()
+      rows.mockRestore()
     }
-    const path = '/home/dev/podium'
-    const root = {
-      ...repo(path),
-      worktrees: Array.from({ length: 32 * scale }, (_, n) => ({ path: `${path}/wt-${n}` })),
-    }
-    const linked = root.worktrees.map((tree) => ({ ...repo(tree.path), worktrees: [] }))
-    await renderWithMobileStore(
-      <><Capture /><NewWorkButton /></>,
-      { repos: [root, ...linked], machines: READY },
-    )
-    const attached = pool as MobxPool | null
-    if (!attached) throw new Error('Pool did not attach')
-    const rows = vi.spyOn(attached, 'row')
-    fireEvent.click(screen.getByLabelText('New work'))
-    await screen.findByLabelText('Start in podium')
-    // The open snapshot and the live metadata projection each read the root.
-    const rootReads = rows.mock.calls.filter(([kind]) => String(kind) === 'repository')
-    expect(rootReads).toHaveLength(2)
-    expect(new Set(rootReads.map(([, id]) => id))).toEqual(new Set([JSON.stringify(['mine', path])]))
-    rows.mockClear()
-    await act(async () => {
-      headerEntities(attached).apply([{ kind: 'repository', id: JSON.stringify(['mine', linked[0]!.path]),
-        value: { ...linked[0]!, branch: 'unshown' } }])
-    })
-    expect(rows.mock.calls.filter(([kind]) => String(kind) === 'repository')).toHaveLength(0)
-    expect(screen.getByLabelText('Start in podium')).toBeDefined()
+    expect(readsByScale[1]).toBe(readsByScale[0])
   })
 
   it.each([
@@ -177,7 +186,7 @@ describe('phone launch demand bounds', () => {
     let machinesRead: ReturnType<typeof vi.spyOn> | undefined
     function Capture() {
       pool = useMobilePool()
-      if (pool && !machinesRead) machinesRead = vi.spyOn(headerView(pool), 'machines')
+      if (pool && !machinesRead) machinesRead = vi.spyOn(launchOptionViews(pool), 'machines')
       return null
     }
     const { replica } = await renderWithMobileStore(

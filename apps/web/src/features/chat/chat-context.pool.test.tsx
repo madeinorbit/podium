@@ -464,13 +464,13 @@ it('keeps hooks stable through null-pool attachment and restores saved controlle
   ).toBe(false)
   expect(restored.at(-1)?.ready).toBe(true)
   act(() => restored.at(-1)!.setDraft('Active controller draft'))
-  const row = graph!.row.bind(graph!)
+  const model = graph!.model.bind(graph!)
   const missing = vi
-    .spyOn(graph!, 'row')
-    .mockImplementation(((entity: string, id: string, fields: never) =>
+    .spyOn(graph!, 'model')
+    .mockImplementation(((entity: string, id: string) =>
       entity === 'messageRecord' && id === 'new-record'
         ? LOADING
-        : row(entity as never, id, fields)) as MobxPool['row'])
+        : model(entity as never, id)) as MobxPool['model'])
   await act(async () => {
     const messages = [
       ...f.fixture!.data.messages,
