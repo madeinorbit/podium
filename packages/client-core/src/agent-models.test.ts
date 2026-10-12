@@ -320,7 +320,7 @@ it('returns the same live-only model and concrete-model effort contract for ever
       expect(effortOptionsForModel(descriptor.kind, model, live)).toEqual([])
       expect(effortLabel(descriptor.kind, 'high')).toBe('High')
     }
-    expect(effortOptionsForModel(descriptor.kind, 'reported', live).map(option => option.value)).toEqual(descriptor.capabilities.effort ? ['auto', 'high'] : [])
+    expect(effortOptionsForModel(descriptor.kind, 'reported', live).map(option => option.value)).toEqual(['auto', 'high'])
   }
 })
 

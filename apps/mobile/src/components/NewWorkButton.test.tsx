@@ -538,6 +538,7 @@ describe('phone picker parity', () => {
     fireEvent.click(screen.getByLabelText('New work'))
     fireEvent.click(screen.getByLabelText('Model, Auto'))
     pickFirstClaudeModel()
+    await screen.findByRole('button', { name: 'Model, Claude Code · Reported Opus' })
     fireEvent.click(screen.getByLabelText('Effort, Auto'))
     fireEvent.click(screen.getByLabelText('High'))
     fireEvent.click(screen.getByLabelText('Project, podium'))
