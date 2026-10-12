@@ -478,3 +478,28 @@ describe('launch selection travels in the spawn call — no machine round trip',
     expect(frame).not.toHaveProperty('model')
   })
 })
+
+
+describe('scheduled one-off selection stays equivalent', () => {
+  it.each([
+    { name: 'omitted picks snapshot coding Settings', pick: {}, expected: { agentKind: 'claude-code', model: 'claude-opus-4-8', effort: 'high' } },
+    { name: 'explicit auto remains auto', pick: { model: 'auto', effort: 'auto' }, expected: { agentKind: 'claude-code', model: 'auto', effort: 'auto' } },
+    { name: 'another harness receives no coding defaults', pick: { agentKind: 'codex' }, expected: { agentKind: 'codex', model: 'auto', effort: 'auto' } },
+    { name: 'explicit pair wins', pick: { agentKind: 'codex', model: 'gpt-5.6', effort: 'low' }, expected: { agentKind: 'codex', model: 'gpt-5.6', effort: 'low' } },
+    { name: 'model auto leaves effort snapshot independent', pick: { model: 'auto' }, expected: { agentKind: 'claude-code', model: 'auto', effort: 'high' } },
+    { name: 'effort auto leaves model snapshot independent', pick: { effort: 'auto' }, expected: { agentKind: 'claude-code', model: 'claude-opus-4-8', effort: 'auto' } },
+  ])('$name', async ({ pick, expected }) => {
+    const { reg, store } = await launchHarness({ model: 'claude-opus-4-8', effort: 'high' })
+    const { sessionId } = await reg.modules.sessions.createSession({ agentKind: 'shell', cwd: '/r' })
+    const request = await reg.modules.approvals.request({
+      sessionId, machineId: store.hostMachineId,
+      op: {
+        kind: 'automation-schedule', name: 'Selection compatibility',
+        runAt: '2099-07-17T02:00:00.000Z', prompt: 'Continue the task.',
+        target: { kind: 'fresh', repoPath: '/r', ...pick },
+      },
+    })
+    expect((await reg.modules.approvals.approve(request.id)).status).toBe('succeeded')
+    expect(await reg.modules.automations.list()).toEqual([expect.objectContaining(expected)])
+  })
+})
