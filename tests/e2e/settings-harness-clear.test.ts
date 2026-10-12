@@ -1,5 +1,5 @@
 /** Real web save -> JSON HTTP -> settings router/service -> SQLite. No agent is launched. */
-import { asAccountId, firstAdminMemberId } from '@podium/model'
+import { asAccountId, firstAdminMemberId, type Capability, type UserId } from '@podium/model'
 import { DEFAULT_SETTINGS, resolveRole } from '@podium/runtime'
 import { fetchRequestHandler } from '@trpc/server/adapters/fetch'
 import { describe, expect, it } from 'vitest'
@@ -11,15 +11,19 @@ import { SuperagentService } from '../../apps/server/src/modules/superagent'
 import { SessionRegistry } from '../../apps/server/src/relay'
 import { RepoRegistry } from '../../apps/server/src/repo-registry'
 import { appRouter } from '../../apps/server/src/router'
-import { OPERATOR } from '../../apps/server/src/test-support/capabilities'
 import { openTestStore } from '../../apps/server/src/test-support/open-test-store'
 
 async function withSettingsHttp(run: (fixture: {
   client: ReturnType<typeof makeTrpc>
   store: Awaited<ReturnType<typeof openTestStore>>
+  user: UserId
   patches: Record<string, unknown>[]
 }) => Promise<void>): Promise<void> {
   const store = await openTestStore(':memory:')
+  const user = await firstAdminMemberId(store)
+  const capability: Capability = {
+    role: 'admin', scope: { kind: 'all' }, actorUser: user, onBehalfOf: user,
+  }
   const registry = await SessionRegistry.create(store, undefined, {
     instanceId: 'default', pairing: new PairingManager(),
   })
@@ -36,14 +40,14 @@ async function withSettingsHttp(run: (fixture: {
       return fetchRequestHandler({
         endpoint: '/trpc', router: appRouter, req,
         createContext: () => ({
-          registry, repos, superagent, capability: OPERATOR,
-          principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
+          registry, repos, superagent, capability,
+          principal: resolvePrincipal(capability, { parentSessionOf: () => undefined }),
         }),
       })
     },
   })
   try {
-    await run({ client: makeTrpc(`http://127.0.0.1:${server.port}`, { report: false }), store, patches })
+    await run({ client: makeTrpc(`http://127.0.0.1:${server.port}`, { report: false }), store, user, patches })
   } finally {
     server.stop(true)
     superagent.dispose()
@@ -55,7 +59,7 @@ async function withSettingsHttp(run: (fixture: {
 describe('harness clears through the web save and HTTP transport', () => {
   it.each(['coding', 'background'] as const)(
     'switching %s from managed to native deletes the saved harness and resolves the native role',
-    async (role) => withSettingsHttp(async ({ client, store, patches }) => {
+    async (role) => withSettingsHttp(async ({ client, store, user, patches }) => {
       const path = `roles.${role}.harness`
       const previous = await client.settings.updatePersonal.mutate({ values: {
         [`roles.${role}.accountId`]: asAccountId('managed:anthropic'),
@@ -63,7 +67,7 @@ describe('harness clears through the web save and HTTP transport', () => {
         [`roles.${role}.effort`]: 'high',
         [path]: 'claude-code',
       } })
-      expect(await store.settings.userPreferences.keysFor(firstAdminMemberId())).toContain(path)
+      expect(await store.settings.userPreferences.keysFor(user)).toContain(path)
       patches.length = 0
 
       const next = {
@@ -80,12 +84,12 @@ describe('harness clears through the web save and HTTP transport', () => {
         [`roles.${role}.model`]: 'auto', [`roles.${role}.effort`]: 'auto',
       }])
       expect(result.saved.roles[role]).not.toHaveProperty('harness')
-      expect(await store.settings.userPreferences.keysFor(firstAdminMemberId())).not.toContain(path)
+      expect(await store.settings.userPreferences.keysFor(user)).not.toContain(path)
 
       // A fresh HTTP load and the server's next launch settings read both succeed.
       const loaded = await client.settings.get.query()
       expect(loaded.roles[role]).toEqual(result.saved.roles[role])
-      const launchSettings = await store.settings.getSettingsFor(firstAdminMemberId())
+      const launchSettings = await store.settings.getSettingsFor(user)
       expect(resolveRole(launchSettings, role)).toMatchObject({
         accountId: 'native:codex', harness: 'codex',
         execution: role === 'background' ? 'api' : 'harness',
@@ -94,7 +98,7 @@ describe('harness clears through the web save and HTTP transport', () => {
   )
 
   it('resetting to defaults removes the superagent harness preference and settings still load',
-    async () => withSettingsHttp(async ({ client, store, patches }) => {
+    async () => withSettingsHttp(async ({ client, store, user, patches }) => {
       const path = 'roles.superagent.harness'
       const previous = await client.settings.updatePersonal.mutate({ values: { [path]: 'codex' } })
       expect(previous.roles.superagent.harness).toBe('codex')
@@ -105,7 +109,7 @@ describe('harness clears through the web save and HTTP transport', () => {
       const result = await saveSettingsAsCommands(client, previous, DEFAULT_SETTINGS, { online: true })
       expect(result.refusals).toEqual([])
       expect(patches).toEqual([{ [path]: null }])
-      expect(await store.settings.userPreferences.keysFor(firstAdminMemberId())).not.toContain(path)
+      expect(await store.settings.userPreferences.keysFor(user)).not.toContain(path)
       expect(result.saved.roles.superagent).not.toHaveProperty('harness')
       expect((await client.settings.get.query()).roles.superagent).toEqual(DEFAULT_SETTINGS.roles.superagent)
     }),
