@@ -18,6 +18,7 @@ import {
   presenceNote,
 } from '@podium/client-core/values'
 import { asIssueId, asSessionId } from '@podium/model/browser'
+import type { IssueProjection } from '@podium/model'
 import { MobxPool } from '@podium/client-graph/pool'
 import { issuePages } from '@podium/client-graph/issue-page'
 import { menuIssues } from '@podium/client-graph/issue-page-menu.before.test.fixture'
@@ -48,6 +49,7 @@ type PageInput = SliceIssue & {
   description?: string | { value: string }
   notes?: string | { value: string }
   labels?: string[]
+  visibility?: IssueProjection['visibility']
 }
 const task = (id: string, patch: Partial<PageInput> = {}): PageInput => ({
   id,
