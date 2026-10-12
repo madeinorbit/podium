@@ -59,6 +59,8 @@ describe('harness clears through the web save and HTTP transport', () => {
       const path = `roles.${role}.harness`
       const previous = await client.settings.updatePersonal.mutate({ values: {
         [`roles.${role}.accountId`]: asAccountId('managed:anthropic'),
+        [`roles.${role}.model`]: 'managed-model',
+        [`roles.${role}.effort`]: 'high',
         [path]: 'claude-code',
       } })
       expect(await store.settings.userPreferences.keysFor(firstAdminMemberId())).toContain(path)
@@ -75,6 +77,7 @@ describe('harness clears through the web save and HTTP transport', () => {
       expect(result.refusals).toEqual([])
       expect(patches).toEqual([{
         [`roles.${role}.accountId`]: 'native:codex', [path]: null,
+        [`roles.${role}.model`]: 'auto', [`roles.${role}.effort`]: 'auto',
       }])
       expect(result.saved.roles[role]).not.toHaveProperty('harness')
       expect(await store.settings.userPreferences.keysFor(firstAdminMemberId())).not.toContain(path)
