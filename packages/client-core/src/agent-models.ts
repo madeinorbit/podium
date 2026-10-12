@@ -12,6 +12,14 @@ import {
 import type { HarnessDescriptorWire, ModelChoiceWire } from '@podium/protocol'
 import { type AgentKind, DEFAULT_HARNESS_AGENT } from '@podium/model/browser'
 
+export {
+  draftForLaunchContext,
+  lastLaunchPick,
+  readLastLaunchPicks,
+  rememberLaunchPick,
+  type LaunchPickContext,
+} from './launch-pick'
+
 /**
  * Pure harness/model/effort picker rules shared by web and mobile (POD-6028):
  * one source, read from descriptors — the served report over the bundled

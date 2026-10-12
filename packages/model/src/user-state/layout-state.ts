@@ -86,6 +86,8 @@ export const LAYOUT_EXACT_KEYS = [
   'onboarding.vps',
   /** The mobile-handoff promo card, dismissed for good (POD-1320). */
   'mobile.promoDismissed',
+  /** Last launched model/effort per machine and harness. */
+  'launch.lastPick',
 ] as const
 export type LayoutExactKey = (typeof LAYOUT_EXACT_KEYS)[number]
 
@@ -145,6 +147,7 @@ export const LAYOUT_KEY_FROM_LEGACY: Readonly<Record<string, LayoutExactKey>> = 
   'podium.jsonmode': 'jsonmode',
   'podium.onboarding.vps': 'onboarding.vps',
   'podium.mobile.promoDismissed': 'mobile.promoDismissed',
+  'podium.launch.lastPick': 'launch.lastPick',
 }
 
 /**

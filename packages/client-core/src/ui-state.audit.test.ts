@@ -124,6 +124,17 @@ function unownedStorageAccesses(rel: string, source: string): string[] {
 }
 
 describe('UI persistence ownership lint', () => {
+  it('only the two new-work launch forms call the last-launch preference writer', () => {
+    const writers = PRODUCT_ROOTS.flatMap(sources)
+      .filter((path) => /\brememberLaunchPick\s*\(/.test(readFileSync(path, 'utf8')))
+      .map((path) => relative(ROOT, path)).sort()
+    expect(writers).toEqual([
+      'apps/mobile/src/components/NewWorkButton.tsx',
+      'apps/web/src/features/setup/ColdStartComposer.tsx',
+      'packages/client-core/src/launch-pick.ts',
+    ])
+  })
+
   it('the shared exact vocabulary and client additions are total', () => {
     for (const key of DEVICE_LOCAL_UI_KEYS) expect(uiStateRoute(key).home, key).toBe('device-local')
     for (const key of Object.keys(LAYOUT_KEY_FROM_LEGACY)) {

@@ -1,5 +1,5 @@
 import { randomUUID } from '@podium/client-core/id'
-import { FIRST_TASK_ACTIVATION_DRAFT_KEY } from '@podium/client-core/ui-state'
+import { FIRST_TASK_ACTIVATION_DRAFT_KEY, LAST_LAUNCH_PICK_KEY } from '@podium/client-core/ui-state'
 import {
   AGENT_NOT_READY_COPY,
   agentCanLaunch,
@@ -28,7 +28,10 @@ import {
   CapabilityAgentMenu,
   candidateFromAvailability,
 } from '@/lib/agent-capability'
-import { AUTO, draftForReportedModels } from '@podium/client-core/agent-models'
+import {
+  AUTO, draftForLaunchContext, draftForReportedModels, readLastLaunchPicks,
+  rememberLaunchPick, type LaunchPickContext,
+} from '@podium/client-core/agent-models'
 import {
   ISSUE_AGENT_KINDS,
   type IssueAgentKind,
@@ -223,6 +226,10 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     readFirstTaskDraft,
     serializeFirstTaskDraft,
   )
+  const [lastLaunchPicks] = usePersistedUiState(
+    LAST_LAUNCH_PICK_KEY, readLastLaunchPicks, JSON.stringify,
+  )
+  const previousLaunchContext = useRef<LaunchPickContext | undefined>(undefined)
   /**
    * The operator's harness, as `roles.coding` answers it — the same read the
    * deleted sidebar chip made, and held as a raw string for the same reason it
@@ -565,9 +572,9 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
    * effort: AUTO` and the operator's choices were gone before they touched
    * anything.
    *
-   * Model and effort no longer reset on a project change at all (POD-3911).
-   * They belong to the harness, not the repository: the harness picker resets
-   * them, and the model picker resets effort. A repo switch carries both over.
+   * A repo switch on the same machine keeps the pills. A different machine or
+   * harness restores its last launched pair, then validates its reported list.
+   * On open, a saved draft's own pick wins (including explicitly picked Auto).
    *
    * The alias is also kept rather than canonicalised, because it is the only
    * record of WHICH checkout the operator meant when one origin has two on a
@@ -595,30 +602,24 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
      * replica, which is already there on the first paint.
      */
     const agentChanged = !draft.agent && agentSetting !== undefined
-    if (!repoChanged && !machineChanged && !agentChanged) return
-    setDraft({
+    let next = {
       ...draft,
       repoPath: repoChanged ? selectedRepo.path : draft.repoPath,
       machineId: selectedMachine?.id ?? '',
       ...(agentChanged ? { agent } : {}),
-    })
-  }, [agent, agentSetting, draft, selectedMachine, selectedRepo, setDraft])
-
-  /**
-   * THE PILLS FOLLOW THE MACHINE'S MODEL LIST (POD-3911).
-   *
-   * Model and effort now survive a project switch, and a draft survives between
-   * visits, so a pill can name a model the selected machine does not run. The
-   * server refuses a chosen value it cannot find; this puts the pill back to
-   * Auto first, where the operator can see it, so the box never launches into
-   * that refusal. Left alone while a launch owns the draft: rewriting it then
-   * would race the retry identities that launch reserved.
-   */
-  useEffect(() => {
-    if (busy || draft.pendingIssueId || draft.createIssueId) return
-    const next = draftForReportedModels(draft, reportedModels)
-    if (next) setDraft(next)
-  }, [busy, draft, reportedModels, setDraft])
+    }
+    // Wait for the default harness before restoring a pair. A launch that owns
+    // the draft keeps its reserved request unchanged for retries.
+    if (!busy && !draft.pendingIssueId && !draft.createIssueId && selectedMachine &&
+      (draft.agent || agentSetting !== undefined)) {
+      const context = { machineId: selectedMachine.id, harness: agent }
+      next = draftForLaunchContext(next, previousLaunchContext.current, context, lastLaunchPicks)
+      previousLaunchContext.current = context
+      next = draftForReportedModels(next, reportedModels) ?? next
+    }
+    if (repoChanged || machineChanged || agentChanged || next.model !== draft.model ||
+      next.effort !== draft.effort || next.launchPickTouched !== draft.launchPickTouched) setDraft(next)
+  }, [agent, agentSetting, busy, draft, lastLaunchPicks, reportedModels, selectedMachine, selectedRepo, setDraft])
 
   const selectRepo = (repoPath: string): void => {
     const repo = repoChoices.find((candidate) => candidate.path === repoPath)
@@ -917,6 +918,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
     // actually news: relaunching on the harness that is already the default has
     // nothing to write.
     if (agent !== defaultAgent) void persistDefaultAgent(agent)
+    rememberLaunchPick(uiState, { machineId: selectedMachine!.id, harness: agent }, draft)
     if (draft.pendingIssueId || hasPrompt) void start()
     else startCli()
   }
@@ -1160,8 +1162,6 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                       withoutCreateReservation({
                         ...draft,
                         agent: kind,
-                        model: AUTO,
-                        effort: AUTO,
                       }),
                     )
                   }}
@@ -1174,7 +1174,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   machineId={selectedMachine?.id}
                   value={draft.model}
                   onChange={(model) =>
-                    setDraft(withoutCreateReservation({ ...draft, model, effort: AUTO }))
+                    setDraft(withoutCreateReservation({ ...draft, model, effort: AUTO, launchPickTouched: true }))
                   }
                 />
                 <span className="w-px bg-hairline-bar" aria-hidden="true" />
@@ -1184,7 +1184,7 @@ export function ColdStartComposer({ first }: { first: boolean }): JSX.Element {
                   machineId={selectedMachine?.id}
                   model={draft.model}
                   value={draft.effort}
-                  onChange={(effort) => setDraft(withoutCreateReservation({ ...draft, effort }))}
+                  onChange={(effort) => setDraft(withoutCreateReservation({ ...draft, effort, launchPickTouched: true }))}
                 />
               </div>
               <PropertyMenu

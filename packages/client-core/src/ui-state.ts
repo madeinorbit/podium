@@ -75,6 +75,8 @@ export const UI_STATE_KEYS = {
   onboardingVps: 'podium.onboarding.vps',
   /** The mobile-handoff promo card, dismissed for good (POD-1320). */
   mobilePromoDismissed: 'podium.mobile.promoDismissed',
+  /** Last launched model/effort per machine and harness, across this user's devices. */
+  launchLastPick: 'podium.launch.lastPick',
 } as const
 
 export const VIEW_KEY = UI_STATE_KEYS.view
@@ -98,6 +100,7 @@ export const JSON_MODE_MAP_KEY = UI_STATE_KEYS.jsonmode
 export const ISSUES_DISPLAY_KEY = UI_STATE_KEYS.issuesDisplay
 export const ONBOARDING_VPS_KEY = UI_STATE_KEYS.onboardingVps
 export const MOBILE_PROMO_DISMISSED_KEY = UI_STATE_KEYS.mobilePromoDismissed
+export const LAST_LAUNCH_PICK_KEY = UI_STATE_KEYS.launchLastPick
 export const ONBOARDING_VPS_SERVER_DRAFT_KEY = 'podium.onboarding.vpsServerDraft'
 
 export type WorkspaceUiStateKey = (typeof UI_STATE_KEYS)[keyof typeof UI_STATE_KEYS]
@@ -116,6 +119,10 @@ export interface UiStateRoute {
  * machine/session that another device may not be able to use.
  */
 export const UI_STATE_ROUTES = {
+  [UI_STATE_KEYS.launchLastPick]: {
+    home: 'per-user-replicated',
+    reason: 'The last launched model and effort follow the user across devices.',
+  },
   [UI_STATE_KEYS.view]: {
     home: 'device-local',
     reason: 'Navigation is represented by this device history and URL.',
@@ -244,21 +251,15 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   'podium:flightDeck:expandedWidth',
   'podium:rightdock:width',
   /**
-   * THE PHONE LAUNCH SHEET'S LAST PICKS (POD-1354) — model, effort, machine and
-   * project.
-   *
-   * Remembering them is what stops the sheet resetting to Auto on every app
-   * start, which made the operator who always runs one model re-choose it every
-   * single launch. DEVICE-LOCAL rather than replicated, deliberately: this is
-   * the default the NEXT tap on this device should take, and what you reach for
-   * in thirty seconds on a phone is routinely not what you reach for at the
-   * desk. It changes nothing about any issue or session — a launch still sends
-   * whatever the sheet shows at the moment Start is pressed.
+   * The phone launch sheet's local draft. Explicit choices survive dismissal;
+   * the last LAUNCHED model/effort per machine and harness travels separately
+   * in launchLastPick. Merely editing this draft does not update that preference.
    */
   'podium.newWork.model',
   'podium.newWork.effort',
   'podium.newWork.machine',
   'podium.newWork.repo',
+  'podium.newWork.harness',
   /** Flight Deck view (`full` | `active` | `needs-you`) and the set of folded
    *  branches. The artifact's ledger classes both as DISPLAY PREFERENCE for this
    *  screen: they change what column 2 shows and never touch issue stage or
@@ -321,11 +322,12 @@ export const CLIENT_DEVICE_LOCAL_UI_KEYS = [
   'podium.onboarding.active',
 ] as const
 
-/** The phone launch sheet's remembered picks — see CLIENT_DEVICE_LOCAL_UI_KEYS. */
+/** The phone launch sheet's local draft — see CLIENT_DEVICE_LOCAL_UI_KEYS. */
 export const NEW_WORK_MODEL_KEY = 'podium.newWork.model'
 export const NEW_WORK_EFFORT_KEY = 'podium.newWork.effort'
 export const NEW_WORK_MACHINE_KEY = 'podium.newWork.machine'
 export const NEW_WORK_REPO_KEY = 'podium.newWork.repo'
+export const NEW_WORK_HARNESS_KEY = 'podium.newWork.harness'
 export const FLIGHT_DECK_MODE_KEY = 'podium.flightDeck.mode'
 export const FLIGHT_DECK_FOLDS_KEY = 'podium.flightDeck.folds'
 export const FLIGHT_DECK_BRIEF_CUTOFF_KEY = 'podium.flightDeck.briefCutoff'

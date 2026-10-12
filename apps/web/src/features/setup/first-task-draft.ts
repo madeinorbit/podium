@@ -17,6 +17,8 @@ export type FirstTaskDraft = {
   agent: IssueAgentKind | ''
   model: string
   effort: string
+  /** Explicit Auto is a draft choice too; untouched Auto may inherit the last launch. */
+  launchPickTouched?: boolean
   title: string
   description: string
   /** Distinguishes current draft-session launches from persisted pre-POD-1838
@@ -43,6 +45,7 @@ export const EMPTY_FIRST_TASK_DRAFT: FirstTaskDraft = {
   agent: '',
   model: 'auto',
   effort: 'auto',
+  launchPickTouched: false,
   title: '',
   description: '',
   launchKind: '',
@@ -65,6 +68,7 @@ export function readFirstTaskDraft(raw: string | null): FirstTaskDraft {
       agent: typeof value.agent === 'string' ? (issueAgentKind(value.agent) ?? '') : '',
       model: typeof value.model === 'string' && value.model ? value.model : 'auto',
       effort: typeof value.effort === 'string' && value.effort ? value.effort : 'auto',
+      launchPickTouched: value.launchPickTouched === true,
       title: typeof value.title === 'string' ? value.title : '',
       description: typeof value.description === 'string' ? value.description : '',
       launchKind:

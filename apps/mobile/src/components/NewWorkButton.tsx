@@ -7,6 +7,8 @@ import {
   NEW_WORK_MACHINE_KEY,
   NEW_WORK_MODEL_KEY,
   NEW_WORK_REPO_KEY,
+  NEW_WORK_HARNESS_KEY,
+  LAST_LAUNCH_PICK_KEY,
 } from '@podium/client-core/ui-state'
 import {
   AGENT_NOT_READY_COPY,
@@ -23,9 +25,9 @@ import {
 import type { AgentKind, MachineId, MachineWire } from '@podium/model'
 import { machinePathsEqual } from '@podium/model/browser'
 import { usePathname, useRouter } from 'expo-router'
-import { type Dispatch, type SetStateAction, useCallback, useMemo, useState, useLayoutEffect } from 'react'
+import { type Dispatch, type SetStateAction, useCallback, useMemo, useState, useLayoutEffect, useRef } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
-import { useStoreActions } from '../client/hooks'
+import { useStoreActions, useUiState } from '../client/hooks'
 import { useMobilePoolProjection } from '../client/mobile-pool'
 import { useLaunchWorkPicker } from '../client/use-launch-inputs'
 import type { MobileTrpc } from '../client/trpc'
@@ -36,14 +38,21 @@ import {
   allConnectorModelOptions,
   type CatalogOption,
   decodeModelPick,
+  encodeModelPick,
   effortOptionsForModel,
   filterCatalogOptions,
   groupedCatalogOptions,
   ISSUE_AGENT_KINDS,
   type IssueAgentKind,
   draftForReportedModels,
+  draftForLaunchContext,
+  readLastLaunchPicks,
+  rememberLaunchPick,
+  type LaunchPickContext,
   effortLabel,
   issueAgentLabel,
+  issueAgentKind,
+  issueAgentOptions,
   issueDefaultAgentKind,
   spawnSelection,
 } from '@podium/client-core/agent-models'
@@ -58,7 +67,7 @@ import { ChevronDown, ChevronLeft, ChevronRight, Plus, Search } from './icons'
 import { PressableScale } from './PressableScale'
 import { HeaderButton } from './Screen'
 
-type PickerStep = 'launch' | 'model' | 'effort' | 'machine' | 'repo' | null
+type PickerStep = 'launch' | 'harness' | 'model' | 'effort' | 'machine' | 'repo' | null
 
 const EMPTY_INPUTS = {
   machines: [] as MachineWire[],
@@ -104,10 +113,8 @@ const writeString = (value: string | null): string | null => value
  * there is only one), the primary control says Start, and nothing stands between
  * a returning operator and the same launch they made yesterday.
  *
- * The picks PERSIST (doc §3.3, through the replica's ui-state collection). The
- * sheet used to reset to Auto on every app start, so the operator who always
- * runs Opus on high re-chose it every time — the reference launchers all
- * remember, because the last launch is by far the best prediction of the next.
+ * Draft choices survive dismissal. The last launched model and effort travel
+ * with the user, separately for each machine and harness; only Start writes them.
  *
  * Model choices come only from the machine's own installed harnesses via
  * {@link useModelCatalog}; until reported, the menu offers Auto. Tracked tasks are still created from the Tasks tab — this sheet only
@@ -145,6 +152,7 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   const pathname = usePathname()
   const router = useRouter()
   const { spawnDraftAgent } = useStoreActions()
+  const uiState = useUiState()
   const picker = useLaunchWorkPicker()
   const { machines, repos, recentMachine } = usePoolLaunchInputs(picker)
   const [query, setQuery] = useState('')
@@ -168,6 +176,9 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
     readString,
     writeString,
   )
+  const [harnessPick, setHarnessPick] = usePersistedUiState(NEW_WORK_HARNESS_KEY, readString, writeString)
+  const [lastLaunchPicks] = usePersistedUiState(LAST_LAUNCH_PICK_KEY, readLastLaunchPicks, JSON.stringify)
+  const previousLaunchContext = useRef<LaunchPickContext | undefined>(undefined)
   const model = modelPick ?? AUTO
   const effort = effortPick ?? AUTO
 
@@ -245,22 +256,6 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
 
   const isShell = model === SHELL_PICK
   const picked = decodeModelPick(model)
-  const pickHarness = picked.agentKind ?? issueDefaultAgentKind(undefined)
-  const storedDraft = { model: picked.model, effort }
-  const adjustedDraft = isShell
-    ? undefined
-    : draftForReportedModels(storedDraft, catalog[pickHarness])
-  const effectiveDraft = adjustedDraft ?? storedDraft
-  const effectiveModel = effectiveDraft.model === AUTO ? AUTO : model
-  const effectiveEffort = effectiveDraft.effort
-  // Paint and submit the same normalized values; keep them in the remembered
-  // choices too, so a later switch cannot resurrect a retired model/effort.
-  useLayoutEffect(() => {
-    if (!adjustedDraft) return
-    if (effectiveModel !== model) setModelPick(effectiveModel)
-    if (effectiveEffort !== effort) setEffortPick(effectiveEffort)
-  }, [adjustedDraft, effectiveModel, effectiveEffort, model, effort, setModelPick, setEffortPick])
-  const decoded = decodeModelPick(effectiveModel)
 
   /**
    * The checkout this launch lands in, resolved ONCE so that the harness is
@@ -293,11 +288,30 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   const harness: AgentKind = isShell
     ? 'shell'
     : launchAgentKind({
-        picked: decoded.agentKind as IssueAgentKind | undefined,
+        picked: picked.agentKind ?? issueAgentKind(harnessPick),
         preferred: defaultHarness,
         candidates: ISSUE_AGENT_KINDS,
         readiness: readinessOf,
       })
+  const pickHarness = harness === 'shell' ? defaultHarness : harness
+  const launchContext = selectedTarget?.machineId ?? machineId
+  const context = launchContext ? { machineId: launchContext, harness } : undefined
+  const storedDraft = { model: picked.model, effort, launchPickTouched: modelPick !== null || effortPick !== null }
+  const restoredDraft = !isShell && context
+    ? draftForLaunchContext(storedDraft, previousLaunchContext.current, context, lastLaunchPicks)
+    : storedDraft
+  // Remembered choices are restored BEFORE the machine's catalog validation.
+  const effectiveDraft = isShell ? restoredDraft : draftForReportedModels(restoredDraft, catalog[pickHarness]) ?? restoredDraft
+  const effectiveModel = isShell ? SHELL_PICK : effectiveDraft.model === AUTO ? AUTO : encodeModelPick(harness, effectiveDraft.model)
+  const effectiveEffort = effectiveDraft.effort
+  useLayoutEffect(() => {
+    if (!context) return
+    previousLaunchContext.current = context
+    if (!isShell && picked.agentKind && harnessPick !== harness) setHarnessPick(harness)
+    if (effectiveModel !== model) setModelPick(effectiveModel)
+    if (effectiveEffort !== effort) setEffortPick(effectiveEffort)
+  }, [context?.machineId, harness, harnessPick, isShell, picked.agentKind, effectiveModel, effectiveEffort, model, effort, setHarnessPick, setModelPick, setEffortPick])
+  const decoded = decodeModelPick(effectiveModel)
   const readiness = harness === 'shell' ? undefined : readinessOf(harness as IssueAgentKind)
   // spawnDraftAgent sends sessions.create without requestedDriverId: the
   // command contract and daemon resolver define that as the headed terminal.
@@ -317,6 +331,8 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
       ...(selection.model ? { model: selection.model } : {}),
       ...(selection.effort ? { effort: selection.effort } : {}),
     })
+    if (worktree.machineId) rememberLaunchPick(uiState, { machineId: worktree.machineId, harness },
+      isShell ? { model: AUTO, effort: AUTO } : effectiveDraft)
     void launch.settled.then((confirmed) => {
       if (!confirmed) return
       setPrompt((current) => (current.trim() === firstPrompt ? '' : current))
@@ -327,6 +343,7 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
 
   const applyModel = (value: string) => {
     setModelPick(value)
+    setEffortPick(AUTO)
     setQuery('')
     if (value === SHELL_PICK) {
       setEffortPick(AUTO)
@@ -334,9 +351,21 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
       return
     }
     const picked = decodeModelPick(value)
-    const kind = (picked.agentKind ?? issueDefaultAgentKind(undefined)) as IssueAgentKind
-    const adjusted = draftForReportedModels({ model: picked.model, effort }, catalog[kind])
-    if (adjusted) setEffortPick(adjusted.effort)
+    const kind = picked.agentKind ?? issueAgentKind(harnessPick) ?? pickHarness
+    setHarnessPick(kind)
+    // A model picked from the combined list is an explicit draft choice even
+    // when it also names another harness. The separate harness field restores.
+    if (launchContext) previousLaunchContext.current = { machineId: launchContext, harness: kind }
+    setStep('launch')
+  }
+
+  const applyHarness = (value: string) => {
+    const kind = issueAgentKind(value) ?? defaultHarness
+    setHarnessPick(kind)
+    if (kind !== harness) {
+      setModelPick(AUTO)
+      setEffortPick(AUTO)
+    }
     setStep('launch')
   }
 
@@ -363,7 +392,9 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   const canStart = machineOk && selectedRepo !== null && harnessReady
 
   const title =
-    step === 'model'
+    step === 'harness'
+      ? 'Harness'
+      : step === 'model'
       ? 'Model'
       : step === 'effort'
         ? 'Effort'
@@ -433,6 +464,17 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
               />
             </View>
           ) : null}
+
+          {!isShell ? <FieldSelect
+            label="Harness"
+            value={issueAgentLabel(harness, served)}
+            onPress={() => setStep('harness')}
+            picker={{
+              options: issueAgentOptions(defaultHarness, served),
+              selected: harness === defaultHarness ? '' : harness,
+              onSelect: applyHarness,
+            }}
+          /> : null}
 
           <FieldSelect
             label="Model"
@@ -525,6 +567,11 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
             <Text style={styles.none}>{signInInTerminalCopy(readiness, issueAgentLabel(harness, served))}</Text>
           ) : null}
         </>
+      ) : null}
+
+      {step === 'harness' ? (
+        <OptionList groups={[{ options: issueAgentOptions(defaultHarness, served) }]}
+          selected={harness === defaultHarness ? '' : harness} onPick={applyHarness} />
       ) : null}
 
       {step === 'model' ? (

@@ -1,4 +1,4 @@
-import { NEW_WORK_MODEL_KEY, NEW_WORK_EFFORT_KEY } from '@podium/client-core/ui-state'
+import { NEW_WORK_MODEL_KEY, NEW_WORK_EFFORT_KEY, LAST_LAUNCH_PICK_KEY } from '@podium/client-core/ui-state'
 import { headerEntities } from '@podium/client-graph/header-entities'
 import { headerView } from '@podium/client-graph/header-views'
 /**
@@ -527,7 +527,7 @@ describe('phone picker parity', () => {
     expect(create.mock.calls[0]?.[0]).not.toHaveProperty('effort')
   })
 
-  it('keeps model and effort when switching projects and machines that report the same list', async () => {
+  it('keeps the draft on a project switch, and restores Auto on an unremembered machine', async () => {
     const create = vi.fn(async (_request: unknown) => ({ sessionId: 'created' }))
     const projects = [repo('/home/dev/podium'), repo('/home/dev/shared')]
     await renderWithMobileStore(<NewWorkButton />, {
@@ -547,11 +547,13 @@ describe('phone picker parity', () => {
     expect(screen.getByLabelText('Effort, High')).toBeTruthy()
     fireEvent.click(screen.getByLabelText('Machine, Studio'))
     fireEvent.click(screen.getByLabelText('Remote'))
-    expect(await screen.findByLabelText('Model, Claude Code · Reported Opus')).toBeTruthy()
-    expect(screen.getByLabelText('Effort, High')).toBeTruthy()
+    expect(await screen.findByLabelText('Model, Auto')).toBeTruthy()
+    expect(screen.getByLabelText('Effort, Auto')).toBeTruthy()
     fireEvent.click(screen.getByLabelText('Start in shared'))
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
-    expect(create.mock.calls[0]?.[0]).toMatchObject({ machineId: 'remote', model: 'reported-opus', effort: 'high' })
+    expect(create.mock.calls[0]?.[0]).toMatchObject({ machineId: 'remote' })
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('model')
+    expect(create.mock.calls[0]?.[0]).not.toHaveProperty('effort')
   })
 
   it('offers no Use option for a typed model name', async () => {
@@ -562,5 +564,119 @@ describe('phone picker parity', () => {
     fireEvent.change(screen.getByPlaceholderText(/Filter/), { target: { value: 'my-custom-model' } })
     expect(screen.queryByLabelText(/Use.*my-custom-model/)).toBeNull()
     expect(screen.queryByText(/Use.*my-custom-model/)).toBeNull()
+  })
+})
+
+describe('phone last launched pair', () => {
+  const picks = {
+    mine: { 'claude-code': { model: 'reported-opus', effort: 'high' }, codex: { model: 'reported-gpt', effort: 'low' } },
+    remote: { 'claude-code': { model: 'reported-sonnet', effort: 'low' }, codex: { model: 'reported-gpt', effort: 'high' } },
+  }
+  async function setup() {
+    catalogFixture.byMachine = {
+      mine: { ...LIVE, codex: [{ value: 'reported-gpt', label: 'Reported GPT', efforts: ['low', 'high'] }] },
+      remote: { 'claude-code': [{ value: 'reported-sonnet', label: 'Reported Sonnet', efforts: ['low', 'high'] }],
+        codex: [{ value: 'reported-gpt', label: 'Reported GPT', efforts: ['low', 'high'] }] },
+    }
+    const create = vi.fn(async (_request: unknown) => ({ sessionId: 'created' }))
+    const layoutSet = vi.fn(async () => ({}))
+    const view = await renderWithMobileStore(<NewWorkButton />, {
+      repos: [repo('/home/dev/podium'), { ...repo('/home/dev/podium'), machineId: 'remote' } as GitRepositoryWire],
+      machines: [machine({ 'claude-code': 'in', codex: 'in' }), machine({ 'claude-code': 'in', codex: 'in' }, 'remote', 'Remote')],
+      api: { sessions: { create: { mutate: create } }, layout: { set: { mutate: layoutSet } } },
+    })
+    return { ...view, create, layoutSet }
+  }
+  async function choose(field: string, choice: string) {
+    fireEvent.click(screen.getByLabelText(new RegExp(`^${field}, `)))
+    fireEvent.click(await screen.findByLabelText(choice))
+  }
+  async function expectPair(model: string, effort: string) {
+    expect(await screen.findByLabelText(`Model, ${model}`)).toBeTruthy()
+    expect(screen.getByLabelText(`Effort, ${effort}`)).toBeTruthy()
+  }
+
+  it('restores all four machine/harness pairs and Auto when a combination is absent', async () => {
+    const { runtime } = await setup()
+    act(() => runtime.access.uiState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
+    fireEvent.click(screen.getByLabelText('New work'))
+    await expectPair('Claude Code · Reported Opus', 'High')
+    await choose('Harness', 'Codex')
+    await expectPair('Codex · Reported GPT', 'Low')
+    await choose('Machine', 'Remote')
+    await expectPair('Codex · Reported GPT', 'High')
+    await choose('Harness', 'Claude Code (default)')
+    await expectPair('Claude Code · Reported Sonnet', 'Low')
+    await choose('Machine', 'Studio')
+    await expectPair('Claude Code · Reported Opus', 'High')
+    act(() => runtime.access.uiState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify({ mine: picks.mine })))
+    await choose('Machine', 'Remote')
+    await expectPair('Auto', 'Auto')
+    await choose('Harness', 'Grok')
+    await expectPair('Auto · Grok', 'Auto')
+  })
+
+  it('choosing menus writes no preference, while Start writes the launched pair including Auto', async () => {
+    const { runtime, create } = await setup()
+    const writes = vi.spyOn(runtime.access.uiState, 'set')
+    const pairWrites = () => writes.mock.calls.filter(([key]) => key === LAST_LAUNCH_PICK_KEY)
+    fireEvent.click(screen.getByLabelText('New work'))
+    await choose('Model', 'Claude Code Reported Opus')
+    await choose('Effort', 'High')
+    await expectPair('Claude Code · Reported Opus', 'High')
+    expect(pairWrites()).toHaveLength(0)
+    fireEvent.click(screen.getByLabelText('Start in podium'))
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
+    expect(create.mock.calls[0]?.[0]).toMatchObject({ machineId: 'mine', agentKind: 'claude-code', model: 'reported-opus', effort: 'high' })
+    expect(JSON.parse(runtime.access.uiState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual({ mine: { 'claude-code': picks.mine['claude-code'] } })
+    fireEvent.click(screen.getByLabelText('New work'))
+    await choose('Model', 'Auto')
+    expect(pairWrites()).toHaveLength(1)
+    fireEvent.click(screen.getByLabelText('Start in podium'))
+    await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
+    expect(JSON.parse(runtime.access.uiState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual({ mine: { 'claude-code': { model: 'auto', effort: 'auto' } } })
+    expect(create.mock.calls[1]?.[0]).not.toHaveProperty('model')
+    expect(create.mock.calls[1]?.[0]).not.toHaveProperty('effort')
+  })
+
+  it('keeps a saved draft with different model and effort across reload, including explicit Auto', async () => {
+    const { runtime } = await setup()
+    act(() => {
+      runtime.access.uiState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks))
+      runtime.access.uiState.set(NEW_WORK_MODEL_KEY, 'codex:reported-gpt')
+      runtime.access.uiState.set(NEW_WORK_EFFORT_KEY, 'high')
+    })
+    fireEvent.click(screen.getByLabelText('New work'))
+    await expectPair('Codex · Reported GPT', 'High')
+    fireEvent.click(screen.getByLabelText('Dismiss launcher'))
+    fireEvent.click(screen.getByLabelText('New work'))
+    await expectPair('Codex · Reported GPT', 'High')
+    await choose('Model', 'Auto')
+    fireEvent.click(screen.getByLabelText('Dismiss launcher'))
+    fireEvent.click(screen.getByLabelText('New work'))
+    await expectPair('Auto · Codex', 'Auto')
+  })
+
+  it('resets a restored stale model after the selected machine list arrives', async () => {
+    const { runtime, rerender } = await setup()
+    catalogFixture.byMachine.mine = {}
+    act(() => runtime.access.uiState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
+    fireEvent.click(screen.getByLabelText('New work'))
+    await expectPair('Claude Code · reported-opus', 'High')
+    catalogFixture.byMachine.mine = { 'claude-code': [{ value: 'replacement', label: 'Replacement', efforts: ['high'] }] }
+    rerender(<NewWorkButton />)
+    await expectPair('Auto', 'Auto')
+    expect(JSON.parse(runtime.access.uiState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual(picks)
+  })
+
+  it('changing model always resets effort, even when the new model supports the old level', async () => {
+    const { runtime } = await setup()
+    catalogFixture.byMachine.mine!['claude-code']!.push({ value: 'second', label: 'Second', efforts: ['high'] })
+    act(() => runtime.access.uiState.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(picks)))
+    fireEvent.click(screen.getByLabelText('New work'))
+    await expectPair('Claude Code · Reported Opus', 'High')
+    await choose('Model', 'Claude Code Second')
+    await expectPair('Claude Code · Second', 'Auto')
+    expect(JSON.parse(runtime.access.uiState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual(picks)
   })
 })
