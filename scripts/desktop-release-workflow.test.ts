@@ -658,6 +658,8 @@ describe('desktop release workflow', () => {
     expect(desktopWorkflow).toContain('secrets.APPLE_API_KEY_CONTENT')
     expect(desktopWorkflow).toContain('APPLE_API_KEY_PATH=')
     expect(leg('darwin-aarch64').artifact_paths).toContain('*.dmg')
+    // Without it Tauri skips the Finder layout on CI and the DMG opens as a bare folder window.
+    expect(desktopWorkflow).toContain("TAURI_BUNDLER_DMG_IGNORE_CI: 'true'")
     expect(leg('darwin-aarch64').artifact_paths).toContain('*.app.tar.gz')
     expect(desktopWorkflow).toContain('actions/upload-artifact@v4')
     expect(desktopWorkflow).toContain('actions/download-artifact@v4')

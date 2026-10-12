@@ -110,6 +110,40 @@ describe('tauri desktop config', () => {
       expect(existsSync(join(__dirname, icon)), icon).toBe(true)
     }
   })
+  it('lays out the DMG window over a committed 1x+2x background', () => {
+    const dmg = conf.bundle.macOS.dmg
+    expect(dmg.background).toBe('dmg/background.tiff')
+    // Both icons inside the visible window, with room for a 128pt icon and its label; the app
+    // stays left of Applications so the drag reads left to right.
+    for (const at of [dmg.appPosition, dmg.applicationFolderPosition]) {
+      expect(at.x - 64).toBeGreaterThan(0)
+      expect(at.x + 64).toBeLessThan(dmg.windowSize.width)
+      expect(at.y - 64).toBeGreaterThan(0)
+      expect(at.y + 92).toBeLessThan(dmg.windowSize.height - 28)
+    }
+    expect(dmg.appPosition.x + 128).toBeLessThan(dmg.applicationFolderPosition.x)
+    // Finder picks the Retina image from a multi-image TIFF; count the IFD chain.
+    const tiff = readFileSync(join(__dirname, dmg.background))
+    expect(tiff.toString('latin1', 0, 2)).toBe('II')
+    const sizes: number[][] = []
+    for (let ifd = tiff.readUInt32LE(4); ifd !== 0; ) {
+      const count = tiff.readUInt16LE(ifd)
+      const tag = (id: number) => {
+        for (let i = 0; i < count; i++) {
+          const at = ifd + 2 + i * 12
+          if (tiff.readUInt16LE(at) === id) return tiff.readUInt32LE(at + 8)
+        }
+        return -1
+      }
+      sizes.push([tag(256), tag(257)])
+      ifd = tiff.readUInt32LE(ifd + 2 + count * 12)
+    }
+    const { width, height } = dmg.windowSize
+    expect(sizes).toEqual([
+      [width, height],
+      [width * 2, height * 2],
+    ])
+  })
   it('bundles one complete headless payload as the first-run seed', () => {
     expect(conf.bundle.resources).toEqual(['resources/payload'])
     expect(mainSource).toContain('"PODIUM_MOBILE_WEB_DIR"')

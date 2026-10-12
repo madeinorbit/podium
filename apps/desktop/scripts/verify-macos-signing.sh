@@ -92,6 +92,19 @@ for dmg in "$BUNDLE_DIR"/dmg/*.dmg; do
   [ -e "$dmg" ] || continue
   echo "== dmg: $(basename "$dmg") =="
   xcrun stapler validate "$dmg" || fail "$dmg has no stapled notarization ticket"
+  # The Finder layout (background, window size, icon positions) lives in the volume's .DS_Store,
+  # which only exists if bundle_dmg's AppleScript ran. Tauri skips it on CI unless told not to,
+  # and the DMG still builds fine without it, so check the volume instead of the build log.
+  mnt="$(mktemp -d)"
+  hdiutil attach -readonly -nobrowse -noverify -mountpoint "$mnt" "$dmg" >/dev/null \
+    || fail "$dmg could not be mounted"
+  layout_ok=1
+  [ -f "$mnt/.background/background.tiff" ] || layout_ok=0
+  [ -f "$mnt/.DS_Store" ] || layout_ok=0
+  hdiutil detach "$mnt" -quiet || hdiutil detach "$mnt" -force -quiet || true
+  rm -rf "$mnt"
+  [ "$layout_ok" = 1 ] \
+    || fail "$dmg has no Finder layout (.background/background.tiff and .DS_Store); was TAURI_BUNDLER_DMG_IGNORE_CI unset?"
 done
 
 # The updater installs from this tarball rather than the DMG, so a ticket missing HERE produces

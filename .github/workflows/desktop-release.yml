@@ -296,6 +296,10 @@ jobs:
           PODIUM_DESKTOP_RELEASE_CHANNEL: ${{ needs.validate.outputs.channel }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
           TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Tauri's DMG step skips the Finder AppleScript whenever CI=true, which silently ships a
+          # plain folder window: no background, no icon layout. GitHub's macOS runners can drive
+          # Finder, so opt back in; the macOS signing verifier fails the release if the layout is lost.
+          TAURI_BUNDLER_DMG_IGNORE_CI: 'true'
         run: bun run --cwd apps/desktop build ${{ matrix.build_args }}
       # Tauri notarizes the .app and then builds the DMG around it, leaving the disk image itself
       # unnotarized — and the DMG is what users download and what carries the quarantine flag.
