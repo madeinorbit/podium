@@ -378,10 +378,6 @@ export function createIssuePageViews(pool: MobxPool) {
     }
     return result
   }
-  function deferred(until: string | null | undefined): boolean {
-    const deadline = until == null ? NaN : Date.parse(until)
-    return Number.isFinite(deadline) && !pool.clock.reached(deadline)
-  }
   function prefix(id: string, prefixes?: Map<string, string | undefined>): string | undefined {
     const repoId = pool.graph.one('issue', id, 'repo')
     if (!repoId) return undefined
@@ -424,7 +420,9 @@ export function createIssuePageViews(pool: MobxPool) {
     const inverse = readDependents(id)
     if (inverse === LOADING) return LOADING
     const p = prefix(id, prefixes)
-    const isDeferred = deferred(value.deferUntil as string | null | undefined)
+    // Readiness belongs to the shared issue, including the next-message sentinel.
+    // Declared summary fields let a cold model answer without loading its payload.
+    const issue = pool.issueObject(id)
     return {
       ...fields,
       id,
@@ -437,8 +435,8 @@ export function createIssuePageViews(pool: MobxPool) {
       childIds: [],
       childCount: 0,
       childDoneCount: 0,
-      deferred: isDeferred,
-      ready: !value.blocked && !isDeferred && !isFinished(value),
+      deferred: issue.deferred,
+      ready: issue.ready,
     } as unknown as IssueViewModel
   }
   function summary(id: string): Loaded<IssueViewModel> {

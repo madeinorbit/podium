@@ -412,6 +412,44 @@ describe('declared issue page', () => {
     expect(tracked(() => ctx.views.summary('root'))).toMatchObject({ ready: true, deferred: false })
     expect(ctx.check()).toMatchObject({ differences: 0 })
   })
+  it.each([false, true])('summary and shared model agree on deferral (cold=%s)', cold => {
+    const deadline = NOW + 1000
+    const ctx = open([
+      task('next-message', { archived: cold, deferUntil: 'next-message' }),
+      task('dated', { archived: cold, deferUntil: new Date(deadline).toISOString() }),
+      task('none', { archived: cold, deferUntil: null }),
+    ], [], cold)
+    const reached = vi.spyOn(ctx.pool.clock, 'reached')
+    const read = (id: string) => tracked(() => {
+      const model = ctx.pool.issueObject(id)
+      const summary = ctx.views.summary(id)
+      if (!summary || summary === LOADING) throw new Error('Missing deferral summary')
+      return {
+        model: { deferred: model.deferred, ready: model.ready },
+        summary: { deferred: summary.deferred, ready: summary.ready },
+      }
+    })
+    const expectAgreement = (id: string, deferred: boolean) => {
+      const expected = { deferred, ready: !deferred }
+      expect(read(id)).toEqual({ model: expected, summary: expected })
+    }
+    expectAgreement('next-message', true)
+    expectAgreement('none', false)
+    expect(reached).not.toHaveBeenCalled()
+    expectAgreement('dated', true)
+    expect(reached.mock.calls.every(([until]) => until === deadline)).toBe(true)
+    ctx.pool.clock.advance(deadline)
+    expectAgreement('dated', false)
+    expectAgreement('next-message', true)
+    expectAgreement('none', false)
+    ctx.patch('issue', 'next-message', task('next-message', { archived: cold, deferUntil: null }))
+    expectAgreement('next-message', false)
+    if (cold) {
+      expectSummaryReadsOnly(ctx)
+      for (const id of ['next-message', 'dated', 'none'])
+        expect(tracked(() => omitGone(ctx.pool.row('issue', id, 'mark')))).toBe(LOADING)
+    }
+  })
   it('preserves the legacy answer for non-date defers without registering an invalid deadline', () => {
     // `next-message` is a recognized defer sentinel, not an invalid date.
     const ctx = open([task('root', { deferUntil: 'not-a-date' })])
