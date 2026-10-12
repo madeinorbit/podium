@@ -243,9 +243,10 @@ interface ShapeCarrier {
 /**
  * The strings a value flag might carry, probed against a field to decide whether
  * it takes a value at all. `'true'`/`'false'` are in the list deliberately — see
- * {@link flagsFromZodShape}.
+ * {@link flagsFromZodShape}. `'1'` covers numeric coercion: `true` becomes `1`,
+ * so accepting it must not make a numeric field look like a boolean flag.
  */
-const VALUE_PROBES = ['a-value', 'true', 'false'] as const
+const VALUE_PROBES = ['a-value', 'true', 'false', '1'] as const
 
 /**
  * Derive a command's flag declaration from its zod input object.

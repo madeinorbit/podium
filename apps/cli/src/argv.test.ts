@@ -162,6 +162,21 @@ describe('flagsFromZodShape', () => {
     expect(flagsFromZodShape(schema).booleans.has('ttl')).toBe(false)
   })
 
+  it('keeps coerced numeric fields as value flags through constraints and wrappers', () => {
+    const numeric = z.strictObject({
+      index: z.coerce.number().int().min(1).optional(),
+      limit: z.coerce.number().int().min(1).default(1),
+      clear: z.boolean().optional(),
+    })
+    const flags = flagsFromZodShape(numeric)
+    expect([...flags.booleans]).toEqual(['clear'])
+    const parsed = parseFlags(['--index', '2', '--limit', '3', '--clear'], flags, {
+      usage: 'podium issue todo',
+    })
+    expect(parsed.args).toEqual({ index: '2', limit: '3', clear: true })
+    expect(parsed.positionals).toEqual([])
+  })
+
   it('leaves a key that also accepts "true"/"false" as a VALUE flag', () => {
     // Classifying it value-less would make `--pinned false` mean pinned=true —
     // the flag would set exactly what the author asked it to clear.

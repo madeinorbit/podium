@@ -1,5 +1,15 @@
+import { ISSUE_COMMANDS, type IssueTrpc } from '@podium/issue-client'
 import { describe, expect, it, vi } from 'vitest'
-import { parseIssueArgs, resolveRepoArg, runIssueCli } from './issue-cli'
+import { parseIssueArgs, registryFlags, resolveRepoArg, runIssueCli } from './issue-cli'
+
+const TODO_INDEX_CASES = [
+  ['done', 2],
+  ['done', 3],
+  ['undone', 2],
+  ['undone', 3],
+  ['remove', 2],
+  ['remove', 3],
+] as const
 
 describe('parseIssueArgs', () => {
   it('parses the command, positionals, --flag value, --flag=value, and --bool', () => {
@@ -13,6 +23,23 @@ describe('parseIssueArgs', () => {
   it('parses --outside-scope', () => {
     const { args } = parseIssueArgs(['update', '--id=B', '--outside-scope'])
     expect(args.outsideScope).toBe(true)
+  })
+
+  it('infers todo indices as value-taking flags and clear as a boolean', () => {
+    const command = ISSUE_COMMANDS.find((entry) => entry.name === 'todo')
+    expect(command).toBeDefined()
+    const flags = registryFlags(command)
+    for (const key of ['done', 'undone', 'remove']) {
+      expect(flags.known.has(key)).toBe(true)
+      expect(flags.booleans.has(key)).toBe(false)
+    }
+    expect(flags.booleans.has('clear')).toBe(true)
+  })
+
+  it.each(TODO_INDEX_CASES)('consumes the item index in todo --%s %i', (flag, index) => {
+    const parsed = parseIssueArgs(['todo', '6029', `--${flag}`, String(index)])
+    expect(parsed.args).toEqual({ [flag]: String(index) })
+    expect(parsed.positionals).toEqual(['6029'])
   })
 
   it('parses --terminal-evidence as an acknowledgement flag', () => {
@@ -84,6 +111,30 @@ describe('runIssueCli', () => {
     expect(out).toContain('--terminal-evidence')
     expect(out).toContain('raster images only')
   })
+
+  it('todo help shows index values and keeps clear value-less', async () => {
+    const out = await runIssueCli(['todo', '--help'], client)
+    for (const flag of ['done', 'undone', 'remove']) {
+      expect(out).toMatch(new RegExp(`^  --${flag} <value>\\s*$`, 'm'))
+    }
+    expect(out).toMatch(/^  --clear\s*$/m)
+  })
+
+  it.each(TODO_INDEX_CASES)(
+    'forwards the requested index from raw todo --%s %i and equals syntax',
+    async (flag, index) => {
+      for (const tokens of [[`--${flag}`, String(index)], [`--${flag}=${index}`]]) {
+        const panelApply = vi.fn(async () => ({ seq: 6029, panel: { todos: [] } }))
+        const c = { issues: { panelApply: { mutate: panelApply } } } as unknown as IssueTrpc
+        await runIssueCli(['todo', '6029', ...tokens], c)
+        expect(panelApply).toHaveBeenCalledExactlyOnceWith({
+          id: '6029',
+          op: `todo-${flag}`,
+          index,
+        })
+      }
+    },
+  )
 
   it('ship forwards no client-derived target when omitted and renders service custody', async () => {
     const ship = vi.fn(async () => ({
