@@ -85,7 +85,16 @@ for vol in "/Volumes/$PRODUCT" "/Volumes/$PRODUCT "[0-9]*; do
     exit 1
   fi
 done
-(cd "$WORK/macos" && "$WORK/dmg/bundle_dmg.sh" "${args[@]}" "$PRODUCT.dmg" "$PRODUCT.app")
+if ! (cd "$WORK/macos" && "$WORK/dmg/bundle_dmg.sh" "${args[@]}" "$PRODUCT.dmg" "$PRODUCT.app"); then
+  # Since macOS 15, writing an app bundle into the image needs the terminal to hold the App
+  # Management privacy permission; hdiutil then reports only "Operation not permitted".
+  cat >&2 <<HINT
+
+If hdiutil said "Operation not permitted": allow your terminal app under System Settings >
+Privacy & Security > App Management (or Full Disk Access), quit and reopen it, and re-run.
+HINT
+  exit 1
+fi
 
 open "$WORK/macos/$PRODUCT.dmg"
 echo "Opened $WORK/macos/$PRODUCT.dmg (Tauri bundle_dmg from CLI $CLI_VERSION)."
