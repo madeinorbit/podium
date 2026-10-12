@@ -77,7 +77,7 @@ function open(over: { onRequestClose?: (reason: IssueCloseReason) => void } = {}
 } {
   const onClose = vi.fn()
   const issue = makeIssue({ memberSessionIds: state.sessions.map((session) => session.sessionId) })
-  pool = new MobxPool()
+  pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.now() })
   pool.apply({ type: 'replace', rows: [
     { kind: 'issue', id: issue.id, value: issue },
     ...state.sessions.map((value) => ({ kind: 'session' as const, id: value.sessionId, value })),
