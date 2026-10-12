@@ -1,8 +1,10 @@
-import { firstAdminMemberId, asSessionId } from '@podium/model'
+import { firstAdminMemberId, asSessionId, type MachineId } from '@podium/model'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { nativeAccountId } from '@podium/runtime'
 import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { SessionRegistry } from './relay'
+import { fixtureInventory } from './test-support/daemon-inventory'
+import { attachHostDaemon } from './test-support/host-daemon'
 
 /**
  * Approval broker end-to-end through the real registry [spec:SP-edbb] (#410):
@@ -14,7 +16,7 @@ type RelayResult = Extract<ControlMessage, { type: 'agentRelayResult' }>
 
 describe('approval broker relay e2e (#410)', () => {
   const registries: SessionRegistry[] = []
-  const machineId = 'm1'
+  let machineId: MachineId
   let registry: SessionRegistry
   let sA: string
   let daemonInbox: ControlMessage[]
@@ -22,12 +24,15 @@ describe('approval broker relay e2e (#410)', () => {
   beforeEach(async () => {
     registry = await SessionRegistry.create(undefined, undefined, { instanceId: 'default' })
     registries.push(registry)
+    machineId = registry.sessionStore.hostMachineId
+    daemonInbox = []
+    // Enroll a reporting machine and finish its inventory handshake before placement.
+    await attachHostDaemon(registry, (msg) => daemonInbox.push(msg), { repos: ['/r'] })
+    await registry.modules.machines.recordInventory(machineId, fixtureInventory())
     const A = await registry.issues.crud.create({ repoPath: '/r', title: 'epic', startNow: false })
     await registry.issues.crud.update(A.id, { worktreePath: '/r/.worktrees/issue-1-a' })
     const wtA = (await registry.issues.reports.get(A.id))?.worktreePath as string
     sA = (await registry.modules.sessions.createSession({ cwd: wtA, agentKind: 'shell' })).sessionId
-    daemonInbox = []
-    registry.gateway.attachDaemon(machineId, (msg) => daemonInbox.push(msg))
   })
 
   afterEach(async () => {
