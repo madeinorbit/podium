@@ -41,6 +41,9 @@
  * this contract's. For `roles.<role>.harness`, null means delete the saved
  * preference; an omitted key means leave it unchanged. The handler decodes the
  * clear to absence before storage. Null on other paths remains a model value.
+ * Only the server-served web client currently sends harness clears, so its
+ * bundle and this handler ship together. A separately versioned client must not
+ * send null clears to an older server that could persist them as values.
  * It is not a partial of the blob shape, for three reasons:
  *
  *  1. A partial of the blob can express a secret. `{ apiKeys: { openai: '…' } }`
