@@ -4004,20 +4004,20 @@
       "file": "apps/web/src/features/chat/ChatView.tsx",
       "holder": "ChatView/conversation",
       "rule": "reader-summary",
-      "tokens": "6b5a5764a73c68bccfacbf186f8204a7ed0583f0b7927cf0b10da080f22f1575",
+      "tokens": "f4c9c0e5243c785f650b023dc97fa2da4fe8e053f1c9e41dd2d673f357d113b8",
       "gate": [],
       "origin": [
         "130cdf8f9d4ed8f09fb3c14cb532c8aea0c8413756acd071787bec2d945f1ce2",
         "8bd1f9bfc0645ceea6f133dacd0f9c5342ced07a34d42d1cf4eb61dc7bdf239d",
         "eb3e9643a20228ecf463b20b4386f5c5fa7a0b783e7c6bd55a3f05c08d7d363f"
       ],
-      "fingerprint": "e366b9da4c906258720a0980fb02b686abca73f7a78a75c190d6f192e9029327",
+      "fingerprint": "9dc3d72eadc6d5f4bc4aa27a0f56a69bdaf9b50318a2af25221174410cd1901c",
       "count": 1,
       "classification": "REQUIRED REPAIR",
       "owner": "POD-5530",
       "trigger": "Invocation of ChatView/chat",
       "bound": "No proven named-demand or cardinality cap for this collection path.",
-      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 19d2f544ef62ed90bb4cf8fc6ac38d7dbaae72e22d2958a569ca426bd3419966.",
+      "reason": "reader-summary carries catalogue or unconstrained collection taint; a caller bound or an addressed replacement is still required. POD-5872: Record facts now come from shared models and the remaining machinery is a warm service read through a per-opening view model; existing collection demand is unchanged. Predecessor: 19d2f544ef62ed90bb4cf8fc6ac38d7dbaae72e22d2958a569ca426bd3419966. POD-6069: First acquisition uses the shared startup read; the imported hook body changed, with the same collection origins, gates and multiplicity. Predecessor: e366b9da4c906258720a0980fb02b686abca73f7a78a75c190d6f192e9029327.",
       "guard": "Exact fingerprint and multiplicity only. This ratchet entry is not a fix and does not establish bounded work."
     },
     {
