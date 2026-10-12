@@ -952,15 +952,7 @@ export class IssueCrudModule {
     const seq = await this.store.deps.store.issues.nextIssueSeq(repoId)
     const ts = this.store.now()
     const settings = await this.store.deps.getSettings()
-    // THE shared answer to "which agent, model and effort?" (POD-1107) — the same
-    // function the approvals broker's automation-schedule path calls, so the two
-    // can no longer drift apart. The role-defaults rule [spec:SP-7ff1] lives
-    // inside it now rather than being restated here.
-    const spawnDefaults = resolveSpawnDefaults(settings, {
-      agentKind: input.defaultAgent,
-      model: input.defaultModel,
-      effort: input.defaultEffort,
-    })
+    const spawnDefaults = resolveSpawnDefaults(settings, { agentKind: input.defaultAgent })
     // Built as the IN-MEMORY issue (R1) and encoded ONCE, through the pair that
     // owns the R1 <-> R3 splits (ADR 4 §4.1). Everything absent here is absent by
     // R1's own optionality — the storage nulls are `toStorage`'s to write, and
@@ -977,8 +969,9 @@ export class IssueCrudModule {
       branch: null,
       parentBranch: input.parentBranch || settings.gitWorkflow.defaultParentBranch || 'main',
       defaultAgent: spawnDefaults.agentKind,
-      defaultModel: spawnDefaults.model,
-      defaultEffort: spawnDefaults.effort,
+      // The issue stores picks only; current Settings apply when each session starts.
+      defaultModel: input.defaultModel || 'auto',
+      defaultEffort: input.defaultEffort || 'auto',
       ...(input.machineId != null ? { machineId: input.machineId } : {}),
       ...(input.linear?.id != null ? { linearId: input.linear.id } : {}),
       ...(input.linear?.identifier != null ? { linearIdentifier: input.linear.identifier } : {}),

@@ -312,7 +312,7 @@ describe('IssueService CRUD', () => {
     expect(wire.id).toMatch(/^iss_[0-9a-f-]{36}$/)
   })
 
-  it('scopes configured model and effort defaults to the configured harness', async () => {
+  it('stores only issue picks instead of copying configured model and effort defaults', async () => {
     const { svc, deps } = await harness()
     deps.getSettings = async () =>
       normalizeSettings({
@@ -327,8 +327,9 @@ describe('IssueService CRUD', () => {
 
     const configured = await svc.crud.create({ repoPath: '/r', title: 'Claude', startNow: false })
     expect(configured.defaultAgent).toBe('claude-code')
-    expect(configured.defaultModel).toBe('opus')
-    expect(configured.defaultEffort).toBe('high')
+    // DECISION (POD-3911): Settings apply at session start, never at issue creation.
+    expect(configured.defaultModel).toBe('auto')
+    expect(configured.defaultEffort).toBe('auto')
 
     const alternate = await svc.crud.create({
       repoPath: '/r',
@@ -1529,6 +1530,8 @@ describe('IssueService.start', () => {
       agentKind: 'claude-code',
       model: 'auto',
       effort: 'auto',
+      // The resolved answer travels with the original spawn pair.
+      launchSelection: { model: 'auto', effort: 'auto', forced: false, dropped: [], source: { model: 'auto', effort: 'auto' } },
       initialPrompt: 'do the thing',
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${created.id}`,
@@ -2217,14 +2220,16 @@ describe('IssueService.start', () => {
       agentKind: 'codex',
       model: 'auto',
       effort: 'auto',
+      // The resolved answer travels with the original spawn pair.
+      launchSelection: { model: 'auto', effort: 'auto', forced: false, dropped: [], source: { model: 'auto', effort: 'auto' } },
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${a.id}`,
       machineId: store.hostMachineId,
     })
   })
 
-  it('sanitizes legacy coding defaults stored on another harness', async () => {
-    const { svc, deps } = await harness()
+  it('drops legacy coding defaults unknown to the selected harness', async () => {
+    const { svc, deps, store } = await harness()
     deps.getSettings = async () =>
       normalizeSettings({
         roles: {
@@ -2244,6 +2249,12 @@ describe('IssueService.start', () => {
       defaultEffort: 'high',
     })
 
+    // DECISION: issue profiles now hold picks, so Settings equality no longer
+    // identifies legacy inheritance. The machine's catalog rejects the old slug.
+    await store.settings.setModelCatalog({
+      machineId: store.hostMachineId, version: MODEL_CATALOG_VERSION, fetchedAt: 1_000_000,
+      byAgent: { codex: [{ value: 'gpt-5.6', label: 'GPT-5.6', efforts: [] }] },
+    })
     await svc.gitWorkflow.start(issue.id)
     expect(deps.spawnSession).toHaveBeenLastCalledWith(
       expect.objectContaining({
@@ -2273,6 +2284,8 @@ describe('IssueService.start', () => {
       agentKind: 'claude-code',
       model: 'opus',
       effort: 'high',
+      // The resolved answer travels with the original spawn pair.
+      launchSelection: { model: 'opus', effort: 'high', forced: false, dropped: [], source: { model: 'issue', effort: 'issue' } },
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${a.id}`,
       machineId: store.hostMachineId,
@@ -2361,12 +2374,10 @@ describe('IssueService.start', () => {
     })
 
     /**
-     * The sanitizer in modelSelectionFor drops a stored model that is merely the
-     * inherited coding-role default when the harness differs. An EXPLICIT flag is not
-     * inherited, so it must survive that rule — otherwise `--model opus` on a codex
-     * issue silently spawns `auto`, the parsed-then-dropped failure exactly.
+     * An explicit choice equal to another harness's Settings is still a pick.
+     * Settings never apply to that harness, and cannot erase the explicit flag.
      */
-    it('survives the legacy-defaults sanitizer that drops an inherited value', async () => {
+    it('keeps explicit values equal to another harness Settings', async () => {
       const { svc, deps } = await harness()
       deps.getSettings = async () =>
         normalizeSettings({
@@ -2501,6 +2512,8 @@ describe('IssueService.start', () => {
       agentKind: 'codex',
       model: 'auto',
       effort: 'auto',
+      // The resolved answer travels with the original spawn pair.
+      launchSelection: { model: 'auto', effort: 'auto', forced: false, dropped: [], source: { model: 'auto', effort: 'auto' } },
       ownerUserId: firstAdminMemberId(),
       spawnedBy: `issue:${a.id}`,
       machineId: store.hostMachineId,

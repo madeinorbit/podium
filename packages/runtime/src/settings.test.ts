@@ -93,50 +93,19 @@ describe('resolveRole harness precedence', () => {
   })
 })
 
-describe('resolveSpawnDefaults [POD-1107]', () => {
-  it('answers the configured coding harness when no agent was chosen', () => {
-    const settings = normalizeSettings({
-      roles: { coding: { accountId: nativeAccountId('grok'), model: 'grok-4', effort: 'high' } },
-    })
-
-    expect(resolveSpawnDefaults(settings)).toEqual({
-      agentKind: 'grok',
-      model: 'grok-4',
-      effort: 'high',
-    })
+describe('resolveSpawnDefaults — harness only [POD-1107]', () => {
+  const settings = normalizeSettings({
+    roles: { coding: { accountId: nativeAccountId('grok'), model: 'grok-4', effort: 'high' } },
   })
 
-  it('keeps an explicit agent and withholds the coding role model from it [spec:SP-7ff1]', () => {
-    const settings = normalizeSettings({
-      roles: { coding: { accountId: nativeAccountId('grok'), model: 'grok-4', effort: 'high' } },
-    })
+  it.each([undefined, {}, { agentKind: 'auto' }, { agentKind: '' }])(
+    'uses the configured harness for an unset pick %j', (override) => {
+      expect(resolveSpawnDefaults(settings, override)).toEqual({ agentKind: 'grok' })
+    },
+  )
 
-    expect(resolveSpawnDefaults(settings, { agentKind: 'codex' })).toEqual({
-      agentKind: 'codex',
-      model: 'auto',
-      effort: 'auto',
-    })
-  })
-
-  it('an explicit model and effort win over the role', () => {
-    const settings = normalizeSettings({
-      roles: { coding: { accountId: nativeAccountId('grok'), model: 'grok-4', effort: 'high' } },
-    })
-
-    expect(
-      resolveSpawnDefaults(settings, { agentKind: 'grok', model: 'grok-3', effort: 'low' }),
-    ).toEqual({ agentKind: 'grok', model: 'grok-3', effort: 'low' })
-  })
-
-  it('matches what issue-create resolved on its own before this function existed', () => {
-    const settings = normalizeSettings({})
-    const coding = resolveRole(settings, 'coding')
-
-    expect(resolveSpawnDefaults(settings)).toEqual({
-      agentKind: coding.harness,
-      model: settings.roles.coding.model,
-      effort: settings.roles.coding.effort,
-    })
+  it('keeps an explicit harness without resolving model or effort', () => {
+    expect(resolveSpawnDefaults(settings, { agentKind: 'codex' })).toEqual({ agentKind: 'codex' })
   })
 })
 

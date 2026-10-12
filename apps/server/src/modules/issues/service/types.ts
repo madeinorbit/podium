@@ -20,6 +20,7 @@ import type {
 } from '@podium/sync'
 import type { LinearIssue } from '../../../linear'
 import type { llmClient } from '../../../llm'
+import type { ResolvedLaunchSelection } from '../../../model-validation'
 import type { IssueRow, SessionStore } from '../../../store'
 import type { SessionFacts } from '../../sessions/facts'
 import type { WorldIndexReader } from '../../world-index'
@@ -193,6 +194,8 @@ export interface IssueDeps {
     agentKind?: string
     model?: string
     effort?: string
+    /** Already resolved by issue workflow; carry through without re-defaulting auto. */
+    launchSelection?: ResolvedLaunchSelection
     accountId?: AccountId
     /** Deliberately spawn with a model slug the live catalog doesn't list [spec:SP-cc60]. */
     forceUnknownModel?: boolean

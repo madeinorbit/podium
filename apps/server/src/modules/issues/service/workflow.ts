@@ -15,11 +15,10 @@ import {
   spawnedByTag,
 } from '@podium/model'
 import { formatIssueRef, type WorktreeGcObservation } from '@podium/protocol'
-import { resolveRole } from '@podium/runtime'
 import { type CommandPrincipal, systemPrincipal } from '../../../command-principal'
 import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
-import { vetLaunchSelection } from '../../../model-validation'
+import { resolveLaunchSelection } from '../../../model-validation'
 import type { IssueRow } from '../../../store'
 import { afterCommit } from '../../../store/executor/executor'
 import {
@@ -227,33 +226,6 @@ export class IssueGitWorkflowModule {
     return joinMachinePath(repoPath, '.worktrees', dir)
   }
 
-  /**
-   * The model/effort a spawn on this issue should actually run.
-   *
-   * `stored` is the issue's profile; the sanitizer drops a stored value that is merely
-   * the INHERITED coding-role default when the spawn is on a different harness, since
-   * one harness's slug is meaningless on another.
-   *
-   * Explicit per-launch values (`issue start --model/--effort`, POD-1545) are not
-   * merged here: they go to `vetLaunchSelection` as EXPLICIT, beside this result as
-   * INHERITED, so a bad flag is refused while a bad stored value only falls back to
-   * `auto` (POD-3911). Precedence is unchanged: explicit flag > stored value > `auto`.
-   */
-  private async selectionFor(
-    agentKind: string,
-    stored: { agent: string; model: string; effort: string },
-  ): Promise<{ model: string; effort: string }> {
-    const settings = await this.store.d.getSettings()
-    const coding = resolveRole(settings, 'coding')
-    const usesIssueProfile = agentKind === stored.agent
-    const inherited = (value: string, roleValue: string): string =>
-      usesIssueProfile && (agentKind === coding.harness || value !== roleValue) ? value : 'auto'
-    return {
-      model: inherited(stored.model, settings.roles.coding.model),
-      effort: inherited(stored.effort, settings.roles.coding.effort),
-    }
-  }
-
   async start(
     id: string,
     agentKind?: string,
@@ -312,21 +284,17 @@ export class IssueGitWorkflowModule {
     // An inherited value the catalog does not know falls back to `auto` instead —
     // a stale default never blocks a start (POD-3911).
     // Catalog is machine-keyed (POD-1123): validate against the issue's host.
-    const vetted = vetLaunchSelection(
-      await this.store.d.store.settings.getModelCatalog(
+    const vetted = resolveLaunchSelection({
+      agentKind: agent,
+      explicit: { model: opts?.model ?? 'auto', effort: opts?.effort ?? 'auto' },
+      issueProfile: { agentKind: agent, model: stored.model, effort: stored.effort },
+      settings: await this.store.d.getSettings(),
+      catalog: await this.store.d.store.settings.getModelCatalog(
         row.machineId ?? this.store.d.store.hostMachineId,
       ),
-      {
-        agentKind: agent,
-        explicit: {
-          ...(opts?.model ? { model: opts.model } : {}),
-          ...(opts?.effort ? { effort: opts.effort } : {}),
-        },
-        inherited: await this.selectionFor(agent, stored),
-        ...(opts?.forceUnknownModel ? { force: true } : {}),
-      },
-    )
-    const selection = { model: vetted.model, effort: vetted.effort }
+      force: opts?.forceUnknownModel,
+    })
+    const selection = vetted
     // Accepted — the selection is what gets committed to the issue. `--model`/`--effort`
     // PERSIST (documented as such in `start --help`), matching `--agent`: the issue's
     // profile is what add-session and every later respawn read, so a launch-only
@@ -540,6 +508,7 @@ export class IssueGitWorkflowModule {
       agentKind: row.defaultAgent,
       model: selection.model,
       effort: selection.effort,
+      launchSelection: selection,
       ...(opts?.forceUnknownModel ? { forceUnknownModel: true } : {}),
       ...(initialPrompt ? { initialPrompt } : {}),
       spawnedBy: opts?.spawnedBy ?? spawnedByTag({ kind: 'issue', id: row.id }),
@@ -1546,20 +1515,19 @@ export class IssueGitWorkflowModule {
     // refuse the spawn: a value the catalog does not know falls back to `auto`
     // (POD-3911). `--force-unknown-model` keeps an unknown stored model as before.
     // A 'shell' session carries no model (addShell), so this is a no-op there.
-    const selection = vetLaunchSelection(
-      await this.store.d.store.settings.getModelCatalog(
+    const selection = resolveLaunchSelection({
+      agentKind: kind,
+      issueProfile: {
+        agentKind: row.defaultAgent,
+        model: row.defaultModel,
+        effort: row.defaultEffort,
+      },
+      settings: await this.store.d.getSettings(),
+      catalog: await this.store.d.store.settings.getModelCatalog(
         row.machineId ?? this.store.d.store.hostMachineId,
       ),
-      {
-        agentKind: kind,
-        inherited: await this.selectionFor(kind, {
-          agent: row.defaultAgent,
-          model: row.defaultModel,
-          effort: row.defaultEffort,
-        }),
-        ...(opts?.forceUnknownModel ? { force: true } : {}),
-      },
-    )
+      force: opts?.forceUnknownModel,
+    })
     // Guard against the path the repository has ON THE PIN, not the issue's own
     // (POD-1571): comparing the source path literally made a present repo read as
     // absent and refused every add-session to a machine with a different layout.
@@ -1575,6 +1543,7 @@ export class IssueGitWorkflowModule {
       agentKind: kind,
       model: selection.model,
       effort: selection.effort,
+      launchSelection: selection,
       ...(opts?.forceUnknownModel ? { forceUnknownModel: true } : {}),
       spawnedBy: opts?.spawnedBy ?? spawnedByTag({ kind: 'issue', id: row.id }),
       ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),

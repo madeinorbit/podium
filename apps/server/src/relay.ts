@@ -44,6 +44,7 @@ import {
 } from '@podium/protocol'
 import type { MessageFailedCause, QueueDrainAbandonedReason } from '@podium/protocol/daemon'
 import { resolveSpawnDefaults } from '@podium/runtime'
+import { resolveLaunchSelection } from './model-validation'
 import { durableSessionLabel } from '@podium/runtime/instance'
 import { stateDir } from '@podium/runtime/local-machine'
 import { prepareSourceDaemonCutover } from '@podium/runtime/transfer-lifecycle'
@@ -1985,6 +1986,8 @@ export class SessionRegistry {
           ...(o.issueId ? { issueId: o.issueId } : {}),
           ...(o.model !== undefined ? { model: o.model } : {}),
           ...(o.effort !== undefined ? { effort: o.effort } : {}),
+          ...(o.launchSelection ? { launchSelection: o.launchSelection } : {}),
+          ...(o.forceUnknownModel ? { forceUnknownModel: true } : {}),
           ...(o.initialPrompt ? { initialPrompt: o.initialPrompt } : {}),
           ...(o.spawnedBy ? { spawnedBy: o.spawnedBy } : {}),
           ...(o.machineId ? { machineId: o.machineId } : {}),
@@ -2750,14 +2753,17 @@ export class SessionRegistry {
           // explicit agent ignored the operator's configured default harness
           // while issue-create honoured it. Continuing an existing session still
           // wins outright — that session's harness is already running.
-          const spawnDefaults = resolveSpawnDefaults(
-            await this.store.settings.getSettingsFor(await firstAdminMemberId(this.store)),
-            {
-              agentKind: existing?.agentKind ?? fresh?.agentKind,
-              model: fresh?.model,
-              effort: fresh?.effort,
-            },
-          )
+          const settings = await this.store.settings.getSettingsFor(await firstAdminMemberId(this.store))
+          const spawnDefaults = resolveSpawnDefaults(settings, {
+            agentKind: existing?.agentKind ?? fresh?.agentKind,
+          })
+          const selection = resolveLaunchSelection({
+            agentKind: spawnDefaults.agentKind,
+            explicit: { model: fresh?.model ?? 'auto', effort: fresh?.effort ?? 'auto' },
+            settings,
+            // Scheduling snapshots defaults without probing; spawn vets the selected host's row.
+            catalog: null,
+          })
           const scheduled = await automations.create(
             {
               name: op.name,
@@ -2767,8 +2773,8 @@ export class SessionRegistry {
               targetSessionId: existingSessionId,
               repoPath: existing?.cwd ?? fresh?.repoPath ?? null,
               agentKind: spawnDefaults.agentKind,
-              model: spawnDefaults.model,
-              effort: spawnDefaults.effort,
+              model: fresh?.model === 'auto' ? 'auto' : selection.model,
+              effort: fresh?.effort === 'auto' ? 'auto' : selection.effort,
               prompt: op.prompt,
               enabled: true,
               sessionMode: existingSessionId === null ? 'fresh' : 'resume',

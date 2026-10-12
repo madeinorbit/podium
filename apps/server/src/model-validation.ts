@@ -1,3 +1,4 @@
+import { resolveRole, type PodiumSettings } from '@podium/runtime'
 import type { ModelCatalogSnapshot } from './model-catalog'
 import { didYouMean } from './similarity'
 
@@ -299,4 +300,58 @@ export function vetLaunchSelection(
   }
 
   return { model: modelValue ?? 'auto', effort: effortValue ?? 'auto', forced, dropped }
+}
+
+export type LaunchSelectionSource = 'explicit' | 'issue' | 'settings' | 'auto'
+
+export interface ResolvedLaunchSelection extends VettedSelection {
+  /** The surviving layer; a rejected inherited value has source `auto`. */
+  source: Record<'model' | 'effort', LaunchSelectionSource>
+}
+
+/** One pure answer for a new launch. Catalog data is supplied by the server's
+ * persisted machine row; resolving never contacts a daemon. `auto` means unset
+ * in every layer. Settings apply only to the coding harness [spec:SP-7ff1]. */
+export function resolveLaunchSelection(input: {
+  agentKind: string
+  explicit?: SelectionValues
+  issueProfile?: SelectionValues & { agentKind: string }
+  settings: PodiumSettings
+  catalog: ModelCatalogSnapshot | null | undefined
+  force?: boolean
+}): ResolvedLaunchSelection {
+  const coding = resolveRole(input.settings, 'coding')
+  const source: ResolvedLaunchSelection['source'] = { model: 'auto', effort: 'auto' }
+  const inherited: SelectionValues = {}
+  for (const field of ['model', 'effort'] as const) {
+    const explicit = input.explicit?.[field] ?? 'auto'
+    const issue = input.issueProfile?.agentKind === input.agentKind
+      ? input.issueProfile[field] ?? 'auto'
+      : 'auto'
+    const setting = input.agentKind === coding.harness ? coding[field] : 'auto'
+    if (isExplicit(explicit)) source[field] = 'explicit'
+    else if (isExplicit(issue)) {
+      inherited[field] = issue
+      source[field] = 'issue'
+    } else if (isExplicit(setting)) {
+      inherited[field] = setting
+      source[field] = 'settings'
+    }
+  }
+  const vetted = vetLaunchSelection(input.catalog, {
+    agentKind: input.agentKind,
+    explicit: input.explicit,
+    inherited,
+    force: input.force,
+  })
+  // A forced unlisted model cannot establish an effort ladder of its own.
+  // Force still cannot bypass the harness's authoritative effort vocabulary.
+  if (vetted.forced && isExplicit(input.explicit?.effort)) {
+    assertModelSelectionValid(input.catalog, {
+      agentKind: input.agentKind,
+      effort: input.explicit.effort,
+    })
+  }
+  for (const field of vetted.dropped) source[field] = 'auto'
+  return { ...vetted, source }
 }

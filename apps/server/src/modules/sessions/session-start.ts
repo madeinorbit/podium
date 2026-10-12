@@ -70,8 +70,8 @@ import type {
 } from '@podium/protocol'
 import type { ControlMessage } from '@podium/protocol/daemon'
 import { resolveRole } from '@podium/runtime'
-import { harnessSupportsInitialPrompt } from '../../harness-manifest'
-import { assertModelSelectionValid } from '../../model-validation'
+import { harnessSupportsEffort, harnessSupportsInitialPrompt } from '../../harness-manifest'
+import { resolveLaunchSelection, type ResolvedLaunchSelection } from '../../model-validation'
 import type { SessionStore } from '../../store'
 import type { MachineUseResolver } from '../machines/service'
 import { authorSpawnBinding } from './binding-mint'
@@ -214,6 +214,8 @@ export class SessionStart {
     effort?: string
     accountId?: AccountId
     forceUnknownModel?: boolean
+    /** Server-internal issue launch answer, already vetted before workflow mutations. */
+    launchSelection?: ResolvedLaunchSelection
     spawnedBy?: string
     workflowRunId?: string
     workflowStepId?: string
@@ -264,15 +266,14 @@ export class SessionStart {
     }
     // Reject an explicit model/effort the live catalog doesn't list BEFORE any
     // spawn side effect [spec:SP-cc60].
-    const { forced } = assertModelSelectionValid(
-      await this.ports.store.settings.getModelCatalog(machineId),
-      {
-        agentKind,
-        ...(input.model !== undefined ? { model: input.model } : {}),
-        ...(input.effort !== undefined ? { effort: input.effort } : {}),
-        ...(input.forceUnknownModel ? { force: true } : {}),
-      },
-    )
+    const selection = input.launchSelection ?? resolveLaunchSelection({
+      agentKind,
+      explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
+      settings: await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
+      catalog: await this.ports.store.settings.getModelCatalog(machineId),
+      force: input.forceUnknownModel,
+    })
+    const { forced } = selection
     // Spawner name is validated before any side effect so a bad title never
     // leaves a half-spawned session.
     let curatedName: string | undefined
@@ -341,8 +342,7 @@ export class SessionStart {
       ...(preparedInstructions.instructions.length
         ? { instructions: preparedInstructions.instructions }
         : {}),
-      ...(input.model !== undefined ? { model: input.model } : {}),
-      ...(input.effort !== undefined ? { effort: input.effort } : {}),
+      launchSelection: selection,
       ...(input.accountId !== undefined ? { accountId: input.accountId } : {}),
       ...(input.loginHarness ? { loginHarness: input.loginHarness } : {}),
       ...(requestedDriverId !== undefined ? { requestedDriverId } : {}),
@@ -407,7 +407,7 @@ export class SessionStart {
         payload: {
           sessionId: spawned.sessionId,
           harness: agentKind,
-          ...(input.model !== undefined ? { model: input.model } : {}),
+          model: selection.model,
           ...(issueId ? { issueId } : {}),
           ...(input.spawnedBy ? { spawnedBy: input.spawnedBy } : {}),
         },
@@ -431,6 +431,7 @@ export class SessionStart {
     instructions?: AgentInstruction[]
     model?: string
     effort?: string
+    launchSelection?: ResolvedLaunchSelection
     accountId?: AccountId
     spawnedBy?: string
     workflowRunId?: string
@@ -465,13 +466,19 @@ export class SessionStart {
       agentKind: input.agentKind,
       ownerUserId,
     })
-    const launch = await this.ports.launchConfig.modelDefaults(
-      input.agentKind,
-      input.model !== undefined || input.effort !== undefined
-        ? { model: input.model, effort: input.effort }
-        : undefined,
-      machineId,
-    )
+    const selection = input.launchSelection ?? resolveLaunchSelection({
+      agentKind: input.agentKind,
+      explicit: { model: input.model ?? 'auto', effort: input.effort ?? 'auto' },
+      settings: await this.ports.store.settings.getSettingsFor(await this.ports.settingsViewer()),
+      catalog: await this.ports.store.settings.getModelCatalog(machineId),
+    })
+    const launch = {
+      ...await this.ports.launchConfig.modelDefaults(input.agentKind),
+      ...(selection.model !== 'auto' && input.agentKind !== 'shell' ? { model: selection.model } : {}),
+      ...(selection.effort !== 'auto' && harnessSupportsEffort(input.agentKind)
+        ? { effort: selection.effort }
+        : {}),
+    }
     const inheritedAccountId =
       input.agentKind === 'shell'
         ? undefined
