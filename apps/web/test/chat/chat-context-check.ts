@@ -5,6 +5,7 @@ import { headerView } from '@podium/client-graph/header-views'
 
 import type { IssueViewModel } from '@podium/client-core/replica'
 import type { MobxPool } from '@podium/client-graph'
+import type { PendingInteractionModel } from '@podium/client-graph/message-models'
 import {
   chatArtifactIssue,
   chatInteractions,
@@ -84,7 +85,7 @@ export function checkChatContext(
     compare(
       `pending:${id}`,
       { blocked: mine.length > 0, question: mine.find((row) => row.kind === 'question') },
-      { blocked: asks.blocked, question: asks.question?.row },
+      { blocked: asks.blocked, question: (asks.question as PendingInteractionModel | undefined)?.row },
       asks.pending > 0,
     )
     compare(

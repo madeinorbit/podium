@@ -18,7 +18,7 @@ import { sessionPaneView } from '@podium/client-graph/session-pane-view'
 import { createRowSource } from '@podium/client-graph/shared/row-source'
 import { createPoolTransactions } from '@podium/client-graph/write/transactions'
 import type { MachineWire, SessionMeta } from '@podium/model'
-import { asSessionId } from '@podium/model'
+import { asMachineId, asSessionId } from '@podium/model'
 import { observable, runInAction } from 'mobx'
 import { useEffect, useMemo, useSyncExternalStore } from 'react'
 import type { SessionView } from '@podium/client-core/session-values'
@@ -80,13 +80,13 @@ export function createPanePoolFixture(readInputs: () => PaneInputs) {
     const machines = [...input.machines]
     const sessions = input.sessions.map(value => {
       const { machineName, condition, handoffTarget, displayRef: _displayRef, ...session } = value as SessionView
-      const machineId = session.machineId ?? `fixture-machine:${session.sessionId}`
+      const machineId = session.machineId ?? asMachineId(`fixture-machine:${session.sessionId}`)
       if (!machines.some(machine => machine.id === machineId)) machines.push({
         id: machineId, name: machineName ?? '', online: true,
         loggedOutHarnesses: condition === 'logged-out' ? [session.agentKind] : [],
         inventory: { agents: [{ kind: session.agentKind, installed: true, login: { state: condition === 'logged-out' ? 'out' : 'in' } }], tools: [] },
       } as unknown as MachineWire)
-      const handoffTargetMachineId = handoffTarget ? `fixture-handoff:${handoffTarget}` : session.handoffTargetMachineId
+      const handoffTargetMachineId = handoffTarget ? asMachineId(`fixture-handoff:${handoffTarget}`) : session.handoffTargetMachineId
       if (handoffTarget && !machines.some(machine => machine.id === handoffTargetMachineId)) machines.push({
         id: handoffTargetMachineId, name: handoffTarget, online: true,
       } as unknown as MachineWire)
