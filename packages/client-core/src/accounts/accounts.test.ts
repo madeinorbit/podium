@@ -14,6 +14,8 @@ import {
   eraseAccountData,
   offlineProfileStatus,
   removeServerProfile,
+  readBrowserSignInWithEmail,
+  rememberBrowserSignInWithEmail,
   resolveOfflinePrincipal,
   type AccountCredentials,
   type ServerProfile,
@@ -109,6 +111,46 @@ describe('browser account metadata storage', () => {
         ? browserProfileMetadataStorage.getItem('profiles')
         : browserProfileMetadataStorage.setItem('profiles', 'value')
     await expect(result).rejects.toThrow('storage unavailable')
+  })
+
+  it.each([null, '0', 'true', 'alice', '1'])(
+    'reads the existing sign-in hint %j without adopting an identity',
+    (hint) => {
+      const getItem = vi.fn(() => hint)
+      vi.stubGlobal('localStorage', { getItem })
+      expect(readBrowserSignInWithEmail()).toBe(hint === '1')
+      expect(getItem).toHaveBeenCalledExactlyOnceWith('podium.login.withEmail')
+    },
+  )
+
+  it('remembers both sign-in forms without changing account or UI records', () => {
+    const values = new Map([
+      ['podium.accounts.web.blue.profiles.v1', JSON.stringify({ profiles: [profile] })],
+      ['podium.view', 'sessions'],
+    ])
+    const existing = [...values]
+    vi.stubGlobal('localStorage', {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    })
+    rememberBrowserSignInWithEmail(true)
+    expect(readBrowserSignInWithEmail()).toBe(true)
+    rememberBrowserSignInWithEmail(false)
+    expect(readBrowserSignInWithEmail()).toBe(false)
+    expect([...values].filter(([key]) => key !== 'podium.login.withEmail')).toEqual(existing)
+  })
+
+  it('tolerates inaccessible storage for the optional sign-in hint', () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('storage unavailable')
+      },
+      setItem: () => {
+        throw new Error('storage unavailable')
+      },
+    })
+    expect(readBrowserSignInWithEmail()).toBe(false)
+    expect(() => rememberBrowserSignInWithEmail(true)).not.toThrow()
   })
 })
 

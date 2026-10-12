@@ -184,6 +184,63 @@ describe('LoginView', () => {
     expect(screen.getByLabelText(/^email$/i)).toBeTruthy()
   })
 
+  it('keeps the existing remembered email form but returns to first-admin sign-in when chosen', async () => {
+    localStorage.setItem('podium.login.withEmail', '1')
+    const login = vi.fn().mockResolvedValue(signedIn)
+    vi.stubGlobal('fetch', login)
+    const onLoggedIn = vi.fn()
+    const view = render(<LoginView httpOrigin="http://x" onLoggedIn={onLoggedIn} />)
+    expect(screen.getByLabelText(/^email$/i)).toBeTruthy()
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with password only' }))
+    typePasswordAndSubmit('hunter2')
+    await waitFor(() =>
+      expect(onLoggedIn).toHaveBeenCalledWith(JSON.stringify(['installation-a', 'alice'])),
+    )
+    expect(JSON.parse(login.mock.calls[0]![1].body)).toEqual({
+      email: 'user:sole',
+      password: 'hunter2',
+    })
+    view.unmount()
+    render(<LoginView httpOrigin="http://x" onLoggedIn={vi.fn()} />)
+    expect(screen.queryByLabelText(/^email$/i)).toBeNull()
+  })
+
+  it.each([
+    { ok: false, status: 401, json: async () => ({}) },
+    { ok: true, status: 200, json: async () => ({ ok: true }) },
+  ])('does not remember a form choice without a verified principal: $status', async (response) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(response))
+    const onLoggedIn = vi.fn()
+    render(<LoginView httpOrigin="http://x" onLoggedIn={onLoggedIn} />)
+    fireEvent.click(screen.getByRole('button', { name: 'Sign in with email' }))
+    fireEvent.change(screen.getByLabelText(/^email$/i), { target: { value: 'alice@example.com' } })
+    typePasswordAndSubmit('hunter2')
+    await screen.findByRole('alert')
+    expect(onLoggedIn).not.toHaveBeenCalled()
+    expect(localStorage.getItem('podium.login.withEmail')).toBeNull()
+  })
+
+  it('still hands off the verified principal when browser metadata is unavailable', async () => {
+    vi.stubGlobal('localStorage', {
+      getItem: () => {
+        throw new Error('storage unavailable')
+      },
+      setItem: () => {
+        throw new Error('storage unavailable')
+      },
+      clear: () => {},
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(signedIn))
+    const onLoggedIn = vi.fn()
+    render(<LoginView httpOrigin="http://x" onLoggedIn={onLoggedIn} />)
+    expect(screen.queryByLabelText(/^email$/i)).toBeNull()
+    typePasswordAndSubmit('hunter2')
+    await waitFor(() =>
+      expect(onLoggedIn).toHaveBeenCalledWith(JSON.stringify(['installation-a', 'alice'])),
+    )
+    expect(screen.queryByRole('alert')).toBeNull()
+  })
+
   it('logs in with the entered password (credentials included) and calls onLoggedIn', async () => {
     const login = vi.fn().mockResolvedValue({
       ok: true,

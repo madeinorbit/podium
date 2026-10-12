@@ -1,3 +1,7 @@
+import {
+  readBrowserSignInWithEmail,
+  rememberBrowserSignInWithEmail,
+} from '@podium/client-core/accounts'
 import { webAuth, webAccounts } from '@/lib/accounts'
 import { AccountContext } from '@/lib/account-context'
 import { nativeDesktopBridge } from '@/lib/nativeDesktop'
@@ -154,26 +158,6 @@ export function CloudLoginView({
 
 type LoginState = 'empty' | 'typing' | 'busy' | 'error' | 'ok'
 
-/* Single-user bridge: the email field stays hidden and the login names the first admin
-   (`user:sole`) until multi-user ships. An invited member — or an admin who set an email —
-   reveals it once, and this browser keeps showing it after their next sign-in. */
-const WITH_EMAIL_KEY = 'podium.login.withEmail'
-
-function rememberedWithEmail(): boolean {
-  try {
-    return globalThis.localStorage?.getItem(WITH_EMAIL_KEY) === '1'
-  } catch {
-    return false
-  }
-}
-
-function rememberWithEmail(on: boolean): void {
-  try {
-    if (on) globalThis.localStorage?.setItem(WITH_EMAIL_KEY, '1')
-    else globalThis.localStorage?.removeItem(WITH_EMAIL_KEY)
-  } catch {}
-}
-
 /**
  * Full-viewport password screen (fused bar, spec 2b). On a 200 the session cookie is set
  * and `onLoggedIn` fires immediately; `leaving` then fades the layer out over the app.
@@ -187,7 +171,9 @@ export function LoginView({
   onLoggedIn: (principal: string) => void | Promise<void>
   leaving?: boolean
 }): ReactNode {
-  const [withEmail, setWithEmail] = useState(rememberedWithEmail)
+  // The first admin signs in as `user:sole`; invited members reveal the email
+  // field once, and the accounts owner remembers that form choice for this browser.
+  const [withEmail, setWithEmail] = useState(readBrowserSignInWithEmail)
   const [email, setEmail] = useState('')
   const [password, setPassword] = useState('')
   const [busy, setBusy] = useState(false)
@@ -211,7 +197,7 @@ export function LoginView({
       // An empty email is sent as `user:sole`, the first admin.
       const result = await webAuth.login(httpOrigin, password, undefined, withEmail ? email : '')
       if (result.ok && result.principal) {
-        rememberWithEmail(withEmail)
+        rememberBrowserSignInWithEmail(withEmail)
         await onLoggedIn(result.principal)
         setBusy(false)
         setOk(true)
