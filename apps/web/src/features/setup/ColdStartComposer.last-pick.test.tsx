@@ -38,7 +38,7 @@ const store = {
   })),
   uiState: { get: (key: string) => uiValues.get(key) ?? null, set: uiSet,
     subscribe: (listener: (keys: ReadonlySet<string>) => void) => { listeners.add(listener); return () => listeners.delete(listener) } },
-  spawnDraftAgent: vi.fn(() => ({ sessionId: asSessionId('new'), issueId: asIssueId('new'), settled: Promise.resolve(true) })),
+  spawnDraftAgent: vi.fn((_input: unknown) => ({ sessionId: asSessionId('new'), issueId: asIssueId('new'), settled: Promise.resolve(true) })),
   spawnIssueAgent: vi.fn(), focusIssueSession: vi.fn(async () => null),
   setSelectedIssueId: vi.fn(), setSelectedWorktree: vi.fn(), setPane: vi.fn(),
   setPanelMode: vi.fn(), setView: vi.fn(),

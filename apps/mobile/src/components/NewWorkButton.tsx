@@ -2,6 +2,7 @@ import { observer } from 'mobx-react-lite'
 import type { LaunchWorkPicker } from '@podium/client-graph/launch-option-views'
 import { omitGone } from '@podium/client-graph/lookup'
 import type { MobxPool } from '@podium/client-graph/pool'
+import { preferenceSource } from '@podium/client-graph/preference-source'
 import { relativeTime } from '@podium/client-core/focus'
 import { useHarnessDescriptors, useModelCatalog } from '@podium/client-core/react'
 import {
@@ -29,7 +30,7 @@ import { usePathname, useRouter } from 'expo-router'
 import { type Dispatch, type SetStateAction, useCallback, useMemo, useState, useLayoutEffect, useRef } from 'react'
 import { StyleSheet, Text, TextInput, View } from 'react-native'
 import { useStoreActions, useUiState } from '../client/hooks'
-import { useMobilePoolProjection } from '../client/mobile-pool'
+import { useMobilePool, useMobilePoolProjection } from '../client/mobile-pool'
 import { useLaunchWorkPicker } from '../client/use-launch-inputs'
 import type { MobileTrpc } from '../client/trpc'
 import { usePersistedUiState } from '../hooks/usePersistedUiState'
@@ -164,14 +165,21 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   const router = useRouter()
   const { spawnDraftAgent } = useStoreActions()
   const uiState = useUiState()
+  const pool = useMobilePool()
   const picker = useLaunchWorkPicker()
   const { machines, repos, recentMachine } = usePoolLaunchInputs(picker)
   const [query, setQuery] = useState('')
   const { modelPick, effortPick, machinePick, repoPick, loading: draftLoading } = useMobilePoolProjection(readNewWorkDraft, EMPTY_DRAFT_PICKS)
-  const setModelPick = useCallback((value: string) => uiState.set(NEW_WORK_MODEL_KEY, value), [uiState])
-  const setEffortPick = useCallback((value: string) => uiState.set(NEW_WORK_EFFORT_KEY, value), [uiState])
-  const setMachinePick = useCallback((value: string) => uiState.set(NEW_WORK_MACHINE_KEY, value), [uiState])
-  const setRepoPick = useCallback((value: string) => uiState.set(NEW_WORK_REPO_KEY, value), [uiState])
+  // As on desktop, publish the accepted local edit before React restores the
+  // controlled field. A menu closes in the same event as the write.
+  const setDraftPick = useCallback((key: string, value: string) => {
+    uiState.set(key, value)
+    if (pool) preferenceSource(pool)?.refreshKey(key)
+  }, [uiState, pool])
+  const setModelPick = useCallback((value: string) => setDraftPick(NEW_WORK_MODEL_KEY, value), [setDraftPick])
+  const setEffortPick = useCallback((value: string) => setDraftPick(NEW_WORK_EFFORT_KEY, value), [setDraftPick])
+  const setMachinePick = useCallback((value: string) => setDraftPick(NEW_WORK_MACHINE_KEY, value), [setDraftPick])
+  const setRepoPick = useCallback((value: string) => setDraftPick(NEW_WORK_REPO_KEY, value), [setDraftPick])
   const [lastLaunchPicks] = usePersistedUiState(LAST_LAUNCH_PICK_KEY, readLastLaunchPicks, JSON.stringify)
   const draftReady = !draftLoading
   const previousLaunchContext = useRef<LaunchPickContext | undefined>(undefined)
