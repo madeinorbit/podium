@@ -72,11 +72,9 @@ export function decodeSettingsPreferencePatch(
   )
 }
 
-/** Deep structural equality, by canonical JSON. Sufficient and honest here: a
- *  settings leaf is JSON by construction (it round-trips through the wire on
- *  every load), so there is no `undefined`, no `Date` and no cycle to mishandle
- *  — and using `JSON.stringify` on a NON-canonical object would be a bug, which
- *  is why the two sides are stringified through the same key-sorting replacer. */
+/** Deep structural equality, by canonical JSON, with undefined representing an
+ *  absent optional leaf in the form. Sorting keys keeps object insertion order
+ *  from looking like a changed value. */
 function sameValue(a: unknown, b: unknown): boolean {
   return canonical(a) === canonical(b)
 }
