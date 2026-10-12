@@ -1,5 +1,4 @@
-import { requireHere } from '@podium/client-graph/lookup'
-import { omitGone } from '@podium/client-graph/lookup'
+import { NOT_VISIBLE, omitGone, requireHere } from '@podium/client-graph/lookup'
 import type { IssueViewInput } from '../../diagnostics/reference/issue-views'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { reaction, runInAction } from 'mobx'
@@ -414,10 +413,13 @@ describe('declared issue page', () => {
     expect(ctx.check()).toMatchObject({ differences: 0 })
   })
   it('preserves the legacy answer for non-date defers without registering an invalid deadline', () => {
-    const ctx = open([task('root', { deferUntil: 'next-message' })])
+    // `next-message` is a recognized defer sentinel, not an invalid date.
+    const ctx = open([task('root', { deferUntil: 'not-a-date' })])
+    const reached = vi.spyOn(ctx.pool.clock, 'reached')
     expect(tracked(() => poolIssuePageFields(ctx.pool, 'root'))).toMatchObject({ ready: true, deferred: false })
     expect(tracked(() => ctx.views.summary('root'))).toMatchObject({ ready: true, deferred: false })
     expect(ctx.check()).toMatchObject({ differences: 0 })
+    expect(reached).not.toHaveBeenCalled()
   })
   it('keeps a later resume winner in the first group slot while raw member order follows IDs', () => {
     const twin = { kind: 'codex-thread', value: 'same' }
@@ -711,8 +713,13 @@ describe('declared issue page', () => {
     } finally {
       stop()
     }
+    // Closing a page disposes its view; the shared pool has a separate lifetime.
+    ctx.views.dispose()
+    expect(runInAction(() => ctx.views.issue('root'))).toBe(LOADING)
+    expect(runInAction(() => ctx.pool.issue('root'))).toMatchObject({ id: 'root' })
     ctx.pool.dispose()
     expect(runInAction(() => ctx.views.issue('root'))).toBe(LOADING)
+    expect(runInAction(() => ctx.pool.row('issue', 'root'))).toBe(NOT_VISIBLE)
   })
 })
 

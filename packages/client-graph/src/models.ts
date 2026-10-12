@@ -165,8 +165,9 @@ function installFields(
       if (field === spec.key) return this.id
       return this.storedField(property)
     }
+    // Immutable identity keys need no computed boundary or observable dependency.
     // Only direct paint readers need another scalar equality boundary.
-    const get = answered ?? ((entity === 'session' || entity === 'issue' && ISSUE_PAINT_FIELDS.has(field)) ? (entity === 'session' && spec.fields[field]?.type === 'object' ? lazy({ equals: compareStructural }) : lazy)(stored, {
+    const get = answered ?? (field !== spec.key && (entity === 'session' || entity === 'issue' && ISSUE_PAINT_FIELDS.has(field)) ? (entity === 'session' && spec.fields[field]?.type === 'object' ? lazy({ equals: compareStructural }) : lazy)(stored, {
       kind: 'getter', name: field, static: false, private: false,
       access: { has: target => field in target, get: target => stored.call(target) },
       addInitializer() {}, metadata: {},
