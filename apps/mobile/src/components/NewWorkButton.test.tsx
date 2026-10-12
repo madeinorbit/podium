@@ -203,6 +203,8 @@ describe('phone launch demand bounds', () => {
     const attached = pool as MobxPool | null
     if (!attached || !machinesRead) throw new Error('Pool did not attach')
     const counts = commandLaunchViews(attached).counts
+    const launchCounts = launchOptionViews(attached).counts
+    expect(launchCounts).toEqual({ repositoryBuilds: 0, usageQueries: 0 })
     expect(counts.catalogBuilds).toBe(0)
     expect(counts.coldSessionVisits).toBe(0)
     expect(machinesRead).not.toHaveBeenCalled()
@@ -212,6 +214,7 @@ describe('phone launch demand bounds', () => {
     fireEvent.click(screen.getByLabelText('New work'))
     await screen.findByLabelText('Start in podium')
     expect(machinesRead).toHaveBeenCalled()
+    expect(launchCounts).toEqual({ repositoryBuilds: 1, usageQueries: 1 })
     expect(history).toHaveBeenCalledWith(['mine'])
     expect(activity).toHaveBeenCalledWith({
       kind: 'commandRootActivity',
@@ -233,6 +236,7 @@ describe('phone launch demand bounds', () => {
       rows.mock.calls.filter(([kind, id]) => kind === 'session' && id !== 'history-0'),
     ).toHaveLength(0)
     expect(counts.addressedSessionReads).toBe(0)
+    expect(launchCounts).toEqual({ repositoryBuilds: 1, usageQueries: 1 })
     fireEvent.click(screen.getByLabelText('Dismiss launcher'))
     machinesRead.mockClear()
     history.mockClear()
@@ -248,6 +252,7 @@ describe('phone launch demand bounds', () => {
     expect(history).not.toHaveBeenCalled()
     expect(activity).not.toHaveBeenCalled()
     expect(counts.addressedSessionReads).toBe(0)
+    expect(launchCounts).toEqual({ repositoryBuilds: 1, usageQueries: 1 })
   })
 
   it('restores the prompt and persisted model, machine, and project after dismissal', async () => {
