@@ -97,14 +97,18 @@ const SHELL_PICK = 'shell'
 const SEARCH_THRESHOLD = 8
 
 const readString = (raw: string | null): string | null => (raw && raw.length > 0 ? raw : null)
-const writeString = (value: string | null): string | null => value
 
-/** Do not restore a preference over a draft whose own fields are still loading. */
-function launchDraftReady(pool: MobxPool): boolean {
-  return [NEW_WORK_MODEL_KEY, NEW_WORK_EFFORT_KEY, NEW_WORK_MACHINE_KEY, NEW_WORK_REPO_KEY].every((key) => {
-    const row = omitGone(pool.row('preference', key))
-    return typeof row === 'object' && row !== null
-  })
+const EMPTY_DRAFT_PICKS = { modelPick: null, effortPick: null, machinePick: null, repoPick: null, loading: true }
+/** One draft read: a loading flag must describe the SAME values restoration sees. */
+function readNewWorkDraft(pool: MobxPool): {
+  modelPick: string | null; effortPick: string | null; machinePick: string | null; repoPick: string | null; loading: boolean
+} {
+  const rows = [NEW_WORK_MODEL_KEY, NEW_WORK_EFFORT_KEY, NEW_WORK_MACHINE_KEY, NEW_WORK_REPO_KEY]
+    .map((key) => omitGone(pool.row('preference', key)))
+  if (rows.some((row) => typeof row !== 'object' || row === null)) return EMPTY_DRAFT_PICKS
+  const values = rows.map((row) => typeof row === 'object' && row !== null ? readString(row.value) : null)
+  return { modelPick: values[0] ?? null, effortPick: values[1] ?? null,
+    machinePick: values[2] ?? null, repoPick: values[3] ?? null, loading: false }
 }
 
 /**
@@ -163,28 +167,13 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   const picker = useLaunchWorkPicker()
   const { machines, repos, recentMachine } = usePoolLaunchInputs(picker)
   const [query, setQuery] = useState('')
-  const [modelPick, setModelPick] = usePersistedUiState<string | null>(
-    NEW_WORK_MODEL_KEY,
-    readString,
-    writeString,
-  )
-  const [effortPick, setEffortPick] = usePersistedUiState<string | null>(
-    NEW_WORK_EFFORT_KEY,
-    readString,
-    writeString,
-  )
-  const [machinePick, setMachinePick] = usePersistedUiState<string | null>(
-    NEW_WORK_MACHINE_KEY,
-    readString,
-    writeString,
-  )
-  const [repoPick, setRepoPick] = usePersistedUiState<string | null>(
-    NEW_WORK_REPO_KEY,
-    readString,
-    writeString,
-  )
+  const { modelPick, effortPick, machinePick, repoPick, loading: draftLoading } = useMobilePoolProjection(readNewWorkDraft, EMPTY_DRAFT_PICKS)
+  const setModelPick = useCallback((value: string) => uiState.set(NEW_WORK_MODEL_KEY, value), [uiState])
+  const setEffortPick = useCallback((value: string) => uiState.set(NEW_WORK_EFFORT_KEY, value), [uiState])
+  const setMachinePick = useCallback((value: string) => uiState.set(NEW_WORK_MACHINE_KEY, value), [uiState])
+  const setRepoPick = useCallback((value: string) => uiState.set(NEW_WORK_REPO_KEY, value), [uiState])
   const [lastLaunchPicks] = usePersistedUiState(LAST_LAUNCH_PICK_KEY, readLastLaunchPicks, JSON.stringify)
-  const draftReady = useMobilePoolProjection(launchDraftReady, false)
+  const draftReady = !draftLoading
   const previousLaunchContext = useRef<LaunchPickContext | undefined>(undefined)
   const model = modelPick ?? AUTO
   const effort = effortPick ?? AUTO

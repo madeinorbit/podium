@@ -124,6 +124,11 @@ function historySession(id: string, patch: object = {}): SessionMeta {
   } as SessionMeta
 }
 
+async function pressStart() {
+  await waitFor(() => expect(screen.getByLabelText('Start in podium').getAttribute('aria-disabled')).not.toBe('true'))
+  fireEvent.click(screen.getByLabelText('Start in podium'))
+}
+
 function pickFirstClaudeModel() {
   const choice = screen.getAllByLabelText(/^Claude Code /)[0]
   if (!choice) throw new Error('No Claude model choice')
@@ -364,7 +369,7 @@ describe('the phone launch sheet', () => {
     fireEvent.change(screen.getByLabelText('First prompt, optional'), {
       target: { value: '  Fix the login race  ' },
     })
-    fireEvent.click(screen.getByLabelText('Start in podium'))
+    await pressStart()
 
     await waitFor(() =>
       expect(create).toHaveBeenCalledWith(
@@ -390,7 +395,7 @@ describe('the phone launch sheet', () => {
     fireEvent.change(screen.getByLabelText('First prompt, optional'), {
       target: { value: 'Keep this through settle' },
     })
-    fireEvent.click(screen.getByLabelText('Start in podium'))
+    await pressStart()
 
     fireEvent.click(screen.getByLabelText('New work'))
     expect((screen.getByLabelText('First prompt, optional') as HTMLInputElement).value).toBe(
@@ -423,7 +428,7 @@ describe('the phone launch sheet', () => {
       expect(screen.queryByText(NOT_READY)).toBeNull()
       // Named, so the step over the signed-out default is visible, not guessed.
       expect(screen.getByLabelText('Model, Auto · OpenCode')).toBeTruthy()
-      fireEvent.click(screen.getByLabelText('Start in podium'))
+      await pressStart()
 
       await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
       expect(create).toHaveBeenCalledWith(expect.objectContaining({ agentKind: 'opencode' }))
@@ -437,7 +442,7 @@ describe('the phone launch sheet', () => {
         api: { sessions: { create: { mutate: create } } },
       })
       fireEvent.click(screen.getByLabelText('New work'))
-      fireEvent.click(screen.getByLabelText('Start in podium'))
+      await pressStart()
 
       await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
       expect(create).toHaveBeenCalledWith(expect.objectContaining({ agentKind: 'claude-code' }))
@@ -474,7 +479,7 @@ describe('the phone launch sheet', () => {
       })
       fireEvent.click(screen.getByLabelText('New work'))
       expect(screen.getByLabelText('Machine, Studio')).toBeTruthy()
-      fireEvent.click(screen.getByLabelText('Start in podium'))
+      await pressStart()
 
       await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
       expect(create).toHaveBeenCalledWith(expect.objectContaining({ agentKind: 'opencode' }))
@@ -521,7 +526,7 @@ describe('phone picker parity', () => {
     expect(screen.getByLabelText('Effort, Auto').getAttribute('role')).not.toBe('button')
     expect(runtime.access.uiState.get(NEW_WORK_MODEL_KEY)).toBe('auto')
     expect(runtime.access.uiState.get(NEW_WORK_EFFORT_KEY)).toBe('auto')
-    fireEvent.click(screen.getByLabelText('Start in podium'))
+    await pressStart()
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
     expect(create.mock.calls[0]?.[0]).not.toHaveProperty('model')
     expect(create.mock.calls[0]?.[0]).not.toHaveProperty('effort')
@@ -630,14 +635,14 @@ describe('phone last launched pair', () => {
     await choose('Effort', 'High')
     await expectPair('Claude Code · Reported Opus', 'High')
     expect(pairWrites()).toHaveLength(0)
-    fireEvent.click(screen.getByLabelText('Start in podium'))
+    await pressStart()
     await waitFor(() => expect(create).toHaveBeenCalledTimes(1))
     expect(create.mock.calls[0]?.[0]).toMatchObject({ machineId: 'mine', agentKind: 'claude-code', model: 'reported-opus', effort: 'high' })
     expect(JSON.parse(runtime.access.uiState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual({ mine: { 'claude-code': picks.mine['claude-code'] } })
     fireEvent.click(screen.getByLabelText('New work'))
     await choose('Model', 'Auto')
     expect(pairWrites()).toHaveLength(1)
-    fireEvent.click(screen.getByLabelText('Start in podium'))
+    await pressStart()
     await waitFor(() => expect(create).toHaveBeenCalledTimes(2))
     expect(JSON.parse(runtime.access.uiState.get(LAST_LAUNCH_PICK_KEY)!)).toEqual({ mine: { 'claude-code': { model: 'auto', effort: 'auto' } } })
     expect(create.mock.calls[1]?.[0]).not.toHaveProperty('model')
