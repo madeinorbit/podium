@@ -1,10 +1,11 @@
-import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-core-store-handle'
+// POD-3911: use the real seeded pool after the action fixture's hand-mock.
+import '@/test-support/mock-pool-fixture'
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { toast } from 'sonner'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import '@/test-support/model-catalog-mock'
+import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
 import { seedPoolFixture } from '@/test-support/pool-fixture'
 import { IssuePage as PoolIssuePage } from './IssuePage'
 
@@ -18,63 +19,61 @@ function IssuePage(props: Parameters<typeof PoolIssuePage>[0]) {
 vi.mock('sonner', () => ({
   toast: Object.assign(vi.fn(), { error: vi.fn(), success: vi.fn(), info: vi.fn() }),
 }))
-// The launch box's model/effort segments read the live catalog through this
-// shim, which hangs off the REAL store provider rather than the mock below —
-// so without it every render of the box threw `useStore outside StoreProvider`
-// before a single assertion ran. Same stub the dock's own test uses.
-vi.mock('@/lib/use-model-catalog', () => ({
-  useModelCatalog: () => ({}),
-  useModelCatalogState: () => ({ catalog: {}, status: 'unavailable' }),
-}))
-vi.mock('@/lib/use-harness-descriptors', () => ({
-  useHarnessDescriptors: () => ({ served: undefined, status: 'unavailable' as const }),
-}))
+const liveCatalog = {
+  'claude-code': [
+    { value: 'reported-sonnet', label: 'Reported Sonnet', efforts: ['low', 'high'] },
+  ],
+}
 
 const start = vi.fn(async () => ({}))
 const update = vi.fn(async (_input: unknown) => ({}))
 
 vi.mock('@/app/store', () => {
-  const state = () =>
-    ({
-      trpc: {
-        settings: {
-          get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) },
-        },
-        issues: {
-          // Activity feed loads transition events on mount; no events in this fixture.
-          events: { query: vi.fn(async () => []) },
-          start: { mutate: start },
-          update: { mutate: update },
-        },
+  const makeSnapshot = () => ({
+    trpc: {
+      settings: {
+        get: { query: vi.fn(async () => ({ gitWorkflow: { mergeStyle: 'ff-only' } })) },
       },
-      hub: { onIssues: () => () => {} },
-      machines: [
-        {
-          id: 'machine-1',
-          name: 'Workstation',
-          online: true,
-          serviceAssignment: { server: false, agentExecution: true },
-          availability: { daemon: true },
-        },
-      ],
-      // The launch box reads the fleet to grey harnesses this repo's hosts
-      // cannot run; an absent slice crashes `reposToViews` rather than
-      // resolving to "no hosts".
-      repos: [],
-      issues: [],
-      sessions: [],
-      setSelectedWorktree: vi.fn(),
-      setPane: vi.fn(),
-      setView: vi.fn(),
-      // The page edits an issue through the STORE ACTION, not through trpc
-      // directly — `issue-page-commands` takes `updateIssue` as a dependency and
-      // IssuePage hands it `s.updateIssue`. Without it here the call landed on
-      // `undefined`, was swallowed by the commands' own `void run(...)`, and the
-      // assertion below saw zero calls with nothing explaining why. Stands in for
-      // the real action (actions.ts enqueues an overlayed `issueUpdate`) at the
-      // point where it reaches the wire.
-      updateIssue: async (id: string, patch: unknown) => update({ id, patch }),
-    }) as never
+      issues: {
+        // Activity feed loads transition events on mount; no events in this fixture.
+        events: { query: vi.fn(async () => []) },
+        comments: { query: vi.fn(async () => []) },
+        mailInbox: { mutate: vi.fn(async () => []) },
+        start: { mutate: start },
+        update: { mutate: update },
+      },
+    },
+    hub: { onIssues: () => () => {} },
+    machines: [
+      {
+        id: 'machine-1',
+        name: 'Workstation',
+        online: true,
+        serviceAssignment: { server: false, agentExecution: true },
+        availability: { daemon: true },
+      },
+    ],
+    // The launch box reads the fleet to grey harnesses this repo's hosts
+    // cannot run; an absent slice crashes `reposToViews` rather than
+    // resolving to "no hosts".
+    repos: [],
+    issues: [],
+    sessions: [],
+    setSelectedWorktree: vi.fn(),
+    setPane: vi.fn(),
+    setView: vi.fn(),
+    // The page edits an issue through the STORE ACTION, not through trpc
+    // directly — `issue-page-commands` takes `updateIssue` as a dependency and
+    // IssuePage hands it `s.updateIssue`. Without it here the call landed on
+    // `undefined`, was swallowed by the commands' own `void run(...)`, and the
+    // assertion below saw zero calls with nothing explaining why. Stands in for
+    // the real action (actions.ts enqueues an overlayed `issueUpdate`) at the
+    // point where it reaches the wire.
+    updateIssue: async (id: string, patch: unknown) => update({ id, patch }),
+  })
+  // Keep ports stable without reading suite spies while vi.mock is hoisted.
+  let snapshot: ReturnType<typeof makeSnapshot> | undefined
+  const state = () => (snapshot ??= makeSnapshot()) as never
   return {
     useStore: () => state(),
     // Selector hooks (useRuntimeSelector) reach the same mocked state.
@@ -87,6 +86,7 @@ afterEach(() => {
   start.mockClear()
   update.mockClear()
   vi.mocked(toast.error).mockClear()
+  modelCatalogFixture.current = {}
 })
 
 /** NOT YET BEGUN. `makeIssue` defaults to an `in_progress` task that already has
@@ -150,6 +150,8 @@ describe('IssuePage agent start controls', () => {
       <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
     )
 
+    // POD-3911: assert a resident page, replacing a vacuous empty-fixture check.
+    expect(screen.getByTestId('issue-page')).toBeTruthy()
     expect(screen.queryByTestId('launch-box')).toBeNull()
     expect(screen.queryByRole('button', { name: 'Start work' })).toBeNull()
     expect(screen.queryByRole('button', { name: '+ Session' })).toBeNull()
@@ -157,6 +159,8 @@ describe('IssuePage agent start controls', () => {
   })
 
   it('picks a model for the ticket and persists it via issues.update', async () => {
+    // POD-3911: no static model list; select a machine-reported model.
+    modelCatalogFixture.current = liveCatalog
     const issue = unstarted()
     render(
       <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
@@ -165,13 +169,13 @@ describe('IssuePage agent start controls', () => {
     const modelButton = screen.getAllByRole('button', { name: 'Model' }).at(0)
     if (!modelButton) throw new Error('missing model picker')
     fireEvent.click(modelButton)
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Sonnet' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Reported Sonnet' }))
 
-    // Effort is per-model, so changing the model also resets effort to auto.
+    // POD-3911: reported model IDs replace static aliases; effort still resets.
     await waitFor(() =>
       expect(update).toHaveBeenCalledWith({
         id: 'i-1',
-        patch: { defaultModel: 'sonnet', defaultEffort: 'auto' },
+        patch: { defaultModel: 'reported-sonnet', defaultEffort: 'auto' },
       }),
     )
   })
@@ -180,8 +184,13 @@ describe('IssuePage agent start controls', () => {
     ['Effort', 'High', { defaultEffort: 'high' }],
     ['Machine', 'Workstation', { machineId: 'machine-1' }],
     ['Machine', 'auto machine', { machineId: null }],
-  ])('saves %s through the shared issue settings', async (name, option, patch) => {
-    const issue = unstarted({ machineId: 'machine-1' })
+  ])('saves %s (%s) through the shared issue settings', async (name, option, patch) => {
+    // POD-3911: effort under Auto is gone; a reported concrete model owns it.
+    modelCatalogFixture.current = liveCatalog
+    const issue = unstarted({
+      machineId: 'machine-1',
+      ...(name === 'Effort' ? { defaultModel: 'reported-sonnet' } : {}),
+    })
     // Selecting a different machine uses an initially automatic issue.
     if (option === 'Workstation') delete issue.machineId
     render(
@@ -195,6 +204,21 @@ describe('IssuePage agent start controls', () => {
         screen.getAllByRole('status').some((status) => status.textContent?.includes('Saved')),
       ).toBe(true),
     )
+  })
+
+  it('offers only Auto without a reported catalog and no effort under Auto', async () => {
+    const issue = unstarted()
+    render(
+      <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
+    )
+    // POD-3911: no static model list or effort ladder under an Auto model.
+    const effort = screen.getAllByRole('button', { name: 'Effort' })[0] as HTMLButtonElement
+    expect(effort.disabled).toBe(true)
+    expect(effort.textContent).toContain('Auto')
+    fireEvent.click(screen.getAllByRole('button', { name: 'Model' })[0]!)
+    expect(await screen.findByRole('menuitem', { name: 'Auto' })).toBeTruthy()
+    expect(screen.getAllByRole('menuitem')).toHaveLength(1)
+    expect(screen.getByText(/has not reported its models/)).toBeTruthy()
   })
 
   // POD-1266: a refused start used to land as a muted grey strip pinned under

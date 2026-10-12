@@ -18,7 +18,7 @@ import '@/test-support/mock-core-store-handle'
  */
 import { asIssueId, asMachineId, asSessionId } from '@podium/model'
 import { createDraftAgent } from '@podium/client-core'
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { ColdStartComposer } from './ColdStartComposer'
 
@@ -177,6 +177,15 @@ afterEach(() => {
 /** What the agent chip says it will launch. */
 const chip = (): HTMLElement => screen.getByRole('button', { name: 'Agent' })
 
+function publishDrivers(drivers: typeof state.runtimeDrivers): void {
+  act(() => {
+    state.runtimeDrivers = drivers
+    // POD-3911: inventory publications replace rerenders that leave keyed inputs stale.
+    // The fake runtime borrows ui-state's subscribers; no ui-state key changed.
+    for (const listener of uiListeners) listener(new Set())
+  })
+}
+
 describe('the box opens on the harness the sidebar chip would have', () => {
   it('takes the persisted one', async () => {
     state.accountId = 'native:codex'
@@ -309,15 +318,43 @@ describe('cold-start runtime driver choice', () => {
     state.accountId = 'native:opencode'
     state.installed = ['opencode']
     state.runtimeDrivers = [{ harness: 'opencode', id: 'opencode-server', family: 'server' }]
-    const view = render(<ColdStartComposer first={false} />)
+    render(<ColdStartComposer first={false} />)
     fireEvent.click(await screen.findByRole('button', { name: 'Driver' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'OpenCode 1 (headless)' }))
-    state.runtimeDrivers = []
-    view.rerender(<ColdStartComposer first={false} />)
+    publishDrivers([])
     expect((await screen.findByRole('status')).textContent).toContain('opencode-server unavailable')
     expect((screen.getByTestId('cold-start-launch') as HTMLButtonElement).disabled).toBe(true)
     fireEvent.click(screen.getByTestId('cold-start-launch'))
     expect(store.spawnDraftAgent).not.toHaveBeenCalled()
+  })
+
+  it('reports a vanished headless driver while a headed recovery driver remains', async () => {
+    feature.enabled = true
+    state.accountId = 'native:opencode'
+    state.installed = ['opencode']
+    const headed = { harness: 'opencode', id: 'generic-pty', family: 'terminal' } as const
+    state.runtimeDrivers = [
+      headed,
+      { harness: 'opencode', id: 'opencode-server', family: 'server' },
+    ]
+    render(<ColdStartComposer first={false} />)
+    fireEvent.click(await screen.findByRole('button', { name: 'Driver' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'OpenCode 1 (headless)' }))
+    publishDrivers([headed])
+    expect((await screen.findByRole('status')).textContent).toContain('opencode-server unavailable')
+    // The remaining headed driver keeps a recovery menu beside the refusal.
+    expect(screen.getByRole('button', { name: 'Driver' })).toBeTruthy()
+    expect((screen.getByTestId('cold-start-launch') as HTMLButtonElement).disabled).toBe(true)
+    fireEvent.click(screen.getByTestId('cold-start-launch'))
+    expect(store.spawnDraftAgent).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole('button', { name: 'Driver' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Headed' }))
+    expect(screen.queryByRole('status')).toBeNull()
+    expect((screen.getByTestId('cold-start-launch') as HTMLButtonElement).disabled).toBe(false)
+    fireEvent.click(screen.getByTestId('cold-start-launch'))
+    expect(store.spawnDraftAgent).toHaveBeenCalledWith(
+      expect.not.objectContaining({ requestedDriverId: expect.anything() }),
+    )
   })
 })
 

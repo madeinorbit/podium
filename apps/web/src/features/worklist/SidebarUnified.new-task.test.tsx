@@ -31,15 +31,16 @@ import { SidebarUnified } from './SidebarUnified'
 
 const ui = vi.hoisted(() => {
   const rows = new Map<string, string>()
-  const listeners = new Set<() => void>()
+  const listeners = new Set<(keys: ReadonlySet<string>) => void>()
   return {
     get: (key: string): string | null => rows.get(key) ?? null,
     set: (key: string, value: string | null): void => {
       if (value === null) rows.delete(key)
       else rows.set(key, value)
-      for (const listener of listeners) listener()
+      // POD-3911: real ui-state notifications carry the changed keys.
+      for (const listener of listeners) listener(new Set([key]))
     },
-    subscribe: (callback: () => void): (() => void) => {
+    subscribe: (callback: (keys: ReadonlySet<string>) => void): (() => void) => {
       listeners.add(callback)
       return () => {
         listeners.delete(callback)

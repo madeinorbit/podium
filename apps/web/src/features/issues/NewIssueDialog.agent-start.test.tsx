@@ -2,8 +2,10 @@ import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/re
 import type { InputHTMLAttributes } from 'react'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import { makeIssue } from '@/lib/test-issue'
-import '@/test-support/model-catalog-mock'
+import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
 import '@/test-support/mock-core-store-handle'
+// POD-3911: settings requests need real pool records, not the legacy hand-mock.
+import '@/test-support/mock-pool-fixture'
 import '@/test-support/mock-command-launch'
 import { NewIssueDialog } from './NewIssueDialog'
 
@@ -11,9 +13,12 @@ import { NewIssueDialog } from './NewIssueDialog'
 const create = vi.fn(async (_input: Record<string, unknown>) => makeIssue({ id: 'new-issue' }))
 const update = vi.fn(async () => ({}))
 const { machines } = vi.hoisted(() => ({ machines: [] as Array<Record<string, unknown>> }))
+const liveCatalog = {
+  'claude-code': [{ value: 'reported-opus', label: 'Reported Opus', efforts: ['low', 'high'] }],
+}
 
 vi.mock('@/app/store', () => {
-  const useStore = () => ({
+  const makeStore = () => ({
     repos: [
       {
         path: '/repo',
@@ -45,6 +50,9 @@ vi.mock('@/app/store', () => {
       },
     },
   })
+  // Keep ports stable without reading suite spies while vi.mock is hoisted.
+  let store: ReturnType<typeof makeStore> | undefined
+  const useStore = () => (store ??= makeStore())
   // The selector-store hook reads slices off the same store shape.
   return {
     useStore,
@@ -74,6 +82,7 @@ afterEach(() => {
   create.mockClear()
   update.mockClear()
   machines.length = 0
+  modelCatalogFixture.current = {}
 })
 
 describe('NewIssueDialog start-work band', () => {
@@ -191,27 +200,32 @@ describe('NewIssueDialog start-work band', () => {
   it('lets you pick a model and passes it to create', async () => {
     // (Effort is per-model and needs the live catalog, so the effort→create wiring is
     // covered in ModelEffortPicker.live.test.tsx; here we cover model selection.)
+    // POD-3911: no static model list; the machine reports the choices.
+    modelCatalogFixture.current = liveCatalog
     render(<NewIssueDialog onClose={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Opus' }))
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Reported Opus' }))
 
     fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Tune the model' } })
     fireEvent.click(screen.getByRole('button', { name: 'Create' }))
 
+    // POD-3911: reported model IDs replace static aliases in the create payload.
     await waitFor(() =>
       expect(create).toHaveBeenCalledWith(
-        expect.objectContaining({ title: 'Tune the model', defaultModel: 'opus' }),
+        expect.objectContaining({ title: 'Tune the model', defaultModel: 'reported-opus' }),
       ),
     )
   })
 
   it('resets a chosen model when the agent changes (model is agent-scoped)', async () => {
+    // POD-3911: no static model list; reset a model from the live catalog.
+    modelCatalogFixture.current = liveCatalog
     render(<NewIssueDialog onClose={vi.fn()} />)
 
     fireEvent.click(screen.getByRole('button', { name: 'Model' }))
-    fireEvent.click(await screen.findByRole('menuitem', { name: 'Opus' }))
-    // Switch agent → the model pill falls back to Auto (Opus is a Claude alias).
+    fireEvent.click(await screen.findByRole('menuitem', { name: 'Reported Opus' }))
+    // Switch agent → the model pill falls back to Auto (the report is agent-scoped).
     fireEvent.click(screen.getByRole('button', { name: 'Agent' }))
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Cursor' }))
 
@@ -221,6 +235,18 @@ describe('NewIssueDialog start-work band', () => {
     await waitFor(() => expect(create).toHaveBeenCalled())
     expect(create.mock.calls[0]?.[0]).toEqual(expect.objectContaining({ defaultAgent: 'cursor' }))
     expect(create.mock.calls[0]?.[0]).not.toHaveProperty('defaultModel')
+  })
+
+  it('offers only Auto without a reported catalog and no effort under Auto', async () => {
+    render(<NewIssueDialog onClose={vi.fn()} />)
+    // POD-3911: no static model list or effort ladder under an Auto model.
+    const effort = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
+    expect(effort.disabled).toBe(true)
+    expect(effort.textContent).toContain('Auto')
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    expect(await screen.findByRole('menuitem', { name: 'Auto' })).toBeTruthy()
+    expect(screen.getAllByRole('menuitem')).toHaveLength(1)
+    expect(screen.getByText(/has not reported its models/)).toBeTruthy()
   })
 
   it('scopes the header to repo and stage — branch, type, labels and assignee are gone', async () => {
