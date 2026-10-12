@@ -62,6 +62,17 @@ function launchFixture() {
   return { machine, repos: [repo], machines: [machine] }
 }
 
+async function publishMachines(
+  app: Awaited<ReturnType<typeof renderWithMobileStore>>,
+  fixture: ReturnType<typeof launchFixture>,
+  machines: MachineWire[],
+) {
+  // A scope change also refreshes repositories. Its answer must agree with the
+  // pushed roster rather than restoring the fixture's original machine state.
+  fixture.machines = machines
+  await act(async () => { app.emit('machines', machines) })
+}
+
 it('publishes one unchanged plan even when its parent rebuilds the configuration', async () => {
   const published = vi.fn()
   let redraw!: () => void
@@ -94,9 +105,9 @@ it('keeps new-task submission usable on equal selections and responds to live in
   fireEvent.click(screen.getByRole('radio', { name: 'Repository synthetic' }))
   expect(create.disabled).toBe(false)
   expect((title as HTMLInputElement).value).toBe('A usable task form')
-  await act(async () => { app.emit('machines', [{ ...fixture.machine, use: 'denied' }]) })
+  await publishMachines(app, fixture, [{ ...fixture.machine, use: 'denied' }])
   expect(create.disabled).toBe(true)
-  await act(async () => { app.emit('machines', [fixture.machine]) })
+  await publishMachines(app, fixture, [fixture.machine])
   expect(create.disabled).toBe(false)
 })
 
@@ -112,7 +123,7 @@ it.each(['Auto', 'pinned'] as const)('republishes %s machine validity when live 
   const accepted = published.mock.calls.at(-1)![0]
   const publications = published.mock.calls.length
   // A display-only update must keep the plan stable while still painting the name.
-  await act(async () => { app.emit('machines', [{ ...fixture.machine, name: 'Renamed host' }]) })
+  await publishMachines(app, fixture, [{ ...fixture.machine, name: 'Renamed host' }])
   expect(published).toHaveBeenCalledTimes(publications)
   expect(published.mock.calls.at(-1)![0]).toBe(accepted)
   if (placement === 'pinned') expect(screen.getByLabelText('Machine, Renamed host')).toBeTruthy()
@@ -124,15 +135,15 @@ it.each(['Auto', 'pinned'] as const)('republishes %s machine validity when live 
     { machine: { ...fixture.machine, inventory: { ...fixture.machine.inventory!, agents: [] } }, reason: 'Launch host cannot run Codex.' },
   ]
   for (const update of unavailable) {
-    await act(async () => { app.emit('machines', [update.machine]) })
+    await publishMachines(app, fixture, [update.machine])
     await waitFor(() => expect(published).toHaveBeenLastCalledWith({
       configuration,
       refusal: placement === 'pinned' ? update.reason : 'No available machine can run Codex for this repository.',
     }))
-    await act(async () => { app.emit('machines', [fixture.machine]) })
+    await publishMachines(app, fixture, [fixture.machine])
     await waitFor(() => expect(published).toHaveBeenLastCalledWith({ configuration }))
   }
-  await act(async () => { app.emit('machines', []) })
+  await publishMachines(app, fixture, [])
   await waitFor(() => expect(published).toHaveBeenLastCalledWith({
     configuration,
     refusal: placement === 'pinned'

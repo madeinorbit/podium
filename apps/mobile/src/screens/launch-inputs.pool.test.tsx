@@ -13,6 +13,7 @@ vi.mock('../client/mobile-pool', async (original) => {
   const real = await original<typeof import('../client/mobile-pool')>()
   return {
     ...real,
+    useMobilePool: () => state.host!.host.usePool(),
     useMobilePoolProjection: <T,>(...args: Parameters<MobilePool['host']['usePoolProjection']>) =>
       state.host!.host.usePoolProjection(...args) as T,
   }
