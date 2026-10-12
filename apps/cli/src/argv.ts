@@ -64,7 +64,7 @@ export class MissingFlagValueError extends Error {
   readonly flag: string
 
   constructor(flag: string, usage: string) {
-    super(`missing value for ${flag} — see \`${usage} --help\``)
+    super(`${flag} needs a value — see \`${usage} --help\``)
     this.name = 'MissingFlagValueError'
     this.flag = flag
   }

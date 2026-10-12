@@ -80,14 +80,14 @@ describe('parseFlags', () => {
       MissingFlagValueError,
     )
     expect(() => parseFlags(tokens, decl, { usage: 'podium lock acquire' })).toThrow(
-      /missing value for --ttl/,
+      /--ttl needs a value/,
     )
   })
 
   it('names the typed short alias when its value is missing', () => {
     const shorts = declareFlags({ known: ['ttl'], shorts: { t: 'ttl' } })
     expect(() => parseFlags(['-t'], shorts, { usage: 'podium lock acquire' })).toThrow(
-      /missing value for -t/,
+      /-t needs a value/,
     )
   })
 
@@ -265,7 +265,7 @@ describe('tryParseFlags', () => {
 
   it('returns a missing-value usage error for plan-returning callers', () => {
     const r = tryParseFlags(['--channel'], spec, { usage: 'podium update' })
-    expect(r.error).toContain('missing value for --channel')
+    expect(r.error).toContain('--channel needs a value')
     expect(r.args).toEqual({})
   })
 })

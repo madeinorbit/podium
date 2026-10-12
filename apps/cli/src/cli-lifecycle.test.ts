@@ -413,7 +413,12 @@ describe('podium logs export-crash', () => {
       // writing an empty bundle would look like "there were no crashes".
       expect(parseExportCrashArgs(['--limit', '0']).limit).toBe(CRASH_MAX_EVENTS)
       expect(parseExportCrashArgs(['--limit', 'banana']).limit).toBe(CRASH_MAX_EVENTS)
-      expect(parseExportCrashArgs(['--out', '--limit', '2'])).toEqual({ limit: 2 })
+    })
+
+    it('refuses a missing output path before another flag', () => {
+      expect(() => parseExportCrashArgs(['--out', '--limit', '2'])).toThrow(
+        /--out needs a value/,
+      )
     })
   })
 

@@ -149,7 +149,7 @@ describe('runIssueCli', () => {
         const panelApply = vi.fn(async () => ({ seq: 6029, panel: { todos: [] } }))
         const c = { issues: { panelApply: { mutate: panelApply } } } as unknown as IssueTrpc
         await expect(runIssueCli(['todo', '6029', ...tokens], c)).rejects.toThrow(
-          `missing value for --${flag}`,
+          `--${flag} needs a value`,
         )
         expect(panelApply).not.toHaveBeenCalled()
       }
