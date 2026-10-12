@@ -68,7 +68,9 @@ export function readFirstTaskDraft(raw: string | null): FirstTaskDraft {
       agent: typeof value.agent === 'string' ? (issueAgentKind(value.agent) ?? '') : '',
       model: typeof value.model === 'string' && value.model ? value.model : 'auto',
       effort: typeof value.effort === 'string' && value.effort ? value.effort : 'auto',
-      launchPickTouched: value.launchPickTouched === true,
+      launchPickTouched: value.launchPickTouched === true ||
+        (typeof value.model === 'string' && Boolean(value.model) && value.model !== 'auto') ||
+        (typeof value.effort === 'string' && Boolean(value.effort) && value.effort !== 'auto'),
       title: typeof value.title === 'string' ? value.title : '',
       description: typeof value.description === 'string' ? value.description : '',
       launchKind:

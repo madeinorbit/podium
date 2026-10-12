@@ -161,4 +161,14 @@ describe('desktop last launched pair', () => {
     await expectPair('sonnet', 'auto')
     expect(pairWrites()).toHaveLength(0)
   })
+
+  it('keeps a stale saved draft at Auto after validation rather than adopting the remembered pair', async () => {
+    seedDraft({ model: 'retired', effort: 'high' })
+    uiValues.set(LAST_LAUNCH_PICK_KEY, JSON.stringify(pairs))
+    const view = render(<ColdStartComposer first={false} />)
+    await expectPair('auto', 'auto')
+    view.rerender(<ColdStartComposer first={false} />)
+    await expectPair('auto', 'auto')
+    expect(pairWrites()).toHaveLength(0)
+  })
 })

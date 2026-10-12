@@ -27,7 +27,7 @@ describe('first-task activation draft', () => {
       agent: '',
       model: 'gpt-5.6-sol',
       effort: 'high',
-      launchPickTouched: false,
+      launchPickTouched: true,
       machineId: '',
       title: 'Ship onboarding',
       description: 'Keep this prompt.',
