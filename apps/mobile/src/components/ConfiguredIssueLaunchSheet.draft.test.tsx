@@ -33,6 +33,8 @@ it('keeps untouched launch values live, drops edits on reopen and saves only tou
   const view = render(<ConfiguredIssueLaunchSheet issue={record as never} onClose={close} />)
   expect((screen.getByRole('button', { name: 'Start agent' }) as HTMLButtonElement).disabled).toBe(false)
   fireEvent.click(screen.getByRole('button', { name: 'Choose high' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Choose high' }))
+  expect((screen.getByRole('button', { name: 'Start agent' }) as HTMLButtonElement).disabled).toBe(false)
   act(() => runInAction(() => { record.defaultModel = 'gpt-6.1-sol' }))
   expect(await screen.findByText('codex:gpt-6.1-sol / high')).toBeTruthy()
   fireEvent.click(screen.getByRole('button', { name: 'Cancel' }))

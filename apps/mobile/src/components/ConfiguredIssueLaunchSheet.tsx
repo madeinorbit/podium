@@ -96,7 +96,6 @@ const ConfiguredIssueLaunchSheetBody = observer(function ConfiguredIssueLaunchSh
             repoPath={issue.repoPath}
             value={form.configuration}
             onChange={(next) => {
-              setPlan(null)
               form.patch(next)
             }}
             onPlan={setPlan}

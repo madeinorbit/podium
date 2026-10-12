@@ -132,7 +132,6 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
                 aria-checked={active}
                 onPress={() => {
                   setRepoPath(repo)
-                  setLaunchPlan(null)
                   setLaunch((current) => ({ ...current, machineId: '' }))
                 }}
                 style={[styles.chip, active && styles.chipActive]}
@@ -206,10 +205,7 @@ export const NewIssueScreen = observer(function NewIssueScreen() {
               repoPath={repoPath}
               value={launch}
               allowInheritedAgent
-              onChange={(next) => {
-                setLaunchPlan(null)
-                setLaunch(next)
-              }}
+              onChange={setLaunch}
               onPlan={setLaunchPlan}
             />
           </View>

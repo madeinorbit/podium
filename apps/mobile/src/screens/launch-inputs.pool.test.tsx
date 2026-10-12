@@ -1,6 +1,6 @@
 import type { ClientRuntime } from '@podium/client-core/engine'
 import { readRuntimeStoreStats, storeStats } from '@podium/client-core/perf'
-import { act, cleanup, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, waitFor } from '@testing-library/react'
 import { afterEach, expect, it, vi } from 'vitest'
 import { createHeaderFixture } from '../../../web/test/header-fixture'
 import type { MobilePool } from '../client/mobile-pool'
@@ -69,6 +69,11 @@ it('preserves new-task form output from the accepted repository reader', async (
     const output = app.view.container.innerHTML
     expect(output).toMatchSnapshot('last green new-task form')
     expect(readRuntimeStoreStats(app.runtime)?.selectorRuns ?? 0).toBe(0)
+    const title = app.view.getByRole('textbox', { name: 'Task title' })
+    fireEvent.change(title, { target: { value: 'A usable task form' } })
+    expect((title as HTMLInputElement).value).toBe('A usable task form')
+    fireEvent.click(app.view.getByRole('radio', { name: 'Repository project' }))
+    expect((title as HTMLInputElement).value).toBe('A usable task form')
     app.view.unmount()
   }
 })

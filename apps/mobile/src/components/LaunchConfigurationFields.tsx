@@ -1,6 +1,5 @@
 import { observer } from 'mobx-react-lite'
 import { useHarnessDescriptors, useModelCatalogState } from '@podium/client-core/react'
-import { shallowEqual } from '@podium/client-core/shallow-equal'
 import {
   agentCapabilityRejection,
   isMachineOfflineForLiveTerminal,
@@ -27,7 +26,6 @@ import {
   autoLaunchMachineOption,
   hasAuthoritativeLaunchCatalog,
   type LaunchConfiguration,
-  type LaunchMachineOption,
   type LaunchPlan,
   normalizeLaunchConfiguration,
   selectInheritedLaunchAgent,
@@ -96,9 +94,23 @@ export const LaunchConfigurationFields = observer(function LaunchConfigurationFi
       ...explicit,
     ]
   })()
-  const plan = useMemo(
-    () => normalizeLaunchConfiguration(value, catalog, machineOptions, catalogStatus),
-    [catalog, catalogStatus, machineOptions, value],
+  // Read live machine facts on every render: pool models keep their identity
+  // when availability or permission changes. Only the resulting scalar plan
+  // is memoized, so publishing it cannot feed back into another parent render.
+  const { configuration, refusal } = normalizeLaunchConfiguration(value, catalog, machineOptions, catalogStatus)
+  const { inheritAgent, agentKind, modelPick, effort, machineId } = configuration
+  const plan = useMemo<LaunchPlan>(
+    () => ({
+      configuration: {
+        ...(inheritAgent === undefined ? {} : { inheritAgent }),
+        agentKind,
+        modelPick,
+        effort,
+        machineId,
+      },
+      ...(refusal ? { refusal } : {}),
+    }),
+    [inheritAgent, agentKind, modelPick, effort, machineId, refusal],
   )
   // Commit the validity plan before the parent paints an enabled submit button.
   // A machine can go offline while this sheet is open; a passive effect would
