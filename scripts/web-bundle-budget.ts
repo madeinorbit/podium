@@ -751,7 +751,13 @@ if (checkBudget) {
   // TEMPORARY 8_500_000 (2026-10-03, POD-4286; 7_800_000 earlier today, 7_450_000 on 2026-10-02; see the raise note above; POD-5240 restores 7_000_000).
   atMost('eager parsed source bytes', report.eager.sourceBytes, 8_500_000)
   atMost('settings raw bytes', report.settings.raw, 105_000)
-  atMost('settings gzip bytes', report.settings.gzip, 30_000)
+  // Settings fleet model warning (POD-6030, 2026-10-12): the integration base
+  // 51fd456956 measured 29,995 gzip bytes, leaving 5 bytes under the old 30,000
+  // limit. The inline warning and authorized-machine reader measure 30,345
+  // (+350); 31,000 leaves 655 bytes (2.1%) of feature headroom. The same build
+  // measures raw 100,657 / 105,000, Brotli 25,784 / 26,000, and parsed source
+  // 232,516 / 280,000, so their existing ceilings still carry this feature.
+  atMost('settings gzip bytes', report.settings.gzip, 31_000)
   atMost('settings Brotli bytes', report.settings.brotli, 26_000)
   atMost('settings parsed source bytes', report.settings.sourceBytes, 280_000)
 

@@ -20,7 +20,10 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import type { HarnessDescriptorWire } from '@podium/protocol'
-import { AUTO } from '@podium/client-core/agent-models'
+import { AUTO, modelOptions } from '@podium/client-core/agent-models'
+import type { MachineModel } from '@podium/client-graph'
+import { useModelCatalogState } from '@/lib/use-model-catalog'
+import { useSettingsAuthorizedMachines } from '../readers'
 import { issueAgentDescriptors, issueDefaultAgentKind } from '@/lib/issue-agents'
 import { managedCodingHarnesses as managedCodingHarnessesFromDescriptors } from '@/lib/managed-harness-pairing'
 import { EffortPicker, ModelPicker } from '@/lib/ModelEffortPicker'
@@ -252,6 +255,79 @@ export function accountOptions(
   ]
 }
 
+/** Fold one catalog hook per authorized machine without copying catalog state.
+ * Offline machines still contribute their last stored list; a pending list keeps
+ * the combined warning quiet until all of the checks have settled. */
+const MachineModelWarning = observer(function MachineModelWarning({
+  machines,
+  index,
+  harness,
+  model,
+  descriptors,
+  missing = [],
+  loading = false,
+}: {
+  machines: readonly MachineModel[]
+  index: number
+  harness: HarnessAgent
+  model: string
+  descriptors?: readonly HarnessDescriptorWire[]
+  missing?: readonly string[]
+  loading?: boolean
+}): JSX.Element | null {
+  const machine = machines[index]!
+  const { catalog, status } = useModelCatalogState(machine.id)
+  const reported = catalog[harness]
+  const names =
+    reported?.length &&
+    !modelOptions(harness, reported, descriptors).some((option) => option.value === model)
+      ? [...missing, machine.name]
+      : missing
+  const pending = loading || status === 'loading'
+  if (index + 1 < machines.length) {
+    return (
+      <MachineModelWarning
+        key={machines[index + 1]!.id}
+        machines={machines}
+        index={index + 1}
+        harness={harness}
+        model={model}
+        descriptors={descriptors}
+        missing={names}
+        loading={pending}
+      />
+    )
+  }
+  return !pending && names.length > 0 ? (
+    <p className="settings-prose" role="status">
+      <span className="text-warning">Not offered on {names.join(', ')}</span>
+    </p>
+  ) : null
+})
+
+const ModelAvailabilityWarning = observer(function ModelAvailabilityWarning({
+  harness,
+  model,
+  descriptors,
+}: {
+  harness: HarnessAgent
+  model: string
+  descriptors?: readonly HarnessDescriptorWire[]
+}): JSX.Element | null {
+  const machines = useSettingsAuthorizedMachines()
+  if (machines.length === 0) return null
+  return (
+    <MachineModelWarning
+      key={machines[0]!.id}
+      machines={machines}
+      index={0}
+      harness={harness}
+      model={model}
+      descriptors={descriptors}
+    />
+  )
+})
+
 /**
  * The single reusable editor for any role's backend (SP-6454 B3): pick the
  * account (native CLI login vs managed provider key — "Agent CLI harness" vs
@@ -446,6 +522,12 @@ export const RoleBackendEditor = observer(function RoleBackendEditor({
           />
         )}
       </Row>
+      {(role === 'coding' || role === 'superagent') &&
+        harness &&
+        backend.model &&
+        backend.model !== AUTO && (
+        <ModelAvailabilityWarning harness={harness} model={backend.model} descriptors={descriptors} />
+      )}
       {showModelEffort && (
         <Row label={asDefault ? 'Default effort' : 'Effort'}>
           <EffortPicker

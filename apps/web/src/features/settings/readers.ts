@@ -60,6 +60,14 @@ export function useSettingsMachines(): MachineModel[] {
   )
   return useWorklistPoolProjection(read, EMPTY_MACHINES)
 }
+export function useSettingsAuthorizedMachines(): MachineModel[] {
+  const view = useSettingsOpening()
+  const read = useCallback(
+    (_pool: MobxPool) => view?.machines.models.authorized ?? EMPTY_MACHINES,
+    [view],
+  )
+  return useWorklistPoolProjection(read, EMPTY_MACHINES)
+}
 export function useSettingsMachine(id: string | null): MachineModel | null {
   const read = useCallback(
     (pool: MobxPool) => {

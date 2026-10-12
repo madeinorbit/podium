@@ -9,6 +9,11 @@ const loaded = <T extends object>(row: T | symbol | undefined): row is T =>
 const EMPTY_MACHINES: MachineModel[] = []
 export class SettingsMachines {
   constructor(private readonly pool: MobxPool) {}
+  @lazy({ equals: compareShallow }) get authorized(): MachineModel[] {
+    // Authorization is independent of presence: personal defaults also apply
+    // when an offline machine next launches against its last stored catalog.
+    return this.values.filter((machine) => machine.use === 'granted')
+  }
   @lazy({ equals: compareShallow }) get values(): MachineModel[] {
     const catalog = omitGone(this.pool.row('settingsCatalog', 'catalog'))
     if (!loaded(catalog)) return EMPTY_MACHINES

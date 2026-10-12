@@ -1,11 +1,35 @@
-import { asAccountId } from '@podium/model'
+import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
+import { asAccountId, asMachineId } from '@podium/model'
+import type { MachineModel, MobxPool } from '@podium/client-graph'
+import { SettingsMachines } from '../settings-machine-readers'
+import type { ModelCatalogState } from '@podium/client-core/react'
+import type { Trpc } from '@/app/trpc'
+import { useState } from 'react'
+import { observable, runInAction } from 'mobx'
+import * as modelCatalogHooks from '@/lib/use-model-catalog'
+import { saveSettingsAsCommands } from '../save-settings'
 import { BUNDLED_DESCRIPTORS } from '@podium/harness/browser'
 import type { HarnessDescriptorWire } from '@podium/protocol'
-import { nativeAccountId } from '@podium/runtime'
-import { cleanup, fireEvent, render, screen } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
-import { modelCatalogFixture } from '@/test-support/model-catalog-mock'
+import { nativeAccountId, normalizeSettings } from '@podium/runtime'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { accountOptions, managedCodingHarnesses, providerLabel, RoleBackendEditor } from './shared'
+
+const fleet = vi.hoisted(() => ({
+  machines: [] as MachineModel[],
+}))
+
+// Exercise the real authorization derivation while replacing the Settings opening.
+const settingsMachines = new SettingsMachines({
+  row: () => ({ machines: fleet.machines.map((machine) => machine.id) }),
+  model: (_entity: string, id: string) => fleet.machines.find((machine) => machine.id === id),
+} as unknown as MobxPool)
+
+vi.mock('../readers', () => ({ useSettingsAuthorizedMachines: () => settingsMachines.authorized }))
+
+beforeEach(() => {
+  vi.mocked(modelCatalogHooks.useModelCatalogState).mockClear()
+})
 
 vi.mock('@/app/store', () => {
   const useStore = () => ({ trpc: {} })
@@ -18,6 +42,8 @@ vi.mock('@/app/store', () => {
 afterEach(() => {
   cleanup()
   modelCatalogFixture.current = {}
+  fleet.machines = []
+  modelCatalogFixture.byMachine = {}
 })
 
 const LIVE_CODEX = {
@@ -311,4 +337,140 @@ it('shows stored effort inert for a Settings harness with no reported levels', (
   const pill = screen.getByRole('button', { name: 'Effort' }) as HTMLButtonElement
   expect(pill.disabled).toBe(true)
   expect(pill.textContent).toContain('High')
+})
+
+
+function warningMachine(id: string, name: string, patch: Partial<MachineModel> = {}): MachineModel {
+  return observable({ id: asMachineId(id), name, use: 'granted', online: true, ...patch }) as MachineModel
+}
+
+function reportedCodex(model = 'gpt-5.4', status: ModelCatalogState['status'] = 'ready'): ModelCatalogState {
+  return { catalog: { codex: [{ value: model, label: model }] }, status }
+}
+
+describe.each(['coding', 'superagent'] as const)('%s default model warning', (role) => {
+  function show(model = 'gpt-5.5', effort = 'auto') {
+    return render(
+      // biome-ignore lint/a11y/useValidAriaRole: backend role, not an ARIA attribute
+      <RoleBackendEditor role={role} backend={{ accountId: nativeAccountId('codex'), model, effort }} accounts={[]} onChange={vi.fn()} />,
+    )
+  }
+
+  beforeEach(() => {
+    fleet.machines = [warningMachine('studio', 'Studio Mac')]
+    modelCatalogFixture.byMachine.studio = reportedCodex()
+  })
+
+  it('names one machine under the model row and above effort', () => {
+    show()
+    const warning = screen.getByRole('status')
+    expect(warning.textContent).toBe('Not offered on Studio Mac')
+    expect(warning.previousElementSibling?.textContent).toContain(role === 'coding' ? 'Model' : 'Default model')
+    expect(warning.nextElementSibling?.textContent).toContain(role === 'coding' ? 'Effort' : 'Default effort')
+  })
+
+  it('names two machines, comma-separated, including an offline stored list', () => {
+    fleet.machines.push(warningMachine('laptop', 'Travel Laptop', { online: false }))
+    modelCatalogFixture.byMachine.laptop = reportedCodex('gpt-5.3', 'unavailable')
+    show()
+    expect(screen.getByRole('status').textContent).toBe('Not offered on Studio Mac, Travel Laptop')
+  })
+
+  it('has no warning for Auto', () => {
+    show('auto')
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('has no warning when every authorized machine lists the model', () => {
+    fleet.machines.push(warningMachine('laptop', 'Travel Laptop', { online: false }))
+    modelCatalogFixture.byMachine.laptop = reportedCodex('gpt-5.4', 'unavailable')
+    show('gpt-5.4')
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('has no warning when no machine has reported a list for the harness', () => {
+    modelCatalogFixture.byMachine.studio = { catalog: { grok: [{ value: 'grok-4', label: 'Grok 4' }] }, status: 'ready' }
+    show()
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('has no warning for an empty reported list', () => {
+    modelCatalogFixture.byMachine.studio = { catalog: { codex: [] }, status: 'ready' }
+    show()
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('has no warning while any authorized list is loading, even with stored models', () => {
+    fleet.machines.push(warningMachine('laptop', 'Travel Laptop'))
+    modelCatalogFixture.byMachine.laptop = reportedCodex('gpt-5.3', 'loading')
+    show()
+    expect(modelCatalogHooks.useModelCatalogState).toHaveBeenCalledWith(asMachineId('studio'))
+    expect(modelCatalogHooks.useModelCatalogState).toHaveBeenCalledWith(asMachineId('laptop'))
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('ignores denied machines and machines whose use permission is not evaluated', () => {
+    fleet.machines.push(warningMachine('denied', 'Shared Mac', { use: 'denied' }))
+    fleet.machines.push(warningMachine('unknown', 'Unknown Mac', { use: undefined }))
+    modelCatalogFixture.byMachine.denied = reportedCodex('gpt-5.3')
+    modelCatalogFixture.byMachine.unknown = reportedCodex('gpt-5.3', 'loading')
+    show('gpt-5.4')
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(modelCatalogHooks.useModelCatalogState).not.toHaveBeenCalledWith(asMachineId('denied'))
+    expect(modelCatalogHooks.useModelCatalogState).not.toHaveBeenCalledWith(asMachineId('unknown'))
+  })
+
+  it('has no warning when there are no authorized machines', () => {
+    fleet.machines = []
+    show()
+    expect(screen.queryByRole('status')).toBeNull()
+  })
+
+  it('does not warn about unsupported effort for an offered model', () => {
+    show('gpt-5.4', 'ultra')
+    expect(screen.queryByRole('status')).toBeNull()
+    expect(screen.getByRole('button', { name: 'Effort' }).textContent).toContain('Ultra')
+  })
+
+  it('updates when catalogs finish loading and the machine name changes', () => {
+    modelCatalogFixture.byMachine.studio = reportedCodex('gpt-5.4', 'loading')
+    show()
+    expect(screen.queryByRole('status')).toBeNull()
+    modelCatalogFixture.byMachine.studio = reportedCodex()
+    act(() => runInAction(() => Object.assign(fleet.machines[0]!, { name: 'Renamed Mac' })))
+    expect(screen.getByRole('status').textContent).toBe('Not offered on Renamed Mac')
+  })
+
+  it('writes the chosen model to personal settings while the warning is shown', async () => {
+    const previous = normalizeSettings({ roles: { [role]: { accountId: nativeAccountId('codex'), model: 'auto', effort: 'auto' } } })
+    const updatePersonal = vi.fn(async () => previous)
+    const trpc = { settings: { updatePersonal: { mutate: updatePersonal } } } as unknown as Trpc
+    function EditableDefault() {
+      const [settings, setSettings] = useState(previous)
+      return (
+        <>
+          {/* biome-ignore lint/a11y/useValidAriaRole: backend role, not an ARIA attribute */}
+          <RoleBackendEditor role={role} backend={settings.roles[role]} accounts={[]} onChange={(backend) => setSettings({ ...settings, roles: { ...settings.roles, [role]: { ...settings.roles[role], ...backend } } })} />
+          <button type="button" onClick={() => saveSettingsAsCommands(trpc, previous, settings)}>Save</button>
+        </>
+      )
+    }
+    render(<EditableDefault />)
+    fireEvent.click(screen.getByRole('button', { name: 'Model' }))
+    fireEvent.change(await screen.findByPlaceholderText('Model name…'), { target: { value: 'custom-model' } })
+    fireEvent.click(screen.getByRole('menuitem', { name: /Use “custom-model”/ }))
+    expect(screen.getByRole('status').textContent).toBe('Not offered on Studio Mac')
+    fireEvent.click(screen.getByRole('button', { name: 'Save' }))
+    await waitFor(() => expect(updatePersonal).toHaveBeenCalledWith({
+      values: expect.objectContaining({ [`roles.${role}.model`]: 'custom-model' }),
+    }))
+  })
+})
+
+it('has no warning for a managed coding account with no reported list', () => {
+  fleet.machines = [warningMachine('studio', 'Studio Mac')]
+  modelCatalogFixture.byMachine.studio = { catalog: {}, status: 'unavailable' }
+  // biome-ignore lint/a11y/useValidAriaRole: backend role, not an ARIA attribute
+  render(<RoleBackendEditor role="coding" backend={{ accountId: asAccountId('managed:openai'), harness: 'codex', model: 'managed-model', effort: 'ultra' }} accounts={[]} onChange={vi.fn()} />)
+  expect(screen.queryByRole('status')).toBeNull()
 })
