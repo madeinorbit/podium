@@ -1,0 +1,476 @@
+<!DOCTYPE html>
+<html><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="9631b49e-9701-4924-ac18-0b80c39da44f"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="design_doc_mode" content="canvas">
+<style>/* cyrillic-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("1ea2b809-2d00-4d27-b096-0e52fe5199d5") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("ddb541dc-6f31-4df8-bad6-35c56ea24298") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("2d4f8658-333a-4cbd-9903-59c58dee3f1d") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("784d8c2d-e1b5-4da9-a54d-98d171e3ba84") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("3c955de0-5fea-44e4-a6f6-a8ab0c0ab757") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("1ea2b809-2d00-4d27-b096-0e52fe5199d5") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("ddb541dc-6f31-4df8-bad6-35c56ea24298") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("2d4f8658-333a-4cbd-9903-59c58dee3f1d") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("784d8c2d-e1b5-4da9-a54d-98d171e3ba84") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("3c955de0-5fea-44e4-a6f6-a8ab0c0ab757") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("1ea2b809-2d00-4d27-b096-0e52fe5199d5") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("ddb541dc-6f31-4df8-bad6-35c56ea24298") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("2d4f8658-333a-4cbd-9903-59c58dee3f1d") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("784d8c2d-e1b5-4da9-a54d-98d171e3ba84") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("3c955de0-5fea-44e4-a6f6-a8ab0c0ab757") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("1ea2b809-2d00-4d27-b096-0e52fe5199d5") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("ddb541dc-6f31-4df8-bad6-35c56ea24298") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("2d4f8658-333a-4cbd-9903-59c58dee3f1d") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("784d8c2d-e1b5-4da9-a54d-98d171e3ba84") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Geist';
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("3c955de0-5fea-44e4-a6f6-a8ab0c0ab757") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("98b46cf3-3c3b-450f-bc7c-81a63618f55a") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("95e12fa7-91ba-41f9-ad87-a1f56d138d2c") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* symbols2 */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("10711364-1e9b-4092-a805-0fd92a57ad8c") format('woff2');
+  unicode-range: U+2000-2001, U+2004-2008, U+200A, U+23B8-23BD, U+2500-259F;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("c8b8a748-1a7f-4a9a-98b7-0d713533020f") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("fe00c05d-3e2d-426b-bda3-46fa27cbe8aa") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("f5ee92e7-d45b-4fba-9b8d-0805af7c40e0") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("98b46cf3-3c3b-450f-bc7c-81a63618f55a") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("95e12fa7-91ba-41f9-ad87-a1f56d138d2c") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* symbols2 */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("10711364-1e9b-4092-a805-0fd92a57ad8c") format('woff2');
+  unicode-range: U+2000-2001, U+2004-2008, U+200A, U+23B8-23BD, U+2500-259F;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("c8b8a748-1a7f-4a9a-98b7-0d713533020f") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("fe00c05d-3e2d-426b-bda3-46fa27cbe8aa") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("f5ee92e7-d45b-4fba-9b8d-0805af7c40e0") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+/* cyrillic-ext */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("98b46cf3-3c3b-450f-bc7c-81a63618f55a") format('woff2');
+  unicode-range: U+0460-052F, U+1C80-1C8A, U+20B4, U+2DE0-2DFF, U+A640-A69F, U+FE2E-FE2F;
+}
+/* cyrillic */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("95e12fa7-91ba-41f9-ad87-a1f56d138d2c") format('woff2');
+  unicode-range: U+0301, U+0400-045F, U+0490-0491, U+04B0-04B1, U+2116;
+}
+/* symbols2 */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("10711364-1e9b-4092-a805-0fd92a57ad8c") format('woff2');
+  unicode-range: U+2000-2001, U+2004-2008, U+200A, U+23B8-23BD, U+2500-259F;
+}
+/* vietnamese */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("c8b8a748-1a7f-4a9a-98b7-0d713533020f") format('woff2');
+  unicode-range: U+0102-0103, U+0110-0111, U+0128-0129, U+0168-0169, U+01A0-01A1, U+01AF-01B0, U+0300-0301, U+0303-0304, U+0308-0309, U+0323, U+0329, U+1EA0-1EF9, U+20AB;
+}
+/* latin-ext */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("fe00c05d-3e2d-426b-bda3-46fa27cbe8aa") format('woff2');
+  unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329, U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C4, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+/* latin */
+@font-face {
+  font-family: 'Geist Mono';
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("f5ee92e7-d45b-4fba-9b8d-0805af7c40e0") format('woff2');
+  unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329, U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+</style>
+<style>html,body{margin:0;background:#101113;min-height:100%}a{color:#6f9dff}a:hover{color:#b9cdfd}</style>
+</helmet>
+<section id="handoff" style="padding:56px;display:flex;flex-direction:column;gap:32px;font-family:'Geist',sans-serif;color:#d7dae0">
+  <div style="display:flex;flex-direction:column;gap:6px;max-width:1000px">
+    <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.16em;color:#848a94">PODIUM · FLIGHTDECK · HANDOFF</span>
+    <span style="font-size:28px;font-weight:600;color:#f2f3f5">Flightdeck for complex issues</span>
+    <span style="font-size:14px;line-height:1.55;color:#a8adb6;text-wrap:pretty">This is the final direction. The three boards show one component in different states. The notes on the right cover everything the implementing agent needs: data model changes, how states are derived, layout rules and interactions. The source of truth is <span style="font-family:'Geist Mono',monospace;color:#d7dae0">FlightdeckV6.dc.html</span>.</span>
+  </div>
+
+  <div style="display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+    <div id="A" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center;gap:8px"><span style="font-family:'Geist Mono',monospace;font-size:11px;font-weight:600;background:#d9b477;color:#191308;padding:2px 6px;border-radius:4px">A</span><span style="font-size:13px;color:#a8adb6">Compact (side panel) · task agent selected</span></div>
+      <div style="width:500px;border-radius:10px;overflow:hidden;box-shadow:0 0 0 1px #26292f,0 20px 44px -20px rgba(0,0,0,.65)">
+        <dc-import name="FlightdeckV6" variant="complex" selected="Admin area" hint-size="500px,1150px"></dc-import>
+      </div>
+    </div>
+    <div id="B" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center;gap:8px"><span style="font-family:'Geist Mono',monospace;font-size:11px;font-weight:600;background:#d9b477;color:#191308;padding:2px 6px;border-radius:4px">B</span><span style="font-size:13px;color:#a8adb6">Expanded · edges always drawn · phase lead selected</span></div>
+      <div style="width:860px;border-radius:10px;overflow:hidden;box-shadow:0 0 0 1px #26292f,0 20px 44px -20px rgba(0,0,0,.65)">
+        <dc-import name="FlightdeckV6" variant="complex" wide="{{ true }}" edges="always" selected="Quality gates lead" hint-size="860px,1150px"></dc-import>
+      </div>
+    </div>
+    <div id="C" style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:flex;align-items:center;gap:8px"><span style="font-family:'Geist Mono',monospace;font-size:11px;font-weight:600;background:#d9b477;color:#191308;padding:2px 6px;border-radius:4px">C</span><span style="font-size:13px;color:#a8adb6">Compact · coordinator selected</span></div>
+      <div style="width:500px;border-radius:10px;overflow:hidden;box-shadow:0 0 0 1px #26292f,0 20px 44px -20px rgba(0,0,0,.65)">
+        <dc-import name="FlightdeckV6" variant="complex" selected="coord" hint-size="500px,1150px"></dc-import>
+      </div>
+    </div>
+
+    <div style="width:560px;display:flex;flex-direction:column;gap:14px">
+      <sc-for list="{{ notes }}" as="n" hint-placeholder-count="6">
+        <div style="box-sizing:border-box;padding:16px 18px;border-radius:10px;background:#191a1e;border:1px solid #26292f;display:flex;flex-direction:column;gap:9px">
+          <div style="display:flex;align-items:center;gap:8px">
+            <span style="font-family:'Geist Mono',monospace;font-size:10.5px;font-weight:600;color:#191308;background:#6f9dff;border-radius:4px;padding:1px 6px">{{ n.no }}</span>
+            <span style="font-size:14px;font-weight:600;color:#f2f3f5">{{ n.title }}</span>
+          </div>
+          <sc-for list="{{ n.items }}" as="i" hint-placeholder-count="3">
+            <div style="display:flex;gap:8px;font-size:12.5px;line-height:1.55;color:#a8adb6;text-wrap:pretty">
+              <span style="color:#4a505b;flex:none">—</span><span>{{ i }}</span>
+            </div>
+          </sc-for>
+        </div>
+      </sc-for>
+    </div>
+  </div>
+</section>
+<section id="spec" style="display:flex;flex-direction:column">
+  <div style="padding:40px 56px 8px;display:flex;flex-direction:column;gap:6px;font-family:'Geist',sans-serif">
+    <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.16em;color:#848a94">DETAILED SPEC</span>
+    <span style="font-size:24px;font-weight:600;color:#f2f3f5">Components, states and behaviour</span>
+  </div>
+  <dc-import name="FlightdeckSpec" hint-size="100%,6000px"></dc-import>
+</section>
+</x-dc>
+<script type="text/x-dc" data-dc-script="">
+const NOTES = [
+  ['Data model: new fields', [
+    'issue.phase (optional): { id, name, order } on top-level children of the epic. Model it as a first-class field or a lightweight phase entity. Do not use labels. Sub-issues inherit their parent\'s phase, and phases are never required.',
+    'issue.role: research | design | build | review | qa | security. It is shown as grey text after the title. A missing role means nothing is shown.',
+    'session.seat: coordinator | phase_lead | worker | helper. The coordinator is the epic\'s original chat session. A phase_lead is linked to a phase, not to a task. A helper is a second session on the same task.',
+    'issue.proposed = true (or stage "proposed") for tasks suggested by agents. They render only in the PROPOSED section, never in the tree.',
+    'Already available: parent/child nesting, blocking/depends-on edges, sessions per issue, native subagents per session, cost.',
+  ]],
+  ['States: derived, one vocabulary', [
+    'Session: Working (live timer + braille spinner) · Needs you (amber #d9b477, ! badge) · Error (red #f0525e, ! badge) · Idle · Done (✓ ∑ duration).',
+    'Errors are not broken down further. Quota/usage limit, crash and any stop reason all show as "Error". There is no inline reason or action; the user opens the session to see what happened.',
+    'Task state is rolled up from its own sessions plus its sub-issues, in priority order: error > needs you > working > idle > (all done → Done) > Blocked (unmet dependency) > Not started.',
+    '"Idle" replaces "Standing by". It means the session is alive and has finished its turn, waiting for input. It does not mean blocked or not started.',
+    'Status ring: filled blue check for done, quarter-filled blue ring for active, dotted grey ring for not started or blocked. Blocked rows also get the 135° hatch background.',
+  ]],
+  ['Layout: top to bottom', [
+    'Header: status + ref, title, a 2-line clamped brief with a "Read full brief" link. Expanded, it shows the desc plus GOAL / SCOPE / ACCEPTANCE sections and the links Collapse (chevron-up) and Open in sidebar (panel-right-open).',
+    'Mission gauge: same as MissionGauge.tsx and .gauge-band in styles.css (2px band radius, straight 2px floor rule; done is the only solid band). Next to it: crew chip, cost chip and Add agent.',
+    'Coordinator card: always first and always visible, larger than other rows. Clicking anywhere opens its session. It has no action cards or inline replies. Its border turns amber when it needs the user.',
+    'Filter tabs: All · Needs you · Active · Up next, with counts. Needs you is red when any task has errored, otherwise amber. On the right: Done toggle (eye icon + count) and search.',
+    'Tasks without a phase come first, with no heading or rail. Then the phases in order: idx, name, hairline, progress meter, done/total, all collapsible.',
+    'PROPOSED section after the tree, outside it (magenta #d946ef). Actions: Backlog · Start. After a pick, the row shows "In backlog" or "Started" in place of the buttons.',
+  ]],
+  ['Visual grammar (the key rule)', [
+    'A TASK is a filled card (#24272d, radius 6, 32px strip).',
+    'A SESSION is an avatar row on a dark inset (#1b1d21). Inside a task card it is that task\'s worker or helper. As the first row of a phase it is the phase lead, labelled "phase lead".',
+    'An opened task shows its sessions in an inset panel inside the card. The small avatar chips on the strip hide while it is open.',
+    'Native subagents (general-purpose · id) are never rows by default. They collapse into an "N native" chip on their parent session that expands on click.',
+    'Sub-issues nest under their parent on tree lines that start at the parent\'s chevron (├ and └ elbows, 22px per level, any depth). The parent strip gets a list-tree done/total counter.',
+    'Do not name the session on the task strip; the task title is enough.',
+  ]],
+  ['Done work', [
+    'Done is hidden by default everywhere. One dashed line at the top ("N phases complete · M tasks done · Show") stands in for all of it, including done tasks without a phase and done sub-issues.',
+    'A phase stays visible while any task in it is unfinished. A fully done phase disappears until Show done is on.',
+    'Show done restores everything in its original place. Choosing a filter turns Show done off.',
+  ]],
+  ['Dependencies and hover', [
+    'Strip pills (compact): a blocked task shows lock + ref (or "N tasks") in amber. Expanded: "waits on PIPP-x, PIPP-y"; tasks that are running but have dependencies show a neutral "after …".',
+    'Edges: in the expanded view they are drawn all the time as small bezier hooks on the right edge of the list. In compact they appear only on hover. Measure positions in layout px (divide getBoundingClientRect by the zoom scale).',
+    'Hover on a task: rings its direct dependencies and dependents in blue, highlights their edges, and dims the other tasks in the hovered task\'s own phase only (opacity 0.3). Other phases, the coordinator and proposals never dim.',
+  ]],
+  ['Selection', [
+    'Exactly one session is "selected": the one open in the main pane. It gets a blue tint (rgba(111,157,255,.14)) and a 1px inset ring, whether it is the coordinator, a phase lead, a worker or a helper. The coordinator card turns a blue-tinted ground with a blue border.',
+    'Clicking any session row selects it and opens its session. Clicking a task strip only toggles fold; it never selects.',
+  ]],
+  ['Simple issues', [
+    'With 1 session and no phases, there is no tree: header + gauge, the coordinator card (with helper rows inside it), flat sub-issue rows, then proposals. See turn 2c on the explorations board.',
+    'Remove the waterfall/timeline mode switch entirely. There is only one view.',
+  ]],
+];
+
+class Component extends DCLogic {
+  renderVals() {
+    return { notes: NOTES.map(([title, items], i) => ({ no: String(i + 1).padStart(2, '0'), title, items })) };
+  }
+}
+</script>
+
+
+<div id="__claude_design_branding"><style>#__claude_design_branding{position:fixed;right:16px;bottom:16px;z-index:2147483646;display:flex;align-items:center;gap:7px;height:30px;padding:0 5px 0 10px;border-radius:999px;font-family:"Anthropic Sans",-apple-system,BlinkMacSystemFont,system-ui,sans-serif;font-size:12.5px;font-weight:400;line-height:1;letter-spacing:normal;text-transform:none;color:#141413;background:rgba(255,255,255,.86);-webkit-backdrop-filter:blur(24px);backdrop-filter:blur(24px);box-shadow:0 0 0 .5px rgba(31,30,29,.14),0 2px 10px rgba(0,0,0,.09)}
+#__claude_design_branding *{box-sizing:border-box;margin:0}
+#__claude_design_branding a{color:inherit;text-decoration:none;display:inline-flex;align-items:center;gap:7px;white-space:nowrap}
+#__claude_design_branding a:hover span{text-decoration:underline}
+#__claude_design_branding svg{flex:none}
+#__claude_design_branding a svg{color:#D97757}
+#__claude_design_branding button{width:20px;height:20px;padding:0;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;color:currentColor;opacity:.55;border:0;background:none;cursor:pointer;flex:none;font:inherit;transition:opacity .14s}
+#__claude_design_branding button:hover{opacity:1;background:rgba(127,127,127,.22)}
+@media print{#__claude_design_branding{display:none}}</style><a href="https://claude.com/product/design" target="_blank" rel="noopener noreferrer"><svg width="14" height="14" viewBox="0 0 20 21" fill="none" aria-hidden="true"><path fill="currentColor" d="M9.99902 0C15.5258 0.000170936 19.999 4.50643 19.999 10.0547C19.999 11.7656 19.5863 12.9976 18.7861 13.8203C17.9924 14.6362 16.9465 14.9138 15.9854 15.0078C15.05 15.0993 14.0097 15.0262 13.2549 15.0186C12.8524 15.0145 12.5177 15.0267 12.2441 15.0703C11.9682 15.1144 11.8143 15.1813 11.7305 15.2432C11.4745 15.4322 11.3353 15.7121 11.2656 16.1602C11.2303 16.3875 11.2168 16.6362 11.209 16.9131C11.2017 17.1715 11.1986 17.4893 11.1807 17.7705C11.1469 18.2975 11.0495 19.0865 10.4199 19.5908C9.7846 20.0996 8.88652 20.1057 7.85449 19.877C7.36399 19.7682 6.88652 19.6232 6.42578 19.4453C2.66989 17.9949 0.000187748 14.3414 0 10.0547C0 4.50643 4.47223 0.000171048 9.99902 0ZM9.99902 1.60547C5.36781 1.60564 1.60547 5.38391 1.60547 10.0547C1.60566 13.6582 3.84823 16.7296 7.00391 17.9482C7.39027 18.0974 7.79085 18.2184 8.20215 18.3096C9.1375 18.5169 9.384 18.3633 9.41602 18.3379C9.4524 18.3087 9.54558 18.1915 9.5791 17.668C9.5947 17.4239 9.59473 17.1786 9.60352 16.8672C9.61179 16.5742 9.62831 16.2435 9.67969 15.9131C9.78359 15.2455 10.0474 14.4906 10.7764 13.9521C11.1479 13.6778 11.5842 13.5493 11.9912 13.4844C12.4007 13.4191 12.8434 13.4088 13.2705 13.4131C14.1753 13.4222 15.0071 13.4905 15.8291 13.4102C16.6257 13.3322 17.2249 13.1235 17.6357 12.7012C18.0401 12.2855 18.3935 11.5261 18.3936 10.0547C18.3936 5.38391 14.6302 1.60564 9.99902 1.60547ZM5.11621 9.86719C5.86386 9.91468 6.45486 10.5348 6.45508 11.2939C6.45506 12.0838 5.81519 12.7245 5.02539 12.7246C4.28481 12.7246 3.67573 12.1617 3.60254 11.4404L3.59473 11.2939L3.60156 11.1533C3.66942 10.4596 4.23282 9.91186 4.93359 9.86719H5.11621ZM14.9814 7.19141C15.729 7.23889 16.3199 7.85919 16.3203 8.61816C16.3203 9.40801 15.6804 10.0487 14.8906 10.0488C14.1501 10.0487 13.5409 9.48586 13.4678 8.76465L13.46 8.61816L13.4668 8.47754C13.5348 7.78403 14.0983 7.23618 14.7988 7.19141H14.9814ZM6.4541 4.93457C7.20161 4.9822 7.79275 5.60231 7.79297 6.36133C7.79288 7.151 7.15291 7.7917 6.36328 7.79199C5.62274 7.79199 5.01369 7.22903 4.94043 6.50781L4.93262 6.36133L4.93945 6.2207C5.00731 5.52698 5.5707 4.97922 6.27148 4.93457H6.4541ZM11.3867 3.59668C12.1343 3.64419 12.7253 4.26436 12.7256 5.02344C12.7256 5.81326 12.0857 6.45393 11.2959 6.4541C10.5553 6.4541 9.94622 5.89123 9.87305 5.16992L9.86523 5.02344L9.87207 4.88281C9.93996 4.18912 10.5033 3.64133 11.2041 3.59668H11.3867Z"></path></svg><span>Made with Claude Design</span></a><button type="button" aria-label="Dismiss" onclick="this.parentElement.remove()"><svg width="12" height="12" viewBox="0 0 12 12" fill="none" aria-hidden="true"><path d="M2 2l8 8M10 2l-8 8" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"></path></svg></button></div></body></html>

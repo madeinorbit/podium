@@ -1,0 +1,637 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#16171a}a{color:#a8adb6}a:hover{color:#f2f3f5}</style>
+</helmet>
+<div style="width:100%;min-height:100%;background:#1d1f23;color:#d7dae0;font-family:'Geist',sans-serif;font-size:12px;display:flex;flex-direction:column;box-sizing:border-box">
+
+  <!-- HEADER -->
+  <div style="padding:14px 16px 12px;display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;align-items:center;gap:7px">
+      <span style="width:12px;height:12px;border-radius:50%;border:1.5px solid #6f9dff;box-sizing:border-box;background:conic-gradient(#6f9dff 0 25%,transparent 25% 100%);background-clip:content-box;padding:1.5px;flex:none"></span>
+      <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#848a94">{{ m.ref }} in progress</span>
+      <span style="flex:1"></span>
+      <span title="Expand flightdeck" style="width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:#848a94;cursor:pointer" style-hover="background:#2c3038;color:#f2f3f5"><span style="width:13px;height:13px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/maximize-2.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/maximize-2.svg) center/contain no-repeat"></span></span>
+      <span style="width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:#848a94;cursor:pointer" style-hover="background:#2c3038;color:#f2f3f5"><span style="width:14px;height:14px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-left.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-left.svg) center/contain no-repeat"></span></span>
+    </div>
+    <div style="font-size:16px;font-weight:600;color:#f2f3f5;letter-spacing:-0.01em">{{ m.title }}</div>
+    <sc-if value="{{ briefClosed }}">
+      <div onClick="{{ toggleBrief }}" style="display:flex;flex-direction:column;gap:3px;cursor:pointer">
+        <div style="font-size:12px;line-height:1.55;color:#a8adb6;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-wrap:pretty">{{ m.desc }}</div>
+        <span style="display:flex;align-items:center;gap:4px;font-size:11.5px;color:#848a94" style-hover="color:#f2f3f5">Read full brief<span style="width:11px;height:11px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-down.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-down.svg) center/contain no-repeat"></span></span>
+      </div>
+    </sc-if>
+    <sc-if value="{{ briefOpen }}">
+      <div style="display:flex;flex-direction:column;gap:10px;padding:12px 12px 10px;border-radius:8px;background:#191a1e;border:1px solid #26292f">
+        <div style="font-size:12px;line-height:1.55;color:#d7dae0;text-wrap:pretty">{{ m.desc }}</div>
+        <sc-for list="{{ m.brief }}" as="b" hint-placeholder-count="2">
+          <div style="display:flex;flex-direction:column;gap:3px">
+            <span style="font-family:'Geist Mono',monospace;font-size:9.5px;letter-spacing:.14em;color:#949aa4">{{ b.h }}</span>
+            <span style="font-size:12px;line-height:1.55;color:#a8adb6;text-wrap:pretty">{{ b.t }}</span>
+          </div>
+        </sc-for>
+        <div style="display:flex;align-items:center;gap:14px">
+          <span onClick="{{ toggleBrief }}" style="display:flex;align-items:center;gap:4px;font-size:11.5px;color:#848a94;cursor:pointer" style-hover="color:#f2f3f5"><span style="width:11px;height:11px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-up.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-up.svg) center/contain no-repeat"></span>Collapse</span>
+          <span style="display:flex;align-items:center;gap:5px;font-size:11.5px;color:#848a94;cursor:pointer" style-hover="color:#f2f3f5"><span style="width:12px;height:12px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/panel-right-open.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/panel-right-open.svg) center/contain no-repeat"></span>Open in sidebar</span>
+        </div>
+      </div>
+    </sc-if>
+    <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:4px">
+      <div style="flex:1 1 160px;min-width:120px;height:26px;display:flex;gap:2px;padding:2px;box-sizing:border-box;border-radius:8px;background:#16171a;box-shadow:inset 0 1px 2px rgba(0,0,0,.9)">
+        <sc-for list="{{ bands }}" as="b" hint-placeholder-count="3">
+          <span style="flex:{{ b.grow }} 1 0;min-width:14px;padding:0 3px;border-radius:2px;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap;font-family:'Geist Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.06em;font-variant-numeric:tabular-nums;text-transform:uppercase;background:{{ b.bg }};color:{{ b.fg }};box-shadow:{{ b.shadow }}">{{ b.label }}</span>
+        </sc-for>
+      </div>
+      <span style="height:26px;display:flex;align-items:center;gap:6px;padding:0 9px;border-radius:8px;background:#16171a;font-family:'Geist Mono',monospace;font-size:10.5px;color:#848a94;flex:none"><span style="width:12px;height:12px;background:#6f7580;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/users.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/users.svg) center/contain no-repeat"></span>{{ m.crew }}</span>
+      <span style="height:26px;display:flex;align-items:center;gap:6px;padding:0 9px;border-radius:8px;border:1px solid #3a3f48;box-sizing:border-box;background:#16171a;font-family:'Geist Mono',monospace;font-size:10.5px;flex:none"><span style="letter-spacing:.12em;color:#949aa4">COST</span><span style="color:#f2f3f5">{{ m.cost }}</span></span>
+      <span style="height:26px;display:flex;align-items:center;gap:6px;padding:0 9px;border-radius:8px;background:#252830;font-size:12px;font-weight:500;color:#f2f3f5;flex:none;cursor:pointer" style-hover="background:#2c3038"><span style="width:13px;height:13px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/user-plus.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/user-plus.svg) center/contain no-repeat"></span>Add agent</span>
+    </div>
+  </div>
+
+  <!-- COORDINATOR CARD -->
+  <div style="opacity:{{ focusOp }};transition:opacity .15s;margin:0 12px;display:flex;flex-direction:column;border-radius:8px;border:1px solid {{ c.border }};background:{{ c.cardBg }};box-shadow:{{ c.selRing }};overflow:hidden">
+    <div onClick="{{ c.select }}" style="display:flex;align-items:center;gap:10px;padding:10px 10px 10px 10px;cursor:pointer" style-hover="background:#272a31">
+      <span style="width:28px;height:28px;border-radius:7px;border:1px solid {{ c.bd }};background:{{ c.bg }};display:flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box"><span style="width:16px;height:16px;background:{{ c.fg }};-webkit-mask:{{ c.mask }} center/contain no-repeat;mask:{{ c.mask }} center/contain no-repeat"></span></span>
+      <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1">
+        <span style="font-size:13px;font-weight:600;color:#f2f3f5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ c.name }}</span>
+        <span style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#848a94;white-space:nowrap"><span>Coordinator</span><span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#6f7580">{{ c.ref }}</span></span>
+      </div>
+      <span style="display:flex;align-items:center;gap:6px;font-family:'Geist Mono',monospace;font-size:10.5px;color:{{ c.stateFg }};flex:none;white-space:nowrap">
+        <sc-if value="{{ c.needs }}"><span style="width:14px;height:14px;border-radius:50%;background:#d9b477;color:#191308;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'Geist',sans-serif">!</span></sc-if>
+        <sc-if value="{{ c.spin }}"><span style="color:#6f9dff">⣾</span></sc-if>{{ c.state }}
+      </span>
+      <span style="width:14px;height:14px;background:#6f7580;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/arrow-up-right.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/arrow-up-right.svg) center/contain no-repeat;flex:none"></span>
+    </div>
+    <sc-if value="{{ c.hasHelpers }}">
+      <div style="display:flex;flex-direction:column;padding:0 10px 8px 48px;gap:2px">
+        <sc-for list="{{ c.helpers }}" as="h" hint-placeholder-count="1">
+          <div style="display:flex;align-items:center;gap:7px;min-height:24px;border-radius:5px;cursor:pointer" style-hover="background:#272a31">
+            <span style="width:16px;height:16px;border-radius:4px;border:1px solid {{ h.bd }};background:{{ h.bg }};display:flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box"><span style="width:10px;height:10px;background:{{ h.fg }};-webkit-mask:{{ h.mask }} center/contain no-repeat;mask:{{ h.mask }} center/contain no-repeat"></span></span>
+            <span style="font-size:12px;color:#a8adb6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ h.name }}</span>
+            <span style="font-size:11.5px;color:#6f7580;flex:none">helper</span>
+            <span style="flex:1"></span>
+            <span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#6f7580;flex:none">{{ h.state }}</span>
+          </div>
+        </sc-for>
+      </div>
+    </sc-if>
+  </div>
+
+  <!-- SIMPLE: subtasks -->
+  <sc-if value="{{ isSimple }}">
+    <div style="padding:10px 12px 0;display:flex;flex-direction:column;gap:4px">
+      <sc-for list="{{ simpleSubs }}" as="t" hint-placeholder-count="1">
+        <div style="display:flex;align-items:center;gap:8px;height:30px;padding:0 10px;border-radius:6px;background:#24272d;cursor:pointer" style-hover="background:#292c33">
+          <span style="width:14px;height:14px;border-radius:50%;background:#2a62f0;display:flex;align-items:center;justify-content:center;flex:none"><span style="width:9px;height:9px;background:#fff;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/check.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/check.svg) center/contain no-repeat"></span></span>
+          <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#848a94;flex:none">{{ t.ref }}</span>
+          <span style="font-size:12.5px;font-weight:500;color:#a8adb6;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1">{{ t.title }}</span>
+          <span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#848a94;flex:none">Done</span>
+        </div>
+      </sc-for>
+    </div>
+  </sc-if>
+
+  <!-- COMPLEX -->
+  <sc-if value="{{ isComplex }}">
+    <div style="display:flex;flex-direction:column">
+      <div style="display:flex;align-items:center;gap:4px;padding:12px 12px 8px;flex-wrap:wrap">
+        <sc-for list="{{ filters }}" as="f" hint-placeholder-count="4">
+          <span onClick="{{ f.pick }}" style="height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;border-radius:6px;cursor:pointer;font-size:11.5px;font-weight:500;background:{{ f.bg }};color:{{ f.fg }}" style-hover="color:#f2f3f5">{{ f.label }}<span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:{{ f.countFg }}">{{ f.count }}</span></span>
+        </sc-for>
+        <span style="flex:1"></span>
+        <span onClick="{{ toggleDone }}" style="height:24px;display:flex;align-items:center;gap:6px;padding:0 8px;border-radius:6px;cursor:pointer;font-size:11.5px;color:{{ doneToggle.fg }};background:{{ doneToggle.bg }}" style-hover="color:#f2f3f5">
+          <span style="width:12px;height:12px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/{{ doneToggle.icon }}.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/{{ doneToggle.icon }}.svg) center/contain no-repeat"></span>Done<span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#6f7580">{{ doneCount }}</span>
+        </span>
+        <span style="width:24px;height:24px;display:flex;align-items:center;justify-content:center;border-radius:6px;color:#848a94;cursor:pointer" style-hover="background:#2c3038;color:#f2f3f5"><span style="width:13px;height:13px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/search.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/search.svg) center/contain no-repeat"></span></span>
+      </div>
+
+      <div ref="{{ listRef }}" style="position:relative;display:flex;flex-direction:column;gap:16px;padding:4px 30px 8px 12px">
+        {{ edgesSvg }}
+        <sc-if value="{{ hiddenDoneLine }}">
+          <div onClick="{{ toggleDone }}" style="opacity:{{ focusOp }};display:flex;align-items:center;gap:8px;height:26px;padding:0 8px;border-radius:6px;border:1px dashed #2c3038;color:#6f7580;font-size:11.5px;cursor:pointer" style-hover="color:#a8adb6;border-color:#3a3f48">
+            <span style="width:12px;height:12px;background:#2a62f0;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/circle-check.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/circle-check.svg) center/contain no-repeat;flex:none"></span>
+            <span style="flex:1">{{ hiddenDoneLine }}</span>
+            <span style="font-family:'Geist Mono',monospace;font-size:10.5px">Show</span>
+          </div>
+        </sc-if>
+
+        <sc-for list="{{ phases }}" as="p" hint-placeholder-count="3">
+          <div style="display:flex;flex-direction:column;gap:4px;opacity:{{ p.op }};transition:opacity .15s">
+            <sc-if value="{{ p.isPhase }}">
+              <div onClick="{{ p.toggle }}" style="display:flex;align-items:center;gap:8px;height:26px;padding:0 10px 0 6px;cursor:pointer;border-radius:6px" style-hover="background:#22252a">
+                <span style="width:12px;height:12px;background:#6f7580;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-down.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-down.svg) center/contain no-repeat;flex:none;transform:rotate({{ p.chev }}deg)"></span>
+                <span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#6f7580;letter-spacing:.08em;flex:none">{{ p.idx }}</span>
+                <span style="font-size:13px;font-weight:600;color:{{ p.nameFg }};white-space:nowrap;flex:none">{{ p.name }}</span>
+                <span style="height:1px;flex:1;min-width:12px;background:#2c3038"></span>
+                
+                <span style="display:flex;width:36px;height:3px;border-radius:2px;overflow:hidden;background:#2c3038;flex:none"><span style="width:{{ p.pct }}%;background:#2a62f0"></span></span>
+                <span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#848a94;flex:none">{{ p.count }}</span>
+              </div>
+            </sc-if>
+            
+            <sc-if value="{{ p.open }}">
+              <div style="display:flex;flex-direction:column;gap:3px;margin-left:{{ p.ml }}px;padding-left:{{ p.pl }}px;border-left:2px solid {{ p.rail }}">
+                <sc-if value="{{ p.hasLead }}">
+                  <div onClick="{{ p.lead.select }}" style="display:flex;align-items:center;gap:8px;height:32px;padding:0 10px 0 7px;border-radius:6px;background:{{ p.lead.leadBg }};box-shadow:{{ p.lead.selRing }};cursor:pointer;margin-bottom:2px" style-hover="background:#202328">
+                    <span style="width:20px;height:20px;border-radius:6px;border:1px solid {{ p.lead.bd }};background:{{ p.lead.bg }};display:flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box"><span style="width:12px;height:12px;background:{{ p.lead.fg }};-webkit-mask:{{ p.lead.mask }} center/contain no-repeat;mask:{{ p.lead.mask }} center/contain no-repeat"></span></span>
+                    <span style="font-size:12px;font-weight:600;color:#f2f3f5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ p.lead.name }}</span>
+                    <span style="font-size:11.5px;color:#848a94;flex:none">phase lead</span>
+                    <span style="flex:1"></span>
+                    <span style="display:flex;align-items:center;gap:5px;font-family:'Geist Mono',monospace;font-size:10.5px;color:{{ p.lead.stateFg }};flex:none;white-space:nowrap">
+                      <sc-if value="{{ p.lead.needs }}"><span style="width:13px;height:13px;border-radius:50%;background:#d9b477;color:#191308;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'Geist',sans-serif">!</span></sc-if>
+                      <sc-if value="{{ p.lead.err }}"><span style="width:13px;height:13px;border-radius:50%;background:#e5303f;color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'Geist',sans-serif">!</span></sc-if>
+                      <sc-if value="{{ p.lead.spin }}"><span style="color:#6f9dff">⣾</span></sc-if>{{ p.lead.state }}
+                    </span>
+                  </div>
+                </sc-if>
+                <sc-for list="{{ p.tasks }}" as="t" hint-placeholder-count="3">
+                  <div onMouseEnter="{{ t.enter }}" onMouseLeave="{{ leave }}" style="display:flex;opacity:{{ t.op }};transition:opacity .15s">
+                    <sc-for list="{{ t.guides }}" as="g" hint-placeholder-count="0">
+                      <span style="display:flex;flex-direction:column;width:22px;flex:none;margin-top:-3px">
+                        <span style="margin-left:11px;width:11px;height:19px;flex:none;box-sizing:border-box;border-left:1px solid {{ g.top }};border-bottom:1px solid {{ g.elbow }};border-bottom-left-radius:{{ g.r }}"></span>
+                        <span style="margin-left:11px;flex:1;border-left:1px solid {{ g.bot }}"></span>
+                      </span>
+                    </sc-for>
+                    <div style="flex:1;min-width:0;display:flex;flex-direction:column;border-radius:6px;background:{{ t.bg }};box-shadow:{{ t.ring }}">
+                      <div data-strip="{{ t.ref }}" onClick="{{ t.toggle }}" style="display:flex;align-items:center;gap:8px;height:32px;padding:0 10px 0 6px;border-radius:6px;cursor:pointer" style-hover="background:#292c33">
+                        <span style="width:12px;height:12px;background:#6f7580;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-right.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-right.svg) center/contain no-repeat;flex:none;opacity:{{ t.chevOp }};transform:rotate({{ t.chev }}deg)"></span>
+                        <sc-if value="{{ t.isDone }}"><span style="width:14px;height:14px;border-radius:50%;background:#2a62f0;display:flex;align-items:center;justify-content:center;flex:none"><span style="width:9px;height:9px;background:#fff;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/check.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/check.svg) center/contain no-repeat"></span></span></sc-if>
+                        <sc-if value="{{ t.isRun }}"><span style="width:14px;height:14px;border-radius:50%;border:1.5px solid #6f9dff;box-sizing:border-box;padding:1.5px;background:conic-gradient(#6f9dff 0 25%,transparent 25% 100%);background-clip:content-box;flex:none"></span></sc-if>
+                        <sc-if value="{{ t.isWait }}"><span style="width:14px;height:14px;border-radius:50%;border:1.5px dotted #6f7580;box-sizing:border-box;flex:none"></span></sc-if>
+                        <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#848a94;flex:none">{{ t.ref }}</span>
+                        <span style="display:flex;align-items:baseline;gap:7px;min-width:60px;flex:1;overflow:hidden">
+                          <span style="font-size:12.5px;font-weight:600;color:{{ t.titleFg }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ t.title }}</span>
+                          <sc-if value="{{ t.showRole }}"><span style="font-size:11.5px;color:#6f7580;white-space:nowrap;flex:none">{{ t.role }}</span></sc-if>
+                        </span>
+                        <sc-if value="{{ t.hasSubs }}"><span title="Sub-issues done" style="display:flex;align-items:center;gap:4px;color:#848a94;flex:none;white-space:nowrap;font-family:'Geist Mono',monospace;font-size:10.5px"><span style="width:11px;height:11px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/list-tree.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/list-tree.svg) center/contain no-repeat"></span>{{ t.subLabel }}</span></sc-if>
+                        <sc-if value="{{ t.hasDep }}">
+                          <span title="{{ t.depTitle }}" style="height:18px;display:flex;align-items:center;gap:4px;padding:0 6px 0 5px;border-radius:9px;background:{{ t.depBg }};color:{{ t.depFg }};flex:none;white-space:nowrap;font-size:11px">
+                            <span style="width:11px;height:11px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/{{ t.depIcon }}.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/{{ t.depIcon }}.svg) center/contain no-repeat"></span>{{ t.depText }}
+                          </span>
+                        </sc-if>
+                        <span style="display:flex;gap:3px;flex:none;justify-content:flex-end">
+                          <sc-for list="{{ t.tiles }}" as="k" hint-placeholder-count="1">
+                            <span style="width:16px;height:16px;border-radius:4px;border:1px solid {{ k.bd }};background:{{ k.bg }};display:flex;align-items:center;justify-content:center;box-sizing:border-box"><span style="width:10px;height:10px;background:{{ k.fg }};-webkit-mask:{{ k.mask }} center/contain no-repeat;mask:{{ k.mask }} center/contain no-repeat"></span></span>
+                          </sc-for>
+                        </span>
+                        <span style="width:76px;display:flex;align-items:center;justify-content:flex-end;gap:5px;font-family:'Geist Mono',monospace;font-size:10.5px;color:{{ t.stateFg }};flex:none;white-space:nowrap">
+                          <sc-if value="{{ t.dot }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ t.stateFg }}"></span></sc-if>
+                          <sc-if value="{{ t.spin }}"><span style="color:#6f9dff">⣾</span></sc-if>{{ t.state }}
+                        </span>
+                      </div>
+                      <sc-if value="{{ t.showAgents }}">
+                        <div style="display:flex;flex-direction:column;margin:0 4px 4px;padding:3px 4px 3px 20px;border-radius:5px;background:#1b1d21">
+                          <sc-for list="{{ t.agents }}" as="a" hint-placeholder-count="1">
+                            <div style="display:flex;flex-direction:column">
+                              <div onClick="{{ a.select }}" style="display:flex;align-items:center;gap:8px;height:28px;padding:0 6px 0 2px;border-radius:5px;cursor:pointer;background:{{ a.selBg }};box-shadow:{{ a.selRing }}" style-hover="background:#23262b">
+                                <span style="width:20px;height:20px;border-radius:6px;border:1px solid {{ a.bd }};background:{{ a.bg }};display:flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box"><span style="width:12px;height:12px;background:{{ a.fg }};-webkit-mask:{{ a.mask }} center/contain no-repeat;mask:{{ a.mask }} center/contain no-repeat"></span></span>
+                                <span style="font-size:12px;font-weight:500;color:{{ a.nameFg }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ a.name }}</span>
+                                <sc-if value="{{ a.helper }}"><span style="font-size:11.5px;color:#6f7580;flex:none">helper</span></sc-if>
+                                <span style="flex:1"></span>
+                                <sc-if value="{{ a.hasNative }}">
+                                  <span onClick="{{ a.toggleNative }}" style="height:17px;display:flex;align-items:center;gap:4px;padding:0 6px;border-radius:4px;background:#2c3038;color:#a8adb6;font-family:'Geist Mono',monospace;font-size:9.5px;cursor:pointer;flex:none" style-hover="color:#f2f3f5">{{ a.nativeLabel }}<span style="width:9px;height:9px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-down.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-down.svg) center/contain no-repeat;transform:rotate({{ a.nativeChev }}deg)"></span></span>
+                                </sc-if>
+                                <span style="display:flex;align-items:center;justify-content:flex-end;gap:5px;min-width:76px;font-family:'Geist Mono',monospace;font-size:10.5px;color:{{ a.stateFg }};flex:none;white-space:nowrap">
+                                  <sc-if value="{{ a.needs }}"><span style="width:13px;height:13px;border-radius:50%;background:#d9b477;color:#191308;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'Geist',sans-serif">!</span></sc-if>
+                                  <sc-if value="{{ a.err }}"><span style="width:13px;height:13px;border-radius:50%;background:#e5303f;color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'Geist',sans-serif">!</span></sc-if>
+                                  <sc-if value="{{ a.spin }}"><span style="color:#6f9dff">⣾</span></sc-if>{{ a.state }}
+                                </span>
+                              </div>
+                              <sc-if value="{{ a.nativeOpen }}">
+                                <div style="display:flex;flex-direction:column;margin:0 0 4px 30px;border-left:1px solid #33373f">
+                                  <sc-for list="{{ a.natives }}" as="n" hint-placeholder-count="2">
+                                    <div style="display:flex;align-items:center;gap:6px;height:22px;padding:0 6px 0 10px;font-family:'Geist Mono',monospace;font-size:10.5px;color:#6f7580">
+                                      <span style="color:#848a94;font-weight:500">general-purpose</span><span>· {{ n.id }}</span><span style="flex:1"></span><span>{{ n.state }}</span>
+                                    </div>
+                                  </sc-for>
+                                </div>
+                              </sc-if>
+                            </div>
+                          </sc-for>
+                        </div>
+                      </sc-if>
+                    </div>
+                  </div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-if>
+
+  <!-- PROPOSALS -->
+  <div style="opacity:{{ focusOp }};transition:opacity .15s;padding:16px 12px 18px;display:flex;flex-direction:column;gap:6px">
+    <div style="display:flex;align-items:center;gap:8px;padding:0 2px 2px">
+      <span style="font-family:'Geist Mono',monospace;font-size:10.5px;font-weight:600;letter-spacing:.16em;color:#d946ef">PROPOSED</span>
+      <span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#848a94">{{ proposalCount }}</span>
+      <span style="height:1px;flex:1;background:rgba(217,70,239,.18)"></span>
+    </div>
+    <sc-for list="{{ proposals }}" as="r" hint-placeholder-count="2">
+      <div style="display:flex;align-items:center;gap:8px;min-height:34px;padding:0 6px 0 10px;border-radius:6px;border:1px solid rgba(217,70,239,.22);background:rgba(217,70,239,.05);box-sizing:border-box">
+        <span style="width:12px;height:12px;border-radius:50%;border:1.5px solid #d946ef;box-sizing:border-box;flex:none"></span>
+        <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#d946ef;flex:none">{{ r.ref }}</span>
+        <span style="font-size:12.5px;color:#d7dae0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1">{{ r.title }}</span>
+        <sc-if value="{{ r.pending }}">
+          <span style="display:flex;gap:4px;flex:none">
+            <span onClick="{{ r.backlog }}" style="height:22px;display:flex;align-items:center;padding:0 8px;border-radius:5px;font-size:11px;color:#a8adb6;cursor:pointer" style-hover="background:rgba(217,70,239,.12);color:#f2f3f5">Backlog</span>
+            <span onClick="{{ r.start }}" style="height:22px;display:flex;align-items:center;padding:0 8px;border-radius:5px;font-size:11px;font-weight:500;color:#f0abfc;border:1px solid rgba(217,70,239,.4);cursor:pointer" style-hover="background:rgba(217,70,239,.15)">Start</span>
+          </span>
+        </sc-if>
+        <sc-if value="{{ r.done }}">
+          <span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#a8adb6;padding:0 6px;flex:none">{{ r.doneLabel }}</span>
+        </sc-if>
+      </div>
+    </sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:500,&quot;height&quot;:1000},&quot;variant&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;complex&quot;,&quot;simple&quot;],&quot;default&quot;:&quot;complex&quot;,&quot;tsType&quot;:&quot;'complex'|'simple'|'nophases'&quot;},&quot;wide&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:false,&quot;tsType&quot;:&quot;boolean&quot;},&quot;edges&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;hover&quot;,&quot;always&quot;],&quot;default&quot;:&quot;hover&quot;,&quot;tsType&quot;:&quot;'hover'|'always'&quot;}}">
+const MASK = { claude: 'url(assets/claude-code.svg)', codex: 'url(assets/openai.svg)' };
+const TILE = {
+  claude: { bg: '#d97757', bd: '#d97757', fg: '#ffffff', mask: MASK.claude },
+  codex: { bg: '#252830', bd: '#3a3f48', fg: '#d7dae0', mask: MASK.codex },
+};
+const DIM_TILE = { bg: '#1e2024', bd: '#26292f', fg: '#6f7580' };
+const ROLE = { research: 'research', design: 'design', review: 'review', build: 'build', qa: 'QA', security: 'security' };
+const RED = '#f0525e', AMBER = '#d9b477', LIVE = '#6f9dff';
+
+// agent states: working · needs · error · idle · done
+const ag = (name, kind, state, extra = {}) => ({ name, kind, state, ...extra });
+const tk = (ref, title, role, agents = [], extra = {}) => ({ ref, title, role, agents, ...extra });
+const D_ = (name, kind, t) => ag(name, kind, 'done', { time: t });
+
+const COMPLEX = {
+  mission: {
+    ref: 'PIPP-4', title: 'Pipp v1 team inbox', crew: '33 agents', cost: '≥$1,120',
+    desc: "Coordinate specification and delivery of Pipp v1: an offline-first, minimal shared team inbox that receives forwarded support email and replies on the team's behalf. Covers specs, design system, architecture, build phases, reviews and security checks.",
+    brief: [
+      { h: 'GOAL', t: 'Ship a beta that a 3–10 person support team can run for a week without falling back to their old inbox.' },
+      { h: 'SCOPE', t: 'Email ingest, shared inbox, reply composer with AI summary, operator admin, offline sync. Out: mobile apps, SSO.' },
+      { h: 'ACCEPTANCE', t: 'All quality gates pass, security audit has no open high findings, final gate signs off on the beta checklist.' },
+    ],
+  },
+  coordinator: { name: 'Pipp v1 coordinator', ref: 'PIPP-4-A', kind: 'claude', state: 'needs' },
+  loose: [
+    tk('PIPP-60', 'Fix flaky CI on main', 'build', [ag('CI fixer', 'codex', 'working', { time: '6:05' })]),
+    tk('PIPP-61', 'Rename workspace to Pipp', 'build', [D_('Rename', 'claude', '4:12')]),
+    tk('PIPP-63', 'Privacy policy copy', 'research', []),
+  ],
+  phases: [
+    { id: 'p1', name: 'Specification', tasks: [
+      tk('PIPP-5', 'Inbox product spec', 'research', [D_('Spec writer', 'claude', '48:10')]),
+      tk('PIPP-6', 'Competitor teardown', 'research', [D_('Teardown', 'claude', '31:02')]),
+      tk('PIPP-8', 'Pricing and plans', 'research', [D_('Pricing research', 'codex', '22:40')]),
+      tk('PIPP-7', 'Spec review', 'review', [D_('Spec reviewer', 'codex', '18:12')]),
+      tk('PIPP-48', 'Spec revision after approval', 'design', [D_('Spec revision', 'codex', '12:55')]),
+    ] },
+    { id: 'p2', name: 'Design system', tasks: [
+      tk('PIPP-12', 'Tokens and type', 'design', [D_('Tokens', 'claude', '40:05')]),
+      tk('PIPP-13', 'Core components', 'design', [D_('Components', 'claude', '96:30')]),
+      tk('PIPP-14', 'Design review', 'review', [D_('Design reviewer', 'codex', '20:44')]),
+    ] },
+    { id: 'p3', name: 'Architecture', tasks: [
+      tk('PIPP-20', 'Offline sync model', 'research', [D_('Sync research', 'claude', '55:18')]),
+      tk('PIPP-21', 'Architecture proposal', 'build', [D_('Architect', 'claude', '61:02')]),
+      tk('PIPP-22', 'Architecture review', 'review', [D_('Arch reviewer', 'codex', '25:31')]),
+    ] },
+    { id: 'p4', name: 'Build', lead: ag('Build lead', 'codex', 'idle'), tasks: [
+      tk('PIPP-36', 'Team workflow', 'build', [D_('Team workflow', 'claude', '88:20')]),
+      tk('PIPP-37', 'Search and customer panel', 'build', [D_('Search panel', 'claude', '71:45')]),
+      tk('PIPP-38', 'Settings and onboarding', 'build', [D_('Onboarding', 'claude', '64:12')]),
+      tk('PIPP-39', 'AI conversation summary', 'build', [D_('Summary', 'claude', '52:03')]),
+      tk('PIPP-45', 'Beta service facts', 'build', [D_('Service facts', 'claude', '19:10')]),
+      tk('PIPP-46', 'Email ingest', 'build', [D_('Ingest', 'codex', '47:31')]),
+      tk('PIPP-47', 'Reply composer', 'build', [D_('Composer', 'claude', '58:44')]),
+      tk('PIPP-49', 'Operator admin area', 'build', [ag('Admin area', 'codex', 'working', { time: '12:40' }), ag('Admin UI review', 'claude', 'idle', { helper: true })], { subs: [
+        tk('PIPP-54', 'Roles and permissions', 'build', [D_('Roles', 'codex', '21:30')]),
+        tk('PIPP-55', 'Audit log view', 'build', [ag('Audit log', 'codex', 'working', { time: '8:02' })]),
+        tk('PIPP-56', 'Usage dashboard', 'build', [], { deps: ['PIPP-55'], subs: [
+          tk('PIPP-57', 'CSV export', 'build', []),
+          tk('PIPP-62', 'Plan limits panel', 'design', []),
+        ] }),
+      ] }),
+      tk('PIPP-64', 'Billing webhooks', 'build', [ag('Billing webhooks', 'claude', 'working', { time: '4:48' })]),
+    ] },
+    { id: 'p5', name: 'Quality gates', lead: ag('Quality gates lead', 'claude', 'working', { time: '3:12' }), tasks: [
+      tk('PIPP-34', 'Quality gate A', 'review', [D_('Gate A', 'claude', '122:08')]),
+      tk('PIPP-35', 'Quality gate B', 'review', [D_('Gate B', 'claude', '160:14'), ag('Core loop review', 'codex', 'done', { time: '39:59', helper: true })]),
+      tk('PIPP-40', 'Quality gate C', 'review', [ag('Gate C', 'claude', 'error', { natives: ['ad681e09', 'a3fc6474', 'a74000e6', 'afcd743c'] })], { deps: ['PIPP-49'] }),
+      tk('PIPP-42', 'End-to-end tests and local kit', 'qa', [ag('E2E and local kit', 'claude', 'needs')], { deps: ['PIPP-49'] }),
+      tk('PIPP-43', 'Codebase security audit', 'security', [ag('Security audit', 'claude', 'error', { natives: ['a835b113', 'a3b73ac3', 'a0dae51d', 'a6792a31', 'aedb661e'] })], { subs: [
+        tk('PIPP-58', 'Dependency scan', 'security', [D_('Dependency scan', 'codex', '14:20')]),
+        tk('PIPP-59', 'Auth and session review', 'security', [ag('Auth review', 'claude', 'error')]),
+      ] }),
+    ] },
+    { id: 'p6', name: 'Release', tasks: [
+      tk('PIPP-44', 'Final quality gate', 'review', [], { deps: ['PIPP-40', 'PIPP-42', 'PIPP-43'] }),
+      tk('PIPP-50', 'Beta rollout', 'build', [], { deps: ['PIPP-44'] }),
+    ] },
+  ],
+  proposals: [
+    { ref: 'PIPP-51', title: 'Retry agents automatically after usage reset' },
+    { ref: 'PIPP-52', title: 'Attachment malware scanning' },
+    { ref: 'PIPP-53', title: 'Shared draft conflict handling' },
+  ],
+};
+
+const SIMPLE = {
+  mission: { ref: 'PIPP-155', title: 'Podium sync efficiency carryovers', crew: '1 working', cost: '≥$23',
+    desc: 'Compare recent Podium sync changes with Pipp and adopt improvements that reduce unnecessary work or resource usage.',
+    brief: [{ h: 'ACCEPTANCE', t: 'Each adopted change lands with a before/after measurement on the Pipp sync bench.' }] },
+  coordinator: { name: 'Sync comparison and integration', ref: 'PIPP-155-A', kind: 'codex', state: 'working', time: '41:00',
+    helpers: [{ name: 'Sync architecture review', kind: 'claude', state: '✓ ∑ 10:53' }] },
+  subs: [{ ref: 'PIPP-158', title: 'Norwegian numeric audit compatibility' }],
+  proposals: [
+    { ref: 'PIPP-157', title: 'Unchanged sync snapshot reuse' },
+    { ref: 'PIPP-156', title: 'Inactive sync query retention' },
+  ],
+};
+
+const AGENT_STATE = (a) => ({
+  working: { state: a.time, fg: LIVE, spin: true },
+  needs: { state: 'Needs you', fg: AMBER, needs: true },
+  error: { state: 'Error', fg: RED, err: true },
+  idle: { state: 'Idle', fg: '#848a94' },
+  done: { state: '✓ ∑ ' + a.time, fg: '#6f7580' },
+}[a.state]);
+
+// task state derives from its agents: error > needs > working > idle > done
+const taskStage = (t, byRef, stageOf) => {
+  const s = new Set([...t.agents.map((a) => a.state), ...(t.subs || []).map(stageOf)]);
+  if (s.size && [...s].every((x) => x === 'done')) return 'done';
+  for (const k of ['error', 'needs', 'working', 'idle']) if (s.has(k)) return k;
+  const unmet = (t.deps || []).filter((d) => byRef[d] && stageOf(byRef[d]) !== 'done');
+  return unmet.length || s.has('blocked') ? 'blocked' : 'todo';
+};
+
+class Component extends DCLogic {
+  state = {
+    sel: this.props.selected ?? null,
+    filter: 'all', showDone: false, hover: null, brief: false,
+    open: { 'PIPP-40': true, 'PIPP-42': true, 'PIPP-43': true, 'PIPP-49': true },
+    phaseOpen: {}, natives: {}, props: {}, pos: {}, w: 0,
+  };
+  listRef = React.createRef();
+
+  componentDidMount() {
+    this.measure();
+    if (window.ResizeObserver) this.ro = new ResizeObserver(() => this.measure());
+    this.observe();
+  }
+  componentDidUpdate() { this.observe(); this.measure(); }
+  componentWillUnmount() { this.ro && this.ro.disconnect(); }
+  observe() { const el = this.listRef.current; if (this.ro && el && this._obs !== el) { this._obs = el; this.ro.observe(el); } }
+  measure() {
+    const el = this.listRef.current;
+    if (!el) return;
+    const base = el.getBoundingClientRect();
+    const k = el.offsetWidth ? base.width / el.offsetWidth : 1;
+    const pos = {};
+    el.querySelectorAll('[data-strip]').forEach((s) => {
+      const r = s.getBoundingClientRect();
+      pos[s.getAttribute('data-strip')] = { y: Math.round((r.top - base.top + r.height / 2) / k), x: Math.round((r.right - base.left) / k) };
+    });
+    const w = Math.round(base.width / k);
+    const key = JSON.stringify(pos) + w;
+    if (key !== this._pk) { this._pk = key; this.setState({ pos, w }); }
+  }
+  flip(k, id, def) { this.setState((s) => ({ [k]: { ...s[k], [id]: !(s[k][id] ?? def) } })); }
+
+  renderVals() {
+    const simple = this.props.variant === 'simple';
+    const D = simple ? SIMPLE : COMPLEX;
+    const wide = !!this.props.wide;
+    const edgeMode = this.props.edges ?? (wide ? 'always' : 'hover');
+    const { filter, showDone, hover, focus } = this.state;
+    const H = focus || hover;
+
+    const groups = simple ? [] : this.props.variant === 'nophases'
+      ? [{ id: 'loose', loose: true, name: 'other work', tasks: [...COMPLEX.loose, ...COMPLEX.phases.flatMap((p) => p.tasks)] }]
+      : [{ id: 'loose', loose: true, name: 'other work', tasks: D.loose }, ...D.phases];
+    const flat = (ts) => ts.flatMap((t) => [t, ...flat(t.subs || [])]);
+    const allTasks = flat(groups.flatMap((g) => g.tasks));
+    const byRef = Object.fromEntries(allTasks.map((t) => [t.ref, t]));
+    const stage = {};
+    const stageOf = (t) => stage[t.ref] ?? (stage[t.ref] = taskStage(t, byRef, stageOf));
+    allTasks.forEach(stageOf);
+    const edges = [];
+    allTasks.forEach((t) => (t.deps || []).forEach((d) => edges.push([d, t.ref])));
+    const parentOf = {};
+    allTasks.forEach((t) => (t.subs || []).forEach((c) => { parentOf[c.ref] = t.ref; }));
+    const related = new Set(), ancestors = new Set();
+    if (H) { related.add(H); edges.forEach(([a, b]) => { if (a === H) related.add(b); if (b === H) related.add(a); }); }
+    related.forEach((r) => { let p = parentOf[r]; while (p) { ancestors.add(p); p = parentOf[p]; } });
+
+    const isAttn = (t) => stage[t.ref] === 'error' || stage[t.ref] === 'needs';
+    const isActive = (t) => ['working', 'idle', 'error', 'needs'].includes(stage[t.ref]);
+    const isNext = (t) => stage[t.ref] === 'blocked' || stage[t.ref] === 'todo';
+    const isDone = (t) => stage[t.ref] === 'done';
+    const count = (fn) => allTasks.filter(fn).length;
+    const doneCount = count(isDone);
+    const match = { all: () => true, attn: isAttn, active: isActive, next: isNext }[filter];
+    const tileOf = (kind, dim) => (dim ? { ...DIM_TILE, mask: MASK[kind] } : { ...TILE[kind] });
+
+    const agentView = (a) => {
+      const st = AGENT_STATE(a);
+      const nOpen = !!this.state.natives[a.name];
+      return {
+        ...tileOf(a.kind, a.state === 'done'), name: a.name, helper: !!a.helper,
+        selBg: this.state.sel === a.name ? 'rgba(111,157,255,.14)' : 'transparent',
+        leadBg: this.state.sel === a.name ? 'rgba(111,157,255,.14)' : '#1b1d21',
+        selRing: this.state.sel === a.name ? 'inset 0 0 0 1px rgba(111,157,255,.6)' : 'none',
+        select: (e) => { e && e.stopPropagation(); this.setState({ sel: a.name }); },
+        nameFg: a.state === 'done' ? '#848a94' : '#d7dae0',
+        state: st.state, stateFg: st.fg, spin: !!st.spin, needs: !!st.needs, err: !!st.err,
+        hasNative: !!(a.natives && a.natives.length), nativeLabel: (a.natives ? a.natives.length : 0) + ' native',
+        nativeOpen: nOpen, nativeChev: nOpen ? 180 : 0,
+        toggleNative: (e) => { e && e.stopPropagation(); this.flip('natives', a.name, false); },
+        natives: (a.natives || []).map((id) => ({ id, state: 'waiting' })),
+      };
+    };
+
+    const taskView = (t, depth, conts, last) => {
+      const sg = stage[t.ref];
+      const st = {
+        done: { state: 'Done', fg: '#848a94' },
+        working: { state: 'Working', fg: '#a8adb6', spin: true },
+        idle: { state: 'Idle', fg: '#848a94' },
+        needs: { state: 'Needs you', fg: AMBER, dot: true },
+        error: { state: 'Error', fg: RED, dot: true },
+        blocked: { state: 'Blocked', fg: '#848a94' },
+        todo: { state: 'Not started', fg: '#6f7580' },
+      }[sg];
+      const hasAgents = t.agents.length > 0;
+      const subs = t.subs || [];
+      const hasSubs = subs.length > 0;
+      const open = (hasAgents || hasSubs) && (this.state.open[t.ref] ?? hasSubs);
+      const unmet = (t.deps || []).filter((d) => stage[d] !== 'done');
+      let dep = null;
+      if (unmet.length) {
+        const short = unmet.length === 1 ? unmet[0] : unmet.length + ' tasks';
+        if (sg === 'blocked') dep = { icon: 'lock', text: wide ? 'waits on ' + unmet.join(', ') : short, bg: 'rgba(217,180,119,.12)', fg: AMBER };
+        else if (wide) dep = { icon: 'arrow-left', text: 'after ' + unmet.join(', '), bg: '#2a2d34', fg: '#a8adb6' };
+      }
+      const L = '#3f444e', N = 'transparent';
+      const guides = depth === 0 ? [] : [
+        ...conts.map((c) => ({ top: c ? L : N, bot: c ? L : N, elbow: N, r: '0' })),
+        { top: L, elbow: L, bot: last ? N : L, r: last ? '5px' : '0' },
+      ];
+      const isRel = related.has(t.ref);
+      return {
+        ref: t.ref, title: t.title, role: ROLE[t.role], showRole: wide || (!dep && !hasSubs), depth, guides,
+        hasSubs, subLabel: subs.filter((x) => stage[x.ref] === 'done').length + '/' + subs.length,
+        showAgents: open && hasAgents,
+        isDone: sg === 'done', isRun: isActive(t), isWait: isNext(t),
+        titleFg: sg === 'done' ? '#a8adb6' : '#f2f3f5',
+        bg: sg === 'blocked' ? 'repeating-linear-gradient(135deg,#24272d 0 6px,#212328 6px 12px)' : '#24272d',
+        ring: H && isRel && H !== t.ref ? 'inset 0 0 0 1px rgba(111,157,255,.6)' : H === t.ref && focus ? 'inset 0 0 0 1px rgba(111,157,255,.35)' : 'none',
+        state: st.state, stateFg: st.fg, spin: !!st.spin, dot: !!st.dot,
+        hasDep: !!dep, depIcon: dep ? dep.icon : '', depText: dep ? dep.text : '', depBg: dep ? dep.bg : '', depFg: dep ? dep.fg : '',
+        depTitle: unmet.length ? 'Depends on ' + unmet.join(', ') : '',
+        tiles: open ? [] : t.agents.slice(0, 2).map((a) => tileOf(a.kind, a.state === 'done')),
+        chevOp: hasAgents || hasSubs ? 1 : 0, chev: open ? 90 : 0, open,
+        toggle: () => (hasAgents || hasSubs) && this.flip('open', t.ref, hasSubs),
+        enter: () => this.setState({ hover: t.ref }),
+        focusIn: () => this.setState({ focus: t.ref }),
+        focusOut: () => this.setState({ focus: null }),
+        op: H && hoverGroup === curGroup && !isRel && !ancestors.has(t.ref) ? 0.3 : 1,
+        agents: t.agents.map(agentView),
+      };
+    };
+
+    let phases = [];
+    let hiddenDoneLine = null;
+    let curGroup = null;
+    const hoverGroup = H ? (groups.find((g) => flat(g.tasks).some((t) => t.ref === H)) || {}).id : null;
+    if (!simple) {
+      const hideDone = !(showDone && filter === 'all');
+      const matchTree = (t) => match(t) || (t.subs || []).some(matchTree);
+      const vis = (t) => matchTree(t) && !(hideDone && isDone(t));
+      let pIdx = 0;
+      const meta = groups.map((p) => ({ p, idx: p.loose ? '' : String(++pIdx).padStart(2, '0'), done: p.tasks.filter(isDone).length, total: p.tasks.length }));
+      const donePhases = meta.filter((x) => !x.p.loose && x.total && x.done === x.total);
+      if (filter === 'all' && !showDone && doneCount) hiddenDoneLine = (donePhases.length ? donePhases.length + ' phases complete · ' : '') + doneCount + ' tasks done';
+      phases = meta.map((x) => {
+        const { p } = x;
+        const rows = [];
+        curGroup = p.id;
+        const walk = (t, depth, conts, last) => {
+          const v = taskView(t, depth, conts, last);
+          rows.push(v);
+          if (v.open) {
+            const kids = (t.subs || []).filter(vis);
+            const cc = depth === 0 ? [] : [...conts, !last];
+            kids.forEach((c, i) => walk(c, depth + 1, cc, i === kids.length - 1));
+          }
+        };
+        p.tasks.filter(vis).forEach((t) => walk(t, 0, [], false));
+        if (!rows.length) return null;
+        const inGroup = flat(p.tasks);
+        const open = p.loose ? true : this.state.phaseOpen[p.id] ?? true;
+        const allNext = p.tasks.every((t) => isNext(t) || isDone(t)) && p.tasks.some(isNext);
+        const blockers = inGroup.flatMap((t) => t.deps || []).filter((d) => !inGroup.includes(byRef[d]) && stage[d] !== 'done');
+        const fromPhase = [...new Set(blockers.map((d) => groups.find((q) => flat(q.tasks).includes(byRef[d])).name))];
+        const note = !p.loose && allNext && fromPhase.length ? 'Starts when ' + fromPhase.join(' and ') + ' is done' : '';
+        const lead = p.lead ? agentView(p.lead) : null;
+        const touched = inGroup.some((t) => related.has(t.ref));
+        return {
+          id: p.id, idx: x.idx, name: p.name, isPhase: !p.loose,
+          toggle: () => this.flip('phaseOpen', p.id, true), open, chev: open ? 0 : -90,
+          nameFg: allNext ? '#a8adb6' : x.done === x.total ? '#848a94' : '#f2f3f5',
+          pct: Math.round((x.done / x.total) * 100), count: x.done + '/' + x.total,
+          hasNote: !!note, note,
+          op: 1, openLead: (e) => { e && e.stopPropagation(); },
+          rail: p.loose ? 'transparent' : lead ? 'rgba(148,154,164,.5)' : '#2a2d33',
+          ml: p.loose ? 0 : 11, pl: p.loose ? 0 : 9,
+          hasLead: !!lead && x.done < x.total, lead: lead || {},
+          tasks: rows,
+        };
+      }).filter(Boolean);
+    }
+
+    let edgesSvg = null;
+    const { pos, w } = this.state;
+    if (!simple && w) {
+      const visible = edges.filter(([a, b]) => pos[a] && pos[b] && (edgeMode === 'always' || (H && (a === H || b === H))));
+      if (visible.length) {
+        const els = [];
+        visible.forEach(([a, b], i) => {
+          const x0 = Math.max(pos[a].x, pos[b].x) + 3;
+          const k = 9 + (i % 3) * 5;
+          const ya = pos[a].y, yb = pos[b].y;
+          const hl = H && (a === H || b === H);
+          const col = hl ? LIVE : '#454b56';
+          els.push(React.createElement('path', { key: 'p' + i, d: `M${x0} ${ya} C${x0 + k} ${ya}, ${x0 + k} ${yb}, ${x0} ${yb}`, fill: 'none', stroke: col, strokeWidth: hl ? 1.5 : 1 }));
+          els.push(React.createElement('circle', { key: 'a' + i, cx: x0, cy: ya, r: 2, fill: '#1d1f23', stroke: col, strokeWidth: 1 }));
+          els.push(React.createElement('path', { key: 'h' + i, d: `M${x0 + 4} ${yb - 3} L${x0} ${yb} L${x0 + 4} ${yb + 3}`, fill: 'none', stroke: col, strokeWidth: 1.2 }));
+        });
+        edgesSvg = React.createElement('svg', { width: w, style: { position: 'absolute', left: 0, top: 0, height: '100%', pointerEvents: 'none', overflow: 'visible' } }, els);
+      }
+    }
+
+    const cd = D.coordinator;
+    const cst = AGENT_STATE(cd);
+    const coord = {
+      ...TILE[cd.kind], name: cd.name, ref: cd.ref,
+      state: cst.state, stateFg: cst.fg, spin: !!cst.spin, needs: !!cst.needs,
+      border: this.state.sel === 'coord' ? 'rgba(111,157,255,.7)' : cst.needs ? 'rgba(217,180,119,.45)' : '#33373f',
+      cardBg: this.state.sel === 'coord' ? '#232a3a' : '#23262c',
+      selRing: this.state.sel === 'coord' ? 'inset 0 0 0 1px rgba(111,157,255,.35)' : 'none',
+      select: () => this.setState({ sel: 'coord' }),
+      hasHelpers: !!(cd.helpers && cd.helpers.length),
+      helpers: (cd.helpers || []).map((h) => ({ ...tileOf(h.kind, true), name: h.name, state: h.state })),
+    };
+
+    const nErr = count((t) => stage[t.ref] === 'error');
+    const bands = simple
+      ? [{ grow: 1, label: '1 done', bg: '#1d4ed8', fg: '#fff', shadow: 'none' }]
+      : [
+          { grow: 20, label: '20 done', bg: '#1d4ed8', fg: '#fff', shadow: 'none' },
+          { grow: 4, label: wide ? '4 underway' : '4', bg: 'rgba(111,157,255,.26)', fg: '#f2f3f5', shadow: 'inset 0 -2px 0 #6f9dff' },
+          { grow: 1, label: '1', bg: 'repeating-linear-gradient(135deg,#2c3038 0 3px,#22252b 3px 6px)', fg: '#a8adb6', shadow: 'inset 0 -2px 0 rgba(242,243,245,.34)' },
+          { grow: 1, label: '1', bg: 'rgba(242,243,245,.08)', fg: '#848a94', shadow: 'none' },
+        ];
+
+    const F = [['all', 'All', allTasks.length], ['attn', 'Needs you', count(isAttn)], ['active', 'Active', count(isActive)], ['next', 'Up next', count(isNext)]];
+
+    return {
+      m: D.mission, c: coord, bands, wide,
+      briefOpen: this.state.brief, briefClosed: !this.state.brief,
+      toggleBrief: () => this.setState((s) => ({ brief: !s.brief })),
+      openSession: () => {},
+      isSimple: simple, isComplex: !simple, simpleSubs: simple ? D.subs : [],
+      filters: F.map(([id, label, n]) => ({
+        label, count: n,
+        bg: filter === id ? '#2c3038' : 'transparent', fg: filter === id ? '#f2f3f5' : '#848a94',
+        countFg: id === 'attn' && n ? (nErr ? RED : AMBER) : '#6f7580',
+        pick: () => this.setState({ filter: id }),
+      })),
+      doneCount,
+      doneToggle: { icon: showDone ? 'eye' : 'eye-off', fg: showDone ? '#f2f3f5' : '#848a94', bg: showDone ? '#2c3038' : 'transparent' },
+      toggleDone: () => this.setState((s) => ({ showDone: !s.showDone, filter: 'all' })),
+      hiddenDoneLine, phases, edgesSvg, listRef: this.listRef,
+      leave: () => this.setState({ hover: null }),
+      focusOp: 1,
+      proposalCount: D.proposals.length,
+      proposals: D.proposals.map((r) => {
+        const st = this.state.props[r.ref];
+        return { ...r, pending: !st, done: !!st, doneLabel: st === 'start' ? 'Started' : 'In backlog',
+          backlog: () => this.setState((s) => ({ props: { ...s.props, [r.ref]: 'backlog' } })),
+          start: () => this.setState((s) => ({ props: { ...s.props, [r.ref]: 'start' } })) };
+      }),
+    };
+  }
+}
+</script>
+</body>
+</html>

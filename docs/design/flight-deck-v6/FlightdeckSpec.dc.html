@@ -1,0 +1,530 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600;700&family=Geist+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>body{margin:0;background:#101113}a{color:#6f9dff}a:hover{color:#b9cdfd}</style>
+</helmet>
+<div style="display:flex;flex-direction:column;font-family:'Geist',sans-serif;color:#d7dae0;background:#101113">
+  <sc-for list="{{ sections }}" as="sec" hint-placeholder-count="3">
+    <div id="{{ sec.id }}" style="padding:48px 56px;border-top:1px solid #26292f;display:flex;flex-wrap:wrap;gap:40px;align-items:flex-start">
+      <div style="width:360px;flex:none;display:flex;flex-direction:column;gap:10px">
+        <span style="font-family:'Geist Mono',monospace;font-size:11px;letter-spacing:.16em;color:#848a94">{{ sec.no }}</span>
+        <span style="font-size:20px;font-weight:600;color:#f2f3f5">{{ sec.title }}</span>
+        <span style="font-size:13px;line-height:1.55;color:#a8adb6;text-wrap:pretty">{{ sec.desc }}</span>
+        <div style="display:flex;flex-direction:column;gap:7px;margin-top:4px">
+          <sc-for list="{{ sec.rules }}" as="i" hint-placeholder-count="3">
+            <div style="display:flex;gap:8px;font-size:12.5px;line-height:1.55;color:#a8adb6;text-wrap:pretty"><span style="color:#4a505b;flex:none">—</span><span>{{ i }}</span></div>
+          </sc-for>
+        </div>
+      </div>
+      <div style="display:flex;flex-wrap:wrap;gap:32px;align-items:flex-start;flex:1;min-width:0">
+        <sc-for list="{{ sec.specs }}" as="s" hint-placeholder-count="1">
+          <div style="display:flex;flex-direction:column;gap:10px">
+            <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#a8adb6">{{ s.label }}</span>
+            <div ref="{{ s.ref }}" style="position:relative;margin-top:{{ s.mt }}px;width:{{ s.w }}px;box-sizing:border-box;padding:12px 28px 12px 12px;background:#1d1f23;border-radius:10px;box-shadow:0 0 0 1px #26292f,0 20px 44px -20px rgba(0,0,0,.65);display:flex;flex-direction:column">
+              <sc-if value="{{ s.isAnat }}">
+                <div style="position:absolute;left:0;top:-30px;height:30px;width:100%">
+                  <sc-for list="{{ pins }}" as="p" hint-placeholder-count="0">
+                    <span style="position:absolute;left:{{ p.x }}px;top:0;transform:translateX(-50%);display:flex;flex-direction:column;align-items:center">
+                      <span style="width:16px;height:16px;border-radius:50%;background:#6f9dff;color:#0d1630;font-family:'Geist Mono',monospace;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center">{{ p.n }}</span>
+                      <span style="width:1px;height:26px;background:rgba(111,157,255,.6)"></span>
+                    </span>
+                  </sc-for>
+                </div>
+              </sc-if>
+              <sc-for list="{{ s.rows }}" as="r" hint-placeholder-count="3">
+                <div style="position:relative;margin-left:{{ r.ml }}px;padding-left:{{ r.pl }}px;border-left:{{ r.rw }}px solid {{ r.rail }};padding-bottom:{{ r.pb }}px">
+                  <sc-if value="{{ r.isCap }}">
+                    <div style="font-family:'Geist Mono',monospace;font-size:9.5px;letter-spacing:.14em;color:#6f7580;padding:{{ r.pt }}px 2px 5px">{{ r.text }}</div>
+                  </sc-if>
+
+                  <sc-if value="{{ r.isTask }}">
+                    <div style="display:flex;opacity:{{ r.op }}">
+                      <sc-for list="{{ r.guides }}" as="g" hint-placeholder-count="0">
+                        <span style="display:flex;flex-direction:column;width:22px;flex:none;margin-top:-3px">
+                          <span style="margin-left:11px;width:11px;height:19px;flex:none;box-sizing:border-box;border-left:1px solid {{ g.top }};border-bottom:1px solid {{ g.elbow }};border-bottom-left-radius:{{ g.r }}"></span>
+                          <span style="margin-left:11px;flex:1;border-left:1px solid {{ g.bot }}"></span>
+                        </span>
+                      </sc-for>
+                      <div style="flex:1;min-width:0;display:flex;flex-direction:column;border-radius:6px;background:{{ r.bg }};box-shadow:{{ r.ring }}">
+                        <div style="display:flex;align-items:center;gap:{{ r.gap }}px;height:32px;padding:0 10px 0 6px;border-radius:6px;background:{{ r.stripBg }}">
+                          <span data-pin="1" style="width:12px;height:12px;background:#6f7580;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-right.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-right.svg) center/contain no-repeat;flex:none;opacity:{{ r.chevOp }};transform:rotate({{ r.chev }}deg)"></span>
+                          <span data-pin="2" style="display:flex;flex:none">
+                            <sc-if value="{{ r.isDone }}"><span style="width:14px;height:14px;border-radius:50%;background:#2a62f0;display:flex;align-items:center;justify-content:center;flex:none"><span style="width:9px;height:9px;background:#fff;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/check.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/check.svg) center/contain no-repeat"></span></span></sc-if>
+                            <sc-if value="{{ r.isRun }}"><span style="width:14px;height:14px;border-radius:50%;border:1.5px solid #6f9dff;box-sizing:border-box;padding:1.5px;background:conic-gradient(#6f9dff 0 25%,transparent 25% 100%);background-clip:content-box;flex:none"></span></sc-if>
+                            <sc-if value="{{ r.isWait }}"><span style="width:14px;height:14px;border-radius:50%;border:1.5px dotted #6f7580;box-sizing:border-box;flex:none"></span></sc-if>
+                          </span>
+                          <span data-pin="3" style="font-family:'Geist Mono',monospace;font-size:11px;color:#848a94;flex:none">{{ r.ref }}</span>
+                          <span style="display:flex;align-items:baseline;gap:7px;min-width:{{ r.tmin }}px;flex:1;overflow:hidden">
+                            <span data-pin="4" style="font-size:12.5px;font-weight:600;color:{{ r.titleFg }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ r.title }}</span>
+                            <sc-if value="{{ r.showRole }}"><span data-pin="5" style="font-size:11.5px;color:#6f7580;white-space:nowrap;flex:none">{{ r.role }}</span></sc-if>
+                          </span>
+                          <sc-if value="{{ r.hasSubs }}"><span data-pin="6" style="display:flex;align-items:center;gap:4px;color:#848a94;flex:none;white-space:nowrap;font-family:'Geist Mono',monospace;font-size:10.5px"><span style="width:11px;height:11px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/list-tree.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/list-tree.svg) center/contain no-repeat"></span>{{ r.subLabel }}</span></sc-if>
+                          <sc-if value="{{ r.hasDep }}">
+                            <span data-pin="7" style="height:18px;display:flex;align-items:center;gap:4px;padding:0 6px 0 5px;border-radius:9px;background:{{ r.depBg }};color:{{ r.depFg }};flex:none;white-space:nowrap;font-size:11px">
+                              <span style="width:11px;height:11px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/{{ r.depIcon }}.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/{{ r.depIcon }}.svg) center/contain no-repeat"></span>{{ r.depText }}
+                            </span>
+                          </sc-if>
+                          <span data-pin="8" style="display:flex;gap:3px;flex:none;justify-content:flex-end">
+                            <sc-for list="{{ r.tiles }}" as="k" hint-placeholder-count="0">
+                              <span style="width:16px;height:16px;border-radius:4px;border:1px solid {{ k.bd }};background:{{ k.bg }};display:flex;align-items:center;justify-content:center;box-sizing:border-box"><span style="width:10px;height:10px;background:{{ k.fg }};-webkit-mask:{{ k.mask }} center/contain no-repeat;mask:{{ k.mask }} center/contain no-repeat"></span></span>
+                            </sc-for>
+                          </span>
+                          <span data-pin="9" style="width:{{ r.stateW }}px;display:flex;align-items:center;justify-content:flex-end;gap:5px;font-family:'Geist Mono',monospace;font-size:10.5px;color:{{ r.stateFg }};flex:none;white-space:nowrap">
+                            <sc-if value="{{ r.dot }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ r.stateFg }}"></span></sc-if>
+                            <sc-if value="{{ r.spin }}"><span style="color:#6f9dff">⣾</span></sc-if>{{ r.state }}
+                          </span>
+                        </div>
+                        <sc-if value="{{ r.showAgents }}">
+                          <div style="display:flex;flex-direction:column;margin:0 4px 4px;padding:3px 4px 3px 20px;border-radius:5px;background:#1b1d21">
+                            <sc-for list="{{ r.agents }}" as="a" hint-placeholder-count="1">
+                              <div style="display:flex;flex-direction:column">
+                                <div style="display:flex;align-items:center;gap:8px;height:28px;padding:0 6px 0 2px;border-radius:5px;background:{{ a.rowBg }};box-shadow:{{ a.selRing }}">
+                                  <span style="width:20px;height:20px;border-radius:6px;border:1px solid {{ a.bd }};background:{{ a.bg }};display:flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box"><span style="width:12px;height:12px;background:{{ a.fg }};-webkit-mask:{{ a.mask }} center/contain no-repeat;mask:{{ a.mask }} center/contain no-repeat"></span></span>
+                                  <span style="font-size:12px;font-weight:500;color:{{ a.nameFg }};white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ a.name }}</span>
+                                  <sc-if value="{{ a.helper }}"><span style="font-size:11.5px;color:#6f7580;flex:none">helper</span></sc-if>
+                                  <span style="flex:1"></span>
+                                  <sc-if value="{{ a.hasNative }}">
+                                    <span style="height:17px;display:flex;align-items:center;gap:4px;padding:0 6px;border-radius:4px;background:#2c3038;color:#a8adb6;font-family:'Geist Mono',monospace;font-size:9.5px;flex:none">{{ a.nativeLabel }}<span style="width:9px;height:9px;background:currentColor;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-down.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-down.svg) center/contain no-repeat;transform:rotate({{ a.nativeChev }}deg)"></span></span>
+                                  </sc-if>
+                                  <span style="display:flex;align-items:center;justify-content:flex-end;gap:5px;min-width:76px;font-family:'Geist Mono',monospace;font-size:10.5px;color:{{ a.stateFg }};flex:none;white-space:nowrap">
+                                    <sc-if value="{{ a.needs }}"><span style="width:13px;height:13px;border-radius:50%;background:#d9b477;color:#191308;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'Geist',sans-serif">!</span></sc-if>
+                                    <sc-if value="{{ a.err }}"><span style="width:13px;height:13px;border-radius:50%;background:#e5303f;color:#fff;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'Geist',sans-serif">!</span></sc-if>
+                                    <sc-if value="{{ a.spin }}"><span style="color:#6f9dff">⣾</span></sc-if>{{ a.state }}
+                                  </span>
+                                </div>
+                                <sc-if value="{{ a.nativeOpen }}">
+                                  <div style="display:flex;flex-direction:column;margin:0 0 4px 30px;border-left:1px solid #33373f">
+                                    <sc-for list="{{ a.natives }}" as="n" hint-placeholder-count="2">
+                                      <div style="display:flex;align-items:center;gap:6px;height:22px;padding:0 6px 0 10px;font-family:'Geist Mono',monospace;font-size:10.5px;color:#6f7580">
+                                        <span style="color:#848a94;font-weight:500">general-purpose</span><span>· {{ n.id }}</span><span style="flex:1"></span><span>{{ n.state }}</span>
+                                      </div>
+                                    </sc-for>
+                                  </div>
+                                </sc-if>
+                              </div>
+                            </sc-for>
+                          </div>
+                        </sc-if>
+                      </div>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ r.isLead }}">
+                    <div style="display:flex;align-items:center;gap:8px;height:32px;padding:0 10px 0 7px;border-radius:6px;background:{{ r.a.leadBg }};box-shadow:{{ r.a.selRing }};opacity:{{ r.op }}">
+                      <span style="width:20px;height:20px;border-radius:6px;border:1px solid {{ r.a.bd }};background:{{ r.a.bg }};display:flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box"><span style="width:12px;height:12px;background:{{ r.a.fg }};-webkit-mask:{{ r.a.mask }} center/contain no-repeat;mask:{{ r.a.mask }} center/contain no-repeat"></span></span>
+                      <span style="font-size:12px;font-weight:600;color:#f2f3f5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0">{{ r.a.name }}</span>
+                      <span style="font-size:11.5px;color:#848a94;flex:none">phase lead</span>
+                      <span style="flex:1"></span>
+                      <span style="display:flex;align-items:center;gap:5px;font-family:'Geist Mono',monospace;font-size:10.5px;color:{{ r.a.stateFg }};flex:none;white-space:nowrap">
+                        <sc-if value="{{ r.a.needs }}"><span style="width:13px;height:13px;border-radius:50%;background:#d9b477;color:#191308;font-size:9px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'Geist',sans-serif">!</span></sc-if>
+                        <sc-if value="{{ r.a.spin }}"><span style="color:#6f9dff">⣾</span></sc-if>{{ r.a.state }}
+                      </span>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ r.isCoord }}">
+                    <div style="display:flex;align-items:center;gap:10px;padding:10px;border-radius:8px;border:1px solid {{ r.border }};background:{{ r.cardBg }};box-shadow:{{ r.selRing }}">
+                      <span style="width:28px;height:28px;border-radius:7px;border:1px solid {{ r.bd }};background:{{ r.bg }};display:flex;align-items:center;justify-content:center;flex:none;box-sizing:border-box"><span style="width:16px;height:16px;background:{{ r.fg }};-webkit-mask:{{ r.mask }} center/contain no-repeat;mask:{{ r.mask }} center/contain no-repeat"></span></span>
+                      <div style="display:flex;flex-direction:column;gap:2px;min-width:0;flex:1">
+                        <span style="font-size:13px;font-weight:600;color:#f2f3f5;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.name }}</span>
+                        <span style="display:flex;align-items:center;gap:6px;font-size:11.5px;color:#848a94;white-space:nowrap"><span>Coordinator</span><span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#6f7580">{{ r.cref }}</span></span>
+                      </div>
+                      <span style="display:flex;align-items:center;gap:6px;font-family:'Geist Mono',monospace;font-size:10.5px;color:{{ r.stateFg }};flex:none;white-space:nowrap">
+                        <sc-if value="{{ r.needs }}"><span style="width:14px;height:14px;border-radius:50%;background:#d9b477;color:#191308;font-size:9.5px;font-weight:700;display:flex;align-items:center;justify-content:center;font-family:'Geist',sans-serif">!</span></sc-if>
+                        <sc-if value="{{ r.spin }}"><span style="color:#6f9dff">⣾</span></sc-if>{{ r.state }}
+                      </span>
+                      <span style="width:14px;height:14px;background:#6f7580;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/arrow-up-right.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/arrow-up-right.svg) center/contain no-repeat;flex:none"></span>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ r.isPhase }}">
+                    <div style="display:flex;align-items:center;gap:8px;height:26px;padding:0 10px 0 6px;border-radius:6px;opacity:{{ r.op }}">
+                      <span style="width:12px;height:12px;background:#6f7580;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-down.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/chevron-down.svg) center/contain no-repeat;flex:none;transform:rotate({{ r.chev }}deg)"></span>
+                      <span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#6f7580;letter-spacing:.08em;flex:none">{{ r.idx }}</span>
+                      <span style="font-size:13px;font-weight:600;color:{{ r.nameFg }};white-space:nowrap;flex:none">{{ r.name }}</span>
+                      <span style="height:1px;flex:1;min-width:12px;background:#2c3038"></span>
+                      <span style="display:flex;width:36px;height:3px;border-radius:2px;overflow:hidden;background:#2c3038;flex:none"><span style="width:{{ r.pct }}%;background:#2a62f0"></span></span>
+                      <span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#848a94;flex:none">{{ r.count }}</span>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ r.isDoneLine }}">
+                    <div style="display:flex;align-items:center;gap:8px;height:26px;padding:0 8px;border-radius:6px;border:1px dashed #2c3038;color:#6f7580;font-size:11.5px">
+                      <span style="width:12px;height:12px;background:#2a62f0;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/circle-check.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/circle-check.svg) center/contain no-repeat;flex:none"></span>
+                      <span style="flex:1;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">{{ r.text }}</span>
+                      <span style="font-family:'Geist Mono',monospace;font-size:10.5px">Show</span>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ r.isPropHead }}">
+                    <div style="display:flex;align-items:center;gap:8px;padding:{{ r.pt }}px 2px 2px">
+                      <span style="font-family:'Geist Mono',monospace;font-size:10.5px;font-weight:600;letter-spacing:.16em;color:#d946ef">PROPOSED</span>
+                      <span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#848a94">{{ r.count }}</span>
+                      <span style="height:1px;flex:1;background:rgba(217,70,239,.18)"></span>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ r.isProp }}">
+                    <div style="display:flex;align-items:center;gap:8px;min-height:34px;padding:0 6px 0 10px;border-radius:6px;border:1px solid rgba(217,70,239,.22);background:rgba(217,70,239,.05);box-sizing:border-box">
+                      <span style="width:12px;height:12px;border-radius:50%;border:1.5px solid #d946ef;box-sizing:border-box;flex:none"></span>
+                      <span style="font-family:'Geist Mono',monospace;font-size:11px;color:#d946ef;flex:none">{{ r.ref }}</span>
+                      <span style="font-size:12.5px;color:#d7dae0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1">{{ r.title }}</span>
+                      <sc-if value="{{ r.pending }}">
+                        <span style="display:flex;gap:4px;flex:none">
+                          <span style="height:22px;display:flex;align-items:center;padding:0 8px;border-radius:5px;font-size:11px;color:#a8adb6">Backlog</span>
+                          <span style="height:22px;display:flex;align-items:center;padding:0 8px;border-radius:5px;font-size:11px;font-weight:500;color:#f0abfc;border:1px solid rgba(217,70,239,.4);background:{{ r.startBg }}">Start</span>
+                        </span>
+                      </sc-if>
+                      <sc-if value="{{ r.settled }}"><span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#a8adb6;padding:0 6px;flex:none">{{ r.doneLabel }}</span></sc-if>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ r.isGauge }}">
+                    <div style="display:flex;align-items:center;gap:6px">
+                      <div style="flex:1;min-width:0;height:26px;display:flex;gap:2px;padding:2px;box-sizing:border-box;border-radius:8px;background:#16171a;box-shadow:inset 0 1px 2px rgba(0,0,0,.9)">
+                        <sc-for list="{{ r.bands }}" as="b" hint-placeholder-count="3">
+                          <span style="flex:{{ b.grow }} 1 0;min-width:0;padding:0 3px;border-radius:2px;display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap;font-family:'Geist Mono',monospace;font-size:9px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;background:{{ b.bg }};color:{{ b.fg }};box-shadow:{{ b.shadow }}">{{ b.label }}</span>
+                        </sc-for>
+                      </div>
+                      <span style="height:26px;display:flex;align-items:center;gap:6px;padding:0 9px;border-radius:8px;background:#16171a;font-family:'Geist Mono',monospace;font-size:10.5px;color:#848a94;flex:none"><span style="width:12px;height:12px;background:#6f7580;-webkit-mask:url(https://unpkg.com/lucide-static@0.460.0/icons/users.svg) center/contain no-repeat;mask:url(https://unpkg.com/lucide-static@0.460.0/icons/users.svg) center/contain no-repeat"></span>{{ r.crew }}</span>
+                    </div>
+                  </sc-if>
+
+                  <sc-if value="{{ r.hasBracket }}">
+                    <span style="position:absolute;right:-15px;top:16px;width:9px;height:{{ r.bh }}px;box-sizing:border-box;border:1.5px solid #6f9dff;border-left:none;border-radius:0 6px 6px 0"></span>
+                  </sc-if>
+                </div>
+              </sc-for>
+            </div>
+            <sc-if value="{{ s.hasNotes }}">
+              <div style="width:{{ s.w }}px;display:flex;flex-direction:column;gap:4px">
+                <sc-for list="{{ s.notes }}" as="n" hint-placeholder-count="2">
+                  <div style="display:flex;gap:8px;font-size:12px;line-height:1.5;color:#848a94;text-wrap:pretty"><span style="font-family:'Geist Mono',monospace;font-size:10.5px;color:#6f9dff;flex:none;min-width:14px">{{ n.k }}</span><span>{{ n.t }}</span></div>
+                </sc-for>
+              </div>
+            </sc-if>
+          </div>
+        </sc-for>
+      </div>
+    </div>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script>
+const LIVE = '#6f9dff', AMBER = '#d9b477', RED = '#f0525e';
+const MASK = { claude: 'url(assets/claude-code.svg)', codex: 'url(assets/openai.svg)' };
+const TILE = { claude: { bg: '#d97757', bd: '#d97757', fg: '#ffffff' }, codex: { bg: '#252830', bd: '#3a3f48', fg: '#d7dae0' } };
+const tile = (kind, dim) => (dim ? { bg: '#1e2024', bd: '#26292f', fg: '#6f7580', mask: MASK[kind] } : { ...TILE[kind], mask: MASK[kind] });
+const SST = {
+  working: (t) => ({ state: t || '12:40', fg: LIVE, spin: true }),
+  needs: () => ({ state: 'Needs you', fg: AMBER, needs: true }),
+  error: () => ({ state: 'Error', fg: RED, err: true }),
+  idle: () => ({ state: 'Idle', fg: '#848a94' }),
+  done: (t) => ({ state: '✓ ∑ ' + (t || '18:12'), fg: '#6f7580' }),
+};
+const NID = ['ad681e09', 'a3fc6474', 'a74000e6', 'afcd743c', 'a835b113'];
+const sess = (o) => {
+  const st = SST[o.st || 'working'](o.time);
+  return {
+    ...tile(o.kind || 'claude', o.st === 'done'), name: o.name, helper: !!o.helper,
+    nameFg: o.st === 'done' ? '#848a94' : '#d7dae0',
+    state: st.state, stateFg: st.fg, spin: !!st.spin, needs: !!st.needs, err: !!st.err,
+    hasNative: !!o.natives, nativeLabel: (o.natives || 0) + ' native', nativeOpen: !!o.nativeOpen, nativeChev: o.nativeOpen ? 180 : 0,
+    natives: Array.from({ length: o.natives || 0 }, (_, i) => ({ id: NID[i % 5], state: 'waiting' })),
+    rowBg: o.sel ? 'rgba(111,157,255,.14)' : o.hover ? '#23262b' : 'transparent',
+    leadBg: o.sel ? 'rgba(111,157,255,.14)' : o.hover ? '#202328' : '#1b1d21',
+    selRing: o.sel ? 'inset 0 0 0 1px rgba(111,157,255,.6)' : 'none',
+  };
+};
+const BASE = { isCap: false, isTask: false, isLead: false, isCoord: false, isPhase: false, isDoneLine: false, isPropHead: false, isProp: false, isGauge: false, hasBracket: false, ml: 0, pl: 0, rw: 0, rail: 'transparent', pb: 3, op: 1 };
+const wrap = (o) => ({ ...BASE, ...(o.rail ? { ml: 11, pl: 9, rw: 2, rail: o.railLead ? 'rgba(148,154,164,.5)' : '#2a2d33' } : {}), pb: o.pb ?? 3, op: o.dim ? 0.3 : 1, hasBracket: !!o.bh, bh: o.bh || 0 });
+const TST = {
+  todo: { state: 'Not started', fg: '#6f7580', ring: 'wait' },
+  blocked: { state: 'Blocked', fg: '#848a94', ring: 'wait' },
+  working: { state: 'Working', fg: '#a8adb6', spin: true, ring: 'run' },
+  idle: { state: 'Idle', fg: '#848a94', ring: 'run' },
+  needs: { state: 'Needs you', fg: AMBER, dot: true, ring: 'run' },
+  error: { state: 'Error', fg: RED, dot: true, ring: 'run' },
+  done: { state: 'Done', fg: '#848a94', ring: 'done' },
+};
+const task = (o) => {
+  const stage = o.stage || 'working', s = TST[stage];
+  const ss = o.sessions || [];
+  const depth = o.depth || 0, L = '#3f444e', N = 'transparent';
+  const guides = depth ? [...(o.conts || []).map((c) => ({ top: c ? L : N, bot: c ? L : N, elbow: N, r: '0' })), { top: L, elbow: L, bot: o.last ? N : L, r: o.last ? '5px' : '0' }] : [];
+  const d = o.dep, wait = d && d.kind === 'wait';
+  return {
+    ...wrap(o), isTask: true, guides, ref: o.ref, title: o.title, role: o.role || '', showRole: !!o.role && o.showRole !== false,
+    gap: o.narrow ? 6 : 8, tmin: o.narrow ? 40 : 60, stateW: o.narrow ? 56 : 76,
+    hasSubs: !!o.subs && !o.narrow, subLabel: o.subs || '', hasDep: !!d, depIcon: wait ? 'lock' : 'arrow-left', depText: d ? d.text : '',
+    depBg: wait ? 'rgba(217,180,119,.12)' : '#2a2d34', depFg: wait ? AMBER : '#a8adb6',
+    tiles: o.open || o.noChips ? [] : ss.slice(0, 2).map((x) => tile(x.kind || 'claude', x.st === 'done')),
+    state: s.state, stateFg: s.fg, spin: !!s.spin, dot: !!s.dot,
+    isDone: s.ring === 'done', isRun: s.ring === 'run', isWait: s.ring === 'wait',
+    titleFg: stage === 'done' ? '#a8adb6' : '#f2f3f5',
+    bg: stage === 'blocked' ? 'repeating-linear-gradient(135deg,#24272d 0 6px,#212328 6px 12px)' : '#24272d',
+    stripBg: o.hover ? '#292c33' : 'transparent',
+    ring: o.ring ? 'inset 0 0 0 1px rgba(111,157,255,.6)' : 'none',
+    chevOp: ss.length || o.kids ? 1 : 0, chev: o.open ? 90 : 0,
+    showAgents: !!o.open && ss.length > 0, agents: ss.map(sess),
+  };
+};
+const lead = (o) => ({ ...wrap({ rail: true, railLead: true, pb: 5, ...o }), isLead: true, a: sess({ name: 'Quality gates lead', st: 'working', time: '3:12', ...o }) });
+const coord = (o = {}) => {
+  const st = SST[o.st || 'needs'](o.time);
+  return {
+    ...wrap({ pb: 6 }), isCoord: true, ...tile('claude'), name: 'Pipp v1 coordinator', cref: 'PIPP-4-A',
+    state: st.state, stateFg: st.fg, spin: !!st.spin, needs: !!st.needs,
+    border: o.sel ? 'rgba(111,157,255,.7)' : st.needs ? 'rgba(217,180,119,.45)' : '#33373f',
+    cardBg: o.sel ? '#232a3a' : o.hover ? '#272a31' : '#23262c',
+    selRing: o.sel ? 'inset 0 0 0 1px rgba(111,157,255,.35)' : 'none',
+  };
+};
+const phase = (idx, name, done, total, o = {}) => ({ ...wrap({ pb: 4, ...o }), isPhase: true, idx, name, nameFg: o.next ? '#a8adb6' : '#f2f3f5', pct: Math.round((done / total) * 100), count: done + '/' + total, chev: o.closed ? -90 : 0 });
+const cap = (text, pt = 8) => ({ ...BASE, isCap: true, text, pt, pb: 0 });
+const doneLine = (text) => ({ ...BASE, isDoneLine: true, text, pb: 12 });
+const propHead = (n, pt = 8) => ({ ...BASE, isPropHead: true, count: n, pt, pb: 6 });
+const prop = (ref, title, o = {}) => ({ ...BASE, isProp: true, ref, title, pending: !o.label, settled: !!o.label, doneLabel: o.label || '', startBg: o.hover ? 'rgba(217,70,239,.15)' : 'transparent', pb: 6 });
+const gauge = (w) => {
+  const track = w - 40 - 6 - 52;
+  const B = [[20, 'done', '#1d4ed8', '#fff', 'none'], [4, 'underway', 'rgba(111,157,255,.26)', '#f2f3f5', 'inset 0 -2px 0 #6f9dff'], [1, 'blocked', 'repeating-linear-gradient(135deg,#2c3038 0 3px,#22252b 3px 6px)', '#a8adb6', 'inset 0 -2px 0 rgba(242,243,245,.34)'], [1, 'to go', 'rgba(242,243,245,.08)', '#848a94', 'none']];
+  return { ...wrap({ pb: 10 }), isGauge: true, crew: '33', bands: B.map(([n, word, bg, fg, shadow]) => {
+    const bw = (track * n) / 26 - 6, c = String(n).length * 6;
+    return { grow: n, bg, fg, shadow, label: bw >= c + word.length * 6 + 16 ? n + ' ' + word : bw >= c + 4 ? String(n) : '' };
+  }) };
+};
+const spec = (label, w, rows, notes = [], extra = {}) => ({ label, w, rows, hasNotes: notes.length > 0, notes: notes.map(([k, t]) => ({ k, t })), mt: 0, isAnat: false, ref: undefined, ...extra });
+
+const resp = (w) => {
+  const mid = w >= 560, wide = w >= 860, chips = w >= 360, narrow = w < 360, pillRef = w >= 440;
+  return spec(w + 'px' + (wide ? ' · expanded' : w <= 320 ? ' · minimum' : ''), w, [
+    gauge(w),
+    coord(),
+    phase('05', 'Quality gates', 2, 5, { pb: 4 }),
+    task({ rail: true, ref: 'PIPP-56', title: 'Usage dashboard', role: 'build', showRole: mid, subs: '0/2', stage: 'blocked', kids: true, narrow, dep: { kind: 'wait', text: mid ? 'waits on PIPP-55' : pillRef ? 'PIPP-55' : '' } }),
+    task({ rail: true, narrow, ref: 'PIPP-49', title: 'Operator admin area', role: 'build', showRole: mid, subs: '1/3', kids: true, noChips: !chips, sessions: [{ kind: 'codex' }, { kind: 'claude', st: 'idle' }] }),
+    task({ rail: true, narrow, ref: 'PIPP-40', title: 'Quality gate C', role: 'review', showRole: mid, stage: 'error', noChips: !chips, dep: wide ? { kind: 'after', text: 'after PIPP-49' } : null, sessions: [{ st: 'error' }] }),
+    task({ rail: true, narrow, ref: 'PIPP-42', title: 'End-to-end tests and local kit', role: 'QA', showRole: mid, stage: 'needs', noChips: !chips, sessions: [{ st: 'needs' }] }),
+    propHead(1),
+    prop('PIPP-51', 'Retry agents automatically after usage reset'),
+  ]);
+};
+
+const SECTIONS = [
+  { id: 's1', no: '01', title: 'Task strip anatomy', desc: 'The task strip is the main building block. Every task at every depth uses the same 32px strip, so the columns line up across the whole list.',
+    rules: [
+      'Strip: 32px tall, radius 6, padding 0 10 0 6, gap 8. The card is #24272d; blocked tasks add a 135° hatch.',
+      'Left column: the ring is always 26px from the card edge. Session avatars in an open card sit on that same column.',
+      'Right column: the state column is a fixed 76px, right-aligned, ending 10px from the card edge. Session rows, lead rows and nested tasks end on the same line, so states read as one column.',
+      'Fixed: 1, 2, 3, 9. Optional, but fixed when shown: 5–8. Flexible: 4 only.',
+    ],
+    specs: [spec('Anatomy · 860px', 860, [task({ ref: 'PIPP-49', title: 'Operator admin area', role: 'build', subs: '1/3', kids: true, dep: { kind: 'after', text: 'after PIPP-46' }, sessions: [{ kind: 'codex' }, { kind: 'claude', st: 'idle' }] })], [
+      ['1', 'Fold chevron, 12px. Hidden but keeps its space when there is nothing to unfold (no sessions, no sub-issues).'],
+      ['2', 'Status ring, 14px: done = filled check, active = quarter ring, not started/blocked = dotted.'],
+      ['3', 'Ref: mono 11px, never truncated.'],
+      ['4', 'Title: 12.5/600, the only flexible element. Min 60px, ellipsis; the full title shows in a tooltip.'],
+      ['5', 'Role: 11.5px grey plain text, never a pill, so it can\'t be mistaken for a dependency.'],
+      ['6', 'Sub-issue counter: list-tree icon + done/total. Only on tasks that have sub-issues.'],
+      ['7', 'Dependency pill: lock + amber = blocked; arrow + neutral = "after" (running, has deps).'],
+      ['8', 'Session chips, max 2, 16px. They show who is on the task and disappear once the task is opened.'],
+      ['9', 'State column: 76px fixed width, mono 10.5px. Always a single word or a timer.'],
+    ], { isAnat: true, mt: 28 })] },
+
+  { id: 's2', no: '02', title: 'Task states', desc: 'A task\'s state is rolled up from its sessions and its sub-issues. A parent always shows its most urgent descendant.',
+    rules: [
+      'Priority: Error > Needs you > Working > Idle > Done (when everything is done) > Blocked (unmet dependency) > Not started.',
+      'Only Error (red #f0525e) and Needs you (amber #d9b477) get colour and a dot. Everything else stays neutral grey.',
+      'Error covers every stop reason (usage limit, crash and so on). There is no inline reason or action; the user opens the session.',
+      'Idle: the session is alive and has finished its turn. It is not blocked and has started.',
+      'Done is hidden by default (see 06).',
+    ],
+    specs: [spec('All states · 500px', 500, [
+      task({ ref: 'PIPP-50', title: 'Beta rollout', role: 'build', stage: 'todo' }),
+      task({ ref: 'PIPP-44', title: 'Final quality gate', role: 'review', stage: 'blocked', dep: { kind: 'wait', text: '3 tasks' } }),
+      task({ ref: 'PIPP-64', title: 'Billing webhooks', role: 'build', stage: 'working', sessions: [{}] }),
+      task({ ref: 'PIPP-45', title: 'Beta service facts', role: 'build', stage: 'idle', sessions: [{ st: 'idle', kind: 'codex' }] }),
+      task({ ref: 'PIPP-42', title: 'End-to-end tests and local kit', role: 'QA', stage: 'needs', sessions: [{ st: 'needs' }] }),
+      task({ ref: 'PIPP-43', title: 'Codebase security audit', role: 'security', stage: 'error', sessions: [{ st: 'error' }] }),
+      task({ ref: 'PIPP-36', title: 'Team workflow', role: 'build', stage: 'done', sessions: [{ st: 'done' }] }),
+    ], [['', 'From top: Not started · Blocked · Working · Idle · Needs you · Error · Done (only shown with "Show done" on).']])] },
+
+  { id: 's3', no: '03', title: 'Fold states', desc: 'Opening a task shows the sessions working on it inside the card, and its sub-issues as a tree below it.',
+    rules: [
+      'Open by default: tasks with sub-issues, and tasks in Error or Needs you. Everything else starts closed. Remember fold state per user per issue.',
+      'Clicking the strip only toggles fold. Clicking a session row selects that session and opens it.',
+      'Open card: sessions sit on a darker inset panel (#1b1d21, margin 4, padding-left 20, radius 5), so they read as part of the task and one level below it.',
+      'Native subagents are never top-level rows. They collapse into an "N native" chip on their session, and clicking the chip toggles a read-only list without selecting the session.',
+      'Sub-issues: 22px indent per level, guide line at 11px (under the parent chevron centre), ├ for middle children and └ with 5px radius for the last. Any depth.',
+    ],
+    specs: [
+      spec('Closed → open · 500px', 500, [
+        cap('CLOSED · CHIPS SHOW WHO IS ON IT', 0),
+        task({ ref: 'PIPP-49', title: 'Operator admin area', role: 'build', sessions: [{ kind: 'codex', name: 'Admin area' }, { name: 'Admin UI review', helper: true, st: 'idle' }] }),
+        cap('OPEN · SESSIONS IN AN INSET PANEL, CHIPS HIDE'),
+        task({ ref: 'PIPP-49', title: 'Operator admin area', role: 'build', open: true, sessions: [{ kind: 'codex', name: 'Admin area' }, { name: 'Admin UI review', helper: true, st: 'idle' }] }),
+        cap('OPEN · SESSION WITH NATIVE SUBAGENTS (COLLAPSED)'),
+        task({ ref: 'PIPP-43', title: 'Codebase security audit', role: 'security', stage: 'error', open: true, sessions: [{ name: 'Security audit', st: 'error', natives: 5 }] }),
+        cap('NATIVE SUBAGENTS EXPANDED'),
+        task({ ref: 'PIPP-43', title: 'Codebase security audit', role: 'security', stage: 'error', open: true, sessions: [{ name: 'Security audit', st: 'error', natives: 5, nativeOpen: true }] }),
+      ]),
+      spec('Sub-issues, two levels · 500px', 500, [
+        task({ ref: 'PIPP-49', title: 'Operator admin area', subs: '1/3', kids: true, open: true, sessions: [{ kind: 'codex', name: 'Admin area' }, { name: 'Admin UI review', helper: true, st: 'idle' }] }),
+        task({ depth: 1, last: false, ref: 'PIPP-55', title: 'Audit log view', role: 'build', sessions: [{ kind: 'codex' }] }),
+        task({ depth: 1, last: true, ref: 'PIPP-56', title: 'Usage dashboard', subs: '0/2', kids: true, open: true, stage: 'blocked', dep: { kind: 'wait', text: 'PIPP-55' } }),
+        task({ depth: 2, conts: [false], last: false, ref: 'PIPP-57', title: 'CSV export', role: 'build', stage: 'todo' }),
+        task({ depth: 2, conts: [false], last: true, ref: 'PIPP-62', title: 'Plan limits panel', role: 'design', stage: 'todo' }),
+        task({ ref: 'PIPP-64', title: 'Billing webhooks', role: 'build', sessions: [{}] }),
+      ], [['', 'PIPP-57 and PIPP-62 are sub-sub-issues (depth 2). PIPP-64 is the next top-level task, back at depth 0. A parent with sub-issues hides its role to give the title room in compact.']]),
+    ] },
+
+  { id: 's4', no: '04', title: 'Sessions and selection', desc: 'There are three kinds of session, each with a fixed place. Exactly one session is selected: the one open in the main pane.',
+    rules: [
+      'Coordinator: the large card at the top. Avatar 28px, name 13/600, "Coordinator" + ref below. Its border turns amber when it needs the user. Clicking it opens its session; it has no inline actions.',
+      'Phase lead: the first row inside its phase. Dark inset row (#1b1d21), 32px, name 12/600 + "phase lead". It brightens the phase rail.',
+      'Worker / helper: avatar rows inside the task card\'s inset panel. A second session on the same task is labelled "helper".',
+      'Hover: one step lighter (#23262b in panels, #272a31 on the coordinator). No border.',
+      'Selected: blue tint rgba(111,157,255,.14) + 1px inset ring rgba(111,157,255,.6). On the coordinator: a #232a3a ground and blue border. Only one at a time, across the whole deck.',
+      'Task strips are never "selected". The selected session\'s task stays as it is; the ring on the session row is enough.',
+    ],
+    specs: [
+      spec('Coordinator · default / hover / needs you / selected', 500, [
+        coord({ st: 'working', time: '41:00' }),
+        coord({ st: 'working', time: '41:00', hover: true }),
+        coord({ st: 'needs' }),
+        coord({ st: 'needs', sel: true }),
+      ]),
+      spec('Phase lead + workers · default / hover / selected', 500, [
+        cap('PHASE LEAD', 0),
+        lead({ rail: true }),
+        lead({ rail: true, hover: true }),
+        lead({ rail: true, sel: true }),
+        cap('WORKER + HELPER IN A TASK CARD'),
+        task({ ref: 'PIPP-49', title: 'Operator admin area', role: 'build', open: true, sessions: [{ kind: 'codex', name: 'Admin area' }, { name: 'Admin UI review', helper: true, st: 'idle', hover: true }] }),
+        task({ ref: 'PIPP-49', title: 'Operator admin area', role: 'build', open: true, sessions: [{ kind: 'codex', name: 'Admin area', sel: true }, { name: 'Admin UI review', helper: true, st: 'idle' }] }),
+      ], [['', 'Top card: helper hovered. Bottom card: worker selected.']]),
+    ] },
+
+  { id: 's5', no: '05', title: 'Narrow to wide', desc: 'The panel can be resized from 300px, and the expanded view is the same component with wide = true. As width shrinks, optional parts drop out in a fixed order. Nothing is ever clipped mid-word except the title.',
+    rules: [
+      'Shed order as width shrinks (panel width): (1) "after" dependency pills, shown only ≥ 860 → (2) role text below 560 → (3) the blocked pill shortens to lock + ref below 560 → (4) the blocked pill becomes the lock icon only, with refs in the tooltip, below 440 → (5) below 360 the session chips and sub-issue counter drop, the state column shrinks 76 → 56px, gaps 8 → 6 and the title min-width 60 → 40 → (6) the title truncates.',
+      'Never shed: chevron, ring, ref, state word, blocked lock. Rule: a strip never overflows (scrollWidth ≤ clientWidth at every width ≥ 300).',
+      'Gauge bands shed word → count → bare colour per band, using container queries as MissionGauge does today.',
+      'Header actions (cost, Add agent) wrap onto a second line rather than shrink.',
+      'Dependency edges: always drawn ≥ 860 (right gutter, 28px reserved); below that, only on hover.',
+      'Phase header: the name never truncates, and the hairline between name and meter absorbs the space.',
+    ],
+    specs: [resp(320), resp(420), resp(560), resp(860)] },
+
+  { id: 's6', no: '06', title: 'Groups, phases and done work', desc: 'Phases are optional. Tasks without a phase sit at the top with no heading. Done work collapses into a single line.',
+    rules: [
+      'Order: done line → tasks without a phase (no header, no rail) → phases by phase.order → PROPOSED.',
+      'Phase: an 11px margin, 2px rail and 9px padding, so content starts 22px in, the same as one tree level. The rail is #2a2d33, or brighter (rgba(148,154,164,.5)) when the phase has a lead.',
+      'The phase header shows its index, name, hairline, 36px meter and done/total, and it collapses on click.',
+      'Done is hidden by default. One dashed line ("N phases complete · M tasks done · Show") stands in for done tasks everywhere, including unphased tasks and sub-issues.',
+      'A phase disappears when all its work is done, and comes back in place when Show done is on.',
+      'A done sub-issue under an unfinished parent is hidden too; the parent\'s counter (e.g. 1/3) still accounts for it.',
+    ],
+    specs: [
+      spec('Mixed epic · 500px', 500, [
+        doneLine('3 phases complete · 23 tasks done'),
+        task({ ref: 'PIPP-60', title: 'Fix flaky CI on main', role: 'build', sessions: [{ kind: 'codex' }] }),
+        task({ ref: 'PIPP-63', title: 'Privacy policy copy', role: 'research', stage: 'todo', pb: 16 }),
+        phase('04', 'Build', 7, 9),
+        task({ rail: true, ref: 'PIPP-49', title: 'Operator admin area', role: 'build', subs: '1/3', kids: true, sessions: [{ kind: 'codex' }, { st: 'idle' }] }),
+        task({ rail: true, ref: 'PIPP-64', title: 'Billing webhooks', role: 'build', sessions: [{}], pb: 16 }),
+        phase('05', 'Quality gates', 2, 5),
+        lead({ rail: true }),
+        task({ rail: true, ref: 'PIPP-40', title: 'Quality gate C', role: 'review', stage: 'error', sessions: [{ st: 'error' }] }),
+        task({ rail: true, ref: 'PIPP-43', title: 'Codebase security audit', role: 'security', stage: 'error', sessions: [{ st: 'error' }], pb: 16 }),
+        phase('06', 'Release', 0, 2, { closed: true, next: true }),
+      ], [['', '"Release" is collapsed, and its name is dimmed because nothing in it can start yet.']]),
+      spec('Epic without phases · 500px', 500, [
+        doneLine('12 tasks done'),
+        task({ ref: 'PIPP-60', title: 'Fix flaky CI on main', role: 'build', sessions: [{ kind: 'codex' }] }),
+        task({ ref: 'PIPP-49', title: 'Operator admin area', role: 'build', subs: '1/3', kids: true, sessions: [{ kind: 'codex' }] }),
+        task({ ref: 'PIPP-44', title: 'Final quality gate', role: 'review', stage: 'blocked', dep: { kind: 'wait', text: '3 tasks' } }),
+        task({ ref: 'PIPP-63', title: 'Privacy policy copy', role: 'research', stage: 'todo' }),
+      ], [['', 'With no phases it is a flat list: no headers, no rails. Same strips.']]),
+    ] },
+
+  { id: 's7', no: '07', title: 'Hover and dependencies', desc: 'Hovering a task shows how it connects to other tasks. Dimming stays inside the hovered task\'s own phase, so the rest of the deck doesn\'t flicker as the pointer moves.',
+    rules: [
+      'Hover a strip: its direct dependencies and dependents get the 1px blue ring, and their edges turn blue (1.5px).',
+      'In the hovered task\'s own phase, all other tasks and the lead fade to 0.3. Other phases, the coordinator and proposals never dim.',
+      'Related tasks in other phases are ringed but not dimmed, which is how cross-phase links stay visible.',
+      'Edges are bezier hooks in the right gutter: a dot at the dependency, an arrowhead at the dependent, staggered 9/14/19px so parallel edges don\'t overlap. Measure positions in layout px (rect ÷ zoom scale).',
+      'Parents of a related sub-issue stay at full opacity for context.',
+    ],
+    specs: [
+      spec('Within a phase · hover PIPP-56', 500, [
+        phase('04', 'Build', 7, 9),
+        task({ rail: true, dim: true, ref: 'PIPP-49', title: 'Operator admin area', role: 'build', sessions: [{ kind: 'codex' }] }),
+        task({ rail: true, ring: true, bh: 35, ref: 'PIPP-55', title: 'Audit log view', role: 'build', sessions: [{ kind: 'codex' }] }),
+        task({ rail: true, hover: true, ref: 'PIPP-56', title: 'Usage dashboard', role: 'build', stage: 'blocked', dep: { kind: 'wait', text: 'PIPP-55' } }),
+        task({ rail: true, dim: true, ref: 'PIPP-64', title: 'Billing webhooks', role: 'build', sessions: [{}], pb: 16 }),
+        phase('05', 'Quality gates', 2, 5),
+        task({ rail: true, ref: 'PIPP-40', title: 'Quality gate C', role: 'review', stage: 'error', sessions: [{ st: 'error' }] }),
+      ]),
+      spec('Across phases · hover PIPP-49', 500, [
+        phase('04', 'Build', 7, 9),
+        task({ rail: true, hover: true, ref: 'PIPP-49', title: 'Operator admin area', role: 'build', sessions: [{ kind: 'codex' }] }),
+        task({ rail: true, dim: true, ref: 'PIPP-64', title: 'Billing webhooks', role: 'build', sessions: [{}], pb: 16 }),
+        phase('05', 'Quality gates', 2, 5),
+        lead({ rail: true }),
+        task({ rail: true, ring: true, ref: 'PIPP-40', title: 'Quality gate C', role: 'review', stage: 'error', sessions: [{ st: 'error' }] }),
+        task({ rail: true, ring: true, ref: 'PIPP-42', title: 'End-to-end tests and local kit', stage: 'needs', sessions: [{ st: 'needs' }] }),
+        task({ rail: true, ref: 'PIPP-43', title: 'Codebase security audit', role: 'security', stage: 'error', sessions: [{ st: 'error' }] }),
+      ], [['', 'PIPP-40 and PIPP-42 depend on PIPP-49, so they are ringed. Quality gates doesn\'t dim because it isn\'t the hovered task\'s phase.']]),
+    ] },
+
+  { id: 's8', no: '08', title: 'Proposals', desc: 'Tasks proposed by agents sit after the tree, outside it, until the user decides.',
+    rules: [
+      'Magenta (#d946ef) is reserved for proposals and appears nowhere else.',
+      'Actions: Backlog (ghost) · Start (outlined). Once picked, the row shows "In backlog" / "Started" for this session, then moves into the tree on the next refresh.',
+      'Ref and title only. Who proposed it shows in a tooltip; no extra copy.',
+      'At narrow widths the buttons stay full size and the title truncates.',
+    ],
+    specs: [spec('Pending / hover / settled · 500px', 500, [
+      propHead(3, 0),
+      prop('PIPP-51', 'Retry agents automatically after usage reset'),
+      prop('PIPP-52', 'Attachment malware scanning', { hover: true }),
+      prop('PIPP-53', 'Shared draft conflict handling', { label: 'In backlog' }),
+    ])] },
+];
+
+class Component extends DCLogic {
+  state = { pins: [] };
+  anat = React.createRef();
+  componentDidMount() { this.measure(); setTimeout(() => this.measure(), 600); }
+  componentDidUpdate() { this.measure(); }
+  measure() {
+    const el = this.anat.current;
+    if (!el) return;
+    const base = el.getBoundingClientRect();
+    const k = el.offsetWidth ? base.width / el.offsetWidth : 1;
+    const pins = [];
+    el.querySelectorAll('[data-pin]').forEach((p) => {
+      const r = p.getBoundingClientRect();
+      if (r.width) pins.push({ n: p.getAttribute('data-pin'), x: Math.round((r.left + r.width / 2 - base.left) / k) });
+    });
+    const key = JSON.stringify(pins);
+    if (key !== this._k) { this._k = key; this.setState({ pins }); }
+  }
+  renderVals() {
+    return {
+      pins: this.state.pins,
+      sections: SECTIONS.map((s) => ({ ...s, specs: s.specs.map((x) => (x.isAnat ? { ...x, ref: this.anat } : x)) })),
+    };
+  }
+}
+</script>
+</body>
+</html>
