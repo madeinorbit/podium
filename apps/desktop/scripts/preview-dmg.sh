@@ -17,6 +17,9 @@
 set -euo pipefail
 
 [ "$(uname)" = Darwin ] || { echo "preview-dmg.sh needs macOS (Finder writes the layout)" >&2; exit 1; }
+# The layout is written by an AppleScript that drives the logged-in user's Finder; as root it
+# cannot reach that Finder, and nothing here needs root.
+[ "$(id -u)" != 0 ] || { echo "run preview-dmg.sh without sudo" >&2; exit 1; }
 
 TAURI="$(cd "$(dirname "$0")/../src-tauri" && pwd)"
 REPO="$(cd "$TAURI/../../.." && pwd)"
@@ -71,8 +74,17 @@ if pos_x="$(conf bundle.macOS.dmg.windowPosition.x 2>/dev/null)"; then
   args+=(--window-pos "$pos_x" "$(conf bundle.macOS.dmg.windowPosition.y)")
 fi
 
-# A preview DMG from an earlier run would still be mounted under the same volume name.
-hdiutil detach "/Volumes/$PRODUCT" -quiet 2>/dev/null || true
+# hdiutil stages the image as /Volumes/<volname>. A Podium DMG that is already mounted there (a
+# release you opened, or an earlier preview) makes it copy into that read-only volume instead and
+# fail with "Operation not permitted", so unmount every one first and stop if one will not go.
+for vol in "/Volumes/$PRODUCT" "/Volumes/$PRODUCT "[0-9]*; do
+  [ -d "$vol" ] || continue
+  hdiutil detach "$vol" -quiet 2>/dev/null || hdiutil detach "$vol" -force -quiet 2>/dev/null || true
+  if [ -d "$vol" ]; then
+    echo "$vol is still mounted: close Podium if it runs from there, eject it in Finder, retry" >&2
+    exit 1
+  fi
+done
 (cd "$WORK/macos" && "$WORK/dmg/bundle_dmg.sh" "${args[@]}" "$PRODUCT.dmg" "$PRODUCT.app")
 
 open "$WORK/macos/$PRODUCT.dmg"
