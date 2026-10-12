@@ -202,6 +202,39 @@ function markersPresent(): boolean {
 }
 
 describe('POD-4719 warm re-activation keeps the transcript', () => {
+  it('uses the startup read when a deferred chat first acquires its conversation', async () => {
+    act(() => {
+      root.render(
+        <ChatView sessionId={asSessionId('s1')} active={true} deferInitialTranscript={true} />,
+      )
+    })
+    await flush()
+    expect(reads).toHaveLength(0)
+
+    act(() => {
+      root.render(
+        <ChatView sessionId={asSessionId('s1')} active={true} deferInitialTranscript={false} />,
+      )
+    })
+    await flush()
+    // Startup already requests this exact newest window. Activation must not
+    // issue another read and supersede it before its response can be used.
+    expect(reads.map(read => read.input)).toEqual([
+      { sessionId: asSessionId('s1'), direction: 'before', limit: 200 },
+    ])
+    expect(fakeHub.subscribes).toHaveLength(0)
+
+    await act(async () => {
+      reads[0]?.resolve({ items: BOUND_TURNS(), head: 'c-u1', tail: 'c-a1', hasMore: false })
+    })
+    await flush()
+    expect(reads).toHaveLength(1)
+    expect(markersPresent()).toBe(true)
+    expect(fakeHub.subscribes.map(({ sessionId, since }) => ({ sessionId, since }))).toEqual([
+      { sessionId: asSessionId('s1'), since: 'c-a1' },
+    ])
+  })
+
   it('a same-content re-read after a warm toggle does not blank rendered turns', async () => {
     act(() => {
       root.render(

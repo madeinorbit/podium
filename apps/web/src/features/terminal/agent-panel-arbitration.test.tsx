@@ -438,9 +438,9 @@ describe('AgentPanel mount gating', () => {
       await render({ active: true })
 
       expect(starts).toHaveBeenCalledTimes(1)
-      // Starting the shared owner and activating its chat reader each read history;
-      // the controller's read serial admits only the winning live subscription.
-      expect(transcriptRead).toHaveBeenCalledTimes(2)
+      // The shared owner's start reads the newest window. First acquisition by
+      // the chat reader must use that read, including its live-edge tail.
+      expect(transcriptRead).toHaveBeenCalledTimes(1)
       expect(
         subscribeTranscript.mock.calls.filter(([, since]) => since === 'confirmed-tail'),
       ).toHaveLength(1)
