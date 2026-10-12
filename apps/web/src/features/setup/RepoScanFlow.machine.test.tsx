@@ -1,7 +1,7 @@
 import '@/test-support/mock-core-store-handle'
 // @vitest-environment happy-dom
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
-import { afterEach, describe, expect, it, vi } from 'vitest'
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { RepoScanFlow } from './RepoScanFlow'
 
 const addRepo = vi.fn(async () => [])
@@ -97,10 +97,24 @@ vi.mock('@/app/store', () => {
   }
 })
 
+beforeEach(() => {
+  vi.spyOn(console, 'error')
+})
+
 afterEach(() => {
   cleanup()
-  uiValues.clear()
-  vi.clearAllMocks()
+  const renderWarnings = vi.mocked(console.error).mock.calls.filter(
+    ([message]) =>
+      String(message).includes('Cannot update a component') &&
+      String(message).includes('while rendering a different component'),
+  )
+  try {
+    expect(renderWarnings).toEqual([])
+  } finally {
+    uiValues.clear()
+    vi.clearAllMocks()
+    vi.mocked(console.error).mockRestore()
+  }
 })
 
 describe('RepoScanFlow machine selection', () => {
@@ -279,6 +293,31 @@ describe('RepoScanFlow machine selection', () => {
       }),
     )
   })
+  it('restores scan results and selections, then keeps the draft cleared after completion', async () => {
+    const first = render(<RepoScanFlow onboarding onClose={() => {}} onDone={() => {}} />)
+    fireEvent.change(await screen.findByLabelText('Machine'), { target: { value: 'vmi34' } })
+    fireEvent.click(await screen.findByRole('button', { name: 'Scan this folder' }))
+    fireEvent.click(await screen.findByText('known'))
+    fireEvent.click(screen.getByText('fresh'))
+    await screen.findByRole('button', { name: 'Add 1 · Remove 1' })
+    first.unmount()
+    scanMachine.mockClear()
+
+    const onDone = vi.fn()
+    const restored = render(<RepoScanFlow onboarding onClose={() => {}} onDone={onDone} />)
+    expect(((await screen.findByLabelText('Machine')) as HTMLSelectElement).value).toBe('vmi34')
+    fireEvent.click(await screen.findByRole('button', { name: 'Add 1 · Remove 1' }))
+    await waitFor(() => expect(onDone).toHaveBeenCalledWith(2))
+    expect(scanMachine).not.toHaveBeenCalled()
+    expect(uiValues.has('podium.localProjectIntake.draft')).toBe(false)
+
+    // Keep the body mounted while another progress update commits. The save
+    // effect must not undo finish's durable clear.
+    fireEvent.click(screen.getByText('fresh'))
+    restored.rerender(<RepoScanFlow onboarding onClose={() => {}} onDone={onDone} />)
+    expect(uiValues.has('podium.localProjectIntake.draft')).toBe(false)
+  })
+
   /**
    * POD-1295 — the route a machine with nothing on its disk never had. These
    * assert the WHOLE trip: the button opens a row, the row's name is what the

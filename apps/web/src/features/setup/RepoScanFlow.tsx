@@ -102,14 +102,17 @@ function RepoScanFlowBody({ onClose, onDone, onboarding = false, initialMachineI
   const persistDraft = useCallback(
     (patch: Partial<LocalProjectDraft>): void => {
       if (!onboarding) return
-      setDraftState((current) => {
-        const next = { ...current, ...patch }
-        uiState?.set(LOCAL_PROJECT_INTAKE_DRAFT_KEY, JSON.stringify(next))
-        return next
-      })
+      setDraftState((current) => ({ ...current, ...patch }))
     },
-    [onboarding, uiState],
+    [onboarding],
   )
+
+  // React may replay state updaters while rendering. Publish only the committed
+  // draft, and never recreate it after finish has cleared onboarding progress.
+  useEffect(() => {
+    if (!onboarding || committed.current) return
+    uiState?.set(LOCAL_PROJECT_INTAKE_DRAFT_KEY, JSON.stringify(draft))
+  }, [draft, onboarding, uiState])
 
   function setSelectedMachineId(machineId: string | undefined): void {
     setSelectedMachineIdState(machineId)
