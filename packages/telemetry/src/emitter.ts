@@ -253,9 +253,18 @@ export class TelemetryEmitter {
    * a day would otherwise never reach a flush at all. A due-in-the-past window
    * fires on a short delay rather than immediately — boot is busy, and this is
    * the least important thing happening.
+   *
+   * No persisted window while `usage` is on means this is the FIRST window (a
+   * fresh install, or usage just turned on): report on the boot delay instead of
+   * a day later, so an install is visible the day it happens. That flush arms the
+   * persisted daily clock, so later boots go back to honouring `nextFlushAt`.
    */
   start(): void {
     if (this.timer) return
+    if (readWindow(this.deps.stateDir) === undefined && this.tierOn('usage')) {
+      this.scheduleNext(BOOT_FLUSH_DELAY_MS)
+      return
+    }
     this.scheduleNext(Math.max(this.window().nextFlushAt - this.deps.now(), BOOT_FLUSH_DELAY_MS))
   }
 

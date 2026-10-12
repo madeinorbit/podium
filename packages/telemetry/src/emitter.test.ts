@@ -10,7 +10,7 @@ import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import type { PodiumConfig } from '@podium/runtime/config'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
-import { FLUSH_INTERVAL_MS, TelemetryEmitter } from './emitter'
+import { BOOT_FLUSH_DELAY_MS, FLUSH_INTERVAL_MS, TelemetryEmitter } from './emitter'
 import { readLastSent, readQueue, readWindow } from './queue'
 
 const INSTALL_ID = '3f9c1a2e-0000-4000-8000-000000000000'
@@ -263,6 +263,42 @@ describe('the window survives restarts ("one report a DAY", not per uptime)', ()
     await off.flush()
     // Counters gathered while it was on do not linger after it is off.
     expect(readWindow(dir)).toBeUndefined()
+  })
+
+  it('the FIRST window reports on the boot delay, not a day later', async () => {
+    vi.useFakeTimers()
+    try {
+      const posted: unknown[] = []
+      const e = restart(onUsage, 1_000, posted)
+      e.start()
+      await vi.advanceTimersByTimeAsync(BOOT_FLUSH_DELAY_MS)
+      e.stop()
+      expect(posted).toHaveLength(1)
+      expect(posted[0]).toMatchObject({ installId: INSTALL_ID })
+      // The flush armed the daily clock, so the next boot honours it.
+      expect(readWindow(dir)?.nextFlushAt).toBe(1_000 + FLUSH_INTERVAL_MS)
+      const again = restart(onUsage, 2_000, posted)
+      again.start()
+      await vi.advanceTimersByTimeAsync(BOOT_FLUSH_DELAY_MS)
+      again.stop()
+      expect(posted).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('no early report when usage is off', async () => {
+    vi.useFakeTimers()
+    try {
+      const posted: unknown[] = []
+      const e = restart({ telemetry: { usage: 'off', installId: INSTALL_ID } }, 1_000, posted)
+      e.start()
+      await vi.advanceTimersByTimeAsync(BOOT_FLUSH_DELAY_MS)
+      e.stop()
+      expect(posted).toHaveLength(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it('ignores a corrupt window file rather than crashing a boot', () => {

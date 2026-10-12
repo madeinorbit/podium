@@ -68,6 +68,9 @@ Two tiers, consented independently. You can enable one and not the other.
 
 ### `usage` — one report per day
 
+The first report goes out about a minute after the server first starts with `usage` on, so a new
+install shows up the day it happens; after that, one a day.
+
 ```json
 {
   "schema": 1,
