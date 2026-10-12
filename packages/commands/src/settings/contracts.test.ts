@@ -198,6 +198,12 @@ describe('the preference arms are offline-eligible and differ only where the row
 // ---------------------------------------------------------------------------
 
 describe('a preference patch is gated on the classified path — and can say YES', () => {
+  it('preserves a JSON null harness clear on the personal command', () => {
+    const input = { values: { 'roles.coding.harness': null } }
+    expect(settingsUpdatePersonalInput.parse(JSON.parse(JSON.stringify(input)))).toEqual(input)
+    expect(settingsUpdateInstanceInput.safeParse(input).success).toBe(false)
+  })
+
   it('accepts a real personal path (the positive control)', () => {
     const parsed = settingsUpdatePersonalInput.safeParse({
       values: { 'roles.coding.model': 'opus' },

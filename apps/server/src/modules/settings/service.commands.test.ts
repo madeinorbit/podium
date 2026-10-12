@@ -140,6 +140,23 @@ describe('optional role harness saves stay loadable', () => {
     expect(await store.userPreferences.keysFor(USER)).not.toContain('roles.superagent.harness')
   })
 
+  it.each(['coding', 'background', 'superagent', 'shipwright'] as const)(
+    'a JSON null clear deletes the %s harness preference rather than storing null', async (role) => {
+      const path = `roles.${role}.harness`
+      await service.updatePreferences(USER, { [path]: 'codex' })
+      const saved = await service.updatePreferences(USER, { [path]: null })
+      expect(saved.roles[role]).not.toHaveProperty('harness')
+      expect((await service.getSettingsFor(USER)).roles[role]).not.toHaveProperty('harness')
+      expect(await store.userPreferences.keysFor(USER)).not.toContain(path)
+    },
+  )
+
+  it('a nullable setting still persists null as its value', async () => {
+    const saved = await service.updatePreferences(USER, { 'hibernation.maxIdleSessions': null })
+    expect(saved.hibernation.maxIdleSessions).toBeNull()
+    expect((await service.getSettingsFor(USER)).hibernation.maxIdleSessions).toBeNull()
+  })
+
   it('loads settings with an older stored harness null and can save again', async () => {
     db.prepare(
       'INSERT INTO user_preferences (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)',

@@ -56,6 +56,22 @@ type Blob = Record<string, unknown>
 const isPlainObject = (v: unknown): v is Blob =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
+const isRoleHarnessPath = (path: string): boolean => /^roles\.[^.]+\.harness$/.test(path)
+
+/** Role harness nulls are deletion intents on the preference command wire.
+ * Decode before storage so absence remains a deleted row, never stored null.
+ * Other leaves can have meaningful null values (for example hibernation limits). */
+export function decodeSettingsPreferencePatch(
+  values: Readonly<Record<string, unknown>>,
+): Record<string, unknown> {
+  return Object.fromEntries(
+    Object.entries(values).map(([path, value]) => [
+      path,
+      value === null && isRoleHarnessPath(path) ? undefined : value,
+    ]),
+  )
+}
+
 /** Deep structural equality, by canonical JSON. Sufficient and honest here: a
  *  settings leaf is JSON by construction (it round-trips through the wire on
  *  every load), so there is no `undefined`, no `Date` and no cycle to mishandle
@@ -276,7 +292,10 @@ export function planSettingsWrite(
       continue
     }
     const patch = patches.get(command) ?? {}
-    patch[leaf.path] = leaf.value
+    // JSON omits undefined-valued keys. Keep an explicit harness clear on the
+    // wire; the preference handler decodes it before reaching the store.
+    patch[leaf.path] =
+      leaf.value === undefined && isRoleHarnessPath(leaf.path) ? null : leaf.value
     patches.set(command, patch)
   }
 

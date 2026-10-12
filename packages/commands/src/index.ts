@@ -447,6 +447,7 @@ export {
   applySettingsPatch,
   type ChangedLeaf,
   changedSettingsLeaves,
+  decodeSettingsPreferencePatch,
   type PlanOptions,
   planSettingsWrite,
   readSettingsLeaf,

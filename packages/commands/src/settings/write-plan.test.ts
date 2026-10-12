@@ -22,6 +22,7 @@ import { describe, expect, it } from 'vitest'
 import {
   applySettingsPatch,
   changedSettingsLeaves,
+  decodeSettingsPreferencePatch,
   planSettingsWrite,
   readSettingsLeaf,
 } from './write-plan'
@@ -41,6 +42,37 @@ const edit = (patch: Record<string, unknown>): Record<string, unknown> => ({ ...
 
 const ONLINE = { online: true }
 const OFFLINE = { online: false }
+
+describe('role harness deletion survives JSON', () => {
+  it.each(['coding', 'background', 'superagent', 'shipwright'])(
+    'encodes an absent %s harness as an explicit clear', (role) => {
+      const previous = { roles: { [role]: { harness: 'claude-code' } } }
+      // Both an explicit editor clear and an omitted default leaf mean absence.
+      for (const backend of [{ harness: undefined }, {}]) {
+        const plan = planSettingsWrite(previous, { roles: { [role]: backend } }, ONLINE)
+        expect(plan.refusals).toEqual([])
+        expect(JSON.parse(JSON.stringify(plan.intents))).toEqual([{
+          kind: 'preference',
+          command: 'settings.updatePersonal',
+          delivery: 'offline-eligible',
+          values: { [`roles.${role}.harness`]: null },
+        }])
+      }
+    },
+  )
+
+  it('decodes only harness clears and keeps nullable preference values', () => {
+    const values = { 'roles.coding.harness': null, 'hibernation.maxIdleSessions': null }
+    expect(decodeSettingsPreferencePatch(values)).toEqual({
+      'roles.coding.harness': undefined,
+      'hibernation.maxIdleSessions': null,
+    })
+    expect(values['roles.coding.harness']).toBeNull()
+    expect(decodeSettingsPreferencePatch({ 'roles.coding.model': 'auto' })).toEqual({
+      'roles.coding.model': 'auto',
+    })
+  })
+})
 
 describe('reading and writing one leaf by path', () => {
   it('reads a deep leaf, and answers undefined for an absent one', () => {

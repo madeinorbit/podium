@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto'
-import { readSettingsLeaf } from '@podium/commands'
+import { decodeSettingsPreferencePatch, readSettingsLeaf } from '@podium/commands'
 import {
   classifySettingsPath,
   redeemTelegramClaimCode,
@@ -523,7 +523,11 @@ export class SettingsService {
       )
     }
     const previous = await this.store.getSettingsFor(actor)
-    const next = await this.store.applyPreferencePatch(actor, values, new Date(this.now()).toISOString())
+    const next = await this.store.applyPreferencePatch(
+      actor,
+      decodeSettingsPreferencePatch(values),
+      new Date(this.now()).toISOString(),
+    )
     await this.emitSettingsChanged(previous, next)
     return next
   }

@@ -38,7 +38,10 @@
  *
  * A preference write carries `{ values: { '<dotted path>': <value> } }` where
  * every key must be a path {@link classifySettingsPath} knows AND whose tier is
- * this contract's. It is not a partial of the blob shape, for three reasons:
+ * this contract's. For `roles.<role>.harness`, null means delete the saved
+ * preference; an omitted key means leave it unchanged. The handler decodes the
+ * clear to absence before storage. Null on other paths remains a model value.
+ * It is not a partial of the blob shape, for three reasons:
  *
  *  1. A partial of the blob can express a secret. `{ apiKeys: { openai: '…' } }`
  *     is a valid `Partial<PodiumSettings>`, so a blob-shaped preference command
