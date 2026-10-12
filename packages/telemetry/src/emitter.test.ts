@@ -287,6 +287,27 @@ describe('the window survives restarts ("one report a DAY", not per uptime)', ()
     }
   })
 
+  it('no early flush without an install id — the first window is kept for a boot that has one', async () => {
+    vi.useFakeTimers()
+    try {
+      const posted: unknown[] = []
+      const e = restart({ telemetry: { usage: 'on' } }, 1_000, posted)
+      e.start()
+      await vi.advanceTimersByTimeAsync(BOOT_FLUSH_DELAY_MS)
+      e.stop()
+      expect(posted).toHaveLength(0)
+      // Still no window: the next boot, with an id, gets the early report.
+      expect(readWindow(dir)).toBeUndefined()
+      const withId = restart(onUsage, 2_000, posted)
+      withId.start()
+      await vi.advanceTimersByTimeAsync(BOOT_FLUSH_DELAY_MS)
+      withId.stop()
+      expect(posted).toHaveLength(1)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
   it('no early report when usage is off', async () => {
     vi.useFakeTimers()
     try {

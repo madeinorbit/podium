@@ -258,14 +258,26 @@ export class TelemetryEmitter {
    * fresh install, or usage just turned on): report on the boot delay instead of
    * a day later, so an install is visible the day it happens. That flush arms the
    * persisted daily clock, so later boots go back to honouring `nextFlushAt`.
+   * Only with an install id: a flush that cannot build the report still ends the
+   * window, so taking the early path without one (a recovery boot, a failed mint)
+   * would push the first report a day out instead of pulling it in.
    */
   start(): void {
     if (this.timer) return
-    if (readWindow(this.deps.stateDir) === undefined && this.tierOn('usage')) {
+    if (this.isFirstReportableWindow()) {
       this.scheduleNext(BOOT_FLUSH_DELAY_MS)
       return
     }
     this.scheduleNext(Math.max(this.window().nextFlushAt - this.deps.now(), BOOT_FLUSH_DELAY_MS))
+  }
+
+  private isFirstReportableWindow(): boolean {
+    if (readWindow(this.deps.stateDir) !== undefined || !this.tierOn('usage')) return false
+    try {
+      return this.identity() !== undefined
+    } catch {
+      return false
+    }
   }
 
   private scheduleNext(delayMs = this.nextFlushAt() - this.deps.now()): void {
