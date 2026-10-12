@@ -59,12 +59,25 @@ export class UnknownFlagError extends Error {
   }
 }
 
+/** A value-taking flag without its value; never substitute boolean `true`. */
+export class MissingFlagValueError extends Error {
+  readonly flag: string
+
+  constructor(flag: string, usage: string) {
+    super(`missing value for ${flag} — see \`${usage} --help\``)
+    this.name = 'MissingFlagValueError'
+    this.flag = flag
+  }
+}
+
 /** What one command accepts. Keys are spelled the way they appear in `args`. */
 export interface FlagDeclaration {
   /** Every long flag the command accepts. */
   readonly known: ReadonlySet<string>
   /** The subset of {@link known} that takes no value. */
   readonly booleans: ReadonlySet<string>
+  /** Flags accepting both a bare boolean and a value, such as `--pinned [false]`. */
+  readonly optionalValues?: ReadonlySet<string>
   /** Short aliases: `f` → the long key `-f` means. */
   readonly shorts: ReadonlyMap<string, string>
   /**
@@ -98,6 +111,7 @@ export function mergeFlags(...decls: FlagDeclaration[]): FlagDeclaration {
   return {
     known: new Set(decls.flatMap((d) => [...d.known])),
     booleans: new Set(decls.flatMap((d) => [...d.booleans])),
+    optionalValues: new Set(decls.flatMap((d) => [...(d.optionalValues ?? [])])),
     shorts: new Map(decls.flatMap((d) => [...d.shorts])),
   }
 }
@@ -222,7 +236,15 @@ export function parseFlags(
       value = inline
     } else {
       const next = tokens[i + 1]
-      if (decl.booleans.has(key) || next === undefined || next.startsWith('--')) {
+      if (decl.booleans.has(key)) {
+        value = true
+      } else if (next === undefined || next.startsWith('--')) {
+        if (decl.open !== true && !decl.optionalValues?.has(key)) {
+          throw new MissingFlagValueError(
+            token.startsWith('--') ? `--${name}` : token,
+            opts.usage,
+          )
+        }
         value = true
       } else {
         value = next
@@ -272,13 +294,20 @@ export function flagsFromZodShape(
 ): FlagDeclaration {
   const shape = (schema as ShapeCarrier).shape ?? {}
   const booleans = new Set<string>(globals?.booleans ?? [])
+  const optionalValues = new Set<string>()
   const known = new Set<string>([...Object.keys(shape), ...(globals?.known ?? []), ...booleans])
   for (const [key, field] of Object.entries(shape)) {
     const takesTrue = field.safeParse?.(true).success === true
     const takesText = VALUE_PROBES.some((probe) => field.safeParse?.(probe).success === true)
     if (takesTrue && !takesText) booleans.add(key)
+    // cliBool accepts an omitted value as well as explicit true/false. Numeric
+    // coercion accepts boolean true too, but not these strings: it still MUST
+    // receive a value, otherwise `--done` would turn into item index 1.
+    if (takesTrue && ['true', 'false'].some((probe) => field.safeParse?.(probe).success === true)) {
+      optionalValues.add(key)
+    }
   }
-  return { known, booleans, shorts: new Map() }
+  return { known, booleans, optionalValues, shorts: new Map() }
 }
 
 /**
@@ -294,7 +323,7 @@ export function tryParseFlags(
   try {
     return parseFlags(tokens, decl, opts)
   } catch (err) {
-    if (!(err instanceof UnknownFlagError)) throw err
+    if (!(err instanceof UnknownFlagError || err instanceof MissingFlagValueError)) throw err
     return { args: {}, positionals: [], occurrences: [], error: `${opts.usage}: ${err.message}` }
   }
 }
@@ -335,20 +364,22 @@ export function flagTable(
 }
 
 /**
- * Run a parse, re-throwing an {@link UnknownFlagError} as the calling tool's own
+ * Run a parse, re-throwing an unknown flag or missing value as the calling tool's own
  * error type with the message intact.
  *
  * Each `podium` sub-CLI has an error class that means "this is a USAGE problem,
  * not a transport one" — `logs-level-cli` branches on exactly that to decide
- * whether to append "is the server running?" to the message. An unknown flag is
- * as usage as it gets, so it must arrive wearing the same class rather than
+ * whether to append "is the server running?" to the message. Unknown flags and
+ * missing values must arrive wearing the same class rather than
  * teaching every catch site about a second one.
  */
 export function withUnknownFlagAs<T>(wrap: (message: string) => Error, parse: () => T): T {
   try {
     return parse()
   } catch (err) {
-    if (err instanceof UnknownFlagError) throw wrap(err.message)
+    if (err instanceof UnknownFlagError || err instanceof MissingFlagValueError) {
+      throw wrap(err.message)
+    }
     throw err
   }
 }

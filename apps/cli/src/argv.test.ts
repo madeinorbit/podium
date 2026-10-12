@@ -4,6 +4,7 @@ import {
   declareFlags,
   flagsFromZodShape,
   flagTable,
+  MissingFlagValueError,
   nearestFlag,
   parseFlags,
   tryParseFlags,
@@ -68,6 +69,26 @@ describe('parseFlags', () => {
     const parsed = parseFlags(['--wait', 'dev/mw'], decl, { usage: 'podium lock acquire' })
     expect(parsed.args).toEqual({ wait: true })
     expect(parsed.positionals).toEqual(['dev/mw'])
+  })
+
+  it.each([
+    { tokens: ['--ttl'] },
+    { tokens: ['--ttl', '--wait'] },
+    { tokens: ['--ttl', '--other'] },
+  ])('rejects a missing value before processing subsequent flags: $tokens', ({ tokens }) => {
+    expect(() => parseFlags(tokens, decl, { usage: 'podium lock acquire' })).toThrow(
+      MissingFlagValueError,
+    )
+    expect(() => parseFlags(tokens, decl, { usage: 'podium lock acquire' })).toThrow(
+      /missing value for --ttl/,
+    )
+  })
+
+  it('names the typed short alias when its value is missing', () => {
+    const shorts = declareFlags({ known: ['ttl'], shorts: { t: 'ttl' } })
+    expect(() => parseFlags(['-t'], shorts, { usage: 'podium lock acquire' })).toThrow(
+      /missing value for -t/,
+    )
   })
 
   it('camel-cases kebab flags but reports an unknown one in the spelling typed', () => {
@@ -170,6 +191,7 @@ describe('flagsFromZodShape', () => {
     })
     const flags = flagsFromZodShape(numeric)
     expect([...flags.booleans]).toEqual(['clear'])
+    expect([...flags.optionalValues!]).toEqual([])
     const parsed = parseFlags(['--index', '2', '--limit', '3', '--clear'], flags, {
       usage: 'podium issue todo',
     })
@@ -185,6 +207,17 @@ describe('flagsFromZodShape', () => {
       usage: 'podium issue update',
     })
     expect(parsed.args).toEqual({ pinned: 'false' })
+  })
+
+  it('allows a tri-state boolean flag to omit its value', () => {
+    const flags = flagsFromZodShape(schema)
+    expect([...flags.optionalValues!]).toEqual(['pinned'])
+    expect(parseFlags(['--pinned'], flags, { usage: 'podium issue update' }).args).toEqual({
+      pinned: true,
+    })
+    expect(
+      parseFlags(['--pinned', '--force'], flags, { usage: 'podium issue update' }).args,
+    ).toEqual({ pinned: true, force: true })
   })
 
   it('adds the dispatcher-owned global flags it is given', () => {
@@ -227,6 +260,12 @@ describe('tryParseFlags', () => {
   it('returns the unknown-flag message instead of throwing, for plan-returning callers', () => {
     const r = tryParseFlags(['--chanel', 'edge'], spec, { usage: 'podium update' })
     expect(r.error).toMatch(/unknown flag --chanel \(did you mean --channel\?\)/)
+    expect(r.args).toEqual({})
+  })
+
+  it('returns a missing-value usage error for plan-returning callers', () => {
+    const r = tryParseFlags(['--channel'], spec, { usage: 'podium update' })
+    expect(r.error).toContain('missing value for --channel')
     expect(r.args).toEqual({})
   })
 })
@@ -282,6 +321,15 @@ describe('withUnknownFlagAs', () => {
       expect(err).toBeInstanceOf(ToolError)
       expect((err as Error).message).toContain('unknown flag --ttlx (did you mean --ttl?)')
     }
+  })
+
+  it('wraps a missing-value error as the tool’s own usage error', () => {
+    expect(() =>
+      withUnknownFlagAs(
+        (m) => new ToolError(m),
+        () => parseFlags(['--ttl'], decl, { usage: 'podium lock acquire' }),
+      ),
+    ).toThrow(ToolError)
   })
 
   it('lets every other error through untouched', () => {

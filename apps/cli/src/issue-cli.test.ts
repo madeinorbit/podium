@@ -136,6 +136,26 @@ describe('runIssueCli', () => {
     },
   )
 
+  it.each(['done', 'undone', 'remove'])(
+    'refuses missing raw todo --%s values without applying any panel mutation',
+    async (flag) => {
+      for (const tokens of [
+        [`--${flag}`],
+        [`--${flag}`, '--other'],
+        [`--${flag}`, '--clear'],
+        [`--${flag}`, `--${flag}`, '2'],
+        [`--${flag}`, '2', `--${flag}`],
+      ]) {
+        const panelApply = vi.fn(async () => ({ seq: 6029, panel: { todos: [] } }))
+        const c = { issues: { panelApply: { mutate: panelApply } } } as unknown as IssueTrpc
+        await expect(runIssueCli(['todo', '6029', ...tokens], c)).rejects.toThrow(
+          `missing value for --${flag}`,
+        )
+        expect(panelApply).not.toHaveBeenCalled()
+      }
+    },
+  )
+
   it('ship forwards no client-derived target when omitted and renders service custody', async () => {
     const ship = vi.fn(async () => ({
       created: true,
