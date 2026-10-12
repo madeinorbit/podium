@@ -650,6 +650,11 @@ describe('desktop release workflow', () => {
       "!${{ env.BUN_INSTALL_CACHE_DIR || '~/.bun/install/cache' }}/links",
     )
     expect(cache?.with.key.startsWith('pkgs-')).toBe(true)
+    // GitHub evaluates expressions even in an input's description; one there fails the load.
+    const meta = readFileSync(join(repoRoot, '.github/actions/bun-cache/action.yml'), 'utf8')
+      .split('runs:')[0]
+      ?.replace(/^#.*$/gm, '')
+    expect(meta).not.toContain('${{')
   })
 
   it('no workflow caches the Bun install directory except through the shared action', () => {

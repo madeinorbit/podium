@@ -15,7 +15,7 @@ name: Bun package cache
 description: Cache Bun's downloaded packages (not the global store) under the given key
 inputs:
   key:
-    description: Cache key, normally `<lane>-${{ hashFiles('bun.lock') }}`
+    description: Cache key, normally the lane name plus a hash of bun.lock
     required: true
 runs:
   using: composite
