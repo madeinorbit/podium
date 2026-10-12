@@ -56,18 +56,33 @@ type Blob = Record<string, unknown>
 const isPlainObject = (v: unknown): v is Blob =>
   typeof v === 'object' && v !== null && !Array.isArray(v)
 
-const isRoleHarnessPath = (path: string): boolean => /^roles\.[^.]+\.harness$/.test(path)
+// These instance leaves default to absence and reject null as a model value.
+// Keep the wire clear vocabulary explicit: a new optional/nullable setting must
+// be reviewed before null can mean delete for it.
+const OPTIONAL_INSTANCE_CLEAR_PATHS: ReadonlySet<string> = new Set([
+  'transcripts.mirror',
+  'deployment.authOpenMode',
+  'deployment.updateChannel',
+  'deployment.connectEnabled',
+  'deployment.telemetryUsage',
+  'deployment.telemetryCrash',
+  'deployment.telemetryInstallId',
+  'deployment.telemetrySince',
+])
 
-/** Role harness nulls are deletion intents on the preference command wire.
- * Decode before storage so absence remains a deleted row, never stored null.
- * Other leaves can have meaningful null values (for example hibernation limits). */
+const isPreferenceClearPath = (path: string): boolean =>
+  /^roles\.[^.]+\.harness$/.test(path) || OPTIONAL_INSTANCE_CLEAR_PATHS.has(path)
+
+/** Null deletes only role harnesses and the named absent-default instance leaves
+ * on the preference command wire. Decode before storage so null is never stored
+ * for them. Other leaves retain meaningful null values (hibernation limits). */
 export function decodeSettingsPreferencePatch(
   values: Readonly<Record<string, unknown>>,
 ): Record<string, unknown> {
   return Object.fromEntries(
     Object.entries(values).map(([path, value]) => [
       path,
-      value === null && isRoleHarnessPath(path) ? undefined : value,
+      value === null && isPreferenceClearPath(path) ? undefined : value,
     ]),
   )
 }
@@ -290,10 +305,10 @@ export function planSettingsWrite(
       continue
     }
     const patch = patches.get(command) ?? {}
-    // JSON omits undefined-valued keys. Keep an explicit harness clear on the
+    // JSON omits undefined-valued keys. Keep an explicit optional clear on the
     // wire; the preference handler decodes it before reaching the store.
     patch[leaf.path] =
-      leaf.value === undefined && isRoleHarnessPath(leaf.path) ? null : leaf.value
+      leaf.value === undefined && isPreferenceClearPath(leaf.path) ? null : leaf.value
     patches.set(command, patch)
   }
 

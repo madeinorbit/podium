@@ -61,7 +61,7 @@ describe('role harness deletion survives JSON', () => {
     },
   )
 
-  it('decodes only harness clears and keeps nullable preference values', () => {
+  it('decodes harness clears and keeps nullable preference values', () => {
     const values = { 'roles.coding.harness': null, 'hibernation.maxIdleSessions': null }
     expect(decodeSettingsPreferencePatch(values)).toEqual({
       'roles.coding.harness': undefined,
@@ -71,6 +71,56 @@ describe('role harness deletion survives JSON', () => {
     expect(decodeSettingsPreferencePatch({ 'roles.coding.model': 'auto' })).toEqual({
       'roles.coding.model': 'auto',
     })
+  })
+})
+
+describe('absent-default instance preference clears survive JSON', () => {
+  const configured = {
+    'transcripts.mirror': false,
+    'deployment.authOpenMode': true,
+    'deployment.updateChannel': 'dev',
+    'deployment.connectEnabled': false,
+    'deployment.telemetryUsage': 'off',
+    'deployment.telemetryCrash': 'on',
+    'deployment.telemetryInstallId': 'saved-install',
+    'deployment.telemetrySince': 0,
+  }
+
+  it.each(Object.entries(configured))('encodes and decodes a clear for %s', (path, value) => {
+    const previous = applySettingsPatch({}, { [path]: value })
+    for (const next of [{}, applySettingsPatch({}, { [path]: undefined })]) {
+      for (const options of [ONLINE, OFFLINE]) {
+        const plan = planSettingsWrite(previous, next, options)
+        expect(plan.refusals).toEqual([])
+        expect(JSON.parse(JSON.stringify(plan.intents))).toEqual([{
+          kind: 'preference', command: 'settings.updateInstance',
+          delivery: 'offline-eligible', values: { [path]: null },
+        }])
+      }
+    }
+    expect(decodeSettingsPreferencePatch({ [path]: null })).toEqual({ [path]: undefined })
+    expect(decodeSettingsPreferencePatch({ [path]: value })).toEqual({ [path]: value })
+  })
+
+  it('retains all meaningful hibernation nulls and does not expand clears by prefix', () => {
+    const values = {
+      'hibernation.loadPerCore': null,
+      'hibernation.maxIdleSessions': null,
+      'hibernation.idleShellMinutes': null,
+      'hibernation.backstopMinutes': null,
+      'deployment.futureNullableSetting': null,
+      'transcripts.futureNullableSetting': null,
+    }
+    expect(decodeSettingsPreferencePatch(values)).toEqual(values)
+    const next = applySettingsPatch({}, values)
+    const plan = planSettingsWrite({}, next, ONLINE)
+    expect(plan.refusals.map(({ path }) => path)).toEqual([
+      'deployment.futureNullableSetting', 'transcripts.futureNullableSetting',
+    ])
+    expect(plan.intents).toEqual([{
+      kind: 'preference', command: 'settings.updateInstance', delivery: 'offline-eligible',
+      values: Object.fromEntries(Object.entries(values).filter(([path]) => path.startsWith('hibernation.'))),
+    }])
   })
 })
 

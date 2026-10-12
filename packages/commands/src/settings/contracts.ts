@@ -38,10 +38,14 @@
  *
  * A preference write carries `{ values: { '<dotted path>': <value> } }` where
  * every key must be a path {@link classifySettingsPath} knows AND whose tier is
- * this contract's. For `roles.<role>.harness`, null means delete the saved
- * preference; an omitted key means leave it unchanged. The handler decodes the
- * clear to absence before storage. Null on other paths remains a model value.
- * Only the server-served web client currently sends harness clears, so its
+ * this contract's. Null means delete the saved preference for
+ * `roles.<role>.harness`, `transcripts.mirror`, and the seven deployment leaves:
+ * `authOpenMode`, `updateChannel`, `connectEnabled`, `telemetryUsage`,
+ * `telemetryCrash`, `telemetryInstallId`, `telemetrySince`. These all default to
+ * absence. An omitted patch key means leave it unchanged. The handler decodes
+ * the clear to absence before storage; null on other paths remains a model
+ * value, including all four nullable hibernation controls.
+ * Only the server-served web client currently sends these clears, so its
  * bundle and this handler ship together. A separately versioned client must not
  * send null clears to an older server that could persist them as values.
  * It is not a partial of the blob shape, for three reasons:

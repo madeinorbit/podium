@@ -204,6 +204,16 @@ describe('a preference patch is gated on the classified path — and can say YES
     expect(settingsUpdateInstanceInput.safeParse(input).success).toBe(false)
   })
 
+  it.each([
+    'transcripts.mirror', 'deployment.authOpenMode', 'deployment.updateChannel',
+    'deployment.connectEnabled', 'deployment.telemetryUsage', 'deployment.telemetryCrash',
+    'deployment.telemetryInstallId', 'deployment.telemetrySince',
+  ])('preserves the JSON null clear for %s only on the instance command', (path) => {
+    const input = JSON.parse(JSON.stringify({ values: { [path]: null } }))
+    expect(settingsUpdateInstanceInput.parse(input)).toEqual(input)
+    expect(settingsUpdatePersonalInput.safeParse(input).success).toBe(false)
+  })
+
   it('accepts a real personal path (the positive control)', () => {
     const parsed = settingsUpdatePersonalInput.safeParse({
       values: { 'roles.coding.model': 'opus' },

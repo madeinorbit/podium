@@ -10,7 +10,7 @@
  * is allowed to.
  */
 
-import { normalizeSettings } from '@podium/runtime'
+import { DEFAULT_SETTINGS, normalizeSettings } from '@podium/runtime'
 import { describe, expect, it, vi } from 'vitest'
 import type { Trpc } from '@/app/trpc'
 import { refusalMessage, saveSettingsAsCommands } from './save-settings'
@@ -44,6 +44,36 @@ function fakeTrpc() {
 }
 
 const base = normalizeSettings({})
+
+describe('resetting absent-default instance settings', () => {
+  it('sends every optional instance clear through updateInstance and advances the saved baseline', async () => {
+    const { trpc, updatePersonal, updateInstance, setSecret, clearSecret } = fakeTrpc()
+    const previous = normalizeSettings({
+      transcripts: { mirror: false },
+      deployment: {
+        authOpenMode: true, updateChannel: 'dev', connectEnabled: false,
+        telemetryUsage: 'off', telemetryCrash: 'on',
+        telemetryInstallId: 'saved-install', telemetrySince: 0,
+      },
+    })
+    const result = await saveSettingsAsCommands(trpc, previous, DEFAULT_SETTINGS, { online: true })
+    expect(updateInstance).toHaveBeenCalledExactlyOnceWith({ values: {
+      'transcripts.mirror': null,
+      'deployment.authOpenMode': null,
+      'deployment.updateChannel': null,
+      'deployment.connectEnabled': null,
+      'deployment.telemetryUsage': null,
+      'deployment.telemetryCrash': null,
+      'deployment.telemetryInstallId': null,
+      'deployment.telemetrySince': null,
+    } })
+    expect(updatePersonal).not.toHaveBeenCalled()
+    expect(setSecret).not.toHaveBeenCalled()
+    expect(clearSecret).not.toHaveBeenCalled()
+    expect(result.refusals).toEqual([])
+    expect(result.saved).toEqual(DEFAULT_SETTINGS)
+  })
+})
 
 describe('offline, a secret never leaves the machine', () => {
   it('does NOT call setSecret, and reports the refusal', async () => {

@@ -26,6 +26,7 @@ import { firstAdminMemberId,
   type SecretPresenceWire,
   type ServerSecretKey,
 } from '@podium/model'
+import { readSettingsLeaf } from '@podium/commands'
 import { normalizeSettings, type PodiumSettings } from '@podium/runtime'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createBunStoreExecutor } from '../../store/executor'
@@ -151,10 +152,36 @@ describe('optional role harness saves stay loadable', () => {
     },
   )
 
-  it('a nullable setting still persists null as its value', async () => {
-    const saved = await service.updatePreferences(USER, { 'hibernation.maxIdleSessions': null })
+  it.each(['loadPerCore', 'maxIdleSessions', 'idleShellMinutes', 'backstopMinutes'] as const)(
+    'hibernation.%s still persists null as its value', async (key) => {
+      const saved = await service.updatePreferences(USER, { [`hibernation.${key}`]: null })
+      expect(saved.hibernation[key]).toBeNull()
+      expect((await service.getSettingsFor(USER)).hibernation[key]).toBeNull()
+      const row = db.prepare('SELECT value FROM meta WHERE key = ?').get('settings') as { value: string }
+      expect(JSON.parse(row.value).hibernation[key]).toBeNull()
+    },
+  )
+
+  it.each(Object.entries({
+    'transcripts.mirror': false,
+    'deployment.authOpenMode': true,
+    'deployment.updateChannel': 'dev',
+    'deployment.connectEnabled': false,
+    'deployment.telemetryUsage': 'off',
+    'deployment.telemetryCrash': 'on',
+    'deployment.telemetryInstallId': 'saved-install',
+    'deployment.telemetrySince': 0,
+  }))('a JSON null clear removes %s from the persisted blob', async (path, value) => {
+    await service.updatePreferences(USER, { [path]: value, 'hibernation.maxIdleSessions': null })
+    expect(readSettingsLeaf(await service.getSettingsFor(USER), path)).toBe(value)
+    const saved = await service.updatePreferences(USER, { [path]: null })
+    expect(saved).not.toHaveProperty(path)
+    expect(await service.getSettingsFor(USER)).not.toHaveProperty(path)
     expect(saved.hibernation.maxIdleSessions).toBeNull()
-    expect((await service.getSettingsFor(USER)).hibernation.maxIdleSessions).toBeNull()
+    const row = db.prepare('SELECT value FROM meta WHERE key = ?').get('settings') as { value: string }
+    const persisted = JSON.parse(row.value)
+    expect(persisted).not.toHaveProperty(path)
+    expect(persisted.hibernation.maxIdleSessions).toBeNull()
   })
 
   it('loads settings with an older stored harness null and can save again', async () => {

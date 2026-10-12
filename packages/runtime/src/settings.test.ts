@@ -79,6 +79,26 @@ describe('optional role harness persistence', () => {
   })
 })
 
+describe('instance optional absence and meaningful nulls', () => {
+  it('round-trips absent transcript/deployment defaults and all nullable hibernation controls', () => {
+    const hibernation = {
+      loadPerCore: null, maxIdleSessions: null, idleShellMinutes: null, backstopMinutes: null,
+    }
+    const saved = JSON.parse(JSON.stringify(normalizeSettings({ hibernation })))
+    expect(saved.transcripts).toEqual({})
+    expect(saved.deployment).toEqual({})
+    expect(normalizeSettings(saved).hibernation).toMatchObject(hibernation)
+  })
+
+  it.each([
+    { group: 'transcripts', key: 'mirror' },
+    ...['authOpenMode', 'updateChannel', 'connectEnabled', 'telemetryUsage',
+      'telemetryCrash', 'telemetryInstallId', 'telemetrySince'].map((key) => ({ group: 'deployment', key })),
+  ])('rejects a persisted null at $group.$key rather than silently loading defaults', ({ group, key }) => {
+    expect(() => normalizeSettings({ [group]: { [key]: null } })).toThrow()
+  })
+})
+
 describe('resolveRole harness precedence', () => {
   it('uses a native account harness over a stale explicit harness', () => {
     const settings = normalizeSettings({
