@@ -1,4 +1,4 @@
-import { createPanePoolFixture } from './test-support/pane-pool-fixture'
+import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
 import { useRuntimeSelector } from '@/app/store'
 import { poolFixtureStore } from '@/test-support/pool-issue-fixture'
 // @vitest-environment happy-dom

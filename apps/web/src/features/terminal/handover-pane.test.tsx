@@ -1,4 +1,4 @@
-import { createPanePoolFixture } from './test-support/pane-pool-fixture'
+import { createPanePoolFixture } from './test-support/pane-pool.test.fixture'
 import { useRuntimeSelector } from '@/app/store'
 import type { SessionView, SessionViewInput } from '@podium/client-core/session-values'
 // @vitest-environment happy-dom
