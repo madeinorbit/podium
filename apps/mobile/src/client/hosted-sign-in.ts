@@ -2,6 +2,12 @@ import { CredentialWriteQueue } from './credential-ownership'
 
 export const HOSTED_API_ORIGIN = 'https://api.podium.do'
 export const HOSTED_SIGN_IN_URL = 'https://ade.podium.do/account/sign-in'
+/**
+ * Whether the phone's first screen offers Podium Cloud. Off until the hosted
+ * service launches: the sign-in plumbing stays wired and tested, but a new
+ * user must not be pointed at a service that does not exist yet.
+ */
+export const PODIUM_CLOUD_AVAILABLE = false
 const proof = /^[a-f0-9]{64}$/
 const ended = 'This sign-in attempt has ended. Start sign-in again.'
 export interface HostedReturn {

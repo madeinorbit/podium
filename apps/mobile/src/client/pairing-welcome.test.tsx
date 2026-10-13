@@ -52,8 +52,19 @@ function mount(overrides: Partial<Parameters<typeof PairingWelcome>[0]> = {}) {
   return props
 }
 
-it('welcomes a new phone and routes each way in to its own step', () => {
+it('leads with the own-server paths while Podium Cloud is not available', () => {
   const props = mount()
+
+  expect(screen.getByText(WELCOME_TITLE)).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Continue with Podium Cloud' })).toBeNull()
+  fireEvent.click(screen.getByRole('button', { name: 'Scan pairing code' }))
+  fireEvent.click(screen.getByRole('button', { name: 'Enter server address' }))
+  expect(props.onScan).toHaveBeenCalledTimes(1)
+  expect(props.onManual).toHaveBeenCalledTimes(1)
+})
+
+it('welcomes a new phone and routes each way in to its own step', () => {
+  const props = mount({ cloudAvailable: true })
 
   expect(screen.getByText(WELCOME_TITLE)).toBeTruthy()
   const cloud = screen.getByRole('button', { name: 'Continue with Podium Cloud' })
@@ -71,7 +82,7 @@ it('welcomes a new phone and routes each way in to its own step', () => {
 
 it('keeps only the address path on web, where there is no camera or hosted callback', () => {
   platform.OS = 'web'
-  const props = mount()
+  const props = mount({ cloudAvailable: true })
 
   expect(screen.queryByRole('button', { name: 'Continue with Podium Cloud' })).toBeNull()
   expect(screen.queryByRole('button', { name: 'Scan pairing code' })).toBeNull()

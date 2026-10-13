@@ -7,8 +7,11 @@ import { Icon } from '../components/Icon'
 import { Activity, BellRing, Plus, QrCode } from '../components/icons'
 import { PressableScale } from '../components/PressableScale'
 import { color, font, radius, sans, space } from '../theme/theme'
+import { PODIUM_CLOUD_AVAILABLE } from './hosted-sign-in'
 
 export const WELCOME_TITLE = 'Welcome to Podium'
+
+const PAIRING_HELP = 'In Podium on your computer, open Settings → Connected devices → Pair a phone.'
 
 /**
  * The first screen a new phone sees once the splash fades: no server is saved
@@ -17,7 +20,9 @@ export const WELCOME_TITLE = 'Welcome to Podium'
  * the bottom where the thumb already is — and explains the two ways in before
  * asking the user to pick one:
  *
- *   • Podium Cloud: sign in, nothing to run. The primary action.
+ *   • Podium Cloud: sign in, nothing to run. The primary action — once the
+ *     hosted service exists ({@link PODIUM_CLOUD_AVAILABLE}); until then the
+ *     screen leads with the user's own server.
  *   • Your own server: scan the code Podium shows on the computer, or type the
  *     address when there is no camera (or no code) at hand.
  *
@@ -25,6 +30,7 @@ export const WELCOME_TITLE = 'Welcome to Podium'
  * and promotes it to the primary action.
  */
 export function PairingWelcome({
+  cloudAvailable = PODIUM_CLOUD_AVAILABLE,
   canCancel,
   error,
   onCancel,
@@ -32,6 +38,7 @@ export function PairingWelcome({
   onScan,
   onManual,
 }: {
+  cloudAvailable?: boolean
   canCancel: boolean
   error: string | null
   onCancel(): void
@@ -100,7 +107,7 @@ export function PairingWelcome({
       </View>
 
       <View style={styles.actions}>
-        {native ? (
+        {native && cloudAvailable ? (
           <>
             <View style={styles.choice}>
               <HostedSignInButton variant="primary" onBegin={onHostedBegin} />
@@ -130,9 +137,29 @@ export function PairingWelcome({
             >
               <Text style={styles.linkText}>Enter server address</Text>
             </PressableScale>
-            <Text style={styles.help}>
-              In Podium on your computer, open Settings → Connected devices → Pair a phone.
-            </Text>
+            <Text style={styles.help}>{PAIRING_HELP}</Text>
+          </>
+        ) : native ? (
+          <>
+            <Text style={styles.lead}>Connect to the Podium server on your computer.</Text>
+            <PressableScale
+              style={styles.primary}
+              onPress={onScan}
+              accessibilityRole="button"
+              accessibilityLabel="Scan pairing code"
+            >
+              <Icon as={QrCode} size={20} color={color.onAccent} />
+              <Text style={styles.primaryText}>Scan pairing code</Text>
+            </PressableScale>
+            <PressableScale
+              style={styles.link}
+              onPress={onManual}
+              accessibilityRole="button"
+              accessibilityLabel="Enter server address"
+            >
+              <Text style={styles.linkText}>Enter server address</Text>
+            </PressableScale>
+            <Text style={styles.help}>{PAIRING_HELP}</Text>
           </>
         ) : (
           <>
@@ -231,8 +258,11 @@ const styles = StyleSheet.create({
   },
   rule: { flex: 1, height: StyleSheet.hairlineWidth, backgroundColor: color.borderStrong },
   dividerText: { color: color.textFaint, fontSize: font.tiny },
+  lead: { color: color.textDim, fontSize: font.small, textAlign: 'center' },
   primary: {
     minHeight: 50,
+    flexDirection: 'row',
+    gap: space.sm,
     backgroundColor: color.accent,
     borderRadius: radius.md,
     borderCurve: 'continuous',
