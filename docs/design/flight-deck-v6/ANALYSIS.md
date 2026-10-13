@@ -111,3 +111,14 @@ Supporting changes:
 - **Fold state per user per issue.** Synced across the user's devices (server), or per device as today?
 - **Engine tiles.** Grok, OpenCode, Cursor, Pi and shell need tiles.
 - **Mobile.** It shares `MissionScreen`. Does it adopt the new filters (All / Needs you / Active / Up next) and the new states?
+
+## Decisions (with the user)
+
+**D1 — Phase model (2026-10-12).** A phase is an ordinary parent issue with `type = phase`, placed directly under the epic. It has no behaviour of its own:
+- Order comes from `sort_key`, and gating from `blocks` edges.
+- The phase lead is the phase issue's coordinator.
+- A phase closes like any issue, with no enforcement.
+- The marker only does two things: the deck draws the issue as a section, and the issue is never counted.
+- Counting: the gauge, the done line and the filter totals count leaves. A row's counter (e.g. 1/3 on a parent, 7/9 on a phase) counts its direct children.
+- Data migration: POD-279's 11 `milestone` issues ("Phase 0…9") become `phase`.
+- Agents also need a small `move --before/--after` verb, because today they can only pass a raw `--sort-key`.
