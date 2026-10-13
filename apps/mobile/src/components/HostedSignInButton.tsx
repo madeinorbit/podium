@@ -1,21 +1,25 @@
 import { useRef, useState } from 'react'
-import { Platform, Text, View } from 'react-native'
+import { ActivityIndicator, Platform, Text, View } from 'react-native'
 import { hostedBrowserSignInUrl } from '../client/hosted-browser-sign-in'
 import { HOSTED_API_ORIGIN, HOSTED_SIGN_IN_URL } from '../client/hosted-sign-in'
 import { hostedSignIn } from '../client/hosted-sign-in-runtime'
-import { color, space } from '../theme/theme'
+import { color, font, radius, sans, space } from '../theme/theme'
 import { PressableScale } from './PressableScale'
 export function HostedSignInButton({
   server = HOSTED_API_ORIGIN,
   signInUrl = HOSTED_SIGN_IN_URL,
   workspaceId,
   label = 'Continue with Podium Cloud',
+  variant = 'claude',
   onBegin,
 }: {
   server?: string
   workspaceId?: string
   signInUrl?: string
   label?: string
+  /** `primary` is the screen's main action: the bisque fill every other
+   *  primary button uses. `claude` keeps the original terracotta chip. */
+  variant?: 'claude' | 'primary'
   onBegin?(): void | Promise<void>
 }) {
   const inFlight = useRef(false)
@@ -26,8 +30,24 @@ export function HostedSignInButton({
       <PressableScale
         accessibilityRole="button"
         accessibilityLabel={label}
+        accessibilityState={{ busy, disabled: busy }}
         disabled={busy}
-        style={{ padding: space.md, borderRadius: 8, backgroundColor: color.claude }}
+        style={
+          variant === 'primary'
+            ? {
+                minHeight: 50,
+                flexDirection: 'row',
+                gap: space.sm,
+                alignItems: 'center',
+                justifyContent: 'center',
+                paddingHorizontal: space.lg,
+                borderRadius: radius.md,
+                borderCurve: 'continuous',
+                backgroundColor: color.accent,
+                opacity: busy ? 0.7 : 1,
+              }
+            : { padding: space.md, borderRadius: 8, backgroundColor: color.claude }
+        }
         onPress={() => {
           if (Platform.OS === 'web' && !onBegin) {
             try {
@@ -70,7 +90,16 @@ export function HostedSignInButton({
           void begin()
         }}
       >
-        <Text style={{ color: color.bg }}>{label}</Text>
+        {variant === 'primary' ? (
+          <>
+            {busy ? <ActivityIndicator color={color.onAccent} /> : null}
+            <Text style={{ color: color.onAccent, ...sans(700), fontSize: font.body }}>
+              {label}
+            </Text>
+          </>
+        ) : (
+          <Text style={{ color: color.bg }}>{label}</Text>
+        )}
       </PressableScale>
       {status ? (
         <Text accessibilityRole="alert" style={{ color: color.textDim }}>

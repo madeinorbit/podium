@@ -1608,5 +1608,5 @@ it('ignores duplicate OS delivery after a hosted callback succeeds', async () =>
   await act(async () => seams.linkListener!({ url: link }))
   expect(seams.hostedRedeem).toHaveBeenCalledTimes(1)
   expect(seams.activeContext?.bearer).toBe('cloud-token')
-  expect(screen.queryByText('Connect to your Podium')).toBeNull()
+  expect(screen.queryByText('Welcome to Podium')).toBeNull()
 })

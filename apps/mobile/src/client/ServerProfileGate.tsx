@@ -41,7 +41,6 @@ import {
   TextInput,
   View,
 } from 'react-native'
-import { HostedSignInButton } from '../components/HostedSignInButton'
 import { KeyboardAvoidingRoot } from '../components/KeyboardAvoidingRoot'
 import { MembershipDeniedView } from '../components/MembershipDeniedView'
 import { PairingScanner } from '../components/PairingScanner'
@@ -66,6 +65,7 @@ import {
 } from './hosted-sign-in'
 import { hostedSignIn } from './hosted-sign-in-runtime'
 import { LaunchReadyView } from './launch-ready'
+import { PairingWelcome } from './pairing-welcome'
 import {
   captureMobileHandoffUrl,
   consumePendingMobileHandoff,
@@ -1866,6 +1866,24 @@ function PairingSetup({
     }
   }
 
+  if (step === 'welcome')
+    return (
+      <PairingWelcome
+        canCancel={canCancel}
+        error={error}
+        onCancel={onCancel}
+        onHostedBegin={onPairingStart}
+        onScan={() => {
+          onPairingStart()
+          setStep('scan')
+        }}
+        onManual={() => {
+          onPairingStart()
+          setStep('manual')
+        }}
+      />
+    )
+
   return (
     <KeyboardAvoidingRoot
       style={styles.setup}
@@ -1887,33 +1905,6 @@ function PairingSetup({
         <Text style={styles.setupTitle}>
           {step === 'waiting' ? 'Confirm on your computer' : 'Connect to your Podium'}
         </Text>
-        {step === 'welcome' ? (
-          <>
-            {Platform.OS !== 'web' ? <HostedSignInButton onBegin={onPairingStart} /> : null}
-            <Text style={styles.setupBody}>
-              Or pair with a server you run. Scan the code shown in Podium on your computer.
-            </Text>
-            {Platform.OS !== 'web' ? (
-              <PrimaryButton
-                label="Scan QR code"
-                onPress={() => {
-                  onPairingStart()
-                  setStep('scan')
-                }}
-              />
-            ) : null}
-            <SecondaryButton
-              label="Enter server address"
-              onPress={() => {
-                onPairingStart()
-                setStep('manual')
-              }}
-            />
-            <Text style={styles.help}>
-              On your computer, open Settings → Connected devices → Pair a phone.
-            </Text>
-          </>
-        ) : null}
         {step === 'manual' ? (
           <>
             <Text style={styles.setupBody}>Enter the address your phone can reach.</Text>
@@ -2117,7 +2108,6 @@ const styles = StyleSheet.create({
   eyebrow: { color: color.accentTint, ...sans(700), fontSize: font.micro, letterSpacing: 1.5 },
   setupTitle: { color: color.text, ...sans(700), fontSize: font.largeTitle },
   setupBody: { color: color.body, fontSize: font.body, lineHeight: 24 },
-  help: { color: color.textFaint, fontSize: font.small, lineHeight: 20 },
   primary: {
     minHeight: 50,
     backgroundColor: color.accent,
