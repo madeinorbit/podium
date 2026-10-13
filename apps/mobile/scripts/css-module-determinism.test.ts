@@ -18,7 +18,7 @@
  * commit produced two different phone websites while the desktop one matched byte
  * for byte.
  *
- * The fix is `patches/@expo/metro-config@57.0.12.patch` — iterate the map in sorted
+ * The fix is `patches/@expo/metro-config@57.0.13.patch` — iterate the map in sorted
  * key order. Nothing can depend on the old order, because there was no old order.
  *
  * This test calls the real transform on the real stylesheet twice and requires the
