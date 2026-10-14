@@ -25,7 +25,7 @@ const fields = (value: object, keys: readonly string[]) =>
   Object.fromEntries(keys.map((key) => [key, Reflect.get(value, key) ?? null]))
 const row = (id: string, value: object): CheckRow => ({ id, fields: { value } })
 const missionExpanded = (value: Pick<IssueNavigationModel, 'type' | 'childCount'> | undefined) =>
-  Boolean(value && (value.type === 'epic' || value.childCount >= 6))
+  Boolean(value && value.childCount >= 6)
 function colorChain(
   current: { id: string; color?: string | null; parentId?: string | null } | undefined,
   byId: (id: string) => typeof current,

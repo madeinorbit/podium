@@ -5,7 +5,10 @@ import {
   HOST_REPOS,
   IssueColor,
   type IssueId,
+  type IssueLabelWire,
   type IssueReport,
+  ISSUE_TYPES,
+  RETIRED_ISSUE_TYPES,
   type IssueShowWire,
   type IssueTreeNode,
   type IssueTreeSession,
@@ -418,7 +421,30 @@ function renderShow(i: ShowWire, comments: ShowComment[] = []): string {
   return `#${i.seq} ${i.title}\n${meta}${sessionBlock}\n\n${i.description}${brief}${thread}`
 }
 
+/** `--type` takes task | phase | decision (POD-6106). A retired type is refused
+ *  with what it became, so a habitual `--type bug` says "use the label". */
+function issueTypeArg(raw: unknown): string | undefined {
+  if (raw == null) return undefined
+  const type = String(raw).trim().toLowerCase()
+  if ((ISSUE_TYPES as readonly string[]).includes(type)) return type
+  const retired = RETIRED_ISSUE_TYPES[type]
+  if (retired) {
+    const instead = retired.label
+      ? `--type ${retired.type} --labels ${retired.label}`
+      : `--type ${retired.type}`
+    const why =
+      type === 'epic'
+        ? ' (any issue with children is a parent; the mission is the root)'
+        : retired.label
+          ? ` (${type} is a label now)`
+          : ''
+    throw new Error(`--type ${type} is retired${why}: use ${instead}`)
+  }
+  throw new Error(`--type must be one of ${ISSUE_TYPES.join(', ')} (got "${type}")`)
+}
+
 /** One node of the issues.tree payload (issue #82) as the CLI renders it. */
+
 /**
  * One node of a tree payload as this client reads it.
  *
@@ -615,6 +641,8 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       machine: z.string().min(1).optional(),
       assignee: z.string().optional(),
       labels: z.string().optional(),
+      // POD-6106: an agent applies only existing labels; this adds missing ones.
+      createLabel: z.boolean().optional(),
       parentBranch: z.string().optional(),
       // Colour slot [spec:SP-b4d1]: rose|pink|fuchsia|violet|indigo|blue|cyan|teal|green|lime.
       color: IssueColor.optional(),
@@ -625,6 +653,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       // raw string through as `machineId`, which meant a caller had to know a uuid
       // that nothing printed; `podium machine list` prints the names.
       const machineId = a.machine ? await machineIdForRef(c, a.machine as string) : undefined
+      const type = issueTypeArg(a.type)
       const i = (await c.issues.create.mutate({
         repoPath: a.repoPath as string,
         title: a.title as string,
@@ -632,7 +661,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         ...(a.description ? { description: a.description as string } : {}),
         ...(a.brief ? { brief: a.brief as string } : {}),
         ...(a.priority != null ? { priority: a.priority as number } : {}),
-        ...(a.type ? { type: a.type as never } : {}),
+        ...(type ? { type: type as never } : {}),
         ...(a.parentId ? { parentId: a.parentId as string } : {}),
         ...(a.audience ? { audience: a.audience as 'human' | 'agent' } : {}),
         ...(a.agent ? { defaultAgent: a.agent as string } : {}),
@@ -650,6 +679,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
                 .filter(Boolean),
             }
           : {}),
+        ...(a.createLabel ? { createLabels: true } : {}),
         ...(a.parentBranch ? { parentBranch: a.parentBranch as string } : {}),
       })) as {
         seq: number
@@ -773,6 +803,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         'estimateMin',
       ]
       for (const k of passthrough) if (a[k] != null) patch[k] = a[k]
+      if (a.type != null) patch.type = issueTypeArg(a.type)
       if (a.agent != null) patch.defaultAgent = a.agent
       if (a.model != null) patch.defaultModel = a.model
       if (a.effort != null) patch.defaultEffort = a.effort
@@ -1351,15 +1382,20 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   },
   {
     name: 'label',
-    summary: "Set an issue's labels (replaces): label <id> --labels a,b,c.",
-    args: z.strictObject({ id: idArg, labels: z.string() }),
+    summary:
+      "Set an issue's labels (replaces): label <id> --labels a,b,c. Use labels from `podium issue labels`; --create-label adds ones that do not exist yet.",
+    args: z.strictObject({ id: idArg, labels: z.string(), createLabel: z.boolean().optional() }),
     positionals: ['id'],
     async run(c, a) {
       const labels = String(a.labels)
         .split(',')
         .map((s) => s.trim())
         .filter(Boolean)
-      const w = (await c.issues.setLabels.mutate({ id: a.id as string, labels })) as {
+      const w = (await c.issues.setLabels.mutate({
+        id: a.id as string,
+        labels,
+        ...(a.createLabel ? { createLabels: true } : {}),
+      })) as {
         labels: string[]
       }
       return { text: `labels: ${w.labels.join(', ') || '(none)'}`, data: w }
@@ -1639,6 +1675,27 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         text: rows.length
           ? rows.map((r) => `#${r.seq}: ${r.findings.join('; ')}`).join('\n')
           : '(lint clean)',
+        data: rows,
+      }
+    },
+  },
+  {
+    name: 'labels',
+    summary:
+      'The label vocabulary: labels. Apply them with create/label --labels; a new label needs --create-label.',
+    args: z.strictObject({}),
+    async run(c) {
+      const rows = (await c.issues.labelList.query({})) as IssueLabelWire[]
+      return {
+        text: rows.length
+          ? rows
+              .map((l) =>
+                [l.name, l.color ? `(${l.color})` : '', l.description ? `— ${l.description}` : '']
+                  .filter(Boolean)
+                  .join(' '),
+              )
+              .join('\n')
+          : '(no labels yet)',
         data: rows,
       }
     },

@@ -153,6 +153,16 @@ export const ISSUE_DEP_TYPES = [
 export const IssueColor = z.enum(ISSUE_COLOR_SLOTS)
 export type IssueColor = z.infer<typeof IssueColor>
 
+/** One entry of the label vocabulary (POD-6106, D3) as the wire carries it. A
+ *  label is named by its NAME (unique ignoring case); its id stays server-local.
+ *  `color` is a colour slot, like an issue's. */
+export const IssueLabelWire = z.object({
+  name: z.string(),
+  color: IssueColor.optional(),
+  description: z.string().optional(),
+})
+export type IssueLabelWire = z.infer<typeof IssueLabelWire>
+
 // ---------------------------------------------------------------------------
 // Issue-owned detail
 // ---------------------------------------------------------------------------

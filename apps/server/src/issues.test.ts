@@ -3812,7 +3812,7 @@ describe('IssueService.prime (P1a)', () => {
     const prefix = await store.repos.prefixForPath('/r')
     expect(prefix).toMatch(/^[A-Z]{2,5}$/)
     const ref = (seq: number) => formatIssueRef(prefix!, seq)
-    expect(out).toContain(`Parent epic: ${ref(epic.seq)} (Epic)`)
+    expect(out).toContain(`Parent: ${ref(epic.seq)} (Epic)`)
     const blockedLine = out.split('\n').find((l) => l.startsWith('Blocked by:'))
     expect(blockedLine).toContain(`${ref(dep.seq)} (Dep)`)
     expect(blockedLine).not.toContain(ref(closedDep.seq))

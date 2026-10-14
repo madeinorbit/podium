@@ -61,7 +61,7 @@ export interface AutomationsDeps {
    *  session' / 'no resume ref' without storing anything, so the run falls back
    *  to a fresh session. */
   deliverPrompt: DeliverAutomationPrompt
-  /** A fresh run owns a fresh automation-typed issue and attached session. */
+  /** A fresh run owns a fresh issue (a plain task since POD-6106) and attached session. */
   createIssue(input: {
     repoPath: string
     title: string
@@ -69,7 +69,7 @@ export interface AutomationsDeps {
     defaultAgent: string
     defaultModel: string
     defaultEffort: string
-    type: 'automation'
+    type: 'task'
     ownerUserId: UserId
     createdByActor: string
     createdByOnBehalfOf: UserId
@@ -592,7 +592,7 @@ export class AutomationsService {
    * Resume mode reuses the last successful session. If that durable reference has
    * disappeared or never became resumable, the run safely falls back to a fresh
    * issue/session. Other resume failures are honest error runs. Fresh mode creates
-   * an automation-typed issue for every occurrence and attaches the new session.
+   * a fresh issue for every occurrence and attaches the new session.
    *
    * Both modes deliver the prompt as the owner's message (POD-4846) rather than
    * as an initialPrompt, so every harness gets the turn through the durable
@@ -657,7 +657,7 @@ export class AutomationsService {
       defaultAgent: automation.agentKind,
       defaultModel: automation.model,
       defaultEffort: automation.effort,
-      type: 'automation',
+      type: 'task',
       ownerUserId: automation.ownerUserId,
       createdByActor: `automation:${automation.id}`,
       createdByOnBehalfOf: automation.ownerUserId,

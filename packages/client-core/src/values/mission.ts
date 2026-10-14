@@ -13,7 +13,7 @@ import { agentLabel } from './quota'
 import { sessionsForIssueNav } from './session-ownership'
 import { motionPhase, sessionErrored, sessionErrorLabel } from './session-status'
 import { type IssueNavigationModel, isEmptyDraftVessel, issueAbandoned } from './compose/issues'
-import { isFinished as issueClosed } from '@podium/model/browser'
+import { isFinished as issueClosed, isPhaseIssue } from '@podium/model/browser'
 export { isFinished as issueClosed } from '@podium/model/browser'
 import { isCoordinatorSession } from './compose/terminal'
 
@@ -1379,9 +1379,15 @@ function computeMissionRollup(
   // remaining — leaving it in `members` is how a working parent with three
   // discoveries read as "3 to go". A root that is itself archived is already
   // out of `scope`, so the fallback never resurrects it.
+  // A phase is a section of its parent, never itself a unit of work (POD-6106,
+  // flight deck v6 D1): its children are counted, the phase is not.
   const formal = formalMemberIds(issues, rootId)
   const members = scope.filter(
-    (issue) => formal.has(issue.id) && issue.stage !== 'proposed' && !issueAbandoned(issue),
+    (issue) =>
+      formal.has(issue.id) &&
+      issue.stage !== 'proposed' &&
+      !isPhaseIssue(issue) &&
+      !issueAbandoned(issue),
   )
   // The root can be abandoned too, and then there is nothing to measure at all
   // rather than one cancelled unit sitting in a band of its own.

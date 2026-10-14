@@ -1635,6 +1635,30 @@ export class IssueCrudModule {
     }
   }
 
+  /**
+   * Refuse names that are not in the label vocabulary unless the caller may
+   * create labels (POD-6106, D3). Agents pick from the list `prime` shows; a
+   * new label is a deliberate `--create-label`, so a typo never becomes one.
+   */
+  async refuseUnknownLabels(
+    names: readonly string[] | undefined,
+    mayCreate: boolean,
+  ): Promise<void> {
+    if (mayCreate || !names?.length) return
+    const repo = this.store.deps.store.issues
+    const found = await repo.findLabels(names)
+    const missing = [...new Set(names.map((n) => n.trim()).filter(Boolean))].filter(
+      (n) => !found.has(n.toLowerCase()),
+    )
+    if (missing.length === 0) return
+    const known = (await repo.listLabels()).map((l) => l.name)
+    throw new IssueRefusal(
+      `unknown label${missing.length === 1 ? '' : 's'} ${missing.map((m) => `"${m}"`).join(', ')}. ` +
+        `Existing labels: ${known.join(', ') || '(none yet)'}. Use one of those, or pass ` +
+        '`--create-label` to add a new one.',
+    )
+  }
+
   async setLabels(id: string, labels: string[]): Promise<IssueProjection> {
     id = await this.store.resolveRef(id)
     const row = await this.store.draftOrThrow(id)

@@ -22,9 +22,10 @@ import type { IssuesOrdering } from './issues-display'
 
 export { partitionByParent } from '@podium/client-core/values'
 
-/** An issue reads as an epic when it's typed as one OR it actually has children. */
+/** An issue reads as a parent when it actually has children, or is a phase (a
+ *  container even while empty). There is no `epic` type any more (POD-6106). */
 export function isEpic(issue: IssueViewModel): boolean {
-  return issue.type === 'epic' || issue.childCount > 0
+  return issue.type === 'phase' || issue.childCount > 0
 }
 
 /** One visible list row for this app — the shared row shape at our issue type. */

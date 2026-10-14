@@ -6,10 +6,12 @@ import {
   type IssueCount,
   type IssueGraph,
   type IssueId,
+  type IssueLabelWire,
   IssueProjection,
   type IssueReport,
   type IssueSearchFilter,
   type IssueStats,
+  isIssueColorSlot,
   isIssueStage,
   isReadyIssueStage,
   isSystemOwnedIssueStage,
@@ -640,16 +642,18 @@ export class IssueReportsModule {
     )
   }
 
+  /** Open parents whose every child is done. There is no `epic` type any more
+   *  (POD-6106, D2): any issue with children is a parent, a phase included. */
   async closeEligibleEpics(
     repoPath?: string,
     mayRead: IssueReadPredicate = () => true,
   ): Promise<IssueReport[]> {
     const batch = await this.reportBatch()
     const inScope = await this.store.repoScopeFilter(repoPath)
+    const rows = [...this.store.rows.values()]
+    const parents = new Set(rows.flatMap((r) => (r.parentId && !r.deletedAt ? [r.parentId] : [])))
     const candidates = await filterReadable(
-      [...this.store.rows.values()].filter(
-        (r) => inScope(r) && r.type === 'epic' && !this.store.isClosed(r),
-      ),
+      rows.filter((r) => inScope(r) && parents.has(r.id) && !this.store.isClosed(r)),
       mayRead,
     )
     const statuses = await Promise.all(
@@ -657,6 +661,16 @@ export class IssueReportsModule {
     )
     const eligible = candidates.filter((_, index) => statuses[index]?.complete)
     return await Promise.all(eligible.map(async (r) => await this.report(r, batch)))
+  }
+
+  /** The label vocabulary (POD-6106): what an agent may apply without
+   *  `--create-label`. Server-wide, so there is nothing to scope it by. */
+  async labelList(): Promise<IssueLabelWire[]> {
+    return (await this.store.deps.store.issues.listLabels()).map((l) => ({
+      name: l.name,
+      ...(isIssueColorSlot(l.color) ? { color: l.color } : {}),
+      ...(l.description ? { description: l.description } : {}),
+    }))
   }
 
   /** Mechanical (Jaccard) duplicate detection over open issues in a repo.
@@ -1022,6 +1036,9 @@ export class IssueReportsModule {
     // worktree stay, locks, and delegation. Landing and publication procedures
     // belong to the repository [spec:SP-a69c].
     const prefix = await this.primePrefix(opts)
+    // POD-6106 (D3): agents pick labels from this list; a new one is deliberate.
+    const labelNames = (await this.store.deps.store.issues.listLabels()).map((l) => l.name)
+    const labelLine = `Labels (apply with \`--labels a,b\`; a label not listed needs \`--create-label\`): ${labelNames.join(', ') || '(none yet)'}.`
     const rules = [
       // Human-facing ids (#474) + the own-issue exception (POD-389).
       otherRefRule(prefix),
@@ -1106,8 +1123,14 @@ export class IssueReportsModule {
           me.description ? `Human summary: ${me.description}` : null,
           me.brief ? `Brief:\n${me.brief}` : null,
           me.acceptance ? `Acceptance: ${me.acceptance}` : null,
+          me.type === 'decision'
+            ? 'This issue is a decision: only the user closes it. Prepare what they need to decide; do not close it yourself.'
+            : me.type === 'phase'
+              ? 'This issue is a phase: it groups its children and is not itself a unit of work.'
+              : null,
+          me.labels.length ? `This issue's labels: ${me.labels.join(', ')}` : null,
           me.parentId
-            ? `Parent epic: ${parent ? `${await this.niceRef(parent)} (${parent.title})` : me.parentId}`
+            ? `Parent: ${parent ? `${await this.niceRef(parent)} (${parent.title})` : me.parentId}`
             : null,
           kids.length
             ? `Open children:\n${(await Promise.all(kids.map(async (k) => `  - ${await this.niceRef(k)} (${k.title})`))).join('\n')}`
@@ -1123,6 +1146,7 @@ export class IssueReportsModule {
           `  - \`podium issue artifact ${me.seq} --add <path> [--title "…"]\` — files inside this issue's owning worktree the user should look at (screenshots, videos, html/md docs). Adding COPIES the bytes to the server, so NEVER commit a file just to attach it — delete it after adding unless it belongs in the repo (a left-behind file makes \`free\`/\`cleanup\` refuse the worktree). \`--get <n|path> [--out <file>]\` reads one back, from any machine.`,
           `  - \`podium issue deferred ${me.seq} --add "…"\` — work you chose to defer; the user decides on it later.`,
           '',
+          labelLine,
           ...rules,
         ]
           .filter((l) => l !== null)
@@ -1140,6 +1164,7 @@ export class IssueReportsModule {
         : '(no ready issues)',
       'Use `podium issue start <id>` to claim one, or `podium issue create` to file new work.',
       '',
+      labelLine,
       ...rules,
     ].join('\n')
   }

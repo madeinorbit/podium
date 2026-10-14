@@ -8,7 +8,8 @@ export const FLIGHT_DECK_EXPANDED_WIDTH = 680
 export function isComplexFlightDeckMission(
   issue: Pick<IssueNavigationModel, 'type' | 'childCount'> | null | undefined,
 ): boolean {
-  return Boolean(issue && (issue.type === 'epic' || issue.childCount >= 6))
+  // No `epic` type any more (POD-6106): a mission's size alone makes it complex.
+  return Boolean(issue && issue.childCount >= 6)
 }
 
 export function readFlightDeckDisplay(

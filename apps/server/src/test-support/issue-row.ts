@@ -37,7 +37,7 @@ export function issueRowFixture(over: Partial<UnbrandIds<IssueRow>> = {}): Issue
     revision: 7,
     deletedAt: null,
     priority: 2,
-    type: 'feature',
+    type: 'task',
     assignee: 'mgw',
     parentId: 'iss_parent',
     design: 'design',

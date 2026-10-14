@@ -37,7 +37,7 @@
  * THE SIX CLASSES
  * ---------------------------------------------------------------------------
  *
- *   READS (24)                  role-gated only, never subtree-gated
+ *   READS (25)                  role-gated only, never subtree-gated
  *   PER-USER STATE (4)          markRead · markUnread · setTucked · mailInbox
  *   SUBTREE-SCOPED WRITES (29)  mutate an existing issue, `--outside-scope` escape
  *   MANAGE (3)                  delete · restore · setLabels
@@ -182,6 +182,9 @@ export const searchInput = z.object({
 
 export const countInput = repoScoped
 
+/** The label vocabulary is server-wide (POD-6106), so the list takes no scope. */
+export const labelListInput = z.object({})
+
 export const statsInput = repoScoped
 
 export const orphansInput = z.object({ repoPath: z.string() })
@@ -293,6 +296,9 @@ export const createInput = z.object({
   type: IssueType.optional(),
   assignee: UserIdField.optional(),
   labels: z.array(z.string()).optional(),
+  // POD-6106 (D3): an agent may only apply labels that already exist; this flag
+  // lets it add the missing ones. The operator always creates-or-picks.
+  createLabels: z.boolean().optional(),
   parentId: IssueIdField.optional(),
   // Colour slot name [spec:SP-b4d1]; absent = no colour (slate flow). Top-level
   // only (POD-697): a create that also names a `parentId` is a sub-task, which
@@ -452,6 +458,8 @@ export const refreshAssistantInput = byIssueId
 export const setLabelsInput = z.object({
   id: IssueIdField,
   labels: z.array(z.string()),
+  /** POD-6106 (D3): an agent adds a label that does not exist yet only with this. */
+  createLabels: z.boolean().optional(),
   // Outboxed (POD-781) — see the archive/delete note below for why the replay
   // identity is the field that makes a queued write re-sendable.
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
@@ -904,6 +912,21 @@ export const issueCountContract = {
   version: 1,
   visibility: ISSUE_VISIBILITY,
   input: countInput,
+  policy: READ_POLICY,
+  exposure: SERVED_EVERYWHERE,
+  delivery: READ_DELIVERY,
+  redaction: ISSUE_REDACTION,
+  ownership: CREATES_NOTHING,
+  attribution: ISSUE_ATTRIBUTION,
+  errorConsistency: UNTARGETED_ERRORS,
+  conflict: 'n/a',
+} as const satisfies CommandContract
+
+export const issueLabelListContract = {
+  name: 'issues.labelList',
+  version: 1,
+  visibility: ISSUE_VISIBILITY,
+  input: labelListInput,
   policy: READ_POLICY,
   exposure: SERVED_EVERYWHERE,
   delivery: READ_DELIVERY,
@@ -2027,6 +2050,7 @@ export const ISSUE_CONTRACTS = {
   resolveRefs: issueResolveRefsContract,
   graph: issueGraphContract,
   integrate: issueIntegrateContract,
+  labelList: issueLabelListContract,
   linearSearch: issueLinearSearchContract,
   lint: issueLintContract,
   list: issueListContract,
@@ -2144,7 +2168,7 @@ export const ISSUE_CONTRACT_LIST = Object.values(ISSUE_CONTRACTS)
  * mutate and must declare, and exempting one is an edit a reviewer sees.
  */
 const NON_MUTATING_NAMES = [
-  // The 25 reads.
+  // The 26 reads.
   'artifactRead',
   'blocked',
   'children',
@@ -2159,6 +2183,7 @@ const NON_MUTATING_NAMES = [
   'findDuplicates',
   'get',
   'graph',
+  'labelList',
   'lint',
   'list',
   'mailPending',

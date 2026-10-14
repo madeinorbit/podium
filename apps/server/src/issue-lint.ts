@@ -6,15 +6,9 @@ export function lintIssue(
 ): string[] {
   const out: string[] = []
   if (!row.title?.trim()) out.push('missing title')
-  const hasDesc = !!row.description && row.description.trim().length > 0
   const hasAcc = !!row.acceptance && row.acceptance.trim().length > 0
-  if (row.type === 'bug') {
-    if (!hasDesc) out.push('bug missing reproduction (description)')
-    if (!hasAcc) out.push('bug missing acceptance criteria')
-  } else if (row.type === 'task' || row.type === 'feature') {
-    if (!hasAcc) out.push('missing acceptance criteria')
-  } else if (row.type === 'epic') {
-    if (!hasDesc) out.push('epic missing description')
-  }
+  // Types narrowed to task | phase | decision (POD-6106); the bug/epic templates
+  // went with them. The whole lint is retired by POD-6094.
+  if (row.type === 'task' && !hasAcc) out.push('missing acceptance criteria')
   return out
 }

@@ -48,6 +48,7 @@ import {
   issueRefLetters,
   issues,
   issueUserState,
+  labels,
   machines,
   meta,
   sessions,
@@ -70,6 +71,9 @@ export type IssueWorktreeRow = Pick<
   IssueRow,
   'id' | 'repoPath' | 'seq' | 'worktreePath' | 'deletedAt'
 >
+
+/** One row of the label vocabulary (POD-6106). `id` is server-local. */
+export type LabelRow = typeof labels.$inferSelect
 
 export class IssuesRepository {
   readonly committed: CommittedRows<typeof issues.$inferSelect>
@@ -1037,30 +1041,108 @@ export class IssuesRepository {
   }
 
   // ---- labels ----
+  //
+  // Labels are a vocabulary of their own (POD-6106): one `labels` row per name,
+  // unique ignoring case, and `issue_labels` links issues to label ids. The wire
+  // still names a label by its NAME, so every read below joins back to it. This
+  // layer is policy-free: whether a caller may CREATE a label is the issue
+  // service's decision, made before it calls `setIssueLabels`.
 
-  async setIssueLabels(issueId: IssueId, labels: string[]): Promise<void> {
-    const clean = [...new Set(labels.filter((l) => typeof l === 'string' && l.trim()))].map((l) =>
-      l.trim(),
-    )
+  /** Trim, drop empties, and collapse case variants onto their first spelling. */
+  private cleanLabelNames(names: readonly string[]): string[] {
+    const seen = new Map<string, string>()
+    for (const raw of names) {
+      if (typeof raw !== 'string') continue
+      const name = raw.trim()
+      if (name && !seen.has(name.toLowerCase())) seen.set(name.toLowerCase(), name)
+    }
+    return [...seen.values()]
+  }
+
+  /** The labels these names refer to, keyed by lower-cased name. Absent = no such label. */
+  async findLabels(names: readonly string[]): Promise<Map<string, LabelRow>> {
+    const wanted = this.cleanLabelNames(names).map((n) => n.toLowerCase())
+    if (wanted.length === 0) return new Map()
+    const rows = await this.db
+      .select()
+      .from(labels)
+      .where(inArray(sql`lower(${labels.name})`, wanted))
+      .all()
+    return new Map(rows.map((r) => [r.name.toLowerCase(), r]))
+  }
+
+  /** Create a label, or edit the colour/description of the one with this name
+   *  (case-insensitive). The stored spelling of an existing name never changes. */
+  async defineLabel(input: {
+    name: string
+    color?: string | null
+    description?: string | null
+  }): Promise<LabelRow> {
+    const [name] = this.cleanLabelNames([input.name])
+    if (!name) throw new Error('label name is empty')
+    const existing = (await this.findLabels([name])).get(name.toLowerCase())
+    if (existing) {
+      const patch: { color?: string | null; description?: string | null } = {}
+      if (input.color !== undefined) patch.color = input.color
+      if (input.description !== undefined) patch.description = input.description
+      if (Object.keys(patch).length === 0) return existing
+      await this.db.update(labels).set(patch).where(eq(labels.id, existing.id)).run()
+      return { ...existing, ...patch }
+    }
+    const created = await this.db
+      .insert(labels)
+      .values({
+        name,
+        color: input.color ?? null,
+        description: input.description ?? null,
+        createdAt: new Date().toISOString(),
+      })
+      .returning()
+      .get()
+    return created
+  }
+
+  /** The whole vocabulary, by name ignoring case. */
+  async listLabels(): Promise<LabelRow[]> {
+    return await this.db
+      .select()
+      .from(labels)
+      .orderBy(asc(sql`lower(${labels.name})`))
+      .all()
+  }
+
+  /** Replace an issue's labels. A name with no label yet CREATES one — the
+   *  service has already decided the caller may. Returns the stored spellings. */
+  async setIssueLabels(issueId: IssueId, names: string[]): Promise<string[]> {
+    const clean = this.cleanLabelNames(names)
+    const found = await this.findLabels(clean)
+    const ids: number[] = []
+    const stored: string[] = []
+    for (const name of clean) {
+      const row = found.get(name.toLowerCase()) ?? (await this.defineLabel({ name }))
+      ids.push(row.id)
+      stored.push(row.name)
+    }
     await this.db.delete(issueLabels).where(eq(issueLabels.issueId, issueId)).run()
-    for (const l of clean) {
+    for (const labelId of ids) {
       // `INSERT OR IGNORE` before the conversion, and EQUIVALENT here (spec
       // rule 31). The two forms differ only where OR IGNORE suppresses
       // something DO NOTHING does not, which is NOT NULL and CHECK — a foreign
       // key is suppressed by neither, measured on the shipped table. This one
-      // has no CHECK, and both NOT NULL columns come from non-nullable sources:
-      // `issueId` is required, and `clean` above admits only non-empty strings.
-      await this.db.insert(issueLabels).values({ issueId, label: l }).onConflictDoNothing().run()
+      // has no CHECK, and both NOT NULL columns come from non-nullable sources.
+      await this.db.insert(issueLabels).values({ issueId, labelId }).onConflictDoNothing().run()
     }
+    return stored
   }
 
   async getIssueLabels(issueId: IssueId): Promise<string[]> {
     return (
       await this.db
-        .select({ label: issueLabels.label })
+        .select({ label: labels.name })
         .from(issueLabels)
+        .innerJoin(labels, eq(labels.id, issueLabels.labelId))
         .where(eq(issueLabels.issueId, issueId))
-        .orderBy(asc(issueLabels.label))
+        .orderBy(asc(labels.name))
         .all()
     ).map((r) => r.label)
   }
@@ -1069,25 +1151,28 @@ export class IssuesRepository {
    * avoid preparing and running one query per issue at live board sizes. */
   async listIssueLabelsByIssue(): Promise<Map<string, string[]>> {
     const rows = await this.db
-      .select({ issueId: issueLabels.issueId, label: issueLabels.label })
+      .select({ issueId: issueLabels.issueId, label: labels.name })
       .from(issueLabels)
-      .orderBy(asc(issueLabels.issueId), asc(issueLabels.label))
+      .innerJoin(labels, eq(labels.id, issueLabels.labelId))
+      .orderBy(asc(issueLabels.issueId), asc(labels.name))
       .all()
     const byIssue = new Map<string, string[]>()
     for (const row of rows) {
-      const labels = byIssue.get(row.issueId)
-      if (labels) labels.push(row.label)
+      const names = byIssue.get(row.issueId)
+      if (names) names.push(row.label)
       else byIssue.set(row.issueId, [row.label])
     }
     return byIssue
   }
 
+  /** Names of the labels at least one issue carries. */
   async listAllLabels(): Promise<string[]> {
     return (
       await this.db
-        .selectDistinct({ label: issueLabels.label })
-        .from(issueLabels)
-        .orderBy(asc(issueLabels.label))
+        .selectDistinct({ label: labels.name })
+        .from(labels)
+        .innerJoin(issueLabels, eq(issueLabels.labelId, labels.id))
+        .orderBy(asc(labels.name))
         .all()
     ).map((r) => r.label)
   }

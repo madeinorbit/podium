@@ -4,16 +4,14 @@ import { lintIssue } from './issue-lint'
 const base = { title: 'T', description: '', acceptance: null } as any
 
 describe('lintIssue', () => {
-  it('bug requires description + acceptance', () => {
-    expect(lintIssue({ ...base, type: 'bug' })).toEqual([
-      'bug missing reproduction (description)',
-      'bug missing acceptance criteria',
-    ])
-  })
-  it('feature requires acceptance only', () => {
-    expect(lintIssue({ ...base, type: 'feature', description: 'x' })).toEqual([
+  it('a task requires acceptance', () => {
+    expect(lintIssue({ ...base, type: 'task', description: 'x' })).toEqual([
       'missing acceptance criteria',
     ])
+  })
+  it('a phase or a decision has no template', () => {
+    expect(lintIssue({ ...base, type: 'phase' })).toEqual([])
+    expect(lintIssue({ ...base, type: 'decision' })).toEqual([])
   })
   it('a complete task has no findings', () => {
     expect(lintIssue({ ...base, type: 'task', acceptance: 'done when X' })).toEqual([])

@@ -611,7 +611,7 @@ export const WIRE_FIXTURES: WireFixture[] = [
 
   // ---- issue aggregate + projections (issues.ts) ----
   { name: 'issueStage', schema: IssueStage, value: 'in_progress' },
-  { name: 'issueType', schema: IssueType, value: 'epic' },
+  { name: 'issueType', schema: IssueType, value: 'phase' },
   { name: 'issueDepWire', schema: IssueDepWire, value: { id: '299', type: 'blocks' } },
   {
     name: 'issueComment',

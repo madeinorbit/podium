@@ -503,7 +503,7 @@ describe('AutomationsService.tick — spawn', () => {
       defaultAgent: 'claude-code',
       defaultModel: 'auto',
       defaultEffort: 'auto',
-      type: 'automation',
+      type: 'task',
       ownerUserId: firstAdminMemberId(),
       createdByActor: `automation:${a.id}`,
       createdByOnBehalfOf: firstAdminMemberId(),

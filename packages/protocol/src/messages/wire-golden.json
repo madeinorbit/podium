@@ -31,7 +31,7 @@
   "daemonPtyOutput.picture.reset": "{\"v\":1,\"type\":\"ptyPicture\",\"sessionId\":\"sess-1\",\"reason\":\"reset\",\"cols\":120,\"rows\":40}",
   "daemonPtyOutput.picture.cut": "{\"v\":1,\"type\":\"ptyPicture\",\"sessionId\":\"sess-1\",\"reason\":\"cut\",\"cols\":120,\"rows\":40}",
   "issueStage": "\"in_progress\"",
-  "issueType": "\"epic\"",
+  "issueType": "\"phase\"",
   "issueDepWire": "{\"id\":\"299\",\"type\":\"blocks\"}",
   "issueComment": "{\"id\":\"c1\",\"author\":\"agent\",\"body\":\"moved\",\"createdAt\":\"2026-07-30T10:00:00.000Z\"}",
   "issuePanel.full": "{\"todos\":[{\"text\":\"move the schemas\",\"done\":true}],\"artifacts\":[{\"path\":\"docs/report.md\",\"title\":\"Report\",\"addedAt\":\"2026-07-30T10:00:00.000Z\",\"artifactId\":\"art-1\",\"entry\":\"report.md\",\"files\":[{\"path\":\"report.md\",\"size\":1024}]}],\"deferred\":[{\"text\":\"de-nest sessions\",\"addedAt\":\"2026-07-30T10:00:00.000Z\"}]}",

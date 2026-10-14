@@ -15,6 +15,7 @@ import {
   asAgentIdentityId,
   asIssueId,
   isAgentComputing,
+  isDecisionIssue,
 } from '@podium/model'
 import { TRPCError } from '@trpc/server'
 import type { z } from 'zod'
@@ -155,6 +156,28 @@ async function assertNoWorkingSessionsForAgentClose(
       'Close your own issue only when the user has told you to; otherwise move it to `review` ' +
       'and post an offer with a Close action. To close anyway, re-run with `--confirm-interrupt`.',
   )
+}
+
+/**
+ * A decision is closed only by the user (POD-6106, flight deck v6 D2): it is the
+ * question the user owes an answer to, and an agent closing it would answer for
+ * them. The guard also covers retyping a decision away, which would otherwise be
+ * a two-step way around it. The operator (scope 'all') passes untouched.
+ */
+async function assertDecisionNotClosedByAgent(
+  ctx: IssueCommandCtx,
+  id: string,
+  verb: string,
+): Promise<void> {
+  if (ctx.caller.capability.scope.kind === 'all') return
+  const issue = await ctx.reports.get(id)
+  if (!issue || !isDecisionIssue(issue)) return
+  throw new TRPCError({
+    code: 'FORBIDDEN',
+    message:
+      `${verb} refused: ${await ctx.reports.niceRef(issue)} is a decision, and only the user ` +
+      'closes a decision. Leave it open; ask your coordinator if you need the answer.',
+  })
 }
 
 export type IssueCommandKind = 'query' | 'mutation'
@@ -400,6 +423,10 @@ const defs = {
         async (id) => await ctx.mayReadIssue(id),
       ),
   }),
+  labelList: def('labelList', {
+    kind: 'query',
+    handler: async (ctx) => await ctx.reports.labelList(),
+  }),
   findDuplicates: def('findDuplicates', {
     kind: 'query',
     handler: async (ctx, input) =>
@@ -631,6 +658,9 @@ const defs = {
           })
         }
       }
+      // POD-6106 (D3): an agent applies only labels that exist unless it passes
+      // createLabels. Checked before anything persists, like the parent above.
+      await ctx.crud.refuseUnknownLabels(input.labels, isOperator || input.createLabels === true)
       // M5 [spec:SP-6144]: sub-creates under a proposed parent (or deeper in a
       // proposal subtree) stay inert — never auto-started, never board-facing.
       const underProposed =
@@ -734,7 +764,11 @@ const defs = {
           p.parentId !== undefined
         if (movesLifecycle) await assertNotProposedForAgent(ctx, input.id, 'promote')
         if (p.stage === 'done' || p.closedReason !== undefined) {
+          await assertDecisionNotClosedByAgent(ctx, input.id, 'close')
           await assertNoWorkingSessionsForAgentClose(ctx, input.id, input.confirmInterrupt)
+        }
+        if (p.type !== undefined && p.type !== 'decision') {
+          await assertDecisionNotClosedByAgent(ctx, input.id, 'retype')
         }
         return await ctx.crud.update(input.id, input.patch, {
           actorSessionId: ctx.caller.capability.actorSessionId,
@@ -952,11 +986,18 @@ const defs = {
     // POD-781: outboxed. The receipt matters even for a whole-set write, because
     // the SET is computed on the client from the labels it could see — a replay
     // that re-ran it would push a stale set over one edited in between.
-    handler: async (ctx, input) =>
-      await ctx.withMutation(
+    handler: async (ctx, input) => {
+      // POD-6106 (D3): an agent applies only existing labels unless it passes
+      // createLabels; the operator creates-or-picks.
+      await ctx.crud.refuseUnknownLabels(
+        input.labels,
+        ctx.caller.capability.scope.kind === 'all' || input.createLabels === true,
+      )
+      return await ctx.withMutation(
         input.mutationId,
         async () => await ctx.crud.setLabels(input.id, input.labels),
-      ),
+      )
+    },
   }),
   share: def('share', {
     kind: 'mutation',
@@ -1260,6 +1301,7 @@ const defs = {
     target: targetId,
     handler: async (ctx, input) => {
       await assertNotProposedForAgent(ctx, input.id, 'close')
+      await assertDecisionNotClosedByAgent(ctx, input.id, 'close')
       await assertNoWorkingSessionsForAgentClose(ctx, input.id, input.confirmInterrupt)
       return await ctx.withMutation(
         input.mutationId,
@@ -1277,6 +1319,7 @@ const defs = {
     target: (i) => i.oldId as string,
     handler: async (ctx, input) => {
       await assertNotProposedForAgent(ctx, input.oldId, 'supersede')
+      await assertDecisionNotClosedByAgent(ctx, input.oldId, 'supersede')
       return await ctx.hierarchy.supersede(input.oldId, input.newId)
     },
   }),
@@ -1287,6 +1330,7 @@ const defs = {
     target: targetId,
     handler: async (ctx, input) => {
       await assertNotProposedForAgent(ctx, input.id, 'mark duplicate')
+      await assertDecisionNotClosedByAgent(ctx, input.id, 'mark duplicate')
       return await ctx.hierarchy.duplicate(input.id, input.canonicalId)
     },
   }),
