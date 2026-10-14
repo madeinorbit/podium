@@ -139,19 +139,19 @@ describe('issues.* subtree scope (P1a)', () => {
 
   it('worker may write inside its subtree', async () => {
     const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
-    await expect(c.issues.update({ id: A.id, patch: { notes: 'x' } })).resolves.toBeTruthy()
+    await expect(c.issues.update({ id: A.id, patch: { brief: 'x' } })).resolves.toBeTruthy()
   })
 
   it('worker writing outside its subtree is rejected until overridden', async () => {
     const c = callerWith({ role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } })
-    await expect(c.issues.update({ id: B.id, patch: { notes: 'x' } })).rejects.toThrow(
+    await expect(c.issues.update({ id: B.id, patch: { brief: 'x' } })).rejects.toThrow(
       /outside your subtree/,
     )
     const c2 = callerWith(
       { role: 'worker', scope: { kind: 'subtree', rootId: asIssueId(A.id) } },
       true,
     )
-    await expect(c2.issues.update({ id: B.id, patch: { notes: 'x' } })).resolves.toBeTruthy()
+    await expect(c2.issues.update({ id: B.id, patch: { brief: 'x' } })).resolves.toBeTruthy()
   })
 
   it('worker may always create and always read', async () => {
@@ -170,7 +170,7 @@ describe('issues.* subtree scope (P1a)', () => {
       capability: OPERATOR,
       principal: resolvePrincipal(OPERATOR, { parentSessionOf: () => undefined }),
     })
-    await expect(c.issues.update({ id: B.id, patch: { notes: 'x' } })).resolves.toBeTruthy()
+    await expect(c.issues.update({ id: B.id, patch: { brief: 'x' } })).resolves.toBeTruthy()
   })
 
   it('setNeedsHuman is scope-gated like other writes', async () => {

@@ -194,7 +194,7 @@ function sameKeyedCell(key: string, a: unknown, b: unknown): boolean {
 /**
  * What a cell IS, for comparison.
  *
- * An op-stream document (`description`, `notes` on the normalized issue row) is
+ * An op-stream document (`description` on the normalized issue row) is
  * its materialized `value`. Its `revision` and `opsTail` are the authority's
  * bookkeeping: a painted `{ value }` and the echoed `{ value, revision }` show
  * the same text, and comparing the objects by identity would read every pending
@@ -305,14 +305,14 @@ const ISSUE_PROJECTION_KEYS: ReadonlySet<string> = new Set(Object.keys(IssueProj
 
 /** Op-stream documents on the normalized row (`{ value, revision?, opsTail? }`)
  *  that a write spells as plain text. */
-const ISSUE_DOCUMENT_KEYS: ReadonlySet<string> = new Set(['description', 'notes'])
+const ISSUE_DOCUMENT_KEYS: ReadonlySet<string> = new Set(['description'])
 
 /**
  * Split an `issues.update` patch by the row each key lives on (POD-4969).
  *
  * A per-user marker goes to the `(user, issue)` row; a durable field goes to
- * the normalized issue row, in ITS spelling — `description` and `notes` are
- * documents there, so the text is painted as `{ value }`. A key neither row
+ * the normalized issue row, in ITS spelling — `description` is a document
+ * there, so the text is painted as `{ value }`. A key neither row
  * carries is not painted at all: no row could ever cover it, so it would sit
  * on the TTL. `overlay.test.ts` holds every key the contract accepts to one of
  * the two homes, so a new contract key cannot fall through silently.

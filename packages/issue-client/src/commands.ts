@@ -444,6 +444,13 @@ function renderShow(
 
 /** `--type` takes task | phase | decision (POD-6106). A retired type is refused
  *  with what it became, so a habitual `--type bug` says "use the label". */
+/** D8 (POD-6101): an agent reads the acceptance criteria in prime, and again at
+ *  the moment it hands the issue off — moving it to review or closing it done. */
+export function acceptanceReminder(i: { acceptance?: string | null }): string {
+  const text = i.acceptance?.trim()
+  return text ? `\nAcceptance — confirm it is met:\n${text}` : ''
+}
+
 function issueTypeArg(raw: unknown): string | undefined {
   if (raw == null) return undefined
   const type = String(raw).trim().toLowerCase()
@@ -796,9 +803,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
       machine: z.string().min(1).optional(),
       parentId: z.string().optional(),
       parentBranch: z.string().optional(),
-      design: z.string().optional(),
       acceptance: z.string().optional(),
-      notes: z.string().optional(),
       dueAt: z.string().optional(),
       deferUntil: z.string().optional(),
       closedReason: z.string().optional(),
@@ -826,9 +831,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         'type',
         'parentId',
         'parentBranch',
-        'design',
         'acceptance',
-        'notes',
         'dueAt',
         'deferUntil',
         'closedReason',
@@ -854,8 +857,9 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         id: a.id as string,
         patch: patch as never,
         ...(a.confirmInterrupt ? { confirmInterrupt: true } : {}),
-      })) as { seq: number }
-      return { text: `updated #${i.seq}`, data: i }
+      })) as { seq: number; acceptance?: string | null }
+      const handoff = patch.stage === 'review' || patch.stage === 'done'
+      return { text: `updated #${i.seq}${handoff ? acceptanceReminder(i) : ''}`, data: i }
     },
   },
   {
@@ -948,8 +952,12 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         id: a.id as string,
         ...(a.reason ? { reason: a.reason as string } : {}),
         ...(a.confirmInterrupt ? { confirmInterrupt: true } : {}),
-      })) as { seq: number }
-      return { text: `closed #${i.seq}${a.note ? ' (completion note recorded)' : ''}`, data: i }
+      })) as { seq: number; acceptance?: string | null }
+      const done = a.reason == null || a.reason === 'done'
+      return {
+        text: `closed #${i.seq}${a.note ? ' (completion note recorded)' : ''}${done ? acceptanceReminder(i) : ''}`,
+        data: i,
+      }
     },
   },
   {

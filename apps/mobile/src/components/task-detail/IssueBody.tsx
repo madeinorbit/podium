@@ -151,17 +151,14 @@ export const IssueBrief = observer(function IssueBrief({ issue }: { issue: Issue
   )
 })
 
-const LONG_FORM = [
-  { field: 'design', label: 'Design' },
-  { field: 'acceptance', label: 'Acceptance' },
-  { field: 'notes', label: 'Notes' },
-] as const
+const LONG_FORM = [{ field: 'acceptance', label: 'Acceptance' }] as const
 
 /**
- * Design / Acceptance / Notes. Filled fields render as full sections with the
- * same tap-to-edit affordance as the description. Empty fields render nothing:
- * these are agent-authored spec fields, not three standing calls to start a
- * specification in the middle of the reading column.
+ * Acceptance (Design and Notes were folded into the brief, POD-6101). A filled
+ * field renders as a full section with the same tap-to-edit affordance as the
+ * description. An empty field renders nothing: it is an agent-authored spec
+ * field, not a standing call to start a specification in the middle of the
+ * reading column.
  */
 export const LongFormFields = observer(function LongFormFields({
   issue,

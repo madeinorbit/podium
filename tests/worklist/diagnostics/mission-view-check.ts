@@ -22,7 +22,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 import { ISSUE_CONTENT_FIELDS, sessionComparable } from './oracle'
 import { compareSidebarSnapshots, type CheckSection, type SidebarCheckResult, type SidebarSnapshot, type SidebarDifference } from './sidebar-check'
 
-const ISSUE_FIELDS = [...ISSUE_CONTENT_FIELDS, 'description', 'notes', 'activityNotes', 'notesUpdatedAt',
+const ISSUE_FIELDS = [...ISSUE_CONTENT_FIELDS, 'description', 'activityNotes', 'notesUpdatedAt',
   'defaultAgent', 'startedBySession', 'coordinatorSessionId', 'deps', 'childCount', 'childDoneCount',
   'ready', 'deferred', 'memberSessionIds']
 const issueFields = (issue: IssueNavigationModel) => Object.fromEntries(ISSUE_FIELDS.map(key => [key, Reflect.get(issue, key) ?? null]))

@@ -85,7 +85,7 @@ const FIRST = makeIssue({
   seq: 1,
   repoPath: '/r',
   title: 'First issue',
-  design: 'The first issue’s architecture note.',
+  acceptance: 'The first issue’s acceptance note.',
 })
 const SECOND = makeIssue({ id: 'i-second', seq: 2, repoPath: '/r', title: 'Second issue' })
 
@@ -160,13 +160,13 @@ describe('IssuePage.tsx — the compose/edit reset', () => {
 describe('issue-page/IssueBody.tsx — the long-form editor reset', () => {
   it('closes an open long-form editor on switch', async () => {
     const { switchIssue } = open()
-    // FIRST has a filled Design field; clicking its text opens the editor.
-    await userEvent.click(screen.getByTitle('Click to edit design'))
-    expect(screen.getByLabelText('Task design')).toBeTruthy()
+    // FIRST has a filled Acceptance field; clicking its text opens the editor.
+    await userEvent.click(screen.getByTitle('Click to edit acceptance'))
+    expect(screen.getByLabelText('Task acceptance')).toBeTruthy()
 
     switchIssue()
 
-    expect(screen.queryByLabelText('Task design')).toBeNull()
+    expect(screen.queryByLabelText('Task acceptance')).toBeNull()
   })
 })
 

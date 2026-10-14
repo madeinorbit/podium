@@ -196,9 +196,7 @@ const PATCH_FIELD_NOUNS: Record<string, string> = {
   type: 'type',
   assignee: 'assignee',
   parentId: 'parent',
-  design: 'design',
   acceptance: 'acceptance',
-  notes: 'notes',
   dueAt: 'due date',
   deferUntil: 'snooze',
   closedReason: 'close reason',
@@ -417,10 +415,6 @@ function describeSinglePatchField(key: string, value: unknown): QueuedChangeView
       return { label: 'Issue description', summary: null }
     case 'brief':
       return { label: 'Issue brief', summary: null }
-    case 'notes':
-      return { label: 'Issue notes', summary: null }
-    case 'design':
-      return { label: 'Issue design', summary: null }
     case 'acceptance':
       return { label: 'Issue acceptance', summary: null }
     case 'closedReason':

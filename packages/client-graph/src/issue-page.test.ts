@@ -408,7 +408,6 @@ it('keeps document, relation, readiness, close and exit questions live on the sh
   const root = issue('root', {
     stage: 'planning',
     description: { value: 'Body' },
-    notes: { value: 'Notes' },
     needsHuman: true,
     asked: { question: 'Ready?' },
     parentBranch: 'trunk',
@@ -432,7 +431,6 @@ it('keeps document, relation, readiness, close and exit questions live on the sh
   const stop = autorun(() => {
     answers = {
       description: model.description,
-      notes: model.notes,
       ready: model.ready,
       deferred: model.deferred,
       relations: model.relationGroups,
@@ -443,7 +441,6 @@ it('keeps document, relation, readiness, close and exit questions live on the sh
   try {
     expect(answers).toMatchObject({
       description: 'Body',
-      notes: 'Notes',
       ready: true,
       deferred: false,
       close: {
@@ -467,7 +464,6 @@ it('keeps document, relation, readiness, close and exit questions live on the sh
           ...root.value,
           stage: 'done',
           description: 'Edited',
-          notes: undefined,
           needsHuman: false,
           asked: undefined,
           gitState: { shared: true, dirtyFiles: 7, commits: [{ sha: 'a' }], merged: true },
@@ -476,7 +472,6 @@ it('keeps document, relation, readiness, close and exit questions live on the sh
     })
     expect(answers).toMatchObject({
       description: 'Edited',
-      notes: undefined,
       ready: false,
       close: {
         subject: {

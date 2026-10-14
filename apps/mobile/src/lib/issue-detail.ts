@@ -172,8 +172,8 @@ export function issueCommands({
       if (value === issue.description) return
       update({ description: value })
     },
-    /** Long-form spec fields agents write via `podium issue update`. */
-    commitLongForm: (field: 'design' | 'acceptance' | 'notes', value: string): void => {
+    /** Long-form spec field agents write via `podium issue update`. */
+    commitLongForm: (field: 'acceptance', value: string): void => {
       if (value === (issue[field] ?? '')) return
       update({ [field]: value })
     },

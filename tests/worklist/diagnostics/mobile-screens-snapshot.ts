@@ -78,7 +78,6 @@ const BOARD_FIELDS = [
 const MISSION_FIELDS = [
   ...BOARD_FIELDS,
   'description',
-  'notes',
   'activityNotes',
   'asked',
   'needsHuman',

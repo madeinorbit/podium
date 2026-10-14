@@ -109,7 +109,7 @@ describe('server agent relay handler (P1b)', () => {
       sessionId: asSessionId(sA),
       router: 'issues',
       proc: 'update',
-      input: { id: B.id, patch: { notes: 'x' } },
+      input: { id: B.id, patch: { brief: 'x' } },
     })
     const r = await reply
     expect(r.ok).toBe(false)
@@ -198,7 +198,7 @@ describe('server agent relay handler (P1b)', () => {
       sessionId: asSessionId(sA),
       router: 'issues',
       proc: 'update',
-      input: { id: B.id, patch: { notes: 'x' } },
+      input: { id: B.id, patch: { brief: 'x' } },
       outsideScope: true,
     })
     expect((await reply).ok).toBe(true)

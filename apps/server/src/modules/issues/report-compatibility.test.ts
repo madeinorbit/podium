@@ -44,7 +44,7 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
   await api.addComment({ id: created.id, body: 'Comment fetched separately' })
   const updated = await api.update({
     id: created.id,
-    patch: { notes: 'Plain text note', pinned: true },
+    patch: { brief: 'Plain text note', pinned: true },
   })
   const shown = await api.get({ id: created.id })
   const listed = (await api.list({ repoPath: '/report-fixture' })).find(
@@ -68,7 +68,7 @@ it('keeps requested issue JSON fields on create, update, get, list and tree', as
     commentCount: 1,
     childCount: 1,
     childDoneCount: 0,
-    notes: 'Plain text note',
+    brief: 'Plain text note',
     pinned: true,
     deps: [],
     dependents: [{ id: child.id, type: 'parent-child' }],

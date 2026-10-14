@@ -22,7 +22,6 @@ function placeholderProjection(issue: IssueViewModel): IssueProjection {
     if (value !== undefined && value !== null) row[key] = value
   }
   row.description = { value: issue.description ?? '' }
-  if (typeof source.notes === 'string') row.notes = { value: source.notes }
   return row as unknown as IssueProjection
 }
 export interface PoolSpawnPorts {

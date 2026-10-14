@@ -46,7 +46,6 @@ afterEach(() => {
 })
 type PageInput = SliceIssue & {
   description?: string | { value: string }
-  notes?: string | { value: string }
   labels?: string[]
   visibility?: IssueProjection['visibility']
 }
@@ -139,7 +138,6 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
         typeof row.description === 'string'
           ? row.description
           : ((row.description as { value: string })?.value ?? ''),
-      notes: typeof row.notes === 'string' ? row.notes : row.notes?.value,
       prefix: 'T',
       branch: row.branch ?? null,
       worktreePath: row.worktreePath ?? null,
@@ -505,7 +503,6 @@ describe('declared issue page', () => {
       task('root', {
         seq: 8,
         description: { value: 'Long body' },
-        notes: { value: 'Notes' },
         gitState: { ahead: 2, merged: false },
         readAt: STAMP,
         pinned: true,

@@ -339,7 +339,6 @@ describe('Ludovico-scale frontend budgets [spec:SP-0b2e] [spec:SP-e2c8] [spec:SP
         'issueProjections',
         initial.map((issue) => ({
           ...issue,
-          notes: issue.notes === undefined ? undefined : { value: issue.notes },
           worktreePath: issue.worktreePath ?? undefined,
           branch: issue.branch ?? undefined,
         })),

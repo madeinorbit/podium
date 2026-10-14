@@ -37,7 +37,6 @@ export function fixtureProjection(
     isDraftVessel: projection?.isDraftVessel ?? issue.isDraftVessel,
     intentOrigin: projection?.intentOrigin ?? issue.intentOrigin,
     asked: projection?.asked ?? issue.asked,
-    ...(issue.notes === undefined ? {} : { notes: { value: issue.notes } }),
   } as IssueProjection
 }
 

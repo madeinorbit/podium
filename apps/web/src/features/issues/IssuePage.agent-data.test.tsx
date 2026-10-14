@@ -88,9 +88,7 @@ describe('IssuePage agent-saved data', () => {
     worktreePath: null,
     title: 'Surface the agent dossier',
     description: 'Human-authored summary.',
-    design: 'Architecture details from the implementing agent.',
     acceptance: 'All saved fields are visible.',
-    notes: 'A durable implementation note.',
     activityNotes: 'Runtime verification is still in progress.',
     notesUpdatedAt: '2026-07-14T12:00:00.000Z',
     blockedByNotes: ['issue:#9'],
@@ -135,9 +133,7 @@ describe('IssuePage agent-saved data', () => {
     )
 
     const longForm = screen.getByTestId('long-form-fields')
-    expect(within(longForm).getByText(issue.design ?? '')).toBeTruthy()
     expect(within(longForm).getByText(issue.acceptance ?? '')).toBeTruthy()
-    expect(within(longForm).getByText(issue.notes ?? '')).toBeTruthy()
     expect(screen.getByText('Runtime verification is still in progress.')).toBeTruthy()
 
     const panel = screen.getByTestId('issue-panel-sections')
@@ -170,14 +166,14 @@ describe('IssuePage agent-saved data', () => {
       <IssuePage issue={issue} orderedIds={[issue.id]} onBack={vi.fn()} onNavigate={vi.fn()} />,
     )
 
-    fireEvent.click(screen.getByText('Architecture details from the implementing agent.'))
-    const design = screen.getByLabelText('Task design')
-    fireEvent.change(design, { target: { value: 'Updated architecture details.' } })
-    fireEvent.blur(design)
+    fireEvent.click(screen.getByText('All saved fields are visible.'))
+    const acceptance = screen.getByLabelText('Task acceptance')
+    fireEvent.change(acceptance, { target: { value: 'Updated acceptance criteria.' } })
+    fireEvent.blur(acceptance)
     await waitFor(() =>
       expect(update).toHaveBeenCalledWith({
         id: issue.id,
-        patch: { design: 'Updated architecture details.' },
+        patch: { acceptance: 'Updated acceptance criteria.' },
       }),
     )
 

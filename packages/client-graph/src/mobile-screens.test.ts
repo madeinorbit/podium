@@ -196,7 +196,6 @@ it('an archived root keeps its full header for the current session without loadi
     stage: 'done',
     startedBySession: 'starter',
     coordinatorSessionId: 'current',
-    notes: 'Root notes',
     activityNotes: 'Root activity',
     asked: 'Root question',
     needsHuman: true,
@@ -240,7 +239,7 @@ it('an archived child keeps its full header when a current mission session belon
   const headerIssue = issue('header-child', {
     parentId: 'root', archived: true, stage: 'done',
     startedBySession: 'starter', coordinatorSessionId: 'current',
-    notes: 'Child notes', activityNotes: 'Child activity', asked: 'Child question',
+    activityNotes: 'Child activity', asked: 'Child question',
     needsHuman: true, closedReason: 'done', defaultAgent: 'codex', labels: ['child-label'],
   })
   const current = {
@@ -255,7 +254,7 @@ it('an archived child keeps its full header when a current mission session belon
   }
   const { pool, reader, load } = await setup([
     issue('root'), headerIssue,
-    issue('hidden-child', { parentId: 'root', archived: true, stage: 'done', startedBySession: 'starter', notes: 'Hidden notes' }),
+    issue('hidden-child', { parentId: 'root', archived: true, stage: 'done', startedBySession: 'starter' }),
   ], [current, starter])
   const headerReads = vi.spyOn(MissionViewReader.prototype, 'readIssue')
   disposals.push(() => headerReads.mockRestore())

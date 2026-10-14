@@ -88,9 +88,7 @@ const fullRow = (): IssueRow => ({
   type: 'task',
   assignee: asUserId('mgw'),
   parentId: asIssueId('iss_parent'),
-  design: 'design doc',
   acceptance: 'acceptance text',
-  notes: 'the notes document',
   dueAt: '2026-02-01T00:00:00Z',
   deferUntil: '2026-01-20T00:00:00Z',
   closedReason: 'fixed',
@@ -151,9 +149,7 @@ const emptyRow = (): IssueRow => ({
   type: 'task',
   assignee: null,
   parentId: null,
-  design: null,
   acceptance: null,
-  notes: null,
   dueAt: null,
   deferUntil: null,
   closedReason: null,
@@ -194,7 +190,6 @@ describe('StoredIssue members ARE the shared field-group instances', () => {
     ['seq', IssueIdentity.shape.seq],
     ['title', IssueText.shape.title],
     ['brief', IssueText.shape.brief],
-    ['design', IssueText.shape.design],
     ['acceptance', IssueText.shape.acceptance],
     ['activityNotes', IssueText.shape.activityNotes],
     ['notesUpdatedAt', IssueText.shape.notesUpdatedAt],
@@ -249,16 +244,16 @@ describe('StoredIssue members ARE the shared field-group instances', () => {
     const unchecked = Object.keys(StoredIssue.shape)
       .filter((k) => !covered.has(k) && !['asked', 'askedLegacy'].includes(k))
       .sort()
-    // What is left has no field group to be an instance OF: the two op-stream
-    // documents (asserted by shape below), the aggregate's own two timestamps,
+    // What is left has no field group to be an instance OF: the op-stream
+    // document (asserted by shape below), the aggregate's own two timestamps,
     // and `revision` — recovered from main at the POD-1246 catch-up as ADR 2 D3's
     // sync token. It is a member of `IssueConcurrency` on the WIRE side; on the
     // stored row it is the authority's own counter and composes no group, so it
     // belongs in this list rather than in `cases`.
-    expect(unchecked).toEqual(['createdAt', 'description', 'notes', 'revision', 'updatedAt'])
+    expect(unchecked).toEqual(['createdAt', 'description', 'revision', 'updatedAt'])
   })
 
-  it('description and notes carry the op-stream document shape, not a plain string', () => {
+  it('description carries the op-stream document shape, not a plain string', () => {
     // ADR 1 Am1 D12: the day the class is implemented must not be the day the
     // shape changes. A `z.string()` here would round-trip identically.
     expect(StoredIssue.shape.description.safeParse('plain string').success).toBe(false)

@@ -367,11 +367,11 @@ describe('IssueService single-issue publish', () => {
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
     ;(deps.broadcast as ReturnType<typeof vi.fn>).mockClear()
-    await svc.crud.update(a.id, { notes: 'note' })
+    await svc.crud.update(a.id, { brief: 'note' })
     const published = rows(deps)
     expect(published).toHaveLength(1)
     expect(published[0]).toMatchObject({ id: a.id, op: 'upsert' })
-    expect((published[0]?.value as { notes?: { value: string } }).notes).toEqual({ value: 'note' })
+    expect((published[0]?.value as { brief?: string }).brief).toBe('note')
     // B is untouched — the bystander a full-list rebuild would have re-sent.
     expect(published.some((row) => row.id !== a.id)).toBe(false)
   })

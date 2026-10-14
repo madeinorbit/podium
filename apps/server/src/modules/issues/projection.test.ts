@@ -202,9 +202,9 @@ describe('issueRowToProjection [POD-796]', () => {
     // absent and reads back as null — a lossy round-trip a mapping pair claiming
     // to be a bijection may not inherit. This pair omits on `=== null`, so ''
     // survives. Measured as safe against the live DB (assignee='' on 2 rows).
-    const p = issueRowToProjection(row({ assignee: '', design: '' }), NO_LABELS)
+    const p = issueRowToProjection(row({ assignee: '', acceptance: '' }), NO_LABELS)
     expect(p.assignee).toBe('')
-    expect(p.design).toBe('')
+    expect(p.acceptance).toBe('')
   })
 
   it('fills the keys IssueRow marks optional with IssueRow’s own documented defaults', () => {

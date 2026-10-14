@@ -81,7 +81,10 @@ export const HISTORICAL_ALLOWLIST = new Set<string>([
  */
 export const APPROVED_CONTRACT_STEPS = new Map<
   string,
-  { reason: string; admits: ReadonlyArray<{ kind: DestructiveDdlKind; table: string }> }
+  {
+    reason: string
+    admits: ReadonlyArray<{ kind: DestructiveDdlKind; table: string; column?: string }>
+  }
 >([
   [
     'apps/server/src/migrations/drizzle/20260929145432_drop-legacy-message-status/migration.sql',
@@ -124,10 +127,26 @@ export const APPROVED_CONTRACT_STEPS = new Map<
       ],
     },
   ],
+  [
+    'apps/server/src/migrations/drizzle/20261014200524_fold-design-notes-into-brief/migration.sql',
+    {
+      // POD-6101 (user decision D8, flight deck v6, 2026-10-14): issues keep
+      // description, brief and acceptance. `design` and `notes` are appended to
+      // `brief` under a heading by the same migration before they are dropped,
+      // so no text is lost. Rollback across a schema change is refused by
+      // design (convergence.ts).
+      reason: 'folds issues.design and issues.notes into issues.brief, then drops them',
+      admits: [
+        { kind: 'drop-column', table: 'issues', column: 'design' },
+        { kind: 'drop-column', table: 'issues', column: 'notes' },
+      ],
+    },
+  ],
 ])
 
 /** The findings an approved contract step does not admit. Each admission is
- *  spent once, so a second rebuild of the same table still fails. */
+ *  spent once, so a second rebuild of the same table (or a second drop of the
+ *  same column) still fails. */
 export function unadmitted(
   path: string,
   findings: DestructiveDdlFinding[],
@@ -135,17 +154,29 @@ export function unadmitted(
   const admits = [...(APPROVED_CONTRACT_STEPS.get(path)?.admits ?? [])]
   return findings.filter((finding) => {
     const at = admits.findIndex(
-      (admit) =>
-        admit.kind === finding.kind &&
-        finding.kind === 'table-rebuild' &&
-        new RegExp(`\\bCREATE\\s+TABLE\\s+[\`"]?__new_${admit.table}[\`"]?\\s*\\(`, 'i').test(
-          finding.statement,
-        ),
+      (admit) => admit.kind === finding.kind && admitMatches(admit, finding.statement),
     )
     if (at < 0) return true
     admits.splice(at, 1)
     return false
   })
+}
+
+function admitMatches(
+  admit: { kind: DestructiveDdlKind; table: string; column?: string },
+  statement: string,
+): boolean {
+  const q = '[`"]?'
+  if (admit.kind === 'table-rebuild')
+    return new RegExp(`\\bCREATE\\s+TABLE\\s+${q}__new_${admit.table}${q}\\s*\\(`, 'i').test(
+      statement,
+    )
+  if (admit.kind === 'drop-column' && admit.column)
+    return new RegExp(
+      `\\bALTER\\s+TABLE\\s+${q}${admit.table}${q}\\s+DROP\\s+COLUMN\\s+${q}${admit.column}(?!\\w)`,
+      'i',
+    ).test(statement)
+  return false
 }
 
 interface StatementSpan {

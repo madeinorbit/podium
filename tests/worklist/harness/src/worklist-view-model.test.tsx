@@ -102,7 +102,7 @@ describe('worklist view model migration', () => {
     }
     expect('roster' in WorktreeModel.prototype).toBe(false)
     // Entity text normalization is shared; no worklist/header schema override returns.
-    expect([...IssueModel.answers]).toEqual(['description', 'notes'])
+    expect([...IssueModel.answers]).toEqual(['description'])
   })
 
   it('keeps the sidebar, phone Work and header census flat or better at 1x and 4x', async () => {

@@ -28,12 +28,11 @@ export interface IssueSessionRollups {
 
 export type IssueViewModel = Omit<
   IssueProjection,
-  'description' | 'notes' | 'worktreePath' | 'branch'
+  'description' | 'worktreePath' | 'branch'
 > &
   Omit<IssueView, 'id'> &
   Partial<IssueSessionRollups> & {
     description: string
-    notes?: string
     worktreePath: string | null
     branch: string | null
     readAt: string | null

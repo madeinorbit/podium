@@ -199,7 +199,6 @@ export function fromStorage(row: IssueRow): StoredIssue {
     // --- IssueText -------------------------------------------------------
     title: row.title,
     ...opt('brief', row.brief),
-    ...opt('design', row.design),
     ...opt('acceptance', row.acceptance),
     ...opt('activityNotes', row.activityNotes),
     ...opt('notesUpdatedAt', row.notesUpdatedAt),
@@ -208,7 +207,6 @@ export function fromStorage(row: IssueRow): StoredIssue {
 
     // --- IssueDocuments (ADR 1 Am1 D12: materialized value, room beside) ---
     description: { value: row.description },
-    ...(row.notes != null ? { notes: { value: row.notes } } : {}),
 
     // --- IssueLifecycle --------------------------------------------------
     // Cast, not parsed: see the file header's decoder-not-gate note.
@@ -333,7 +331,6 @@ export function toStorage(
     // --- IssueText -------------------------------------------------------
     title: issue.title,
     brief: issue.brief ?? null,
-    design: issue.design ?? null,
     acceptance: issue.acceptance ?? null,
     activityNotes: issue.activityNotes ?? null,
     notesUpdatedAt: issue.notesUpdatedAt ?? null,
@@ -342,7 +339,6 @@ export function toStorage(
 
     // --- IssueDocuments ---------------------------------------------------
     description: issue.description.value,
-    notes: issue.notes?.value ?? null,
 
     // --- IssueLifecycle ---------------------------------------------------
     stage: issue.stage,

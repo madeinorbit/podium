@@ -63,11 +63,10 @@ describe('blank issue text normalizes to null', () => {
   it('applies to the whole nullable-text class, not just the measured column', async () => {
     const { store, svc } = await harness()
     const created = await svc.crud.create({ repoPath: '/repo', title: 'T', startNow: false })
-    await svc.crud.update(created.id, { design: '', notes: '', branch: '', closedReason: '' })
+    await svc.crud.update(created.id, { acceptance: '', branch: '', closedReason: '' })
 
     const row = await store.issues.getIssue(created.id)
-    expect(row?.design).toBeNull()
-    expect(row?.notes).toBeNull()
+    expect(row?.acceptance).toBeNull()
     expect(row?.branch).toBeNull()
     expect(row?.closedReason).toBeNull()
   })

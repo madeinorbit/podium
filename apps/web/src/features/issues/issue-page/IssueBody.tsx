@@ -225,17 +225,13 @@ export const StatusStrip = observer(function StatusStrip({
   )
 })
 
-const LONG_FORM_FIELDS = [
-  { field: 'design', label: 'Design' },
-  { field: 'acceptance', label: 'Acceptance' },
-  { field: 'notes', label: 'Notes' },
-] as const
+const LONG_FORM_FIELDS = [{ field: 'acceptance', label: 'Acceptance' }] as const
 
 type LongFormField = (typeof LONG_FORM_FIELDS)[number]['field']
 
 /**
- * Design / Acceptance / Notes — the long-form spec fields agents fill via
- * `podium issue update`. A filled field renders as a full section, inline-
+ * Acceptance — the long-form spec field agents fill via `podium issue update`.
+ * Design and Notes were folded into the brief and removed (POD-6101). A filled field renders as a full section, inline-
  * editable, on the same pattern as the description.
  *
  * NO ADD-ROW (POD-1163). There used to be a `+ Design  + Acceptance  + Notes`

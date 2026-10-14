@@ -39,19 +39,21 @@ export const IssueConcurrency = z.object({
 export type IssueConcurrency = z.infer<typeof IssueConcurrency>
 
 /**
- * THE HUMAN- AND AGENT-FACING PROSE — everything except the two op-stream
- * documents.
+ * THE HUMAN- AND AGENT-FACING PROSE — everything except the op-stream document.
  *
- * `description` and `notes` are DELIBERATELY ABSENT: they are ADR 1 Amendment 1
- * D12's reserved `op-stream` members and carry {@link IssueDocuments}' shape
- * instead. Putting them here as plain strings is the shape that would have to
- * change later, which is the thing inventory §8 asks POD-365 to avoid.
+ * Issues keep three text fields (POD-6101, flight deck D8): `description` for
+ * humans, `brief` for agents, and `acceptance`. The old `design` and `notes`
+ * fields were folded into `brief` and removed.
+ *
+ * `description` is DELIBERATELY ABSENT: it is ADR 1 Amendment 1 D12's reserved
+ * `op-stream` member and carries {@link IssueDocuments}' shape instead.
+ * Putting it here as a plain string is the shape that would have to change
+ * later, which is the thing inventory §8 asks POD-365 to avoid.
  */
 export const IssueText = z.object({
   title: z.string(),
   /** Technical handoff for agents; the description stays the human summary. */
   brief: z.string().optional(),
-  design: z.string().optional(),
   acceptance: z.string().optional(),
   activityNotes: z.string().optional(),
   notesUpdatedAt: z.string().optional(),
@@ -61,15 +63,14 @@ export const IssueText = z.object({
 export type IssueText = z.infer<typeof IssueText>
 
 /**
- * THE TWO RESERVED `op-stream` DOCUMENTS.
+ * THE RESERVED `op-stream` DOCUMENT.
  *
- * Reserved, not built — see `fields/op-stream.ts`. Both stay `field-LWW` on the
+ * Reserved, not built — see `fields/op-stream.ts`. It stays `field-LWW` on the
  * matrix today. What this shape buys is that the day the class is implemented is
  * not also the day the wire shape changes.
  */
 export const IssueDocuments = z.object({
   description: OpStreamDocument,
-  notes: OpStreamDocument.optional(),
 })
 export type IssueDocuments = z.infer<typeof IssueDocuments>
 

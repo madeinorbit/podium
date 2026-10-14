@@ -44,12 +44,11 @@ const EMPTY_ROLLUPS: IssueSessionRollups = {
 
 export type IssueViewModel = Omit<
   IssueProjection,
-  'description' | 'notes' | 'worktreePath' | 'branch'
+  'description' | 'worktreePath' | 'branch'
 > &
   Omit<IssueView, 'id'> &
   Partial<IssueSessionRollups> & {
     description: string
-    notes?: string
     worktreePath: string | null
     branch: string | null
     readAt: string | null
@@ -112,7 +111,6 @@ export function buildIssueViewModel(
   return {
     ...projection,
     description: projection.description.value,
-    notes: projection.notes?.value,
     worktreePath: projection.worktreePath ?? null,
     branch: projection.branch ?? null,
     ...derived,

@@ -343,8 +343,8 @@ export interface MachineRecord {
  *   - `panel` is `string | null` here (RAW JSON), `IssuePanel` (an object) there.
  *   - the aggregate RENAMES three facts this row predates: `blockedBy` ->
  *     `blockedByNotes`, `origin` -> `intentOrigin`, `draft` -> `isDraftVessel`.
- *   - `description` / `notes` are plain strings here and `IssueDocuments`
- *     op-stream documents there.
+ *   - `description` is a plain string here and an `IssueDocuments`
+ *     op-stream document there.
  *   - optionality is historical, not derivable: `linearId: string | null` is a
  *     required key while `brief?: string | null` is optional, for no reason a
  *     transform could infer.
@@ -444,9 +444,7 @@ export interface IssueRow {
   type: string
   assignee: UserId | null
   parentId: IssueId | null
-  design: string | null
   acceptance: string | null
-  notes: string | null
   dueAt: string | null
   deferUntil: string | null
   closedReason: string | null

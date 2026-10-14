@@ -17,7 +17,7 @@ import { LOADING } from '@podium/client-graph/worklist/rollup'
 
 export const ISSUE_PAGE_CHECK_FIELDS = [
   'id', 'seq', 'repoId', 'repoPath', 'prefix', 'displayRef', 'title', 'description',
-  'notes', 'brief', 'design', 'acceptance', 'activityNotes', 'notesUpdatedAt',
+  'brief', 'acceptance', 'activityNotes', 'notesUpdatedAt',
   'dependencyNote', 'blockedByNotes', 'stage', 'suggestedStage', 'suggestedReason',
   'closedReason', 'closedAt', 'deletedAt', 'archived', 'priority', 'type', 'assignee',
   'labels', 'estimateMin', 'dueAt', 'deferUntil', 'color', 'parentId', 'parentBranch',

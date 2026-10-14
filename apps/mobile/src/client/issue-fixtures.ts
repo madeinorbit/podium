@@ -32,7 +32,6 @@ export function seedIssueFixtures(
     const repoId = issue.repoId ?? asRepoId(`fixture:${issue.repoPath}`)
     row.repoId = repoId
     row.description = { value: issue.description ?? '' }
-    if (issue.notes !== undefined) row.notes = { value: issue.notes }
     row.intentOrigin = issue.intentOrigin
     row.isDraftVessel = issue.isDraftVessel
     projections.push(row as unknown as IssueProjection)

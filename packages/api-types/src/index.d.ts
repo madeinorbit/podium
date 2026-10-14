@@ -1848,11 +1848,9 @@ type Input_issues_update = {
         defaultModel?: string | undefined;
         deferUntil?: string | undefined;
         description?: string | undefined;
-        design?: string | undefined;
         dueAt?: string | undefined;
         estimateMin?: number | undefined;
         machineId?: null | string | undefined;
-        notes?: string | undefined;
         parentBranch?: string | undefined;
         parentId?: string | undefined;
         pinned?: boolean | undefined;
@@ -2870,7 +2868,6 @@ type Output_issues_action = {
             revision?: number | undefined;
             value: string;
         };
-        design?: string | undefined;
         dueAt?: string | undefined;
         duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
         estimateMin?: number | undefined;
@@ -2899,11 +2896,6 @@ type Output_issues_action = {
         linearUrl?: string | undefined;
         machineId?: (string & z.BRAND<"MachineId">) | undefined;
         needsHuman: boolean;
-        notes?: undefined | {
-            opsTail?: undefined | unknown[];
-            revision?: number | undefined;
-            value: string;
-        };
         notesUpdatedAt?: string | undefined;
         owner: string & z.BRAND<"UserId">;
         panel?: undefined | {
@@ -2949,7 +2941,7 @@ type Output_issues_action = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "notes" | "owner" | "visibility" | "worktreePath"> & Omit<{
+    }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & Omit<{
         acceptance?: string | undefined;
         activityNotes?: string | undefined;
         archived: boolean;
@@ -3012,7 +3004,6 @@ type Output_issues_action = {
             revision?: number | undefined;
             value: string;
         };
-        design?: string | undefined;
         dueAt?: string | undefined;
         duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
         estimateMin?: number | undefined;
@@ -3041,11 +3032,6 @@ type Output_issues_action = {
         linearUrl?: string | undefined;
         machineId?: (string & z.BRAND<"MachineId">) | undefined;
         needsHuman: boolean;
-        notes?: undefined | {
-            opsTail?: undefined | unknown[];
-            revision?: number | undefined;
-            value: string;
-        };
         notesUpdatedAt?: string | undefined;
         owner: string & z.BRAND<"UserId">;
         panel?: undefined | {
@@ -3091,7 +3077,7 @@ type Output_issues_action = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "design" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notes" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    }, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -3108,7 +3094,6 @@ type Output_issues_action = {
         humanQuestionAskedAt?: string;
         humanQuestionAskedBy?: _podium_model.SessionId;
         humanQuestionOptions?: string[];
-        notes?: string;
         origin: _podium_model.IssueProjection["intentOrigin"];
         prefix?: string;
         ready: boolean;
@@ -3181,7 +3166,6 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
         revision?: number | undefined;
         value: string;
     };
-    design?: string | undefined;
     dueAt?: string | undefined;
     duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
     estimateMin?: number | undefined;
@@ -3210,11 +3194,6 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     linearUrl?: string | undefined;
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
     needsHuman: boolean;
-    notes?: undefined | {
-        opsTail?: undefined | unknown[];
-        revision?: number | undefined;
-        value: string;
-    };
     notesUpdatedAt?: string | undefined;
     owner: string & z.BRAND<"UserId">;
     panel?: undefined | {
@@ -3260,7 +3239,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "notes" | "owner" | "visibility" | "worktreePath"> & Omit<{
+}, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     archived: boolean;
@@ -3323,7 +3302,6 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
         revision?: number | undefined;
         value: string;
     };
-    design?: string | undefined;
     dueAt?: string | undefined;
     duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
     estimateMin?: number | undefined;
@@ -3352,11 +3330,6 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     linearUrl?: string | undefined;
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
     needsHuman: boolean;
-    notes?: undefined | {
-        opsTail?: undefined | unknown[];
-        revision?: number | undefined;
-        value: string;
-    };
     notesUpdatedAt?: string | undefined;
     owner: string & z.BRAND<"UserId">;
     panel?: undefined | {
@@ -3402,7 +3375,7 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "design" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notes" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+}, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -3419,7 +3392,6 @@ type Output_issues_addComment = _podium_model.IssueUserOverlay & Omit<{
     humanQuestionAskedAt?: string;
     humanQuestionAskedBy?: _podium_model.SessionId;
     humanQuestionOptions?: string[];
-    notes?: string;
     origin: _podium_model.IssueProjection["intentOrigin"];
     prefix?: string;
     ready: boolean;
@@ -3491,7 +3463,6 @@ type Output_issues_answerQuestion = {
             revision?: number | undefined;
             value: string;
         };
-        design?: string | undefined;
         dueAt?: string | undefined;
         duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
         estimateMin?: number | undefined;
@@ -3520,11 +3491,6 @@ type Output_issues_answerQuestion = {
         linearUrl?: string | undefined;
         machineId?: (string & z.BRAND<"MachineId">) | undefined;
         needsHuman: boolean;
-        notes?: undefined | {
-            opsTail?: undefined | unknown[];
-            revision?: number | undefined;
-            value: string;
-        };
         notesUpdatedAt?: string | undefined;
         owner: string & z.BRAND<"UserId">;
         panel?: undefined | {
@@ -3570,7 +3536,7 @@ type Output_issues_answerQuestion = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "notes" | "owner" | "visibility" | "worktreePath"> & Omit<{
+    }, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & Omit<{
         acceptance?: string | undefined;
         activityNotes?: string | undefined;
         archived: boolean;
@@ -3633,7 +3599,6 @@ type Output_issues_answerQuestion = {
             revision?: number | undefined;
             value: string;
         };
-        design?: string | undefined;
         dueAt?: string | undefined;
         duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
         estimateMin?: number | undefined;
@@ -3662,11 +3627,6 @@ type Output_issues_answerQuestion = {
         linearUrl?: string | undefined;
         machineId?: (string & z.BRAND<"MachineId">) | undefined;
         needsHuman: boolean;
-        notes?: undefined | {
-            opsTail?: undefined | unknown[];
-            revision?: number | undefined;
-            value: string;
-        };
         notesUpdatedAt?: string | undefined;
         owner: string & z.BRAND<"UserId">;
         panel?: undefined | {
@@ -3712,7 +3672,7 @@ type Output_issues_answerQuestion = {
         updatedAt: string;
         visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
         worktreePath?: string | undefined;
-    }, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "design" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notes" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+    }, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
         blocked: boolean;
         branch: null | string;
         childCount: number;
@@ -3729,7 +3689,6 @@ type Output_issues_answerQuestion = {
         humanQuestionAskedAt?: string;
         humanQuestionAskedBy?: _podium_model.SessionId;
         humanQuestionOptions?: string[];
-        notes?: string;
         origin: _podium_model.IssueProjection["intentOrigin"];
         prefix?: string;
         ready: boolean;
@@ -3860,7 +3819,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         revision?: number | undefined;
         value: string;
     };
-    design?: string | undefined;
     dueAt?: string | undefined;
     duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
     estimateMin?: number | undefined;
@@ -3889,11 +3847,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     linearUrl?: string | undefined;
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
     needsHuman: boolean;
-    notes?: undefined | {
-        opsTail?: undefined | unknown[];
-        revision?: number | undefined;
-        value: string;
-    };
     notesUpdatedAt?: string | undefined;
     owner: string & z.BRAND<"UserId">;
     panel?: undefined | {
@@ -3940,7 +3893,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     warning: string;
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "design" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notes" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     archived: boolean;
@@ -4003,7 +3956,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         revision?: number | undefined;
         value: string;
     };
-    design?: string | undefined;
     dueAt?: string | undefined;
     duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
     estimateMin?: number | undefined;
@@ -4032,11 +3984,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     linearUrl?: string | undefined;
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
     needsHuman: boolean;
-    notes?: undefined | {
-        opsTail?: undefined | unknown[];
-        revision?: number | undefined;
-        value: string;
-    };
     notesUpdatedAt?: string | undefined;
     owner: string & z.BRAND<"UserId">;
     panel?: undefined | {
@@ -4082,7 +4029,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "notes" | "owner" | "visibility" | "worktreePath"> & {
+}, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & {
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -4099,7 +4046,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     humanQuestionAskedAt?: string;
     humanQuestionAskedBy?: _podium_model.SessionId;
     humanQuestionOptions?: string[];
-    notes?: string;
     origin: _podium_model.IssueProjection["intentOrigin"];
     prefix?: string;
     ready: boolean;
@@ -4168,7 +4114,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         revision?: number | undefined;
         value: string;
     };
-    design?: string | undefined;
     dueAt?: string | undefined;
     duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
     estimateMin?: number | undefined;
@@ -4197,11 +4142,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     linearUrl?: string | undefined;
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
     needsHuman: boolean;
-    notes?: undefined | {
-        opsTail?: undefined | unknown[];
-        revision?: number | undefined;
-        value: string;
-    };
     notesUpdatedAt?: string | undefined;
     owner: string & z.BRAND<"UserId">;
     panel?: undefined | {
@@ -4247,7 +4187,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "notes" | "owner" | "visibility" | "worktreePath"> & Omit<{
+}, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     archived: boolean;
@@ -4310,7 +4250,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
         revision?: number | undefined;
         value: string;
     };
-    design?: string | undefined;
     dueAt?: string | undefined;
     duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
     estimateMin?: number | undefined;
@@ -4339,11 +4278,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     linearUrl?: string | undefined;
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
     needsHuman: boolean;
-    notes?: undefined | {
-        opsTail?: undefined | unknown[];
-        revision?: number | undefined;
-        value: string;
-    };
     notesUpdatedAt?: string | undefined;
     owner: string & z.BRAND<"UserId">;
     panel?: undefined | {
@@ -4389,7 +4323,7 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "design" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notes" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
+}, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & {
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -4406,7 +4340,6 @@ type Output_issues_create = (_podium_model.IssueUserOverlay & Omit<{
     humanQuestionAskedAt?: string;
     humanQuestionAskedBy?: _podium_model.SessionId;
     humanQuestionOptions?: string[];
-    notes?: string;
     origin: _podium_model.IssueProjection["intentOrigin"];
     prefix?: string;
     ready: boolean;
@@ -4441,7 +4374,6 @@ type Output_issues_get = (null) | ({
     dependents: _podium_model.IssueDepWire[];
     deps: _podium_model.IssueDepWire[];
     description: string;
-    design?: string | undefined;
     displayRef: string;
     draft: boolean;
     dueAt?: string | undefined;
@@ -4459,7 +4391,6 @@ type Output_issues_get = (null) | ({
     linearUrl?: string | undefined;
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
     needsHuman: boolean;
-    notes?: string;
     notesUpdatedAt?: string | undefined;
     origin: _podium_model.IssueProjection["intentOrigin"];
     panel?: undefined | {
@@ -4890,7 +4821,6 @@ type Output_issues_searchNormalized = Array<{
         revision?: number | undefined;
         value: string;
     };
-    design?: string | undefined;
     displayRef: string;
     dueAt?: string | undefined;
     duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
@@ -4920,11 +4850,6 @@ type Output_issues_searchNormalized = Array<{
     linearUrl?: string | undefined;
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
     needsHuman: boolean;
-    notes?: undefined | {
-        opsTail?: undefined | unknown[];
-        revision?: number | undefined;
-        value: string;
-    };
     notesUpdatedAt?: string | undefined;
     owner: string & z.BRAND<"UserId">;
     panel?: undefined | {
@@ -5139,7 +5064,6 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
         revision?: number | undefined;
         value: string;
     };
-    design?: string | undefined;
     dueAt?: string | undefined;
     duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
     estimateMin?: number | undefined;
@@ -5168,11 +5092,6 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     linearUrl?: string | undefined;
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
     needsHuman: boolean;
-    notes?: undefined | {
-        opsTail?: undefined | unknown[];
-        revision?: number | undefined;
-        value: string;
-    };
     notesUpdatedAt?: string | undefined;
     owner: string & z.BRAND<"UserId">;
     panel?: undefined | {
@@ -5218,7 +5137,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "design" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notes" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
+}, ("acceptance" | "activityNotes" | "asked" | "assignee" | "branch" | "brief" | "closedAt" | "closedReason" | "color" | "coordinatorSessionId" | "deferUntil" | "deletedAt" | "dependencyNote" | "dueAt" | "duplicateOf" | "estimateMin" | "lastLifecycleActor" | "linearId" | "linearIdentifier" | "linearUrl" | "machineId" | "notesUpdatedAt" | "panel" | "parentId" | "prUrl" | "repoId" | "revision" | "sortKey" | "startedBySession" | "suggestedReason" | "suggestedStage" | "supersededBy" | "worktreePath") | ("archived" | "audience" | "blockedByNotes" | "createdAt" | "createdBy" | "defaultAgent" | "defaultEffort" | "defaultModel" | "description" | "id" | "intentOrigin" | "isDraftVessel" | "labels" | "needsHuman" | "owner" | "parentBranch" | "priority" | "seq" | "stage" | "title" | "type" | "updatedAt" | "visibility")> & Omit<{
     acceptance?: string | undefined;
     activityNotes?: string | undefined;
     archived: boolean;
@@ -5281,7 +5200,6 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
         revision?: number | undefined;
         value: string;
     };
-    design?: string | undefined;
     dueAt?: string | undefined;
     duplicateOf?: (string & z.BRAND<"IssueId">) | undefined;
     estimateMin?: number | undefined;
@@ -5310,11 +5228,6 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     linearUrl?: string | undefined;
     machineId?: (string & z.BRAND<"MachineId">) | undefined;
     needsHuman: boolean;
-    notes?: undefined | {
-        opsTail?: undefined | unknown[];
-        revision?: number | undefined;
-        value: string;
-    };
     notesUpdatedAt?: string | undefined;
     owner: string & z.BRAND<"UserId">;
     panel?: undefined | {
@@ -5360,7 +5273,7 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     updatedAt: string;
     visibility: "deployment-substrate" | "owned-compute" | "per-user-state" | "personal" | "secret";
     worktreePath?: string | undefined;
-}, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "notes" | "owner" | "visibility" | "worktreePath"> & {
+}, "asked" | "branch" | "createdBy" | "description" | "intentOrigin" | "isDraftVessel" | "lastLifecycleActor" | "owner" | "visibility" | "worktreePath"> & {
     blocked: boolean;
     branch: null | string;
     childCount: number;
@@ -5377,7 +5290,6 @@ type Output_issues_start = _podium_model.IssueUserOverlay & Omit<Partial<{
     humanQuestionAskedAt?: string;
     humanQuestionAskedBy?: _podium_model.SessionId;
     humanQuestionOptions?: string[];
-    notes?: string;
     origin: _podium_model.IssueProjection["intentOrigin"];
     prefix?: string;
     ready: boolean;

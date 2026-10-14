@@ -1117,7 +1117,6 @@ export function upsertIssue(
     Object.entries(value).filter(([key]) => Object.hasOwn(IssueProjectionSchema.shape, key)),
   )
   if (typeof facts.description === 'string') facts.description = { value: facts.description }
-  if (typeof facts.notes === 'string') facts.notes = { value: facts.notes }
   ctx.replica.batch(() => {
     upsert(
       ctx,

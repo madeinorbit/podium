@@ -122,7 +122,7 @@ describe('SessionRegistry metadata deltas', () => {
     const legacyBefore = legacy.inbox.length
     const deltaBefore = delta.inbox.length
 
-    await registry.issues.crud.update(w.id, { notes: 'self-contained edit' })
+    await registry.issues.crud.update(w.id, { brief: 'self-contained edit' })
     flush(registry)
 
     await expect.poll(() => deltas(legacy.inbox.slice(legacyBefore)).length).toBe(1)
@@ -140,7 +140,7 @@ describe('SessionRegistry metadata deltas', () => {
     expect(changes.map((change) => change.entity).sort()).toEqual(['issueProjection'])
     expect(changes.every((change) => change.id === w.id && change.op === 'upsert')).toBe(true)
     const residue = changes.find((change) => change.entity === 'issueProjection')
-    expect((residue as { value: IssueProjection }).value.notes?.value).toBe('self-contained edit')
+    expect((residue as { value: IssueProjection }).value.brief).toBe('self-contained edit')
   })
 
   it('streams session upserts through the same seam', async () => {

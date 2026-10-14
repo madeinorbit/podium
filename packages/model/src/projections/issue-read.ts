@@ -42,7 +42,6 @@ import type { IssueTreeSession } from './session-read'
 export type IssueReport = Omit<
   IssueProjection,
   | 'description'
-  | 'notes'
   | 'asked'
   | 'intentOrigin'
   | 'isDraftVessel'
@@ -64,7 +63,6 @@ export type IssueReport = Omit<
     worktreePath: string | null
     branch: string | null
     commentCount: number
-    notes?: string
     repoPath: string
     prefix?: string
     displayRef: string

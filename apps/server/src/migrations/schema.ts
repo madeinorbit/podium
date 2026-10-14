@@ -1455,9 +1455,7 @@ export const issues = sqliteTable(
       (): AnySQLiteColumn<{ data: IssueId }> => issues.id,
       { onDelete: 'set null' },
     ),
-    design: text(),
     acceptance: text(),
-    notes: text(),
     dueAt: text('due_at'),
     deferUntil: text('defer_until'),
     closedReason: text('closed_reason'),
@@ -1527,7 +1525,7 @@ export const issues = sqliteTable(
     // four narrow columns off every issue and has no WHERE to narrow with — the
     // predicate is `isIssueClosed`'s and stays in TypeScript so there is one
     // definition of finished. Without this the scan still walks the full row,
-    // dragging description/design/acceptance/notes through the page cache:
+    // dragging description/brief/acceptance through the page cache:
     // 6.5MB of table pages against 123KB of index, a 53x difference in bytes
     // read. It only became the top line when the box lost its page cache and
     // each scan started costing ~694ms instead of ~60ms — the query was always

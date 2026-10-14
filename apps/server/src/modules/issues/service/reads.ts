@@ -246,7 +246,6 @@ export class IssueReportsModule {
       commentCount: batch
         ? (batch.commentCounts.get(row.id) ?? 0)
         : await this.store.deps.store.issues.countIssueComments(row.id),
-      notes: projection.notes?.value,
       ...this.store.issueOverlay(row.id),
       repoPath: row.repoPath,
       ...(prefix ? { prefix } : {}),
@@ -854,7 +853,7 @@ export class IssueReportsModule {
         if (filter.status === 'blocked' && !w.blocked) return false
         if (filter.status === 'deferred' && !w.deferred) return false
         if (text) {
-          const hay = `${w.title} ${w.description} ${w.notes ?? ''}`.toLowerCase()
+          const hay = `${w.title} ${w.description} ${w.brief ?? ''}`.toLowerCase()
           if (!hay.includes(text)) return false
         }
         return true

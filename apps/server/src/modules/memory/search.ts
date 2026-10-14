@@ -131,14 +131,14 @@ export class MemorySearchService {
     )
     const issueHits = new Set<string>()
     for (const row of visibleIssues.values()) {
-      const hay = `${row.title} ${row.description} ${row.notes ?? ''}`.toLowerCase()
+      const hay = `${row.title} ${row.description} ${row.brief ?? ''}`.toLowerCase()
       if (!hay.includes(lower)) continue
       const titleHit = row.title.toLowerCase().includes(lower)
       out.push({
         kind: 'issue',
         id: row.id,
         title: row.title,
-        snippet: titleHit ? undefined : excerpt(`${row.description} ${row.notes ?? ''}`, text),
+        snippet: titleHit ? undefined : excerpt(`${row.description} ${row.brief ?? ''}`, text),
         score: score('issue', titleHit ? 1 : 0.7, row.updatedAt, now),
         ts: row.updatedAt,
         repoPath: row.repoPath,

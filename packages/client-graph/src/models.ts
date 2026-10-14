@@ -317,7 +317,7 @@ export type RelationGetters<E extends EntityName> = {
 
 /** The one shared issue record. Worklist presentation belongs to WorklistIssue. */
 export class IssueModel extends EntityModel {
-  static override readonly answers: ReadonlySet<string> = new Set(['description', 'notes'])
+  static override readonly answers: ReadonlySet<string> = new Set(['description'])
   constructor(id: string, host: ModelHost) {
     super('issue', id, host)
   }
@@ -347,10 +347,6 @@ export class IssueModel extends EntityModel {
   }
   @lazy get description(): string {
     return documentText(this.storedField('description'))
-  }
-  @lazy get notes(): string | undefined {
-    const value = this.storedField('notes')
-    return value === undefined ? undefined : documentText(value)
   }
 
   // Activity and headless presence: raw ownership maxima/counters include
@@ -1057,7 +1053,7 @@ interface IssueEdits {
 // presence fields above keep their scalar types, and no row is stored here.
 export interface SessionModel extends Readonly<Omit<SessionView, 'archived' | 'condition' | 'messageDraft'>>, RelationGetters<'session'> {}
 
-export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority' | 'visibility'>>, Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'notes' | 'gitState'>>, IssueEdits, RelationGetters<'issue'> {
+export interface IssueModel extends Readonly<Pick<IssueProjection, 'priority' | 'visibility'>>, Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'gitState'>>, IssueEdits, RelationGetters<'issue'> {
   /** The stored projection uses the full wire contract; summaries only gate loading. */
   readonly gitState?: IssueGitState | null
 }
@@ -1074,7 +1070,7 @@ export type ModelOf = {
   automation: AutomationModel
   automationRun: AutomationRunModel
   issue: IssueModel &
-    Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description' | 'notes'>> &
+    Readonly<Omit<SliceIssue, 'title' | 'stage' | 'readAt' | 'description'>> &
     IssueEdits &
     RelationGetters<'issue'>
   session: SessionModel

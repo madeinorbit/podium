@@ -32,28 +32,28 @@ import { ENTITIES } from '@podium/client-graph/tables'
 installMobxWarnTrap()
 
 describe('schema fields on models', () => {
-  it('answers document bodies as live text while preserving absent notes', () => {
+  it('answers the document body as live text', () => {
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: 0 })
-    const row = (description: unknown, notes?: unknown): RowRecord => ({
-      kind: 'issue', id: 'body', value: { id: 'body', description, notes },
+    const row = (description: unknown): RowRecord => ({
+      kind: 'issue', id: 'body', value: { id: 'body', description },
     }) as RowRecord
-    pool.apply({ type: 'replace', rows: [row({ value: 'Description' }, { value: 'Notes' })] })
+    pool.apply({ type: 'replace', rows: [row({ value: 'Description' })] })
     const issue = pool.issueObject('body')
-    const answers: [string, string | undefined][] = []
-    const stop = autorun(() => answers.push([issue.description, issue.notes]))
+    const answers: string[] = []
+    const stop = autorun(() => answers.push(issue.description))
     try {
-      expect(answers.at(-1)).toEqual(['Description', 'Notes'])
+      expect(answers.at(-1)).toEqual('Description')
       tracked(() => {
         expect(issue.description.trim()).toBe('Description')
         // Raw documents stay in storage; every model reader gets the text answer.
         expect(issue.storedField('description')).toEqual({ value: 'Description' })
       })
-      pool.apply({ type: 'update', rows: [row({ value: 'Updated' }, { value: '' })] })
-      expect(answers.at(-1)).toEqual(['Updated', ''])
-      pool.apply({ type: 'update', rows: [row('Legacy text', 'Legacy notes')] })
-      expect(answers.at(-1)).toEqual(['Legacy text', 'Legacy notes'])
+      pool.apply({ type: 'update', rows: [row({ value: 'Updated' })] })
+      expect(answers.at(-1)).toEqual('Updated')
+      pool.apply({ type: 'update', rows: [row('Legacy text')] })
+      expect(answers.at(-1)).toEqual('Legacy text')
       pool.apply({ type: 'update', rows: [row(undefined)] })
-      expect(answers.at(-1)).toEqual(['', undefined])
+      expect(answers.at(-1)).toEqual('')
     } finally {
       stop()
       pool.dispose()
@@ -153,7 +153,7 @@ describe('schema fields on models', () => {
         }
       }
       expect(checked).toBeGreaterThan(1000)
-      expect([...IssueModel.answers].sort(), 'only issue body text is answered by the model').toEqual(['description', 'notes'])
+      expect([...IssueModel.answers].sort(), 'only issue body text is answered by the model').toEqual(['description'])
       expect(draftTitles, 'draft display titles were checked').toBeGreaterThan(0)
       expect(joinedPaths, 'normalized repository paths were checked').toBeGreaterThan(100)
       expect(corpus.sliceIssues.some((issue) =>

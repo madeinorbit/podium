@@ -97,7 +97,6 @@ function make(store: FixtureStore) {
         typeof input.description === 'string'
           ? { value: input.description }
           : (input.description ?? { value: '' }),
-      notes: typeof input.notes === 'string' ? { value: input.notes } : input.notes,
       intentOrigin: input.intentOrigin ?? origin ?? 'human',
       isDraftVessel: input.isDraftVessel ?? draft ?? false,
       asked:

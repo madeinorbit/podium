@@ -1135,7 +1135,7 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     id: ROW.issueCore,
     section: 'issues-and-tracker',
     title:
-      'Issue core (title, design, acceptance, type, priority, stage, assignee, due/defer, origin, audience, draft, panel, …)',
+      'Issue core (title, brief, acceptance, type, priority, stage, assignee, due/defer, origin, audience, draft, panel, …)',
     sites: [
       'apps/server/src/modules/issues/service/crud.ts',
       'packages/model/src/entities/issue.ts',
@@ -1224,7 +1224,7 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
   {
     id: ROW.issueDocumentFields,
     section: 'issues-and-tracker',
-    title: 'Issue document fields (`description`, `notes` / activity notes)',
+    title: 'Issue document field (`description`)',
     sites: ['packages/model/src/entities/issue.ts'],
     home: 'server',
     idMinting: 'n/a (fields of the issue row)',
@@ -1233,7 +1233,7 @@ const ISSUE_ROWS: readonly MatrixRow[] = [
     conflict: 'exp-rev',
     reservedConflict: { rule: 'op-stream', constraint: OP_STREAM_COMPACTION_CONSTRAINT },
     conflictNote:
-      'SPLIT OUT of issue core deliberately: Amendment 1 D12 names composer draft body AND issue description/notes as `op-stream`’s ONLY permitted members, and a reservation that cannot be attached to a row is a reservation nobody can honour. Today’s rule is `exp-rev` (nothing implements op-streams — this issue does not build one). Adding a member to the reserved set requires an ADR 1 amendment, exactly as `field-LWW` does.',
+      'SPLIT OUT of issue core deliberately: Amendment 1 D12 names composer draft body AND issue description/notes as `op-stream`’s ONLY permitted members, and a reservation that cannot be attached to a row is a reservation nobody can honour. Today’s rule is `exp-rev` (nothing implements op-streams — this issue does not build one). Adding a member to the reserved set requires an ADR 1 amendment, exactly as `field-LWW` does. POD-6101 removed `notes` (folded into `brief`), so `description` is the only issue member left.',
     tombstone: 'n/a',
     tombstoneNote: 'Follows the issue tombstone.',
     offline: 'offline-eligible',

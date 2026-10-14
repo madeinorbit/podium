@@ -12,8 +12,8 @@ const field = (type: FieldSpec['type'], optional = true): FieldSpec => ({
  * stay on the full row; menus need only the explicitly declared small summary. */
 export const ISSUE_PAGE_FIELDS = {
   type: field('string', false), labels: field('object', false),
-  brief: field('string'), design: field('string'), acceptance: field('string'),
-  notes: field('object'), dependencyNote: field('string'),
+  brief: field('string'), acceptance: field('string'),
+  dependencyNote: field('string'),
   suggestedStage: field('string'), suggestedReason: field('string'),
   estimateMin: field('number'), dueAt: field('isoDate'),
   parentBranch: field('string', false), color: field('string'),

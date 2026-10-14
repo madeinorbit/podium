@@ -690,15 +690,15 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
       })
 
       // Middleware path (issues.update / issues.delete).
-      expect(await outcome(worker.issues.update({ id: A.id, patch: { notes: 'in' } }))).toBe('OK')
-      expect(await outcome(worker.issues.update({ id: B.id, patch: { notes: 'out' } }))).toBe(
+      expect(await outcome(worker.issues.update({ id: A.id, patch: { brief: 'in' } }))).toBe('OK')
+      expect(await outcome(worker.issues.update({ id: B.id, patch: { brief: 'out' } }))).toBe(
         'PRECONDITION_FAILED',
       )
-      expect(await outcome(viewer.issues.update({ id: A.id, patch: { notes: 'x' } }))).toBe(
+      expect(await outcome(viewer.issues.update({ id: A.id, patch: { brief: 'x' } }))).toBe(
         'FORBIDDEN',
       )
       expect(await outcome(worker.issues.delete({ id: A.id }))).toBe('FORBIDDEN') // manage beats scope
-      expect(await outcome(op.issues.update({ id: B.id, patch: { notes: 'op' } }))).toBe('OK')
+      expect(await outcome(op.issues.update({ id: B.id, patch: { brief: 'op' } }))).toBe('OK')
 
       // mailClaim resolves the message target under the caller's visibility first.
       // An out-of-scope invisible target is deliberately indistinguishable from absence.
@@ -717,7 +717,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
         },
         true,
       )
-      expect(await outcome(overridden.issues.update({ id: C.id, patch: { notes: 'o' } }))).toBe(
+      expect(await outcome(overridden.issues.update({ id: C.id, patch: { brief: 'o' } }))).toBe(
         'OK',
       )
       expect(await outcome(overridden.issues.mailClaim({ messageId: mailC.id }))).toBe('OK')
@@ -732,7 +732,7 @@ describe('characterization: authz error codes + mailClaim/middleware parity (con
         true,
       )
       expect(
-        await outcome(overriddenViewer.issues.update({ id: A.id, patch: { notes: 'x' } })),
+        await outcome(overriddenViewer.issues.update({ id: A.id, patch: { brief: 'x' } })),
       ).toBe('FORBIDDEN')
     } finally {
       await reg.dispose()
