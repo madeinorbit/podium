@@ -66,6 +66,7 @@ import {
   issueStatusOf,
   issueStatusValueOf,
   parseIssueStatusValue,
+  type StoredIssueDepType,
 } from '@podium/model/browser'
 import { Plus, X } from 'lucide-react'
 import type { JSX, ReactNode } from 'react'
@@ -121,7 +122,7 @@ export const IssueProperties = observer(function IssueProperties({
 
   const mergeStyle = useMergeStyle(trpc)
   // Relation add is two steps: pick a dep type, then a target issue.
-  const [addRelType, setAddRelType] = useState('blocked-by')
+  const [addRelType, setAddRelType] = useState<StoredIssueDepType>('blocked-by')
 
   // biome-ignore lint/correctness/useExhaustiveDependencies: reset only on issue switch
   useEffect(() => {

@@ -28,7 +28,7 @@ import { issueObserver as observer } from './issue-observer'
 
 import { groupRelations } from '@podium/client-core/values'
 import type { IssueId } from '@podium/model/browser'
-import { ISSUE_DEP_TYPES, issueStatusOf } from '@podium/model/browser'
+import { ISSUE_DEP_TYPES, issueStatusOf, type StoredIssueDepType } from '@podium/model/browser'
 import { Plus, X } from 'lucide-react'
 import type { JSX } from 'react'
 import type { IssueViewModel } from '@/app/store'
@@ -56,8 +56,8 @@ export const IssueRelations = observer(function IssueRelations({
   commands: IssuePageCommands
   mateOptions: PropertyOption[]
   hasMates: boolean
-  addRelType: string
-  onAddRelTypeChange: (type: string) => void
+  addRelType: StoredIssueDepType
+  onAddRelTypeChange: (type: StoredIssueDepType) => void
   onOptionsOpenChange?: (open: boolean) => void
   onNavigate: (id: IssueId) => void
 }): JSX.Element {
@@ -113,7 +113,10 @@ export const IssueRelations = observer(function IssueRelations({
             options={ISSUE_DEP_TYPES.filter((t) => t !== 'supersedes' && t !== 'duplicates').map(
               (t) => ({ value: t, label: t }),
             )}
-            onSelect={onAddRelTypeChange}
+            onSelect={(value) => {
+              const type = ISSUE_DEP_TYPES.find((t) => t === value)
+              if (type) onAddRelTypeChange(type)
+            }}
             trigger={
               <Button
                 type="button"

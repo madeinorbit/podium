@@ -15,7 +15,11 @@
 import type { ActivityComment, IssueEvent, RelationEntry } from '@podium/client-core/values'
 import type { IssueUpdatePatch } from '@podium/commands'
 import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
-import { type IssueId, parseIssueStatusValue } from '@podium/model/browser'
+import {
+  type IssueId,
+  parseIssueStatusValue,
+  type StoredIssueDepType,
+} from '@podium/model/browser'
 import type { IssueViewModel } from '@/app/store'
 import type { Trpc } from '@/app/trpc'
 import type { IssueAgentKind } from '@/lib/issue-agents'
@@ -196,7 +200,7 @@ export function issuePageCommands({
       void run(() => trpc.issues.reparent.mutate({ id, parentId }))
     },
     // ---- relations ----
-    addRelation: (type: string, toId: string): void => {
+    addRelation: (type: StoredIssueDepType, toId: string): void => {
       void run(() => trpc.issues.depAdd.mutate({ fromId: id, toId, type }))
     },
     removeRelation: (entry: RelationEntry): void => {

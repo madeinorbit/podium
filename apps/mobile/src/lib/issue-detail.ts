@@ -6,6 +6,7 @@ import {
   type IssueId,
   type IssueReport,
   parseIssueStatusValue,
+  type StoredIssueDepType,
 } from '@podium/model'
 import type { MobileTrpc } from '../client/trpc'
 import type { IssueActivityPorts } from '@podium/client-graph/issue-activity'
@@ -73,7 +74,7 @@ interface IssueDetailProcs {
     supersede: Mutate<{ oldId: string; newId: string }>
     duplicate: Mutate<{ id: string; canonicalId: string }>
     reparent: Mutate<{ id: string; parentId: string | null }>
-    depAdd: Mutate<{ fromId: string; toId: string; type: string }>
+    depAdd: Mutate<{ fromId: string; toId: string; type: StoredIssueDepType }>
     depRemove: Mutate<{ fromId: string; toId: string; type: string }>
     setNeedsHuman: Mutate<{ id: string; question?: string }>
     applySuggestion: Mutate<{ id: string }>
@@ -251,7 +252,7 @@ export function issueCommands({
     },
 
     // ---- relations ----
-    addRelation: (type: string, toId: string): void => {
+    addRelation: (type: StoredIssueDepType, toId: string): void => {
       void run(() => api.depAdd.mutate({ fromId: id, toId, type }))
     },
     removeRelation: (entry: { id: string; type: string; direction: 'dep' | 'dependent' }): void => {

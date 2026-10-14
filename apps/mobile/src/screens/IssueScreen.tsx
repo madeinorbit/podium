@@ -178,7 +178,7 @@ type OpenSheet =
   | { kind: 'type' }
   | { kind: 'parent' }
   | { kind: 'relation-type' }
-  | { kind: 'relation-target'; type: string }
+  | { kind: 'relation-target'; type: (typeof RELATION_TYPES)[number] }
   | { kind: 'supersede' }
   | { kind: 'menu' }
   | { kind: 'confirm-delete' }
