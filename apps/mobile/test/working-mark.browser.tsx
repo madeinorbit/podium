@@ -13,7 +13,6 @@ import { SessionCard } from '../src/components/SessionCard'
 import { SessionConversation } from '../src/components/SessionConversation'
 import { TranscriptList } from '../src/components/TranscriptList'
 import { IdSquare } from '../src/components/IdSquare'
-import { useWorkingMarkMotion } from '../src/components/working-mark-motion.web'
 import { WorkRow } from '../src/screens/WorkListRow'
 import { createHeaderFixture } from '../../web/test/header-fixture'
 import type { MobileTrpc } from '../src/client/trpc'
@@ -34,7 +33,6 @@ Object.assign(fixture.api, {
   messages: { records: { query: async () => ({ records: [] }) } },
 })
 const Surface = observer(function Surface() {
-  useWorkingMarkMotion()
   const pool = useMobilePool()
   const session = useSessionContextSession(id)
   const pending = useSessionContextSession(pendingId)

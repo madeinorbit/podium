@@ -32,15 +32,13 @@ an app that imports `tetra` ships only the tetrahedron: about 4 KB gzipped with 
 Chrome +13 to +14, flat to 256 marks, typing at static's level. `fps={30}` is smoother and costs Safari about a third
 more. `fps="smooth"` uses the design's own lowest smooth rate (20–40).
 
-**Motion off.** Reduced motion shows the resting picture. `pauseWorkingMarksWhenIdle({ idleMs: 5000 })` (call once at
-start-up; it returns a stop function) shows it after 5 s without input and while the window is unfocused or hidden:
-paused marks cost what static marks cost. `setWorkingMarksPaused(on)` does it by hand.
+**Motion off.** A mark in view always moves, with or without input or window focus. Reduced motion shows the resting
+picture.
 
 **Colour.** The colour is baked into the image. A theme switch through `<html>`'s `class`, `data-theme` or `style`, or
 the system colour scheme, redraws the marks on its own; after any other change call `refreshWorkingMarks()`.
 
 **React Native.** The DOM methods and `/react` component need browser APIs. Import `tetra` from `/designs`
 and `dotsAt` / `restingPicture` from `/frames` for a native renderer; this entry has no DOM dependencies.
-The phone app uses native SVG, one shared 15 fps clock, screen focus, AppState and a 5 s touch-idle pause.
-It uses the resting picture under the app's reduced-motion provider. Its web export uses `mountWorkingMark` with `image` and
-`pauseWorkingMarksWhenIdle`, with the same caller gates, colour and cell dimensions.
+The phone app uses native SVG and one shared 15 fps clock that stops only while its screen is covered or the app is in the background.
+It uses the resting picture under the app's reduced-motion provider. Its web export uses `mountWorkingMark` with `image`, with the same caller gates, colour and cell dimensions.

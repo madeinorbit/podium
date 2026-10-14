@@ -13,8 +13,8 @@
  *   IntersectionObserver). In Safari it costs the same as the image at 12–15 fps and stays flat with many marks.
  * - `still`: the resting picture, never moving.
  *
- * Reduced motion shows the resting picture whatever the method, and so does `setWorkingMarksPaused(true)` (see
- * `pauseWorkingMarksWhenIdle`). The mark is drawn in its host's CSS `color` unless a colour is given.
+ * A mark in view always moves; reduced motion shows the resting picture whatever the method. The mark is drawn in
+ * its host's CSS `color` unless a colour is given.
  */
 import { assembleApng } from './apng'
 import { restingPicture, type Sheet, sheetOf, smoothFps } from './frames'
@@ -164,7 +164,7 @@ function drawCell(c: SharedCanvas, cell: HTMLCanvasElement, index: number): void
 function runCanvas(c: SharedCanvas): void {
   clearTimeout(c.timer)
   c.timer = undefined
-  if (!c.seen.size || paused || reducedMotion()) {
+  if (!c.seen.size || reducedMotion()) {
     drawCell(c, c.rest, -1)
     return
   }
@@ -228,7 +228,6 @@ interface Live {
   still: boolean
 }
 const live = new Set<Live>()
-let paused = false
 let motionQuery: MediaQueryList | undefined
 const reducedMotion = (): boolean => {
   motionQuery ??= window.matchMedia('(prefers-reduced-motion: reduce)')
@@ -241,7 +240,7 @@ function render(m: Live): void {
   const method = resolveMethod(o.method)
   const fps = o.fps === 'smooth' ? smoothFps(d) : (o.fps ?? DEFAULT_FPS)
   const sh = sheetOf(d, px, fps, m.dpr)
-  m.still = method === 'still' || paused || reducedMotion()
+  m.still = method === 'still' || reducedMotion()
   if (m.inner) {
     const c = canvasOf.get(m.inner)
     if (c) {
@@ -320,7 +319,7 @@ export function refreshWorkingMarks(): void {
 function redraw(readColors: boolean): void {
   const dpr = dprNow()
   const stillNow = (m: Live): boolean =>
-    resolveMethod(m.options.method) === 'still' || paused || reducedMotion()
+    resolveMethod(m.options.method) === 'still' || reducedMotion()
   for (const m of live) {
     const color = readColors ? colorOf(m) : m.color
     if (color === m.color && dpr === m.dpr && stillNow(m) === m.still) continue
@@ -384,53 +383,4 @@ export function createWorkingMark(
   element.style.cssText = `position:relative;display:inline-block;flex:none;vertical-align:middle;width:${box.width}px;height:${box.height}px`
   const handle = mountWorkingMark(element, design, options)
   return { element, ...handle }
-}
-
-// ---------- pausing ----------
-
-/** Shows every mark's resting picture while paused; they go on, in step, when unpaused. */
-export function setWorkingMarksPaused(on: boolean): void {
-  if (paused === on) return
-  paused = on
-  redraw(false)
-  for (const c of canvases.values()) runCanvas(c)
-}
-
-/**
- * Pauses the marks after `idleMs` without a key, click, pointer move or wheel, and while the window is unfocused or
- * hidden; the next input, focus or showing starts them again. Measured in both engines: paused marks cost what
- * static marks cost, and the restart is not noticeable. Returns a function that stops it (and unpauses).
- */
-export function pauseWorkingMarksWhenIdle({ idleMs = 5000 }: { idleMs?: number } = {}): () => void {
-  if (!hasDom()) return () => {}
-  let timer: ReturnType<typeof setTimeout> | undefined
-  const arm = (): void => {
-    clearTimeout(timer)
-    timer = setTimeout(() => setWorkingMarksPaused(true), idleMs)
-  }
-  const wake = (): void => {
-    if (document.visibilityState === 'hidden' || !document.hasFocus()) return
-    setWorkingMarksPaused(false)
-    arm()
-  }
-  const sleep = (): void => {
-    clearTimeout(timer)
-    setWorkingMarksPaused(true)
-  }
-  const onVisibility = (): void => (document.visibilityState === 'hidden' ? sleep() : wake())
-  const inputs = ['keydown', 'pointerdown', 'pointermove', 'wheel'] as const
-  for (const type of inputs) window.addEventListener(type, wake, { passive: true, capture: true })
-  window.addEventListener('focus', wake)
-  window.addEventListener('blur', sleep)
-  document.addEventListener('visibilitychange', onVisibility)
-  if (document.visibilityState === 'hidden' || !document.hasFocus()) sleep()
-  else wake()
-  return () => {
-    clearTimeout(timer)
-    for (const type of inputs) window.removeEventListener(type, wake, { capture: true })
-    window.removeEventListener('focus', wake)
-    window.removeEventListener('blur', sleep)
-    document.removeEventListener('visibilitychange', onVisibility)
-    setWorkingMarksPaused(false)
-  }
 }

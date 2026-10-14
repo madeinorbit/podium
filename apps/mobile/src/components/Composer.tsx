@@ -1,4 +1,3 @@
-import { noteWorkingMarkInput } from './working-mark-motion'
 import { BlurView } from 'expo-blur'
 import { ArrowUp, ClipboardPaste, Mic, MicOff, Paperclip, Square } from './icons'
 import { type ReactNode, useEffect, useRef, useState } from 'react'
@@ -313,7 +312,6 @@ export function Composer({
   const voiceStatus = composerVoiceStatus(voice)
 
   const changeText = (next: string) => {
-    noteWorkingMarkInput()
     if (voice.session || voice.starting || voice.listening || voice.error) voice.clear()
     writeText(next)
   }

@@ -1,6 +1,5 @@
 /** Working-mark layout review using the app's row, badge, tab glyph and feed tail. */
 import type { SessionView } from '@podium/client-core/session-values'
-import { pauseWorkingMarksWhenIdle } from '@podium/working-mark'
 import { type JSX, useEffect, useState } from 'react'
 import { createRoot } from 'react-dom/client'
 import { TranscriptTail } from '@/features/chat/TranscriptTail'
@@ -12,8 +11,6 @@ import { WorkingMark } from '@/lib/motion/WorkingMark'
 import '@/index.css'
 import '@/styles.css'
 
-const stopIdlePause = pauseWorkingMarksWhenIdle()
-import.meta.hot?.dispose(stopIdlePause)
 const since = new Date(Date.now() - 390_000).toISOString()
 const working = { agentState: { phase: 'working', since, nativeSubagentCount: 0 } } as SessionView
 

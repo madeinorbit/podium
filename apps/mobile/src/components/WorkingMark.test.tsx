@@ -52,7 +52,6 @@ vi.mock('react-native-svg', async () => {
 })
 
 const { WorkingMark } = await import('./WorkingMark.native')
-const { noteWorkingMarkInput } = await import('./working-mark-motion.native')
 
 const latestPicture = () => updates.slice(-4).map(dot => [dot.cx, dot.cy, dot.rx, dot.ry, dot.opacity])
 const rest = restingPicture(tetra)
@@ -79,36 +78,29 @@ describe('phone tetra mark', () => {
     expect(drawn).toHaveLength(4)
   })
 
-  it('uses the tetra frames with one clock, updates native dots without React renders, and stops after idle', () => {
+  it('uses the tetra frames with one clock, updates native dots without React renders, and keeps moving without input', () => {
     render(<><WorkingMark /><WorkingMark size={18} /></>)
-    expect(lifecycle.events.size).toBe(3)
-    expect(vi.getTimerCount()).toBe(2) // one frame interval and one idle timeout
+    expect(lifecycle.events.size).toBe(1)
+    expect(vi.getTimerCount()).toBe(1) // one frame interval, no idle timeout
     expect(latestPicture()).toEqual(dotsAt(tetra, 1000))
     const rendered = drawn.length
     act(() => vi.advanceTimersByTime(1000))
     expect(latestPicture()).not.toEqual(rest)
     expect(drawn).toHaveLength(rendered)
-    act(() => vi.advanceTimersByTime(4000))
-    expect(latestPicture()).toEqual(rest)
-    expect(vi.getTimerCount()).toBe(0)
-    act(() => noteWorkingMarkInput())
-    expect(vi.getTimerCount()).toBe(2)
+    act(() => vi.advanceTimersByTime(60_000))
+    expect(latestPicture()).toEqual(dotsAt(tetra, Date.now() % tetra.loop))
+    expect(vi.getTimerCount()).toBe(1)
   })
 
-  it('stops in the background and on Android blur, and cannot be woken by touch until active and focused', () => {
+  it('stops only in the background and moves again when the app returns', () => {
     render(<WorkingMark />)
+    act(() => lifecycle.events.get('change')?.('inactive'))
+    expect(vi.getTimerCount()).toBe(1)
     act(() => lifecycle.events.get('change')?.('background'))
     expect(latestPicture()).toEqual(rest)
-    act(() => noteWorkingMarkInput())
     expect(vi.getTimerCount()).toBe(0)
     act(() => lifecycle.events.get('change')?.('active'))
-    expect(vi.getTimerCount()).toBe(2)
-    act(() => lifecycle.events.get('blur')?.())
-    expect(latestPicture()).toEqual(rest)
-    act(() => noteWorkingMarkInput())
-    expect(vi.getTimerCount()).toBe(0)
-    act(() => lifecycle.events.get('focus')?.())
-    expect(vi.getTimerCount()).toBe(2)
+    expect(vi.getTimerCount()).toBe(1)
   })
 
   it('pauses covered screens and responds to reduced motion, with the resting picture and working colour', () => {
@@ -124,13 +116,13 @@ describe('phone tetra mark', () => {
       lifecycle.focused = true
       for (const listener of lifecycle.focusListeners) listener()
     })
-    expect(vi.getTimerCount()).toBe(2)
+    expect(vi.getTimerCount()).toBe(1)
     drawn.length = 0
     rerender(<ReducedMotionContext.Provider value={true}><WorkingMark tint="#fff" /></ReducedMotionContext.Provider>)
     expect(latestPicture()).toEqual(rest)
     expect(vi.getTimerCount()).toBe(0)
     expect(new Set(drawn.map(dot => dot.fill))).toEqual(new Set(['#fff']))
     rerender(<ReducedMotionContext.Provider value={false}><WorkingMark /></ReducedMotionContext.Provider>)
-    expect(vi.getTimerCount()).toBe(2)
+    expect(vi.getTimerCount()).toBe(1)
   })
 })

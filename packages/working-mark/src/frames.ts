@@ -207,5 +207,5 @@ export function sheetOf(d: Design, px: number, fps: number, dpr: number): Sheet 
   return out
 }
 
-/** The picture a design rests on for reduced motion and while paused. */
+/** The picture a design rests on for reduced motion and while a mark is out of sight. */
 export const restingPicture = (d: Design): Picture => dotsAt(d, (d.rest ?? 0) * d.loop)
