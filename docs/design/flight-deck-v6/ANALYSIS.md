@@ -202,3 +202,12 @@ Supporting changes:
 - **Cycle check** on `blocked-by`.
 - **Dependencies may point outside the mission.**
 - Filed as POD-6100.
+
+**D8 — Issue text fields (2026-10-14).**
+- **Three fields only:**
+  - `description`, for humans. The summary comes first; optional sections such as Goal or Scope follow, and the deck expands them.
+  - `brief`, for agents.
+  - `acceptance`, shown to agents in `prime` and again when they move the issue to review or done.
+- **`design` and `notes` fold into `brief`** and are removed.
+- **The deck's link says "Read more"**, not "brief".
+- Filed as POD-6101.
