@@ -18,7 +18,7 @@ const session = (id: string, patch: object = {}) => ({ kind: 'session' as const,
 const initial = () => [
   { kind: 'worktree' as const, id: '/synthetic', value: { path: '/synthetic', repoId: 'repo', repoPath: '/synthetic' } as never },
   { kind: 'repo' as const, id: 'repo', value: { id: 'repo', path: '/synthetic', prefix: 'POD' } as never },
-  issue('root'), issue('other'), issue('child', { parentId: 'root', deps: [{ id: 'root', type: 'blocks' }] }),
+  issue('root'), issue('other'), issue('child', { parentId: 'root', deps: [{ id: 'root', type: 'blocked-by' }] }),
   session('seat'), session('free', { issueId: undefined }),
 ]
 function fixture() {

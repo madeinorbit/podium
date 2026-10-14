@@ -457,7 +457,7 @@ export function createRowSource(
           (e) => !(e.id === before.to && e.type === before.type),
         ),
       )
-      if (before.type === 'blocks') incoming.get(before.to)?.delete(before.from)
+      if (before.type === 'blocked-by') incoming.get(before.to)?.delete(before.from)
     }
     edgeRows.delete(id)
     if (after !== undefined && after.from && after.to) {
@@ -467,7 +467,7 @@ export function createRowSource(
         ...(outgoing.get(after.from) ?? []),
         { id: after.to, type: after.type },
       ])
-      if (after.type === 'blocks') {
+      if (after.type === 'blocked-by') {
         let ownersOf = incoming.get(after.to)
         if (ownersOf === undefined) {
           ownersOf = new Set()
@@ -513,7 +513,7 @@ export function createRowSource(
     )
     const gitState = authority('issueGitStates', id)
     const deps = outgoing.get(id) ?? EMPTY
-    const blocked = deps.some((edge) => edge.type === 'blocks' && closedInput(edge.id) === false)
+    const blocked = deps.some((edge) => edge.type === 'blocked-by' && closedInput(edge.id) === false)
     return issueInput(
       projection,
       userState,

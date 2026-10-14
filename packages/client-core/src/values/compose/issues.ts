@@ -399,7 +399,7 @@ export type IssuePendingDecision = 'merge' | 'review'
 export function issuePendingDecision(issue: IssueNavigationModel): IssuePendingDecision | null {
   const finished = isFinished(issue)
   if (!finished && issue.stage !== 'review') return null
-  // `blocked` is derived from open outgoing `blocks` edges by the replica. Such
+  // `blocked` is derived from open outgoing `blocked-by` edges by the replica. Such
   // work is waiting on its dependency, not on a human merge/review decision.
   if (issue.blocked) return null
   // An abandoned closure asks nothing further: there is no merge to offer for

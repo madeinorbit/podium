@@ -294,16 +294,16 @@ describe('issueProjectionRows: all-or-nothing [POD-796]', () => {
 
 describe('issueDep projection [POD-822]', () => {
   it("derives the edge id from its primary key, so the feed's identity is the store's", () => {
-    const p = issueDepToProjection({ fromId: 'iss_1', toId: 'iss_2', type: 'blocks' })
+    const p = issueDepToProjection({ fromId: 'iss_1', toId: 'iss_2', type: 'blocked-by' })
     // The composed key — not a minted id. Re-adding the same edge produces a
     // byte-identical row the ledger dedups, so a no-op add appends nothing.
-    expect(p).toEqual({ id: 'iss_1|iss_2|blocks', fromId: 'iss_1', toId: 'iss_2', type: 'blocks' })
-    expect(issueDepToProjection({ fromId: 'iss_1', toId: 'iss_2', type: 'blocks' })).toEqual(p)
+    expect(p).toEqual({ id: 'iss_1|iss_2|blocks', fromId: 'iss_1', toId: 'iss_2', type: 'blocked-by' })
+    expect(issueDepToProjection({ fromId: 'iss_1', toId: 'iss_2', type: 'blocked-by' })).toEqual(p)
   })
 
   it('rows: keys each edge by its composed id, stable order', () => {
     const rows = issueDepProjectionRows([
-      { fromId: 'iss_1', toId: 'iss_2', type: 'blocks' },
+      { fromId: 'iss_1', toId: 'iss_2', type: 'blocked-by' },
       { fromId: 'iss_1', toId: 'iss_3', type: 'related' },
     ])
     expect(rows?.map((r) => r.id)).toEqual(['iss_1|iss_2|blocks', 'iss_1|iss_3|related'])
@@ -324,7 +324,7 @@ describe('issueDep projection [POD-822]', () => {
     const logs = captureLogs()
     try {
       const rows = issueDepProjectionRows([
-        { fromId: 'iss_1', toId: 'iss_2', type: 'blocks' },
+        { fromId: 'iss_1', toId: 'iss_2', type: 'blocked-by' },
         { fromId: 'iss_a', toId: 'iss_2', type: '' },
       ])
       expect(rows).toBeUndefined()

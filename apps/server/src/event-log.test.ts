@@ -401,7 +401,7 @@ describe('IssueService event emission', () => {
     const { svc, store } = await harness()
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await svc.hierarchy.addDep(b.id, a.id, 'blocks')
+    await svc.hierarchy.addDep(b.id, a.id, 'blocked-by')
     await svc.crud.close(a.id)
     const closed = await store.events.listEventsSince(0, { kinds: ['issue.closed'] })
     expect(closed.length).toBe(1)
@@ -416,8 +416,8 @@ describe('IssueService event emission', () => {
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
     const c = await svc.crud.create({ repoPath: '/r', title: 'C', startNow: false })
-    await svc.hierarchy.addDep(c.id, a.id, 'blocks')
-    await svc.hierarchy.addDep(c.id, b.id, 'blocks')
+    await svc.hierarchy.addDep(c.id, a.id, 'blocked-by')
+    await svc.hierarchy.addDep(c.id, b.id, 'blocked-by')
     await svc.crud.close(a.id)
     expect(await store.events.listEventsSince(0, { kinds: ['issue.ready'] })).toEqual([])
   })
@@ -543,7 +543,7 @@ describe('IssueService event emission', () => {
     const { svc, store } = await harness()
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await svc.hierarchy.addDep(b.id, a.id, 'blocks')
+    await svc.hierarchy.addDep(b.id, a.id, 'blocked-by')
     await svc.crud.update(a.id, { stage: 'done' })
     const closed = await store.events.listEventsSince(0, { kinds: ['issue.closed'] })
     expect(closed.length).toBe(1)
@@ -581,7 +581,7 @@ describe('IssueService event emission', () => {
     const { svc, store } = await harness()
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await svc.hierarchy.addDep(b.id, a.id, 'blocks')
+    await svc.hierarchy.addDep(b.id, a.id, 'blocked-by')
 
     // Arm the fault only after issue.closed lands, so this test distinguishes
     // a committed close from the post-commit ready fanout that follows it.
@@ -623,8 +623,8 @@ describe('IssueService event emission', () => {
     const a = await svc.crud.create({ repoPath: '/clone/one', title: 'A', startNow: false })
     const b = await svc.crud.create({ repoPath: '/clone/one', title: 'B', startNow: false })
     const c = await svc.crud.create({ repoPath: '/clone/two', title: 'C', startNow: false })
-    await svc.hierarchy.addDep(b.id, a.id, 'blocks')
-    await svc.hierarchy.addDep(c.id, a.id, 'blocks')
+    await svc.hierarchy.addDep(b.id, a.id, 'blocked-by')
+    await svc.hierarchy.addDep(c.id, a.id, 'blocked-by')
 
     // Both clones share a repo identity, so the fanout checks both dependents'
     // outgoing blockers. Fail the second read after the first dependent is ready:
@@ -667,8 +667,8 @@ describe('IssueService event emission', () => {
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
     const c = await svc.crud.create({ repoPath: '/r', title: 'C', startNow: false })
-    await svc.hierarchy.addDep(b.id, a.id, 'blocks')
-    await svc.hierarchy.addDep(c.id, a.id, 'blocks')
+    await svc.hierarchy.addDep(b.id, a.id, 'blocked-by')
+    await svc.hierarchy.addDep(c.id, a.id, 'blocked-by')
 
     const origAppend = store.events.appendEvent.bind(store.events)
     let readyAppends = 0

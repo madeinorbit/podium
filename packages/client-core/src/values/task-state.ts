@@ -95,7 +95,7 @@ export function rankedTaskStateSlots(
   if (issue.deletedAt) slots.push({ kind: 'deleted' })
   if (issue.needsHuman) slots.push({ kind: 'needs-human' })
   if (issue.blocked) slots.push({ kind: 'blocked' })
-  if (issue.dependents.some((dependency) => dependency.type === 'blocks')) {
+  if (issue.dependents.some((dependency) => dependency.type === 'blocked-by')) {
     slots.push({ kind: 'blocking' })
   }
   const live = options.workingAgents + (options.progress?.liveAgents ?? 0)

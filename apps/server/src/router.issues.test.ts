@@ -40,6 +40,13 @@ describe('issues router inputs (P1)', () => {
     expect(inputSchema('issues.depAdd').parse({ fromId: 'a', toId: 'b' }).type).toBeUndefined()
   })
 
+  it('depAdd accepts only the fixed dependency types (POD-6100)', () => {
+    for (const type of ['blocked-by', 'related', 'discovered-from', 'supersedes', 'duplicates'])
+      expect(inputSchema('issues.depAdd').parse({ fromId: 'a', toId: 'b', type }).type).toBe(type)
+    for (const type of ['blocks', 'waits-on', 'duplicate', 'parent-child', 'tracks'])
+      expect(() => inputSchema('issues.depAdd').parse({ fromId: 'a', toId: 'b', type }), type).toThrow()
+  })
+
   // POD-1342: the CLI's truncation footer tells the reader to raise these, so
   // they have to survive the wire — an id-only input would strip them silently.
   it('tree accepts the raisable depth/node caps and rejects out-of-range ones', () => {

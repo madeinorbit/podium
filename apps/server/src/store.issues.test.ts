@@ -336,11 +336,11 @@ describe('issue deps (P1)', () => {
     await store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_c'), 'related')
     await store.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b')) // idempotent
     expect(await store.issues.listIssueDeps(asIssueId('iss_a'))).toEqual([
-      { toId: 'iss_b', type: 'blocks' },
+      { toId: 'iss_b', type: 'blocked-by' },
       { toId: 'iss_c', type: 'related' },
     ])
     expect(await store.issues.listDependents(asIssueId('iss_b'))).toEqual([
-      { fromId: 'iss_a', type: 'blocks' },
+      { fromId: 'iss_a', type: 'blocked-by' },
     ])
     await store.issues.removeIssueDep(asIssueId('iss_a'), asIssueId('iss_b'))
     expect(await store.issues.listIssueDeps(asIssueId('iss_a'))).toEqual([

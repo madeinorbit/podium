@@ -26,12 +26,12 @@ export interface RelationSection {
  *
  * `issue.deps` are the OUTGOING deps the subject stores — each is `{ id: toId,
  * type }` for an edge `subject → toId`. `computeBlocked` (issues.ts:73-83) marks
- * the subject BLOCKED when it has a `blocks` dep whose TARGET is still open. So an
- * outgoing `blocks` dep means "subject is BLOCKED BY target" → the "Blocked by"
- * section.
+ * the subject BLOCKED when it has a `blocked-by` dep whose TARGET is still open.
+ * So an outgoing `blocked-by` dep means "subject is BLOCKED BY target" → the
+ * "Blocked by" section.
  *
  * `issue.dependents` are the INCOMING deps (`{ id: fromId, type }` for an edge
- * `fromId → subject`). An incoming `blocks` dep means some other issue is blocked
+ * `fromId → subject`). An incoming `blocked-by` dep means some other issue is blocked
  * by the subject → the subject "Blocks" it → the "Blocks" section.
  *
  * `parent-child` and `supersedes` are intentionally excluded here — the sidebar
@@ -46,7 +46,7 @@ const EXCLUDED_TYPES = new Set(['parent-child', 'supersedes'])
 // first thing a reader orients by; scheduling facts follow.
 const NAMED_ORDER = ['Spun off from', 'Spin-offs', 'Blocked by', 'Blocks', 'Related'] as const
 
-/** Turn a dep type string into a human section label ('caused-by' → 'Caused by'). */
+/** Turn a dep type string into a human section label ('blocked-by' → 'Blocked by'). */
 function typeLabel(type: string): string {
   const spaced = type.replace(/-/g, ' ')
   return spaced.charAt(0).toUpperCase() + spaced.slice(1)
@@ -54,8 +54,11 @@ function typeLabel(type: string): string {
 
 /** Which section does a (type, direction) pair belong to? */
 function sectionFor(type: string, direction: RelationDirection): string {
-  if (type === 'blocks') return direction === 'dep' ? 'Blocked by' : 'Blocks'
+  if (type === 'blocked-by') return direction === 'dep' ? 'Blocked by' : 'Blocks'
   if (type === 'related') return 'Related'
+  // The `duplicate` verb writes `dup → canonical`; the canonical side lists the
+  // copies, which its own lifecycle banner does not.
+  if (type === 'duplicates') return direction === 'dep' ? 'Duplicate of' : 'Duplicates'
   // Direction-aware provenance (POD-85): an outgoing edge names the origin this
   // issue was spun off from; an incoming one lists the work spun off of it.
   if (type === 'discovered-from') return direction === 'dep' ? 'Spun off from' : 'Spin-offs'

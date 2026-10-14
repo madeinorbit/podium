@@ -222,7 +222,7 @@ it('bounds parent child-list reads for earliest-child parenting at 1x and 4x', (
 })
 
 it('renders an addressed dependency label without loading that target\'s unrelated dependents', () => {
-  const root = issue('root', { blocked: true, deps: [{ id: 'blocker', type: 'blocks' }] })
+  const root = issue('root', { blocked: true, deps: [{ id: 'blocker', type: 'blocked-by' }] })
   const { pool, reader } = open([root, issue('blocker', { seq: 2, stage: 'backlog' }),
     issue('unrelated', { ...coldRoot(), id: 'unrelated', deps: [{ id: 'blocker', type: 'related' }] })], [])
   const read = vi.spyOn(pool, 'row')

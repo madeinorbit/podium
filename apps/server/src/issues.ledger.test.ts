@@ -362,7 +362,7 @@ describe('issue writes on the write-seam Ledger ([spec:SP-3fe2] #255)', () => {
     const { svc, appended } = await harness()
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await svc.hierarchy.addDep(b.id, a.id, 'blocks') // B waits on A
+    await svc.hierarchy.addDep(b.id, a.id, 'blocked-by') // B waits on A
     expect((await svc.reports.get(b.id))?.blocked).toBe(true)
     appended.length = 0
     await svc.crud.close(a.id)
@@ -652,7 +652,7 @@ describe('per-entity revision (ADR 2 D3)', () => {
     const { svc, appended } = await harness()
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await svc.hierarchy.addDep(b.id, a.id, 'blocks')
+    await svc.hierarchy.addDep(b.id, a.id, 'blocked-by')
     const revision = await revisionOf(svc, b.id)
     expect((await svc.reports.get(b.id))?.blocked).toBe(true)
     appended.length = 0

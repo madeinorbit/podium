@@ -216,7 +216,7 @@ describe('POD-1614 — a bootstrap does not re-read the sessions table per row',
     // back beside the new one.
     const sessionLoads = vi.spyOn(store.sessions, 'findSessionsByIssueIds')
     const wholeTableLoads = vi.spyOn(store.sessions, 'loadSessions')
-    const dependencyId = issueDepId('i1', 'i-target', 'blocks')
+    const dependencyId = issueDepId('i1', 'i-target', 'blocked-by')
     await store.sync.appendChanges(
       [
         // One normalized record per issue; visibility anchors use that same row.

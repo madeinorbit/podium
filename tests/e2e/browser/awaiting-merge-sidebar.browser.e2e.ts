@@ -162,7 +162,7 @@ test('done branch delta becomes still yellow ready-to-merge attention', async ({
   await rpc(request, 'issues.depAdd', {
     fromId: created.id,
     toId: blocker.id,
-    type: 'blocks',
+    type: 'blocked-by',
   })
   await expect(reviewRow.getByTestId('awaiting-merge-status')).toHaveCount(0)
   await expect(reviewRow).not.toContainText('ready to merge')

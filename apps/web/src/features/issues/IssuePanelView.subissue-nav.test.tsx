@@ -16,7 +16,7 @@ const PARENT = makeIssue({
   title: 'Epic',
   worktreePath: '/r',
   childCount: 1,
-  deps: [{ id: 'r', type: 'blocks' }],
+  deps: [{ id: 'r', type: 'blocked-by' }],
   childDoneCount: 0,
 })
 const CHILD = makeIssue({

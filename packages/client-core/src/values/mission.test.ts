@@ -2345,7 +2345,7 @@ describe('operationalState', () => {
   })
 
   describe('the blocked label names its blocker when an issue index is supplied', () => {
-    // An OUTGOING `blocks` dep means "this issue is blocked BY the target".
+    // An OUTGOING `blocked-by` dep means "this issue is blocked BY the target".
     // `issueDisplayRef` reads `displayRef` and falls back to `#seq` — `prefix`
     // is not what it consults, so the ref has to be spelled out here.
     const blocker = (
@@ -2354,7 +2354,7 @@ describe('operationalState', () => {
       over: Partial<UnbrandIds<IssueNavigationModel>> = {},
     ) => issue(id, { seq, displayRef: `POD-${seq}`, ...over })
     const blockedBy = (...targets: string[]) =>
-      issue('i', { blocked: true, deps: targets.map((id) => ({ id, type: 'blocks' })) })
+      issue('i', { blocked: true, deps: targets.map((id) => ({ id, type: 'blocked-by' })) })
     const index = (...issues: IssueNavigationModel[]) =>
       new Map(issues.map((entry) => [entry.id, entry]))
 
@@ -2404,7 +2404,7 @@ describe('operationalState', () => {
         'Waiting on dependency',
       ],
       [
-        'ignores dep types that are not `blocks`',
+        'ignores dep types that are not `blocked-by`',
         issue('i', { blocked: true, deps: [{ id: 'dep', type: 'discovered-from' }] }),
         index(blocker('dep', 42)),
         'Waiting on dependency',
@@ -2422,14 +2422,14 @@ describe('operationalState', () => {
       // A named blocker must not resurrect a finished issue or preempt a live agent.
       expect(
         operationalState(
-          issue('i', { blocked: true, stage: 'done', deps: [{ id: 'dep', type: 'blocks' }] }),
+          issue('i', { blocked: true, stage: 'done', deps: [{ id: 'dep', type: 'blocked-by' }] }),
           [],
           byId,
         ).state,
       ).toBe('done')
       expect(
         operationalState(
-          issue('i', { blocked: true, deps: [{ id: 'dep', type: 'blocks' }] }),
+          issue('i', { blocked: true, deps: [{ id: 'dep', type: 'blocked-by' }] }),
           [sess('a', { agentState: workingState })],
           byId,
         ).state,
@@ -2624,7 +2624,7 @@ describe('presenceNote', () => {
 
   it('names the blocker when an issue index is available', () => {
     const blocker = issue('dep', { seq: 42 })
-    const subject = issue('a', { blocked: true, deps: [{ id: 'dep', type: 'blocks' }] })
+    const subject = issue('a', { blocked: true, deps: [{ id: 'dep', type: 'blocked-by' }] })
     expect(presenceNote(subject, [], index([blocker, subject]))?.text).toMatch(/^Blocked by /)
   })
 
@@ -2759,7 +2759,7 @@ describe('waitingNote', () => {
 
   it('names the unfinished task this one is waiting for', () => {
     const dep = issue('dep')
-    const subject = issue('a', { deps: [{ id: 'dep', type: 'blocks' }] })
+    const subject = issue('a', { deps: [{ id: 'dep', type: 'blocked-by' }] })
     expect(waitingNote(subject, index([dep, subject]))).toMatch(/^Waiting for .+ to complete$/)
   })
 
@@ -2769,7 +2769,7 @@ describe('waitingNote', () => {
       stage: 'review',
       branch: 'issue/a',
       blocked: true,
-      deps: [{ id: 'dep', type: 'blocks' }],
+      deps: [{ id: 'dep', type: 'blocked-by' }],
       gitState: {
         updatedAt: '2026-07-01T00:00:00.000Z',
         branch: 'issue/a',
@@ -2788,8 +2788,8 @@ describe('waitingNote', () => {
     const deps = [issue('d1'), issue('d2')]
     const subject = issue('a', {
       deps: [
-        { id: 'd1', type: 'blocks' },
-        { id: 'd2', type: 'blocks' },
+        { id: 'd1', type: 'blocked-by' },
+        { id: 'd2', type: 'blocked-by' },
       ],
     })
     expect(waitingNote(subject, index([...deps, subject]))).toBe('Waiting for 2 tasks to complete')
@@ -2797,7 +2797,7 @@ describe('waitingNote', () => {
 
   it('goes quiet once the dependency lands', () => {
     const dep = issue('dep', { stage: 'done' })
-    const subject = issue('a', { deps: [{ id: 'dep', type: 'blocks' }] })
+    const subject = issue('a', { deps: [{ id: 'dep', type: 'blocked-by' }] })
     expect(waitingNote(subject, index([dep, subject]))).toBeNull()
   })
 
@@ -2805,7 +2805,7 @@ describe('waitingNote', () => {
   // working flat out on something that still cannot land.
   it('is independent of whether anyone is working the task', () => {
     const dep = issue('dep')
-    const subject = issue('a', { deps: [{ id: 'dep', type: 'blocks' }] })
+    const subject = issue('a', { deps: [{ id: 'dep', type: 'blocked-by' }] })
     const withIndex = index([dep, subject])
     expect(waitingNote(subject, withIndex)).not.toBeNull()
     expect(presenceNote(subject, [sess('s', { issueId: 'a' })], withIndex)).toBeNull()
@@ -2822,11 +2822,11 @@ describe('relationNote', () => {
     expect(relationNote(subject, index([origin, subject]))).toMatch(/^Discovered from /)
   })
 
-  // `blocks` is the blocked/waiting band's job; saying it here too would read
+  // `blocked-by` is the blocked/waiting band's job; saying it here too would read
   // as two separate dependencies.
   it('never repeats a blocking edge', () => {
     const dep = issue('dep')
-    const subject = issue('a', { deps: [{ id: 'dep', type: 'blocks' }] })
+    const subject = issue('a', { deps: [{ id: 'dep', type: 'blocked-by' }] })
     expect(relationNote(subject, index([dep, subject]))).toBeNull()
   })
 
@@ -2861,7 +2861,7 @@ describe('issueNote', () => {
   }> = [
     {
       name: 'a server-declared block names its blocker',
-      subject: issue('a', { blocked: true, deps: [{ id: 'dep', type: 'blocks' }] }),
+      subject: issue('a', { blocked: true, deps: [{ id: 'dep', type: 'blocked-by' }] }),
       kind: 'blocked',
       short: '#7',
       full: /^Blocked by #7$/,
@@ -2871,8 +2871,8 @@ describe('issueNote', () => {
       subject: issue('a', {
         blocked: true,
         deps: [
-          { id: 'dep', type: 'blocks' },
-          { id: 'other', type: 'blocks' },
+          { id: 'dep', type: 'blocked-by' },
+          { id: 'other', type: 'blocked-by' },
         ],
       }),
       kind: 'blocked',
@@ -2888,7 +2888,7 @@ describe('issueNote', () => {
     },
     {
       name: 'an unfinished dependency without a block is a wait',
-      subject: issue('a', { deps: [{ id: 'dep', type: 'blocks' }] }),
+      subject: issue('a', { deps: [{ id: 'dep', type: 'blocked-by' }] }),
       kind: 'waiting',
       short: '#7',
       full: /^Waiting for #7 to complete$/,
@@ -2931,7 +2931,7 @@ describe('issueNote', () => {
     const subject = issue('a', {
       blocked: true,
       deps: [
-        { id: 'dep', type: 'blocks' },
+        { id: 'dep', type: 'blocked-by' },
         { id: 'origin', type: 'discovered-from' },
       ],
     })
@@ -2940,7 +2940,7 @@ describe('issueNote', () => {
 
   it('goes quiet once the dependency lands', () => {
     const done = issue('dep', { stage: 'done' })
-    const subject = issue('a', { deps: [{ id: 'dep', type: 'blocks' }] })
+    const subject = issue('a', { deps: [{ id: 'dep', type: 'blocked-by' }] })
     expect(issueNote(subject, index([done, subject]))).toBeNull()
   })
 
@@ -2985,7 +2985,7 @@ describe('issueNote', () => {
       stage: 'proposed',
       blocked: true,
       deps: [
-        { id: 'dep', type: 'blocks' },
+        { id: 'dep', type: 'blocked-by' },
         { id: 'origin', type: 'discovered-from' },
       ],
     })

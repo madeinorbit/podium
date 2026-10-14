@@ -89,7 +89,7 @@ describe('issue schema: FK behavior at runtime', () => {
     await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_a'), seq: 1 }))
     await s.issues.upsertIssue(issueRow({ id: asIssueId('iss_b'), seq: 2 }))
     await s.issues.setIssueLabels(asIssueId('iss_a'), ['ui'])
-    await s.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b'), 'blocks')
+    await s.issues.addIssueDep(asIssueId('iss_a'), asIssueId('iss_b'), 'blocked-by')
     await s.issues.addIssueDep(asIssueId('iss_b'), asIssueId('iss_a'), 'related')
     await s.issues.addIssueComment({
       id: 'cmt_1',

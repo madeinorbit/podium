@@ -272,7 +272,7 @@ export function deriveHandoffNext(
 
   const prerequisites = (issue: IssueNavigationModel): IssueNavigationModel[] => {
     const blockers = (issue.deps ?? [])
-      .filter((dep) => dep.type === 'blocks')
+      .filter((dep) => dep.type === 'blocked-by')
       .map((dep) => byId.get(dep.id))
       .filter((candidate): candidate is IssueNavigationModel =>
         Boolean(candidate && !issueClosed(candidate)),
@@ -301,7 +301,7 @@ export function deriveHandoffNext(
     )
       continue
     const openBlockers = (issue.deps ?? [])
-      .filter((dep) => dep.type === 'blocks')
+      .filter((dep) => dep.type === 'blocked-by')
       .map((dep) => byId.get(dep.id))
       .filter((candidate): candidate is IssueNavigationModel =>
         Boolean(candidate && !issueClosed(candidate)),

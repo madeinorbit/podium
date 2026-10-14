@@ -15,7 +15,7 @@ describe('rankedTaskStateSlots', () => {
     const value = issue({
       needsHuman: true,
       blocked: true,
-      dependents: [{ type: 'blocks' }],
+      dependents: [{ type: 'blocked-by' }],
       gitState: { shared: false, ahead: 3 },
       childCount: 5,
       childDoneCount: 2,

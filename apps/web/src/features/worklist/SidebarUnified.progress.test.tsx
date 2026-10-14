@@ -164,7 +164,7 @@ const MISSION = [
   issue('c', 'Native lifecycle', {
     parentId: 'root',
     seq: 4,
-    deps: [{ id: 'solo', type: 'blocks' }],
+    deps: [{ id: 'solo', type: 'blocked-by' }],
     blocked: true,
     ready: false,
   }),

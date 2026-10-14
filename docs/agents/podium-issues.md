@@ -13,7 +13,8 @@ it is relayed through your daemon with a capability scoped to the issue you're w
    `podium issue dep-add --fromId <new> --toId <current> --type discovered-from`.
 5. Decompose a big issue into children: `podium issue create --title "..."` then
    `podium issue reparent --id <new> --parentId <current>`.
-6. Record real blockers: `podium issue dep-add --fromId <blocked> --toId <blocker> --type blocks`.
+6. Record real blockers: `podium issue dep-add --fromId <blocked> --toId <blocker> --type blocked-by`
+   (the default). The full list: `blocked-by`, `related`, `discovered-from`, `supersedes`, `duplicates`.
 7. Finished? Move it to `review` and post an offer with a Close action. Close your own issue
    only when the user tells you to — closing ends your session at once, even mid-work, so the
    close is refused while a session on the issue is working (yours is, while you run it):
@@ -31,8 +32,8 @@ Agents may use these commands on their own issue or anything below it:
 
 The mutated issue (`id`, `oldId`, or `fromId`) determines scope. A target elsewhere is
 refused once; re-run with `--outside-scope` to confirm. `delete` and `restore` remain
-operator-only. Parent-child containment is separate from `blocks` scheduling: dependency
-cycle checks traverse only `blocks` edges.
+operator-only. Parent-child containment is separate from `blocked-by` scheduling: dependency
+cycle checks traverse only `blocked-by` edges.
 
 ## Titles
 

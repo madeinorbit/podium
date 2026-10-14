@@ -92,7 +92,7 @@ const ROWS = [
   issue('g3', { seq: 23, parentId: 'c1', isDraftVessel: true }),
   issue('g4', { seq: 24, parentId: 'c4', stage: 'in_progress' }),
   issue('blocked', { seq: 30, blocked: true, needsHuman: true,
-    deps: [{ id: 'c1', type: 'blocks' }, { id: 'c2', type: 'blocks' }, { id: 'missing', type: 'blocks' },
+    deps: [{ id: 'c1', type: 'blocked-by' }, { id: 'c2', type: 'blocked-by' }, { id: 'missing', type: 'blocked-by' },
       { id: 'root', type: 'discovered-from' }] }),
   issue('noted', { seq: 31, blocked: true, blockedByNotes: ['waiting on the vendor'] }),
   issue('agent-root', { seq: 40, audience: 'agent' }),

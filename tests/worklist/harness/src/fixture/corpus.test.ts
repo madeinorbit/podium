@@ -134,7 +134,7 @@ const LIVE = {
   visibleRows: 759,
   maxDepth: 6,
 } as const
-const LIVE_DEP_TYPES = ['blocks', 'related', 'supersedes', 'duplicate', 'waits-on', 'blocked-by']
+const LIVE_DEP_TYPES = ['blocked-by', 'related', 'supersedes', 'duplicates']
 const TOLERANCE = 0.2
 
 interface LiveTarget {
@@ -199,12 +199,12 @@ function liveTargets(scale: number): LiveTarget[] {
     share('open / issues', 2284, 'issues', (m) => m.openIssues),
     // Edges.
     share('discovered-from / issues', 1788, 'issues', (m) => m.discoveredFromEdges),
-    share('blocks / issues', 1751, 'issues', (m) => m.depsByType['blocks'] ?? 0),
+    // POD-6100 folded the measured types: blocks 1751 + blocked-by 13 +
+    // waits-on 11 -> blocked-by; duplicate 16 -> duplicates.
+    share('blocked-by / issues', 1751 + 13 + 11, 'issues', (m) => m.depsByType['blocked-by'] ?? 0),
     share('related / issues', 249, 'issues', (m) => m.depsByType['related'] ?? 0),
     share('supersedes / issues', 27, 'issues', (m) => m.depsByType['supersedes'] ?? 0),
-    share('duplicate / issues', 16, 'issues', (m) => m.depsByType['duplicate'] ?? 0),
-    share('blocked-by / issues', 13, 'issues', (m) => m.depsByType['blocked-by'] ?? 0),
-    share('waits-on / issues', 11, 'issues', (m) => m.depsByType['waits-on'] ?? 0),
+    share('duplicates / issues', 16, 'issues', (m) => m.depsByType['duplicates'] ?? 0),
     share('startedBySession / issues', 3770, 'issues', (m) => m.withStartedBySession),
     share('coordinatorSessionId / issues', 1315, 'issues', (m) => m.withCoordinator),
     share('needsHuman / issues', 46, 'issues', (m) => m.needsHuman),
@@ -323,7 +323,7 @@ describe.each([1, 2, 4] as const)('buildCorpus shape at %ix (POD-4551, POD-4635)
   })
 
   it('never blocks a visible row on open work (spec §6: dependency semantics are out)', () => {
-    // A `blocks` edge to unfinished work changes what a row asks
+    // A `blocked-by` edge to unfinished work changes what a row asks
     // (issuePendingDecision). Live: 4 of 759 rows. The fixture keeps the
     // edges and leaves the semantics out of the comparison.
     const blocked = new Set(corpus.sliceIssues.filter((i) => i.blocked).map((i) => i.id))

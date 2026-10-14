@@ -419,7 +419,7 @@ it('keeps document, relation, readiness, close and exit questions live on the sh
       root,
       issue('source', {
         deps: [
-          { id: 'root', type: 'blocks' },
+          { id: 'root', type: 'blocked-by' },
           { id: 'root', type: 'custom' },
         ],
       }),
@@ -454,7 +454,7 @@ it('keeps document, relation, readiness, close and exit questions live on the sh
       },
     })
     expect(model.dependents).toEqual([
-      { id: 'source', type: 'blocks' },
+      { id: 'source', type: 'blocked-by' },
       { id: 'source', type: 'custom' },
     ])
     pool.apply({

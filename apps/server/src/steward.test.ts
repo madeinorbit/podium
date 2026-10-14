@@ -347,7 +347,7 @@ describe('StewardService cursor', () => {
     const { store, issues, steward } = await harness()
     const a = await issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await issues.hierarchy.addDep(b.id, a.id, 'blocks')
+    await issues.hierarchy.addDep(b.id, a.id, 'blocked-by')
     await issues.crud.close(a.id)
     let cursorDuringHandler: string | undefined
     const orig = issues.commentsMail.addComment.bind(issues.commentsMail)
@@ -367,7 +367,7 @@ describe('StewardService cursor', () => {
     // Events accumulated while the steward ran dark (no cursor row yet).
     const a = await issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await issues.hierarchy.addDep(b.id, a.id, 'blocks')
+    await issues.hierarchy.addDep(b.id, a.id, 'blocked-by')
     await issues.crud.close(a.id)
     const max = await store.events.maxEventId()
     expect(max).toBeGreaterThan(0)
@@ -381,7 +381,7 @@ describe('StewardService cursor', () => {
     const { store, issues, steward, sendNotice } = await harness()
     const blocker = await issues.crud.create({ repoPath: '/r', title: 'Blocker', startNow: false })
     const dependent = await issues.crud.create({ repoPath: '/r', title: 'Dependent', startNow: false })
-    await issues.hierarchy.addDep(dependent.id, blocker.id, 'blocks')
+    await issues.hierarchy.addDep(dependent.id, blocker.id, 'blocked-by')
     await issues.crud.close(blocker.id)
     const darkHead = await store.events.maxEventId()
 
@@ -459,7 +459,7 @@ describe('StewardService unblock handler', () => {
     const { issues, steward } = await harness()
     const a = await issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await issues.hierarchy.addDep(b.id, a.id, 'blocks')
+    await issues.hierarchy.addDep(b.id, a.id, 'blocked-by')
     await issues.commentsMail.addComment(a.id, 'agent', '[completion-note] shipped X', AS_OPERATOR)
     await issues.crud.close(a.id)
     await steward.tick()
@@ -475,7 +475,7 @@ describe('StewardService unblock handler', () => {
     const a = await issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
     await issues.crud.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
-    await issues.hierarchy.addDep(b.id, a.id, 'blocks')
+    await issues.hierarchy.addDep(b.id, a.id, 'blocked-by')
     await issues.crud.close(a.id)
     await steward.tick()
     expect((await stewardComments(issues, b.id)).length).toBe(1)
@@ -493,7 +493,7 @@ describe('StewardService unblock handler', () => {
     const a = await issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
     await issues.crud.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
-    await issues.hierarchy.addDep(b.id, a.id, 'blocks')
+    await issues.hierarchy.addDep(b.id, a.id, 'blocked-by')
     await issues.crud.close(a.id)
     sendNotice.mockImplementationOnce(() => {
       throw new Error('crash after comment')
@@ -518,7 +518,7 @@ describe('StewardService unblock handler', () => {
     const a = await issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
     await issues.crud.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
-    await issues.hierarchy.addDep(b.id, a.id, 'blocks')
+    await issues.hierarchy.addDep(b.id, a.id, 'blocked-by')
     await issues.crud.close(a.id)
     // A send that fails AFTER it was started — the shape a durable queue write
     // that loses its connection has. Unawaited, this failure was invisible and
@@ -552,7 +552,7 @@ describe('StewardService unblock handler', () => {
     // A steward comment for a DIFFERENT closer whose seq starts with a's seq
     // ('#15' contains '#1') — must not match a's marker 'Unblocked by #1:'.
     await issues.commentsMail.addComment(b.id, 'steward', 'Unblocked by #15: earlier thing', AS_OPERATOR)
-    await issues.hierarchy.addDep(b.id, a.id, 'blocks')
+    await issues.hierarchy.addDep(b.id, a.id, 'blocked-by')
     await issues.crud.close(a.id)
     await steward.tick()
     const posted = (await stewardComments(issues, b.id)).filter((c) =>
@@ -569,7 +569,7 @@ describe('StewardService unblock handler', () => {
       startNow: false,
     })
     const b = await issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await issues.hierarchy.addDep(b.id, a.id, 'blocks')
+    await issues.hierarchy.addDep(b.id, a.id, 'blocked-by')
     await issues.crud.close(a.id)
     await steward.tick()
     expect((await stewardComments(issues, b.id))[0]!.body).toBe(
@@ -603,7 +603,7 @@ describe('StewardService unblock handler', () => {
     const a = await issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
     await issues.crud.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
-    await issues.hierarchy.addDep(b.id, a.id, 'blocks')
+    await issues.hierarchy.addDep(b.id, a.id, 'blocked-by')
     await issues.commentsMail.addComment(a.id, 'agent', '[completion-note] shipped $(dangerous) X', AS_OPERATOR)
     await issues.crud.close(a.id)
     await steward.tick()
@@ -636,7 +636,7 @@ describe('StewardService unblock handler', () => {
     const dependent = await issues.crud.create({ repoPath: '/r', title: 'Dependent', startNow: false })
     await issues.crud.update(dependent.id, { worktreePath: '/r/.worktrees/issue-2-b' })
     await issues.crud.setCoordinator(dependent.id, asSessionId('coordinator'))
-    await issues.hierarchy.addDep(dependent.id, blocker.id, 'blocks')
+    await issues.hierarchy.addDep(dependent.id, blocker.id, 'blocked-by')
 
     await issues.crud.close(blocker.id)
     await steward.tick()
@@ -648,7 +648,7 @@ describe('StewardService unblock handler', () => {
     const { issues, steward, sendNotice } = await harness()
     const a = await issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await issues.hierarchy.addDep(b.id, a.id, 'blocks')
+    await issues.hierarchy.addDep(b.id, a.id, 'blocked-by')
     await issues.crud.close(a.id)
     await steward.tick()
     expect(sendNotice).not.toHaveBeenCalled()
@@ -665,7 +665,7 @@ describe('StewardService unblock handler', () => {
     const a = await issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
     await issues.crud.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
-    await issues.hierarchy.addDep(b.id, a.id, 'blocks')
+    await issues.hierarchy.addDep(b.id, a.id, 'blocked-by')
     await issues.crud.close(a.id, 'done', { actorSessionId: asSessionId('causer') })
     await steward.tick()
     // Comment/audit trail is unchanged — the note still lands on the dependent.
@@ -683,7 +683,7 @@ describe('StewardService unblock handler', () => {
     const a = await issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
     await issues.crud.update(b.id, { worktreePath: '/r/.worktrees/issue-2-b' })
-    await issues.hierarchy.addDep(b.id, a.id, 'blocks')
+    await issues.hierarchy.addDep(b.id, a.id, 'blocked-by')
     // A's agent already told the dependent session directly, ahead of closing.
     await seedTold(store, a.id, { kind: 'session', id: 'other' })
     await issues.crud.close(a.id)
@@ -1031,7 +1031,7 @@ describe('StewardService gating and resilience', () => {
     })
     const a = await issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await issues.hierarchy.addDep(b.id, a.id, 'blocks')
+    await issues.hierarchy.addDep(b.id, a.id, 'blocked-by')
     await issues.crud.close(a.id)
     await steward.tick()
     expect(await store.events.getStewardState('cursor')).toBeUndefined()
@@ -1043,7 +1043,7 @@ describe('StewardService gating and resilience', () => {
     const { store, issues, steward } = await harness()
     const a = await issues.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await issues.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await issues.hierarchy.addDep(b.id, a.id, 'blocks')
+    await issues.hierarchy.addDep(b.id, a.id, 'blocked-by')
     await issues.crud.close(a.id)
     const addComment = vi.spyOn(issues.commentsMail, 'addComment').mockImplementation(async () => {
       throw new Error('boom')

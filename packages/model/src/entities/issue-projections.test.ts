@@ -102,7 +102,7 @@ describe('the graph projection keeps BOTH cross-boundary edge answers open', () 
     expect(
       IssueGraph.safeParse({
         nodes: [visible, invisible],
-        edges: [{ from: 'iss_a', to: 'iss_b', type: 'blocks' }],
+        edges: [{ from: 'iss_a', to: 'iss_b', type: 'blocked-by' }],
       }).success,
     ).toBe(true)
     expect(IssueGraph.safeParse({ nodes: [visible], edges: [] }).success).toBe(true)
@@ -133,7 +133,7 @@ describe('the graph projection keeps BOTH cross-boundary edge answers open', () 
     expect(
       IssueGraph.safeParse({
         nodes: [visible],
-        edges: [{ from: 'iss_a', to: 'iss_withheld', type: 'blocks' }],
+        edges: [{ from: 'iss_a', to: 'iss_withheld', type: 'blocked-by' }],
       }).success,
     ).toBe(true)
   })

@@ -115,7 +115,7 @@ it('phone mission batches cold spin-offs and their dependency targets together',
     issue('root'),
     ...Array.from({ length: width }, (_, index) => issue(`branch-${index}`, {
       ...cold,
-      deps: [{ id: 'root', type: 'discovered-from' }, { id: `target-${index}`, type: 'blocks' }],
+      deps: [{ id: 'root', type: 'discovered-from' }, { id: `target-${index}`, type: 'blocked-by' }],
     })),
     ...Array.from({ length: width }, (_, index) => issue(`target-${index}`, cold)),
     issue('unrelated-history', cold),
@@ -135,7 +135,7 @@ it('phone mission batches cold spin-offs and their dependency targets together',
     // remaining siblings from requesting their rows.
     const read = () => settled(() => screen.ready
       ? [screen.rootId, ...screen.departures.map(departure => departure.issue.id), ...screen.departures.flatMap(departure =>
-        departure.issue.deps.filter(dep => dep.type === 'blocks').map(dep => dep.id))]
+        departure.issue.deps.filter(dep => dep.type === 'blocked-by').map(dep => dep.id))]
       : LOADING)
     // Keep the opening mounted while hydration publishes the next load wave.
     stop = autorun(() => { read() })

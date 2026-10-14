@@ -192,7 +192,7 @@ type OpenSheet =
   | { kind: 'colour' }
   | { kind: 'launch' }
 
-/** The relation kinds the phone offers. `parent-child` and `supersedes` are
+/** The relation kinds the phone offers. `supersedes` and `duplicates` are
  *  deliberately absent: parentage has its own row and supersede/duplicate are
  *  lifecycle acts on the overflow menu, so offering them here would let the same
  *  fact be stated two ways. */
@@ -200,7 +200,7 @@ const EMPTY_ISSUES: IssueViewModel[] = []
 const EMPTY_SESSIONS: SessionView[] = []
 const EMPTY_TARGET_IDS: string[] = []
 
-const RELATION_TYPES = ['blocks', 'related', 'discovered-from'] as const
+const RELATION_TYPES = ['blocked-by', 'related', 'discovered-from'] as const
 
 const IssueContent = observer(function IssueContent({
   issue,

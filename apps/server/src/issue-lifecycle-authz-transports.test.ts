@@ -50,7 +50,7 @@ async function fixture(registry: SessionRegistry): Promise<LifecycleFixture> {
   const depFrom = await create('dep from', root.id)
   const depTo = await create('dep to', root.id)
   const archived = await create('archived', root.id)
-  await registry.issues.hierarchy.addDep(depFrom.id, depTo.id, 'blocks')
+  await registry.issues.hierarchy.addDep(depFrom.id, depTo.id, 'blocked-by')
   return {
     root,
     moving,
@@ -70,7 +70,7 @@ function lifecycleInputs(f: LifecycleFixture): Array<[LifecycleName, Record<stri
     ['reparent', { id: f.moving.id, parentId: f.newParent.id }],
     ['supersede', { oldId: f.superseded.id, newId: f.replacement.id }],
     ['duplicate', { id: f.duplicate.id, canonicalId: f.canonical.id }],
-    ['depRemove', { fromId: f.depFrom.id, toId: f.depTo.id, type: 'blocks' }],
+    ['depRemove', { fromId: f.depFrom.id, toId: f.depTo.id, type: 'blocked-by' }],
     ['archive', { id: f.archived.id }],
   ]
 }
@@ -87,7 +87,7 @@ async function verify(registry: SessionRegistry, f: LifecycleFixture): Promise<v
   })
   expect((await registry.issues.reports.get(f.depFrom.id))?.deps).not.toContainEqual({
     id: f.depTo.id,
-    type: 'blocks',
+    type: 'blocked-by',
   })
   expect((await registry.issues.reports.get(f.archived.id))?.archived).toBe(true)
 }
@@ -113,7 +113,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
       await caller.issues.reparent({ id: f.moving.id, parentId: f.newParent.id })
       await caller.issues.supersede({ oldId: f.superseded.id, newId: f.replacement.id })
       await caller.issues.duplicate({ id: f.duplicate.id, canonicalId: f.canonical.id })
-      await caller.issues.depRemove({ fromId: f.depFrom.id, toId: f.depTo.id, type: 'blocks' })
+      await caller.issues.depRemove({ fromId: f.depFrom.id, toId: f.depTo.id, type: 'blocked-by' })
       await caller.issues.archive({ id: f.archived.id })
       await verify(registry, f)
     } finally {
@@ -199,7 +199,7 @@ describe('lifecycle primitives across all four command transports (#413)', () =>
       await runIssueCli(['reparent', f.moving.id, f.newParent.id], client)
       await runIssueCli(['supersede', f.superseded.id, f.replacement.id], client)
       await runIssueCli(['duplicate', f.duplicate.id, f.canonical.id], client)
-      await runIssueCli(['dep-remove', f.depFrom.id, f.depTo.id, '--type', 'blocks'], client)
+      await runIssueCli(['dep-remove', f.depFrom.id, f.depTo.id, '--type', 'blocked-by'], client)
       await runIssueCli(['archive', f.archived.id], client)
       await verify(registry, f)
     } finally {

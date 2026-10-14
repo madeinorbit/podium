@@ -110,7 +110,7 @@ export const IssueRelations = observer(function IssueRelations({
         <div className="flex items-center gap-1.5">
           <PropertyMenu
             selectedValue={addRelType}
-            options={ISSUE_DEP_TYPES.filter((t) => t !== 'parent-child' && t !== 'supersedes').map(
+            options={ISSUE_DEP_TYPES.filter((t) => t !== 'supersedes' && t !== 'duplicates').map(
               (t) => ({ value: t, label: t }),
             )}
             onSelect={onAddRelTypeChange}

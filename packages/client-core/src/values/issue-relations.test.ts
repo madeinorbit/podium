@@ -17,14 +17,14 @@ describe('groupRelations', () => {
   })
 
   it('splits blocked-by (outgoing blocks) from blocks (incoming blocks)', () => {
-    // Outgoing `blocks` dep → subject is BLOCKED BY a-1; incoming `blocks` dep →
+    // Outgoing `blocked-by` dep → subject is BLOCKED BY a-1; incoming `blocked-by` dep →
     // subject BLOCKS b-2 (verified against computeBlocked in issues.ts).
     const result = groupRelations(
-      issue([{ id: 'a-1', type: 'blocks' }], [{ id: 'b-2', type: 'blocks' }]),
+      issue([{ id: 'a-1', type: 'blocked-by' }], [{ id: 'b-2', type: 'blocked-by' }]),
     )
     expect(result).toEqual([
-      { section: 'Blocked by', entries: [{ id: 'a-1', type: 'blocks', direction: 'dep' }] },
-      { section: 'Blocks', entries: [{ id: 'b-2', type: 'blocks', direction: 'dependent' }] },
+      { section: 'Blocked by', entries: [{ id: 'a-1', type: 'blocked-by', direction: 'dep' }] },
+      { section: 'Blocks', entries: [{ id: 'b-2', type: 'blocked-by', direction: 'dependent' }] },
     ])
   })
 
@@ -46,7 +46,7 @@ describe('groupRelations', () => {
           { id: 'c-1', type: 'caused-by' },
         ],
         [
-          { id: 'blk', type: 'blocks' },
+          { id: 'blk', type: 'blocked-by' },
           { id: 'spin', type: 'discovered-from' },
         ],
       ),

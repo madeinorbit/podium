@@ -72,7 +72,7 @@ describe('podium issue CLI ↔ live server (e2e)', () => {
       await runIssueCli(['create', '--repoPath', '/repo', '--title', 'Dependent'], client),
     )
 
-    expect(await runIssueCli(['dep-add', b, a, '--type', 'blocks'], client)).toContain('dep added')
+    expect(await runIssueCli(['dep-add', b, a, '--type', 'blocked-by'], client)).toContain('dep added')
     const blocked = await runIssueCli(['blocked', '--repoPath', '/repo'], client)
     expect(blocked).toContain('Dependent')
 

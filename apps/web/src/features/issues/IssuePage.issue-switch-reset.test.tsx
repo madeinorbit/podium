@@ -190,13 +190,13 @@ describe('issue-page/IssueProperties.tsx — the long tail', () => {
     const { switchIssue } = open()
     // The aside and the mobile disclosure both mount the stack, so every query
     // here is positional.
-    await userEvent.click(screen.getAllByRole('button', { name: 'blocks' })[0] as HTMLElement)
+    await userEvent.click(screen.getAllByRole('button', { name: 'blocked-by' })[0] as HTMLElement)
     await userEvent.click(await screen.findByRole('menuitem', { name: 'related' }))
     expect(screen.getAllByRole('button', { name: 'related' }).length).toBeGreaterThan(0)
 
     switchIssue()
 
     expect(screen.queryAllByRole('button', { name: 'related' })).toHaveLength(0)
-    expect(screen.getAllByRole('button', { name: 'blocks' }).length).toBeGreaterThan(0)
+    expect(screen.getAllByRole('button', { name: 'blocked-by' }).length).toBeGreaterThan(0)
   })
 })

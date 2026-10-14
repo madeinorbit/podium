@@ -1129,7 +1129,7 @@ export class MissionViewReader {
     return { kind: 'spinoff', target: tip, short: ref, full: `Work continued in ${ref}`, line: `continued · ${ref}` }
   }
   waiting(issue: IssueNavigationModel): string[] {
-    return issue.deps.filter(dep => dep.type === 'blocks').flatMap(dep => {
+    return issue.deps.filter(dep => dep.type === 'blocked-by').flatMap(dep => {
       const target = requireLoaded(this.catalogIssue(dep.id))
       return target && !this.facts(target.id).finished ? [issueDisplayRef(target)] : []
     })
@@ -1164,7 +1164,7 @@ export class MissionViewReader {
     }
     const verbs: Record<string, string> = { 'discovered-from': 'Discovered from', related: 'Related to', tracks: 'Tracks', supersedes: 'Supersedes', 'caused-by': 'Caused by', validates: 'Validates' }
     for (const dep of issue.deps) {
-      if (dep.type === 'blocks' || dep.type === 'parent-child') continue
+      if (dep.type === 'blocked-by' || dep.type === 'parent-child') continue
       const target = requireLoaded(this.catalogIssue(dep.id))
       if (!target) continue
       const label = verbs[dep.type] ?? dep.type, ref = issueDisplayRef(target)
@@ -1317,7 +1317,7 @@ function poolHandoffNext(ctx: MissionViewReader, issues: readonly IssueNavigatio
 
   const prerequisites = (issue: IssueNavigationModel): IssueNavigationModel[] => {
     const blockers = (issue.deps ?? [])
-      .filter((dep) => dep.type === 'blocks')
+      .filter((dep) => dep.type === 'blocked-by')
       .map((dep) => requireLoaded(ctx.issue(dep.id)))
       .filter((candidate): candidate is IssueNavigationModel =>
         Boolean(candidate && !ctx.facts(candidate.id).finished),
@@ -1345,7 +1345,7 @@ function poolHandoffNext(ctx: MissionViewReader, issues: readonly IssueNavigatio
     )
       continue
     const openBlockers = (issue.deps ?? [])
-      .filter((dep) => dep.type === 'blocks')
+      .filter((dep) => dep.type === 'blocked-by')
       .map((dep) => requireLoaded(ctx.issue(dep.id)))
       .filter((candidate): candidate is IssueNavigationModel =>
         Boolean(candidate && !ctx.facts(candidate.id).finished),

@@ -191,7 +191,7 @@ describe('Handoff mission derivations', () => {
         stage: 'backlog',
         blocked: true,
         ready: false,
-        deps: [{ id: asIssueId('i2'), type: 'blocks' }],
+        deps: [{ id: asIssueId('i2'), type: 'blocked-by' }],
       }),
     ]
     const next = deriveHandoffNext(issues, [], 'root')

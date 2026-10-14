@@ -192,7 +192,7 @@ export function deriveIssueViews(
       const finished = opts.dependencyStage
         ? stage === undefined ? undefined : isFinished({ stage })
         : finishedById.get(dep.id)
-      return dep.type === 'blocks' && finished === false
+      return dep.type === 'blocked-by' && finished === false
     })
     const deferred = issue.deferUntil != null && Date.parse(issue.deferUntil) > now()
     const next: IssueView = {

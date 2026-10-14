@@ -233,9 +233,9 @@ function seed(
       estimateMin: 45,
       color: 'blue',
       deps: [
-        { id: 'target', type: 'blocks' },
+        { id: 'target', type: 'blocked-by' },
         { id: 'invisible', type: 'related' },
-        { id: 'removed', type: 'blocks' },
+        { id: 'removed', type: 'blocked-by' },
         { id: 'pending', type: 'custom' },
       ],
       gitState: {
@@ -290,7 +290,7 @@ function seed(
       repoId: 'R',
       prefix: 'SYN',
       deps: [
-        { id: 'root', type: 'blocks' },
+        { id: 'root', type: 'blocked-by' },
         { id: 'root', type: 'custom' },
       ],
       createdAt: STAMP,

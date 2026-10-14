@@ -417,7 +417,7 @@ describe('issue.discoveredFrom / issue.spinOffs (edge, R4)', () => {
       issue('I1'),
       issue('I2'),
       issue('I3', { deps: from('I1') }),
-      issue('I4', { deps: [{ id: 'I1', type: 'blocks' }] }),
+      issue('I4', { deps: [{ id: 'I1', type: 'blocked-by' }] }),
     ])
     try {
       expect(r.one('issue', 'I3', 'discoveredFrom')).toBe('I1')
@@ -1729,7 +1729,7 @@ function randomRow(rand: () => number): RowRecord {
       worktreePath: maybe(pick(PATHS)),
       deps:
         rand() < 0.5
-          ? [{ id: pick(ISSUES), type: rand() < 0.8 ? 'discovered-from' : 'blocks' }]
+          ? [{ id: pick(ISSUES), type: rand() < 0.8 ? 'discovered-from' : 'blocked-by' }]
           : [],
     })
   }

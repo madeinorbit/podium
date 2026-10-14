@@ -22,19 +22,19 @@ describe('page schema generic relation collections', () => {
   it('keeps every same-type target while singular provenance still takes its first edge', () => {
     const forward = SCHEMA.issue.relations.pageDependencies, inverse = SCHEMA.issue.relations.pageDependents
     if (forward?.kind !== 'edge' || inverse?.kind !== 'edge') throw new Error('Missing edge collection declarations')
-    const dependencies = { ...forward, allTypes: undefined, edgeType: 'blocks' }
-    const dependents = { ...inverse, allTypes: undefined, edgeType: 'blocks' }
+    const dependencies = { ...forward, allTypes: undefined, edgeType: 'blocked-by' }
+    const dependents = { ...inverse, allTypes: undefined, edgeType: 'blocked-by' }
     const schema: ModelSchema = { ...SCHEMA, issue: { ...SCHEMA.issue,
       relations: { ...SCHEMA.issue.relations, pageDependencies: dependencies, pageDependents: dependents } } }
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(STAMP) }, schema)
     try {
       pool.apply({ type: 'replace', rows: [issue('a'), issue('b'), issue('owner', [
-        { id: 'a', type: 'blocks' }, { id: 'b', type: 'blocks' }, { id: 'a', type: 'blocks' },
+        { id: 'a', type: 'blocked-by' }, { id: 'b', type: 'blocked-by' }, { id: 'a', type: 'blocked-by' },
         { id: 'a', type: 'discovered-from' }, { id: 'b', type: 'discovered-from' },
       ])] })
       expect(tracked(() => [...pool.graph.many('issue', 'owner', 'pageDependencies')])).toEqual(['a', 'b'])
       expect(tracked(() => pool.graph.one('issue', 'owner', 'discoveredFrom'))).toBe('a')
-      pool.apply({ type: 'update', rows: [issue('owner', [{ id: 'b', type: 'blocks' }])] })
+      pool.apply({ type: 'update', rows: [issue('owner', [{ id: 'b', type: 'blocked-by' }])] })
       expect(tracked(() => [...pool.graph.many('issue', 'a', 'pageDependents')])).toEqual([])
       expect(tracked(() => [...pool.graph.many('issue', 'b', 'pageDependents')])).toEqual(['owner'])
       expect(tracked(() => pool.graph.one('issue', 'owner', 'discoveredFrom'))).toBe(null)
@@ -42,7 +42,7 @@ describe('page schema generic relation collections', () => {
   })
 
   it('exposes collection model getters and retains cold edge keys without loading payloads', () => {
-    const rows = [issue('a'), issue('b'), issue('owner', [{ id: 'a', type: 'custom' }, { id: 'b', type: 'blocks' }],
+    const rows = [issue('a'), issue('b'), issue('owner', [{ id: 'a', type: 'custom' }, { id: 'b', type: 'blocked-by' }],
       { stage: 'done', archived: true })]
     const loads: string[] = []
     const pool = new MobxPool({ selectedIssueId: null, coarseNow: Date.parse(STAMP) }, undefined,
@@ -88,7 +88,7 @@ describe('page schema generic relation collections', () => {
     const pool = new MobxPool(locals)
     const reader = pool.graph
     const read = <T,>(fn: () => T) => tracked(fn)
-    const rows = [issue('a'), issue('b'), issue('owner', [{ id: 'a', type: 'custom' }, { id: 'b', type: 'blocks' }]), session('twin-a'), session('twin-b')]
+    const rows = [issue('a'), issue('b'), issue('owner', [{ id: 'a', type: 'custom' }, { id: 'b', type: 'blocked-by' }]), session('twin-a'), session('twin-b')]
     const ids = { issue: new Set(['a', 'b', 'owner']), session: new Set(['twin-a', 'twin-b']) }
     const scope = [{ from: 'issue' as const, relation: 'pageDependencies' }, { from: 'session' as const, relation: 'pageIssue' }]
     const check = () => {

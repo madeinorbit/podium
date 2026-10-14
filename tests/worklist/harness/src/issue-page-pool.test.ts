@@ -87,7 +87,7 @@ function open(issues: PageInput[], seats: SliceSession[] = [], lazy = false) {
     ...row,
     blocked: (row.deps ?? []).some(
       (dep) =>
-        dep.type === 'blocks' &&
+        dep.type === 'blocked-by' &&
         issues.some((target) => target.id === dep.id && target.stage !== 'done'),
     ),
   }))
@@ -513,7 +513,7 @@ describe('declared issue page', () => {
       task('deleted', { parentId: 'root', deletedAt: STAMP }),
       task('source', {
         deps: [
-          { id: 'root', type: 'blocks' },
+          { id: 'root', type: 'blocked-by' },
           { id: 'root', type: 'custom-edge' },
           { id: 'child-a', type: 'related' },
         ],
@@ -545,7 +545,7 @@ describe('declared issue page', () => {
         ? page.memberSessions.some((row) => row.sessionId === 'shell')
         : LOADING),
     ).toBe(false)
-    expect(tracked(() => page.issue.dependents.map((row) => row.type))).toEqual(['blocks', 'custom-edge'])
+    expect(tracked(() => page.issue.dependents.map((row) => row.type))).toEqual(['blocked-by', 'custom-edge'])
     expect(tracked(() => page.title)).toBe(
       issueDisplayTitle(ctx.world().find((row) => row.id === 'root')!, ctx.visible(), [
         '/synthetic',
@@ -567,7 +567,7 @@ describe('declared issue page', () => {
       task('b'),
       task('owner', {
         deps: [
-          { id: 'a', type: 'blocks' },
+          { id: 'a', type: 'blocked-by' },
           { id: 'a', type: 'custom' },
           { id: 'b', type: 'related' },
         ],

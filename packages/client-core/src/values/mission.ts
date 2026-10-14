@@ -1759,7 +1759,7 @@ export type OperationalState =
   | 'idle'
 
 /**
- * An outgoing `blocks` dep means "this issue is blocked BY the target" (see
+ * An outgoing `blocked-by` dep means "this issue is blocked BY the target" (see
  * issue-relations.ts for the verified direction). Naming the blocker turns a
  * dead end into something the operator can go and act on.
  */
@@ -2131,14 +2131,14 @@ export function treeGuides(rows: readonly { depth: number }[]): boolean[][] {
 // ---------------------------------------------------------------------------
 
 /** The unfinished issues this one is waiting on, as display refs. Outgoing
- *  `blocks` deps mean "blocked BY the target" (issue-relations.ts). */
+ *  `blocked-by` deps mean "blocked BY the target" (issue-relations.ts). */
 function waitingRefs(
   issue: IssueNavigationModel,
   byId?: ReadonlyMap<string, IssueNavigationModel>,
 ): string[] {
   if (!byId) return []
   return (issue.deps ?? [])
-    .filter((dep) => dep.type === 'blocks')
+    .filter((dep) => dep.type === 'blocked-by')
     .map((dep) => byId.get(dep.id))
     .filter((target): target is IssueNavigationModel => Boolean(target))
     .filter((target) => !issueClosed(target))
@@ -2354,7 +2354,7 @@ const RELATION_VERB: Record<string, string> = {
 
 /** The first non-hierarchy, non-blocking edge this issue carries, split into the
  *  verb and the target ref so a caller can render either the sentence or just
- *  the ref. `blocks` is excluded — that edge is the blocked/waiting note's job,
+ *  the ref. `blocked-by` is excluded — that edge is the blocked/waiting note's job,
  *  and saying it twice reads as two dependencies. */
 function relationEdge(
   issue: IssueNavigationModel,
@@ -2362,7 +2362,7 @@ function relationEdge(
 ): { verb: string; ref: string } | null {
   if (!byId) return null
   for (const dep of issue.deps ?? []) {
-    if (dep.type === 'blocks' || dep.type === 'parent-child') continue
+    if (dep.type === 'blocked-by' || dep.type === 'parent-child') continue
     const target = byId.get(dep.id)
     if (!target) continue
     return { verb: RELATION_VERB[dep.type] ?? dep.type, ref: issueDisplayRef(target) }

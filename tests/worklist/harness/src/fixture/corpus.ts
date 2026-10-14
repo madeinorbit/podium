@@ -332,7 +332,7 @@ interface RoleSpec {
   history: number
 }
 
-/** Coordinator and `blocks` shares are the live per-kind ones, lifted so the
+/** Coordinator and `blocked-by` shares are the live per-kind ones, lifted so the
  *  corpus totals land on live's (25.4% and 33.9% of issues): a kind's live
  *  share counts issues this corpus mints without sessions or siblings. */
 const COORD_LIFT = 1.45
@@ -2137,7 +2137,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
     )
   }
 
-  // Dependency edges. `blocks` (live 33.9% of issues): mostly between
+  // Dependency edges. `blocked-by` (live 33.9% of issues): mostly between
   // siblings of one mission, mostly closed on both ends. A visible row is
   // only ever blocked by finished work: `blocked` changes what a row asks
   // (issuePendingDecision), and spec §6 keeps dependency semantics out of
@@ -2188,12 +2188,16 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
       if (isVisibleRow(i) && !mints[to]!.closed) continue
       if (mints[to]!.stage !== 'done' && isVisibleRow(i)) continue
       seen.add(to)
-      deps.push({ from: i, to, type: 'blocks' })
+      deps.push({ from: i, to, type: 'blocked-by' })
     }
   }
   // The rest of the live mix, per unit: related 234, supersedes 25,
   // duplicate 15, blocked-by 12, waits-on 10, duplicates 3, and one edge of
-  // a type no code knows.
+  // a type no code knows — as measured before POD-6100, minted under the
+  // types its migration folds them onto (duplicate -> duplicates; blocked-by
+  // and waits-on -> blocked-by, which now block, so like the edges above they
+  // never block a visible row on open work). The unknown edge stays: a reader
+  // must still tolerate a type it does not know (an old cached replica).
   for (const u of units) {
     enter(units.indexOf(u))
     const pool = unitOriginPool[units.indexOf(u)]!
@@ -2202,9 +2206,9 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
     for (const [type, full] of [
       ['related', 234],
       ['supersedes', 25],
-      ['duplicate', 15],
+      ['duplicates', 15],
       ['blocked-by', 12],
-      ['waits-on', 10],
+      ['blocked-by', 10],
       ['duplicates', 3],
       ['bogus', 1],
     ] as const) {
@@ -2213,6 +2217,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
         const from = pick(pool)
         let to = pick(pool)
         if (to === from) to = pool[(pool.indexOf(from) + 1) % pool.length]!
+        if (type === 'blocked-by' && isVisibleRow(from) && mints[to]!.stage !== 'done') continue
         deps.push({ from, to, type })
       }
     }
@@ -2234,7 +2239,7 @@ function build(seed: number, scale: CorpusScale, cell: CorpusCell | null): Fixtu
   })
   const blockedIds = new Set<number>()
   for (const d of deps)
-    if (d.type === 'blocks' && mints[d.to]!.stage !== 'done') blockedIds.add(d.from)
+    if (d.type === 'blocked-by' && mints[d.to]!.stage !== 'done') blockedIds.add(d.from)
 
   // needsHuman (live 0.9%), on hidden open work only: it is an attention
   // input spec §6 keeps out of the comparison.

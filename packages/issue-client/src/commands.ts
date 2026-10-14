@@ -1189,7 +1189,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
   {
     name: 'dep-add',
     summary:
-      'Add a dependency, <from> depends on <to>: dep-add <fromId> <toId> [--type blocks|related|discovered-from|…].',
+      'Add a dependency, <from> depends on <to>: dep-add <fromId> <toId> [--type blocked-by|related|discovered-from|supersedes|duplicates] (default blocked-by: <from> waits for <to>).',
     args: z.strictObject({ fromId: idArg, toId: idArg, type: z.string().optional() }),
     positionals: ['fromId', 'toId'],
     async run(c, a) {
@@ -2037,7 +2037,7 @@ export const ISSUE_COMMANDS: IssueCommand[] = [
         dependents: { seq: number; title: string; type: string; closed: boolean }[]
       }[]
       const edge = (r: { seq: number; type: string; closed: boolean }) =>
-        `#${r.seq} (${r.closed ? 'closed' : 'open'}${r.type === 'blocks' ? '' : `, ${r.type}`})`
+        `#${r.seq} (${r.closed ? 'closed' : 'open'}${r.type === 'blocked-by' ? '' : `, ${r.type}`})`
       const text = entries
         .map((e) => {
           const status = e.closed ? 'DONE' : e.blocked ? 'BLOCKED' : e.ready ? 'READY' : e.stage

@@ -73,8 +73,8 @@ export function issueReturnedFromDefer(row: IssueDeferFields, now: Instant): boo
 }
 
 /**
- * blocked = open AND ≥1 `blocks` dep whose target issue is not closed.
- * The caller resolves the row's `blocks` dep targets (undefined = dangling
+ * blocked = open AND ≥1 `blocked-by` dep whose target issue is not closed.
+ * The caller resolves the row's `blocked-by` dep targets (undefined = dangling
  * edge, which does NOT block — the target is gone).
  */
 export function isIssueBlocked(

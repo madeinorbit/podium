@@ -44,7 +44,7 @@ export function issueCardModel(issue: IssueViewModel): {
       ? { subProgress: { done: issue.childDoneCount, total: issue.childCount } }
       : {}),
     isBlocked: issue.blocked,
-    isBlocking: issue.dependents.some((d) => d.type === 'blocks'),
+    isBlocking: issue.dependents.some((d) => d.type === 'blocked-by'),
     sessionCount: issue.sessionSummary?.total ?? 0,
     ...(dueLabel ? { dueLabel } : {}),
     ...(issue.estimateMin != null ? { estimateLabel: `${issue.estimateMin}m` } : {}),

@@ -128,7 +128,7 @@ describe('CLI table ↔ server registry FIELD drift (#347)', () => {
         assignee: 'x',
         fromId: '1',
         toId: '2',
-        type: 'blocks',
+        type: 'blocked-by',
         parent: 'p',
         text: 't',
         query: 'q',

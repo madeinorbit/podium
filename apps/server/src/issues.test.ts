@@ -2740,22 +2740,22 @@ describe('IssueService derived status (P1)', () => {
     expect((await svc.reports.commandResult(w)).deferred).toBe(false)
   })
 
-  it('a blocks-dependency on an open issue makes the dependent blocked (not ready)', async () => {
+  it('a blocked-by dependency on an open issue makes the dependent blocked (not ready)', async () => {
     const { svc, store } = await harness()
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await store.issues.addIssueDep(a.id, b.id, 'blocks')
+    await store.issues.addIssueDep(a.id, b.id, 'blocked-by')
     const reloaded = (await svc.reports.get(a.id))!
     expect(reloaded.blocked).toBe(true)
     expect(reloaded.ready).toBe(false)
-    expect(reloaded.deps).toEqual([{ id: b.id, type: 'blocks' }])
+    expect(reloaded.deps).toEqual([{ id: b.id, type: 'blocked-by' }])
   })
 
   it('closing the blocker (stage=done) unblocks the dependent', async () => {
     const { svc, store } = await harness()
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await store.issues.addIssueDep(a.id, b.id, 'blocks')
+    await store.issues.addIssueDep(a.id, b.id, 'blocked-by')
     await svc.crud.update(b.id, { stage: 'done' })
     expect((await svc.reports.get(a.id))!.ready).toBe(true)
   })
@@ -2959,7 +2959,7 @@ describe('IssueService assistant', () => {
     const c = await svc.crud.create({ repoPath: '/r', title: 'X', startNow: false })
     await svc.crud.update(c.id, { worktreePath: '/r/wt', branch: 'issue/1-x', stage: 'planning' })
     // A REAL dependency edge on the same issue — the thing this field is not.
-    await svc.hierarchy.addDep(c.id, blocker.id, 'blocks')
+    await svc.hierarchy.addDep(c.id, blocker.id, 'blocked-by')
 
     const wire = await svc.gitWorkflow.refreshAssistant(c.id)
 
@@ -3275,10 +3275,10 @@ describe('IssueService hierarchy reconciliation (P2a / I2)', () => {
       parentId: parent.id,
       startNow: false,
     })
-    await svc.hierarchy.addDep(parent.id, root.id, 'blocks')
+    await svc.hierarchy.addDep(parent.id, root.id, 'blocked-by')
 
-    await expect(svc.hierarchy.addDep(root.id, child.id, 'blocks')).resolves.not.toThrow()
-    expect((await svc.reports.get(root.id))!.deps).toContainEqual({ id: child.id, type: 'blocks' })
+    await expect(svc.hierarchy.addDep(root.id, child.id, 'blocked-by')).resolves.not.toThrow()
+    expect((await svc.reports.get(root.id))!.deps).toContainEqual({ id: child.id, type: 'blocked-by' })
     expect((await svc.reports.doctor('/r')).cycles).toEqual([])
   })
 
@@ -3300,6 +3300,31 @@ describe('IssueService hierarchy reconciliation (P2a / I2)', () => {
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
     await expect(svc.hierarchy.addDep(a.id, b.id, 'parent-child')).rejects.toThrow(/parent-child/)
+  })
+
+  it('addDep refuses a type off the fixed list and names the list (POD-6100)', async () => {
+    const { svc, store } = await harness()
+    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
+    for (const type of ['blocks', 'waits-on', 'duplicate', 'tracks'])
+      await expect(svc.hierarchy.addDep(a.id, b.id, type), type).rejects.toThrow(
+        `unknown dependency type '${type}'; use one of: blocked-by, related, discovered-from, supersedes, duplicates`,
+      )
+    expect(await store.issues.listIssueDeps(a.id)).toEqual([])
+  })
+
+  it('addDep defaults to blocked-by, and a blocked-by edge makes the dependent blocked (POD-6100)', async () => {
+    const { svc } = await harness()
+    const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
+    const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
+    await svc.hierarchy.addDep(a.id, b.id)
+    const report = (await svc.reports.get(a.id))!
+    expect(report.deps).toEqual([{ id: b.id, type: 'blocked-by' }])
+    expect(report.blocked).toBe(true)
+    // Only blocked-by schedules: a related edge leaves the dependent unblocked.
+    const c = await svc.crud.create({ repoPath: '/r', title: 'C', startNow: false })
+    await svc.hierarchy.addDep(c.id, b.id, 'related')
+    expect((await svc.reports.get(c.id))!.blocked).toBe(false)
   })
 
   it('removeDep rejects explicit parent-child and leaves the hierarchy intact', async () => {
@@ -3328,7 +3353,7 @@ describe('IssueService ready/blocked lists (P2a)', () => {
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', priority: 3, startNow: false })
     const b = await svc.crud.create({ repoPath: '/r', title: 'B', priority: 0, startNow: false })
     const c = await svc.crud.create({ repoPath: '/r', title: 'C', startNow: false })
-    await store.issues.addIssueDep(a.id, c.id, 'blocks') // a blocked by open c
+    await store.issues.addIssueDep(a.id, c.id, 'blocked-by') // a blocked by open c
     await svc.crud.update(c.id, {}) // no-op to ensure persisted
     const ready = (await svc.reports.readyList('/r')).map((w) => w.title)
     expect(ready).toEqual(['B', 'C']) // A is blocked; B(p0) before C(p2)
@@ -3338,7 +3363,7 @@ describe('IssueService ready/blocked lists (P2a)', () => {
     const { svc, store } = await harness()
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
-    await store.issues.addIssueDep(a.id, b.id, 'blocks')
+    await store.issues.addIssueDep(a.id, b.id, 'blocked-by')
     expect((await svc.reports.blockedList('/r')).map((w) => w.title)).toEqual(['A'])
   })
 })
@@ -3350,10 +3375,10 @@ describe('IssueService graph (P2a)', () => {
     const a = await svc.crud.create({ repoPath: '/r', title: 'A', startNow: false })
     const b = await svc.crud.create({ repoPath: '/r', title: 'B', startNow: false })
     await svc.crud.create({ repoPath: '/other', title: 'X', startNow: false })
-    await store.issues.addIssueDep(a.id, b.id, 'blocks')
+    await store.issues.addIssueDep(a.id, b.id, 'blocked-by')
     const g = await svc.reports.graph('/r')
     expect(g.nodes.map((n) => n.title).sort()).toEqual(['A', 'B'])
-    expect(g.edges).toEqual([{ from: a.id, to: b.id, type: 'blocks' }])
+    expect(g.edges).toEqual([{ from: a.id, to: b.id, type: 'blocked-by' }])
     expect(g.nodes.find((n) => n.title === 'A')!.blocked).toBe(true)
   })
 })
@@ -3396,7 +3421,7 @@ describe('IssueService.tree (issue #82)', () => {
     })
     const c2 = await svc.crud.create({ repoPath: '/r', title: 'C2', parentId: epic.id, startNow: false })
     const g1 = await svc.crud.create({ repoPath: '/r', title: 'G1', parentId: c1.id, startNow: false })
-    await svc.hierarchy.addDep(c1.id, c2.id, 'blocks')
+    await svc.hierarchy.addDep(c1.id, c2.id, 'blocked-by')
     await svc.crud.close(c2.id)
     const t = await svc.reports.tree(String(epic.seq)) // resolves display seq refs too
     expect(t.totalNodes).toBe(4)
@@ -3541,14 +3566,14 @@ describe('IssueService supersede/duplicate (P2b)', () => {
     ])
   })
 
-  it('duplicate closes id with reason + duplicateOf + related dep', async () => {
+  it('duplicate closes id with reason + duplicateOf + duplicates dep', async () => {
     const { svc, store } = await harness()
     const dup = await svc.crud.create({ repoPath: '/r', title: 'dup', startNow: false })
     const canon = await svc.crud.create({ repoPath: '/r', title: 'canon', startNow: false })
     const w = await svc.hierarchy.duplicate(dup.id, canon.id)
     expect(w.closedReason).toBe('duplicate')
     expect(w.duplicateOf).toBe(canon.id)
-    expect(await store.issues.listIssueDeps(dup.id)).toEqual([{ toId: canon.id, type: 'related' }])
+    expect(await store.issues.listIssueDeps(dup.id)).toEqual([{ toId: canon.id, type: 'duplicates' }])
   })
 
   it('supersede throws on unknown id', async () => {
@@ -3641,11 +3666,11 @@ describe('IssueService doctor/preflight (P2b)', () => {
     const raw = (store as unknown as { db: { exec(q: string): void } }).db
     raw.exec('PRAGMA foreign_keys = OFF')
     raw.exec(
-      `INSERT INTO issue_deps (from_id, to_id, type) VALUES ('${a.id}', 'iss_ghost', 'blocks')`,
+      `INSERT INTO issue_deps (from_id, to_id, type) VALUES ('${a.id}', 'iss_ghost', 'blocked-by')`,
     )
     raw.exec('PRAGMA foreign_keys = ON')
     const d = await svc.reports.doctor('/r')
-    expect(d.danglingDeps).toEqual([{ from: a.id, to: 'iss_ghost', type: 'blocks' }])
+    expect(d.danglingDeps).toEqual([{ from: a.id, to: 'iss_ghost', type: 'blocked-by' }])
     expect((await svc.reports.preflight('/r')).ok).toBe(false)
   })
 
@@ -3788,8 +3813,8 @@ describe('IssueService.prime (P1a)', () => {
     const dep = await svc.crud.create({ repoPath: '/r', title: 'Dep', startNow: false })
     const closedDep = await svc.crud.create({ repoPath: '/r', title: 'ClosedDep', startNow: false })
     const me = await svc.crud.create({ repoPath: '/r', title: 'Me', startNow: false, parentId: epic.id })
-    await svc.hierarchy.addDep(me.id, dep.id, 'blocks')
-    await svc.hierarchy.addDep(me.id, closedDep.id, 'blocks')
+    await svc.hierarchy.addDep(me.id, dep.id, 'blocked-by')
+    await svc.hierarchy.addDep(me.id, closedDep.id, 'blocked-by')
     // A resolved (closed) blocker no longer blocks — computeBlocked ignores closed
     // targets, so prime's "Blocked by:" line must match and drop it too.
     await svc.crud.close(closedDep.id)
@@ -3968,7 +3993,7 @@ describe('IssueService.resolveRef (display seq → internal id)', () => {
     expect((await store.issues.listIssueComments(a.id)).map((c) => c.body)).toContain('hello')
 
     // deps: edge rows carry internal ids so blocked/ready derive correctly
-    await svc.hierarchy.addDep(String(b.seq), `#${a.seq}`, 'blocks')
+    await svc.hierarchy.addDep(String(b.seq), `#${a.seq}`, 'blocked-by')
     expect((await svc.reports.get(b.id))?.blocked).toBe(true)
     await svc.crud.close(String(a.seq))
     expect((await svc.reports.get(b.id))?.ready).toBe(true)
@@ -4988,7 +5013,7 @@ describe('IssueService.integrate (issue #70)', () => {
     const h = await harness()
     const { epic, children } = await epicWith(h, [{}, {}]) // B=children[0] (seq 2), A=children[1] (seq 3)
     const [b, a] = children
-    await h.svc.hierarchy.addDep(b!.id, a!.id, 'blocks') // B is blocked by A ⇒ A first
+    await h.svc.hierarchy.addDep(b!.id, a!.id, 'blocked-by') // B is blocked by A ⇒ A first
     const aSha = 'dddddddddddddddddddddddddddddddddddddddd'
     const bSha = 'eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee'
     const calls = scriptOps(h.deps, (op, args) => {
@@ -5206,10 +5231,10 @@ describe('IssueService children + depReport (epic ergonomics)', () => {
     const byTitle = Object.fromEntries(report.map((e) => [e.title, e]))
     expect(byTitle.a!.ready).toBe(true)
     expect(byTitle.a!.dependents).toEqual([
-      { seq: b.seq, title: 'b', type: 'blocks', closed: false },
+      { seq: b.seq, title: 'b', type: 'blocked-by', closed: false },
     ])
     expect(byTitle.b!.blocked).toBe(true)
-    expect(byTitle.b!.deps).toEqual([{ seq: a.seq, title: 'a', type: 'blocks', closed: false }])
+    expect(byTitle.b!.deps).toEqual([{ seq: a.seq, title: 'a', type: 'blocked-by', closed: false }])
     expect(byTitle.c!.closed).toBe(true)
     expect(byTitle.c!.ready).toBe(false)
     // a closed blocker unblocks: close a, b becomes ready

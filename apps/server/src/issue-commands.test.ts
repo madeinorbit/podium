@@ -988,10 +988,10 @@ describe('children + deps commands (epic ergonomics)', () => {
           blocked: true,
           ready: false,
           deps: [
-            { seq: 3, title: 'a', type: 'blocks', closed: false },
+            { seq: 3, title: 'a', type: 'blocked-by', closed: false },
             { seq: 4, title: 'd', type: 'related', closed: true },
           ],
-          dependents: [{ seq: 5, title: 'e', type: 'blocks', closed: false }],
+          dependents: [{ seq: 5, title: 'e', type: 'blocked-by', closed: false }],
         },
       ],
     })

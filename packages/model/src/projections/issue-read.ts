@@ -94,7 +94,7 @@ export interface IssueTreeNode<S = IssueTreeSession> {
   branch?: string
   needsHuman: boolean
   humanQuestion?: string
-  /** Seqs of `blocks` targets this issue waits on (open or closed). */
+  /** Seqs of `blocked-by` targets this issue waits on (open or closed). */
   blocksDeps: number[]
   /** First 300 chars of the description, whitespace collapsed to one line. */
   description: string
