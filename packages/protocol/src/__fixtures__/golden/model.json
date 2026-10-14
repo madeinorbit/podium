@@ -2047,13 +2047,12 @@
       "wire": {
         "cycles": [],
         "danglingDeps": [],
-        "lintCount": 1,
         "staleCount": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"cycles\":[],\"danglingDeps\":[],\"lintCount\":1,\"staleCount\":1}"
+      "encoded": "{\"cycles\":[],\"danglingDeps\":[],\"staleCount\":1}"
     },
     {
       "schema": "DoctorReport",
@@ -2067,13 +2066,12 @@
             "type": "danglingDeps[0].type"
           }
         ],
-        "lintCount": 1,
         "staleCount": 1
       },
       "parseAdded": {},
       "parseChanged": {},
       "parseDropped": {},
-      "encoded": "{\"cycles\":[[\"cycles[0][0]\"]],\"danglingDeps\":[{\"from\":\"danglingDeps[0].from\",\"to\":\"danglingDeps[0].to\",\"type\":\"danglingDeps[0].type\"}],\"lintCount\":1,\"staleCount\":1}"
+      "encoded": "{\"cycles\":[[\"cycles[0][0]\"]],\"danglingDeps\":[{\"from\":\"danglingDeps[0].from\",\"to\":\"danglingDeps[0].to\",\"type\":\"danglingDeps[0].type\"}],\"staleCount\":1}"
     },
     {
       "schema": "DriverFamilyWire",
@@ -6260,32 +6258,6 @@
       "parseChanged": {},
       "parseDropped": {},
       "encoded": "{\"userId\":\"userId\",\"key\":\"dockTab\",\"value\":{\"unknownFixture\":\"value\"}}"
-    },
-    {
-      "schema": "LintFinding",
-      "variant": "minimal",
-      "wire": {
-        "id": "id",
-        "seq": 1,
-        "findings": []
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"seq\":1,\"findings\":[]}"
-    },
-    {
-      "schema": "LintFinding",
-      "variant": "full",
-      "wire": {
-        "id": "id",
-        "seq": 1,
-        "findings": ["findings[0]"]
-      },
-      "parseAdded": {},
-      "parseChanged": {},
-      "parseDropped": {},
-      "encoded": "{\"id\":\"id\",\"seq\":1,\"findings\":[\"findings[0]\"]}"
     },
     {
       "schema": "LoginEmail",
