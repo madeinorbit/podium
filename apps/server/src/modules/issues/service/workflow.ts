@@ -118,7 +118,10 @@ export class IssueGitWorkflowModule {
 
   constructor(
     readonly store: IssueStore,
-    private readonly crud: () => Pick<IssueCrudModule, 'update' | 'create' | 'close' | 'defer'>,
+    private readonly crud: () => Pick<
+      IssueCrudModule,
+      'update' | 'create' | 'close' | 'defer' | 'agentProfileIdFor'
+    >,
     private readonly commentsMail: () => Pick<IssueCommentsMailModule, 'addComment'>,
     attention: () => Pick<IssueAttentionModule, 'setNeedsHuman'>,
   ) {

@@ -102,6 +102,7 @@ export const BLANK_TO_NULL_COLUMNS = [
   'panel',
   'coordinatorSessionId',
   'startedBySession',
+  'agentProfileId',
 ] as const satisfies readonly NullableTextColumn[]
 
 /**

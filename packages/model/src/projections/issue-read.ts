@@ -141,6 +141,8 @@ export interface IssueShowWire<S = IssueTreeSession> {
   defaultAgent?: string | null
   defaultModel?: string | null
   defaultEffort?: string | null
+  /** The agent profile under the three fields above (POD-6107). */
+  agentProfileId?: string | null
   machineId?: MachineId | null
   color?: string | null
   /** Designated coordinator session id (bare). */
