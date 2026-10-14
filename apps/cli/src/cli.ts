@@ -138,6 +138,7 @@ const HELP_DELEGATED = new Set([
   'tunnel',
   'doctor',
   'quota',
+  'profile',
   'machine',
   'instance',
   'logs',
@@ -228,6 +229,8 @@ export type LaunchPlan =
   /** `podium tunnel enable|disable`: the opt-in supervised quick tunnel (POD-4640). */
   | { kind: 'tunnel'; args: string[] }
   | { kind: 'quota'; args: string[] }
+  /** `podium profile …`: named agent setups (POD-6107). */
+  | { kind: 'profile'; args: string[] }
   /** `podium machine [list|show]`: read the fleet an agent may place work on. */
   | { kind: 'machine'; args: string[] }
   /** `podium instance rekey`: mint a new owner UUID for a copied state root. */
@@ -754,6 +757,8 @@ export function resolvePlan(
   if (argv[0] === 'tunnel') return { kind: 'tunnel', args: argv.slice(1) }
   // `podium quota`: the same live harness plan limits shown in the web panel.
   if (argv[0] === 'quota') return { kind: 'quota', args: argv.slice(1) }
+  // `podium profile …`: named agent setups issues and sessions start from (POD-6107).
+  if (argv[0] === 'profile' || argv[0] === 'profiles') return { kind: 'profile', args: argv.slice(1) }
   // `podium machine [list|show]`: which machines exist, which are usable, and what
   // is registered on them — the read a coordinator needs before placing work.
   if (argv[0] === 'machine' || argv[0] === 'machines')
@@ -1059,6 +1064,7 @@ export function helpText(enabledFeatures: ReadonlySet<FeatureId> = new Set()): s
     '                        Request a one-off session wake (agent sessions only)',
     '  mail <command>        Send/read/reply to agent messages (unified substrate)',
     '  agent <command>       Spawn cross-harness subagents; bounded await on a child',
+    '  profile <command>     Named agent setups (harness, model, effort, instructions)',
     '  machine <command>     List machines and see which can take work',
     '  worktree [path]       Declare the worktree this agent session works in',
     "  workspace <command>   Fetch another agent's working state; clean up peeks",
@@ -1695,6 +1701,11 @@ export async function main(
     case 'quota': {
       const { quotaCliMain } = await import('./quota-cli')
       await quotaCliMain(plan.args)
+      return
+    }
+    case 'profile': {
+      const { profileCliMain } = await import('./profile-cli')
+      await profileCliMain(plan.args)
       return
     }
     // `podium machine [list|show]`: the fleet read behind every placement decision.
