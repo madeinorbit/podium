@@ -297,7 +297,12 @@ describe('issueDep projection [POD-822]', () => {
     const p = issueDepToProjection({ fromId: 'iss_1', toId: 'iss_2', type: 'blocked-by' })
     // The composed key — not a minted id. Re-adding the same edge produces a
     // byte-identical row the ledger dedups, so a no-op add appends nothing.
-    expect(p).toEqual({ id: 'iss_1|iss_2|blocked-by', fromId: 'iss_1', toId: 'iss_2', type: 'blocked-by' })
+    expect(p).toEqual({
+      id: 'iss_1|iss_2|blocked-by',
+      fromId: 'iss_1',
+      toId: 'iss_2',
+      type: 'blocked-by',
+    })
     expect(issueDepToProjection({ fromId: 'iss_1', toId: 'iss_2', type: 'blocked-by' })).toEqual(p)
   })
 

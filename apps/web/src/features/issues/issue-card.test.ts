@@ -44,7 +44,9 @@ describe('issueCardModel Linear anatomy', () => {
     })
   })
   it('blocked/blocking flags from wire state + dependents', () => {
-    const m = issueCardModel(issue({ blocked: true, dependents: [{ id: 'x', type: 'blocked-by' }] }))
+    const m = issueCardModel(
+      issue({ blocked: true, dependents: [{ id: 'x', type: 'blocked-by' }] }),
+    )
     expect(m.isBlocked).toBe(true)
     expect(m.isBlocking).toBe(true)
     expect(issueCardModel(issue()).isBlocking).toBe(false)

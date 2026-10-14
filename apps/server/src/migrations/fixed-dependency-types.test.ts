@@ -33,7 +33,8 @@ function beforeMigration(): SqlDatabase {
      VALUES (?, ?, ?, '/r', ?, ?, 'backlog', 'main', 'claude-code', '2026-01-01', '2026-01-01')`,
   )
   const owner = 'mem_owner'
-  ;['a', 'b', 'c', 'd'].forEach((id, i) => insert.run(id, owner, owner, i + 1, id.toUpperCase()))
+  for (const [i, id] of ['a', 'b', 'c', 'd'].entries())
+    insert.run(id, owner, owner, i + 1, id.toUpperCase())
   return db
 }
 
