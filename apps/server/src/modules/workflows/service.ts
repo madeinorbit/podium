@@ -288,7 +288,8 @@ export class WorkflowService implements WorkflowEngine {
 
   /**
    * The agent profile a run step pinned when its run started (POD-6114), for a
-   * spawn that names the run and the step. Null when the step names none.
+   * spawn that names the run and the step. Null when the step names none, or
+   * the run is not one of ours.
    *
    * The snapshot is what launches, not the live profile: editing a profile
    * never changes a run in flight. A step whose profile was missing when the
@@ -299,8 +300,12 @@ export class WorkflowService implements WorkflowEngine {
     stepId: string
     caller?: WorkflowCaller
   }): Promise<AgentProfileWire | null> {
+    // Run and step ids on a spawn are also pass-through metadata from an
+    // EXTERNAL coordinator (#285), which the substrate never interprets. An id
+    // that names no run here is one of those: it pins nothing. A run that IS
+    // ours with no such step is a mistake, and says so.
     const run = await this.deps.store.getRun(input.runId)
-    if (!run) throw new Error(`unknown workflow run: ${input.runId}`)
+    if (!run) return null
     const step = (await this.deps.store.getRunSteps(run.id)).find(
       (candidate) => candidate.stepId === input.stepId,
     )

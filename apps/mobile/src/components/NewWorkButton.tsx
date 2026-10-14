@@ -189,7 +189,7 @@ const NewWorkLauncher = observer(function NewWorkLauncher({
   // Machines as THIS principal may act on them (doc §3.1.4 M1/M5): `see` is
   // already applied by the server's per-principal projection, `use` is read per
   // LIST by the shared helper — the identical reading the desktop spawn row,
-  // the automations form and the execution-profile picker use. Two spellings of
+  // the automations form and the workflows placement list use. Two spellings of
   // "may I run here" is exactly how one surface comes to offer a machine
   // another refuses.
   const machineViews = (() => machineViewsFromWire(machines))()

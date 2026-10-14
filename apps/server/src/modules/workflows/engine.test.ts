@@ -1545,11 +1545,10 @@ describe('POD-730 workflow mutation characterization', () => {
           stepId: 'implement',
         }),
       ).toBeNull()
+      // A run id that is not ours is an external coordinator's (#285): no pin.
       expect(
-        await thrown(() =>
-          h.service.agentProfileForStep({ caller: operator, runId: 'wrun_nope', stepId: 'x' }),
-        ),
-      ).toBe('Error: unknown workflow run: wrun_nope | code=undefined')
+        await h.service.agentProfileForStep({ caller: operator, runId: 'ext_run', stepId: 'x' }),
+      ).toBeNull()
       expect(
         await thrown(() =>
           h.service.agentProfileForStep({ caller: operator, runId: run.id, stepId: 'nope' }),

@@ -99,8 +99,8 @@ const REDACTION: RedactionPolicy = {
   outputPaths: [],
   note:
     'Nothing redacted. A profile holds harness and model NAMES, effort levels, a machine reference ' +
-    'and instruction text written by the instance’s own people — no credential, unlike the older ' +
-    '`execution_profiles`, which names a managed account.',
+    'and instruction text written by the instance’s own people — no credential, unlike the retired ' +
+    '`execution_profiles`, which named a managed account.',
 }
 
 const OWNERSHIP: CreationOwnership = {
