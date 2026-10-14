@@ -22,6 +22,8 @@ export * from './clock'
 // only frames). Byte-identical to the pre-move wire; the golden fixtures in
 // packages/protocol/src/messages/wire-golden.json are the proof.
 export * from './entities/agent'
+// Named agent setups (flight deck D3/D4): the shared resolver and the .md shape.
+export * from './entities/agent-profile'
 export * from './entities/automation'
 export * from './entities/conversation'
 export * from './entities/draft-doc'
