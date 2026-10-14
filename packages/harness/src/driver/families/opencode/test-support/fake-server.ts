@@ -88,6 +88,8 @@ export interface FakeOpencodeServer {
   emit(type: string, properties: Record<string, unknown>): void
   askPermission(input: Omit<FakePermissionRequest, 'id'> & { id?: string }): string
   askQuestion(input: Omit<FakeQuestionRequest, 'id'> & { id?: string }): string
+  /** Every question reply this server accepted, in order. */
+  questionReplies: Array<{ requestId: string; answers: unknown }>
   /** The turn ended. Emits exactly what opencode emits: a status flip and the
    *  single authoritative `session.idle`. */
   goIdle(sessionId: string): void
@@ -140,6 +142,7 @@ export async function startFakeOpencodeServer(options: {
   const sessions = options.store ?? new Map<string, FakeOpencodeSession>()
   const permissions = new Map<string, FakePermissionRequest>()
   const questions = new Map<string, FakeQuestionRequest>()
+  const questionReplies: FakeOpencodeServer['questionReplies'] = []
   const prompts = new Map<string, number>()
   const promptBodies = new Map<string, OpencodePromptBody>()
   const subscribers = new Set<{
@@ -278,6 +281,7 @@ export async function startFakeOpencodeServer(options: {
       }
       readBody((body) => {
         questions.delete(requestId)
+        questionReplies.push({ requestId, answers: body.answers })
         emit('question.replied', {
           sessionID: pending.sessionID,
           requestID: requestId,
@@ -502,6 +506,7 @@ export async function startFakeOpencodeServer(options: {
       emit('permission.asked', { ...input, id: requestId })
       return requestId
     },
+    questionReplies,
     askQuestion(input) {
       const requestId = input.id ?? id('que')
       questions.set(requestId, { ...input, id: requestId })
