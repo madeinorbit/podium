@@ -138,15 +138,6 @@ describe('POD-732 workflow cutover gate', () => {
       parse('skip', { runId: 'wrun_1', stepId: 'build', reason: 'Skipped by operator' }).success,
     ).toBe(true)
     expect(parse('retry', { runId: 'wrun_1', stepId: 'build' }).success).toBe(true)
-    expect(
-      parse('profileSave', {
-        name: 'Local claude',
-        accountId: 'acct_1',
-        harness: 'claude-code',
-        model: 'opus',
-        effort: 'high',
-      }).success,
-    ).toBe(true)
     // The counterfactual: these schemas do REFUSE, so the trues above are the
     // contract accepting rather than a schema that accepts anything.
     expect(parse('publish', {}).success).toBe(false)

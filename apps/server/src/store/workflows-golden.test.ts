@@ -22,7 +22,7 @@
  * persisting it.
  */
 
-import { asAccountId, asMachineId, asSessionId, asUserId, type UserId } from '@podium/model'
+import { type AgentProfileWire, asSessionId, asUserId, type UserId } from '@podium/model'
 import type { openDatabase } from '@podium/runtime/sqlite'
 import { beforeEach, describe, expect, it } from 'vitest'
 import { openMigratedTestDatabase } from '../test-support/migrated-database'
@@ -75,29 +75,26 @@ const makeRevision = async (id: string, workflowId: string) =>
     now: 't0',
   })
 
-const makeProfile = async (id: string, over: { name?: string; model?: string } = {}) =>
-  await workflows.upsertProfile({
-    id,
-    name: over.name ?? id,
-    accountId: asAccountId('acct-1'),
-    machineId: asMachineId('machine-1'),
-    harness: 'claude-code',
-    model: over.model ?? 'opus',
-    effort: 'high',
-    actor: OPERATOR,
-    ownerUserId: OWNER,
-    now: 't0',
-  })
+/** An agent profile as a run pins it (POD-6114); no table row is needed. */
+const agentProfile = (id: string, model = 'opus'): AgentProfileWire => ({
+  id,
+  name: id,
+  description: '',
+  candidates: [{ harness: 'claude-code', model, effort: 'high' }],
+  machineId: 'machine-1',
+  instructions: '',
+  createdAt: 't0',
+  updatedAt: 't0',
+})
 
 // ---------------------------------------------------------------------------
-// ownerOf — the authorization read, five kinds and a default
+// ownerOf — the authorization read, four kinds and a default
 // ---------------------------------------------------------------------------
 
 describe('ownerOf', () => {
   it('resolves the owner for every kind it claims to know', async () => {
     await makeWorkflow('wf-1')
     await makeRevision('rev-1', 'wf-1')
-    await makeProfile('prof-1')
     await workflows.setBinding({
       targetKind: 'issue' as never,
       targetId: 'iss_a',
@@ -128,7 +125,6 @@ describe('ownerOf', () => {
     expect(await workflows.ownerOf('workflow-library-entry', 'wf-1')).toBe(OWNER)
     expect(await workflows.ownerOf('workflow-revision', 'rev-1')).toBe(OWNER)
     expect(await workflows.ownerOf('workflow-binding', 'issue:iss_a')).toBe(OWNER)
-    expect(await workflows.ownerOf('execution-profile', 'prof-1')).toBe(OWNER)
     expect(await workflows.ownerOf('workflow-run', 'run-1')).toBe(OWNER)
   })
 
@@ -296,7 +292,7 @@ describe('publishRevision', () => {
 })
 
 // ---------------------------------------------------------------------------
-// Bindings and profiles — the ON CONFLICT column sets
+// Bindings — the ON CONFLICT column sets
 // ---------------------------------------------------------------------------
 
 describe('setBinding', () => {
@@ -354,42 +350,6 @@ describe('setBinding', () => {
   })
 })
 
-describe('upsertProfile', () => {
-  it('updates the mutable columns and leaves the creator alone', async () => {
-    await makeProfile('prof-1', { model: 'opus' })
-    await workflows.upsertProfile({
-      id: 'prof-1',
-      name: 'renamed',
-      accountId: asAccountId('acct-2'),
-      machineId: null,
-      harness: 'codex',
-      model: 'sonnet',
-      effort: 'low',
-      actor: AGENT,
-      ownerUserId: asUserId('user:mallory'),
-      now: 't2',
-    })
-
-    const back = await workflows.getProfile('prof-1')
-    expect(back?.name).toBe('renamed')
-    expect(back?.model).toBe('sonnet')
-    // machineId is nullable and the update must be able to CLEAR it, not just set it.
-    expect(back?.machineId).toBeNull()
-    // created_by_* and owner_user_id are absent from the ON CONFLICT body.
-    expect(await workflows.ownerOf('execution-profile', 'prof-1')).toBe(OWNER)
-  })
-
-  it('lists profiles by name, case-insensitively', async () => {
-    await makeProfile('p1', { name: 'Zeta' })
-    await makeProfile('p2', { name: 'alpha' })
-    expect((await workflows.listProfiles()).map((p) => p.name)).toEqual(['alpha', 'Zeta'])
-  })
-
-  it('getProfile is null for an absent id', async () => {
-    expect(await workflows.getProfile('absent')).toBeNull()
-  })
-})
-
 // ---------------------------------------------------------------------------
 // Runs, steps and the second span
 // ---------------------------------------------------------------------------
@@ -419,8 +379,8 @@ describe('insertRun — the run and its steps in one span', () => {
     await workflows.insertRun({
       run: run('run-1'),
       steps: [
-        { id: 'a', title: 'A', instructions: 'ia', completionGuidance: 'ga', profile: null },
-        { id: 'b', title: 'B', instructions: 'ib', completionGuidance: 'gb', profile: null },
+        { id: 'a', title: 'A', instructions: 'ia', completionGuidance: 'ga', profileId: null, profile: null },
+        { id: 'b', title: 'B', instructions: 'ib', completionGuidance: 'gb', profileId: null, profile: null },
       ] as never,
     })
 
@@ -435,13 +395,13 @@ describe('insertRun — the run and its steps in one span', () => {
     // attempt one. Pinned because `resetStep` increments it and an off-by-one
     // here would read as a plausible retry count for a long time.
     expect(steps[0]?.attempt).toBe(1)
-    expect(steps[0]?.executionProfileSnapshot).toBeNull()
+    expect(steps[0]?.agentProfileId).toBeNull()
+    expect(steps[0]?.agentProfileSnapshot).toBeNull()
   })
 
   it('snapshots a step profile as JSON beside its id', async () => {
     await seedRevision()
-    await makeProfile('prof-1')
-    const profile = await workflows.getProfile('prof-1')
+    const profile = agentProfile('agp_1')
     await workflows.insertRun({
       run: run('run-1'),
       steps: [
@@ -450,17 +410,38 @@ describe('insertRun — the run and its steps in one span', () => {
           title: 'A',
           instructions: 'i',
           completionGuidance: 'g',
-          executionProfileId: 'prof-1',
+          agentProfile: 'build',
+          profileId: 'agp_1',
           profile,
         },
       ] as never,
     })
 
     const step = (await workflows.getRunSteps('run-1'))[0]
-    expect(step?.executionProfileId).toBe('prof-1')
+    expect(step?.agentProfileId).toBe('agp_1')
     // The SNAPSHOT is the point: the run keeps what the profile said at start,
     // so a later edit to the profile cannot rewrite history.
-    expect(step?.executionProfileSnapshot).toMatchObject({ id: 'prof-1', model: 'opus' })
+    expect(step?.agentProfileSnapshot).toEqual(profile)
+  })
+
+  it('reads a snapshot it cannot parse as unavailable, never a throw', async () => {
+    await seedRevision()
+    await workflows.insertRun({
+      run: run('run-1'),
+      steps: [
+        {
+          id: 'a',
+          title: 'A',
+          instructions: 'i',
+          completionGuidance: 'g',
+          profileId: 'agp_1',
+          profile: { id: 'agp_1' } as unknown as AgentProfileWire,
+        },
+      ] as never,
+    })
+    const step = (await workflows.getRunSteps('run-1'))[0]
+    expect(step?.agentProfileId).toBe('agp_1')
+    expect(step?.agentProfileSnapshot).toBeNull()
   })
 
   it('accepts a run with no steps at all', async () => {
@@ -490,7 +471,7 @@ describe('run queries', () => {
         ownerUserId: OWNER,
       },
       steps: [
-        { id: 'a', title: 'A', instructions: 'i', completionGuidance: 'g', profile: null },
+        { id: 'a', title: 'A', instructions: 'i', completionGuidance: 'g', profileId: null, profile: null },
       ] as never,
     })
   }
@@ -563,8 +544,8 @@ describe('step mutation', () => {
         ownerUserId: OWNER,
       },
       steps: [
-        { id: 'a', title: 'A', instructions: 'i', completionGuidance: 'g', profile: null },
-        { id: 'b', title: 'B', instructions: 'i', completionGuidance: 'g', profile: null },
+        { id: 'a', title: 'A', instructions: 'i', completionGuidance: 'g', profileId: null, profile: null },
+        { id: 'b', title: 'B', instructions: 'i', completionGuidance: 'g', profileId: null, profile: null },
       ] as never,
     })
   })

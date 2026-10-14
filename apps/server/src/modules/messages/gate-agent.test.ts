@@ -93,7 +93,8 @@ async function harness(opts?: {
   sessions?: SessionMeta[]
   spawnSession?: MessageGateDeps['spawnSession']
   awaitMachineInventory?: MessageGateDeps['awaitMachineInventory']
-  resolveExecutionProfile?: MessageGateDeps['resolveExecutionProfile']
+  resolveWorkflowStepLaunch?: MessageGateDeps['resolveWorkflowStepLaunch']
+  findAgentProfile?: MessageGateDeps['findAgentProfile']
   awaitPollMs?: number
   /** Poll-sleep seam (blocking-send / await tests drive confirmation here). */
   sleep?: (ms: number) => Promise<void>
@@ -161,9 +162,10 @@ async function harness(opts?: {
         return { sessionId: asSessionId('child1') }
       }),
     ...(opts?.awaitMachineInventory ? { awaitMachineInventory: opts.awaitMachineInventory } : {}),
-    ...(opts?.resolveExecutionProfile
-      ? { resolveExecutionProfile: opts.resolveExecutionProfile }
+    ...(opts?.resolveWorkflowStepLaunch
+      ? { resolveWorkflowStepLaunch: opts.resolveWorkflowStepLaunch }
       : {}),
+    ...(opts?.findAgentProfile ? { findAgentProfile: opts.findAgentProfile } : {}),
     // The deliberate --new path registers in the same fake registry so the
     // follow-up issues.get() resolves it (mirrors the real IssueService).
     createIssue: async (i) =>
@@ -221,7 +223,6 @@ describe('agent spawn (gate)', () => {
       effort: 'high',
       workflowRunId: 'run_1',
       workflowStepId: 'step_2',
-      executionProfileId: 'prof_3',
     })) as { ok: boolean; sessionId: SessionId; issueId: string }
     expect(r).toMatchObject({ ok: true, sessionId: asSessionId('child1'), issueId: ISSUE.id })
     expect(spawns[0]).toMatchObject({
@@ -234,7 +235,6 @@ describe('agent spawn (gate)', () => {
       effort: 'high',
       workflowRunId: 'run_1',
       workflowStepId: 'step_2',
-      executionProfileId: 'prof_3',
     })
     // No issue auto-created when one was supplied.
     expect(created).toHaveLength(0)
@@ -247,21 +247,16 @@ describe('agent spawn (gate)', () => {
     })
   })
 
-  it('uses a resolved execution profile as the authoritative launch preset and audits it', async () => {
+  it('launches a workflow step from the agent profile its run pinned, and audits it (POD-6114)', async () => {
     const { gate, spawns, store } = await harness({
-      resolveExecutionProfile: async (input) => {
-        expect(input).toMatchObject({
-          profileId: 'prof_review',
-          runId: 'run_1',
-          stepId: 'review',
-        })
+      resolveWorkflowStepLaunch: async (input) => {
+        expect(input).toMatchObject({ runId: 'run_1', stepId: 'review', cwd: '/wt/a' })
         return {
-          id: 'prof_review',
-          accountId: asAccountId('native:codex'),
-          machineId: asMachineId('machine-review'),
-          harness: 'codex',
+          profile: { id: 'agp_review', name: 'review' },
+          agentKind: 'codex',
           model: 'gpt-5.6',
           effort: 'medium',
+          machineId: asMachineId('machine-review'),
         }
       },
     })
@@ -273,7 +268,6 @@ describe('agent spawn (gate)', () => {
       effort: 'low',
       workflowRunId: 'run_1',
       workflowStepId: 'review',
-      executionProfileId: 'prof_review',
     })
     expect(spawns[0]).toMatchObject({
       agentKind: 'codex',
@@ -282,7 +276,7 @@ describe('agent spawn (gate)', () => {
       machineId: 'machine-review',
       workflowRunId: 'run_1',
       workflowStepId: 'review',
-      executionProfileId: 'prof_review',
+      agentProfileId: 'agp_review',
     })
     const events = await store.events.listEventsSince(0, { kinds: ['agent.spawned'] })
     expect(events[0]?.payload).toMatchObject({
@@ -290,38 +284,85 @@ describe('agent spawn (gate)', () => {
       model: 'gpt-5.6',
       effort: 'medium',
       machineId: 'machine-review',
-      accountId: 'native:codex',
-      executionProfileId: 'prof_review',
+      agentProfileId: 'agp_review',
     })
+  })
+
+  it('spawns as asked when the workflow step pins no profile', async () => {
+    const { gate, spawns } = await harness({
+      resolveWorkflowStepLaunch: async () => null,
+    })
+    await gate.dispatch(PARENT, true, 'spawnAgent', {
+      issue: ISSUE.id,
+      prompt: 'go',
+      harness: 'codex',
+      workflowRunId: 'run_1',
+      workflowStepId: 'plain',
+    })
+    expect(spawns[0]).toMatchObject({ agentKind: 'codex' })
+    expect(spawns[0]).not.toHaveProperty('agentProfileId')
+  })
+
+  it('refuses a --profile that differs from the one the step pinned', async () => {
+    const { gate, spawns } = await harness({
+      resolveWorkflowStepLaunch: async () => ({
+        profile: { id: 'agp_review', name: 'review' },
+        agentKind: 'codex',
+        model: 'auto',
+        effort: 'auto',
+        machineId: null,
+      }),
+      findAgentProfile: async (ref) =>
+        ref === 'build' ? { id: 'agp_build', name: 'build' } : { id: 'agp_review', name: 'review' },
+    })
+    await expect(
+      gate.dispatch(PARENT, true, 'spawnAgent', {
+        issue: ISSUE.id,
+        prompt: 'go',
+        workflowRunId: 'run_1',
+        workflowStepId: 'review',
+        agentProfile: 'build',
+      }),
+    ).rejects.toThrow(/runs with agent profile 'review'; drop --profile build/u)
+    expect(spawns).toHaveLength(0)
+    // The same profile named again is not a conflict.
+    await gate.dispatch(PARENT, true, 'spawnAgent', {
+      issue: ISSUE.id,
+      prompt: 'go',
+      workflowRunId: 'run_1',
+      workflowStepId: 'review',
+      agentProfile: 'review',
+    })
+    expect(spawns[0]).toMatchObject({ agentProfileId: 'agp_review', agentKind: 'codex' })
   })
 
   /**
    * POD-1386 — a delegate shares its issue's worktree, and a worktree lives on
-   * exactly ONE machine. Only an execution profile can name a machine
-   * independently of the issue, so it is the only way to reach this state.
+   * exactly ONE machine. Only a workflow step's agent profile can name a
+   * machine independently of the issue, so it is the only way to reach this state.
    */
   describe('cross-machine spawn', () => {
     const profileOn =
-      (machineId: string): MessageGateDeps['resolveExecutionProfile'] =>
+      (machineId: string): MessageGateDeps['resolveWorkflowStepLaunch'] =>
       async () => ({
-        id: 'prof_x',
-        accountId: asAccountId('native:claude-code'),
-        machineId: asMachineId(machineId),
-        harness: 'claude-code',
+        profile: { id: 'agp_x', name: 'x' },
+        agentKind: 'claude-code',
         model: 'auto',
         effort: 'auto',
+        machineId: asMachineId(machineId),
       })
+    const step = { workflowRunId: 'run_1', workflowStepId: 'step_x' }
 
     it('refuses to spawn a delegate on a machine other than the issue’s home', async () => {
       const { gate, spawns } = await harness({
         issueOverrides: { machineId: 'machine-home', worktreePath: '/wt/a' },
-        resolveExecutionProfile: profileOn('machine-elsewhere'),
+        resolveWorkflowStepLaunch: profileOn('machine-elsewhere'),
       })
       await expect(
         gate.dispatch(PARENT, true, 'spawnAgent', {
           issue: ISSUE.id,
           prompt: 'go',
-          executionProfileId: 'prof_x',
+          ...step,
         }),
       ).rejects.toThrow(/would create a second checkout of the same branch/u)
       // The refusal is the point: nothing was spawned. The silent alternative
@@ -333,13 +374,13 @@ describe('agent spawn (gate)', () => {
     it('names handoff, because that is the operation that would make it legal', async () => {
       const { gate } = await harness({
         issueOverrides: { machineId: 'machine-home', worktreePath: '/wt/a' },
-        resolveExecutionProfile: profileOn('machine-elsewhere'),
+        resolveWorkflowStepLaunch: profileOn('machine-elsewhere'),
       })
       await expect(
         gate.dispatch(PARENT, true, 'spawnAgent', {
           issue: ISSUE.id,
           prompt: 'go',
-          executionProfileId: 'prof_x',
+          ...step,
         }),
       ).rejects.toThrow(/podium session handoff/u)
     })
@@ -347,12 +388,12 @@ describe('agent spawn (gate)', () => {
     it('allows a profile that names the issue’s OWN machine', async () => {
       const { gate, spawns } = await harness({
         issueOverrides: { machineId: 'machine-home', worktreePath: '/wt/a' },
-        resolveExecutionProfile: profileOn('machine-home'),
+        resolveWorkflowStepLaunch: profileOn('machine-home'),
       })
       await gate.dispatch(PARENT, true, 'spawnAgent', {
         issue: ISSUE.id,
         prompt: 'go',
-        executionProfileId: 'prof_x',
+        ...step,
       })
       expect(spawns).toHaveLength(1)
       expect(spawns[0]).toMatchObject({ machineId: 'machine-home' })
@@ -363,18 +404,18 @@ describe('agent spawn (gate)', () => {
       // to HOME an issue, so the guard keys on the worktree, not on the pin.
       const { gate, spawns } = await harness({
         issueOverrides: { machineId: 'machine-home', worktreePath: null },
-        resolveExecutionProfile: profileOn('machine-elsewhere'),
+        resolveWorkflowStepLaunch: profileOn('machine-elsewhere'),
       })
       await gate.dispatch(PARENT, true, 'spawnAgent', {
         issue: ISSUE.id,
         prompt: 'go',
-        executionProfileId: 'prof_x',
+        ...step,
       })
       expect(spawns).toHaveLength(1)
     })
 
     it('allows a spawn with no profile at all — it inherits the issue home', async () => {
-      // The counterfactual for the refusals above: an execution profile is the ONLY
+      // The counterfactual for the refusals above: a pinned step profile is the ONLY
       // input that can name a machine independently of the issue, so every other
       // caller is already correct and must not be caught by the guard.
       const { gate, spawns } = await harness({

@@ -177,7 +177,6 @@ function row(overrides: Partial<SessionRow> = {}): SessionRow {
     // always projected, null = none stamped at spawn.
     workflowRunId: null,
     workflowStepId: null,
-    executionProfileId: null,
     // POD-6107: the agent profile a session started from; null = none.
     agentProfileId: null,
     // Issue-lifecycle tombstones are always projected by the repository.
@@ -276,7 +275,6 @@ describe('SessionStore sessions', () => {
     const r = row({
       workflowRunId: 'run_9',
       workflowStepId: 'step_3',
-      executionProfileId: 'prof_x',
     })
     await s.sessions.upsertSession(r)
     expect(await s.sessions.loadSessions()).toEqual([r])

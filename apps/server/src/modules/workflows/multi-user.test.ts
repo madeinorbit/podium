@@ -167,6 +167,8 @@ async function makeHarness(policy: Policy) {
       issue: () => undefined,
       repoIdForPath: async (path) =>
         path.startsWith('/repo-a') ? 'repo-a' : path.startsWith('/repo-b') ? 'repo-b' : null,
+      agentProfile: async (ref) =>
+        (await store.agentProfiles.get(ref)) ?? (await store.agentProfiles.getByName(ref)),
     },
     { ownership: policy.ownership, machines: policy.machines },
   )
@@ -216,6 +218,7 @@ describe('ownership resolved per pass', () => {
         session: (id) => SESSIONS.get(id),
         issue: () => undefined,
         repoIdForPath: async () => null,
+        agentProfile: async () => null,
       },
       {
         machines: p.machines,
@@ -427,8 +430,9 @@ describe('workflows under two humans', () => {
     ).toBe(`unknown workflow: ${created.workflow.id}`)
   })
 
-  it('does not list another member’s RUNS, BINDINGS or PROFILES', async () => {
-    // The three READ-shaped branches POD-730 pinned. Each one returned the
+  it('does not list another member’s RUNS or BINDINGS', async () => {
+    // The READ-shaped branches POD-730 pinned (a third, `profiles()`, went with
+    // the execution profiles in POD-6114; agent profiles are instance substrate). Each one returned the
     // whole instance for an operator, which is a cross-user read the moment
     // there is a second human — so each is asserted separately here rather than
     // trusted to share a code path.
@@ -441,17 +445,6 @@ describe('workflows under two humans', () => {
       admin,
     ))
     policy.own(`${binding.targetKind}:${binding.targetId}`, ALICE)
-    const profile = (await h.service.profileSave(
-      {
-        name: 'Alice profile',
-        accountId: 'acct-alice',
-        harness: 'codex',
-        model: 'auto',
-        effort: 'auto',
-      },
-      policy.caller(null, ALICE, 'admin'),
-    ))
-    policy.own(profile.id, ALICE)
     const run = (await h.service.startRun({
       sessionId: asSessionId('a1'),
       cwd: '/repo-a/wt',
@@ -463,19 +456,17 @@ describe('workflows under two humans', () => {
     const bob = () => policy.caller(asSessionId('b1'), BOB)
     expect((await h.service.runs({}, bob()))).toEqual([])
     expect((await h.service.bindings(bob()))).toEqual([])
-    expect((await h.service.profiles(bob()))).toEqual([])
     // …and a named run id tells Bob nothing either.
     expect(await thrown(() => h.service.status({ runId: run.id }, bob()))).toBe(
       'no active workflow run for this session',
     )
 
-    // THE COUNTERFACTUAL for all four: Alice sees her own. Without this the
+    // THE COUNTERFACTUAL for all three: Alice sees her own. Without this the
     // assertions above would pass against a surface that lists nothing at all.
     expect((await h.service.runs({}, policy.caller(asSessionId('a1'), ALICE))).map((r) => r.id)).toEqual([
       run.id,
     ])
     expect((await h.service.bindings(policy.caller(asSessionId('a1'), ALICE)))).toHaveLength(1)
-    expect((await h.service.profiles(policy.caller(null, ALICE, 'admin')))).toHaveLength(1)
     expect((await h.service.status({ runId: run.id }, policy.caller(asSessionId('a1'), ALICE))).id).toBe(
       run.id,
     )
@@ -682,111 +673,62 @@ describe('workflows under two humans', () => {
     ).toBe('Step assigned to a1.')
   })
 
-  it('DENIES priming a run onto a machine the principal may not use, at APPLY time', async () => {
-    const admin = policy.caller(null, ALICE, 'admin')
-    const profile = (await h.service.profileSave(
+  it('DENIES launching a step onto a machine the principal may not use, at APPLY time', async () => {
+    await h.store.agentProfiles.insert({
+      id: 'agp_alice_box',
+      name: 'alice-box',
+      description: '',
+      candidates: [{ harness: 'codex', model: 'auto', effort: 'auto' }],
+      machineId: asMachineId('m-alice'),
+      instructions: '',
+      actor: 'operator',
+      now: NOW,
+    })
+    const created = (await h.service.create(
       {
-        name: 'Bob box',
-        accountId: 'acct',
-        machineId: asMachineId('m-alice'),
-        harness: 'codex',
-        model: 'auto',
-        effort: 'auto',
+        name: 'Pinned placement',
+        description: '',
+        scope: 'task',
+        scopeRef: 'issue-a',
+        instructions: '',
+        steps: [
+          { id: 'one', title: 'One', instructions: '', completionGuidance: '', agentProfile: 'alice-box' },
+        ],
       },
-      admin,
+      policy.caller(asSessionId('a1'), ALICE),
     ))
-    policy.own(profile.id, ALICE)
+    policy.own(created.workflow.id, ALICE)
+    const run = (await h.service.startRun({
+      sessionId: asSessionId('a1'),
+      cwd: '/repo-a/wt',
+      issueId: asIssueId('issue-a'),
+      revisionId: created.revision.id,
+    }))
+    policy.own(run.id, ALICE)
     // Alice may launch it today.
     policy.setActing(ALICE)
     expect(
-      (await h.service.executionProfileForLaunch({
-        profileId: profile.id,
+      (await h.service.agentProfileForStep({
+        runId: run.id,
+        stepId: 'one',
         caller: policy.caller(null, ALICE, 'admin'),
-      })).machineId,
+      }))?.machineId,
     ).toBe('m-alice')
     // BOB may not — the same pinned profile, a different effective principal.
-    // This is the apply-time half: the profile's machine was authorized when it
-    // was saved, and authorization is re-taken every time work is placed rather
-    // than inherited from the snapshot (ADR 9 D5 A1 / POD-730 §4's warning that
-    // a reproducibility snapshot must not become an authorization model).
+    // This is the apply-time half: authorization is re-taken every time work is
+    // placed rather than inherited from the snapshot (ADR 9 D5 A1 / POD-730 §4's
+    // warning that a reproducibility snapshot must not become an authorization
+    // model).
     policy.setActing(BOB)
     expect(
       await thrown(() =>
-        h.service.executionProfileForLaunch({
-          profileId: profile.id,
+        h.service.agentProfileForStep({
+          runId: run.id,
+          stepId: 'one',
           caller: policy.caller(null, BOB, 'admin'),
         }),
       ),
     ).toBe('not authorized to run work on machine m-alice')
-  })
-
-  it('refuses a member saving an execution profile, and an admin editing another admin’s', async () => {
-    const admin = policy.caller(null, ALICE, 'admin')
-    const profile = (await h.service.profileSave(
-      {
-        name: 'Alice profile',
-        accountId: 'acct-alice',
-        harness: 'codex',
-        model: 'auto',
-        effort: 'auto',
-      },
-      admin,
-    ))
-    policy.own(profile.id, ALICE)
-    // A member may not create one at all — ADR 1 D6, managed credentials are
-    // admin-grade to manage.
-    expect(
-      await thrown(() =>
-        h.service.profileSave(
-          {
-            name: 'Bob profile',
-            accountId: 'acct-bob',
-            harness: 'codex',
-            model: 'auto',
-            effort: 'auto',
-          },
-          policy.caller(asSessionId('b1'), BOB),
-        ),
-      ),
-    ).toBe('only an administrator may change execution profiles')
-    // AND A SECOND ADMIN *CAN* EDIT ALICE'S PROFILE. That is what `admin` means
-    // in `workflowDecision` — owner-or-admin, with admin last as the fallback —
-    // and it is recorded here rather than left to be discovered, because it is
-    // the one place on this surface where a grade genuinely overrides an owner.
-    //
-    // It is defensible for THIS class specifically: an execution profile binds
-    // managed credentials to owned compute (ADR 1 D6), and credential
-    // administration that the credential's binder could lock an admin out of is
-    // not administration. If the pack later wants owner-only profiles, the
-    // change is one line in `workflowDecision`, and this assertion is what will
-    // fail to announce it.
-    expect(
-      (await h.service.profileSave(
-        {
-          id: profile.id,
-          name: 'admin edit',
-          accountId: 'acct-bob',
-          harness: 'codex',
-          model: 'auto',
-          effort: 'auto',
-        },
-        policy.caller(null, BOB, 'admin'),
-      )).name,
-    ).toBe('admin edit')
-    // THE COUNTERFACTUAL: Alice edits her own.
-    expect(
-      (await h.service.profileSave(
-        {
-          id: profile.id,
-          name: 'renamed',
-          accountId: 'acct-alice',
-          harness: 'codex',
-          model: 'auto',
-          effort: 'auto',
-        },
-        policy.caller(null, ALICE, 'admin'),
-      )).name,
-    ).toBe('renamed')
   })
 })
 

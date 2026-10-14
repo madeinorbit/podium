@@ -164,7 +164,7 @@ export interface HarnessOptions {
   startedAt?: string
   /** Gate spawn seam override — e.g. to characterize an unreachable machine. */
   spawnSession?: MessageGateDeps['spawnSession']
-  resolveExecutionProfile?: MessageGateDeps['resolveExecutionProfile']
+  resolveWorkflowStepLaunch?: MessageGateDeps['resolveWorkflowStepLaunch']
   /** Omit the wake-spawn seam entirely (the unwired-server arm). */
   omitSpawnOnWake?: boolean
   /** Flag-on variant: wire the receipt-shaped transport (POD-1761 W4). Absent =
@@ -439,8 +439,8 @@ export async function mailHarness(opts?: HarnessOptions): Promise<MailHarness> {
           )
           return { sessionId }
         }),
-      ...(opts?.resolveExecutionProfile
-        ? { resolveExecutionProfile: opts.resolveExecutionProfile }
+      ...(opts?.resolveWorkflowStepLaunch
+        ? { resolveWorkflowStepLaunch: opts.resolveWorkflowStepLaunch }
         : {}),
       createIssue: async (input) => await issues.crud.create({ ...input, startNow: false }),
       appendEvent: async (e) => {

@@ -167,7 +167,7 @@ function checkedValue(db: SqlDatabase, table: string, column: string): string | 
 
 /** Placeholders are unique per seeded row: two columns of one table each get
  *  their own row, and a table with a UNIQUE column refuses the second one
- *  otherwise — as `execution_profiles.name` does. */
+ *  otherwise — as `execution_profiles.name` did. */
 let seedCounter = 0
 
 function seedRow(db: SqlDatabase, table: string, column: string): boolean {

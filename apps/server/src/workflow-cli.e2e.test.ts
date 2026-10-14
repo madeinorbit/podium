@@ -172,7 +172,6 @@ describe('podium workflow CLI ↔ live server over the derived surface (e2e)', (
       'fork',
       'publish',
       'assign',
-      'profileSave',
       'checkpoint',
       'assignStep',
       'skip',

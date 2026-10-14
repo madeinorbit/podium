@@ -255,6 +255,8 @@ async function makeHarness(
       issue: (id) => ISSUES.get(id),
       repoIdForPath: async (path) =>
         path.startsWith('/repo-a') ? 'repo-a' : path.startsWith('/repo-b') ? 'repo-b' : null,
+      agentProfile: async (ref) =>
+        (await store.agentProfiles.get(ref)) ?? (await store.agentProfiles.getByName(ref)),
       notifyCoordinator: async (sessionId, text) => {
         notices.push({ sessionId, text })
         if (opts.notifyOpensTransaction) {
@@ -288,7 +290,7 @@ async function makeHarness(
  */
 async function twoStepRun(
   h: Harness,
-  extra: { profileId?: string; issueId?: string; sessionId?: string; cwd?: string } = {},
+  extra: { profile?: string; issueId?: string; sessionId?: string; cwd?: string } = {},
 ) {
   const issueId = extra.issueId ?? 'issue-1'
   const sessionId = extra.sessionId ?? 's1'
@@ -307,7 +309,7 @@ async function twoStepRun(
           title: 'Review',
           instructions: 'review',
           completionGuidance: 'resolved',
-          ...(extra.profileId ? { executionProfileId: extra.profileId } : {}),
+          ...(extra.profile ? { agentProfile: extra.profile } : {}),
         },
       ],
     },
@@ -1486,251 +1488,73 @@ describe('POD-730 workflow mutation characterization', () => {
   })
 
   // -------------------------------------------------------------------------
-  // 4. Execution profiles
+  // 4. Agent profiles on steps (POD-6114; execution profiles before it)
   // -------------------------------------------------------------------------
 
-  describe('execution profiles', () => {
-    it('profileSave inserts with a generated id and upserts by supplied id', async () => {
-      const created = (await h.service.profileSave(
-        {
-          name: 'Codex',
-          accountId: 'native:codex',
-          harness: 'codex',
-          model: 'gpt-5.6',
-          effort: 'medium',
-        },
-        operator,
-      ))
-      expect(created.id).toMatch(/^wfp_/)
-      // machineId defaults to null when omitted — a profile is machine-agnostic
-      // unless pinned.
-      expect(created.machineId).toBeNull()
-      expect(created).toMatchObject({
-        accountId: 'native:codex',
-        harness: 'codex',
-        model: 'gpt-5.6',
-        effort: 'medium',
-      })
-      h.clock.value = '2026-07-30T03:00:00.000Z'
-      const updated = (await h.service.profileSave(
-        {
-          id: created.id,
-          name: 'Codex pinned',
-          accountId: 'native:claude-code',
-          machineId: asMachineId('m2'),
-          harness: 'claude-code',
-          model: 'claude-fable-5',
-          effort: 'high',
-        },
-        operator,
-      ))
-      expect(updated.id).toBe(created.id)
-      expect(updated).toMatchObject({
-        name: 'Codex pinned',
-        machineId: asMachineId('m2'),
-        harness: 'claude-code',
-      })
-      expect((await h.service.profiles(operator))).toHaveLength(1)
-      // profileSave emits NO workflow event at all — profile changes leave
-      // no audit trail.
-      expect(kinds(h.store)).toEqual([])
-    })
-
-    it('explicit machineId: null clears the pin; model/effort default to "auto"', async () => {
-      const parsed = WORKFLOW_CONTRACTS.profileSave.input.parse({
-        name: 'Defaults',
-        accountId: 'acct',
-        harness: 'codex',
-      })
-      expect(parsed).toMatchObject({ model: 'auto', effort: 'auto' })
-      const created = (await h.service.profileSave({ ...parsed, machineId: asMachineId('m1') }, operator))
-      const cleared = (await h.service.profileSave(
-        { ...parsed, id: created.id, machineId: null },
-        operator,
-      ))
-      expect(cleared.machineId).toBeNull()
-    })
-
-    it('SINGLE-OPERATOR: profileSave refuses a session actor without protectedWrite — the inverse shape of every other guard', async () => {
-      // Every other guard on this surface returns EARLY for the operator; this
-      // one refuses the SESSION. Both encode "there is exactly one human".
-      expect(
-        await thrown(() =>
-          h.service.profileSave(
-            {
-              name: 'Agent profile',
-              accountId: 'acct',
-              harness: 'codex',
-              model: 'auto',
-              effort: 'auto',
-            },
-            agent('s1'),
-          ),
-        ),
-        // POD-731: the message names the ACCOUNT GRADE, not the operator role
-        // class. readiness §3.1.4 M1 / ADR 1 D6 — a profile binds managed
-        // credentials to owned compute, which is admin-grade to manage once there
-        // is more than one human. Same refusal, decided against a real principal.
-      ).toBe('Error: only an administrator may change execution profiles | code=undefined')
-      // overrideScope does NOT lift it — only protectedWrite does.
-      expect(
-        await thrown(() =>
-          h.service.profileSave(
-            {
-              name: 'Agent profile',
-              accountId: 'acct',
-              harness: 'codex',
-              model: 'auto',
-              effort: 'auto',
-            },
-            overriding('s1'),
-          ),
-        ),
-      ).toBe('Error: only an administrator may change execution profiles | code=undefined')
-      expect(
-        ((await h.service.profileSave(
+  describe('agent profiles on steps', () => {
+    /** An agent profile row, written as a person would through the profile
+     *  service (which owns the validation this store call skips). */
+    const putProfile = async (
+      name: string,
+      fields: { harness?: string; model?: string; machineId?: string | null } = {},
+    ) =>
+      await h.store.agentProfiles.insert({
+        id: `agp_${name}`,
+        name,
+        description: '',
+        candidates: [
           {
-            name: 'Agent profile',
-            accountId: 'acct',
-            harness: 'codex',
-            model: 'auto',
-            effort: 'auto',
+            harness: (fields.harness ?? 'codex') as 'codex',
+            model: fields.model ?? 'gpt-5.6',
+            effort: 'medium',
           },
-          protectedAgent('s1'),
-        ))).name,
-      ).toBe('Agent profile')
-      // POD-731: an operator WITHOUT protectedWrite is now REFUSED. The old
-      // check was on `actor.kind === 'session'`, so "not an agent" was enough to
-      // bind managed credentials to owned compute; the grade decides it now, and
-      // a bare operator is a member. This is the inverse-shaped guard becoming
-      // the same shape as every other one.
-      expect(
-        await thrown(() =>
-          h.service.profileSave(
-            {
-              name: 'Bare operator profile',
-              accountId: 'acct',
-              harness: 'codex',
-              model: 'auto',
-              effort: 'auto',
-            },
-            bareOperator,
-          ),
-        ),
-      ).toBe('Error: only an administrator may change execution profiles | code=undefined')
-    })
-
-    it('SINGLE-OPERATOR: profiles() has NO authorization gate and lists every profile to any caller', async () => {
-      ;(await h.service.profileSave(
-        {
-          name: 'Secret',
-          accountId: 'native:codex',
-          harness: 'codex',
-          model: 'auto',
-          effort: 'auto',
-        },
-        operator,
-      ))
-      // A foreign agent session in another repo reads every profile in the
-      // instance, including its accountId. Cross-user read the moment there is
-      // a second human (3.1.2).
-      expect((await h.service.profiles(agent('s3', 'issue-2')))).toMatchObject([
-        { name: 'Secret', accountId: 'native:codex' },
-      ])
-      expect(
-        (await h.service.profiles({ actor: { kind: 'session', id: asSessionId('gone') } })),
-      ).toHaveLength(1)
-    })
-
-    it('a run pins an IMMUTABLE profile snapshot; the live profile may drift away from it', async () => {
-      const profile = (await h.service.profileSave(
-        {
-          name: 'Pinned',
-          accountId: 'native:codex',
-          harness: 'codex',
-          model: 'gpt-5.6',
-          effort: 'medium',
-        },
-        operator,
-      ))
-      const { run } = await twoStepRun(h, { profileId: profile.id })
-      ;(await h.service.profileSave(
-        {
-          id: profile.id,
-          name: 'Drifted',
-          accountId: 'native:claude-code',
-          harness: 'claude-code',
-          model: 'claude-fable-5',
-          effort: 'high',
-        },
-        operator,
-      ))
-      // Resolved WITH run+step → the snapshot taken at startRun.
-      expect(
-        (await h.service.executionProfileForLaunch({
-          caller: operator,
-          profileId: profile.id,
-          runId: run.id,
-          stepId: 'review',
-        })),
-      ).toMatchObject({ harness: 'codex', model: 'gpt-5.6', effort: 'medium' })
-      // Resolved WITHOUT run+step → the current shared profile.
-      expect(
-        (await h.service.executionProfileForLaunch({ caller: operator, profileId: profile.id })),
-      ).toMatchObject({
-        harness: 'claude-code',
-        model: 'claude-fable-5',
-        effort: 'high',
+        ],
+        machineId: fields.machineId ? asMachineId(fields.machineId) : null,
+        instructions: '',
+        actor: 'operator',
+        now: h.clock.value,
       })
-      // A profile id that does not match the step's pinned id is refused.
+
+    it('a run pins an IMMUTABLE profile snapshot; editing the live profile never changes it', async () => {
+      const profile = await putProfile('pinned')
+      // Named by NAME in the step; pinned by id on the run.
+      const { run } = await twoStepRun(h, { profile: 'pinned' })
+      expect(run.steps[1]).toMatchObject({ agentProfileId: profile.id })
+      await h.store.agentProfiles.update({
+        id: profile.id,
+        name: 'pinned',
+        description: 'drifted',
+        candidates: [{ harness: 'claude-code', model: 'claude-fable-5', effort: 'high' }],
+        machineId: null,
+        instructions: '',
+        actor: 'operator',
+        now: h.clock.value,
+      })
+      // The step launches from the snapshot taken at startRun.
+      expect(
+        await h.service.agentProfileForStep({ caller: operator, runId: run.id, stepId: 'review' }),
+      ).toMatchObject({
+        id: profile.id,
+        candidates: [{ harness: 'codex', model: 'gpt-5.6', effort: 'medium' }],
+      })
+      // A step that names no profile has none to launch from.
+      expect(
+        await h.service.agentProfileForStep({
+          caller: operator,
+          runId: run.id,
+          stepId: 'implement',
+        }),
+      ).toBeNull()
       expect(
         await thrown(() =>
-          h.service.executionProfileForLaunch({
-            caller: operator,
-            profileId: 'wfp_other',
-            runId: run.id,
-            stepId: 'review',
-          }),
-        ),
-      ).toBe(`Error: workflow step review requires ${profile.id}, not wfp_other | code=undefined`)
-      // A step with no profile reports "no execution profile" in the same text.
-      expect(
-        await thrown(() =>
-          h.service.executionProfileForLaunch({
-            caller: operator,
-            profileId: profile.id,
-            runId: run.id,
-            stepId: 'implement',
-          }),
-        ),
-      ).toBe(
-        `Error: workflow step implement requires no execution profile, not ${profile.id} | code=undefined`,
-      )
-      expect(
-        await thrown(() =>
-          h.service.executionProfileForLaunch({
-            caller: operator,
-            profileId: profile.id,
-            runId: 'wrun_nope',
-            stepId: 'x',
-          }),
+          h.service.agentProfileForStep({ caller: operator, runId: 'wrun_nope', stepId: 'x' }),
         ),
       ).toBe('Error: unknown workflow run: wrun_nope | code=undefined')
       expect(
         await thrown(() =>
-          h.service.executionProfileForLaunch({
-            caller: operator,
-            profileId: profile.id,
-            runId: run.id,
-            stepId: 'nope',
-          }),
+          h.service.agentProfileForStep({ caller: operator, runId: run.id, stepId: 'nope' }),
         ),
       ).toBe(`Error: workflow run ${run.id} has no step nope | code=undefined`)
-      expect(
-        await thrown(() =>
-          h.service.executionProfileForLaunch({ caller: operator, profileId: 'wfp_nope' }),
-        ),
-      ).toBe('Error: unknown execution profile: wfp_nope | code=undefined')
     })
 
     it('an UNREACHABLE / mismatched machine is a non-blocking WARNING, never a refusal', async () => {
@@ -1738,18 +1562,8 @@ describe('POD-730 workflow mutation characterization', () => {
       // unreachable. Today there is no reachability concept at all: the only
       // machine signal is a string comparison against the session's machineId,
       // reported as a warning while the checkpoint SUCCEEDS.
-      const profile = (await h.service.profileSave(
-        {
-          name: 'On m9',
-          accountId: 'acct',
-          machineId: 'm9-unreachable',
-          harness: 'codex',
-          model: 'auto',
-          effort: 'auto',
-        },
-        operator,
-      ))
-      const { run } = await twoStepRun(h, { profileId: profile.id })
+      await putProfile('on-m9', { machineId: 'm9-unreachable' })
+      const { run } = await twoStepRun(h, { profile: 'on-m9' })
       ;(await h.service.checkpoint(
         {
           runId: run.id,
@@ -1771,14 +1585,14 @@ describe('POD-730 workflow mutation characterization', () => {
         agent('s1'),
       ))
       expect(packet.warnings).toEqual([
-        'expected execution profile On m9 (codex), used claude-code',
+        'expected agent profile on-m9 (codex), used claude-code',
         'expected machine m9-unreachable, used m1',
       ])
       // The step still completed. A warning is all that distinguishes it.
       expect(packet.run.status).toBe('complete')
       // A session with NO machineId at all reports "unknown" — indistinguishable
       // from a machine that exists but is unreachable.
-      const other = await twoStepRun(h, { profileId: profile.id })
+      const other = await twoStepRun(h, { profile: 'on-m9' })
       ;(await h.service.assignStep(
         { runId: other.run.id, stepId: 'implement', sessionId: asSessionId('s4') },
         operator,
@@ -1796,7 +1610,7 @@ describe('POD-730 workflow mutation characterization', () => {
       expect(noMachine.warnings).toEqual([])
     })
 
-    it('a MISSING profile snapshot warns and does not block the step', async () => {
+    it('a MISSING profile warns, does not block the step, and refuses to launch', async () => {
       const created = (await h.service.create(
         {
           name: 'Ghost profile',
@@ -1810,7 +1624,7 @@ describe('POD-730 workflow mutation characterization', () => {
               title: 'A',
               instructions: '',
               completionGuidance: '',
-              executionProfileId: 'wfp_missing',
+              agentProfile: 'ghost',
             },
           ],
         },
@@ -1826,17 +1640,14 @@ describe('POD-730 workflow mutation characterization', () => {
         { runId: run.id, stepId: 'a', status: 'active', summary: '', evidence: EMPTY_EVIDENCE },
         agent('s1'),
       ))
-      expect(packet.warnings).toEqual(['execution profile wfp_missing is unavailable'])
+      expect(packet.warnings).toEqual(['agent profile ghost is unavailable'])
       expect(
         await thrown(() =>
-          h.service.executionProfileForLaunch({
-            caller: operator,
-            profileId: 'wfp_missing',
-            runId: run.id,
-            stepId: 'a',
-          }),
+          h.service.agentProfileForStep({ caller: operator, runId: run.id, stepId: 'a' }),
         ),
-      ).toBe('Error: execution profile snapshot wfp_missing is unavailable | code=undefined')
+      ).toBe(
+        'Error: workflow step a names agent profile ghost, which did not exist when the run started | code=undefined',
+      )
     })
   })
 
@@ -3855,17 +3666,17 @@ describe('POD-730 workflow mutation characterization', () => {
     it('a run survives a full store close/reopen, including step state and the profile snapshot', async () => {
       const path = join(dir, 'restart.sqlite')
       const before = await makeHarness(path)
-      const profile = await before.service.profileSave(
-        {
-          name: 'Snapshot',
-          accountId: 'acct',
-          harness: 'codex',
-          model: 'gpt-5.6',
-          effort: 'medium',
-        },
-        operator,
-      )
-      const { run } = await twoStepRun(before, { profileId: profile.id })
+      await before.store.agentProfiles.insert({
+        id: 'agp_snapshot',
+        name: 'snapshot',
+        description: '',
+        candidates: [{ harness: 'codex', model: 'gpt-5.6', effort: 'medium' }],
+        machineId: null,
+        instructions: '',
+        actor: 'operator',
+        now: before.clock.value,
+      })
+      const { run } = await twoStepRun(before, { profile: 'snapshot' })
       await before.service.assignStep(
         { runId: run.id, stepId: 'implement', sessionId: asSessionId('s2') },
         operator,
@@ -3899,9 +3710,9 @@ describe('POD-730 workflow mutation characterization', () => {
           artifacts: ['sha'],
         })
         // The pinned profile snapshot survives too.
-        expect(recovered.steps[1]?.executionProfileSnapshot).toMatchObject({
-          harness: 'codex',
-          model: 'gpt-5.6',
+        expect(recovered.steps[1]?.agentProfileSnapshot).toMatchObject({
+          name: 'snapshot',
+          candidates: [{ harness: 'codex', model: 'gpt-5.6' }],
         })
         // The recovery paths a resumed session actually uses.
         expect(

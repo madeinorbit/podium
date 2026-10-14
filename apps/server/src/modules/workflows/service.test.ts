@@ -61,6 +61,8 @@ describe('WorkflowService', () => {
             ? { id, repoId: 'repo-1', repoPath: '/repo', worktreePath: '/repo/wt' }
             : undefined,
         repoIdForPath: async () => 'repo-1',
+        agentProfile: async (ref) =>
+          (await store.agentProfiles.get(ref)) ?? (await store.agentProfiles.getByName(ref)),
         notifyCoordinator: async (sessionId, text) => {
           notices.push({ sessionId, text })
         },
@@ -80,6 +82,7 @@ describe('WorkflowService', () => {
       session: id => sessions.get(id),
       issue: id => ({ id, repoId: 'repo-1', repoPath: '/repo', worktreePath: worktree }),
       repoIdForPath: async () => 'repo-1',
+      agentProfile: async () => null,
     }))
     const created = await scoped.create({ name: 'Path observation', description: '', scope: 'global', instructions: '', steps: [{ id: 'work', title: 'Work', instructions: '', completionGuidance: '' }] }, operator)
     const run = await scoped.startRun({ sessionId: asSessionId('s1'), cwd: worktree, issueId: asIssueId('issue-1'), revisionId: created.revision.id })
@@ -229,7 +232,7 @@ describe('WorkflowService', () => {
     ).rejects.toThrow('unknown workflow revision')
   })
 
-  it('reports an unavailable execution profile in prime and checkpoint responses', async () => {
+  it('reports an unavailable agent profile in prime and checkpoint responses', async () => {
     const created = (await service.create(
       {
         name: 'Missing profile',
@@ -243,7 +246,7 @@ describe('WorkflowService', () => {
             title: 'Review',
             instructions: '',
             completionGuidance: '',
-            executionProfileId: 'profile-missing',
+            agentProfile: 'profile-missing',
           },
         ],
       },
@@ -255,7 +258,7 @@ describe('WorkflowService', () => {
       issueId: asIssueId('issue-1'),
       revisionId: created.revision.id,
     }))
-    expect((await service.prime(agent('s1')))).toContain('Execution profile unavailable: profile-missing')
+    expect((await service.prime(agent('s1')))).toContain('Agent profile unavailable: profile-missing')
     // POD-731: an advance against a stepped run must name its step or carry a
     // mutation id, so an unnamed delivery cannot be told apart from a duplicate.
     const checkpoint = (await service.checkpoint(
@@ -268,20 +271,12 @@ describe('WorkflowService', () => {
       },
       agent('s1'),
     ))
-    expect(checkpoint.warnings).toContain('execution profile profile-missing is unavailable')
+    expect(checkpoint.warnings).toContain('agent profile profile-missing is unavailable')
   })
 
   it('checkpoints linear steps, records observations, and tells the coordinator what is next', async () => {
-    const profile = (await service.profileSave(
-      {
-        name: 'Codex review',
-        accountId: 'native:codex',
-        harness: 'codex',
-        model: 'gpt-5.6',
-        effort: 'medium',
-      },
-      operator,
-    ))
+    // The seeded `review` agent profile (POD-6107): codex, then claude-code.
+    const profile = (await store.agentProfiles.getByName('review'))!
     const created = (await service.create(
       {
         name: 'Build',
@@ -301,7 +296,7 @@ describe('WorkflowService', () => {
             title: 'Review',
             instructions: 'Review it',
             completionGuidance: 'Findings resolved',
-            executionProfileId: profile.id,
+            agentProfile: 'review',
           },
         ],
       },
@@ -313,39 +308,21 @@ describe('WorkflowService', () => {
       issueId: asIssueId('issue-1'),
       revisionId: created.revision.id,
     }))
+    const pinned = { id: profile.id, candidates: profile.candidates }
     expect(
-      (await service.executionProfileForLaunch({
-        caller: operator,
-        profileId: profile.id,
-        runId: run.id,
-        stepId: 'review',
-      })),
-    ).toMatchObject({ harness: 'codex', model: 'gpt-5.6', effort: 'medium' })
-    ;(await service.profileSave(
-      {
-        id: profile.id,
-        name: 'Codex review updated',
-        accountId: 'native:claude-code',
-        harness: 'claude-code',
-        model: 'claude-fable-5',
-        effort: 'high',
-      },
-      operator,
-    ))
-    expect(
-      (await service.executionProfileForLaunch({
-        caller: operator,
-        profileId: profile.id,
-        runId: run.id,
-        stepId: 'review',
-      })),
-    ).toMatchObject({ harness: 'codex', model: 'gpt-5.6', effort: 'medium' })
-    expect(
-      (await service.executionProfileForLaunch({ caller: operator, profileId: profile.id })),
-    ).toMatchObject({
-      harness: 'claude-code',
-      model: 'claude-fable-5',
+      await service.agentProfileForStep({ caller: operator, runId: run.id, stepId: 'review' }),
+    ).toMatchObject(pinned)
+    // Editing the live profile never changes the run in flight.
+    await store.agentProfiles.update({
+      ...profile,
+      machineId: null,
+      candidates: [{ harness: 'claude-code', model: 'claude-fable-5', effort: 'high' }],
+      actor: 'operator',
+      now: '2026-07-13T12:30:00.000Z',
     })
+    expect(
+      await service.agentProfileForStep({ caller: operator, runId: run.id, stepId: 'review' }),
+    ).toMatchObject(pinned)
     const first = (await service.checkpoint(
       {
         runId: run.id,
@@ -371,7 +348,10 @@ describe('WorkflowService', () => {
     expect(first.nextStep?.stepId).toBe('review')
     expect((await service.runs({}, operator)).map((item) => item.id)).toEqual([run.id])
     expect((await service.renderRunPrime(first.run, asSessionId('s1')))).toContain(
-      `podium agent spawn --issue issue-1 --prompt "<task>" --workflow-run-id ${run.id} --workflow-step-id review --execution-profile-id ${profile.id}`,
+      `podium agent spawn --issue issue-1 --prompt "<task>" --workflow-run-id ${run.id} --workflow-step-id review (it starts from the step's agent profile)`,
+    )
+    expect(await service.renderRunPrime(first.run, asSessionId('s1'))).toContain(
+      'Agent profile: review (codex/auto/high, then claude-code/auto/high)',
     )
     expect((await service.renderRunPrime(first.run, asSessionId('s1')))).toContain(
       `podium workflow assign-step review <child-session-id> --run ${run.id}`,
@@ -493,7 +473,7 @@ describe('WorkflowService', () => {
     expect((await store.workflows.getRun(run.id))?.status).toBe('active')
   })
 
-  it('rejects duplicate step ids and keeps execution profiles operator-managed', async () => {
+  it('rejects duplicate step ids', async () => {
     expect(() =>
       WORKFLOW_CONTRACTS.create.input.parse({
         name: 'Invalid steps',
@@ -504,20 +484,6 @@ describe('WorkflowService', () => {
         ],
       }),
     ).toThrow('duplicate workflow step id')
-    await expect(
-      service.profileSave(
-        { name: 'Shared', accountId: 'acct', harness: 'codex', model: 'auto', effort: 'auto' },
-        agent('s1'),
-      ),
-      // POD-731: the refusal names the ACCOUNT GRADE (ADR 1 D6), not a role class.
-    ).rejects.toThrow('only an administrator')
-    expect(() =>
-      WORKFLOW_CONTRACTS.profileSave.input.parse({
-        name: 'Bad',
-        accountId: 'acct',
-        harness: 'unknown',
-      }),
-    ).toThrow()
   })
 
   it('adopts a new revision explicitly and preserves the superseded run', async () => {

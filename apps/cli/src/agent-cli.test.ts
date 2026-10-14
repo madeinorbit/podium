@@ -105,8 +105,6 @@ describe('podium agent spawn', () => {
         'run_1',
         '--workflow-step-id',
         'step_2',
-        '--execution-profile-id',
-        'prof_3',
       ],
       c,
     )
@@ -120,7 +118,6 @@ describe('podium agent spawn', () => {
       effort: 'high',
       workflowRunId: 'run_1',
       workflowStepId: 'step_2',
-      executionProfileId: 'prof_3',
     })
     expect(out).toContain('spawned child1 on issue #228')
     expect(out).toContain('harness=codex model=gpt-5.7 effort=high machine=buildbox')
