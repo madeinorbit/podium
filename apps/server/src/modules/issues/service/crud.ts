@@ -927,6 +927,29 @@ export class IssueCrudModule {
     return sortKeyBetween(null, min)
   }
 
+  /** `--profile <name|id>` → the profile id (POD-6107), or a refusal naming
+   *  the profiles that exist. `none` is not handled here; the CLI sends null. */
+  async agentProfileIdFor(ref: string): Promise<string> {
+    const profiles = this.store.d.agentProfiles
+    if (!profiles) throw new IssueRefusal('agent profiles are not available on this server')
+    const found = await profiles.find(ref)
+    if (!found) {
+      throw new IssueRefusal(`no agent profile '${ref}' — see \`podium profile list\``)
+    }
+    return found.id
+  }
+
+  /** Turns the input-only `agentProfile` (name, id or null) into the row field. */
+  private async resolveAgentProfilePatch(patch: IssuePatch): Promise<IssuePatch> {
+    if (!('agentProfile' in patch)) return patch
+    const { agentProfile, ...rest } = patch
+    if (agentProfile === undefined) return rest
+    return {
+      ...rest,
+      agentProfileId: agentProfile === null ? null : await this.agentProfileIdFor(agentProfile),
+    }
+  }
+
   async create(input: CreateIssueInput): Promise<IssueProjection> {
     if ((input as { stage?: string }).stage === 'shipping') {
       throw new IssueRefusal('shipping stage is system-owned and requires a ship order')
@@ -952,7 +975,14 @@ export class IssueCrudModule {
     const seq = await this.store.deps.store.issues.nextIssueSeq(repoId)
     const ts = this.store.now()
     const settings = await this.store.deps.getSettings()
-    const spawnDefaults = resolveSpawnDefaults(settings, { agentKind: input.defaultAgent })
+    const agentProfileId = input.agentProfile
+      ? await this.agentProfileIdFor(input.agentProfile)
+      : undefined
+    // With a profile, an unnamed agent stays `auto` so the PROFILE picks it
+    // (POD-6107); without one, the Settings default is frozen in as before.
+    const spawnDefaults = agentProfileId && !input.defaultAgent
+      ? { agentKind: 'auto' }
+      : resolveSpawnDefaults(settings, { agentKind: input.defaultAgent })
     // Built as the IN-MEMORY issue (R1) and encoded ONCE, through the pair that
     // owns the R1 <-> R3 splits (ADR 4 §4.1). Everything absent here is absent by
     // R1's own optionality — the storage nulls are `toStorage`'s to write, and
@@ -972,6 +1002,7 @@ export class IssueCrudModule {
       // The issue stores picks only; current Settings apply when each session starts.
       defaultModel: input.defaultModel || 'auto',
       defaultEffort: input.defaultEffort || 'auto',
+      ...(agentProfileId ? { agentProfileId } : {}),
       ...(input.machineId != null ? { machineId: input.machineId } : {}),
       ...(input.linear?.id != null ? { linearId: input.linear.id } : {}),
       ...(input.linear?.identifier != null ? { linearIdentifier: input.linear.identifier } : {}),
@@ -1092,6 +1123,8 @@ export class IssueCrudModule {
       clearSuggestion?: boolean
     },
   ): Promise<IssueProjection> {
+    // Resolved BEFORE the draft is cut: a lookup by name, never a row field.
+    patch = await this.resolveAgentProfilePatch(patch)
     const row = await this.store.draft(await this.store.resolveRef(id))
     if (!row) throw new IssueNotFound(id)
     if (row.deletedAt) throw new IssueRefusal(`issue ${id} is deleted and cannot be updated`)
@@ -1132,6 +1165,18 @@ export class IssueCrudModule {
       }
     }
     patch = this.normalizeClosedPatch(row, patch)
+    // CHOOSING A PROFILE HANDS IT THE AGENT PICK (POD-6107). The issue's own
+    // fields go ON TOP of the profile, so a harness left over from before (the
+    // create-time default included) would filter the profile's candidates down
+    // to itself. Any field this same patch names still wins.
+    if (patch.agentProfileId && patch.agentProfileId !== (row.agentProfileId ?? null)) {
+      patch = {
+        ...patch,
+        ...(!('defaultAgent' in patch) ? { defaultAgent: 'auto' } : {}),
+        ...(!('defaultModel' in patch) ? { defaultModel: 'auto' } : {}),
+        ...(!('defaultEffort' in patch) ? { defaultEffort: 'auto' } : {}),
+      }
+    }
     if (patch.defaultAgent !== undefined && patch.defaultAgent !== row.defaultAgent) {
       patch = {
         ...patch,

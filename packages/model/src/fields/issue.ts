@@ -175,6 +175,9 @@ export const IssueAgentDefaults = z.object({
   defaultAgent: z.string(),
   defaultModel: z.string(),
   defaultEffort: z.string(),
+  /** The agent profile these fields go on top of (POD-6107); absent = none.
+   *  `auto` in the three fields above then means "the profile decides". */
+  agentProfileId: z.string().optional(),
 })
 export type IssueAgentDefaults = z.infer<typeof IssueAgentDefaults>
 

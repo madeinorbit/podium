@@ -408,6 +408,8 @@ export interface IssueRow {
   defaultAgent: string
   defaultModel: string
   defaultEffort: string
+  /** Agent profile under the three fields above (POD-6107); null = none. */
+  agentProfileId?: string | null
   /** Machine (daemon) this issue's agents run on; null = pick by repo affinity. */
   machineId?: MachineId | null
   linearId: string | null

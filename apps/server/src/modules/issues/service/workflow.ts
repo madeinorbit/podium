@@ -6,6 +6,7 @@ import {
   type IssueId,
   type IssueProjection,
   type IssueRehomeTarget,
+  isAgentFieldSet,
   isIssueStage,
   isSystemOwnedIssueStage,
   joinMachinePath,
@@ -19,6 +20,7 @@ import { type CommandPrincipal, systemPrincipal } from '../../../command-princip
 import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { resolveLaunchSelection } from '../../../model-validation'
+import { resolveSpawnDefaults } from '@podium/runtime'
 import type { IssueRow } from '../../../store'
 import { afterCommit } from '../../../store/executor/executor'
 import {
@@ -226,6 +228,48 @@ export class IssueGitWorkflowModule {
     return joinMachinePath(repoPath, '.worktrees', dir)
   }
 
+  /**
+   * WHAT AN ISSUE SESSION LAUNCHES WITH (POD-6107): the issue's agent profile
+   * with the issue's own fields on top, first usable candidate picked — through
+   * the one resolver every spawn path shares. Without a profile it is exactly
+   * the issue's own fields, as before. `auto` for the harness becomes the
+   * Settings default here, because the vetting below needs a concrete harness.
+   */
+  private async issueLaunch(
+    row: Pick<IssueRow, 'machineId' | 'repoPath'> & { agentProfileId?: string | null },
+    fields: { agent: string; model: string; effort: string },
+    cwd: string,
+  ): Promise<{
+    agent: string
+    issueProfile: { agentKind: string; model: string; effort: string }
+    machineId: MachineId | null
+    agentProfileId?: string
+  }> {
+    const profiles = this.store.d.agentProfiles
+    const launch =
+      row.agentProfileId && profiles
+        ? await profiles.launch({
+            profileId: row.agentProfileId,
+            fields: { ...fields, machineId: row.machineId ?? null },
+            cwd,
+          })
+        : null
+    let agent = launch?.agentKind ?? fields.agent
+    if (!isAgentFieldSet(agent)) {
+      agent = resolveSpawnDefaults(await this.store.d.getSettings(), { agentKind: 'auto' }).agentKind
+    }
+    return {
+      agent,
+      issueProfile: {
+        agentKind: agent,
+        model: launch?.model ?? fields.model,
+        effort: launch?.effort ?? fields.effort,
+      },
+      machineId: row.machineId ?? launch?.machineId ?? null,
+      ...(launch?.profile ? { agentProfileId: launch.profile.id } : {}),
+    }
+  }
+
   async start(
     id: string,
     agentKind?: string,
@@ -238,6 +282,8 @@ export class IssueGitWorkflowModule {
        *  and PERSISTS onto the issue, so every later spawn on it agrees. */
       model?: string
       effort?: string
+      /** Agent profile by name or id (POD-6107); persists onto the issue. */
+      agentProfile?: string
     },
   ): Promise<
     IssueProjection &
@@ -260,24 +306,39 @@ export class IssueGitWorkflowModule {
       // explicit --model/--effort asked for something this no-op will not do, and
       // accepting it in silence is the same failure one level up: the operator sees
       // `started #n` and believes the choice landed. Refuse, and name what does work.
-      if (opts?.model || opts?.effort) {
+      if (opts?.model || opts?.effort || opts?.agentProfile) {
         throw new IssueRefusal(
-          `#${row.seq} is already started — --model/--effort apply only to the session start spawns. ` +
+          `#${row.seq} is already started — --model/--effort/--profile apply only to the session start spawns. ` +
             `Use \`podium issue update --id ${row.seq} --model/--effort\` to change the issue's profile, ` +
             `then \`podium issue add-session ${row.seq}\` to spawn a session that runs it.`,
         )
       }
       return await this.store.projection(row)
     }
+    // A --profile named here persists like --model, and (as in update) hands the
+    // profile the agent pick: stored fields not named in this call become `auto`.
+    // Resolved before any mutation, so an unknown name changes nothing.
+    const explicitProfileId = opts?.agentProfile
+      ? await this.crud().agentProfileIdFor(opts.agentProfile)
+      : undefined
+    const profileChanged =
+      explicitProfileId !== undefined && explicitProfileId !== (row.agentProfileId ?? null)
     // Switching harness at start discards the stored model/effort: they were chosen
     // for the OLD harness and its slugs mean nothing on the new one.
     const switching = Boolean(agentKind && agentKind !== row.defaultAgent)
-    const agent = agentKind ?? row.defaultAgent
+    const agent = agentKind ?? (profileChanged ? 'auto' : row.defaultAgent)
     const stored = {
       agent,
-      model: switching ? 'auto' : row.defaultModel,
-      effort: switching ? 'auto' : row.defaultEffort,
+      model: switching || profileChanged ? 'auto' : row.defaultModel,
+      effort: switching || profileChanged ? 'auto' : row.defaultEffort,
     }
+    const launch = await this.issueLaunch(
+      { ...row, agentProfileId: explicitProfileId ?? row.agentProfileId ?? null },
+      { agent, model: stored.model, effort: stored.effort },
+      row.repoPath,
+    )
+    // Where the worktree is cut: the issue's pin, else its profile's machine.
+    const homeMachineId = launch.machineId ?? undefined
     // Refuse an unavailable EXPLICIT model/effort BEFORE mutating any start state
     // (worktree, branch, stage, and the issue's own profile) [spec:SP-cc60]. A
     // refused `--model` must not be left on the issue for the next start to inherit.
@@ -285,12 +346,12 @@ export class IssueGitWorkflowModule {
     // a stale default never blocks a start (POD-3911).
     // Catalog is machine-keyed (POD-1123): validate against the issue's host.
     const vetted = resolveLaunchSelection({
-      agentKind: agent,
+      agentKind: launch.agent,
       explicit: { model: opts?.model ?? 'auto', effort: opts?.effort ?? 'auto' },
-      issueProfile: { agentKind: agent, model: stored.model, effort: stored.effort },
+      issueProfile: launch.issueProfile,
       settings: await this.store.d.getSettings(),
       catalog: await this.store.d.store.settings.getModelCatalog(
-        row.machineId ?? this.store.d.store.hostMachineId,
+        homeMachineId ?? this.store.d.store.hostMachineId,
       ),
       force: opts?.forceUnknownModel,
     })
@@ -306,6 +367,7 @@ export class IssueGitWorkflowModule {
       // issue shows what it actually runs and the next spawn does not re-check it.
       defaultModel: opts?.model ?? (vetted.dropped.includes('model') ? 'auto' : stored.model),
       defaultEffort: opts?.effort ?? (vetted.dropped.includes('effort') ? 'auto' : stored.effort),
+      ...(explicitProfileId ? { agentProfileId: explicitProfileId } : {}),
     }
 
     // Branch preserved after free/archive (worktreePath null, branch set): attach the
@@ -346,10 +408,10 @@ export class IssueGitWorkflowModule {
        */
       let startRepoPath = row.repoPath
       let startPoint = row.parentBranch
-      if (row.machineId && this.store.d.prepareMachineStart) {
+      if (homeMachineId && this.store.d.prepareMachineStart) {
         const prepared = await this.store.d.prepareMachineStart({
           repoPath: row.repoPath,
-          machineId: row.machineId,
+          machineId: homeMachineId,
           ...(row.parentBranch ? { startPoint: row.parentBranch } : {}),
         })
         startRepoPath = prepared.repoPath
@@ -367,14 +429,14 @@ export class IssueGitWorkflowModule {
           `refusing to start on ${startRepoPath}: it is not the same repository as ${row.repoPath}`,
         )
       }
-      if (row.machineId) await this.store.d.requireMachineForRepo?.(row.machineId, startRepoPath)
+      if (homeMachineId) await this.store.d.requireMachineForRepo?.(homeMachineId, startRepoPath)
       const branch = this.store.slug(row.seq, row.title)
       path = this.worktreePathFor(startRepoPath, branch)
       // Freeze the SAME repo-affine/default choice repoOp used to make internally.
       // Persisting and routing with one value records where the worktree was actually
       // created without changing which daemon receives the operation.
       const worktreeMachineId = await this.store.resolveWorktreeMachine(
-        row.machineId,
+        homeMachineId,
         startRepoPath,
       )
       const res = await this.store.d.repoOp(
@@ -456,7 +518,7 @@ export class IssueGitWorkflowModule {
     // today, inventory §9'), and an `agent:<kind>` tag is not a user. The cast is
     // named rather than hidden: adjudicating whether the column holds a UserId or
     // an actor TAG is POD-1075's (accounts) call, not this sweep's.
-    row.assignee = asUserId(`agent:${row.defaultAgent}`)
+    row.assignee = asUserId(`agent:${launch.agent}`)
     const wire = await this.store.persistRow(row)
     if (wasClosed) {
       await this.store.emitEvent('issue.reopened', row.id, {
@@ -503,11 +565,12 @@ export class IssueGitWorkflowModule {
       ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
       cwd: path,
       issueId: row.id,
-      agentKind: row.defaultAgent,
+      agentKind: launch.agent,
       model: selection.model,
       effort: selection.effort,
       ...(selection.forced ? { forceUnknownModel: true } : {}),
       ...(initialPrompt ? { initialPrompt } : {}),
+      ...(launch.agentProfileId ? { agentProfileId: launch.agentProfileId } : {}),
       spawnedBy: opts?.spawnedBy ?? spawnedByTag({ kind: 'issue', id: row.id }),
       ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
       ...(row.machineId ? { machineId: row.machineId } : {}),
@@ -515,7 +578,7 @@ export class IssueGitWorkflowModule {
     return {
       ...wire,
       agentId: spawned.agentId ?? spawned.sessionId,
-      harness: spawned.harness ?? row.defaultAgent,
+      harness: spawned.harness ?? launch.agent,
       model:
         spawned.model === undefined
           ? selection.model === 'auto'
@@ -1507,14 +1570,23 @@ export class IssueGitWorkflowModule {
       throw new IssueRefusal('shipping stage is system-owned and cannot add a session')
     }
     if (!row.worktreePath) throw new IssueRefusal('issue not started')
-    const kind = agentKind ?? row.defaultAgent
+    // A shell is a shell: no profile, no candidates.
+    const launch =
+      agentKind === 'shell'
+        ? null
+        : await this.issueLaunch(
+            row,
+            { agent: agentKind ?? row.defaultAgent, model: row.defaultModel, effort: row.defaultEffort },
+            row.worktreePath,
+          )
+    const kind = agentKind === 'shell' ? 'shell' : (launch?.agent ?? row.defaultAgent)
     // Everything here is inherited from the issue's profile, so nothing here can
     // refuse the spawn: a value the catalog does not know falls back to `auto`
     // (POD-3911). `--force-unknown-model` keeps an unknown stored model as before.
     // A 'shell' session carries no model (addShell), so this is a no-op there.
     const selection = resolveLaunchSelection({
       agentKind: kind,
-      issueProfile: {
+      issueProfile: launch?.issueProfile ?? {
         agentKind: row.defaultAgent,
         model: row.defaultModel,
         effort: row.defaultEffort,
@@ -1544,6 +1616,7 @@ export class IssueGitWorkflowModule {
       spawnedBy: opts?.spawnedBy ?? spawnedByTag({ kind: 'issue', id: row.id }),
       ...(row.ownerUserId ? { ownerUserId: row.ownerUserId } : {}),
       ...(row.machineId ? { machineId: row.machineId } : {}),
+      ...(launch?.agentProfileId ? { agentProfileId: launch.agentProfileId } : {}),
     })
     return await this.store.projection(row)
   }

@@ -742,6 +742,7 @@ const defs = {
             // Explicit per-launch choice (POD-1545); persists onto the issue profile.
             ...(input.defaultModel ? { model: input.defaultModel } : {}),
             ...(input.defaultEffort ? { effort: input.defaultEffort } : {}),
+            ...(input.agentProfile ? { agentProfile: input.agentProfile } : {}),
             ...(input.forceUnknownModel ? { forceUnknownModel: true } : {}),
           }),
       )

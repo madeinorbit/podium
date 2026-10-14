@@ -567,6 +567,7 @@ const DECLARED = defineSchema({
       defaultAgent: { type: 'string', source: projection() },
       defaultModel: { type: 'string', source: projection() },
       defaultEffort: { type: 'string', source: projection() },
+      agentProfileId: { type: 'id', optional: true, source: projection(), note: 'POD-6107. Read by the profile UI (POD-6098); nothing renders it yet.' },
       machineId: { type: 'id', optional: true, source: projection() },
       ...ISSUE_PAGE_FIELDS,
     },

@@ -30,6 +30,7 @@ export interface SpawnOnWakeDeps {
     spawnedBy?: string
     machineId?: MachineId
     ownerUserId: UserId
+    agentProfileId?: string
   }): { sessionId: SessionId } | Promise<{ sessionId: SessionId }>
 }
 
@@ -84,6 +85,7 @@ export function makeSpawnOnWake(deps: SpawnOnWakeDeps): SpawnOnWake {
               throw new Error('issue has no accountable owner')
             })(),
           ...(issue.machineId ? { machineId: issue.machineId } : {}),
+          ...(issue.agentProfileId ? { agentProfileId: issue.agentProfileId } : {}),
         })
         return { ok: true, sessionId }
       } catch (error) {

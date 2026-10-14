@@ -436,6 +436,8 @@ export interface CreateIssueInput
     > {
   /** Client-minted id for the first session when `startNow` is true. */
   startSessionId?: SessionId
+  /** Agent profile by name or id (POD-6107); stored as `agentProfileId`. */
+  agentProfile?: string
   /** Internal/server-selected initial stage; callers cannot forge proposal acceptance. */
   stage?: 'proposed' | 'backlog'
   startNow: boolean
@@ -467,6 +469,7 @@ export type IssuePatch = Partial<
     | 'defaultAgent'
     | 'defaultModel'
     | 'defaultEffort'
+    | 'agentProfileId'
     | 'machineId'
     | 'archived'
     | 'priority'
@@ -504,4 +507,10 @@ export type IssuePatch = Partial<
    * everybody's.
    */
   pinned?: boolean
+  /**
+   * An agent profile by NAME or id (POD-6107), as the CLI and the router take it;
+   * `null` clears it. `update()` resolves it to `agentProfileId` before anything
+   * else, so it never reaches the row.
+   */
+  agentProfile?: string | null
 }

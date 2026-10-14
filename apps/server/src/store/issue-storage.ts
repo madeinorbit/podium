@@ -252,6 +252,7 @@ export function fromStorage(row: IssueRow): StoredIssue {
     defaultAgent: row.defaultAgent,
     defaultModel: row.defaultModel,
     defaultEffort: row.defaultEffort,
+    ...(row.agentProfileId ? { agentProfileId: row.agentProfileId } : {}),
 
     // --- NeedsHuman ------------------------------------------------------
     needsHuman: row.needsHuman,
@@ -377,6 +378,7 @@ export function toStorage(
     defaultAgent: issue.defaultAgent,
     defaultModel: issue.defaultModel,
     defaultEffort: issue.defaultEffort,
+    agentProfileId: issue.agentProfileId ?? null,
 
     // --- NeedsHuman --------------------------------------------------------
     needsHuman: issue.needsHuman,

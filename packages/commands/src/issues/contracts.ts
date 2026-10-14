@@ -287,6 +287,8 @@ export const createInput = z.object({
   defaultAgent: z.string().optional(),
   defaultModel: z.string().optional(),
   defaultEffort: z.string().optional(),
+  /** Agent profile by name or id (POD-6107); the default* fields go on top. */
+  agentProfile: z.string().trim().min(1).max(100).optional(),
   machineId: MachineIdField.optional(),
   startNow: z.boolean(),
   linear: z
@@ -319,6 +321,8 @@ export const startInput = z.object({
   // against the model catalog and then persisted onto the issue by the service.
   defaultModel: z.string().min(1).optional(),
   defaultEffort: z.string().min(1).optional(),
+  /** Agent profile by name or id (POD-6107); persists onto the issue like --model. */
+  agentProfile: z.string().trim().min(1).max(100).optional(),
   forceUnknownModel: z.boolean().optional(),
   mutationId: z.string().max(128).pipe(MutationIdField).optional(),
 })
@@ -334,6 +338,8 @@ export const updateInput = z.object({
     defaultAgent: z.string().optional(),
     defaultModel: z.string().optional(),
     defaultEffort: z.string().optional(),
+    /** Agent profile by name or id (POD-6107); null clears it. */
+    agentProfile: z.string().trim().min(1).max(100).nullable().optional(),
     machineId: MachineIdField.nullable().optional(),
     archived: z.boolean().optional(),
     priority: z.number().int().min(0).max(4).optional(),
