@@ -185,3 +185,4 @@ Supporting changes:
   - `podium offer`: refused by the server, with the same kind of message.
 
   These sessions are told to ask their coordinator instead. So a pending offer is always Needs you; choice 1 is moot.
+- **Question routing is deferred.** Blocked sessions ask with the existing `issue mail send <coordinator's issue> --expect-response`. The seat instructions and the refusal messages name that issue.
