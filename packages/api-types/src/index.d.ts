@@ -7003,13 +7003,6 @@ type AppRouter = TRPC.TRPCBuiltRouter<{
             output: Array<LinearIssue>;
             meta: unknown;
         }>;
-        "lint": TRPC.TRPCQueryProcedure<{
-            input: {
-                repoPath?: string | undefined;
-            };
-            output: Array<_podium_model.LintFinding>;
-            meta: unknown;
-        }>;
         "list": TRPC.TRPCQueryProcedure<{
             input: {
                 repoPath?: string | undefined;
