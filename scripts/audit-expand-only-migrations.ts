@@ -142,6 +142,25 @@ export const APPROVED_CONTRACT_STEPS = new Map<
       ],
     },
   ],
+  [
+    'apps/server/src/migrations/drizzle/MIGRATION_PLACEHOLDER/migration.sql',
+    {
+      // POD-6114 (follow-up to POD-6107, flight deck D3/D4, 2026-10-14): the
+      // workflows feature moved onto agent profiles, so `execution_profiles`
+      // and its two id columns have no reader or writer left. 0 profiles, 0
+      // run steps and 0 sessions named one on the operator's instance when
+      // this was written; a run step's reference is carried over to
+      // `agent_profile_id` first. Rollback across a schema change is refused
+      // by design (convergence.ts).
+      reason: 'retires execution profiles, which agent profiles replaced',
+      admits: [
+        { kind: 'drop-table', table: 'execution_profiles' },
+        { kind: 'drop-column', table: 'workflow_run_steps', column: 'execution_profile_id' },
+        { kind: 'drop-column', table: 'workflow_run_steps', column: 'execution_profile_json' },
+        { kind: 'drop-column', table: 'sessions', column: 'execution_profile_id' },
+      ],
+    },
+  ],
 ])
 
 /** The findings an approved contract step does not admit. Each admission is
@@ -171,6 +190,11 @@ function admitMatches(
     return new RegExp(`\\bCREATE\\s+TABLE\\s+${q}__new_${admit.table}${q}\\s*\\(`, 'i').test(
       statement,
     )
+  if (admit.kind === 'drop-table')
+    return new RegExp(
+      `\\bDROP\\s+TABLE\\s+(IF\\s+EXISTS\\s+)?${q}${admit.table}${q}\\s*(;|$)`,
+      'i',
+    ).test(statement)
   if (admit.kind === 'drop-column' && admit.column)
     return new RegExp(
       `\\bALTER\\s+TABLE\\s+${q}${admit.table}${q}\\s+DROP\\s+COLUMN\\s+${q}${admit.column}(?!\\w)`,

@@ -146,3 +146,40 @@ ALTER TABLE \`__new_${table}\` RENAME TO \`${table}\`;`
     ).toEqual(['drop-column'])
   })
 })
+
+describe('an approved contract step that drops (POD-6114)', () => {
+  const path =
+    'apps/server/src/migrations/drizzle/20261014204411_workflow-agent-profiles/migration.sql'
+  const drops = `DROP TABLE \`execution_profiles\`;--> statement-breakpoint
+ALTER TABLE \`workflow_run_steps\` DROP COLUMN \`execution_profile_id\`;--> statement-breakpoint
+ALTER TABLE \`workflow_run_steps\` DROP COLUMN \`execution_profile_json\`;--> statement-breakpoint
+ALTER TABLE \`sessions\` DROP COLUMN \`execution_profile_id\`;`
+
+  it('admits exactly the table and the columns it names, in its own file only', () => {
+    expect(findDestructiveDdl(drops).map((f) => f.kind)).toEqual([
+      'drop-table',
+      'drop-column',
+      'drop-column',
+      'drop-column',
+    ])
+    expect(unadmitted(path, findDestructiveDdl(drops))).toEqual([])
+    expect(unadmitted('elsewhere.sql', findDestructiveDdl(drops))).toHaveLength(4)
+  })
+
+  it('still fails another drop in that file, and a second drop of the same column', () => {
+    expect(
+      unadmitted(
+        path,
+        findDestructiveDdl(
+          `${drops}\nALTER TABLE \`sessions\` DROP COLUMN \`agent_profile_id\`;\nDROP TABLE \`agent_profiles\`;`,
+        ),
+      ).map((f) => f.kind),
+    ).toEqual(['drop-column', 'drop-table'])
+    expect(
+      unadmitted(
+        path,
+        findDestructiveDdl(`${drops}\nALTER TABLE \`sessions\` DROP COLUMN \`execution_profile_id\`;`),
+      ),
+    ).toHaveLength(1)
+  })
+})
