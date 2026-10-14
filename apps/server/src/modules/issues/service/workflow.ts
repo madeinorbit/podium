@@ -16,11 +16,11 @@ import {
   spawnedByTag,
 } from '@podium/model'
 import { formatIssueRef, type WorktreeGcObservation } from '@podium/protocol'
+import { resolveSpawnDefaults } from '@podium/runtime'
 import { type CommandPrincipal, systemPrincipal } from '../../../command-principal'
 import { isMemberCwd, sessionsForIssue } from '../../../issue-util'
 import { type LinearIssue, searchIssues } from '../../../linear'
 import { resolveLaunchSelection } from '../../../model-validation'
-import { resolveSpawnDefaults } from '@podium/runtime'
 import type { IssueRow } from '../../../store'
 import { afterCommit } from '../../../store/executor/executor'
 import {
